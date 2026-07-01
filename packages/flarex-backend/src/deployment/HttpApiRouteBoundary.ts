@@ -23,14 +23,6 @@ const deploymentPushRoutePattern = new RegExp(`^${DeploymentRoute.push}/([^/]+)(
 
 export type DeploymentRouteError = RequestJsonError | DeploymentProtocolValidationError;
 
-export async function deploymentApiRequestForRoute(request: Request): Promise<Request | null> {
-  return await Effect.runPromise(
-    decodeDeploymentApiRequestForRoute(request).pipe(
-      Effect.catch(deploymentRouteErrorToHttpErrorEffect),
-    ),
-  );
-}
-
 export const decodeDeploymentApiRequestForRoute = Effect.fn("DeploymentDO.decodeApiRequestForRoute")(
   function* (request: Request) {
     const url = new URL(request.url);
@@ -59,30 +51,10 @@ export const decodeDeploymentApiRequestForRoute = Effect.fn("DeploymentDO.decode
   },
 );
 
-export async function readDeploymentAnalyzedStartPushRouteRequest(
-  request: Request,
-): Promise<AnalyzedStartPushRequest> {
-  return await runDeploymentRouteRequest(decodeDeploymentAnalyzedStartPushRouteRequest(request));
-}
-
 export function decodeDeploymentAnalyzedStartPushRouteRequest(
   request: Request,
 ): Effect.Effect<AnalyzedStartPushRequest, DeploymentRouteError> {
   return decodeDeploymentRouteRequest(request, decodeDeploymentAnalyzedStartPushRoutePayload);
-}
-
-export function parseDeploymentAnalyzedStartPushRouteRequest(
-  value: unknown,
-): AnalyzedStartPushRequest {
-  return Effect.runSync(parseDeploymentAnalyzedStartPushRouteRequestEffect(value).pipe(
-    Effect.catch(deploymentRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parseDeploymentAnalyzedStartPushRouteRequestEffect(
-  value: unknown,
-): Effect.Effect<AnalyzedStartPushRequest, DeploymentProtocolValidationError> {
-  return decodeDeploymentAnalyzedStartPushRoutePayload(value);
 }
 
 export function decodeDeploymentAnalyzedStartPushRoutePayload(
@@ -91,30 +63,10 @@ export function decodeDeploymentAnalyzedStartPushRoutePayload(
   return decodeDeploymentAnalyzedStartPushPayload(value);
 }
 
-export async function readDeploymentFinishPushRouteRequest(
-  request: Request,
-): Promise<FinishPushRequest> {
-  return await runDeploymentRouteRequest(decodeDeploymentFinishPushRouteRequest(request));
-}
-
 export function decodeDeploymentFinishPushRouteRequest(
   request: Request,
 ): Effect.Effect<FinishPushRequest, DeploymentRouteError> {
   return decodeDeploymentRouteRequest(request, decodeDeploymentFinishPushRoutePayload);
-}
-
-export function parseDeploymentFinishPushRouteRequest(
-  value: unknown,
-): FinishPushRequest {
-  return Effect.runSync(parseDeploymentFinishPushRouteRequestEffect(value).pipe(
-    Effect.catch(deploymentRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parseDeploymentFinishPushRouteRequestEffect(
-  value: unknown,
-): Effect.Effect<FinishPushRequest, DeploymentProtocolValidationError> {
-  return decodeDeploymentFinishPushRoutePayload(value);
 }
 
 export function decodeDeploymentFinishPushRoutePayload(
@@ -140,46 +92,16 @@ export const deploymentRouteErrorToHttpErrorEffect = Effect.fn(
   return yield* Effect.fail(deploymentRouteErrorToHttpError(error));
 });
 
-export async function readDeploymentAbandonPushRouteRequest(
-  request: Request,
-): Promise<AbandonPushRequest> {
-  return await runDeploymentRouteRequest(decodeDeploymentAbandonPushRouteRequest(request));
-}
-
 export function decodeDeploymentAbandonPushRouteRequest(
   request: Request,
 ): Effect.Effect<AbandonPushRequest, DeploymentRouteError> {
   return decodeDeploymentRouteRequest(request, decodeDeploymentAbandonPushRoutePayload);
 }
 
-export function parseDeploymentAbandonPushRouteRequest(
-  value: unknown,
-): AbandonPushRequest {
-  return Effect.runSync(parseDeploymentAbandonPushRouteRequestEffect(value).pipe(
-    Effect.catch(deploymentRouteErrorToHttpErrorEffect),
-  ));
-}
-
-export function parseDeploymentAbandonPushRouteRequestEffect(
-  value: unknown,
-): Effect.Effect<AbandonPushRequest, DeploymentProtocolValidationError> {
-  return decodeDeploymentAbandonPushRoutePayload(value);
-}
-
 export function decodeDeploymentAbandonPushRoutePayload(
   value: unknown,
 ): Effect.Effect<AbandonPushRequest, DeploymentProtocolValidationError> {
   return decodeDeploymentAbandonPushPayload(value);
-}
-
-async function runDeploymentRouteRequest<A>(
-  effect: Effect.Effect<A, DeploymentRouteError>,
-): Promise<A> {
-  return await Effect.runPromise(
-    effect.pipe(
-      Effect.catch(deploymentRouteErrorToHttpErrorEffect),
-    ),
-  );
 }
 
 function decodeDeploymentRouteRequest<A>(

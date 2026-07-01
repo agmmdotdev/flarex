@@ -1,5 +1,65 @@
 # Package Boundaries
 
+## Deployment HttpApi Route Boundary Effects
+
+Previous completed checkpoint: `4ad8613` Type deployment validation surface.
+
+What changed:
+
+- `deployment/HttpApiRouteBoundary.ts` no longer exports
+  `deploymentApiRequestForRoute(...)`.
+- The same module no longer exports Promise-returning `readDeployment*`
+  request wrappers.
+- The same module no longer exports public throwing
+  `parseDeployment*RouteRequest(...)` or
+  `parseDeployment*RouteRequestEffect(...)` compatibility wrappers.
+- The deployment HttpApi route boundary now exposes Effect-returning route
+  request decoders, route payload decoders, and the route HTTP error adapter.
+- Tests now exercise the typed decoder channels directly and keep response
+  mapping assertions at the DeploymentDO/internal adapter edges.
+
+Boundary decision:
+
+Deployment HttpApi request canonicalization belongs in
+`deployment/HttpApiRouteBoundary.ts` as Effect-returning decoders. Durable
+Object request routing belongs in `deployment/InternalRouteBoundary.ts`, which
+continues to call `decodeDeploymentApiRequestForRoute(...)`. Generated HttpApi
+handler behavior remains in `deployment/HttpApiHandlers.ts`. HTTP conversion
+for route decode failures remains at `deploymentRouteErrorToHttpError(...)` /
+`deploymentRouteErrorToHttpErrorEffect(...)` and the DeploymentDO response
+adapter.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's DeploymentDO/HttpApi adapter boundary around existing request
+  decoders.
+
+How Flarex differs:
+
+- Convex does not have this exact Cloudflare Durable Object to generated
+  HttpApi bridge. Flarex keeps the bridge explicit while ensuring request/body
+  validation remains typed until the adapter response edge.
+
+Known limitations:
+
+- No DeploymentDO routing semantics, generated HttpApi handler behavior,
+  deployment store/service behavior, artifact materialization/ref validation,
+  public deployment dispatch, executor-http route, PartitionDO SQL/OCC
+  behavior, or `ValidatorJson` boundary changed.
+- Deployment service/store failure modeling remains available for later
+  route/service migration slices.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiRouteBoundary.test.ts test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiRouteBoundary.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentValidation.test.ts test/deploymentStore.test.ts test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Validation Domain Effects
 
 Previous completed checkpoint: `8258d38` Type public scheduler route

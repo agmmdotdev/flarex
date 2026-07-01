@@ -1,5 +1,63 @@
 # Runtime Validation
 
+## Deployment HttpApi Route Boundary Effects
+
+Previous completed checkpoint: `4ad8613` Type deployment validation surface.
+
+What changed:
+
+- Removed the Promise-returning `deploymentApiRequestForRoute(...)` wrapper
+  from `deployment/HttpApiRouteBoundary.ts`.
+- Removed Promise-returning deployment mutation request wrappers for analyzed
+  start, finish, and abandon push route bodies.
+- Removed public throwing `parseDeployment*RouteRequest(...)` and
+  `parseDeployment*RouteRequestEffect(...)` compatibility wrappers.
+- Kept DeploymentDO routing on `decodeDeploymentApiRequestForRoute(...)` and
+  kept route body validation on `decodeDeployment*RouteRequest(...)` /
+  `decodeDeployment*RoutePayload(...)` Effect decoders.
+- Updated route-boundary tests to assert typed decoder failures directly and
+  keep HTTP response mapping at named adapter effects.
+
+Why it changed:
+
+DeploymentDO already routes generated HttpApi traffic through
+`decodeDeploymentApiRequestForRoute(...)`. The removed Promise/throwing
+wrappers were compatibility surfaces rather than the production route path.
+Removing them keeps request/body validation in typed Effect channels and leaves
+HTTP conversion at `deploymentRouteErrorToHttpErrorEffect(...)` and
+`deploymentInternalRouteErrorToResponseEffect(...)`.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  DeploymentDO/HttpApi adapter cleanup around existing Effect decoders.
+
+How Flarex differs:
+
+- Flarex bridges Cloudflare Durable Object requests into a generated
+  deployment HttpApi handler. This checkpoint keeps that bridge and fallback
+  health/not-found behavior unchanged while narrowing the request-validation
+  surface to Effect decoders.
+
+Known limitations:
+
+- This checkpoint does not change DeploymentDO routing semantics, generated
+  HttpApi handler behavior, deployment store/service behavior, artifact
+  materialization/ref validation, public deployment dispatch, executor-http,
+  PartitionDO SQL/OCC, or `ValidatorJson`.
+- Public deployment Worker route boundaries are separate and remain scoped to
+  their existing Effect decoders.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiRouteBoundary.test.ts test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiRouteBoundary.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentValidation.test.ts test/deploymentStore.test.ts test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Validation Domain Effects
 
 Previous completed checkpoint: `8258d38` Type public scheduler route

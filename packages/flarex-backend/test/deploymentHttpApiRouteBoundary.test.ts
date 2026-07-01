@@ -15,17 +15,7 @@ import {
   decodeDeploymentAbandonPushRoutePayload,
   decodeDeploymentFinishPushRouteRequest,
   decodeDeploymentFinishPushRoutePayload,
-  deploymentApiRequestForRoute,
   deploymentRouteErrorToHttpErrorEffect,
-  parseDeploymentAnalyzedStartPushRouteRequest,
-  parseDeploymentAnalyzedStartPushRouteRequestEffect,
-  parseDeploymentAbandonPushRouteRequest,
-  parseDeploymentAbandonPushRouteRequestEffect,
-  parseDeploymentFinishPushRouteRequest,
-  parseDeploymentFinishPushRouteRequestEffect,
-  readDeploymentAnalyzedStartPushRouteRequest,
-  readDeploymentAbandonPushRouteRequest,
-  readDeploymentFinishPushRouteRequest,
 } from "../src/deployment/HttpApiRouteBoundary";
 import {
   deploymentInternalRouteErrorToResponseEffect,
@@ -34,35 +24,26 @@ import {
   runDeploymentDurableObjectRoute,
 } from "../src/deployment/InternalRouteBoundary";
 
-describe("deploymentApiRequestForRoute", () => {
+describe("deployment HttpApi route boundary", () => {
   it("forwards all read routes to the generated DeploymentApi handler", async () => {
-    await expectApiRequest(DeploymentRoute.health, { method: "GET" });
-    await expectApiRequest(DeploymentRoute.activeDeployment, { method: "GET" });
-    await expectApiRequest(`${DeploymentRoute.push}/push-read`, { method: "GET" });
+    await expectEffectApiRequest(DeploymentRoute.health, { method: "GET" });
+    await expectEffectApiRequest(DeploymentRoute.activeDeployment, { method: "GET" });
+    await expectEffectApiRequest(`${DeploymentRoute.push}/push-read`, { method: "GET" });
   });
 
-  it("canonicalizes analyzed start-push requests after compatibility parsing", async () => {
+  it("canonicalizes analyzed start-push requests through Effect decoders", async () => {
     const body = {
       sourcePackage: sourcePackage(),
       analysis: { schema: {}, functions: {} },
       diagnostics: [{ level: "warn", message: "generated warning" }],
     };
-    const apiRequest = await expectApiRequest(DeploymentRoute.startAnalyzedPush, {
-      method: "POST",
-      body,
-    });
-    const effectApiRequest = await expectEffectApiRequest(DeploymentRoute.startAnalyzedPush, {
+    const apiRequest = await expectEffectApiRequest(DeploymentRoute.startAnalyzedPush, {
       method: "POST",
       body,
     });
 
     const parsedBody: unknown = await apiRequest.json();
     expect(parseAnalyzedStartPushRequest(parsedBody)).toMatchObject({
-      sourcePackage: sourcePackage(),
-      analysis: body.analysis,
-      diagnostics: body.diagnostics,
-    });
-    await expect(effectApiRequest.json()).resolves.toMatchObject({
       sourcePackage: sourcePackage(),
       analysis: body.analysis,
       diagnostics: body.diagnostics,
@@ -77,33 +58,15 @@ describe("deploymentApiRequestForRoute", () => {
       analysis: body.analysis,
       diagnostics: body.diagnostics,
     });
-    await expect(readDeploymentAnalyzedStartPushRouteRequest(jsonRequest(DeploymentRoute.startAnalyzedPush, {
-      method: "POST",
-      body,
-    }))).resolves.toMatchObject({
-      sourcePackage: sourcePackage(),
-      analysis: body.analysis,
-      diagnostics: body.diagnostics,
-    });
-    expect(parseDeploymentAnalyzedStartPushRouteRequest(body)).toMatchObject({
-      sourcePackage: sourcePackage(),
-      analysis: body.analysis,
-      diagnostics: body.diagnostics,
-    });
     await expect(Effect.runPromise(decodeDeploymentAnalyzedStartPushRoutePayload(body))).resolves.toMatchObject({
-      sourcePackage: sourcePackage(),
-      analysis: body.analysis,
-      diagnostics: body.diagnostics,
-    });
-    await expect(Effect.runPromise(parseDeploymentAnalyzedStartPushRouteRequestEffect(body))).resolves.toMatchObject({
       sourcePackage: sourcePackage(),
       analysis: body.analysis,
       diagnostics: body.diagnostics,
     });
   });
 
-  it("canonicalizes finish and abandon mutation requests after compatibility parsing", async () => {
-    const finish = await expectApiRequest(
+  it("canonicalizes finish and abandon mutation requests through Effect decoders", async () => {
+    const finish = await expectEffectApiRequest(
       `${DeploymentRoute.push}/push-finish/${DeploymentPushAction.finish}`,
       {
         method: "POST",
@@ -129,26 +92,11 @@ describe("deploymentApiRequestForRoute", () => {
         },
       )),
     )).resolves.toEqual({ activate: true });
-    await expect(
-      readDeploymentFinishPushRouteRequest(jsonRequest(
-        `${DeploymentRoute.push}/push-finish-helper/${DeploymentPushAction.finish}`,
-        {
-          method: "POST",
-          body: { activate: false },
-        },
-      )),
-    ).resolves.toEqual({ activate: false });
-    expect(parseDeploymentFinishPushRouteRequest({
-      activate: true,
-    })).toEqual({ activate: true });
     await expect(Effect.runPromise(decodeDeploymentFinishPushRoutePayload({
       activate: false,
     }))).resolves.toEqual({ activate: false });
-    await expect(Effect.runPromise(parseDeploymentFinishPushRouteRequestEffect({
-      activate: false,
-    }))).resolves.toEqual({ activate: false });
 
-    const abandon = await expectApiRequest(
+    const abandon = await expectEffectApiRequest(
       `${DeploymentRoute.push}/push-abandon/${DeploymentPushAction.abandon}`,
       {
         method: "POST",
@@ -174,34 +122,12 @@ describe("deploymentApiRequestForRoute", () => {
         },
       )),
     )).resolves.toEqual({ reason: "effect parsed reason" });
-    await expect(
-      readDeploymentAbandonPushRouteRequest(jsonRequest(
-        `${DeploymentRoute.push}/push-abandon-helper/${DeploymentPushAction.abandon}`,
-        {
-          method: "POST",
-          body: { reason: "helper parsed reason" },
-        },
-      )),
-    ).resolves.toEqual({ reason: "helper parsed reason" });
-    expect(parseDeploymentAbandonPushRouteRequest({
-      reason: "pure parser reason",
-    })).toEqual({ reason: "pure parser reason" });
     await expect(Effect.runPromise(decodeDeploymentAbandonPushRoutePayload({
-      reason: "effect parser reason",
-    }))).resolves.toEqual({ reason: "effect parser reason" });
-    await expect(Effect.runPromise(parseDeploymentAbandonPushRouteRequestEffect({
       reason: "effect parser reason",
     }))).resolves.toEqual({ reason: "effect parser reason" });
   });
 
-  it("maps compatibility parser failures before generated handler routing", async () => {
-    await expect(deploymentApiRequestForRoute(jsonRequest(DeploymentRoute.startAnalyzedPush, {
-      method: "POST",
-      body: "{",
-    }))).rejects.toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
+  it("keeps route decoder failures typed before generated handler routing", async () => {
     await expect(Effect.runPromise(decodeDeploymentAnalyzedStartPushRouteRequest(jsonRequest(
       DeploymentRoute.startAnalyzedPush,
       {
@@ -216,13 +142,6 @@ describe("deploymentApiRequestForRoute", () => {
         body: "{",
       },
     )))).rejects.toBeInstanceOf(RequestJsonError);
-    await expect(deploymentApiRequestForRoute(jsonRequest(DeploymentRoute.startAnalyzedPush, {
-      method: "POST",
-      body: { sourcePackage: 123 },
-    }))).rejects.toMatchObject({
-      status: 400,
-      message: "A push without analysis must include an error message.",
-    });
     await expect(Effect.runPromise(decodeDeploymentAnalyzedStartPushRouteRequest(jsonRequest(
       DeploymentRoute.startAnalyzedPush,
       {
@@ -240,20 +159,7 @@ describe("deploymentApiRequestForRoute", () => {
     await expect(Effect.runPromise(decodeDeploymentAnalyzedStartPushRoutePayload({
       sourcePackage: 123,
     }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
-    await expect(Effect.runPromise(parseDeploymentAnalyzedStartPushRouteRequestEffect({
-      sourcePackage: 123,
-    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
 
-    await expect(deploymentApiRequestForRoute(jsonRequest(
-      `${DeploymentRoute.push}/push-finish-malformed/${DeploymentPushAction.finish}`,
-      {
-        method: "POST",
-        body: "{",
-      },
-    ))).rejects.toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
     await expect(Effect.runPromise(decodeDeploymentFinishPushRouteRequest(jsonRequest(
       `${DeploymentRoute.push}/push-finish-effect-malformed/${DeploymentPushAction.finish}`,
       {
@@ -269,16 +175,6 @@ describe("deploymentApiRequestForRoute", () => {
       },
     )))).rejects.toBeInstanceOf(RequestJsonError);
 
-    await expect(deploymentApiRequestForRoute(jsonRequest(
-      `${DeploymentRoute.push}/push-finish/${DeploymentPushAction.finish}`,
-      {
-        method: "POST",
-        body: { activate: "yes" },
-      },
-    ))).rejects.toMatchObject({
-      status: 400,
-      message: "Finish push activate flag must be a boolean.",
-    });
     await expect(Effect.runPromise(decodeDeploymentFinishPushRouteRequest(jsonRequest(
       `${DeploymentRoute.push}/push-finish-effect-invalid/${DeploymentPushAction.finish}`,
       {
@@ -296,30 +192,7 @@ describe("deploymentApiRequestForRoute", () => {
     await expect(Effect.runPromise(decodeDeploymentFinishPushRoutePayload({
       activate: "yes",
     }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
-    await expect(Effect.runPromise(parseDeploymentFinishPushRouteRequestEffect({
-      activate: "yes",
-    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
 
-    await expect(deploymentApiRequestForRoute(jsonRequest(
-      `${DeploymentRoute.push}/push-abandon/${DeploymentPushAction.abandon}`,
-      {
-        method: "POST",
-        body: { reason: 123 },
-      },
-    ))).rejects.toMatchObject({
-      status: 400,
-      message: "Abandon push reason must be a string.",
-    });
-    await expect(deploymentApiRequestForRoute(jsonRequest(
-      `${DeploymentRoute.push}/push-abandon-malformed/${DeploymentPushAction.abandon}`,
-      {
-        method: "POST",
-        body: "{",
-      },
-    ))).rejects.toMatchObject({
-      status: 400,
-      message: "Request body must be JSON.",
-    });
     await expect(Effect.runPromise(decodeDeploymentAbandonPushRouteRequest(jsonRequest(
       `${DeploymentRoute.push}/push-abandon-effect-malformed/${DeploymentPushAction.abandon}`,
       {
@@ -342,9 +215,6 @@ describe("deploymentApiRequestForRoute", () => {
       },
     )))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
     await expect(Effect.runPromise(decodeDeploymentAbandonPushRoutePayload({
-      reason: 123,
-    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
-    await expect(Effect.runPromise(parseDeploymentAbandonPushRouteRequestEffect({
       reason: 123,
     }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
   });
@@ -375,19 +245,16 @@ describe("deploymentApiRequestForRoute", () => {
   });
 
   it("leaves non-API routes and fallback health methods on DeploymentDO", async () => {
-    await expect(deploymentApiRequestForRoute(jsonRequest(DeploymentRoute.health, {
-      method: "POST",
-      body: {},
-    }))).resolves.toBeNull();
-    await expect(deploymentApiRequestForRoute(jsonRequest(`${DeploymentRoute.push}/push-read`, {
-      method: "POST",
-      body: {},
-    }))).resolves.toBeNull();
-    await expect(deploymentApiRequestForRoute(jsonRequest("/not-found", {
-      method: "GET",
-    }))).resolves.toBeNull();
     await expect(Effect.runPromise(decodeDeploymentApiRequestForRoute(jsonRequest("/not-found", {
       method: "GET",
+    })))).resolves.toBeNull();
+    await expect(Effect.runPromise(decodeDeploymentApiRequestForRoute(jsonRequest(DeploymentRoute.health, {
+      method: "POST",
+      body: {},
+    })))).resolves.toBeNull();
+    await expect(Effect.runPromise(decodeDeploymentApiRequestForRoute(jsonRequest(`${DeploymentRoute.push}/push-read`, {
+      method: "POST",
+      body: {},
     })))).resolves.toBeNull();
   });
 
@@ -513,16 +380,6 @@ describe("deploymentApiRequestForRoute", () => {
 interface RequestOptions {
   readonly method: "GET" | "POST";
   readonly body?: unknown;
-}
-
-async function expectApiRequest(path: string, options: RequestOptions): Promise<Request> {
-  const apiRequest = await deploymentApiRequestForRoute(jsonRequest(path, options));
-  if (apiRequest === null) {
-    throw new Error(`Expected ${options.method} ${path} to route to DeploymentApi.`);
-  }
-  expect(apiRequest.url).toBe(`https://deployment.test${path}`);
-  expect(apiRequest.method).toBe(options.method);
-  return apiRequest;
 }
 
 async function expectEffectApiRequest(path: string, options: RequestOptions): Promise<Request> {
