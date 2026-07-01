@@ -1,5 +1,65 @@
 # Runtime Validation
 
+## Connection JSON Route Boundary Effects
+
+Previous completed checkpoint: `e3e4f79` Type artifact runtime invoke
+boundary.
+
+What changed:
+
+- Removed Promise-returning connection invalidation and live-query delivery
+  request wrappers from `connection/RouteBoundary.ts`.
+- Removed public throwing connection invalidation and live-query delivery
+  route parse compatibility wrappers.
+- Removed the throwing invalidation body parser from
+  `connection/Requests.ts`.
+- Kept production ConnectionDO JSON routing on
+  `decodeConnectionInvalidationRequest(...)` and
+  `decodeConnectionLiveQueryDeliveryRequest(...)`.
+- Updated connection request and route-boundary tests to assert typed
+  `RequestJsonError`, `ConnectionRouteValidationError`, and
+  `LiveQueryDeliveryChangePayloadError` channels directly before adapter
+  mapping assertions.
+
+Why it changed:
+
+ConnectionDO already uses the typed Effect route decoders for `/invalidate`
+and `/deliver/live-query`. The removed Promise/throwing wrappers were
+compatibility surfaces rather than production routing. Removing them keeps
+connection request validation in typed channels and leaves HTTP conversion at
+`connectionRouteErrorToHttpErrorEffect(...)` and
+`connectionInternalRouteErrorToResponseEffect(...)`.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  ConnectionDO adapter cleanup around existing sync/live-query decoders.
+
+How Flarex differs:
+
+- Flarex sync uses Cloudflare Durable Object JSON routes for invalidation and
+  live-query delivery in addition to websocket sync. This checkpoint narrows
+  only those JSON route request boundaries while preserving websocket state and
+  query rerun behavior.
+
+Known limitations:
+
+- This checkpoint does not change websocket sync semantics, query rerun
+  behavior, executor subscription writes, live-query delivery fanout, public
+  Worker dispatch, DeliveryDO, SchedulerDO, PartitionDO SQL/OCC,
+  executor-http, protocol schemas, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/connectionRequests.test.ts test/connectionRouteBoundary.test.ts test/connectionRouteDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/connectionRequests.test.ts test/connectionRouteBoundary.test.ts test/connectionRouteDispatchBoundary.test.ts test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Artifact Runtime Invoke Route Boundary Effects
 
 Previous completed checkpoint: `58ec773` Type internal execution route

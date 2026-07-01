@@ -1,5 +1,68 @@
 # Package Boundaries
 
+## Connection JSON Route Boundary Effects
+
+Previous completed checkpoint: `e3e4f79` Type artifact runtime invoke
+boundary.
+
+What changed:
+
+- `connection/RouteBoundary.ts` no longer exports
+  `readConnectionInvalidationRequest(...)`,
+  `readConnectionLiveQueryDeliveryRequest(...)`,
+  `parseConnectionInvalidationRequest(...)`,
+  `parseConnectionLiveQueryDeliveryRequest(...)`,
+  `parseConnectionInvalidationRequestEffect(...)`, or
+  `parseConnectionLiveQueryDeliveryRequestEffect(...)`.
+- `connection/Requests.ts` no longer exports the throwing
+  `parseConnectionInvalidationPayload(...)` compatibility wrapper.
+- The connection JSON route boundary now exposes Effect-returning request
+  decoders, payload decoders, and named HTTP adapters.
+- Tests now exercise typed request/body decoder channels directly and keep
+  HTTP mapping assertions at the named adapter edges.
+
+Boundary decision:
+
+Connection invalidation and live-query delivery request decoding belongs in
+`connection/RouteBoundary.ts` and `connection/Requests.ts` as Effect-returning
+decoders. ConnectionDO remains the runtime owner for route selection, query
+reruns, websocket state, and dispatch into invalidation/live-query handlers.
+HTTP conversion for request decode failures remains at
+`connectionRouteErrorToHttpError(...)` /
+`connectionRouteErrorToHttpErrorEffect(...)`; operation failures remain at
+`connectionRouteOperationErrorToHttpError(...)` /
+`connectionRouteOperationErrorToHttpErrorEffect(...)`.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's ConnectionDO JSON adapter boundary around existing sync/live-query
+  decoders.
+
+How Flarex differs:
+
+- Convex does not have this exact Cloudflare Durable Object internal JSON route
+  split for invalidation and live-query delivery. Flarex keeps that split
+  explicit while keeping request/body validation typed until the adapter edge.
+
+Known limitations:
+
+- No websocket sync semantics, query rerun behavior, executor subscription
+  writes, live-query delivery fanout, public Worker dispatch, DeliveryDO,
+  SchedulerDO, PartitionDO SQL/OCC behavior, executor-http route, protocol
+  schemas, or `ValidatorJson` boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/connectionRequests.test.ts test/connectionRouteBoundary.test.ts test/connectionRouteDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/connectionRequests.test.ts test/connectionRouteBoundary.test.ts test/connectionRouteDispatchBoundary.test.ts test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Artifact Runtime Invoke Route Boundary Effects
 
 Previous completed checkpoint: `58ec773` Type internal execution route

@@ -20,10 +20,6 @@ export const decodeConnectionInvalidationPayload = Effect.fn(
   );
 });
 
-export function parseConnectionInvalidationPayload(value: unknown): QueryId {
-  return unwrapConnectionRouteValidation(normalizeConnectionInvalidationPayload(value));
-}
-
 export const decodeConnectionLiveQueryDeliveryPayload = Effect.fn(
   "ConnectionRequests.decodeLiveQueryDeliveryPayload",
 )(function* (
@@ -77,9 +73,4 @@ function connectionRouteValidationResultToEffect<A>(
   result: ConnectionRouteValidationResult<A>,
 ): Effect.Effect<A, ConnectionRouteValidationError> {
   return result.success ? Effect.succeed(result.value) : Effect.fail(result.error);
-}
-
-function unwrapConnectionRouteValidation<A>(result: ConnectionRouteValidationResult<A>): A {
-  if (result.success) return result.value;
-  throw result.error;
 }

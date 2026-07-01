@@ -5,7 +5,6 @@ import {
   ConnectionRouteValidationError,
   decodeConnectionInvalidationPayload,
   decodeConnectionLiveQueryDeliveryPayload,
-  parseConnectionInvalidationPayload,
 } from "../src/connection/Requests";
 
 describe("connection request payloads", () => {
@@ -13,18 +12,12 @@ describe("connection request payloads", () => {
     await expect(Effect.runPromise(decodeConnectionInvalidationPayload({ queryId: 42 })))
       .resolves
       .toBe(42);
-
-    expect(parseConnectionInvalidationPayload({ queryId: 7, invalidatedTs: 12 }))
-      .toBe(7);
   });
 
   it("keeps invalidation payload failures typed before route HTTP mapping", async () => {
     await expect(Effect.runPromise(decodeConnectionInvalidationPayload({
       queryId: "42",
     }))).rejects.toBeInstanceOf(ConnectionRouteValidationError);
-
-    expect(() => parseConnectionInvalidationPayload({}))
-      .toThrow(ConnectionRouteValidationError);
   });
 
   it("decodes live-query delivery payloads through the shared source boundary", async () => {

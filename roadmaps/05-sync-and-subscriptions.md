@@ -1,5 +1,71 @@
 # Sync And Subscriptions
 
+## Connection JSON Route Boundary Effects
+
+Previous completed checkpoint: `e3e4f79` Type artifact runtime invoke
+boundary.
+
+What changed:
+
+- Removed Promise-returning `readConnectionInvalidationRequest(...)` and
+  `readConnectionLiveQueryDeliveryRequest(...)` wrappers from
+  `connection/RouteBoundary.ts`.
+- Removed public throwing route-level
+  `parseConnectionInvalidationRequest(...)` and
+  `parseConnectionLiveQueryDeliveryRequest(...)` compatibility wrappers.
+- Removed public `parseConnectionInvalidationRequestEffect(...)` and
+  `parseConnectionLiveQueryDeliveryRequestEffect(...)` aliases that only
+  forwarded to route payload decoders.
+- Removed the throwing `parseConnectionInvalidationPayload(...)`
+  compatibility wrapper from `connection/Requests.ts`.
+- Kept `ConnectionDO` internal JSON routing on
+  `decodeConnectionInvalidationRequest(...)` and
+  `decodeConnectionLiveQueryDeliveryRequest(...)`, with route dispatch still on
+  `dispatchConnectionInvalidationEffect(...)` and
+  `dispatchConnectionLiveQueryDeliveryEffect(...)`.
+- Updated connection request and route-boundary tests to assert typed decoder
+  success/failure channels directly before adapter mapping assertions.
+
+Why it changed:
+
+ConnectionDO invalidation and live-query delivery already route through typed
+Effect request decoders and typed route dispatch helpers. The removed
+Promise/throwing wrappers were compatibility surfaces exercised by tests rather
+than production sync routing. Removing them keeps malformed JSON and payload
+validation in typed `RequestJsonError`, `ConnectionRouteValidationError`, and
+`LiveQueryDeliveryChangePayloadError` channels until the connection route HTTP
+adapter edge.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  ConnectionDO adapter cleanup around existing sync/live-query decoders.
+
+How Flarex differs:
+
+- Flarex uses Cloudflare Durable Object JSON routes for connection
+  invalidation and direct live-query delivery. Convex's sync transport does not
+  have this exact DO-internal HTTP route split, so Flarex keeps the route split
+  explicit while preserving typed request validation until the adapter edge.
+
+Known limitations:
+
+- This checkpoint does not change websocket sync semantics, query rerun
+  behavior, executor subscription writes, live-query delivery fanout, public
+  Worker dispatch, DeliveryDO, SchedulerDO, PartitionDO SQL/OCC,
+  executor-http, protocol schemas, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/connectionRequests.test.ts test/connectionRouteBoundary.test.ts test/connectionRouteDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/connectionRequests.test.ts test/connectionRouteBoundary.test.ts test/connectionRouteDispatchBoundary.test.ts test/liveQueryDelivery.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Connection Live-Query Route-Service Boundary Effects
 
 Previous completed checkpoint: `69f1c03` Type public delivery wake route
