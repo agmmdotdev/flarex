@@ -1729,6 +1729,50 @@ describe("DeploymentService", () => {
     }
   });
 
+  it("reports active push row read failures at the active deployment source", async () => {
+    const status = analyzedPushStatus("push-active-read-failed");
+    const storage = {
+      transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+    } as DeploymentTransactionStorage;
+    const metadata = new Map<string, string>([
+      ["active_push_id", status.pushId],
+      ["active_activated_at", "3250000"],
+      ["active_execution_artifact_ref", JSON.stringify(executionArtifactRef())],
+    ]);
+    const readFailure = new Error("active push row read failed");
+    const sql = sqlWithPushes([status], {
+      metadata,
+      onExec: query => {
+        if (query.includes("SELECT push_id")) {
+          throw readFailure;
+        }
+      },
+    });
+    const runtime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        storage,
+        sql,
+      ),
+    );
+
+    try {
+      const error = await runtime.runPromise(
+        DeploymentPushStore.use(store => store.getActiveDeployment()).pipe(
+          Effect.catchTag("DeploymentSqlError", error => Effect.succeed(error)),
+        ),
+      );
+      if (!(error instanceof DeploymentSqlError)) {
+        throw new Error("Expected DeploymentSqlError.");
+      }
+      expect(error).toMatchObject({
+        operation: "getActiveDeployment",
+        cause: readFailure,
+      });
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
   it("reports malformed active execution artifact refs as typed active deployment failures", async () => {
     const status = analyzedPushStatus("push-active-artifact-ref");
     const storage = {

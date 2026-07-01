@@ -142,6 +142,90 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
           },
         );
 
+        const readActiveMeta = Effect.fn("DeploymentPushStore.readActiveMeta")(
+          function* (
+            key: string,
+          ): Effect.fn.Return<string | null, DeploymentSqlError> {
+            return yield* Effect.try({
+              try: () => getMeta(key),
+              catch: cause => new DeploymentSqlError({ operation: "getActiveDeployment", cause }),
+            });
+          },
+        );
+
+        const readActivePushId = Effect.fn("DeploymentPushStore.readActivePushId")(
+          function* (): Effect.fn.Return<string | null, DeploymentSqlError> {
+            return yield* readActiveMeta("active_push_id");
+          },
+        );
+
+        const readActivePush = Effect.fn("DeploymentPushStore.readActivePush")(
+          function* (
+            activePushId: string,
+          ): Effect.fn.Return<PushStatus | null, DeploymentSqlError | DeploymentValidationError> {
+            const row = yield* Effect.try({
+              try: () => readPushRow(activePushId),
+              catch: cause => new DeploymentSqlError({ operation: "getActiveDeployment", cause }),
+            });
+            return yield* decodePushRow(row);
+          },
+        );
+
+        const requireAnalyzedActivePush = Effect.fn("DeploymentPushStore.requireAnalyzedActivePush")(
+          function* (
+            activePushId: string,
+            push: PushStatus | null,
+          ): Effect.fn.Return<
+            PushStatus & {
+              readonly analysis: DeploymentAnalysis;
+              readonly codegenAnalysis: DeploymentCodegenAnalysis;
+            },
+            DeploymentActiveDeploymentInvalidError
+          > {
+            if (push === null) {
+              return yield* Effect.fail(new DeploymentActiveDeploymentInvalidError({
+                message: `Active push ${activePushId} is missing.`,
+              }));
+            }
+            if (push.analysis === undefined || push.codegenAnalysis === undefined) {
+              return yield* Effect.fail(new DeploymentActiveDeploymentInvalidError({
+                message: `Active push ${activePushId} has no analyzed deployment metadata.`,
+              }));
+            }
+            return {
+              ...push,
+              analysis: push.analysis,
+              codegenAnalysis: push.codegenAnalysis,
+            };
+          },
+        );
+
+        const readActiveExecutionArtifactRef = Effect.fn("DeploymentPushStore.readActiveExecutionArtifactRef")(
+          function* (
+            activePushId: string,
+          ): Effect.fn.Return<
+            ExecutionArtifactRef,
+            DeploymentActiveDeploymentInvalidError | DeploymentSqlError
+          > {
+            const rawExecutionArtifactRef = yield* readActiveMeta("active_execution_artifact_ref");
+            if (rawExecutionArtifactRef === null) {
+              return yield* Effect.fail(new DeploymentActiveDeploymentInvalidError({
+                message: `Active push ${activePushId} has no execution artifact reference.`,
+              }));
+            }
+            return yield* parseExecutionArtifactRefEffect(rawExecutionArtifactRef);
+          },
+        );
+
+        const readActiveActivatedAt = Effect.fn("DeploymentPushStore.readActiveActivatedAt")(
+          function* (
+            fallbackUpdatedAt: number,
+          ): Effect.fn.Return<number, DeploymentSqlError> {
+            const activeActivatedAt = yield* readActiveMeta("active_activated_at");
+            return Number(activeActivatedAt ?? fallbackUpdatedAt);
+          },
+        );
+
         const applySchema = (schema: DeploymentSchema): void => {
           sql.exec("DELETE FROM indexes");
           sql.exec("DELETE FROM tables");
@@ -207,54 +291,20 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
             ActiveDeploymentStatus | null,
             DeploymentActiveDeploymentInvalidError | DeploymentSqlError | DeploymentValidationError
           > {
-            const activePushId = yield* Effect.try({
-              try: () => {
-                const activePushId = getMeta("active_push_id");
-                if (activePushId === null) return null;
-                return activePushId;
-              },
-              catch: cause => new DeploymentSqlError({ operation: "getActiveDeployment", cause }),
-            });
+            const activePushId = yield* readActivePushId();
             if (activePushId === null) return null;
-            const push = yield* readPush(activePushId).pipe(
-              Effect.mapError(error =>
-                error instanceof DeploymentSqlError
-                  ? new DeploymentSqlError({ operation: "getActiveDeployment", cause: error.cause })
-                  : error,
-              ),
-            );
-            if (push === null) {
-              return yield* Effect.fail(new DeploymentActiveDeploymentInvalidError({
-                message: `Active push ${activePushId} is missing.`,
-              }));
-            }
-            if (push.analysis === undefined || push.codegenAnalysis === undefined) {
-              return yield* Effect.fail(new DeploymentActiveDeploymentInvalidError({
-                message: `Active push ${activePushId} has no analyzed deployment metadata.`,
-              }));
-            }
-            const rawExecutionArtifactRef = yield* Effect.try({
-              try: () => getMeta("active_execution_artifact_ref"),
-              catch: cause => new DeploymentSqlError({ operation: "getActiveDeployment", cause }),
-            });
-            if (rawExecutionArtifactRef === null) {
-              return yield* Effect.fail(new DeploymentActiveDeploymentInvalidError({
-                message: `Active push ${activePushId} has no execution artifact reference.`,
-              }));
-            }
-            const executionArtifactRef = yield* parseExecutionArtifactRefEffect(rawExecutionArtifactRef);
-            const activatedAt = yield* Effect.try({
-              try: () => Number(getMeta("active_activated_at") ?? push.updatedAt),
-              catch: cause => new DeploymentSqlError({ operation: "getActiveDeployment", cause }),
-            });
+            const push = yield* readActivePush(activePushId);
+            const activePush = yield* requireAnalyzedActivePush(activePushId, push);
+            const executionArtifactRef = yield* readActiveExecutionArtifactRef(activePushId);
+            const activatedAt = yield* readActiveActivatedAt(activePush.updatedAt);
             return {
               activePushId,
               activatedAt,
-              schemaVersion: push.analysis.schema.version,
+              schemaVersion: activePush.analysis.schema.version,
               executionArtifactRef,
-              sourcePackage: push.sourcePackage,
-              analysis: push.analysis,
-              codegenAnalysis: push.codegenAnalysis,
+              sourcePackage: activePush.sourcePackage,
+              analysis: activePush.analysis,
+              codegenAnalysis: activePush.codegenAnalysis,
             };
           },
         );

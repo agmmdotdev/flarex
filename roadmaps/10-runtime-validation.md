@@ -1,5 +1,45 @@
 # Runtime Validation
 
+## Active Deployment Store Source Effects
+
+Previous completed checkpoint: `b7cc704` Prune deployment validation result
+wrappers.
+
+What changed:
+
+- Active deployment store reads now flow through named local Effect helpers for
+  active metadata, active push row loading, analyzed-push assertions, execution
+  artifact ref parsing, and activation timestamp reading.
+- `DeploymentPushStore.getActiveDeployment()` now emits active push row SQL
+  failures at the `getActiveDeployment` source instead of reading through the
+  generic `getPush` helper and remapping a downstream storage error.
+- Store-level tests now prove active push row read failures carry
+  `operation: "getActiveDeployment"`.
+
+Why it changed:
+
+Active deployment loading is a service/source boundary, not just a generic push
+read. Naming the steps keeps storage, validation, and active-metadata failures
+typed at the source that owns them, which aligns the deployment store with the
+Effect migration goal of typed service/domain failures before adapter mapping.
+
+Known limitations:
+
+- This checkpoint does not change SQL query shapes, metadata keys/values,
+  active deployment response shape, push lifecycle writes, generated
+  DeploymentDO HttpApi handlers, public Worker routing, PartitionDO SQL/OCC,
+  executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentValidation.test.ts test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Validation Effect-Only Helper Cleanup
 
 Previous completed checkpoint: `d81f6a3` Type public invoke route adapters.

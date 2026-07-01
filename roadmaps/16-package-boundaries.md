@@ -1,5 +1,44 @@
 # Package Boundaries
 
+## Active Deployment Store Source Effects
+
+Previous completed checkpoint: `b7cc704` Prune deployment validation result
+wrappers.
+
+What changed:
+
+- Active deployment metadata and row reads now live behind named local Effect
+  helpers inside `DeploymentPushStore.layer(...)`.
+- Active deployment row loading no longer depends on the generic `readPush(...)`
+  helper and downstream SQL-error remapping.
+- Existing typed validation and active-deployment invalid-state failures remain
+  in the store boundary.
+
+Boundary decision:
+
+Generic push reads still belong to the `getPush`/`readPush` store path.
+Active deployment loading now owns its own source-specific store helpers
+because the SQL operation, invalid active metadata cases, and active response
+assembly are a separate store boundary. The helpers remain local because they
+close over Durable Object SQL and storage capabilities.
+
+Known limitations:
+
+- No SQL query shape, metadata key/value, active deployment response shape,
+  push lifecycle write, generated DeploymentDO HttpApi handler, public Worker
+  routing, service binding configuration, executor-http, or SQL/OCC boundary
+  changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentValidation.test.ts test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Validation Effect-Only Helper Cleanup
 
 Previous completed checkpoint: `d81f6a3` Type public invoke route adapters.
