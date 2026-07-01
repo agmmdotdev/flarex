@@ -3,6 +3,7 @@ import { Data, Effect } from "effect";
 import type { LiveQueryDeliveryChange } from "flarex";
 import {
   decodeConnectionLiveQueryDeliveryResponse,
+  LiveQueryDeliveryResponseError,
   liveQueryDeliveryResponseErrorToHttpError,
 } from "./liveQueryDeliveryResponses";
 import type { Env, Json } from "./types";
@@ -59,9 +60,20 @@ export class LiveQueryDeliveryChangePayloadError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
+export class LiveQueryDeliveryConnectionFetchError extends Data.TaggedError(
+  "LiveQueryDeliveryConnectionFetchError",
+)<{
+  readonly connectionId: string;
+  readonly status: number;
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
+
 export type LiveQueryDeliveryFanoutError =
   | LiveQueryDeliveryTargetError
-  | HttpError;
+  | LiveQueryDeliveryConnectionFetchError
+  | LiveQueryDeliveryResponseError
+  | LiveQueryDeliveryResultPayloadError;
 
 export function liveQueryDeliveryChangesFromBody(
   body: unknown,
@@ -100,6 +112,14 @@ export function liveQueryDeliveryChangePayloadErrorToHttpError(
   return new HttpError(400, error.message);
 }
 
+export const liveQueryDeliveryChangePayloadErrorToHttpErrorEffect = Effect.fn(
+  "LiveQueryDelivery.changePayloadErrorToHttpError",
+)(function* (
+  error: LiveQueryDeliveryChangePayloadError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(liveQueryDeliveryChangePayloadErrorToHttpError(error));
+});
+
 export async function deliverLiveQueryChangesToConnections(
   env: Env,
   deploymentId: string,
@@ -107,7 +127,7 @@ export async function deliverLiveQueryChangesToConnections(
 ): Promise<ConnectionLiveQueryDeliveryResult> {
   return await Effect.runPromise(
     deliverLiveQueryChangesToConnectionsEffect(env, deploymentId, deliveries).pipe(
-      Effect.mapError(liveQueryDeliveryFanoutErrorToHttpError),
+      Effect.catch(liveQueryDeliveryFanoutErrorToHttpErrorEffect),
     ),
   );
 }
@@ -138,19 +158,20 @@ export const deliverLiveQueryChangesToConnectionsEffect = Effect.fn(
               body: JSON.stringify({ deliveries: connectionDeliveries }),
             },
           ),
-        catch: error => new HttpError(500, errorMessage(error)),
+        catch: error => new LiveQueryDeliveryConnectionFetchError({
+          connectionId,
+          status: 500,
+          message: errorMessage(error),
+          cause: error,
+        }),
       });
       const body = yield* decodeConnectionLiveQueryDeliveryResponse<unknown>(
         response,
         connectionId,
-      ).pipe(
-        Effect.mapError(liveQueryDeliveryResponseErrorToHttpError),
       );
       const result = yield* decodeConnectionLiveQueryDeliveryResultPayload(
         body,
         connectionId,
-      ).pipe(
-        Effect.mapError(liveQueryDeliveryResultPayloadErrorToHttpError),
       );
       delivered += result.delivered;
       skipped += result.skipped;
@@ -296,7 +317,7 @@ export function liveQueryDeliveryResultFromUnknown(
 ): LiveQueryDeliveryResult {
   return Effect.runSync(
     decodeConnectionLiveQueryDeliveryResultPayload(value, connectionId).pipe(
-      Effect.mapError(liveQueryDeliveryResultPayloadErrorToHttpError),
+      Effect.catch(liveQueryDeliveryResultPayloadErrorToHttpErrorEffect),
     ),
   );
 }
@@ -364,11 +385,27 @@ export function liveQueryDeliveryResultPayloadErrorToHttpError(
   return new HttpError(error.status, error.message);
 }
 
+export const liveQueryDeliveryResultPayloadErrorToHttpErrorEffect = Effect.fn(
+  "LiveQueryDelivery.resultPayloadErrorToHttpError",
+)(function* (
+  error: LiveQueryDeliveryResultPayloadError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(liveQueryDeliveryResultPayloadErrorToHttpError(error));
+});
+
 export function liveQueryDeliveryTargetErrorToHttpError(
   error: LiveQueryDeliveryTargetError,
 ): HttpError {
   return new HttpError(400, error.message);
 }
+
+export const liveQueryDeliveryTargetErrorToHttpErrorEffect = Effect.fn(
+  "LiveQueryDelivery.targetErrorToHttpError",
+)(function* (
+  error: LiveQueryDeliveryTargetError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(liveQueryDeliveryTargetErrorToHttpError(error));
+});
 
 export function liveQueryDeliveryFanoutErrorToHttpError(
   error: LiveQueryDeliveryFanoutError,
@@ -376,7 +413,30 @@ export function liveQueryDeliveryFanoutErrorToHttpError(
   if (error instanceof LiveQueryDeliveryTargetError) {
     return liveQueryDeliveryTargetErrorToHttpError(error);
   }
-  return error;
+  if (error instanceof LiveQueryDeliveryConnectionFetchError) {
+    return new HttpError(error.status, error.message);
+  }
+  if (error instanceof LiveQueryDeliveryResponseError) {
+    return liveQueryDeliveryResponseErrorToHttpError(error);
+  }
+  return liveQueryDeliveryResultPayloadErrorToHttpError(error);
+}
+
+export const liveQueryDeliveryFanoutErrorToHttpErrorEffect = Effect.fn(
+  "LiveQueryDelivery.fanoutErrorToHttpError",
+)(function* (
+  error: LiveQueryDeliveryFanoutError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(liveQueryDeliveryFanoutErrorToHttpError(error));
+});
+
+export function isLiveQueryDeliveryFanoutError(
+  error: unknown,
+): error is LiveQueryDeliveryFanoutError {
+  return error instanceof LiveQueryDeliveryTargetError ||
+    error instanceof LiveQueryDeliveryConnectionFetchError ||
+    error instanceof LiveQueryDeliveryResponseError ||
+    error instanceof LiveQueryDeliveryResultPayloadError;
 }
 
 function resultRecord(

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   decodeLiveQueryDeliveryAckPayload,
   decodeLiveQueryDeliveryClaimPayload,
-  liveQueryDeliveryResponsePayloadErrorToHttpError,
+  liveQueryDeliveryResponsePayloadErrorToHttpErrorEffect,
 } from "../src/liveQueryDeliveryResponses";
 
 describe("live query delivery response payload boundaries", () => {
@@ -58,7 +58,7 @@ describe("live query delivery response payload boundaries", () => {
     await expect(
       Effect.runPromise(
         decodeLiveQueryDeliveryAckPayload({ delivered: -1 }).pipe(
-          Effect.mapError(liveQueryDeliveryResponsePayloadErrorToHttpError),
+          Effect.catch(liveQueryDeliveryResponsePayloadErrorToHttpErrorEffect),
         ),
       ),
     ).rejects.toMatchObject({

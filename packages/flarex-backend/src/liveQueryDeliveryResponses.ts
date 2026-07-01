@@ -182,11 +182,27 @@ export function liveQueryDeliveryResponseErrorToHttpError(
   return new HttpError(502, error.message);
 }
 
+export const liveQueryDeliveryResponseErrorToHttpErrorEffect = Effect.fn(
+  "LiveQueryDelivery.responseErrorToHttpError",
+)(function* (
+  error: LiveQueryDeliveryResponseError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(liveQueryDeliveryResponseErrorToHttpError(error));
+});
+
 export function liveQueryDeliveryResponsePayloadErrorToHttpError(
   error: LiveQueryDeliveryResponsePayloadError,
 ): HttpError {
   return new HttpError(error.status, error.message);
 }
+
+export const liveQueryDeliveryResponsePayloadErrorToHttpErrorEffect = Effect.fn(
+  "LiveQueryDelivery.responsePayloadErrorToHttpError",
+)(function* (
+  error: LiveQueryDeliveryResponsePayloadError,
+): Effect.fn.Return<never, HttpError> {
+  return yield* Effect.fail(liveQueryDeliveryResponsePayloadErrorToHttpError(error));
+});
 
 function responseRecord(
   value: unknown,

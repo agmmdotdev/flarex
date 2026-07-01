@@ -3,19 +3,24 @@ import { describe, expect, it } from "vitest";
 import {
   decodeConnectionLiveQueryDeliveryResultPayload,
   decodeLiveQueryDeliveryChangesFromBody,
+  deliverLiveQueryChangesToConnectionsEffect,
   liveQueryDeliveriesByConnection,
   LiveQueryDeliveryChangePayloadError,
+  LiveQueryDeliveryConnectionFetchError,
+  liveQueryDeliveryFanoutErrorToHttpErrorEffect,
   liveQueryDeliveryChangePayloadErrorToHttpError,
   liveQueryDeliveryResultFromUnknown,
-  liveQueryDeliveryResultPayloadErrorToHttpError,
+  liveQueryDeliveryResultPayloadErrorToHttpErrorEffect,
   liveQueryDeliveryTargetErrorToHttpError,
+  type LiveQueryDeliveryChange,
 } from "../src/liveQueryDelivery";
 import {
   decodeConnectionLiveQueryDeliveryResponse,
   decodeLiveQueryDeliveryAckResponse,
   decodeLiveQueryDeliveryClaimResponse,
-  liveQueryDeliveryResponseErrorToHttpError,
+  liveQueryDeliveryResponseErrorToHttpErrorEffect,
 } from "../src/liveQueryDeliveryResponses";
+import type { Env } from "../src/types";
 
 describe("live query delivery result parsing", () => {
   it("decodes live query delivery changes through a shared typed boundary", async () => {
@@ -102,7 +107,7 @@ describe("live query delivery result parsing", () => {
     await expect(
       Effect.runPromise(
         decodeLiveQueryDeliveryClaimResponse(new Response("unavailable", { status: 503 })).pipe(
-          Effect.mapError(liveQueryDeliveryResponseErrorToHttpError),
+          Effect.catch(liveQueryDeliveryResponseErrorToHttpErrorEffect),
         ),
       ),
     ).rejects.toMatchObject({
@@ -157,7 +162,7 @@ describe("live query delivery result parsing", () => {
           { delivered: 1, skipped: -1 },
           "connection:test:bad",
         ).pipe(
-          Effect.mapError(liveQueryDeliveryResultPayloadErrorToHttpError),
+          Effect.catch(liveQueryDeliveryResultPayloadErrorToHttpErrorEffect),
         ),
       ),
     ).rejects.toMatchObject({
@@ -216,6 +221,75 @@ describe("live query delivery result parsing", () => {
     });
   });
 
+  it("keeps connection fetch failures typed before fanout HTTP mapping", async () => {
+    const failure = await Effect.runPromise(Effect.flip(deliverLiveQueryChangesToConnectionsEffect(
+      liveQueryDispatchEnv(async () => {
+        throw new Error("connection unavailable");
+      }),
+      "deployment-a",
+      [liveQueryDeliveryChange()],
+    )));
+
+    expect(failure).toBeInstanceOf(LiveQueryDeliveryConnectionFetchError);
+    expect(failure).toMatchObject({
+      _tag: "LiveQueryDeliveryConnectionFetchError",
+      connectionId: "connection:deployment-a:session-a",
+      status: 500,
+      message: "connection unavailable",
+    });
+
+    await expect(Effect.runPromise(
+      liveQueryDeliveryFanoutErrorToHttpErrorEffect(failure),
+    )).rejects.toMatchObject({
+      status: 500,
+      message: "connection unavailable",
+    });
+  });
+
+  it("keeps downstream connection response failures typed before fanout HTTP mapping", async () => {
+    const failure = await Effect.runPromise(Effect.flip(deliverLiveQueryChangesToConnectionsEffect(
+      liveQueryDispatchEnv(async () => new Response("unavailable", { status: 503 })),
+      "deployment-a",
+      [liveQueryDeliveryChange()],
+    )));
+
+    expect(failure).toMatchObject({
+      _tag: "LiveQueryDeliveryResponseError",
+      operation: "connectionDelivery",
+      status: 503,
+      message: "ConnectionDO live query delivery failed for connection:deployment-a:session-a with status 503.",
+    });
+
+    await expect(Effect.runPromise(
+      liveQueryDeliveryFanoutErrorToHttpErrorEffect(failure),
+    )).rejects.toMatchObject({
+      status: 502,
+      message: "ConnectionDO live query delivery failed for connection:deployment-a:session-a with status 503.",
+    });
+  });
+
+  it("keeps downstream connection result payload failures typed before fanout HTTP mapping", async () => {
+    const failure = await Effect.runPromise(Effect.flip(deliverLiveQueryChangesToConnectionsEffect(
+      liveQueryDispatchEnv(async () => Response.json({ delivered: 1, skipped: -1 })),
+      "deployment-a",
+      [liveQueryDeliveryChange()],
+    )));
+
+    expect(failure).toMatchObject({
+      _tag: "LiveQueryDeliveryResultPayloadError",
+      connectionId: "connection:deployment-a:session-a",
+      status: 502,
+      message: "connection:deployment-a:session-a.skipped must be a non-negative integer.",
+    });
+
+    await expect(Effect.runPromise(
+      liveQueryDeliveryFanoutErrorToHttpErrorEffect(failure),
+    )).rejects.toMatchObject({
+      status: 502,
+      message: "connection:deployment-a:session-a.skipped must be a non-negative integer.",
+    });
+  });
+
   it("normalizes legacy staleSkipped responses into skip reasons", () => {
     expect(liveQueryDeliveryResultFromUnknown(
       { delivered: 0, skipped: 1, staleSkipped: 1 },
@@ -261,3 +335,29 @@ describe("live query delivery result parsing", () => {
     );
   });
 });
+
+function liveQueryDeliveryChange(): LiveQueryDeliveryChange {
+  return {
+    kind: "updated",
+    deploymentId: "deployment-a",
+    connectionId: "connection:deployment-a:session-a",
+    queryId: 1,
+    functionPath: "users:get",
+    argsJson: { id: "1" },
+    resultJson: { name: "Ada" },
+    previousResultHash: "previous",
+    resultHash: "result",
+  };
+}
+
+function liveQueryDispatchEnv(
+  fetch: (connectionId: string, input: string, init?: RequestInit) => Promise<Response>,
+): Env {
+  return {
+    CONNECTIONS: {
+      getByName: (connectionId: string) => ({
+        fetch: (input: string, init?: RequestInit) => fetch(connectionId, input, init),
+      }),
+    },
+  } as unknown as Env;
+}

@@ -1,5 +1,48 @@
 # Runtime Validation
 
+## Live-Query Delivery Fanout Adapter Effects
+
+Previous completed checkpoint: `9942f6b` Type partition route adapters.
+
+What changed:
+
+- Live-query delivery response and response-payload failures now expose named
+  adapter effects for HTTP conversion.
+- ConnectionDO service-binding fetch failures now use typed
+  `LiveQueryDeliveryConnectionFetchError` instead of `HttpError` inside the
+  fanout service effect.
+- `deliverLiveQueryChangesToConnectionsEffect(...)` now keeps fetch,
+  downstream response, and downstream result-payload failures typed until the
+  fanout adapter edge.
+- Public live-query dispatch and DeliveryDO drain failure status mapping use
+  the fanout adapter to preserve existing HTTP-compatible behavior.
+- Focused tests cover typed fetch, response, and result-payload fanout
+  failures before adapter mapping.
+
+Why it changed:
+
+Live-query fanout is a route/service boundary between DeliveryDO/Public Worker
+dispatch and ConnectionDO. Before this checkpoint, the service effect converted
+downstream response and payload failures to `HttpError` internally. Keeping
+those failures tagged until the fanout adapter edge better matches the Effect
+migration quality bar without changing delivery semantics.
+
+Known limitations:
+
+- This checkpoint does not change ConnectionDO delivery behavior, DeliveryDO
+  drain/ack scheduling, public Worker route matching, PartitionDO SQL/OCC,
+  executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/liveQueryDelivery.test.ts test/liveQueryDeliveryResponses.test.ts test/publicLiveQueryDeliveryDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/liveQueryDelivery.test.ts test/liveQueryDeliveryResponses.test.ts test/publicLiveQueryDeliveryDispatchBoundary.test.ts test/deliveryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Partition Route Adapter Effects
 
 Previous completed checkpoint: `28aa766` Type deployment HttpApi route

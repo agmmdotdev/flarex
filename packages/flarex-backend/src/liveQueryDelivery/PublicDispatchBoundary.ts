@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import {
   deliverLiveQueryChangesToConnectionsEffect,
+  liveQueryDeliveryFanoutErrorToHttpError,
   LiveQueryDeliveryTargetError,
   type ConnectionLiveQueryDeliveryResult,
   type LiveQueryDeliveryChange,
@@ -33,7 +34,10 @@ export const dispatchPublicLiveQueryDeliveryEffect = Effect.fn(
     Effect.mapError(error =>
       error instanceof LiveQueryDeliveryTargetError
         ? error
-        : publicWorkerDispatchError("live-query-delivery", error)
+        : publicWorkerDispatchError(
+          "live-query-delivery",
+          liveQueryDeliveryFanoutErrorToHttpError(error),
+        )
     ),
   );
 });

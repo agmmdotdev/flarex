@@ -28,6 +28,8 @@ import { Data, Effect } from "effect";
 import {
   addLiveQueryDeliverySkipReasons,
   deliverLiveQueryChangesToConnectionsEffect,
+  isLiveQueryDeliveryFanoutError,
+  liveQueryDeliveryFanoutErrorToHttpError,
   liveQueryDeliveryTargetErrorToHttpError,
   LiveQueryDeliveryTargetError,
   liveQueryDeliveryChangesFromBody,
@@ -671,6 +673,9 @@ function deliveryFailureStatus(error: unknown): number {
   }
   if (error instanceof LiveQueryDeliveryTargetError) {
     return liveQueryDeliveryTargetErrorToHttpError(error).status;
+  }
+  if (isLiveQueryDeliveryFanoutError(error)) {
+    return liveQueryDeliveryFanoutErrorToHttpError(error).status;
   }
   return 500;
 }

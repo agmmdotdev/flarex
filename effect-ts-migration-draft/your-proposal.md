@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `28aa766` Type deployment HttpApi route adapters.
-- Active checkpoint: validate and review the Partition route adapter-effect batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
+- Previous completed checkpoint: `9942f6b` Type partition route adapters.
+- Active checkpoint: validate and review the live-query delivery fanout adapter batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the Partition route adapter effects:
+Next recommended checkpoint after the live-query delivery fanout adapter effects:
 
 1. Prefer a fuller route/service batch next: either continue deeper
    DeploymentService/store write helpers toward typed service/domain failures,
@@ -58,9 +58,32 @@ Next recommended checkpoint after the Partition route adapter effects:
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
-4. Continue avoiding PartitionDO SQL/OCC rewrites; this checkpoint only names
-   route adapter effects and keeps correctness-sensitive storage logic in
-   place.
+4. Continue avoiding PartitionDO SQL/OCC rewrites and DeliveryDO scheduling
+   changes; this checkpoint only moves fanout failures to typed service
+   errors plus named adapter edges.
+
+Completed Goal 297 slice:
+
+1. Add named live-query delivery response adapter effects for downstream
+   response and response-payload failures.
+2. Add typed `LiveQueryDeliveryConnectionFetchError` for ConnectionDO service
+   binding fetch failures instead of emitting `HttpError` inside the fanout
+   service effect.
+3. Keep downstream ConnectionDO response and result payload failures typed in
+   `deliverLiveQueryChangesToConnectionsEffect(...)` until the fanout adapter
+   edge.
+4. Add named live-query delivery change/result/target/fanout HTTP adapter
+   effects and route compatibility wrappers through them.
+5. Preserve public live-query dispatch behavior by mapping non-target fanout
+   failures through the fanout adapter before wrapping them as
+   `PublicWorkerDispatchError`.
+6. Preserve DeliveryDO drain failure status reporting for typed fanout
+   failures through the same fanout adapter.
+7. Add direct tests proving typed fetch, response, and result-payload fanout
+   failures before HTTP mapping.
+8. Leave ConnectionDO delivery behavior, DeliveryDO drain/ack scheduling,
+   public Worker route matching, PartitionDO SQL/OCC, executor-http, and
+   `ValidatorJson` unchanged.
 
 Completed Goal 296 slice:
 
