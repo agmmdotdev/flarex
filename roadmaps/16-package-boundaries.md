@@ -1,5 +1,41 @@
 # Package Boundaries
 
+## Invoke Active Deployment Response Decoder Boundary
+
+Previous completed checkpoint: `c1a75bd` Type deployment response decoders.
+
+What changed:
+
+- The invoke package now owns named Effect helpers for active deployment
+  response JSON reading and protocol response validation.
+- `loadActiveDeploymentEffect(...)` no longer trusts a raw `response.json()`
+  cast for successful DeploymentDO active-deployment responses.
+- `loadActiveDeployment(...)` remains the compatibility promise boundary that
+  maps typed invoke load failures to the existing adapter-shaped `HttpError`.
+
+Boundary decision:
+
+Invoke owns active deployment metadata loading because it resolves function
+metadata and runtime validators from that payload. DeploymentDO owns the
+response source, and the Worker/execution adapters own final HTTP mapping.
+
+Known limitations:
+
+- This checkpoint does not change public invoke request decoding, handler
+  execution, PartitionDO SQL/OCC, deployment storage, executor-http, or
+  `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts -t "active deployment|active function metadata|executeInvoke validation" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Deployment Response Decoder Boundary
 
 Previous completed checkpoint: `301924c` Type deployment metadata validation.

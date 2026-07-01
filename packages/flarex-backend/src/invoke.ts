@@ -1,6 +1,9 @@
-import { Data, Effect } from "effect";
-import { DeploymentRoute } from "flarex-protocol/deployment";
-import { HttpError } from "./http";
+import { Data, Effect, Schema } from "effect";
+import {
+  ActiveDeploymentStatus as ProtocolActiveDeploymentStatus,
+  DeploymentRoute,
+} from "flarex-protocol/deployment";
+import { HttpError, readResponseJsonEffect } from "./http";
 import {
   indexBoundsForExpressions,
   type IndexRangeExpression,
@@ -1175,10 +1178,36 @@ export const loadActiveDeploymentEffect = Effect.fn(
       undefined,
     ));
   }
-  return yield* Effect.tryPromise({
-    try: () => response.json() as Promise<ActiveDeploymentStatus>,
-    catch: cause => activeDeploymentLoadError(deploymentId, 500, cause),
-  });
+  const body = yield* readActiveDeploymentResponseJson(deploymentId, response);
+  return yield* decodeActiveDeploymentResponse(deploymentId, body);
+});
+
+export const readActiveDeploymentResponseJson = Effect.fn(
+  "Invoke.readActiveDeploymentResponseJson",
+)(function* (
+  deploymentId: string,
+  response: Pick<Response, "json">,
+): Effect.fn.Return<unknown, InvokeActiveDeploymentLoadError> {
+  return yield* readResponseJsonEffect(response).pipe(
+    Effect.mapError(error => activeDeploymentLoadError(deploymentId, 500, error)),
+  );
+});
+
+export const decodeActiveDeploymentResponse = Effect.fn(
+  "Invoke.decodeActiveDeploymentResponse",
+)(function* (
+  deploymentId: string,
+  value: unknown,
+): Effect.fn.Return<ActiveDeploymentStatus, InvokeActiveDeploymentLoadError> {
+  return yield* (
+    Schema.decodeUnknownEffect(ProtocolActiveDeploymentStatus)(value) as Effect.Effect<
+      ActiveDeploymentStatus,
+      unknown,
+      never
+    >
+  ).pipe(
+    Effect.mapError(error => activeDeploymentLoadError(deploymentId, 500, error)),
+  );
 });
 
 export async function loadActiveFunctionMetadata(

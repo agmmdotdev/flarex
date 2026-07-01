@@ -1,5 +1,45 @@
 # Dynamic Worker Execution
 
+## Invoke Active Deployment Response Decoder Boundary
+
+Previous completed checkpoint: `c1a75bd` Type deployment response decoders.
+
+What changed:
+
+- `loadActiveDeploymentEffect(...)` now composes
+  `readActiveDeploymentResponseJson(...)` and
+  `decodeActiveDeploymentResponse(...)` before returning active deployment
+  metadata to invoke execution.
+- Malformed DeploymentDO response JSON and protocol-invalid active deployment
+  payloads now fail as `InvokeActiveDeploymentLoadError` before adapter
+  mapping.
+- Focused invoke tests cover active deployment response decoder success and
+  both JSON and semantic failure channels.
+
+Why it changed:
+
+Dynamic-worker invoke execution depends on active deployment metadata for
+function lookup, validators, placement, and partition policy. That metadata
+must be validated at the invoke runtime boundary rather than trusted through a
+raw response-body cast.
+
+Known limitations:
+
+- This checkpoint does not change handler execution, public invoke request
+  routing, ExecutionDO session behavior, PartitionDO SQL/OCC, deployment
+  storage, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run --config packages/flarex-backend/vitest.config.ts packages/flarex-backend/test/invoke.test.ts -t "active deployment|active function metadata|executeInvoke validation" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Public Invoke Handler DB Validation Boundary
 
 Previous completed checkpoint: `3096a64` Type public invoke execution boundary.

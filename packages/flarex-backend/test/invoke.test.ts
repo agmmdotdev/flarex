@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import {
+  decodeActiveDeploymentResponse,
   deleteDocumentEffect,
   executeInvoke,
   executeInvokeEffect,
@@ -33,6 +34,7 @@ import {
   patchDocumentEffect,
   queryDocumentsEffect,
   queryIndexBoundsEffect,
+  readActiveDeploymentResponseJson,
   requireQueryIndexEffect,
   resolveInvokeFunctionForRequest,
   resolveFunctionExecutionScope,
@@ -96,6 +98,44 @@ describe("executeInvoke", () => {
         status: 404,
         message: "Failed to load active deployment typed-missing-active-deployment.",
       });
+  });
+
+  it("decodes active deployment responses through typed Effect helpers", async () => {
+    const deployment = emptyActiveDeployment();
+    await expect(Effect.runPromise(readActiveDeploymentResponseJson(
+      "typed-active-response-deployment",
+      Response.json(deployment),
+    ))).resolves.toEqual(deployment);
+    await expect(Effect.runPromise(decodeActiveDeploymentResponse(
+      "typed-active-response-deployment",
+      deployment,
+    ))).resolves.toEqual(deployment);
+  });
+
+  it("keeps active deployment response body failures typed before adapter mapping", async () => {
+    const jsonFailure = await Effect.runPromise(Effect.flip(readActiveDeploymentResponseJson(
+      "typed-active-response-json-failure",
+      new Response("{", { status: 200 }),
+    )));
+    expect(jsonFailure).toBeInstanceOf(InvokeActiveDeploymentLoadError);
+    expect(jsonFailure).toMatchObject({
+      _tag: "InvokeActiveDeploymentLoadError",
+      deploymentId: "typed-active-response-json-failure",
+      status: 500,
+      message: "Failed to load active deployment typed-active-response-json-failure.",
+    });
+
+    const schemaFailure = await Effect.runPromise(Effect.flip(decodeActiveDeploymentResponse(
+      "typed-active-response-schema-failure",
+      null,
+    )));
+    expect(schemaFailure).toBeInstanceOf(InvokeActiveDeploymentLoadError);
+    expect(schemaFailure).toMatchObject({
+      _tag: "InvokeActiveDeploymentLoadError",
+      deploymentId: "typed-active-response-schema-failure",
+      status: 500,
+      message: "Failed to load active deployment typed-active-response-schema-failure.",
+    });
   });
 
   it("reports active function metadata lookup failures as typed Effect failures", async () => {
