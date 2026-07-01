@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Deployment service push preflight extraction.
+- Previous completed checkpoint: Deployment store transaction helper extraction.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,17 +48,39 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the deployment service push preflight extraction:
+Next recommended checkpoint after the deployment store transaction helper extraction:
 
-1. Prefer the DeploymentPushStore transaction boundary next: split start,
-   finish, and abandon transaction bodies into named Effect helpers while
-   preserving SQL/OCC semantics and transaction rollback behavior.
+1. Prefer the public Worker deployment dispatch boundary next: keep start,
+   analyzed-start, finish, abandon, read, active read, scheduler, and sync
+   dispatch failures typed until the Worker route mapper, without changing
+   Durable Object service bindings or public response bodies.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 276 slice:
+
+1. Split `DeploymentPushStore` start, finish, and abandon transaction bodies
+   into named local Effect helpers:
+   `DeploymentPushStore.runStartAnalyzedPushTransaction`,
+   `DeploymentPushStore.runFinishPushTransaction`, and
+   `DeploymentPushStore.runAbandonPushTransaction`.
+2. Centralize stored-push post-write assertions with
+   `assertStoredPushAfterWrite(...)` and transaction error mapping with
+   `storeWriteCauseToError(...)`, preserving typed
+   `DeploymentStoredPushMissingError` failures and wrapping other transaction
+   failures as `DeploymentSqlError`.
+3. Preserve start-push superseding/insertion, finish schema/function
+   application, active deployment metadata writes, abandon writes, and
+   transaction rollback behavior.
+4. Keep helpers local to `DeploymentPushStore.layer(...)` because they close
+   over Durable Object SQL/storage capabilities; do not expose storage internals
+   across package boundaries.
+5. Leave DeploymentService API, generated HttpApi handlers, public Worker
+   routing, PartitionDO SQL/OCC, executor-http, and `ValidatorJson` unchanged.
 
 Completed Goal 275 slice:
 

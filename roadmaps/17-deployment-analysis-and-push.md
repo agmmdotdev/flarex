@@ -1,5 +1,40 @@
 # Deployment Analysis And Push
 
+## Deployment Store Transaction Helper Extraction
+
+Previous completed checkpoint: `9346eb4` Extract deployment service preflight effects.
+
+What changed:
+
+- Start-analyzed push writes now run through
+  `DeploymentPushStore.runStartAnalyzedPushTransaction`.
+- Finish activation writes now run through
+  `DeploymentPushStore.runFinishPushTransaction`.
+- Abandon writes now run through
+  `DeploymentPushStore.runAbandonPushTransaction`.
+- Stored-push post-write checks and transaction error mapping are shared by
+  the transaction helpers.
+
+Why it changed:
+
+After service preflight extraction, the next deployment push lifecycle boundary
+is the store transaction itself. Naming those Effect transaction helpers makes
+the transition from typed service/domain logic into Durable Object storage
+explicit while preserving existing rollback behavior.
+
+Known limitations:
+
+- This checkpoint does not alter push state transitions, active deployment
+  activation semantics, analyzer behavior, artifact persistence, storage
+  schema, public Worker routing, PartitionDO SQL/OCC, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Deployment Service Push Preflight Extraction
 
 Previous completed checkpoint: `c308fe3` Map deployment route validation at adapter edge.

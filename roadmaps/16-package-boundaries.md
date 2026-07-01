@@ -1,5 +1,39 @@
 # Package Boundaries
 
+## Deployment Store Transaction Helper Extraction
+
+Previous completed checkpoint: `9346eb4` Extract deployment service preflight effects.
+
+What changed:
+
+- `DeploymentPushStore.layer(...)` now contains named transaction helpers for
+  start-analyzed, finish, and abandon writes.
+- The helpers stay local to the store layer because they close over Durable
+  Object SQL/storage functions, `setMeta(...)`, `readPushRow(...)`,
+  `applySchema(...)`, and `applyFunctions(...)`.
+- Store write error mapping is centralized inside the store package boundary
+  instead of being repeated in each public store method.
+
+Boundary decision:
+
+DeploymentService owns orchestration preflight. DeploymentPushStore owns
+transaction writes, SQL state materialization, and storage failure mapping.
+Route/HttpApi adapters own HTTP conversion. No SQL helper was promoted outside
+the store boundary because that would leak Durable Object storage internals.
+
+Known limitations:
+
+- This checkpoint does not change the DeploymentService public API, route
+  boundaries, generated HttpApi handler mapping, storage schema, PartitionDO
+  SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Deployment Service Push Preflight Extraction
 
 Previous completed checkpoint: `c308fe3` Map deployment route validation at adapter edge.

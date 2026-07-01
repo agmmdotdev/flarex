@@ -259,57 +259,136 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
           },
         );
 
+        const assertStoredPushAfterWrite = (
+          operation: "startPush" | "finishPush" | "abandonPush",
+          pushId: string,
+          stage: string,
+        ): void => {
+          if (readPushRow(pushId) === undefined) {
+            throw storedPushMissing(operation, pushId, stage);
+          }
+        };
+
+        const storeWriteCauseToError = (
+          operation: "startPush" | "finishPush" | "abandonPush",
+          cause: unknown,
+        ): DeploymentStoredPushMissingError | DeploymentSqlError =>
+          cause instanceof DeploymentStoredPushMissingError
+            ? cause
+            : new DeploymentSqlError({ operation, cause });
+
+        const runStartAnalyzedPushTransaction = Effect.fn(
+          "DeploymentPushStore.runStartAnalyzedPushTransaction",
+        )(function* (
+          input: StartAnalyzedPushStoreInput,
+          status: PushStatus,
+        ): Effect.fn.Return<PushStatus, DeploymentStoreWriteError> {
+          return yield* Effect.tryPromise({
+            try: () =>
+              storage.transaction(async () => {
+                const hasAnalysis = "analysis" in input;
+                sql.exec(
+                  "UPDATE pushes SET state = 'superseded', updated_at = ? WHERE state IN ('pending', 'analyzed')",
+                  input.now,
+                );
+                sql.exec(
+                  `
+                  INSERT INTO pushes (
+                    push_id,
+                    state,
+                    source_package_json,
+                    schema_json,
+                    functions_json,
+                    codegen_analysis_json,
+                    error,
+                    diagnostics_json,
+                    created_at,
+                    updated_at
+                  )
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  `,
+                  input.pushId,
+                  hasAnalysis ? "analyzed" : "failed",
+                  JSON.stringify(input.sourcePackage),
+                  hasAnalysis ? JSON.stringify(input.analysis.schema) : null,
+                  hasAnalysis ? JSON.stringify(input.analysis.functions) : null,
+                  hasAnalysis ? JSON.stringify(input.codegenAnalysis) : null,
+                  hasAnalysis ? null : input.error,
+                  input.diagnostics.length === 0 ? null : JSON.stringify(input.diagnostics),
+                  input.now,
+                  input.now,
+                );
+                assertStoredPushAfterWrite("startPush", input.pushId, "stored");
+                return status;
+              }),
+            catch: cause => storeWriteCauseToError("startPush", cause),
+          });
+        });
+
+        const runFinishPushTransaction = Effect.fn("DeploymentPushStore.runFinishPushTransaction")(
+          function* (
+            input: FinishPushStoreInput,
+            status: PushStatus & {
+              readonly analysis: DeploymentAnalysis;
+            },
+          ): Effect.fn.Return<FinishPushResponse, DeploymentStoreWriteError> {
+            return yield* Effect.tryPromise({
+              try: () =>
+                storage.transaction(async () => {
+                  applySchema(status.analysis.schema);
+                  applyFunctions(status.analysis.functions);
+                  sql.exec(
+                    "UPDATE pushes SET state = 'activated', updated_at = ? WHERE push_id = ?",
+                    input.now,
+                    input.pushId,
+                  );
+                  setMeta("active_push_id", input.pushId);
+                  setMeta("active_activated_at", String(input.now));
+                  setMeta("active_execution_artifact_ref", JSON.stringify(input.executionArtifactRef));
+                  assertStoredPushAfterWrite("finishPush", input.pushId, "activated");
+                  return {
+                    result: "activated" as const,
+                    push: { ...status, state: "activated" as const, updatedAt: input.now },
+                  };
+                }),
+              catch: cause => storeWriteCauseToError("finishPush", cause),
+            });
+          },
+        );
+
+        const runAbandonPushTransaction = Effect.fn("DeploymentPushStore.runAbandonPushTransaction")(
+          function* (
+            input: AbandonPushStoreInput,
+            status: PushStatus,
+          ): Effect.fn.Return<PushStatus, DeploymentStoreWriteError> {
+            return yield* Effect.tryPromise({
+              try: () =>
+                storage.transaction(async () => {
+                  sql.exec(
+                    "UPDATE pushes SET state = 'abandoned', error = ?, updated_at = ? WHERE push_id = ?",
+                    input.reason,
+                    input.now,
+                    input.pushId,
+                  );
+                  assertStoredPushAfterWrite("abandonPush", input.pushId, "abandoned");
+                  return {
+                    ...status,
+                    state: "abandoned" as const,
+                    error: input.reason,
+                    updatedAt: input.now,
+                  };
+                }),
+              catch: cause => storeWriteCauseToError("abandonPush", cause),
+            });
+          },
+        );
+
         const startAnalyzedPush = Effect.fn("DeploymentPushStore.startAnalyzedPush")(
           function* (
             input: StartAnalyzedPushStoreInput,
           ): Effect.fn.Return<PushStatus, DeploymentStoreWriteError> {
             const status = yield* decodePushStatusFromRow(pushStatusRowFromStartAnalyzedPushStoreInput(input));
-            const result = yield* Effect.tryPromise({
-              try: () =>
-                storage.transaction(async () => {
-                  const hasAnalysis = "analysis" in input;
-                  sql.exec(
-                    "UPDATE pushes SET state = 'superseded', updated_at = ? WHERE state IN ('pending', 'analyzed')",
-                    input.now,
-                  );
-                  sql.exec(
-                    `
-                    INSERT INTO pushes (
-                      push_id,
-                      state,
-                      source_package_json,
-                      schema_json,
-                      functions_json,
-                      codegen_analysis_json,
-                      error,
-                      diagnostics_json,
-                      created_at,
-                      updated_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    `,
-                    input.pushId,
-                    hasAnalysis ? "analyzed" : "failed",
-                    JSON.stringify(input.sourcePackage),
-                    hasAnalysis ? JSON.stringify(input.analysis.schema) : null,
-                    hasAnalysis ? JSON.stringify(input.analysis.functions) : null,
-                    hasAnalysis ? JSON.stringify(input.codegenAnalysis) : null,
-                    hasAnalysis ? null : input.error,
-                    input.diagnostics.length === 0 ? null : JSON.stringify(input.diagnostics),
-                    input.now,
-                    input.now,
-                  );
-                  if (readPushRow(input.pushId) === undefined) {
-                    throw storedPushMissing("startPush", input.pushId, "stored");
-                  }
-                  return status;
-                }),
-              catch: cause =>
-                cause instanceof DeploymentStoredPushMissingError
-                  ? cause
-                  : new DeploymentSqlError({ operation: "startPush", cause }),
-            });
-            return result;
+            return yield* runStartAnalyzedPushTransaction(input, status);
           },
         );
 
@@ -336,35 +415,10 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
                 `Push ${input.pushId} has no analysis to activate.`,
               );
             }
-            const analysis = status.analysis;
-            const result = yield* Effect.tryPromise({
-              try: () =>
-                storage.transaction(async () => {
-                  applySchema(analysis.schema);
-                  applyFunctions(analysis.functions);
-                  sql.exec(
-                    "UPDATE pushes SET state = 'activated', updated_at = ? WHERE push_id = ?",
-                    input.now,
-                    input.pushId,
-                  );
-                  setMeta("active_push_id", input.pushId);
-                  setMeta("active_activated_at", String(input.now));
-                  setMeta("active_execution_artifact_ref", JSON.stringify(input.executionArtifactRef));
-                  if (readPushRow(input.pushId) === undefined) {
-                    throw storedPushMissing("finishPush", input.pushId, "activated");
-                  }
-                  const response: FinishPushResponse = {
-                    result: "activated",
-                    push: { ...status, state: "activated", updatedAt: input.now },
-                  };
-                  return response;
-                }),
-              catch: cause =>
-                cause instanceof DeploymentStoredPushMissingError
-                  ? cause
-                  : new DeploymentSqlError({ operation: "finishPush", cause }),
+            return yield* runFinishPushTransaction(input, {
+              ...status,
+              analysis: status.analysis,
             });
-            return result;
           },
         );
 
@@ -376,31 +430,7 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
             if (status === null) {
               return yield* Effect.fail(storedPushMissing("abandonPush", input.pushId, "abandoned"));
             }
-            const result = yield* Effect.tryPromise({
-              try: () =>
-                storage.transaction(async () => {
-                  sql.exec(
-                    "UPDATE pushes SET state = 'abandoned', error = ?, updated_at = ? WHERE push_id = ?",
-                    input.reason,
-                    input.now,
-                    input.pushId,
-                  );
-                  if (readPushRow(input.pushId) === undefined) {
-                    throw storedPushMissing("abandonPush", input.pushId, "abandoned");
-                  }
-                  return {
-                    ...status,
-                    state: "abandoned" as const,
-                    error: input.reason,
-                    updatedAt: input.now,
-                  };
-                }),
-              catch: cause =>
-                cause instanceof DeploymentStoredPushMissingError
-                  ? cause
-                  : new DeploymentSqlError({ operation: "abandonPush", cause }),
-            });
-            return result;
+            return yield* runAbandonPushTransaction(input, status);
           },
         );
 

@@ -1,5 +1,40 @@
 # Runtime Validation
 
+## Deployment Store Transaction Helper Extraction
+
+Previous completed checkpoint: `9346eb4` Extract deployment service preflight effects.
+
+What changed:
+
+- `DeploymentPushStore` start, finish, and abandon writes now run through named
+  local Effect helpers for their Durable Object transactions.
+- Stored-push post-write checks and transaction failure mapping are centralized
+  while preserving the existing typed `DeploymentStoredPushMissingError`
+  rollback path.
+- Existing service/store tests continue to cover start insertion rollback,
+  finish activation rollback, abandon rollback, finish rejection, and active
+  deployment metadata behavior.
+
+Why it changed:
+
+The store transaction body is the deployment push lifecycle layer below the
+service preflight boundary. Naming those transaction effects makes the storage
+runtime boundary explicit without changing SQL writes, transaction rollback, or
+state-transition semantics.
+
+Known limitations:
+
+- This checkpoint does not change storage schema, SQL/OCC behavior,
+  DeploymentService API, generated HttpApi handlers, public Worker routing,
+  PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Deployment Service Push Preflight Extraction
 
 Previous completed checkpoint: `c308fe3` Map deployment route validation at adapter edge.
