@@ -1,5 +1,58 @@
 # Package Boundaries
 
+## Deployment Push Request Payload Effects
+
+Previous completed checkpoint: `ad6f9df` Type scheduler maintenance route
+boundary.
+
+What changed:
+
+- `deployment/Requests.ts` no longer exports throwing
+  `parseDeployment*PushPayload(...)` wrappers.
+- `deployment/Requests.ts` no longer exports throwing
+  `parsePublic*PushPayload(...)` wrappers.
+- The deployment push request source boundary now exposes only
+  Effect-returning decoders for those payloads.
+- Tests now exercise the typed decoder channels directly and leave HTTP
+  mapping assertions in the route/handler boundary tests.
+
+Boundary decision:
+
+Deployment push payload validation belongs in `deployment/Requests.ts` as
+Effect-returning decoders. Internal DeploymentDO route decoding remains in
+`deployment/HttpApiRouteBoundary.ts`, public Worker route decoding remains in
+`deployment/PublicPushRouteBoundary.ts`, and HttpApi/service response mapping
+remains in `deployment/HttpApiHandlers.ts`.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This checkpoint narrows
+  Flarex's deployment push request source boundary around existing protocol
+  decoders.
+
+How Flarex differs:
+
+- Convex does not have this exact Cloudflare DeploymentDO plus public Worker
+  push forwarding split. Flarex keeps the split explicit while sharing typed
+  push payload decoders.
+
+Known limitations:
+
+- No DeploymentDO routing, HttpApi handler behavior, DeploymentService,
+  DeploymentPushStore, artifact storage/materialization, public Worker
+  dispatch, executor-http route, PartitionDO SQL/OCC behavior, or
+  `ValidatorJson` boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentRequests.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/deploymentHttpApiHandlers.test.ts test/publicDeploymentPushDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Scheduler Maintenance JSON Route Boundary Effects
 
 Previous completed checkpoint: `86cac22` Type connection JSON route boundary.

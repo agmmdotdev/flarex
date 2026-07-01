@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `86cac22` Type connection JSON route boundary.
-- Active checkpoint: validate and review the scheduler maintenance JSON route-boundary Effect-decoder batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
+- Previous completed checkpoint: `ad6f9df` Type scheduler maintenance route boundary.
+- Active checkpoint: validate and review the deployment push request payload Effect-decoder batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the scheduler maintenance JSON route-boundary effects:
+Next recommended checkpoint after the deployment push request payload effects:
 
 1. Prefer a fuller route/service batch next: either continue deeper
    DeploymentService/store write helpers toward typed service/domain failures,
@@ -62,6 +62,22 @@ Next recommended checkpoint after the scheduler maintenance JSON route-boundary 
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 312 slice:
+
+1. Remove throwing deployment push request payload compatibility wrappers from
+   `deployment/Requests.ts` for analyzed start, finish, abandon, public start,
+   public analyzed start, public finish, and public abandon payloads.
+2. Remove the matching protocol parser imports from `deployment/Requests.ts`.
+3. Keep production DeploymentDO and public Worker push boundaries on
+   `decodeDeployment*Payload(...)` and `decodePublic*Payload(...)` Effect
+   decoders.
+4. Update deployment request tests to assert decoder success and typed
+   `DeploymentProtocolValidationError` failures directly.
+5. Leave DeploymentDO routing, HttpApi handler behavior, DeploymentService,
+   DeploymentPushStore, artifact storage/materialization, public Worker
+   dispatch, executor-http, PartitionDO SQL/OCC, and `ValidatorJson`
+   unchanged.
 
 Completed Goal 311 slice:
 

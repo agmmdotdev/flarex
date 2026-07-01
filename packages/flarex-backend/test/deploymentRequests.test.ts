@@ -9,13 +9,6 @@ import {
   decodePublicAnalyzedStartPushPayload,
   decodePublicFinishPushPayload,
   decodePublicStartPushPayload,
-  parseDeploymentAbandonPushPayload,
-  parseDeploymentAnalyzedStartPushPayload,
-  parseDeploymentFinishPushPayload,
-  parsePublicAbandonPushPayload,
-  parsePublicAnalyzedStartPushPayload,
-  parsePublicFinishPushPayload,
-  parsePublicStartPushPayload,
 } from "../src/deployment/Requests";
 
 describe("deployment request payloads", () => {
@@ -28,19 +21,14 @@ describe("deployment request payloads", () => {
     await expect(Effect.runPromise(decodeDeploymentAnalyzedStartPushPayload(analyzed)))
       .resolves
       .toEqual(analyzed);
-    expect(parseDeploymentAnalyzedStartPushPayload(analyzed)).toEqual(analyzed);
 
     await expect(Effect.runPromise(decodeDeploymentFinishPushPayload({ activate: true })))
       .resolves
       .toEqual({ activate: true });
-    expect(parseDeploymentFinishPushPayload({ activate: false }))
-      .toEqual({ activate: false });
 
     await expect(Effect.runPromise(decodeDeploymentAbandonPushPayload({
       reason: "generated output failed",
     }))).resolves.toEqual({ reason: "generated output failed" });
-    expect(parseDeploymentAbandonPushPayload({ reason: "manual cancel" }))
-      .toEqual({ reason: "manual cancel" });
   });
 
   it("decodes public push payloads through the shared source boundary", async () => {
@@ -50,7 +38,6 @@ describe("deployment request payloads", () => {
     await expect(Effect.runPromise(decodePublicStartPushPayload(start)))
       .resolves
       .toEqual(start);
-    expect(parsePublicStartPushPayload(start)).toEqual(start);
 
     const analyzed = {
       sourcePackage: sourcePackage(),
@@ -59,19 +46,14 @@ describe("deployment request payloads", () => {
     await expect(Effect.runPromise(decodePublicAnalyzedStartPushPayload(analyzed)))
       .resolves
       .toEqual(analyzed);
-    expect(parsePublicAnalyzedStartPushPayload(analyzed)).toEqual(analyzed);
 
     await expect(Effect.runPromise(decodePublicFinishPushPayload({ activate: true })))
       .resolves
       .toEqual({ activate: true });
-    expect(parsePublicFinishPushPayload({ activate: false }))
-      .toEqual({ activate: false });
 
     await expect(Effect.runPromise(decodePublicAbandonPushPayload({
       reason: "typecheck failed",
     }))).resolves.toEqual({ reason: "typecheck failed" });
-    expect(parsePublicAbandonPushPayload({ reason: "manual cancel" }))
-      .toEqual({ reason: "manual cancel" });
   });
 
   it("normalizes public start source package entries for backend ownership", async () => {
@@ -93,7 +75,6 @@ describe("deployment request payloads", () => {
     await expect(Effect.runPromise(decodePublicStartPushPayload(body)))
       .resolves
       .toEqual(body);
-    expect(parsePublicStartPushPayload(body)).toEqual(body);
   });
 
   it("keeps deployment protocol failures typed before route HTTP mapping", async () => {

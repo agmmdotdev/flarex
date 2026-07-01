@@ -5,10 +5,6 @@ import {
   decodeFinishPushRequestEffect,
   decodeStartPushRequestEffect,
   DeploymentProtocolValidationError,
-  parseAbandonPushRequest,
-  parseAnalyzedStartPushRequest,
-  parseFinishPushRequest,
-  parseStartPushRequest,
   type AbandonPushRequest,
   type AnalyzedStartPushRequest,
   type FinishPushRequest,
@@ -24,12 +20,6 @@ export const decodeDeploymentAnalyzedStartPushPayload = Effect.fn(
   return yield* decodeAnalyzedStartPushRequestEffect(value);
 });
 
-export function parseDeploymentAnalyzedStartPushPayload(
-  value: unknown,
-): AnalyzedStartPushRequest {
-  return parseAnalyzedStartPushRequest(value);
-}
-
 export const decodeDeploymentFinishPushPayload = Effect.fn(
   "DeploymentRequests.decodeFinishPushPayload",
 )(function* (
@@ -38,10 +28,6 @@ export const decodeDeploymentFinishPushPayload = Effect.fn(
   return yield* decodeFinishPushRequestEffect(value);
 });
 
-export function parseDeploymentFinishPushPayload(value: unknown): FinishPushRequest {
-  return parseFinishPushRequest(value);
-}
-
 export const decodeDeploymentAbandonPushPayload = Effect.fn(
   "DeploymentRequests.decodeAbandonPushPayload",
 )(function* (
@@ -49,10 +35,6 @@ export const decodeDeploymentAbandonPushPayload = Effect.fn(
 ): Effect.fn.Return<AbandonPushRequest, DeploymentProtocolValidationError> {
   return yield* decodeAbandonPushRequestEffect(value);
 });
-
-export function parseDeploymentAbandonPushPayload(value: unknown): AbandonPushRequest {
-  return parseAbandonPushRequest(value);
-}
 
 export const decodePublicStartPushPayload = Effect.fn(
   "DeploymentRequests.decodePublicStartPushPayload",
@@ -64,10 +46,6 @@ export const decodePublicStartPushPayload = Effect.fn(
   );
 });
 
-export function parsePublicStartPushPayload(value: unknown): StartPushRequest {
-  return backendStartPushRequest(parseStartPushRequest(value));
-}
-
 export const decodePublicAnalyzedStartPushPayload = Effect.fn(
   "DeploymentRequests.decodePublicAnalyzedStartPushPayload",
 )(function* (
@@ -75,10 +53,6 @@ export const decodePublicAnalyzedStartPushPayload = Effect.fn(
 ): Effect.fn.Return<AnalyzedStartPushRequest, DeploymentProtocolValidationError> {
   return yield* decodeDeploymentAnalyzedStartPushPayload(value);
 });
-
-export function parsePublicAnalyzedStartPushPayload(value: unknown): AnalyzedStartPushRequest {
-  return parseDeploymentAnalyzedStartPushPayload(value);
-}
 
 export const decodePublicFinishPushPayload = Effect.fn(
   "DeploymentRequests.decodePublicFinishPushPayload",
@@ -88,10 +62,6 @@ export const decodePublicFinishPushPayload = Effect.fn(
   return yield* decodeDeploymentFinishPushPayload(value);
 });
 
-export function parsePublicFinishPushPayload(value: unknown): FinishPushRequest {
-  return parseDeploymentFinishPushPayload(value);
-}
-
 export const decodePublicAbandonPushPayload = Effect.fn(
   "DeploymentRequests.decodePublicAbandonPushPayload",
 )(function* (
@@ -99,10 +69,6 @@ export const decodePublicAbandonPushPayload = Effect.fn(
 ): Effect.fn.Return<AbandonPushRequest, DeploymentProtocolValidationError> {
   return yield* decodeDeploymentAbandonPushPayload(value);
 });
-
-export function parsePublicAbandonPushPayload(value: unknown): AbandonPushRequest {
-  return parseDeploymentAbandonPushPayload(value);
-}
 
 function backendStartPushRequest(request: ProtocolStartPushRequest): StartPushRequest {
   return {

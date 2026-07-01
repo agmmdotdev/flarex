@@ -1,5 +1,56 @@
 # Deployment Analysis And Push
 
+## Deployment Push Request Payload Effects
+
+Previous completed checkpoint: `ad6f9df` Type scheduler maintenance route
+boundary.
+
+What changed:
+
+- Removed throwing deployment push request payload wrappers from
+  `deployment/Requests.ts`.
+- Kept the shared deployment push payload boundary on Effect decoders that
+  return typed `DeploymentProtocolValidationError` failures.
+- Kept internal DeploymentDO and public Worker route modules consuming those
+  decoders through their existing route boundaries.
+- Updated deployment request tests to assert typed decoder success and failure
+  channels directly.
+
+Why it changed:
+
+Deployment push routes already consume typed Effect decoders. The throwing
+payload parser wrappers were compatibility exports that made the source
+boundary look partly exception-based even though production route paths were
+already Effect-based.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  deployment push request-boundary cleanup around existing protocol decoders.
+
+How Flarex differs:
+
+- Flarex has backend-controlled deployment push analysis and activation routes
+  on Cloudflare. This checkpoint does not change those semantics; it only
+  removes legacy throwing payload wrappers from the shared request boundary.
+
+Known limitations:
+
+- Deployment analysis semantics, authoritative backend validation,
+  DeploymentService, DeploymentPushStore, artifact storage/materialization,
+  public Worker dispatch, executor-http, PartitionDO SQL/OCC, and
+  `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentRequests.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/deploymentHttpApiHandlers.test.ts test/publicDeploymentPushDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Deployment Push Route-Service Boundary Effects
 
 Previous completed checkpoint: `eca0ecf` Name remaining deployment adapter

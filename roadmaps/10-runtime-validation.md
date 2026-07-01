@@ -1,5 +1,59 @@
 # Runtime Validation
 
+## Deployment Push Request Payload Effects
+
+Previous completed checkpoint: `ad6f9df` Type scheduler maintenance route
+boundary.
+
+What changed:
+
+- Removed throwing deployment push payload compatibility wrappers from
+  `deployment/Requests.ts` for analyzed start, finish, abandon, public start,
+  public analyzed start, public finish, and public abandon payloads.
+- Removed the matching protocol parser imports from `deployment/Requests.ts`.
+- Kept production DeploymentDO and public Worker push routes on
+  `decodeDeployment*Payload(...)` and `decodePublic*Payload(...)` Effect
+  decoders.
+- Updated deployment request tests to assert typed decoder success and
+  `DeploymentProtocolValidationError` failures directly.
+
+Why it changed:
+
+The deployment route boundaries already use Effect decoders for push payloads.
+The removed `parse*Payload(...)` functions were compatibility surfaces
+exercised by tests rather than production routing. Removing them keeps
+deployment protocol validation failures typed until the route/HttpApi adapter
+edge.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  deployment push request-boundary cleanup around existing protocol decoders.
+
+How Flarex differs:
+
+- Flarex has both internal DeploymentDO push routes and public Worker push
+  forwarding routes. This checkpoint narrows only the shared push payload
+  source boundary while preserving the existing deployment activation and
+  artifact behavior.
+
+Known limitations:
+
+- This checkpoint does not change DeploymentDO routing, HttpApi handler
+  behavior, DeploymentService, DeploymentPushStore, artifact
+  storage/materialization, public Worker dispatch, executor-http, PartitionDO
+  SQL/OCC, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentRequests.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/publicDeploymentPushRouteBoundary.test.ts test/deploymentHttpApiHandlers.test.ts test/publicDeploymentPushDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Scheduler Maintenance JSON Route Boundary Effects
 
 Previous completed checkpoint: `86cac22` Type connection JSON route boundary.
