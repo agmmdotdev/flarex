@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `f020e80` Type scheduler route adapters.
-- Active checkpoint: validate and review the DeliveryDO internal route adapter batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
+- Previous completed checkpoint: `6f130f1` Type delivery route adapters.
+- Active checkpoint: validate and review the execution artifact runtime route adapter batch, then choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,7 +48,7 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the DeliveryDO internal route adapter effects:
+Next recommended checkpoint after the execution artifact runtime route adapter effects:
 
 1. Prefer a fuller route/service batch next: either continue deeper
    DeploymentService/store write helpers toward typed service/domain failures,
@@ -58,8 +58,28 @@ Next recommended checkpoint after the DeliveryDO internal route adapter effects:
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
-4. Continue avoiding DeliveryDO drain scheduling and retry behavior changes;
-   this checkpoint only names the DeliveryDO internal route adapter edge.
+4. Continue avoiding artifact materializer/cache/source-package behavior
+   changes; this checkpoint only routes the runtime service through its named
+   route response adapter.
+
+Completed Goal 300 slice:
+
+1. Route `createExecutionArtifactRuntimeService(...)` recovery through the
+   existing `executionArtifactRuntimeRouteErrorToResponseEffect(...)` adapter
+   instead of an inline `Effect.catchTags(...)` table.
+2. Remove the redundant private
+   `recoverExecutionArtifactRuntimeRouteError(...)` wrapper.
+3. Preserve typed `ExecutionArtifactRuntimeRouteError` failures before the
+   runtime service response edge and keep the single `Effect.runPromise`
+   boundary in the runtime service fetch function.
+4. Keep existing direct coverage for
+   `executionArtifactRuntimeRouteErrorToResponseEffect(...)` and runtime
+   service malformed/invalid/authorization/source-package/materializer
+   response mapping.
+5. Leave materializer cache behavior, runtime-store source-package loading,
+   service-binding runtime client behavior, public Worker routing,
+   DeploymentDO/ExecutionDO behavior, PartitionDO SQL/OCC, executor-http, and
+   `ValidatorJson` unchanged.
 
 Completed Goal 299 slice:
 

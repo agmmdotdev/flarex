@@ -1,5 +1,47 @@
 # Package Boundaries
 
+## Execution Artifact Runtime Route Adapter Effects
+
+Previous completed checkpoint: `6f130f1` Type delivery route adapters.
+
+What changed:
+
+- `createExecutionArtifactRuntimeService(...)` now routes runtime route
+  failures through the named
+  `executionArtifactRuntimeRouteErrorToResponseEffect(...)` adapter.
+- The old private tag-table recovery wrapper was removed from
+  `artifactRuntime.ts`.
+- Tests continue to assert typed runtime route failures and response mapping
+  at the runtime service edge.
+
+Boundary decision:
+
+Runtime route decoding and authorization remain in
+`artifactRuntime/RuntimeRoute.ts`. Runtime request payload decoding remains in
+`artifactRuntime/RouteBoundary.ts` and `artifactRuntime/Requests.ts`.
+Materializer/cache behavior and service-binding runtime client behavior remain
+in `artifactRuntime.ts`. HTTP response conversion for the in-process execution
+artifact runtime service belongs to the named runtime route adapter edge, not
+DeploymentDO, ExecutionDO, public Worker routing, executor-http, or
+`ValidatorJson`.
+
+Known limitations:
+
+- No materializer cache behavior, runtime-store source-package loading,
+  service-binding runtime client behavior, public Worker route, DeploymentDO or
+  ExecutionDO behavior, executor-http route, PartitionDO SQL/OCC behavior, or
+  `ValidatorJson` boundary changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts test/artifactRuntimeRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts test/artifactRuntimeRequests.test.ts test/artifactRuntimeRoute.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## DeliveryDO Internal Route Adapter Effects
 
 Previous completed checkpoint: `f020e80` Type scheduler route adapters.

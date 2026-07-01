@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Execution Artifact Runtime Route Adapter Effects
+
+Previous completed checkpoint: `6f130f1` Type delivery route adapters.
+
+What changed:
+
+- The in-process execution artifact runtime service now recovers route errors
+  through the named `executionArtifactRuntimeRouteErrorToResponseEffect(...)`
+  adapter instead of an inline tag table.
+- The redundant private `recoverExecutionArtifactRuntimeRouteError(...)`
+  wrapper was removed.
+- Existing runtime route tests continue to cover typed route failures before
+  response mapping and response status/body preservation at the adapter edge.
+
+Why it changed:
+
+The execution artifact runtime already had typed route errors and a named
+response adapter, but `createExecutionArtifactRuntimeService(...)` still
+duplicated every recoverable tag locally. Routing through the named adapter
+keeps HTTP response conversion at one runtime service edge.
+
+Known limitations:
+
+- This checkpoint does not change materializer cache behavior, runtime-store
+  source-package loading, service-binding runtime client behavior, public
+  Worker routing, DeploymentDO/ExecutionDO behavior, PartitionDO SQL/OCC,
+  executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts test/artifactRuntimeRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts test/artifactRuntimeRequests.test.ts test/artifactRuntimeRoute.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## DeliveryDO Internal Route Adapter Effects
 
 Previous completed checkpoint: `f020e80` Type scheduler route adapters.

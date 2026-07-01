@@ -146,15 +146,7 @@ export function createExecutionArtifactRuntimeService(options: {
   const fetch: Fetcher["fetch"] = (input, init) =>
     Effect.runPromise(
       routeExecutionArtifactRuntimeInvoke(input, init, options, cache).pipe(
-        Effect.catchTags({
-          RequestJsonError: recoverExecutionArtifactRuntimeRouteError,
-          ExecutionArtifactInvokePayloadError: recoverExecutionArtifactRuntimeRouteError,
-          ExecutionArtifactRuntimeMissingSourcePackageError: recoverExecutionArtifactRuntimeRouteError,
-          ExecutionArtifactRuntimeOperationError: recoverExecutionArtifactRuntimeRouteError,
-          ExecutionArtifactRuntimeRouteNotFoundError: recoverExecutionArtifactRuntimeRouteError,
-          ExecutionArtifactRuntimeAuthorizationError: recoverExecutionArtifactRuntimeRouteError,
-          ExecutionArtifactRuntimeHeaderError: recoverExecutionArtifactRuntimeRouteError,
-        }),
+        Effect.catch(executionArtifactRuntimeRouteErrorToResponseEffect),
       ),
     );
   return Object.assign(fetch, {
@@ -435,12 +427,6 @@ export const executionArtifactRuntimeRouteErrorToResponseEffect = Effect.fn(
 ): Effect.fn.Return<Response> {
   return yield* Effect.succeed(executionArtifactRuntimeErrorResponse(error));
 });
-
-function recoverExecutionArtifactRuntimeRouteError(
-  error: ExecutionArtifactRuntimeRouteError,
-): Effect.Effect<Response> {
-  return executionArtifactRuntimeRouteErrorToResponseEffect(error);
-}
 
 function errorStatus(error: unknown): number | undefined {
   if (error instanceof HttpError) return error.status;
