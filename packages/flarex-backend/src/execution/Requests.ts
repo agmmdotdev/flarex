@@ -4,9 +4,6 @@ import {
   decodeExecutionStartRequestEffect,
   decodeExecutionSyscallRequestEffect,
   ExecutionProtocolValidationError,
-  parseExecutionFinishRequest,
-  parseExecutionStartRequest,
-  parseExecutionSyscallRequest,
   type ExecutionFinishRequest as ProtocolExecutionFinishRequest,
   type ExecutionIndexRangeExpression as ProtocolExecutionIndexRangeExpression,
   type ExecutionStartRequest as ProtocolExecutionStartRequest,
@@ -70,35 +67,6 @@ export const decodePublicExecutionActionPayload = Effect.fn(
   if (action === "finish") return yield* decodeExecutionFinishPayload(value);
   return value;
 });
-
-export function parseExecutionStartPayload(value: unknown): ExecutionStartRequest {
-  return backendExecutionStartRequest(parseExecutionStartRequest(value));
-}
-
-export function parsePublicExecutionStartPayload(
-  value: unknown,
-  deploymentId: string,
-): ExecutionStartRequest {
-  const record = isRecord(value) ? value : {};
-  return parseExecutionStartPayload({ ...record, deploymentId });
-}
-
-export function parseExecutionSyscallPayload(value: unknown): ExecutionSyscallRequest {
-  return backendExecutionSyscallRequest(parseExecutionSyscallRequest(value));
-}
-
-export function parseExecutionFinishPayload(value: unknown): ExecutionFinishRequest {
-  return backendExecutionFinishRequest(parseExecutionFinishRequest(value));
-}
-
-export function parsePublicExecutionActionPayload(
-  value: unknown,
-  action: "syscall" | "finish" | "abort",
-): unknown {
-  if (action === "syscall") return parseExecutionSyscallPayload(value);
-  if (action === "finish") return parseExecutionFinishPayload(value);
-  return value;
-}
 
 function backendExecutionStartRequest(
   request: ProtocolExecutionStartRequest,

@@ -1,5 +1,56 @@
 # Runtime Validation
 
+## Execution Request Payload Effects
+
+Previous completed checkpoint: `9931afa` Type deployment push payload
+boundary.
+
+What changed:
+
+- Removed throwing execution request payload compatibility wrappers from
+  `execution/Requests.ts`.
+- Removed the matching execution protocol parser imports from
+  `execution/Requests.ts`.
+- Kept production internal and public execution routes on
+  `decodeExecution*Payload(...)` and `decodePublicExecution*Payload(...)`
+  Effect decoders.
+- Updated execution request tests to assert typed decoder success and
+  `ExecutionProtocolValidationError` failures directly.
+
+Why it changed:
+
+The execution route boundaries already use Effect decoders for start, syscall,
+finish, and public action payloads. Removing the throwing compatibility
+wrappers keeps execution protocol validation failures typed until the
+route/Worker adapter edge.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  execution request-boundary cleanup around existing protocol decoders.
+
+How Flarex differs:
+
+- Flarex uses public Worker dispatch plus ExecutionDO session routes for
+  dynamic execution. This checkpoint narrows only the shared execution payload
+  source boundary while preserving session and dispatch behavior.
+
+Known limitations:
+
+- This checkpoint does not change ExecutionDO routing/session lifecycle, public
+  Worker execution dispatch, syscall/finish semantics, direct invoke, artifact
+  runtime dispatch, PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/executionRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/executionRequests.test.ts test/executionStartRouteBoundary.test.ts test/executionSyscallRouteBoundary.test.ts test/executionFinishRouteBoundary.test.ts test/executionActionRouteBoundary.test.ts test/publicExecutionDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Deployment Push Request Payload Effects
 
 Previous completed checkpoint: `ad6f9df` Type scheduler maintenance route

@@ -7,37 +7,20 @@ import {
   decodeExecutionSyscallPayload,
   decodePublicExecutionActionPayload,
   decodePublicExecutionStartPayload,
-  parseExecutionFinishPayload,
-  parseExecutionStartPayload,
-  parseExecutionSyscallPayload,
-  parsePublicExecutionActionPayload,
-  parsePublicExecutionStartPayload,
 } from "../src/execution/Requests";
 
 describe("execution request payloads", () => {
   it("decodes start payloads through the shared source boundary", async () => {
-    await expect(Effect.runPromise(decodeExecutionStartPayload({
-      deploymentId: "deployment-a",
-      path: "users:get",
-      args: { id: "1:user" },
-      partitionKey: "1:user",
-      kind: "query",
-      idempotencyKey: "start-once",
-    }))).resolves.toEqual({
-      deploymentId: "deployment-a",
-      path: "users:get",
-      args: { id: "1:user" },
-      partitionKey: "1:user",
-      kind: "query",
-      idempotencyKey: "start-once",
-    });
+    await expect(Effect.runPromise(decodeExecutionStartPayload(startPayload())))
+      .resolves
+      .toEqual(startPayload());
 
-    expect(parseExecutionStartPayload({
+    await expect(Effect.runPromise(decodeExecutionStartPayload({
       deploymentId: "deployment-b",
       path: "users:list",
       args: [],
       projectId: "project-a",
-    })).toEqual({
+    }))).resolves.toEqual({
       deploymentId: "deployment-b",
       path: "users:list",
       args: [],
@@ -58,11 +41,11 @@ describe("execution request payloads", () => {
       kind: "query",
     });
 
-    expect(parsePublicExecutionStartPayload({
+    await expect(Effect.runPromise(decodePublicExecutionStartPayload({
       deploymentId: "body-deployment",
       path: "users:list",
       args: {},
-    }, "route-deployment")).toEqual({
+    }, "route-deployment"))).resolves.toEqual({
       deploymentId: "route-deployment",
       path: "users:list",
       args: {},
@@ -92,12 +75,12 @@ describe("execution request payloads", () => {
       },
     });
 
-    expect(parseExecutionSyscallPayload({
+    await expect(Effect.runPromise(decodeExecutionSyscallPayload({
       op: "insert",
       table: "lessonProgress",
       value: { completed: false },
       id: "1:progress",
-    })).toEqual({
+    }))).resolves.toEqual({
       op: "insert",
       table: "lessonProgress",
       value: { completed: false },
@@ -111,7 +94,9 @@ describe("execution request payloads", () => {
     }))).resolves.toEqual({
       value: { ok: true },
     });
-    expect(parseExecutionFinishPayload({ value: null })).toEqual({ value: null });
+    await expect(Effect.runPromise(decodeExecutionFinishPayload({
+      value: null,
+    }))).resolves.toEqual({ value: null });
 
     await expect(Effect.runPromise(decodePublicExecutionActionPayload({
       op: "get",
@@ -120,8 +105,9 @@ describe("execution request payloads", () => {
       op: "get",
       id: "1:progress",
     });
-    expect(parsePublicExecutionActionPayload({ value: "done" }, "finish"))
-      .toEqual({ value: "done" });
+    await expect(Effect.runPromise(decodePublicExecutionActionPayload({
+      value: "done",
+    }, "finish"))).resolves.toEqual({ value: "done" });
     await expect(Effect.runPromise(decodePublicExecutionActionPayload({
       ignored: true,
     }, "abort"))).resolves.toEqual({ ignored: true });
@@ -150,3 +136,14 @@ describe("execution request payloads", () => {
       .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
   });
 });
+
+function startPayload() {
+  return {
+    deploymentId: "deployment-a",
+    path: "users:get",
+    args: { id: "1:user" },
+    partitionKey: "1:user",
+    kind: "query" as const,
+    idempotencyKey: "start-once",
+  };
+}

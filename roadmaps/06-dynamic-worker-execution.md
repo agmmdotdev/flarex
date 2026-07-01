@@ -1,5 +1,58 @@
 # Dynamic Worker Execution
 
+## Execution Request Payload Effects
+
+Previous completed checkpoint: `9931afa` Type deployment push payload
+boundary.
+
+What changed:
+
+- Removed throwing execution request payload wrappers from
+  `execution/Requests.ts` for internal start, public start, syscall, finish,
+  and public action payloads.
+- Removed the matching execution protocol parser imports from
+  `execution/Requests.ts`.
+- Kept internal ExecutionDO and public Worker execution route boundaries on
+  `decodeExecution*Payload(...)` and `decodePublicExecution*Payload(...)`
+  Effect decoders.
+- Updated execution request tests to assert typed decoder success and
+  `ExecutionProtocolValidationError` failures directly.
+
+Why it changed:
+
+Execution route boundaries already consume typed Effect decoders. The throwing
+payload parser wrappers were compatibility exports that made the shared
+execution request source boundary look partly exception-based even though
+production route paths were already Effect-based.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  execution request-boundary cleanup around existing protocol decoders.
+
+How Flarex differs:
+
+- Flarex runs dynamic execution through Cloudflare public Worker routes and
+  ExecutionDO session routes. This checkpoint does not change those semantics;
+  it only removes legacy throwing payload wrappers from the shared request
+  boundary.
+
+Known limitations:
+
+- ExecutionDO routing/session lifecycle, public Worker execution dispatch,
+  syscall/finish semantics, direct invoke, artifact runtime dispatch,
+  PartitionDO SQL/OCC, executor-http, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/executionRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/executionRequests.test.ts test/executionStartRouteBoundary.test.ts test/executionSyscallRouteBoundary.test.ts test/executionFinishRouteBoundary.test.ts test/executionActionRouteBoundary.test.ts test/publicExecutionDispatchBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Execution Route-Service Boundary Effects
 
 Previous completed checkpoint: `8b73137` Type public deployment push route
