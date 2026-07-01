@@ -1,5 +1,51 @@
 # Runtime Validation
 
+## Deployment Finish Service Preflight Effects
+
+Previous completed checkpoint: `8638044` Type public finish artifact sources.
+
+What changed:
+
+- Finish-push service preflight now has a named Effect helper that builds the
+  `FinishPushStoreInput` from typed push lookup, artifact-ref derivation, and
+  clock sources.
+- Tests assert the typed success and failure channels before the store write
+  boundary.
+
+Why it changed:
+
+The finish-push route should keep transport/API response mapping at the
+generated handler edge, while service code keeps preflight failures typed.
+This checkpoint makes that service preflight boundary explicit without moving
+store-owned activation or rejection behavior.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  DeploymentService runtime validation cleanup.
+
+How Flarex differs:
+
+- Flarex finish-push service preflight includes execution artifact reference
+  derivation before the Durable Object store completes activation.
+
+Known limitations:
+
+- DeploymentDO routing, generated DeploymentApi handler response mapping,
+  public Worker deployment dispatch, artifact store implementation,
+  DeploymentPushStore finish behavior, PartitionDO SQL/OCC, executor-http,
+  protocol parser compatibility, and `ValidatorJson` are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Finish Artifact Source Effects
 
 Previous completed checkpoint: `3b9faab` Type deployment store write

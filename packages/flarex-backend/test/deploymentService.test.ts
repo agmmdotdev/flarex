@@ -14,6 +14,7 @@ import {
   DeploymentService,
   deploymentExecutionArtifactRefForPush,
   ensureDeploymentPushCanBeAbandoned,
+  finishDeploymentPushStoreInput,
   normalizeDeploymentAbandonReason,
   requireDeploymentPush,
   type StartAnalyzedPushInput,
@@ -576,6 +577,80 @@ describe("DeploymentService", () => {
 
     expect(result).toBe(ref);
     expect(artifactRequests).toEqual([status.sourcePackage]);
+  });
+
+  it("builds finish store input through a named service preflight helper", async () => {
+    const status = analyzedPushStatus("push-finish-preflight");
+    const artifactRequests: PushSourcePackage[] = [];
+    const ref = executionArtifactRef();
+
+    const input = await Effect.runPromise(finishDeploymentPushStoreInput(
+      {
+        getPush: pushId => Effect.succeed(pushId === status.pushId ? status : null),
+      },
+      {
+        executionArtifactRefForSourcePackage: sourcePackage =>
+          Effect.sync(() => {
+            artifactRequests.push(sourcePackage);
+            return ref;
+          }),
+      },
+      {
+        currentTimeMillis: Effect.succeed(2_275_000),
+      },
+      status.pushId,
+    ));
+
+    expect(input).toEqual({
+      pushId: status.pushId,
+      now: 2_275_000,
+      executionArtifactRef: ref,
+    });
+    expect(artifactRequests).toEqual([status.sourcePackage]);
+  });
+
+  it("preserves typed finish preflight not-found and artifact failures", async () => {
+    const notFound = await Effect.runPromise(finishDeploymentPushStoreInput(
+      {
+        getPush: () => Effect.succeed(null),
+      },
+      {
+        executionArtifactRefForSourcePackage: () => Effect.succeed(executionArtifactRef()),
+      },
+      {
+        currentTimeMillis: Effect.succeed(2_276_000),
+      },
+      "missing-finish-preflight",
+    ).pipe(
+      Effect.catchTag("DeploymentPushNotFoundError", error => Effect.succeed(error)),
+    ));
+
+    if (!(notFound instanceof DeploymentPushNotFoundError)) {
+      throw new Error("Expected DeploymentPushNotFoundError.");
+    }
+    expect(notFound.pushId).toBe("missing-finish-preflight");
+
+    const failure = new DeploymentArtifactRefError({
+      operation: "executionArtifactRefForSourcePackage",
+      message: "artifact preflight failed",
+      cause: new Error("artifact preflight failed"),
+    });
+    const artifactFailure = await Effect.runPromise(finishDeploymentPushStoreInput(
+      {
+        getPush: () => Effect.succeed(analyzedPushStatus("push-finish-artifact-preflight")),
+      },
+      {
+        executionArtifactRefForSourcePackage: () => Effect.fail(failure),
+      },
+      {
+        currentTimeMillis: Effect.succeed(2_277_000),
+      },
+      "push-finish-artifact-preflight",
+    ).pipe(
+      Effect.catchTag("DeploymentArtifactRefError", error => Effect.succeed(error)),
+    ));
+
+    expect(artifactFailure).toBe(failure);
   });
 
   it("preserves typed DeploymentSqlError failures from finish storage", async () => {

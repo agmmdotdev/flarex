@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: `3b9faab` Type deployment store write transactions.
-- Active checkpoint: validate and review the public finish artifact Effect source batch, keeping public finish response behavior unchanged while naming artifact-ref derivation and durable artifact availability as typed Effect sources.
+- Previous completed checkpoint: `8638044` Type public finish artifact sources.
+- Active checkpoint: validate and review the deployment finish service preflight Effect batch, keeping finish response behavior unchanged while naming the service helper that builds `FinishPushStoreInput`.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -48,11 +48,11 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the public finish artifact effects:
+Next recommended checkpoint after the deployment finish service preflight effects:
 
 1. Continue deeper DeploymentService/store write helpers toward typed
-   service/domain failures, especially finish-push service preflight and
-   artifact resolution boundaries inside `DeploymentService`.
+   service/domain failures, especially start-push input construction or
+   abandon preflight input construction inside `DeploymentService`.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
@@ -61,6 +61,25 @@ Next recommended checkpoint after the public finish artifact effects:
    source-package behavior, executor-http, public Worker dispatch, and
    `ValidatorJson` changes unless the next selected route/service batch owns
    that boundary directly.
+
+Completed Goal 322 slice:
+
+1. Extract finish-push service preflight into
+   `finishDeploymentPushStoreInput(...)`, a named Effect helper that composes
+   push lookup, execution artifact reference derivation, and clock reads into
+   `FinishPushStoreInput`.
+2. Keep typed `DeploymentPushNotFoundError`, `DeploymentArtifactRefError`,
+   `DeploymentSqlError`, and `DeploymentValidationError` failures propagated
+   unchanged from their source boundaries.
+3. Keep `DeploymentService.finishPush(...)` behavior unchanged: it builds the
+   store input and delegates finish activation/rejection semantics to
+   `DeploymentPushStore.finishPush(...)`.
+4. Add direct helper coverage for success, missing push, and artifact-ref
+   failure before store writes.
+5. Leave DeploymentDO routing, DeploymentApi generated handler response
+   mapping, public Worker deployment dispatch, artifact store implementation,
+   PartitionDO SQL/OCC, executor-http, protocol parser compatibility, and
+   `ValidatorJson` unchanged.
 
 Completed Goal 321 slice:
 

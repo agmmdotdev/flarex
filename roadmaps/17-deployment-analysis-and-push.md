@@ -1,5 +1,56 @@
 # Deployment Analysis And Push
 
+## Deployment Finish Service Preflight Effects
+
+Previous completed checkpoint: `8638044` Type public finish artifact sources.
+
+What changed:
+
+- `DeploymentService.finishPush(...)` now delegates preflight input
+  construction to `finishDeploymentPushStoreInput(...)`.
+- The named preflight helper composes push lookup, execution artifact reference
+  derivation, and clock reads into `FinishPushStoreInput`.
+- Typed not-found, artifact reference, SQL, and validation failures propagate
+  unchanged from their source boundaries.
+- Added direct helper coverage for success, missing push, and artifact-ref
+  failure before store writes.
+
+Why it changed:
+
+Finish push has two layers of behavior: service preflight and store
+activation/rejection. Naming the service preflight helper makes that split
+explicit while preserving the existing store-owned finish response semantics.
+
+Convex references:
+
+- No Convex source files were inspected for this slice. This is a Flarex
+  DeploymentService preflight cleanup around existing push activation
+  behavior.
+
+How Flarex differs:
+
+- Flarex derives an execution artifact reference before asking the
+  DeploymentDO store to finish a push. Store activation and rejection remain
+  Cloudflare Durable Object concerns.
+
+Known limitations:
+
+- DeploymentDO routing, generated DeploymentApi handler response mapping,
+  public Worker deployment dispatch, artifact store implementation,
+  DeploymentPushStore finish activation/rejection semantics, PartitionDO
+  SQL/OCC, executor-http, protocol parser compatibility, and `ValidatorJson`
+  are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts test/deploymentHttpApiHandlers.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+git diff --check
+```
+
 ## Public Finish Artifact Source Effects
 
 Previous completed checkpoint: `3b9faab` Type deployment store write

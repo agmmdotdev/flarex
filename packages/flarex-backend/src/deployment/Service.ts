@@ -8,7 +8,7 @@ import type {
   PushStatus,
 } from "../types";
 import { DeploymentArtifacts, DeploymentClock, DeploymentIds } from "./Runtime";
-import { DeploymentPushStore, type DeploymentSqlError } from "./Store";
+import { DeploymentPushStore, type DeploymentSqlError, type FinishPushStoreInput } from "./Store";
 import type { StartAnalyzedPushServiceInput } from "./Validation";
 import {
   DeploymentActiveDeploymentInvalidError,
@@ -33,6 +33,10 @@ export interface DeploymentArtifactResolver {
   executionArtifactRefForSourcePackage(
     sourcePackage: PushSourcePackage,
   ): Effect.Effect<ExecutionArtifactRef, DeploymentArtifactRefError>;
+}
+
+export interface DeploymentClockReader {
+  readonly currentTimeMillis: Effect.Effect<number>;
 }
 
 export interface DeploymentServiceApi {
@@ -92,6 +96,30 @@ export const deploymentExecutionArtifactRefForPush = Effect.fn(
   status: PushStatus,
 ): Effect.fn.Return<ExecutionArtifactRef, DeploymentArtifactRefError> {
   return yield* artifacts.executionArtifactRefForSourcePackage(status.sourcePackage);
+});
+
+export const finishDeploymentPushStoreInput = Effect.fn(
+  "DeploymentService.finishDeploymentPushStoreInput",
+)(function* (
+  store: DeploymentPushReader,
+  artifacts: DeploymentArtifactResolver,
+  clock: DeploymentClockReader,
+  pushId: string,
+): Effect.fn.Return<
+  FinishPushStoreInput,
+  | DeploymentArtifactRefError
+  | DeploymentPushNotFoundError
+  | DeploymentSqlError
+  | DeploymentValidationError
+> {
+  const preflight = yield* requireDeploymentPush(store, pushId);
+  const executionArtifactRef = yield* deploymentExecutionArtifactRefForPush(artifacts, preflight);
+  const now = yield* clock.currentTimeMillis;
+  return {
+    pushId,
+    now,
+    executionArtifactRef,
+  };
 });
 
 export const ensureDeploymentPushCanBeAbandoned = Effect.fn(
@@ -190,14 +218,8 @@ export class DeploymentService extends Context.Service<DeploymentService, Deploy
           | DeploymentStoredPushMissingError
           | DeploymentValidationError
         > {
-          const preflight = yield* requireDeploymentPush(store, pushId);
-          const executionArtifactRef = yield* deploymentExecutionArtifactRefForPush(artifacts, preflight);
-          const now = yield* clock.currentTimeMillis;
-          return yield* store.finishPush({
-            pushId,
-            now,
-            executionArtifactRef,
-          });
+          const input = yield* finishDeploymentPushStoreInput(store, artifacts, clock, pushId);
+          return yield* store.finishPush(input);
         },
       );
 
