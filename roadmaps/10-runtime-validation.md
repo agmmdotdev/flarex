@@ -1,5 +1,43 @@
 # Runtime Validation
 
+## Deployment HttpApi Response Protocol Effect Boundary
+
+Previous completed checkpoint: `a661a14` Validate registry HttpApi responses with Effect.
+
+What changed:
+
+- `flarex-protocol/deployment` now exposes Effect-returning response decoders
+  for deployment health, error, active-deployment, push-status, and finish-push
+  response envelopes.
+- Generated `DeploymentApiHandlers` validates service-produced active
+  deployment, push-status, and finish-push responses through those protocol
+  Effect decoders instead of a backend-local `Schema.decodeUnknownEffect(...)`
+  cast.
+- Typed deployment protocol response failures map at the generated HttpApi
+  adapter edge to the declared `DeploymentStorageErrorResponse`.
+
+Why it changed:
+
+Deployment generated HttpApi responses are part of the reusable protocol
+contract. Response validation should fail as a typed
+`DeploymentProtocolValidationError` at the protocol boundary and be converted
+once by the handler, not by a local schema helper inside the backend adapter.
+
+Known limitations:
+
+- This checkpoint does not change DeploymentDO push lifecycle, Deployment
+  service/store behavior, route path matching, public finish artifact
+  preflight, PartitionDO SQL/OCC, executor-http, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Registry HttpApi Response Effect Boundary
 
 Previous completed checkpoint: `414c09f` Add registry protocol effect decoders.

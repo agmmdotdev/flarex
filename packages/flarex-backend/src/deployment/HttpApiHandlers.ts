@@ -1,16 +1,16 @@
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
-  ActiveDeploymentStatus as ProtocolActiveDeploymentStatus,
   DeploymentApi,
   type AnalyzedStartPushRequest,
   DeploymentBadRequestErrorResponse,
   DeploymentConflictErrorResponse,
-  FinishPushResponse as ProtocolFinishPushResponse,
+  decodeActiveDeploymentStatusEffect,
+  decodeFinishPushResponseEffect,
+  decodePushStatusEffect,
   DeploymentHealthResponse,
   DeploymentNotFoundErrorResponse,
   DeploymentProtocolValidationError,
-  PushStatus as ProtocolPushStatus,
   DeploymentStorageErrorResponse,
   parseAnalyzedStartPushRequest,
 } from "flarex-protocol/deployment";
@@ -33,11 +33,6 @@ import {
   startAnalyzedPushInput,
 } from "./Validation";
 import { decodeDeploymentAnalyzedStartPushPayload } from "./Requests";
-import type {
-  ActiveDeploymentStatus,
-  FinishPushResponse,
-  PushStatus,
-} from "../types";
 
 export type DeploymentReadErrorResponse =
   | DeploymentNotFoundErrorResponse
@@ -201,6 +196,16 @@ export function mapDeploymentAbandonFailure<A>(
   );
 }
 
+export function mapDeploymentProtocolResponseFailure<A>(
+  effect: Effect.Effect<A, DeploymentProtocolValidationError>,
+): Effect.Effect<A, DeploymentStorageErrorResponse> {
+  return effect.pipe(
+    Effect.catchTag("DeploymentProtocolValidationError", error =>
+      Effect.fail(new DeploymentStorageErrorResponse({ error: error.message }))
+    ),
+  );
+}
+
 export function deploymentReadFailureToResponse(
   error:
     | DeploymentActiveDeploymentInvalidError
@@ -332,27 +337,11 @@ export function startAnalyzedPushHandlerInputFromPayload(
   return startAnalyzedPushInput(analyzedStartPushRequest(parseAnalyzedStartPushRequest(payload)));
 }
 
-const parsePushStatusForHttpApi = responseDecoder<PushStatus>(
-  "Deployment push response did not match the deployment protocol.",
-  ProtocolPushStatus,
-);
+const parsePushStatusForHttpApi = (value: unknown) =>
+  mapDeploymentProtocolResponseFailure(decodePushStatusEffect(value));
 
-const parseActiveDeploymentStatusForHttpApi = responseDecoder<ActiveDeploymentStatus>(
-  "Active deployment response did not match the deployment protocol.",
-  ProtocolActiveDeploymentStatus,
-);
+const parseActiveDeploymentStatusForHttpApi = (value: unknown) =>
+  mapDeploymentProtocolResponseFailure(decodeActiveDeploymentStatusEffect(value));
 
-const parseFinishPushResponseForHttpApi = responseDecoder<FinishPushResponse>(
-  "Finish push response did not match the deployment protocol.",
-  ProtocolFinishPushResponse,
-);
-
-function responseDecoder<A>(
-  message: string,
-  schema: Schema.Schema<unknown>,
-): (value: unknown) => Effect.Effect<A, DeploymentStorageErrorResponse> {
-  return value =>
-    (Schema.decodeUnknownEffect(schema)(value) as Effect.Effect<A, unknown, never>).pipe(
-      Effect.mapError(() => new DeploymentStorageErrorResponse({ error: message })),
-    );
-}
+const parseFinishPushResponseForHttpApi = (value: unknown) =>
+  mapDeploymentProtocolResponseFailure(decodeFinishPushResponseEffect(value));

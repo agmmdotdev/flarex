@@ -476,16 +476,16 @@ export class DeploymentApi extends HttpApi.make("flarex-deployment").add(Deploym
 
 const decodeUnknownAbandonPushRequest = Schema.decodeUnknownEffect(AbandonPushRequest);
 const decodeUnknownAnalyzedStartPushRequest = Schema.decodeUnknownEffect(AnalyzedStartPushRequest);
-const decodeActiveDeploymentStatus = Schema.decodeUnknownSync(ActiveDeploymentStatus);
-const decodeDeploymentErrorResponse = Schema.decodeUnknownSync(DeploymentErrorResponse);
-const decodeDeploymentHealthResponse = Schema.decodeUnknownSync(DeploymentHealthResponse);
+const decodeUnknownActiveDeploymentStatus = Schema.decodeUnknownEffect(ActiveDeploymentStatus);
+const decodeUnknownDeploymentErrorResponse = Schema.decodeUnknownEffect(DeploymentErrorResponse);
+const decodeUnknownDeploymentHealthResponse = Schema.decodeUnknownEffect(DeploymentHealthResponse);
 const decodeDeploymentAnalysis = Schema.decodeUnknownSync(DeploymentAnalysis);
 const decodeDeploymentCodegenAnalysis = Schema.decodeUnknownSync(DeploymentCodegenAnalysis);
 const decodeUnknownFinishPushRequest = Schema.decodeUnknownEffect(FinishPushRequest);
-const decodeFinishPushResponse = Schema.decodeUnknownSync(FinishPushResponse);
+const decodeUnknownFinishPushResponse = Schema.decodeUnknownEffect(FinishPushResponse);
 const decodePushSourcePackage = Schema.decodeUnknownSync(PushSourcePackage);
 const decodeUnknownStartPushRequest = Schema.decodeUnknownEffect(StartPushRequest);
-const decodePushStatus = Schema.decodeUnknownSync(PushStatus);
+const decodeUnknownPushStatus = Schema.decodeUnknownEffect(PushStatus);
 
 export const decodeAbandonPushRequestEffect = Effect.fn(
   "DeploymentProtocol.decodeAbandonPushRequest",
@@ -626,28 +626,44 @@ export function parseDeploymentCodegenAnalysis(value: unknown): DeploymentCodege
 }
 
 export function parseDeploymentErrorResponse(value: unknown): DeploymentErrorResponse {
-  try {
-    return decodeDeploymentErrorResponse(value);
-  } catch (cause) {
-    throw new DeploymentProtocolValidationError({
-      schema: "DeploymentErrorResponse",
-      message: "Deployment error response did not match the deployment protocol.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodeDeploymentErrorResponseEffect(value));
 }
 
 export function parseDeploymentHealthResponse(value: unknown): DeploymentHealthResponse {
-  try {
-    return decodeDeploymentHealthResponse(value);
-  } catch (cause) {
-    throw new DeploymentProtocolValidationError({
-      schema: "DeploymentHealthResponse",
-      message: "Deployment health response did not match the deployment protocol.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodeDeploymentHealthResponseEffect(value));
 }
+
+export const decodeDeploymentErrorResponseEffect = Effect.fn(
+  "DeploymentProtocol.decodeDeploymentErrorResponse",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<DeploymentErrorResponse, DeploymentProtocolValidationError> {
+  return yield* decodeUnknownDeploymentErrorResponse(value).pipe(
+    Effect.mapError(cause =>
+      new DeploymentProtocolValidationError({
+        schema: "DeploymentErrorResponse",
+        message: "Deployment error response did not match the deployment protocol.",
+        cause,
+      })
+    ),
+  );
+});
+
+export const decodeDeploymentHealthResponseEffect = Effect.fn(
+  "DeploymentProtocol.decodeDeploymentHealthResponse",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<DeploymentHealthResponse, DeploymentProtocolValidationError> {
+  return yield* decodeUnknownDeploymentHealthResponse(value).pipe(
+    Effect.mapError(cause =>
+      new DeploymentProtocolValidationError({
+        schema: "DeploymentHealthResponse",
+        message: "Deployment health response did not match the deployment protocol.",
+        cause,
+      })
+    ),
+  );
+});
 
 export const decodeAnalyzedStartPushRequestEffect = Effect.fn(
   "DeploymentProtocol.decodeAnalyzedStartPushRequest",
@@ -713,40 +729,67 @@ export function parseAnalyzedStartPushRequest(value: unknown): AnalyzedStartPush
 }
 
 export function parseActiveDeploymentStatus(value: unknown): ActiveDeploymentStatus {
-  try {
-    return decodeActiveDeploymentStatus(value);
-  } catch (cause) {
-    throw new DeploymentProtocolValidationError({
-      schema: "ActiveDeploymentStatus",
-      message: "Active deployment status response did not match the deployment protocol.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodeActiveDeploymentStatusEffect(value));
 }
 
 export function parsePushStatus(value: unknown): PushStatus {
-  try {
-    return decodePushStatus(value);
-  } catch (cause) {
-    throw new DeploymentProtocolValidationError({
-      schema: "PushStatus",
-      message: "Push status response did not match the deployment protocol.",
-      cause,
-    });
-  }
+  return Effect.runSync(decodePushStatusEffect(value));
 }
 
-export function parseFinishPushResponse(value: unknown) {
-  try {
-    return decodeFinishPushResponse(value);
-  } catch (cause) {
-    throw new DeploymentProtocolValidationError({
-      schema: "FinishPushResponse",
-      message: "Finish push response did not match the deployment protocol.",
-      cause,
-    });
-  }
+export function parseFinishPushResponse(value: unknown): ActivatedFinishPushResponse | RejectedFinishPushResponse {
+  return Effect.runSync(decodeFinishPushResponseEffect(value));
 }
+
+export const decodeActiveDeploymentStatusEffect = Effect.fn(
+  "DeploymentProtocol.decodeActiveDeploymentStatus",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<ActiveDeploymentStatus, DeploymentProtocolValidationError> {
+  return yield* decodeUnknownActiveDeploymentStatus(value).pipe(
+    Effect.mapError(cause =>
+      new DeploymentProtocolValidationError({
+        schema: "ActiveDeploymentStatus",
+        message: "Active deployment response did not match the deployment protocol.",
+        cause,
+      })
+    ),
+  );
+});
+
+export const decodePushStatusEffect = Effect.fn(
+  "DeploymentProtocol.decodePushStatus",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<PushStatus, DeploymentProtocolValidationError> {
+  return yield* decodeUnknownPushStatus(value).pipe(
+    Effect.mapError(cause =>
+      new DeploymentProtocolValidationError({
+        schema: "PushStatus",
+        message: "Deployment push response did not match the deployment protocol.",
+        cause,
+      })
+    ),
+  );
+});
+
+export const decodeFinishPushResponseEffect = Effect.fn(
+  "DeploymentProtocol.decodeFinishPushResponse",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<
+  ActivatedFinishPushResponse | RejectedFinishPushResponse,
+  DeploymentProtocolValidationError
+> {
+  return yield* decodeUnknownFinishPushResponse(value).pipe(
+    Effect.mapError(cause =>
+      new DeploymentProtocolValidationError({
+        schema: "FinishPushResponse",
+        message: "Finish push response did not match the deployment protocol.",
+        cause,
+      })
+    ),
+  );
+});
 
 function deploymentProtocolValidationFailure(
   schema: string,

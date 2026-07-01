@@ -23,6 +23,7 @@ import {
   deploymentHttpErrorToStartResponse,
   mapDeploymentAbandonFailure,
   mapDeploymentFinishFailure,
+  mapDeploymentProtocolResponseFailure,
   mapDeploymentReadFailure,
   mapDeploymentStartFailure,
   deploymentReadFailureToResponse,
@@ -359,6 +360,16 @@ describe("DeploymentApiHandlers", () => {
         state: "activated",
       }),
     )))).rejects.toBeInstanceOf(DeploymentConflictErrorResponse);
+
+    await expect(Effect.runPromise(mapDeploymentProtocolResponseFailure(Effect.fail(
+      new DeploymentProtocolValidationError({
+        schema: "PushStatus",
+        message: "Deployment push response did not match the deployment protocol.",
+        cause: {},
+      }),
+    )))).rejects.toMatchObject({
+      error: "Deployment push response did not match the deployment protocol.",
+    });
   });
 
   it("maps preserved HttpError statuses to DeploymentApi response classes", () => {

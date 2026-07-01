@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 import { Effect, SchemaAST, type Schema } from "effect";
 import {
   decodeAbandonPushRequestEffect,
+  decodeActiveDeploymentStatusEffect,
   decodeAnalyzedStartPushRequestEffect,
+  decodeDeploymentErrorResponseEffect,
+  decodeDeploymentHealthResponseEffect,
   decodeFinishPushRequestEffect,
+  decodeFinishPushResponseEffect,
+  decodePushStatusEffect,
   decodeStartPushRequestEffect,
   DeploymentApi,
   DeploymentApiPath,
@@ -21,6 +26,7 @@ import {
   parseDeploymentCodegenAnalysis,
   parseDeploymentErrorResponse,
   parseDeploymentHealthResponse,
+  parseActiveDeploymentStatus,
   parseFinishPushRequest,
   parseFinishPushResponse,
   parsePushStatus,
@@ -121,6 +127,71 @@ describe("deployment protocol schemas", () => {
   it("parses deep deployment analysis and codegen analysis payloads", () => {
     expect(parseDeploymentAnalysis(deploymentAnalysis())).toEqual(deploymentAnalysis());
     expect(parseDeploymentCodegenAnalysis(deploymentCodegenAnalysis())).toEqual(deploymentCodegenAnalysis());
+  });
+
+  it("exposes typed response decode failures before compatibility parsing", async () => {
+    await expect(Effect.runPromise(decodeDeploymentErrorResponseEffect({ message: "wrong envelope" })))
+      .rejects.toMatchObject({
+        schema: "DeploymentErrorResponse",
+        message: "Deployment error response did not match the deployment protocol.",
+      });
+
+    await expect(Effect.runPromise(decodeDeploymentHealthResponseEffect({
+      service: "wrong",
+      status: "ok",
+    }))).rejects.toMatchObject({
+      schema: "DeploymentHealthResponse",
+      message: "Deployment health response did not match the deployment protocol.",
+    });
+
+    await expect(Effect.runPromise(decodeActiveDeploymentStatusEffect({
+      ...activeDeploymentStatus(),
+      activePushId: 42,
+    }))).rejects.toMatchObject({
+      schema: "ActiveDeploymentStatus",
+      message: "Active deployment response did not match the deployment protocol.",
+    });
+
+    await expect(Effect.runPromise(decodePushStatusEffect({
+      ...pushStatus(),
+      state: "missing-state",
+    }))).rejects.toMatchObject({
+      schema: "PushStatus",
+      message: "Deployment push response did not match the deployment protocol.",
+    });
+
+    await expect(Effect.runPromise(decodeFinishPushResponseEffect({
+      result: "activated",
+      push: { ...pushStatus(), state: "missing-state" },
+    }))).rejects.toMatchObject({
+      schema: "FinishPushResponse",
+      message: "Finish push response did not match the deployment protocol.",
+    });
+  });
+
+  it("parses active deployment responses with deep analysis payloads", () => {
+    const active = activeDeploymentStatus();
+
+    expect(parseActiveDeploymentStatus(active)).toEqual(active);
+  });
+
+  it("decodes response payloads through Effect before compatibility parsing", async () => {
+    const push = pushStatus();
+
+    await expect(Effect.runPromise(decodeDeploymentErrorResponseEffect({ error: "Unknown push: push-missing" })))
+      .resolves.toEqual({ error: "Unknown push: push-missing" });
+    await expect(Effect.runPromise(decodeDeploymentHealthResponseEffect({
+      service: "flarex-deployment",
+      status: "ok",
+    }))).resolves.toEqual({
+      service: "flarex-deployment",
+      status: "ok",
+    });
+    await expect(Effect.runPromise(decodeActiveDeploymentStatusEffect(activeDeploymentStatus())))
+      .resolves.toEqual(activeDeploymentStatus());
+    await expect(Effect.runPromise(decodePushStatusEffect(push))).resolves.toEqual(push);
+    await expect(Effect.runPromise(decodeFinishPushResponseEffect({ result: "activated", push })))
+      .resolves.toEqual({ result: "activated", push });
   });
 
   it("parses push and finish responses with deep analysis payloads", () => {
@@ -280,6 +351,36 @@ function sourcePackage() {
     ],
     functions: ["lessons.ts"],
     execution: "__execution.ts",
+  };
+}
+
+function pushStatus() {
+  return {
+    pushId: "push_1",
+    state: "analyzed",
+    sourcePackage: sourcePackage(),
+    analysis: deploymentAnalysis(),
+    codegenAnalysis: deploymentCodegenAnalysis(),
+    diagnostics: [{ level: "log", message: "ok" }],
+    createdAt: 1,
+    updatedAt: 2,
+  };
+}
+
+function activeDeploymentStatus() {
+  return {
+    activePushId: "push_1",
+    activatedAt: 3,
+    schemaVersion: 1,
+    executionArtifactRef: {
+      runtime: "dynamic-worker",
+      artifactId: "artifact_1",
+      sourcePackageHash: "a".repeat(64),
+      executionModule: "__execution.ts",
+    },
+    sourcePackage: sourcePackage(),
+    analysis: deploymentAnalysis(),
+    codegenAnalysis: deploymentCodegenAnalysis(),
   };
 }
 

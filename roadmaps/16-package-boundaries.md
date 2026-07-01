@@ -1,5 +1,42 @@
 # Package Boundaries
 
+## Deployment HttpApi Response Protocol Effect Boundary
+
+Previous completed checkpoint: `a661a14` Validate registry HttpApi responses with Effect.
+
+What changed:
+
+- `flarex-protocol/deployment` owns Effect response decoders for generated
+  Deployment HttpApi success/error envelopes.
+- `DeploymentApiHandlers` consumes those decoders for active deployment,
+  push-status, and finish-push success responses and no longer imports Effect
+  Schema directly for response validation.
+- Deployment protocol response validation failures stay typed as
+  `DeploymentProtocolValidationError` until the generated HttpApi handler maps
+  them to the declared storage-error response.
+
+Boundary decision:
+
+The protocol package owns deployment transport response shape. The Deployment
+service owns push lifecycle and response production. The generated HttpApi
+handler owns only final conversion from typed service/protocol failures to
+declared HttpApi response classes.
+
+Known limitations:
+
+- This checkpoint does not change DeploymentDO lifecycle, deployment storage,
+  public deployment route boundary code, PartitionDO SQL/OCC, executor-http, or
+  `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Registry HttpApi Response Effect Boundary
 
 Previous completed checkpoint: `414c09f` Add registry protocol effect decoders.

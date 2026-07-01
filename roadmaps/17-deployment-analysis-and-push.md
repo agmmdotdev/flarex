@@ -1,5 +1,43 @@
 # Deployment Analysis And Push
 
+## Deployment HttpApi Response Protocol Effect Boundary
+
+Previous completed checkpoint: `a661a14` Validate registry HttpApi responses with Effect.
+
+What changed:
+
+- Deployment response envelopes now have protocol-owned Effect decoders for
+  health, error, active deployment, push status, and finish push responses.
+- Generated `DeploymentApiHandlers` validates active deployment, push-status,
+  and finish-push service results through the protocol Effect decoders before
+  returning generated HttpApi success responses.
+- Response shape failures stay typed as `DeploymentProtocolValidationError`
+  until the handler maps them to the declared deployment storage-error
+  response.
+
+Why it changed:
+
+Deployment push analysis and activation produce protocol-visible response
+payloads. Those outputs should be checked at the same reusable protocol
+boundary as request payloads, with the handler responsible only for final
+HttpApi error conversion.
+
+Known limitations:
+
+- This checkpoint does not alter push state transitions, active deployment
+  activation, artifact storage behavior, storage schema, route path matching,
+  analyzer behavior, public finish artifact preflight, public invoke/execution
+  dispatch, PartitionDO SQL/OCC, or `ValidatorJson`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-protocol test -- --testTimeout=120000 --hookTimeout=120000
+node ./node_modules/vitest/vitest.mjs run packages/flarex-backend/test/deploymentHttpApiHandlers.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+```
+
 ## Deployment Protocol Request Effect Decoders
 
 Previous completed checkpoint: `ede61de` Add public invoke protocol effect decoder.

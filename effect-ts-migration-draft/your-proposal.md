@@ -2,7 +2,7 @@
 
 Current migration state:
 
-- Previous completed checkpoint: Registry HttpApi response Effect boundary.
+- Previous completed checkpoint: Deployment HttpApi response protocol Effect boundary.
 - Active checkpoint: choose the next backend Worker/DO route/service group that can move a full route or service path to typed Effect service/domain errors and one adapter HTTP mapping edge.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
@@ -48,17 +48,40 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after the registry HttpApi response Effect boundary:
+Next recommended checkpoint after the deployment HttpApi response protocol Effect boundary:
 
-1. Prefer the next backend Worker/DO service boundary that can keep route,
-   maintenance, and continuation failures in typed Effect channels until one
-   adapter mapping edge, without changing PartitionDO SQL/OCC behavior.
+1. Prefer a fuller deployment route/service slice now that request, domain
+   validation, and generated HttpApi response boundaries have Effect decoders.
+   Good candidates are public deployment push route JSON/body reading or
+   DeploymentDO push lifecycle service extraction, provided the slice keeps
+   HTTP conversion at one adapter edge.
 2. Keep each public Worker or Durable Object entrypoint at one
    `Effect.runPromise` edge and one HTTP mapper.
 3. Preserve the existing HTTP response body/status exactly through adapter
    mapping tests.
 4. Continue avoiding PartitionDO SQL/OCC rewrites until schema wrapping and
    service extraction are separated from logic changes.
+
+Completed Goal 273 slice:
+
+1. Move deployment generated HttpApi response validation for active
+   deployment, push-status, and finish-push responses off the backend-local
+   `Schema.decodeUnknownEffect(...)` cast and onto protocol-owned Effect
+   response decoders.
+2. Add protocol-owned Effect decoders for deployment health responses,
+   deployment error responses, active deployment status, push status, and
+   finish-push response envelopes, while keeping the existing throwing
+   `parse...(...)` compatibility wrappers.
+3. Add `mapDeploymentProtocolResponseFailure(...)` as the generated Deployment
+   HttpApi adapter edge that maps typed `DeploymentProtocolValidationError`
+   response failures to the declared `DeploymentStorageErrorResponse`.
+4. Preserve generated Deployment HttpApi route behavior, response status/body
+   mapping, Deployment service/store behavior, DeploymentDO push lifecycle,
+   public finish artifact preflight, PartitionDO SQL/OCC, executor-http, and
+   `ValidatorJson` unchanged.
+5. Add direct protocol coverage for typed response decoder success/failure
+   channels and backend handler coverage for typed protocol response failure
+   mapping.
 
 Completed Goal 272 slice:
 
