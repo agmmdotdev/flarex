@@ -35,15 +35,6 @@ export function errorResponse(error: unknown): Response {
   );
 }
 
-export async function readJson<T>(request: Request): Promise<T> {
-  return await Effect.runPromise(
-    readJsonEffect(request).pipe(
-      Effect.map(value => value as T),
-      Effect.mapError(requestJsonErrorToHttpError),
-    ),
-  );
-}
-
 export function readJsonEffect(request: Request): Effect.Effect<unknown, RequestJsonError> {
   return Effect.tryPromise({
     try: () => request.json() as Promise<unknown>,
@@ -78,9 +69,4 @@ export function readResponseJsonOrNullEffect(
 
 export function requestJsonErrorToHttpError(error: RequestJsonError): HttpError {
   return new HttpError(400, error.message);
-}
-
-export function required(value: string | undefined, name: string): string {
-  if (!value) throw new HttpError(400, `Missing ${name}.`);
-  return value;
 }

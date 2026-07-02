@@ -168,6 +168,34 @@ rg -n "Effect\\.runPromise\\(" packages -g "**/src/**/*.ts"
 git diff --check
 ```
 
+## PartitionDO Domain Validation Error Boundary
+
+Previous completed checkpoint: this F-2a checkpoint commit.
+
+PartitionDO no longer emits adapter `HttpError` directly from its domain
+validation helpers. Schema-cache validation, document validation,
+partition-owner uniqueness, and placement validation now throw the tagged
+`PartitionDomainValidationError` at the validation source.
+
+Boundary decision:
+
+- PartitionDO validation helpers own the domain validation message.
+- `routePartitionJsonResult(...)` catches synchronous and asynchronous
+  operation failures and converts `PartitionDomainValidationError` into
+  `PartitionRouteOperationError`.
+- `partitionInternalRouteErrorToResponse(...)` remains the adapter edge that
+  maps the typed route operation error to the existing HTTP status/body.
+- `ValidatorJson` validation stays in `packages/flarex-backend/src/validation`
+  and is not replaced by Effect Schema.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/transaction.test.ts test/partitionRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Live Query Protocol Package Boundary
 
 Previous completed checkpoint: `b3badab` Decide executor HTTP adapter

@@ -585,6 +585,30 @@ The Effect migration is complete only when all of these are true:
     migration scope.
 - [ ] F-2. For every remaining occurrence, either migrate it or add a short
   code comment explaining why it is a deliberate runtime bridge exception.
+  - [x] F-2a. Remove unused backend compatibility helpers and convert
+    PartitionDO domain `HttpError` throws to typed domain validation errors
+    mapped at the route adapter edge.
+    - Completed by: this F-2a checkpoint commit.
+    - Files:
+      `packages/flarex-backend/src/http.ts`,
+      `packages/flarex-backend/src/partitionDO.ts`,
+      `effect-ts-migration-draft/your-proposal.md`,
+      `roadmaps/22-effect-migration-checklist.md`,
+      `roadmaps/16-package-boundaries.md`.
+    - Decision:
+      `PartitionDomainValidationError` now owns schema-cache, document
+      validation, partition-owner uniqueness, and placement validation failures
+      inside PartitionDO. The route-operation adapter maps it back to the same
+      HTTP status and body as before.
+    - Tests:
+      `packages/flarex-backend/test/transaction.test.ts`,
+      `packages/flarex-backend/test/partitionRouteBoundary.test.ts`.
+  - [ ] F-2b. Address nested invoke operation `Effect.runPromise(...)` bridges
+    without changing user-function execution or HTTP behavior.
+  - [ ] F-2c. Add short code comments for deliberate runtime bridge exceptions:
+    route-boundary JSON helpers, typed storage/protocol `JSON.parse(...)`
+    bridges including `flarex-dev` source maps, and Worker/DO/executor/dev
+    `Effect.runPromise(...)` adapter edges.
 - [ ] F-3. Run package and workspace gates:
 
 ```sh
@@ -610,11 +634,11 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with F-2:
+Continue with F-2b:
 
-For every remaining F-1 occurrence, either migrate it or add a short code
-comment explaining why it is a deliberate runtime bridge exception. Start with
-the migration-required backend targets: remove unused `readJson<T>(...)` and
-`required(...)`, convert PartitionDO domain `HttpError` throws to typed errors
-mapped at the adapter edge, and address nested invoke operation promise
-bridges without changing HTTP behavior.
+Address nested invoke operation `Effect.runPromise(...)` bridges without
+changing user-function execution or HTTP behavior. Then finish F-2c by adding
+short code comments for deliberate runtime bridge exceptions: route-boundary
+JSON helpers, typed storage/protocol `JSON.parse(...)` bridges including
+`flarex-dev` source maps, and Worker/DO/executor/dev `Effect.runPromise(...)`
+adapter edges.

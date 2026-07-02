@@ -229,14 +229,14 @@ export class PartitionDO extends DurableObject<Env> {
     const schemaCandidate = body.schema ?? body;
     const partitionKey = body.partitionKey;
     if (typeof partitionKey !== "string" || partitionKey.length === 0) {
-      throw new HttpError(400, "partitionKey must be provided with schema-cache.");
+      throw partitionDomainValidationError("partitionKey must be provided with schema-cache.");
     }
     if (
       typeof schemaCandidate.version !== "number" ||
       !Array.isArray(schemaCandidate.tables) ||
       !Array.isArray(schemaCandidate.indexes)
     ) {
-      throw new HttpError(400, "schema-cache requires a deployment schema.");
+      throw partitionDomainValidationError("schema-cache requires a deployment schema.");
     }
     const schema = {
       version: schemaCandidate.version,
@@ -447,7 +447,9 @@ export class PartitionDO extends DurableObject<Env> {
           write.tableId,
         )
         .toArray()[0];
-      if (!row) throw new HttpError(400, `Write references unknown table id ${write.tableId}.`);
+      if (!row) {
+        throw partitionDomainValidationError(`Write references unknown table id ${write.tableId}.`);
+      }
       const placement = decodePartitionStorageTablePlacementJsonSync(row.partition_rule_json);
       if (write.value === null) {
         const current = this.getCurrentDocument(write.tableId, write.id);
@@ -476,7 +478,7 @@ export class PartitionDO extends DurableObject<Env> {
           });
         } catch (error) {
           if (error instanceof BackendValidationError) {
-            throw new HttpError(400, `DocumentValidationError: ${error.message}`);
+            throw partitionDomainValidationError(`DocumentValidationError: ${error.message}`);
           }
           throw error;
         }
@@ -495,8 +497,7 @@ export class PartitionDO extends DurableObject<Env> {
         const key = partitionOwnerKey(claim);
         const existingClaim = claims.get(key);
         if (existingClaim !== undefined && existingClaim.documentId !== write.id) {
-          throw new HttpError(
-            400,
+          throw partitionDomainValidationError(
             `UniquePartitionOwnerError: ${row.table_name}.${ownerField} ${JSON.stringify(ownerValue)} is claimed by multiple documents in this commit.`,
           );
         }
@@ -522,8 +523,7 @@ export class PartitionDO extends DurableObject<Env> {
         existing.document_id !== claim.documentId &&
         existing.document_id !== released?.documentId
       ) {
-        throw new HttpError(
-          400,
+        throw partitionDomainValidationError(
           `UniquePartitionOwnerError: ${claim.tableName}.${claim.ownerField} ${JSON.stringify(claim.ownerValue)} already belongs to document ${existing.document_id}.`,
         );
       }
@@ -540,24 +540,21 @@ export class PartitionDO extends DurableObject<Env> {
     if (placementField === null) return;
     const partitionKey = this.partitionKey();
     if (partitionKey === null) {
-      throw new HttpError(400, "Partition placement validation requires a cached partitionKey.");
+      throw partitionDomainValidationError("Partition placement validation requires a cached partitionKey.");
     }
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-      throw new HttpError(
-        400,
+      throw partitionDomainValidationError(
         `PlacementValidationError: $document(${tableName}) must be an object for placement validation.`,
       );
     }
     const placementValue = value[placementField];
     if (typeof placementValue !== "string" || placementValue.length === 0) {
-      throw new HttpError(
-        400,
+      throw partitionDomainValidationError(
         `PlacementValidationError: $document(${tableName}).${placementField} must be a non-empty string matching partitionKey.`,
       );
     }
     if (placementValue !== partitionKey) {
-      throw new HttpError(
-        400,
+      throw partitionDomainValidationError(
         `PlacementValidationError: $document(${tableName}).${placementField} must match partitionKey ${partitionKey}.`,
       );
     }
@@ -1198,6 +1195,13 @@ class PartitionRouteOperationError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
+class PartitionDomainValidationError extends Data.TaggedError(
+  "PartitionDomainValidationError",
+)<{
+  readonly status: 400;
+  readonly message: string;
+}> {}
+
 type PartitionInternalRouteError =
   | PartitionRouteError
   | PartitionRouteOperationError;
@@ -1221,6 +1225,14 @@ function partitionRouteOperationError(
   cause: unknown,
 ): PartitionRouteOperationError {
   if (cause instanceof HttpError) {
+    return new PartitionRouteOperationError({
+      operation,
+      status: cause.status,
+      message: cause.message,
+      cause,
+    });
+  }
+  if (cause instanceof PartitionDomainValidationError) {
     return new PartitionRouteOperationError({
       operation,
       status: cause.status,
@@ -1271,6 +1283,13 @@ function resolveDocumentWrite(write: DocumentWrite): ResolvedDocumentWrite {
   return { ...write, id: write.id ?? encodeFlarexId(write.tableId) };
 }
 
+function partitionDomainValidationError(message: string): PartitionDomainValidationError {
+  return new PartitionDomainValidationError({
+    status: 400,
+    message,
+  });
+}
+
 function ownerFieldForPlacement(placement: TablePlacement): string | null {
   if (placement.kind === "colocateWith") return placement.field;
   if (placement.kind === "partitionBy" && placement.field !== "_id") {
@@ -1286,15 +1305,13 @@ function rootOwnerFieldForPlacement(placement: TablePlacement): string | null {
 
 function documentOwnerValue(tableName: string, ownerField: string, value: Json): string {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(
-      400,
+    throw partitionDomainValidationError(
       `PlacementValidationError: $document(${tableName}) must be an object for placement validation.`,
     );
   }
   const ownerValue = value[ownerField];
   if (typeof ownerValue !== "string" || ownerValue.length === 0) {
-    throw new HttpError(
-      400,
+    throw partitionDomainValidationError(
       `PlacementValidationError: $document(${tableName}).${ownerField} must be a non-empty string matching partitionKey.`,
     );
   }

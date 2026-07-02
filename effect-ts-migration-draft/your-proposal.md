@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: F-1 repo-wide final-exit audit in this checkpoint commit.
-- Active checkpoint: F-2 migrate or document every remaining F-1 occurrence, starting with backend domain `HttpError` and nested runtime bridge targets.
+- Previous completed checkpoint: F-2a PartitionDO domain validation cleanup in this checkpoint commit.
+- Active checkpoint: F-2b nested invoke operation `Effect.runPromise(...)` bridge cleanup, then F-2c deliberate bridge comments for remaining JSON/runtime edges.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -54,18 +54,26 @@ Required direction for the next phase:
 
 Next recommended checkpoint after F-1 final-exit audit:
 
-1. Remove dead backend compatibility helpers `readJson<T>(...)` and
-   `required(...)` if they remain unused.
-2. Convert the remaining PartitionDO domain `throw new HttpError(...)` sites
-   into typed errors emitted at validation/source boundaries and mapped at the
-   existing adapter edge.
-3. Address nested invoke operation `Effect.runPromise(...)` bridges without
+1. Address nested invoke operation `Effect.runPromise(...)` bridges without
    changing user-function execution or HTTP behavior.
-4. Add short code comments for deliberate runtime bridges that must remain:
+2. Add short code comments for deliberate runtime bridges that must remain:
    adapter JSON helpers, storage/protocol JSON parser bridges, and Worker/DO
    runtime edges, including the `flarex-dev` source-map JSON parser casts if
    they remain intentional after review.
-5. Preserve `ValidatorJson` ownership and all existing HTTP response bodies.
+3. Preserve `ValidatorJson` ownership and all existing HTTP response bodies.
+
+Completed Goal 370 slice:
+
+1. Removed unused backend compatibility helpers `readJson<T>(...)` and
+   `required(...)` from `packages/flarex-backend/src/http.ts`.
+2. Replaced PartitionDO direct domain `HttpError` throws with tagged
+   `PartitionDomainValidationError` failures for schema-cache validation,
+   write table validation, document validation, partition-owner uniqueness,
+   and placement validation.
+3. Kept `PartitionRouteOperationError` as the route adapter mapping edge, so
+   PartitionDO HTTP status and response bodies remain unchanged.
+4. Validated the slice with backend typecheck plus focused transaction and
+   partition route-boundary tests before marking F-2a complete.
 
 Completed Goal 369 slice:
 
