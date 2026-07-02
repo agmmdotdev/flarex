@@ -32,13 +32,11 @@ ledger would eventually become a giant project-history document and duplicate
 the focused domain records. The automatic commit rule remains, but checkpoint
 history now stays with the domain it explains.
 
-Added an Effect-TS migration-specific reviewer checkpoint. Effect migration
-diffs now use only `effect-ts-quality-checker` instead of the legacy
-`typescript-diff-reviewer` plus `code-quality-diff-reviewer` pair. The new
-reviewer is read-only, diff-scoped, and points future agents at the local
-`effect-smol` and `t3code` opensrc references for Effect style, service/layer
-composition, typed errors, HttpApi boundaries, runtime boundaries, and Effect
-testing patterns.
+Reworked the two standing reviewer prompts after the Effect migration completed.
+`typescript-diff-reviewer` and `code-quality-diff-reviewer` are now
+Effect-aware reviewers for ordinary core implementation work as well as Effect
+service/schema/runtime changes. Removed the migration-only reviewer prompt so
+reviewer routing no longer depends on a special migration exception.
 
 ## Why This Shape
 
@@ -70,9 +68,10 @@ Convex source tree to remain nearby for reference.
 - A domain roadmap's implementation history intentionally trails its newest
   commit by one repository-changing turn because Git commit IDs are
   content-derived.
-- The Effect-TS reviewer relies on the ignored local `opensrc/` cache for
-  reference material. If that cache is missing on a future machine, refresh
-  `effect-TS/effect-smol` and `pingdotgg/t3code` before using the reviewer.
+- The standing reviewers rely on the ignored local `opensrc/` cache for
+  optional Effect reference material. If that cache is missing on a future
+  machine, refresh `effect-TS/effect-smol` and `pingdotgg/t3code` before using
+  those reference-backed review sections.
 
 ## Implementation Checkpoints
 
@@ -96,12 +95,18 @@ corrects checkpoint recording to stay domain-specific.
 
 Cleaned up the global chronological implementation log, leaving implementation checkpoint history domain-specific in their respective roadmaps.
 
+### `3d0a85b` Wire hosted runtime core bindings
+
+Started the post-migration core implementation lane by wiring hosted backend
+bindings and adding the first hosted-shaped runtime integration proof.
+
 ### Pending checkpoint
 
-Added `.codex/agents/effect-ts-quality-checker.toml` and updated `AGENTS.md`
-so Effect-TS migration checkpoints use only that reviewer. The prompt records
-the relevant `effect-smol` and `t3code` reference files for future review
-passes.
+Reworked `.codex/agents/typescript-diff-reviewer.toml` and
+`.codex/agents/code-quality-diff-reviewer.toml` to include the Effect quality
+bar from the migration-only reviewer, removed
+the migration-only reviewer file, and updated `AGENTS.md` so all significant
+code changes use the two standing Effect-aware reviewers.
 
 ## Verification
 
@@ -110,4 +115,6 @@ git status --short
 git log --oneline -8
 git diff --check
 git -C C:\Users\Admin\Documents\github\convex-backend status --short -- .gitignore custom/cloudflare-executor
+Test-Path .codex/agents/*effect*quality*checker*.toml
+rg -n "legacy reviewers|Effect-TS migration changes" AGENTS.md .codex effect-ts-migration-draft -g "*.md" -g "*.toml"
 ```

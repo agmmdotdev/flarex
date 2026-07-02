@@ -4,21 +4,17 @@ These are operating rules for future agents working in this workspace. Feature
 design records, implementation notes, Convex references, and Cloudflare
 differences belong in `roadmaps/`, not in this file.
 
-Before committing a significant code change, spawn the required project custom
-reviewer subagent(s).
+Before committing a significant code change, spawn both project custom reviewer
+subagents: `typescript-diff-reviewer` and `code-quality-diff-reviewer`.
+Significant code changes include behavior changes, public contract/type changes,
+data model/schema/migration changes, non-trivial refactors, or test changes
+that materially alter coverage or expectations.
 
-For ordinary significant code changes, spawn both legacy reviewers:
-`typescript-diff-reviewer` and `code-quality-diff-reviewer`. Significant code
-changes include behavior changes, public contract/type changes, data
-model/schema/migration changes, non-trivial refactors, or test changes that
-materially alter coverage or expectations.
-
-For Effect-TS migration changes, spawn only `effect-ts-quality-checker`. Do not
-also spawn `typescript-diff-reviewer` or `code-quality-diff-reviewer` for the
-same Effect migration checkpoint. Effect-TS migration changes include adding or
-refactoring Effect services, Layers, Effect Schema contracts, HttpApi
-boundaries, typed Effect errors, ManagedRuntime/runtime-boundary wiring,
-Effect-based tests, or replacing promise/try-catch flows with Effect pipelines.
+The two standing reviewers are now Effect-aware. Use them for ordinary core
+implementation work and for changes that touch Effect services, Layers, Effect
+Schema contracts, HttpApi boundaries, typed Effect errors, runtime-boundary
+wiring, Effect-based tests, or promise/try-catch to Effect pipeline changes.
+There is no separate Effect migration reviewer.
 
 Do not require reviewer subagents for docs-only commits, planning/roadmap
 updates, formatting-only changes, generated-file refreshes, or minor mechanical

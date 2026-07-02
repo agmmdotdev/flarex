@@ -15,8 +15,8 @@ Current baseline:
 - Previous completed checkpoint: F-5 final completion audit in this checkpoint
   commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
-- Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
-  migration checkpoints.
+- Reviewer during the migration: the migration-only Effect reviewer was used
+  before the standing reviewers were made Effect-aware.
 - Required final gates for backend Effect checkpoints:
 
 ```sh
