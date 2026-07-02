@@ -42,3 +42,5 @@ Start with:
 - [19-function-routing-and-shard-policy.md](./19-function-routing-and-shard-policy.md)
 - [20-postgres-executor.md](./20-postgres-executor.md)
 - [21-cloudflare-freshness-cache.md](./21-cloudflare-freshness-cache.md)
+- [22-effect-migration-checklist.md](./22-effect-migration-checklist.md)
+- [23-hosted-runtime-core.md](./23-hosted-runtime-core.md)

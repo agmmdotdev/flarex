@@ -54,6 +54,30 @@
       "*/1 * * * *"
     ]
   },
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACTS",
+      "bucket_name": "flarex-artifacts"
+    }
+  ],
+  "services": [
+    {
+      "binding": "FLAREX_ANALYZER",
+      "service": "flarex-analyzer"
+    },
+    {
+      "binding": "FLAREX_EXECUTOR",
+      "service": "flarex-executor"
+    },
+    {
+      "binding": "FLAREX_ARTIFACT_RUNTIME",
+      "service": "flarex-artifact-runtime"
+    }
+  ],
+  "vars": {
+    "FLAREX_PROJECT_ID": "default",
+    "FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE": "true"
+  },
   "observability": {
     "enabled": true
   }
