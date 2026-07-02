@@ -1,5 +1,61 @@
 # Hosted Runtime Core
 
+## Artifact Runtime Wrapper
+
+Previous completed checkpoint: `3d0a85b` (`Wire hosted runtime core bindings`).
+
+What changed:
+
+- Added `apps/artifact-runtime` as the deployable Worker wrapper for the
+  artifact runtime service binding target.
+- Declared the production binding shape in `apps/artifact-runtime/wrangler.jsonc`:
+  - `ARTIFACTS` R2 bucket for durable execution source packages.
+  - `FLAREX_ARTIFACT_RUNTIME_TOKEN` as a Wrangler secret, not checked-in vars.
+- Wired the wrapper to `createExecutionArtifactRuntimeService(...)` with
+  `R2BackendExecutionArtifactStore`, so backend ref-only invokes can be resolved
+  inside the artifact runtime Worker.
+- Kept materialization injected behind `ExecutionArtifactMaterializer`. The
+  default deployable wrapper now returns an explicit 501-style boundary error
+  until the real Cloudflare Dynamic Worker materializer is implemented.
+- Added app-local coverage proving:
+  - service-binding auth is enforced at the wrapper edge,
+  - missing `FLAREX_ARTIFACT_RUNTIME_TOKEN` fails closed instead of disabling
+    auth,
+  - a ref-only invoke loads its source package from R2 before materialization,
+  - repeated invokes in one Worker env reuse the runtime service/materializer
+    cache,
+  - the deployable default fails explicitly instead of pretending Dynamic Worker
+    materialization exists.
+
+Why it changed:
+
+The backend wrapper already sends ref-only payloads when
+`FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE=true`. This checkpoint gives that service
+binding a real deployable Worker shape with the same R2 bucket and token
+contract, while keeping the still-missing Dynamic Worker loader isolated behind
+one materializer port.
+
+Known limitations:
+
+- The artifact runtime wrapper is deployable-shaped and R2-backed, but the
+  default materializer is intentionally not implemented yet. The next core
+  slice should replace that placeholder with a Dynamic Worker-backed
+  `ExecutionArtifactMaterializer`.
+- The wrapper currently caches runtime services per Worker env object. That
+  preserves artifact cache reuse in one isolate; production cache lifecycle
+  tuning belongs with the real materializer.
+- Analyzer and executor deployable apps still need their own wrappers.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/artifact-runtime test
+corepack pnpm --filter @flarex/artifact-runtime typecheck
+corepack pnpm --filter @flarex/artifact-runtime build
+corepack pnpm --filter @flarex/artifact-runtime deploy:dry-run
+git diff --check
+```
+
 ## Backend Wrapper Binding Shape
 
 Previous completed checkpoint: none.

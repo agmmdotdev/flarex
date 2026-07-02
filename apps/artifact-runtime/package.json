@@ -1,0 +1,19 @@
+{
+  "name": "@flarex/artifact-runtime",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "deploy:dry-run": "wrangler deploy --dry-run --outdir dist",
+    "dev": "wrangler dev --local",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "flarex-backend": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "flarex-artifact-runtime",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-06-14",
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACTS",
+      "bucket_name": "flarex-artifacts"
+    }
+  ],
+  // Configure with `wrangler secret put FLAREX_ARTIFACT_RUNTIME_TOKEN`.
+  "observability": {
+    "enabled": true
+  }
+}
