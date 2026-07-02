@@ -603,8 +603,23 @@ The Effect migration is complete only when all of these are true:
     - Tests:
       `packages/flarex-backend/test/transaction.test.ts`,
       `packages/flarex-backend/test/partitionRouteBoundary.test.ts`.
-  - [ ] F-2b. Address nested invoke operation `Effect.runPromise(...)` bridges
+  - [x] F-2b. Address nested invoke operation `Effect.runPromise(...)` bridges
     without changing user-function execution or HTTP behavior.
+    - Completed by: this F-2b checkpoint commit.
+    - Files:
+      `packages/flarex-backend/src/invoke.ts`,
+      `packages/flarex-backend/test/invoke.test.ts`,
+      `effect-ts-migration-draft/your-proposal.md`,
+      `roadmaps/16-package-boundaries.md`,
+      `roadmaps/22-effect-migration-checklist.md`.
+    - Decision:
+      removed the production-exported test-only
+      `invokeTransactionOperationToPromise(...)` runtime edge, moved tests to a
+      local Effect-returning transaction helper, and kept
+      `invokeDatabaseOperation(...)` as the documented bridge from typed
+      database effects to the Promise-returning `ctx.db` user API.
+    - Tests:
+      `packages/flarex-backend/test/invoke.test.ts`.
   - [ ] F-2c. Add short code comments for deliberate runtime bridge exceptions:
     route-boundary JSON helpers, typed storage/protocol `JSON.parse(...)`
     bridges including `flarex-dev` source maps, and Worker/DO/executor/dev
@@ -634,11 +649,10 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Continue with F-2b:
+Continue with F-2c:
 
-Address nested invoke operation `Effect.runPromise(...)` bridges without
-changing user-function execution or HTTP behavior. Then finish F-2c by adding
-short code comments for deliberate runtime bridge exceptions: route-boundary
-JSON helpers, typed storage/protocol `JSON.parse(...)` bridges including
-`flarex-dev` source maps, and Worker/DO/executor/dev `Effect.runPromise(...)`
-adapter edges.
+Add short code comments for deliberate runtime bridge exceptions:
+route-boundary JSON helpers, typed storage/protocol `JSON.parse(...)` bridges
+including `flarex-dev` source maps, and Worker/DO/executor/dev
+`Effect.runPromise(...)` adapter edges. Then rerun the final F-2 audit and tick
+F-2 only if every remaining occurrence is either migrated or documented.

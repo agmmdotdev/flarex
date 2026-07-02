@@ -23,7 +23,6 @@ import {
   findQueryIndexEffect,
   invokeActiveDeploymentLoadErrorToHttpError,
   invokeRuntimeErrorToHttpError,
-  invokeTransactionOperationToPromise,
   invokeValidationErrorToHttpError,
   loadActiveDeployment,
   loadActiveDeploymentEffect,
@@ -52,7 +51,7 @@ import {
   type InvokeTransactionOperation,
 } from "../src/invoke";
 import { encodeIndexValues, indexKeyAfterPrefix } from "../src/indexKeys";
-import { SingleShardTransaction } from "../src/transaction";
+import { SingleShardTransaction, type TransactionOperationError } from "../src/transaction";
 import type {
   AnalyzedStartPushRequest,
   ActiveDeploymentStatus,
@@ -68,6 +67,18 @@ let harness: BackendHarness;
 let env: Env;
 const testDeploymentSchemas = new Map<string, DeploymentSchema>();
 const testDeploymentFunctions = new Map<string, DeploymentFunctions>();
+
+function runInvokeTransactionOperation<A>(
+  operation: InvokeTransactionOperation<A>,
+): Effect.Effect<A, Error | TransactionOperationError> {
+  if (Effect.isEffect(operation)) {
+    return operation;
+  }
+  return Effect.tryPromise({
+    try: operation,
+    catch: cause => new Error(cause instanceof Error ? cause.message : String(cause)),
+  });
+}
 
 beforeAll(async () => {
   harness = await createBackendHarness();
@@ -706,10 +717,7 @@ describe("executeInvoke", () => {
     await SingleShardTransaction.ensureSchema(env, deploymentId, "u1", schema);
     const tx = await SingleShardTransaction.begin(env, deploymentId, "u1");
     const runTransaction = <A>(operation: InvokeTransactionOperation<A>) =>
-      Effect.tryPromise({
-        try: () => invokeTransactionOperationToPromise(operation),
-        catch: cause => new Error(cause instanceof Error ? cause.message : String(cause)),
-      });
+      runInvokeTransactionOperation(operation);
 
     const malformedGet = await Effect.runPromise(Effect.flip(
       getDocumentEffect(tx, schema, "not-an-id", runTransaction),
@@ -957,10 +965,7 @@ describe("executeInvoke", () => {
     await SingleShardTransaction.ensureSchema(env, deploymentId, "u1", schema);
     const tx = await SingleShardTransaction.begin(env, deploymentId, "u1");
     const runTransaction = <A>(operation: InvokeTransactionOperation<A>) =>
-      Effect.tryPromise({
-        try: () => invokeTransactionOperationToPromise(operation),
-        catch: cause => new Error(cause instanceof Error ? cause.message : String(cause)),
-      });
+      runInvokeTransactionOperation(operation);
 
     const missingIndex = await Effect.runPromise(Effect.flip(
       queryDocumentsEffect(tx, schema, { table: "users" }, runTransaction),

@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: F-2a PartitionDO domain validation cleanup in this checkpoint commit.
-- Active checkpoint: F-2b nested invoke operation `Effect.runPromise(...)` bridge cleanup, then F-2c deliberate bridge comments for remaining JSON/runtime edges.
+- Previous completed checkpoint: F-2b nested invoke operation bridge cleanup in this checkpoint commit.
+- Active checkpoint: F-2c deliberate bridge comments for remaining JSON/runtime edges.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,15 +52,27 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after F-1 final-exit audit:
+Next recommended checkpoint after F-2b:
 
-1. Address nested invoke operation `Effect.runPromise(...)` bridges without
-   changing user-function execution or HTTP behavior.
-2. Add short code comments for deliberate runtime bridges that must remain:
+1. Add short code comments for deliberate runtime bridges that must remain:
    adapter JSON helpers, storage/protocol JSON parser bridges, and Worker/DO
    runtime edges, including the `flarex-dev` source-map JSON parser casts if
    they remain intentional after review.
-3. Preserve `ValidatorJson` ownership and all existing HTTP response bodies.
+2. Preserve `ValidatorJson` ownership and all existing HTTP response bodies.
+
+Completed Goal 371 slice:
+
+1. Removed the production-exported `invokeTransactionOperationToPromise(...)`
+   helper because it was only a test bridge and introduced an extra
+   `Effect.runPromise(...)` edge in `packages/flarex-backend/src/invoke.ts`.
+2. Moved test transaction operation execution to a local Effect-returning helper
+   in `packages/flarex-backend/test/invoke.test.ts`, preserving typed
+   transaction failures without a production runtime boundary.
+3. Kept `invokeDatabaseOperation(...)` as the deliberate bridge from typed
+   database effects to the Promise-returning `ctx.db` API exposed to user
+   handlers, with a short code comment documenting the boundary.
+4. Preserved user-function execution, invoke HTTP behavior, and `ValidatorJson`
+   ownership unchanged.
 
 Completed Goal 370 slice:
 

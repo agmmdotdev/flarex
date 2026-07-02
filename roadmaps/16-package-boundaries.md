@@ -196,6 +196,37 @@ corepack pnpm --filter flarex-backend exec vitest run test/transaction.test.ts t
 git diff --check
 ```
 
+## Invoke Database Promise Boundary
+
+Previous completed checkpoint: this F-2b checkpoint commit.
+
+`packages/flarex-backend/src/invoke.ts` no longer exports
+`invokeTransactionOperationToPromise(...)`. That helper only supported tests and
+added an avoidable production `Effect.runPromise(...)` match. Focused invoke
+tests now use a local Effect-returning transaction helper, so transaction
+operation failures stay typed while production source loses the test-only
+runtime edge.
+
+Boundary decision:
+
+- `invokeTransactionOperationResult(...)` remains production-internal and returns
+  either the existing Promise operation or typed `Effect` operation for
+  `invokeExecutionOperation(...)` to normalize.
+- `invokeDatabaseOperation(...)` remains the deliberate bridge from typed
+  database effects to the Promise-returning `ctx.db` API shape exposed to user
+  handlers.
+- The bridge preserves existing `InvokeDatabaseOperationFailure` wrapping so
+  typed invoke validation and execution failures still re-enter the handler
+  execution boundary with the same HTTP behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/invoke.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
 ## Live Query Protocol Package Boundary
 
 Previous completed checkpoint: `b3badab` Decide executor HTTP adapter

@@ -437,6 +437,8 @@ function invokeDatabaseOperation<A>(
     InvokeDatabaseOperationError | InvokeExecutionOperationError | InvokeValidationError
   >,
 ): Promise<A> {
+  // User handlers consume ctx.db through Promise-returning methods; this is the
+  // deliberate bridge from typed database effects back to that public API shape.
   return Effect.runPromise(effect).catch((cause: unknown) => {
     if (cause instanceof InvokeExecutionOperationError || isInvokeValidationError(cause)) {
       throw new InvokeDatabaseOperationFailure(cause);
@@ -812,12 +814,6 @@ export type InvokeTransactionOperation<A> =
 export type InvokeTransactionRunner<E> = <A>(
   operation: InvokeTransactionOperation<A>,
 ) => Effect.Effect<A, E>;
-
-export function invokeTransactionOperationToPromise<A>(
-  operation: InvokeTransactionOperation<A>,
-): Promise<A> {
-  return Effect.isEffect(operation) ? Effect.runPromise(operation) : operation();
-}
 
 function invokeTransactionOperationResult<A>(
   operation: InvokeTransactionOperation<A>,
