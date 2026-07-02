@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "effect": "catalog:",
     "flarex-backend": "workspace:*"
   },
   "devDependencies": {

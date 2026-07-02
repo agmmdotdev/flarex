@@ -193,6 +193,138 @@ describe("artifact runtime worker", () => {
     expect(materializedArtifactIds).toEqual([ref.artifactId]);
   });
 
+  it("uses the Worker Loader default materializer for ref-only invokes", async () => {
+    const sourcePackage = executableSourcePackage();
+    const bucket = new FakeR2Bucket();
+    const ref = await new R2BackendExecutionArtifactStore(bucket).put(sourcePackage);
+    const loader = new FakeWorkerLoader(async request => {
+      const body = await request.json();
+      return Response.json({
+        value: {
+          loaded: true,
+          body,
+        },
+      });
+    });
+    const worker = createArtifactRuntimeWorker();
+    const payload: ExecutionArtifactInvokePayload = {
+      deploymentId: "deployment1",
+      ref,
+      request: {
+        path: "users:get",
+        kind: "query",
+        args: { id: "1:user" },
+      },
+    };
+
+    const response = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
+      ARTIFACTS: bucket,
+      LOADER: loader,
+      FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+      FLAREX_INTERNAL_TOKEN: "internal-secret",
+      FLAREX_INTERNAL_TOKEN_VERSION: "v1",
+    });
+
+    expect(response.ok).toBe(true);
+    await expect(response.json()).resolves.toEqual({
+      value: {
+        loaded: true,
+        body: {
+          deploymentId: "deployment1",
+          path: "users:get",
+          kind: "query",
+          args: { id: "1:user" },
+        },
+      },
+    });
+    expect(loader.loaded).toHaveLength(1);
+    expect(loader.loaded[0]).toMatchObject({
+      name: `v1:${ref.artifactId}:${ref.sourcePackageHash}:compat=2026-06-14:auth=version-v1`,
+      code: {
+        compatibilityDate: "2026-06-14",
+        mainModule: "flarex-runtime-worker.js",
+        env: { FLAREX_INTERNAL_TOKEN: "internal-secret" },
+        globalOutbound: null,
+      },
+    });
+    expect(Object.keys(loader.loaded[0]!.code.modules).sort()).toEqual([
+      "_flarex/execution.js",
+      "flarex-runtime-worker.js",
+      "users.js",
+    ]);
+    expect(String(loader.loaded[0]!.code.modules["flarex-runtime-worker.js"]))
+      .toContain("Hosted Dynamic Worker db/syscall context is not implemented yet.");
+  });
+
+  it("varies the Worker Loader identity by compatibility date and internal auth version", async () => {
+    const sourcePackage = executableSourcePackage();
+    const bucket = new FakeR2Bucket();
+    const ref = await new R2BackendExecutionArtifactStore(bucket).put(sourcePackage);
+    const loader = new FakeWorkerLoader(async () => Response.json({ value: null }));
+    const worker = createArtifactRuntimeWorker();
+    const payload: ExecutionArtifactInvokePayload = {
+      deploymentId: "deployment1",
+      ref,
+      request: {
+        path: "users:get",
+        kind: "query",
+        args: {},
+      },
+    };
+
+    const first = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
+      ARTIFACTS: bucket,
+      LOADER: loader,
+      FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+      FLAREX_INTERNAL_TOKEN: "internal-secret",
+      FLAREX_INTERNAL_TOKEN_VERSION: "v1",
+      FLAREX_DYNAMIC_WORKER_COMPATIBILITY_DATE: "2026-06-14",
+    });
+    const second = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
+      ARTIFACTS: bucket,
+      LOADER: loader,
+      FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+      FLAREX_INTERNAL_TOKEN: "internal-secret",
+      FLAREX_INTERNAL_TOKEN_VERSION: "v2",
+      FLAREX_DYNAMIC_WORKER_COMPATIBILITY_DATE: "2026-07-02",
+    });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(loader.loaded.map(entry => entry.name)).toEqual([
+      `v1:${ref.artifactId}:${ref.sourcePackageHash}:compat=2026-06-14:auth=version-v1`,
+      `v1:${ref.artifactId}:${ref.sourcePackageHash}:compat=2026-07-02:auth=version-v2`,
+    ]);
+  });
+
+  it("rejects invalid successful Dynamic Worker invoke JSON", async () => {
+    const sourcePackage = executableSourcePackage();
+    const bucket = new FakeR2Bucket();
+    const ref = await new R2BackendExecutionArtifactStore(bucket).put(sourcePackage);
+    const loader = new FakeWorkerLoader(async () => Response.json({ readTs: 42 }));
+    const worker = createArtifactRuntimeWorker();
+    const payload: ExecutionArtifactInvokePayload = {
+      deploymentId: "deployment1",
+      ref,
+      request: {
+        path: "users:get",
+        kind: "query",
+        args: {},
+      },
+    };
+
+    const response = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
+      ARTIFACTS: bucket,
+      LOADER: loader,
+      FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid execution artifact runtime invoke response.",
+    });
+  });
+
   it("keeps capability-token auth at the deployable wrapper edge", async () => {
     const sourcePackage = testSourcePackage();
     const bucket = new FakeR2Bucket();
@@ -255,7 +387,7 @@ describe("artifact runtime worker", () => {
     });
   });
 
-  it("returns an explicit not-implemented boundary until Dynamic Worker materialization is wired", async () => {
+  it("fails closed when the Worker Loader binding is missing", async () => {
     const sourcePackage = testSourcePackage();
     const bucket = new FakeR2Bucket();
     const ref = await new R2BackendExecutionArtifactStore(bucket).put(sourcePackage);
@@ -275,12 +407,89 @@ describe("artifact runtime worker", () => {
       FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
     });
 
-    expect(response.status).toBe(501);
+    expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
-      error: `Hosted artifact runtime materializer is not wired for artifact ${ref.artifactId}.`,
+      error: "LOADER worker loader binding is required for hosted artifact runtime requests.",
     });
   });
+
+  it("reports missing source modules before loading a Dynamic Worker", async () => {
+    const sourcePackage = sourcePackageWithMissingSource();
+    const bucket = new FakeR2Bucket();
+    const ref = await new R2BackendExecutionArtifactStore(bucket).put(sourcePackage);
+    const loader = new FakeWorkerLoader(async () => {
+      throw new Error("loader should not run when source modules are missing");
+    });
+    const worker = createArtifactRuntimeWorker();
+    const payload: ExecutionArtifactInvokePayload = {
+      deploymentId: "deployment1",
+      ref,
+      request: {
+        path: "users:get",
+        kind: "query",
+        args: {},
+      },
+    };
+
+    const response = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
+      ARTIFACTS: bucket,
+      LOADER: loader,
+      FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Source package module _flarex/execution.js has no source.",
+    });
+    expect(loader.loaded).toEqual([]);
+  });
+
+  it("rejects reserved and duplicate source package module paths before loading", async () => {
+    const loader = new FakeWorkerLoader(async () => {
+      throw new Error("loader should not run for invalid source package modules");
+    });
+    const reservedResponse = await invokeWithStoredSourcePackage(
+      sourcePackageWithRuntimeModulePath(),
+      loader,
+    );
+    const duplicateResponse = await invokeWithStoredSourcePackage(
+      sourcePackageWithDuplicateModulePath(),
+      loader,
+    );
+
+    expect(reservedResponse.status).toBe(400);
+    await expect(reservedResponse.json()).resolves.toEqual({
+      error: "Source package module path flarex-runtime-worker.js is reserved by the hosted artifact runtime.",
+    });
+    expect(duplicateResponse.status).toBe(400);
+    await expect(duplicateResponse.json()).resolves.toEqual({
+      error: "Source package contains duplicate module path users.js.",
+    });
+    expect(loader.loaded).toEqual([]);
+  });
 });
+
+async function invokeWithStoredSourcePackage(
+  sourcePackage: PushSourcePackage,
+  loader: WorkerLoader,
+): Promise<Response> {
+  const bucket = new FakeR2Bucket();
+  const ref = await new R2BackendExecutionArtifactStore(bucket).put(sourcePackage);
+  const worker = createArtifactRuntimeWorker();
+  return await worker.fetch(runtimeInvokeRequest({
+    deploymentId: "deployment1",
+    ref,
+    request: {
+      path: "users:get",
+      kind: "query",
+      args: {},
+    },
+  }, "runtime-secret"), {
+    ARTIFACTS: bucket,
+    LOADER: loader,
+    FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+  });
+}
 
 function runtimeInvokeRequest(
   payload: ExecutionArtifactInvokePayload,
@@ -312,6 +521,97 @@ function testSourcePackage(): PushSourcePackage {
         environment: "isolate",
         sha256: "b".repeat(64),
         source: "export const get = {};",
+      },
+    ],
+    functions: ["users.js"],
+    execution: "_flarex/execution.js",
+  };
+}
+
+function executableSourcePackage(): PushSourcePackage {
+  return {
+    modules: [
+      {
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "a".repeat(64),
+        source: `export default {
+  users: {
+    get: {
+      isQuery: true,
+      isPublic: true,
+      _handler: async (_ctx, args) => ({ id: args.id }),
+    },
+  },
+};`,
+      },
+      {
+        path: "users.js",
+        environment: "isolate",
+        sha256: "b".repeat(64),
+        source: "export const get = {};",
+      },
+    ],
+    functions: ["users.js"],
+    execution: "_flarex/execution.js",
+  };
+}
+
+function sourcePackageWithMissingSource(): PushSourcePackage {
+  return {
+    modules: [
+      {
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "a".repeat(64),
+      },
+      {
+        path: "users.js",
+        environment: "isolate",
+        sha256: "b".repeat(64),
+        source: "export const get = {};",
+      },
+    ],
+    functions: ["users.js"],
+    execution: "_flarex/execution.js",
+  };
+}
+
+function sourcePackageWithRuntimeModulePath(): PushSourcePackage {
+  return {
+    modules: [
+      {
+        path: "flarex-runtime-worker.js",
+        environment: "isolate",
+        sha256: "a".repeat(64),
+        source: "export default {};",
+      },
+    ],
+    functions: ["flarex-runtime-worker.js"],
+    execution: "flarex-runtime-worker.js",
+  };
+}
+
+function sourcePackageWithDuplicateModulePath(): PushSourcePackage {
+  return {
+    modules: [
+      {
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "a".repeat(64),
+        source: "export default {};",
+      },
+      {
+        path: "users.js",
+        environment: "isolate",
+        sha256: "b".repeat(64),
+        source: "export const get = {};",
+      },
+      {
+        path: "users.js",
+        environment: "isolate",
+        sha256: "c".repeat(64),
+        source: "export const getAgain = {};",
       },
     ],
     functions: ["users.js"],
@@ -371,5 +671,72 @@ class FakeR2Bucket implements R2BucketLike {
       this.objects.delete(nextKey);
     }
     return Promise.resolve();
+  }
+}
+
+type FakeWorkerEntrypoint = {
+  fetch(request: Request): Promise<Response>;
+};
+
+class FakeWorkerLoader implements WorkerLoader {
+  readonly loaded: Array<{
+    readonly name: string | null;
+    readonly code: WorkerLoaderWorkerCode;
+  }> = [];
+  private readonly handler: FakeWorkerEntrypoint["fetch"];
+
+  constructor(handler: FakeWorkerEntrypoint["fetch"]) {
+    this.handler = handler;
+  }
+
+  get(
+    name: string | null,
+    getCode: () => WorkerLoaderWorkerCode | Promise<WorkerLoaderWorkerCode>,
+  ): WorkerStub {
+    return new FakeWorkerStub(async request => {
+      const code = await getCode();
+      if (!this.loaded.some(entry => entry.name === name)) {
+        this.loaded.push({ name, code });
+      }
+      return await this.handler(request);
+    });
+  }
+
+  load(code: WorkerLoaderWorkerCode): WorkerStub {
+    this.loaded.push({ name: null, code });
+    return new FakeWorkerStub(request => this.handler(request));
+  }
+}
+
+class FakeWorkerStub implements WorkerStub {
+  private readonly handler: FakeWorkerEntrypoint["fetch"];
+
+  constructor(handler: FakeWorkerEntrypoint["fetch"]) {
+    this.handler = handler;
+  }
+
+  getEntrypoint<T extends Rpc.WorkerEntrypointBranded | undefined>(
+    name?: string,
+    options?: WorkerStubEntrypointOptions,
+  ): Fetcher<T> {
+    void name;
+    void options;
+    const fetcher = {
+      fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+        this.handler(new Request(input, init)),
+      connect: () => {
+        throw new Error("artifact runtime tests do not use WorkerStub.connect");
+      },
+    } satisfies Fetcher;
+    return fetcher as Fetcher<T>;
+  }
+
+  getDurableObjectClass<T extends Rpc.DurableObjectBranded | undefined>(
+    name?: string,
+    options?: WorkerStubEntrypointOptions,
+  ): DurableObjectClass<T> {
+    void name;
+    void options;
+    throw new Error("artifact runtime tests do not use dynamic Durable Objects");
   }
 }

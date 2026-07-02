@@ -9,7 +9,14 @@
       "bucket_name": "flarex-artifacts"
     }
   ],
+  "worker_loaders": [
+    {
+      "binding": "LOADER"
+    }
+  ],
   // Configure with `wrangler secret put FLAREX_ARTIFACT_RUNTIME_TOKEN`.
+  // Optionally configure `FLAREX_INTERNAL_TOKEN` to protect host-to-Dynamic-Worker calls.
+  // Bump FLAREX_INTERNAL_TOKEN_VERSION when rotating FLAREX_INTERNAL_TOKEN.
   "observability": {
     "enabled": true
   }
