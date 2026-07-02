@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: F-3 package and workspace gates in this checkpoint commit.
-- Active checkpoint: F-4 final EffectTS quality checker review.
+- Previous completed checkpoint: F-4 final EffectTS quality checker review in this checkpoint commit.
+- Active checkpoint: F-5 final checklist completion audit.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,11 +52,29 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after F-3:
+Next recommended checkpoint after F-4:
 
-1. Run the EffectTS quality checker on the final migration diff.
-2. Resolve any findings without broadening the migration scope.
+1. Run the final completion audit against
+   `roadmaps/22-effect-migration-checklist.md`.
+2. Mark F-5 complete only if all earlier checkpoints are checked and current
+   evidence proves no required migration work remains.
 3. Preserve `ValidatorJson` ownership and all existing HTTP response bodies.
+
+Completed Goal 374 slice:
+
+1. Ran the EffectTS quality checker on the final migration diff range
+   `55f0739..HEAD`, covering D-4 through F-3.
+2. Fixed the checker finding by converting the reusable live-query delivery
+   change decoder from a wrapper `Effect.gen(...)` function to named
+   `Effect.fn("LiveQueryProtocol.decodeDeliveryChange")`.
+3. Reran focused validation for the fix:
+   `corepack pnpm --filter flarex-protocol typecheck`,
+   `corepack pnpm --filter flarex-protocol test -- test/live-query.test.ts`,
+   and `corepack pnpm --filter flarex-protocol build`.
+4. Reran the EffectTS quality checker on the final range plus the fix; it
+   reported no findings.
+5. Preserved protocol behavior and public API shape; only traceable Effect
+   helper naming changed.
 
 Completed Goal 373 slice:
 

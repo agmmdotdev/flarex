@@ -192,53 +192,51 @@ const decodeDeliveryWakePayloadWithDeploymentEffect = Effect.fn(
   return request;
 });
 
-function decodeLiveQueryDeliveryChange(
+const decodeLiveQueryDeliveryChange = Effect.fn("LiveQueryProtocol.decodeDeliveryChange")(function* (
   value: unknown,
   path: string,
-): Effect.Effect<LiveQueryDeliveryChange, LiveQueryDeliveryChangePayloadError> {
-  return Effect.gen(function* () {
-    const record = yield* liveQueryDeliveryRecord(value, `${path} must be an object.`);
-    const kind = record.kind;
-    if (kind === "failed") {
-      return {
-        kind: "failed",
-        deploymentId: yield* requiredDeliveryString(record.deploymentId, `${path}.deploymentId`),
-        connectionId: yield* requiredDeliveryString(record.connectionId, `${path}.connectionId`),
-        queryId: yield* requiredDeliveryInteger(record.queryId, `${path}.queryId`),
-        functionPath: yield* requiredDeliveryString(record.functionPath, `${path}.functionPath`),
-        argsJson: yield* deliveryJson(record.argsJson, `${path}.argsJson`),
-        previousResultHash: yield* requiredDeliveryString(
-          record.previousResultHash,
-          `${path}.previousResultHash`,
-        ),
-        errorMessage: yield* requiredDeliveryString(record.errorMessage, `${path}.errorMessage`),
-        errorData:
-          record.errorData === undefined
-            ? null
-            : yield* deliveryJson(record.errorData, `${path}.errorData`),
-      };
-    }
-    if (kind !== undefined && kind !== "updated") {
-      return yield* liveQueryDeliveryPayloadFailure(
-        `${path}.kind must be "updated" or "failed".`,
-      );
-    }
+): Effect.fn.Return<LiveQueryDeliveryChange, LiveQueryDeliveryChangePayloadError> {
+  const record = yield* liveQueryDeliveryRecord(value, `${path} must be an object.`);
+  const kind = record.kind;
+  if (kind === "failed") {
     return {
-      kind: "updated",
+      kind: "failed",
       deploymentId: yield* requiredDeliveryString(record.deploymentId, `${path}.deploymentId`),
       connectionId: yield* requiredDeliveryString(record.connectionId, `${path}.connectionId`),
       queryId: yield* requiredDeliveryInteger(record.queryId, `${path}.queryId`),
       functionPath: yield* requiredDeliveryString(record.functionPath, `${path}.functionPath`),
       argsJson: yield* deliveryJson(record.argsJson, `${path}.argsJson`),
-      resultJson: yield* deliveryJson(record.resultJson, `${path}.resultJson`),
       previousResultHash: yield* requiredDeliveryString(
         record.previousResultHash,
         `${path}.previousResultHash`,
       ),
-      resultHash: yield* requiredDeliveryString(record.resultHash, `${path}.resultHash`),
+      errorMessage: yield* requiredDeliveryString(record.errorMessage, `${path}.errorMessage`),
+      errorData:
+        record.errorData === undefined
+          ? null
+          : yield* deliveryJson(record.errorData, `${path}.errorData`),
     };
-  });
-}
+  }
+  if (kind !== undefined && kind !== "updated") {
+    return yield* liveQueryDeliveryPayloadFailure(
+      `${path}.kind must be "updated" or "failed".`,
+    );
+  }
+  return {
+    kind: "updated",
+    deploymentId: yield* requiredDeliveryString(record.deploymentId, `${path}.deploymentId`),
+    connectionId: yield* requiredDeliveryString(record.connectionId, `${path}.connectionId`),
+    queryId: yield* requiredDeliveryInteger(record.queryId, `${path}.queryId`),
+    functionPath: yield* requiredDeliveryString(record.functionPath, `${path}.functionPath`),
+    argsJson: yield* deliveryJson(record.argsJson, `${path}.argsJson`),
+    resultJson: yield* deliveryJson(record.resultJson, `${path}.resultJson`),
+    previousResultHash: yield* requiredDeliveryString(
+      record.previousResultHash,
+      `${path}.previousResultHash`,
+    ),
+    resultHash: yield* requiredDeliveryString(record.resultHash, `${path}.resultHash`),
+  };
+});
 
 function liveQueryDeliveryRecord(
   value: unknown,

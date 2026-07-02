@@ -685,14 +685,28 @@ git diff --check
     `corepack pnpm build`,
     `git diff --check`.
 
-- [ ] F-4. Run the EffectTS quality checker on the final migration diff and
+- [x] F-4. Run the EffectTS quality checker on the final migration diff and
   resolve all findings.
+  - Completed by: this F-4 checkpoint commit.
+  - Review range:
+    `55f0739..HEAD`, covering D-4 through F-3.
+  - Finding resolved:
+    converted reusable live-query protocol delivery-change decoding from a
+    wrapper `Effect.gen(...)` helper to named
+    `Effect.fn("LiveQueryProtocol.decodeDeliveryChange")` in
+    `packages/flarex-protocol/src/live-query.ts`.
+  - Validation:
+    `corepack pnpm --filter flarex-protocol typecheck`,
+    `corepack pnpm --filter flarex-protocol test -- test/live-query.test.ts`,
+    `corepack pnpm --filter flarex-protocol build`,
+    follow-up EffectTS quality checker review with no findings.
 - [ ] F-5. Mark this file complete only when all earlier checkboxes are done
   or intentionally documented as out of scope.
 
 ## Next Active Checkpoint
 
-Continue with F-4:
+Continue with F-5:
 
-Run the EffectTS quality checker on the final migration diff and resolve all
-findings before considering F-4 complete. Keep F-5 pending until F-4 is clean.
+Run the final completion audit against this checklist. Mark F-5 complete only
+if all earlier checkpoints are checked and current evidence proves no required
+migration work remains.
