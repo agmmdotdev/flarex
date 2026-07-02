@@ -12,8 +12,8 @@ Update this file every Effect migration turn:
 
 Current baseline:
 
-- Previous completed checkpoint: C-1d Remaining protocol contract cleanup in this
-  checkpoint commit.
+- Previous completed checkpoint: F-5 final completion audit in this checkpoint
+  commit.
 - Effect version: workspace catalog `effect@4.0.0-beta.90`.
 - Reviewer: only `.codex/agents/effect-ts-quality-checker.toml` for Effect
   migration checkpoints.
@@ -55,26 +55,26 @@ The remaining work below was derived from this repo state after `2aa931c`.
 
 The Effect migration is complete only when all of these are true:
 
-- [ ] All public Worker routes enter through typed Effect route decoders and
+- [x] All public Worker routes enter through typed Effect route decoders and
   have one HTTP response mapper at the Worker adapter edge.
-- [ ] All Durable Object fetch routes enter through typed Effect route decoders
+- [x] All Durable Object fetch routes enter through typed Effect route decoders
   and have one response mapper at the DO adapter edge.
-- [ ] Shared protocol packages expose schema-first Effect decoders for
+- [x] Shared protocol packages expose schema-first Effect decoders for
   transport contracts; throwing `parseX(...)` functions are compatibility
   wrappers only.
-- [ ] Service/domain code emits tagged errors at the source boundary and does
+- [x] Service/domain code emits tagged errors at the source boundary and does
   not depend on `HttpError`.
-- [ ] Reusable Effect functions are named with `Effect.fn("qualified.name")`.
-- [ ] `Effect.runPromise(...)` is confined to Worker, DO, test, and explicitly
+- [x] Reusable Effect functions are named with `Effect.fn("qualified.name")`.
+- [x] `Effect.runPromise(...)` is confined to Worker, DO, test, and explicitly
   documented runtime bridge edges.
-- [ ] Manual `request.json()` and untyped `JSON.parse(...)` casts are either
+- [x] Manual `request.json()` and untyped `JSON.parse(...)` casts are either
   replaced by schema-backed Effect decoders or documented as runtime bridge
   exceptions with tests.
-- [ ] `executor-http` uses the same typed Effect route/body/error pattern as
+- [x] `executor-http` uses the same typed Effect route/body/error pattern as
   the backend, even if Elysia remains the HTTP adapter.
-- [ ] Tests assert typed success/failure channels separately from HTTP response
+- [x] Tests assert typed success/failure channels separately from HTTP response
   mapping for each migrated family.
-- [ ] `ValidatorJson` remains intact and is not replaced by Effect Schema for
+- [x] `ValidatorJson` remains intact and is not replaced by Effect Schema for
   user function/document validation.
 
 ## Checkpoint Plan
@@ -429,7 +429,7 @@ The Effect migration is complete only when all of these are true:
 
 ### Phase 8: Protocol Package Cleanup
 
-- [ ] C-1. Ensure `flarex-protocol` exports Effect decoders for every
+- [x] C-1. Ensure `flarex-protocol` exports Effect decoders for every
   transport contract used by migrated backend/executor routes.
   - Files:
     `packages/flarex-protocol/src/*.ts`.
@@ -700,13 +700,34 @@ git diff --check
     `corepack pnpm --filter flarex-protocol test -- test/live-query.test.ts`,
     `corepack pnpm --filter flarex-protocol build`,
     follow-up EffectTS quality checker review with no findings.
-- [ ] F-5. Mark this file complete only when all earlier checkboxes are done
+- [x] F-5. Mark this file complete only when all earlier checkboxes are done
   or intentionally documented as out of scope.
+  - Completed by: this F-5 checkpoint commit.
+  - Audit:
+    all earlier detailed checkpoints are checked, including the C-1 protocol
+    subitems; the C-1 parent checkbox was stale and is now aligned with C-1a
+    through C-1d.
+  - Source checks:
+    repo-wide production search found no remaining `readJson<...>` or domain
+    `throw new HttpError` matches, and every remaining production
+    `request.json() as`, `JSON.parse(...) as`, and `Effect.runPromise(...)`
+    bridge has an adjacent deliberate-bridge comment.
+  - Protocol evidence:
+    `flarex-protocol` exposes schema-first Effect decoders for deployment,
+    registry, invoke, execution, connection, live-query, scheduler, partition,
+    and artifact-runtime contracts; throwing parser APIs are compatibility
+    wrappers over those decoders.
+  - Validation evidence:
+    F-3 completed protocol, backend, executor-http, workspace typecheck/test/
+    build gates plus `git diff --check`; F-4 ran the final EffectTS quality
+    checker review and the follow-up checker reported no findings.
+  - ValidatorJson evidence:
+    `ValidatorJson` still lives in the user validation modules and remains used
+    for user document/function validation; Effect Schema is used for transport,
+    route, service, and persistence boundaries around it.
 
 ## Next Active Checkpoint
 
-Continue with F-5:
-
-Run the final completion audit against this checklist. Mark F-5 complete only
-if all earlier checkpoints are checked and current evidence proves no required
-migration work remains.
+None. The concrete Effect migration checklist is complete; future work should
+start from a new product, runtime, or cleanup goal rather than this migration
+plan.

@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: F-4 final EffectTS quality checker review in this checkpoint commit.
-- Active checkpoint: F-5 final checklist completion audit.
+- Previous completed checkpoint: F-5 final checklist completion audit in this checkpoint commit.
+- Active checkpoint: none; the concrete Effect migration checklist is complete.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,13 +52,26 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after F-4:
+Next recommended checkpoint after F-5:
 
-1. Run the final completion audit against
+No Effect migration checklist checkpoint remains. Start a new goal only for
+follow-up product, runtime, documentation, or cleanup work; do not continue
+this migration plan as if it still has unchecked implementation slices.
+
+Completed Goal 375 slice:
+
+1. Ran the final completion audit against
    `roadmaps/22-effect-migration-checklist.md`.
-2. Mark F-5 complete only if all earlier checkpoints are checked and current
-   evidence proves no required migration work remains.
-3. Preserve `ValidatorJson` ownership and all existing HTTP response bodies.
+2. Confirmed the only unchecked boxes were the top-level migration done
+   criteria, the stale C-1 parent checkbox whose subitems were already
+   complete, and F-5 itself.
+3. Confirmed repo-wide source audits still show no production
+   `readJson<...>` or domain `throw new HttpError` matches.
+4. Confirmed every remaining production `request.json() as`,
+   `JSON.parse(...) as`, and `Effect.runPromise(...)` bridge has an adjacent
+   deliberate-bridge comment.
+5. Marked the migration done criteria, C-1 parent, and F-5 complete while
+   preserving `ValidatorJson` ownership and the existing HTTP response bodies.
 
 Completed Goal 374 slice:
 
