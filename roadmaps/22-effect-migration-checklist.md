@@ -642,7 +642,7 @@ The Effect migration is complete only when all of these are true:
       `flarex-protocol`, `flarex-backend`, `@flarex/executor-http`,
       `flarex-dev`, and `@flarex/persistence-postgres`, plus
       `git diff --check`.
-- [ ] F-3. Run package and workspace gates:
+- [x] F-3. Run package and workspace gates:
 
 ```sh
 corepack pnpm --filter flarex-protocol typecheck
@@ -660,6 +660,31 @@ corepack pnpm build
 git diff --check
 ```
 
+  - Completed by: this F-3 checkpoint commit.
+  - Files:
+    `packages/flarex-backend/vitest.config.ts`,
+    `apps/example/vitest.config.ts`,
+    `effect-ts-migration-draft/your-proposal.md`,
+    `roadmaps/22-effect-migration-checklist.md`.
+  - Decision:
+    backend and example E2E tests now use the same 120s timeout budget as the
+    focused backend validation commands. This preserves runtime behavior while
+    making the exact package/workspace F-3 gates pass reliably on this checkout.
+  - Validation:
+    `corepack pnpm --filter flarex-protocol typecheck`,
+    `corepack pnpm --filter flarex-protocol test`,
+    `corepack pnpm --filter flarex-protocol build`,
+    `corepack pnpm --filter flarex-backend typecheck`,
+    `corepack pnpm --filter flarex-backend test`,
+    `corepack pnpm --filter flarex-backend build`,
+    `corepack pnpm --filter @flarex/executor-http typecheck`,
+    `corepack pnpm --filter @flarex/executor-http test`,
+    `corepack pnpm --filter @flarex/executor-http build`,
+    `corepack pnpm typecheck`,
+    `corepack pnpm test`,
+    `corepack pnpm build`,
+    `git diff --check`.
+
 - [ ] F-4. Run the EffectTS quality checker on the final migration diff and
   resolve all findings.
 - [ ] F-5. Mark this file complete only when all earlier checkboxes are done
@@ -667,8 +692,7 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Continue with F-3:
+Continue with F-4:
 
-Run the package and workspace gates listed under F-3, then fix any failures
-without broadening the migration scope. Keep F-4 and F-5 pending until those
-gates pass and the final EffectTS quality checker review is clean.
+Run the EffectTS quality checker on the final migration diff and resolve all
+findings before considering F-4 complete. Keep F-5 pending until F-4 is clean.

@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: F-2c deliberate bridge comments in this checkpoint commit.
-- Active checkpoint: F-3 package and workspace gates.
+- Previous completed checkpoint: F-3 package and workspace gates in this checkpoint commit.
+- Active checkpoint: F-4 final EffectTS quality checker review.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,12 +52,29 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after F-2c:
+Next recommended checkpoint after F-3:
 
-1. Run the F-3 package and workspace gates from
-   `roadmaps/22-effect-migration-checklist.md`.
-2. Fix any gate failures without broadening the migration scope.
+1. Run the EffectTS quality checker on the final migration diff.
+2. Resolve any findings without broadening the migration scope.
 3. Preserve `ValidatorJson` ownership and all existing HTTP response bodies.
+
+Completed Goal 373 slice:
+
+1. Ran every F-3 package and workspace gate from
+   `roadmaps/22-effect-migration-checklist.md`.
+2. Aligned `packages/flarex-backend/vitest.config.ts` and
+   `apps/example/vitest.config.ts` with the 120s backend/E2E timeout budget
+   already used by focused validation commands. This fixed repeatable package
+   and workspace test timeouts without changing runtime behavior.
+3. Verified the exact backend package test after the timeout update:
+   71 test files and 685 tests passed.
+4. Verified the exact workspace test after the timeout update:
+   all recursive package/app tests passed, including backend, flarex-dev, and
+   apps/example.
+5. Verified the remaining F-3 gates:
+   `flarex-protocol` typecheck/test/build, `flarex-backend`
+   typecheck/test/build, `@flarex/executor-http` typecheck/test/build,
+   workspace typecheck/test/build, and `git diff --check`.
 
 Completed Goal 372 slice:
 
