@@ -1249,6 +1249,7 @@ function partitionRouteOperationError(
 }
 
 function runPartitionRoute(effect: Effect.Effect<Response, PartitionInternalRouteError>): Promise<Response> {
+  // Deliberate runtime bridge: Durable Object fetch handlers return Promises.
   return Effect.runPromise(
     effect.pipe(
       Effect.catch(partitionInternalRouteErrorToResponseEffect),

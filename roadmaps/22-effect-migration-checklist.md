@@ -583,7 +583,7 @@ The Effect migration is complete only when all of these are true:
     plain Vitest `Effect.runPromise(...)`, test request body inspection, and
     test `JSON.parse(...)` calls are intentionally out of F-2 production
     migration scope.
-- [ ] F-2. For every remaining occurrence, either migrate it or add a short
+- [x] F-2. For every remaining occurrence, either migrate it or add a short
   code comment explaining why it is a deliberate runtime bridge exception.
   - [x] F-2a. Remove unused backend compatibility helpers and convert
     PartitionDO domain `HttpError` throws to typed domain validation errors
@@ -620,10 +620,28 @@ The Effect migration is complete only when all of these are true:
       database effects to the Promise-returning `ctx.db` user API.
     - Tests:
       `packages/flarex-backend/test/invoke.test.ts`.
-  - [ ] F-2c. Add short code comments for deliberate runtime bridge exceptions:
+  - [x] F-2c. Add short code comments for deliberate runtime bridge exceptions:
     route-boundary JSON helpers, typed storage/protocol `JSON.parse(...)`
     bridges including `flarex-dev` source maps, and Worker/DO/executor/dev
     `Effect.runPromise(...)` adapter edges.
+    - Completed by: this F-2c checkpoint commit.
+    - Files:
+      backend Worker/DO adapter and storage/parser modules, executor-http route
+      and decoder modules, flarex-dev local runtime modules, flarex-protocol
+      connection decoding, persistence-postgres document decoding,
+      `effect-ts-migration-draft/your-proposal.md`,
+      `roadmaps/16-package-boundaries.md`,
+      `roadmaps/22-effect-migration-checklist.md`.
+    - Decision:
+      every remaining production `request.json() as Promise<unknown>`,
+      `JSON.parse(...) as`, and `Effect.runPromise(...)` audit match is now
+      documented at the bridge site. The F-2 audit also confirms no remaining
+      production `readJson<...>` or domain `throw new HttpError` matches.
+    - Validation:
+      reran the F-2 audit, adjacent-comment check, typecheck and build for
+      `flarex-protocol`, `flarex-backend`, `@flarex/executor-http`,
+      `flarex-dev`, and `@flarex/persistence-postgres`, plus
+      `git diff --check`.
 - [ ] F-3. Run package and workspace gates:
 
 ```sh
@@ -649,10 +667,8 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Continue with F-2c:
+Continue with F-3:
 
-Add short code comments for deliberate runtime bridge exceptions:
-route-boundary JSON helpers, typed storage/protocol `JSON.parse(...)` bridges
-including `flarex-dev` source maps, and Worker/DO/executor/dev
-`Effect.runPromise(...)` adapter edges. Then rerun the final F-2 audit and tick
-F-2 only if every remaining occurrence is either migrated or documented.
+Run the package and workspace gates listed under F-3, then fix any failures
+without broadening the migration scope. Keep F-4 and F-5 pending until those
+gates pass and the final EffectTS quality checker review is clean.

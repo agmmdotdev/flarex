@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: F-2b nested invoke operation bridge cleanup in this checkpoint commit.
-- Active checkpoint: F-2c deliberate bridge comments for remaining JSON/runtime edges.
+- Previous completed checkpoint: F-2c deliberate bridge comments in this checkpoint commit.
+- Active checkpoint: F-3 package and workspace gates.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,13 +52,29 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after F-2b:
+Next recommended checkpoint after F-2c:
 
-1. Add short code comments for deliberate runtime bridges that must remain:
-   adapter JSON helpers, storage/protocol JSON parser bridges, and Worker/DO
-   runtime edges, including the `flarex-dev` source-map JSON parser casts if
-   they remain intentional after review.
-2. Preserve `ValidatorJson` ownership and all existing HTTP response bodies.
+1. Run the F-3 package and workspace gates from
+   `roadmaps/22-effect-migration-checklist.md`.
+2. Fix any gate failures without broadening the migration scope.
+3. Preserve `ValidatorJson` ownership and all existing HTTP response bodies.
+
+Completed Goal 372 slice:
+
+1. Added short code comments for every remaining production
+   `request.json() as Promise<unknown>`, `JSON.parse(...) as`, and
+   `Effect.runPromise(...)` bridge found by the F-2 audit.
+2. Covered backend Worker/DO adapters, executor-http/Elysia adapters,
+   flarex-dev Miniflare/local HTTP adapters, protocol WebSocket decoding,
+   backend deployment/partition storage row parsing, scheduler wake fallback
+   parsing, persistence-postgres byte decoding, and `flarex-dev` source-map
+   JSON parsing.
+3. Reran the F-2 audit and confirmed there are no remaining production
+   `readJson<...>` or domain `throw new HttpError` matches; every remaining
+   production JSON/runtime bridge has an adjacent deliberate-bridge comment.
+4. Validated comment placement with typecheck and build gates for
+   `flarex-protocol`, `flarex-backend`, `@flarex/executor-http`,
+   `flarex-dev`, and `@flarex/persistence-postgres`, plus `git diff --check`.
 
 Completed Goal 371 slice:
 

@@ -85,6 +85,7 @@ export class LocalMiniflareExecutionArtifactAdapter implements ExecutionArtifact
       const response = await artifact.dispatchFetch("http://flarex-artifact/analyze", {
         method: "POST",
       });
+      // Deliberate runtime bridge: local artifact analysis API is Promise-based.
       const { body, diagnostics } = await Effect.runPromise(
         decodeExecutionArtifactAnalysisBody(response).pipe(
           Effect.mapError(executionArtifactResponseErrorToAnalysisError),
@@ -120,6 +121,7 @@ export class LocalMiniflareExecutionArtifactRuntime implements ExecutionArtifact
       },
       body: JSON.stringify(request),
     }));
+    // Deliberate runtime bridge: local artifact invoke API is Promise-based.
     return Effect.runPromise(
       decodeExecutionArtifactInvokeBody(response).pipe(
         Effect.mapError(executionArtifactResponseErrorToError),

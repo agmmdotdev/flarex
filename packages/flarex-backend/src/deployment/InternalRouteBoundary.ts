@@ -122,6 +122,7 @@ export const dispatchDeploymentApiReadRouteInputDirect = Effect.fn(
 export function runDeploymentDurableObjectRoute(
   effect: Effect.Effect<Response, DeploymentInternalRouteError>,
 ): Promise<Response> {
+  // Deliberate runtime bridge: Durable Object fetch handlers return Promises.
   return Effect.runPromise(
     effect.pipe(
       Effect.catch(deploymentInternalRouteErrorToResponseEffect),

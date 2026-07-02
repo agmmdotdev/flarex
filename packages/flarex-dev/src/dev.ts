@@ -280,6 +280,7 @@ export async function createFlarexDevRuntime(
               {
                 method: "POST",
                 headers: requestHeaders(request),
+                // Deliberate runtime bridge: proxy body decode must finish before fetch.
                 body: JSON.stringify(await Effect.runPromise(decodeDevInvokeBody(request))),
               },
             ),

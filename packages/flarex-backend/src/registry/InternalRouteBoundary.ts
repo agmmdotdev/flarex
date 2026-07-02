@@ -70,6 +70,7 @@ export const dispatchRegistryApiRouteInputDirect = Effect.fn(
 export function runRegistryDurableObjectRoute(
   effect: Effect.Effect<Response, RegistryInternalRouteError>,
 ): Promise<Response> {
+  // Deliberate runtime bridge: Durable Object fetch handlers return Promises.
   return Effect.runPromise(
     effect.pipe(
       Effect.catch(registryInternalRouteErrorToResponseEffect),

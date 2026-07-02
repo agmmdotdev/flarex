@@ -105,6 +105,7 @@ export const decodeSchedulerDeliveryWakeFailureBodyText = Effect.fn(
 ): Effect.fn.Return<unknown> {
   if (text.length === 0) return null;
   return yield* Effect.try({
+    // Deliberate JSON bridge: wake failure bodies may be plain text fallback.
     try: () => JSON.parse(text) as unknown,
     catch: () => text,
   }).pipe(

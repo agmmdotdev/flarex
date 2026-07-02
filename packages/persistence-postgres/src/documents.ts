@@ -186,6 +186,7 @@ function encodeJson(value: PersistenceJson): Uint8Array {
 }
 
 function decodeJson(value: Uint8Array): PersistenceJson {
+  // Deliberate JSON bridge: persisted bytes decode to the PersistenceJson tree.
   return JSON.parse(decodeString(value)) as PersistenceJson;
 }
 

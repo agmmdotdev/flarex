@@ -228,6 +228,7 @@ function parsePartitionStorageJson(
   operation: PartitionStorageJsonOperation,
 ): Effect.Effect<unknown, PartitionStorageJsonError> {
   return Effect.try({
+    // Deliberate JSON bridge: persisted rows are schema-decoded after parsing.
     try: () => JSON.parse(raw) as unknown,
     catch: cause => partitionStorageJsonError(operation, cause),
   });

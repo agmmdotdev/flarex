@@ -60,6 +60,7 @@ export function isDevRouteError(error: unknown): error is DevRouteError {
 
 function readDevJsonEffect(request: Request): Effect.Effect<unknown, DevRequestJsonError> {
   return Effect.tryPromise({
+    // Deliberate JSON bridge: Request.json is the local dev HTTP boundary.
     try: () => request.json() as Promise<unknown>,
     catch: cause => new DevRequestJsonError({
       message: cause instanceof Error ? cause.message : "Request body must be JSON.",

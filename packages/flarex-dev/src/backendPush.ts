@@ -198,6 +198,7 @@ export class HttpBackendSourceAnalyzer implements BackendSourceAnalyzer {
         sourcePackage,
       }),
     });
+    // Deliberate runtime bridge: HTTP analyzer response decoding is Promise-based.
     const body = await Effect.runPromise(
       decodeHttpBackendAnalyzerBody(response).pipe(
         Effect.mapError(backendPushResponseErrorToAnalysisError),
@@ -244,6 +245,7 @@ export class LocalBackendPushCoordinator implements BackendPushCoordinator {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({}),
     });
+    // Deliberate runtime bridge: local backend finish API is Promise-based.
     const payload = await Effect.runPromise(
       decodeLocalBackendFinishBody(response, path).pipe(
         Effect.mapError(localBackendFinishResponseErrorToError),
@@ -305,6 +307,7 @@ export class HttpBackendPushCoordinator implements BackendPushCoordinator {
       headers: analyzerHeaders(this.headers),
       body: JSON.stringify(body),
     });
+    // Deliberate runtime bridge: HTTP backend push API is Promise-based.
     const payload = await Effect.runPromise(
       decodeHttpBackendPushBody(response).pipe(
         Effect.mapError(backendPushResponseErrorToAnalysisError),
@@ -319,6 +322,7 @@ export class HttpBackendPushCoordinator implements BackendPushCoordinator {
       headers: analyzerHeaders(this.headers),
       body: JSON.stringify(body),
     });
+    // Deliberate runtime bridge: HTTP backend finish API is Promise-based.
     const payload = await Effect.runPromise(
       decodeHttpBackendFinishBody(response).pipe(
         Effect.mapError(backendPushResponseErrorToAnalysisError),
@@ -429,6 +433,7 @@ export function createLocalAnalyzerService(
       return Response.json({ error: "Analyzer route not found." }, { status: 404 });
     }
     try {
+      // Deliberate runtime bridge: analyzer route handler returns a Response Promise.
       const body = await Effect.runPromise(decodeLocalAnalyzerRequest(request));
       const result = await analyzer.analyze(body.sourcePackage);
       const payload = {

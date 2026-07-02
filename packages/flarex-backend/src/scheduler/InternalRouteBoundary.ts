@@ -78,6 +78,7 @@ export function routeSchedulerContinueConnectionCleanup<
 export function runSchedulerRoute(
   effect: Effect.Effect<Response, SchedulerInternalRouteError>,
 ): Promise<Response> {
+  // Deliberate runtime bridge: Durable Object fetch handlers return Promises.
   return Effect.runPromise(
     effect.pipe(
       Effect.catch(schedulerInternalRouteErrorToResponseEffect),

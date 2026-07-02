@@ -112,6 +112,7 @@ export class DeliveryDO extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
+    // Deliberate runtime bridge: Cloudflare alarm callbacks return Promises.
     await Effect.runPromise(
       runDeliveryAlarmContinuation(() => this.continuePendingDrainEffect()),
     );
@@ -149,6 +150,7 @@ export class DeliveryDO extends DurableObject<Env> {
       return this.awaitDrainInFlight("wake", this.drainInFlight);
     }
     const pending = pendingDrainFromWake(body);
+    // Deliberate runtime bridge: concurrent wake drains are Promise-cached.
     const drain = Effect.runPromise(
       this.drainEffect(pending).pipe(
         Effect.tap(result => this.persistDrainContinuationEffect("wake", pending, result)),
@@ -561,6 +563,7 @@ function routeDeliveryDrainResult<A extends object>(
 function runDeliveryRoute(
   effect: Effect.Effect<Response, DeliveryInternalRouteError>,
 ): Promise<Response> {
+  // Deliberate runtime bridge: Durable Object fetch handlers return Promises.
   return Effect.runPromise(
     effect.pipe(
       Effect.catch(deliveryInternalRouteErrorToResponseEffect),

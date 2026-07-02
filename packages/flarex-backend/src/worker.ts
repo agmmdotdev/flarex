@@ -245,6 +245,7 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 async function route(request: Request, env: Env): Promise<Response> {
+  // Deliberate runtime bridge: Cloudflare Worker fetch returns a Promise.
   return await Effect.runPromise(
     routePublicWorker(request, env).pipe(
       Effect.catch(publicWorkerRouteErrorToResponseEffect),

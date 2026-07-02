@@ -755,6 +755,7 @@ function runConnectionWebSocketMessage(
   effect: Effect.Effect<void, ConnectionWebSocketMessageError>,
   sendFatalError: (error: string) => void,
 ): Promise<void> {
+  // Deliberate runtime bridge: WebSocket callbacks complete through Promises.
   return Effect.runPromise(
     effect.pipe(
       Effect.catch(error =>
@@ -773,6 +774,7 @@ type ConnectionInternalRouteError =
 function runConnectionRoute(
   effect: Effect.Effect<Response, ConnectionInternalRouteError>,
 ): Promise<Response> {
+  // Deliberate runtime bridge: Durable Object fetch handlers return Promises.
   return Effect.runPromise(
     effect.pipe(
       Effect.catch(connectionInternalRouteErrorToResponseEffect),
@@ -898,6 +900,7 @@ function artifactRuntimeFromEnv(
 }
 
 function requireProjectId(env: Env): Promise<string> {
+  // Deliberate runtime bridge: WebSocket upgrade setup reads config as Promise.
   return Effect.runPromise(requireProjectIdEffect(env));
 }
 

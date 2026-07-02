@@ -147,6 +147,7 @@ function resolveFlarex(id: string): string | undefined {
 }
 
 function normalizeSourceMap(raw: string, appDir: string): string {
+  // Deliberate JSON bridge: source maps are normalized before being re-emitted.
   const map = JSON.parse(raw) as {
     sources?: string[];
     sourceRoot?: string;

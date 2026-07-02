@@ -111,6 +111,7 @@ export async function deliverLiveQueryChangesToConnections(
   deploymentId: string,
   deliveries: LiveQueryDeliveryChange[],
 ): Promise<ConnectionLiveQueryDeliveryResult> {
+  // Deliberate runtime bridge: live-query delivery fanout API is Promise-based.
   return await Effect.runPromise(
     deliverLiveQueryChangesToConnectionsEffect(env, deploymentId, deliveries).pipe(
       Effect.catch(liveQueryDeliveryFanoutErrorToHttpErrorEffect),

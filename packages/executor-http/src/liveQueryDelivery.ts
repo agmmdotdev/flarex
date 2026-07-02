@@ -195,6 +195,7 @@ export const notifyFlarexBackendLiveQueryTriggerEffect = Effect.fn(
 function runFlarexBackendLiveQueryPromise(
   effect: Effect.Effect<void, FlarexBackendLiveQueryError>,
 ): Promise<void> {
+  // Deliberate runtime bridge: executor service ports expose Promise helpers.
   return Effect.runPromise(
     effect.pipe(Effect.mapError(flarexBackendLiveQueryErrorToError)),
   );

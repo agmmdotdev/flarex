@@ -37,6 +37,7 @@ export function errorResponse(error: unknown): Response {
 
 export function readJsonEffect(request: Request): Effect.Effect<unknown, RequestJsonError> {
   return Effect.tryPromise({
+    // Deliberate JSON bridge: Request.json is the Cloudflare HTTP boundary.
     try: () => request.json() as Promise<unknown>,
     catch: cause => new RequestJsonError({
       message: "Request body must be JSON.",

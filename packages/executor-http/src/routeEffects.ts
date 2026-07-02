@@ -49,6 +49,7 @@ function handleExecutorHttpDecodedBody<A, R extends object, P = void>(
   execute: (input: A, preflight: P) => Promise<R>,
   preflight?: () => Effect.Effect<P, ExecutorHttpRoutePreconditionError>,
 ): Promise<object> {
+  // Deliberate runtime bridge: Elysia handlers return plain Promise payloads.
   return Effect.runPromise(
     routeExecutorHttpDecodedBody(request, capabilityToken, decode, execute, preflight).pipe(
       Effect.catch(error => Effect.succeed(executorHttpRouteErrorBody(error, set))),

@@ -227,6 +227,47 @@ corepack pnpm --filter flarex-backend exec vitest run test/invoke.test.ts --test
 git diff --check
 ```
 
+## Deliberate Runtime Bridge Comments
+
+Previous completed checkpoint: this F-2c checkpoint commit.
+
+The final F-2 bridge sweep now leaves all remaining production
+`request.json() as Promise<unknown>`, `JSON.parse(...) as`, and
+`Effect.runPromise(...)` occurrences documented at the bridge site. The comments
+classify each one as an HTTP host body read, typed storage/protocol parser
+bridge, Cloudflare Worker/DO runtime edge, Elysia/executor adapter edge,
+Miniflare/local-dev runtime edge, or Promise-shaped public compatibility API.
+
+Boundary decision:
+
+- JSON body reads remain at HTTP adapter boundaries and feed typed Effect
+  decoders immediately after the host `Request.json()` call.
+- Storage/protocol parser bridges remain raw JSON parse edges only long enough
+  to feed schema-backed decoders or typed persistence structures.
+- `Effect.runPromise(...)` remains allowed only where the surrounding host API
+  returns a Promise: Worker/DO fetch and alarm callbacks, Elysia handlers,
+  Miniflare/local dev APIs, service-binding/runtime adapters, and legacy public
+  Promise helpers.
+- `ValidatorJson` ownership remains unchanged for user document/function
+  validation.
+
+Verification:
+
+```sh
+rg -n "readJson<|request\\.json\\(\\)\\s+as|JSON\\.parse\\([^\\n]*\\)\\s+as|throw new HttpError|Effect\\.runPromise\\(" packages -g "**/src/**/*.ts"
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres build
+git diff --check
+```
+
 ## Live Query Protocol Package Boundary
 
 Previous completed checkpoint: `b3badab` Decide executor HTTP adapter

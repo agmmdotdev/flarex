@@ -417,6 +417,7 @@ type ExecutionInternalRouteError =
 function runExecutionRoute(
   effect: Effect.Effect<Response, ExecutionInternalRouteError>,
 ): Promise<Response> {
+  // Deliberate runtime bridge: Durable Object fetch handlers return Promises.
   return Effect.runPromise(
     effect.pipe(
       Effect.catch(executionInternalRouteErrorToResponseEffect),

@@ -135,6 +135,7 @@ function parseDeploymentStoredPushJson(
   raw: string,
 ): Effect.Effect<unknown, DeploymentValidationError> {
   return Effect.try({
+    // Deliberate JSON bridge: stored rows are decoded before schema validation.
     try: () => JSON.parse(raw) as unknown,
     catch: () => new DeploymentValidationError({
       message: `Stored push ${field} must be valid JSON.`,
@@ -146,6 +147,7 @@ function parseActiveDeploymentJson(
   raw: string,
 ): Effect.Effect<unknown, DeploymentActiveDeploymentInvalidError> {
   return Effect.try({
+    // Deliberate JSON bridge: active deployment rows are schema-decoded next.
     try: () => JSON.parse(raw) as unknown,
     catch: cause => new DeploymentActiveDeploymentInvalidError({
       message: cause instanceof Error ? cause.message : String(cause),

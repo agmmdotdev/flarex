@@ -148,6 +148,7 @@ class LocalMiniflareMaterializedExecutionArtifact implements MaterializedExecuti
         }),
       },
     );
+    // Deliberate runtime bridge: materialized worker invoke API returns Promise.
     return await Effect.runPromise(
       decodeMaterializedArtifactResponse<InvokeResponse>(
         response,
@@ -177,6 +178,7 @@ class LocalMiniflareMaterializedExecutionArtifact implements MaterializedExecuti
         body: JSON.stringify(input),
       },
     );
+    // Deliberate runtime bridge: materialized worker query API returns Promise.
     return await Effect.runPromise(
       decodeMaterializedArtifactResponse<Json>(
         response,

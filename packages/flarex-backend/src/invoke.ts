@@ -291,6 +291,7 @@ export async function executeInvoke(
   request: InvokeRequest,
   functions: BackendFunctionRegistry,
 ): Promise<InvokeResponse> {
+  // Deliberate runtime bridge: public invoke compatibility API returns Promise.
   return await Effect.runPromise(
     executeInvokeEffect(env, deploymentId, request, functions).pipe(
       Effect.mapError(invokeExecutionErrorToAdapterError),
@@ -1205,6 +1206,7 @@ export async function loadActiveDeployment(
   env: InvokeEnv,
   deploymentId: string,
 ): Promise<ActiveDeploymentStatus> {
+  // Deliberate runtime bridge: legacy active-deployment helper returns Promise.
   return await Effect.runPromise(
     loadActiveDeploymentEffect(env, deploymentId).pipe(
       Effect.mapError(invokeActiveDeploymentLoadErrorToHttpError),
@@ -1262,6 +1264,7 @@ export async function loadActiveFunctionMetadata(
   deploymentId: string,
   path: string,
 ): Promise<{ deployment: ActiveDeploymentStatus; metadata: DeploymentFunctionMetadata }> {
+  // Deliberate runtime bridge: legacy metadata helper returns Promise.
   return await Effect.runPromise(
     loadActiveFunctionMetadataEffect(env, deploymentId, path).pipe(
       Effect.mapError(invokeRuntimeErrorToHttpError),

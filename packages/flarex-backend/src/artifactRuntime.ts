@@ -148,6 +148,7 @@ export function createExecutionArtifactRuntimeService(options: {
 }): ExecutionArtifactRuntimeService {
   const cache = new CachedExecutionArtifactMaterializer(options.materializer);
   const fetch: Fetcher["fetch"] = (input, init) =>
+    // Deliberate runtime bridge: Fetcher.fetch implementations return Promises.
     Effect.runPromise(
       routeExecutionArtifactRuntimeInvoke(input, init, options, cache).pipe(
         Effect.catch(executionArtifactRuntimeRouteErrorToResponseEffect),
@@ -188,6 +189,7 @@ export class ServiceBindingExecutionArtifactRuntime implements BackendExecutionA
     deployment: ActiveDeploymentStatus,
     request: InvokeRequest,
   ): Promise<InvokeResponse> {
+    // Deliberate runtime bridge: service-binding runtime invokes by Promise.
     return await Effect.runPromise(
       invokeServiceBindingExecutionArtifactRuntime(
         {

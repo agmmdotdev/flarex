@@ -234,6 +234,7 @@ export class SchedulerDO extends DurableObject<Env> {
 
   async alarm(): Promise<void> {
     const now = Date.now();
+    // Deliberate runtime bridge: Cloudflare alarm callbacks return Promises.
     await Effect.runPromise(runSchedulerAlarmContinuations({
       continueDeliveries: this.continuePendingLiveQueryDeliveryReconcileEffect({
         respectNextRunAt: true,

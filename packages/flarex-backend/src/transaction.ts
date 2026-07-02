@@ -445,6 +445,7 @@ function partitionResponseErrorToRequestError(error: PartitionResponseError): Pa
 function runTransactionOperation<A>(
   effect: Effect.Effect<A, TransactionOperationError>,
 ): Promise<A> {
+  // Deliberate runtime bridge: backend database APIs remain Promise-shaped.
   return Effect.runPromise(effect.pipe(
     Effect.mapError(transactionOperationErrorToPromiseError),
   ));

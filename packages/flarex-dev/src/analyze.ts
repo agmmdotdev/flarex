@@ -430,6 +430,7 @@ function sourcePositionResolver(
     const module = sourceModule(package_, modulePath);
     if (module.sourceMap === undefined) continue;
     const moduleName = module.path.replace(/\.js$/, "");
+    // Deliberate JSON bridge: source maps are tool-generated JSON blobs.
     const sourceMap = JSON.parse(module.sourceMap) as {
       sources?: string[];
       sourcesContent?: string[];
