@@ -2,8 +2,8 @@
 
 Current migration state:
 
-- Previous completed checkpoint: C-3 decoder compiler hoisting in this checkpoint commit.
-- Active checkpoint: F-1 repo-wide final-exit audit for remaining `readJson<...>`, `request.json() as`, `JSON.parse(...) as`, domain `throw new HttpError`, and non-adapter `Effect.runPromise(...)`.
+- Previous completed checkpoint: F-1 repo-wide final-exit audit in this checkpoint commit.
+- Active checkpoint: F-2 migrate or document every remaining F-1 occurrence, starting with backend domain `HttpError` and nested runtime bridge targets.
 - Effect version: use the workspace catalog `effect@4.0.0-beta.90`. Treat "Effect v4" in this repo as the current v4 beta line until a stable v4 exists.
 - Reviewer rule: Effect migration checkpoints use only `.codex/agents/effect-ts-quality-checker.toml`; do not also run the legacy TypeScript/code-quality reviewers for the same checkpoint.
 - Long-running goal rule: continue in commit-sized Effect migration checkpoints, update this proposal plus the relevant roadmaps each turn, validate, run the EffectTS quality checker, apply findings, and commit before choosing the next checkpoint.
@@ -52,17 +52,33 @@ Required direction for the next phase:
     `Effect.runPromise(...)`. Do not add the dependency as incidental churn
     inside a backend migration slice.
 
-Next recommended checkpoint after C-3 decoder compiler hoisting:
+Next recommended checkpoint after F-1 final-exit audit:
 
-1. Run the repo-wide final-exit audit for remaining `readJson<...>`,
-   `request.json() as`, `JSON.parse(...) as`, domain `throw new HttpError`,
-   and non-adapter `Effect.runPromise(...)`.
-2. Classify each remaining occurrence as migration-required, adapter/runtime
-   bridge exception, or test-only/non-production.
-3. Use the audit to drive F-2: migrate the remaining production violations or
-   document deliberate runtime bridge exceptions in code.
-4. Preserve route/storage behavior, `ValidatorJson` ownership, and existing
-   adapter HTTP response mapping while doing the audit.
+1. Remove dead backend compatibility helpers `readJson<T>(...)` and
+   `required(...)` if they remain unused.
+2. Convert the remaining PartitionDO domain `throw new HttpError(...)` sites
+   into typed errors emitted at validation/source boundaries and mapped at the
+   existing adapter edge.
+3. Address nested invoke operation `Effect.runPromise(...)` bridges without
+   changing user-function execution or HTTP behavior.
+4. Add short code comments for deliberate runtime bridges that must remain:
+   adapter JSON helpers, storage/protocol JSON parser bridges, and Worker/DO
+   runtime edges, including the `flarex-dev` source-map JSON parser casts if
+   they remain intentional after review.
+5. Preserve `ValidatorJson` ownership and all existing HTTP response bodies.
+
+Completed Goal 369 slice:
+
+1. Ran the repo-wide final-exit audit over production source for remaining
+   `readJson<...>`, `request.json() as`, `JSON.parse(...) as`, domain
+   `throw new HttpError`, and `Effect.runPromise(...)`.
+2. Confirmed there are no remaining `readJson<T>(...)` call sites; only the
+   unused backend compatibility helper declaration remains.
+3. Classified the remaining production findings into migration-required
+   backend targets, deliberate adapter/runtime bridge candidates, and
+   test-only/non-production noise.
+4. Recorded the concrete F-2 queue in
+   `roadmaps/22-effect-migration-checklist.md` before ticking F-1.
 
 Completed Goal 368 slice:
 

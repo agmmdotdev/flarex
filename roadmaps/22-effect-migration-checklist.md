@@ -544,9 +544,45 @@ The Effect migration is complete only when all of these are true:
 
 ### Phase 9: Final Migration Exit
 
-- [ ] F-1. Run a repo-wide audit for remaining `readJson<...>`,
+- [x] F-1. Run a repo-wide audit for remaining `readJson<...>`,
   `request.json() as`, `JSON.parse(...) as`, domain `throw new HttpError`,
   and non-adapter `Effect.runPromise(...)`.
+  - Completed by: this F-1 checkpoint commit.
+  - Audit commands:
+    `rg -n "readJson<" packages -g "**/src/**/*.ts"`,
+    `rg -n "request\.json\(\)\s+as" packages -g "**/src/**/*.ts"`,
+    `rg -n "JSON\.parse\([^\n]*\)\s+as" packages -g "**/src/**/*.ts"`,
+    `rg -n "throw new HttpError" packages -g "**/src/**/*.ts"`,
+    `rg -n "Effect\.runPromise\(" packages -g "**/src/**/*.ts"`.
+  - Result:
+    no remaining `readJson<T>(...)` call sites; only the unused compatibility
+    helper declaration remains in `packages/flarex-backend/src/http.ts`.
+    Production source still has three `request.json() as Promise<unknown>`
+    adapter JSON helpers, eight `JSON.parse(...) as` parser/storage sites,
+    thirteen direct `throw new HttpError` sites plus one unused helper-local
+    `HttpError` throw, and thirty-five `Effect.runPromise(...)` runtime
+    bridges.
+  - F-2 migration-required targets:
+    `packages/flarex-backend/src/partitionDO.ts` direct domain
+    `HttpError` throws, especially schema-cache validation, write table
+    validation, document validation, partition-owner uniqueness, and placement
+    validation;
+    `packages/flarex-backend/src/http.ts` dead compatibility helpers
+    `readJson<T>(...)` and `required(...)`;
+    nested invoke operation promise bridges in
+    `packages/flarex-backend/src/invoke.ts` around database operations and
+    user-function execution.
+  - F-2 deliberate-bridge candidates:
+    `request.json() as Promise<unknown>` in backend, executor-http, and dev
+    route-boundary JSON helpers; typed `JSON.parse(...) as unknown` storage or
+    protocol bridges in protocol connection message decode, backend deployment
+    storage rows, backend partition storage rows, scheduler wake failure body
+    fallback, and `flarex-dev` source-map parsing; Worker/DO/executor/dev
+    runtime `Effect.runPromise(...)` adapter edges.
+  - Test-only and non-production noise:
+    plain Vitest `Effect.runPromise(...)`, test request body inspection, and
+    test `JSON.parse(...)` calls are intentionally out of F-2 production
+    migration scope.
 - [ ] F-2. For every remaining occurrence, either migrate it or add a short
   code comment explaining why it is a deliberate runtime bridge exception.
 - [ ] F-3. Run package and workspace gates:
@@ -574,10 +610,11 @@ git diff --check
 
 ## Next Active Checkpoint
 
-Start with F-1:
+Start with F-2:
 
-Run a repo-wide audit for remaining `readJson<...>`, `request.json() as`,
-`JSON.parse(...) as`, domain `throw new HttpError`, and non-adapter
-`Effect.runPromise(...)`. For each remaining occurrence, decide whether it
-needs migration now or should be documented as a deliberate runtime bridge
-exception before moving to F-2.
+For every remaining F-1 occurrence, either migrate it or add a short code
+comment explaining why it is a deliberate runtime bridge exception. Start with
+the migration-required backend targets: remove unused `readJson<T>(...)` and
+`required(...)`, convert PartitionDO domain `HttpError` throws to typed errors
+mapped at the adapter edge, and address nested invoke operation promise
+bridges without changing HTTP behavior.

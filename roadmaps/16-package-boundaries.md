@@ -127,6 +127,47 @@ corepack pnpm --filter flarex-protocol build
 git diff --check
 ```
 
+## Final Exit Audit Snapshot
+
+Previous completed checkpoint: this F-1 checkpoint commit.
+
+The final-exit audit found no remaining `readJson<T>(...)` call sites in
+production source. The only `readJson<T>(...)` match is the unused backend
+compatibility helper in `packages/flarex-backend/src/http.ts`.
+
+Remaining production findings are classified for F-2:
+
+- Migration-required backend targets:
+  `packages/flarex-backend/src/partitionDO.ts` direct domain `HttpError`
+  throws, unused `http.ts` compatibility helpers, and nested invoke operation
+  promise bridges in `packages/flarex-backend/src/invoke.ts`.
+- Deliberate bridge candidates:
+  route-boundary `request.json() as Promise<unknown>` helpers,
+  typed storage/protocol `JSON.parse(...) as unknown` bridges,
+  `flarex-dev` source-map JSON parser casts, and Worker/DO adapter
+  `Effect.runPromise(...)` edges.
+- Out of production scope:
+  Vitest `Effect.runPromise(...)`, test request body inspection, and test JSON
+  parsing.
+
+Boundary decision:
+
+F-2 should migrate backend domain failures where they still depend on
+`HttpError`, while preserving adapter-level `HttpError` response conversion and
+documenting runtime bridges that intentionally cross from Effect into
+Cloudflare, Elysia, Miniflare, or Promise-based public APIs.
+
+Verification:
+
+```sh
+rg -n "readJson<" packages -g "**/src/**/*.ts"
+rg -n "request\\.json\\(\\)\\s+as" packages -g "**/src/**/*.ts"
+rg -n "JSON\\.parse\\([^\\n]*\\)\\s+as" packages -g "**/src/**/*.ts"
+rg -n "throw new HttpError" packages -g "**/src/**/*.ts"
+rg -n "Effect\\.runPromise\\(" packages -g "**/src/**/*.ts"
+git diff --check
+```
+
 ## Live Query Protocol Package Boundary
 
 Previous completed checkpoint: `b3badab` Decide executor HTTP adapter
