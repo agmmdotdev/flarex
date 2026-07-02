@@ -1,5 +1,57 @@
 # Hosted Runtime Core
 
+## Dynamic Worker Executor Bridge
+
+Previous completed checkpoint: `b3d90e9` (`Wire artifact runtime Worker Loader`).
+
+What changed:
+
+- Added the `FLAREX_EXECUTOR` service binding to
+  `apps/artifact-runtime/wrangler.jsonc`.
+- Added hosted Dynamic Worker executor configuration to the artifact-runtime
+  binding contract:
+  - `FLAREX_EXECUTOR_TRANSPORT=postgres` as the hosted default,
+  - `FLAREX_PROJECT_ID=default` as the initial single-project executor scope,
+  - optional `FLAREX_EXECUTOR_TOKEN` secret forwarding,
+  - `FLAREX_EXECUTOR_TOKEN_VERSION` as the non-secret Worker Loader cache
+    identity for executor token rotation,
+  - optional `FLAREX_INVOKE_MAX_ATTEMPTS` for Postgres mutation OCC retries.
+- The default Worker Loader materializer now fails closed when either `LOADER`
+  or `FLAREX_EXECUTOR` is missing.
+- The generated Dynamic Worker wrapper now mirrors the mature local
+  materializer execution loop:
+  - starts query/mutation sessions through the executor binding,
+  - forwards `ctx.db` operations through `/invoke/syscall`,
+  - finishes sessions through `/invoke/finish`,
+  - aborts failed sessions through `/invoke/abort`,
+  - retries Postgres mutation attempts for known OCC conflict codes,
+  - supports nested `ctx.runQuery` and same-mutation `ctx.runMutation` calls,
+  - keeps unsupported `ctx.auth`, `ctx.scheduler`, and `ctx.storage`
+    capabilities as explicit fail-closed errors.
+- Worker Loader identity now includes executor transport, project ID, invoke
+  attempts, and executor auth identity, so cached Dynamic Workers are reused
+  only across matching executor configuration.
+
+Known limitations:
+
+- App-local tests prove the generated source, env wiring, fail-closed binding
+  checks, and cache identity. They still use a fake Worker Loader rather than
+  executing Cloudflare's production Dynamic Worker runtime in Vitest.
+- The hosted artifact runtime still relies on the executor service binding to
+  implement the validated `/invoke/start`, `/invoke/syscall`, `/invoke/finish`,
+  and `/invoke/abort` routes. This checkpoint wires the Dynamic Worker to that
+  contract; it does not change executor route semantics.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/artifact-runtime test
+corepack pnpm --filter @flarex/artifact-runtime typecheck
+corepack pnpm --filter @flarex/artifact-runtime build
+corepack pnpm --filter @flarex/artifact-runtime deploy:dry-run
+git diff --check
+```
+
 ## Dynamic Worker Loader Materializer
 
 Previous completed checkpoint: `2ad4d47` (`Add hosted artifact runtime wrapper`).

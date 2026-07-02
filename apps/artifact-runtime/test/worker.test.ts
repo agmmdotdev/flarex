@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import type {
   ExecutionArtifactInvokePayload,
@@ -219,8 +223,14 @@ describe("artifact runtime worker", () => {
 
     const response = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
       ARTIFACTS: bucket,
+      FLAREX_EXECUTOR: fakeExecutorBinding(),
       LOADER: loader,
       FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+      FLAREX_EXECUTOR_TOKEN: "executor-secret",
+      FLAREX_EXECUTOR_TOKEN_VERSION: "ev1",
+      FLAREX_EXECUTOR_TRANSPORT: "postgres",
+      FLAREX_PROJECT_ID: "project1",
+      FLAREX_INVOKE_MAX_ATTEMPTS: "4",
       FLAREX_INTERNAL_TOKEN: "internal-secret",
       FLAREX_INTERNAL_TOKEN_VERSION: "v1",
     });
@@ -239,11 +249,18 @@ describe("artifact runtime worker", () => {
     });
     expect(loader.loaded).toHaveLength(1);
     expect(loader.loaded[0]).toMatchObject({
-      name: `v1:${ref.artifactId}:${ref.sourcePackageHash}:compat=2026-06-14:auth=version-v1`,
+      name: `v1:${ref.artifactId}:${ref.sourcePackageHash}:compat=2026-06-14:executor=transport=postgres,project=project1,attempts=4,auth=version-ev1:auth=version-v1`,
       code: {
         compatibilityDate: "2026-06-14",
         mainModule: "flarex-runtime-worker.js",
-        env: { FLAREX_INTERNAL_TOKEN: "internal-secret" },
+        env: {
+          FLAREX_EXECUTOR: expect.any(Object),
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+          FLAREX_EXECUTOR_TRANSPORT: "postgres",
+          FLAREX_INVOKE_MAX_ATTEMPTS: "4",
+          FLAREX_INTERNAL_TOKEN: "internal-secret",
+          FLAREX_PROJECT_ID: "project1",
+        },
         globalOutbound: null,
       },
     });
@@ -253,7 +270,511 @@ describe("artifact runtime worker", () => {
       "users.js",
     ]);
     expect(String(loader.loaded[0]!.code.modules["flarex-runtime-worker.js"]))
-      .toContain("Hosted Dynamic Worker db/syscall context is not implemented yet.");
+      .toContain('"/invoke/syscall"');
+    expect(String(loader.loaded[0]!.code.modules["flarex-runtime-worker.js"]))
+      .toContain("FLAREX_EXECUTOR service binding is required for hosted Dynamic Worker execution.");
+    expect(String(loader.loaded[0]!.code.modules["flarex-runtime-worker.js"]))
+      .toContain("runMutation");
+  });
+
+  it("executes the generated Dynamic Worker through the executor bridge", async () => {
+    const sourcePackage = executableDbSourcePackage();
+    const bucket = new FakeR2Bucket();
+    const ref = await new R2BackendExecutionArtifactStore(bucket).put(sourcePackage);
+    const loader = new FakeWorkerLoader(async () => Response.json({ value: null }));
+    const worker = createArtifactRuntimeWorker();
+    const calls: Array<{ readonly path: string; readonly body: unknown; readonly authorization: string | null }> = [];
+    const executor = {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        const url = new URL(request.url);
+        const body: unknown = await request.json().catch(() => null);
+        calls.push({
+          path: url.pathname,
+          body,
+          authorization: request.headers.get("authorization"),
+        });
+        if (url.pathname === "/invoke/start") {
+          return Response.json({
+            sessionId: "session-hosted",
+            function: { kind: "query" },
+          });
+        }
+        if (url.pathname === "/invoke/syscall") {
+          return Response.json({
+            value: {
+              page: [{ _id: "2:message", lessonId: "1:lesson", text: "hello" }],
+              isDone: true,
+            },
+          });
+        }
+        if (url.pathname === "/invoke/finish") {
+          return Response.json({
+            value: bodyValue(body, "/invoke/finish"),
+            readSet: { indexes: [{ indexId: 1 }] },
+            readTs: 20,
+          });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+      connect: () => {
+        throw new Error("artifact runtime tests do not use executor connect");
+      },
+    } satisfies Fetcher;
+    const payload: ExecutionArtifactInvokePayload = {
+      deploymentId: "deployment-hosted",
+      ref,
+      request: {
+        path: "messages:list",
+        kind: "query",
+        args: { lessonId: "1:lesson" },
+        partitionKey: "1:lesson",
+      },
+    };
+
+    const response = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
+      ARTIFACTS: bucket,
+      FLAREX_EXECUTOR: executor,
+      LOADER: loader,
+      FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+      FLAREX_EXECUTOR_TOKEN: "executor-secret",
+      FLAREX_EXECUTOR_TRANSPORT: "postgres",
+      FLAREX_PROJECT_ID: "project-hosted",
+      FLAREX_INTERNAL_TOKEN: "internal-secret",
+    });
+
+    expect(response.ok).toBe(true);
+    expect(loader.loaded).toHaveLength(1);
+    const generatedWorker = await importGeneratedDynamicWorker(loader.loaded[0]!);
+    const generatedResponse = await generatedWorker.fetch(
+      new Request("https://flarex-dynamic-worker.internal/__flarex_internal/invoke", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer internal-secret",
+        },
+        body: JSON.stringify({
+          deploymentId: payload.deploymentId,
+          ...payload.request,
+        }),
+      }),
+      loader.loaded[0]!.code.env,
+    );
+
+    expect(generatedResponse.status).toBe(200);
+    await expect(generatedResponse.json()).resolves.toEqual({
+      value: [{ _id: "2:message", lessonId: "1:lesson", text: "hello" }],
+      readSet: { indexes: [{ indexId: 1 }] },
+      readTs: 20,
+    });
+    expect(calls).toEqual([
+      {
+        path: "/invoke/start",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "deployment-hosted",
+          projectId: "project-hosted",
+          path: "messages:list",
+          args: { lessonId: "1:lesson" },
+          kind: "query",
+          visibility: "public",
+          partitionKey: "1:lesson",
+        },
+      },
+      {
+        path: "/invoke/syscall",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "deployment-hosted",
+          projectId: "project-hosted",
+          sessionId: "session-hosted",
+          op: "query",
+          request: {
+            table: "messages",
+            index: "by_lesson",
+            range: {
+              expressions: [
+                { op: "eq", field: "lessonId", value: "1:lesson" },
+              ],
+            },
+          },
+        },
+      },
+      {
+        path: "/invoke/finish",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "deployment-hosted",
+          projectId: "project-hosted",
+          sessionId: "session-hosted",
+          value: [{ _id: "2:message", lessonId: "1:lesson", text: "hello" }],
+        },
+      },
+    ]);
+  });
+
+  it("rejects malformed executor start responses in the generated Dynamic Worker", async () => {
+    const sourcePackage = executableDbSourcePackage();
+    const bucket = new FakeR2Bucket();
+    const ref = await new R2BackendExecutionArtifactStore(bucket).put(sourcePackage);
+    const loader = new FakeWorkerLoader(async () => Response.json({ value: null }));
+    const worker = createArtifactRuntimeWorker();
+    const executor = {
+      fetch: async () => Response.json({ function: { kind: "query" } }),
+      connect: () => {
+        throw new Error("artifact runtime tests do not use executor connect");
+      },
+    } satisfies Fetcher;
+    const payload: ExecutionArtifactInvokePayload = {
+      deploymentId: "deployment-hosted",
+      ref,
+      request: {
+        path: "messages:list",
+        kind: "query",
+        args: { lessonId: "1:lesson" },
+      },
+    };
+
+    const response = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
+      ARTIFACTS: bucket,
+      FLAREX_EXECUTOR: executor,
+      LOADER: loader,
+      FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+      FLAREX_EXECUTOR_TRANSPORT: "postgres",
+      FLAREX_PROJECT_ID: "project-hosted",
+    });
+
+    expect(response.ok).toBe(true);
+    const generatedWorker = await importGeneratedDynamicWorker(loader.loaded[0]!);
+    const generatedResponse = await generatedWorker.fetch(
+      new Request("https://flarex-dynamic-worker.internal/__flarex_internal/invoke", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deploymentId: payload.deploymentId,
+          ...payload.request,
+        }),
+      }),
+      loader.loaded[0]!.code.env,
+    );
+
+    expect(generatedResponse.status).toBe(400);
+    await expect(generatedResponse.json()).resolves.toEqual({
+      error: "Executor start response did not include a sessionId.",
+    });
+  });
+
+  it("rejects executor start responses with the wrong function kind", async () => {
+    const sourcePackage = executableMutationSourcePackage();
+    const bucket = new FakeR2Bucket();
+    const ref = await new R2BackendExecutionArtifactStore(bucket).put(sourcePackage);
+    const loader = new FakeWorkerLoader(async () => Response.json({ value: null }));
+    const worker = createArtifactRuntimeWorker();
+    const executor = {
+      fetch: async () => Response.json({ sessionId: "session-wrong-kind", function: { kind: "query" } }),
+      connect: () => {
+        throw new Error("artifact runtime tests do not use executor connect");
+      },
+    } satisfies Fetcher;
+    const payload: ExecutionArtifactInvokePayload = {
+      deploymentId: "deployment-wrong-kind",
+      ref,
+      request: {
+        path: "messages:create",
+        kind: "mutation",
+        args: { text: "wrong kind" },
+      },
+    };
+
+    const response = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
+      ARTIFACTS: bucket,
+      FLAREX_EXECUTOR: executor,
+      FLAREX_EXECUTOR_TRANSPORT: "postgres",
+      FLAREX_PROJECT_ID: "project-wrong-kind",
+      FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+      LOADER: loader,
+    });
+
+    expect(response.ok).toBe(true);
+    const generatedWorker = await importGeneratedDynamicWorker(loader.loaded[0]!);
+    const generatedResponse = await generatedWorker.fetch(generatedInvokeRequest(payload), loader.loaded[0]!.code.env);
+
+    expect(generatedResponse.status).toBe(400);
+    await expect(generatedResponse.json()).resolves.toEqual({
+      error: "Executor start response kind mismatch: expected mutation, got query.",
+    });
+  });
+
+  it("executes generated Dynamic Worker mutation syscalls", async () => {
+    const sourcePackage = executableMutationSourcePackage();
+    const bucket = new FakeR2Bucket();
+    const ref = await new R2BackendExecutionArtifactStore(bucket).put(sourcePackage);
+    const loader = new FakeWorkerLoader(async () => Response.json({ value: null }));
+    const worker = createArtifactRuntimeWorker();
+    const calls: Array<{ readonly path: string; readonly body: unknown }> = [];
+    const executor = {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        const url = new URL(request.url);
+        const body: unknown = await request.json().catch(() => null);
+        calls.push({ path: url.pathname, body });
+        if (url.pathname === "/invoke/start") {
+          return Response.json({ sessionId: "session-mutation", function: { kind: "mutation" } });
+        }
+        if (url.pathname === "/invoke/syscall") {
+          return Response.json({ value: "2:created" });
+        }
+        if (url.pathname === "/invoke/finish") {
+          return Response.json({
+            value: bodyValue(body, "/invoke/finish"),
+            committedTs: 30,
+            writes: [{ tableId: 2, id: "2:created", prevTs: null, ts: 30, value: { text: "hello" } }],
+          });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+      connect: () => {
+        throw new Error("artifact runtime tests do not use executor connect");
+      },
+    } satisfies Fetcher;
+    const payload: ExecutionArtifactInvokePayload = {
+      deploymentId: "deployment-mutation",
+      ref,
+      request: {
+        path: "messages:create",
+        kind: "mutation",
+        args: { text: "hello" },
+        partitionKey: "1:lesson",
+      },
+    };
+
+    const response = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
+      ARTIFACTS: bucket,
+      FLAREX_EXECUTOR: executor,
+      FLAREX_EXECUTOR_TRANSPORT: "postgres",
+      FLAREX_PROJECT_ID: "project-mutation",
+      FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+      LOADER: loader,
+    });
+
+    expect(response.ok).toBe(true);
+    const generatedWorker = await importGeneratedDynamicWorker(loader.loaded[0]!);
+    const generatedResponse = await generatedWorker.fetch(generatedInvokeRequest(payload), loader.loaded[0]!.code.env);
+
+    expect(generatedResponse.status).toBe(200);
+    await expect(generatedResponse.json()).resolves.toEqual({
+      value: "2:created",
+      committedTs: 30,
+      writes: [{ tableId: 2, id: "2:created", prevTs: null, ts: 30, value: { text: "hello" } }],
+    });
+    expect(calls).toEqual([
+      {
+        path: "/invoke/start",
+        body: {
+          deploymentId: "deployment-mutation",
+          projectId: "project-mutation",
+          path: "messages:create",
+          args: { text: "hello" },
+          kind: "mutation",
+          visibility: "public",
+          partitionKey: "1:lesson",
+        },
+      },
+      {
+        path: "/invoke/syscall",
+        body: {
+          deploymentId: "deployment-mutation",
+          projectId: "project-mutation",
+          sessionId: "session-mutation",
+          op: "insert",
+          table: "messages",
+          value: { text: "hello" },
+        },
+      },
+      {
+        path: "/invoke/finish",
+        body: {
+          deploymentId: "deployment-mutation",
+          projectId: "project-mutation",
+          sessionId: "session-mutation",
+          value: "2:created",
+        },
+      },
+    ]);
+  });
+
+  it("retries and aborts generated Dynamic Worker mutation OCC conflicts", async () => {
+    const sourcePackage = executableMutationSourcePackage();
+    const bucket = new FakeR2Bucket();
+    const ref = await new R2BackendExecutionArtifactStore(bucket).put(sourcePackage);
+    const loader = new FakeWorkerLoader(async () => Response.json({ value: null }));
+    const worker = createArtifactRuntimeWorker();
+    const calls: Array<{ readonly path: string; readonly body: unknown }> = [];
+    let startCount = 0;
+    let finishCount = 0;
+    const executor = {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        const url = new URL(request.url);
+        const body: unknown = await request.json().catch(() => null);
+        calls.push({ path: url.pathname, body });
+        if (url.pathname === "/invoke/start") {
+          startCount += 1;
+          return Response.json({ sessionId: `session-retry-${startCount}`, function: { kind: "mutation" } });
+        }
+        if (url.pathname === "/invoke/syscall") {
+          return Response.json({ value: `2:created-${startCount}` });
+        }
+        if (url.pathname === "/invoke/finish") {
+          finishCount += 1;
+          if (finishCount === 1) {
+            return Response.json(
+              {
+                error: "InvokeSessionOccConflictError",
+                message: "Document changed after session begin timestamp.",
+              },
+              { status: 409 },
+            );
+          }
+          return Response.json({ value: bodyValue(body, "/invoke/finish"), committedTs: 31, writes: [] });
+        }
+        if (url.pathname === "/invoke/abort") {
+          return Response.json({ aborted: true });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+      connect: () => {
+        throw new Error("artifact runtime tests do not use executor connect");
+      },
+    } satisfies Fetcher;
+    const payload: ExecutionArtifactInvokePayload = {
+      deploymentId: "deployment-retry",
+      ref,
+      request: {
+        path: "messages:create",
+        kind: "mutation",
+        args: { text: "retry" },
+      },
+    };
+
+    const response = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
+      ARTIFACTS: bucket,
+      FLAREX_EXECUTOR: executor,
+      FLAREX_EXECUTOR_TRANSPORT: "postgres",
+      FLAREX_INVOKE_MAX_ATTEMPTS: "2",
+      FLAREX_PROJECT_ID: "project-retry",
+      FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+      LOADER: loader,
+    });
+
+    expect(response.ok).toBe(true);
+    const generatedWorker = await importGeneratedDynamicWorker(loader.loaded[0]!);
+    const generatedResponse = await generatedWorker.fetch(generatedInvokeRequest(payload), loader.loaded[0]!.code.env);
+
+    expect(generatedResponse.status).toBe(200);
+    await expect(generatedResponse.json()).resolves.toEqual({
+      value: "2:created-2",
+      committedTs: 31,
+      writes: [],
+    });
+    expect(calls.map(call => call.path)).toEqual([
+      "/invoke/start",
+      "/invoke/syscall",
+      "/invoke/finish",
+      "/invoke/abort",
+      "/invoke/start",
+      "/invoke/syscall",
+      "/invoke/finish",
+    ]);
+    expect(calls
+      .filter(call => call.path === "/invoke/syscall")
+      .map(call => bodySessionId(call.body))).toEqual(["session-retry-1", "session-retry-2"]);
+  });
+
+  it("executes generated Dynamic Worker nested server-side calls in active sessions", async () => {
+    const sourcePackage = executableNestedSourcePackage();
+    const bucket = new FakeR2Bucket();
+    const ref = await new R2BackendExecutionArtifactStore(bucket).put(sourcePackage);
+    const loader = new FakeWorkerLoader(async () => Response.json({ value: null }));
+    const worker = createArtifactRuntimeWorker();
+    const calls: Array<{ readonly path: string; readonly body: unknown }> = [];
+    const executor = {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        const url = new URL(request.url);
+        const body: unknown = await request.json().catch(() => null);
+        calls.push({ path: url.pathname, body });
+        if (url.pathname === "/invoke/start") {
+          const pathValue = bodyPath(body);
+          return Response.json({
+            sessionId: pathValue === "messages:outerMutation" ? "session-nested-mutation" : "session-nested-query",
+            function: { kind: pathValue === "messages:outerMutation" ? "mutation" : "query" },
+          });
+        }
+        if (url.pathname === "/invoke/syscall") {
+          const op = bodyOp(body);
+          return Response.json({
+            value: op === "insert" ? "2:nested-created" : { _id: "2:nested", text: "nested query" },
+          });
+        }
+        if (url.pathname === "/invoke/finish") {
+          return Response.json({ value: bodyValue(body, "/invoke/finish"), readSet: {}, readTs: 40 });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+      connect: () => {
+        throw new Error("artifact runtime tests do not use executor connect");
+      },
+    } satisfies Fetcher;
+    const queryPayload: ExecutionArtifactInvokePayload = {
+      deploymentId: "deployment-nested",
+      ref,
+      request: {
+        path: "messages:outerQuery",
+        kind: "query",
+        args: {},
+      },
+    };
+    const mutationPayload: ExecutionArtifactInvokePayload = {
+      deploymentId: "deployment-nested",
+      ref,
+      request: {
+        path: "messages:outerMutation",
+        kind: "mutation",
+        args: {},
+      },
+    };
+
+    const response = await worker.fetch(runtimeInvokeRequest(queryPayload, "runtime-secret"), {
+      ARTIFACTS: bucket,
+      FLAREX_EXECUTOR: executor,
+      FLAREX_EXECUTOR_TRANSPORT: "postgres",
+      FLAREX_PROJECT_ID: "project-nested",
+      FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+      LOADER: loader,
+    });
+
+    expect(response.ok).toBe(true);
+    const generatedWorker = await importGeneratedDynamicWorker(loader.loaded[0]!);
+    await expect(
+      generatedWorker.fetch(generatedInvokeRequest(queryPayload), loader.loaded[0]!.code.env)
+        .then(result => result.json()),
+    ).resolves.toEqual({ value: { _id: "2:nested", text: "nested query" }, readSet: {}, readTs: 40 });
+    await expect(
+      generatedWorker.fetch(generatedInvokeRequest(mutationPayload), loader.loaded[0]!.code.env)
+        .then(result => result.json()),
+    ).resolves.toEqual({ value: "2:nested-created", readSet: {}, readTs: 40 });
+    expect(calls.map(call => call.path)).toEqual([
+      "/invoke/start",
+      "/invoke/syscall",
+      "/invoke/finish",
+      "/invoke/start",
+      "/invoke/syscall",
+      "/invoke/finish",
+    ]);
+    expect(calls
+      .filter(call => call.path === "/invoke/syscall")
+      .map(call => bodyOp(call.body))).toEqual(["get", "insert"]);
   });
 
   it("varies the Worker Loader identity by compatibility date and internal auth version", async () => {
@@ -274,16 +795,26 @@ describe("artifact runtime worker", () => {
 
     const first = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
       ARTIFACTS: bucket,
+      FLAREX_EXECUTOR: fakeExecutorBinding(),
       LOADER: loader,
       FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+      FLAREX_EXECUTOR_TOKEN: "executor-secret",
+      FLAREX_EXECUTOR_TOKEN_VERSION: "ev1",
+      FLAREX_EXECUTOR_TRANSPORT: "postgres",
+      FLAREX_PROJECT_ID: "project1",
       FLAREX_INTERNAL_TOKEN: "internal-secret",
       FLAREX_INTERNAL_TOKEN_VERSION: "v1",
       FLAREX_DYNAMIC_WORKER_COMPATIBILITY_DATE: "2026-06-14",
     });
     const second = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
       ARTIFACTS: bucket,
+      FLAREX_EXECUTOR: fakeExecutorBinding(),
       LOADER: loader,
       FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+      FLAREX_EXECUTOR_TOKEN: "executor-secret",
+      FLAREX_EXECUTOR_TOKEN_VERSION: "ev2",
+      FLAREX_EXECUTOR_TRANSPORT: "postgres",
+      FLAREX_PROJECT_ID: "project2",
       FLAREX_INTERNAL_TOKEN: "internal-secret",
       FLAREX_INTERNAL_TOKEN_VERSION: "v2",
       FLAREX_DYNAMIC_WORKER_COMPATIBILITY_DATE: "2026-07-02",
@@ -292,8 +823,8 @@ describe("artifact runtime worker", () => {
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(true);
     expect(loader.loaded.map(entry => entry.name)).toEqual([
-      `v1:${ref.artifactId}:${ref.sourcePackageHash}:compat=2026-06-14:auth=version-v1`,
-      `v1:${ref.artifactId}:${ref.sourcePackageHash}:compat=2026-07-02:auth=version-v2`,
+      `v1:${ref.artifactId}:${ref.sourcePackageHash}:compat=2026-06-14:executor=transport=postgres,project=project1,attempts=default,auth=version-ev1:auth=version-v1`,
+      `v1:${ref.artifactId}:${ref.sourcePackageHash}:compat=2026-07-02:executor=transport=postgres,project=project2,attempts=default,auth=version-ev2:auth=version-v2`,
     ]);
   });
 
@@ -315,6 +846,7 @@ describe("artifact runtime worker", () => {
 
     const response = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
       ARTIFACTS: bucket,
+      FLAREX_EXECUTOR: fakeExecutorBinding(),
       LOADER: loader,
       FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
     });
@@ -413,6 +945,69 @@ describe("artifact runtime worker", () => {
     });
   });
 
+  it("fails closed when the executor service binding is missing", async () => {
+    const sourcePackage = testSourcePackage();
+    const bucket = new FakeR2Bucket();
+    const ref = await new R2BackendExecutionArtifactStore(bucket).put(sourcePackage);
+    const loader = new FakeWorkerLoader(async () => {
+      throw new Error("loader should not run when the executor binding is missing");
+    });
+    const worker = createArtifactRuntimeWorker();
+    const payload: ExecutionArtifactInvokePayload = {
+      deploymentId: "deployment1",
+      ref,
+      request: {
+        path: "users:get",
+        kind: "query",
+        args: {},
+      },
+    };
+
+    const response = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
+      ARTIFACTS: bucket,
+      LOADER: loader,
+      FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "FLAREX_EXECUTOR service binding is required for hosted Dynamic Worker execution.",
+    });
+    expect(loader.loaded).toEqual([]);
+  });
+
+  it("fails closed when hosted executor transport is unsupported", async () => {
+    const sourcePackage = testSourcePackage();
+    const bucket = new FakeR2Bucket();
+    const ref = await new R2BackendExecutionArtifactStore(bucket).put(sourcePackage);
+    const loader = new FakeWorkerLoader(async () => {
+      throw new Error("loader should not run when executor transport is unsupported");
+    });
+    const worker = createArtifactRuntimeWorker();
+
+    const response = await worker.fetch(runtimeInvokeRequest({
+      deploymentId: "deployment1",
+      ref,
+      request: {
+        path: "users:get",
+        kind: "query",
+        args: {},
+      },
+    }, "runtime-secret"), {
+      ARTIFACTS: bucket,
+      FLAREX_EXECUTOR: fakeExecutorBinding(),
+      FLAREX_EXECUTOR_TRANSPORT: "other",
+      LOADER: loader,
+      FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unsupported Flarex executor transport: other",
+    });
+    expect(loader.loaded).toEqual([]);
+  });
+
   it("reports missing source modules before loading a Dynamic Worker", async () => {
     const sourcePackage = sourcePackageWithMissingSource();
     const bucket = new FakeR2Bucket();
@@ -433,6 +1028,7 @@ describe("artifact runtime worker", () => {
 
     const response = await worker.fetch(runtimeInvokeRequest(payload, "runtime-secret"), {
       ARTIFACTS: bucket,
+      FLAREX_EXECUTOR: fakeExecutorBinding(),
       LOADER: loader,
       FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
     });
@@ -486,6 +1082,7 @@ async function invokeWithStoredSourcePackage(
     },
   }, "runtime-secret"), {
     ARTIFACTS: bucket,
+    FLAREX_EXECUTOR: fakeExecutorBinding(),
     LOADER: loader,
     FLAREX_ARTIFACT_RUNTIME_TOKEN: "runtime-secret",
   });
@@ -553,6 +1150,118 @@ function executableSourcePackage(): PushSourcePackage {
       },
     ],
     functions: ["users.js"],
+    execution: "_flarex/execution.js",
+  };
+}
+
+function executableDbSourcePackage(): PushSourcePackage {
+  return {
+    modules: [
+      {
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "a".repeat(64),
+        source: `export default {
+  messages: {
+    list: {
+      isQuery: true,
+      isPublic: true,
+      _handler: async (ctx, args) => {
+        return await ctx.db
+          .query("messages")
+          .withIndex("by_lesson", q => q.eq("lessonId", args.lessonId))
+          .collect();
+      },
+    },
+  },
+};`,
+      },
+      {
+        path: "messages.js",
+        environment: "isolate",
+        sha256: "b".repeat(64),
+        source: "export const list = {};",
+      },
+    ],
+    functions: ["messages.js"],
+    execution: "_flarex/execution.js",
+  };
+}
+
+function executableMutationSourcePackage(): PushSourcePackage {
+  return {
+    modules: [
+      {
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "a".repeat(64),
+        source: `export default {
+  messages: {
+    create: {
+      isMutation: true,
+      isPublic: true,
+      _handler: async (ctx, args) => {
+        return await ctx.db.insert("messages", { text: args.text });
+      },
+    },
+  },
+};`,
+      },
+      {
+        path: "messages.js",
+        environment: "isolate",
+        sha256: "b".repeat(64),
+        source: "export const create = {};",
+      },
+    ],
+    functions: ["messages.js"],
+    execution: "_flarex/execution.js",
+  };
+}
+
+function executableNestedSourcePackage(): PushSourcePackage {
+  return {
+    modules: [
+      {
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "a".repeat(64),
+        source: `const helperQueryRef = { _path: "messages:helperQuery" };
+const helperMutationRef = { _path: "messages:helperMutation" };
+
+export default {
+  messages: {
+    helperQuery: {
+      isQuery: true,
+      isInternal: true,
+      _handler: async (ctx) => await ctx.db.get("2:nested"),
+    },
+    outerQuery: {
+      isQuery: true,
+      isPublic: true,
+      _handler: async (ctx) => await ctx.runQuery(helperQueryRef, {}),
+    },
+    helperMutation: {
+      isMutation: true,
+      isInternal: true,
+      _handler: async (ctx) => await ctx.db.insert("messages", { text: "nested mutation" }),
+    },
+    outerMutation: {
+      isMutation: true,
+      isPublic: true,
+      _handler: async (ctx) => await ctx.runMutation(helperMutationRef, {}),
+    },
+  },
+};`,
+      },
+      {
+        path: "messages.js",
+        environment: "isolate",
+        sha256: "b".repeat(64),
+        source: "export const outerQuery = {}; export const outerMutation = {};",
+      },
+    ],
+    functions: ["messages.js"],
     execution: "_flarex/execution.js",
   };
 }
@@ -648,6 +1357,80 @@ function activeDeployment(
       functions: [],
     },
   };
+}
+
+function fakeExecutorBinding(): Fetcher {
+  return {
+    fetch: () => Promise.resolve(Response.json({ error: "unexpected executor call" }, { status: 500 })),
+    connect: () => {
+      throw new Error("artifact runtime tests do not use executor connect");
+    },
+  } satisfies Fetcher;
+}
+
+type GeneratedDynamicWorker = {
+  readonly fetch: (request: Request, env: unknown) => Promise<Response>;
+};
+
+async function importGeneratedDynamicWorker(
+  entry: { readonly code: WorkerLoaderWorkerCode },
+): Promise<GeneratedDynamicWorker> {
+  const root = await mkdtemp(path.join(tmpdir(), "flarex-hosted-dynamic-worker-"));
+  for (const [modulePath, source] of Object.entries(entry.code.modules)) {
+    if (typeof source !== "string") {
+      throw new Error(`Generated Dynamic Worker module ${modulePath} is not string source.`);
+    }
+    const destination = path.join(root, modulePath);
+    await mkdir(path.dirname(destination), { recursive: true });
+    await writeFile(destination, source);
+  }
+  const moduleUrl = `${pathToFileURL(path.join(root, "flarex-runtime-worker.js")).href}?cache=${Date.now()}`;
+  const module: unknown = await import(moduleUrl);
+  if (!isGeneratedDynamicWorkerModule(module)) {
+    throw new Error("Generated Dynamic Worker module did not export a fetch handler.");
+  }
+  return module.default;
+}
+
+function generatedInvokeRequest(payload: ExecutionArtifactInvokePayload): Request {
+  return new Request("https://flarex-dynamic-worker.internal/__flarex_internal/invoke", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      deploymentId: payload.deploymentId,
+      ...payload.request,
+    }),
+  });
+}
+
+function isGeneratedDynamicWorkerModule(value: unknown): value is { readonly default: GeneratedDynamicWorker } {
+  if (!isRecord(value)) return false;
+  const defaultExport = value.default;
+  return isRecord(defaultExport) && typeof defaultExport.fetch === "function";
+}
+
+function bodyValue(body: unknown, context: string): unknown {
+  if (isRecord(body) && "value" in body) return body.value;
+  throw new Error(`${context} body is missing value.`);
+}
+
+function bodySessionId(body: unknown): unknown {
+  if (isRecord(body) && "sessionId" in body) return body.sessionId;
+  throw new Error("Body is missing sessionId.");
+}
+
+function bodyPath(body: unknown): unknown {
+  if (isRecord(body) && "path" in body) return body.path;
+  throw new Error("Body is missing path.");
+}
+
+function bodyOp(body: unknown): unknown {
+  if (isRecord(body) && "op" in body) return body.op;
+  throw new Error("Body is missing op.");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 class FakeR2Bucket implements R2BucketLike {

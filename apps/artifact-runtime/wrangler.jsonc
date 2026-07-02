@@ -14,7 +14,19 @@
       "binding": "LOADER"
     }
   ],
+  "services": [
+    {
+      "binding": "FLAREX_EXECUTOR",
+      "service": "flarex-executor"
+    }
+  ],
+  "vars": {
+    "FLAREX_EXECUTOR_TRANSPORT": "postgres",
+    "FLAREX_PROJECT_ID": "default"
+  },
   // Configure with `wrangler secret put FLAREX_ARTIFACT_RUNTIME_TOKEN`.
+  // Configure `FLAREX_EXECUTOR_TOKEN` when the executor app enforces its capability token.
+  // Bump `FLAREX_EXECUTOR_TOKEN_VERSION` when rotating `FLAREX_EXECUTOR_TOKEN`.
   // Optionally configure `FLAREX_INTERNAL_TOKEN` to protect host-to-Dynamic-Worker calls.
   // Bump FLAREX_INTERNAL_TOKEN_VERSION when rotating FLAREX_INTERNAL_TOKEN.
   "observability": {
