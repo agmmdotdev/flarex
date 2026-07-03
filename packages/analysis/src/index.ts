@@ -464,30 +464,6 @@ export const backendCodegenAnalysisFromCodegenAnalysisEffect = Effect.fn(
   };
 });
 
-export function deploymentAnalysisFromCodegenAnalysis(
-  analysis: DeploymentAnalysis,
-): BackendDeploymentAnalysis {
-  return Effect.runSync(deploymentAnalysisFromCodegenAnalysisEffect(analysis));
-}
-
-export function backendCodegenAnalysisFromCodegenAnalysis(
-  analysis: DeploymentAnalysis,
-): BackendDeploymentCodegenAnalysis {
-  return Effect.runSync(backendCodegenAnalysisFromCodegenAnalysisEffect(analysis));
-}
-
-export function backendValidatorJsonFromValidatorJson(
-  value: ValidatorJSON | null,
-): BackendValidatorJson | null {
-  return Effect.runSync(backendValidatorJsonEffect(value));
-}
-
-export function backendRequiredValidatorJsonFromValidatorJson(
-  value: ValidatorJSON,
-): BackendValidatorJson {
-  return Effect.runSync(backendRequiredValidatorJsonEffect(value));
-}
-
 export function normalizeAnalyzerDiagnostics(value: unknown): AnalyzerDiagnostic[] {
   if (!Array.isArray(value)) return [];
   return value.slice(-100).flatMap(diagnostic => {
@@ -1051,7 +1027,7 @@ function backendFunctionPartitionEffect(
   });
 }
 
-function backendValidatorJsonEffect(
+export function backendValidatorJsonEffect(
   value: ValidatorJSON | null,
 ): Effect.Effect<BackendValidatorJson | null, AnalyzerValidatorError> {
   return Effect.gen(function* () {
@@ -1100,7 +1076,7 @@ function backendValidatorJsonEffect(
   });
 }
 
-function backendRequiredValidatorJsonEffect(
+export function backendRequiredValidatorJsonEffect(
   value: ValidatorJSON,
 ): Effect.Effect<BackendValidatorJson, AnalyzerValidatorError> {
   return Effect.gen(function* () {

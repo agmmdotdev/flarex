@@ -66,7 +66,6 @@ export type {
   DeploymentAnalysis,
 } from "./analyze.ts";
 export {
-  backendAnalysisFromCodegenAnalysis,
   createLocalAnalyzerService,
   HttpBackendPushCoordinator,
   HttpBackendSourceAnalyzer,

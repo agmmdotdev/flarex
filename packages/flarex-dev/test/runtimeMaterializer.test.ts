@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
+import { deploymentAnalysisFromCodegenAnalysisEffect } from "@flarex/analysis";
 import {
   createExecutionArtifactRuntimeService,
   type ExecutionArtifactMaterializer,
@@ -18,9 +19,7 @@ import {
   createBackendHarness,
   type BackendHarness,
 } from "flarex-backend/test/backendHarness";
-import {
-  backendAnalysisFromCodegenAnalysis,
-} from "../src/backendPush";
+import type { DeploymentAnalysis } from "../src/analyze";
 import { LocalMiniflareExecutionArtifactAdapter } from "../src/executionArtifact";
 import {
   bundleFlarexSourcePackage,
@@ -33,6 +32,10 @@ import {
   MaterializedArtifactResponseError,
 } from "../src/runtimeMaterializer";
 import type { PushSourcePackage } from "flarex-backend/types";
+
+function backendAnalysisFromCodegenAnalysis(analysis: DeploymentAnalysis) {
+  return Effect.runSync(deploymentAnalysisFromCodegenAnalysisEffect(analysis));
+}
 import type {
   InvokeAttemptContext,
   RunLiveQuerySubscriptionWithInvokeInput,

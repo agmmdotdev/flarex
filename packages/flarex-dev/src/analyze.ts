@@ -137,7 +137,7 @@ export async function analyzeFunctionModules(modules: FunctionModule[]): Promise
   const bundled = await import(
     `data:text/javascript;base64,${Buffer.from(chunk.code, "utf8").toString("base64")}`
   );
-  return [...Effect.runSync(analyzeExecutionModulesEffect(
+  return [...await Effect.runPromise(analyzeExecutionModulesEffect(
     bundled.default as LoadedExecutionModules,
   ))];
 }
@@ -150,7 +150,7 @@ export async function analyzeSourcePackageLocally(
     `data:text/javascript;base64,${Buffer.from(execution.source, "utf8").toString("base64")}`
   );
   const schemaDefinition = await loadSchemaDefinition(package_);
-  return Effect.runSync(analyzeLoadedSourcePackageEffect({
+  return await Effect.runPromise(analyzeLoadedSourcePackageEffect({
     executionModules: executionModule.default as LoadedExecutionModules,
     schemaDefinition,
     sourceMaps: sourceMapsByModuleName(package_),

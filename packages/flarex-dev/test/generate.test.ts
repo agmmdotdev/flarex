@@ -2,11 +2,12 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { Effect } from "effect";
+import { deploymentAnalysisFromCodegenAnalysisEffect } from "@flarex/analysis";
 import { Miniflare } from "miniflare";
 import { build, type Plugin } from "vite";
 import { describe, expect, it } from "vitest";
 import {
-  backendAnalysisFromCodegenAnalysis,
   bundleFlarexSourcePackage,
   analyzeFlarexSourcePackage,
   type BackendPushCoordinator,
@@ -28,6 +29,10 @@ const workspaceRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../..",
 );
+
+function backendAnalysisFromCodegenAnalysis(analysis: DeploymentAnalysis) {
+  return Effect.runSync(deploymentAnalysisFromCodegenAnalysisEffect(analysis));
+}
 
 describe("generateFlarex", () => {
   it("plans final generated output before writing final-only files", async () => {

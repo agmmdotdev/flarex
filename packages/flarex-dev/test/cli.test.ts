@@ -1,11 +1,12 @@
 import { rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { Effect } from "effect";
+import { deploymentAnalysisFromCodegenAnalysisEffect } from "@flarex/analysis";
 import { describe, expect, it, vi } from "vitest";
 import type { FlarexGeneratedOutputTypecheckOptions } from "../src/generatedTypecheck";
 import { runFlarexDevCli } from "../src/cli";
 import type { DeploymentAnalysis } from "../src/analyze";
-import { backendAnalysisFromCodegenAnalysis } from "../src/backendPush";
 import type { SourcePackage } from "../src/sourcePackage";
 import { createMinimalFlarexProject } from "./fixtures";
 
@@ -13,6 +14,10 @@ const workspaceRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../..",
 );
+
+function backendAnalysisFromCodegenAnalysis(analysis: DeploymentAnalysis) {
+  return Effect.runSync(deploymentAnalysisFromCodegenAnalysisEffect(analysis));
+}
 
 class StringWriter {
   value = "";

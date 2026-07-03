@@ -1,9 +1,9 @@
 import type { Miniflare } from "miniflare";
 import { Data, Effect } from "effect";
 import {
-  backendCodegenAnalysisFromCodegenAnalysis,
-  backendRequiredValidatorJsonFromValidatorJson,
-  deploymentAnalysisFromCodegenAnalysis,
+  backendCodegenAnalysisFromCodegenAnalysisEffect,
+  backendRequiredValidatorJsonEffect,
+  deploymentAnalysisFromCodegenAnalysisEffect,
 } from "@flarex/analysis";
 import {
   decodeDeploymentAnalysisEffect,
@@ -39,8 +39,6 @@ import {
 } from "./routeBoundary.ts";
 import { readDevResponseJsonOrNullEffect } from "./responseJson.ts";
 import type { SourcePackage } from "./sourcePackage.ts";
-
-export const backendAnalysisFromCodegenAnalysis = deploymentAnalysisFromCodegenAnalysis;
 
 export type DevPushStatus = {
   pushId: string;
@@ -208,23 +206,15 @@ export class HttpBackendSourceAnalyzer implements BackendSourceAnalyzer {
       }),
     });
     // Deliberate runtime bridge: HTTP analyzer response decoding is Promise-based.
-    const body = await Effect.runPromise(
-      decodeHttpBackendAnalyzerBody(response).pipe(
+    return await Effect.runPromise(Effect.gen(function* () {
+      const body = yield* decodeHttpBackendAnalyzerBody(response).pipe(
         Effect.mapError(backendPushResponseErrorToAnalysisError),
-      ),
-    );
-    const diagnostics = diagnosticsFromBody(body);
-    const codegenAnalysis = parseCodegenAnalysisFromBody(body);
-    if (!codegenAnalysis.ok) {
-      throw new ExecutionArtifactAnalysisError(
-        codegenAnalysis.message,
-        diagnostics,
       );
-    }
-    return {
-      analysis: codegenAnalysis.analysis,
-      diagnostics,
-    };
+      return {
+        analysis: yield* parseCodegenAnalysisFromBodyEffect(body),
+        diagnostics: diagnosticsFromBody(body),
+      };
+    }));
   }
 }
 
@@ -260,7 +250,7 @@ export class LocalBackendPushCoordinator implements BackendPushCoordinator {
         Effect.mapError(localBackendFinishResponseErrorToError),
       ),
     );
-    return parseDevFinishPushResponse(payload);
+    return await Effect.runPromise(parseDevFinishPushResponseEffect(payload));
   }
 
   abandon(pushId: string, request: AbandonPushRequest = {}): Promise<DevPushStatus> {
@@ -322,7 +312,7 @@ export class HttpBackendPushCoordinator implements BackendPushCoordinator {
         Effect.mapError(backendPushResponseErrorToAnalysisError),
       ),
     );
-    return parseDevPushStatus(payload);
+    return await Effect.runPromise(parseDevPushStatusEffect(payload));
   }
 
   private async postFinish(path: string, body: unknown): Promise<DevFinishPushResponse> {
@@ -337,7 +327,7 @@ export class HttpBackendPushCoordinator implements BackendPushCoordinator {
         Effect.mapError(backendPushResponseErrorToAnalysisError),
       ),
     );
-    return parseDevFinishPushResponse(payload);
+    return await Effect.runPromise(parseDevFinishPushResponseEffect(payload));
   }
 }
 
@@ -443,13 +433,18 @@ export function createLocalAnalyzerService(
     }
     try {
       // Deliberate runtime bridge: analyzer route handler returns a Response Promise.
-      const body = await Effect.runPromise(decodeLocalAnalyzerRequest(request));
-      const result = await analyzer.analyze(body.sourcePackage);
-      const payload = {
-        analysis: backendAnalysisFromCodegenAnalysis(result.analysis),
-        codegenAnalysis: backendCodegenAnalysisFromCodegenAnalysis(result.analysis),
-        diagnostics: result.diagnostics ?? [],
-      } satisfies AnalyzeSourcePackageResponse;
+      const payload = await Effect.runPromise(Effect.gen(function* () {
+        const body = yield* decodeLocalAnalyzerRequest(request);
+        const result = yield* Effect.tryPromise({
+          try: () => analyzer.analyze(body.sourcePackage),
+          catch: cause => cause,
+        });
+        return {
+          analysis: yield* deploymentAnalysisFromCodegenAnalysisEffect(result.analysis),
+          codegenAnalysis: yield* backendCodegenAnalysisFromCodegenAnalysisEffect(result.analysis),
+          diagnostics: result.diagnostics ?? [],
+        } satisfies AnalyzeSourcePackageResponse;
+      }));
       return Response.json(payload);
     } catch (error) {
       return Response.json(
@@ -463,24 +458,27 @@ export function createLocalAnalyzerService(
   };
 }
 
-type CodegenAnalysisParseResult =
-  | { ok: true; analysis: CodegenDeploymentAnalysis }
-  | { ok: false; message: string };
-
-function parseCodegenAnalysisFromBody(body: unknown): CodegenAnalysisParseResult {
+function parseCodegenAnalysisFromBodyEffect(
+  body: unknown,
+): Effect.Effect<CodegenDeploymentAnalysis, ExecutionArtifactAnalysisError> {
   if (!isRecord(body)) {
-    return { ok: false, message: "Backend analyzer response body must be an object." };
+    return analysisFailure("Backend analyzer response body must be an object.", []);
   }
+  const diagnostics = diagnosticsFromBody(body);
   if ("error" in body) {
-    return { ok: false, message: "Backend analyzer success response must not include error." };
+    return analysisFailure("Backend analyzer success response must not include error.", diagnostics);
   }
   if (!("codegenAnalysis" in body)) {
-    return { ok: false, message: "Backend analyzer response did not include codegenAnalysis." };
+    return analysisFailure("Backend analyzer response did not include codegenAnalysis.", diagnostics);
   }
   const routeCheck = rejectCodegenRouteMetadata(body.codegenAnalysis);
-  if (!routeCheck.ok) return routeCheck;
-  const analysis = decodeProtocolDeploymentCodegenAnalysis(body.codegenAnalysis);
-  return analysis.ok ? { ok: true, analysis: analysis.value } : analysis;
+  if (!routeCheck.ok) return analysisFailure(routeCheck.message, diagnostics);
+  return decodeDeploymentCodegenAnalysisEffect(body.codegenAnalysis).pipe(
+    Effect.mapError(error => new ExecutionArtifactAnalysisError(error.message, diagnostics)),
+    Effect.flatMap(analysis => codegenDeploymentAnalysisFromProtocolEffect(analysis).pipe(
+      Effect.mapError(error => new ExecutionArtifactAnalysisError(error.message, diagnostics)),
+    )),
+  );
 }
 
 type ParseResult<T> =
@@ -491,43 +489,71 @@ function parseError<T = never>(message: string): ParseResult<T> {
   return { ok: false, message };
 }
 
-function decodeProtocolDeploymentAnalysis(value: unknown): ParseResult<BackendDeploymentAnalysis> {
-  const decoded = decodeProtocolValue(decodeDeploymentAnalysisEffect(value));
-  return decoded.ok
-    ? { ok: true, value: backendDeploymentAnalysisFromProtocol(decoded.value) }
-    : decoded;
+function decodeProtocolDeploymentAnalysisEffect(
+  value: unknown,
+  diagnostics: AnalyzerDiagnostic[],
+): Effect.Effect<BackendDeploymentAnalysis, ExecutionArtifactAnalysisError> {
+  return decodeDeploymentAnalysisEffect(value).pipe(
+    Effect.mapError(error => new ExecutionArtifactAnalysisError(error.message, diagnostics)),
+    Effect.flatMap(analysis => backendDeploymentAnalysisFromProtocolEffect(analysis).pipe(
+      Effect.mapError(error => new ExecutionArtifactAnalysisError(error.message, diagnostics)),
+    )),
+  );
 }
 
-function decodeProtocolDeploymentCodegenAnalysis(value: unknown): ParseResult<CodegenDeploymentAnalysis> {
-  const decoded = decodeProtocolValue(decodeDeploymentCodegenAnalysisEffect(value));
-  return decoded.ok ? codegenDeploymentAnalysisFromProtocol(decoded.value) : decoded;
-}
-
-function decodeProtocolValue<T>(
-  effect: Effect.Effect<T, { readonly message: string }>,
-): ParseResult<T> {
-  try {
-    return { ok: true, value: Effect.runSync(effect) };
-  } catch (error) {
-    return parseError(errorMessage(error));
-  }
-}
-
-function backendDeploymentAnalysisFromProtocol(
+function backendDeploymentAnalysisFromProtocolEffect(
   analysis: ProtocolDeploymentAnalysis,
-): BackendDeploymentAnalysis {
-  return {
+): Effect.Effect<BackendDeploymentAnalysis, ExecutionArtifactAnalysisError> {
+  return Effect.gen(function* () {
+    const tables = yield* Effect.forEach(analysis.schema.tables, table =>
+      Effect.gen(function* () {
+        return {
+          tableId: table.tableId,
+          name: table.name,
+          ...(table.state === undefined ? {} : { state: table.state }),
+          ...(table.validator === undefined
+            ? {}
+            : {
+                validator: table.validator === null
+                  ? null
+                  : yield* backendValidatorJsonFromProtocolEffect(table.validator),
+              }),
+          placement: { ...table.placement },
+        };
+      }),
+    );
+    const functions = yield* Effect.forEach(analysis.functions.functions, fn =>
+      Effect.gen(function* () {
+        return {
+          path: fn.path,
+          kind: fn.kind,
+          ...(fn.visibility === undefined ? {} : { visibility: fn.visibility }),
+          ...(fn.args === undefined
+            ? {}
+            : {
+                args: fn.args === null
+                  ? null
+                  : yield* backendValidatorJsonFromProtocolEffect(fn.args),
+              }),
+          ...(fn.returns === undefined
+            ? {}
+            : {
+                returns: fn.returns === null
+                  ? null
+                  : yield* backendValidatorJsonFromProtocolEffect(fn.returns),
+              }),
+          ...(fn.route === undefined ? {} : { route: fn.route === null ? null : { ...fn.route } }),
+          ...(fn.partition === undefined
+            ? {}
+            : { partition: fn.partition === null ? null : { ...fn.partition } }),
+          ...(fn.position === undefined ? {} : { position: { ...fn.position } }),
+        };
+      }),
+    );
+    return {
     schema: {
       version: analysis.schema.version,
-      tables: analysis.schema.tables.map(table => ({
-        tableId: table.tableId,
-        name: table.name,
-        ...(table.state === undefined ? {} : { state: table.state }),
-        ...(table.validator === undefined
-          ? {}
-          : { validator: table.validator === null ? null : backendValidatorJsonFromProtocol(table.validator) }),
-        placement: { ...table.placement },
-      })),
+      tables,
       indexes: analysis.schema.indexes.map(index => ({
         indexId: index.indexId,
         tableId: index.tableId,
@@ -537,33 +563,19 @@ function backendDeploymentAnalysisFromProtocol(
       })),
     },
     functions: {
-      functions: analysis.functions.functions.map(fn => ({
-        path: fn.path,
-        kind: fn.kind,
-        ...(fn.visibility === undefined ? {} : { visibility: fn.visibility }),
-        ...(fn.args === undefined
-          ? {}
-          : { args: fn.args === null ? null : backendValidatorJsonFromProtocol(fn.args) }),
-        ...(fn.returns === undefined
-          ? {}
-          : { returns: fn.returns === null ? null : backendValidatorJsonFromProtocol(fn.returns) }),
-        ...(fn.route === undefined ? {} : { route: fn.route === null ? null : { ...fn.route } }),
-        ...(fn.partition === undefined
-          ? {}
-          : { partition: fn.partition === null ? null : { ...fn.partition } }),
-        ...(fn.position === undefined ? {} : { position: { ...fn.position } }),
-      })),
+      functions,
     },
   };
+  });
 }
 
-function codegenDeploymentAnalysisFromProtocol(
+function codegenDeploymentAnalysisFromProtocolEffect(
   analysis: ProtocolDeploymentCodegenAnalysis,
-): ParseResult<CodegenDeploymentAnalysis> {
+): Effect.Effect<CodegenDeploymentAnalysis, ExecutionArtifactAnalysisError> {
   const tables: Array<CodegenDeploymentAnalysis["schema"]["tables"][number]> = [];
   for (const [index, table] of analysis.schema.tables.entries()) {
     if (table.validator === undefined || table.validator === null) {
-      return parseError(`codegenAnalysis.schema.tables[${index}].validator is invalid.`);
+      return analysisFailure(`codegenAnalysis.schema.tables[${index}].validator is invalid.`, []);
     }
     tables.push({
       tableId: table.tableId,
@@ -572,9 +584,7 @@ function codegenDeploymentAnalysisFromProtocol(
       placement: { ...table.placement },
     });
   }
-  return {
-    ok: true,
-    value: {
+  return Effect.succeed({
       schema: {
         version: analysis.schema.version,
         tables,
@@ -600,8 +610,7 @@ function codegenDeploymentAnalysisFromProtocol(
           ...(fn.position === undefined ? {} : { position: { ...fn.position } }),
         })),
       })),
-    },
-  };
+  });
 }
 
 function rejectCodegenRouteMetadata(value: unknown): ParseResult<void> {
@@ -618,8 +627,12 @@ function rejectCodegenRouteMetadata(value: unknown): ParseResult<void> {
   return { ok: true, value: undefined };
 }
 
-function backendValidatorJsonFromProtocol(value: ProtocolValidatorJson): BackendValidatorJson {
-  return backendRequiredValidatorJsonFromValidatorJson(validatorJsonFromProtocol(value));
+function backendValidatorJsonFromProtocolEffect(
+  value: ProtocolValidatorJson,
+): Effect.Effect<BackendValidatorJson, ExecutionArtifactAnalysisError> {
+  return backendRequiredValidatorJsonEffect(validatorJsonFromProtocol(value)).pipe(
+    Effect.mapError(error => new ExecutionArtifactAnalysisError(error.message, [])),
+  );
 }
 
 function validatorJsonFromProtocol(value: ProtocolValidatorJson): ValidatorJSON {
@@ -681,100 +694,105 @@ function analyzerHeaders(headers: HeadersInit | undefined): Headers {
   return result;
 }
 
-function parseDevPushStatus(value: unknown): DevPushStatus {
-  if (!isRecord(value)) {
-    throw new ExecutionArtifactAnalysisError("Backend push response body must be an object.", []);
-  }
-  if (typeof value.pushId !== "string" || value.pushId.length === 0) {
-    throw new ExecutionArtifactAnalysisError("Backend push response pushId must be a non-empty string.", []);
-  }
-  if (!isPushState(value.state)) {
-    throw new ExecutionArtifactAnalysisError("Backend push response state is invalid.", []);
-  }
-  const codegenAnalysis = "codegenAnalysis" in value
-    ? parseCodegenAnalysisFromBody(value)
-    : undefined;
-  if (codegenAnalysis !== undefined && !codegenAnalysis.ok) {
-    throw new ExecutionArtifactAnalysisError(
-      codegenAnalysis.message,
-      diagnosticsFromBody(value),
-    );
-  }
-  const backendAnalysis = "analysis" in value
-    ? decodeProtocolDeploymentAnalysis(value.analysis)
-    : undefined;
-  if (backendAnalysis !== undefined && !backendAnalysis.ok) {
-    throw new ExecutionArtifactAnalysisError(
-      backendAnalysis.message,
-      diagnosticsFromBody(value),
-    );
-  }
-  return {
-    pushId: value.pushId,
-    state: value.state,
-    ...(backendAnalysis?.ok === true ? { analysis: backendAnalysis.value } : {}),
-    ...(codegenAnalysis?.ok === true ? { codegenAnalysis: codegenAnalysis.analysis } : {}),
-    ...(typeof value.error === "string" ? { error: value.error } : {}),
-    ...(diagnosticsFromBody(value).length === 0 ? {} : { diagnostics: diagnosticsFromBody(value) }),
-  };
+function analysisFailure(
+  message: string,
+  diagnostics: AnalyzerDiagnostic[],
+): Effect.Effect<never, ExecutionArtifactAnalysisError> {
+  return Effect.fail(new ExecutionArtifactAnalysisError(message, diagnostics));
 }
 
-function parseDevFinishPushResponse(value: unknown): DevFinishPushResponse {
+function parseDevPushStatusEffect(
+  value: unknown,
+): Effect.Effect<DevPushStatus, ExecutionArtifactAnalysisError> {
+  if (!isRecord(value)) {
+    return analysisFailure("Backend push response body must be an object.", []);
+  }
+  if (typeof value.pushId !== "string" || value.pushId.length === 0) {
+    return analysisFailure("Backend push response pushId must be a non-empty string.", []);
+  }
+  if (!isPushState(value.state)) {
+    return analysisFailure("Backend push response state is invalid.", []);
+  }
+  const pushId = value.pushId;
+  const state = value.state;
+  const diagnostics = diagnosticsFromBody(value);
+  return Effect.gen(function* () {
+    const codegenAnalysis = "codegenAnalysis" in value
+      ? yield* parseCodegenAnalysisFromBodyEffect(value)
+      : undefined;
+    const backendAnalysis = "analysis" in value
+      ? yield* decodeProtocolDeploymentAnalysisEffect(value.analysis, diagnostics)
+      : undefined;
+    return {
+      pushId,
+      state,
+      ...(backendAnalysis === undefined ? {} : { analysis: backendAnalysis }),
+      ...(codegenAnalysis === undefined ? {} : { codegenAnalysis }),
+      ...(typeof value.error === "string" ? { error: value.error } : {}),
+      ...(diagnostics.length === 0 ? {} : { diagnostics }),
+    };
+  });
+}
+
+function parseDevFinishPushResponseEffect(
+  value: unknown,
+): Effect.Effect<DevFinishPushResponse, ExecutionArtifactAnalysisError> {
   if (isFinishPushResponseEnvelope(value)) {
     const diagnostics = diagnosticsFromBody(value);
     if (!isRecord(value.push)) {
-      throw new ExecutionArtifactAnalysisError(
-        "Backend finish response push must be an object.",
-        diagnostics,
-      );
+      return analysisFailure("Backend finish response push must be an object.", diagnostics);
     }
-    const push = parseDevPushStatus(value.push);
-    if (value.result === "activated") {
-      if (push.state !== "activated") {
-        throw new ExecutionArtifactAnalysisError(
-          "Backend finish response activated result must include an activated push.",
-          diagnosticsFromBody(value),
+    return Effect.gen(function* () {
+      const push = yield* parseDevPushStatusEffect(value.push);
+      if (value.result === "activated") {
+        if (push.state !== "activated") {
+          return yield* analysisFailure(
+            "Backend finish response activated result must include an activated push.",
+            diagnostics,
+          );
+        }
+        const activatedPush: DevPushStatus & { state: "activated" } = {
+          ...push,
+          state: "activated",
+        };
+        return { result: "activated", push: activatedPush };
+      }
+      if (typeof value.error !== "string") {
+        return yield* analysisFailure(
+          "Backend rejected finish response must include an error.",
+          diagnostics,
         );
       }
+      if (!isFinishPushRejectionCode(value.code)) {
+        return yield* analysisFailure(
+          "Backend rejected finish response code is invalid.",
+          diagnostics,
+        );
+      }
+      return {
+        result: "rejected",
+        push,
+        code: value.code,
+        error: value.error,
+        ...(diagnostics.length === 0 ? {} : { diagnostics }),
+      };
+    });
+  }
+
+  return Effect.gen(function* () {
+    const push = yield* parseDevPushStatusEffect(value);
+    if (push.state === "activated") {
       const activatedPush: DevPushStatus & { state: "activated" } = {
         ...push,
         state: "activated",
       };
       return { result: "activated", push: activatedPush };
     }
-    if (typeof value.error !== "string") {
-      throw new ExecutionArtifactAnalysisError(
-        "Backend rejected finish response must include an error.",
-        diagnostics,
-      );
-    }
-    if (!isFinishPushRejectionCode(value.code)) {
-      throw new ExecutionArtifactAnalysisError(
-        "Backend rejected finish response code is invalid.",
-        diagnostics,
-      );
-    }
-    return {
-      result: "rejected",
-      push,
-      code: value.code,
-      error: value.error,
-      ...(diagnostics.length === 0 ? {} : { diagnostics }),
-    };
-  }
-
-  const push = parseDevPushStatus(value);
-  if (push.state === "activated") {
-    const activatedPush: DevPushStatus & { state: "activated" } = {
-      ...push,
-      state: "activated",
-    };
-    return { result: "activated", push: activatedPush };
-  }
-  throw new ExecutionArtifactAnalysisError(
-    "Legacy raw finish push status responses must be activated.",
-    push.diagnostics ?? [],
-  );
+    return yield* analysisFailure(
+      "Legacy raw finish push status responses must be activated.",
+      push.diagnostics ?? [],
+    );
+  });
 }
 
 function isFinishPushResponseEnvelope(value: unknown): value is {

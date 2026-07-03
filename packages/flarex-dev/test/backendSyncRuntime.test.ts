@@ -1,6 +1,8 @@
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
+import { deploymentAnalysisFromCodegenAnalysisEffect } from "@flarex/analysis";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   createExecutionArtifactRuntimeService,
@@ -28,7 +30,7 @@ import type {
 } from "flarex-backend/types";
 import type { PaginationResult } from "flarex/server";
 
-import { backendAnalysisFromCodegenAnalysis } from "../src/backendPush";
+import type { DeploymentAnalysis as CodegenDeploymentAnalysis } from "../src/analyze";
 import {
   createLocalPGliteExecutorHttpRuntime,
   type LocalPGliteExecutorHttpRuntime,
@@ -46,6 +48,12 @@ type ActivatedFinishPushSummary =
   Pick<Extract<FinishPushResponse, { result: "activated" }>, "result"> & {
     push: Pick<PushStatus, "pushId" | "state">;
   };
+
+function backendAnalysisFromCodegenAnalysis(
+  analysis: CodegenDeploymentAnalysis,
+): DeploymentAnalysis {
+  return Effect.runSync(deploymentAnalysisFromCodegenAnalysisEffect(analysis));
+}
 
 describe("backend sync with local executor runtime", () => {
   const harnesses: BackendHarness[] = [];

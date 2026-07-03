@@ -3,10 +3,10 @@ import type { ValidatorJSON } from "flarex/values";
 import { describe, expect, it } from "vitest";
 import {
   analyzeLoadedSourcePackageEffect,
-  backendCodegenAnalysisFromCodegenAnalysis,
+  backendCodegenAnalysisFromCodegenAnalysisEffect,
   decodeAnalyzerProtocolSuccessResponseEffect,
   decodeAnalyzerSuccessEnvelopeEffect,
-  deploymentAnalysisFromCodegenAnalysis,
+  deploymentAnalysisFromCodegenAnalysisEffect,
   normalizeAnalyzerDiagnostics,
   type DeploymentAnalysis,
 } from "../src/index";
@@ -151,20 +151,26 @@ describe("shared analyzer semantics", () => {
       sourceMaps: {},
     }));
 
-    expect(deploymentAnalysisFromCodegenAnalysis(analysis).functions.functions).toEqual([
-      {
-        path: "users:get",
-        kind: "query",
-        visibility: "public",
-        args: objectValidator({
-          id: { fieldType: { type: "id", tableName: "users" }, optional: false },
-        }),
-        returns: null,
-        route: null,
-        partition: null,
-      },
-    ]);
-    expect(backendCodegenAnalysisFromCodegenAnalysis(analysis).functions[0]?.moduleName)
+    await expect(Effect.runPromise(deploymentAnalysisFromCodegenAnalysisEffect(analysis)))
+      .resolves.toMatchObject({
+        functions: {
+          functions: [
+            {
+              path: "users:get",
+              kind: "query",
+              visibility: "public",
+              args: objectValidator({
+                id: { fieldType: { type: "id", tableName: "users" }, optional: false },
+              }),
+              returns: null,
+              route: null,
+              partition: null,
+            },
+          ],
+        },
+      });
+    const codegen = await Effect.runPromise(backendCodegenAnalysisFromCodegenAnalysisEffect(analysis));
+    expect(codegen.functions[0]?.moduleName)
       .toBe("users");
   });
 
@@ -190,8 +196,10 @@ describe("shared analyzer semantics", () => {
       ],
     };
 
-    expect(() => deploymentAnalysisFromCodegenAnalysis(analysis))
-      .toThrow("BigInt literal validators are not supported by backend deployment metadata.");
+    await expect(Effect.runPromise(deploymentAnalysisFromCodegenAnalysisEffect(analysis)))
+      .rejects.toMatchObject({
+        message: "BigInt literal validators are not supported by backend deployment metadata.",
+      });
   });
 
   it("normalizes analyzer diagnostics and caps old entries", () => {
