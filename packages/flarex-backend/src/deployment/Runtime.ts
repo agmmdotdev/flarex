@@ -1,5 +1,5 @@
 import { Context, DateTime, Effect, Layer } from "effect";
-import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
+import { executionArtifactRefForSourcePackage as buildExecutionArtifactRefForSourcePackage } from "flarex/artifacts";
 import type { ExecutionArtifactRef, PushSourcePackage } from "../types";
 import { DeploymentArtifactRefError } from "./Errors";
 
@@ -25,6 +25,23 @@ export class DeploymentIds extends Context.Service<DeploymentIds, {
   );
 }
 
+export const executionArtifactRefForSourcePackageEffect = Effect.fn(
+  "DeploymentArtifacts.executionArtifactRefForSourcePackage",
+)(function* (
+  sourcePackage: PushSourcePackage,
+): Effect.fn.Return<ExecutionArtifactRef, DeploymentArtifactRefError> {
+  return yield* Effect.tryPromise({
+    try: () => buildExecutionArtifactRefForSourcePackage(sourcePackage),
+    catch: cause => new DeploymentArtifactRefError({
+      operation: "executionArtifactRefForSourcePackage",
+      message: cause instanceof Error
+        ? cause.message
+        : "Execution artifact ref generation failed.",
+      cause,
+    }),
+  });
+});
+
 export class DeploymentArtifacts extends Context.Service<DeploymentArtifacts, {
   executionArtifactRefForSourcePackage(
     sourcePackage: PushSourcePackage,
@@ -34,16 +51,7 @@ export class DeploymentArtifacts extends Context.Service<DeploymentArtifacts, {
     DeploymentArtifacts,
     DeploymentArtifacts.of({
       executionArtifactRefForSourcePackage: sourcePackage =>
-        Effect.tryPromise({
-          try: () => executionArtifactRefForSourcePackage(sourcePackage),
-          catch: cause => new DeploymentArtifactRefError({
-            operation: "executionArtifactRefForSourcePackage",
-            message: cause instanceof Error
-              ? cause.message
-              : "Execution artifact ref generation failed.",
-            cause,
-          }),
-        }),
+        executionArtifactRefForSourcePackageEffect(sourcePackage),
     }),
   );
 }

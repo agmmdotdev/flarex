@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 import {
   decodePushSourcePackageEffect,
   decodePushStatusEffect,
@@ -13,6 +12,7 @@ import {
   publicWorkerDispatchError,
   type PublicWorkerDispatchError,
 } from "../worker/PublicRouteDispatchError";
+import { executionArtifactRefForSourcePackageEffect } from "./Runtime";
 
 export const verifyStoredPushArtifactEffect = Effect.fn(
   "Worker.verifyStoredPushArtifact",
@@ -44,10 +44,9 @@ export const executionArtifactRefForFinishArtifactEffect = Effect.fn(
 )(function* (
   sourcePackage: PushSourcePackage,
 ): Effect.fn.Return<ExecutionArtifactRef, PublicWorkerDispatchError> {
-  return yield* Effect.tryPromise({
-    try: () => executionArtifactRefForSourcePackage(sourcePackage),
-    catch: error => publicWorkerDispatchError("deployment-finish-push-artifact", error),
-  });
+  return yield* executionArtifactRefForSourcePackageEffect(sourcePackage).pipe(
+    Effect.mapError(error => publicWorkerDispatchError("deployment-finish-push-artifact", error)),
+  );
 });
 
 export const readFinishArtifactAvailabilityEffect = Effect.fn(

@@ -10,6 +10,7 @@ import {
   readFinishArtifactPushStatusJson,
   verifyStoredPushArtifactEffect,
 } from "../src/deployment/PublicFinishArtifactBoundary";
+import { executionArtifactRefForSourcePackageEffect } from "../src/deployment/Runtime";
 import type { ExecutionArtifactRef, PushSourcePackage, PushStatus } from "../src/types";
 import { publicWorkerDispatchError } from "../src/worker/PublicRouteDispatchError";
 
@@ -89,6 +90,9 @@ describe("public finish artifact boundary", () => {
     const ref = await Effect.runPromise(executionArtifactRefForFinishArtifactEffect(package_));
 
     expect(ref).toEqual(await executionArtifactRefForSourcePackage(package_));
+    await expect(Effect.runPromise(executionArtifactRefForSourcePackageEffect(package_)))
+      .resolves
+      .toEqual(ref);
     await expect(Effect.runPromise(decodeFinishArtifactSourcePackage(package_)))
       .resolves
       .toEqual(package_);
