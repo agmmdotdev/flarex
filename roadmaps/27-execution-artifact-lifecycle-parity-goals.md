@@ -24,6 +24,7 @@ Goal status:
 - [x] G-3. L-2 shared artifact lifecycle payload helper.
   - Commit: `3e2bd56` (`Share artifact runtime invoke payload builders`)
 - [x] G-4. L-3 local dev lifecycle alignment.
+  - Commit: `ece1188` (`Align local executor artifact payloads`)
 - [ ] G-5. L-4 hosted deploy/push lifecycle alignment.
 - [ ] G-6. L-5 cross-boundary lifecycle parity tests.
 - [ ] G-7. L-6 final lifecycle parity audit.
@@ -53,7 +54,8 @@ Every implementation turn in this goal should follow this loop:
 
 ### G-4 / L-3: Local Dev Lifecycle Alignment
 
-Status: implemented in this turn; commit pending.
+Status: completed and committed in `ece1188`
+(`Align local executor artifact payloads`).
 
 Purpose:
 
