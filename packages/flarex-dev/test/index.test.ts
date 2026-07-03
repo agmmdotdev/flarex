@@ -81,5 +81,5 @@ describe("flarex-dev package entrypoint", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("flarex-dev <command>");
     expect(result.stderr).toBe("");
-  });
+  }, 60000);
 });

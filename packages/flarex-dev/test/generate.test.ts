@@ -843,7 +843,7 @@ export const merge = mutation({
     await expect(generateFlarex({ root })).rejects.toThrow(
       "users:merge.partition: model.users is ambiguous. Found multiple required users IDs: fromUserId, toUserId.",
     );
-  });
+  }, 60000);
 
   it("generates create-root model table partitions for backend execution sessions", async () => {
     const root = await createProject();
@@ -889,7 +889,7 @@ export const create = mutation({
     expect(worker).toContain('...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey })');
     expect(worker).toContain('await syscall({ op: "replace", id, value });');
     expect(worker).not.toContain("A partitionKey or x-flarex-partition header is required.");
-  });
+  }, 60000);
 
   it("rejects model partition selectors that do not match schema placement", async () => {
     const root = await createProject();

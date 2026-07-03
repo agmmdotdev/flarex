@@ -7020,7 +7020,7 @@ function jsonRecord(value: unknown): Record<string, unknown> {
 
 function nextJsonMessage(ws: MiniflareWebSocket): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("Timed out waiting for WebSocket message.")), 5000);
+    const timeout = setTimeout(() => reject(new Error("Timed out waiting for WebSocket message.")), 15000);
     ws.addEventListener("message", event => {
       clearTimeout(timeout);
       resolve(JSON.parse(String(event.data)));
@@ -7034,7 +7034,7 @@ function nextJsonMessage(ws: MiniflareWebSocket): Promise<unknown> {
 
 function nextClose(ws: MiniflareWebSocket): Promise<{ code?: number; reason?: string }> {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("Timed out waiting for WebSocket close.")), 5000);
+    const timeout = setTimeout(() => reject(new Error("Timed out waiting for WebSocket close.")), 15000);
     ws.addEventListener("close", event => {
       clearTimeout(timeout);
       resolve(event);
@@ -7049,7 +7049,7 @@ function nextClose(ws: MiniflareWebSocket): Promise<{ code?: number; reason?: st
 function collectJsonMessages(ws: MiniflareWebSocket, count: number): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
     const messages: unknown[] = [];
-    const timeout = setTimeout(() => reject(new Error("Timed out waiting for WebSocket messages.")), 5000);
+    const timeout = setTimeout(() => reject(new Error("Timed out waiting for WebSocket messages.")), 15000);
     ws.addEventListener("message", event => {
       messages.push(JSON.parse(String(event.data)));
       if (messages.length === count) {

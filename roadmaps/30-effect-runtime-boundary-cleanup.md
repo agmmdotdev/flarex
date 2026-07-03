@@ -24,13 +24,14 @@ Runtime execution belongs at the edge:
 
 Production `Effect.runSync` occurrences by file: none.
 
-Production `Effect.runPromise` occurrences are reviewed separately. Most are
-allowed async entrypoints, but each slice must re-check that no nested runtime
-boundary remains inside reusable helpers.
+Production `Effect.runPromise` occurrences are enforced by
+`pnpm check:effect-boundaries`; new, removed, or moved production runtime
+boundaries must update the audited call-site list in
+`scripts/check-effect-boundaries.mjs`.
 
 ## Allowed Production `Effect.runPromise` Boundaries
 
-G-6 audited the remaining backend production `Effect.runPromise` calls. The
+G-7 audits the remaining production `Effect.runPromise` calls. The
 allowed boundary categories are:
 
 - Worker, Durable Object, WebSocket, Fetcher, alarm, and internal route
@@ -54,6 +55,15 @@ allowed boundary categories are:
   - `packages/flarex-backend/src/partitionDO.ts`
   - `packages/flarex-backend/src/deliveryDO.ts`
   - `packages/flarex-backend/src/schedulerDO.ts`
+- Local development, analyzer, artifact materializer, executor HTTP, and
+  backend push adapter APIs:
+  - `packages/flarex-dev/src/analyze.ts`
+  - `packages/flarex-dev/src/backendPush.ts`
+  - `packages/flarex-dev/src/dev.ts`
+  - `packages/flarex-dev/src/executionArtifact.ts`
+  - `packages/flarex-dev/src/runtimeMaterializer.ts`
+  - `packages/executor-http/src/liveQueryDelivery.ts`
+  - `packages/executor-http/src/routeEffects.ts`
 
 ## Implementation Slices
 
@@ -114,7 +124,7 @@ allowed boundary categories are:
     - `corepack pnpm --filter flarex-backend typecheck`
     - live-query/delivery tests
     - `git diff --check`
-- [ ] G-7. Final enforcement and audit.
+- [x] G-7. Final enforcement and audit.
   - Add a repo-local enforcement script or documented command that fails on
     production `Effect.runSync`.
   - Check that the allowed `Effect.runPromise` boundary list does not drift.
@@ -139,32 +149,40 @@ a small required fix.
 
 ## Current Checkpoint
 
-Status: G-6 completed. G-7 is next.
+Status: G-7 completed. Runtime-boundary cleanup goal is ready for final audit.
 
-Previous completed checkpoint: `239bbcb` (`Remove transaction sync mutation
+Previous completed checkpoint: `bd770d2` (`Remove live-query sync delivery
 facades`).
 
 What changed:
 
-- Removed `liveQueryDeliveryChangesFromBody` and
-  `liveQueryDeliveryResultFromUnknown` sync facades from
-  `packages/flarex-backend/src/liveQueryDelivery.ts`.
-- Converted `DeliveryDO` stored delivery record conversion to
-  `decodeLiveQueryDeliveryChangesFromBody` inside the existing drain Effect.
-- Updated live-query tests to assert result payload normalization through
-  `decodeConnectionLiveQueryDeliveryResultPayload`.
-- Reconfirmed production `Effect.runSync` is zero.
-- Audited remaining production `Effect.runPromise` calls and recorded the
-  allowed boundary categories above.
+- Added `scripts/check-effect-boundaries.mjs` and the root
+  `check:effect-boundaries` script.
+- Added root `test:scripts` fixture coverage for generated `runSync`, local
+  `Effect` aliases, local runtime destructuring, direct runtime imports, direct
+  runtime import aliases, and `Effect.runPromise` / `Effect.runSync` property
+  aliases.
+- The enforcement script fails on any production `Effect.runSync` under
+  `packages/**/src` source files, including generated worker source templates.
+- The enforcement script fails when production `Effect.runPromise` call-site
+  drift occurs against the audited allowlist.
+- The enforcement script uses the TypeScript compiler API to detect Effect
+  namespace aliases, runtime property aliases, and direct runtime imports from
+  `effect` / `effect/Effect`.
+- The audited `Effect.runPromise` list now covers backend, local dev/analyzer,
+  executor HTTP, and artifact materializer production source boundaries.
+- The Vite generated-directory watcher test asserts through the existing
+  typecheck failure path, without adding private test hooks to the public plugin
+  options type.
 
 Verification:
 
 ```sh
-rg -n "Effect\\.runSync" packages/flarex-backend/src -g "*.ts"
-rg -n "liveQueryDeliveryChangesFromBody|liveQueryDeliveryResultFromUnknown" packages/flarex-backend/src packages/flarex-backend/test -g "*.ts"
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/liveQueryDelivery.test.ts test/publicLiveQueryDeliveryRouteBoundary.test.ts test/publicLiveQueryDeliveryDispatchBoundary.test.ts test/deliveryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
-corepack pnpm --filter flarex-backend exec vitest run test/deliveryRouteBoundary.test.ts test/deliveryExecutorBoundary.test.ts test/liveQueryDeliveryResponses.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
-corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "DeliveryDO" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm check:effect-boundaries
+corepack pnpm typecheck:scripts
+corepack pnpm test:scripts
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm --filter flarex-dev exec vitest run test/index.test.ts test/vite.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 git diff --check
 ```

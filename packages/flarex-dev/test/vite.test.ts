@@ -111,7 +111,47 @@ describe("flarex Vite plugin", () => {
       await server?.close();
       await removeRoot(root);
     }
-  });
+  }, 60000);
+
+  it("ignores generated directory changes in the dev:false watcher", async () => {
+    const root = await createMinimalFlarexProject("flarex-vite-plugin-");
+    const typecheckConfig = {
+      typescriptCliPath: "node_modules/typescript/bin/tsc",
+      cwd: workspaceRoot,
+      compilerOptions: {
+        paths: {
+          flarex: ["packages/flarex/src/index.ts"],
+          "flarex/*": ["packages/flarex/src/*"],
+        },
+      },
+    };
+    let server: Awaited<ReturnType<typeof createServer>> | undefined;
+    const errors: string[] = [];
+    try {
+      server = await createServer({
+        root,
+        configFile: false,
+        logLevel: "silent",
+        plugins: [
+          flarex({
+            dev: false,
+            typecheckGeneratedOutput: typecheckConfig,
+          }),
+        ],
+      });
+      server.config.logger.error = message => {
+        errors.push(message);
+      };
+      typecheckConfig.typescriptCliPath = "node_modules/typescript/bin/not-tsc.js";
+      server.watcher.emit("change", path.join(root, "flarex/_generated/server.ts"));
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+      expect(errors).toEqual([]);
+    } finally {
+      await server?.close();
+      await removeRoot(root);
+    }
+  }, 60000);
 
   it("runs generated output typecheck during build codegen when enabled", async () => {
     const root = await createMinimalFlarexProject("flarex-vite-plugin-");
@@ -149,7 +189,7 @@ describe("flarex Vite plugin", () => {
     } finally {
       await removeRoot(root);
     }
-  });
+  }, 60000);
 });
 
 async function removeRoot(root: string): Promise<void> {

@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import path from "node:path";
 import type { Plugin, ResolvedConfig } from "vite";
 import type { FlarexDevRuntime } from "./dev.ts";
 import { generateFlarex, type FlarexGenerateOptions } from "./generate.ts";
@@ -75,9 +76,12 @@ export function flarex(options: FlarexPluginOptions = {}): Plugin {
           }
         });
       }
-      server.watcher.add(`${root}/${options.appDir ?? "flarex"}/**/*.ts`);
+      const appDir = path.resolve(root, options.appDir ?? "flarex");
+      const generatedDir = path.resolve(appDir, options.generatedDir ?? "_generated");
+      server.watcher.add(`${appDir}/**/*.ts`);
       server.watcher.on("change", async file => {
-        if (file.includes(`${options.appDir ?? "flarex"}`)) {
+        const changedPath = path.resolve(file);
+        if (isWithinPath(appDir, changedPath) && !isWithinPath(generatedDir, changedPath)) {
           if (devRuntime) {
             if (reloadTimer) clearTimeout(reloadTimer);
             reloadTimer = setTimeout(() => {
@@ -104,6 +108,11 @@ export function flarex(options: FlarexPluginOptions = {}): Plugin {
       });
     },
   };
+}
+
+function isWithinPath(parent: string, child: string): boolean {
+  const relative = path.relative(parent, child);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 async function generateAndMaybeTypecheck(

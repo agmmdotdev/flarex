@@ -250,7 +250,9 @@ function resolveAnalysisWorkerDependency(id: string): string | undefined {
     id === "flarex" ||
     id.startsWith("flarex/") ||
     id === "flarex-protocol" ||
-    id.startsWith("flarex-protocol/")
+    id.startsWith("flarex-protocol/") ||
+    id === "effect" ||
+    id.startsWith("effect/")
   ) {
     return fileURLToPath(import.meta.resolve(id));
   }

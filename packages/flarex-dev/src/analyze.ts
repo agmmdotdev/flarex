@@ -92,6 +92,9 @@ export async function analyzeFunctionModules(modules: FunctionModule[]): Promise
       if (id === "flarex" || id.startsWith("flarex/")) {
         return fileURLToPath(import.meta.resolve(id));
       }
+      if (id === "effect" || id.startsWith("effect/")) {
+        return fileURLToPath(import.meta.resolve(id));
+      }
       return undefined;
     },
     load(id) {

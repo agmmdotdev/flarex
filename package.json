@@ -4,9 +4,12 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r build",
+    "check:effect-boundaries": "node scripts/check-effect-boundaries.mjs",
     "generate": "pnpm --filter @flarex/example generate",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
+    "typecheck": "pnpm typecheck:scripts && pnpm -r typecheck",
+    "typecheck:scripts": "tsc --allowJs --checkJs --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --skipLibCheck --types node --strict scripts/check-effect-boundaries.mjs scripts/check-effect-boundaries.test.js",
+    "test": "pnpm test:scripts && pnpm -r test",
+    "test:scripts": "vitest run scripts/check-effect-boundaries.test.js",
     "test:integration": "vitest run --config integration/vitest.config.ts"
   },
   "devDependencies": {
