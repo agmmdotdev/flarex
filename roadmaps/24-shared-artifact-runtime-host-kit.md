@@ -2,6 +2,8 @@
 
 ## H-1 Shared Runtime Worker Source Profiles
 
+Completed checkpoint: `737fcab` (`Add shared runtime source profiles`).
+
 Previous completed checkpoint: `93b408d` (`Add shared host kit goal checklist`).
 
 What changed:
@@ -15,6 +17,9 @@ What changed:
   generated runtime worker source comes from the host-kit local profile.
 - Updated `apps/artifact-runtime/src/worker.ts` so its hosted Dynamic Worker
   runtime source comes from the host-kit hosted profile.
+- Derived the private host-kit profile option type from
+  `GeneratedExecutionWorkerSourceOptions` so the wrapper tracks the generator
+  contract.
 
 Why it changed:
 

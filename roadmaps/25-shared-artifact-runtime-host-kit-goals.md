@@ -53,7 +53,7 @@ Every implementation turn in this goal should follow this loop:
 
 ### G-2 / H-1: Shared Runtime Worker Source Profiles
 
-Status: implemented in this turn; commit pending.
+Status: completed in checkpoint `737fcab` (`Add shared runtime source profiles`).
 
 Purpose:
 
@@ -87,6 +87,8 @@ Implementation tasks:
 - [x] Replace local `runtimeWorkerSource(...)` with the host-kit helper.
 - [x] Replace hosted `dynamicWorkerRuntimeSource(...)` with the host-kit helper.
 - [x] Keep host adapters otherwise unchanged.
+- [x] Apply reviewer cleanup: derive the private profile option type from
+  `GeneratedExecutionWorkerSourceOptions` to avoid generator-contract drift.
 
 Next slice after commit: `G-3 / H-2`, shared source package module-map
 validation.
