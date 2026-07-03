@@ -13,6 +13,7 @@ import {
   LiveQueryDeliveryPolicyError,
   LiveQuerySubscriptionRerunError,
 } from "./errors";
+import { executionIdentityFingerprint } from "flarex-protocol/auth";
 import { ensureDeployment } from "./deployments";
 import { runInvokeWithRetries } from "./retry";
 import type {
@@ -101,6 +102,7 @@ export async function recordLiveQuerySubscription(
     queryId: input.queryId,
     functionPath: input.functionPath,
     argsJson: input.argsJson,
+    identityJson: input.identity ?? { kind: "anonymous" },
     partitionKey: input.partitionKey ?? null,
     beginTs: input.beginTs,
     readSetJson: readSet as Record<string, unknown>,
@@ -221,6 +223,7 @@ export async function rerunLiveQuerySubscription(
     rerun = await input.runQuery(input.subscription);
   } catch (error) {
     const errorText = errorMessage(error);
+    const identityFingerprint = executionIdentityFingerprint(input.subscription.identityJson);
     const deliveryPayload: LiveQueryChange = {
       kind: "failed",
       deploymentId: input.subscription.deploymentId,
@@ -228,6 +231,7 @@ export async function rerunLiveQuerySubscription(
       queryId: input.subscription.queryId,
       functionPath: input.subscription.functionPath,
       argsJson: input.subscription.argsJson as Json,
+      identityFingerprint,
       previousResultHash,
       errorMessage: errorText,
       errorData: null,
@@ -261,6 +265,7 @@ export async function rerunLiveQuerySubscription(
   const resultHash = fingerprintJson(rerun.value);
   const changed = previousResultHash !== resultHash;
   const readSet = readSetToFreshnessReadSet(rerun.readSet, rerun.beginTs);
+  const identityFingerprint = executionIdentityFingerprint(input.subscription.identityJson);
   const deliveryPayload: LiveQueryChange = {
     kind: "updated",
     deploymentId: input.subscription.deploymentId,
@@ -268,6 +273,7 @@ export async function rerunLiveQuerySubscription(
     queryId: input.subscription.queryId,
     functionPath: input.subscription.functionPath,
     argsJson: input.subscription.argsJson as Json,
+    identityFingerprint,
     resultJson: rerun.value,
     previousResultHash,
     resultHash,
@@ -278,6 +284,7 @@ export async function rerunLiveQuerySubscription(
     queryId: input.subscription.queryId,
     functionPath: input.subscription.functionPath,
     argsJson: input.subscription.argsJson as Json,
+    identityJson: input.subscription.identityJson,
     partitionKey: input.subscription.partitionKey,
     beginTs: rerun.beginTs,
     readSetJson: readSet as Record<string, unknown>,
@@ -405,6 +412,7 @@ export async function runLiveQuerySubscriptionWithInvoke(
     path: subscription.functionPath,
     kind: "query",
     args: subscription.argsJson as Json,
+    identity: subscription.identityJson,
     partitionKey: subscription.partitionKey,
     ...(input.maxAttempts === undefined ? {} : { maxAttempts: input.maxAttempts }),
     runAttempt: (attempt) => input.executeQuery(attempt, subscription),
@@ -432,6 +440,7 @@ function liveQueryChangeFromRerun(
       queryId: rerun.subscription.queryId,
       functionPath: rerun.subscription.functionPath,
       argsJson: rerun.subscription.argsJson as Json,
+      identityFingerprint: executionIdentityFingerprint(rerun.subscription.identityJson),
       previousResultHash: rerun.previousResultHash,
       errorMessage: rerun.errorMessage,
       errorData: null,
@@ -444,6 +453,7 @@ function liveQueryChangeFromRerun(
     queryId: rerun.subscription.queryId,
     functionPath: rerun.subscription.functionPath,
     argsJson: rerun.subscription.argsJson as Json,
+    identityFingerprint: executionIdentityFingerprint(rerun.subscription.identityJson),
     resultJson: rerun.subscription.resultJson as Json,
     previousResultHash: rerun.previousResultHash,
     resultHash: rerun.resultHash,

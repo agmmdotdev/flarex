@@ -23,7 +23,7 @@ Source roadmap:
 - [x] G-5. Complete I-4: generated runtime `ctx.auth`.
 - [x] G-6. Complete I-5: HTTP client identity propagation.
 - [x] G-7. Complete I-6: sync auth behavior and identity version v1.
-- [ ] G-8. Complete I-7: auth-aware live-query metadata.
+- [x] G-8. Complete I-7: auth-aware live-query metadata.
 - [ ] G-9. Complete I-8: auth provider platform planning checkpoint.
 
 ## Current Next Slice
@@ -479,7 +479,8 @@ Cloudflare difference:
   bearer tokens. Until a backend-owned JWT/JWKS resolver exists, WebSocket
   `Authenticate` changes the identity version and reruns queries without
   granting a non-anonymous hosted execution identity.
-- Durable subscription metadata is still not auth-aware; that remains G-8/I-7.
+- Durable subscription metadata was still not auth-aware in this slice; it was
+  completed later in G-8/I-7.
 
 Validation:
 
@@ -499,9 +500,91 @@ Reviewer checkpoint:
 
 ### G-8 / I-7: Auth-Aware Live-Query Metadata
 
-- Store identity hash/version with durable subscription metadata.
-- Ensure scheduler/executor reruns use subscription identity.
-- Prevent stale previous-user results from being delivered after auth changes.
+Status: complete.
+
+Purpose:
+
+Make durable live-query subscriptions and delivery payloads identity-aware so
+executor reruns run under the subscription identity and ConnectionDO cannot
+apply a delivery generated for a different user context.
+
+Previous completed checkpoint:
+
+- `1026682` (`Add sync auth identity version handling`)
+
+Files changed:
+
+- `packages/persistence-postgres/src/schema.ts`
+- `packages/persistence-postgres/src/liveQuerySubscriptions.ts`
+- `packages/persistence-postgres/src/liveQueryConnections.ts`
+- `packages/persistence-postgres/drizzle/0016_volatile_kang.sql`
+- `packages/persistence-postgres/drizzle/meta/_journal.json`
+- `packages/persistence-postgres/drizzle/meta/0016_snapshot.json`
+- `packages/executor/src/types.ts`
+- `packages/executor/src/liveQueries.ts`
+- `packages/executor-http/src/requestDecoders.ts`
+- `packages/flarex-protocol/src/auth.ts`
+- `packages/flarex-protocol/src/live-query.ts`
+- `packages/flarex/src/sync/delivery.ts`
+- `packages/flarex-backend/src/connectionDO.ts`
+- focused protocol, persistence, executor, executor-http, and backend sync tests
+- both roadmap files
+
+Completed:
+
+- Added `identity_json` to live-query subscription rows with anonymous defaults.
+- Propagated the active `ConnectionDO` execution identity when registering
+  executor-backed live-query subscriptions.
+- Made executor stale-rerun scans list subscription identity and invoke reruns
+  with that stored identity, not the scheduler/maintenance caller identity.
+- Added shared `executionIdentityFingerprint` in `flarex-protocol/auth`.
+- Added normalized `identityFingerprint` to live-query delivery payloads while
+  defaulting missing pre-upgrade delivery payloads to anonymous at the decode
+  boundary.
+- Made executor-generated update and failure deliveries carry the subscription
+  identity fingerprint.
+- Made `ConnectionDO` record the identity fingerprint used for each active query
+  result, mark active queries with the new identity before auth-change reruns,
+  and skip delivery payloads whose fingerprint no longer matches.
+- Added a backend sync regression proving a delivery with a matching result hash
+  but different identity fingerprint is treated as stale and does not publish.
+
+Cloudflare difference:
+
+- This stores and compares the trusted execution identity currently available to
+  Flarex. It still does not verify bearer tokens; hosted sync auth remains
+  anonymous until the backend-owned auth-provider resolver exists.
+- The fingerprint is a delivery guard, not a replacement for the stored
+  `identity_json` used by executor reruns.
+
+Validation:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test -- live-query.test.ts auth.test.ts connection.test.ts
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts -t "live query subscriptions"
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/liveQueries.test.ts -t "live query"
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts -t "live query subscription|changed live query reruns|backend delivery wake"
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "different identity"
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "delivery"
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "subscriptions"
+git diff --check
+```
+
+Reviewer checkpoint:
+
+- `typescript-diff-reviewer`: fixed duplicated live-query delivery SDK types by
+  re-exporting the protocol-owned delivery types from `flarex`.
+- `code-quality-diff-reviewer`: fixed raw identity leakage by making
+  `executionIdentityFingerprint` opaque, added pre-upgrade anonymous delivery
+  compatibility, and closed the auth-transition stale-delivery race by marking
+  active query guards before awaited reruns.
 
 ### G-9 / I-8: Auth Provider Platform Planning Checkpoint
 
@@ -536,8 +619,8 @@ Every implementation turn in this goal follows this loop:
 - [x] Public SDK types remain Convex-compatible where practical.
 - [x] Sync identity changes advance identity version and rerun affected query
   state conservatively.
-- [ ] Scheduler/rerun paths use subscription identity, not scheduler identity.
-- [ ] Significant code slices pass reviewers.
+- [x] Scheduler/rerun paths use subscription identity, not scheduler identity.
+- [x] Significant code slices pass reviewers.
 
 ## Completed Checkpoints
 

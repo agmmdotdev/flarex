@@ -31,6 +31,10 @@ export type ExecutionIdentity =
   | { readonly kind: "anonymous" }
   | { readonly kind: "user"; readonly user: UserIdentity };
 
+export function executionIdentityFingerprint(identity: ExecutionIdentity): string {
+  return `identity:v1:${fnv1a64Hex(stableIdentityJson(identity))}`;
+}
+
 export class AuthProtocolValidationError extends Data.TaggedError(
   "AuthProtocolValidationError",
 )<{
@@ -165,4 +169,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) return false;
   return Object.getOwnPropertySymbols(value).length === 0;
+}
+
+function stableIdentityJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableIdentityJson).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .filter(key => record[key] !== undefined)
+    .sort()
+    .map(key => `${JSON.stringify(key)}:${stableIdentityJson(record[key])}`)
+    .join(",")}}`;
+}
+
+function fnv1a64Hex(value: string): string {
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (const byte of new TextEncoder().encode(value)) {
+    hash ^= BigInt(byte);
+    hash = (hash * prime) & mask;
+  }
+  return hash.toString(16).padStart(16, "0");
 }

@@ -1,5 +1,6 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { LiveQueryDeliveryFailedChange } from "flarex";
+import type { ExecutionIdentity } from "flarex-protocol/auth";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
@@ -18,6 +19,7 @@ export interface LiveQuerySubscriptionKey {
 export interface UpsertLiveQuerySubscriptionInput extends LiveQuerySubscriptionKey {
   functionPath: string;
   argsJson: unknown;
+  identityJson?: ExecutionIdentity;
   partitionKey?: string | null;
   beginTs: number;
   readSetJson: Record<string, unknown>;
@@ -80,6 +82,7 @@ export async function upsertLiveQuerySubscription(
       queryId: input.queryId,
       functionPath: input.functionPath,
       argsJson: jsonbValue(input.argsJson),
+      identityJson: input.identityJson ?? { kind: "anonymous" },
       partitionKey: input.partitionKey ?? null,
       beginTs: input.beginTs,
       readSetJson: input.readSetJson,
@@ -96,6 +99,7 @@ export async function upsertLiveQuerySubscription(
       set: {
         functionPath: input.functionPath,
         argsJson: jsonbValue(input.argsJson),
+        identityJson: input.identityJson ?? { kind: "anonymous" },
         partitionKey: input.partitionKey ?? null,
         beginTs: input.beginTs,
         readSetJson: input.readSetJson,

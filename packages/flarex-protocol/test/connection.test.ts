@@ -1,5 +1,6 @@
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { executionIdentityFingerprint } from "../src/auth";
 import { LiveQueryDeliveryChangePayloadError } from "../src/live-query";
 import {
   ConnectionClientMessageError,
@@ -14,6 +15,7 @@ import {
 const decodeConnectionInvalidationRequest = Schema.decodeUnknownSync(
   ConnectionInvalidationRequestSchema,
 );
+const anonymousIdentityFingerprint = executionIdentityFingerprint({ kind: "anonymous" });
 
 describe("connection protocol schemas", () => {
   it("decodes websocket client messages", async () => {
@@ -110,6 +112,7 @@ function liveQueryDeliveryChange() {
     queryId: 1,
     functionPath: "users:get",
     argsJson: { id: "1:user" },
+    identityFingerprint: anonymousIdentityFingerprint,
     resultJson: { name: "Ada" },
     previousResultHash: "previous",
     resultHash: "result",

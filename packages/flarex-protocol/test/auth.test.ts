@@ -4,6 +4,7 @@ import {
   AuthProtocolValidationError,
   decodeExecutionIdentityEffect,
   decodeUserIdentityEffect,
+  executionIdentityFingerprint,
   ExecutionIdentitySchema,
   UserIdentitySchema,
 } from "../src/auth";
@@ -50,6 +51,40 @@ describe("auth protocol schemas", () => {
     await expect(Effect.runPromise(decodeExecutionIdentityEffect(userIdentity)))
       .resolves.toEqual(userIdentity);
     expect(decodeExecutionIdentity(userIdentity)).toEqual(userIdentity);
+  });
+
+  it("fingerprints execution identities with stable claim ordering", () => {
+    expect(executionIdentityFingerprint({ kind: "anonymous" })).toMatch(
+      /^identity:v1:[a-f0-9]{16}$/,
+    );
+    const fingerprint = executionIdentityFingerprint({
+      kind: "user",
+      user: {
+        issuer: "https://auth.example.com",
+        subject: "user-2",
+        tokenIdentifier: "issuer|user-2",
+        profile: {
+          tenantId: "tenant-a",
+          roles: ["writer", "admin"],
+        },
+      },
+    });
+    expect(fingerprint).toMatch(/^identity:v1:[a-f0-9]{16}$/);
+    expect(fingerprint).not.toContain("user-2");
+    expect(fingerprint).toBe(
+      executionIdentityFingerprint({
+        kind: "user",
+        user: {
+          profile: {
+            roles: ["writer", "admin"],
+            tenantId: "tenant-a",
+          },
+          tokenIdentifier: "issuer|user-2",
+          issuer: "https://auth.example.com",
+          subject: "user-2",
+        },
+      }),
+    );
   });
 
   it("rejects malformed user identities", async () => {

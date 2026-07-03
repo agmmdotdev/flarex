@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { executionIdentityFingerprint } from "flarex-protocol/auth";
 import { describe, expect, it } from "vitest";
 import {
   decodeConnectionLiveQueryDeliveryResultPayload,
@@ -20,6 +21,8 @@ import {
   liveQueryDeliveryResponseErrorToHttpErrorEffect,
 } from "../src/liveQueryDeliveryResponses";
 import type { Env } from "../src/types";
+
+const anonymousIdentityFingerprint = executionIdentityFingerprint({ kind: "anonymous" });
 
 describe("live query delivery result parsing", () => {
   it("decodes live query delivery changes through a shared typed boundary", async () => {
@@ -182,6 +185,7 @@ describe("live query delivery result parsing", () => {
           queryId: 1,
           functionPath: "users:get",
           argsJson: {},
+          identityFingerprint: anonymousIdentityFingerprint,
           resultJson: { ok: true },
           previousResultHash: "previous",
           resultHash: "result",
@@ -207,6 +211,7 @@ describe("live query delivery result parsing", () => {
           queryId: 1,
           functionPath: "users:get",
           argsJson: {},
+          identityFingerprint: anonymousIdentityFingerprint,
           resultJson: { ok: true },
           previousResultHash: "previous",
           resultHash: "result",
@@ -348,6 +353,7 @@ function liveQueryDeliveryChange(): LiveQueryDeliveryChange {
     queryId: 1,
     functionPath: "users:get",
     argsJson: { id: "1" },
+    identityFingerprint: anonymousIdentityFingerprint,
     resultJson: { name: "Ada" },
     previousResultHash: "previous",
     resultHash: "result",

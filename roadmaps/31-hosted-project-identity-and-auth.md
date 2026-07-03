@@ -17,7 +17,8 @@ real platform concept:
 - `packages/flarex-backend/src/artifactRuntime/GeneratedWorkerSource.ts`
   now emits `ctx.auth.getUserIdentity()` backed by executor session identity.
 - Sync now has Convex-style `Authenticate` messages and identity-version
-  transitions; durable live-query metadata is not auth-aware yet.
+  transitions, and durable live-query metadata now stores the subscription
+  identity needed for auth-aware reruns and stale-delivery protection.
 
 The next implementation should make identity a typed execution input that
 flows from public request or sync session to backend execution, trusted executor
@@ -181,7 +182,7 @@ identity mechanism is enabled.
   - On identity change, conservatively rerun all active queries for that
     connection.
   - Add SDK `setAuth` / `clearAuth` or equivalent sync-client hooks.
-- [ ] I-7. Auth-aware live-query metadata.
+- [x] I-7. Auth-aware live-query metadata.
   - Store identity hash/version with live-query subscription rows where
     rerun/delivery needs to know the active user context.
   - Ensure executor reruns use the subscription identity, not the scheduler or
@@ -254,21 +255,26 @@ closing the stream.
 
 ## Current Checkpoint
 
-Previous completed checkpoint: `de908b7` (`Add HTTP client auth propagation`).
+Previous completed checkpoint: `1026682` (`Add sync auth identity version handling`).
 
 What changed:
 
-- Added public SDK sync `Authenticate` messages for bearer user auth and
-  unauthenticated `None` auth.
-- Added client-side identity-version tracking to `LocalSyncState`.
-- Wired `FlarexClient.setAuth(fetchToken)` and `clearAuth()` into live sync
-  clients, including clients created after auth is already set.
-- Kept trusted execution identity as HTTP-only for this slice and cleared sync
-  auth when callers switch into that explicit dev/test mode.
-- Added `ConnectionDO` identity-version handling for `Authenticate`.
-- Reran all active connection queries after an auth change.
-- Passed the connection execution identity through sync query and mutation
-  invokes.
+- Added `identity_json` to live-query subscription rows with anonymous defaults.
+- Propagated the active `ConnectionDO` execution identity when registering
+  executor-backed live-query subscriptions.
+- Made executor stale-rerun scans list subscription identity and invoke reruns
+  with that stored identity.
+- Added a shared `executionIdentityFingerprint` helper to the auth protocol.
+- Added normalized delivery `identityFingerprint` fields to shared live-query
+  delivery contracts while defaulting missing pre-upgrade delivery payloads to
+  anonymous at the decode boundary.
+- Made executor-generated update and failure deliveries carry the subscription
+  identity fingerprint.
+- Made `ConnectionDO` record the identity fingerprint used for each active query
+  result, mark active query guards with the new identity before auth-change
+  reruns, and skip delivery payloads whose fingerprint no longer matches.
+- Added a sync regression proving a previous-user delivery does not publish when
+  the active query identity fingerprint differs.
 
 Convex references inspected:
 
@@ -276,30 +282,45 @@ Convex references inspected:
 - `npm-packages/convex/src/browser/sync/local_state.ts`
 - `npm-packages/convex/src/browser/sync/client.ts`
 - `npm-packages/convex/src/browser/sync/authentication_manager.ts`
+- `crates/sync/src/state.rs`
+- `crates/sync/src/worker.rs`
 
 Known limitations:
 
-- WebSocket `Authenticate` now advances identity version and reruns queries, but
+- WebSocket `Authenticate` advances identity version and reruns queries, but
   bearer tokens are not yet verified into non-anonymous hosted execution
   identities. JWT/JWKS verification remains a backend-owned future slice.
-- Durable subscription rows are still not auth-aware; I-7 must store identity
-  hash/version with live-query metadata before scheduler/delivery reruns can be
-  considered fully identity-safe.
+- Live-query delivery fingerprints protect active WebSocket state from stale
+  previous-identity results, but they do not replace the stored subscription
+  `identity_json` used by executor reruns.
 - Trusted identity headers are still an explicit dev/test resolver path guarded
   by backend opt-in and a shared secret token.
 
 Verification:
 
 ```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test -- live-query.test.ts auth.test.ts connection.test.ts
 corepack pnpm --filter flarex typecheck
-corepack pnpm --filter flarex test -- client.test.ts
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts -t "live query subscriptions"
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/liveQueries.test.ts -t "live query"
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts -t "live query subscription|changed live query reruns|backend delivery wake"
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t Authenticate
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "different identity"
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "delivery"
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "subscriptions"
 git diff --check
 ```
 
 Reviewer checkpoint:
 
-- `typescript-diff-reviewer`: no findings.
-- `code-quality-diff-reviewer`: fixed stale-auth `AuthError` handling and
-  async sync-auth refresh race findings with focused tests.
+- `typescript-diff-reviewer`: fixed duplicated live-query delivery SDK types by
+  re-exporting the protocol-owned delivery types from `flarex`.
+- `code-quality-diff-reviewer`: fixed raw identity leakage by making
+  `executionIdentityFingerprint` opaque, added pre-upgrade anonymous delivery
+  compatibility, and closed the auth-transition stale-delivery race by marking
+  active query guards before awaited reruns.

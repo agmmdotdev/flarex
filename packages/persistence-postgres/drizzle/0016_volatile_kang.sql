@@ -1,0 +1,1 @@
+ALTER TABLE "live_query_subscriptions" ADD COLUMN "identity_json" jsonb DEFAULT '{"kind":"anonymous"}'::jsonb NOT NULL;

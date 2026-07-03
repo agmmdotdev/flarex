@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createMemoryFreshnessMirrorStore } from "@flarex/freshness";
 import type { DocumentRevisionRecord } from "@flarex/persistence-postgres";
+import { executionIdentityFingerprint } from "flarex-protocol/auth";
 import {
   createFlarexExecutor as createBaseFlarexExecutor,
   DeploymentProjectMismatchError,
@@ -18,6 +19,8 @@ import {
   deploymentPackageMetadata,
   memoryPersistence,
 } from "./helpers/persistence";
+
+const anonymousIdentityFingerprint = executionIdentityFingerprint({ kind: "anonymous" });
 
 describe("executor live query subscriptions", () => {
   it("records a live query subscription with timestamped read set and result hash", async () => {
@@ -175,6 +178,14 @@ describe("executor live query subscriptions", () => {
       queryId: 1,
       functionPath: "messages:list",
       argsJson: { teamId: "team_a" },
+      identity: {
+        kind: "user",
+        user: {
+          tokenIdentifier: "issuer|user_a",
+          subject: "user_a",
+          issuer: "issuer",
+        },
+      },
       partitionKey: "team_a",
       beginTs: 10,
       readSet: { documents: [{ tableId: 1, id: "1:message" }] },
@@ -604,6 +615,15 @@ describe("executor live query subscriptions", () => {
   it("reruns a live query subscription and reports changed results", async () => {
     const persistence = memoryPersistence();
     const executor = createLiveQueryExecutor({ persistence });
+    const identity = {
+      kind: "user",
+      user: {
+        tokenIdentifier: "issuer|user_a",
+        subject: "user_a",
+        issuer: "issuer",
+      },
+    } as const;
+    const identityFingerprint = executionIdentityFingerprint(identity);
     const initial = await executor.recordLiveQuerySubscription({
       deploymentId: "deployment_rerun_changed",
       connectionId: "connection_a",
@@ -613,6 +633,7 @@ describe("executor live query subscriptions", () => {
       beginTs: 10,
       readSet: { tables: [{ tableId: 1 }] },
       resultJson: ["old"],
+      identity,
     });
     let receivedFunctionPath = "";
 
@@ -645,6 +666,7 @@ describe("executor live query subscriptions", () => {
           queryId: 1,
           functionPath: "messages:list",
           argsJson: { teamId: "team_a" },
+          identityFingerprint,
           resultJson: ["new"],
           previousResultHash: '["old"]',
           resultHash: '["new"]',
@@ -660,6 +682,12 @@ describe("executor live query subscriptions", () => {
         updatedAt: new Date("2026-06-20T00:10:00.000Z"),
       },
     });
+    const payloadJson = (await persistence.listUndeliveredLiveQueryDeliveries({
+      deploymentId: "deployment_rerun_changed",
+      limit: 10,
+    })).deliveries[0]?.payloadJson;
+    expect(JSON.stringify(payloadJson)).not.toContain("issuer|user_a");
+    expect(JSON.stringify(payloadJson)).not.toContain("user_a");
     expect(receivedFunctionPath).toBe("messages:list");
     await expect(
       persistence.listLiveQuerySubscriptions({
@@ -1078,6 +1106,14 @@ describe("executor live query subscriptions", () => {
       ids: { nextId: () => `session_live_query_${++nextSession}` },
       persistence,
     });
+    const identity = {
+      kind: "user",
+      user: {
+        tokenIdentifier: "issuer|user_a",
+        subject: "user_a",
+        issuer: "issuer",
+      },
+    } as const;
     const recorded = await executor.recordLiveQuerySubscription({
       deploymentId: "deployment_invoke_live_query",
       connectionId: "connection_a",
@@ -1088,6 +1124,7 @@ describe("executor live query subscriptions", () => {
       beginTs: 10,
       readSet: { documents: [{ tableId: 1, id: "1:message" }] },
       resultJson: null,
+      identity,
     });
 
     await expect(
@@ -1098,6 +1135,7 @@ describe("executor live query subscriptions", () => {
           expect(attempt.session).toMatchObject({
             sessionId: "session_live_query_1",
             beginTs: 20,
+            identity,
             function: { path: "messages:list", kind: "query" },
             scope: { partitionKey: "team_a" },
           });
@@ -1299,6 +1337,7 @@ describe("executor live query subscriptions", () => {
           queryId: 2,
           functionPath: "messages:changed",
           argsJson: {},
+          identityFingerprint: anonymousIdentityFingerprint,
           resultJson: "new",
           previousResultHash: '"old"',
           resultHash: '"new"',
@@ -1317,6 +1356,7 @@ describe("executor live query subscriptions", () => {
         queryId: 2,
         functionPath: "messages:changed",
         argsJson: {},
+        identityFingerprint: anonymousIdentityFingerprint,
         resultJson: "new",
         previousResultHash: '"old"',
         resultHash: '"new"',

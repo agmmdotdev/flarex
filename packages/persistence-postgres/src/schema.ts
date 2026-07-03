@@ -237,6 +237,10 @@ export const liveQuerySubscriptions = pgTable(
     queryId: bigint("query_id", { mode: "number" }).notNull(),
     functionPath: text("function_path").notNull(),
     argsJson: jsonb("args_json").$type<unknown>().notNull(),
+    identityJson: jsonb("identity_json")
+      .$type<ExecutionIdentity>()
+      .notNull()
+      .default({ kind: "anonymous" }),
     partitionKey: text("partition_key"),
     beginTs: bigint("begin_ts", { mode: "number" }).notNull(),
     readSetJson: jsonb("read_set_json")

@@ -901,6 +901,7 @@ export function memoryPersistence(
         queryId: input.queryId,
         functionPath: input.functionPath,
         argsJson: input.argsJson,
+        identityJson: input.identityJson ?? { kind: "anonymous" },
         partitionKey: input.partitionKey ?? null,
         beginTs: input.beginTs,
         readSetJson: input.readSetJson,

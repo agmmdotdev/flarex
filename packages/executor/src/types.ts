@@ -515,6 +515,7 @@ export interface RecordLiveQuerySubscriptionInput {
   queryId: number;
   functionPath: string;
   argsJson: Json;
+  identity?: ExecutionIdentity;
   partitionKey?: string | null;
   beginTs: number;
   readSet: FreshnessSourceReadSet;

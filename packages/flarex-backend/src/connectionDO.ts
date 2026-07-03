@@ -1,5 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
-import type { ExecutionIdentity } from "flarex-protocol/auth";
+import {
+  executionIdentityFingerprint,
+  type ExecutionIdentity,
+} from "flarex-protocol/auth";
 import { R2BackendExecutionArtifactStore } from "./artifactStore";
 import { ServiceBindingExecutionArtifactRuntime } from "./artifactRuntime";
 import {
@@ -74,6 +77,7 @@ type ActiveQuery = {
   readTs?: number;
   resultJson?: Json;
   resultHash?: string;
+  identityFingerprint?: string;
   rerunInFlight?: boolean;
   rerunQueued?: boolean;
 };
@@ -198,6 +202,7 @@ export class ConnectionDO extends DurableObject<Env> {
         const startVersion = this.currentVersion();
         this.state.identityVersion = message.baseVersion + 1;
         this.state.executionIdentity = { kind: "anonymous" };
+        this.markActiveQueriesWithCurrentIdentity();
         await this.rerunQueriesForIdentityChange(ws, startVersion);
         return;
       case "ModifyQuerySet":
@@ -332,15 +337,18 @@ export class ConnectionDO extends DurableObject<Env> {
         throw new Error("Add.partitionKey is required until Flarex routing inference is implemented.");
       }
       const deploymentId = requireDeploymentId(this.state.deploymentId);
+      const identity = this.state.executionIdentity;
+      const identityFingerprint = executionIdentityFingerprint(identity);
       const response = requireQueryInvokeResponse(await executeSyncInvoke(this.env, deploymentId, {
         path: query.udfPath,
         kind: "query",
         partitionKey: query.partitionKey,
         args: argsObjectForInvoke(query.args),
-      }, this.state.executionIdentity));
+      }, identity));
       query.readSet = response.readSet;
       query.readTs = response.readTs;
       query.resultJson = response.value;
+      query.identityFingerprint = identityFingerprint;
       const resultHash = fingerprintJson(response.value);
       const isUnchanged = query.resultHash === resultHash;
       query.resultHash = resultHash;
@@ -391,6 +399,13 @@ export class ConnectionDO extends DurableObject<Env> {
       ts: this.state.ts,
       identity: this.state.identityVersion,
     };
+  }
+
+  private markActiveQueriesWithCurrentIdentity(): void {
+    const identityFingerprint = executionIdentityFingerprint(this.state.executionIdentity);
+    for (const query of this.state.queries.values()) {
+      query.identityFingerprint = identityFingerprint;
+    }
   }
 
   private async invalidate(queryId: QueryId): Promise<Response> {
@@ -448,6 +463,14 @@ export class ConnectionDO extends DurableObject<Env> {
       if (query === undefined) {
         skipped += 1;
         addLiveQueryDeliverySkipReason(skipReasons, "missingQuery");
+        continue;
+      }
+      if (
+        query.identityFingerprint !== undefined &&
+        query.identityFingerprint !== delivery.identityFingerprint
+      ) {
+        skipped += 1;
+        addLiveQueryDeliverySkipReason(skipReasons, "stale");
         continue;
       }
       if (delivery.kind === "failed") {
@@ -644,6 +667,7 @@ export class ConnectionDO extends DurableObject<Env> {
       queryId: query.queryId,
       functionPath: query.udfPath,
       argsJson: argsObjectForInvoke(query.args),
+      identity: this.state.executionIdentity,
       partitionKey: query.partitionKey.length === 0 ? null : query.partitionKey,
       beginTs: query.readTs,
       readSet: query.readSet,

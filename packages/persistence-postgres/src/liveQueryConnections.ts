@@ -166,6 +166,7 @@ export async function listActiveLiveQuerySubscriptions(
       queryId: liveQuerySubscriptions.queryId,
       functionPath: liveQuerySubscriptions.functionPath,
       argsJson: liveQuerySubscriptions.argsJson,
+      identityJson: liveQuerySubscriptions.identityJson,
       partitionKey: liveQuerySubscriptions.partitionKey,
       beginTs: liveQuerySubscriptions.beginTs,
       readSetJson: liveQuerySubscriptions.readSetJson,

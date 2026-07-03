@@ -40,6 +40,7 @@ import {
   type RunQueryInvokeWithRetriesResult,
   type RunLiveQuerySubscriptionWithInvokeInput,
 } from "@flarex/executor";
+import { executionIdentityFingerprint } from "flarex-protocol/auth";
 
 import {
   createFlarexBackendLiveQueryDelivery,
@@ -75,6 +76,8 @@ import {
   notifyFlarexBackendLiveQueryTriggerEffect,
   notifyFlarexBackendLiveQueryWakeEffect,
 } from "../src";
+
+const anonymousIdentityFingerprint = executionIdentityFingerprint({ kind: "anonymous" });
 
 describe("executor HTTP invoke body decoders", () => {
   it("decodes invoke lifecycle bodies through typed Effect boundaries", async () => {
@@ -1364,6 +1367,7 @@ describe("createFlarexHttpApp", () => {
               queryId: 1,
               functionPath: "messages:list",
               argsJson: { teamId: "team_a" },
+              identityFingerprint: anonymousIdentityFingerprint,
               resultJson: ["fresh"],
               previousResultHash: "old_hash",
               resultHash: "new_hash",
@@ -1479,6 +1483,7 @@ describe("createFlarexHttpApp", () => {
                 queryId: 1,
                 functionPath: "messages:list",
                 argsJson: {},
+                identityFingerprint: anonymousIdentityFingerprint,
                 resultJson: "new",
                 previousResultHash: '"old"',
                 resultHash: '"new"',
@@ -1680,6 +1685,7 @@ describe("createFlarexHttpApp", () => {
               queryId: input.queryId,
               functionPath: input.functionPath,
               argsJson: input.argsJson,
+              identityJson: input.identity ?? { kind: "anonymous" },
               partitionKey: input.partitionKey ?? null,
               beginTs: input.beginTs,
               readSetJson: input.readSet as unknown as Record<string, unknown>,
@@ -1702,6 +1708,14 @@ describe("createFlarexHttpApp", () => {
           queryId: 7,
           functionPath: "messages:list",
           argsJson: { teamId: "team_a" },
+          identity: {
+            kind: "user",
+            user: {
+              tokenIdentifier: "issuer|user_a",
+              subject: "user_a",
+              issuer: "issuer",
+            },
+          },
           partitionKey: "team_a",
           beginTs: 12,
           readSet: { documents: [{ tableId: 1, id: "1:message", observedTs: 12 }] },
@@ -1720,6 +1734,14 @@ describe("createFlarexHttpApp", () => {
         queryId: 7,
         functionPath: "messages:list",
         argsJson: { teamId: "team_a" },
+        identity: {
+          kind: "user",
+          user: {
+            tokenIdentifier: "issuer|user_a",
+            subject: "user_a",
+            issuer: "issuer",
+          },
+        },
         partitionKey: "team_a",
         beginTs: 12,
         readSet: { documents: [{ tableId: 1, id: "1:message", observedTs: 12 }] },
@@ -2012,6 +2034,40 @@ describe("createFlarexHttpApp", () => {
     await expect(response.json()).resolves.toEqual({
       error: "bad_request",
       message: "readSet.documents must be an array.",
+    });
+  });
+
+  it("validates live query subscription identity before calling the executor", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async recordLiveQuerySubscription() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/live-query-subscriptions/record", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        connectionId: "connection_a",
+        queryId: 1,
+        functionPath: "messages:list",
+        argsJson: {},
+        identity: { kind: "user" },
+        beginTs: 12,
+        readSet: {},
+        resultJson: null,
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "bad_request",
+      message: "Execution identity must be anonymous or include a valid user identity.",
     });
   });
 
@@ -3832,6 +3888,7 @@ function liveQuerySubscription(
     queryId: 1,
     functionPath: "messages:list",
     argsJson: { teamId: "team_a" },
+    identityJson: { kind: "anonymous" },
     partitionKey: "team_a",
     beginTs: 10,
     readSetJson: { documents: [{ tableId: 1, id: "1:message", observedTs: 10 }] },

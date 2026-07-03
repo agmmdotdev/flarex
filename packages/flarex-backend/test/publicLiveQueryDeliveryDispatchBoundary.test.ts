@@ -1,10 +1,13 @@
 import { Effect } from "effect";
+import { executionIdentityFingerprint } from "flarex-protocol/auth";
 import { describe, expect, it } from "vitest";
 import {
   dispatchPublicLiveQueryDeliveryEffect,
 } from "../src/liveQueryDelivery/PublicDispatchBoundary";
 import type { LiveQueryDeliveryChange } from "../src/liveQueryDelivery";
 import type { Env } from "../src/types";
+
+const anonymousIdentityFingerprint = executionIdentityFingerprint({ kind: "anonymous" });
 
 describe("public live query delivery dispatch boundary", () => {
   it("dispatches public live query deliveries to scoped connections", async () => {
@@ -84,6 +87,7 @@ function liveQueryDeliveryChange(): LiveQueryDeliveryChange {
     queryId: 1,
     functionPath: "users:get",
     argsJson: { id: "1" },
+    identityFingerprint: anonymousIdentityFingerprint,
     resultJson: { name: "Ada" },
     previousResultHash: "previous",
     resultHash: "result",

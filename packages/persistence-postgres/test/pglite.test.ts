@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { executionIdentityFingerprint } from "flarex-protocol/auth";
 
 import {
   DeploymentMetadataAlreadyExistsError,
@@ -20,6 +21,8 @@ import {
 } from "../src";
 import { deployments } from "../src/schema";
 import { createPGlitePersistence } from "../src/pglite";
+
+const anonymousIdentityFingerprint = executionIdentityFingerprint({ kind: "anonymous" });
 
 describe("createPGlitePersistence", () => {
   it("checks connectivity", async () => {
@@ -2485,6 +2488,14 @@ describe("createPGlitePersistence", () => {
         queryId: 1,
         functionPath: "messages:list",
         argsJson: { teamId: "team_a" },
+        identityJson: {
+          kind: "user",
+          user: {
+            tokenIdentifier: "issuer|user_a",
+            subject: "user_a",
+            issuer: "issuer",
+          },
+        },
         partitionKey: "team_a",
         beginTs: 10,
         readSetJson: {
@@ -2500,6 +2511,14 @@ describe("createPGlitePersistence", () => {
       queryId: 1,
       functionPath: "messages:list",
       argsJson: { teamId: "team_a" },
+      identityJson: {
+        kind: "user",
+        user: {
+          tokenIdentifier: "issuer|user_a",
+          subject: "user_a",
+          issuer: "issuer",
+        },
+      },
       partitionKey: "team_a",
       beginTs: 10,
       readSetJson: {
@@ -3084,6 +3103,7 @@ describe("createPGlitePersistence", () => {
             queryId: 1,
             functionPath: "messages:uniqueByText",
             argsJson: { teamId: "team_a", text: "dupe" },
+            identityFingerprint: anonymousIdentityFingerprint,
             previousResultHash: "old_hash",
             errorMessage: "Query returned more than one document.",
             errorData: null,

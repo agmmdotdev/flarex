@@ -1,4 +1,5 @@
 import { Data, Effect, Schema } from "effect";
+import { executionIdentityFingerprint } from "./auth";
 
 export type LiveQueryDeliveryJson =
   | null
@@ -15,6 +16,7 @@ export type LiveQueryDeliveryUpdatedChange = {
   queryId: number;
   functionPath: string;
   argsJson: LiveQueryDeliveryJson;
+  identityFingerprint: string;
   resultJson: LiveQueryDeliveryJson;
   previousResultHash: string;
   resultHash: string;
@@ -27,6 +29,7 @@ export type LiveQueryDeliveryFailedChange = {
   queryId: number;
   functionPath: string;
   argsJson: LiveQueryDeliveryJson;
+  identityFingerprint: string;
   previousResultHash: string;
   errorMessage: string;
   errorData: LiveQueryDeliveryJson | null;
@@ -64,6 +67,7 @@ const LiveQueryDeliveryJsonValue = Schema.declare<LiveQueryDeliveryJson>(
     description: "A JSON value used in live-query delivery callback payloads.",
   },
 );
+const ANONYMOUS_IDENTITY_FINGERPRINT = executionIdentityFingerprint({ kind: "anonymous" });
 
 const LiveQueryDeliveryUpdatedChangeSchema = Schema.Struct({
   kind: Schema.Literal("updated"),
@@ -72,6 +76,7 @@ const LiveQueryDeliveryUpdatedChangeSchema = Schema.Struct({
   queryId: Schema.Number,
   functionPath: Schema.String,
   argsJson: LiveQueryDeliveryJsonValue,
+  identityFingerprint: Schema.String,
   resultJson: LiveQueryDeliveryJsonValue,
   previousResultHash: Schema.String,
   resultHash: Schema.String,
@@ -84,6 +89,7 @@ const LiveQueryDeliveryFailedChangeSchema = Schema.Struct({
   queryId: Schema.Number,
   functionPath: Schema.String,
   argsJson: LiveQueryDeliveryJsonValue,
+  identityFingerprint: Schema.String,
   previousResultHash: Schema.String,
   errorMessage: Schema.String,
   errorData: Schema.Union([LiveQueryDeliveryJsonValue, Schema.Null]),
@@ -206,6 +212,10 @@ const decodeLiveQueryDeliveryChange = Effect.fn("LiveQueryProtocol.decodeDeliver
       queryId: yield* requiredDeliveryInteger(record.queryId, `${path}.queryId`),
       functionPath: yield* requiredDeliveryString(record.functionPath, `${path}.functionPath`),
       argsJson: yield* deliveryJson(record.argsJson, `${path}.argsJson`),
+      identityFingerprint: yield* optionalDeliveryFingerprint(
+        record.identityFingerprint,
+        `${path}.identityFingerprint`,
+      ),
       previousResultHash: yield* requiredDeliveryString(
         record.previousResultHash,
         `${path}.previousResultHash`,
@@ -229,6 +239,10 @@ const decodeLiveQueryDeliveryChange = Effect.fn("LiveQueryProtocol.decodeDeliver
     queryId: yield* requiredDeliveryInteger(record.queryId, `${path}.queryId`),
     functionPath: yield* requiredDeliveryString(record.functionPath, `${path}.functionPath`),
     argsJson: yield* deliveryJson(record.argsJson, `${path}.argsJson`),
+    identityFingerprint: yield* optionalDeliveryFingerprint(
+      record.identityFingerprint,
+      `${path}.identityFingerprint`,
+    ),
     resultJson: yield* deliveryJson(record.resultJson, `${path}.resultJson`),
     previousResultHash: yield* requiredDeliveryString(
       record.previousResultHash,
@@ -262,6 +276,14 @@ function requiredDeliveryInteger(
 ): Effect.Effect<number, LiveQueryDeliveryChangePayloadError> {
   if (typeof value === "number" && Number.isInteger(value)) return Effect.succeed(value);
   return liveQueryDeliveryPayloadFailure(`${field} must be an integer.`);
+}
+
+function optionalDeliveryFingerprint(
+  value: unknown,
+  field: string,
+): Effect.Effect<string, LiveQueryDeliveryChangePayloadError> {
+  if (value === undefined) return Effect.succeed(ANONYMOUS_IDENTITY_FINGERPRINT);
+  return requiredDeliveryString(value, field);
 }
 
 function deliveryJson(

@@ -1,5 +1,6 @@
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { executionIdentityFingerprint } from "../src/auth";
 import {
   decodeDeliveryWakePayloadEffect,
   decodeLiveQueryDeliveryChangesBodyEffect,
@@ -14,6 +15,7 @@ const decodeLiveQueryDeliveryChangesBody = Schema.decodeUnknownSync(
   LiveQueryDeliveryChangesBodySchema,
 );
 const decodeDeliveryWakeRequest = Schema.decodeUnknownSync(DeliveryWakeRequestSchema);
+const anonymousIdentityFingerprint = executionIdentityFingerprint({ kind: "anonymous" });
 
 describe("live query protocol schemas", () => {
   it("decodes backend live-query delivery callback bodies", async () => {
@@ -25,6 +27,7 @@ describe("live query protocol schemas", () => {
           queryId: 1,
           functionPath: "users:get",
           argsJson: { id: "1:user" },
+          identityFingerprint: anonymousIdentityFingerprint,
           resultJson: { name: "Ada" },
           previousResultHash: "previous",
           resultHash: "result",
@@ -36,6 +39,7 @@ describe("live query protocol schemas", () => {
           queryId: 2,
           functionPath: "users:list",
           argsJson: {},
+          identityFingerprint: anonymousIdentityFingerprint,
           previousResultHash: "previous",
           errorMessage: "boom",
           errorData: { code: "QUERY_FAILED" },
@@ -49,6 +53,7 @@ describe("live query protocol schemas", () => {
         queryId: 1,
         functionPath: "users:get",
         argsJson: { id: "1:user" },
+        identityFingerprint: anonymousIdentityFingerprint,
         resultJson: { name: "Ada" },
         previousResultHash: "previous",
         resultHash: "result",
@@ -60,9 +65,32 @@ describe("live query protocol schemas", () => {
         queryId: 2,
         functionPath: "users:list",
         argsJson: {},
+        identityFingerprint: anonymousIdentityFingerprint,
         previousResultHash: "previous",
         errorMessage: "boom",
         errorData: { code: "QUERY_FAILED" },
+      },
+    ]);
+  });
+
+  it("defaults pre-upgrade delivery payloads to anonymous identity", async () => {
+    await expect(Effect.runPromise(decodeLiveQueryDeliveryChangesBodyEffect({
+      deliveries: [
+        {
+          deploymentId: "deployment-a",
+          connectionId: "connection:deployment-a:session-a",
+          queryId: 1,
+          functionPath: "users:get",
+          argsJson: { id: "1:user" },
+          resultJson: { name: "Ada" },
+          previousResultHash: "previous",
+          resultHash: "result",
+        },
+      ],
+    }))).resolves.toMatchObject([
+      {
+        kind: "updated",
+        identityFingerprint: anonymousIdentityFingerprint,
       },
     ]);
   });
@@ -89,6 +117,7 @@ describe("live query protocol schemas", () => {
           queryId: 1,
           functionPath: "users:get",
           argsJson: Number.NaN,
+          identityFingerprint: anonymousIdentityFingerprint,
           resultJson: {},
           previousResultHash: "previous",
           resultHash: "result",
@@ -106,6 +135,7 @@ describe("live query protocol schemas", () => {
         queryId: 1,
         functionPath: "users:get",
         argsJson: null,
+        identityFingerprint: anonymousIdentityFingerprint,
         resultJson: ["ok"],
         previousResultHash: "previous",
         resultHash: "result",
@@ -118,6 +148,7 @@ describe("live query protocol schemas", () => {
         queryId: 1,
         functionPath: "users:get",
         argsJson: null,
+        identityFingerprint: anonymousIdentityFingerprint,
         resultJson: ["ok"],
         previousResultHash: "previous",
         resultHash: "result",

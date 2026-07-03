@@ -1,4 +1,5 @@
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
+import { executionIdentityFingerprint } from "flarex-protocol/auth";
 import { afterAll, describe, expect, it } from "vitest";
 import { R2BackendExecutionArtifactStore, type R2BucketLike } from "../src/artifactStore";
 import { createExecutionArtifactRuntimeService } from "../src/artifactRuntime";
@@ -43,6 +44,7 @@ type MiniflareWebSocket = {
 
 describe("sync protocol", () => {
   const harnesses: BackendHarness[] = [];
+  const anonymousIdentityFingerprint = executionIdentityFingerprint({ kind: "anonymous" });
 
   afterAll(async () => {
     await Promise.all(harnesses.map(harness => harness.dispose()));
@@ -367,6 +369,7 @@ describe("sync protocol", () => {
           queryId: 17,
           functionPath: "users:get",
           argsJson: { id: "1:ada" },
+          identity: { kind: "anonymous" },
           partitionKey: "user:ada",
           beginTs: 3,
           readSet: { documents: [{ tableId: 1, id: "1:ada" }] },
@@ -1877,6 +1880,7 @@ describe("sync protocol", () => {
             queryId: 14,
             functionPath: "users:get",
             argsJson: { id: "1:ada" },
+            identityFingerprint: anonymousIdentityFingerprint,
             resultJson: { user: "Grace" },
             previousResultHash: '{"user":"Ada"}',
             resultHash: '{"user":"Grace"}',
@@ -1989,6 +1993,7 @@ describe("sync protocol", () => {
             queryId: 15,
             functionPath: "users:get",
             argsJson: { id: "1:ada" },
+            identityFingerprint: anonymousIdentityFingerprint,
             resultJson: { user: "Grace" },
             previousResultHash: '{"user":"Ada"}',
             resultHash: '{"user":"Grace"}',
@@ -2018,6 +2023,7 @@ describe("sync protocol", () => {
               queryId: 15,
               functionPath: "users:get",
               argsJson: { id: "1:ada" },
+              identityFingerprint: anonymousIdentityFingerprint,
               previousResultHash: '{"user":"Ada"}',
               errorMessage: "Query returned more than one document.",
               errorData: null,
@@ -2034,6 +2040,114 @@ describe("sync protocol", () => {
       skipped: 1,
       staleSkipped: 1,
       skipReasons: { stale: 1 },
+    });
+    ws.close();
+  });
+
+  it("skips live query deliveries computed for a different identity", async () => {
+    const runtimeCalls: unknown[] = [];
+    const harness = await createSyncHarness(runtimeCalls, () => ({ user: "Ada" }));
+    harnesses.push(harness);
+    const deploymentId = "sync-identity-stale-delivery-deployment";
+    const connectionId = `connection:${deploymentId}:identity-stale-delivery-session`;
+    const staleIdentityFingerprint = executionIdentityFingerprint({
+      kind: "user",
+      user: {
+        tokenIdentifier: "issuer|user-grace",
+        subject: "user-grace",
+        issuer: "issuer",
+      },
+    });
+    await activateDeployment(harness, deploymentId);
+
+    const ws = await openSync(
+      harness,
+      deploymentId,
+      "identity-stale-delivery-session",
+    );
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 21,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+    await nextJsonMessage(ws);
+
+    const env = await harness.mf.getBindings<Env>();
+    const connection = env.CONNECTIONS.getByName(connectionId);
+    const staleIdentityResponse = await connection.fetch(
+      "https://flarex.internal/deliver/live-query",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deliveries: [
+            {
+              kind: "updated",
+              deploymentId,
+              connectionId,
+              queryId: 21,
+              functionPath: "users:get",
+              argsJson: { id: "1:ada" },
+              identityFingerprint: staleIdentityFingerprint,
+              resultJson: { user: "Grace" },
+              previousResultHash: '{"user":"Ada"}',
+              resultHash: '{"user":"Grace"}',
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(staleIdentityResponse.status).toBe(200);
+    await expect(staleIdentityResponse.json()).resolves.toEqual({
+      delivered: 0,
+      skipped: 1,
+      staleSkipped: 1,
+      skipReasons: { stale: 1 },
+    });
+
+    const delivered = nextJsonMessage(ws);
+    const validIdentityResponse = await connection.fetch(
+      "https://flarex.internal/deliver/live-query",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deliveries: [
+            {
+              kind: "updated",
+              deploymentId,
+              connectionId,
+              queryId: 21,
+              functionPath: "users:get",
+              argsJson: { id: "1:ada" },
+              identityFingerprint: anonymousIdentityFingerprint,
+              resultJson: { user: "Grace" },
+              previousResultHash: '{"user":"Ada"}',
+              resultHash: '{"user":"Grace"}',
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(validIdentityResponse.status).toBe(200);
+    await expect(validIdentityResponse.json()).resolves.toEqual({
+      delivered: 1,
+      skipped: 0,
+    });
+    await expect(delivered).resolves.toMatchObject({
+      type: "Transition",
+      modifications: [{ type: "QueryUpdated", queryId: 21, value: { user: "Grace" } }],
     });
     ws.close();
   });
@@ -2076,6 +2190,7 @@ describe("sync protocol", () => {
             queryId: 16,
             functionPath: "users:get",
             argsJson: { id: "1:ada" },
+            identityFingerprint: anonymousIdentityFingerprint,
             resultJson: { user: "Grace" },
             previousResultHash: '{"user":"Ada"}',
             resultHash: '{"user":"Grace"}',
@@ -2086,6 +2201,7 @@ describe("sync protocol", () => {
             queryId: 16,
             functionPath: "users:get",
             argsJson: { id: "1:ada" },
+            identityFingerprint: anonymousIdentityFingerprint,
             resultJson: { user: "Grace" },
             previousResultHash: '{"user":"Ada"}',
             resultHash: '{"user":"Grace"}',
@@ -2096,6 +2212,7 @@ describe("sync protocol", () => {
             queryId: 999,
             functionPath: "users:get",
             argsJson: { id: "1:ada" },
+            identityFingerprint: anonymousIdentityFingerprint,
             resultJson: { user: "Grace" },
             previousResultHash: '{"user":"Ada"}',
             resultHash: '{"user":"Grace"}',
@@ -2106,6 +2223,7 @@ describe("sync protocol", () => {
             queryId: 16,
             functionPath: "users:get",
             argsJson: { id: "1:ada" },
+            identityFingerprint: anonymousIdentityFingerprint,
             resultJson: { user: "Ada" },
             previousResultHash: '{"user":"Ada"}',
             resultHash: '{"user":"Ada"}',
@@ -2171,6 +2289,7 @@ describe("sync protocol", () => {
               queryId: 16,
               functionPath: "users:get",
               argsJson: { id: "1:ada" },
+              identityFingerprint: anonymousIdentityFingerprint,
               resultJson: { user: "Katherine" },
               previousResultHash: '{"user":"Ada"}',
               resultHash: '{"user":"Katherine"}',
@@ -2291,6 +2410,7 @@ describe("sync protocol", () => {
               queryId: 16,
               functionPath: "users:get",
               argsJson: { id: "1:ada" },
+              identityFingerprint: anonymousIdentityFingerprint,
               resultJson: { user: "Katherine" },
               previousResultHash: "{\"user\":\"Ada\"}",
               resultHash: "{\"user\":\"Katherine\"}",
@@ -2355,6 +2475,7 @@ describe("sync protocol", () => {
                       queryId: 17,
                       functionPath: "users:get",
                       argsJson: { id: "1:ada" },
+                      identityFingerprint: anonymousIdentityFingerprint,
                       resultJson: { user: "Grace" },
                       previousResultHash: '{"user":"Ada"}',
                       resultHash: '{"user":"Grace"}',
@@ -2499,6 +2620,7 @@ describe("sync protocol", () => {
                       queryId: 17,
                       functionPath: "users:get",
                       argsJson: { id: "1:ada" },
+                      identityFingerprint: anonymousIdentityFingerprint,
                       resultJson: { user: "Grace" },
                       previousResultHash: "{\"user\":\"Ada\"}",
                       resultHash: "{\"user\":\"Grace\"}",
@@ -2848,6 +2970,7 @@ describe("sync protocol", () => {
                       queryId: 18,
                       functionPath: "users:unique",
                       argsJson: { id: "1:ada" },
+                      identityFingerprint: anonymousIdentityFingerprint,
                       previousResultHash: '{"user":"Ada"}',
                       errorMessage: "Query returned more than one document.",
                       errorData: null,
@@ -2987,6 +3110,7 @@ describe("sync protocol", () => {
                       queryId: 18,
                       functionPath: "users:get",
                       argsJson: { id: "1:ada" },
+                      identityFingerprint: anonymousIdentityFingerprint,
                       resultJson: { user: "Grace" },
                       previousResultHash: '{"user":"Ada"}',
                       resultHash: '{"user":"Grace"}',
@@ -3208,6 +3332,7 @@ describe("sync protocol", () => {
                       queryId: 18,
                       functionPath: "users:get",
                       argsJson: { id: "1:ada" },
+                      identityFingerprint: anonymousIdentityFingerprint,
                       resultJson: { user: "Grace" },
                       previousResultHash: '{"user":"Ada"}',
                       resultHash: '{"user":"Grace"}',
@@ -3401,6 +3526,7 @@ describe("sync protocol", () => {
                       queryId: 19,
                       functionPath: "users:get",
                       argsJson: { id: "1:ada" },
+                      identityFingerprint: anonymousIdentityFingerprint,
                       resultJson: { user: "Grace" },
                       previousResultHash: '{"user":"Ada"}',
                       resultHash: '{"user":"Grace"}',
@@ -3619,6 +3745,7 @@ describe("sync protocol", () => {
                       queryId: 18,
                       functionPath: "users:get",
                       argsJson: { id: "1:ada" },
+                      identityFingerprint: anonymousIdentityFingerprint,
                       resultJson,
                       previousResultHash,
                       resultHash: JSON.stringify(resultJson),
@@ -3841,6 +3968,7 @@ describe("sync protocol", () => {
                       queryId: 20,
                       functionPath: "users:get",
                       argsJson: { id: "1:ada" },
+                      identityFingerprint: anonymousIdentityFingerprint,
                       resultJson: { user: "Grace" },
                       previousResultHash: '{"user":"Ada"}',
                       resultHash: '{"user":"Grace"}',
@@ -4272,6 +4400,7 @@ describe("sync protocol", () => {
                       queryId: 19,
                       functionPath: "users:get",
                       argsJson: { id: "1:ada" },
+                      identityFingerprint: anonymousIdentityFingerprint,
                       resultJson: { user: "Lovelace" },
                       previousResultHash: '{"user":"Ada"}',
                       resultHash: '{"user":"Lovelace"}',
@@ -5370,6 +5499,7 @@ describe("sync protocol", () => {
                     queryId: 31,
                     functionPath: "users:get",
                     argsJson: { id: "1:ada" },
+                    identityFingerprint: anonymousIdentityFingerprint,
                     resultJson: { user: "Grace" },
                     previousResultHash: '{"user":"Ada"}',
                     resultHash: '{"user":"Grace"}',
@@ -5393,6 +5523,7 @@ describe("sync protocol", () => {
                       queryId: 31,
                       functionPath: "users:get",
                       argsJson: { id: "1:ada" },
+                      identityFingerprint: anonymousIdentityFingerprint,
                       resultJson: { user: "Grace" },
                       previousResultHash: '{"user":"Ada"}',
                       resultHash: '{"user":"Grace"}',
@@ -5829,6 +5960,7 @@ describe("sync protocol", () => {
                     queryId: 32,
                     functionPath: "users:get",
                     argsJson: { id: "1:ada" },
+                    identityFingerprint: anonymousIdentityFingerprint,
                     resultJson,
                     previousResultHash,
                     resultHash: JSON.stringify(resultJson),
@@ -5859,6 +5991,7 @@ describe("sync protocol", () => {
                       queryId: 32,
                       functionPath: "users:get",
                       argsJson: { id: "1:ada" },
+                      identityFingerprint: anonymousIdentityFingerprint,
                       resultJson,
                       previousResultHash,
                       resultHash: JSON.stringify(resultJson),
@@ -6417,6 +6550,7 @@ describe("sync protocol", () => {
             queryId: 15,
             functionPath: "users:get",
             argsJson: { id: "1:ada" },
+            identityFingerprint: anonymousIdentityFingerprint,
             resultJson: { user: "Grace" },
             previousResultHash: '{"user":"Ada"}',
             resultHash: '{"user":"Grace"}',
@@ -6437,6 +6571,7 @@ describe("sync protocol", () => {
             queryId: 15,
             functionPath: "users:get",
             argsJson: { id: "1:ada" },
+            identityFingerprint: anonymousIdentityFingerprint,
             resultJson: { user: "Lin" },
             previousResultHash: '{"user":"Ada"}',
             resultHash: '{"user":"Lin"}',
@@ -6465,6 +6600,7 @@ describe("sync protocol", () => {
             queryId: 15,
             functionPath: "users:get",
             argsJson: { id: "1:ada" },
+            identityFingerprint: anonymousIdentityFingerprint,
             resultJson: { user: "Lin" },
             previousResultHash: '{"user":"Grace"}',
             resultHash: '{"user":"Lin"}',
