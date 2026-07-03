@@ -13,6 +13,10 @@ import {
   ExecutionArtifactRuntimeMissingSourcePackageError,
   ExecutionArtifactRuntimeOperationError,
 } from "./artifactRuntime/Errors.ts";
+export {
+  generatedExecutionWorkerSource,
+  type GeneratedExecutionWorkerSourceOptions,
+} from "./artifactRuntime/GeneratedWorkerSource.ts";
 import { Data, Effect, Schema } from "effect";
 import { InvokeResponseSchema, type InvokeResponse as ProtocolInvokeResponse } from "flarex-protocol/invoke";
 import {

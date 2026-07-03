@@ -1,5 +1,62 @@
 # Hosted Runtime Core
 
+## Shared Generated Executor Bridge
+
+Previous completed checkpoint: `0781656` (`Bridge artifact runtime to executor`).
+
+What changed:
+
+- Extracted the generated executor bridge source into
+  `packages/flarex-backend/src/artifactRuntime/GeneratedWorkerSource.ts`.
+- Exported `generatedExecutionWorkerSource(...)` from
+  `flarex-backend/artifact-runtime` so deployable hosted runtime code and local
+  dev materialization share one generated runtime contract.
+- Replaced the hosted artifact-runtime Dynamic Worker template with a
+  parameterized builder call for:
+  - `FLAREX_EXECUTOR`,
+  - `https://flarex-executor.internal`,
+  - hosted fail-closed unsupported capability stubs.
+- Replaced the local Miniflare materializer template with the same builder for:
+  - `FLAREX_BACKEND`,
+  - `https://flarex-backend.internal`,
+  - the local-only `/__flarex_internal/query-session` route.
+- Kept the generated worker self-contained: the builder emits plain JavaScript
+  modules for Cloudflare Worker Loader and Miniflare module execution, rather
+  than making generated workers import repo internals at runtime.
+
+Why it changed:
+
+The prior hosted executor bridge intentionally copied the mature local
+materializer loop to move quickly, but reviewers correctly flagged drift risk.
+This checkpoint removes that duplication while preserving the separate hosted
+and local binding names/origins.
+
+Known limitations:
+
+- `packages/flarex-dev/src/generate.ts` still has a typed generated Worker path
+  for project workers. It shares the same behavior pattern but is not yet
+  emitted from `generatedExecutionWorkerSource(...)` because it also embeds
+  analyzed metadata, validators, schema table IDs, and connection DO code.
+- The shared builder is string-template based. A future hardening slice can add
+  direct unit tests for generated source snapshots or parse checks, but the
+  current safety net executes the emitted source through artifact-runtime and
+  local Miniflare materializer tests.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter @flarex/artifact-runtime test
+corepack pnpm --filter @flarex/artifact-runtime typecheck
+corepack pnpm --filter @flarex/artifact-runtime build
+corepack pnpm --filter @flarex/artifact-runtime deploy:dry-run
+git diff --check
+```
+
 ## Dynamic Worker Executor Bridge
 
 Previous completed checkpoint: `b3d90e9` (`Wire artifact runtime Worker Loader`).
