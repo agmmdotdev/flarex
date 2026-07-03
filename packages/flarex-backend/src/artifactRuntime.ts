@@ -19,6 +19,11 @@ export {
   type GeneratedExecutionWorkerSourceOptions,
   type GeneratedProjectWorkerExecutorBridgeSourceOptions,
 } from "./artifactRuntime/GeneratedWorkerSource.ts";
+export {
+  executionArtifactRuntimeWorkerSource,
+  type ExecutionArtifactRuntimeWorkerSourceOptions,
+  type ExecutionArtifactRuntimeWorkerSourceProfile,
+} from "./artifactRuntime/HostKit.ts";
 import { Data, Effect, Schema } from "effect";
 import { InvokeResponseSchema, type InvokeResponse as ProtocolInvokeResponse } from "flarex-protocol/invoke";
 import {

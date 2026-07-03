@@ -1,5 +1,64 @@
 # Shared Artifact Runtime Host Kit
 
+## H-1 Shared Runtime Worker Source Profiles
+
+Previous completed checkpoint: `93b408d` (`Add shared host kit goal checklist`).
+
+What changed:
+
+- Added `packages/flarex-backend/src/artifactRuntime/HostKit.ts`.
+- Added `executionArtifactRuntimeWorkerSource(...)` with two explicit profiles:
+  - local Miniflare execution artifact runtime;
+  - hosted Dynamic Worker execution artifact runtime.
+- Re-exported the host-kit profile helper from `flarex-backend/artifact-runtime`.
+- Updated `packages/flarex-dev/src/runtimeMaterializer.ts` so its local
+  generated runtime worker source comes from the host-kit local profile.
+- Updated `apps/artifact-runtime/src/worker.ts` so its hosted Dynamic Worker
+  runtime source comes from the host-kit hosted profile.
+
+Why it changed:
+
+This is the first implementation slice of the shared host-kit plan. It creates
+the shared SDK surface for generated runtime worker source profiles without
+changing Miniflare construction, Worker Loader behavior, source-package module
+validation, env binding construction, request construction, or response
+decoding.
+
+Convex sources inspected:
+
+- None in this implementation slice. The Convex runner/source-package
+  rationale is recorded in the research checkpoint below; this slice only
+  moves Flarex host-profile constants behind one helper.
+
+Cloudflare difference:
+
+- Local runtime still uses Miniflare.
+- Hosted runtime still uses Worker Loader and Dynamic Workers.
+- The shared helper does not hide hosted `globalOutbound: null` or Worker
+  Loader cache identity; those remain hosted-adapter responsibilities for later
+  checklist items.
+
+Known limitations:
+
+- Source package module-map validation is still split between local and hosted
+  adapters. That is the next checklist item, `H-2`.
+- Generated worker env construction is still split between local and hosted
+  adapters. That remains `H-3`.
+- Internal invoke request and response decoding are still split. That remains
+  `H-4`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter @flarex/artifact-runtime test
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+git diff --check
+```
+
 ## Research And Implementation Plan
 
 Previous completed checkpoint: `d576f98` (`Extract generated executor protocol fragments`).

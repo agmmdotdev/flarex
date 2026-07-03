@@ -18,7 +18,7 @@ Goal status:
   - Goal objective: implement the shared artifact runtime host kit step by
     step, update the checklist each turn, validate, review significant changes,
     and commit each completed slice.
-- [ ] G-2. H-1 shared runtime worker source profiles.
+- [x] G-2. H-1 shared runtime worker source profiles.
 - [ ] G-3. H-2 shared source package module-map validation.
 - [ ] G-4. H-3 shared generated-worker env construction.
 - [ ] G-5. H-4 shared internal invoke request and response decode.
@@ -53,6 +53,8 @@ Every implementation turn in this goal should follow this loop:
 
 ### G-2 / H-1: Shared Runtime Worker Source Profiles
 
+Status: implemented in this turn; commit pending.
+
 Purpose:
 
 Create the first shared SDK surface without changing runtime behavior. The
@@ -70,21 +72,24 @@ Files expected to change:
 
 Implementation tasks:
 
-- [ ] Add `HostKit.ts`.
-- [ ] Add `executionArtifactRuntimeWorkerSource(...)`.
-- [ ] Support a local profile:
+- [x] Add `HostKit.ts`.
+- [x] Add `executionArtifactRuntimeWorkerSource(...)`.
+- [x] Support a local profile:
   - `backendBinding: "FLAREX_BACKEND"`
   - `backendBaseUrl: "https://flarex-backend.internal"`
   - local missing-binding message
   - `includeQuerySessionRoute: true`
-- [ ] Support a hosted profile:
+- [x] Support a hosted profile:
   - `backendBinding: "FLAREX_EXECUTOR"`
   - `backendBaseUrl: "https://flarex-executor.internal"`
   - hosted missing-binding message
   - `includeUnsupportedCapabilities: true`
-- [ ] Replace local `runtimeWorkerSource(...)` with the host-kit helper.
-- [ ] Replace hosted `dynamicWorkerRuntimeSource(...)` with the host-kit helper.
-- [ ] Keep host adapters otherwise unchanged.
+- [x] Replace local `runtimeWorkerSource(...)` with the host-kit helper.
+- [x] Replace hosted `dynamicWorkerRuntimeSource(...)` with the host-kit helper.
+- [x] Keep host adapters otherwise unchanged.
+
+Next slice after commit: `G-3 / H-2`, shared source package module-map
+validation.
 
 Validation gates:
 
