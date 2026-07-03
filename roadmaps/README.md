@@ -50,3 +50,5 @@ Start with:
 - [27-execution-artifact-lifecycle-parity-goals.md](./27-execution-artifact-lifecycle-parity-goals.md)
 - [28-authoritative-analysis-effect-quality.md](./28-authoritative-analysis-effect-quality.md)
 - [29-authoritative-analysis-effect-quality-goals.md](./29-authoritative-analysis-effect-quality-goals.md)
+- [31-hosted-project-identity-and-auth.md](./31-hosted-project-identity-and-auth.md)
+- [32-hosted-project-identity-and-auth-goals.md](./32-hosted-project-identity-and-auth-goals.md)

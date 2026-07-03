@@ -148,6 +148,8 @@ user request.
   `roadmaps/20-postgres-executor.md`
 - Cloudflare freshness/cache layers for Postgres-authoritative sync:
   `roadmaps/21-cloudflare-freshness-cache.md`
+- Hosted project identity, auth, and `ctx.auth`:
+  `roadmaps/31-hosted-project-identity-and-auth.md`
 
 ## Backend Rules
 
