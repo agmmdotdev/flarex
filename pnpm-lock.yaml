@@ -219,6 +219,9 @@ importers:
       flarex-backend:
         specifier: workspace:*
         version: link:../flarex-backend
+      flarex-protocol:
+        specifier: workspace:*
+        version: link:../flarex-protocol
       miniflare:
         specifier: 'catalog:'
         version: 4.20260611.0

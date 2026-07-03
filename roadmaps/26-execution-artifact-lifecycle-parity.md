@@ -29,7 +29,7 @@ separate.
 - [x] L-2. Extract a shared artifact lifecycle payload helper for
   `ExecutionArtifactRef` plus optional `sourcePackage` materialization so local
   and hosted invocation paths build the same runtime input shape.
-- [ ] L-3. Align local dev push/runtime activation around the shared lifecycle
+- [x] L-3. Align local dev push/runtime activation around the shared lifecycle
   helper, keeping Miniflare and local file watching as dev-only host mechanics.
 - [ ] L-4. Align hosted deploy/push activation around the same lifecycle helper,
   keeping Worker Loader, service bindings, and R2 as hosted-only mechanics.

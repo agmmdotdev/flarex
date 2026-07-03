@@ -23,6 +23,7 @@ import {
   type ExecutionArtifactMaterializer,
   type MaterializedExecutionArtifactPayload,
 } from "flarex-backend/artifact-runtime";
+import { materializedExecutionArtifactInvokePayload } from "flarex-protocol/artifact-runtime";
 import type { ExecutionArtifactRef } from "flarex/artifacts";
 import type { PushSourcePackage } from "flarex-backend/types";
 
@@ -192,7 +193,7 @@ async function materializedPayloadForSubscription(
     sourcePackageHash: active.package.sourcePackageHash,
     executionModule: active.package.executionModule,
   };
-  return {
+  return materializedExecutionArtifactInvokePayload({
     deploymentId,
     ref,
     sourcePackage: validateMaterializableSourcePackage(
@@ -205,7 +206,7 @@ async function materializedPayloadForSubscription(
       kind: "query",
       ...(partitionKey === null ? {} : { partitionKey }),
     },
-  };
+  });
 }
 
 function validateMaterializableSourcePackage(

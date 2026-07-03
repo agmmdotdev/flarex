@@ -23,7 +23,7 @@ Goal status:
   - Commit: `e482969` (`Share execution artifact ref validation`)
 - [x] G-3. L-2 shared artifact lifecycle payload helper.
   - Commit: `3e2bd56` (`Share artifact runtime invoke payload builders`)
-- [ ] G-4. L-3 local dev lifecycle alignment.
+- [x] G-4. L-3 local dev lifecycle alignment.
 - [ ] G-5. L-4 hosted deploy/push lifecycle alignment.
 - [ ] G-6. L-5 cross-boundary lifecycle parity tests.
 - [ ] G-7. L-6 final lifecycle parity audit.
@@ -50,6 +50,44 @@ Every implementation turn in this goal should follow this loop:
 10. Commit the completed slice.
 
 ## Current Slice
+
+### G-4 / L-3: Local Dev Lifecycle Alignment
+
+Status: implemented in this turn; commit pending.
+
+Purpose:
+
+Make the local executor runtime use the shared artifact lifecycle payload
+helper when materializing active deployment packages for live-query reruns. The
+local runtime still owns PGlite, Miniflare, freshness, and service-binding
+composition; the cross-package runtime payload shape now comes from
+`flarex-protocol/artifact-runtime`.
+
+Files changed:
+
+- `packages/flarex-dev/package.json`
+- `packages/flarex-dev/src/executorHttpRuntime.ts`
+- `packages/flarex-dev/test/executorHttpRuntime.test.ts`
+- `pnpm-lock.yaml`
+- this file
+- `roadmaps/26-execution-artifact-lifecycle-parity.md`
+
+Validation gates:
+
+```sh
+corepack pnpm install
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev exec vitest run test/backendSyncRuntime.test.ts test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+git diff --check
+```
+
+Review gate:
+
+- Required because this changes local executor runtime materialization behavior
+  and adds a direct shared protocol dependency.
+
+## Previous Slice
 
 ### G-3 / L-2: Shared Artifact Lifecycle Payload Helper
 
@@ -130,16 +168,16 @@ Review gate:
 
 ## Next Slice
 
-### G-4 / L-3: Local Dev Lifecycle Alignment
+### G-5 / L-4: Hosted Deploy/Push Lifecycle Alignment
 
-- [ ] Identify local dev runtime invoke/request construction paths that still
-  build lifecycle-shaped payloads directly.
-- [ ] Route local dev runtime construction through the shared protocol payload
-  helper where the lifecycle contract crosses package boundaries.
-- [ ] Keep Miniflare process setup, local file watching, and service-binding
-  dispatch dev-owned.
-- [ ] Add focused tests proving local runtime invokes use the same payload shape
-  as hosted runtime invokes.
+- [ ] Audit hosted deploy/push activation paths for direct artifact lifecycle
+  payload or ref construction that should use shared helpers.
+- [ ] Keep Durable Object state, R2 persistence, and service-binding dispatch
+  backend-owned.
+- [ ] Route any hosted lifecycle payload construction through the shared
+  protocol/artifact helpers where the contract crosses package boundaries.
+- [ ] Add focused tests for hosted push/deploy activation parity if a behavior
+  path changes.
 
 ## Completed Checkpoints
 

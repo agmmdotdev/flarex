@@ -5,7 +5,6 @@ import {
 } from "@flarex/freshness";
 import {
   executionArtifactRefForSourcePackage,
-  type ArtifactSourcePackage,
 } from "flarex/artifacts";
 import type {
   FlarexExecutor,
@@ -19,6 +18,14 @@ import type {
 } from "@flarex/executor";
 import { createFlarexExecutor } from "@flarex/executor";
 import { createPGlitePersistence } from "@flarex/persistence-postgres/pglite";
+import {
+  materializedExecutionArtifactInvokePayload,
+} from "flarex-protocol/artifact-runtime";
+import type {
+  ExecutionArtifactMaterializer,
+  MaterializedExecutionArtifact,
+  MaterializedExecutionArtifactPayload,
+} from "flarex-backend/artifact-runtime";
 import type { PushSourcePackage } from "flarex-backend/types";
 
 import {
@@ -26,15 +33,21 @@ import {
   createLocalPGliteExecutorHttpRuntime,
 } from "../src/executorHttpRuntime";
 
+type QuerySessionRequest =
+  Parameters<NonNullable<MaterializedExecutionArtifact["executeQuerySession"]>>[1];
+type RequiredFakeExecutorMethod =
+  | "getActiveDeploymentPackage"
+  | "rerunStaleLiveQuerySubscriptions"
+  | "runLiveQuerySubscriptionWithInvoke";
+type FakeExecutorMethod = RequiredFakeExecutorMethod | "invokeSyscall";
+
 describe("createLocalExecutorHttpRuntime", () => {
   it("wires live-query rerun maintenance to materialized query execution", async () => {
     const sourcePackage = indexedQuerySourcePackage();
-    const ref = await executionArtifactRefForSourcePackage(
-      sourcePackage as ArtifactSourcePackage,
-    );
+    const ref = await executionArtifactRefForSourcePackage(sourcePackage);
     const syscalls: InvokeSyscallInput[] = [];
     const reruns: RerunLiveQuerySubscriptionOutput[] = [];
-    const executor = {
+    const executor = fakeExecutor({
       async getActiveDeploymentPackage(input: GetActiveDeploymentPackageInput) {
         expect(input).toEqual({
           deploymentId: "deployment-live",
@@ -53,7 +66,7 @@ describe("createLocalExecutorHttpRuntime", () => {
             packageId: ref.artifactId,
             sourcePackageHash: ref.sourcePackageHash,
             executionModule: ref.executionModule,
-            sourcePackageJson: sourcePackage as unknown as Record<string, unknown>,
+            sourcePackageJson: sourcePackageJson(sourcePackage),
             analysisJson: null,
             createdAt: new Date("2026-06-21T00:00:00.000Z"),
           },
@@ -108,7 +121,7 @@ describe("createLocalExecutorHttpRuntime", () => {
           readSet: { indexes: [{ indexId: 1 }] },
         };
       },
-    } as unknown as FlarexExecutor;
+    });
 
     const runtime = createLocalExecutorHttpRuntime({
       executor,
@@ -169,6 +182,158 @@ describe("createLocalExecutorHttpRuntime", () => {
         },
       },
     ]);
+  });
+
+  it("builds local live-query materialization payloads through the shared lifecycle helper", async () => {
+    const sourcePackage = indexedQuerySourcePackage();
+    const ref = await executionArtifactRefForSourcePackage(sourcePackage);
+    const materializedPayloads: MaterializedExecutionArtifactPayload[] = [];
+    const querySessionPayloads: MaterializedExecutionArtifactPayload[] = [];
+    const querySessionRequests: QuerySessionRequest[] = [];
+    const executor = fakeExecutor({
+      async getActiveDeploymentPackage(input: GetActiveDeploymentPackageInput) {
+        expect(input).toEqual({
+          deploymentId: "deployment-local-payload",
+          projectId: "project-local-payload",
+        });
+        return {
+          deployment: {
+            deploymentId: "deployment-local-payload",
+            projectId: "project-local-payload",
+            activePackageId: ref.artifactId,
+            activeSchemaVersion: 1,
+            createdAt: new Date("2026-06-21T00:00:00.000Z"),
+          },
+          package: {
+            deploymentId: "deployment-local-payload",
+            packageId: ref.artifactId,
+            sourcePackageHash: ref.sourcePackageHash,
+            executionModule: ref.executionModule,
+            sourcePackageJson: sourcePackageJson(sourcePackage),
+            analysisJson: null,
+            createdAt: new Date("2026-06-21T00:00:00.000Z"),
+          },
+        };
+      },
+      async rerunStaleLiveQuerySubscriptions(input: RerunStaleLiveQuerySubscriptionsInput) {
+        const subscription = {
+          deploymentId: "deployment-local-payload",
+          connectionId: "connection-local-payload",
+          queryId: 11,
+          functionPath: "messages:list",
+          argsJson: { lessonId: "1:lesson" },
+          partitionKey: "1:lesson",
+          beginTs: 10,
+          readSetJson: {},
+          resultJson: [],
+          resultHash: "previous",
+          createdAt: new Date("2026-06-21T00:00:00.000Z"),
+          updatedAt: new Date("2026-06-21T00:00:00.000Z"),
+        };
+        const rerun = await input.runQuery(subscription);
+        expect(rerun.value).toEqual([
+          { _id: "2:message", lessonId: "1:lesson", text: "shared" },
+        ]);
+        return {
+          scanned: { fresh: [], stale: [], unsupported: [] },
+          changed: [
+            {
+              status: "updated",
+              subscription,
+              previousResultHash: "previous",
+              resultHash: "next",
+              changed: true,
+              delivery: null,
+            },
+          ],
+          unchanged: [],
+          changes: [],
+          unsupported: [],
+          hasMoreStale: false,
+        };
+      },
+      async runLiveQuerySubscriptionWithInvoke(
+        input: RunLiveQuerySubscriptionWithInvokeInput,
+      ) {
+        return {
+          value: await input.executeQuery(liveQueryAttempt(), input.subscription),
+          beginTs: 20,
+          readSet: { indexes: [{ indexId: 1, observedTs: 20 }] },
+        };
+      },
+    });
+    const materializer: ExecutionArtifactMaterializer = {
+      materialize: async (
+        payload: MaterializedExecutionArtifactPayload,
+      ): Promise<MaterializedExecutionArtifact> => {
+        materializedPayloads.push(payload);
+        return {
+          invoke: async () => {
+            throw new Error("live-query materialization should not call invoke.");
+          },
+          executeQuerySession: async (payload, request) => {
+            querySessionPayloads.push(payload);
+            querySessionRequests.push(request);
+            return [{ _id: "2:message", lessonId: "1:lesson", text: "shared" }];
+          },
+        };
+      },
+    };
+    const runtime = createLocalExecutorHttpRuntime({
+      executor,
+      projectId: "project-local-payload",
+      capabilityToken: "executor-secret",
+      freshnessStore: emptyFreshnessStore(),
+      materializer,
+    });
+
+    try {
+      const response = await runtime.fetch(jsonRequest(
+        "https://executor.test/maintenance/live-queries/rerun",
+        {
+          deploymentId: "deployment-local-payload",
+          projectId: "project-local-payload",
+          limit: 1,
+        },
+        "executor-secret",
+      ));
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        changed: [
+          {
+            status: "updated",
+            changed: true,
+          },
+        ],
+      });
+      expect(materializedPayloads).toEqual([
+        materializedExecutionArtifactInvokePayload({
+          deploymentId: "deployment-local-payload",
+          ref,
+          sourcePackage,
+          request: {
+            path: "messages:list",
+            args: { lessonId: "1:lesson" },
+            kind: "query",
+            partitionKey: "1:lesson",
+          },
+        }),
+      ]);
+      expect(querySessionPayloads).toEqual(materializedPayloads);
+      expect(querySessionRequests).toEqual([
+        {
+          deploymentId: "deployment-local-payload",
+          projectId: "project-local-payload",
+          path: "messages:list",
+          args: { lessonId: "1:lesson" },
+          partitionKey: "1:lesson",
+          sessionId: "session-live",
+        },
+      ]);
+    } finally {
+      await runtime.dispose();
+    }
   });
 
   it("reruns stale live queries through PGlite-backed executor state", async () => {
@@ -518,6 +683,33 @@ function indexedQuerySourcePackage(): PushSourcePackage {
     ],
     functions: ["_flarex/execution.js"],
     execution: "_flarex/execution.js",
+  };
+}
+
+function fakeExecutor(
+  overrides: Pick<FlarexExecutor, RequiredFakeExecutorMethod> &
+    Partial<Pick<FlarexExecutor, FakeExecutorMethod>>,
+): FlarexExecutor {
+  const target: Partial<FlarexExecutor> = { ...overrides };
+  return new Proxy(target, {
+    get(object, property) {
+      if (property in object) {
+        return object[property as keyof FlarexExecutor];
+      }
+      if (typeof property !== "string") return undefined;
+      return async () => {
+        throw new Error(`Unexpected fake executor call: ${property}.`);
+      };
+    },
+  }) as FlarexExecutor;
+}
+
+function sourcePackageJson(sourcePackage: PushSourcePackage): Record<string, unknown> {
+  return {
+    modules: sourcePackage.modules.map(module => ({ ...module })),
+    functions: [...sourcePackage.functions],
+    ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
+    execution: sourcePackage.execution,
   };
 }
 
