@@ -4,7 +4,8 @@
   "type": "module",
   "files": [
     "src",
-    "test/backendHarness.ts"
+    "test/backendHarness.ts",
+    "test/lifecycleFixture.ts"
   ],
   "exports": {
     ".": "./src/worker.ts",
@@ -13,6 +14,7 @@
     "./worker": "./src/worker.ts",
     "./types": "./src/types.ts",
     "./test/backendHarness": "./test/backendHarness.ts",
+    "./test/lifecycleFixture": "./test/lifecycleFixture.ts",
     "./test/sync-protocol": "./src/syncProtocol.ts"
   },
   "scripts": {

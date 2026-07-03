@@ -7,7 +7,6 @@ import {
   executionArtifactRefForSourcePackage,
 } from "flarex/artifacts";
 import type {
-  FlarexExecutor,
   FinishInvokeSessionResult,
   GetActiveDeploymentPackageInput,
   InvokeAttemptContext,
@@ -32,14 +31,15 @@ import {
   createLocalExecutorHttpRuntime,
   createLocalPGliteExecutorHttpRuntime,
 } from "../src/executorHttpRuntime";
+import {
+  emptyFreshnessStore,
+  fakeExecutor,
+  jsonRequest,
+  sourcePackageJson,
+} from "./localRuntimeFixture";
 
 type QuerySessionRequest =
   Parameters<NonNullable<MaterializedExecutionArtifact["executeQuerySession"]>>[1];
-type RequiredFakeExecutorMethod =
-  | "getActiveDeploymentPackage"
-  | "rerunStaleLiveQuerySubscriptions"
-  | "runLiveQuerySubscriptionWithInvoke";
-type FakeExecutorMethod = RequiredFakeExecutorMethod | "invokeSyscall";
 
 describe("createLocalExecutorHttpRuntime", () => {
   it("wires live-query rerun maintenance to materialized query execution", async () => {
@@ -686,33 +686,6 @@ function indexedQuerySourcePackage(): PushSourcePackage {
   };
 }
 
-function fakeExecutor(
-  overrides: Pick<FlarexExecutor, RequiredFakeExecutorMethod> &
-    Partial<Pick<FlarexExecutor, FakeExecutorMethod>>,
-): FlarexExecutor {
-  const target: Partial<FlarexExecutor> = { ...overrides };
-  return new Proxy(target, {
-    get(object, property) {
-      if (property in object) {
-        return object[property as keyof FlarexExecutor];
-      }
-      if (typeof property !== "string") return undefined;
-      return async () => {
-        throw new Error(`Unexpected fake executor call: ${property}.`);
-      };
-    },
-  }) as FlarexExecutor;
-}
-
-function sourcePackageJson(sourcePackage: PushSourcePackage): Record<string, unknown> {
-  return {
-    modules: sourcePackage.modules.map(module => ({ ...module })),
-    functions: [...sourcePackage.functions],
-    ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
-    execution: sourcePackage.execution,
-  };
-}
-
 function getMessageSourcePackage(): PushSourcePackage {
   return {
     modules: [
@@ -821,25 +794,4 @@ function committedTsFromInvokeFinish(
     throw new Error("Invoke finish committedTs must be an integer.");
   }
   return committedTs;
-}
-
-function emptyFreshnessStore() {
-  return {
-    async applyCommitFreshness() {
-      return { applied: false, documentVersions: [], tableVersions: [] };
-    },
-    getDocumentVersion: () => null,
-    getTableVersion: () => null,
-  };
-}
-
-function jsonRequest(url: string, body: unknown, token: string): Request {
-  return new Request(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(body),
-  });
 }

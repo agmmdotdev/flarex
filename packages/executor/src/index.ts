@@ -1,5 +1,6 @@
 import { activateDeploymentPackage, ensureDeployment } from "./deployments";
 import {
+  deploymentPackageSourcePackageJson,
   getActiveDeploymentPackage,
   registerDeploymentPackage,
 } from "./deploymentPackages";
@@ -95,6 +96,7 @@ export {
   PartitionValidationError,
 } from "./errors";
 export { FlarexDocumentIdFormatError } from "@flarex/persistence-postgres";
+export { deploymentPackageSourcePackageJson };
 export {
   DeploymentValidatorMetadataError,
   InvokeSessionDocumentValidationError,

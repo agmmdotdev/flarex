@@ -30,7 +30,7 @@ export async function registerDeploymentPackage(
     packageId: ref.artifactId,
     sourcePackageHash: ref.sourcePackageHash,
     executionModule: ref.executionModule,
-    sourcePackageJson: sourcePackageJson(input.sourcePackage),
+    sourcePackageJson: deploymentPackageSourcePackageJson(input.sourcePackage),
     analysisJson: input.analysisJson ?? null,
   };
   const existingPackage = await persistence.getDeploymentPackageMetadata(
@@ -131,7 +131,7 @@ function assertDeploymentPackageMatches(
   return deploymentPackage;
 }
 
-function sourcePackageJson(
+export function deploymentPackageSourcePackageJson(
   sourcePackage: RegisterDeploymentPackageInput["sourcePackage"],
 ): Record<string, unknown> {
   return {

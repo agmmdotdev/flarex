@@ -2,11 +2,6 @@ import { Effect } from "effect";
 import { afterAll, describe, expect, it } from "vitest";
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 import {
-  parseActiveDeploymentStatus,
-  parseFinishPushResponse,
-  parsePushStatus,
-} from "flarex-protocol/deployment";
-import {
   type ExecutionArtifactInvokePayload,
 } from "../src/artifactRuntime";
 import {
@@ -14,14 +9,15 @@ import {
   type R2BucketLike,
 } from "../src/artifactStore";
 import { decodeExecutionArtifactInvokePayloadBody } from "../src/artifactRuntime/Requests";
-import type {
-  DeploymentAnalysis,
-  DeploymentCodegenAnalysis,
-  DeploymentFunctionMetadata,
-  PushSourcePackage,
-  StartPushRequest,
-} from "../src/types";
 import { createBackendHarness, type BackendHarness } from "./backendHarness";
+import {
+  finishPush,
+  getActiveDeployment,
+  startSourceOnlyPush,
+  testLifecycleAnalysis,
+  testLifecycleCodegenAnalysis,
+  testLifecycleSourcePackage,
+} from "./lifecycleFixture";
 
 describe("hosted runtime core", () => {
   const harnesses: BackendHarness[] = [];
@@ -32,7 +28,7 @@ describe("hosted runtime core", () => {
 
   it("pushes source through analyzer, persists R2 artifact, activates, and invokes the runtime binding", async () => {
     const deploymentId = "hosted-runtime-core";
-    const sourcePackage = testSourcePackage();
+    const sourcePackage = testLifecycleSourcePackage();
     const analyzerRequests: unknown[] = [];
     const runtimeCalls: Array<{
       readonly authorization: string | null;
@@ -52,8 +48,8 @@ describe("hosted runtime core", () => {
         FLAREX_ANALYZER: async request => {
           analyzerRequests.push(await request.json());
           return Response.json({
-            analysis: testAnalysis(),
-            codegenAnalysis: testCodegenAnalysis(),
+            analysis: testLifecycleAnalysis(),
+            codegenAnalysis: testLifecycleCodegenAnalysis(),
             diagnostics: [{ level: "log", message: "hosted analysis ok" }],
           });
         },
@@ -82,7 +78,7 @@ describe("hosted runtime core", () => {
     expect(started).toMatchObject({
       state: "analyzed",
       diagnostics: [{ level: "log", message: "hosted analysis ok" }],
-      codegenAnalysis: testCodegenAnalysis(),
+      codegenAnalysis: testLifecycleCodegenAnalysis(),
     });
     expect(analyzerRequests).toEqual([{ deploymentId, sourcePackage }]);
 
@@ -136,51 +132,6 @@ describe("hosted runtime core", () => {
   });
 });
 
-async function startSourceOnlyPush(
-  harness: BackendHarness,
-  deploymentId: string,
-  body: StartPushRequest,
-): Promise<ReturnType<typeof parsePushStatus>> {
-  const response = await harness.mf.dispatchFetch(
-    `http://flarex.test/deployments/${deploymentId}/push/start`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    },
-  );
-  expect(response.ok).toBe(true);
-  return parsePushStatus(await response.json());
-}
-
-async function finishPush(
-  harness: BackendHarness,
-  deploymentId: string,
-  pushId: string,
-): Promise<ReturnType<typeof parseFinishPushResponse>> {
-  const response = await harness.mf.dispatchFetch(
-    `http://flarex.test/deployments/${deploymentId}/push/${pushId}/finish`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({}),
-    },
-  );
-  expect(response.ok).toBe(true);
-  return parseFinishPushResponse(await response.json());
-}
-
-async function getActiveDeployment(
-  harness: BackendHarness,
-  deploymentId: string,
-): Promise<ReturnType<typeof parseActiveDeploymentStatus>> {
-  const response = await harness.mf.dispatchFetch(
-    `http://flarex.test/deployments/${deploymentId}/deployment`,
-  );
-  expect(response.ok).toBe(true);
-  return parseActiveDeploymentStatus(await response.json());
-}
-
 function decodeRuntimePayload(value: unknown): Promise<ExecutionArtifactInvokePayload> {
   return Effect.runPromise(decodeExecutionArtifactInvokePayloadBody(value));
 }
@@ -218,99 +169,4 @@ function isR2BucketLike(value: unknown): value is R2BucketLike {
     "delete" in value &&
     typeof value.delete === "function"
   );
-}
-
-function testSourcePackage(): PushSourcePackage {
-  return {
-    modules: [
-      {
-        path: "_flarex/execution.js",
-        environment: "isolate",
-        sha256: "a".repeat(64),
-        source: "export default {};",
-      },
-      {
-        path: "users.js",
-        environment: "isolate",
-        sha256: "b".repeat(64),
-        source: "export const get = {};",
-      },
-    ],
-    functions: ["users.js"],
-    execution: "_flarex/execution.js",
-  };
-}
-
-function testAnalysis(): DeploymentAnalysis {
-  const getFunction = testGetFunction();
-  return {
-    schema: {
-      version: 1,
-      tables: [
-        {
-          tableId: 1,
-          name: "users",
-          placement: { kind: "partitionBy", field: "_id" },
-        },
-      ],
-      indexes: [],
-    },
-    functions: {
-      functions: [
-        getFunction,
-      ],
-    },
-  };
-}
-
-function testCodegenAnalysis(): DeploymentCodegenAnalysis {
-  const analysis = testAnalysis();
-  const getFunction = testGetFunction();
-  return {
-    schema: {
-      ...analysis.schema,
-      tables: analysis.schema.tables.map(table => ({ ...table, state: "active" })),
-    },
-    functions: [
-      {
-        moduleName: "users",
-        functions: [
-          {
-            moduleName: "users",
-            exportName: "get",
-            kind: "query",
-            visibility: "public",
-            args: getFunction.args,
-            returns: null,
-            partition: getFunction.partition,
-          },
-        ],
-      },
-    ],
-  };
-}
-
-function testGetFunction(): DeploymentFunctionMetadata & {
-  readonly args: NonNullable<DeploymentFunctionMetadata["args"]>;
-  readonly partition: NonNullable<DeploymentFunctionMetadata["partition"]>;
-} {
-  return {
-    path: "users:get",
-    kind: "query",
-    visibility: "public",
-    args: {
-      type: "object",
-      value: {
-        id: { fieldType: { type: "id", tableName: "users" }, optional: false },
-      },
-    },
-    returns: null,
-    partition: {
-      type: "partition",
-      table: "users",
-      selector: "byId",
-      partitionField: "_id",
-      argField: "id",
-    },
-  };
 }
