@@ -74,7 +74,7 @@ Every implementation slice in this stream must satisfy these rules:
 
 - [x] A-0. Create this concrete authoritative-analysis roadmap and matching
   goal checklist.
-- [ ] A-1. Audit current analyzer and Convex deployment analysis references,
+- [x] A-1. Audit current analyzer and Convex deployment analysis references,
   then freeze the exact shared analyzer contract.
   - Decide whether the shared code lives in a new `@flarex/analysis` package
     or an existing package.
@@ -185,21 +185,243 @@ adapter:
 
 The shared analyzer semantics must sit below those adapters.
 
-## Current Checkpoint
+## Analyzer Contract Audit
 
-Previous completed checkpoint: `3758dd2` (`Mark lifecycle parity audit
-complete`).
+Previous completed checkpoint: `7b14f30` (`Plan authoritative analysis Effect
+quality goal`).
 
-What changed in this checkpoint:
+What changed:
 
-- Created the authoritative analysis and Effect quality roadmap.
-- Made backend-controlled analysis the next explicit implementation stream.
-- Defined the turn-by-turn loop and quality gates for future slices.
+- Audited the current local analyzer, hosted analyzer response path, protocol
+  contracts, backend deployment validation, and Convex analysis references.
+- Froze the shared analyzer package-boundary decision and the semantic contract
+  for A-2 extraction.
+- Identified the exact duplicated analyzer surfaces that must converge before
+  production trust-boundary hardening begins.
+
+### Current Flarex Surfaces
+
+| Surface | Current role | A-2/A-3 treatment |
+| --- | --- | --- |
+| `packages/flarex-dev/src/analyze.ts` | Typed local analyzer semantics for Vite-loaded modules and source packages. | Becomes the primary source for extracting shared semantics. File-scanning and Vite bundling remain in `flarex-dev`. |
+| `packages/flarex-dev/src/executionArtifact.ts` | Miniflare execution-artifact analyzer host plus duplicated analyzer semantics inside `analysisWorkerSource(...)`. | Keep Miniflare, deterministic globals, console capture, rejected globals, and response decoding here; replace duplicated semantic functions with shared analyzer calls. |
+| `packages/flarex-dev/src/backendPush.ts` | Local and HTTP analyzer adapters; local analyzer double-runs cold artifacts to reject nondeterministic analysis; local analyzer service returns backend-shaped `analysis` plus `codegenAnalysis`. | Keep transport/adapters here; move codegen-to-backend analysis conversion to shared analyzer package or protocol-adjacent helpers. |
+| `packages/flarex-backend/src/backendAnalyzerResponse.ts` | Public Worker calls `FLAREX_ANALYZER`, decodes analyzer response, and validates it through deployment validation. | Keep service-binding fetch and public dispatch error mapping here; consume shared analyzer response/analysis validation helpers. |
+| `packages/flarex-backend/src/deployment/Validation.ts` | Backend semantic validation for source package, deployment analysis, codegen analysis, and partition consistency. | Keep backend activation/persistence validation here; deduplicate conversion and shared analyzer output validation where portable. |
+| `packages/flarex-protocol/src/deployment.ts` | Effect Schema transport contracts for source packages, deployment analysis, codegen analysis, and analyzed start-push envelopes. | Remains the transport schema owner. Shared analyzer should use these exported types/decoders rather than duplicating shapes. |
+| `packages/flarex-backend/src/worker.ts` | Public `/push` uses `FLAREX_ANALYZER`; public `/push/start-analyzed` still forwards direct analyzed payloads. | A-5/A-6 will protect or remove public trust in direct analyzed-start after the shared analyzer contract is in place. |
+
+### Package-Boundary Decision
+
+A-2 should introduce a new shared package:
+
+```txt
+packages/analysis
+name: @flarex/analysis
+```
+
+Rationale:
+
+- `flarex-backend` must not depend on `flarex-dev`; local tooling is not
+  production authority.
+- `flarex-dev` should not import analyzer semantics from `flarex-backend`;
+  that would blur host adapter ownership and make local tooling backend-shaped.
+- `flarex-protocol` should remain a transport-schema package, not a module
+  evaluation/analyzer package.
+- The public `flarex` SDK should keep developer-facing registration,
+  validators, client APIs, and artifact refs; analyzer internals are platform
+  tooling, not public app code.
+
+The shared package should depend only on:
+
+- `effect` for tagged errors and Effect helpers,
+- `flarex` for `ValidatorJson`/validator assertion semantics,
+- `flarex-protocol` for deployment analysis/source package transport types.
+
+It must not depend on `miniflare`, `vite`, `flarex-dev`, `flarex-backend`,
+Durable Objects, R2, Worker bindings, or test harnesses.
+
+### Shared Analyzer Contract
+
+The shared package should expose semantic helpers that operate after a host has
+loaded user modules:
+
+```ts
+type LoadedExecutionModules = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+
+type AnalyzerSourceMapInput = Readonly<Record<string, string>>;
+
+type AnalyzeLoadedSourcePackageInput = {
+  readonly executionModules: LoadedExecutionModules;
+  readonly schemaDefinition: unknown;
+  readonly sourceMaps: AnalyzerSourceMapInput;
+};
+
+type AnalyzeLoadedSourcePackageSuccess = {
+  readonly analysis: DeploymentAnalysis;
+  readonly codegenAnalysis: DeploymentCodegenAnalysis;
+};
+```
+
+The shared package should also expose these smaller typed helpers:
+
+- `analyzeSchemaDefinitionEffect(...)`
+- `analyzeExecutionModulesEffect(...)`
+- `validateAndLowerFunctionPartitionsEffect(...)`
+- `deploymentAnalysisFromCodegenAnalysis(...)`
+- `sourcePositionResolverFromSourceMaps(...)`
+- `normalizeAnalyzerDiagnostics(...)`
+
+Host adapters stay responsible for:
+
+- source-package bundling and file discovery;
+- Vite, Miniflare, or Dynamic Worker materialization;
+- importing the execution and schema modules;
+- deterministic import-time globals and rejected globals;
+- console capture and diagnostic collection;
+- service-binding fetch, HTTP route handling, and response mapping;
+- local double-run nondeterminism checks.
+
+### Output Semantics
+
+The shared analyzer output is authoritative only when invoked by the hosted
+backend-controlled analyzer path. Local dev can use the same semantics for
+speed and parity, but hosted activation must not trust local output by default.
+
+The semantic output must preserve:
+
+- schema version `1` until the deployment store owns real schema versioning;
+- sorted tables and indexes with deterministic generated IDs;
+- table validators as `ValidatorJson`, requiring object validators for table
+  documents;
+- default table placement `{ kind: "partitionBy", field: "_id" }`;
+- function kind from exactly one of `isQuery`, `isMutation`,
+  `isWorkflowMutation`, or `isAction`;
+- function visibility from exactly one of `isPublic` or `isInternal`;
+- handler validation via `_handler` or direct function export;
+- `exportArgs()` defaulting to `v.any()` and requiring object or `any`;
+- `exportReturns()` defaulting to `null`;
+- `exportPartition()` validation and root-model lowering into executable
+  `partition` or `partitionCreateRoot` metadata;
+- source positions from source maps when available;
+- diagnostics capped to the latest 100 entries.
+
+### Typed Error Contract
+
+A-2 should model analyzer failures as tagged errors at source:
+
+| Error tag | Failure class | Example source |
+| --- | --- | --- |
+| `AnalyzerSchemaError` | Schema export or table/index/placement metadata is invalid. | Invalid schema default export, non-object document validator, invalid index fields. |
+| `AnalyzerFunctionMetadataError` | Function export markers, visibility, or handler shape is invalid. | Multiple kind markers, missing visibility, non-function handler. |
+| `AnalyzerValidatorError` | `exportArgs()`/`exportReturns()` returned invalid JSON or invalid `ValidatorJson`. | Bad JSON, unknown validator type, non-object args validator. |
+| `AnalyzerPartitionError` | Partition metadata cannot be validated or lowered against schema. | Unknown partition table, non-partitioned table, ambiguous root ID args. |
+| `AnalyzerSourceMapError` | Source-map parsing failed when strict parsing is required. | A future strict host may reject malformed source maps; local parity may continue to ignore bad maps until behavior is intentionally changed. |
+| `AnalyzerHostImportError` | Host failed to import execution/schema modules. | Owned by host adapters, not pure semantics, but should map into analyzer response diagnostics. |
+| `AnalyzerNondeterministicError` | Two cold analyzer runs produced different semantic output. | Owned by `LocalExecutionArtifactBackendAnalyzer` unless hosted analyzer later adds the same gate. |
+
+Known semantic validation failures should be `Effect.fail(...)`. Unexpected
+impossible states may remain defects. Adapter response mapping should convert
+typed analyzer failures to current HTTP response shapes.
+
+### Required Fixtures Before Code Movement
+
+A-2 should add focused tests for the shared package before changing the
+Miniflare worker:
+
+- valid schema plus query/mutation/action/workflow metadata;
+- invalid schema default export;
+- invalid table validator and invalid index metadata;
+- ambiguous function kind and ambiguous visibility skipped or rejected with the
+  current behavior preserved;
+- invalid `exportArgs()`, `exportReturns()`, and `exportPartition()` shapes;
+- root-model partition lowering for existing-root and create-root mutations;
+- query root-model partition without a required ID rejected;
+- ambiguous multiple root IDs rejected;
+- source-position extraction from source maps;
+- diagnostics normalization and 100-entry cap;
+- conversion between grouped codegen analysis and flattened backend
+  deployment analysis.
+
+Behavioral compatibility requirement: tests must first prove the shared
+package matches `packages/flarex-dev/src/analyze.ts` and the current
+`LocalMiniflareExecutionArtifactAdapter` output for representative source
+packages before A-3 removes duplicated worker-string logic.
+
+### Convex References Inspected
+
+- `crates/application/src/deploy_config.rs`
+  - `finish_push(...)` downloads uploaded source packages and applies analyzed
+    component definitions in the backend transaction.
+  - `evaluate_app_push(...)` uploads the source package, then runs analyze to
+    validate modules before returning push metadata.
+- `crates/application/src/application_function_runner/mod.rs`
+  - `analyze(...)` dispatches isolate and Node analysis and merges analyzed
+    module results.
+- `crates/isolate/src/environment/analyze.rs`
+  - `AnalyzeEnvironment::analyze(...)` imports/evaluates modules in the
+    controlled isolate and extracts UDFs, HTTP routes, crons, source positions,
+    validators, kind, and visibility.
+- `crates/model/src/modules/mod.rs`
+  - non-dependency modules require `AnalyzedModule`, and runtime lookups read
+    stored `analyze_result`.
+- `crates/udf/src/validation.rs`
+  - runtime path, kind, visibility, args, and return validation consume stored
+    analyzed function metadata.
+- `npm-packages/convex/src/cli/lib/codegen.ts`
+  - initial generated files make code analyzable; final generated files depend
+    on backend analysis results.
+- `npm-packages/convex/src/server/impl/registration_impl.ts`
+  - function builders attach `exportArgs`, `exportReturns`, visibility, and
+    handler metadata that backend analysis reads.
+- `npm-packages/convex/src/cli/lib/deployApi/modules.ts`
+  - deploy API analysis metadata includes analyzed function name, UDF type,
+    visibility, args, returns, and source position.
+
+### Cloudflare Difference
+
+Convex persists analyzed module metadata in its backend model layer and later
+validates runtime invocation against that stored metadata. Flarex must split the
+same authority across a Worker service-binding analyzer, Durable Object push
+state, R2 execution artifact storage, and local Miniflare tooling.
+
+The target difference is adapter-only: Flarex may use Miniflare locally and
+Dynamic Worker/service bindings hosted, but both must call the same shared
+semantic analyzer. The public developer model remains source-only push; direct
+analyzed-start remains prototype/internal until A-5 hardens it.
 
 Known limitations:
 
-- This checkpoint is planning only. It does not yet extract the analyzer
-  string, change route trust boundaries, or add forged-analysis tests.
+- This checkpoint is still docs-only. It does not create `@flarex/analysis`,
+  move analyzer code, or protect `/push/start-analyzed`.
+- Current generated worker code still embeds duplicate semantic analyzer logic.
+- Current local and hosted analyzer envelopes still use existing response
+  shapes.
+
+Verification:
+
+```sh
+git diff --check
+```
+
+## Current Checkpoint
+
+Previous completed checkpoint: `7b14f30` (`Plan authoritative analysis Effect
+quality goal`).
+
+What changed in this checkpoint:
+
+- Completed the A-1 analyzer contract audit.
+- Recorded the package-boundary decision for a future `@flarex/analysis`
+  package.
+- Froze the shared analyzer input/output, semantic behavior, typed error
+  contract, and fixture requirements before code movement.
+
+Known limitations:
+
+- This checkpoint is planning/audit only. It does not yet extract the analyzer
+  string, create the shared package, change route trust boundaries, or add
+  forged-analysis tests.
 
 Verification:
 

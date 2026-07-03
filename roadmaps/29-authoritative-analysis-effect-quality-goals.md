@@ -16,7 +16,7 @@ Source roadmap:
 ## Goal Status
 
 - [x] G-0. Start the long-running goal and create the concrete roadmap files.
-- [ ] G-1. Complete A-1: analyzer and Convex reference audit plus shared
+- [x] G-1. Complete A-1: analyzer and Convex reference audit plus shared
   contract freeze.
 - [ ] G-2. Complete A-2: shared pure analyzer semantics extraction.
 - [ ] G-3. Complete A-3: local Miniflare analyzer worker consumes shared
@@ -32,9 +32,46 @@ Source roadmap:
 
 ## Current Slice
 
-### G-0 / A-0: Plan And Goal Setup
+### G-1 / A-1: Analyzer Contract Audit
 
 Status: completed in this docs-only checkpoint.
+
+Purpose:
+
+Audit the current analyzer implementation and Convex references, then freeze
+the exact shared analyzer contract before moving code.
+
+Decision:
+
+- A-2 should add `packages/analysis` as `@flarex/analysis`.
+- The shared package owns analyzer semantics and typed analyzer errors.
+- `flarex-dev` keeps Vite, Miniflare, local double-run nondeterminism checks,
+  file discovery, and local response adapters.
+- `flarex-backend` keeps Worker service-binding fetch, deployment state,
+  artifact storage, public route mapping, and activation validation.
+- `flarex-protocol` remains the transport schema owner.
+
+Files changed:
+
+- `roadmaps/28-authoritative-analysis-effect-quality.md`
+- this file
+
+Validation gates:
+
+```sh
+git diff --check
+```
+
+Review gate:
+
+- Not required. This slice is docs-only.
+
+## Previous Slice
+
+### G-0 / A-0: Plan And Goal Setup
+
+Status: completed and committed in `7b14f30`
+(`Plan authoritative analysis Effect quality goal`).
 
 Purpose:
 
@@ -59,46 +96,41 @@ Review gate:
 
 ## Next Slice
 
-### G-1 / A-1: Analyzer Contract Audit
+### G-2 / A-2: Shared Analyzer Semantics Extraction
 
 Status: next.
 
 Purpose:
 
-Audit the current analyzer implementation and Convex references, then freeze
-the exact shared analyzer contract before moving code. This prevents a large
-string extraction from becoming an accidental behavior rewrite.
+Create `@flarex/analysis` and move pure analyzer semantics into it without
+changing behavior. This is the first code slice and must be protected by
+focused shared-package tests before the Miniflare worker string is changed.
 
-Expected investigation:
+Expected implementation:
 
-- `packages/flarex-dev/src/executionArtifact.ts`
-- `packages/flarex-dev/src/backendPush.ts`
-- `packages/flarex-backend/src/backendAnalyzerResponse.ts`
-- `packages/flarex-backend/src/deployment/Validation.ts`
-- `packages/flarex-backend/src/worker.ts`
-- `packages/flarex-protocol/src/deployment.ts`
-- Convex references listed in
-  `roadmaps/28-authoritative-analysis-effect-quality.md`
-
-Expected output:
-
-- A contract table for shared analyzer inputs, outputs, diagnostics, and typed
-  error tags.
-- A package-boundary decision for the shared analyzer module.
-- A list of exact fixtures/tests required before moving analyzer logic.
-- No behavior change unless the audit exposes a tiny doc-only correction.
+- add `packages/analysis/package.json`, `tsconfig.json`, `src/index.ts`, and
+  focused tests;
+- extract semantics from `packages/flarex-dev/src/analyze.ts`, not from the
+  untyped worker string first;
+- expose typed Effect helpers and conversion helpers named in
+  `roadmaps/28-authoritative-analysis-effect-quality.md`;
+- keep host adapters unchanged in this slice except for importing shared
+  helpers if needed to prove parity.
 
 Validation gates:
 
 ```sh
+corepack pnpm --filter @flarex/analysis typecheck
+corepack pnpm --filter @flarex/analysis test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/analyze.test.ts test/executionArtifact.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 git diff --check
 ```
 
 Review gate:
 
-- Not required if the slice remains docs-only.
-- Required if the slice changes production code, tests, or public package
-  exports.
+- Required because this adds a package, exports shared helpers, and moves
+  analyzer semantics.
 
 ## Turn Protocol
 
@@ -137,3 +169,5 @@ Before marking a code slice complete, confirm:
 
 - `3758dd2` (`Mark lifecycle parity audit complete`) completed the prior local
   and hosted artifact lifecycle parity stream before this goal began.
+- `7b14f30` (`Plan authoritative analysis Effect quality goal`) created the
+  current authoritative analysis goal files.
