@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { FlarexExecutor } from "@flarex/executor";
+import type { BeginInvokeSessionInput, FlarexExecutor } from "@flarex/executor";
 import type {
   FlarexLiveQueryDeliveryConfig,
   FlarexLiveQueryRerunConfig,
@@ -48,10 +48,18 @@ function handleExecutorHttpDecodedBody<A, R extends object, P = void>(
   decode: ExecutorHttpBodyDecoder<A>,
   execute: (input: A, preflight: P) => Promise<R>,
   preflight?: () => Effect.Effect<P, ExecutorHttpRoutePreconditionError>,
+  validateInput?: (input: A) => Effect.Effect<void, ExecutorHttpRoutePreconditionError>,
 ): Promise<object> {
   // Deliberate runtime bridge: Elysia handlers return plain Promise payloads.
   return Effect.runPromise(
-    routeExecutorHttpDecodedBody(request, capabilityToken, decode, execute, preflight).pipe(
+    routeExecutorHttpDecodedBody(
+      request,
+      capabilityToken,
+      decode,
+      execute,
+      preflight,
+      validateInput,
+    ).pipe(
       Effect.catch(error => Effect.succeed(executorHttpRouteErrorBody(error, set))),
     ),
   );
@@ -64,6 +72,7 @@ const routeExecutorHttpDecodedBody = Effect.fn("ExecutorHttp.routeDecodedBody")(
     decode: ExecutorHttpBodyDecoder<A>,
     execute: (input: A, preflight: P) => Promise<R>,
     preflight?: () => Effect.Effect<P, ExecutorHttpRoutePreconditionError>,
+    validateInput?: (input: A) => Effect.Effect<void, ExecutorHttpRoutePreconditionError>,
   ) {
     yield* authorizeExecutorRequestEffect(request, capabilityToken);
     const preflightResult = preflight === undefined
@@ -71,6 +80,9 @@ const routeExecutorHttpDecodedBody = Effect.fn("ExecutorHttp.routeDecodedBody")(
       : yield* preflight();
     const body = yield* readExecutorHttpJsonBody(request);
     const input = yield* decode(body);
+    if (validateInput !== undefined) {
+      yield* validateInput(input);
+    }
     return yield* Effect.tryPromise({
       try: () => execute(input, preflightResult),
       catch: cause => new ExecutorHttpOperationError({
@@ -153,7 +165,28 @@ export async function handleInvokeStart(
     capabilityToken,
     decodeBeginInvokeSessionBody,
     input => executor.beginInvokeSession(input),
+    undefined,
+    input => requireCapabilityTokenForInvokeIdentity(input, capabilityToken),
   );
+}
+
+function requireCapabilityTokenForInvokeIdentity(
+  input: BeginInvokeSessionInput,
+  capabilityToken: string | undefined,
+): Effect.Effect<void, ExecutorHttpRoutePreconditionError> {
+  if (input.identity === undefined || capabilityToken !== undefined) {
+    return Effect.void;
+  }
+  return Effect.fail(new ExecutorHttpRoutePreconditionError({
+    response: {
+      status: 403,
+      body: {
+        error: "trusted_identity_requires_capability_token",
+        message:
+          "Execution identity on executor start requires a configured capability token.",
+      },
+    },
+  }));
 }
 
 export async function handleInvokeSyscall(

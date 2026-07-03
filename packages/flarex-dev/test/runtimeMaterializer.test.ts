@@ -464,6 +464,7 @@ describe("runtime materializer", () => {
           projectId: "project-index",
           path: "messages:list",
           args: { lessonId: "1:lesson" },
+          identity: { kind: "anonymous" },
           kind: "query",
           visibility: "public",
           partitionKey: "1:lesson",
@@ -544,6 +545,7 @@ describe("runtime materializer", () => {
           projectId: "project-internal",
           path: "messages:internalList",
           args: { lessonId: "1:lesson" },
+          identity: { kind: "anonymous" },
           kind: "query",
           visibility: "internal",
           partitionKey: "1:lesson",
@@ -647,6 +649,7 @@ describe("runtime materializer", () => {
           projectId: "project-nested",
           path: "messages:usesRunQuery",
           args: { lessonId: "1:lesson" },
+          identity: { kind: "anonymous" },
           kind: "query",
           visibility: "public",
           partitionKey: "1:lesson",
@@ -723,6 +726,7 @@ describe("runtime materializer", () => {
           projectId: "project-nested-mutation",
           path: "messages:usesRunMutation",
           args: { lessonId: "1:lesson" },
+          identity: { kind: "anonymous" },
           kind: "mutation",
           visibility: "public",
           partitionKey: "1:lesson",
@@ -781,6 +785,7 @@ describe("runtime materializer", () => {
       session: {
         sessionId: "session-live-nested",
         beginTs: 20,
+        identity: { kind: "anonymous" },
         schemaVersion: 1,
         function: { path: "messages:usesRunQuery", kind: "query" },
         scope: {
@@ -943,6 +948,7 @@ describe("runtime materializer", () => {
       session: {
         sessionId: "session-live",
         beginTs: 20,
+        identity: { kind: "anonymous" },
         schemaVersion: 1,
         function: { path: "messages:list", kind: "query" },
         scope: {
@@ -1054,6 +1060,7 @@ describe("runtime materializer", () => {
           projectId: "project-fail",
           path: "messages:fail",
           args: { lessonId: "1:lesson" },
+          identity: { kind: "anonymous" },
           kind: "mutation",
           visibility: "public",
           partitionKey: "1:lesson",
@@ -1307,6 +1314,7 @@ function indexedQueryPayload(): MaterializedExecutionArtifactPayload {
   };
   return {
     deploymentId: "deployment-index",
+    identity: { kind: "anonymous" },
     ref: {
       runtime: "dynamic-worker",
       artifactId: "artifact-index",
@@ -1361,6 +1369,7 @@ function failingMutationPayload(): MaterializedExecutionArtifactPayload {
   };
   return {
     deploymentId: "deployment-fail",
+    identity: { kind: "anonymous" },
     ref: {
       runtime: "dynamic-worker",
       artifactId: "artifact-fail",
@@ -1400,6 +1409,7 @@ function internalQueryPayload(): MaterializedExecutionArtifactPayload {
   };
   return {
     deploymentId: "deployment-internal",
+    identity: { kind: "anonymous" },
     ref: {
       runtime: "dynamic-worker",
       artifactId: "artifact-internal",
@@ -1439,6 +1449,7 @@ function malformedVisibilityPayload(extraMarkers: string): MaterializedExecution
   };
   return {
     deploymentId: "deployment-malformed",
+    identity: { kind: "anonymous" },
     ref: {
       runtime: "dynamic-worker",
       artifactId: "artifact-malformed",
@@ -1487,6 +1498,7 @@ function nestedRunQueryPayload(): MaterializedExecutionArtifactPayload {
   };
   return {
     deploymentId: "deployment-nested",
+    identity: { kind: "anonymous" },
     ref: {
       runtime: "dynamic-worker",
       artifactId: "artifact-nested",
@@ -1535,6 +1547,7 @@ function nestedRunMutationPayload(): MaterializedExecutionArtifactPayload {
   };
   return {
     deploymentId: "deployment-nested-mutation",
+    identity: { kind: "anonymous" },
     ref: {
       runtime: "dynamic-worker",
       artifactId: "artifact-nested-mutation",
@@ -1583,6 +1596,7 @@ function queryCallsNestedMutationPayload(): MaterializedExecutionArtifactPayload
   };
   return {
     deploymentId: "deployment-query-nested-mutation",
+    identity: { kind: "anonymous" },
     ref: {
       runtime: "dynamic-worker",
       artifactId: "artifact-query-nested-mutation",
@@ -1624,6 +1638,7 @@ function recursiveNestedQueryPayload(): MaterializedExecutionArtifactPayload {
   };
   return {
     deploymentId: "deployment-nested-recursive",
+    identity: { kind: "anonymous" },
     ref: {
       runtime: "dynamic-worker",
       artifactId: "artifact-nested-recursive",
@@ -1669,6 +1684,7 @@ function retryMutationPayload(): MaterializedExecutionArtifactPayload {
   };
   return {
     deploymentId: "deployment-retry",
+    identity: { kind: "anonymous" },
     ref: {
       runtime: "dynamic-worker",
       artifactId: "artifact-retry",
@@ -1715,6 +1731,7 @@ function replaceMutationPayload(): MaterializedExecutionArtifactPayload {
   };
   return {
     deploymentId: "deployment-replace",
+    identity: { kind: "anonymous" },
     ref: {
       runtime: "dynamic-worker",
       artifactId: "artifact-replace",

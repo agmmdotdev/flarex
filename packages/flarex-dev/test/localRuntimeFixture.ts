@@ -63,6 +63,7 @@ export function liveQueryAttemptForRequest(
     session: {
       sessionId: "session-lifecycle-parity",
       beginTs: 20,
+      identity: { kind: "anonymous" },
       schemaVersion: 1,
       function: { path: request.path, kind: "query" },
       scope: {

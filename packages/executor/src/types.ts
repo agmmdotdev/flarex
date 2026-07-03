@@ -4,6 +4,7 @@ import type {
   FreshnessMirrorStore,
 } from "@flarex/freshness";
 import type { LiveQueryDeliveryChange } from "flarex";
+import type { ExecutionIdentity } from "flarex-protocol/auth";
 import type {
   DeploymentPackageMetadataRecord,
   DeploymentMetadataRecord,
@@ -796,11 +797,13 @@ export interface PrepareInvokeResult {
 
 export interface BeginInvokeSessionInput extends PrepareInvokeInput {
   idempotencyKey?: string;
+  identity?: ExecutionIdentity;
 }
 
 export interface BeginInvokeSessionResult {
   sessionId: string;
   beginTs: number;
+  identity: ExecutionIdentity;
   schemaVersion: number;
   function: {
     path: string;

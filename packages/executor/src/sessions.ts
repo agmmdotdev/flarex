@@ -54,6 +54,8 @@ import {
   MaintenancePolicyError,
 } from "./errors";
 
+const ANONYMOUS_EXECUTION_IDENTITY = { kind: "anonymous" } as const;
+
 export async function beginInvokeSession(
   persistence: FlarexExecutorPersistence,
   clock: Clock,
@@ -63,6 +65,7 @@ export async function beginInvokeSession(
   const prepared = await prepareInvoke(persistence, input);
   const sessionId = ids.nextId();
   const beginTs = clock.now().getTime();
+  const identity = input.identity ?? ANONYMOUS_EXECUTION_IDENTITY;
 
   await persistence.insertInvokeSessionMetadata({
     deploymentId: prepared.deployment.deploymentId,
@@ -74,6 +77,7 @@ export async function beginInvokeSession(
     partitionKey: prepared.scope.partitionKey,
     scopeJson: prepared.scope,
     argsJson: input.args,
+    identityJson: identity,
     idempotencyKey: input.idempotencyKey ?? null,
     beginTs,
     schemaVersion: prepared.schema.version,
@@ -83,6 +87,7 @@ export async function beginInvokeSession(
   return {
     sessionId,
     beginTs,
+    identity,
     schemaVersion: prepared.schema.version,
     function: {
       path: prepared.function.path,

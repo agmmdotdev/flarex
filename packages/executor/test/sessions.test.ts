@@ -62,10 +62,30 @@ describe("executor invoke sessions", () => {
         args: { teamId: "team:1" },
         partitionKey: "team:1",
         idempotencyKey: "idem_1",
+        identity: {
+          kind: "user",
+          user: {
+            tokenIdentifier: "issuer|user_1",
+            subject: "user_1",
+            issuer: "issuer",
+            email: "user@example.test",
+            role: "admin",
+          },
+        },
       }),
     ).resolves.toEqual({
       sessionId: "session_fixed",
       beginTs: 1781913600123,
+      identity: {
+        kind: "user",
+        user: {
+          tokenIdentifier: "issuer|user_1",
+          subject: "user_1",
+          issuer: "issuer",
+          email: "user@example.test",
+          role: "admin",
+        },
+      },
       schemaVersion: 5,
       function: {
         path: "messages:list",
@@ -100,6 +120,16 @@ describe("executor invoke sessions", () => {
         partitionKey: "team:1",
       },
       argsJson: { teamId: "team:1" },
+      identityJson: {
+        kind: "user",
+        user: {
+          tokenIdentifier: "issuer|user_1",
+          subject: "user_1",
+          issuer: "issuer",
+          email: "user@example.test",
+          role: "admin",
+        },
+      },
       idempotencyKey: "idem_1",
       state: "active",
       beginTs: 1781913600123,

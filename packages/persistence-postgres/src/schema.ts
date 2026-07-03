@@ -10,6 +10,7 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
+import type { ExecutionIdentity } from "flarex-protocol/auth";
 
 export const bytea = customType<{
   data: Uint8Array;
@@ -351,6 +352,10 @@ export const invokeSessions = pgTable(
     partitionKey: text("partition_key").notNull(),
     scopeJson: jsonb("scope_json").$type<Record<string, unknown>>().notNull(),
     argsJson: jsonb("args_json").$type<unknown>().notNull(),
+    identityJson: jsonb("identity_json")
+      .$type<ExecutionIdentity>()
+      .notNull()
+      .default({ kind: "anonymous" }),
     idempotencyKey: text("idempotency_key"),
     state: text("state").notNull().default("active"),
     beginTs: bigint("begin_ts", { mode: "number" }).notNull(),

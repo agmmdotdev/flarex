@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, lt } from "drizzle-orm";
+import type { ExecutionIdentity } from "flarex-protocol/auth";
 
 import { invokeSessions } from "./schema";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -15,6 +16,7 @@ export interface InsertInvokeSessionMetadataInput {
   partitionKey: string;
   scopeJson: Record<string, unknown>;
   argsJson: unknown;
+  identityJson?: ExecutionIdentity;
   idempotencyKey?: string | null;
   state?: InvokeSessionState;
   beginTs: number;
@@ -74,6 +76,7 @@ export async function insertInvokeSessionMetadata(
       partitionKey: input.partitionKey,
       scopeJson: input.scopeJson,
       argsJson: input.argsJson,
+      identityJson: input.identityJson ?? { kind: "anonymous" },
       idempotencyKey: input.idempotencyKey ?? null,
       state: input.state ?? "active",
       beginTs: input.beginTs,

@@ -155,7 +155,7 @@ identity mechanism is enabled.
     with explicit fail-closed production naming.
   - Extend artifact runtime invoke payloads with `ExecutionIdentity`.
   - Preserve capability-token and internal-token auth boundaries.
-- [ ] I-3. Trusted executor session identity.
+- [x] I-3. Trusted executor session identity.
   - Persist identity on invoke session metadata.
   - Return identity from begin/start session responses where generated runtime
     needs it.
@@ -254,22 +254,25 @@ closing the stream.
 
 ## Current Checkpoint
 
-Previous completed checkpoint: `026d466` (`Add hosted identity contracts`).
+Previous completed checkpoint: `a9ce694` (`Propagate hosted execution identity`).
 
 What changed:
 
-- Added backend `resolveExecutionIdentityEffect`, returning anonymous identity
-  by default.
-- Added a fail-closed trusted header path guarded by
-  `FLAREX_TRUSTED_EXECUTION_IDENTITY=true` plus a matching
-  `FLAREX_TRUSTED_EXECUTION_IDENTITY_TOKEN` shared secret for local/test
-  tooling.
-- Kept public invoke request bodies from becoming identity input.
-- Extended execution artifact invoke payloads with required
-  `ExecutionIdentity`, defaulting builder-created payloads to anonymous.
-- Propagated resolved identity from public worker `/invoke` to the internal
-  service-binding artifact runtime payload.
-- Preserved artifact runtime capability-token and artifact header checks.
+- Added `identity_json` to invoke session metadata, with anonymous DB and
+  insertion defaults for old callers and existing rows.
+- Added optional `identity` to executor start input and required `identity` to
+  executor start responses.
+- Persisted explicit user identities on invoke sessions and returned the
+  session identity from begin/start.
+- Decoded optional executor HTTP `/invoke/start` identity through the shared
+  `ExecutionIdentity` Effect Schema helper.
+- Forwarded execution artifact payload identity from generated workers to the
+  postgres executor `/invoke/start` route.
+- Preserved project mismatch checks in `requireActiveSession`; generated
+  runtime still cannot read the identity until I-4.
+- Kept public generated-worker `/invoke` request-body identity ignored, and
+  rejected direct executor HTTP identity unless a capability token is
+  configured and supplied.
 
 Convex references inspected:
 
@@ -280,19 +283,34 @@ Convex references inspected:
 
 Known limitations:
 
-- Trusted executor invoke sessions do not persist identity yet.
 - Existing hosted generated runtime still throws for `ctx.auth`.
 - Existing sync protocol has an `Authenticate` skeleton, but identity changes
   are not yet wired to backend resolver or live-query reruns.
 - Hosted production still defaults to anonymous identity until a real auth
   provider resolver is implemented.
+- Direct executor HTTP identity is still an internal/capability-token route,
+  not public client auth.
 
 Verification:
 
 ```sh
-corepack pnpm --filter flarex-protocol typecheck
-corepack pnpm --filter flarex-protocol test -- artifact-runtime.test.ts
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor-http typecheck
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/auth.test.ts test/artifactRuntime.test.ts test/artifactRuntimeRequests.test.ts test/artifactRuntimeRouteBoundary.test.ts test/invokeRequests.test.ts test/artifactRuntimeRoute.test.ts test/hostedRuntimeCore.test.ts
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts
+corepack pnpm --filter @flarex/executor exec vitest run test/sessions.test.ts test/postgresRetry.test.ts
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts test/artifactRuntimeRoute.test.ts test/artifactRuntimeRequests.test.ts
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts test/generate.test.ts
 git diff --check
 ```
+
+Reviewer checkpoint:
+
+- `typescript-diff-reviewer`: no findings.
+- `code-quality-diff-reviewer`: fixed public generated-worker identity spoof
+  risk, direct executor HTTP identity capability-token requirement, and PGlite
+  identity default/round-trip coverage.

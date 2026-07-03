@@ -103,6 +103,14 @@ describe("executor HTTP invoke body decoders", () => {
       kind: "mutation",
       args: null,
       idempotencyKey: "idem_1",
+      identity: {
+        kind: "user",
+        user: {
+          tokenIdentifier: "issuer|user_1",
+          subject: "user_1",
+          issuer: "issuer",
+        },
+      },
     }))).resolves.toEqual({
       deploymentId: "deployment_active",
       projectId: "project_active",
@@ -110,6 +118,28 @@ describe("executor HTTP invoke body decoders", () => {
       kind: "mutation",
       args: null,
       idempotencyKey: "idem_1",
+      identity: {
+        kind: "user",
+        user: {
+          tokenIdentifier: "issuer|user_1",
+          subject: "user_1",
+          issuer: "issuer",
+        },
+      },
+    });
+
+    await expect(Effect.runPromise(decodeBeginInvokeSessionBody({
+      deploymentId: "deployment_active",
+      projectId: "project_active",
+      path: "messages:list",
+      kind: "mutation",
+      args: null,
+      identity: { kind: "user" },
+    }))).rejects.toMatchObject({
+      body: {
+        error: "bad_request",
+        message: "Execution identity must be anonymous or include a valid user identity.",
+      },
     });
 
     await expect(Effect.runPromise(decodeInvokeSyscallBody({
@@ -599,6 +629,7 @@ describe("createFlarexHttpApp", () => {
   it("maps invoke start requests to the executor core", async () => {
     const calls: BeginInvokeSessionInput[] = [];
     const app = createFlarexHttpApp({
+      capabilityToken: "executor-secret",
       executor: fakeExecutor({
         async beginInvokeSession(input) {
           calls.push(input);
@@ -623,7 +654,15 @@ describe("createFlarexHttpApp", () => {
         args: { teamId: "team:1" },
         partitionKey: "team:1",
         idempotencyKey: "idem_1",
-      }),
+        identity: {
+          kind: "user",
+          user: {
+            tokenIdentifier: "issuer|user_1",
+            subject: "user_1",
+            issuer: "issuer",
+          },
+        },
+      }, { authorization: "Bearer executor-secret" }),
     );
 
     expect(response.status).toBe(200);
@@ -636,11 +675,20 @@ describe("createFlarexHttpApp", () => {
         args: { teamId: "team:1" },
         partitionKey: "team:1",
         idempotencyKey: "idem_1",
+        identity: {
+          kind: "user",
+          user: {
+            tokenIdentifier: "issuer|user_1",
+            subject: "user_1",
+            issuer: "issuer",
+          },
+        },
       },
     ]);
     await expect(response.json()).resolves.toEqual({
       sessionId: "session_active",
       beginTs: 1781913600123,
+      identity: { kind: "anonymous" },
       schemaVersion: 12,
       function: {
         path: "messages:list",
@@ -655,6 +703,44 @@ describe("createFlarexHttpApp", () => {
         partitionKey: "team:1",
       },
       executionModule: "_flarex/execution.js",
+    });
+  });
+
+  it("rejects identity-bearing invoke start requests without a configured capability token", async () => {
+    let called = false;
+    const app = createFlarexHttpApp({
+      executor: fakeExecutor({
+        async beginInvokeSession() {
+          called = true;
+          throw new Error("should not be called");
+        },
+      }),
+    });
+
+    const response = await app.handle(
+      jsonRequest("https://executor.test/invoke/start", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        path: "messages:list",
+        kind: "query",
+        args: { teamId: "team:1" },
+        identity: {
+          kind: "user",
+          user: {
+            tokenIdentifier: "issuer|user_1",
+            subject: "user_1",
+            issuer: "issuer",
+          },
+        },
+      }),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "trusted_identity_requires_capability_token",
+      message:
+        "Execution identity on executor start requires a configured capability token.",
     });
   });
 
@@ -3656,10 +3742,12 @@ function beginInvokeSessionResult(input: {
   kind: "query" | "mutation";
   schemaVersion: number;
   executionModule: string;
+  identity?: BeginInvokeSessionResult["identity"];
 }): BeginInvokeSessionResult {
   return {
     sessionId: input.sessionId,
     beginTs: input.beginTs,
+    identity: input.identity ?? { kind: "anonymous" },
     schemaVersion: input.schemaVersion,
     function: {
       path: input.path,

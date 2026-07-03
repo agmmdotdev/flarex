@@ -1132,7 +1132,18 @@ export const hidden = internalQuery({ args: {}, handler: async () => "secret" })
     try {
       const publicResponse = await worker.dispatchFetch("http://flarex.test/invoke", {
         method: "POST",
-        body: JSON.stringify({ path: "messages:list", args: {} }),
+        body: JSON.stringify({
+          path: "messages:list",
+          args: {},
+          identity: {
+            kind: "user",
+            user: {
+              tokenIdentifier: "spoofed|user",
+              subject: "user",
+              issuer: "spoofed",
+            },
+          },
+        }),
       });
       await expect(publicResponse.json()).resolves.toEqual({ value: "public" });
 

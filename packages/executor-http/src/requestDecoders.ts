@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { decodeExecutionIdentityEffect } from "flarex-protocol/auth";
 import type {
   AbortInvokeSessionInput,
   AbortStaleInvokeSessionsInput,
@@ -211,7 +212,29 @@ function parsePrepareInvokeBody(
 function parseBeginInvokeSessionBody(
   body: unknown,
 ): ExecutorHttpBodyValidationEffect<BeginInvokeSessionInput> {
-  return decodeExecutorHttpValidationResult(parseBeginInvokeSessionBodyResult(body));
+  return Effect.gen(function* () {
+    const parsed = yield* decodeExecutorHttpValidationResult(
+      parseBeginInvokeSessionBodyResult(body),
+    );
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      return parsed;
+    }
+    const record = body as Record<string, unknown>;
+    if (!("identity" in record)) {
+      return parsed;
+    }
+    const identity = yield* decodeExecutionIdentityEffect(record.identity).pipe(
+      Effect.mapError(() =>
+        new ExecutorHttpBodyValidationError({
+          body: {
+            error: "bad_request",
+            message: "Execution identity must be anonymous or include a valid user identity.",
+          },
+        })
+      ),
+    );
+    return { ...parsed, identity };
+  });
 }
 
 function parseInvokeSyscallBody(

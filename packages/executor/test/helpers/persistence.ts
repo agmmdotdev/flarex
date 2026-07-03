@@ -73,6 +73,7 @@ import {
 } from "@flarex/persistence-postgres";
 
 import type { FlarexExecutorPersistence } from "../../src";
+import type { ExecutionIdentity } from "flarex-protocol/auth";
 
 export function healthyPersistence(): FlarexExecutorPersistence {
   return memoryPersistence();
@@ -1514,7 +1515,9 @@ export function deploymentMetadata(
 }
 
 export function invokeSessionMetadata(
-  input: InsertInvokeSessionMetadataInput,
+  input: Omit<InsertInvokeSessionMetadataInput, "identityJson"> & {
+    identityJson?: ExecutionIdentity;
+  },
 ): InvokeSessionMetadataRecord {
   return {
     deploymentId: input.deploymentId,
@@ -1526,6 +1529,7 @@ export function invokeSessionMetadata(
     partitionKey: input.partitionKey,
     scopeJson: input.scopeJson,
     argsJson: input.argsJson,
+    identityJson: input.identityJson ?? { kind: "anonymous" },
     idempotencyKey: input.idempotencyKey ?? null,
     state: input.state ?? "active",
     beginTs: input.beginTs,

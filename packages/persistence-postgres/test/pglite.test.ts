@@ -396,6 +396,7 @@ describe("createPGlitePersistence", () => {
         partitionKey: "team:1",
       },
       argsJson: { teamId: "team:1" },
+      identityJson: { kind: "anonymous" },
       idempotencyKey: "idem_a",
       beginTs: 42,
       schemaVersion: 7,
@@ -430,6 +431,43 @@ describe("createPGlitePersistence", () => {
       deploymentId: "deployment_invoke",
       sessionId: "session_a",
       state: "active",
+      identityJson: { kind: "anonymous" },
+    });
+
+    const userIdentity = {
+      kind: "user" as const,
+      user: {
+        tokenIdentifier: "issuer|user_1",
+        subject: "user_1",
+        issuer: "issuer",
+        email: "user@example.test",
+      },
+    };
+    const explicit = await persistence.insertInvokeSessionMetadata({
+      deploymentId: "deployment_invoke",
+      sessionId: "session_user",
+      projectId: "project_invoke",
+      packageId: "package_invoke",
+      functionPath: "messages:list",
+      functionKind: "query",
+      partitionKey: "team:1",
+      scopeJson: {
+        kind: "partition",
+        partitionKey: "team:1",
+      },
+      argsJson: { teamId: "team:1" },
+      identityJson: userIdentity,
+      beginTs: 43,
+      schemaVersion: 7,
+      executionModule: "_flarex/execution.js",
+    });
+
+    expect(explicit.identityJson).toEqual(userIdentity);
+    await expect(
+      persistence.getInvokeSessionMetadata("deployment_invoke", "session_user"),
+    ).resolves.toMatchObject({
+      sessionId: "session_user",
+      identityJson: userIdentity,
     });
   });
 

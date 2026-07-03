@@ -19,7 +19,7 @@ Source roadmap:
 - [x] G-1. Start the long-running Codex goal for this implementation stream.
 - [x] G-2. Complete I-1: public and protocol identity contracts.
 - [x] G-3. Complete I-2: backend identity resolver and invoke payload propagation.
-- [ ] G-4. Complete I-3: trusted executor session identity.
+- [x] G-4. Complete I-3: trusted executor session identity.
 - [ ] G-5. Complete I-4: generated runtime `ctx.auth`.
 - [ ] G-6. Complete I-5: HTTP client identity propagation.
 - [ ] G-7. Complete I-6: sync auth behavior and identity version v1.
@@ -203,7 +203,7 @@ Reviewer gate:
 
 ### G-4 / I-3: Trusted Executor Session Identity
 
-Status: next.
+Status: complete.
 
 Purpose:
 
@@ -216,6 +216,70 @@ Initial constraints:
 - Keep deployment/project mismatch checks before identity reaches user code.
 - Keep anonymous identity as the default for existing executor callers.
 - Do not implement generated runtime `ctx.auth` until I-4.
+
+Files changed:
+
+- `packages/persistence-postgres/src/schema.ts`
+- `packages/persistence-postgres/src/invokeSessions.ts`
+- `packages/persistence-postgres/drizzle/0015_silent_hercules.sql`
+- `packages/executor/src/types.ts`
+- `packages/executor/src/sessions.ts`
+- `packages/executor-http/src/requestDecoders.ts`
+- `packages/flarex-backend/src/artifactRuntime/GeneratedWorkerSource.ts`
+- `packages/executor/test/sessions.test.ts`
+- `packages/executor-http/test/http.test.ts`
+- `packages/flarex-dev/test/runtimeMaterializer.test.ts`
+
+Completed:
+
+- Added `identity_json` to invoke session metadata with anonymous DB and
+  insertion defaults for existing callers.
+- Added optional `identity` to `BeginInvokeSessionInput` and required
+  `identity` on `BeginInvokeSessionResult`.
+- Persisted explicit user identities and returned the session identity from
+  executor start.
+- Decoded optional `/invoke/start` identity through the shared
+  `ExecutionIdentity` Effect Schema path.
+- Forwarded execution artifact payload identity from generated workers to the
+  postgres executor `/invoke/start` route.
+- Kept public generated-worker `/invoke` request-body identity ignored, so
+  public callers cannot spoof session identity.
+- Rejected direct executor HTTP identity unless a capability token is
+  configured and supplied.
+
+Cloudflare difference:
+
+- Hosted production still only gets non-anonymous identities through the
+  backend-owned trusted resolver path from I-2. Direct executor HTTP identity
+  remains an internal/capability-token route, not a public client contract.
+
+Validation:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts
+corepack pnpm --filter @flarex/executor exec vitest run test/sessions.test.ts test/postgresRetry.test.ts
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts test/artifactRuntimeRoute.test.ts test/artifactRuntimeRequests.test.ts
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts test/generate.test.ts
+git diff --check
+```
+
+Reviewer checkpoint:
+
+- `typescript-diff-reviewer`: no findings.
+- `code-quality-diff-reviewer`: fixed public generated-worker identity spoof
+  risk, direct executor HTTP identity capability-token requirement, and PGlite
+  identity default/round-trip coverage.
+
+Next:
+
+- G-5 / I-4: generated runtime `ctx.auth`.
 
 ## Later Slices
 

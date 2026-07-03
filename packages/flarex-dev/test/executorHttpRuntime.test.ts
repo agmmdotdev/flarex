@@ -762,6 +762,7 @@ function liveQueryAttempt(): InvokeAttemptContext {
     session: {
       sessionId: "session-live",
       beginTs: 20,
+      identity: { kind: "anonymous" },
       schemaVersion: 1,
       function: { path: "messages:list", kind: "query" },
       scope: {

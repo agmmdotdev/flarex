@@ -82,6 +82,7 @@ async function invokeWithBackend(body, env, request) {
       ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
       path: body.path,
       args: body.args ?? null,
+      ...(body.identity === undefined ? {} : { identity: body.identity }),
       kind,
       visibility: expectedVisibility,
       ...(partitionKey === undefined ? {} : { partitionKey }),
@@ -340,6 +341,7 @@ async function startExecution(backend, input) {
       projectId: input.projectId,
       path: input.path,
       args: input.args,
+      ...(input.identity === undefined ? {} : { identity: input.identity }),
       kind: input.kind,
       visibility: input.visibility,
       ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
@@ -484,6 +486,7 @@ async function startExecution(
     visibility: (typeof functionMetadata)[number]["visibility"];
     partitionKey?: string;
     idempotencyKey?: string;
+    identity?: unknown;
   },
 ): Promise<ExecutionStartResponse> {
   if (input.transport === "postgres") {
@@ -492,6 +495,7 @@ async function startExecution(
       projectId: input.projectId,
       path: input.path,
       args: input.args,
+      ...(input.identity === undefined ? {} : { identity: input.identity }),
       kind: input.kind,
       visibility: input.visibility,
       ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
