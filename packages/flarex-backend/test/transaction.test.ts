@@ -294,7 +294,7 @@ describe("SingleShardTransaction", () => {
   it("generates ids, exposes read-your-writes, and coalesces document writes", async () => {
     const tx = await SingleShardTransaction.begin(env, "tx-deployment", "user:u1");
 
-    const id = tx.insert(1, { title: "Intro", progress: 0 });
+    const id = await Effect.runPromise(tx.insertEffect(1, { title: "Intro", progress: 0 }));
     await expect(tx.get(1, id)).resolves.toMatchObject({
       id,
       value: { title: "Intro", progress: 0 },
@@ -328,7 +328,7 @@ describe("SingleShardTransaction", () => {
 
   it("surfaces OCC conflicts from the partition commit path", async () => {
     const seed = await SingleShardTransaction.begin(env, "conflict-deployment", "user:u1");
-    seed.insert(1, { title: "Intro", progress: 0 }, "1:lesson");
+    await Effect.runPromise(seed.insertEffect(1, { title: "Intro", progress: 0 }, "1:lesson"));
     await seed.commit({ source: "seed" });
 
     const stale = await SingleShardTransaction.begin(env, "conflict-deployment", "user:u1");
@@ -337,10 +337,10 @@ describe("SingleShardTransaction", () => {
     });
 
     const concurrent = await SingleShardTransaction.begin(env, "conflict-deployment", "user:u1");
-    concurrent.replace(1, "1:lesson", { title: "Intro", progress: 1 });
+    await Effect.runPromise(concurrent.replaceEffect(1, "1:lesson", { title: "Intro", progress: 1 }));
     const concurrentCommit = await concurrent.commit({ source: "concurrent" });
 
-    stale.replace(1, "1:other", { title: "Other" });
+    await Effect.runPromise(stale.replaceEffect(1, "1:other", { title: "Other" }));
     await expect(stale.commit({ source: "stale" })).rejects.toMatchObject({
       status: 409,
       body: {
@@ -369,7 +369,7 @@ describe("SingleShardTransaction", () => {
       "placement-commit-deployment",
       "u1",
     );
-    wrongInsert.insert(1, { userId: "u2", score: 1 }, "1:wrong");
+    await Effect.runPromise(wrongInsert.insertEffect(1, { userId: "u2", score: 1 }, "1:wrong"));
     await expect(wrongInsert.commit({ source: "wrong-insert" })).rejects.toMatchObject({
       status: 400,
       body: {
@@ -378,7 +378,7 @@ describe("SingleShardTransaction", () => {
     } satisfies Partial<PartitionRequestError>);
 
     const valid = await SingleShardTransaction.begin(env, "placement-commit-deployment", "u1");
-    valid.insert(1, { userId: "u1", score: 1 }, "1:score");
+    await Effect.runPromise(valid.insertEffect(1, { userId: "u1", score: 1 }, "1:score"));
     await valid.commit({ source: "valid" });
 
     const wrongReplace = await SingleShardTransaction.begin(
@@ -386,7 +386,7 @@ describe("SingleShardTransaction", () => {
       "placement-commit-deployment",
       "u1",
     );
-    wrongReplace.replace(1, "1:score", { userId: "u2", score: 2 });
+    await Effect.runPromise(wrongReplace.replaceEffect(1, "1:score", { userId: "u2", score: 2 }));
     await expect(wrongReplace.commit({ source: "wrong-replace" })).rejects.toMatchObject({
       status: 400,
       body: {
@@ -414,7 +414,7 @@ describe("SingleShardTransaction", () => {
       "partition-field-commit-deployment",
       "cart:1",
     );
-    wrongInsert.insert(1, { cartId: "cart:2", sku: "coffee" }, "1:coffee");
+    await Effect.runPromise(wrongInsert.insertEffect(1, { cartId: "cart:2", sku: "coffee" }, "1:coffee"));
     await expect(wrongInsert.commit({ source: "wrong-insert" })).rejects.toMatchObject({
       status: 400,
       body: {
@@ -427,7 +427,7 @@ describe("SingleShardTransaction", () => {
       "partition-field-commit-deployment",
       "cart:1",
     );
-    valid.insert(1, { cartId: "cart:1", sku: "tea" }, "1:tea");
+    await Effect.runPromise(valid.insertEffect(1, { cartId: "cart:1", sku: "tea" }, "1:tea"));
     await valid.commit({ source: "valid" });
 
     const wrongReplace = await SingleShardTransaction.begin(
@@ -435,7 +435,7 @@ describe("SingleShardTransaction", () => {
       "partition-field-commit-deployment",
       "cart:1",
     );
-    wrongReplace.replace(1, "1:tea", { cartId: "cart:2", sku: "tea" });
+    await Effect.runPromise(wrongReplace.replaceEffect(1, "1:tea", { cartId: "cart:2", sku: "tea" }));
     await expect(wrongReplace.commit({ source: "wrong-replace" })).rejects.toMatchObject({
       status: 400,
       body: {
@@ -464,11 +464,11 @@ describe("SingleShardTransaction", () => {
     await SingleShardTransaction.ensureSchema(env, "partition-owner-deployment", "acme", schema);
 
     const first = await SingleShardTransaction.begin(env, "partition-owner-deployment", "acme");
-    first.insert(1, { slug: "acme", name: "Acme" }, "1:team-a");
+    await Effect.runPromise(first.insertEffect(1, { slug: "acme", name: "Acme" }, "1:team-a"));
     await first.commit({ source: "first-team" });
 
     const duplicate = await SingleShardTransaction.begin(env, "partition-owner-deployment", "acme");
-    duplicate.insert(1, { slug: "acme", name: "Other Acme" }, "1:team-b");
+    await Effect.runPromise(duplicate.insertEffect(1, { slug: "acme", name: "Other Acme" }, "1:team-b"));
     await expect(duplicate.commit({ source: "duplicate-team" })).rejects.toMatchObject({
       status: 400,
       body: {
@@ -477,7 +477,7 @@ describe("SingleShardTransaction", () => {
     } satisfies Partial<PartitionRequestError>);
 
     const updateSame = await SingleShardTransaction.begin(env, "partition-owner-deployment", "acme");
-    updateSame.replace(1, "1:team-a", { slug: "acme", name: "Acme Updated" });
+    await Effect.runPromise(updateSame.replaceEffect(1, "1:team-a", { slug: "acme", name: "Acme Updated" }));
     await updateSame.commit({ source: "update-team" });
 
     const colocatedChildren = await SingleShardTransaction.begin(
@@ -485,16 +485,16 @@ describe("SingleShardTransaction", () => {
       "partition-owner-deployment",
       "acme",
     );
-    colocatedChildren.insert(2, { teamSlug: "acme", name: "Website" }, "2:website");
-    colocatedChildren.insert(2, { teamSlug: "acme", name: "Docs" }, "2:docs");
+    await Effect.runPromise(colocatedChildren.insertEffect(2, { teamSlug: "acme", name: "Website" }, "2:website"));
+    await Effect.runPromise(colocatedChildren.insertEffect(2, { teamSlug: "acme", name: "Docs" }, "2:docs"));
     await colocatedChildren.commit({ source: "children" });
 
     const release = await SingleShardTransaction.begin(env, "partition-owner-deployment", "acme");
-    release.delete(1, "1:team-a");
+    await Effect.runPromise(release.deleteEffect(1, "1:team-a"));
     await release.commit({ source: "delete-team" });
 
     const recreate = await SingleShardTransaction.begin(env, "partition-owner-deployment", "acme");
-    recreate.insert(1, { slug: "acme", name: "Acme Recreated" }, "1:team-c");
+    await Effect.runPromise(recreate.insertEffect(1, { slug: "acme", name: "Acme Recreated" }, "1:team-c"));
     await recreate.commit({ source: "recreate-team" });
   });
 
@@ -517,8 +517,8 @@ describe("SingleShardTransaction", () => {
       "partition-owner-batch-deployment",
       "acme",
     );
-    duplicate.insert(1, { slug: "acme", name: "Acme" }, "1:team-a");
-    duplicate.insert(1, { slug: "acme", name: "Other Acme" }, "1:team-b");
+    await Effect.runPromise(duplicate.insertEffect(1, { slug: "acme", name: "Acme" }, "1:team-a"));
+    await Effect.runPromise(duplicate.insertEffect(1, { slug: "acme", name: "Other Acme" }, "1:team-b"));
     await expect(duplicate.commit({ source: "duplicate-team-batch" })).rejects.toMatchObject({
       status: 400,
       body: {

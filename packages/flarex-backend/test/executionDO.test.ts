@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Effect } from "effect";
 import { encodeIndexValues, indexKeyAfterPrefix } from "../src/indexKeys";
 import { SingleShardTransaction } from "../src/transaction";
 import type {
@@ -419,7 +420,7 @@ describe("ExecutionDO sessions", () => {
     });
     await SingleShardTransaction.ensureSchema(env, "execution-query-deployment", "u1", schema);
     const seed = await SingleShardTransaction.begin(env, "execution-query-deployment", "u1");
-    seed.insert(1, { userId: "u1", lessonId: "intro", completed: true }, "1:intro");
+    await Effect.runPromise(seed.insertEffect(1, { userId: "u1", lessonId: "intro", completed: true }, "1:intro"));
     await seed.commit({ source: "seed" });
 
     const start = await startExecution("execution-query-deployment", {

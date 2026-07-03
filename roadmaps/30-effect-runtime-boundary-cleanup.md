@@ -26,7 +26,6 @@ Production `Effect.runSync` occurrences by file:
 
 | Count | File | Treatment |
 | ---: | --- | --- |
-| 3 | `packages/flarex-backend/src/transaction.ts` | Remove sync mutation facades or restrict them to tests by converting test seeding to Effect helpers. |
 | 2 | `packages/flarex-backend/src/liveQueryDelivery.ts` | Convert live-query body/response helpers to Effect-returning functions. |
 
 Production `Effect.runPromise` occurrences are reviewed separately. Most are
@@ -76,7 +75,7 @@ boundary remains inside reusable helpers.
     - `corepack pnpm --filter flarex-backend typecheck`
     - focused invoke tests
     - `git diff --check`
-- [ ] G-5. Remove transaction sync mutation facades.
+- [x] G-5. Remove transaction sync mutation facades.
   - Replace `insert`, `replace`, and `delete` production/test callers with
     Effect helpers or async transaction helpers.
   - Keep developer-facing runtime DB APIs async where they already cross the
@@ -117,31 +116,28 @@ a small required fix.
 
 ## Current Checkpoint
 
-Status: G-4 completed. G-5 is next.
+Status: G-5 completed. G-6 is next.
 
-Previous completed checkpoint: `1ee9b1b` (`Convert partition row decoding to
-Effect`).
+Previous completed checkpoint: `220c81a` (`Remove invoke sync helper facades`).
 
 What changed:
 
-- Removed backend invoke sync helper/facade wrappers from
-  `packages/flarex-backend/src/invoke.ts`.
-- Kept the existing `*Effect` helpers as the production API for function scope
-  resolution, partition validation, query planning, document validation,
-  return validation, and invoke-kind parsing.
-- Updated invoke tests to run Effect helpers at the test boundary instead of
-  importing sync wrappers.
-- Preserved adapter error mapping in tests only where the assertion covers HTTP
-  message/status behavior.
-- Reconfirmed that `invoke.ts` has no `Effect.runSync`; remaining production
-  `Effect.runSync` occurrences are in the later transaction/live-query slices.
+- Removed `SingleShardTransaction.insert`, `replace`, and `delete` sync
+  facades from `packages/flarex-backend/src/transaction.ts`.
+- Kept Effect mutation helpers as the direct transaction write API.
+- Kept developer-facing runtime DB APIs async at the invocation boundary.
+- Updated transaction, invoke, and execution tests to run
+  `insertEffect`/`replaceEffect`/`deleteEffect` at test boundaries.
+- Reconfirmed production `Effect.runSync` remains only in
+  `packages/flarex-backend/src/liveQueryDelivery.ts`.
+- TypeScript and code-quality reviewers reported no findings for this slice.
 
 Verification:
 
 ```sh
-rg -n "Effect\\.runSync|export function (resolveFunctionExecutionScope|tableForName|validateReturn|parseInvokeKind)|function (resolveCreateRootExecutionScope|validatePartitionPolicyAgainstSchema|partitionKeyFromArgs|requireQueryIndex|findQueryIndex|queryIndexBounds|validateUniqueQueryResult|validateQueryPlacement|tableIdForName|tableIdFromDocumentId|tableFromDocumentId|validateDocumentIdTable|validateDocument|validateDocumentPlacement)\\b" packages/flarex-backend/src/invoke.ts
+rg -n "Effect\\.runSync|\\b(insert|replace|delete)\\(tableId|\\b(insert|replace|delete)\\(.*\\):" packages/flarex-backend/src/transaction.ts
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/invoke.test.ts test/invokeRequests.test.ts test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
-corepack pnpm --filter flarex-backend exec vitest run test/executionDO.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/transaction.test.ts test/invoke.test.ts test/executionDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/partitionFlow.test.ts test/partitionRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 git diff --check
 ```

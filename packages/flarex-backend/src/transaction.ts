@@ -259,12 +259,6 @@ export class SingleShardTransaction {
     })();
   }
 
-  insert(tableId: number, value: Json, id?: string): string {
-    return Effect.runSync(this.insertEffect(tableId, value, id).pipe(
-      Effect.mapError(transactionOperationErrorToPromiseError),
-    ));
-  }
-
   insertEffect(
     tableId: number,
     value: Json,
@@ -282,10 +276,6 @@ export class SingleShardTransaction {
       },
       catch: transactionInvariantError,
     });
-  }
-
-  replace(tableId: number, id: string, value: Json): void {
-    Effect.runSync(this.replaceEffect(tableId, id, value));
   }
 
   replaceEffect(tableId: number, id: string, value: Json): Effect.Effect<void> {
@@ -314,10 +304,6 @@ export class SingleShardTransaction {
       }
       yield* self.replaceEffect(tableId, id, { ...current.value, ...value });
     })();
-  }
-
-  delete(tableId: number, id: string): void {
-    Effect.runSync(this.deleteEffect(tableId, id));
   }
 
   deleteEffect(tableId: number, id: string): Effect.Effect<void> {

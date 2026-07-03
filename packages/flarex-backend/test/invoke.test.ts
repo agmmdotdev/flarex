@@ -385,7 +385,7 @@ describe("executeInvoke", () => {
     await putSchema(deploymentId, usersPartitionSchema());
     await SingleShardTransaction.ensureSchema(env, deploymentId, "u1", usersPartitionSchema());
     const seed = await SingleShardTransaction.begin(env, deploymentId, "u1");
-    seed.insert(2, { name: "Ada" }, "2:user");
+    await Effect.runPromise(seed.insertEffect(2, { name: "Ada" }, "2:user"));
     await seed.commit({ source: "seed" });
 
     const failure = await Effect.runPromise(Effect.flip(
@@ -412,7 +412,7 @@ describe("executeInvoke", () => {
               }
               await ctx.db.get(id);
               const concurrent = await SingleShardTransaction.begin(env, deploymentId, "u1");
-              concurrent.replace(2, id, { name: "Grace" });
+              await Effect.runPromise(concurrent.replaceEffect(2, id, { name: "Grace" }));
               await concurrent.commit({ source: "concurrent" });
               await ctx.db.replace(id, { name: "Ada stale" });
               return null;
@@ -460,7 +460,7 @@ describe("executeInvoke", () => {
             }
             await ctx.db.get(id);
             const concurrent = await SingleShardTransaction.begin(env, deploymentId, "u1");
-            concurrent.replace(2, id, { name: "Marie" });
+            await Effect.runPromise(concurrent.replaceEffect(2, id, { name: "Marie" }));
             await concurrent.commit({ source: "concurrent-adapter" });
             await ctx.db.replace(id, { name: "Ada stale adapter" });
             return null;
@@ -1033,8 +1033,8 @@ describe("executeInvoke", () => {
       "query-planning-adapter-deployment",
       "u1",
     );
-    seed.insert(1, { userId: "u1", score: 10 }, "1:score-a");
-    seed.insert(1, { userId: "u1", score: 10 }, "1:score-b");
+    await Effect.runPromise(seed.insertEffect(1, { userId: "u1", score: 10 }, "1:score-a"));
+    await Effect.runPromise(seed.insertEffect(1, { userId: "u1", score: 10 }, "1:score-b"));
     await seed.commit({ source: "seed" });
 
     const functions: BackendFunctionRegistry = {
@@ -1602,7 +1602,7 @@ describe("executeInvoke", () => {
     });
 
     const seed = await SingleShardTransaction.begin(env, "query-deployment", "user:u1");
-    seed.insert(1, { name: "Ada" }, "1:user");
+    await Effect.runPromise(seed.insertEffect(1, { name: "Ada" }, "1:user"));
     await seed.commit({ source: "seed" });
 
     const functions: BackendFunctionRegistry = {
@@ -1886,8 +1886,8 @@ describe("executeInvoke", () => {
       "placement-validation-deployment",
       "u1",
     );
-    seed.insert(1, { userId: "u1", score: 10 }, "1:score");
-    seed.insert(1, { userId: "u2", score: 99 }, "1:misplaced");
+    await Effect.runPromise(seed.insertEffect(1, { userId: "u1", score: 10 }, "1:score"));
+    await Effect.runPromise(seed.insertEffect(1, { userId: "u2", score: 99 }, "1:misplaced"));
     await seed.commit({ source: "seed" });
 
     const functions: BackendFunctionRegistry = {
@@ -1964,7 +1964,7 @@ describe("executeInvoke", () => {
     await putSchema("placement-query-deployment", schema);
     await SingleShardTransaction.ensureSchema(env, "placement-query-deployment", "u1", schema);
     const seed = await SingleShardTransaction.begin(env, "placement-query-deployment", "u1");
-    seed.insert(1, { userId: "u1", score: 10 }, "1:u1-score");
+    await Effect.runPromise(seed.insertEffect(1, { userId: "u1", score: 10 }, "1:u1-score"));
     await seed.commit({ source: "seed" });
 
     const functions: BackendFunctionRegistry = {
@@ -2060,7 +2060,7 @@ describe("executeInvoke", () => {
     await putSchema("partition-field-deployment", schema);
     await SingleShardTransaction.ensureSchema(env, "partition-field-deployment", "cart:1", schema);
     const seed = await SingleShardTransaction.begin(env, "partition-field-deployment", "cart:1");
-    seed.insert(1, { cartId: "cart:1", sku: "tea", quantity: 1 }, "1:tea");
+    await Effect.runPromise(seed.insertEffect(1, { cartId: "cart:1", sku: "tea", quantity: 1 }, "1:tea"));
     await seed.commit({ source: "seed" });
 
     const functions: BackendFunctionRegistry = {
@@ -2229,7 +2229,7 @@ describe("executeInvoke", () => {
       "id-validation-deployment",
       "1:ada",
     );
-    badWrite.insert(1, { bestFriendId: "2:team-core" }, "1:ada");
+    await Effect.runPromise(badWrite.insertEffect(1, { bestFriendId: "2:team-core" }, "1:ada"));
     await expect(badWrite.commit({ source: "bad-id-write" })).rejects.toMatchObject({
       status: 400,
       body: {
@@ -2446,7 +2446,7 @@ describe("executeInvoke", () => {
       "document-validation-deployment",
       "user:ada",
     );
-    bypass.insert(1, { name: "Bypass", age: "old" }, "1:bypass");
+    await Effect.runPromise(bypass.insertEffect(1, { name: "Bypass", age: "old" }, "1:bypass"));
     await expect(bypass.commit({ source: "direct-commit" })).rejects.toMatchObject({
       status: 400,
       body: {
@@ -2459,7 +2459,7 @@ describe("executeInvoke", () => {
       "document-validation-deployment",
       "user:ada",
     );
-    seed.insert(1, { name: "Ada", age: 20 }, "1:ada");
+    await Effect.runPromise(seed.insertEffect(1, { name: "Ada", age: 20 }, "1:ada"));
     await seed.commit({ source: "seed" });
 
     await expect(
@@ -2513,7 +2513,7 @@ describe("executeInvoke", () => {
             "range-conflict-deployment",
             "u1",
           );
-          concurrent.insert(1, { userId: "u1", score: 10 }, "1:concurrent");
+          await Effect.runPromise(concurrent.insertEffect(1, { userId: "u1", score: 10 }, "1:concurrent"));
           await concurrent.commit({ source: "concurrent" });
 
           await ctx.db.insert("scores", { userId: "u1", score: 1 }, "1:outer");
@@ -2562,7 +2562,7 @@ describe("executeInvoke", () => {
 
     const seed = await SingleShardTransaction.begin(env, "pagination-deployment", "u1");
     for (const id of ["1:a", "1:b", "1:c"]) {
-      seed.insert(1, { userId: "u1", score: 10 }, id);
+      await Effect.runPromise(seed.insertEffect(1, { userId: "u1", score: 10 }, id));
     }
     await seed.commit({ source: "seed" });
 
