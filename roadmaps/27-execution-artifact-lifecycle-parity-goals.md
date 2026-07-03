@@ -27,7 +27,8 @@ Goal status:
   - Commit: `ece1188` (`Align local executor artifact payloads`)
 - [x] G-5. L-4 hosted deploy/push lifecycle alignment.
   - Commit: `2d0f118` (`Align hosted artifact ref lifecycle`)
-- [ ] G-6. L-5 cross-boundary lifecycle parity tests.
+- [x] G-6. L-5 cross-boundary lifecycle parity tests.
+  - Commit: `1a192cf` (`Add artifact lifecycle parity tests`)
 - [ ] G-7. L-6 final lifecycle parity audit.
 
 ## Turn Protocol
@@ -52,6 +53,52 @@ Every implementation turn in this goal should follow this loop:
 10. Commit the completed slice.
 
 ## Current Slice
+
+### G-6 / L-5: Cross-Boundary Lifecycle Parity Tests
+
+Status: completed and committed in `1a192cf`
+(`Add artifact lifecycle parity tests`).
+
+Purpose:
+
+Prove the local and hosted runtime paths share the same source-package to
+artifact-ref to invoke-payload lifecycle contract while keeping their host
+adapters separate. Local runtime tests now use the same production
+source-package persistence serializer as executor package registration, and
+hosted runtime tests share the same public push/deployment helper fixture as
+the cross-boundary parity test.
+
+Files changed:
+
+- `packages/executor/src/deploymentPackages.ts`
+- `packages/executor/src/index.ts`
+- `packages/flarex-backend/package.json`
+- `packages/flarex-backend/test/hostedRuntimeCore.test.ts`
+- `packages/flarex-backend/test/lifecycleFixture.ts`
+- `packages/flarex-dev/test/artifactLifecycleParity.test.ts`
+- `packages/flarex-dev/test/executorHttpRuntime.test.ts`
+- `packages/flarex-dev/test/localRuntimeFixture.ts`
+- this file
+- `roadmaps/26-execution-artifact-lifecycle-parity.md`
+
+Validation gates:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/deployments.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/artifactLifecycleParity.test.ts test/executorHttpRuntime.test.ts test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/hostedRuntimeCore.test.ts test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+git diff --check
+```
+
+Review gate:
+
+- Required because this adds cross-package lifecycle parity coverage and shared
+  test fixtures.
+
+## Previous Slice
 
 ### G-5 / L-4: Hosted Deploy/Push Lifecycle Alignment
 
@@ -205,16 +252,17 @@ Review gate:
 
 ## Next Slice
 
-### G-6 / L-5: Cross-Boundary Lifecycle Parity Tests
+### G-7 / L-6: Final Lifecycle Parity Audit
 
-- [ ] Audit existing backend and local tests that already cover source-package
-  bundling, artifact ref derivation, deployment activation, runtime
-  materialization, and invoke payload construction.
-- [ ] Add or extend focused parity tests so local dev and hosted backend paths
-  prove the same lifecycle contract without merging their host adapters.
-- [ ] Keep Miniflare/PGlite/local watchers and Worker Loader/R2/service bindings
-  as separate adapter mechanics in the tests.
-- [ ] Run both local and backend focused runtime suites plus typechecks.
+- [ ] Audit the current local-first and hosted push/deploy runtime paths against
+  the full lifecycle contract: source package, artifact ref, materialized
+  runtime, invoke payload, and host adapters.
+- [ ] Confirm local and hosted tests cover the contract without relying on a
+  narrower subset than the roadmap requires.
+- [ ] Record any remaining gaps as explicit follow-up work, or mark the goal
+  complete only if the audit proves the lifecycle parity objective.
+- [ ] Run final focused validation across `flarex`, `flarex-protocol`,
+  `@flarex/executor`, `flarex-dev`, and `flarex-backend` as needed by the audit.
 
 ## Completed Checkpoints
 
@@ -222,3 +270,5 @@ Review gate:
   goal before this lifecycle parity stream started.
 - `2d0f118` (`Align hosted artifact ref lifecycle`) completed the hosted
   deploy/push lifecycle alignment slice.
+- `1a192cf` (`Add artifact lifecycle parity tests`) completed the
+  cross-boundary lifecycle parity test slice.

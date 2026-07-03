@@ -33,7 +33,7 @@ separate.
   helper, keeping Miniflare and local file watching as dev-only host mechanics.
 - [x] L-4. Align hosted deploy/push activation around the same lifecycle helper,
   keeping Worker Loader, service bindings, and R2 as hosted-only mechanics.
-- [ ] L-5. Add parity tests that exercise source-package bundle, artifact ref,
+- [x] L-5. Add parity tests that exercise source-package bundle, artifact ref,
   deployment activation, runtime materialization, and invoke behavior across dev
   and backend boundaries.
 - [ ] L-6. Final audit: local-first runtime and hosted push/deploy still share
@@ -60,3 +60,6 @@ separate.
   kit foundation before this lifecycle parity stream began.
 - `2d0f118` (`Align hosted artifact ref lifecycle`) aligned hosted finish-push
   artifact ref derivation around the shared deployment artifact Effect helper.
+- `1a192cf` (`Add artifact lifecycle parity tests`) added cross-boundary local
+  and hosted lifecycle tests plus shared fixtures for source-package,
+  activation, materialization, and invoke payload parity.
