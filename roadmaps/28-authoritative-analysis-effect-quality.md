@@ -88,7 +88,7 @@ Every implementation slice in this stream must satisfy these rules:
   - Add Node-level unit tests for valid analysis, invalid validators,
     partition errors, diagnostics limits, source-map positions, and
     nondeterminism-sensitive metadata.
-- [ ] A-3. Refactor the local Miniflare analyzer worker to call the shared
+- [x] A-3. Refactor the local Miniflare analyzer worker to call the shared
   analyzer semantics.
   - Keep Miniflare creation, module loading, console capture, deterministic
     globals, and rejected import-time globals as local analyzer host mechanics.
@@ -406,35 +406,36 @@ git diff --check
 
 ## Current Checkpoint
 
-Previous completed checkpoint: `4997d43` (`Audit authoritative analyzer
-contract`).
+Previous completed checkpoint: `ce4c485` (`Extract shared analyzer
+semantics`).
 
 What changed in this checkpoint:
 
-- Added `packages/analysis` as `@flarex/analysis`.
-- Extracted typed pure analyzer semantics from `packages/flarex-dev/src/analyze.ts`
-  into the shared package.
-- Added named Effect helpers and tagged analyzer errors for schema, function
-  metadata, validator, partition, source-map, host-import, and nondeterminism
-  failures.
-- Moved backend analysis/codegen conversion helpers into the shared analyzer
-  package.
-- Kept `flarex-dev` file discovery, Vite bundling, schema import, source-map
-  loading, and local host mechanics in `packages/flarex-dev/src/analyze.ts`.
-- Updated generated-code helpers to consume readonly analyzer module arrays.
-- Added shared-package tests for valid analysis, invalid validators, root
-  partition lowering, ambiguous root IDs, backend conversion, BigInt literal
-  conversion rejection, and diagnostic normalization.
+- Refactored `packages/flarex-dev/src/executionArtifact.ts` so the local
+  Miniflare analyzer worker shell imports and calls
+  `analyzeLoadedSourcePackageEffect` from `@flarex/analysis`.
+- Removed the duplicated generated-worker implementations of schema analysis,
+  function export analysis, validator JSON assertion, partition validation and
+  lowering, and source-position parsing.
+- Kept Miniflare module materialization, console capture, deterministic
+  import-time `Date`/`Math.random`, rejected import-time globals, response
+  decoding, and diagnostics propagation in the host adapter.
+- Scoped rejected globals to user module import time, then restored them before
+  running the shared Effect analyzer so analyzer internals can use platform
+  runtime APIs such as `performance.now`.
+- Bundled only the local analyzer worker shell with Vite so Miniflare can load
+  `@flarex/analysis`; developer execution and schema modules remain separate
+  Miniflare modules imported by the shell.
 
 Known limitations:
 
-- The Miniflare execution-artifact analyzer worker string still contains a
-  duplicated semantic analyzer copy. A-3 will replace that duplication with the
-  shared package.
 - `/push/start-analyzed` is still a prototype/internal trust boundary and is
   not hardened until A-5.
 - Backend analyzer response validation still uses the existing backend
   validation path; A-4 will prove shared-contract consumption on that side.
+- The local analyzer worker shell is still generated as a string because it
+  owns Miniflare-specific import sandboxing and diagnostics capture. It should
+  remain a host adapter, not regain semantic analyzer logic.
 
 Convex references:
 
@@ -444,8 +445,10 @@ Convex references:
 
 Cloudflare difference:
 
-- This slice only moved pure semantics. Miniflare, Vite, service bindings,
-  Durable Objects, R2, and route response mapping remain host-adapter concerns.
+- This slice is Cloudflare/Miniflare-adapter work. It keeps Flarex's local
+  Dynamic Worker-like artifact mechanics separate from the shared semantic
+  analyzer, matching the Convex authority split while preserving Cloudflare
+  host constraints.
 
 Verification:
 
@@ -453,6 +456,6 @@ Verification:
 corepack pnpm --filter @flarex/analysis typecheck
 corepack pnpm --filter @flarex/analysis test
 corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/analyze.test.ts test/executionArtifact.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev exec vitest run test/executionArtifact.test.ts test/backendPush.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 git diff --check
 ```

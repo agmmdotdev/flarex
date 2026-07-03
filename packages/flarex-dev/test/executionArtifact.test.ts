@@ -131,6 +131,15 @@ describe("execution artifact analysis", () => {
     await expect(finalCodegen(context, artifact)).resolves.toBeUndefined();
   });
 
+  it("rejects schema files without a default schema export", async () => {
+    const root = await createSchemaWithoutDefaultProject();
+    const context = await initialCodegen({ root });
+    const sourcePackage = await bundleFlarexSourcePackage(context);
+
+    await expect(new LocalMiniflareExecutionArtifactAdapter().analyzeWithDiagnostics(sourcePackage))
+      .rejects.toThrow("Schema default export must be a Flarex schema definition.");
+  });
+
   it("uses deterministic import-time Date and Math.random during analysis", async () => {
     const root = await createProject({
       topLevelSource: `
@@ -263,6 +272,30 @@ import { v } from "flarex/values";
 export const create = mutation({
   partition: model.users,
   args: { name: v.string() },
+  handler: async () => null,
+});
+`,
+  );
+  return root;
+}
+
+async function createSchemaWithoutDefaultProject(): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), "flarex-missing-schema-default-artifact-"));
+  await mkdir(path.join(root, "flarex/functions"), { recursive: true });
+  await writeFile(
+    path.join(root, "flarex/schema.ts"),
+    `import { definePartitionTable } from "flarex/server";
+import { v } from "flarex/values";
+export const users = definePartitionTable({
+  name: v.string(),
+});
+`,
+  );
+  await writeFile(
+    path.join(root, "flarex/functions/users.ts"),
+    `import { query } from "../_generated/server";
+
+export const get = query({
   handler: async () => null,
 });
 `,
