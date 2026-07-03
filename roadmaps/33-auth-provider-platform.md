@@ -74,7 +74,7 @@ JSON or provider configuration.
 ## Implementation Slices
 
 - [x] A-0. Create this roadmap and the matching goal checklist.
-- [ ] A-1. Public and protocol auth-provider contracts.
+- [x] A-1. Public and protocol auth-provider contracts.
   - Add `AuthConfig` and `AuthProvider` public types compatible with Convex's
     OIDC and custom-JWT provider shapes.
   - Add `flarex-protocol` Effect Schema decoders for provider config.
@@ -161,15 +161,40 @@ Every turn in this stream must:
 
 ## Current Checkpoint
 
-Status: created.
+Status: A-1 complete.
 
 Previous completed checkpoint: `89fb9e4` (`Add auth-aware live query metadata`).
 
-Next unchecked implementation item: A-1 public and protocol auth-provider
-contracts.
+What changed:
+
+- Added public SDK auth-provider types in `packages/flarex/src/auth.ts`.
+- Added protocol auth-provider types, Effect Schema declarations, and decode
+  helpers in `packages/flarex-protocol/src/auth.ts`.
+- Added protocol tests for OIDC providers, custom JWT providers with `RS256` and
+  `ES256`, optional custom JWT `applicationID`, malformed providers, malformed
+  config, unsupported algorithms, and extra fields.
+- Kept this slice contract-only. No source-package, deployment storage, backend
+  resolver, or sync behavior changed.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/authentication.ts`
+- `crates/model/src/auth/types.rs`
+- `crates/authentication/src/lib.rs`
+
+Cloudflare difference:
+
+- These contracts are backend-owned configuration shapes only. Public clients
+  still send bearer tokens, not provider config or trusted identity JSON.
+
+Next unchecked implementation item: A-2 source-package and deploy ingestion.
 
 Verification:
 
 ```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test -- auth.test.ts
 git diff --check
 ```

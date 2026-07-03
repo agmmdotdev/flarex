@@ -6,6 +6,14 @@ export type JSONValue =
   | ReadonlyArray<JSONValue>
   | { readonly [key: string]: JSONValue };
 
+export type {
+  AuthConfig,
+  AuthProvider,
+  CustomJwtAlgorithm,
+  CustomJwtAuthProvider,
+  OidcAuthProvider,
+} from "flarex-protocol/auth";
+
 export interface UserIdentity {
   readonly tokenIdentifier: string;
   readonly subject: string;

@@ -27,6 +27,27 @@ export interface UserIdentity {
 
 export type UserIdentityAttributes = Omit<UserIdentity, "tokenIdentifier">;
 
+export type AuthConfig = {
+  readonly providers: ReadonlyArray<AuthProvider>;
+};
+
+export type AuthProvider = OidcAuthProvider | CustomJwtAuthProvider;
+
+export type OidcAuthProvider = {
+  readonly domain: string;
+  readonly applicationID: string;
+};
+
+export type CustomJwtAlgorithm = "RS256" | "ES256";
+
+export type CustomJwtAuthProvider = {
+  readonly type: "customJwt";
+  readonly issuer: string;
+  readonly jwks: string;
+  readonly algorithm: CustomJwtAlgorithm;
+  readonly applicationID?: string;
+};
+
 export type ExecutionIdentity =
   | { readonly kind: "anonymous" }
   | { readonly kind: "user"; readonly user: UserIdentity };
@@ -61,10 +82,30 @@ export const ExecutionIdentitySchema = Schema.declare<ExecutionIdentity>(
   },
 );
 
+export const AuthProviderSchema = Schema.declare<AuthProvider>(
+  isAuthProvider,
+  {
+    title: "AuthProvider",
+    description:
+      "A Convex-compatible OIDC or custom JWT auth provider configuration.",
+  },
+);
+
+export const AuthConfigSchema = Schema.declare<AuthConfig>(
+  isAuthConfig,
+  {
+    title: "AuthConfig",
+    description:
+      "A backend-owned auth provider configuration for validating bearer tokens.",
+  },
+);
+
 const decodeUnknownUserIdentity = Schema.decodeUnknownEffect(UserIdentitySchema);
 const decodeUnknownExecutionIdentity = Schema.decodeUnknownEffect(
   ExecutionIdentitySchema,
 );
+const decodeUnknownAuthProvider = Schema.decodeUnknownEffect(AuthProviderSchema);
+const decodeUnknownAuthConfig = Schema.decodeUnknownEffect(AuthConfigSchema);
 
 export const decodeUserIdentityEffect = Effect.fn(
   "AuthProtocol.decodeUserIdentity",
@@ -100,6 +141,82 @@ export const decodeExecutionIdentityEffect = Effect.fn(
   );
 });
 
+export const decodeAuthProviderEffect = Effect.fn(
+  "AuthProtocol.decodeAuthProvider",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<AuthProvider, AuthProtocolValidationError> {
+  return yield* decodeUnknownAuthProvider(value).pipe(
+    Effect.mapError(cause =>
+      new AuthProtocolValidationError({
+        schema: "AuthProvider",
+        message:
+          "Auth provider must be an OIDC provider with domain and applicationID or a customJwt provider with issuer, jwks, algorithm, and optional applicationID.",
+        cause,
+      })
+    ),
+  );
+});
+
+export const decodeAuthConfigEffect = Effect.fn(
+  "AuthProtocol.decodeAuthConfig",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<AuthConfig, AuthProtocolValidationError> {
+  return yield* decodeUnknownAuthConfig(value).pipe(
+    Effect.mapError(cause =>
+      new AuthProtocolValidationError({
+        schema: "AuthConfig",
+        message: "Auth config must include a providers array of valid auth providers.",
+        cause,
+      })
+    ),
+  );
+});
+
+function isAuthConfig(value: unknown): value is AuthConfig {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["providers"])) return false;
+  return Array.isArray(value.providers) && value.providers.every(isAuthProvider);
+}
+
+function isAuthProvider(value: unknown): value is AuthProvider {
+  if (!isRecord(value)) return false;
+  if (value.type === "customJwt") return isCustomJwtAuthProvider(value);
+  return isOidcAuthProvider(value);
+}
+
+function isOidcAuthProvider(value: Record<string, unknown>): value is OidcAuthProvider {
+  return (
+    hasOnlyKeys(value, ["applicationID", "domain"]) &&
+    typeof value.applicationID === "string" &&
+    value.applicationID.length > 0 &&
+    typeof value.domain === "string" &&
+    value.domain.length > 0
+  );
+}
+
+function isCustomJwtAuthProvider(
+  value: Record<string, unknown>,
+): value is CustomJwtAuthProvider {
+  if (
+    !hasOnlyKeys(value, ["algorithm", "applicationID", "issuer", "jwks", "type"]) ||
+    value.type !== "customJwt" ||
+    typeof value.issuer !== "string" ||
+    value.issuer.length === 0 ||
+    typeof value.jwks !== "string" ||
+    value.jwks.length === 0 ||
+    !isCustomJwtAlgorithm(value.algorithm)
+  ) {
+    return false;
+  }
+  return value.applicationID === undefined ||
+    (typeof value.applicationID === "string" && value.applicationID.length > 0);
+}
+
+function isCustomJwtAlgorithm(value: unknown): value is CustomJwtAlgorithm {
+  return value === "RS256" || value === "ES256";
+}
+
 function isExecutionIdentity(value: unknown): value is ExecutionIdentity {
   if (!isRecord(value)) return false;
   if (value.kind === "anonymous") {
@@ -109,6 +226,14 @@ function isExecutionIdentity(value: unknown): value is ExecutionIdentity {
     return isUserIdentity(value.user);
   }
   return false;
+}
+
+function hasOnlyKeys(
+  value: Record<string, unknown>,
+  allowedKeys: ReadonlyArray<string>,
+): boolean {
+  const allowed = new Set(allowedKeys);
+  return Object.keys(value).every(key => allowed.has(key));
 }
 
 function isUserIdentity(value: unknown): value is UserIdentity {

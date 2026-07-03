@@ -15,7 +15,7 @@ Source roadmap:
 
 - [x] A-0. Create the concrete auth-provider platform roadmap and goal
   checklist.
-- [ ] A-1. Public and protocol auth-provider contracts.
+- [x] A-1. Public and protocol auth-provider contracts.
 - [ ] A-2. Source-package and deploy ingestion.
 - [ ] A-3. Persistence and active deployment metadata.
 - [ ] A-4. Backend JWT/JWKS resolver.
@@ -86,7 +86,7 @@ Reviewer checkpoint:
 
 ### A-1: Public And Protocol Auth-Provider Contracts
 
-Status: next.
+Status: complete.
 
 Purpose:
 
@@ -103,13 +103,38 @@ Expected files:
 - `packages/flarex/test/*` if public type regression coverage is needed
 - both roadmap files
 
-Exit criteria:
+Completed:
 
 - Public SDK exports `AuthConfig` and `AuthProvider` types.
+- `flarex/server` exports the auth config types for Convex-style
+  `auth.config.ts` imports.
+- Public SDK provider config types reuse `flarex-protocol/auth` as the source
+  of truth instead of duplicating the shape.
 - Protocol exports Effect Schema decoders for provider config.
-- OIDC and custom-JWT variants are accepted and normalized.
+- OIDC and custom-JWT variants are accepted through the protocol schema.
 - Malformed provider config is rejected with focused tests.
 - No backend resolver behavior changes in this slice.
+
+Files changed:
+
+- `packages/flarex/src/auth.ts`
+- `packages/flarex/src/server.ts`
+- `packages/flarex-protocol/src/auth.ts`
+- `packages/flarex-protocol/test/auth.test.ts`
+- `roadmaps/33-auth-provider-platform.md`
+- `roadmaps/34-auth-provider-platform-goals.md`
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/authentication.ts`
+- `crates/model/src/auth/types.rs`
+- `crates/authentication/src/lib.rs`
+
+Cloudflare difference:
+
+- Provider config is now a typed contract, but it is not yet source-packaged,
+  stored, or used by the backend resolver. End-user clients still cannot supply
+  provider config.
 
 Validation gates:
 
@@ -124,6 +149,38 @@ git diff --check
 Review gate:
 
 - Required, because this changes public SDK types and shared protocol contracts.
+- `typescript-diff-reviewer`: fixed missing `flarex/server` exports and SDK
+  provider type duplication by re-exporting protocol-owned provider types.
+- `code-quality-diff-reviewer`: fixed missing `flarex/server` exports and
+  corrected roadmap wording so the slice promises validation, not
+  normalization.
+
+### A-2: Source-Package And Deploy Ingestion
+
+Status: next.
+
+Purpose:
+
+Carry auth provider config through the same local-first and hosted deploy path
+as functions, schema, and execution artifacts.
+
+Expected files:
+
+- `packages/flarex-dev/src/sourcePackage.ts`
+- `packages/flarex/src/artifacts.ts`
+- `packages/flarex-protocol/src/deployment.ts`
+- `packages/flarex-backend/src/deployment/Validation.ts`
+- `packages/flarex-backend/src/deployment/Requests.ts`
+- focused dev, protocol, and backend deployment tests
+- both roadmap files
+
+Exit criteria:
+
+- The local source package can include or omit auth config consistently.
+- Source-package hashing accounts for auth config when present.
+- Deployment validation decodes auth config through the protocol contract.
+- No persistence schema or backend JWT verification changes happen in this
+  slice.
 
 ## Turn Protocol
 

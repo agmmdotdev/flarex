@@ -1,7 +1,11 @@
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  AuthConfigSchema,
   AuthProtocolValidationError,
+  AuthProviderSchema,
+  decodeAuthConfigEffect,
+  decodeAuthProviderEffect,
   decodeExecutionIdentityEffect,
   decodeUserIdentityEffect,
   executionIdentityFingerprint,
@@ -11,8 +15,86 @@ import {
 
 const decodeUserIdentity = Schema.decodeUnknownSync(UserIdentitySchema);
 const decodeExecutionIdentity = Schema.decodeUnknownSync(ExecutionIdentitySchema);
+const decodeAuthProvider = Schema.decodeUnknownSync(AuthProviderSchema);
+const decodeAuthConfig = Schema.decodeUnknownSync(AuthConfigSchema);
 
 describe("auth protocol schemas", () => {
+  it("decodes OIDC and custom JWT auth provider config", async () => {
+    const oidc = {
+      domain: "https://auth.example.com",
+      applicationID: "app-123",
+    };
+    const customJwt = {
+      type: "customJwt",
+      issuer: "https://issuer.example.com",
+      jwks: "https://issuer.example.com/.well-known/jwks.json",
+      algorithm: "RS256",
+      applicationID: "app-456",
+    };
+    const config = {
+      providers: [
+        oidc,
+        customJwt,
+        {
+          type: "customJwt",
+          issuer: "https://internal.example.com",
+          jwks: "https://internal.example.com/jwks.json",
+          algorithm: "ES256",
+        },
+      ],
+    };
+
+    await expect(Effect.runPromise(decodeAuthProviderEffect(oidc)))
+      .resolves.toEqual(oidc);
+    await expect(Effect.runPromise(decodeAuthProviderEffect(customJwt)))
+      .resolves.toEqual(customJwt);
+    await expect(Effect.runPromise(decodeAuthConfigEffect(config)))
+      .resolves.toEqual(config);
+    expect(decodeAuthProvider(oidc)).toEqual(oidc);
+    expect(decodeAuthConfig(config)).toEqual(config);
+  });
+
+  it("rejects malformed auth provider config", async () => {
+    await expect(Effect.runPromise(decodeAuthConfigEffect({})))
+      .rejects.toBeInstanceOf(AuthProtocolValidationError);
+
+    await expect(Effect.runPromise(decodeAuthProviderEffect({
+      domain: "https://auth.example.com",
+    }))).rejects.toThrow("Auth provider must be an OIDC provider");
+
+    await expect(Effect.runPromise(decodeAuthProviderEffect({
+      domain: "https://auth.example.com",
+      applicationID: "",
+    }))).rejects.toBeInstanceOf(AuthProtocolValidationError);
+
+    await expect(Effect.runPromise(decodeAuthProviderEffect({
+      type: "customJwt",
+      issuer: "https://issuer.example.com",
+      jwks: "https://issuer.example.com/.well-known/jwks.json",
+      algorithm: "HS256",
+    }))).rejects.toBeInstanceOf(AuthProtocolValidationError);
+
+    await expect(Effect.runPromise(decodeAuthProviderEffect({
+      type: "customJwt",
+      issuer: "https://issuer.example.com",
+      jwks: "https://issuer.example.com/.well-known/jwks.json",
+      algorithm: "RS256",
+      extra: true,
+    }))).rejects.toBeInstanceOf(AuthProtocolValidationError);
+
+    await expect(Effect.runPromise(decodeAuthConfigEffect({
+      providers: [
+        {
+          type: "customJwt",
+          issuer: "https://issuer.example.com",
+          jwks: "https://issuer.example.com/.well-known/jwks.json",
+          algorithm: "RS256",
+          applicationID: null,
+        },
+      ],
+    }))).rejects.toBeInstanceOf(AuthProtocolValidationError);
+  });
+
   it("decodes Convex-compatible user identities with custom claims", async () => {
     const identity = {
       tokenIdentifier: "issuer|user-1",

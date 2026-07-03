@@ -477,9 +477,14 @@ export { createQueryInitializer, paginationOptsValidator } from "./query";
 export type { ParsedFlarexId } from "./ids";
 export type {
   Auth,
+  AuthConfig,
+  AuthProvider,
+  CustomJwtAlgorithm,
+  CustomJwtAuthProvider,
   UserIdentity,
   UserIdentityAttributes,
   JSONValue,
+  OidcAuthProvider,
 } from "./auth";
 export type {
   DatabaseQueryExecutor,
