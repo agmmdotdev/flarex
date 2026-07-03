@@ -2,6 +2,8 @@
 
 ## H-6 Adapter Simplification Pass
 
+Completed checkpoint: `a0ef99a` (`Simplify artifact runtime host adapters`).
+
 Previous completed checkpoint: `fe1feb4` (`Mark identity host kit slice complete`).
 
 What changed:

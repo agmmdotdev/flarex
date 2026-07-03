@@ -53,7 +53,7 @@ Every implementation turn in this goal should follow this loop:
 
 ### G-7 / H-6: Adapter Simplification Pass
 
-Status: implemented in this turn; commit pending.
+Status: implemented and committed in `a0ef99a` (`Simplify artifact runtime host adapters`).
 
 Purpose:
 
