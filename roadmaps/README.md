@@ -46,3 +46,7 @@ Start with:
 - [23-hosted-runtime-core.md](./23-hosted-runtime-core.md)
 - [24-shared-artifact-runtime-host-kit.md](./24-shared-artifact-runtime-host-kit.md)
 - [25-shared-artifact-runtime-host-kit-goals.md](./25-shared-artifact-runtime-host-kit-goals.md)
+- [26-execution-artifact-lifecycle-parity.md](./26-execution-artifact-lifecycle-parity.md)
+- [27-execution-artifact-lifecycle-parity-goals.md](./27-execution-artifact-lifecycle-parity-goals.md)
+- [28-authoritative-analysis-effect-quality.md](./28-authoritative-analysis-effect-quality.md)
+- [29-authoritative-analysis-effect-quality-goals.md](./29-authoritative-analysis-effect-quality-goals.md)
