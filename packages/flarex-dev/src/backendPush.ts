@@ -5,7 +5,13 @@ import {
   backendRequiredValidatorJsonFromValidatorJson,
   deploymentAnalysisFromCodegenAnalysis,
 } from "@flarex/analysis";
-import { assertValidatorJson } from "flarex/validator-json";
+import {
+  decodeDeploymentAnalysisEffect,
+  decodeDeploymentCodegenAnalysisEffect,
+  type DeploymentAnalysis as ProtocolDeploymentAnalysis,
+  type DeploymentCodegenAnalysis as ProtocolDeploymentCodegenAnalysis,
+  type ValidatorJson as ProtocolValidatorJson,
+} from "flarex-protocol/deployment";
 import type { ValidatorJSON } from "flarex/values";
 import type {
   DeploymentAnalysis as BackendDeploymentAnalysis,
@@ -14,8 +20,6 @@ import type {
   FinishPushRejectionCode,
   FinishPushRequest,
   FinishPushResponse,
-  FunctionVisibility,
-  FunctionPartitionMetadata,
   PushState,
   StartPushRequest,
   ValidatorJson as BackendValidatorJson,
@@ -473,453 +477,192 @@ function parseCodegenAnalysisFromBody(body: unknown): CodegenAnalysisParseResult
   if (!("codegenAnalysis" in body)) {
     return { ok: false, message: "Backend analyzer response did not include codegenAnalysis." };
   }
-  const analysis = codegenDeploymentAnalysis(body.codegenAnalysis, "codegenAnalysis");
-  return analysis.ok
-    ? { ok: true, analysis: analysis.value }
-    : { ok: false, message: analysis.message };
+  const routeCheck = rejectCodegenRouteMetadata(body.codegenAnalysis);
+  if (!routeCheck.ok) return routeCheck;
+  const analysis = decodeProtocolDeploymentCodegenAnalysis(body.codegenAnalysis);
+  return analysis.ok ? { ok: true, analysis: analysis.value } : analysis;
 }
 
 type ParseResult<T> =
   | { ok: true; value: T }
   | { ok: false; message: string };
 
-function backendDeploymentAnalysis(
-  value: unknown,
-  path: string,
-): ParseResult<BackendDeploymentAnalysis> {
-  if (!isRecord(value)) return parseError(`${path} must be an object.`);
-  const schema = backendDeploymentSchema(value.schema, `${path}.schema`);
-  if (!schema.ok) return schema;
-  const functions = backendDeploymentFunctions(value.functions, `${path}.functions`);
-  if (!functions.ok) return functions;
-  return {
-    ok: true,
-    value: {
-      schema: schema.value,
-      functions: functions.value,
-    },
-  };
-}
-
-function backendDeploymentSchema(
-  value: unknown,
-  path: string,
-): ParseResult<BackendDeploymentAnalysis["schema"]> {
-  if (!isRecord(value)) return parseError(`${path} must be an object.`);
-  if (typeof value.version !== "number") return parseError(`${path}.version must be a number.`);
-  if (!Array.isArray(value.tables)) return parseError(`${path}.tables must be an array.`);
-  if (!Array.isArray(value.indexes)) return parseError(`${path}.indexes must be an array.`);
-  const tables = parseArray(value.tables, backendSchemaTable, `${path}.tables`);
-  if (!tables.ok) return tables;
-  const indexes = parseArray(value.indexes, backendSchemaIndex, `${path}.indexes`);
-  if (!indexes.ok) return indexes;
-  return {
-    ok: true,
-    value: {
-      version: value.version,
-      tables: tables.value,
-      indexes: indexes.value,
-    },
-  };
-}
-
-function backendSchemaTable(
-  value: unknown,
-  path: string,
-): ParseResult<BackendDeploymentAnalysis["schema"]["tables"][number]> {
-  if (!isRecord(value)) return parseError(`${path} must be an object.`);
-  if (typeof value.tableId !== "number") return parseError(`${path}.tableId must be a number.`);
-  if (typeof value.name !== "string") return parseError(`${path}.name must be a string.`);
-  const validator = backendValidatorJsonFromUnknown(value.validator, `${path}.validator`);
-  if (!validator.ok) return validator;
-  const placement = tablePlacement(value.placement, `${path}.placement`);
-  if (!placement.ok) return placement;
-  const state = backendSchemaTableState(value.state, `${path}.state`);
-  if (!state.ok) return state;
-  const table: BackendDeploymentAnalysis["schema"]["tables"][number] = {
-    tableId: value.tableId,
-    name: value.name,
-    placement: placement.value,
-  };
-  if (validator.value !== undefined) table.validator = validator.value;
-  if (state.value !== undefined) table.state = state.value;
-  return { ok: true, value: table };
-}
-
-function backendSchemaIndex(
-  value: unknown,
-  path: string,
-): ParseResult<BackendDeploymentAnalysis["schema"]["indexes"][number]> {
-  if (!isRecord(value)) return parseError(`${path} must be an object.`);
-  if (typeof value.indexId !== "number") return parseError(`${path}.indexId must be a number.`);
-  if (typeof value.tableId !== "number") return parseError(`${path}.tableId must be a number.`);
-  if (typeof value.name !== "string") return parseError(`${path}.name must be a string.`);
-  const fields = stringArray(value.fields, `${path}.fields`);
-  if (!fields.ok) return fields;
-  const state = backendSchemaIndexState(value.state, `${path}.state`);
-  if (!state.ok) return state;
-  const index: BackendDeploymentAnalysis["schema"]["indexes"][number] = {
-    indexId: value.indexId,
-    tableId: value.tableId,
-    name: value.name,
-    fields: fields.value,
-  };
-  if (state.value !== undefined) index.state = state.value;
-  return { ok: true, value: index };
-}
-
-function backendSchemaTableState(
-  value: unknown,
-  path: string,
-): ParseResult<BackendDeploymentAnalysis["schema"]["tables"][number]["state"] | undefined> {
-  if (value === undefined) return { ok: true, value: undefined };
-  return value === "active" || value === "hidden" || value === "deleted"
-    ? { ok: true, value }
-    : parseError(`${path} must be active, hidden, or deleted.`);
-}
-
-function backendSchemaIndexState(
-  value: unknown,
-  path: string,
-): ParseResult<BackendDeploymentAnalysis["schema"]["indexes"][number]["state"] | undefined> {
-  if (value === undefined) return { ok: true, value: undefined };
-  return value === "enabled" || value === "staged" || value === "disabled"
-    ? { ok: true, value }
-    : parseError(`${path} must be enabled, staged, or disabled.`);
-}
-
-function backendDeploymentFunctions(
-  value: unknown,
-  path: string,
-): ParseResult<BackendDeploymentAnalysis["functions"]> {
-  if (!isRecord(value)) return parseError(`${path} must be an object.`);
-  if (!Array.isArray(value.functions)) return parseError(`${path}.functions must be an array.`);
-  const functions = parseArray(value.functions, backendDeploymentFunction, `${path}.functions`);
-  return functions.ok
-    ? { ok: true, value: { functions: functions.value } }
-    : functions;
-}
-
-function backendDeploymentFunction(
-  value: unknown,
-  path: string,
-): ParseResult<BackendDeploymentAnalysis["functions"]["functions"][number]> {
-  if (!isRecord(value)) return parseError(`${path} must be an object.`);
-  if (typeof value.path !== "string" || !isFunctionKind(value.kind)) {
-    return parseError(`${path} has invalid function metadata.`);
-  }
-  const visibility = backendFunctionVisibility(value.visibility, `${path}.visibility`);
-  if (!visibility.ok) return visibility;
-  const args = backendValidatorJsonFromUnknown(value.args, `${path}.args`);
-  if (!args.ok) return args;
-  const returns = backendValidatorJsonFromUnknown(value.returns, `${path}.returns`);
-  if (!returns.ok) return returns;
-  const route = backendFunctionRoute(value.route, `${path}.route`);
-  if (!route.ok) return route;
-  const partition = functionPartition(value.partition, `${path}.partition`);
-  if (!partition.ok) return partition;
-  const position = sourcePosition(value.position, `${path}.position`);
-  if (!position.ok) return position;
-  const metadata: BackendDeploymentAnalysis["functions"]["functions"][number] = {
-    path: value.path,
-    kind: value.kind,
-  };
-  if (visibility.value !== null) metadata.visibility = visibility.value;
-  if (args.value !== undefined) metadata.args = args.value;
-  if (returns.value !== undefined) metadata.returns = returns.value;
-  if (route.value !== undefined) metadata.route = route.value;
-  if (partition.value !== null) metadata.partition = partition.value;
-  if (position.value !== null) metadata.position = position.value;
-  return { ok: true, value: metadata };
-}
-
-function backendFunctionVisibility(
-  value: unknown,
-  path: string,
-): ParseResult<FunctionVisibility | null> {
-  if (value === undefined) return { ok: true, value: null };
-  return isFunctionVisibility(value)
-    ? { ok: true, value }
-    : parseError(`${path} must be public or internal.`);
-}
-
-function backendValidatorJsonFromUnknown(
-  value: unknown,
-  path: string,
-): ParseResult<BackendValidatorJson | null | undefined> {
-  if (value === undefined) return { ok: true, value: undefined };
-  if (value === null) return { ok: true, value: null };
-  const parsed = validatorJson(value, path);
-  if (parsed === undefined || parsed === null) return parseError(`${path} is invalid.`);
-  try {
-    return { ok: true, value: backendRequiredValidatorJsonFromValidatorJson(parsed) };
-  } catch (error) {
-    return parseError(`${path} is invalid: ${errorMessage(error)}`);
-  }
-}
-
-function backendFunctionRoute(
-  value: unknown,
-  path: string,
-): ParseResult<BackendDeploymentAnalysis["functions"]["functions"][number]["route"] | undefined> {
-  if (value === undefined) return { ok: true, value: undefined };
-  if (value === null) return { ok: true, value: null };
-  if (!isRecord(value) || value.type !== "args" || typeof value.field !== "string") {
-    return parseError(`${path} has invalid route metadata.`);
-  }
-  return { ok: true, value: { type: "args", field: value.field } };
-}
-
-function codegenDeploymentAnalysis(value: unknown, path: string): ParseResult<CodegenDeploymentAnalysis> {
-  if (!isRecord(value)) return parseError(`${path} must be an object.`);
-  const schema = codegenSchema(value.schema, `${path}.schema`);
-  if (!schema.ok) return schema;
-  if (!Array.isArray(value.functions)) return parseError(`${path}.functions must be an array.`);
-  const modules = parseArray(value.functions, codegenModule, `${path}.functions`);
-  if (!modules.ok) return modules;
-  return {
-    ok: true,
-    value: {
-      schema: schema.value,
-      functions: modules.value,
-    },
-  };
-}
-
-function codegenSchema(value: unknown, path: string): ParseResult<CodegenDeploymentAnalysis["schema"]> {
-  if (!isRecord(value)) return parseError(`${path} must be an object.`);
-  if (typeof value.version !== "number") return parseError(`${path}.version must be a number.`);
-  if (!Array.isArray(value.tables)) return parseError(`${path}.tables must be an array.`);
-  if (!Array.isArray(value.indexes)) return parseError(`${path}.indexes must be an array.`);
-  const tables = parseArray(value.tables, codegenSchemaTable, `${path}.tables`);
-  if (!tables.ok) return tables;
-  const indexes = parseArray(value.indexes, codegenSchemaIndex, `${path}.indexes`);
-  if (!indexes.ok) return indexes;
-  return { ok: true, value: { version: value.version, tables: tables.value, indexes: indexes.value } };
-}
-
-function codegenSchemaTable(
-  value: unknown,
-  path: string,
-): ParseResult<CodegenDeploymentAnalysis["schema"]["tables"][number]> {
-  if (!isRecord(value)) return parseError(`${path} must be an object.`);
-  if (typeof value.tableId !== "number") return parseError(`${path}.tableId must be a number.`);
-  if (typeof value.name !== "string") return parseError(`${path}.name must be a string.`);
-  const validator = validatorJson(value.validator, `${path}.validator`);
-  if (validator === null || validator === undefined) return parseError(`${path}.validator is invalid.`);
-  const placement = tablePlacement(value.placement, `${path}.placement`);
-  if (!placement.ok) return placement;
-  return {
-    ok: true,
-    value: {
-      tableId: value.tableId,
-      name: value.name,
-      validator,
-      placement: placement.value,
-    },
-  };
-}
-
-function tablePlacement(
-  value: unknown,
-  path: string,
-): ParseResult<CodegenDeploymentAnalysis["schema"]["tables"][number]["placement"]> {
-  if (!isRecord(value)) return parseError(`${path} must be an object.`);
-  if (typeof value.kind !== "string") return parseError(`${path}.kind must be a string.`);
-  switch (value.kind) {
-    case "partitionBy":
-      return typeof value.field === "string"
-        ? { ok: true, value: { kind: "partitionBy", field: value.field } }
-        : parseError(`${path}.field must be a string.`);
-    case "colocateWith":
-      return typeof value.table === "string" && typeof value.field === "string"
-        ? { ok: true, value: { kind: "colocateWith", table: value.table, field: value.field } }
-        : parseError(`${path}.table and ${path}.field must be strings.`);
-    case "global":
-      return { ok: true, value: { kind: "global" } };
-    default:
-      return parseError(`${path}.kind is unsupported.`);
-  }
-}
-
-function codegenSchemaIndex(
-  value: unknown,
-  path: string,
-): ParseResult<CodegenDeploymentAnalysis["schema"]["indexes"][number]> {
-  if (!isRecord(value)) return parseError(`${path} must be an object.`);
-  if (typeof value.indexId !== "number") return parseError(`${path}.indexId must be a number.`);
-  if (typeof value.tableId !== "number") return parseError(`${path}.tableId must be a number.`);
-  if (typeof value.name !== "string") return parseError(`${path}.name must be a string.`);
-  const fields = stringArray(value.fields, `${path}.fields`);
-  if (!fields.ok) return fields;
-  return {
-    ok: true,
-    value: {
-      indexId: value.indexId,
-      tableId: value.tableId,
-      name: value.name,
-      fields: fields.value,
-    },
-  };
-}
-
-function codegenModule(
-  value: unknown,
-  path: string,
-): ParseResult<CodegenDeploymentAnalysis["functions"][number]> {
-  if (!isRecord(value)) return parseError(`${path} must be an object.`);
-  if (typeof value.moduleName !== "string") return parseError(`${path}.moduleName must be a string.`);
-  if (!Array.isArray(value.functions)) return parseError(`${path}.functions must be an array.`);
-  const functions = parseArray(value.functions, codegenFunction, `${path}.functions`);
-  if (!functions.ok) return functions;
-  return {
-    ok: true,
-    value: {
-      moduleName: value.moduleName,
-      functions: functions.value,
-    },
-  };
-}
-
-function parseArray<T>(
-  values: unknown[],
-  parser: (value: unknown, path: string) => ParseResult<T>,
-  path: string,
-): ParseResult<T[]> {
-  const parsed: T[] = [];
-  for (const [index, value] of values.entries()) {
-    const item = parser(value, `${path}[${index}]`);
-    if (!item.ok) return item;
-    parsed.push(item.value);
-  }
-  return { ok: true, value: parsed };
-}
-
-function codegenFunction(
-  value: unknown,
-  path: string,
-): ParseResult<CodegenDeploymentAnalysis["functions"][number]["functions"][number]> {
-  if (!isRecord(value)) return parseError(`${path} must be an object.`);
-  if (
-    typeof value.moduleName !== "string" ||
-    typeof value.exportName !== "string" ||
-    !isFunctionKind(value.kind) ||
-    !isFunctionVisibility(value.visibility)
-  ) {
-    return parseError(`${path} has invalid function metadata.`);
-  }
-  const args = validatorJson(value.args, `${path}.args`);
-  if (args === null || args === undefined) return parseError(`${path}.args is invalid.`);
-  const returns = validatorJson(value.returns, `${path}.returns`);
-  if (returns === undefined) return parseError(`${path}.returns is invalid.`);
-  const partition = functionPartition(value.partition, `${path}.partition`);
-  if (!partition.ok) return partition;
-  if (value.route !== undefined && value.route !== null) {
-    return parseError(`${path}.route is not supported in codegenAnalysis.`);
-  }
-  const position = sourcePosition(value.position, `${path}.position`);
-  if (!position.ok) return position;
-  return {
-    ok: true,
-    value: {
-      moduleName: value.moduleName,
-      exportName: value.exportName,
-      kind: value.kind,
-      visibility: value.visibility,
-      args,
-      returns,
-      partition: partition.value,
-      ...(position.value === null ? {} : { position: position.value }),
-    },
-  };
-}
-
-function validatorJson(value: unknown, path: string): ValidatorJSON | null | undefined {
-  try {
-    return assertValidatorJson(value, path);
-  } catch {
-    return undefined;
-  }
-}
-
-function isFunctionKind(value: unknown): value is CodegenDeploymentAnalysis["functions"][number]["functions"][number]["kind"] {
-  return value === "query" || value === "mutation" || value === "workflowMutation" || value === "action";
-}
-
-function isFunctionVisibility(
-  value: unknown,
-): value is CodegenDeploymentAnalysis["functions"][number]["functions"][number]["visibility"] {
-  return value === "public" || value === "internal";
-}
-
-function functionPartition(
-  value: unknown,
-  path: string,
-): ParseResult<FunctionPartitionMetadata | null> {
-  if (value === undefined || value === null) return { ok: true, value: null };
-  if (!isRecord(value)) return parseError(`${path} must be an object.`);
-  if (typeof value.type !== "string") return parseError(`${path}.type must be a string.`);
-  switch (value.type) {
-    case "partition":
-      return typeof value.table === "string" &&
-        typeof value.selector === "string" &&
-        typeof value.partitionField === "string" &&
-        typeof value.argField === "string"
-        ? {
-            ok: true,
-            value: {
-              type: "partition",
-              table: value.table,
-              selector: value.selector,
-              partitionField: value.partitionField,
-              argField: value.argField,
-            },
-          }
-        : parseError(`${path} has invalid partition metadata.`);
-    case "partitionCreateRoot":
-      return typeof value.table === "string" && value.partitionField === "_id"
-        ? { ok: true, value: { type: "partitionCreateRoot", table: value.table, partitionField: "_id" } }
-        : parseError(`${path} has invalid partitionCreateRoot metadata.`);
-    default:
-      return parseError(`${path}.type is unsupported.`);
-  }
-}
-
-type ParsedCodegenSourcePosition =
-  NonNullable<CodegenDeploymentAnalysis["functions"][number]["functions"][number]["position"]> | null;
-
-function sourcePosition(
-  value: unknown,
-  path: string,
-): ParseResult<ParsedCodegenSourcePosition> {
-  if (value === undefined || value === null) return { ok: true, value: null };
-  if (!isRecord(value)) return parseError(`${path} must be an object.`);
-  return typeof value.path === "string" &&
-    typeof value.startLine === "number" &&
-    typeof value.startColumn === "number"
-    ? {
-        ok: true,
-        value: {
-          path: value.path,
-          startLine: value.startLine,
-          startColumn: value.startColumn,
-        },
-      }
-    : parseError(`${path} has invalid source position metadata.`);
-}
-
-function stringArray(value: unknown, path: string): ParseResult<string[]> {
-  if (!Array.isArray(value)) return parseError(`${path} must be an array.`);
-  return parseArray(
-    value,
-    (item, itemPath) =>
-      typeof item === "string" ? { ok: true, value: item } : parseError(`${itemPath} must be a string.`),
-    path,
-  );
-}
-
 function parseError<T = never>(message: string): ParseResult<T> {
   return { ok: false, message };
+}
+
+function decodeProtocolDeploymentAnalysis(value: unknown): ParseResult<BackendDeploymentAnalysis> {
+  const decoded = decodeProtocolValue(decodeDeploymentAnalysisEffect(value));
+  return decoded.ok
+    ? { ok: true, value: backendDeploymentAnalysisFromProtocol(decoded.value) }
+    : decoded;
+}
+
+function decodeProtocolDeploymentCodegenAnalysis(value: unknown): ParseResult<CodegenDeploymentAnalysis> {
+  const decoded = decodeProtocolValue(decodeDeploymentCodegenAnalysisEffect(value));
+  return decoded.ok ? codegenDeploymentAnalysisFromProtocol(decoded.value) : decoded;
+}
+
+function decodeProtocolValue<T>(
+  effect: Effect.Effect<T, { readonly message: string }>,
+): ParseResult<T> {
+  try {
+    return { ok: true, value: Effect.runSync(effect) };
+  } catch (error) {
+    return parseError(errorMessage(error));
+  }
+}
+
+function backendDeploymentAnalysisFromProtocol(
+  analysis: ProtocolDeploymentAnalysis,
+): BackendDeploymentAnalysis {
+  return {
+    schema: {
+      version: analysis.schema.version,
+      tables: analysis.schema.tables.map(table => ({
+        tableId: table.tableId,
+        name: table.name,
+        ...(table.state === undefined ? {} : { state: table.state }),
+        ...(table.validator === undefined
+          ? {}
+          : { validator: table.validator === null ? null : backendValidatorJsonFromProtocol(table.validator) }),
+        placement: { ...table.placement },
+      })),
+      indexes: analysis.schema.indexes.map(index => ({
+        indexId: index.indexId,
+        tableId: index.tableId,
+        name: index.name,
+        fields: [...index.fields],
+        ...(index.state === undefined ? {} : { state: index.state }),
+      })),
+    },
+    functions: {
+      functions: analysis.functions.functions.map(fn => ({
+        path: fn.path,
+        kind: fn.kind,
+        ...(fn.visibility === undefined ? {} : { visibility: fn.visibility }),
+        ...(fn.args === undefined
+          ? {}
+          : { args: fn.args === null ? null : backendValidatorJsonFromProtocol(fn.args) }),
+        ...(fn.returns === undefined
+          ? {}
+          : { returns: fn.returns === null ? null : backendValidatorJsonFromProtocol(fn.returns) }),
+        ...(fn.route === undefined ? {} : { route: fn.route === null ? null : { ...fn.route } }),
+        ...(fn.partition === undefined
+          ? {}
+          : { partition: fn.partition === null ? null : { ...fn.partition } }),
+        ...(fn.position === undefined ? {} : { position: { ...fn.position } }),
+      })),
+    },
+  };
+}
+
+function codegenDeploymentAnalysisFromProtocol(
+  analysis: ProtocolDeploymentCodegenAnalysis,
+): ParseResult<CodegenDeploymentAnalysis> {
+  const tables: Array<CodegenDeploymentAnalysis["schema"]["tables"][number]> = [];
+  for (const [index, table] of analysis.schema.tables.entries()) {
+    if (table.validator === undefined || table.validator === null) {
+      return parseError(`codegenAnalysis.schema.tables[${index}].validator is invalid.`);
+    }
+    tables.push({
+      tableId: table.tableId,
+      name: table.name,
+      validator: validatorJsonFromProtocol(table.validator),
+      placement: { ...table.placement },
+    });
+  }
+  return {
+    ok: true,
+    value: {
+      schema: {
+        version: analysis.schema.version,
+        tables,
+        indexes: analysis.schema.indexes.map(index => ({
+          indexId: index.indexId,
+          tableId: index.tableId,
+          name: index.name,
+          fields: [...index.fields],
+        })),
+      },
+      functions: analysis.functions.map(module => ({
+        moduleName: module.moduleName,
+        functions: module.functions.map(fn => ({
+          moduleName: fn.moduleName,
+          exportName: fn.exportName,
+          kind: fn.kind,
+          visibility: fn.visibility,
+          args: validatorJsonFromProtocol(fn.args),
+          returns: fn.returns === null ? null : validatorJsonFromProtocol(fn.returns),
+          ...(fn.partition === undefined
+            ? {}
+            : { partition: fn.partition === null ? null : { ...fn.partition } }),
+          ...(fn.position === undefined ? {} : { position: { ...fn.position } }),
+        })),
+      })),
+    },
+  };
+}
+
+function rejectCodegenRouteMetadata(value: unknown): ParseResult<void> {
+  if (!isRecord(value) || !Array.isArray(value.functions)) return { ok: true, value: undefined };
+  for (const [moduleIndex, module] of value.functions.entries()) {
+    if (!isRecord(module) || !Array.isArray(module.functions)) continue;
+    for (const [functionIndex, fn] of module.functions.entries()) {
+      if (!isRecord(fn) || fn.route === undefined || fn.route === null) continue;
+      return parseError(
+        `codegenAnalysis.functions[${moduleIndex}].functions[${functionIndex}].route is not supported in codegenAnalysis.`,
+      );
+    }
+  }
+  return { ok: true, value: undefined };
+}
+
+function backendValidatorJsonFromProtocol(value: ProtocolValidatorJson): BackendValidatorJson {
+  return backendRequiredValidatorJsonFromValidatorJson(validatorJsonFromProtocol(value));
+}
+
+function validatorJsonFromProtocol(value: ProtocolValidatorJson): ValidatorJSON {
+  switch (value.type) {
+    case "null":
+    case "number":
+    case "bigint":
+    case "boolean":
+    case "string":
+    case "bytes":
+    case "any":
+      return { type: value.type };
+    case "id":
+      return { type: "id", tableName: value.tableName };
+    case "literal":
+      return { type: "literal", value: value.value };
+    case "array":
+      return { type: "array", value: validatorJsonFromProtocol(value.value) };
+    case "object":
+      return {
+        type: "object",
+        value: Object.fromEntries(
+          Object.entries(value.value).map(([field, descriptor]) => [
+            field,
+            {
+              fieldType: validatorJsonFromProtocol(descriptor.fieldType),
+              optional: descriptor.optional,
+            },
+          ]),
+        ),
+      };
+    case "record":
+      return {
+        type: "record",
+        keys: validatorJsonFromProtocol(value.keys),
+        values: validatorJsonFromProtocol(value.values),
+      };
+    case "union":
+      return { type: "union", value: value.value.map(validatorJsonFromProtocol) };
+    default:
+      value satisfies never;
+      return value;
+  }
 }
 
 function diagnosticsFromBody(body: unknown): AnalyzerDiagnostic[] {
@@ -958,7 +701,7 @@ function parseDevPushStatus(value: unknown): DevPushStatus {
     );
   }
   const backendAnalysis = "analysis" in value
-    ? backendDeploymentAnalysis(value.analysis, "analysis")
+    ? decodeProtocolDeploymentAnalysis(value.analysis)
     : undefined;
   if (backendAnalysis !== undefined && !backendAnalysis.ok) {
     throw new ExecutionArtifactAnalysisError(

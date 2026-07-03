@@ -28,31 +28,72 @@ Source roadmap:
 - [x] G-6. Complete A-6: forged function metadata and source-module mismatch tests.
 - [x] G-7. Complete A-7: local dev deploy/codegen uses authoritative backend
   analysis when a backend is configured.
-- [ ] G-8. Complete A-8: final audit and cleanup.
+- [x] G-8. Complete A-8: final audit and cleanup.
 
 ## Current Slice
 
-### G-7 / A-7: Backend-Configured Local Deploy And Codegen Use Authoritative Analysis
+### G-8 / A-8: Final Audit And Cleanup
 
 Status: completed in this code checkpoint.
 
 Purpose:
 
-Align local dev deploy/codegen with authoritative backend analysis when a
-backend is configured.
+Complete the authoritative-analysis Effect-quality stream by removing the last
+duplicate dev-side contract parser and recording the final boundary audit.
 
 Decision:
 
-- Backend-configured codegen and deploy already start from the source-only
-  push path and use backend-returned `codegenAnalysis` for final generated
-  files.
-- This checkpoint tightens that contract: high-level codegen/deploy now also
-  requires backend deployment `analysis` before treating a backend push as
-  analyzed.
-- Low-level HTTP/local push status parsing can still represent partial push
-  statuses for diagnostics, but `generateFlarex`, `dryRunFlarexCodegen`, and
-  `deployFlarex` do not silently fall back to local analysis when a backend
-  push coordinator is configured.
+- `backendPush.ts` no longer manually reparses nested deployment analysis and
+  codegen analysis shapes. It delegates those public contract boundaries to the
+  shared `flarex-protocol/deployment` Effect decoders.
+- The dev push status envelope remains locally parsed because it is adapter
+  state and may represent partial diagnostics or in-progress pushes.
+- Codegen-only restrictions remain local to dev codegen: route metadata is
+  rejected and table validators are still required for generated code.
+- Reviewer feedback on duplicate backend validator conversion was resolved by
+  delegating backend validator mapping back to `@flarex/analysis`.
+- The Vite watcher generated-output typecheck assertion now waits long enough
+  for the spawned TypeScript process to fail on slower local runs.
+- The remaining generated analyzer worker string is host adapter mechanics
+  only. Runtime marker inspection remains invocation adapter validation, not a
+  deployment analysis authority path.
+
+Files changed:
+
+- `packages/flarex-dev/src/backendPush.ts`
+- `packages/flarex-dev/test/backendPush.test.ts`
+- `packages/flarex-dev/test/vite.test.ts`
+- `roadmaps/28-authoritative-analysis-effect-quality.md`
+- this file
+
+Validation gates:
+
+```sh
+corepack pnpm --filter @flarex/analysis typecheck
+corepack pnpm --filter @flarex/analysis test
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+git diff --check
+```
+
+Review gate:
+
+- Required because this is the final code audit before closing the
+  authoritative-analysis quality stream.
+
+## Previous Slice
+
+### G-7 / A-7: Backend-Configured Local Deploy And Codegen Use Authoritative Analysis
+
+Status: completed and committed in `8ca76af`
+(`Require backend analysis for configured codegen`).
+
+Purpose:
+
+Align local dev deploy/codegen with authoritative backend analysis when a
+backend is configured.
 
 Files changed:
 
@@ -75,63 +116,25 @@ git diff --check
 
 Review gate:
 
-- Required because this changes high-level backend-configured codegen/deploy
-  acceptance behavior.
-
-## Previous Slice
-
-### G-6 / A-6: Forged Analysis And Source/Analysis Mismatch Tests
-
-Status: completed and committed in `4fe6cde`
-(`Reject source-mismatched analyzed functions`).
-
-Purpose:
-
-Prove forged or source-mismatched analyzed metadata is rejected before
-activation where the DeploymentDO boundary has enough source-package evidence
-to validate it.
-
-Files changed:
-
-- `packages/flarex-backend/src/deployment/Validation.ts`
-- `packages/flarex-backend/test/deploymentValidation.test.ts`
-- `packages/flarex-backend/test/push.test.ts`
-- `roadmaps/28-authoritative-analysis-effect-quality.md`
-- this file
-
-Validation gates:
-
-```sh
-corepack pnpm --filter @flarex/analysis typecheck
-corepack pnpm --filter @flarex/analysis test
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/deploymentValidation.test.ts test/push.test.ts -t "source package|forged|declared by source package|stores a candidate|supersedes|moves the active execution artifact|persists partition selector metadata" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
-corepack pnpm --filter flarex-backend test
-git diff --check
-```
-
-Review gate:
-
 - Required and completed in the committed slice.
 
 ## Next Slice
 
-### G-8 / A-8: Final Audit And Cleanup
+### Completion Audit
 
-Status: next.
+Status: pending validation, reviewer pass, and commit.
 
 Purpose:
 
-Complete the final authoritative-analysis quality audit and remove or document
-remaining duplicate analyzer semantics.
+No unchecked implementation slices remain. After this checkpoint validates,
+passes reviewers, and is committed, close the active goal.
 
-Expected implementation:
+Completion evidence to verify before closing:
 
-- confirm no duplicate analyzer semantic helpers remain outside
-  `@flarex/analysis` except host adapter shells;
-- confirm remaining generated worker source is adapter mechanics only;
-- run the full relevant analysis/backend/dev validation set;
-- resolve reviewer findings and record the final migration-quality state.
+- Roadmap A-8 and goal G-8 are checked.
+- Full relevant validation has passed.
+- Both standing reviewers have no unresolved blocking findings.
+- The final A-8 checkpoint is committed.
 
 Validation gates:
 
@@ -172,16 +175,16 @@ Each implementation turn follows this protocol:
 Before marking a code slice complete, confirm:
 
 - [x] No trusted hosted path accepts client-produced analysis as authority.
-- [ ] Shared analyzer functions are typed, named, and tested independently of
+- [x] Shared analyzer functions are typed, named, and tested independently of
   Miniflare or Cloudflare bindings.
-- [ ] Domain failures use tagged errors emitted at the source boundary.
-- [ ] Adapter boundaries own HTTP response conversion and runtime execution.
-- [ ] Schema decoders are hoisted and reusable.
-- [ ] `ValidatorJson` semantics remain unchanged.
+- [x] Domain failures use tagged errors emitted at the source boundary.
+- [x] Adapter boundaries own HTTP response conversion and runtime execution.
+- [x] Schema decoders are hoisted and reusable.
+- [x] `ValidatorJson` semantics remain unchanged.
 - [x] Local dev and hosted paths share analyzer semantics while keeping host
   mechanics separate.
 - [x] Focused tests and package typecheck pass.
-- [ ] Reviewer findings are resolved or explicitly rejected with rationale.
+- [x] Reviewer findings are resolved or explicitly rejected with rationale.
 
 ## Completed Checkpoints
 
@@ -189,3 +192,7 @@ Before marking a code slice complete, confirm:
   and hosted artifact lifecycle parity stream before this goal began.
 - `7b14f30` (`Plan authoritative analysis Effect quality goal`) created the
   current authoritative analysis goal files.
+- `4fe6cde` (`Reject source-mismatched analyzed functions`) completed forged
+  analysis and source/analysis mismatch coverage.
+- `8ca76af` (`Require backend analysis for configured codegen`) completed
+  backend-configured codegen/deploy authority alignment.

@@ -106,7 +106,7 @@ describe("flarex Vite plugin", () => {
 
       await waitFor(() => errors.some(error =>
         error.includes("Generated output typecheck failed."),
-      ));
+      ), 30000);
     } finally {
       await server?.close();
       await removeRoot(root);
@@ -164,10 +164,10 @@ async function removeRoot(root: string): Promise<void> {
   }
 }
 
-async function waitFor(assertion: () => boolean): Promise<void> {
+async function waitFor(assertion: () => boolean, timeoutMs = 5000): Promise<void> {
   const started = Date.now();
   while (!assertion()) {
-    if (Date.now() - started > 5000) {
+    if (Date.now() - started > timeoutMs) {
       throw new Error("Timed out waiting for assertion.");
     }
     await new Promise(resolve => setTimeout(resolve, 10));

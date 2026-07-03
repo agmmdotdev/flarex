@@ -118,7 +118,7 @@ Every implementation slice in this stream must satisfy these rules:
   - Local-only mode may still analyze locally for speed.
   - Backend deploy mode must consume backend-returned `codegenAnalysis` for
     final generated files.
-- [ ] A-8. Final audit and cleanup.
+- [x] A-8. Final audit and cleanup.
   - Confirm no duplicate analyzer semantic helpers remain outside the shared
     analyzer module.
   - Confirm remaining string-generated worker code is only a host adapter shell.
@@ -408,43 +408,60 @@ git diff --check
 
 ## Current Checkpoint
 
-Previous completed checkpoint: `4fe6cde` (`Reject source-mismatched analyzed
-functions`).
+Previous completed checkpoint: `8ca76af` (`Require backend analysis for
+configured codegen`).
 
 What changed in this checkpoint:
 
-- Confirmed backend-configured `generateFlarex`, `dryRunFlarexCodegen`, and
-  `deployFlarex` already use the source-only backend push path and
-  backend-returned `codegenAnalysis` for final generated files.
-- Tightened the high-level analyzed-push contract so backend-configured
-  codegen/deploy also requires backend deployment `analysis` before final
-  generated files are written.
-- Added regression coverage for incomplete backend push responses that include
-  `codegenAnalysis` but omit backend `analysis`.
-- Updated CLI deploy fixtures so backend push start responses carry paired
-  deployment analysis and codegen analysis.
+- Removed the duplicate dev-side manual deployment analysis and codegen
+  analysis parser from `packages/flarex-dev/src/backendPush.ts`.
+- Replaced nested `analysis` and `codegenAnalysis` parsing with the shared
+  `flarex-protocol/deployment` Effect decoders, then converted the decoded
+  protocol values into the backend/dev runtime shapes without revalidating the
+  same public contract manually.
+- Resolved reviewer feedback by delegating backend validator mapping back to
+  `@flarex/analysis` instead of keeping a second recursive backend validator
+  converter in dev code.
+- Kept the low-level dev push envelope parser intentionally slim because local
+  polling and diagnostic states may not include a complete backend
+  `PushStatus`.
+- Preserved codegen-specific dev invariants that are not encoded by the shared
+  transport contract: route metadata remains unsupported for generated code,
+  and codegen table validators are still required.
+- Stabilized the Vite watcher generated-output typecheck test by giving the
+  asynchronous watcher assertion enough time for the spawned TypeScript process
+  to fail on slower runs.
+- Audited the generated analyzer worker source and confirmed it now imports
+  shared analyzer semantics from `@flarex/analysis`; the remaining worker
+  string code is host mechanics for module loading, deterministic globals,
+  diagnostics, and response dispatch.
+- Audited runtime execution marker checks in `GeneratedWorkerSource.ts` and
+  kept them out of this slice. They validate invocation adapter metadata at
+  runtime; they are not a second deployment analyzer authority.
 
 Known limitations:
 
-- Low-level HTTP/local push status parsing still accepts partial push statuses
-  so diagnostics and in-progress states can be represented. The stricter rule
-  applies when high-level codegen/deploy treats a backend-configured push as
-  ready for generated output.
-- Final duplicate-semantic-helper cleanup remains A-8.
+- Runtime workers still inspect function markers such as `isPublic`,
+  `isInternal`, and function kind flags before invocation. That belongs to the
+  execution adapter and does not replace stored backend deployment metadata.
+- Backend deployment validation still checks persisted deployment metadata and
+  activation invariants. That remains a store/adapter boundary, not analyzer
+  semantic duplication.
 
 Convex references:
 
-- No new Convex files were needed beyond the A-1 audit. This slice keeps the
-  Convex-shaped authority rule: final generated metadata in backend-configured
-  flows comes from backend analysis results, not a client-side fallback.
+- No new Convex files were needed beyond the A-1 audit. This final checkpoint
+  completes the same authority shape recorded there: source is analyzed by a
+  backend-controlled analyzer, stored analyzed metadata becomes runtime
+  authority, and local tooling can share analyzer semantics without becoming
+  hosted authority.
 
 Cloudflare difference:
 
-- Flarex still exposes both local-only analysis for fast feedback and
-  backend-configured source-package push for hosted authority. This checkpoint
-  keeps that split adapter-owned while requiring the backend-configured path to
-  return both deployable analysis and codegen analysis before local generated
-  output is finalized.
+- Flarex keeps Cloudflare host adapters explicit: local Miniflare analysis for
+  fast feedback, hosted analyzer service binding for authority, Durable Object
+  push state for coordination, R2 artifact storage, and runtime workers for
+  invocation. The shared analyzer semantics now sit below those adapters.
 
 Verification:
 
@@ -452,7 +469,8 @@ Verification:
 corepack pnpm --filter @flarex/analysis typecheck
 corepack pnpm --filter @flarex/analysis test
 corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts test/cli.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev exec vitest run --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 git diff --check
 ```

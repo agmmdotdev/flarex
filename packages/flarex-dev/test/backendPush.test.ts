@@ -673,7 +673,7 @@ describe("backend push coordinator", () => {
       deploymentId: "deployment1",
       fetch: fetcher,
     }).analyze(testSourcePackage())).rejects.toMatchObject({
-      message: "codegenAnalysis.schema.version must be a number.",
+      message: "Deployment codegen analysis did not match the deployment protocol.",
       diagnostics: [{ level: "warn", message: "malformed codegen" }],
     });
   });
@@ -704,7 +704,7 @@ describe("backend push coordinator", () => {
       deploymentId: "deployment1",
       fetch: fetcher,
     }).analyze(testSourcePackage())).rejects.toMatchObject({
-      message: "codegenAnalysis.schema.tables[0].validator is invalid.",
+      message: "Deployment codegen analysis did not match the deployment protocol.",
       diagnostics: [{ level: "error", message: "validator decode failed" }],
     });
   });
