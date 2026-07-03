@@ -2,6 +2,8 @@
 
 ## Final Host-Kit Audit
 
+Completed checkpoint: `e6819f0` (`Audit shared artifact runtime host kit`).
+
 Previous completed checkpoint: `44c85d7` (`Mark adapter simplification slice complete`).
 
 What changed:

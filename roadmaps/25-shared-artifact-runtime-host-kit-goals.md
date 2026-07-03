@@ -53,7 +53,7 @@ Every implementation turn in this goal should follow this loop:
 
 ### G-8: Final Host-Kit Audit
 
-Status: completed in this turn; commit pending.
+Status: completed and committed in `e6819f0` (`Audit shared artifact runtime host kit`).
 
 Purpose:
 
