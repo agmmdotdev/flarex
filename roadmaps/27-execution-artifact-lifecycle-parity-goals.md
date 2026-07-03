@@ -22,6 +22,7 @@ Goal status:
 - [x] G-2. L-1 shared artifact ref/source-package validation.
   - Commit: `e482969` (`Share execution artifact ref validation`)
 - [x] G-3. L-2 shared artifact lifecycle payload helper.
+  - Commit: `3e2bd56` (`Share artifact runtime invoke payload builders`)
 - [ ] G-4. L-3 local dev lifecycle alignment.
 - [ ] G-5. L-4 hosted deploy/push lifecycle alignment.
 - [ ] G-6. L-5 cross-boundary lifecycle parity tests.
@@ -52,7 +53,8 @@ Every implementation turn in this goal should follow this loop:
 
 ### G-3 / L-2: Shared Artifact Lifecycle Payload Helper
 
-Status: implemented in this turn; commit pending.
+Status: completed and committed in `3e2bd56`
+(`Share artifact runtime invoke payload builders`).
 
 Purpose:
 
