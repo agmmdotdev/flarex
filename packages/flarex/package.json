@@ -13,6 +13,7 @@
     "./client": "./src/client.ts",
     "./react": "./src/react.ts",
     "./artifacts": "./src/artifacts.ts",
+    "./auth": "./src/auth.ts",
     "./ids": "./src/ids.ts",
     "./server": "./src/server.ts",
     "./validator-json": "./src/validatorJson.ts",

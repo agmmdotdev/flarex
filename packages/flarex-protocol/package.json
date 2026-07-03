@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./artifact-runtime": "./src/artifact-runtime.ts",
+    "./auth": "./src/auth.ts",
     "./connection": "./src/connection.ts",
     "./deployment": "./src/deployment.ts",
     "./execution": "./src/execution.ts",

@@ -140,7 +140,7 @@ identity mechanism is enabled.
 ## Implementation Slices
 
 - [x] I-0. Create this concrete roadmap and the matching turn checklist.
-- [ ] I-1. Public and protocol identity contracts.
+- [x] I-1. Public and protocol identity contracts.
   - Add public `UserIdentity`, `UserIdentityAttributes`, and `Auth` types to
     `packages/flarex/src`.
   - Add `ExecutionIdentity` transport schemas and helpers to
@@ -174,8 +174,9 @@ identity mechanism is enabled.
     only through the configured resolver path.
   - Keep production JWT verification out of scope unless this slice explicitly
     adds the provider config.
-- [ ] I-6. Sync `Authenticate` and identity version v1.
-  - Add `Authenticate` and `AuthError` messages to the Flarex sync protocol.
+- [ ] I-6. Sync auth behavior and identity version v1.
+  - Wire existing `Authenticate` and `AuthError` message shapes to backend
+    identity behavior.
   - Track identity version in `ConnectionDO`.
   - On identity change, conservatively rerun all active queries for that
     connection.
@@ -253,26 +254,48 @@ closing the stream.
 
 ## Current Checkpoint
 
-Previous completed checkpoint: `6c9ce28` (`Enforce Effect runtime boundaries`).
+Previous completed checkpoint: `e3f1c30` (`Plan hosted project identity auth`).
 
 What changed:
 
-- Created the hosted project identity and auth roadmap.
-- Chose Convex's `UserIdentity | null` semantics for `ctx.auth.getUserIdentity()`.
-- Chose a staged implementation that starts with public/protocol contracts,
-  then backend/executor propagation, then generated runtime support, then sync
-  identity versioning.
-- Explicitly deferred full JWT provider validation, dashboard ownership,
-  deploy-key acting identities, scheduler, and storage capabilities.
+- Added public SDK `Auth`, `UserIdentity`, `UserIdentityAttributes`, and
+  `JSONValue` types.
+- Added `auth` to query, mutation, partition-scoped mutation, and action
+  contexts.
+- Added protocol `UserIdentity` and `ExecutionIdentity` schemas plus Effect
+  decode helpers.
+- Added auth protocol tests for anonymous identity, user identity, custom
+  claims, and malformed identity rejection.
+- Re-exported auth contracts from package root, `flarex/server`, and
+  `flarex-protocol`.
+- Added an analysis type guard test so public SDK identity types stay
+  compatible with protocol identities.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/authentication.ts`
+- `npm-packages/convex/src/server/registration.ts`
+- `npm-packages/convex/src/browser/sync/protocol.ts`
+- `npm-packages/convex/src/browser/sync/local_state.ts`
+- `npm-packages/convex/src/browser/sync/authentication_manager.ts`
 
 Known limitations:
 
-- This is a planning checkpoint only. No runtime identity code has been added.
+- Runtime identity propagation has not been added yet.
 - Existing hosted generated runtime still throws for `ctx.auth`.
-- Existing sync protocol still has no `Authenticate` message.
+- Existing sync protocol has an `Authenticate` skeleton, but identity changes
+  are not yet wired to backend resolver or live-query reruns.
+- Hosted production still defaults to anonymous identity until the resolver
+  slice is implemented.
 
 Verification:
 
 ```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test -- registration.test.ts
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test -- auth.test.ts
+corepack pnpm --filter @flarex/analysis typecheck
+corepack pnpm --filter @flarex/analysis test -- auth-contract.test.ts
 git diff --check
 ```

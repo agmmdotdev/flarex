@@ -1,4 +1,5 @@
 import { isValidator, v } from "./values";
+import type { Auth } from "./auth";
 import type {
   GenericValidator,
   Id,
@@ -120,10 +121,12 @@ export type RunMutation = <
 
 export type QueryCtx<DataModel extends GenericDataModel = AnyDataModel> = {
   db: DatabaseReader<DataModel>;
+  auth: Auth;
   runQuery: RunQuery;
 };
 export type MutationCtx<DataModel extends GenericDataModel = AnyDataModel> = {
   db: DatabaseWriter<DataModel>;
+  auth: Auth;
   runQuery: RunQuery;
   runMutation: RunMutation;
 };
@@ -133,6 +136,7 @@ export type MutationCtxForTables<
     TableNamesInDataModel<DataModel>,
 > = {
   db: DatabaseWriterForTables<DataModel, WritableTables>;
+  auth: Auth;
   runQuery: RunQuery;
   runMutation: RunMutation;
 };
@@ -145,6 +149,7 @@ export type MutationCtxForPartition<
   WritableTablesForPartition<DataModel, Scopes, Partition>
 >;
 export type ActionCtx<DataModel extends GenericDataModel = AnyDataModel> = {
+  auth: Auth;
   runQuery: RunQuery;
   runMutation: RunMutation;
 };
@@ -470,6 +475,12 @@ export {
 } from "./ids";
 export { createQueryInitializer, paginationOptsValidator } from "./query";
 export type { ParsedFlarexId } from "./ids";
+export type {
+  Auth,
+  UserIdentity,
+  UserIdentityAttributes,
+  JSONValue,
+} from "./auth";
 export type {
   DatabaseQueryExecutor,
   DatabaseQueryRequest,

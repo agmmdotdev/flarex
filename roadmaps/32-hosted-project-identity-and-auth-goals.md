@@ -16,13 +16,13 @@ Source roadmap:
 ## Goal Status
 
 - [x] G-0. Create the concrete hosted project identity and auth roadmap.
-- [ ] G-1. Start the long-running Codex goal for this implementation stream.
-- [ ] G-2. Complete I-1: public and protocol identity contracts.
+- [x] G-1. Start the long-running Codex goal for this implementation stream.
+- [x] G-2. Complete I-1: public and protocol identity contracts.
 - [ ] G-3. Complete I-2: backend identity resolver and invoke payload propagation.
 - [ ] G-4. Complete I-3: trusted executor session identity.
 - [ ] G-5. Complete I-4: generated runtime `ctx.auth`.
 - [ ] G-6. Complete I-5: HTTP client identity propagation.
-- [ ] G-7. Complete I-6: sync `Authenticate` and identity version v1.
+- [ ] G-7. Complete I-6: sync auth behavior and identity version v1.
 - [ ] G-8. Complete I-7: auth-aware live-query metadata.
 - [ ] G-9. Complete I-8: auth provider platform planning checkpoint.
 
@@ -30,7 +30,7 @@ Source roadmap:
 
 ### G-1: Start Goal
 
-Status: pending.
+Status: complete.
 
 Purpose:
 
@@ -43,7 +43,7 @@ Exit criteria:
 
 ### G-2 / I-1: Public And Protocol Identity Contracts
 
-Status: pending.
+Status: complete.
 
 Purpose:
 
@@ -60,6 +60,7 @@ Files expected:
 - `packages/flarex-protocol/src/auth.ts`
 - `packages/flarex-protocol/src/index.ts`
 - `packages/flarex-protocol/test/auth.test.ts`
+- `packages/analysis/test/auth-contract.test.ts`
 - `roadmaps/31-hosted-project-identity-and-auth.md`
 - this file
 
@@ -78,6 +79,8 @@ corepack pnpm --filter flarex typecheck
 corepack pnpm --filter flarex test
 corepack pnpm --filter flarex-protocol typecheck
 corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter @flarex/analysis typecheck
+corepack pnpm --filter @flarex/analysis test -- auth-contract.test.ts
 git diff --check
 ```
 
@@ -86,14 +89,73 @@ Review gate:
 - Required, because this changes public SDK types and shared protocol
   contracts.
 
-## Later Slices
+Completed this turn:
+
+- Added public SDK `Auth`, `UserIdentity`, `UserIdentityAttributes`, and
+  `JSONValue` types.
+- Added `auth` to query, mutation, partition-scoped mutation, and action
+  contexts.
+- Added protocol `UserIdentity` and `ExecutionIdentity` schemas plus Effect
+  decode helpers.
+- Added auth protocol tests for anonymous identity, user identity, custom
+  claims, and malformed identity rejection.
+- Re-exported auth contracts from package root, `flarex/server`, and
+  `flarex-protocol`.
+- Added an analysis type guard test so public SDK identity types stay
+  compatible with protocol identities.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/authentication.ts`
+- `npm-packages/convex/src/server/registration.ts`
+- `npm-packages/convex/src/browser/sync/protocol.ts`
+- `npm-packages/convex/src/browser/sync/local_state.ts`
+- `npm-packages/convex/src/browser/sync/authentication_manager.ts`
+
+Validation:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test -- registration.test.ts
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test -- auth.test.ts
+corepack pnpm --filter @flarex/analysis typecheck
+corepack pnpm --filter @flarex/analysis test -- auth-contract.test.ts
+```
+
+Reviewer gate:
+
+- `typescript-diff-reviewer`: fixed nested JSON and protocol plain-object
+  guard findings.
+- `code-quality-diff-reviewer`: fixed public/protocol drift guard and roadmap
+  wording findings.
 
 ### G-3 / I-2: Backend Identity Resolver And Invoke Payload Propagation
 
-- Add backend identity resolver.
-- Add trusted internal/dev identity input path.
-- Extend artifact-runtime invoke payloads with `ExecutionIdentity`.
-- Preserve capability-token and internal-token auth boundaries.
+Status: next.
+
+Purpose:
+
+Thread the newly defined `ExecutionIdentity` from trusted backend boundaries
+into artifact runtime invoke payloads while keeping hosted production
+anonymous until a backend-owned resolver validates identity.
+
+Expected files:
+
+- `packages/flarex-backend/src/project.ts`
+- `packages/flarex-backend/src/artifactRuntime/*`
+- `packages/flarex-protocol/src/invoke.ts`
+- backend and protocol tests
+- both roadmap files
+
+Initial constraints:
+
+- Anonymous identity is the default.
+- Hosted production must not trust arbitrary client identity JSON.
+- Capability-token and internal-token checks must remain before identity
+  reaches executor/user code.
+
+## Later Slices
 
 ### G-4 / I-3: Trusted Executor Session Identity
 
@@ -113,9 +175,10 @@ Review gate:
 - Propagate identity/token through configured backend resolver path.
 - Preserve anonymous execution by default.
 
-### G-7 / I-6: Sync `Authenticate` And Identity Version V1
+### G-7 / I-6: Sync Auth Behavior And Identity Version V1
 
-- Add `Authenticate` and `AuthError` messages.
+- Wire existing `Authenticate`/`AuthError` message shapes into backend identity
+  behavior.
 - Track identity version in `ConnectionDO`.
 - Rerun active connection queries on auth change.
 

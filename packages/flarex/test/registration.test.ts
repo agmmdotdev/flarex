@@ -10,7 +10,9 @@ import {
   type DefaultFunctionArgs,
   type FunctionReference,
   type MutationBuilder,
+  type UserIdentity,
 } from "../src/server";
+import type { Auth } from "../src/auth";
 import { v, type Id } from "../src/values";
 
 type ScopedTestDataModel = {
@@ -165,6 +167,9 @@ describe("Convex-style function registration", () => {
     query({
       args: { userId: v.id("users") },
       handler: async (ctx, args) => {
+        expectTypeOf(ctx.auth).toEqualTypeOf<Auth>();
+        const identity = await ctx.auth.getUserIdentity();
+        expectTypeOf(identity).toEqualTypeOf<UserIdentity | null>();
         const user = await ctx.runQuery(internalUserQuery, { userId: args.userId });
         const count = await ctx.runQuery(internalNoArgsQuery);
         expectTypeOf(user).toEqualTypeOf<{ name: string }>();

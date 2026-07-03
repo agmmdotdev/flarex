@@ -1,5 +1,6 @@
 export * from "./client";
 export * from "./api";
+export * from "./auth";
 export * from "./dataModel";
 export * from "./ids";
 export * from "./query";
