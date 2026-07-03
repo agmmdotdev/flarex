@@ -108,11 +108,11 @@ Every implementation slice in this stream must satisfy these rules:
     an internal-only dispatch path before removal.
   - Keep local dev usable through the source-only push path or an explicitly
     trusted local harness.
-- [ ] A-6. Add forged-analysis and source/analysis mismatch tests.
-  - Prove public clients cannot activate analysis that was not produced by the
-    backend analyzer path.
-  - Prove mismatched source package, schema, function metadata, or codegen
-    analysis is rejected before activation.
+- [x] A-6. Add forged-analysis and source/analysis mismatch tests.
+  - Prove public clients cannot activate function metadata for modules absent
+    from `sourcePackage.functions`.
+  - Prove mismatched codegen analysis is rejected before activation, while
+    leaving schema/source-byte proof to analyzer-authoritative paths.
 - [ ] A-7. Align local dev codegen and deploy with authoritative backend
   analysis where a backend is configured.
   - Local-only mode may still analyze locally for speed.
@@ -408,42 +408,43 @@ git diff --check
 
 ## Current Checkpoint
 
-Previous completed checkpoint: `9e89cad` (`Share backend analyzer response
-contract`).
+Previous completed checkpoint: `c51bc6a` (`Protect direct analyzed start
+push`).
 
 What changed in this checkpoint:
 
-- Added `FLAREX_ANALYZED_START_TOKEN` and a typed
-  `PublicAnalyzedStartAuthorizationError` guard for public direct
-  `/push/start-analyzed` traffic.
-- The public Worker rejects direct analyzed-start requests before JSON parsing
-  unless the caller sends `Authorization: Bearer <token>`.
-- Backend-owned source-only `/push/start` still uses `FLAREX_ANALYZER`, stores
-  the analyzed source artifact, and forwards to the DeploymentDO internal
-  start-analyzed route without requiring the public direct-route token.
-- Test and local-dev harnesses now opt into the prototype/internal path through
-  an explicit test bearer token.
+- Added a deployment validation invariant that analyzed function metadata must
+  refer only to modules declared by `sourcePackage.functions`.
+- The invariant runs at the analyzed-start service-input boundary and when
+  stored analyzed push rows are decoded, so route handlers and persistence
+  preflight share the same check.
+- Added coverage for a forged direct analyzed-start request that submits
+  `lessons:list` analysis while the source package declares only `other.js`.
+- Kept existing codegen-vs-analysis mismatch coverage and updated test
+  fixtures so active, partitioned, and artifact-ref pushes use source packages
+  whose function modules match their analyzed metadata.
 
 Known limitations:
 
-- The route still exists as internal/prototype plumbing for tests and trusted
-  platform callers. Full forged-analysis and source/analysis mismatch
-  assertions remain A-6.
-- A future cleanup may remove the public route entirely once all dev and
-  platform flows use source-only push or internal service dispatch.
+- This slice does not attempt to reconstruct schema semantics from source bytes
+  at the DeploymentDO boundary. Hosted schema authority still comes from the
+  backend analyzer path; direct analyzed-start remains trusted platform/test
+  plumbing guarded by A-5.
+- Local dev backend-configured deploy/codegen alignment remains A-7.
 
 Convex references:
 
-- No new Convex files were needed beyond the A-1 audit. This slice continues
-  the Convex-shaped boundary where analyzed deployment metadata is backend
-  authority, not a normal public client input.
+- No new Convex files were needed beyond the A-1 audit. This slice tightens
+  the Convex-shaped boundary by tying function metadata to the submitted source
+  package module list before activation.
 
 Cloudflare difference:
 
 - Hosted analyzer output still flows through Worker service bindings and
   Durable Object push state.
-- Direct analyzed-start traffic is now visibly outside the normal hosted public
-  developer path and must be explicitly authorized.
+- Cloudflare cannot prove arbitrary schema bytes at this boundary without
+  rerunning the analyzer, so this slice enforces the source/package function
+  relationship that is available in the analyzed-start payload.
 
 Verification:
 
@@ -451,7 +452,7 @@ Verification:
 corepack pnpm --filter @flarex/analysis typecheck
 corepack pnpm --filter @flarex/analysis test
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/publicAnalyzedStartAuthorization.test.ts test/push.test.ts -t "public analyzed start authorization|keeps public start source-only|rejects malformed analyzed push request bodies" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentValidation.test.ts test/push.test.ts -t "source package|forged|declared by source package|stores a candidate|supersedes|moves the active execution artifact|persists partition selector metadata" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 corepack pnpm --filter flarex-backend test
 git diff --check
 ```

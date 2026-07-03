@@ -14,6 +14,7 @@ import {
   createBackendHarness,
   type BackendHarness,
 } from "./backendHarness";
+import { sourcePackageForFunctions } from "./sourcePackageFixtures";
 
 let harness: BackendHarness;
 let env: Env;
@@ -1110,7 +1111,11 @@ async function activateDeployment(
   functions: DeploymentFunctions,
 ): Promise<void> {
   const start = await startPush(deploymentId, {
-    sourcePackage: sourcePackageForFunctions(functions),
+    sourcePackage: sourcePackageForFunctions(functions, {
+      execution: "__flarex_execution.js",
+      schema: "__flarex_schema.js",
+      includeModuleSource: false,
+    }),
     analysis: { schema, functions },
   });
   const response = await harness.mf.dispatchFetch(
@@ -1141,23 +1146,6 @@ async function startPush(
   );
   expect(response.ok).toBe(true);
   return response.json() as Promise<PushStatus>;
-}
-
-function sourcePackageForFunctions(functions: DeploymentFunctions): AnalyzedStartPushRequest["sourcePackage"] {
-  const functionModules = [
-    ...new Set(functions.functions.map(fn => `${fn.path.split(":")[0]}.js`)),
-  ].sort();
-  const modules = ["__flarex_execution.js", "__flarex_schema.js", ...functionModules].map(path => ({
-    path,
-    environment: "isolate" as const,
-    sha256: "0".repeat(64),
-  }));
-  return {
-    modules,
-    functions: functionModules,
-    schema: "__flarex_schema.js",
-    execution: "__flarex_execution.js",
-  };
 }
 
 async function startExecution(

@@ -25,32 +25,70 @@ Source roadmap:
   consumption.
 - [x] G-5. Complete A-5: direct `/push/start-analyzed` is protected, internal,
   or removed from normal public hosted flow.
-- [ ] G-6. Complete A-6: forged-analysis and source/analysis mismatch tests.
+- [x] G-6. Complete A-6: forged function metadata and source-module mismatch tests.
 - [ ] G-7. Complete A-7: local dev deploy/codegen uses authoritative backend
   analysis when a backend is configured.
 - [ ] G-8. Complete A-8: final audit and cleanup.
 
 ## Current Slice
 
-### G-5 / A-5: Protect Direct Analyzed Start Push
+### G-6 / A-6: Forged Analysis And Source/Analysis Mismatch Tests
 
 Status: completed in this code checkpoint.
 
 Purpose:
 
-Protect normal hosted public flow from trusting client-produced analysis through
-direct `/push/start-analyzed` requests.
+Prove forged or source-mismatched analyzed metadata is rejected before
+activation where the DeploymentDO boundary has enough source-package evidence
+to validate it.
 
 Decision:
 
-- `FLAREX_ANALYZED_START_TOKEN` gates public direct analyzed-start traffic.
-- Missing tokens and wrong bearer credentials fail with a typed
-  `PublicAnalyzedStartAuthorizationError` mapped to a public 401 response.
-- Authorization happens before analyzed-start JSON parsing.
-- Backend-owned source-only `/push/start` remains the normal public hosted path
-  and continues through `FLAREX_ANALYZER`.
-- Tests that intentionally use direct analyzed-start now do so through an
-  explicit test harness token.
+- Analyzed function metadata must refer only to modules declared by
+  `sourcePackage.functions`.
+- The invariant is enforced at analyzed-start service-input decode time and
+  stored-row decode time.
+- A forged direct analyzed-start request that declares only `other.js` but
+  submits `lessons:list` analysis is rejected with a typed deployment
+  validation error and cannot create an active deployment.
+- Existing codegen-vs-analysis mismatch tests continue to prove mismatched
+  codegen metadata is rejected before activation.
+
+Files changed:
+
+- `packages/flarex-backend/src/deployment/Validation.ts`
+- `packages/flarex-backend/test/deploymentValidation.test.ts`
+- `packages/flarex-backend/test/push.test.ts`
+- `roadmaps/28-authoritative-analysis-effect-quality.md`
+- this file
+
+Validation gates:
+
+```sh
+corepack pnpm --filter @flarex/analysis typecheck
+corepack pnpm --filter @flarex/analysis test
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentValidation.test.ts test/push.test.ts -t "source package|forged|declared by source package|stores a candidate|supersedes|moves the active execution artifact|persists partition selector metadata" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
+Review gate:
+
+- Required because this changed activation-adjacent validation and rejection
+  behavior for analyzed deployment metadata.
+
+## Previous Slice
+
+### G-5 / A-5: Protect Direct Analyzed Start Push
+
+Status: completed and committed in `c51bc6a`
+(`Protect direct analyzed start push`).
+
+Purpose:
+
+Protect normal hosted public flow from trusting client-produced analysis through
+direct `/push/start-analyzed` requests.
 
 Files changed:
 
@@ -82,68 +120,27 @@ git diff --check
 
 Review gate:
 
-- Required because this changed public route trust-boundary behavior and had to
-  preserve source-only push behavior while rejecting untrusted analyzed
-  metadata.
-
-## Previous Slice
-
-### G-4 / A-4: Backend Analyzer Response Path Proves Shared Contract Consumption
-
-Status: completed and committed in `9e89cad`
-(`Share backend analyzer response contract`).
-
-Purpose:
-
-Make the hosted backend analyzer response path consume the same shared analyzer
-contract and typed validation helpers rather than relying only on backend-local
-response validation.
-
-Files changed:
-
-- `packages/analysis/src/index.ts`
-- `packages/analysis/test/analyzer.test.ts`
-- `packages/flarex-backend/package.json`
-- `packages/flarex-backend/src/backendAnalyzerResponse.ts`
-- `packages/flarex-backend/src/deployment/Validation.ts`
-- `pnpm-lock.yaml`
-- `roadmaps/28-authoritative-analysis-effect-quality.md`
-- this file
-
-Validation gates:
-
-```sh
-corepack pnpm --filter @flarex/analysis typecheck
-corepack pnpm --filter @flarex/analysis test
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend test
-git diff --check
-```
-
-Review gate:
-
 - Required and completed in the committed slice.
 
 ## Next Slice
 
-### G-6 / A-6: Forged Analysis And Source/Analysis Mismatch Tests
+### G-7 / A-7: Backend-Configured Local Deploy And Codegen Use Authoritative Analysis
 
 Status: next.
 
 Purpose:
 
-Prove public clients cannot activate analysis that was not produced by the
-backend analyzer path, and prove source/analysis mismatch cases fail before
-activation.
+Align local dev deploy/codegen with authoritative backend analysis when a
+backend is configured.
 
 Expected implementation:
 
-- add tests that try to activate direct analyzed-start payloads with forged or
-  mismatched schema/function/codegen metadata;
-- confirm unauthorized direct analyzed-start traffic still fails before parsing;
-- keep trusted internal/test direct analyzed-start coverage only where the
-  token is explicit;
-- preserve source-only `/push` behavior through `FLAREX_ANALYZER`.
+- inspect `packages/flarex-dev/src/backendPush.ts`, local deploy/codegen paths,
+  and backend runtime materializer tests;
+- ensure backend-configured deploy consumes backend-returned analysis and
+  `codegenAnalysis` rather than local-only analyzer output;
+- keep local-only mode using local analysis for fast feedback;
+- preserve shared analyzer semantics and hosted route trust-boundaries.
 
 Validation gates:
 
@@ -157,8 +154,8 @@ git diff --check
 
 Review gate:
 
-- Required because this will extend trust-boundary and activation-invariant
-  tests around deployment analysis.
+- Required because this will touch local deploy/codegen behavior and shared
+  local-vs-hosted analysis authority.
 
 ## Turn Protocol
 

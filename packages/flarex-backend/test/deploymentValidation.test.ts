@@ -245,6 +245,24 @@ describe("deployment validation", () => {
     });
   });
 
+  it("rejects analyzed function metadata not declared by the source package functions", async () => {
+    await expectDeploymentValidationEffectFailure(
+      decodeStartAnalyzedPushInput({
+        sourcePackage: sourcePackage(),
+        analysis: {
+          schema: simpleSchema(),
+          functions: {
+            functions: [{
+              path: "other:list",
+              kind: "query",
+            }],
+          },
+        },
+      }),
+      "Deployment function other:list is not declared by source package functions.",
+    );
+  });
+
   it("prepares failed start-push service input", () => {
     const input = startAnalyzedPushInput({
       sourcePackage: sourcePackage(),
@@ -1439,9 +1457,9 @@ function sourcePackage(): PushSourcePackage {
   return {
     modules: [
       sourceModule("convex/_generated/server.ts"),
-      sourceModule("functions/list.ts"),
+      sourceModule("messages.ts"),
     ],
-    functions: ["functions/list.ts"],
+    functions: ["messages.ts"],
     execution: "convex/_generated/server.ts",
   };
 }

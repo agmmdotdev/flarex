@@ -227,6 +227,7 @@ export const decodeStartAnalyzedPushInput = Effect.fn(
     hasCodegenAnalysis ? request.codegenAnalysis : codegenAnalysisFromDeploymentAnalysis(analysis),
     analysis,
   );
+  yield* validateDeploymentAnalysisSourcePackageEffect(sourcePackage, analysis);
   yield* decodeAnalyzerProtocolSuccessResponseEffect({
     analysis,
     codegenAnalysis,
@@ -275,6 +276,9 @@ export const decodePushStatusFromRow = Effect.fn("DeploymentValidation.decodePus
       : storedCodegenAnalysis === undefined
         ? codegenAnalysisFromDeploymentAnalysis(storedAnalysis)
         : yield* decodeCodegenAnalysis(storedCodegenAnalysis, storedAnalysis);
+    if (storedAnalysis !== undefined) {
+      yield* validateDeploymentAnalysisSourcePackageEffect(sourcePackage, storedAnalysis);
+    }
 
     return {
       pushId: row.push_id,
@@ -629,6 +633,27 @@ const assertCodegenFunctionMatchesMetadataEffect = Effect.fn(
     return yield* deploymentValidationFailureEffect(`Codegen function ${path} must match deployment function metadata.`);
   }
 });
+
+const validateDeploymentAnalysisSourcePackageEffect = Effect.fn(
+  "DeploymentValidation.validateDeploymentAnalysisSourcePackageEffect",
+)(function* (
+  sourcePackage: PushSourcePackage,
+  analysis: DeploymentAnalysis,
+): Effect.fn.Return<void, DeploymentValidationError> {
+  const sourceFunctionModules = new Set(sourcePackage.functions.map(sourceFunctionModuleName));
+  for (const metadata of analysis.functions.functions) {
+    const { moduleName } = parseFunctionPath(metadata.path);
+    if (!sourceFunctionModules.has(moduleName)) {
+      return yield* deploymentValidationFailureEffect(
+        `Deployment function ${metadata.path} is not declared by source package functions.`,
+      );
+    }
+  }
+});
+
+function sourceFunctionModuleName(modulePath: string): string {
+  return modulePath.replace(/\.[^/.]+$/, "");
+}
 
 function functionPathFromCodegen(moduleName: string, exportName: string): string {
   return exportName === "default" ? moduleName : `${moduleName}:${exportName}`;

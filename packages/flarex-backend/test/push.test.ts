@@ -30,6 +30,7 @@ import {
   createBackendHarness,
   type BackendHarness,
 } from "./backendHarness";
+import { sourcePackageForFunctions } from "./sourcePackageFixtures";
 
 let harness: BackendHarness;
 const testDeploymentSchemas = new Map<string, DeploymentSchema>();
@@ -618,6 +619,29 @@ describe("deployment push lifecycle", () => {
     });
   });
 
+  it("rejects analyzed function metadata for modules outside the source package", async () => {
+    const forgedPackage = sourcePackage(undefined, "other.js");
+    const response = await startPushResponse("push-forged-analysis-module", {
+      sourcePackage: forgedPackage,
+      analysis: {
+        schema: candidateSchema(),
+        functions: candidateFunctions(),
+      },
+      codegenAnalysis: candidateCodegenAnalysis(),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Deployment function lessons:list is not declared by source package functions.",
+    });
+
+    const active = await getActiveDeploymentResponse("push-forged-analysis-module");
+    expect(active.status).toBe(404);
+    await expect(active.json()).resolves.toEqual({
+      error: "No active deployment.",
+    });
+  });
+
   it("does not expose legacy direct schema or functions metadata routes", async () => {
     for (const path of ["schema", "functions"]) {
       const response = await harness.mf.dispatchFetch(
@@ -634,7 +658,10 @@ describe("deployment push lifecycle", () => {
   });
 
   it("supersedes previous pending or analyzed pushes", async () => {
-    const first = await startPush("push-supersede", analyzedPush(activeSchema(), activeFunctions()));
+    const first = await startPush(
+      "push-supersede",
+      analyzedPush(activeSchema(), activeFunctions(), sourcePackage(undefined, "active.js")),
+    );
     const second = await startPush("push-supersede", analyzedPush(candidateSchema(), candidateFunctions()));
 
     await expect(getPush("push-supersede", first.pushId)).resolves.toMatchObject({
@@ -671,7 +698,7 @@ describe("deployment push lifecycle", () => {
   });
 
   it("moves the active execution artifact reference with each activated push", async () => {
-    const firstPackage = sourcePackage("d".repeat(64));
+    const firstPackage = sourcePackage("d".repeat(64), "active.js");
     const first = await startPush(
       "push-artifact-ref",
       analyzedPush(activeSchema(), activeFunctions(), firstPackage),
@@ -701,7 +728,11 @@ describe("deployment push lifecycle", () => {
   it("persists partition selector metadata from analyzed push metadata", async () => {
     const start = await startPush(
       "push-partition-metadata",
-      analyzedPush(partitionedTeamSchema(), partitionedTeamFunctions()),
+      analyzedPush(
+        partitionedTeamSchema(),
+        partitionedTeamFunctions(),
+        sourcePackage(undefined, "teams.js"),
+      ),
     );
 
     await finishPush("push-partition-metadata", start.pushId);
@@ -1054,7 +1085,10 @@ function analyzedPush(
   };
 }
 
-function sourcePackage(functionModuleHash = "c".repeat(64)): StartPushRequest["sourcePackage"] {
+function sourcePackage(
+  functionModuleHash = "c".repeat(64),
+  functionModulePath = "lessons.js",
+): StartPushRequest["sourcePackage"] {
   return {
     modules: [
       {
@@ -1070,13 +1104,13 @@ function sourcePackage(functionModuleHash = "c".repeat(64)): StartPushRequest["s
         source: "export default {};",
       },
       {
-        path: "lessons.js",
+        path: functionModulePath,
         environment: "isolate",
         sha256: functionModuleHash,
         source: "export const list = {};",
       },
     ],
-    functions: ["lessons.js"],
+    functions: [functionModulePath],
     schema: "_flarex/schema.js",
     execution: "_flarex/execution.js",
   };
@@ -1557,6 +1591,13 @@ async function activateTestDeployment(deploymentId: string): Promise<void> {
     indexes: [],
   };
   const functions = testDeploymentFunctions.get(deploymentId) ?? { functions: [] };
-  const start = await startPush(deploymentId, analyzedPush(schema, functions));
+  const start = await startPush(
+    deploymentId,
+    analyzedPush(
+      schema,
+      functions,
+      functions.functions.length === 0 ? sourcePackage() : sourcePackageForFunctions(functions),
+    ),
+  );
   await finishPush(deploymentId, start.pushId);
 }

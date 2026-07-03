@@ -66,6 +66,7 @@ import {
   createBackendHarness,
   type BackendHarness,
 } from "./backendHarness";
+import { sourcePackageForFunctions } from "./sourcePackageFixtures";
 
 let harness: BackendHarness;
 let env: Env;
@@ -2910,24 +2911,6 @@ function usersQuerySchema(): DeploymentSchema {
         fields: ["userId", "score"],
       },
     ],
-  };
-}
-
-function sourcePackageForFunctions(functions: DeploymentFunctions): AnalyzedStartPushRequest["sourcePackage"] {
-  const functionModules = [
-    ...new Set(functions.functions.map(fn => `${fn.path.split(":")[0]}.js`)),
-  ].sort();
-  const modules = ["_flarex/execution.js", "_flarex/schema.js", ...functionModules].map(path => ({
-    path,
-    environment: "isolate" as const,
-    sha256: "0".repeat(64),
-    source: "export default {};",
-  }));
-  return {
-    modules,
-    functions: functionModules,
-    schema: "_flarex/schema.js",
-    execution: "_flarex/execution.js",
   };
 }
 
