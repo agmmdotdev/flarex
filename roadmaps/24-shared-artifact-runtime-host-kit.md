@@ -2,6 +2,8 @@
 
 ## H-5 Shared Identity Helpers
 
+Completed checkpoint: `77a9f6e` (`Share artifact runtime identity helpers`).
+
 Previous completed checkpoint: `424cfde` (`Mark invoke boundary host kit slice complete`).
 
 What changed:

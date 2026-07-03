@@ -53,7 +53,7 @@ Every implementation turn in this goal should follow this loop:
 
 ### G-6 / H-5: Shared Identity Helpers
 
-Status: implemented in this turn; commit pending.
+Status: implemented and committed in `77a9f6e` (`Share artifact runtime identity helpers`).
 
 Purpose:
 
