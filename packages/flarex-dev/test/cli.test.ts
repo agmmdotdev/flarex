@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { FlarexGeneratedOutputTypecheckOptions } from "../src/generatedTypecheck";
 import { runFlarexDevCli } from "../src/cli";
 import type { DeploymentAnalysis } from "../src/analyze";
+import { backendAnalysisFromCodegenAnalysis } from "../src/backendPush";
 import type { SourcePackage } from "../src/sourcePackage";
 import { createMinimalFlarexProject } from "./fixtures";
 
@@ -156,7 +157,7 @@ describe("runFlarexDevCli", () => {
         body: init?.body === undefined ? null : JSON.parse(String(init.body)),
       });
       return Response.json({
-        analysis: { schema: analysis.schema, functions: { functions: [] } },
+        analysis: backendAnalysisFromCodegenAnalysis(analysis),
         codegenAnalysis: analysis,
       });
     });
@@ -212,7 +213,7 @@ describe("runFlarexDevCli", () => {
       return Response.json({
         pushId: "push1",
         state: "analyzed",
-        analysis: { schema: analysis.schema, functions: { functions: [] } },
+        analysis: backendAnalysisFromCodegenAnalysis(analysis),
         codegenAnalysis: analysis,
       });
     });
@@ -274,6 +275,7 @@ describe("runFlarexDevCli", () => {
         return Response.json({
           pushId: "push1",
           state: "analyzed",
+          analysis: backendAnalysisFromCodegenAnalysis(analysis),
           codegenAnalysis: analysis,
         });
       }
@@ -347,7 +349,7 @@ describe("runFlarexDevCli", () => {
         return Response.json({
           pushId: "push1",
           state: "analyzed",
-          analysis: { schema: analysis.schema, functions: { functions: [] } },
+          analysis: backendAnalysisFromCodegenAnalysis(analysis),
           codegenAnalysis: analysis,
         });
       }
@@ -407,7 +409,7 @@ describe("runFlarexDevCli", () => {
         return Response.json({
           pushId: "push1",
           state: "analyzed",
-          analysis: { schema: analysis.schema, functions: { functions: [] } },
+          analysis: backendAnalysisFromCodegenAnalysis(analysis),
           codegenAnalysis: analysis,
         });
       }
@@ -466,6 +468,7 @@ describe("runFlarexDevCli", () => {
         return Response.json({
           pushId: "push1",
           state: "analyzed",
+          analysis: backendAnalysisFromCodegenAnalysis(analysis),
           codegenAnalysis: analysis,
         });
       }
@@ -516,6 +519,7 @@ describe("runFlarexDevCli", () => {
         return Response.json({
           pushId: "push1",
           state: "analyzed",
+          analysis: backendAnalysisFromCodegenAnalysis(analysis),
           codegenAnalysis: analysis,
         });
       }
@@ -574,6 +578,7 @@ describe("runFlarexDevCli", () => {
         return Response.json({
           pushId: "push1",
           state: "analyzed",
+          analysis: backendAnalysisFromCodegenAnalysis(analysis),
           codegenAnalysis: analysis,
         });
       }
@@ -585,7 +590,7 @@ describe("runFlarexDevCli", () => {
               pushId: "push1",
               state: "analyzed",
               diagnostics: [{ level: "error", message: "artifact missing" }],
-              analysis: { schema: analysis.schema, functions: { functions: [] } },
+              analysis: backendAnalysisFromCodegenAnalysis(analysis),
               codegenAnalysis: analysis,
             },
             code: "missing_artifact",
@@ -654,6 +659,7 @@ describe("runFlarexDevCli", () => {
             started: {
               pushId: "push1",
               state: "analyzed",
+              analysis: backendAnalysisFromCodegenAnalysis(cliAnalysis()),
               codegenAnalysis: cliAnalysis(),
             },
             finished: { pushId: "push1", state: "activated" },
@@ -711,6 +717,7 @@ describe("runFlarexDevCli", () => {
             started: {
               pushId: "push1",
               state: "analyzed",
+              analysis: backendAnalysisFromCodegenAnalysis(cliAnalysis()),
               codegenAnalysis: cliAnalysis(),
             },
             finished: { pushId: "push1", state: "activated" },
@@ -728,7 +735,7 @@ describe("runFlarexDevCli", () => {
     const sourcePackage = cliSourcePackage();
     vi.stubGlobal("fetch", async () =>
       Response.json({
-        analysis: { schema: analysis.schema, functions: { functions: [] } },
+        analysis: backendAnalysisFromCodegenAnalysis(analysis),
         codegenAnalysis: analysis,
       }));
     try {
@@ -813,7 +820,7 @@ describe("runFlarexDevCli", () => {
     const sourcePackage = cliSourcePackage();
     vi.stubGlobal("fetch", async () =>
       Response.json({
-        analysis: { schema: analysis.schema, functions: { functions: [] } },
+        analysis: backendAnalysisFromCodegenAnalysis(analysis),
         codegenAnalysis: analysis,
       }));
     try {

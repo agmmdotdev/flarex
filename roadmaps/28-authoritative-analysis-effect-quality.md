@@ -113,7 +113,7 @@ Every implementation slice in this stream must satisfy these rules:
     from `sourcePackage.functions`.
   - Prove mismatched codegen analysis is rejected before activation, while
     leaving schema/source-byte proof to analyzer-authoritative paths.
-- [ ] A-7. Align local dev codegen and deploy with authoritative backend
+- [x] A-7. Align local dev codegen and deploy with authoritative backend
   analysis where a backend is configured.
   - Local-only mode may still analyze locally for speed.
   - Backend deploy mode must consume backend-returned `codegenAnalysis` for
@@ -408,43 +408,43 @@ git diff --check
 
 ## Current Checkpoint
 
-Previous completed checkpoint: `c51bc6a` (`Protect direct analyzed start
-push`).
+Previous completed checkpoint: `4fe6cde` (`Reject source-mismatched analyzed
+functions`).
 
 What changed in this checkpoint:
 
-- Added a deployment validation invariant that analyzed function metadata must
-  refer only to modules declared by `sourcePackage.functions`.
-- The invariant runs at the analyzed-start service-input boundary and when
-  stored analyzed push rows are decoded, so route handlers and persistence
-  preflight share the same check.
-- Added coverage for a forged direct analyzed-start request that submits
-  `lessons:list` analysis while the source package declares only `other.js`.
-- Kept existing codegen-vs-analysis mismatch coverage and updated test
-  fixtures so active, partitioned, and artifact-ref pushes use source packages
-  whose function modules match their analyzed metadata.
+- Confirmed backend-configured `generateFlarex`, `dryRunFlarexCodegen`, and
+  `deployFlarex` already use the source-only backend push path and
+  backend-returned `codegenAnalysis` for final generated files.
+- Tightened the high-level analyzed-push contract so backend-configured
+  codegen/deploy also requires backend deployment `analysis` before final
+  generated files are written.
+- Added regression coverage for incomplete backend push responses that include
+  `codegenAnalysis` but omit backend `analysis`.
+- Updated CLI deploy fixtures so backend push start responses carry paired
+  deployment analysis and codegen analysis.
 
 Known limitations:
 
-- This slice does not attempt to reconstruct schema semantics from source bytes
-  at the DeploymentDO boundary. Hosted schema authority still comes from the
-  backend analyzer path; direct analyzed-start remains trusted platform/test
-  plumbing guarded by A-5.
-- Local dev backend-configured deploy/codegen alignment remains A-7.
+- Low-level HTTP/local push status parsing still accepts partial push statuses
+  so diagnostics and in-progress states can be represented. The stricter rule
+  applies when high-level codegen/deploy treats a backend-configured push as
+  ready for generated output.
+- Final duplicate-semantic-helper cleanup remains A-8.
 
 Convex references:
 
-- No new Convex files were needed beyond the A-1 audit. This slice tightens
-  the Convex-shaped boundary by tying function metadata to the submitted source
-  package module list before activation.
+- No new Convex files were needed beyond the A-1 audit. This slice keeps the
+  Convex-shaped authority rule: final generated metadata in backend-configured
+  flows comes from backend analysis results, not a client-side fallback.
 
 Cloudflare difference:
 
-- Hosted analyzer output still flows through Worker service bindings and
-  Durable Object push state.
-- Cloudflare cannot prove arbitrary schema bytes at this boundary without
-  rerunning the analyzer, so this slice enforces the source/package function
-  relationship that is available in the analyzed-start payload.
+- Flarex still exposes both local-only analysis for fast feedback and
+  backend-configured source-package push for hosted authority. This checkpoint
+  keeps that split adapter-owned while requiring the backend-configured path to
+  return both deployable analysis and codegen analysis before local generated
+  output is finalized.
 
 Verification:
 
@@ -452,7 +452,7 @@ Verification:
 corepack pnpm --filter @flarex/analysis typecheck
 corepack pnpm --filter @flarex/analysis test
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/deploymentValidation.test.ts test/push.test.ts -t "source package|forged|declared by source package|stores a candidate|supersedes|moves the active execution artifact|persists partition selector metadata" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
-corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts test/cli.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 git diff --check
 ```

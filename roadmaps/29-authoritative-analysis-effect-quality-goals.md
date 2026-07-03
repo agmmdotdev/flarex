@@ -26,33 +26,70 @@ Source roadmap:
 - [x] G-5. Complete A-5: direct `/push/start-analyzed` is protected, internal,
   or removed from normal public hosted flow.
 - [x] G-6. Complete A-6: forged function metadata and source-module mismatch tests.
-- [ ] G-7. Complete A-7: local dev deploy/codegen uses authoritative backend
+- [x] G-7. Complete A-7: local dev deploy/codegen uses authoritative backend
   analysis when a backend is configured.
 - [ ] G-8. Complete A-8: final audit and cleanup.
 
 ## Current Slice
 
-### G-6 / A-6: Forged Analysis And Source/Analysis Mismatch Tests
+### G-7 / A-7: Backend-Configured Local Deploy And Codegen Use Authoritative Analysis
 
 Status: completed in this code checkpoint.
+
+Purpose:
+
+Align local dev deploy/codegen with authoritative backend analysis when a
+backend is configured.
+
+Decision:
+
+- Backend-configured codegen and deploy already start from the source-only
+  push path and use backend-returned `codegenAnalysis` for final generated
+  files.
+- This checkpoint tightens that contract: high-level codegen/deploy now also
+  requires backend deployment `analysis` before treating a backend push as
+  analyzed.
+- Low-level HTTP/local push status parsing can still represent partial push
+  statuses for diagnostics, but `generateFlarex`, `dryRunFlarexCodegen`, and
+  `deployFlarex` do not silently fall back to local analysis when a backend
+  push coordinator is configured.
+
+Files changed:
+
+- `packages/flarex-dev/src/generate.ts`
+- `packages/flarex-dev/test/generate.test.ts`
+- `packages/flarex-dev/test/cli.test.ts`
+- `roadmaps/28-authoritative-analysis-effect-quality.md`
+- this file
+
+Validation gates:
+
+```sh
+corepack pnpm --filter @flarex/analysis typecheck
+corepack pnpm --filter @flarex/analysis test
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts test/cli.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+git diff --check
+```
+
+Review gate:
+
+- Required because this changes high-level backend-configured codegen/deploy
+  acceptance behavior.
+
+## Previous Slice
+
+### G-6 / A-6: Forged Analysis And Source/Analysis Mismatch Tests
+
+Status: completed and committed in `4fe6cde`
+(`Reject source-mismatched analyzed functions`).
 
 Purpose:
 
 Prove forged or source-mismatched analyzed metadata is rejected before
 activation where the DeploymentDO boundary has enough source-package evidence
 to validate it.
-
-Decision:
-
-- Analyzed function metadata must refer only to modules declared by
-  `sourcePackage.functions`.
-- The invariant is enforced at analyzed-start service-input decode time and
-  stored-row decode time.
-- A forged direct analyzed-start request that declares only `other.js` but
-  submits `lessons:list` analysis is rejected with a typed deployment
-  validation error and cannot create an active deployment.
-- Existing codegen-vs-analysis mismatch tests continue to prove mismatched
-  codegen metadata is rejected before activation.
 
 Files changed:
 
@@ -75,72 +112,26 @@ git diff --check
 
 Review gate:
 
-- Required because this changed activation-adjacent validation and rejection
-  behavior for analyzed deployment metadata.
-
-## Previous Slice
-
-### G-5 / A-5: Protect Direct Analyzed Start Push
-
-Status: completed and committed in `c51bc6a`
-(`Protect direct analyzed start push`).
-
-Purpose:
-
-Protect normal hosted public flow from trusting client-produced analysis through
-direct `/push/start-analyzed` requests.
-
-Files changed:
-
-- `packages/flarex-backend/src/types.ts`
-- `packages/flarex-backend/src/worker.ts`
-- `packages/flarex-backend/src/worker/PublicAnalyzedStartAuthorization.ts`
-- `packages/flarex-backend/test/backendHarness.ts`
-- `packages/flarex-backend/test/publicAnalyzedStartAuthorization.test.ts`
-- `packages/flarex-backend/test/push.test.ts`
-- `packages/flarex-backend/test/artifactRuntimeRoute.test.ts`
-- `packages/flarex-backend/test/executionDO.test.ts`
-- `packages/flarex-backend/test/invoke.test.ts`
-- `packages/flarex-backend/test/sync.test.ts`
-- `packages/flarex-dev/test/backendSyncRuntime.test.ts`
-- `packages/flarex-dev/test/runtimeMaterializer.test.ts`
-- `roadmaps/28-authoritative-analysis-effect-quality.md`
-- this file
-
-Validation gates:
-
-```sh
-corepack pnpm --filter @flarex/analysis typecheck
-corepack pnpm --filter @flarex/analysis test
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/publicAnalyzedStartAuthorization.test.ts test/push.test.ts -t "public analyzed start authorization|keeps public start source-only|rejects malformed analyzed push request bodies" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
-corepack pnpm --filter flarex-backend test
-git diff --check
-```
-
-Review gate:
-
 - Required and completed in the committed slice.
 
 ## Next Slice
 
-### G-7 / A-7: Backend-Configured Local Deploy And Codegen Use Authoritative Analysis
+### G-8 / A-8: Final Audit And Cleanup
 
 Status: next.
 
 Purpose:
 
-Align local dev deploy/codegen with authoritative backend analysis when a
-backend is configured.
+Complete the final authoritative-analysis quality audit and remove or document
+remaining duplicate analyzer semantics.
 
 Expected implementation:
 
-- inspect `packages/flarex-dev/src/backendPush.ts`, local deploy/codegen paths,
-  and backend runtime materializer tests;
-- ensure backend-configured deploy consumes backend-returned analysis and
-  `codegenAnalysis` rather than local-only analyzer output;
-- keep local-only mode using local analysis for fast feedback;
-- preserve shared analyzer semantics and hosted route trust-boundaries.
+- confirm no duplicate analyzer semantic helpers remain outside
+  `@flarex/analysis` except host adapter shells;
+- confirm remaining generated worker source is adapter mechanics only;
+- run the full relevant analysis/backend/dev validation set;
+- resolve reviewer findings and record the final migration-quality state.
 
 Validation gates:
 
@@ -149,13 +140,15 @@ corepack pnpm --filter @flarex/analysis typecheck
 corepack pnpm --filter @flarex/analysis test
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev test
 git diff --check
 ```
 
 Review gate:
 
-- Required because this will touch local deploy/codegen behavior and shared
-  local-vs-hosted analysis authority.
+- Required because this is the final audit before closing the long-running
+  authoritative-analysis quality stream.
 
 ## Turn Protocol
 
@@ -185,9 +178,9 @@ Before marking a code slice complete, confirm:
 - [ ] Adapter boundaries own HTTP response conversion and runtime execution.
 - [ ] Schema decoders are hoisted and reusable.
 - [ ] `ValidatorJson` semantics remain unchanged.
-- [ ] Local dev and hosted paths share analyzer semantics while keeping host
+- [x] Local dev and hosted paths share analyzer semantics while keeping host
   mechanics separate.
-- [ ] Focused tests and package typecheck pass.
+- [x] Focused tests and package typecheck pass.
 - [ ] Reviewer findings are resolved or explicitly rejected with rationale.
 
 ## Completed Checkpoints

@@ -5,6 +5,9 @@ import path from "node:path";
 import {
   generatedProjectWorkerExecutorBridgeSource,
 } from "flarex-backend/artifact-runtime";
+import type {
+  DeploymentAnalysis as BackendDeploymentAnalysis,
+} from "flarex-backend/types";
 import {
   listFunctionModules,
   type AnalyzedFunction,
@@ -43,6 +46,7 @@ export type FlarexCodegenOptions = FlarexGenerateOptions & {
 
 export type FlarexAnalyzedPushStatus = DevPushStatus & {
   state: "analyzed";
+  analysis: BackendDeploymentAnalysis;
   codegenAnalysis: DeploymentAnalysis;
 };
 
@@ -695,12 +699,16 @@ function analyzedPushStatus(started: DevPushStatus): FlarexAnalyzedPushStatus {
   if (started.state !== "analyzed") {
     throw new Error(`Flarex push ${started.pushId} is not ready for codegen: ${started.state}.`);
   }
+  if (started.analysis === undefined) {
+    throw new Error(`Flarex push ${started.pushId} did not return backend analysis.`);
+  }
   if (started.codegenAnalysis === undefined) {
     throw new Error(`Flarex push ${started.pushId} did not return codegen analysis.`);
   }
   return {
     ...started,
     state: "analyzed",
+    analysis: started.analysis,
     codegenAnalysis: started.codegenAnalysis,
   };
 }

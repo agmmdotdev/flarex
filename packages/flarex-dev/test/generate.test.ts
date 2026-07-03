@@ -6,6 +6,7 @@ import { Miniflare } from "miniflare";
 import { build, type Plugin } from "vite";
 import { describe, expect, it } from "vitest";
 import {
+  backendAnalysisFromCodegenAnalysis,
   bundleFlarexSourcePackage,
   analyzeFlarexSourcePackage,
   type BackendPushCoordinator,
@@ -210,10 +211,11 @@ export const list = query({ args: {}, handler: async () => [] });
     const pushCoordinator: BackendPushCoordinator = {
       start: async sourcePackage => {
         pushedPackages.push(sourcePackage.functions);
+        const analysis = backendPushAnalysis("workflowMutation");
         return {
           pushId: "push1",
           state: "analyzed",
-          codegenAnalysis: backendCodegenAnalysis("workflowMutation"),
+          ...analysis,
         };
       },
       finish: async () => {
@@ -237,13 +239,14 @@ export const list = query({ args: {}, handler: async () => [] });
 `,
     );
     const events: string[] = [];
+    const analysis = backendPushAnalysis("workflowMutation");
     const pushCoordinator: BackendPushCoordinator = {
       start: async sourcePackage => {
         events.push(`start:${sourcePackage.functions.join(",")}`);
         return {
           pushId: "push1",
           state: "analyzed",
-          codegenAnalysis: backendCodegenAnalysis("workflowMutation"),
+          ...analysis,
         };
       },
       finish: async pushId => {
@@ -266,7 +269,7 @@ export const list = query({ args: {}, handler: async () => [] });
       started: {
         pushId: "push1",
         state: "analyzed",
-        codegenAnalysis: backendCodegenAnalysis("workflowMutation"),
+        ...analysis,
       },
       finished: { pushId: "push1", state: "activated" },
     });
@@ -283,10 +286,11 @@ export const list = query({ args: {}, handler: async () => [] });
     const pushCoordinator: BackendPushCoordinator = {
       start: async () => {
         events.push("start");
+        const analysis = backendPushAnalysis("query");
         return {
           pushId: "push1",
           state: "analyzed",
-          codegenAnalysis: backendCodegenAnalysis("query"),
+          ...analysis,
         };
       },
       finish: async () => {
@@ -327,10 +331,11 @@ export const list = query({ args: {}, handler: async () => [] });
     const pushCoordinator: BackendPushCoordinator = {
       start: async () => {
         events.push("start");
+        const analysis = backendPushAnalysis("query");
         return {
           pushId: "push1",
           state: "analyzed",
-          codegenAnalysis: backendCodegenAnalysis("query"),
+          ...analysis,
         };
       },
       finish: async () => {
@@ -361,7 +366,7 @@ export const list = query({ args: {}, handler: async () => [] });
       start: async () => ({
         pushId: "push1",
         state: "analyzed",
-        codegenAnalysis: backendCodegenAnalysis("query"),
+        ...backendPushAnalysis("query"),
       }),
       finish: async () => ({
         result: "rejected",
@@ -400,7 +405,7 @@ export const list = query({ args: {}, handler: async () => [] });
       start: async () => ({
         pushId: "push1",
         state: "analyzed",
-        codegenAnalysis: backendCodegenAnalysis("query"),
+        ...backendPushAnalysis("query"),
       }),
       finish: async () => ({
         result: "rejected",
@@ -441,7 +446,11 @@ export const list = query({ args: {}, handler: async () => [] });
 `,
     );
     const pushCoordinator: BackendPushCoordinator = {
-      start: async () => ({ pushId: "push1", state: "analyzed" }),
+      start: async () => ({
+        pushId: "push1",
+        state: "analyzed",
+        analysis: backendAnalysisFromCodegenAnalysis(backendCodegenAnalysis("query")),
+      }),
       finish: async () => {
         throw new Error("codegen should not activate pushes");
       },
@@ -449,6 +458,32 @@ export const list = query({ args: {}, handler: async () => [] });
 
     await expect(generateFlarex({ root, pushCoordinator })).rejects.toThrow(
       "Flarex push push1 did not return codegen analysis.",
+    );
+    await expect(fileExists(path.join(root, "flarex/_generated/functionMetadata.ts")))
+      .resolves.toBe(false);
+  });
+
+  it("requires backend push analysis before writing final generated files", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/messages.ts"),
+      `import { query } from "../_generated/server";
+export const list = query({ args: {}, handler: async () => [] });
+`,
+    );
+    const pushCoordinator: BackendPushCoordinator = {
+      start: async () => ({
+        pushId: "push1",
+        state: "analyzed",
+        codegenAnalysis: backendCodegenAnalysis("query"),
+      }),
+      finish: async () => {
+        throw new Error("codegen should not activate pushes");
+      },
+    };
+
+    await expect(generateFlarex({ root, pushCoordinator })).rejects.toThrow(
+      "Flarex push push1 did not return backend analysis.",
     );
     await expect(fileExists(path.join(root, "flarex/_generated/functionMetadata.ts")))
       .resolves.toBe(false);
@@ -486,7 +521,7 @@ export const list = query({ args: {}, handler: async () => [] });
       start: async () => ({
         pushId: "push1",
         state: "analyzed",
-        codegenAnalysis: backendCodegenAnalysis("action"),
+        ...backendPushAnalysis("action"),
       }),
       finish: async () => {
         throw new Error("dry-run codegen should not activate pushes");
@@ -1600,6 +1635,19 @@ function backendCodegenAnalysis(kind: DeploymentAnalysis["functions"][number]["f
         ],
       },
     ],
+  };
+}
+
+function backendPushAnalysis(
+  kind: DeploymentAnalysis["functions"][number]["functions"][number]["kind"],
+): {
+  analysis: ReturnType<typeof backendAnalysisFromCodegenAnalysis>;
+  codegenAnalysis: DeploymentAnalysis;
+} {
+  const codegenAnalysis = backendCodegenAnalysis(kind);
+  return {
+    analysis: backendAnalysisFromCodegenAnalysis(codegenAnalysis),
+    codegenAnalysis,
   };
 }
 
