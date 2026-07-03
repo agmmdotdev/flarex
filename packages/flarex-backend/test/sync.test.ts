@@ -112,6 +112,104 @@ describe("sync protocol", () => {
     ws.close();
   });
 
+  it("advances identity version and reruns active queries on Authenticate", async () => {
+    const runtimeCalls: unknown[] = [];
+    const harness = await createSyncHarness(runtimeCalls);
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-auth-deployment");
+
+    const ws = await openSync(harness, "sync-auth-deployment");
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 7,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      startVersion: { querySet: 0, ts: 0, identity: 0 },
+      endVersion: { querySet: 1, ts: 3, identity: 0 },
+      modifications: [
+        {
+          type: "QueryUpdated",
+          queryId: 7,
+          value: { result: "users:get", args: { id: "1:ada" } },
+        },
+      ],
+    });
+
+    ws.send(JSON.stringify({
+      type: "Authenticate",
+      tokenType: "User",
+      value: "token-1",
+      baseVersion: 0,
+    }));
+
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      startVersion: { querySet: 1, ts: 3, identity: 0 },
+      endVersion: { querySet: 1, ts: 4, identity: 1 },
+      modifications: [
+        {
+          type: "QueryUpdated",
+          queryId: 7,
+          value: { result: "users:get", args: { id: "1:ada" } },
+        },
+      ],
+    });
+    expect(runtimeCalls).toHaveLength(2);
+    expect(runtimeCalls).toEqual([
+      expect.objectContaining({ identity: { kind: "anonymous" } }),
+      expect.objectContaining({ identity: { kind: "anonymous" } }),
+    ]);
+    ws.close();
+  });
+
+  it("returns AuthError for stale Authenticate identity versions", async () => {
+    const harness = await createSyncHarness([]);
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-stale-auth-deployment");
+
+    const ws = await openSync(harness, "sync-stale-auth-deployment");
+    ws.send(JSON.stringify({
+      type: "Authenticate",
+      tokenType: "User",
+      value: "token-1",
+      baseVersion: 0,
+    }));
+
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      startVersion: { querySet: 0, ts: 0, identity: 0 },
+      endVersion: { querySet: 0, ts: 0, identity: 1 },
+      modifications: [],
+    });
+
+    ws.send(JSON.stringify({
+      type: "Authenticate",
+      tokenType: "User",
+      value: "stale-token",
+      baseVersion: 0,
+    }));
+
+    await expect(nextJsonMessage(ws)).resolves.toEqual({
+      type: "AuthError",
+      error: "BaseIdentityVersionMismatch: base version 0 does not match current identity version 1.",
+      baseVersion: 0,
+      authUpdateAttempted: true,
+    });
+    ws.close();
+  });
+
   it("reruns a subscribed query when a partition commit overlaps its read set", async () => {
     let currentName = "Ada";
     const harness = await createSyncHarness([], () => ({ user: currentName }));

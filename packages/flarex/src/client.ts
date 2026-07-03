@@ -55,6 +55,10 @@ export class FlarexClient {
   private syncClient: BaseFlarexClient | undefined;
   private readonly listeners = new Map<QueryToken, Set<() => void>>();
   private httpAuth: HttpAuthState = { kind: "none" };
+  private lastSyncBearerToken: string | null = null;
+  private syncAuthGeneration = 0;
+  private syncAuthPendingGeneration: number | null = null;
+  private syncAuthInFlightGeneration: number | null = null;
   private closed = false;
 
   constructor(
@@ -65,15 +69,12 @@ export class FlarexClient {
     this.webSocketConstructor = options.webSocketConstructor;
   }
 
-  /**
-   * Set the bearer token fetcher for one-shot HTTP invokes.
-   *
-   * This currently applies to `query()` and `mutation(..., { transport: "http" })`.
-   * Sync `Authenticate` support for live queries and default sync mutations is
-   * tracked separately in the next identity-version slice.
-   */
   setAuth(fetchToken: AuthTokenFetcher): void {
     this.httpAuth = { kind: "bearer", fetchToken };
+    const generation = this.nextSyncAuthGeneration();
+    this.syncAuthPendingGeneration = generation;
+    this.syncClient?.pauseForAuthRefresh();
+    this.refreshSyncAuthFromFetcher(fetchToken, generation);
   }
 
   /**
@@ -91,15 +92,18 @@ export class FlarexClient {
       identity: structuredClone(identity),
       token,
     };
+    this.nextSyncAuthGeneration();
+    this.syncAuthPendingGeneration = null;
+    this.lastSyncBearerToken = null;
+    this.syncClient?.clearAuth();
   }
 
-  /**
-   * Clear one-shot HTTP auth state.
-   *
-   * Sync auth will be wired in the identity-version slice.
-   */
   clearAuth(): void {
     this.httpAuth = { kind: "none" };
+    this.nextSyncAuthGeneration();
+    this.syncAuthPendingGeneration = null;
+    this.lastSyncBearerToken = null;
+    this.syncClient?.clearAuth();
   }
 
   query<Reference extends FunctionReference<"query">>(
@@ -288,7 +292,75 @@ export class FlarexClient {
         ? {}
         : { webSocketConstructor: this.webSocketConstructor },
     );
+    if (this.lastSyncBearerToken !== null) {
+      this.syncClient.authenticate(this.lastSyncBearerToken);
+    } else if (this.httpAuth.kind === "bearer") {
+      const generation =
+        this.syncAuthPendingGeneration ?? this.startSyncAuthRefreshGeneration();
+      this.syncClient.pauseForAuthRefresh();
+      this.refreshSyncAuthFromFetcher(this.httpAuth.fetchToken, generation);
+    }
     return this.syncClient;
+  }
+
+  private nextSyncAuthGeneration(): number {
+    this.syncAuthGeneration += 1;
+    return this.syncAuthGeneration;
+  }
+
+  private startSyncAuthRefreshGeneration(): number {
+    const generation = this.nextSyncAuthGeneration();
+    this.syncAuthPendingGeneration = generation;
+    return generation;
+  }
+
+  private refreshSyncAuthFromFetcher(fetchToken: AuthTokenFetcher, generation: number): void {
+    if (this.syncAuthInFlightGeneration === generation) return;
+    this.syncAuthInFlightGeneration = generation;
+    void this.syncAuthFromFetcher(fetchToken, generation)
+      .catch(() => {
+        if (!this.isCurrentSyncAuthRefresh(fetchToken, generation)) return;
+        this.lastSyncBearerToken = null;
+        this.syncAuthPendingGeneration = null;
+        this.syncClient?.clearAuth();
+      })
+      .finally(() => {
+        if (this.syncAuthInFlightGeneration === generation) {
+          this.syncAuthInFlightGeneration = null;
+        }
+      });
+  }
+
+  private async syncAuthFromFetcher(
+    fetchToken: AuthTokenFetcher,
+    generation: number,
+  ): Promise<void> {
+    const token = await fetchToken({ forceRefreshToken: false });
+    if (!this.isCurrentSyncAuthRefresh(fetchToken, generation)) return;
+    const normalizedToken = token === null || token === undefined || token.length === 0 ? null : token;
+    this.syncAuthPendingGeneration = null;
+    if (normalizedToken === this.lastSyncBearerToken) {
+      this.syncClient?.resumeAfterAuthRefresh();
+      return;
+    }
+    this.lastSyncBearerToken = normalizedToken;
+    if (this.syncClient === undefined) return;
+    if (normalizedToken === null) {
+      this.syncClient.clearAuth();
+    } else {
+      this.syncClient.authenticate(normalizedToken);
+    }
+  }
+
+  private isCurrentSyncAuthRefresh(
+    fetchToken: AuthTokenFetcher,
+    generation: number,
+  ): boolean {
+    return (
+      this.httpAuth.kind === "bearer" &&
+      this.httpAuth.fetchToken === fetchToken &&
+      this.syncAuthGeneration === generation
+    );
   }
 
   private handleSyncTransition(updatedQueries: QueryToken[]): void {

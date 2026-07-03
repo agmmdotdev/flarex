@@ -22,7 +22,7 @@ Source roadmap:
 - [x] G-4. Complete I-3: trusted executor session identity.
 - [x] G-5. Complete I-4: generated runtime `ctx.auth`.
 - [x] G-6. Complete I-5: HTTP client identity propagation.
-- [ ] G-7. Complete I-6: sync auth behavior and identity version v1.
+- [x] G-7. Complete I-6: sync auth behavior and identity version v1.
 - [ ] G-8. Complete I-7: auth-aware live-query metadata.
 - [ ] G-9. Complete I-8: auth provider platform planning checkpoint.
 
@@ -279,7 +279,7 @@ Reviewer checkpoint:
 
 Next:
 
-- G-7 / I-6: sync auth behavior and identity version v1.
+- G-8 / I-7: auth-aware live-query metadata.
 
 ## Later Slices
 
@@ -428,10 +428,74 @@ Reviewer checkpoint:
 
 ### G-7 / I-6: Sync Auth Behavior And Identity Version V1
 
-- Wire existing backend `Authenticate`/`AuthError` message shapes and the
-  public SDK sync protocol into backend identity behavior.
-- Track identity version in `ConnectionDO`.
-- Rerun active connection queries on auth change.
+Status: complete.
+
+Purpose:
+
+Add Convex-style sync auth messages to the public SDK and make backend
+connection state advance identity versions and rerun active queries whenever
+the connection's auth state changes.
+
+Previous completed checkpoint:
+
+- `de908b7` (`Add HTTP client auth propagation`)
+
+Files changed:
+
+- `packages/flarex/src/sync/protocol.ts`
+- `packages/flarex/src/sync/localState.ts`
+- `packages/flarex/src/sync/baseClient.ts`
+- `packages/flarex/src/client.ts`
+- `packages/flarex/test/client.test.ts`
+- `packages/flarex-backend/src/connectionDO.ts`
+- `packages/flarex-backend/test/sync.test.ts`
+- both roadmap files
+
+Completed:
+
+- Added public SDK sync `Authenticate` messages for `User` tokens and `None`.
+- Added client-side identity-version ownership to `LocalSyncState`.
+- Wired `FlarexClient.setAuth(fetchToken)` and `clearAuth()` into existing
+  sync clients and clients created after auth is already set.
+- Kept trusted execution identity as an HTTP-only dev/test path for now and
+  cleared sync auth when callers switch to that mode.
+- Passed the connection execution identity through sync query and mutation
+  invokes.
+- Made `ConnectionDO` advance identity version for `Authenticate` and rerun all
+  active queries under the new version.
+- Added client wire tests for `Authenticate` and backend sync tests proving
+  identity-version transitions rerun active queries.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/browser/sync/protocol.ts`
+- `npm-packages/convex/src/browser/sync/local_state.ts`
+- `npm-packages/convex/src/browser/sync/authentication_manager.ts`
+- `npm-packages/convex/src/browser/sync/client.ts`
+
+Cloudflare difference:
+
+- This slice establishes protocol and version semantics, but it does not verify
+  bearer tokens. Until a backend-owned JWT/JWKS resolver exists, WebSocket
+  `Authenticate` changes the identity version and reruns queries without
+  granting a non-anonymous hosted execution identity.
+- Durable subscription metadata is still not auth-aware; that remains G-8/I-7.
+
+Validation:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test -- client.test.ts
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t Authenticate
+git diff --check
+```
+
+Reviewer checkpoint:
+
+- `typescript-diff-reviewer`: no findings.
+- `code-quality-diff-reviewer`: fixed stale-auth `AuthError` handling and
+  async sync-auth refresh race findings with focused tests.
 
 ### G-8 / I-7: Auth-Aware Live-Query Metadata
 
@@ -470,7 +534,7 @@ Every implementation turn in this goal follows this loop:
 - [x] Project/deployment mismatch checks run before identity reaches user code.
 - [x] Identity transport contracts are decoded through Effect Schema.
 - [x] Public SDK types remain Convex-compatible where practical.
-- [ ] Sync identity changes advance identity version and rerun affected query
+- [x] Sync identity changes advance identity version and rerun affected query
   state conservatively.
 - [ ] Scheduler/rerun paths use subscription identity, not scheduler identity.
 - [ ] Significant code slices pass reviewers.

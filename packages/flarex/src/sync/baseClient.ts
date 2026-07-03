@@ -53,9 +53,11 @@ export class BaseFlarexClient {
   private readonly state = new LocalSyncState();
   private readonly socket: WebSocketLike;
   private readonly pendingMessages: ClientMessage[] = [];
+  private readonly messagesWaitingForAuth: ClientMessage[] = [];
   private readonly queryResults = new Map<QueryToken, QueryResult>();
   private readonly pendingMutations = new Map<RequestId, PendingMutation>();
   private nextRequestId = 0;
+  private authRefreshPending = false;
 
   constructor(
     address: string,
@@ -71,6 +73,23 @@ export class BaseFlarexClient {
     this.socket.addEventListener("message", event => this.handleMessageData(event.data));
     this.socket.addEventListener("error", event => this.failAll(new Error(String(event))));
     this.socket.addEventListener("close", () => this.failAll(new Error("Flarex sync socket closed.")));
+  }
+
+  authenticate(token: string): void {
+    this.finishAuthRefresh(this.state.authenticate(token));
+  }
+
+  clearAuth(): void {
+    this.finishAuthRefresh(this.state.clearAuth());
+  }
+
+  pauseForAuthRefresh(): void {
+    this.authRefreshPending = true;
+  }
+
+  resumeAfterAuthRefresh(): void {
+    this.authRefreshPending = false;
+    this.flushMessagesWaitingForAuth();
   }
 
   subscribe(
@@ -198,6 +217,10 @@ export class BaseFlarexClient {
   }
 
   private sendMessage(message: ClientMessage): void {
+    if (this.authRefreshPending && message.type !== "Authenticate") {
+      this.messagesWaitingForAuth.push(message);
+      return;
+    }
     if (this.socket.readyState === WEB_SOCKET_OPEN) {
       this.socket.send(JSON.stringify(message));
       return;
@@ -209,6 +232,19 @@ export class BaseFlarexClient {
     while (this.pendingMessages.length > 0) {
       const message = this.pendingMessages.shift()!;
       this.socket.send(JSON.stringify(message));
+    }
+  }
+
+  private finishAuthRefresh(message: ClientMessage): void {
+    this.authRefreshPending = false;
+    this.sendMessage(message);
+    this.flushMessagesWaitingForAuth();
+  }
+
+  private flushMessagesWaitingForAuth(): void {
+    while (this.messagesWaitingForAuth.length > 0) {
+      const waitingMessage = this.messagesWaitingForAuth.shift()!;
+      this.sendMessage(waitingMessage);
     }
   }
 

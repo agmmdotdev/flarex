@@ -50,7 +50,11 @@ export type MutationRequest = {
   partitionKey?: string;
 };
 
-export type ClientMessage = ModifyQuerySet | MutationRequest;
+export type Authenticate =
+  | { type: "Authenticate"; tokenType: "User"; value: string; baseVersion: IdentityVersion }
+  | { type: "Authenticate"; tokenType: "None"; baseVersion: IdentityVersion };
+
+export type ClientMessage = Authenticate | ModifyQuerySet | MutationRequest;
 
 export type QueryUpdated = {
   type: "QueryUpdated";

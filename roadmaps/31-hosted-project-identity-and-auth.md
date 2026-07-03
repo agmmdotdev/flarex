@@ -16,8 +16,8 @@ real platform concept:
   executor calls and stores user identity on invoke sessions.
 - `packages/flarex-backend/src/artifactRuntime/GeneratedWorkerSource.ts`
   now emits `ctx.auth.getUserIdentity()` backed by executor session identity.
-- Sync already has query-set versions, but it does not have Convex-style
-  `Authenticate` handling or identity-version transitions.
+- Sync now has Convex-style `Authenticate` messages and identity-version
+  transitions; durable live-query metadata is not auth-aware yet.
 
 The next implementation should make identity a typed execution input that
 flows from public request or sync session to backend execution, trusted executor
@@ -174,7 +174,7 @@ identity mechanism is enabled.
     only through the configured resolver path.
   - Keep production JWT verification out of scope unless this slice explicitly
     adds the provider config.
-- [ ] I-6. Sync auth behavior and identity version v1.
+- [x] I-6. Sync auth behavior and identity version v1.
   - Wire existing `Authenticate` and `AuthError` message shapes to backend
     identity behavior.
   - Track identity version in `ConnectionDO`.
@@ -254,53 +254,52 @@ closing the stream.
 
 ## Current Checkpoint
 
-Previous completed checkpoint: `286ca1d` (`Implement generated runtime auth context`).
+Previous completed checkpoint: `de908b7` (`Add HTTP client auth propagation`).
 
 What changed:
 
-- Added public `AuthTokenFetcher`.
-- Added `FlarexClient.setAuth(fetchToken)` for one-shot HTTP query and explicit
-  HTTP mutation invokes.
-- Added `FlarexClient.clearAuth()` to return later HTTP invokes to anonymous.
-- Added `FlarexClient.setTrustedExecutionIdentity(identity, token)` for
-  explicitly configured dev/test trusted identity headers.
-- Kept public invoke request bodies identity-free; auth is carried only in
-  HTTP headers.
-- Moved trusted identity header names into `flarex-protocol/auth-headers` and
-  reused them from both the SDK and backend resolver.
-- Cloned trusted identities when set so later caller mutation cannot alter
-  emitted identity headers.
-- Left WebSocket `Authenticate` and identity-version behavior for I-6.
+- Added public SDK sync `Authenticate` messages for bearer user auth and
+  unauthenticated `None` auth.
+- Added client-side identity-version tracking to `LocalSyncState`.
+- Wired `FlarexClient.setAuth(fetchToken)` and `clearAuth()` into live sync
+  clients, including clients created after auth is already set.
+- Kept trusted execution identity as HTTP-only for this slice and cleared sync
+  auth when callers switch into that explicit dev/test mode.
+- Added `ConnectionDO` identity-version handling for `Authenticate`.
+- Reran all active connection queries after an auth change.
+- Passed the connection execution identity through sync query and mutation
+  invokes.
 
 Convex references inspected:
 
+- `npm-packages/convex/src/browser/sync/protocol.ts`
+- `npm-packages/convex/src/browser/sync/local_state.ts`
 - `npm-packages/convex/src/browser/sync/client.ts`
 - `npm-packages/convex/src/browser/sync/authentication_manager.ts`
 
 Known limitations:
 
-- Existing backend sync protocol has an `Authenticate` skeleton, but the public
-  SDK sync protocol and identity changes are not yet wired to backend resolver
-  or live-query reruns.
-- Hosted production still defaults to anonymous identity until a real auth
-  provider resolver is implemented.
-- Bearer auth tokens are forwarded by the client, but JWT/JWKS verification is
-  still a backend-owned future slice.
+- WebSocket `Authenticate` now advances identity version and reruns queries, but
+  bearer tokens are not yet verified into non-anonymous hosted execution
+  identities. JWT/JWKS verification remains a backend-owned future slice.
+- Durable subscription rows are still not auth-aware; I-7 must store identity
+  hash/version with live-query metadata before scheduler/delivery reruns can be
+  considered fully identity-safe.
 - Trusted identity headers are still an explicit dev/test resolver path guarded
   by backend opt-in and a shared secret token.
 
 Verification:
 
 ```sh
-corepack pnpm --filter flarex-protocol typecheck
-corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex typecheck
 corepack pnpm --filter flarex test -- client.test.ts
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t Authenticate
 git diff --check
 ```
 
 Reviewer checkpoint:
 
 - `typescript-diff-reviewer`: no findings.
-- `code-quality-diff-reviewer`: fixed HTTP-only `setAuth` documentation,
-  protocol-owned trusted identity header constants, and sync roadmap wording.
+- `code-quality-diff-reviewer`: fixed stale-auth `AuthError` handling and
+  async sync-auth refresh race findings with focused tests.

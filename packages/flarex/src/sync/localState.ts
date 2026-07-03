@@ -1,6 +1,8 @@
 import {
   assertJson,
+  type Authenticate,
   type Json,
+  type IdentityVersion,
   type ModifyQuerySet,
   type QueryId,
   type QuerySetModification,
@@ -25,8 +27,33 @@ type LocalQuery = {
 export class LocalSyncState {
   private nextQueryId = 0;
   private querySetVersion = 0;
+  private identityVersion: IdentityVersion = 0;
   private readonly querySet = new Map<QueryToken, LocalQuery>();
   private readonly queryIdToToken = new Map<QueryId, QueryToken>();
+
+  authenticate(token: string): Authenticate {
+    if (token.length === 0) {
+      throw new Error("Auth token must be a non-empty string.");
+    }
+    const baseVersion = this.identityVersion;
+    this.identityVersion = baseVersion + 1;
+    return {
+      type: "Authenticate",
+      tokenType: "User",
+      value: token,
+      baseVersion,
+    };
+  }
+
+  clearAuth(): Authenticate {
+    const baseVersion = this.identityVersion;
+    this.identityVersion = baseVersion + 1;
+    return {
+      type: "Authenticate",
+      tokenType: "None",
+      baseVersion,
+    };
+  }
 
   subscribe(
     udfPath: string,

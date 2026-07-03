@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import type { ExecutionIdentity } from "flarex-protocol/auth";
 import { R2BackendExecutionArtifactStore } from "./artifactStore";
 import { ServiceBindingExecutionArtifactRuntime } from "./artifactRuntime";
 import {
@@ -85,6 +86,7 @@ type QueryInvokeResponse = InvokeResponse & {
 type ConnectionState = {
   deploymentId: string | null;
   connectionName: string | null;
+  executionIdentity: ExecutionIdentity;
   querySetVersion: number;
   identityVersion: number;
   ts: number;
@@ -101,6 +103,7 @@ export class ConnectionDO extends DurableObject<Env> {
   private readonly state: ConnectionState = {
     deploymentId: null,
     connectionName: null,
+    executionIdentity: { kind: "anonymous" },
     querySetVersion: 0,
     identityVersion: 0,
     ts: 0,
@@ -184,13 +187,18 @@ export class ConnectionDO extends DurableObject<Env> {
         return;
       case "Authenticate":
         if (message.baseVersion !== this.state.identityVersion) {
-          throw new Error(
-            `BaseIdentityVersionMismatch: base version ${message.baseVersion} does not match current identity version ${this.state.identityVersion}.`,
-          );
+          send(ws, {
+            type: "AuthError",
+            error: `BaseIdentityVersionMismatch: base version ${message.baseVersion} does not match current identity version ${this.state.identityVersion}.`,
+            baseVersion: message.baseVersion,
+            authUpdateAttempted: true,
+          });
+          return;
         }
         const startVersion = this.currentVersion();
         this.state.identityVersion = message.baseVersion + 1;
-        await this.sendTransition(ws, startVersion, []);
+        this.state.executionIdentity = { kind: "anonymous" };
+        await this.rerunQueriesForIdentityChange(ws, startVersion);
         return;
       case "ModifyQuerySet":
         if (message.baseVersion !== this.state.querySetVersion) {
@@ -252,7 +260,7 @@ export class ConnectionDO extends DurableObject<Env> {
         kind: "mutation",
         args: argsObjectForInvoke(message.args),
         ...(message.partitionKey === undefined ? {} : { partitionKey: message.partitionKey }),
-      });
+      }, this.state.executionIdentity);
       send(ws, {
         type: "MutationResponse",
         requestId: message.requestId,
@@ -329,7 +337,7 @@ export class ConnectionDO extends DurableObject<Env> {
         kind: "query",
         partitionKey: query.partitionKey,
         args: argsObjectForInvoke(query.args),
-      }));
+      }, this.state.executionIdentity));
       query.readSet = response.readSet;
       query.readTs = response.readTs;
       query.resultJson = response.value;
@@ -518,6 +526,25 @@ export class ConnectionDO extends DurableObject<Env> {
     if (stateModifications.length > 0) {
       await this.sendTransition(ws, startVersion, stateModifications);
     }
+  }
+
+  private async rerunQueriesForIdentityChange(
+    ws: WebSocket,
+    startVersion: StateVersion,
+  ): Promise<void> {
+    const stateModifications: StateModification[] = [];
+    for (const query of this.state.queries.values()) {
+      const modification = await this.executeQuery(query, { emitUnchanged: true });
+      if (modification?.type === "QueryUpdated") {
+        await this.registerQuery(query);
+      } else if (modification?.type === "QueryFailed") {
+        await this.unregisterQuery(query.queryId);
+      } else {
+        await this.registerQuery(query);
+      }
+      if (modification !== null) stateModifications.push(modification);
+    }
+    await this.sendTransition(ws, startVersion, stateModifications);
   }
 
   private async registerQuery(query: ActiveQuery): Promise<void> {
@@ -833,11 +860,12 @@ async function executeSyncInvoke(
   env: Env,
   deploymentId: string,
   request: InvokeRequest,
+  identity: ExecutionIdentity,
 ) {
   const artifactRuntime = artifactRuntimeFromEnv(env, deploymentId);
   if (artifactRuntime !== undefined) {
     const activeDeployment = await loadActiveDeployment(env, deploymentId);
-    return artifactRuntime.invoke(activeDeployment, request);
+    return artifactRuntime.invoke(activeDeployment, request, identity);
   }
   return executeInvoke(env, deploymentId, request, {});
 }

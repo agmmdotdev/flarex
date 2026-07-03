@@ -72,6 +72,25 @@ class FakeWebSocket {
   }
 }
 
+function deferred<Value>(): {
+  promise: Promise<Value>;
+  resolve: (value: Value) => void;
+  reject: (error: unknown) => void;
+} {
+  let resolve!: (value: Value) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<Value>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 describe("FlarexClient", () => {
   it("invokes a generated reference in an explicit partition", async () => {
     const fetch = vi.fn(async () => Response.json({ value: { completed: true } }));
@@ -413,6 +432,172 @@ describe("FlarexClient", () => {
       newVersion: 2,
       modifications: [{ type: "Remove", queryId: 0 }],
     });
+  });
+
+  it("sends sync Authenticate messages from setAuth and clearAuth", async () => {
+    FakeWebSocket.instances = [];
+    const callback = vi.fn();
+    const client = new FlarexClient("https://example.test/deployments/app", {
+      webSocketConstructor: FakeWebSocket,
+    });
+
+    client.onUpdate(
+      { _path: "lessons:list", _kind: "query", _partition: userPartition },
+      { courseId: "english", userId: "user-1" },
+      callback,
+    );
+    const ws = FakeWebSocket.instances[0]!;
+
+    client.setAuth(async () => "token-1");
+    await Promise.resolve();
+
+    expect(ws.sent.map(message => JSON.parse(message)).at(-1)).toEqual({
+      type: "Authenticate",
+      tokenType: "User",
+      value: "token-1",
+      baseVersion: 0,
+    });
+
+    client.clearAuth();
+
+    expect(ws.sent.map(message => JSON.parse(message)).at(-1)).toEqual({
+      type: "Authenticate",
+      tokenType: "None",
+      baseVersion: 1,
+    });
+  });
+
+  it("applies existing bearer auth when a sync client is created later", async () => {
+    FakeWebSocket.instances = [];
+    const callback = vi.fn();
+    const client = new FlarexClient("https://example.test/deployments/app", {
+      webSocketConstructor: FakeWebSocket,
+    });
+
+    client.setAuth(async () => "token-before-sync");
+    await Promise.resolve();
+    client.onUpdate(
+      { _path: "lessons:list", _kind: "query", _partition: userPartition },
+      { courseId: "english", userId: "user-1" },
+      callback,
+    );
+    await Promise.resolve();
+
+    const ws = FakeWebSocket.instances[0]!;
+    expect(ws.sent.map(message => JSON.parse(message))).toEqual([
+      {
+        type: "Authenticate",
+        tokenType: "User",
+        value: "token-before-sync",
+        baseVersion: 0,
+      },
+      {
+        type: "ModifyQuerySet",
+        baseVersion: 0,
+        newVersion: 1,
+        modifications: [
+          {
+            type: "Add",
+            queryId: 0,
+            udfPath: "lessons:list",
+            args: [{ courseId: "english", userId: "user-1" }],
+            partitionKey: "user-1",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("queues sync subscriptions until pending auth refresh resolves", async () => {
+    FakeWebSocket.instances = [];
+    const token = deferred<string>();
+    const callback = vi.fn();
+    const client = new FlarexClient("https://example.test/deployments/app", {
+      webSocketConstructor: FakeWebSocket,
+    });
+
+    client.setAuth(async () => token.promise);
+    client.onUpdate(
+      { _path: "lessons:list", _kind: "query", _partition: userPartition },
+      { courseId: "english", userId: "user-1" },
+      callback,
+    );
+
+    const ws = FakeWebSocket.instances[0]!;
+    expect(ws.sent).toEqual([]);
+
+    token.resolve("token-after-subscribe");
+    await flushMicrotasks();
+
+    expect(ws.sent.map(message => JSON.parse(message))).toEqual([
+      {
+        type: "Authenticate",
+        tokenType: "User",
+        value: "token-after-subscribe",
+        baseVersion: 0,
+      },
+      {
+        type: "ModifyQuerySet",
+        baseVersion: 0,
+        newVersion: 1,
+        modifications: [
+          {
+            type: "Add",
+            queryId: 0,
+            udfPath: "lessons:list",
+            args: [{ courseId: "english", userId: "user-1" }],
+            partitionKey: "user-1",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("ignores stale sync auth refreshes that resolve after a newer token", async () => {
+    FakeWebSocket.instances = [];
+    const oldToken = deferred<string>();
+    const newToken = deferred<string>();
+    const callback = vi.fn();
+    const client = new FlarexClient("https://example.test/deployments/app", {
+      webSocketConstructor: FakeWebSocket,
+    });
+
+    client.setAuth(async () => oldToken.promise);
+    client.onUpdate(
+      { _path: "lessons:list", _kind: "query", _partition: userPartition },
+      { courseId: "english", userId: "user-1" },
+      callback,
+    );
+    client.setAuth(async () => newToken.promise);
+
+    const ws = FakeWebSocket.instances[0]!;
+    newToken.resolve("new-token");
+    await flushMicrotasks();
+    oldToken.resolve("old-token");
+    await flushMicrotasks();
+
+    expect(ws.sent.map(message => JSON.parse(message))).toEqual([
+      {
+        type: "Authenticate",
+        tokenType: "User",
+        value: "new-token",
+        baseVersion: 0,
+      },
+      {
+        type: "ModifyQuerySet",
+        baseVersion: 0,
+        newVersion: 1,
+        modifications: [
+          {
+            type: "Add",
+            queryId: 0,
+            udfPath: "lessons:list",
+            args: [{ courseId: "english", userId: "user-1" }],
+            partitionKey: "user-1",
+          },
+        ],
+      },
+    ]);
   });
 
   it("watches queries with Convex-style local result reads", () => {
