@@ -122,18 +122,6 @@ export const decodeRegistryStorageErrorResponseEffect = Effect.fn(
   );
 });
 
-export function parseCreateDeploymentRequest(value: unknown): CreateDeploymentRequest {
-  return Effect.runSync(decodeCreateDeploymentRequestEffect(value));
-}
-
-export function parseRegistryHealthResponse(value: unknown): RegistryHealthResponse {
-  return Effect.runSync(decodeRegistryHealthResponseEffect(value));
-}
-
-export function parseRegistryStorageErrorResponse(value: unknown): RegistryStorageErrorResponse {
-  return Effect.runSync(decodeRegistryStorageErrorResponseEffect(value));
-}
-
 const decodeUnknownDeploymentRecord = Schema.decodeUnknownEffect(DeploymentRecord);
 const decodeUnknownListDeploymentsResponse = Schema.decodeUnknownEffect(ListDeploymentsResponse);
 
@@ -168,11 +156,3 @@ export const decodeListDeploymentsResponseEffect = Effect.fn(
     ),
   );
 });
-
-export function parseDeploymentRecord(value: unknown): DeploymentRecord {
-  return Effect.runSync(decodeDeploymentRecordEffect(value));
-}
-
-export function parseListDeploymentsResponse(value: unknown): ListDeploymentsResponse {
-  return Effect.runSync(decodeListDeploymentsResponseEffect(value));
-}

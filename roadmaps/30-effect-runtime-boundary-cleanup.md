@@ -27,16 +27,9 @@ Production `Effect.runSync` occurrences by file:
 | Count | File | Treatment |
 | ---: | --- | --- |
 | 16 | `packages/flarex-backend/src/invoke.ts` | Convert domain helpers and validation branches to Effect-first composition. |
-| 12 | `packages/flarex-protocol/src/deployment.ts` | Remove sync decoder exports and update internal callers/tests to use Effect decoders. |
 | 8 | `packages/flarex-backend/src/partition/StorageRows.ts` | Remove `*Sync` JSON decode wrappers and make `PartitionDO` compose decoders through Effects. |
-| 5 | `packages/flarex-protocol/src/registry.ts` | Remove sync decoder exports and keep Effect decoders as the only production API. |
-| 4 | `packages/analysis/src/index.ts` | Remove sync analyzer conversion wrappers and update callers to use Effect exports. |
 | 3 | `packages/flarex-backend/src/transaction.ts` | Remove sync mutation facades or restrict them to tests by converting test seeding to Effect helpers. |
-| 3 | `packages/flarex-protocol/src/execution.ts` | Remove sync decoder exports and keep Effect decoders as the only production API. |
 | 2 | `packages/flarex-backend/src/liveQueryDelivery.ts` | Convert live-query body/response helpers to Effect-returning functions. |
-| 2 | `packages/flarex-dev/src/analyze.ts` | Remove sync analyzer facades; local dev callers use Effect APIs. |
-| 1 | `packages/flarex-dev/src/backendPush.ts` | Remove helper-level `runSync` from protocol decode conversion. |
-| 1 | `packages/flarex-protocol/src/invoke.ts` | Remove sync public invoke decoder. |
 
 Production `Effect.runPromise` occurrences are reviewed separately. Most are
 allowed async entrypoints, but each slice must re-check that no nested runtime
@@ -58,7 +51,7 @@ boundary remains inside reusable helpers.
     - `corepack pnpm --filter flarex-dev typecheck`
     - focused `flarex-dev` tests for analyzer/backend push
     - `git diff --check`
-- [ ] G-2. Remove protocol sync decoder exports.
+- [x] G-2. Remove protocol sync decoder exports.
   - Delete sync wrappers from `flarex-protocol` deployment, registry,
     execution, and invoke modules.
   - Convert internal backend/dev/executor callers to `decode*Effect`.
@@ -126,39 +119,38 @@ a small required fix.
 
 ## Current Checkpoint
 
-Status: G-1 completed. G-2 is next.
+Status: G-2 completed. G-3 is next.
 
-Previous completed checkpoint: `d05007a` (`Complete authoritative analysis
-quality audit`).
+Previous completed checkpoint: `5ee190e` (`Start Effect runtime boundary
+cleanup`).
 
 What changed:
 
-- Audited production `Effect.runSync` and `Effect.runPromise` usage and
-  classified the cleanup into concrete slices.
-- Removed analyzer-package sync conversion wrappers:
-  `deploymentAnalysisFromCodegenAnalysis`,
-  `backendCodegenAnalysisFromCodegenAnalysis`,
-  `backendValidatorJsonFromValidatorJson`, and
-  `backendRequiredValidatorJsonFromValidatorJson`.
-- Exported and consumed Effect-first analyzer conversion helpers instead.
-- Converted `packages/flarex-dev/src/analyze.ts` to run analyzer Effects only
-  at its async local-analysis boundary.
-- Converted `packages/flarex-dev/src/backendPush.ts` protocol analysis parsing
-  to Effect-returning helpers, eliminating the helper-level `Effect.runSync`.
-- Updated test fixtures to run the Effect-first helpers locally without
-  restoring production sync exports.
-- Resolved reviewer feedback by removing the temporary `flarex-dev`
-  `backendAnalysisFromCodegenAnalysisEffect` alias and importing
-  `deploymentAnalysisFromCodegenAnalysisEffect` directly from
-  `@flarex/analysis` in tests.
+- Removed all production sync parser exports from `flarex-protocol`
+  deployment, registry, execution, and invoke modules.
+- Kept the protocol package Effect-first by exposing `decode*Effect` as the
+  production API instead of `Effect.runSync` facades.
+- Updated protocol tests to run Effect decoders directly.
+- Updated backend route-boundary, handler, push, registry, and lifecycle
+  tests to consume Effect decoders without restoring protocol sync exports.
+- Resolved reviewer feedback by renaming backend test-boundary helpers to
+  `decode*ForTest` and running them through `Effect.runPromise`.
+- Tightened the invoke protocol optional-`args` test to assert omitted output
+  rather than accepting an `undefined` property.
+- Reconfirmed that `packages/flarex-protocol/src` has no `Effect.runSync` or
+  exported `parse*` wrappers.
 
 Verification:
 
 ```sh
-rg -n "Effect\\.runSync|backendAnalysisFromCodegenAnalysis\\(|backendCodegenAnalysisFromCodegenAnalysis\\(|backendRequiredValidatorJsonFromValidatorJson|deploymentAnalysisFromCodegenAnalysis\\(" packages/flarex-dev/src packages/analysis/src -g "*.ts"
-corepack pnpm --filter @flarex/analysis typecheck
-corepack pnpm --filter @flarex/analysis test
+rg -n "Effect\\.runSync|export function parse[A-Za-z0-9]+\\(" packages/flarex-protocol/src -g "*.ts"
+rg -n "parse(ActiveDeploymentStatus|AnalyzedStartPushRequest|DeploymentErrorResponse|DeploymentHealthResponse|FinishPushResponse|PushStatus|DeploymentRecord|ListDeploymentsResponse|RegistryHealthResponse|RegistryStorageErrorResponse)" packages/flarex-backend/test -g "*.ts"
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts test/generate.test.ts test/runtimeMaterializer.test.ts test/backendSyncRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter executor-http typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/push.test.ts test/registryDO.test.ts test/registryHttpApiHandlers.test.ts test/registryHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev exec vitest run test/artifactLifecycleParity.test.ts test/backendSyncRuntime.test.ts test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 git diff --check
 ```

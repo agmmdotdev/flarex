@@ -8,9 +8,6 @@ import {
   ExecutionFinishRequestSchema,
   ExecutionStartRequestSchema,
   ExecutionSyscallRequestSchema,
-  parseExecutionFinishRequest,
-  parseExecutionStartRequest,
-  parseExecutionSyscallRequest,
 } from "../src/execution";
 
 const decodeExecutionStartRequest = Schema.decodeUnknownSync(
@@ -24,8 +21,8 @@ const decodeExecutionFinishRequest = Schema.decodeUnknownSync(
 );
 
 describe("execution protocol schemas", () => {
-  it("parses execution start requests used by ExecutionDO sessions", () => {
-    expect(parseExecutionStartRequest({
+  it("decodes execution start requests used by ExecutionDO sessions", async () => {
+    await expect(Effect.runPromise(decodeExecutionStartRequestEffect({
       deploymentId: "deployment-a",
       path: "users:get",
       args: { id: "1:user" },
@@ -33,7 +30,7 @@ describe("execution protocol schemas", () => {
       projectId: "project-a",
       kind: "query",
       idempotencyKey: "start-once",
-    })).toEqual({
+    }))).resolves.toEqual({
       deploymentId: "deployment-a",
       path: "users:get",
       args: { id: "1:user" },
@@ -56,16 +53,16 @@ describe("execution protocol schemas", () => {
     });
   });
 
-  it("requires deployment id, function path, and args", () => {
-    expect(() => parseExecutionStartRequest({ path: "users:get", args: null }))
-      .toThrow("Execution start request must include string deploymentId");
-    expect(() => parseExecutionStartRequest({ deploymentId: "deployment-a", args: null }))
-      .toThrow("Execution start request must include string deploymentId");
-    expect(() => parseExecutionStartRequest({
+  it("requires deployment id, function path, and args", async () => {
+    await expect(Effect.runPromise(decodeExecutionStartRequestEffect({ path: "users:get", args: null })))
+      .rejects.toThrow("Execution start request must include string deploymentId");
+    await expect(Effect.runPromise(decodeExecutionStartRequestEffect({ deploymentId: "deployment-a", args: null })))
+      .rejects.toThrow("Execution start request must include string deploymentId");
+    await expect(Effect.runPromise(decodeExecutionStartRequestEffect({
       deploymentId: "deployment-a",
       path: "users:get",
-    }))
-      .toThrow("Execution start request must include string deploymentId");
+    })))
+      .rejects.toThrow("Execution start request must include string deploymentId");
   });
 
   it("exposes typed execution start decode failures before compatibility parsing", async () => {
@@ -81,24 +78,24 @@ describe("execution protocol schemas", () => {
       });
   });
 
-  it("rejects non-object bodies and invalid execution field shapes", () => {
-    expect(() => parseExecutionStartRequest(null))
-      .toThrow(ExecutionProtocolValidationError);
-    expect(() => parseExecutionStartRequest([]))
-      .toThrow("Execution start request must be an object.");
-    expect(() => parseExecutionStartRequest({
+  it("rejects non-object bodies and invalid execution field shapes", async () => {
+    await expect(Effect.runPromise(decodeExecutionStartRequestEffect(null)))
+      .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+    await expect(Effect.runPromise(decodeExecutionStartRequestEffect([])))
+      .rejects.toThrow("Execution start request must be an object.");
+    await expect(Effect.runPromise(decodeExecutionStartRequestEffect({
       deploymentId: "deployment-a",
       path: "users:get",
       args: null,
       kind: "action",
-    }))
-      .toThrow("Execution start request must include string deploymentId");
-    expect(() => parseExecutionStartRequest({
+    })))
+      .rejects.toThrow("Execution start request must include string deploymentId");
+    await expect(Effect.runPromise(decodeExecutionStartRequestEffect({
       deploymentId: "deployment-a",
       path: "users:get",
       args: new Date(0),
-    }))
-      .toThrow(ExecutionProtocolValidationError);
+    })))
+      .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
     expect(() => decodeExecutionStartRequest({
       deploymentId: "deployment-a",
       path: "users:get",
@@ -107,10 +104,10 @@ describe("execution protocol schemas", () => {
       .toThrow();
   });
 
-  it("parses execution syscall requests used by ExecutionDO sessions", () => {
-    expect(parseExecutionSyscallRequest({ op: "get", id: "1:user" }))
-      .toEqual({ op: "get", id: "1:user" });
-    expect(parseExecutionSyscallRequest({
+  it("decodes execution syscall requests used by ExecutionDO sessions", async () => {
+    await expect(Effect.runPromise(decodeExecutionSyscallRequestEffect({ op: "get", id: "1:user" })))
+      .resolves.toEqual({ op: "get", id: "1:user" });
+    await expect(Effect.runPromise(decodeExecutionSyscallRequestEffect({
       op: "query",
       request: {
         table: "lessonProgress",
@@ -125,7 +122,7 @@ describe("execution protocol schemas", () => {
         cursor: "after:intro",
         order: "desc",
       },
-    })).toEqual({
+    }))).resolves.toEqual({
       op: "query",
       request: {
         table: "lessonProgress",
@@ -141,31 +138,31 @@ describe("execution protocol schemas", () => {
         order: "desc",
       },
     });
-    expect(parseExecutionSyscallRequest({
+    await expect(Effect.runPromise(decodeExecutionSyscallRequestEffect({
       op: "insert",
       table: "users",
       id: "1:user",
       value: { name: "Ada" },
-    })).toEqual({
+    }))).resolves.toEqual({
       op: "insert",
       table: "users",
       id: "1:user",
       value: { name: "Ada" },
     });
-    expect(parseExecutionSyscallRequest({
+    await expect(Effect.runPromise(decodeExecutionSyscallRequestEffect({
       op: "patch",
       id: "1:user",
       value: { name: "Grace" },
-    })).toEqual({
+    }))).resolves.toEqual({
       op: "patch",
       id: "1:user",
       value: { name: "Grace" },
     });
-    expect(parseExecutionSyscallRequest({
+    await expect(Effect.runPromise(decodeExecutionSyscallRequestEffect({
       op: "replace",
       id: "1:user",
       value: { name: "Lin" },
-    })).toEqual({
+    }))).resolves.toEqual({
       op: "replace",
       id: "1:user",
       value: { name: "Lin" },
@@ -174,35 +171,35 @@ describe("execution protocol schemas", () => {
       .toEqual({ op: "delete", id: "1:user" });
   });
 
-  it("rejects invalid execution syscall bodies", () => {
-    expect(() => parseExecutionSyscallRequest(null))
-      .toThrow(ExecutionProtocolValidationError);
-    expect(() => parseExecutionSyscallRequest([]))
-      .toThrow("Execution syscall request must be an object.");
-    expect(() => parseExecutionSyscallRequest({ op: "unknown" }))
-      .toThrow("Execution syscall request must be a valid get, query, insert, patch, replace, or delete operation.");
-    expect(() => parseExecutionSyscallRequest({ op: "get" }))
-      .toThrow("Execution syscall request must be a valid get, query, insert, patch, replace, or delete operation.");
-    expect(() => parseExecutionSyscallRequest({
+  it("rejects invalid execution syscall bodies", async () => {
+    await expect(Effect.runPromise(decodeExecutionSyscallRequestEffect(null)))
+      .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+    await expect(Effect.runPromise(decodeExecutionSyscallRequestEffect([])))
+      .rejects.toThrow("Execution syscall request must be an object.");
+    await expect(Effect.runPromise(decodeExecutionSyscallRequestEffect({ op: "unknown" })))
+      .rejects.toThrow("Execution syscall request must be a valid get, query, insert, patch, replace, or delete operation.");
+    await expect(Effect.runPromise(decodeExecutionSyscallRequestEffect({ op: "get" })))
+      .rejects.toThrow("Execution syscall request must be a valid get, query, insert, patch, replace, or delete operation.");
+    await expect(Effect.runPromise(decodeExecutionSyscallRequestEffect({
       op: "query",
       request: {
         table: "users",
         order: "sideways",
       },
-    }))
-      .toThrow("Execution syscall request must be a valid get, query, insert, patch, replace, or delete operation.");
-    expect(() => parseExecutionSyscallRequest({
+    })))
+      .rejects.toThrow("Execution syscall request must be a valid get, query, insert, patch, replace, or delete operation.");
+    await expect(Effect.runPromise(decodeExecutionSyscallRequestEffect({
       op: "insert",
       table: "users",
       value: Number.NaN,
-    }))
-      .toThrow(ExecutionProtocolValidationError);
-    expect(() => parseExecutionSyscallRequest({
+    })))
+      .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+    await expect(Effect.runPromise(decodeExecutionSyscallRequestEffect({
       op: "patch",
       id: "1:user",
       value: new Date(0),
-    }))
-      .toThrow(ExecutionProtocolValidationError);
+    })))
+      .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
   });
 
   it("exposes typed execution syscall decode failures before compatibility parsing", async () => {
@@ -221,29 +218,29 @@ describe("execution protocol schemas", () => {
       });
   });
 
-  it("parses execution finish requests used by ExecutionDO sessions", () => {
-    expect(parseExecutionFinishRequest({
+  it("decodes execution finish requests used by ExecutionDO sessions", async () => {
+    await expect(Effect.runPromise(decodeExecutionFinishRequestEffect({
       value: { ok: true, ids: ["1:user", null] },
-    })).toEqual({
+    }))).resolves.toEqual({
       value: { ok: true, ids: ["1:user", null] },
     });
-    expect(parseExecutionFinishRequest({ value: null }))
-      .toEqual({ value: null });
+    await expect(Effect.runPromise(decodeExecutionFinishRequestEffect({ value: null })))
+      .resolves.toEqual({ value: null });
     expect(decodeExecutionFinishRequest({ value: ["Ada", 1, false] }))
       .toEqual({ value: ["Ada", 1, false] });
   });
 
-  it("rejects invalid execution finish bodies", () => {
-    expect(() => parseExecutionFinishRequest(null))
-      .toThrow(ExecutionProtocolValidationError);
-    expect(() => parseExecutionFinishRequest([]))
-      .toThrow("Execution finish request must be an object.");
-    expect(() => parseExecutionFinishRequest({}))
-      .toThrow("Execution finish request must include JSON value.");
-    expect(() => parseExecutionFinishRequest({ value: Number.NaN }))
-      .toThrow(ExecutionProtocolValidationError);
-    expect(() => parseExecutionFinishRequest({ value: new Date(0) }))
-      .toThrow(ExecutionProtocolValidationError);
+  it("rejects invalid execution finish bodies", async () => {
+    await expect(Effect.runPromise(decodeExecutionFinishRequestEffect(null)))
+      .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+    await expect(Effect.runPromise(decodeExecutionFinishRequestEffect([])))
+      .rejects.toThrow("Execution finish request must be an object.");
+    await expect(Effect.runPromise(decodeExecutionFinishRequestEffect({})))
+      .rejects.toThrow("Execution finish request must include JSON value.");
+    await expect(Effect.runPromise(decodeExecutionFinishRequestEffect({ value: Number.NaN })))
+      .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+    await expect(Effect.runPromise(decodeExecutionFinishRequestEffect({ value: new Date(0) })))
+      .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
   });
 
   it("exposes typed execution finish decode failures before compatibility parsing", async () => {

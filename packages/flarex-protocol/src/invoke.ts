@@ -118,10 +118,6 @@ export const decodePublicInvokeRequestBodyEffect = Effect.fn(
   };
 });
 
-export function parsePublicInvokeRequestBody(value: unknown): PublicInvokeRequestBody {
-  return Effect.runSync(decodePublicInvokeRequestBodyEffect(value));
-}
-
 function invokeProtocolValidationFailure(
   schema: string,
   message: string,

@@ -1,8 +1,13 @@
 import {
-  parseActiveDeploymentStatus,
-  parseFinishPushResponse,
-  parsePushStatus,
+  decodeActiveDeploymentStatusEffect,
+  decodeFinishPushResponseEffect,
+  decodePushStatusEffect,
+  type ActivatedFinishPushResponse,
+  type ActiveDeploymentStatus,
+  type PushStatus,
+  type RejectedFinishPushResponse,
 } from "flarex-protocol/deployment";
+import { Effect } from "effect";
 import type {
   DeploymentAnalysis,
   DeploymentCodegenAnalysis,
@@ -21,7 +26,7 @@ export async function startSourceOnlyPush(
   harness: BackendHarness,
   deploymentId: string,
   body: StartPushRequest,
-): Promise<ReturnType<typeof parsePushStatus>> {
+): Promise<PushStatus> {
   const response = await harness.mf.dispatchFetch(
     `http://flarex.test/deployments/${deploymentId}/push/start`,
     {
@@ -31,14 +36,14 @@ export async function startSourceOnlyPush(
     },
   );
   await assertResponseOk(response, "start source-only push");
-  return parsePushStatus(await response.json());
+  return await Effect.runPromise(decodePushStatusEffect(await response.json()));
 }
 
 export async function finishPush(
   harness: BackendHarness,
   deploymentId: string,
   pushId: string,
-): Promise<ReturnType<typeof parseFinishPushResponse>> {
+): Promise<ActivatedFinishPushResponse | RejectedFinishPushResponse> {
   const response = await harness.mf.dispatchFetch(
     `http://flarex.test/deployments/${deploymentId}/push/${pushId}/finish`,
     {
@@ -48,18 +53,18 @@ export async function finishPush(
     },
   );
   await assertResponseOk(response, "finish push");
-  return parseFinishPushResponse(await response.json());
+  return await Effect.runPromise(decodeFinishPushResponseEffect(await response.json()));
 }
 
 export async function getActiveDeployment(
   harness: BackendHarness,
   deploymentId: string,
-): Promise<ReturnType<typeof parseActiveDeploymentStatus>> {
+): Promise<ActiveDeploymentStatus> {
   const response = await harness.mf.dispatchFetch(
     `http://flarex.test/deployments/${deploymentId}/deployment`,
   );
   await assertResponseOk(response, "get active deployment");
-  return parseActiveDeploymentStatus(await response.json());
+  return await Effect.runPromise(decodeActiveDeploymentStatusEffect(await response.json()));
 }
 
 export function testLifecycleInvokeRequest(): LifecycleQueryInvokeRequest {

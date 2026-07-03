@@ -287,18 +287,6 @@ export const decodeExecutionFinishRequestEffect = Effect.fn(
   };
 });
 
-export function parseExecutionStartRequest(value: unknown): ExecutionStartRequest {
-  return Effect.runSync(decodeExecutionStartRequestEffect(value));
-}
-
-export function parseExecutionSyscallRequest(value: unknown): ExecutionSyscallRequest {
-  return Effect.runSync(decodeExecutionSyscallRequestEffect(value));
-}
-
-export function parseExecutionFinishRequest(value: unknown): ExecutionFinishRequest {
-  return Effect.runSync(decodeExecutionFinishRequestEffect(value));
-}
-
 function executionProtocolValidationFailure(
   schema: string,
   message: string,

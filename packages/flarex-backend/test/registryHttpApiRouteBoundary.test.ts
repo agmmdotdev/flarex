@@ -1,10 +1,10 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
-  parseDeploymentRecord,
-  parseListDeploymentsResponse,
-  parseRegistryHealthResponse,
-  parseRegistryStorageErrorResponse,
+  decodeDeploymentRecordEffect,
+  decodeListDeploymentsResponseEffect,
+  decodeRegistryHealthResponseEffect,
+  decodeRegistryStorageErrorResponseEffect,
   ProtocolValidationError,
   RegistryRoute,
 } from "flarex-protocol/registry";
@@ -22,6 +22,22 @@ import {
 } from "../src/registry/InternalRouteBoundary";
 import { RegistryService, type RegistryServiceApi } from "../src/registry/Service";
 import { RegistrySqlError } from "../src/registry/Store";
+
+async function decodeDeploymentRecordForTest(value: unknown) {
+  return await Effect.runPromise(decodeDeploymentRecordEffect(value));
+}
+
+async function decodeListDeploymentsResponseForTest(value: unknown) {
+  return await Effect.runPromise(decodeListDeploymentsResponseEffect(value));
+}
+
+async function decodeRegistryHealthResponseForTest(value: unknown) {
+  return await Effect.runPromise(decodeRegistryHealthResponseEffect(value));
+}
+
+async function decodeRegistryStorageErrorResponseForTest(value: unknown) {
+  return await Effect.runPromise(decodeRegistryStorageErrorResponseEffect(value));
+}
 
 describe("registry HttpApi route boundary", () => {
   it("decodes registry read routes into typed route inputs", async () => {
@@ -155,7 +171,7 @@ describe("registry HttpApi route boundary", () => {
       request: new Request(`https://registry.test${RegistryRoute.health}`),
     }, registry));
     expect(health.status).toBe(200);
-    expect(parseRegistryHealthResponse(await health.json())).toEqual({
+    expect(await decodeRegistryHealthResponseForTest(await health.json())).toEqual({
       service: "flarex-registry",
       status: "ok",
     });
@@ -165,7 +181,7 @@ describe("registry HttpApi route boundary", () => {
       request: new Request(`https://registry.test${RegistryRoute.deployments}`),
     }, registry));
     expect(listed.status).toBe(200);
-    expect(parseListDeploymentsResponse(await listed.json())).toEqual({
+    expect(await decodeListDeploymentsResponseForTest(await listed.json())).toEqual({
       deployments: [{
         deploymentId: "listed-deployment",
         slug: "listed-slug",
@@ -184,7 +200,7 @@ describe("registry HttpApi route boundary", () => {
       },
     }, registry));
     expect(created.status).toBe(200);
-    expect(parseDeploymentRecord(await created.json())).toEqual({
+    expect(await decodeDeploymentRecordForTest(await created.json())).toEqual({
       deploymentId: "created-deployment",
       slug: "created-slug",
       createdAt: 1,
@@ -212,7 +228,7 @@ describe("registry HttpApi route boundary", () => {
       request: new Request(`https://registry.test${RegistryRoute.deployments}`),
     }, registry));
     expect(listed.status).toBe(500);
-    expect(parseRegistryStorageErrorResponse(await listed.json())).toEqual({
+    expect(await decodeRegistryStorageErrorResponseForTest(await listed.json())).toEqual({
       error: "Registry storage error.",
     });
 
@@ -224,7 +240,7 @@ describe("registry HttpApi route boundary", () => {
       },
     }, registry));
     expect(created.status).toBe(500);
-    expect(parseRegistryStorageErrorResponse(await created.json())).toEqual({
+    expect(await decodeRegistryStorageErrorResponseForTest(await created.json())).toEqual({
       error: "Registry storage error.",
     });
   });

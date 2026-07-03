@@ -4,11 +4,11 @@ import {
   DeploymentProtocolValidationError,
   DeploymentPushAction,
   DeploymentRoute,
-  parseActiveDeploymentStatus,
-  parseAnalyzedStartPushRequest,
-  parseDeploymentErrorResponse,
-  parseFinishPushResponse,
-  parsePushStatus,
+  decodeActiveDeploymentStatusEffect,
+  decodeAnalyzedStartPushRequestEffect,
+  decodeDeploymentErrorResponseEffect,
+  decodeFinishPushResponseEffect,
+  decodePushStatusEffect,
 } from "flarex-protocol/deployment";
 import { RequestJsonError } from "../src/http";
 import {
@@ -43,6 +43,26 @@ import type {
   DeploymentCodegenAnalysis,
   PushStatus,
 } from "../src/types";
+
+async function decodeActiveDeploymentStatusForTest(value: unknown) {
+  return await Effect.runPromise(decodeActiveDeploymentStatusEffect(value));
+}
+
+async function decodeAnalyzedStartPushRequestForTest(value: unknown) {
+  return await Effect.runPromise(decodeAnalyzedStartPushRequestEffect(value));
+}
+
+async function decodeDeploymentErrorResponseForTest(value: unknown) {
+  return await Effect.runPromise(decodeDeploymentErrorResponseEffect(value));
+}
+
+async function decodeFinishPushResponseForTest(value: unknown) {
+  return await Effect.runPromise(decodeFinishPushResponseEffect(value));
+}
+
+async function decodePushStatusForTest(value: unknown) {
+  return await Effect.runPromise(decodePushStatusEffect(value));
+}
 
 describe("deployment HttpApi route boundary", () => {
   it("decodes DeploymentDO API routes to typed route inputs", async () => {
@@ -148,7 +168,7 @@ describe("deployment HttpApi route boundary", () => {
     if (startRouteInput?._tag !== "DeploymentApiStartAnalyzedPushRoute") {
       throw new Error("Expected analyzed start route input.");
     }
-    expect(parseAnalyzedStartPushRequest(startRouteInput.body)).toMatchObject({
+    expect(await decodeAnalyzedStartPushRequestForTest(startRouteInput.body)).toMatchObject({
       sourcePackage: sourcePackage(),
       analysis: body.analysis,
       diagnostics: body.diagnostics,
@@ -441,7 +461,7 @@ describe("deployment HttpApi route boundary", () => {
       }),
     );
     expect(active.status).toBe(200);
-    expect(parseActiveDeploymentStatus(await active.json())).toMatchObject({
+    expect(await decodeActiveDeploymentStatusForTest(await active.json())).toMatchObject({
       activePushId: "active-push",
       schemaVersion: 0,
     });
@@ -455,7 +475,7 @@ describe("deployment HttpApi route boundary", () => {
       }),
     );
     expect(readPush.status).toBe(200);
-    expect(parsePushStatus(await readPush.json())).toMatchObject({
+    expect(await decodePushStatusForTest(await readPush.json())).toMatchObject({
       pushId: "push-direct-read",
       state: "analyzed",
     });
@@ -469,7 +489,7 @@ describe("deployment HttpApi route boundary", () => {
       }),
     );
     expect(missingActive.status).toBe(404);
-    expect(parseDeploymentErrorResponse(await missingActive.json())).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(await missingActive.json())).toEqual({
       error: "No active deployment.",
     });
 
@@ -482,7 +502,7 @@ describe("deployment HttpApi route boundary", () => {
       }),
     );
     expect(missingPush.status).toBe(404);
-    expect(parseDeploymentErrorResponse(await missingPush.json())).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(await missingPush.json())).toEqual({
       error: "Unknown push: push-direct-missing",
     });
 
@@ -497,7 +517,7 @@ describe("deployment HttpApi route boundary", () => {
       }),
     );
     expect(storageFailure.status).toBe(500);
-    expect(parseDeploymentErrorResponse(await storageFailure.json())).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(await storageFailure.json())).toEqual({
       error: "Deployment storage error.",
     });
 
@@ -608,7 +628,7 @@ describe("deployment HttpApi route boundary", () => {
     ));
     expect(rejectedFinishResponse.status).toBe(409);
     const rejectedFinishBody: unknown = await rejectedFinishResponse.json();
-    expect(parseFinishPushResponse(rejectedFinishBody)).toMatchObject({
+    expect(await decodeFinishPushResponseForTest(rejectedFinishBody)).toMatchObject({
       result: "rejected",
       code: "invalid_state",
       error: "Cannot finish push push-direct-rejected in state failed.",
@@ -638,7 +658,7 @@ describe("deployment HttpApi route boundary", () => {
     ));
     expect(activeAbandonResponse.status).toBe(409);
     const activeAbandonBody: unknown = await activeAbandonResponse.json();
-    expect(parseDeploymentErrorResponse(activeAbandonBody)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(activeAbandonBody)).toEqual({
       error: "Cannot abandon push push-direct-active in state activated.",
     });
   });
@@ -673,7 +693,7 @@ describe("deployment HttpApi route boundary", () => {
       service,
     ));
     expect(activeResponse.status).toBe(200);
-    expect(parseActiveDeploymentStatus(await activeResponse.json())).toMatchObject({
+    expect(await decodeActiveDeploymentStatusForTest(await activeResponse.json())).toMatchObject({
       activePushId: "active-push",
       schemaVersion: 0,
     });
@@ -688,7 +708,7 @@ describe("deployment HttpApi route boundary", () => {
       service,
     ));
     expect(pushResponse.status).toBe(200);
-    expect(parsePushStatus(await pushResponse.json())).toMatchObject({
+    expect(await decodePushStatusForTest(await pushResponse.json())).toMatchObject({
       pushId: "push-direct-read-input",
       state: "analyzed",
     });
@@ -700,7 +720,7 @@ describe("deployment HttpApi route boundary", () => {
       }),
     ));
     expect(missingPushResponse.status).toBe(404);
-    expect(parseDeploymentErrorResponse(await missingPushResponse.json())).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(await missingPushResponse.json())).toEqual({
       error: "Unknown push: push-direct-read-input",
     });
   });

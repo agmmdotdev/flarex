@@ -23,18 +23,6 @@ import {
   DeploymentProtocolValidationError,
   DeploymentRoute,
   DeploymentStorageError,
-  parseAbandonPushRequest,
-  parseAnalyzedStartPushRequest,
-  parseDeploymentAnalysis,
-  parseDeploymentCodegenAnalysis,
-  parseDeploymentErrorResponse,
-  parseDeploymentHealthResponse,
-  parseActiveDeploymentStatus,
-  parseFinishPushRequest,
-  parseFinishPushResponse,
-  parsePushSourcePackage,
-  parsePushStatus,
-  parseStartPushRequest,
   RejectedFinishPushSuccess,
 } from "../src/deployment";
 
@@ -108,33 +96,36 @@ describe("deployment protocol schemas", () => {
     expect(SchemaAST.resolve(RejectedFinishPushSuccess.ast)?.httpApiStatus).toBe(409);
   });
 
-  it("parses deployment error responses used by the HttpApi contract", () => {
-    expect(parseDeploymentErrorResponse({ error: "Unknown push: push-missing" })).toEqual({
+  it("decodes deployment error responses used by the HttpApi contract", async () => {
+    await expect(Effect.runPromise(decodeDeploymentErrorResponseEffect({ error: "Unknown push: push-missing" }))).resolves.toEqual({
       error: "Unknown push: push-missing",
     });
-    expect(() => parseDeploymentErrorResponse({ message: "wrong envelope" }))
-      .toThrow(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeDeploymentErrorResponseEffect({ message: "wrong envelope" })))
+      .rejects.toBeInstanceOf(DeploymentProtocolValidationError);
   });
 
-  it("parses deployment health responses used by the HttpApi contract", () => {
-    expect(parseDeploymentHealthResponse({
+  it("decodes deployment health responses used by the HttpApi contract", async () => {
+    await expect(Effect.runPromise(decodeDeploymentHealthResponseEffect({
       service: "flarex-deployment",
       status: "ok",
-    })).toEqual({
+    }))).resolves.toEqual({
       service: "flarex-deployment",
       status: "ok",
     });
-    expect(() => parseDeploymentHealthResponse({ service: "wrong", status: "ok" }))
-      .toThrow(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeDeploymentHealthResponseEffect({ service: "wrong", status: "ok" })))
+      .rejects.toBeInstanceOf(DeploymentProtocolValidationError);
   });
 
-  it("parses deep deployment analysis and codegen analysis payloads", () => {
-    expect(parsePushSourcePackage(sourcePackage())).toEqual(sourcePackage());
-    expect(parseDeploymentAnalysis(deploymentAnalysis())).toEqual(deploymentAnalysis());
-    expect(parseDeploymentCodegenAnalysis(deploymentCodegenAnalysis())).toEqual(deploymentCodegenAnalysis());
+  it("decodes deep deployment analysis and codegen analysis payloads", async () => {
+    await expect(Effect.runPromise(decodePushSourcePackageEffect(sourcePackage())))
+      .resolves.toEqual(sourcePackage());
+    await expect(Effect.runPromise(decodeDeploymentAnalysisEffect(deploymentAnalysis())))
+      .resolves.toEqual(deploymentAnalysis());
+    await expect(Effect.runPromise(decodeDeploymentCodegenAnalysisEffect(deploymentCodegenAnalysis())))
+      .resolves.toEqual(deploymentCodegenAnalysis());
   });
 
-  it("decodes deep deployment payloads through Effect before compatibility parsing", async () => {
+  it("rejects invalid deep deployment payloads with typed Effect failures", async () => {
     await expect(Effect.runPromise(decodePushSourcePackageEffect(sourcePackage())))
       .resolves.toEqual(sourcePackage());
     await expect(Effect.runPromise(decodeDeploymentAnalysisEffect(deploymentAnalysis())))
@@ -167,7 +158,7 @@ describe("deployment protocol schemas", () => {
     });
   });
 
-  it("exposes typed response decode failures before compatibility parsing", async () => {
+  it("exposes typed response decode failures", async () => {
     await expect(Effect.runPromise(decodeDeploymentErrorResponseEffect({ message: "wrong envelope" })))
       .rejects.toMatchObject({
         schema: "DeploymentErrorResponse",
@@ -207,13 +198,14 @@ describe("deployment protocol schemas", () => {
     });
   });
 
-  it("parses active deployment responses with deep analysis payloads", () => {
+  it("decodes active deployment responses with deep analysis payloads", async () => {
     const active = activeDeploymentStatus();
 
-    expect(parseActiveDeploymentStatus(active)).toEqual(active);
+    await expect(Effect.runPromise(decodeActiveDeploymentStatusEffect(active)))
+      .resolves.toEqual(active);
   });
 
-  it("decodes response payloads through Effect before compatibility parsing", async () => {
+  it("decodes response payloads through Effect", async () => {
     const push = pushStatus();
 
     await expect(Effect.runPromise(decodeDeploymentErrorResponseEffect({ error: "Unknown push: push-missing" })))
@@ -232,7 +224,7 @@ describe("deployment protocol schemas", () => {
       .resolves.toEqual({ result: "activated", push });
   });
 
-  it("parses push and finish responses with deep analysis payloads", () => {
+  it("decodes push and finish responses with deep analysis payloads", async () => {
     const push = {
       pushId: "push_1",
       state: "analyzed",
@@ -244,34 +236,34 @@ describe("deployment protocol schemas", () => {
       updatedAt: 2,
     };
 
-    expect(parsePushStatus(push)).toEqual(push);
-    expect(parseFinishPushResponse({ result: "activated", push })).toEqual({
+    await expect(Effect.runPromise(decodePushStatusEffect(push))).resolves.toEqual(push);
+    await expect(Effect.runPromise(decodeFinishPushResponseEffect({ result: "activated", push }))).resolves.toEqual({
       result: "activated",
       push,
     });
   });
 
-  it("rejects malformed deep codegen payloads", () => {
+  it("rejects malformed deep codegen payloads", async () => {
     const codegen = deploymentCodegenAnalysis();
     delete (codegen.functions[0]!.functions[0]! as { exportName?: string }).exportName;
 
-    expect(() => parseDeploymentCodegenAnalysis(codegen))
-      .toThrow(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeDeploymentCodegenAnalysisEffect(codegen)))
+      .rejects.toBeInstanceOf(DeploymentProtocolValidationError);
   });
 
-  it("keeps analyzed start-push request parsing wrapper-oriented", () => {
-    const request = parseAnalyzedStartPushRequest({
+  it("keeps analyzed start-push request decoding shallow", async () => {
+    const request = await Effect.runPromise(decodeAnalyzedStartPushRequestEffect({
       sourcePackage: sourcePackage(),
       analysis: null,
       codegenAnalysis: { not: "validated here" },
       diagnostics: [],
-    });
+    }));
 
     expect(request.analysis).toBeNull();
     expect(request.codegenAnalysis).toEqual({ not: "validated here" });
   });
 
-  it("exposes typed analyzed start-push decode failures before compatibility parsing", async () => {
+  it("exposes typed analyzed start-push decode failures", async () => {
     await expect(Effect.runPromise(decodeAnalyzedStartPushRequestEffect(null)))
       .rejects.toMatchObject({
         schema: "AnalyzedStartPushRequest",
@@ -294,18 +286,20 @@ describe("deployment protocol schemas", () => {
     });
   });
 
-  it("parses source-only start push request bodies", () => {
-    expect(parseStartPushRequest({ sourcePackage: sourcePackage() })).toEqual({
+  it("decodes source-only start push request bodies", async () => {
+    await expect(Effect.runPromise(decodeStartPushRequestEffect({ sourcePackage: sourcePackage() }))).resolves.toEqual({
       sourcePackage: sourcePackage(),
     });
-    expect(() => parseStartPushRequest(null)).toThrow(DeploymentProtocolValidationError);
-    expect(() => parseStartPushRequest({})).toThrow(DeploymentProtocolValidationError);
-    expect(() => parseStartPushRequest({
+    await expect(Effect.runPromise(decodeStartPushRequestEffect(null)))
+      .rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeStartPushRequestEffect({})))
+      .rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeStartPushRequestEffect({
       sourcePackage: { ...sourcePackage(), modules: "not-modules" },
-    })).toThrow(DeploymentProtocolValidationError);
+    }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
   });
 
-  it("exposes typed source-only start push decode failures before compatibility parsing", async () => {
+  it("exposes typed source-only start push decode failures", async () => {
     await expect(Effect.runPromise(decodeStartPushRequestEffect([])))
       .rejects.toMatchObject({
         schema: "StartPushRequest",
@@ -319,15 +313,17 @@ describe("deployment protocol schemas", () => {
       });
   });
 
-  it("parses finish push request bodies", () => {
-    expect(parseFinishPushRequest({})).toEqual({});
-    expect(parseFinishPushRequest({ activate: true })).toEqual({ activate: true });
-    expect(() => parseFinishPushRequest(null)).toThrow(DeploymentProtocolValidationError);
-    expect(() => parseFinishPushRequest({ activate: "yes" }))
-      .toThrow(DeploymentProtocolValidationError);
+  it("decodes finish push request bodies", async () => {
+    await expect(Effect.runPromise(decodeFinishPushRequestEffect({}))).resolves.toEqual({});
+    await expect(Effect.runPromise(decodeFinishPushRequestEffect({ activate: true })))
+      .resolves.toEqual({ activate: true });
+    await expect(Effect.runPromise(decodeFinishPushRequestEffect(null)))
+      .rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeFinishPushRequestEffect({ activate: "yes" })))
+      .rejects.toBeInstanceOf(DeploymentProtocolValidationError);
   });
 
-  it("exposes typed finish push decode failures before compatibility parsing", async () => {
+  it("exposes typed finish push decode failures", async () => {
     await expect(Effect.runPromise(decodeFinishPushRequestEffect(null)))
       .rejects.toMatchObject({
         schema: "FinishPushRequest",
@@ -341,18 +337,20 @@ describe("deployment protocol schemas", () => {
       });
   });
 
-  it("parses abandon push request bodies", () => {
-    expect(parseAbandonPushRequest({})).toEqual({});
-    expect(parseAbandonPushRequest({ reason: "typecheck failed" })).toEqual({
+  it("decodes abandon push request bodies", async () => {
+    await expect(Effect.runPromise(decodeAbandonPushRequestEffect({}))).resolves.toEqual({});
+    await expect(Effect.runPromise(decodeAbandonPushRequestEffect({ reason: "typecheck failed" }))).resolves.toEqual({
       reason: "typecheck failed",
     });
-    expect(() => parseAbandonPushRequest(null)).toThrow(DeploymentProtocolValidationError);
-    expect(() => parseAbandonPushRequest([])).toThrow(DeploymentProtocolValidationError);
-    expect(() => parseAbandonPushRequest({ reason: 42 }))
-      .toThrow(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeAbandonPushRequestEffect(null)))
+      .rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeAbandonPushRequestEffect([])))
+      .rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeAbandonPushRequestEffect({ reason: 42 })))
+      .rejects.toBeInstanceOf(DeploymentProtocolValidationError);
   });
 
-  it("exposes typed abandon push decode failures before compatibility parsing", async () => {
+  it("exposes typed abandon push decode failures", async () => {
     await expect(Effect.runPromise(decodeAbandonPushRequestEffect([])))
       .rejects.toMatchObject({
         schema: "AbandonPushRequest",

@@ -625,38 +625,6 @@ export const decodeDeploymentCodegenAnalysisEffect = Effect.fn(
   );
 });
 
-export function parseAbandonPushRequest(value: unknown): AbandonPushRequest {
-  return Effect.runSync(decodeAbandonPushRequestEffect(value));
-}
-
-export function parseFinishPushRequest(value: unknown): FinishPushRequest {
-  return Effect.runSync(decodeFinishPushRequestEffect(value));
-}
-
-export function parsePushSourcePackage(value: unknown): PushSourcePackage {
-  return Effect.runSync(decodePushSourcePackageEffect(value));
-}
-
-export function parseStartPushRequest(value: unknown): StartPushRequest {
-  return Effect.runSync(decodeStartPushRequestEffect(value));
-}
-
-export function parseDeploymentAnalysis(value: unknown): DeploymentAnalysis {
-  return Effect.runSync(decodeDeploymentAnalysisEffect(value));
-}
-
-export function parseDeploymentCodegenAnalysis(value: unknown): DeploymentCodegenAnalysis {
-  return Effect.runSync(decodeDeploymentCodegenAnalysisEffect(value));
-}
-
-export function parseDeploymentErrorResponse(value: unknown): DeploymentErrorResponse {
-  return Effect.runSync(decodeDeploymentErrorResponseEffect(value));
-}
-
-export function parseDeploymentHealthResponse(value: unknown): DeploymentHealthResponse {
-  return Effect.runSync(decodeDeploymentHealthResponseEffect(value));
-}
-
 export const decodeDeploymentErrorResponseEffect = Effect.fn(
   "DeploymentProtocol.decodeDeploymentErrorResponse",
 )(function* (
@@ -747,22 +715,6 @@ export const decodeAnalyzedStartPushRequestEffect = Effect.fn(
   }
   return request;
 });
-
-export function parseAnalyzedStartPushRequest(value: unknown): AnalyzedStartPushRequest {
-  return Effect.runSync(decodeAnalyzedStartPushRequestEffect(value));
-}
-
-export function parseActiveDeploymentStatus(value: unknown): ActiveDeploymentStatus {
-  return Effect.runSync(decodeActiveDeploymentStatusEffect(value));
-}
-
-export function parsePushStatus(value: unknown): PushStatus {
-  return Effect.runSync(decodePushStatusEffect(value));
-}
-
-export function parseFinishPushResponse(value: unknown): ActivatedFinishPushResponse | RejectedFinishPushResponse {
-  return Effect.runSync(decodeFinishPushResponseEffect(value));
-}
 
 export const decodeActiveDeploymentStatusEffect = Effect.fn(
   "DeploymentProtocol.decodeActiveDeploymentStatus",

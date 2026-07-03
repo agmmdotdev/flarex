@@ -4,7 +4,6 @@ import {
   decodePublicInvokeRequestBodyEffect,
   InvokeResponseSchema,
   InvokeProtocolValidationError,
-  parsePublicInvokeRequestBody,
   PublicInvokeRequestBodySchema,
 } from "../src/invoke";
 
@@ -14,15 +13,15 @@ const decodePublicInvokeRequestBody = Schema.decodeUnknownSync(
 const decodeInvokeResponse = Schema.decodeUnknownSync(InvokeResponseSchema);
 
 describe("invoke protocol schemas", () => {
-  it("parses public invoke request bodies used by the Worker route", () => {
-    expect(parsePublicInvokeRequestBody({
+  it("decodes public invoke request bodies used by the Worker route", async () => {
+    await expect(Effect.runPromise(decodePublicInvokeRequestBodyEffect({
       deploymentId: "deployment-a",
       path: "users:get",
       args: { id: "1:user" },
       partitionKey: "1:user",
       kind: "query",
       idempotencyKey: "invoke-once",
-    })).toEqual({
+    }))).resolves.toEqual({
       deploymentId: "deployment-a",
       path: "users:get",
       args: { id: "1:user" },
@@ -42,15 +41,15 @@ describe("invoke protocol schemas", () => {
     });
   });
 
-  it("allows omitted args so the Worker can keep its null defaulting boundary", () => {
-    expect(parsePublicInvokeRequestBody({
+  it("allows omitted args so the Worker can keep its null defaulting boundary", async () => {
+    await expect(Effect.runPromise(decodePublicInvokeRequestBodyEffect({
       path: "health",
-    })).toEqual({
+    }))).resolves.toEqual({
       path: "health",
     });
   });
 
-  it("exposes typed invoke request decode failures before compatibility parsing", async () => {
+  it("exposes typed invoke request decode failures", async () => {
     await expect(Effect.runPromise(decodePublicInvokeRequestBodyEffect({
       kind: "action",
     }))).rejects.toBeInstanceOf(InvokeProtocolValidationError);
@@ -71,24 +70,24 @@ describe("invoke protocol schemas", () => {
     });
   });
 
-  it("rejects non-object bodies and invalid invoke field shapes", () => {
-    expect(() => parsePublicInvokeRequestBody(null))
-      .toThrow(InvokeProtocolValidationError);
-    expect(() => parsePublicInvokeRequestBody([]))
-      .toThrow("Invoke request body must be an object.");
-    expect(() => parsePublicInvokeRequestBody({ kind: "action" }))
-      .toThrow("Invoke request body may include string deploymentId, path, partitionKey, idempotencyKey, query or mutation kind, and JSON args.");
-    expect(() => parsePublicInvokeRequestBody({ args: undefined }))
-      .not
-      .toThrow();
-    expect(() => parsePublicInvokeRequestBody({ args: () => undefined }))
-      .toThrow(InvokeProtocolValidationError);
-    expect(() => parsePublicInvokeRequestBody({ args: new Date(0) }))
-      .toThrow(InvokeProtocolValidationError);
-    expect(() => parsePublicInvokeRequestBody({
+  it("rejects non-object bodies and invalid invoke field shapes", async () => {
+    await expect(Effect.runPromise(decodePublicInvokeRequestBodyEffect(null)))
+      .rejects.toBeInstanceOf(InvokeProtocolValidationError);
+    await expect(Effect.runPromise(decodePublicInvokeRequestBodyEffect([])))
+      .rejects.toThrow("Invoke request body must be an object.");
+    await expect(Effect.runPromise(decodePublicInvokeRequestBodyEffect({ kind: "action" })))
+      .rejects.toThrow("Invoke request body may include string deploymentId, path, partitionKey, idempotencyKey, query or mutation kind, and JSON args.");
+    const undefinedArgsBody = await Effect.runPromise(decodePublicInvokeRequestBodyEffect({ args: undefined }));
+    expect(undefinedArgsBody).toStrictEqual({});
+    expect(undefinedArgsBody).not.toHaveProperty("args");
+    await expect(Effect.runPromise(decodePublicInvokeRequestBodyEffect({ args: () => undefined })))
+      .rejects.toBeInstanceOf(InvokeProtocolValidationError);
+    await expect(Effect.runPromise(decodePublicInvokeRequestBodyEffect({ args: new Date(0) })))
+      .rejects.toBeInstanceOf(InvokeProtocolValidationError);
+    await expect(Effect.runPromise(decodePublicInvokeRequestBodyEffect({
       args: { [Symbol("hidden")]: "value" },
-    }))
-      .toThrow(InvokeProtocolValidationError);
+    })))
+      .rejects.toBeInstanceOf(InvokeProtocolValidationError);
     expect(() => decodePublicInvokeRequestBody({ args: new Date(0) }))
       .toThrow();
     expect(() => decodePublicInvokeRequestBody({ args: Number.NaN }))

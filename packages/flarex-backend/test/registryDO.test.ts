@@ -1,13 +1,22 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Effect } from "effect";
 import {
-  parseDeploymentRecord,
-  parseListDeploymentsResponse,
+  decodeDeploymentRecordEffect,
+  decodeListDeploymentsResponseEffect,
   RegistryRoute,
 } from "flarex-protocol/registry";
 import type { DeploymentRecord, Env } from "../src/types";
 import { createBackendHarness, type BackendHarness } from "./backendHarness";
 
 let harness: BackendHarness;
+
+async function decodeDeploymentRecordForTest(value: unknown) {
+  return await Effect.runPromise(decodeDeploymentRecordEffect(value));
+}
+
+async function decodeListDeploymentsResponseForTest(value: unknown) {
+  return await Effect.runPromise(decodeListDeploymentsResponseEffect(value));
+}
 
 beforeAll(async () => {
   harness = await createBackendHarness();
@@ -98,7 +107,7 @@ describe("registry deployment routes", () => {
 async function postDeployment(body: unknown): Promise<DeploymentRecord> {
   const response = await postDeploymentRaw(body);
   expect(response.ok).toBe(true);
-  return parseDeploymentRecord(await response.json());
+  return await decodeDeploymentRecordForTest(await response.json());
 }
 
 async function postDeploymentRaw(body: unknown) {
@@ -112,7 +121,7 @@ async function postDeploymentRaw(body: unknown) {
 async function listDeployments(): Promise<ReadonlyArray<DeploymentRecord>> {
   const response = await harness.mf.dispatchFetch(registryUrl(RegistryRoute.deployments));
   expect(response.ok).toBe(true);
-  const body = parseListDeploymentsResponse(await response.json());
+  const body = await decodeListDeploymentsResponseForTest(await response.json());
   return body.deployments;
 }
 

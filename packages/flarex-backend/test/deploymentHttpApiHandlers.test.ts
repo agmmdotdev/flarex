@@ -9,10 +9,10 @@ import {
   DeploymentProtocolValidationError,
   DeploymentRoute,
   DeploymentStorageErrorResponse,
-  parseDeploymentErrorResponse,
-  parseDeploymentHealthResponse,
-  parseFinishPushResponse,
-  parsePushStatus,
+  decodeDeploymentErrorResponseEffect,
+  decodeDeploymentHealthResponseEffect,
+  decodeFinishPushResponseEffect,
+  decodePushStatusEffect,
 } from "flarex-protocol/deployment";
 import {
   deploymentAbandonFailureToResponse,
@@ -76,6 +76,22 @@ import type {
   PushStatus,
 } from "../src/types";
 
+async function decodeDeploymentErrorResponseForTest(value: unknown) {
+  return await Effect.runPromise(decodeDeploymentErrorResponseEffect(value));
+}
+
+async function decodeDeploymentHealthResponseForTest(value: unknown) {
+  return await Effect.runPromise(decodeDeploymentHealthResponseEffect(value));
+}
+
+async function decodeFinishPushResponseForTest(value: unknown) {
+  return await Effect.runPromise(decodeFinishPushResponseEffect(value));
+}
+
+async function decodePushStatusForTest(value: unknown) {
+  return await Effect.runPromise(decodePushStatusEffect(value));
+}
+
 describe("DeploymentApiHandlers", () => {
   it("registers handlers for the current DeploymentApi endpoints", async () => {
     // This is a runtime-bridge test: HttpApiBuilder.group publishes handlers through a Layer.
@@ -106,7 +122,7 @@ describe("DeploymentApiHandlers", () => {
       const health = await handler(new Request(`https://deployment.test${DeploymentRoute.health}`));
       expect(health.status).toBe(200);
       const healthBody: unknown = await health.json();
-      expect(parseDeploymentHealthResponse(healthBody)).toEqual({
+      expect(await decodeDeploymentHealthResponseForTest(healthBody)).toEqual({
         service: "flarex-deployment",
         status: "ok",
       });
@@ -114,7 +130,7 @@ describe("DeploymentApiHandlers", () => {
       const push = await handler(new Request("https://deployment.test/push/push-web-handler"));
       expect(push.status).toBe(200);
       const pushBody: unknown = await push.json();
-      expect(parsePushStatus(pushBody).pushId).toBe("push-web-handler");
+      expect((await decodePushStatusForTest(pushBody)).pushId).toBe("push-web-handler");
 
       const invalidStart = await handler(new Request(
         `https://deployment.test${DeploymentRoute.startAnalyzedPush}`,
@@ -126,7 +142,7 @@ describe("DeploymentApiHandlers", () => {
       ));
       expect(invalidStart.status).toBe(400);
       const invalidStartBody: unknown = await invalidStart.json();
-      expect(parseDeploymentErrorResponse(invalidStartBody)).toEqual({
+      expect(await decodeDeploymentErrorResponseForTest(invalidStartBody)).toEqual({
         error: "A push without analysis must include an error message.",
       });
     } finally {
@@ -149,7 +165,7 @@ describe("DeploymentApiHandlers", () => {
 
       expect(response.status).toBe(500);
       const body: unknown = await response.json();
-      expect(parseDeploymentErrorResponse(body)).toEqual({
+      expect(await decodeDeploymentErrorResponseForTest(body)).toEqual({
         error: "Deployment push response did not match the deployment protocol.",
       });
     } finally {
@@ -171,7 +187,7 @@ describe("DeploymentApiHandlers", () => {
 
       expect(abandoned.status).toBe(200);
       const abandonedBody: unknown = await abandoned.json();
-      expect(parsePushStatus(abandonedBody)).toMatchObject({
+      expect(await decodePushStatusForTest(abandonedBody)).toMatchObject({
         pushId: "push-web-abandon",
         state: "abandoned",
         error: "Push abandoned before activation.",
@@ -192,7 +208,7 @@ describe("DeploymentApiHandlers", () => {
 
         expect(conflictResponse.status).toBe(409);
         const conflictBody: unknown = await conflictResponse.json();
-        expect(parseDeploymentErrorResponse(conflictBody)).toEqual({
+        expect(await decodeDeploymentErrorResponseForTest(conflictBody)).toEqual({
           error: "Cannot abandon push push-web-abandon-conflict in state activated.",
         });
       } finally {
@@ -217,7 +233,7 @@ describe("DeploymentApiHandlers", () => {
 
       expect(activated.status).toBe(200);
       const activatedBody: unknown = await activated.json();
-      expect(parseFinishPushResponse(activatedBody)).toMatchObject({
+      expect(await decodeFinishPushResponseForTest(activatedBody)).toMatchObject({
         result: "activated",
         push: {
           pushId: "push-web-finish",
@@ -245,7 +261,7 @@ describe("DeploymentApiHandlers", () => {
 
         expect(rejectedResponse.status).toBe(409);
         const rejectedBody: unknown = await rejectedResponse.json();
-        expect(parseFinishPushResponse(rejectedBody)).toMatchObject({
+        expect(await decodeFinishPushResponseForTest(rejectedBody)).toMatchObject({
           result: "rejected",
           code: "invalid_state",
           error: "Cannot finish push push-web-finish-rejected in state failed.",
@@ -281,7 +297,7 @@ describe("DeploymentApiHandlers", () => {
 
       expect(started.status).toBe(200);
       const startedBody: unknown = await started.json();
-      expect(parsePushStatus(startedBody)).toMatchObject({
+      expect(await decodePushStatusForTest(startedBody)).toMatchObject({
         pushId: "generated-push",
         state: "analyzed",
         sourcePackage: sourcePackage(),
@@ -292,20 +308,20 @@ describe("DeploymentApiHandlers", () => {
     }
   });
 
-  it("maps typed service failures to declared DeploymentApi error response bodies", () => {
-    expectMappedFailure(
+  it("maps typed service failures to declared DeploymentApi error response bodies", async () => {
+    await expectMappedFailure(
       deploymentReadFailureToResponse,
       new DeploymentActiveDeploymentNotFoundError(),
       DeploymentNotFoundErrorResponse,
       "No active deployment.",
     );
-    expectMappedFailure(
+    await expectMappedFailure(
       deploymentReadFailureToResponse,
       new DeploymentPushNotFoundError({ pushId: "push-missing" }),
       DeploymentNotFoundErrorResponse,
       "Unknown push: push-missing",
     );
-    expectMappedFailure(
+    await expectMappedFailure(
       deploymentAbandonFailureToResponse,
       new DeploymentPushInvalidStateError({
         action: "abandon",
@@ -315,7 +331,7 @@ describe("DeploymentApiHandlers", () => {
       DeploymentConflictErrorResponse,
       "Cannot abandon push push-active in state activated.",
     );
-    expectMappedFailure(
+    await expectMappedFailure(
       deploymentReadFailureToResponse,
       new DeploymentSqlError({
         operation: "getPush",
@@ -324,7 +340,7 @@ describe("DeploymentApiHandlers", () => {
       DeploymentStorageErrorResponse,
       "Deployment storage error.",
     );
-    expectMappedFailure(
+    await expectMappedFailure(
       deploymentStartFailureToResponse,
       new DeploymentProtocolValidationError({
         schema: "AnalyzedStartPushRequest",
@@ -334,7 +350,7 @@ describe("DeploymentApiHandlers", () => {
       DeploymentBadRequestErrorResponse,
       "Analyzed start push request must include sourcePackage.",
     );
-    expectMappedFailure(
+    await expectMappedFailure(
       deploymentStartFailureToResponse,
       new DeploymentValidationError({
         message: "Deployment analysis must be an object.",
@@ -342,13 +358,13 @@ describe("DeploymentApiHandlers", () => {
       DeploymentBadRequestErrorResponse,
       "Deployment analysis must be an object.",
     );
-    expectMappedFailure(
+    await expectMappedFailure(
       deploymentFinishFailureToResponse,
       new DeploymentPushNotFoundError({ pushId: "push-finish-missing" }),
       DeploymentNotFoundErrorResponse,
       "Unknown push: push-finish-missing",
     );
-    expectMappedFailure(
+    await expectMappedFailure(
       deploymentFinishFailureToResponse,
       new DeploymentArtifactRefError({
         operation: "executionArtifactRefForSourcePackage",
@@ -397,7 +413,7 @@ describe("DeploymentApiHandlers", () => {
       deploymentReadFailureResponseEffect(new DeploymentActiveDeploymentNotFoundError()),
     ));
     expect(readNotFound).toBeInstanceOf(DeploymentNotFoundErrorResponse);
-    expect(parseDeploymentErrorResponse(readNotFound)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(readNotFound)).toEqual({
       error: "No active deployment.",
     });
 
@@ -407,7 +423,7 @@ describe("DeploymentApiHandlers", () => {
       })),
     ));
     expect(readStorage).toBeInstanceOf(DeploymentStorageErrorResponse);
-    expect(parseDeploymentErrorResponse(readStorage)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(readStorage)).toEqual({
       error: "Active push active-push is missing.",
     });
 
@@ -419,7 +435,7 @@ describe("DeploymentApiHandlers", () => {
       })),
     ));
     expect(startBadRequest).toBeInstanceOf(DeploymentBadRequestErrorResponse);
-    expect(parseDeploymentErrorResponse(startBadRequest)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(startBadRequest)).toEqual({
       error: "Analyzed start push request must include sourcePackage.",
     });
 
@@ -431,7 +447,7 @@ describe("DeploymentApiHandlers", () => {
       })),
     ));
     expect(startStorage).toBeInstanceOf(DeploymentStorageErrorResponse);
-    expect(parseDeploymentErrorResponse(startStorage)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(startStorage)).toEqual({
       error: "Deployment storage error.",
     });
 
@@ -443,7 +459,7 @@ describe("DeploymentApiHandlers", () => {
       })),
     ));
     expect(protocolStorage).toBeInstanceOf(DeploymentStorageErrorResponse);
-    expect(parseDeploymentErrorResponse(protocolStorage)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(protocolStorage)).toEqual({
       error: "Deployment push response did not match the deployment protocol.",
     });
   });
@@ -455,7 +471,7 @@ describe("DeploymentApiHandlers", () => {
       ),
     ));
     expect(finishNotFound).toBeInstanceOf(DeploymentNotFoundErrorResponse);
-    expect(parseDeploymentErrorResponse(finishNotFound)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(finishNotFound)).toEqual({
       error: "Unknown push: push-finish-effect-missing",
     });
 
@@ -467,7 +483,7 @@ describe("DeploymentApiHandlers", () => {
       })),
     ));
     expect(finishStorage).toBeInstanceOf(DeploymentStorageErrorResponse);
-    expect(parseDeploymentErrorResponse(finishStorage)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(finishStorage)).toEqual({
       error: "Deployment storage error.",
     });
 
@@ -479,7 +495,7 @@ describe("DeploymentApiHandlers", () => {
       })),
     ));
     expect(abandonConflict).toBeInstanceOf(DeploymentConflictErrorResponse);
-    expect(parseDeploymentErrorResponse(abandonConflict)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(abandonConflict)).toEqual({
       error: "Cannot abandon push push-abandon-effect-active in state activated.",
     });
 
@@ -490,7 +506,7 @@ describe("DeploymentApiHandlers", () => {
       })),
     ));
     expect(abandonStorage).toBeInstanceOf(DeploymentStorageErrorResponse);
-    expect(parseDeploymentErrorResponse(abandonStorage)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(abandonStorage)).toEqual({
       error: "Deployment storage error.",
     });
   });
@@ -547,7 +563,7 @@ describe("DeploymentApiHandlers", () => {
       "push-missing-direct",
     )));
     expect(missingPush).toBeInstanceOf(DeploymentNotFoundErrorResponse);
-    expect(parseDeploymentErrorResponse(missingPush)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(missingPush)).toEqual({
       error: "Unknown push: push-missing-direct",
     });
   });
@@ -573,7 +589,7 @@ describe("DeploymentApiHandlers", () => {
       }),
     )));
     expect(missingActive).toBeInstanceOf(DeploymentNotFoundErrorResponse);
-    expect(parseDeploymentErrorResponse(missingActive)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(missingActive)).toEqual({
       error: "No active deployment.",
     });
 
@@ -590,7 +606,7 @@ describe("DeploymentApiHandlers", () => {
       }),
     )));
     expect(invalidActiveProtocol).toBeInstanceOf(DeploymentStorageErrorResponse);
-    expect(parseDeploymentErrorResponse(invalidActiveProtocol)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(invalidActiveProtocol)).toEqual({
       error: "Active deployment response did not match the deployment protocol.",
     });
 
@@ -605,7 +621,7 @@ describe("DeploymentApiHandlers", () => {
       "push-malformed-adapter",
     )));
     expect(malformedPushProtocol).toBeInstanceOf(DeploymentStorageErrorResponse);
-    expect(parseDeploymentErrorResponse(malformedPushProtocol)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(malformedPushProtocol)).toEqual({
       error: "Deployment push response did not match the deployment protocol.",
     });
   });
@@ -628,7 +644,7 @@ describe("DeploymentApiHandlers", () => {
       startAnalyzedPushInput(),
     )));
     expect(invalidStartInput).toBeInstanceOf(DeploymentBadRequestErrorResponse);
-    expect(parseDeploymentErrorResponse(invalidStartInput)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(invalidStartInput)).toEqual({
       error: "Deployment analysis must be an object.",
     });
 
@@ -643,7 +659,7 @@ describe("DeploymentApiHandlers", () => {
       startAnalyzedPushInput(),
     )));
     expect(startStorage).toBeInstanceOf(DeploymentStorageErrorResponse);
-    expect(parseDeploymentErrorResponse(startStorage)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(startStorage)).toEqual({
       error: "Deployment storage error.",
     });
 
@@ -658,7 +674,7 @@ describe("DeploymentApiHandlers", () => {
       startAnalyzedPushInput(),
     )));
     expect(invalidStartProtocol).toBeInstanceOf(DeploymentStorageErrorResponse);
-    expect(parseDeploymentErrorResponse(invalidStartProtocol)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(invalidStartProtocol)).toEqual({
       error: "Deployment push response did not match the deployment protocol.",
     });
   });
@@ -694,7 +710,7 @@ describe("DeploymentApiHandlers", () => {
       "push-finish-missing-adapter",
     )));
     expect(missingFinish).toBeInstanceOf(DeploymentNotFoundErrorResponse);
-    expect(parseDeploymentErrorResponse(missingFinish)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(missingFinish)).toEqual({
       error: "Unknown push: push-finish-missing-adapter",
     });
 
@@ -712,7 +728,7 @@ describe("DeploymentApiHandlers", () => {
       "push-finish-malformed-adapter",
     )));
     expect(invalidFinishProtocol).toBeInstanceOf(DeploymentStorageErrorResponse);
-    expect(parseDeploymentErrorResponse(invalidFinishProtocol)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(invalidFinishProtocol)).toEqual({
       error: "Finish push response did not match the deployment protocol.",
     });
 
@@ -728,7 +744,7 @@ describe("DeploymentApiHandlers", () => {
       {},
     )));
     expect(activeAbandon).toBeInstanceOf(DeploymentConflictErrorResponse);
-    expect(parseDeploymentErrorResponse(activeAbandon)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(activeAbandon)).toEqual({
       error: "Cannot abandon push push-abandon-active-adapter in state activated.",
     });
 
@@ -744,7 +760,7 @@ describe("DeploymentApiHandlers", () => {
       {},
     )));
     expect(invalidAbandonProtocol).toBeInstanceOf(DeploymentStorageErrorResponse);
-    expect(parseDeploymentErrorResponse(invalidAbandonProtocol)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(invalidAbandonProtocol)).toEqual({
       error: "Deployment push response did not match the deployment protocol.",
     });
   });
@@ -780,7 +796,7 @@ describe("DeploymentApiHandlers", () => {
       state: "missing-state",
     })));
     expect(failure).toBeInstanceOf(DeploymentStorageErrorResponse);
-    expect(parseDeploymentErrorResponse(failure)).toEqual({
+    expect(await decodeDeploymentErrorResponseForTest(failure)).toEqual({
       error: "Deployment push response did not match the deployment protocol.",
     });
   });
@@ -1684,15 +1700,15 @@ const DeploymentApiGroupContext = Context.Service<DeploymentApiGroupId, {
   readonly handlers: ReadonlyMap<string, unknown>;
 }>(DeploymentApi.groups.deployment.key);
 
-function expectMappedFailure<E>(
+async function expectMappedFailure<E>(
   mapFailure: (error: E) => DeploymentApiErrorInstance,
   failure: E,
   expectedClass: new (props: { readonly error: string }) => DeploymentApiErrorInstance,
   message: string,
-): void {
+): Promise<void> {
   const error = mapFailure(failure);
   expect(error).toBeInstanceOf(expectedClass);
-  expect(parseDeploymentErrorResponse(error)).toEqual({ error: message });
+  expect(await decodeDeploymentErrorResponseForTest(error)).toEqual({ error: message });
 }
 
 async function expectStartPayloadBadRequest(
@@ -1704,7 +1720,7 @@ async function expectStartPayloadBadRequest(
   ));
   const error = deploymentStartFailureToResponse(cause);
   expect(error).toBeInstanceOf(DeploymentBadRequestErrorResponse);
-  expect(parseDeploymentErrorResponse(error)).toEqual({ error: message });
+  expect(await decodeDeploymentErrorResponseForTest(error)).toEqual({ error: message });
 }
 
 type DeploymentApiErrorInstance =

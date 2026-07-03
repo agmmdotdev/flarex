@@ -6,10 +6,6 @@ import {
   decodeListDeploymentsResponseEffect,
   decodeRegistryHealthResponseEffect,
   decodeRegistryStorageErrorResponseEffect,
-  parseDeploymentRecord,
-  parseCreateDeploymentRequest,
-  parseRegistryHealthResponse,
-  parseRegistryStorageErrorResponse,
   ProtocolValidationError,
   RegistryApi,
   RegistryRoute,
@@ -35,30 +31,30 @@ describe("registry protocol routes", () => {
     expect(group.endpoints.createDeployment.method).toBe("POST");
   });
 
-  it("parses registry health and deployment bodies used by the HttpApi contract", () => {
-    expect(parseRegistryHealthResponse({
+  it("decodes registry health and deployment bodies used by the HttpApi contract", async () => {
+    await expect(Effect.runPromise(decodeRegistryHealthResponseEffect({
       service: "flarex-registry",
       status: "ok",
-    })).toEqual({
+    }))).resolves.toEqual({
       service: "flarex-registry",
       status: "ok",
     });
 
-    expect(parseCreateDeploymentRequest({
+    await expect(Effect.runPromise(decodeCreateDeploymentRequestEffect({
       deploymentId: "deployment_1",
       slug: "demo",
-    })).toEqual({
+    }))).resolves.toEqual({
       deploymentId: "deployment_1",
       slug: "demo",
     });
 
-    expect(parseDeploymentRecord({
+    await expect(Effect.runPromise(decodeDeploymentRecordEffect({
       deploymentId: "deployment_1",
       slug: "demo",
       createdAt: 1,
       updatedAt: 2,
       schemaVersion: 0,
-    })).toEqual({
+    }))).resolves.toEqual({
       deploymentId: "deployment_1",
       slug: "demo",
       createdAt: 1,
@@ -67,7 +63,7 @@ describe("registry protocol routes", () => {
     });
   });
 
-  it("exposes typed registry request and response decode failures before compatibility parsing", async () => {
+  it("exposes typed registry request and response decode failures", async () => {
     await expect(Effect.runPromise(decodeCreateDeploymentRequestEffect({
       deploymentId: 123,
     }))).rejects.toBeInstanceOf(ProtocolValidationError);
@@ -97,15 +93,15 @@ describe("registry protocol routes", () => {
     });
   });
 
-  it("parses the declared registry storage error body", () => {
-    expect(parseRegistryStorageErrorResponse({
+  it("decodes the declared registry storage error body", async () => {
+    await expect(Effect.runPromise(decodeRegistryStorageErrorResponseEffect({
       error: "Registry storage error.",
-    })).toEqual({
+    }))).resolves.toEqual({
       error: "Registry storage error.",
     });
 
-    expect(() => parseRegistryStorageErrorResponse({ error: "raw database message" }))
-      .toThrow("Registry storage error response did not match the registry protocol.");
+    await expect(Effect.runPromise(decodeRegistryStorageErrorResponseEffect({ error: "raw database message" })))
+      .rejects.toThrow("Registry storage error response did not match the registry protocol.");
   });
 
   it("exposes typed registry storage error response decode failures", async () => {

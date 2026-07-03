@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import type { HttpApiGroup } from "effect/unstable/httpapi";
 import {
-  parseDeploymentRecord,
-  parseListDeploymentsResponse,
-  parseRegistryHealthResponse,
-  parseRegistryStorageErrorResponse,
+  decodeDeploymentRecordEffect,
+  decodeListDeploymentsResponseEffect,
+  decodeRegistryHealthResponseEffect,
+  decodeRegistryStorageErrorResponseEffect,
   ProtocolValidationError,
   RegistryApi,
   RegistryRoute,
@@ -25,6 +25,22 @@ import {
   RegistryStore,
   type CreateDeploymentStoreInput,
 } from "../src/registry/Store";
+
+async function decodeDeploymentRecordForTest(value: unknown) {
+  return await Effect.runPromise(decodeDeploymentRecordEffect(value));
+}
+
+async function decodeListDeploymentsResponseForTest(value: unknown) {
+  return await Effect.runPromise(decodeListDeploymentsResponseEffect(value));
+}
+
+async function decodeRegistryHealthResponseForTest(value: unknown) {
+  return await Effect.runPromise(decodeRegistryHealthResponseEffect(value));
+}
+
+async function decodeRegistryStorageErrorResponseForTest(value: unknown) {
+  return await Effect.runPromise(decodeRegistryStorageErrorResponseEffect(value));
+}
 
 describe("RegistryApiHandlers", () => {
   it("registers handlers for the current RegistryApi endpoints", async () => {
@@ -69,7 +85,7 @@ describe("RegistryApiHandlers", () => {
     );
 
     expect(error).toBeInstanceOf(RegistryStorageErrorResponse);
-    expect(parseRegistryStorageErrorResponse(error)).toEqual({
+    expect(await decodeRegistryStorageErrorResponseForTest(error)).toEqual({
       error: "Registry storage error.",
     });
   });
@@ -91,7 +107,7 @@ describe("RegistryApiHandlers", () => {
     );
 
     expect(error).toBeInstanceOf(RegistryStorageErrorResponse);
-    expect(parseRegistryStorageErrorResponse(error)).toEqual({
+    expect(await decodeRegistryStorageErrorResponseForTest(error)).toEqual({
       error: "Registry storage error.",
     });
   });
@@ -114,7 +130,7 @@ describe("RegistryApiHandlers", () => {
     try {
       const health = await handler(new Request(`https://registry.test${RegistryRoute.health}`));
       expect(health.status).toBe(200);
-      expect(parseRegistryHealthResponse(await health.json())).toEqual({
+      expect(await decodeRegistryHealthResponseForTest(await health.json())).toEqual({
         service: "flarex-registry",
         status: "ok",
       });
@@ -128,7 +144,7 @@ describe("RegistryApiHandlers", () => {
         },
       ));
       expect(created.status).toBe(200);
-      expect(parseDeploymentRecord(await created.json())).toEqual({
+      expect(await decodeDeploymentRecordForTest(await created.json())).toEqual({
         deploymentId: "generated-deployment",
         slug: "created-slug",
         createdAt: 1_700_000,
@@ -138,7 +154,7 @@ describe("RegistryApiHandlers", () => {
 
       const listed = await handler(new Request(`https://registry.test${RegistryRoute.deployments}`));
       expect(listed.status).toBe(200);
-      expect(parseListDeploymentsResponse(await listed.json())).toEqual({
+      expect(await decodeListDeploymentsResponseForTest(await listed.json())).toEqual({
         deployments: [{
           deploymentId: "listed-deployment",
           slug: "listed-slug",
@@ -178,7 +194,7 @@ describe("RegistryApiHandlers", () => {
       ));
 
       expect(response.status).toBe(500);
-      expect(parseRegistryStorageErrorResponse(await response.json())).toEqual({
+      expect(await decodeRegistryStorageErrorResponseForTest(await response.json())).toEqual({
         error: "Registry storage error.",
       });
     } finally {
@@ -204,7 +220,7 @@ describe("RegistryApiHandlers", () => {
       const response = await handler(new Request(`https://registry.test${RegistryRoute.deployments}`));
 
       expect(response.status).toBe(500);
-      expect(parseRegistryStorageErrorResponse(await response.json())).toEqual({
+      expect(await decodeRegistryStorageErrorResponseForTest(await response.json())).toEqual({
         error: "Registry storage error.",
       });
     } finally {
