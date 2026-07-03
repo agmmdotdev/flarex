@@ -53,7 +53,7 @@ Every implementation turn in this goal should follow this loop:
 
 ### G-3 / H-2: Shared Source Package Module-Map Validation
 
-Status: implemented in this turn; commit pending.
+Status: completed in checkpoint `0a6cb36` (`Share artifact worker module validation`).
 
 Purpose:
 

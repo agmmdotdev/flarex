@@ -2,6 +2,8 @@
 
 ## H-2 Shared Source Package Module-Map Validation
 
+Completed checkpoint: `0a6cb36` (`Share artifact worker module validation`).
+
 Previous completed checkpoint: `87b33a8` (`Mark shared runtime source profiles complete`).
 
 What changed:
