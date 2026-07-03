@@ -24,7 +24,7 @@ Goal status:
 - [x] G-5. H-4 shared internal invoke request and response decode.
 - [x] G-6. H-5 shared identity helpers.
 - [x] G-7. H-6 adapter simplification pass.
-- [ ] G-8. Final host-kit audit: local-first runtime and hosted Dynamic Worker
+- [x] G-8. Final host-kit audit: local-first runtime and hosted Dynamic Worker
   behavior still share contracts and generated runtime logic.
 
 ## Turn Protocol
@@ -51,50 +51,53 @@ Every implementation turn in this goal should follow this loop:
 
 ## Current Next Slice
 
-### G-7 / H-6: Adapter Simplification Pass
+### G-8: Final Host-Kit Audit
 
-Status: implemented and committed in `a0ef99a` (`Simplify artifact runtime host adapters`).
+Status: completed in this turn; commit pending.
 
 Purpose:
 
-Reduce the local and hosted materializers to host adapter responsibilities by
-moving the remaining generated-worker definition composition into the host kit.
-The adapters still own Miniflare construction, Worker Loader code/cache
-assembly, service bindings, dispatch, and disposal.
+Prove the shared artifact runtime host kit end state from current files and
+validation output. This is an audit-only slice; no runtime code changes are
+required.
 
-Files expected to change:
+Files changed:
 
-- `packages/flarex-backend/src/artifactRuntime/HostKit.ts`
-- `packages/flarex-backend/src/artifactRuntime.ts`
-- `packages/flarex-dev/src/runtimeMaterializer.ts`
-- `apps/artifact-runtime/src/worker.ts`
-- `packages/flarex-backend/test/artifactRuntime.test.ts`
 - `roadmaps/24-shared-artifact-runtime-host-kit.md`
 - this file
 
-Implementation tasks:
+Audit results:
 
-- [x] Add shared `executionArtifactWorkerDefinition(...)` helper.
-- [x] Use the shared worker definition from local Miniflare materialization.
-- [x] Use the shared worker definition from hosted Dynamic Worker
-  materialization.
-- [x] Keep Miniflare module conversion and local service binding local-only.
-- [x] Keep Worker Loader code/cache assembly and `globalOutbound: null`
-  hosted-only.
-- [x] Add direct worker-definition tests.
-
-Next slice after commit: `G-8`, final host-kit audit.
+- [x] Confirmed local and hosted materializers share source-package module
+  validation, generated worker source profiles, env construction, internal
+  invoke request construction, invoke response decoding, and identity fragments
+  through `packages/flarex-backend/src/artifactRuntime/HostKit.ts` and
+  `packages/flarex-backend/src/artifactRuntime.ts`.
+- [x] Confirmed backend activation and invocation still flow through active
+  deployment `executionArtifactRef` plus `sourcePackage`, with
+  `ServiceBindingExecutionArtifactRuntime` loading or forwarding source
+  packages before materialization.
+- [x] Confirmed host mechanics remain separate:
+  - local keeps Miniflare construction, in-process `FLAREX_BACKEND` service
+    binding dispatch, query-session test support, and disposal;
+  - hosted keeps Worker Loader `get(...)`, Dynamic Worker cache identity,
+    hosted fail-closed env validation, and `globalOutbound: null`.
+- [x] Ran the final relevant test matrix.
 
 Validation gates:
 
 ```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
 corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter flarex-dev build
 corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 corepack pnpm --filter @flarex/artifact-runtime typecheck
+corepack pnpm --filter @flarex/artifact-runtime build
 corepack pnpm --filter @flarex/artifact-runtime exec vitest run test/worker.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 corepack pnpm --filter @flarex/artifact-runtime test
 git diff --check
@@ -102,10 +105,14 @@ git diff --check
 
 Review gate:
 
-- Required, because H-6 changes shared host-kit exported helpers and both
-  materializer adapter composition paths.
+- Not required; this slice is docs-only audit recording after the reviewed H-6
+  implementation commit.
 
 ## Later Slices
+
+### Completed: G-7 / H-6 Adapter Simplification Pass
+
+Committed in `a0ef99a` (`Simplify artifact runtime host adapters`).
 
 ### Completed: G-6 / H-5 Shared Identity Helpers
 
@@ -131,14 +138,14 @@ Committed in `a9a894f` (`Share artifact invoke boundary helpers`).
 
 ### G-8: Final Host-Kit Audit
 
-- [ ] Confirm local `flarex/` source package, generated runtime wrapper,
+- [x] Confirm local `flarex/` source package, generated runtime wrapper,
   executor syscall protocol, artifact runtime request/response contracts, and
   backend activation path are shared.
-- [ ] Confirm only host mechanics differ:
+- [x] Confirm only host mechanics differ:
   - local: Miniflare, in-process service bindings, query-session test support;
   - hosted: Worker Loader, Dynamic Worker cache identity, `globalOutbound:
     null`.
-- [ ] Run final relevant test matrix.
+- [x] Run final relevant test matrix.
 
 ## Non-Goals
 

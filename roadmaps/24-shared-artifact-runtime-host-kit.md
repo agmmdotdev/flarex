@@ -1,5 +1,82 @@
 # Shared Artifact Runtime Host Kit
 
+## Final Host-Kit Audit
+
+Previous completed checkpoint: `44c85d7` (`Mark adapter simplification slice complete`).
+
+What changed:
+
+- Completed the final audit for the shared artifact runtime host-kit goal.
+- Verified from current files that shared generated-runtime contracts now live
+  in `packages/flarex-backend/src/artifactRuntime/HostKit.ts` and are
+  re-exported from `flarex-backend/artifact-runtime`.
+- Verified local and hosted materializers both consume the shared host-kit
+  contracts instead of rebuilding source, module, env, invoke, response, or
+  identity fragments independently.
+- Recorded the final validation matrix.
+
+Why it changed:
+
+The long-running host-kit goal required a final evidence-based audit, not just
+the absence of unchecked implementation items. This checkpoint records the
+current proof that local-first runtime and hosted Dynamic Worker runtime now
+share the intended contracts and generated runtime logic.
+
+Convex sources inspected:
+
+- None in this audit slice. Earlier research in this file records the Convex
+  runner/source-package rationale. This audit checked Flarex's current
+  Cloudflare host-kit implementation state.
+
+Cloudflare difference:
+
+- Local runtime still owns Miniflare construction, in-process `FLAREX_BACKEND`
+  service binding dispatch, local query-session support, and disposal.
+- Hosted runtime still owns Worker Loader `get(...)`, Dynamic Worker cache
+  identity, hosted fail-closed env validation, and `globalOutbound: null`.
+
+Evidence:
+
+- `packages/flarex-backend/src/artifactRuntime/HostKit.ts` owns:
+  - `executionArtifactRuntimeWorkerSource(...)`;
+  - `executionArtifactWorkerModules(...)`;
+  - `executionArtifactWorkerEnv(...)`;
+  - `executionArtifactWorkerDefinition(...)`;
+  - `executionArtifactInternalRequestHeaders(...)`;
+  - `executionArtifactInternalInvokeRequest(...)`;
+  - `executorIdentity(...)`;
+  - `internalAuthIdentity(...)`.
+- `packages/flarex-backend/src/artifactRuntime.ts` owns the shared
+  materialized invoke response decoder and backend service-binding runtime.
+- `packages/flarex-dev/src/runtimeMaterializer.ts` uses the shared worker
+  definition and shared invoke helpers, while keeping Miniflare and
+  query-session mechanics local.
+- `apps/artifact-runtime/src/worker.ts` uses the shared worker definition,
+  identity helpers, and invoke helpers, while keeping Worker Loader cache/code
+  assembly and hosted fail-closed checks local.
+- Backend activation still records active deployment `executionArtifactRef` and
+  `sourcePackage`, and `ServiceBindingExecutionArtifactRuntime` still loads or
+  forwards the source package before materialization.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter @flarex/artifact-runtime typecheck
+corepack pnpm --filter @flarex/artifact-runtime build
+corepack pnpm --filter @flarex/artifact-runtime exec vitest run test/worker.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter @flarex/artifact-runtime test
+git diff --check
+```
+
 ## H-6 Adapter Simplification Pass
 
 Completed checkpoint: `a0ef99a` (`Simplify artifact runtime host adapters`).
