@@ -20,11 +20,15 @@ export {
   type GeneratedProjectWorkerExecutorBridgeSourceOptions,
 } from "./artifactRuntime/GeneratedWorkerSource.ts";
 export {
+  executionArtifactWorkerEnv,
   executionArtifactWorkerModules,
   executionArtifactRuntimeWorkerSource,
   ExecutionArtifactWorkerDuplicateModulePathError,
   ExecutionArtifactWorkerReservedModulePathError,
   ExecutionArtifactWorkerSourceModuleMissingError,
+  type ExecutionArtifactWorkerEnv,
+  type ExecutionArtifactWorkerEnvOptions,
+  type ExecutionArtifactWorkerExecutorTransport,
   type ExecutionArtifactWorkerModulesOptions,
   type ExecutionArtifactRuntimeWorkerSourceOptions,
   type ExecutionArtifactRuntimeWorkerSourceProfile,

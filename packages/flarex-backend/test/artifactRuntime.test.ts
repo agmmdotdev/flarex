@@ -6,6 +6,7 @@ import {
   decodeServiceBindingExecutionArtifactRuntimeInvokeResponse,
   createExecutionArtifactRuntimeService,
   decodeServiceBindingExecutionArtifactRuntimeResponse,
+  executionArtifactWorkerEnv,
   executionArtifactWorkerModules,
   ExecutionArtifactWorkerDuplicateModulePathError,
   ExecutionArtifactWorkerReservedModulePathError,
@@ -33,6 +34,27 @@ import type {
 } from "../src/types";
 
 describe("backend execution artifact runtime", () => {
+  it("builds generated worker env bindings without host service bindings", () => {
+    expect(executionArtifactWorkerEnv({
+      executorToken: "executor-secret",
+      executorTransport: "postgres",
+      invokeMaxAttempts: 4,
+      projectId: "project1",
+      internalToken: "internal-secret",
+    })).toEqual({
+      FLAREX_EXECUTOR_TOKEN: "executor-secret",
+      FLAREX_EXECUTOR_TRANSPORT: "postgres",
+      FLAREX_INVOKE_MAX_ATTEMPTS: "4",
+      FLAREX_PROJECT_ID: "project1",
+      FLAREX_INTERNAL_TOKEN: "internal-secret",
+    });
+
+    const env = executionArtifactWorkerEnv({});
+    expect(env).toEqual({});
+    expect(Object.prototype.hasOwnProperty.call(env, "FLAREX_EXECUTOR")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(env, "FLAREX_BACKEND")).toBe(false);
+  });
+
   it("builds runtime worker module maps and validates source package modules", () => {
     expect(executionArtifactWorkerModules({
       sourcePackage: testSourcePackage(),

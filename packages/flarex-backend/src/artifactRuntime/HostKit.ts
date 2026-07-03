@@ -20,6 +20,24 @@ export type ExecutionArtifactWorkerModulesOptions = {
   readonly reservedBy: string;
 };
 
+export type ExecutionArtifactWorkerExecutorTransport = "legacy" | "postgres";
+
+export type ExecutionArtifactWorkerEnvOptions = {
+  readonly executorToken?: string | undefined;
+  readonly executorTransport?: ExecutionArtifactWorkerExecutorTransport | undefined;
+  readonly invokeMaxAttempts?: string | number | undefined;
+  readonly projectId?: string | undefined;
+  readonly internalToken?: string | undefined;
+};
+
+export type ExecutionArtifactWorkerEnv = {
+  readonly FLAREX_EXECUTOR_TOKEN?: string;
+  readonly FLAREX_EXECUTOR_TRANSPORT?: ExecutionArtifactWorkerExecutorTransport;
+  readonly FLAREX_INVOKE_MAX_ATTEMPTS?: string;
+  readonly FLAREX_PROJECT_ID?: string;
+  readonly FLAREX_INTERNAL_TOKEN?: string;
+};
+
 type ExecutionArtifactRuntimeWorkerSourceProfileOptions = Omit<
   GeneratedExecutionWorkerSourceOptions,
   "executionModule" | "includeQuerySessionRoute" | "includeUnsupportedCapabilities"
@@ -106,4 +124,20 @@ export function executionArtifactWorkerModules(
     entries.push([module.path, module.source]);
   }
   return Object.fromEntries(entries);
+}
+
+export function executionArtifactWorkerEnv(
+  options: ExecutionArtifactWorkerEnvOptions,
+): ExecutionArtifactWorkerEnv {
+  return {
+    ...(options.executorToken === undefined ? {} : { FLAREX_EXECUTOR_TOKEN: options.executorToken }),
+    ...(options.executorTransport === undefined
+      ? {}
+      : { FLAREX_EXECUTOR_TRANSPORT: options.executorTransport }),
+    ...(options.invokeMaxAttempts === undefined
+      ? {}
+      : { FLAREX_INVOKE_MAX_ATTEMPTS: String(options.invokeMaxAttempts) }),
+    ...(options.projectId === undefined ? {} : { FLAREX_PROJECT_ID: options.projectId }),
+    ...(options.internalToken === undefined ? {} : { FLAREX_INTERNAL_TOKEN: options.internalToken }),
+  };
 }

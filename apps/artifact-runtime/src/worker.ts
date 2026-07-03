@@ -1,10 +1,12 @@
 import {
   createExecutionArtifactRuntimeService,
   decodeServiceBindingExecutionArtifactRuntimeInvokeResponse,
+  executionArtifactWorkerEnv,
   executionArtifactWorkerModules,
   executionArtifactRuntimeWorkerSource,
   type ExecutionArtifactMaterializer,
   type ExecutionArtifactRuntimeService,
+  type ExecutionArtifactWorkerExecutorTransport,
   type MaterializedExecutionArtifact,
   type MaterializedExecutionArtifactPayload,
 } from "flarex-backend/artifact-runtime";
@@ -15,7 +17,7 @@ import {
 } from "flarex-backend/artifact-store";
 import type { InvokeResponse, PushSourcePackage } from "flarex-backend/types";
 
-type ExecutorTransport = "legacy" | "postgres";
+type ExecutorTransport = ExecutionArtifactWorkerExecutorTransport;
 
 export type ArtifactRuntimeEnv = {
   readonly ARTIFACTS: R2BucketLike;
@@ -363,15 +365,13 @@ function dynamicWorkerCode(sourcePackage: PushSourcePackage, options: {
     modules: dynamicWorkerModules(sourcePackage),
     env: {
       FLAREX_EXECUTOR: options.executor,
-      ...(options.executorToken === undefined ? {} : { FLAREX_EXECUTOR_TOKEN: options.executorToken }),
-      ...(options.executorTransport === undefined
-        ? {}
-        : { FLAREX_EXECUTOR_TRANSPORT: options.executorTransport }),
-      ...(options.invokeMaxAttempts === undefined
-        ? {}
-        : { FLAREX_INVOKE_MAX_ATTEMPTS: options.invokeMaxAttempts }),
-      ...(options.projectId === undefined ? {} : { FLAREX_PROJECT_ID: options.projectId }),
-      ...(options.internalToken === undefined ? {} : { FLAREX_INTERNAL_TOKEN: options.internalToken }),
+      ...executionArtifactWorkerEnv({
+        executorToken: options.executorToken,
+        executorTransport: options.executorTransport,
+        invokeMaxAttempts: options.invokeMaxAttempts,
+        projectId: options.projectId,
+        internalToken: options.internalToken,
+      }),
     },
     globalOutbound: null,
   };

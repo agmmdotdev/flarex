@@ -20,7 +20,7 @@ Goal status:
     and commit each completed slice.
 - [x] G-2. H-1 shared runtime worker source profiles.
 - [x] G-3. H-2 shared source package module-map validation.
-- [ ] G-4. H-3 shared generated-worker env construction.
+- [x] G-4. H-3 shared generated-worker env construction.
 - [ ] G-5. H-4 shared internal invoke request and response decode.
 - [ ] G-6. H-5 shared identity helpers.
 - [ ] G-7. H-6 adapter simplification pass.
@@ -51,16 +51,16 @@ Every implementation turn in this goal should follow this loop:
 
 ## Current Next Slice
 
-### G-3 / H-2: Shared Source Package Module-Map Validation
+### G-4 / H-3: Shared Generated-Worker Env Construction
 
-Status: completed in checkpoint `0a6cb36` (`Share artifact worker module validation`).
+Status: implemented in this turn; commit pending.
 
 Purpose:
 
-Move source package module-map construction and validation behind the shared
-host kit. Local Miniflare and hosted Dynamic Worker adapters should reject the
-same missing-source, duplicate-path, and reserved-runtime-entrypoint cases
-before host-specific materialization begins.
+Move generated worker string env construction behind the shared host kit.
+Local Miniflare and hosted Dynamic Worker adapters should share the same
+executor/project/auth/invoke-attempt/internal-token binding names and value
+normalization while keeping host-specific service bindings outside the helper.
 
 Files expected to change:
 
@@ -69,24 +69,24 @@ Files expected to change:
 - `packages/flarex-dev/src/runtimeMaterializer.ts`
 - `apps/artifact-runtime/src/worker.ts`
 - `packages/flarex-backend/test/artifactRuntime.test.ts`
-- `packages/flarex-dev/test/runtimeMaterializer.test.ts`
 - `roadmaps/24-shared-artifact-runtime-host-kit.md`
 - this file
 
 Implementation tasks:
 
-- [x] Move source-module validation to `executionArtifactWorkerModules(...)`.
-- [x] Preserve hosted reserved-path, duplicate-path, and missing-source errors.
-- [x] Reuse the same module validation from local Miniflare materialization.
-- [x] Add focused shared HostKit tests.
-- [x] Add focused local materializer validation tests.
-- [x] Apply reviewer cleanup: preserve special module paths such as
-  `__proto__` as own module-map entries.
-- [x] Keep hosted Worker Loader mechanics and local Miniflare mechanics outside
-  the shared helper.
+- [x] Move executor/project/auth/invoke-attempt/internal-token env construction
+  into `executionArtifactWorkerEnv(...)`.
+- [x] Share the `ExecutionArtifactWorkerExecutorTransport` type between local
+  and hosted adapters.
+- [x] Keep host-specific binding injection outside the helper:
+  - local `FLAREX_BACKEND` remains a Miniflare service binding;
+  - hosted `FLAREX_EXECUTOR` remains a Dynamic Worker service binding.
+- [x] Preserve hosted invalid transport errors at the hosted adapter boundary.
+- [x] Add focused shared HostKit tests for env shape and retry-attempt
+  stringification.
 
-Next slice after commit: `G-4 / H-3`, shared generated-worker env
-construction.
+Next slice after commit: `G-5 / H-4`, shared internal invoke request and
+response decode.
 
 Validation gates:
 
@@ -102,17 +102,10 @@ git diff --check
 
 Review gate:
 
-- Required, because H-2 is a public package-boundary refactor touching runtime
-  source package validation.
+- Required, because H-3 is a public package-boundary refactor touching runtime
+  env construction.
 
 ## Later Slices
-
-### G-4 / H-3: Shared Generated-Worker Env Construction
-
-- [ ] Move executor/project/auth/invoke-attempt/internal-token env construction
-  into `executionArtifactWorkerEnv(...)`.
-- [ ] Keep host-specific binding injection outside the helper.
-- [ ] Preserve hosted invalid transport errors.
 
 ### G-5 / H-4: Shared Internal Invoke Request And Response Decode
 

@@ -1,5 +1,64 @@
 # Shared Artifact Runtime Host Kit
 
+## H-3 Shared Generated-Worker Env Construction
+
+Previous completed checkpoint: `01c81c2` (`Mark module validation host kit slice complete`).
+
+What changed:
+
+- Added `executionArtifactWorkerEnv(...)` to
+  `packages/flarex-backend/src/artifactRuntime/HostKit.ts`.
+- Added shared `ExecutionArtifactWorkerExecutorTransport` and generated worker
+  env types.
+- Re-exported the env helper and types from
+  `flarex-backend/artifact-runtime`.
+- Updated `packages/flarex-dev/src/runtimeMaterializer.ts` so local Miniflare
+  string bindings come from the shared env helper.
+- Updated `apps/artifact-runtime/src/worker.ts` so hosted Dynamic Worker
+  string bindings come from the same shared env helper.
+- Added direct HostKit tests for env shape, omitted values, and local numeric
+  invoke-attempt stringification.
+
+Why it changed:
+
+Generated execution workers should see the same executor transport, project,
+executor auth, invoke retry, and internal auth binding names in local and
+hosted runtime. This slice centralizes that string env contract while keeping
+actual service bindings owned by the host adapters.
+
+Convex sources inspected:
+
+- None in this implementation slice. The Convex runner/source-package
+  rationale is recorded in the research checkpoint below; this slice only
+  standardizes Flarex host env binding construction.
+
+Cloudflare difference:
+
+- Local runtime still injects `FLAREX_BACKEND` as a Miniflare service binding.
+- Hosted runtime still injects `FLAREX_EXECUTOR` as a Dynamic Worker service
+  binding.
+- Hosted invalid executor transport validation remains at the hosted Worker
+  adapter edge before materialization.
+
+Known limitations:
+
+- Internal invoke request and response decoding are still split. That is the
+  next checklist item, `H-4`.
+- Hosted-only Dynamic Worker ID assembly and auth/executor identity helpers
+  remain in the hosted adapter until `H-5`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter @flarex/artifact-runtime typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter @flarex/artifact-runtime exec vitest run test/worker.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+git diff --check
+```
+
 ## H-2 Shared Source Package Module-Map Validation
 
 Completed checkpoint: `0a6cb36` (`Share artifact worker module validation`).

@@ -3,6 +3,7 @@ import { Data, Effect } from "effect";
 import type { RunLiveQuerySubscriptionWithInvokeInput } from "@flarex/executor";
 import {
   executionArtifactRuntimeWorkerSource,
+  executionArtifactWorkerEnv,
   executionArtifactWorkerModules,
 } from "flarex-backend/artifact-runtime";
 import type {
@@ -10,6 +11,7 @@ import type {
   ExecutionArtifactMaterializer,
   MaterializedExecutionArtifactPayload,
   MaterializedExecutionArtifact,
+  ExecutionArtifactWorkerExecutorTransport,
 } from "flarex-backend/artifact-runtime";
 import type { InvokeResponse, Json } from "flarex-backend/types";
 import { readDevResponseJsonOrNullEffect } from "./responseJson.ts";
@@ -18,7 +20,7 @@ export type RuntimeBackendDispatcher = (request: Request) => Response | Promise<
 
 export type LocalMiniflareExecutionArtifactMaterializerOptions = {
   backend: RuntimeBackendDispatcher;
-  executorTransport?: "legacy" | "postgres";
+  executorTransport?: ExecutionArtifactWorkerExecutorTransport;
   projectId?: string;
   executorToken?: string;
   invokeMaxAttempts?: number;
@@ -66,7 +68,7 @@ export function createMaterializedArtifactLiveQueryExecutionHost(
 
 export class LocalMiniflareExecutionArtifactMaterializer implements ExecutionArtifactMaterializer {
   private readonly backend: RuntimeBackendDispatcher;
-  private readonly executorTransport: "legacy" | "postgres" | undefined;
+  private readonly executorTransport: ExecutionArtifactWorkerExecutorTransport | undefined;
   private readonly projectId: string | undefined;
   private readonly executorToken: string | undefined;
   private readonly invokeMaxAttempts: number | undefined;
@@ -99,17 +101,13 @@ export class LocalMiniflareExecutionArtifactMaterializer implements ExecutionArt
         contents,
       })),
       compatibilityDate: this.compatibilityDate,
-      bindings: {
-        ...(this.executorTransport === undefined
-          ? {}
-          : { FLAREX_EXECUTOR_TRANSPORT: this.executorTransport }),
-        ...(this.projectId === undefined ? {} : { FLAREX_PROJECT_ID: this.projectId }),
-        ...(this.executorToken === undefined ? {} : { FLAREX_EXECUTOR_TOKEN: this.executorToken }),
-        ...(this.invokeMaxAttempts === undefined
-          ? {}
-          : { FLAREX_INVOKE_MAX_ATTEMPTS: String(this.invokeMaxAttempts) }),
-        ...(this.internalToken === undefined ? {} : { FLAREX_INTERNAL_TOKEN: this.internalToken }),
-      },
+      bindings: executionArtifactWorkerEnv({
+        executorTransport: this.executorTransport,
+        projectId: this.projectId,
+        executorToken: this.executorToken,
+        invokeMaxAttempts: this.invokeMaxAttempts,
+        internalToken: this.internalToken,
+      }),
       serviceBindings: {
         FLAREX_BACKEND: async (request: Request) => this.backend(request),
       },
