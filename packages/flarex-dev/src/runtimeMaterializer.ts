@@ -63,6 +63,7 @@ export function createMaterializedArtifactLiveQueryExecutionHost(
       path: subscription.functionPath,
       args: subscription.argsJson as Json,
       ...(subscription.partitionKey === null ? {} : { partitionKey: subscription.partitionKey }),
+      identity: attempt.session.identity,
       sessionId: attempt.session.sessionId,
     });
   };

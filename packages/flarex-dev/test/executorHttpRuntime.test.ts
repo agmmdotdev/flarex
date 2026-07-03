@@ -325,6 +325,7 @@ describe("createLocalExecutorHttpRuntime", () => {
         {
           deploymentId: "deployment-local-payload",
           projectId: "project-local-payload",
+          identity: { kind: "anonymous" },
           path: "messages:list",
           args: { lessonId: "1:lesson" },
           partitionKey: "1:lesson",

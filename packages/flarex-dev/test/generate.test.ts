@@ -1205,6 +1205,199 @@ export const hidden = internalQuery({ args: {}, handler: async () => "secret" })
     ]);
   });
 
+  it("exposes backend session identity through generated ctx.auth", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/auth.ts"),
+      `import { mutation, query } from "../_generated/server";
+
+export const subject = query({
+  args: {},
+  handler: async (ctx) => {
+    return (await ctx.auth.getUserIdentity())?.subject ?? null;
+  },
+});
+
+export const token = mutation({
+  args: {},
+  handler: async (ctx) => {
+    return (await ctx.auth.getUserIdentity())?.tokenIdentifier ?? null;
+  },
+});
+
+export const anonymous = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.auth.getUserIdentity();
+  },
+});
+
+export const malformed = query({
+  args: {},
+  handler: async () => "handler should not run",
+});
+`,
+    );
+    await generateFlarex({ root });
+
+    const backendCalls: Array<{ path: string; body: Record<string, unknown> }> = [];
+    const backendIdentity = {
+      kind: "user",
+      user: {
+        tokenIdentifier: "issuer|generated",
+        subject: "generated-user",
+        issuer: "issuer",
+      },
+    };
+    const worker = new Miniflare({
+      modules: [
+        {
+          type: "ESModule",
+          path: "worker.js",
+          contents: await bundleGeneratedWorker(root),
+        },
+      ],
+      compatibilityDate: "2026-06-14",
+      bindings: {
+        FLAREX_DEPLOYMENT_ID: "deployment-generated-auth",
+        FLAREX_EXECUTOR_TRANSPORT: "postgres",
+        FLAREX_PROJECT_ID: "project-generated-auth",
+      },
+      serviceBindings: {
+        FLAREX_BACKEND: async (request: Request) => {
+          const url = new URL(request.url);
+          const body = await request.json().catch(() => null);
+          const record = jsonRecord(body, url.pathname);
+          backendCalls.push({ path: url.pathname, body: record });
+          if (url.pathname === "/invoke/start") {
+            return Response.json({
+              sessionId: `session-${String(record.kind)}`,
+              function: { path: record.path, kind: record.kind },
+              identity:
+                record.path === "auth:anonymous"
+                  ? { kind: "anonymous" }
+                  : record.path === "auth:malformed"
+                    ? { kind: "user", user: {} }
+                    : backendIdentity,
+            });
+          }
+          if (url.pathname === "/invoke/finish") {
+            return Response.json({ value: record.value });
+          }
+          return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+        },
+      },
+      durableObjects: {
+        CONNECTIONS: { className: "ConnectionDO", useSQLite: true },
+        DELIVERIES: { className: "DeliveryDO", useSQLite: true },
+      },
+    });
+    try {
+      const subjectResponse = await worker.dispatchFetch("http://flarex.test/invoke", {
+        method: "POST",
+        body: JSON.stringify({ path: "auth:subject", args: {} }),
+      });
+      await expect(subjectResponse.json()).resolves.toEqual({ value: "generated-user" });
+
+      const tokenResponse = await worker.dispatchFetch("http://flarex.test/invoke", {
+        method: "POST",
+        body: JSON.stringify({ path: "auth:token", args: {} }),
+      });
+      await expect(tokenResponse.json()).resolves.toEqual({ value: "issuer|generated" });
+
+      const anonymousResponse = await worker.dispatchFetch("http://flarex.test/invoke", {
+        method: "POST",
+        body: JSON.stringify({ path: "auth:anonymous", args: {} }),
+      });
+      await expect(anonymousResponse.json()).resolves.toEqual({ value: null });
+
+      const malformedResponse = await worker.dispatchFetch("http://flarex.test/invoke", {
+        method: "POST",
+        body: JSON.stringify({ path: "auth:malformed", args: {} }),
+      });
+      expect(malformedResponse.status).toBe(400);
+      await expect(malformedResponse.json()).resolves.toEqual({
+        error: "Execution identity was invalid.",
+      });
+    } finally {
+      await worker.dispose();
+    }
+
+    expect(backendCalls).toEqual([
+      {
+        path: "/invoke/start",
+        body: {
+          deploymentId: "deployment-generated-auth",
+          projectId: "project-generated-auth",
+          path: "auth:subject",
+          args: {},
+          kind: "query",
+          visibility: "public",
+        },
+      },
+      {
+        path: "/invoke/finish",
+        body: {
+          deploymentId: "deployment-generated-auth",
+          projectId: "project-generated-auth",
+          sessionId: "session-query",
+          value: "generated-user",
+        },
+      },
+      {
+        path: "/invoke/start",
+        body: {
+          deploymentId: "deployment-generated-auth",
+          projectId: "project-generated-auth",
+          path: "auth:token",
+          args: {},
+          kind: "mutation",
+          visibility: "public",
+        },
+      },
+      {
+        path: "/invoke/finish",
+        body: {
+          deploymentId: "deployment-generated-auth",
+          projectId: "project-generated-auth",
+          sessionId: "session-mutation",
+          value: "issuer|generated",
+        },
+      },
+      {
+        path: "/invoke/start",
+        body: {
+          deploymentId: "deployment-generated-auth",
+          projectId: "project-generated-auth",
+          path: "auth:anonymous",
+          args: {},
+          kind: "query",
+          visibility: "public",
+        },
+      },
+      {
+        path: "/invoke/finish",
+        body: {
+          deploymentId: "deployment-generated-auth",
+          projectId: "project-generated-auth",
+          sessionId: "session-query",
+          value: null,
+        },
+      },
+      {
+        path: "/invoke/start",
+        body: {
+          deploymentId: "deployment-generated-auth",
+          projectId: "project-generated-auth",
+          path: "auth:malformed",
+          args: {},
+          kind: "query",
+          visibility: "public",
+        },
+      },
+    ]);
+  });
+
   it("executes generated nested server-side function calls in the active session", async () => {
     const root = await createProject();
     await writeFile(

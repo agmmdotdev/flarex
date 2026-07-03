@@ -40,6 +40,7 @@ import type {
   InvokeAttemptContext,
   RunLiveQuerySubscriptionWithInvokeInput,
 } from "@flarex/executor";
+import type { ExecutionIdentity } from "flarex-protocol/auth";
 
 type LiveQuerySubscriptionForInvokeHost =
   Parameters<RunLiveQuerySubscriptionWithInvokeInput["executeQuery"]>[1];
@@ -1013,6 +1014,209 @@ describe("runtime materializer", () => {
     ]);
   });
 
+  it("exposes session identity through ctx.auth in materialized queries and mutations", async () => {
+    const calls: Array<{ path: string; body: unknown; authorization: string | null }> = [];
+    const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+      executorTransport: "postgres",
+      projectId: "project-auth",
+      executorToken: "executor-secret",
+      backend: async (request) => {
+        const url = new URL(request.url);
+        const body = await request.json().catch(() => null);
+        calls.push({
+          path: url.pathname,
+          body,
+          authorization: request.headers.get("authorization"),
+        });
+        if (url.pathname === "/invoke/start") {
+          const record = jsonRecord(body, "/invoke/start");
+          return Response.json({
+            sessionId: `session-${String(record.kind)}`,
+            function: { path: record.path, kind: record.kind },
+            beginTs: 1,
+            schemaVersion: 1,
+            scope: { kind: "partition", partitionKey: "auth" },
+            executionModule: "_flarex/execution.js",
+            identity: record.identity,
+          });
+        }
+        if (url.pathname === "/invoke/finish") {
+          return Response.json({ value: finishValue(body) });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+    });
+    const queryPayload = authPayload("query");
+    const mutationPayload = authPayload("mutation");
+    const queryArtifact = await materializer.materialize(queryPayload);
+    const mutationArtifact = await materializer.materialize(mutationPayload);
+    try {
+      await expect(queryArtifact.invoke(queryPayload)).resolves.toEqual({ value: "user-auth" });
+      await expect(mutationArtifact.invoke(mutationPayload)).resolves.toEqual({
+        value: "issuer|user-auth",
+      });
+    } finally {
+      await Promise.all([
+        queryArtifact.dispose?.(),
+        mutationArtifact.dispose?.(),
+      ]);
+    }
+
+    expect(calls).toEqual([
+      {
+        path: "/invoke/start",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "deployment-auth",
+          projectId: "project-auth",
+          path: "auth:subject",
+          args: {},
+          identity: authUserIdentity(),
+          kind: "query",
+          visibility: "public",
+          partitionKey: "auth",
+        },
+      },
+      {
+        path: "/invoke/finish",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "deployment-auth",
+          projectId: "project-auth",
+          sessionId: "session-query",
+          value: "user-auth",
+        },
+      },
+      {
+        path: "/invoke/start",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "deployment-auth",
+          projectId: "project-auth",
+          path: "auth:token",
+          args: {},
+          identity: authUserIdentity(),
+          kind: "mutation",
+          visibility: "public",
+          partitionKey: "auth",
+        },
+      },
+      {
+        path: "/invoke/finish",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId: "deployment-auth",
+          projectId: "project-auth",
+          sessionId: "session-mutation",
+          value: "issuer|user-auth",
+        },
+      },
+    ]);
+  });
+
+  it("passes existing session identity into materialized live-query reruns", async () => {
+    const calls: Array<{ path: string; body: unknown }> = [];
+    const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+      executorTransport: "postgres",
+      projectId: "project-auth-live",
+      backend: async (request) => {
+        const url = new URL(request.url);
+        const body = await request.json().catch(() => null);
+        calls.push({ path: url.pathname, body });
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+    });
+    const payload = authPayload("query");
+    const artifact = await materializer.materialize(payload);
+    const executeQuery = createMaterializedArtifactLiveQueryExecutionHost({
+      artifact,
+      payload,
+      projectId: "project-auth-live",
+    });
+    const attempt: InvokeAttemptContext = {
+      attempt: 1,
+      maxAttempts: 1,
+      session: {
+        sessionId: "session-auth-live",
+        beginTs: 20,
+        identity: authUserIdentity(),
+        schemaVersion: 1,
+        function: { path: "auth:subject", kind: "query" },
+        scope: {
+          kind: "partition",
+          table: "users",
+          selector: "byId",
+          partitionField: "_id",
+          argField: "userId",
+          partitionKey: "auth",
+        },
+        executionModule: "_flarex/execution.js",
+      },
+      syscall: async () => {
+        throw new Error("live-query auth test should not use host syscalls");
+      },
+    };
+    const subscription: LiveQuerySubscriptionForInvokeHost = {
+      deploymentId: "deployment-auth",
+      connectionId: "connection-auth-live",
+      queryId: 3,
+      functionPath: "auth:subject",
+      argsJson: {},
+      partitionKey: "auth",
+      beginTs: 10,
+      readSetJson: {},
+      resultJson: null,
+      resultHash: "previous",
+      createdAt: new Date("2026-06-21T00:00:00.000Z"),
+      updatedAt: new Date("2026-06-21T00:00:00.000Z"),
+    };
+
+    try {
+      await expect(executeQuery(attempt, subscription)).resolves.toBe("user-auth");
+    } finally {
+      await artifact.dispose?.();
+    }
+
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects malformed backend session identity before materialized handlers run", async () => {
+    const calls: Array<{ path: string; body: unknown }> = [];
+    const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+      executorTransport: "postgres",
+      projectId: "project-auth-malformed",
+      backend: async (request) => {
+        const url = new URL(request.url);
+        const body = await request.json().catch(() => null);
+        calls.push({ path: url.pathname, body });
+        if (url.pathname === "/invoke/start") {
+          return Response.json({
+            sessionId: "session-auth-malformed",
+            function: { path: "auth:malformed", kind: "query" },
+            beginTs: 1,
+            schemaVersion: 1,
+            scope: { kind: "partition", partitionKey: "auth" },
+            executionModule: "_flarex/execution.js",
+            identity: { kind: "user", user: {} },
+          });
+        }
+        if (url.pathname === "/invoke/abort") {
+          return Response.json({ aborted: true });
+        }
+        return Response.json({ error: `unexpected ${url.pathname}` }, { status: 404 });
+      },
+    });
+    const payload = authPayload("malformed");
+    const artifact = await materializer.materialize(payload);
+    try {
+      await expect(artifact.invoke(payload)).rejects.toThrow("Execution identity was invalid.");
+    } finally {
+      await artifact.dispose?.();
+    }
+
+    expect(calls.map(call => call.path)).toEqual(["/invoke/start", "/invoke/abort"]);
+  });
+
   it("aborts Postgres executor sessions when materialized user code fails", async () => {
     const calls: Array<{ path: string; body: unknown; authorization: string | null }> = [];
     const materializer = new LocalMiniflareExecutionArtifactMaterializer({
@@ -1340,6 +1544,83 @@ function payloadWithSourceModules(
     sourcePackage: {
       ...payload.sourcePackage,
       modules,
+    },
+  };
+}
+
+function authUserIdentity(): ExecutionIdentity {
+  return {
+    kind: "user",
+    user: {
+      tokenIdentifier: "issuer|user-auth",
+      subject: "user-auth",
+      issuer: "issuer",
+      name: "Auth User",
+    },
+  };
+}
+
+function authPayload(kind: "query" | "mutation" | "malformed"): MaterializedExecutionArtifactPayload {
+  const sourcePackage: PushSourcePackage = {
+    modules: [
+      {
+        path: "_flarex/execution.js",
+        environment: "isolate",
+        sha256: "m".repeat(64),
+        source: `export default {
+  auth: {
+    subject: {
+      isQuery: true,
+      isPublic: true,
+      _handler: async (ctx) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (identity !== null) {
+          identity.subject = "mutated";
+        }
+        const reread = await ctx.auth.getUserIdentity();
+        return reread === null ? null : reread.subject;
+      },
+    },
+    token: {
+      isMutation: true,
+      isPublic: true,
+      _handler: async (ctx) => {
+        const identity = await ctx.auth.getUserIdentity();
+        return identity === null ? null : identity.tokenIdentifier;
+      },
+    },
+    malformed: {
+      isQuery: true,
+      isPublic: true,
+      _handler: async () => "handler should not run",
+    },
+  },
+};`,
+      },
+    ],
+    functions: ["_flarex/execution.js"],
+    execution: "_flarex/execution.js",
+  };
+  return {
+    deploymentId: "deployment-auth",
+    identity: authUserIdentity(),
+    ref: {
+      runtime: "dynamic-worker",
+      artifactId: `artifact-auth-${kind}`,
+      sourcePackageHash: "m".repeat(64),
+      executionModule: "_flarex/execution.js",
+    },
+    sourcePackage,
+    request: {
+      path:
+        kind === "query"
+          ? "auth:subject"
+          : kind === "mutation"
+            ? "auth:token"
+            : "auth:malformed",
+      args: {},
+      partitionKey: "auth",
+      kind: kind === "mutation" ? "mutation" : "query",
     },
   };
 }

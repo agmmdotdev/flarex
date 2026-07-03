@@ -20,7 +20,7 @@ Source roadmap:
 - [x] G-2. Complete I-1: public and protocol identity contracts.
 - [x] G-3. Complete I-2: backend identity resolver and invoke payload propagation.
 - [x] G-4. Complete I-3: trusted executor session identity.
-- [ ] G-5. Complete I-4: generated runtime `ctx.auth`.
+- [x] G-5. Complete I-4: generated runtime `ctx.auth`.
 - [ ] G-6. Complete I-5: HTTP client identity propagation.
 - [ ] G-7. Complete I-6: sync auth behavior and identity version v1.
 - [ ] G-8. Complete I-7: auth-aware live-query metadata.
@@ -279,15 +279,81 @@ Reviewer checkpoint:
 
 Next:
 
-- G-5 / I-4: generated runtime `ctx.auth`.
+- G-6 / I-5: HTTP client identity propagation.
 
 ## Later Slices
 
 ### G-5 / I-4: Generated Runtime `ctx.auth`
 
-- Implement `ctx.auth.getUserIdentity()` in generated runtime source.
-- Test local Miniflare and hosted artifact-runtime behavior.
-- Keep `ctx.scheduler` and `ctx.storage` unsupported.
+Status: complete.
+
+Purpose:
+
+Make generated runtime contexts expose Convex-shaped
+`ctx.auth.getUserIdentity()` from executor session identity, while keeping
+unsupported capabilities explicit and fail-closed.
+
+Previous completed checkpoint:
+
+- `08e5181` (`Persist invoke session identity`)
+
+Files changed:
+
+- `packages/flarex-backend/src/artifactRuntime.ts`
+- `packages/flarex-backend/src/artifactRuntime/GeneratedWorkerSource.ts`
+- `packages/flarex-dev/src/runtimeMaterializer.ts`
+- `packages/flarex-dev/test/executorHttpRuntime.test.ts`
+- `packages/flarex-dev/test/runtimeMaterializer.test.ts`
+- `packages/flarex-dev/test/generate.test.ts`
+- both roadmap files
+
+Completed:
+
+- Added required identity to materialized query-session requests.
+- Threaded live-query attempt session identity into generated artifact
+  query-session execution.
+- Replaced generated `ctx.auth.getUserIdentity()` unsupported stubs with an
+  identity-backed implementation for local artifact workers and generated
+  hosted project workers.
+- Preserved unsupported `ctx.scheduler` and `ctx.storage` fail-closed
+  capability stubs.
+- Added Miniflare materializer tests for query and mutation identity reads.
+- Added a live-query rerun test proving existing session identity reaches
+  `ctx.auth`.
+- Added a generated project-worker test proving backend start-response identity
+  reaches user query and mutation handlers.
+- Tightened generated identity validation to match the protocol user identity
+  shape before user code can observe it.
+- Made query-session identity required at the typed artifact runtime boundary.
+- Added anonymous and malformed identity regression tests.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/authentication.ts`
+- `crates/isolate/src/environment/udf/async_syscall.rs`
+
+Cloudflare difference:
+
+- Generated workers use executor session identity as the authority source. They
+  still ignore public request-body identity unless a backend-owned resolver
+  placed verified identity into the session start response.
+
+Validation:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts test/generate.test.ts test/executorHttpRuntime.test.ts
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts test/artifactRuntimeRoute.test.ts test/artifactRuntimeRequests.test.ts
+git diff --check
+```
+
+Reviewer checkpoint:
+
+- `typescript-diff-reviewer`: fixed generated identity guard and required
+  query-session identity findings.
+- `code-quality-diff-reviewer`: fixed generated identity guard and added
+  anonymous/malformed identity coverage.
 
 ### G-6 / I-5: HTTP Client Identity Propagation
 
@@ -332,13 +398,13 @@ Every implementation turn in this goal follows this loop:
 
 ## Required Quality Checklist For Code Slices
 
-- [ ] `ctx.auth.getUserIdentity()` returns `UserIdentity | null`, not a
+- [x] `ctx.auth.getUserIdentity()` returns `UserIdentity | null`, not a
   generic unsupported runtime error.
-- [ ] Anonymous execution remains supported.
-- [ ] Hosted production does not trust arbitrary client identity JSON.
-- [ ] Project/deployment mismatch checks run before identity reaches user code.
-- [ ] Identity transport contracts are decoded through Effect Schema.
-- [ ] Public SDK types remain Convex-compatible where practical.
+- [x] Anonymous execution remains supported.
+- [x] Hosted production does not trust arbitrary client identity JSON.
+- [x] Project/deployment mismatch checks run before identity reaches user code.
+- [x] Identity transport contracts are decoded through Effect Schema.
+- [x] Public SDK types remain Convex-compatible where practical.
 - [ ] Sync identity changes advance identity version and rerun affected query
   state conservatively.
 - [ ] Scheduler/rerun paths use subscription identity, not scheduler identity.

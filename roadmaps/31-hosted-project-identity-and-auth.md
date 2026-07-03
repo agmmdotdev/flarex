@@ -13,9 +13,9 @@ real platform concept:
   `FLAREX_PROJECT_ID` or request bodies, but that is routing metadata, not user
   identity or project ownership.
 - `@flarex/executor` validates deployment/project mismatches for trusted
-  executor calls, but it does not store a user identity on invoke sessions.
+  executor calls and stores user identity on invoke sessions.
 - `packages/flarex-backend/src/artifactRuntime/GeneratedWorkerSource.ts`
-  still emits hosted `ctx.auth.getUserIdentity()` as an unsupported capability.
+  now emits `ctx.auth.getUserIdentity()` backed by executor session identity.
 - Sync already has query-set versions, but it does not have Convex-style
   `Authenticate` handling or identity-version transitions.
 
@@ -161,7 +161,7 @@ identity mechanism is enabled.
     needs it.
   - Make executor project/deployment mismatch checks continue to run before
     identity reaches user code.
-- [ ] I-4. Generated runtime `ctx.auth`.
+- [x] I-4. Generated runtime `ctx.auth`.
   - Replace hosted and local unsupported `ctx.auth.getUserIdentity()` stubs with
     a shared generated implementation returning the session identity.
   - Preserve unsupported `ctx.scheduler` and `ctx.storage` as explicit
@@ -254,36 +254,34 @@ closing the stream.
 
 ## Current Checkpoint
 
-Previous completed checkpoint: `a9ce694` (`Propagate hosted execution identity`).
+Previous completed checkpoint: `08e5181` (`Persist invoke session identity`).
 
 What changed:
 
-- Added `identity_json` to invoke session metadata, with anonymous DB and
-  insertion defaults for old callers and existing rows.
-- Added optional `identity` to executor start input and required `identity` to
-  executor start responses.
-- Persisted explicit user identities on invoke sessions and returned the
-  session identity from begin/start.
-- Decoded optional executor HTTP `/invoke/start` identity through the shared
-  `ExecutionIdentity` Effect Schema helper.
-- Forwarded execution artifact payload identity from generated workers to the
-  postgres executor `/invoke/start` route.
-- Preserved project mismatch checks in `requireActiveSession`; generated
-  runtime still cannot read the identity until I-4.
-- Kept public generated-worker `/invoke` request-body identity ignored, and
-  rejected direct executor HTTP identity unless a capability token is
-  configured and supplied.
+- Added required identity to materialized query-session requests.
+- Threaded live-query attempt session identity into generated artifact
+  query-session execution.
+- Replaced hosted and local generated `ctx.auth.getUserIdentity()` unsupported
+  stubs with an identity-backed implementation returning user identity or
+  `null`.
+- Preserved unsupported `ctx.scheduler` and `ctx.storage` fail-closed
+  capabilities.
+- Added local Miniflare materializer tests for query, mutation, and live-query
+  rerun identity reads.
+- Added generated project-worker coverage proving backend session identity
+  reaches user query and mutation handlers.
+- Tightened generated identity validation to match the shared protocol user
+  identity shape before user code can observe it.
+- Made query-session identity required at the typed artifact runtime boundary.
+- Added anonymous and malformed identity regression coverage.
 
 Convex references inspected:
 
-- `crates/application/src/api.rs`
 - `crates/isolate/src/environment/udf/async_syscall.rs`
-- `crates/sync/src/worker.rs`
 - `npm-packages/convex/src/server/authentication.ts`
 
 Known limitations:
 
-- Existing hosted generated runtime still throws for `ctx.auth`.
 - Existing sync protocol has an `Authenticate` skeleton, but identity changes
   are not yet wired to backend resolver or live-query reruns.
 - Hosted production still defaults to anonymous identity until a real auth
@@ -294,23 +292,16 @@ Known limitations:
 Verification:
 
 ```sh
-corepack pnpm --filter @flarex/persistence-postgres typecheck
-corepack pnpm --filter @flarex/executor typecheck
-corepack pnpm --filter @flarex/executor-http typecheck
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter @flarex/persistence-postgres db:check
-corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts
-corepack pnpm --filter @flarex/executor exec vitest run test/sessions.test.ts test/postgresRetry.test.ts
-corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts
 corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts test/artifactRuntimeRoute.test.ts test/artifactRuntimeRequests.test.ts
-corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts test/generate.test.ts
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts test/generate.test.ts test/executorHttpRuntime.test.ts
 git diff --check
 ```
 
 Reviewer checkpoint:
 
-- `typescript-diff-reviewer`: no findings.
-- `code-quality-diff-reviewer`: fixed public generated-worker identity spoof
-  risk, direct executor HTTP identity capability-token requirement, and PGlite
-  identity default/round-trip coverage.
+- `typescript-diff-reviewer`: fixed generated identity guard and required
+  query-session identity findings.
+- `code-quality-diff-reviewer`: fixed generated identity guard and added
+  anonymous/malformed identity coverage.

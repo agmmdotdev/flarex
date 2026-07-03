@@ -87,6 +87,7 @@ export type MaterializedExecutionArtifactPayload =
 export type ExecutionArtifactQuerySessionRequest = {
   deploymentId: string;
   projectId?: string;
+  identity: ExecutionIdentity;
   path: string;
   args: Json;
   partitionKey?: string;

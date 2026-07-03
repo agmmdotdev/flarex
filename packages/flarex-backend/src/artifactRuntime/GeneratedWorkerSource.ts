@@ -100,6 +100,7 @@ async function invokeWithBackend(body, env, request) {
         sessionId: start.sessionId,
         kind: startedKind,
         transport,
+        identity: executionIdentityFromStart(start),
         nestedCallDepth: 0,
         projectId,
         executorToken: env.FLAREX_EXECUTOR_TOKEN,
@@ -182,6 +183,7 @@ function executionContextForSession(input) {
     input.executorToken,
   );
   return {
+    auth: authForExecutionIdentity(input.identity),
     db,
     runQuery: (reference, args) =>
       executeNestedFunction({
@@ -219,6 +221,7 @@ async function executeNestedFunction(input) {
     sessionId: input.sessionId,
     kind: nestedKind,
     transport: input.transport,
+    identity: input.identity,
     nestedCallDepth: input.nestedCallDepth + 1,
     projectId: input.projectId,
     executorToken: input.executorToken,
@@ -529,6 +532,7 @@ function executionStartResponse(value: unknown): ExecutionStartResponse {
     sessionId: value.sessionId,
     ...(value.kind === "query" || value.kind === "mutation" ? { kind: value.kind } : {}),
     ...(functionKind === undefined ? {} : { function: { kind: functionKind } }),
+    identity: executionIdentityFromStart(value),
   };
 }
 
@@ -801,6 +805,116 @@ function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function executionIdentityFromStart(start) {
+  return executionIdentityOrAnonymous(isRecord(start) ? start.identity : undefined);
+}
+
+function executionIdentityOrAnonymous(value) {
+  if (value === undefined) {
+    return { kind: "anonymous" };
+  }
+  return executionIdentityFromRequired(value);
+}
+
+function executionIdentityFromRequired(value) {
+  if (isExecutionIdentity(value)) {
+    return value;
+  }
+  throw new Error("Execution identity was invalid.");
+}
+
+function isExecutionIdentity(value) {
+  if (!isPlainRecord(value)) return false;
+  if (value.kind === "anonymous") return !("user" in value);
+  return value.kind === "user" && isUserIdentity(value.user);
+}
+
+function isUserIdentity(value) {
+  if (!isPlainRecord(value)) return false;
+  if (
+    typeof value.tokenIdentifier !== "string" ||
+    typeof value.subject !== "string" ||
+    typeof value.issuer !== "string"
+  ) {
+    return false;
+  }
+  for (const [key, field] of Object.entries(value)) {
+    if (field === undefined) continue;
+    if (isKnownStringIdentityClaim(key)) {
+      if (typeof field !== "string") return false;
+      continue;
+    }
+    if (isKnownBooleanIdentityClaim(key)) {
+      if (typeof field !== "boolean") return false;
+      continue;
+    }
+    if (!isJsonValue(field)) return false;
+  }
+  return true;
+}
+
+function isKnownStringIdentityClaim(key) {
+  return (
+    key === "tokenIdentifier" ||
+    key === "subject" ||
+    key === "issuer" ||
+    key === "name" ||
+    key === "givenName" ||
+    key === "familyName" ||
+    key === "nickname" ||
+    key === "preferredUsername" ||
+    key === "profileUrl" ||
+    key === "pictureUrl" ||
+    key === "email" ||
+    key === "gender" ||
+    key === "birthday" ||
+    key === "timezone" ||
+    key === "language" ||
+    key === "phoneNumber" ||
+    key === "address" ||
+    key === "updatedAt"
+  );
+}
+
+function isKnownBooleanIdentityClaim(key) {
+  return key === "emailVerified" || key === "phoneNumberVerified";
+}
+
+function isJsonValue(value) {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return Number.isFinite(value) || typeof value !== "number";
+  }
+  if (Array.isArray(value)) {
+    return value.every(isJsonValue);
+  }
+  if (!isPlainRecord(value)) {
+    return false;
+  }
+  return Object.values(value).every(isJsonValue);
+}
+
+function isPlainRecord(value) {
+  if (!isRecord(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  return Object.getOwnPropertySymbols(value).length === 0;
+}
+
+function authForExecutionIdentity(identity) {
+  return {
+    getUserIdentity: async () => userIdentityForExecutionIdentity(identity),
+  };
+}
+
+function userIdentityForExecutionIdentity(identity) {
+  return identity.kind === "user" ? structuredClone(identity.user) : null;
+}
+
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }`;
@@ -884,6 +998,120 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function executionIdentityFromStart(start: unknown): ExecutionIdentity {
+  return executionIdentityOrAnonymous(isRecord(start) ? start.identity : undefined);
+}
+
+function executionIdentityOrAnonymous(value: unknown): ExecutionIdentity {
+  if (value === undefined) {
+    return { kind: "anonymous" };
+  }
+  return executionIdentityFromRequired(value);
+}
+
+function executionIdentityFromRequired(value: unknown): ExecutionIdentity {
+  if (isExecutionIdentity(value)) {
+    return value;
+  }
+  throw new Error("Execution identity was invalid.");
+}
+
+function isExecutionIdentity(value: unknown): value is ExecutionIdentity {
+  if (!isPlainRecord(value)) return false;
+  if (value.kind === "anonymous") return !("user" in value);
+  return value.kind === "user" && isUserIdentity(value.user);
+}
+
+function isUserIdentity(value: unknown): value is Record<string, unknown> {
+  if (!isPlainRecord(value)) return false;
+  if (
+    typeof value.tokenIdentifier !== "string" ||
+    typeof value.subject !== "string" ||
+    typeof value.issuer !== "string"
+  ) {
+    return false;
+  }
+  for (const [key, field] of Object.entries(value)) {
+    if (field === undefined) continue;
+    if (isKnownStringIdentityClaim(key)) {
+      if (typeof field !== "string") return false;
+      continue;
+    }
+    if (isKnownBooleanIdentityClaim(key)) {
+      if (typeof field !== "boolean") return false;
+      continue;
+    }
+    if (!isJsonValue(field)) return false;
+  }
+  return true;
+}
+
+function isKnownStringIdentityClaim(key: string): boolean {
+  return (
+    key === "tokenIdentifier" ||
+    key === "subject" ||
+    key === "issuer" ||
+    key === "name" ||
+    key === "givenName" ||
+    key === "familyName" ||
+    key === "nickname" ||
+    key === "preferredUsername" ||
+    key === "profileUrl" ||
+    key === "pictureUrl" ||
+    key === "email" ||
+    key === "gender" ||
+    key === "birthday" ||
+    key === "timezone" ||
+    key === "language" ||
+    key === "phoneNumber" ||
+    key === "address" ||
+    key === "updatedAt"
+  );
+}
+
+function isKnownBooleanIdentityClaim(key: string): boolean {
+  return key === "emailVerified" || key === "phoneNumberVerified";
+}
+
+function isJsonValue(value: unknown): boolean {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return Number.isFinite(value) || typeof value !== "number";
+  }
+  if (Array.isArray(value)) {
+    return value.every(isJsonValue);
+  }
+  if (!isPlainRecord(value)) {
+    return false;
+  }
+  return Object.values(value).every(isJsonValue);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  return Object.getOwnPropertySymbols(value).length === 0;
+}
+
+function authForExecutionIdentity(identity: ExecutionIdentity): {
+  getUserIdentity: () => Promise<Record<string, unknown> | null>;
+} {
+  return {
+    getUserIdentity: async () => userIdentityForExecutionIdentity(identity),
+  };
+}
+
+function userIdentityForExecutionIdentity(
+  identity: ExecutionIdentity,
+): Record<string, unknown> | null {
+  return identity.kind === "user" ? structuredClone(identity.user) : null;
+}
+
 function invokeErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }`;
@@ -927,6 +1155,7 @@ function querySessionImplementationSource(): string {
     sessionId: body.sessionId,
     kind: "query",
     transport,
+    identity: executionIdentityFromRequired(body.identity),
     nestedCallDepth: 0,
     projectId,
     executorToken: env.FLAREX_EXECUTOR_TOKEN,
@@ -938,10 +1167,7 @@ function querySessionImplementationSource(): string {
 }
 
 function unsupportedCapabilityContextSource(): string {
-  return `    auth: {
-      getUserIdentity: unsupportedCapability("auth.getUserIdentity"),
-    },
-    scheduler: {
+  return `    scheduler: {
       runAfter: unsupportedCapability("scheduler.runAfter"),
       runAt: unsupportedCapability("scheduler.runAt"),
     },
@@ -984,10 +1210,15 @@ export function generatedProjectWorkerExecutorBridgeSource(
 
 type ExecutorTransport = "legacy" | "postgres";
 
+type ExecutionIdentity =
+  | { kind: "anonymous" }
+  | { kind: "user"; user: Record<string, unknown> };
+
 type ExecutionStartResponse = {
   sessionId: string;
   kind?: "query" | "mutation";
   function?: { kind: "query" | "mutation" };
+  identity: ExecutionIdentity;
 };
 
 const GENERATED_PROJECT_WORKER_BACKEND_BASE_URL = ${JSON.stringify(options.backendBaseUrl)};
@@ -1035,6 +1266,7 @@ async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): 
         sessionId: start.sessionId,
         kind: startedKind,
         transport,
+        identity: start.identity,
         nestedCallDepth: 0,
         ...(projectId === undefined ? {} : { projectId }),
         ...(env.FLAREX_EXECUTOR_TOKEN === undefined ? {} : { executorToken: env.FLAREX_EXECUTOR_TOKEN }),
@@ -1079,9 +1311,13 @@ function executionContextForSession(input: {
   kind: "query" | "mutation";
   transport: ExecutorTransport;
   nestedCallDepth: number;
+  identity: ExecutionIdentity;
   projectId?: string;
   executorToken?: string;
 }): {
+  auth: {
+    getUserIdentity: () => Promise<Record<string, unknown> | null>;
+  };
   db: DatabaseWriter;
   runQuery: (reference: Parameters<typeof getFunctionName>[0], args?: unknown) => Promise<unknown>;
   runMutation: (reference: Parameters<typeof getFunctionName>[0], args?: unknown) => Promise<unknown>;
@@ -1096,6 +1332,7 @@ function executionContextForSession(input: {
     input.executorToken,
   );
   return {
+    auth: authForExecutionIdentity(input.identity),
     db,
     runQuery: (reference, args) =>
       executeNestedFunction({
@@ -1125,6 +1362,7 @@ async function executeNestedFunction(input: {
   kind: "query" | "mutation";
   transport: ExecutorTransport;
   nestedCallDepth: number;
+  identity: ExecutionIdentity;
   projectId?: string;
   executorToken?: string;
   expectedKind: "query" | "mutation";
@@ -1147,6 +1385,7 @@ async function executeNestedFunction(input: {
     sessionId: input.sessionId,
     kind: nestedKind,
     transport: input.transport,
+    identity: input.identity,
     nestedCallDepth: input.nestedCallDepth + 1,
     ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
     ...(input.executorToken === undefined ? {} : { executorToken: input.executorToken }),
