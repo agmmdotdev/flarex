@@ -24,6 +24,9 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
+  "dependencies": {
+    "flarex-protocol": "workspace:*"
+  },
   "devDependencies": {
     "@types/react": "^19.2.17",
     "@types/react-test-renderer": "^19.1.0",

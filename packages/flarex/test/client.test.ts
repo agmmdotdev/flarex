@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { FlarexClient } from "../src/client";
 import type { FunctionReference } from "../src/api";
+import type { UserIdentity } from "../src/auth";
 
 const userPartition = {
   type: "partition" as const,
@@ -116,6 +117,150 @@ describe("FlarexClient", () => {
           partitionKey: "user-1",
         }),
       }),
+    );
+  });
+
+  it("sends bearer auth from setAuth on one-shot HTTP invokes", async () => {
+    const fetch = vi.fn(async () => Response.json({ value: ["Intro"] }));
+    const fetchToken = vi.fn(async ({ forceRefreshToken }: { forceRefreshToken: boolean }) => {
+      expect(forceRefreshToken).toBe(false);
+      return "jwt-token";
+    });
+    const client = new FlarexClient("https://example.test", { fetch });
+    client.setAuth(fetchToken);
+
+    await expect(
+      client.query(
+        { _path: "lessons:list", _kind: "query", _partition: userPartition },
+        { userId: "user-1" },
+      ),
+    ).resolves.toEqual(["Intro"]);
+
+    expect(fetchToken).toHaveBeenCalledWith({ forceRefreshToken: false });
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("https://example.test/invoke"),
+      expect.objectContaining({
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer jwt-token",
+        },
+        body: JSON.stringify({
+          path: "lessons:list",
+          args: { userId: "user-1" },
+          partitionKey: "user-1",
+        }),
+      }),
+    );
+  });
+
+  it("clears bearer auth for later one-shot HTTP invokes", async () => {
+    const fetch = vi.fn(async () => Response.json({ value: ["Intro"] }));
+    const client = new FlarexClient("https://example.test", { fetch });
+    client.setAuth(async () => "jwt-token");
+
+    await client.query(
+      { _path: "lessons:list", _kind: "query", _partition: userPartition },
+      { userId: "user-1" },
+    );
+    client.clearAuth();
+    await client.query(
+      { _path: "lessons:list", _kind: "query", _partition: userPartition },
+      { userId: "user-1" },
+    );
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      new URL("https://example.test/invoke"),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          authorization: "Bearer jwt-token",
+        }),
+      }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      new URL("https://example.test/invoke"),
+      expect.objectContaining({
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  });
+
+  it("omits bearer auth when the token fetcher returns no token", async () => {
+    const fetch = vi.fn(async () => Response.json({ value: ["Intro"] }));
+    const client = new FlarexClient("https://example.test", { fetch });
+    client.setAuth(async () => null);
+
+    await client.query(
+      { _path: "lessons:list", _kind: "query", _partition: userPartition },
+      { userId: "user-1" },
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("https://example.test/invoke"),
+      expect.objectContaining({
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  });
+
+  it("sends trusted dev identity through resolver headers without request-body spoofing", async () => {
+    const fetch = vi.fn(async () => Response.json({ value: { completed: true } }));
+    const identity = {
+      tokenIdentifier: "issuer|user-1",
+      subject: "user-1",
+      issuer: "issuer",
+      name: "Ada",
+    } satisfies UserIdentity;
+    const client = new FlarexClient("https://example.test", { fetch });
+    client.setTrustedExecutionIdentity(identity, "trusted-secret");
+    identity.subject = "mutated-after-set";
+
+    await expect(
+      client.mutation(
+        { _path: "lessons:complete", _kind: "mutation" },
+        { lessonId: "intro" },
+        { partitionKey: "user-1", transport: "http" },
+      ),
+    ).resolves.toEqual({ completed: true });
+
+    expect(fetch).toHaveBeenCalledWith(
+      new URL("https://example.test/invoke"),
+      expect.objectContaining({
+        headers: {
+          "content-type": "application/json",
+          "x-flarex-trusted-execution-identity": JSON.stringify({
+            kind: "user",
+            user: {
+              tokenIdentifier: "issuer|user-1",
+              subject: "user-1",
+              issuer: "issuer",
+              name: "Ada",
+            },
+          }),
+          "x-flarex-trusted-execution-identity-token": "trusted-secret",
+        },
+        body: JSON.stringify({
+          path: "lessons:complete",
+          args: { lessonId: "intro" },
+          partitionKey: "user-1",
+        }),
+      }),
+    );
+  });
+
+  it("requires a token for trusted dev identity headers", () => {
+    const client = new FlarexClient("https://example.test", {
+      fetch: async () => Response.json({ value: null }),
+    });
+    const identity = {
+      tokenIdentifier: "issuer|user-1",
+      subject: "user-1",
+      issuer: "issuer",
+    } satisfies UserIdentity;
+
+    expect(() => client.setTrustedExecutionIdentity(identity, "")).toThrow(
+      "Trusted execution identity token must be a non-empty string.",
     );
   });
 

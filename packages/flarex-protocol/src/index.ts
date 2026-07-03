@@ -1,5 +1,6 @@
 export * from "./artifact-runtime";
 export * from "./auth";
+export * from "./auth-headers";
 export * from "./json";
 export * from "./deployment";
 export * from "./execution";

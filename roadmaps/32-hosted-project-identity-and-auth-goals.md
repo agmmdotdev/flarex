@@ -21,7 +21,7 @@ Source roadmap:
 - [x] G-3. Complete I-2: backend identity resolver and invoke payload propagation.
 - [x] G-4. Complete I-3: trusted executor session identity.
 - [x] G-5. Complete I-4: generated runtime `ctx.auth`.
-- [ ] G-6. Complete I-5: HTTP client identity propagation.
+- [x] G-6. Complete I-5: HTTP client identity propagation.
 - [ ] G-7. Complete I-6: sync auth behavior and identity version v1.
 - [ ] G-8. Complete I-7: auth-aware live-query metadata.
 - [ ] G-9. Complete I-8: auth provider platform planning checkpoint.
@@ -279,7 +279,7 @@ Reviewer checkpoint:
 
 Next:
 
-- G-6 / I-5: HTTP client identity propagation.
+- G-7 / I-6: sync auth behavior and identity version v1.
 
 ## Later Slices
 
@@ -357,14 +357,79 @@ Reviewer checkpoint:
 
 ### G-6 / I-5: HTTP Client Identity Propagation
 
-- Add client API for setting and clearing auth.
-- Propagate identity/token through configured backend resolver path.
-- Preserve anonymous execution by default.
+Status: complete.
+
+Purpose:
+
+Add a one-shot HTTP client auth surface that can send bearer auth tokens or
+explicit dev/test trusted identities through headers while preserving anonymous
+execution and keeping identity out of public invoke JSON bodies.
+
+Previous completed checkpoint:
+
+- `286ca1d` (`Implement generated runtime auth context`)
+
+Files changed:
+
+- `packages/flarex/src/client.ts`
+- `packages/flarex/test/client.test.ts`
+- `packages/flarex/package.json`
+- `packages/flarex-protocol/src/auth-headers.ts`
+- `packages/flarex-protocol/src/index.ts`
+- `packages/flarex-protocol/package.json`
+- `packages/flarex-backend/src/auth.ts`
+- `pnpm-lock.yaml`
+- both roadmap files
+
+Completed:
+
+- Added public `AuthTokenFetcher`.
+- Added `FlarexClient.setAuth(fetchToken)` for one-shot HTTP query and explicit
+  HTTP mutation invokes.
+- Added `FlarexClient.clearAuth()` to return later HTTP invokes to anonymous.
+- Added `FlarexClient.setTrustedExecutionIdentity(identity, token)` for
+  explicitly configured dev/test trusted identity headers.
+- Kept production JWT/provider verification out of scope.
+- Kept public invoke request bodies identity-free; auth is carried only in
+  HTTP headers.
+- Moved trusted identity header names into `flarex-protocol/auth-headers` and
+  reused them from both the SDK and backend resolver.
+- Cloned trusted identities when set so later caller mutation cannot alter
+  emitted identity headers.
+- Left WebSocket `Authenticate` and identity-version behavior for G-7/I-6.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/browser/sync/client.ts`
+- `npm-packages/convex/src/browser/sync/authentication_manager.ts`
+
+Cloudflare difference:
+
+- Bearer tokens are forwarded for backend-owned resolver support, but this
+  slice does not implement JWT/JWKS validation.
+- Trusted identity remains an explicit dev/test path that only works when the
+  backend deployment has opted into the matching trusted resolver token.
+
+Validation:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test -- client.test.ts
+git diff --check
+```
+
+Reviewer checkpoint:
+
+- `typescript-diff-reviewer`: no findings.
+- `code-quality-diff-reviewer`: fixed HTTP-only `setAuth` documentation,
+  protocol-owned trusted identity header constants, and sync roadmap wording.
 
 ### G-7 / I-6: Sync Auth Behavior And Identity Version V1
 
-- Wire existing `Authenticate`/`AuthError` message shapes into backend identity
-  behavior.
+- Wire existing backend `Authenticate`/`AuthError` message shapes and the
+  public SDK sync protocol into backend identity behavior.
 - Track identity version in `ConnectionDO`.
 - Rerun active connection queries on auth change.
 

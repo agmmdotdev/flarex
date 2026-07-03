@@ -1,13 +1,22 @@
 import {
+  TRUSTED_EXECUTION_IDENTITY_HEADER,
+  TRUSTED_EXECUTION_IDENTITY_TOKEN_HEADER,
+} from "flarex-protocol/auth-headers";
+import {
   getFunctionName,
   type FunctionArgs,
   type FunctionReference,
   type FunctionReturnType,
 } from "./api";
+import type { UserIdentity } from "./auth";
 import { BaseFlarexClient, type WebSocketConstructor } from "./sync/baseClient";
 import { serializePathArgsAndPartition } from "./sync/localState";
 import type { QueryToken } from "./sync/protocol";
 import type { OnUpdateOptions, Unsubscribe, Watch } from "./sync/simpleClient";
+
+export type AuthTokenFetcher = (args: {
+  forceRefreshToken: boolean;
+}) => Promise<string | null | undefined>;
 
 export type FlarexClientOptions = {
   fetch?: typeof globalThis.fetch;
@@ -20,6 +29,15 @@ export type InvokeOptions = {
 };
 
 type ResolvedInvokeOptions = InvokeOptions;
+
+type HttpAuthState =
+  | { readonly kind: "none" }
+  | { readonly kind: "bearer"; readonly fetchToken: AuthTokenFetcher }
+  | {
+      readonly kind: "trustedExecutionIdentity";
+      readonly identity: UserIdentity;
+      readonly token: string;
+    };
 
 export class FlarexInvocationError extends Error {
   constructor(
@@ -36,6 +54,7 @@ export class FlarexClient {
   private readonly webSocketConstructor: WebSocketConstructor | undefined;
   private syncClient: BaseFlarexClient | undefined;
   private readonly listeners = new Map<QueryToken, Set<() => void>>();
+  private httpAuth: HttpAuthState = { kind: "none" };
   private closed = false;
 
   constructor(
@@ -44,6 +63,43 @@ export class FlarexClient {
   ) {
     this.fetch = options.fetch ?? globalThis.fetch;
     this.webSocketConstructor = options.webSocketConstructor;
+  }
+
+  /**
+   * Set the bearer token fetcher for one-shot HTTP invokes.
+   *
+   * This currently applies to `query()` and `mutation(..., { transport: "http" })`.
+   * Sync `Authenticate` support for live queries and default sync mutations is
+   * tracked separately in the next identity-version slice.
+   */
+  setAuth(fetchToken: AuthTokenFetcher): void {
+    this.httpAuth = { kind: "bearer", fetchToken };
+  }
+
+  /**
+   * Set an explicitly trusted dev/test identity for one-shot HTTP invokes.
+   *
+   * Hosted deployments only accept this when their backend trusted identity
+   * resolver is enabled with the matching shared token.
+   */
+  setTrustedExecutionIdentity(identity: UserIdentity, token: string): void {
+    if (token.length === 0) {
+      throw new Error("Trusted execution identity token must be a non-empty string.");
+    }
+    this.httpAuth = {
+      kind: "trustedExecutionIdentity",
+      identity: structuredClone(identity),
+      token,
+    };
+  }
+
+  /**
+   * Clear one-shot HTTP auth state.
+   *
+   * Sync auth will be wired in the identity-version slice.
+   */
+  clearAuth(): void {
+    this.httpAuth = { kind: "none" };
   }
 
   query<Reference extends FunctionReference<"query">>(
@@ -182,9 +238,10 @@ export class FlarexClient {
     args: unknown,
     options: ResolvedInvokeOptions,
   ): Promise<unknown> {
+    const authHeaders = await this.httpAuthHeaders();
     const response = await this.fetch(new URL("/invoke", this.deploymentUrl), {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...authHeaders },
       body: JSON.stringify({
         path: getFunctionName(reference),
         args,
@@ -196,6 +253,30 @@ export class FlarexClient {
       throw new FlarexInvocationError(result.error ?? "Flarex invocation failed", response.status);
     }
     return result.value;
+  }
+
+  private async httpAuthHeaders(): Promise<Record<string, string>> {
+    switch (this.httpAuth.kind) {
+      case "none":
+        return {};
+      case "bearer": {
+        const token = await this.httpAuth.fetchToken({ forceRefreshToken: false });
+        return token === null || token === undefined || token.length === 0
+          ? {}
+          : { authorization: `Bearer ${token}` };
+      }
+      case "trustedExecutionIdentity":
+        return {
+          [TRUSTED_EXECUTION_IDENTITY_HEADER]: JSON.stringify({
+            kind: "user",
+            user: this.httpAuth.identity,
+          }),
+          [TRUSTED_EXECUTION_IDENTITY_TOKEN_HEADER]: this.httpAuth.token,
+        };
+      default:
+        this.httpAuth satisfies never;
+        return {};
+    }
   }
 
   private ensureSyncClient(): BaseFlarexClient {

@@ -1,14 +1,19 @@
 import { Data, Effect } from "effect";
 import {
+  TRUSTED_EXECUTION_IDENTITY_HEADER,
+  TRUSTED_EXECUTION_IDENTITY_TOKEN_HEADER,
+} from "flarex-protocol/auth-headers";
+import {
   decodeExecutionIdentityEffect,
   type ExecutionIdentity,
 } from "flarex-protocol/auth";
 import { HttpError } from "./http";
 import type { Env } from "./types";
 
-export const TRUSTED_EXECUTION_IDENTITY_HEADER = "x-flarex-trusted-execution-identity";
-export const TRUSTED_EXECUTION_IDENTITY_TOKEN_HEADER =
-  "x-flarex-trusted-execution-identity-token";
+export {
+  TRUSTED_EXECUTION_IDENTITY_HEADER,
+  TRUSTED_EXECUTION_IDENTITY_TOKEN_HEADER,
+} from "flarex-protocol/auth-headers";
 export const ANONYMOUS_EXECUTION_IDENTITY: ExecutionIdentity = { kind: "anonymous" };
 
 export class TrustedExecutionIdentityError extends Data.TaggedError(

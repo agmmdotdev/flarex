@@ -168,7 +168,7 @@ identity mechanism is enabled.
     fail-closed capabilities.
   - Add local Miniflare and hosted artifact-runtime tests proving query and
     mutation functions can read identity.
-- [ ] I-5. HTTP client identity propagation.
+- [x] I-5. HTTP client identity propagation.
   - Add SDK support for setting/clearing auth on one-shot query/mutation calls.
   - Send auth to backend as an authorization token or typed dev/test identity
     only through the configured resolver path.
@@ -254,54 +254,53 @@ closing the stream.
 
 ## Current Checkpoint
 
-Previous completed checkpoint: `08e5181` (`Persist invoke session identity`).
+Previous completed checkpoint: `286ca1d` (`Implement generated runtime auth context`).
 
 What changed:
 
-- Added required identity to materialized query-session requests.
-- Threaded live-query attempt session identity into generated artifact
-  query-session execution.
-- Replaced hosted and local generated `ctx.auth.getUserIdentity()` unsupported
-  stubs with an identity-backed implementation returning user identity or
-  `null`.
-- Preserved unsupported `ctx.scheduler` and `ctx.storage` fail-closed
-  capabilities.
-- Added local Miniflare materializer tests for query, mutation, and live-query
-  rerun identity reads.
-- Added generated project-worker coverage proving backend session identity
-  reaches user query and mutation handlers.
-- Tightened generated identity validation to match the shared protocol user
-  identity shape before user code can observe it.
-- Made query-session identity required at the typed artifact runtime boundary.
-- Added anonymous and malformed identity regression coverage.
+- Added public `AuthTokenFetcher`.
+- Added `FlarexClient.setAuth(fetchToken)` for one-shot HTTP query and explicit
+  HTTP mutation invokes.
+- Added `FlarexClient.clearAuth()` to return later HTTP invokes to anonymous.
+- Added `FlarexClient.setTrustedExecutionIdentity(identity, token)` for
+  explicitly configured dev/test trusted identity headers.
+- Kept public invoke request bodies identity-free; auth is carried only in
+  HTTP headers.
+- Moved trusted identity header names into `flarex-protocol/auth-headers` and
+  reused them from both the SDK and backend resolver.
+- Cloned trusted identities when set so later caller mutation cannot alter
+  emitted identity headers.
+- Left WebSocket `Authenticate` and identity-version behavior for I-6.
 
 Convex references inspected:
 
-- `crates/isolate/src/environment/udf/async_syscall.rs`
-- `npm-packages/convex/src/server/authentication.ts`
+- `npm-packages/convex/src/browser/sync/client.ts`
+- `npm-packages/convex/src/browser/sync/authentication_manager.ts`
 
 Known limitations:
 
-- Existing sync protocol has an `Authenticate` skeleton, but identity changes
-  are not yet wired to backend resolver or live-query reruns.
+- Existing backend sync protocol has an `Authenticate` skeleton, but the public
+  SDK sync protocol and identity changes are not yet wired to backend resolver
+  or live-query reruns.
 - Hosted production still defaults to anonymous identity until a real auth
   provider resolver is implemented.
-- Direct executor HTTP identity is still an internal/capability-token route,
-  not public client auth.
+- Bearer auth tokens are forwarded by the client, but JWT/JWKS verification is
+  still a backend-owned future slice.
+- Trusted identity headers are still an explicit dev/test resolver path guarded
+  by backend opt-in and a shared secret token.
 
 Verification:
 
 ```sh
+corepack pnpm --filter flarex-protocol typecheck
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts test/artifactRuntimeRoute.test.ts test/artifactRuntimeRequests.test.ts
-corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts test/generate.test.ts test/executorHttpRuntime.test.ts
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test -- client.test.ts
 git diff --check
 ```
 
 Reviewer checkpoint:
 
-- `typescript-diff-reviewer`: fixed generated identity guard and required
-  query-session identity findings.
-- `code-quality-diff-reviewer`: fixed generated identity guard and added
-  anonymous/malformed identity coverage.
+- `typescript-diff-reviewer`: no findings.
+- `code-quality-diff-reviewer`: fixed HTTP-only `setAuth` documentation,
+  protocol-owned trusted identity header constants, and sync roadmap wording.
