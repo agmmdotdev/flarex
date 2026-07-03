@@ -24,7 +24,7 @@ Source roadmap:
 - [x] G-6. Complete I-5: HTTP client identity propagation.
 - [x] G-7. Complete I-6: sync auth behavior and identity version v1.
 - [x] G-8. Complete I-7: auth-aware live-query metadata.
-- [ ] G-9. Complete I-8: auth provider platform planning checkpoint.
+- [x] G-9. Complete I-8: auth provider platform planning checkpoint.
 
 ## Current Next Slice
 
@@ -588,8 +588,54 @@ Reviewer checkpoint:
 
 ### G-9 / I-8: Auth Provider Platform Planning Checkpoint
 
-- Decide the next stream for JWT/JWKS provider config, auth refresh,
-  deploy-key/admin identities, and project ownership control plane.
+Status: complete.
+
+Purpose:
+
+Decide whether the next core stream is real auth-provider validation or a
+different capability after the identity plumbing work.
+
+Files changed:
+
+- `roadmaps/31-hosted-project-identity-and-auth.md`
+- `roadmaps/32-hosted-project-identity-and-auth-goals.md`
+- `roadmaps/33-auth-provider-platform.md`
+- `roadmaps/34-auth-provider-platform-goals.md`
+
+Completed:
+
+- Audited current SDK, backend auth, sync `Authenticate`, source-package,
+  artifact identity, deployment validation, and persistence metadata surfaces.
+- Confirmed bearer-token SDK surfaces already exist but hosted backend
+  verification does not.
+- Decided the next stream is auth-provider platform validation, because
+  `ctx.auth` is wired but still cannot become a verified hosted production user.
+- Created the concrete auth-provider platform roadmap and executable goal
+  checklist.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/authentication.ts`
+- `npm-packages/convex/src/browser/sync/authentication_manager.ts`
+- `crates/authentication/src/lib.rs`
+- `crates/model/src/auth/types.rs`
+- `crates/model/src/auth/mod.rs`
+- `crates/application/src/api.rs`
+
+Next stream:
+
+- `roadmaps/33-auth-provider-platform.md`
+- `roadmaps/34-auth-provider-platform-goals.md`
+
+Validation:
+
+```sh
+git diff --check
+```
+
+Reviewer checkpoint:
+
+- Main-thread review only. This was a docs-only planning slice.
 
 ## Turn Protocol
 

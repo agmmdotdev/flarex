@@ -188,7 +188,7 @@ identity mechanism is enabled.
   - Ensure executor reruns use the subscription identity, not the scheduler or
     maintenance caller identity.
   - Prove identity changes do not publish stale results from a previous user.
-- [ ] I-8. Auth provider platform planning checkpoint.
+- [x] I-8. Auth provider platform planning checkpoint.
   - Audit what remains for real JWT provider configuration, JWKS caching,
     token expiry, refresh behavior, deploy keys, admin identities, and
     dashboard/project ownership.
@@ -255,72 +255,75 @@ closing the stream.
 
 ## Current Checkpoint
 
-Previous completed checkpoint: `1026682` (`Add sync auth identity version handling`).
+Previous completed checkpoint: `89fb9e4` (`Add auth-aware live query metadata`).
 
 What changed:
 
-- Added `identity_json` to live-query subscription rows with anonymous defaults.
-- Propagated the active `ConnectionDO` execution identity when registering
-  executor-backed live-query subscriptions.
-- Made executor stale-rerun scans list subscription identity and invoke reruns
-  with that stored identity.
-- Added a shared `executionIdentityFingerprint` helper to the auth protocol.
-- Added normalized delivery `identityFingerprint` fields to shared live-query
-  delivery contracts while defaulting missing pre-upgrade delivery payloads to
-  anonymous at the decode boundary.
-- Made executor-generated update and failure deliveries carry the subscription
-  identity fingerprint.
-- Made `ConnectionDO` record the identity fingerprint used for each active query
-  result, mark active query guards with the new identity before auth-change
-  reruns, and skip delivery payloads whose fingerprint no longer matches.
-- Added a sync regression proving a previous-user delivery does not publish when
-  the active query identity fingerprint differs.
+- Completed the final planning checkpoint for this identity stream.
+- Confirmed the execution path is ready for real auth-provider work:
+  `ctx.auth.getUserIdentity()` exists, identity reaches executor sessions, sync
+  auth changes advance identity version, and live-query reruns carry stored
+  subscription identity.
+- Confirmed the remaining production gap is backend-owned bearer-token
+  verification, not more trusted identity plumbing.
+- Created `roadmaps/33-auth-provider-platform.md` and
+  `roadmaps/34-auth-provider-platform-goals.md` as the next concrete
+  turn-by-turn stream.
+
+Code findings:
+
+- `packages/flarex/src/client.ts` already forwards `Authorization: Bearer ...`
+  for HTTP and sends sync `Authenticate` messages from `setAuth(...)`.
+- `packages/flarex-backend/src/auth.ts` only resolves anonymous identity or the
+  explicit trusted dev/test identity headers; it does not validate bearer JWTs.
+- `packages/flarex-backend/src/connectionDO.ts` handles `Authenticate` by
+  bumping identity version and rerunning queries, but still sets anonymous
+  identity.
+- `packages/flarex-dev/src/sourcePackage.ts` and
+  `packages/flarex/src/artifacts.ts` include only functions, schema, and
+  execution in source package identity; no `auth.config` artifact exists.
+- `packages/persistence-postgres/src/schema.ts` and
+  `packages/persistence-postgres/src/deploymentPackages.ts` store deployment
+  package metadata but no auth-provider config.
+- `packages/flarex-backend/src/deployment/Validation.ts` validates source
+  packages without an auth config field, so the backend would currently reject
+  or drop auth config unless the contract is extended deliberately.
+
+Decision:
+
+- The next core stream is auth-provider platform validation, not scheduler or
+  storage capability work. The public SDK auth surfaces now exist, but hosted
+  production still cannot turn a bearer token into a non-anonymous
+  `ExecutionIdentity`.
+- The implementation must keep trusted identity as a dev/test escape hatch and
+  make bearer-token identity backend-owned and fail-closed.
 
 Convex references inspected:
 
-- `npm-packages/convex/src/browser/sync/protocol.ts`
-- `npm-packages/convex/src/browser/sync/local_state.ts`
-- `npm-packages/convex/src/browser/sync/client.ts`
+- `npm-packages/convex/src/server/authentication.ts`
 - `npm-packages/convex/src/browser/sync/authentication_manager.ts`
-- `crates/sync/src/state.rs`
-- `crates/sync/src/worker.rs`
+- `crates/authentication/src/lib.rs`
+- `crates/model/src/auth/types.rs`
+- `crates/model/src/auth/mod.rs`
+- `crates/application/src/api.rs`
 
-Known limitations:
+Known limitations after this stream:
 
 - WebSocket `Authenticate` advances identity version and reruns queries, but
-  bearer tokens are not yet verified into non-anonymous hosted execution
-  identities. JWT/JWKS verification remains a backend-owned future slice.
-- Live-query delivery fingerprints protect active WebSocket state from stale
-  previous-identity results, but they do not replace the stored subscription
-  `identity_json` used by executor reruns.
-- Trusted identity headers are still an explicit dev/test resolver path guarded
-  by backend opt-in and a shared secret token.
+  bearer tokens are still anonymous until `roadmaps/33-auth-provider-platform.md`
+  is implemented.
+- `setAuth(...)` currently sends tokens before the backend has provider config,
+  validation, JWKS cache, or token-expiry semantics.
+- There is still no deploy/admin identity model for updating auth provider
+  config. That must remain separate from end-user `ctx.auth` identity.
 
 Verification:
 
 ```sh
-corepack pnpm --filter flarex-protocol typecheck
-corepack pnpm --filter flarex-protocol test -- live-query.test.ts auth.test.ts connection.test.ts
-corepack pnpm --filter flarex typecheck
-corepack pnpm --filter @flarex/persistence-postgres typecheck
-corepack pnpm --filter @flarex/persistence-postgres db:check
-corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts -t "live query subscriptions"
-corepack pnpm --filter @flarex/executor typecheck
-corepack pnpm --filter @flarex/executor exec vitest run test/liveQueries.test.ts -t "live query"
-corepack pnpm --filter @flarex/executor-http typecheck
-corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts -t "live query subscription|changed live query reruns|backend delivery wake"
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "different identity"
-corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "delivery"
-corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "subscriptions"
 git diff --check
 ```
 
 Reviewer checkpoint:
 
-- `typescript-diff-reviewer`: fixed duplicated live-query delivery SDK types by
-  re-exporting the protocol-owned delivery types from `flarex`.
-- `code-quality-diff-reviewer`: fixed raw identity leakage by making
-  `executionIdentityFingerprint` opaque, added pre-upgrade anonymous delivery
-  compatibility, and closed the auth-transition stale-delivery race by marking
-  active query guards before awaited reruns.
+- Main-thread review only. This checkpoint is docs/planning; no code, tests, or
+  public contracts changed.
