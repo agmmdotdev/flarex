@@ -1,5 +1,7 @@
 import {
+  assertExecutionArtifactRefMatchesSourcePackage,
   executionArtifactRefForSourcePackage,
+  executionArtifactRefsEqual,
   type ExecutionArtifactRef,
 } from "flarex/artifacts";
 import type { SourcePackage } from "./sourcePackage.ts";
@@ -41,10 +43,7 @@ export class LocalInMemoryExecutionArtifactStore implements ExecutionArtifactSto
     if (sourcePackage === undefined) {
       throw new Error(`Unknown execution artifact: ${ref.artifactId}`);
     }
-    const currentRef = await executionArtifactRefForSourcePackage(sourcePackage);
-    if (currentRef.sourcePackageHash !== ref.sourcePackageHash) {
-      throw new Error(`Execution artifact hash mismatch for ${ref.artifactId}.`);
-    }
+    await assertExecutionArtifactRefMatchesSourcePackage(ref, sourcePackage);
     return cloneSourcePackage(sourcePackage);
   }
 }
@@ -57,7 +56,7 @@ export class R2ExecutionArtifactStore implements DurableExecutionArtifactStore {
   }
 
   async put(ref: ExecutionArtifactRef, sourcePackage: SourcePackage): Promise<void> {
-    await assertRefMatchesSourcePackage(ref, sourcePackage);
+    await assertExecutionArtifactRefMatchesSourcePackage(ref, sourcePackage);
     const sourcePackagePath = sourcePackageKey(ref);
     const manifest: StoredExecutionArtifactManifest = {
       version: 1,
@@ -80,7 +79,7 @@ export class R2ExecutionArtifactStore implements DurableExecutionArtifactStore {
     if (sourcePackage === null) {
       throw new Error(`Execution artifact source package is missing: ${ref.artifactId}`);
     }
-    await assertRefMatchesSourcePackage(ref, sourcePackage);
+    await assertExecutionArtifactRefMatchesSourcePackage(ref, sourcePackage);
     return cloneSourcePackage(sourcePackage);
   }
 
@@ -108,20 +107,6 @@ export function sourcePackageKey(ref: ExecutionArtifactRef): string {
   return `artifacts/${ref.artifactId}/source-package.json`;
 }
 
-async function assertRefMatchesSourcePackage(
-  ref: ExecutionArtifactRef,
-  sourcePackage: SourcePackage,
-): Promise<void> {
-  const actual = await executionArtifactRefForSourcePackage(sourcePackage);
-  if (
-    actual.artifactId !== ref.artifactId ||
-    actual.sourcePackageHash !== ref.sourcePackageHash ||
-    actual.executionModule !== ref.executionModule
-  ) {
-    throw new Error(`Execution artifact ref does not match source package: ${ref.artifactId}`);
-  }
-}
-
 function validateStoredManifest(
   ref: ExecutionArtifactRef,
   manifest: StoredExecutionArtifactManifest,
@@ -132,12 +117,7 @@ function validateStoredManifest(
   if (manifest.sourcePackagePath !== sourcePackageKey(ref)) {
     throw new Error(`Execution artifact manifest path mismatch for ${ref.artifactId}.`);
   }
-  if (
-    manifest.ref.artifactId !== ref.artifactId ||
-    manifest.ref.sourcePackageHash !== ref.sourcePackageHash ||
-    manifest.ref.executionModule !== ref.executionModule ||
-    manifest.ref.runtime !== ref.runtime
-  ) {
+  if (!executionArtifactRefsEqual(manifest.ref, ref)) {
     throw new Error(`Execution artifact manifest ref mismatch for ${ref.artifactId}.`);
   }
 }

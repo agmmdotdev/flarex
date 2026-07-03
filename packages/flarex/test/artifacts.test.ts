@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertExecutionArtifactRefMatchesSourcePackage,
   executionArtifactRefForSourcePackage,
+  executionArtifactRefsEqual,
   stableSourcePackageManifest,
   type ArtifactSourcePackage,
 } from "../src/artifacts";
@@ -31,6 +33,48 @@ describe("execution artifact refs", () => {
       sourcePackageHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       executionModule: "_flarex/execution.js",
     });
+  });
+
+  it("compares execution artifact ref fields that can differ between typed refs", async () => {
+    const ref = await executionArtifactRefForSourcePackage(sourcePackage());
+
+    expect(executionArtifactRefsEqual(ref, { ...ref })).toBe(true);
+    expect(
+      executionArtifactRefsEqual(ref, {
+        ...ref,
+        artifactId: "artifact_ffffffffffffffffffffffffffffffff",
+      }),
+    ).toBe(false);
+    expect(
+      executionArtifactRefsEqual(ref, {
+        ...ref,
+        executionModule: "_flarex/other-execution.js",
+      }),
+    ).toBe(false);
+    expect(
+      executionArtifactRefsEqual(ref, {
+        ...ref,
+        sourcePackageHash: "f".repeat(64),
+      }),
+    ).toBe(false);
+  });
+
+  it("asserts refs against the source package that produced them", async () => {
+    const package_ = sourcePackage();
+    const ref = await executionArtifactRefForSourcePackage(package_);
+
+    await expect(
+      assertExecutionArtifactRefMatchesSourcePackage(ref, package_),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertExecutionArtifactRefMatchesSourcePackage(
+        {
+          ...ref,
+          executionModule: "_flarex/other-execution.js",
+        },
+        package_,
+      ),
+    ).rejects.toThrow(`Execution artifact ref does not match source package: ${ref.artifactId}`);
   });
 });
 

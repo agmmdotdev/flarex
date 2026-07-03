@@ -1,5 +1,7 @@
 import {
+  assertExecutionArtifactRefMatchesSourcePackage,
   executionArtifactRefForSourcePackage,
+  executionArtifactRefsEqual,
   type ExecutionArtifactRef,
 } from "flarex/artifacts";
 import type { PushSourcePackage } from "./types.ts";
@@ -53,7 +55,7 @@ export class R2BackendExecutionArtifactStore implements BackendExecutionArtifact
     if (sourcePackage === null) {
       throw new Error(`Execution artifact source package is missing: ${ref.artifactId}`);
     }
-    await assertRefMatchesSourcePackage(ref, sourcePackage);
+    await assertExecutionArtifactRefMatchesSourcePackage(ref, sourcePackage);
     return cloneSourcePackage(sourcePackage);
   }
 
@@ -81,21 +83,6 @@ export function sourcePackageKey(ref: ExecutionArtifactRef): string {
   return `artifacts/${ref.artifactId}/source-package.json`;
 }
 
-async function assertRefMatchesSourcePackage(
-  ref: ExecutionArtifactRef,
-  sourcePackage: PushSourcePackage,
-): Promise<void> {
-  const actual = await executionArtifactRefForSourcePackage(sourcePackage);
-  if (
-    actual.artifactId !== ref.artifactId ||
-    actual.sourcePackageHash !== ref.sourcePackageHash ||
-    actual.executionModule !== ref.executionModule ||
-    actual.runtime !== ref.runtime
-  ) {
-    throw new Error(`Execution artifact ref does not match source package: ${ref.artifactId}`);
-  }
-}
-
 function validateStoredManifest(
   ref: ExecutionArtifactRef,
   manifest: StoredExecutionArtifactManifest,
@@ -106,12 +93,7 @@ function validateStoredManifest(
   if (manifest.sourcePackagePath !== sourcePackageKey(ref)) {
     throw new Error(`Execution artifact manifest path mismatch for ${ref.artifactId}.`);
   }
-  if (
-    manifest.ref.artifactId !== ref.artifactId ||
-    manifest.ref.sourcePackageHash !== ref.sourcePackageHash ||
-    manifest.ref.executionModule !== ref.executionModule ||
-    manifest.ref.runtime !== ref.runtime
-  ) {
+  if (!executionArtifactRefsEqual(manifest.ref, ref)) {
     throw new Error(`Execution artifact manifest ref mismatch for ${ref.artifactId}.`);
   }
 }

@@ -30,6 +30,28 @@ export async function executionArtifactRefForSourcePackage(
   };
 }
 
+export function executionArtifactRefsEqual(
+  left: ExecutionArtifactRef,
+  right: ExecutionArtifactRef,
+): boolean {
+  return (
+    left.runtime === right.runtime &&
+    left.artifactId === right.artifactId &&
+    left.sourcePackageHash === right.sourcePackageHash &&
+    left.executionModule === right.executionModule
+  );
+}
+
+export async function assertExecutionArtifactRefMatchesSourcePackage(
+  ref: ExecutionArtifactRef,
+  sourcePackage: ArtifactSourcePackage,
+): Promise<void> {
+  const actual = await executionArtifactRefForSourcePackage(sourcePackage);
+  if (!executionArtifactRefsEqual(actual, ref)) {
+    throw new Error(`Execution artifact ref does not match source package: ${ref.artifactId}`);
+  }
+}
+
 export function stableSourcePackageManifest(sourcePackage: ArtifactSourcePackage): string {
   return JSON.stringify({
     execution: sourcePackage.execution,

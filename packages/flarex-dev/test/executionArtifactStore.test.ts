@@ -41,6 +41,18 @@ describe("local execution artifact store", () => {
     ).rejects.toThrow("Unknown execution artifact: artifact_1234567890abcdef1234567890abcdef");
   });
 
+  it("rejects local refs that do not match the stored source package", async () => {
+    const store = new LocalInMemoryExecutionArtifactStore();
+    const ref = await store.put(testSourcePackage());
+
+    await expect(
+      store.get({
+        ...ref,
+        executionModule: "_flarex/other-execution.js",
+      }),
+    ).rejects.toThrow(`Execution artifact ref does not match source package: ${ref.artifactId}`);
+  });
+
   it("writes source packages and manifests to an R2-shaped bucket", async () => {
     const bucket = new FakeR2Bucket();
     const store = new R2ExecutionArtifactStore(bucket);
