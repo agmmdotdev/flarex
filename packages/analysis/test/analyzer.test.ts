@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   analyzeLoadedSourcePackageEffect,
   backendCodegenAnalysisFromCodegenAnalysis,
+  decodeAnalyzerProtocolSuccessResponseEffect,
+  decodeAnalyzerSuccessEnvelopeEffect,
   deploymentAnalysisFromCodegenAnalysis,
   normalizeAnalyzerDiagnostics,
   type DeploymentAnalysis,
@@ -207,6 +209,56 @@ describe("shared analyzer semantics", () => {
     expect(normalized[0]?.message).toBe("entry-5");
     expect(normalized.at(-1)?.message).toBe("entry-104");
   });
+
+  it("decodes analyzer success envelopes and verifies protocol-shaped analysis", async () => {
+    const envelope = await Effect.runPromise(decodeAnalyzerSuccessEnvelopeEffect({
+      analysis: protocolDeploymentAnalysis(),
+      codegenAnalysis: protocolCodegenAnalysis(),
+      diagnostics: [
+        { level: "bad", message: "ignored" },
+        { level: "log", message: "ok" },
+      ],
+    }));
+
+    expect(envelope.diagnostics).toEqual([{ level: "log", message: "ok" }]);
+    await expect(Effect.runPromise(decodeAnalyzerProtocolSuccessResponseEffect(envelope)))
+      .resolves.toMatchObject({
+        analysis: protocolDeploymentAnalysis(),
+        codegenAnalysis: protocolCodegenAnalysis(),
+        diagnostics: [{ level: "log", message: "ok" }],
+      });
+  });
+
+  it("classifies missing analyzer codegen analysis separately from invalid envelopes", async () => {
+    await expect(Effect.runPromise(decodeAnalyzerSuccessEnvelopeEffect({
+      analysis: protocolDeploymentAnalysis(),
+    }))).rejects.toMatchObject({
+      _tag: "AnalyzerResponseError",
+      code: "missing_codegen_analysis",
+    });
+
+    await expect(Effect.runPromise(decodeAnalyzerSuccessEnvelopeEffect({
+      analysis: protocolDeploymentAnalysis(),
+      codegenAnalysis: null,
+    }))).rejects.toMatchObject({
+      _tag: "AnalyzerResponseError",
+      code: "invalid_success_envelope",
+    });
+  });
+
+  it("rejects analyzer success envelopes that fail the protocol contract", async () => {
+    const envelope = await Effect.runPromise(decodeAnalyzerSuccessEnvelopeEffect({
+      analysis: { schema: {}, functions: {} },
+      codegenAnalysis: protocolCodegenAnalysis(),
+    }));
+
+    await expect(Effect.runPromise(decodeAnalyzerProtocolSuccessResponseEffect(envelope)))
+      .rejects.toMatchObject({
+        _tag: "AnalyzerResponseError",
+        code: "protocol_validation",
+        message: "Deployment analysis did not match the deployment protocol.",
+      });
+  });
 });
 
 function schemaDefinition(): unknown {
@@ -251,4 +303,28 @@ function objectValidator(
   value: Record<string, { fieldType: ValidatorJSON; optional: boolean }>,
 ): { type: "object"; value: Record<string, { fieldType: ValidatorJSON; optional: boolean }> } {
   return { type: "object", value };
+}
+
+function protocolDeploymentAnalysis() {
+  return {
+    schema: {
+      version: 1,
+      tables: [],
+      indexes: [],
+    },
+    functions: {
+      functions: [],
+    },
+  };
+}
+
+function protocolCodegenAnalysis() {
+  return {
+    schema: {
+      version: 1,
+      tables: [],
+      indexes: [],
+    },
+    functions: [],
+  };
 }

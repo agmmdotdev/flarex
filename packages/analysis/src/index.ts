@@ -8,6 +8,10 @@ import type {
   DeploymentFunctionMetadata as ProtocolDeploymentFunctionMetadata,
   ValidatorJson as ProtocolValidatorJson,
 } from "flarex-protocol/deployment";
+import {
+  decodeDeploymentAnalysisEffect,
+  decodeDeploymentCodegenAnalysisEffect,
+} from "flarex-protocol/deployment";
 
 export type AnalyzerDiagnostic = {
   readonly level: "log" | "warn" | "error";
@@ -132,6 +136,17 @@ export class AnalyzerNondeterministicError extends Data.TaggedError("AnalyzerNon
   readonly diagnostics: readonly AnalyzerDiagnostic[];
 }> {}
 
+export type AnalyzerResponseErrorCode =
+  | "invalid_success_envelope"
+  | "missing_codegen_analysis"
+  | "protocol_validation";
+
+export class AnalyzerResponseError extends Data.TaggedError("AnalyzerResponseError")<{
+  readonly code: AnalyzerResponseErrorCode;
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
 export type AnalyzerSemanticError =
   | AnalyzerSchemaError
   | AnalyzerFunctionMetadataError
@@ -160,6 +175,18 @@ type BackendDeploymentCodegenModule = MutableDeep<ProtocolDeploymentCodegenModul
 type BackendValidatorJson = MutableDeep<ProtocolValidatorJson>;
 type BackendFunctionPartitionMetadata = NonNullable<MutableDeep<ProtocolDeploymentFunctionMetadata>["partition"]>;
 
+export type AnalyzerSuccessEnvelope = {
+  readonly analysis: unknown;
+  readonly codegenAnalysis: unknown;
+  readonly diagnostics?: readonly AnalyzerDiagnostic[];
+};
+
+export type AnalyzerProtocolSuccessResponse = {
+  readonly analysis: ProtocolDeploymentAnalysis;
+  readonly codegenAnalysis: ProtocolDeploymentCodegenAnalysis;
+  readonly diagnostics?: readonly AnalyzerDiagnostic[];
+};
+
 type SourcePositionResolver = (
   moduleName: string,
   exportName: string,
@@ -182,6 +209,77 @@ export const analyzeLoadedSourcePackageEffect = Effect.fn(
   const rawFunctions = yield* analyzeExecutionModulesEffect(input.executionModules, { positionFor });
   const functions = yield* validateAndLowerFunctionPartitionsEffect(rawFunctions, schema);
   return { functions, schema };
+});
+
+export const decodeAnalyzerSuccessEnvelopeEffect = Effect.fn(
+  "FlarexAnalysis.decodeAnalyzerSuccessEnvelope",
+)(function* (
+  value: unknown,
+): Effect.fn.Return<AnalyzerSuccessEnvelope, AnalyzerResponseError> {
+  if (!isRecord(value) || "error" in value) {
+    return yield* analyzerResponseFailure(
+      "invalid_success_envelope",
+      "Analyzer success response must be an object without error.",
+      value,
+    );
+  }
+  if (!("analysis" in value) || value.analysis === undefined) {
+    return yield* analyzerResponseFailure(
+      "invalid_success_envelope",
+      "Analyzer success response must include analysis.",
+      value,
+    );
+  }
+  if (!("codegenAnalysis" in value)) {
+    return yield* analyzerResponseFailure(
+      "missing_codegen_analysis",
+      "Analyzer response did not include codegenAnalysis.",
+      value,
+    );
+  }
+  if (value.codegenAnalysis === undefined || value.codegenAnalysis === null) {
+    return yield* analyzerResponseFailure(
+      "invalid_success_envelope",
+      "Analyzer success response must include codegenAnalysis.",
+      value,
+    );
+  }
+  const diagnostics = normalizeOptionalAnalyzerDiagnostics(value);
+  return {
+    analysis: value.analysis,
+    codegenAnalysis: value.codegenAnalysis,
+    ...(diagnostics === undefined ? {} : { diagnostics }),
+  };
+});
+
+export const decodeAnalyzerProtocolSuccessResponseEffect = Effect.fn(
+  "FlarexAnalysis.decodeAnalyzerProtocolSuccessResponse",
+)(function* (
+  value: AnalyzerSuccessEnvelope,
+): Effect.fn.Return<AnalyzerProtocolSuccessResponse, AnalyzerResponseError> {
+  const analysis = yield* decodeDeploymentAnalysisEffect(value.analysis).pipe(
+    Effect.mapError(error =>
+      new AnalyzerResponseError({
+        code: "protocol_validation",
+        message: error.message,
+        cause: error,
+      })
+    ),
+  );
+  const codegenAnalysis = yield* decodeDeploymentCodegenAnalysisEffect(value.codegenAnalysis).pipe(
+    Effect.mapError(error =>
+      new AnalyzerResponseError({
+        code: "protocol_validation",
+        message: error.message,
+        cause: error,
+      })
+    ),
+  );
+  return {
+    analysis,
+    codegenAnalysis,
+    ...(value.diagnostics === undefined ? {} : { diagnostics: value.diagnostics }),
+  };
 });
 
 export const analyzeSchemaDefinitionEffect = Effect.fn(
@@ -403,6 +501,14 @@ export function normalizeAnalyzerDiagnostics(value: unknown): AnalyzerDiagnostic
     }
     return [{ level, message }];
   });
+}
+
+export function normalizeOptionalAnalyzerDiagnostics(value: unknown): AnalyzerDiagnostic[] | undefined {
+  if (!isRecord(value) || !("diagnostics" in value) || value.diagnostics === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value.diagnostics)) return undefined;
+  return normalizeAnalyzerDiagnostics(value.diagnostics);
 }
 
 function emptySchema(): AnalyzedSchema {
@@ -1031,6 +1137,18 @@ function validatorError(message: string, cause?: unknown): AnalyzerValidatorErro
 
 function partitionFailure(message: string, cause?: unknown): Effect.Effect<never, AnalyzerPartitionError> {
   return Effect.fail(new AnalyzerPartitionError({
+    message,
+    ...(cause === undefined ? {} : { cause }),
+  }));
+}
+
+function analyzerResponseFailure(
+  code: AnalyzerResponseErrorCode,
+  message: string,
+  cause?: unknown,
+): Effect.Effect<never, AnalyzerResponseError> {
+  return Effect.fail(new AnalyzerResponseError({
+    code,
     message,
     ...(cause === undefined ? {} : { cause }),
   }));

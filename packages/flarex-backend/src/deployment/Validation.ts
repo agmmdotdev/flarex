@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { decodeAnalyzerProtocolSuccessResponseEffect } from "@flarex/analysis";
 import type { AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest } from "flarex-protocol/deployment";
 import {
   decodeDeploymentStorageCodegenAnalysisJson,
@@ -225,6 +226,13 @@ export const decodeStartAnalyzedPushInput = Effect.fn(
   const codegenAnalysis = yield* decodeCodegenAnalysis(
     hasCodegenAnalysis ? request.codegenAnalysis : codegenAnalysisFromDeploymentAnalysis(analysis),
     analysis,
+  );
+  yield* decodeAnalyzerProtocolSuccessResponseEffect({
+    analysis,
+    codegenAnalysis,
+    diagnostics,
+  }).pipe(
+    Effect.mapError(error => new DeploymentValidationError({ message: error.message })),
   );
   return {
     sourcePackage,

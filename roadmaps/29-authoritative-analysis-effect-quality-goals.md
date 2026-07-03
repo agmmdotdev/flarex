@@ -21,7 +21,7 @@ Source roadmap:
 - [x] G-2. Complete A-2: shared pure analyzer semantics extraction.
 - [x] G-3. Complete A-3: local Miniflare analyzer worker consumes shared
   semantics.
-- [ ] G-4. Complete A-4: backend analyzer response path proves shared contract
+- [x] G-4. Complete A-4: backend analyzer response path proves shared contract
   consumption.
 - [ ] G-5. Complete A-5: direct `/push/start-analyzed` is protected, internal,
   or removed from normal public hosted flow.
@@ -32,25 +32,65 @@ Source roadmap:
 
 ## Current Slice
 
-### G-3 / A-3: Local Miniflare Analyzer Worker Uses Shared Semantics
+### G-4 / A-4: Backend Analyzer Response Path Proves Shared Contract Consumption
 
 Status: completed in this code checkpoint.
+
+Purpose:
+
+Make the hosted backend analyzer response path consume the same shared analyzer
+contract and typed validation helpers rather than relying only on backend-local
+response validation.
+
+Decision:
+
+- `@flarex/analysis` now exposes shared analyzer success-envelope and
+  protocol-success response helpers.
+- `flarex-backend` decodes analyzer envelopes and diagnostics through the
+  shared helpers before assembling analyzed-start payloads.
+- Backend deployment validation still owns persistence/runtime-specific
+  semantic checks and public error mapping.
+- `/push/start-analyzed` remains unhardened until G-5/A-5.
+
+Files changed:
+
+- `packages/analysis/src/index.ts`
+- `packages/analysis/test/analyzer.test.ts`
+- `packages/flarex-backend/package.json`
+- `packages/flarex-backend/src/backendAnalyzerResponse.ts`
+- `packages/flarex-backend/src/deployment/Validation.ts`
+- `pnpm-lock.yaml`
+- `roadmaps/28-authoritative-analysis-effect-quality.md`
+- this file
+
+Validation gates:
+
+```sh
+corepack pnpm --filter @flarex/analysis typecheck
+corepack pnpm --filter @flarex/analysis test
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+git diff --check
+```
+
+Review gate:
+
+- Required because this changes public route trust-boundary behavior and
+  must preserve source-only push behavior while rejecting untrusted analyzed
+  metadata.
+
+## Previous Slice
+
+### G-3 / A-3: Local Miniflare Analyzer Worker Uses Shared Semantics
+
+Status: completed and committed in `d9067c6`
+(`Use shared analyzer in execution artifact`).
 
 Purpose:
 
 Refactor the local execution-artifact analyzer worker so its generated worker
 source calls the shared `@flarex/analysis` semantics instead of carrying a
 second analyzer implementation.
-
-Decision:
-
-- `packages/flarex-dev/src/executionArtifact.ts` now bundles a small local
-  analyzer worker shell with Vite so Miniflare can load `@flarex/analysis`.
-- The worker shell still owns console capture, deterministic import-time
-  globals, rejected import-time globals, diagnostics propagation, and dynamic
-  imports of developer execution/schema modules.
-- Rejected globals are scoped only around user module imports, then restored
-  before the shared Effect analyzer runs.
 
 Files changed:
 
@@ -71,72 +111,28 @@ git diff --check
 
 Review gate:
 
-- Required because this adds a package, exports shared helpers, and moves
-  analyzer semantics.
-
-## Previous Slice
-
-### G-2 / A-2: Shared Analyzer Semantics Extraction
-
-Status: completed and committed in `ce4c485`
-(`Extract shared analyzer semantics`).
-
-Purpose:
-
-Create `@flarex/analysis` and move pure analyzer semantics into it without
-changing local runtime behavior.
-
-Files changed:
-
-- `packages/analysis/package.json`
-- `packages/analysis/tsconfig.json`
-- `packages/analysis/src/index.ts`
-- `packages/analysis/test/analyzer.test.ts`
-- `packages/flarex-dev/package.json`
-- `packages/flarex-dev/src/analyze.ts`
-- `packages/flarex-dev/src/backendPush.ts`
-- `packages/flarex-dev/src/executionArtifact.ts`
-- `packages/flarex-dev/src/generate.ts`
-- `pnpm-lock.yaml`
-- `roadmaps/28-authoritative-analysis-effect-quality.md`
-- this file
-
-Validation gates:
-
-```sh
-corepack pnpm --filter @flarex/analysis typecheck
-corepack pnpm --filter @flarex/analysis test
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/analyze.test.ts test/executionArtifact.test.ts test/backendPush.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
-git diff --check
-```
-
-Review gate:
-
 - Required and completed in the committed slice.
 
 ## Next Slice
 
-### G-4 / A-4: Backend Analyzer Response Path Proves Shared Contract Consumption
+### G-5 / A-5: Protect Direct Analyzed Start Push
 
 Status: next.
 
 Purpose:
 
-Make the hosted backend analyzer response path consume the same shared analyzer
-contract and typed validation helpers rather than relying only on backend-local
-response validation.
+Protect or remove normal public trust in direct `/push/start-analyzed` traffic
+so hosted production does not accept client-produced analysis as authority.
 
 Expected implementation:
 
-- inspect `packages/flarex-backend/src/backendAnalyzerResponse.ts`,
-  `packages/flarex-backend/src/deployment/Validation.ts`, and
-  `packages/flarex-protocol/src/deployment.ts`;
-- route analyzer success/failure envelopes through shared protocol/analyzer
-  helpers where portable;
-- preserve existing public `/push` response behavior;
-- do not harden `/push/start-analyzed` yet except where a shared-contract
-  helper is needed for A-4.
+- inspect public route dispatch, internal deployment route boundaries, and
+  tests that still call `/push/start-analyzed`;
+- choose the smallest enforceable guard that keeps test/internal harnesses
+  usable while preventing normal hosted public clients from supplying analyzed
+  metadata;
+- preserve source-only `/push` behavior through `FLAREX_ANALYZER`;
+- update tests to prove untrusted direct analyzed-start traffic is rejected.
 
 Validation gates:
 

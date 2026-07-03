@@ -1,4 +1,10 @@
 import { Data, Effect } from "effect";
+import {
+  decodeAnalyzerSuccessEnvelopeEffect,
+  normalizeOptionalAnalyzerDiagnostics,
+  type AnalyzerResponseError,
+  type AnalyzerSuccessEnvelope,
+} from "@flarex/analysis";
 import { readResponseJsonOrNullEffect } from "./http";
 import { decodeDeploymentAnalyzedStartPushPayload } from "./deployment/Requests";
 import { decodeAnalyzedStartPushRequest } from "./deployment/Validation";
@@ -12,11 +18,7 @@ import type {
   StartPushRequest,
 } from "./types";
 
-export type RawAnalyzerSuccessResponse = {
-  analysis: unknown;
-  codegenAnalysis: unknown;
-  diagnostics?: unknown;
-};
+export type RawAnalyzerSuccessResponse = AnalyzerSuccessEnvelope;
 
 type AnalyzerHttpResponse = Pick<Response, "json" | "ok" | "status">;
 
@@ -30,8 +32,10 @@ export class BackendAnalyzerResponseError extends Data.TaggedError("BackendAnaly
 export const decodeBackendAnalyzerResponse = Effect.fn("Worker.decodeBackendAnalyzerResponse")(
   function* (response: AnalyzerHttpResponse) {
     const body = yield* readBackendAnalyzerResponseJson(response);
-    if (response.ok && isAnalyzerSuccessResponse(body)) {
-      return body;
+    if (response.ok) {
+      return yield* decodeAnalyzerSuccessEnvelopeEffect(body).pipe(
+        Effect.mapError(error => backendAnalyzerEnvelopeError(error, response, body)),
+      );
     }
     return yield* Effect.fail(new BackendAnalyzerResponseError({
       status: response.status,
@@ -98,7 +102,7 @@ export const decodeBackendAnalyzerStartPushResponse = Effect.fn(
       body,
     })),
   );
-  return yield* decodeAnalyzedStartPushRequest(protocolPayload).pipe(
+  const decoded = yield* decodeAnalyzedStartPushRequest(protocolPayload).pipe(
     Effect.mapError(error => new BackendAnalyzerResponseError({
       status: response.status,
       message: error.message,
@@ -106,6 +110,7 @@ export const decodeBackendAnalyzerStartPushResponse = Effect.fn(
       body,
     })),
   );
+  return decoded;
 });
 
 function readBackendAnalyzerResponseJson(response: AnalyzerHttpResponse): Effect.Effect<unknown> {
@@ -132,39 +137,21 @@ function backendAnalyzerResponseErrorMessage(
 }
 
 export function analyzerDiagnostics(body: unknown): PushDiagnostic[] | undefined {
-  if (
-    body === null ||
-    typeof body !== "object" ||
-    Array.isArray(body) ||
-    !("diagnostics" in body) ||
-    body.diagnostics === undefined
-  ) {
-    return undefined;
-  }
-  if (!Array.isArray(body.diagnostics)) return undefined;
-  return body.diagnostics.slice(-100).flatMap((diagnostic): PushDiagnostic[] => {
-    if (diagnostic === null || typeof diagnostic !== "object" || Array.isArray(diagnostic)) {
-      return [];
-    }
-    if (!("level" in diagnostic) || !("message" in diagnostic)) return [];
-    const level = diagnostic.level;
-    const message = diagnostic.message;
-    if (level !== "log" && level !== "warn" && level !== "error") return [];
-    if (typeof message !== "string") return [];
-    return [{ level, message }];
-  });
+  return normalizeOptionalAnalyzerDiagnostics(body);
 }
 
-function isAnalyzerSuccessResponse(body: unknown): body is RawAnalyzerSuccessResponse {
-  return (
-    body !== null &&
-    typeof body === "object" &&
-    !Array.isArray(body) &&
-    "analysis" in body &&
-    body.analysis !== undefined &&
-    "codegenAnalysis" in body &&
-    body.codegenAnalysis !== undefined &&
-    body.codegenAnalysis !== null &&
-    !("error" in body)
-  );
+function backendAnalyzerEnvelopeError(
+  error: AnalyzerResponseError,
+  response: AnalyzerHttpResponse,
+  body: unknown,
+): BackendAnalyzerResponseError {
+  const diagnostics = analyzerDiagnostics(body);
+  return new BackendAnalyzerResponseError({
+    status: response.status,
+    message: error.code === "missing_codegen_analysis"
+      ? "Backend analyzer response did not include codegenAnalysis."
+      : backendAnalyzerResponseErrorMessage(body, response),
+    diagnostics,
+    body,
+  });
 }

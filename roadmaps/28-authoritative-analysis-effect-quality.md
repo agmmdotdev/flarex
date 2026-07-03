@@ -93,12 +93,14 @@ Every implementation slice in this stream must satisfy these rules:
   - Keep Miniflare creation, module loading, console capture, deterministic
     globals, and rejected import-time globals as local analyzer host mechanics.
   - Keep behavior-compatible local push/codegen tests.
-- [ ] A-4. Make the backend analyzer response path prove it is consuming the
+- [x] A-4. Make the backend analyzer response path prove it is consuming the
   same shared analyzer contract.
-  - Decode analyzer success and failure envelopes through shared protocol
-    decoders.
-  - Reject analyzer output that does not match the uploaded source package
-    contract or codegen analysis consistency rules.
+  - Decode analyzer success envelopes and diagnostics through shared analyzer
+    helpers.
+  - Verify normalized analyzer success payloads against the shared protocol
+    analysis/codegen contract.
+  - Keep backend-local failure mapping and deployment semantic validation in
+    the backend adapter.
   - Preserve current `/push` response behavior.
 - [ ] A-5. Protect or remove normal public trust in `/push/start-analyzed`.
   - Treat direct analyzed-start traffic as internal platform/test plumbing.
@@ -406,36 +408,35 @@ git diff --check
 
 ## Current Checkpoint
 
-Previous completed checkpoint: `ce4c485` (`Extract shared analyzer
-semantics`).
+Previous completed checkpoint: `d9067c6` (`Use shared analyzer in execution
+artifact`).
 
 What changed in this checkpoint:
 
-- Refactored `packages/flarex-dev/src/executionArtifact.ts` so the local
-  Miniflare analyzer worker shell imports and calls
-  `analyzeLoadedSourcePackageEffect` from `@flarex/analysis`.
-- Removed the duplicated generated-worker implementations of schema analysis,
-  function export analysis, validator JSON assertion, partition validation and
-  lowering, and source-position parsing.
-- Kept Miniflare module materialization, console capture, deterministic
-  import-time `Date`/`Math.random`, rejected import-time globals, response
-  decoding, and diagnostics propagation in the host adapter.
-- Scoped rejected globals to user module import time, then restored them before
-  running the shared Effect analyzer so analyzer internals can use platform
-  runtime APIs such as `performance.now`.
-- Bundled only the local analyzer worker shell with Vite so Miniflare can load
-  `@flarex/analysis`; developer execution and schema modules remain separate
-  Miniflare modules imported by the shell.
+- Added shared analyzer-response helpers to `@flarex/analysis`:
+  `decodeAnalyzerSuccessEnvelopeEffect`,
+  `decodeAnalyzerProtocolSuccessResponseEffect`, and
+  `normalizeOptionalAnalyzerDiagnostics`.
+- Updated `packages/flarex-backend/src/backendAnalyzerResponse.ts` to decode
+  hosted analyzer success envelopes and diagnostics through the shared analyzer
+  helpers before assembling the analyzed-start payload.
+- Updated `packages/flarex-backend/src/deployment/Validation.ts` so normalized
+  analyzed-push inputs are also verified against the shared protocol-shaped
+  analyzer success contract.
+- Preserved current `/push` behavior: malformed analyzer `analysis` payloads
+  still reach the existing analyzed-push validation path and return the same
+  public 400 responses, while analyzer envelope failures still become failed
+  push records where they did before.
+- Added `@flarex/analysis` as an explicit `flarex-backend` dependency.
 
 Known limitations:
 
 - `/push/start-analyzed` is still a prototype/internal trust boundary and is
   not hardened until A-5.
-- Backend analyzer response validation still uses the existing backend
-  validation path; A-4 will prove shared-contract consumption on that side.
-- The local analyzer worker shell is still generated as a string because it
-  owns Miniflare-specific import sandboxing and diagnostics capture. It should
-  remain a host adapter, not regain semantic analyzer logic.
+- The backend still accepts direct analyzed-start traffic through the existing
+  public route. A-5 must add the trust-boundary guard or internal-only routing.
+- A-4 shares envelope and protocol-success validation; source/analysis mismatch
+  and forged-analysis tests are still A-6.
 
 Convex references:
 
@@ -445,17 +446,18 @@ Convex references:
 
 Cloudflare difference:
 
-- This slice is Cloudflare/Miniflare-adapter work. It keeps Flarex's local
-  Dynamic Worker-like artifact mechanics separate from the shared semantic
-  analyzer, matching the Convex authority split while preserving Cloudflare
-  host constraints.
+- Hosted analyzer output still flows through Worker service bindings and
+  Durable Object push state, but the response contract now lives below that
+  adapter in `@flarex/analysis`.
+- Backend deployment validation remains the place where Flarex applies
+  persistence/runtime-specific invariants and preserves public error mapping.
 
 Verification:
 
 ```sh
 corepack pnpm --filter @flarex/analysis typecheck
 corepack pnpm --filter @flarex/analysis test
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/executionArtifact.test.ts test/backendPush.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
 git diff --check
 ```

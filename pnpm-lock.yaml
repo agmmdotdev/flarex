@@ -189,6 +189,9 @@ importers:
 
   packages/flarex-backend:
     dependencies:
+      '@flarex/analysis':
+        specifier: workspace:*
+        version: link:../analysis
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.90
