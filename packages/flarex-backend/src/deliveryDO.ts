@@ -28,13 +28,14 @@ import { HttpError, json } from "./http";
 import { Data, Effect } from "effect";
 import {
   addLiveQueryDeliverySkipReasons,
+  decodeLiveQueryDeliveryChangesFromBody,
   deliverLiveQueryChangesToConnectionsEffect,
   isLiveQueryDeliveryFanoutError,
   liveQueryDeliveryFanoutErrorToHttpError,
   liveQueryDeliveryTargetErrorToHttpError,
   LiveQueryDeliveryTargetError,
-  liveQueryDeliveryChangesFromBody,
   liveQueryDeliverySkipMetadata,
+  type LiveQueryDeliveryChangePayloadError,
   type LiveQueryDeliveryChange,
   type LiveQueryDeliveryResult,
   type LiveQueryDeliverySkipReasons,
@@ -217,11 +218,33 @@ export class DeliveryDO extends DurableObject<Env> {
         }
 
         claimed += page.deliveries.length;
-        const changes = deliveryChangesFromRecords(page.deliveries);
-        const fanout = yield* deliverLiveQueryChangesToConnectionsEffect(
-            self.env,
+        const changes = yield* deliveryChangesFromRecordsEffect(page.deliveries).pipe(
+          Effect.tapError(error =>
+            self.reportDeliveryFailureEffect(
+              deploymentId,
+              page.deliveries,
+              claimOwner,
+              "fanout",
+              error,
+            )
+          ),
+          Effect.mapError(error => newDeliveryDrainFailureError({
             deploymentId,
-            changes,
+            stage: "fanout",
+            error,
+            batches,
+            claimed,
+            acked,
+            delivered,
+            skipped,
+            skipReasons,
+            hasMore: page.hasMore,
+          })),
+        );
+        const fanout = yield* deliverLiveQueryChangesToConnectionsEffect(
+          self.env,
+          deploymentId,
+          changes,
         ).pipe(
           Effect.tapError(error =>
             self.reportDeliveryFailureEffect(
@@ -694,13 +717,15 @@ function retryDelayMs(retryAttempt: number): number {
   );
 }
 
-function deliveryChangesFromRecords(
-  deliveries: LiveQueryDeliveryRecord[],
-): LiveQueryDeliveryChange[] {
-  return liveQueryDeliveryChangesFromBody({
-    deliveries: deliveries.map(delivery => delivery.payloadJson),
-  });
-}
+const deliveryChangesFromRecordsEffect = Effect.fn("DeliveryDO.deliveryChangesFromRecords")(
+  function* (
+    deliveries: LiveQueryDeliveryRecord[],
+  ): Effect.fn.Return<LiveQueryDeliveryChange[], LiveQueryDeliveryChangePayloadError> {
+    return yield* decodeLiveQueryDeliveryChangesFromBody({
+      deliveries: deliveries.map(delivery => delivery.payloadJson),
+    });
+  },
+);
 
 function executorUrl(env: Env, path: string): string {
   const base = env.FLAREX_EXECUTOR_URL ?? "https://flarex-executor.internal";

@@ -9,7 +9,6 @@ import {
   LiveQueryDeliveryConnectionFetchError,
   liveQueryDeliveryFanoutErrorToHttpErrorEffect,
   liveQueryDeliveryChangePayloadErrorToHttpError,
-  liveQueryDeliveryResultFromUnknown,
   liveQueryDeliveryResultPayloadErrorToHttpErrorEffect,
   liveQueryDeliveryTargetErrorToHttpError,
   type LiveQueryDeliveryChange,
@@ -290,11 +289,11 @@ describe("live query delivery result parsing", () => {
     });
   });
 
-  it("normalizes legacy staleSkipped responses into skip reasons", () => {
-    expect(liveQueryDeliveryResultFromUnknown(
+  it("normalizes legacy staleSkipped responses into skip reasons", async () => {
+    await expect(Effect.runPromise(decodeConnectionLiveQueryDeliveryResultPayload(
       { delivered: 0, skipped: 1, staleSkipped: 1 },
       "connection:test:legacy",
-    )).toEqual({
+    ))).resolves.toEqual({
       delivered: 0,
       skipped: 1,
       staleSkipped: 1,
@@ -302,8 +301,8 @@ describe("live query delivery result parsing", () => {
     });
   });
 
-  it("merges staleSkipped into mixed skip reason responses", () => {
-    expect(liveQueryDeliveryResultFromUnknown(
+  it("merges staleSkipped into mixed skip reason responses", async () => {
+    await expect(Effect.runPromise(decodeConnectionLiveQueryDeliveryResultPayload(
       {
         delivered: 0,
         skipped: 2,
@@ -311,7 +310,7 @@ describe("live query delivery result parsing", () => {
         skipReasons: { missingQuery: 1 },
       },
       "connection:test:mixed",
-    )).toEqual({
+    ))).resolves.toEqual({
       delivered: 0,
       skipped: 2,
       staleSkipped: 1,
@@ -319,20 +318,25 @@ describe("live query delivery result parsing", () => {
     });
   });
 
-  it("rejects mismatched staleSkipped and skipReasons.stale counts", () => {
-    expect(() =>
-      liveQueryDeliveryResultFromUnknown(
-        {
-          delivered: 0,
-          skipped: 2,
-          staleSkipped: 1,
-          skipReasons: { stale: 2 },
-        },
-        "connection:test:mismatch",
-      )
-    ).toThrow(
-      "connection:test:mismatch.staleSkipped must match connection:test:mismatch.skipReasons.stale when both are present.",
-    );
+  it("rejects mismatched staleSkipped and skipReasons.stale counts", async () => {
+    await expect(
+      Effect.runPromise(
+        decodeConnectionLiveQueryDeliveryResultPayload(
+          {
+            delivered: 0,
+            skipped: 2,
+            staleSkipped: 1,
+            skipReasons: { stale: 2 },
+          },
+          "connection:test:mismatch",
+        ).pipe(
+          Effect.catch(liveQueryDeliveryResultPayloadErrorToHttpErrorEffect),
+        ),
+      ),
+    ).rejects.toMatchObject({
+      status: 502,
+      message: "connection:test:mismatch.staleSkipped must match connection:test:mismatch.skipReasons.stale when both are present.",
+    });
   });
 });
 

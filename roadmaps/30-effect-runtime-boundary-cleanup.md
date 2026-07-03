@@ -22,15 +22,38 @@ Runtime execution belongs at the edge:
 
 ## Current Inventory
 
-Production `Effect.runSync` occurrences by file:
-
-| Count | File | Treatment |
-| ---: | --- | --- |
-| 2 | `packages/flarex-backend/src/liveQueryDelivery.ts` | Convert live-query body/response helpers to Effect-returning functions. |
+Production `Effect.runSync` occurrences by file: none.
 
 Production `Effect.runPromise` occurrences are reviewed separately. Most are
 allowed async entrypoints, but each slice must re-check that no nested runtime
 boundary remains inside reusable helpers.
+
+## Allowed Production `Effect.runPromise` Boundaries
+
+G-6 audited the remaining backend production `Effect.runPromise` calls. The
+allowed boundary categories are:
+
+- Worker, Durable Object, WebSocket, Fetcher, alarm, and internal route
+  adapters:
+  - `packages/flarex-backend/src/worker.ts`
+  - `packages/flarex-backend/src/executionDO.ts`
+  - `packages/flarex-backend/src/connectionDO.ts`
+  - `packages/flarex-backend/src/deliveryDO.ts`
+  - `packages/flarex-backend/src/schedulerDO.ts`
+  - `packages/flarex-backend/src/artifactRuntime.ts`
+  - `packages/flarex-backend/src/deployment/InternalRouteBoundary.ts`
+  - `packages/flarex-backend/src/registry/InternalRouteBoundary.ts`
+  - `packages/flarex-backend/src/scheduler/InternalRouteBoundary.ts`
+  - `packages/flarex-backend/src/partitionDO.ts`
+- Public Promise-shaped backend adapter APIs:
+  - `packages/flarex-backend/src/invoke.ts`
+  - `packages/flarex-backend/src/transaction.ts`
+  - `packages/flarex-backend/src/liveQueryDelivery.ts`
+  - `packages/flarex-backend/src/artifactRuntime.ts`
+- Cloudflare callback bridges that require Promise-returning callbacks:
+  - `packages/flarex-backend/src/partitionDO.ts`
+  - `packages/flarex-backend/src/deliveryDO.ts`
+  - `packages/flarex-backend/src/schedulerDO.ts`
 
 ## Implementation Slices
 
@@ -84,7 +107,7 @@ boundary remains inside reusable helpers.
     - `corepack pnpm --filter flarex-backend typecheck`
     - transaction and invoke tests
     - `git diff --check`
-- [ ] G-6. Clean live-query and remaining backend runtime collapses.
+- [x] G-6. Clean live-query and remaining backend runtime collapses.
   - Convert live-query helper-level `runSync` to Effect composition.
   - Audit remaining `runPromise` calls and record which are true entrypoints.
   - Validation:
@@ -94,7 +117,7 @@ boundary remains inside reusable helpers.
 - [ ] G-7. Final enforcement and audit.
   - Add a repo-local enforcement script or documented command that fails on
     production `Effect.runSync`.
-  - Record allowed `Effect.runPromise` boundary files.
+  - Check that the allowed `Effect.runPromise` boundary list does not drift.
   - Run full relevant package validation and reviewers.
 
 ## Turn Protocol
@@ -116,28 +139,32 @@ a small required fix.
 
 ## Current Checkpoint
 
-Status: G-5 completed. G-6 is next.
+Status: G-6 completed. G-7 is next.
 
-Previous completed checkpoint: `220c81a` (`Remove invoke sync helper facades`).
+Previous completed checkpoint: `239bbcb` (`Remove transaction sync mutation
+facades`).
 
 What changed:
 
-- Removed `SingleShardTransaction.insert`, `replace`, and `delete` sync
-  facades from `packages/flarex-backend/src/transaction.ts`.
-- Kept Effect mutation helpers as the direct transaction write API.
-- Kept developer-facing runtime DB APIs async at the invocation boundary.
-- Updated transaction, invoke, and execution tests to run
-  `insertEffect`/`replaceEffect`/`deleteEffect` at test boundaries.
-- Reconfirmed production `Effect.runSync` remains only in
+- Removed `liveQueryDeliveryChangesFromBody` and
+  `liveQueryDeliveryResultFromUnknown` sync facades from
   `packages/flarex-backend/src/liveQueryDelivery.ts`.
-- TypeScript and code-quality reviewers reported no findings for this slice.
+- Converted `DeliveryDO` stored delivery record conversion to
+  `decodeLiveQueryDeliveryChangesFromBody` inside the existing drain Effect.
+- Updated live-query tests to assert result payload normalization through
+  `decodeConnectionLiveQueryDeliveryResultPayload`.
+- Reconfirmed production `Effect.runSync` is zero.
+- Audited remaining production `Effect.runPromise` calls and recorded the
+  allowed boundary categories above.
 
 Verification:
 
 ```sh
-rg -n "Effect\\.runSync|\\b(insert|replace|delete)\\(tableId|\\b(insert|replace|delete)\\(.*\\):" packages/flarex-backend/src/transaction.ts
+rg -n "Effect\\.runSync" packages/flarex-backend/src -g "*.ts"
+rg -n "liveQueryDeliveryChangesFromBody|liveQueryDeliveryResultFromUnknown" packages/flarex-backend/src packages/flarex-backend/test -g "*.ts"
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/transaction.test.ts test/invoke.test.ts test/executionDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
-corepack pnpm --filter flarex-backend exec vitest run test/partitionFlow.test.ts test/partitionRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/liveQueryDelivery.test.ts test/publicLiveQueryDeliveryRouteBoundary.test.ts test/publicLiveQueryDeliveryDispatchBoundary.test.ts test/deliveryDO.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/deliveryRouteBoundary.test.ts test/deliveryExecutorBoundary.test.ts test/liveQueryDeliveryResponses.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts -t "DeliveryDO" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 git diff --check
 ```

@@ -2483,6 +2483,115 @@ describe("sync protocol", () => {
     ]);
   });
 
+  it("reports malformed claimed DeliveryDO payloads before retrying pending rows", async () => {
+    const executorRequests: Array<{ path: string; authorization: string | null; body: unknown }> = [];
+    const deploymentId = "sync-delivery-malformed-payload-deployment";
+    const harness = await createSyncHarness(
+      [],
+      () => ({ user: "Ada" }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body: unknown = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/maintenance/live-queries/claim") {
+              return Response.json({
+                deliveries: [
+                  {
+                    deploymentId,
+                    deliveryId: "delivery_malformed_payload_1",
+                    connectionId: `connection:${deploymentId}:session-a`,
+                    queryId: 17,
+                    payloadJson: {
+                      connectionId: `connection:${deploymentId}:session-a`,
+                      queryId: 17,
+                    },
+                    deliveredAt: null,
+                    createdAt: "2026-06-21T00:00:00.000Z",
+                  },
+                ],
+                nextCursor: {
+                  createdAt: "2026-06-21T00:00:00.000Z",
+                  deliveryId: "delivery_malformed_payload_1",
+                },
+                hasMore: true,
+              });
+            }
+            if (url.pathname === "/maintenance/live-queries/failure") {
+              return Response.json({ recorded: true });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+    const env = await harness.mf.getBindings<Env>();
+    const delivery = env.DELIVERIES.getByName(`delivery:${deploymentId}`);
+
+    const response = await delivery.fetch("https://flarex.internal/wake", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ deploymentId, limit: 10, maxBatches: 1 }),
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      deploymentId,
+      error: "deliveries[0].deploymentId must be a non-empty string.",
+      failure: {
+        stage: "fanout",
+        status: 500,
+        error: "deliveries[0].deploymentId must be a non-empty string.",
+      },
+      summary: {
+        batches: 1,
+        claimed: 1,
+        acked: 0,
+        pendingAck: 1,
+        hasMore: true,
+        failure: {
+          stage: "fanout",
+          status: 500,
+          error: "deliveries[0].deploymentId must be a non-empty string.",
+        },
+      },
+    });
+    expect(executorRequests).toEqual([
+      {
+        path: "/maintenance/live-queries/claim",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          limit: 10,
+          leaseDurationMs: 30000,
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-malformed-payload-deployment:/),
+        },
+      },
+      {
+        path: "/maintenance/live-queries/failure",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          deliveryIds: ["delivery_malformed_payload_1"],
+          claimOwner: expect.stringMatching(/^delivery:sync-delivery-malformed-payload-deployment:/),
+          stage: "fanout",
+          error: "deliveries[0].deploymentId must be a non-empty string.",
+          failedAt: expect.any(String),
+        },
+      },
+    ]);
+  });
+
   it("rejects malformed DeliveryDO wake JSON at the delivery route boundary", async () => {
     const harness = await createSyncHarness([]);
     harnesses.push(harness);

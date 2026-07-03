@@ -76,12 +76,6 @@ export type LiveQueryDeliveryFanoutError =
   | LiveQueryDeliveryResponseError
   | LiveQueryDeliveryResultPayloadError;
 
-export function liveQueryDeliveryChangesFromBody(
-  body: unknown,
-): LiveQueryDeliveryChange[] {
-  return Effect.runSync(decodeLiveQueryDeliveryChangesBodyEffect(body));
-}
-
 export const decodeLiveQueryDeliveryChangesFromBody = Effect.fn(
   "LiveQueryDelivery.decodeChangesFromBody",
 )(
@@ -249,17 +243,6 @@ function validateLiveQueryDeliveryTarget(
     }));
   }
   return Effect.void;
-}
-
-export function liveQueryDeliveryResultFromUnknown(
-  value: unknown,
-  connectionId: string,
-): LiveQueryDeliveryResult {
-  return Effect.runSync(
-    decodeConnectionLiveQueryDeliveryResultPayload(value, connectionId).pipe(
-      Effect.catch(liveQueryDeliveryResultPayloadErrorToHttpErrorEffect),
-    ),
-  );
 }
 
 export const decodeConnectionLiveQueryDeliveryResultPayload = Effect.fn(
