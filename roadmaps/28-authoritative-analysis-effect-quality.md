@@ -102,7 +102,7 @@ Every implementation slice in this stream must satisfy these rules:
   - Keep backend-local failure mapping and deployment semantic validation in
     the backend adapter.
   - Preserve current `/push` response behavior.
-- [ ] A-5. Protect or remove normal public trust in `/push/start-analyzed`.
+- [x] A-5. Protect or remove normal public trust in `/push/start-analyzed`.
   - Treat direct analyzed-start traffic as internal platform/test plumbing.
   - Add the smallest enforceable guard for hosted production, or move tests to
     an internal-only dispatch path before removal.
@@ -408,49 +408,42 @@ git diff --check
 
 ## Current Checkpoint
 
-Previous completed checkpoint: `d9067c6` (`Use shared analyzer in execution
-artifact`).
+Previous completed checkpoint: `9e89cad` (`Share backend analyzer response
+contract`).
 
 What changed in this checkpoint:
 
-- Added shared analyzer-response helpers to `@flarex/analysis`:
-  `decodeAnalyzerSuccessEnvelopeEffect`,
-  `decodeAnalyzerProtocolSuccessResponseEffect`, and
-  `normalizeOptionalAnalyzerDiagnostics`.
-- Updated `packages/flarex-backend/src/backendAnalyzerResponse.ts` to decode
-  hosted analyzer success envelopes and diagnostics through the shared analyzer
-  helpers before assembling the analyzed-start payload.
-- Updated `packages/flarex-backend/src/deployment/Validation.ts` so normalized
-  analyzed-push inputs are also verified against the shared protocol-shaped
-  analyzer success contract.
-- Preserved current `/push` behavior: malformed analyzer `analysis` payloads
-  still reach the existing analyzed-push validation path and return the same
-  public 400 responses, while analyzer envelope failures still become failed
-  push records where they did before.
-- Added `@flarex/analysis` as an explicit `flarex-backend` dependency.
+- Added `FLAREX_ANALYZED_START_TOKEN` and a typed
+  `PublicAnalyzedStartAuthorizationError` guard for public direct
+  `/push/start-analyzed` traffic.
+- The public Worker rejects direct analyzed-start requests before JSON parsing
+  unless the caller sends `Authorization: Bearer <token>`.
+- Backend-owned source-only `/push/start` still uses `FLAREX_ANALYZER`, stores
+  the analyzed source artifact, and forwards to the DeploymentDO internal
+  start-analyzed route without requiring the public direct-route token.
+- Test and local-dev harnesses now opt into the prototype/internal path through
+  an explicit test bearer token.
 
 Known limitations:
 
-- `/push/start-analyzed` is still a prototype/internal trust boundary and is
-  not hardened until A-5.
-- The backend still accepts direct analyzed-start traffic through the existing
-  public route. A-5 must add the trust-boundary guard or internal-only routing.
-- A-4 shares envelope and protocol-success validation; source/analysis mismatch
-  and forged-analysis tests are still A-6.
+- The route still exists as internal/prototype plumbing for tests and trusted
+  platform callers. Full forged-analysis and source/analysis mismatch
+  assertions remain A-6.
+- A future cleanup may remove the public route entirely once all dev and
+  platform flows use source-only push or internal service dispatch.
 
 Convex references:
 
-- No new Convex files were needed beyond the A-1 audit. This slice implements
-  the package-boundary decision from the inspected Convex analyzer/codegen
-  model.
+- No new Convex files were needed beyond the A-1 audit. This slice continues
+  the Convex-shaped boundary where analyzed deployment metadata is backend
+  authority, not a normal public client input.
 
 Cloudflare difference:
 
 - Hosted analyzer output still flows through Worker service bindings and
-  Durable Object push state, but the response contract now lives below that
-  adapter in `@flarex/analysis`.
-- Backend deployment validation remains the place where Flarex applies
-  persistence/runtime-specific invariants and preserves public error mapping.
+  Durable Object push state.
+- Direct analyzed-start traffic is now visibly outside the normal hosted public
+  developer path and must be explicitly authorized.
 
 Verification:
 
@@ -458,6 +451,7 @@ Verification:
 corepack pnpm --filter @flarex/analysis typecheck
 corepack pnpm --filter @flarex/analysis test
 corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicAnalyzedStartAuthorization.test.ts test/push.test.ts -t "public analyzed start authorization|keeps public start source-only|rejects malformed analyzed push request bodies" --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 corepack pnpm --filter flarex-backend test
 git diff --check
 ```

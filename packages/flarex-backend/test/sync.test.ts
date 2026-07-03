@@ -14,6 +14,7 @@ import type {
   PushStatus,
 } from "../src/types";
 import {
+  ANALYZED_START_TEST_AUTHORIZATION,
   createBackendHarness,
   type BackendHarness,
   type BackendHarnessOptions,
@@ -6979,7 +6980,10 @@ async function startPush(
     `http://flarex.test/deployments/${deploymentId}/push/start-analyzed`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        authorization: ANALYZED_START_TEST_AUTHORIZATION,
+        "content-type": "application/json",
+      },
       body: JSON.stringify(body),
     },
   );

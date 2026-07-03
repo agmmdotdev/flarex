@@ -9,7 +9,11 @@ import type {
   InvokeResponse,
   PushStatus,
 } from "../src/types";
-import { createBackendHarness, type BackendHarness } from "./backendHarness";
+import {
+  ANALYZED_START_TEST_AUTHORIZATION,
+  createBackendHarness,
+  type BackendHarness,
+} from "./backendHarness";
 
 let harness: BackendHarness;
 let env: Env;
@@ -1128,7 +1132,10 @@ async function startPush(
     `http://flarex.test/deployments/${deploymentId}/push/start-analyzed`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        authorization: ANALYZED_START_TEST_AUTHORIZATION,
+        "content-type": "application/json",
+      },
       body: JSON.stringify(body),
     },
   );

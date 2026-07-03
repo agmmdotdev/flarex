@@ -8,6 +8,7 @@ import {
 } from "flarex-backend/artifact-runtime";
 import { R2BackendExecutionArtifactStore, type R2BucketLike } from "flarex-backend/artifact-store";
 import {
+  ANALYZED_START_TEST_AUTHORIZATION,
   createBackendHarness,
   type BackendHarness,
 } from "flarex-backend/test/backendHarness";
@@ -918,7 +919,10 @@ async function startPush(
     `http://flarex.test/deployments/${deploymentId}/push/start-analyzed`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        authorization: ANALYZED_START_TEST_AUTHORIZATION,
+        "content-type": "application/json",
+      },
       body: JSON.stringify(body),
     },
   );

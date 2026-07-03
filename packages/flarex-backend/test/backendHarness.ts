@@ -11,8 +11,12 @@ export type BackendHarness = {
   dispose: () => Promise<void>;
 };
 
+export const ANALYZED_START_TEST_TOKEN = "test-analyzed-start-secret";
+export const ANALYZED_START_TEST_AUTHORIZATION = `Bearer ${ANALYZED_START_TEST_TOKEN}`;
+
 export type BackendHarnessOptions = {
   bindings?: Record<string, string>;
+  analyzedStartTestToken?: string | false;
   r2Buckets?: string[];
   serviceBindings?: Record<string, (request: Request) => Response | Promise<Response>>;
 };
@@ -41,7 +45,12 @@ export async function createBackendHarness(options: BackendHarnessOptions = {}):
     ...(options.r2Buckets === undefined
       ? {}
       : { r2Buckets: options.r2Buckets, r2Persist: persistPath }),
-    ...(options.bindings === undefined ? {} : { bindings: options.bindings }),
+    bindings: {
+      ...(options.analyzedStartTestToken === false
+        ? {}
+        : { FLAREX_ANALYZED_START_TOKEN: options.analyzedStartTestToken ?? ANALYZED_START_TEST_TOKEN }),
+      ...options.bindings,
+    },
     ...(options.serviceBindings === undefined ? {} : { serviceBindings: options.serviceBindings }),
   });
 

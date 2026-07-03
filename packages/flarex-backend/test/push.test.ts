@@ -25,7 +25,11 @@ import type {
   PushStatus,
   StartPushRequest,
 } from "../src/types";
-import { createBackendHarness, type BackendHarness } from "./backendHarness";
+import {
+  ANALYZED_START_TEST_AUTHORIZATION,
+  createBackendHarness,
+  type BackendHarness,
+} from "./backendHarness";
 
 let harness: BackendHarness;
 const testDeploymentSchemas = new Map<string, DeploymentSchema>();
@@ -256,11 +260,45 @@ describe("deployment push lifecycle", () => {
   });
 
   it("rejects malformed analyzed push request bodies", async () => {
-    const invalidJson = await harness.mf.dispatchFetch(
+    const productionLikeHarness = await createBackendHarness({ analyzedStartTestToken: false });
+    try {
+      const missingTokenRoute = await productionLikeHarness.mf.dispatchFetch(
+        "http://flarex.test/deployments/push-start-no-token/push/start-analyzed",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(analyzedPush(candidateSchema(), candidateFunctions())),
+        },
+      );
+      expect(missingTokenRoute.status).toBe(401);
+      await expect(missingTokenRoute.json()).resolves.toEqual({
+        error: "Unauthorized analyzed start-push request.",
+      });
+    } finally {
+      await productionLikeHarness.dispose();
+    }
+
+    const unauthorized = await harness.mf.dispatchFetch(
       "http://flarex.test/deployments/push-start-bad-body/push/start-analyzed",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
+        body: "{",
+      },
+    );
+    expect(unauthorized.status).toBe(401);
+    await expect(unauthorized.json()).resolves.toEqual({
+      error: "Unauthorized analyzed start-push request.",
+    });
+
+    const invalidJson = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/push-start-bad-body/push/start-analyzed",
+      {
+        method: "POST",
+        headers: {
+          authorization: ANALYZED_START_TEST_AUTHORIZATION,
+          "content-type": "application/json",
+        },
         body: "{",
       },
     );
@@ -1363,7 +1401,10 @@ async function startPushResponseWithHarness(
     `http://flarex.test/deployments/${deploymentId}/push/start-analyzed`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        authorization: ANALYZED_START_TEST_AUTHORIZATION,
+        "content-type": "application/json",
+      },
       body: JSON.stringify(body),
     },
   );
