@@ -1,6 +1,7 @@
 import {
   createExecutionArtifactRuntimeService,
-  decodeServiceBindingExecutionArtifactRuntimeInvokeResponse,
+  decodeMaterializedExecutionArtifactInvokeResponse,
+  executionArtifactInternalInvokeRequest,
   executionArtifactWorkerEnv,
   executionArtifactWorkerModules,
   executionArtifactRuntimeWorkerSource,
@@ -245,20 +246,10 @@ class HostedDynamicWorkerMaterializedExecutionArtifact implements MaterializedEx
 
   async invoke(payload: MaterializedExecutionArtifactPayload): Promise<InvokeResponse> {
     const response = await this.worker.getEntrypoint().fetch(
-      new Request("https://flarex-dynamic-worker.internal/__flarex_internal/invoke", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-flarex-artifact-id": payload.ref.artifactId,
-          "x-flarex-source-package-hash": payload.ref.sourcePackageHash,
-          ...(this.internalToken === undefined
-            ? {}
-            : { authorization: `Bearer ${this.internalToken}` }),
-        },
-        body: JSON.stringify({
-          deploymentId: payload.deploymentId,
-          ...payload.request,
-        }),
+      executionArtifactInternalInvokeRequest({
+        url: "https://flarex-dynamic-worker.internal/__flarex_internal/invoke",
+        payload,
+        internalToken: this.internalToken,
       }),
     );
     return await decodeDynamicWorkerInvokeResponse(response);
@@ -266,36 +257,14 @@ class HostedDynamicWorkerMaterializedExecutionArtifact implements MaterializedEx
 }
 
 async function decodeDynamicWorkerInvokeResponse(response: Pick<Response, "json" | "ok" | "status">): Promise<InvokeResponse> {
-  const body = await readResponseJsonOrNull(response);
-  if (!response.ok) {
-    throw new HostedDynamicWorkerResponseError(
-      response.status,
-      dynamicWorkerErrorMessage(body, response.status),
-    );
-  }
   return await Effect.runPromise(
-    decodeServiceBindingExecutionArtifactRuntimeInvokeResponse(body).pipe(
+    decodeMaterializedExecutionArtifactInvokeResponse(
+      response,
+      "Dynamic Worker execution artifact failed",
+    ).pipe(
       Effect.mapError(error => new HostedDynamicWorkerResponseError(error.status, error.message)),
     ),
   );
-}
-
-async function readResponseJsonOrNull(response: Pick<Response, "json">): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-function dynamicWorkerErrorMessage(body: unknown, status: number): string {
-  return hasErrorBody(body)
-    ? String(body.error)
-    : `Dynamic Worker execution artifact failed with status ${status}`;
-}
-
-function hasErrorBody(value: unknown): value is { readonly error: unknown } {
-  return typeof value === "object" && value !== null && "error" in value;
 }
 
 function parseHostedExecutorTransport(transport: string): ExecutorTransport {

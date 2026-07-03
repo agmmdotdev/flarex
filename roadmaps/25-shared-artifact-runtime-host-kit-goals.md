@@ -21,7 +21,7 @@ Goal status:
 - [x] G-2. H-1 shared runtime worker source profiles.
 - [x] G-3. H-2 shared source package module-map validation.
 - [x] G-4. H-3 shared generated-worker env construction.
-- [ ] G-5. H-4 shared internal invoke request and response decode.
+- [x] G-5. H-4 shared internal invoke request and response decode.
 - [ ] G-6. H-5 shared identity helpers.
 - [ ] G-7. H-6 adapter simplification pass.
 - [ ] G-8. Final host-kit audit: local-first runtime and hosted Dynamic Worker
@@ -51,21 +51,24 @@ Every implementation turn in this goal should follow this loop:
 
 ## Current Next Slice
 
-### G-4 / H-3: Shared Generated-Worker Env Construction
+### G-5 / H-4: Shared Internal Invoke Request And Response Decode
 
-Status: completed in checkpoint `eb4619d` (`Share artifact worker env construction`).
+Status: implemented in this turn; commit pending.
 
 Purpose:
 
-Move generated worker string env construction behind the shared host kit.
-Local Miniflare and hosted Dynamic Worker adapters should share the same
-executor/project/auth/invoke-attempt/internal-token binding names and value
-normalization while keeping host-specific service bindings outside the helper.
+Move internal invoke request construction and invoke response decoding behind
+shared runtime helpers. Local Miniflare and hosted Dynamic Worker adapters
+should use the same invoke request body/header contract and the same invoke
+response protocol decode path. Local query-session response decoding remains
+local-only and does not imply hosted query-session support.
 
 Files expected to change:
 
 - `packages/flarex-backend/src/artifactRuntime/HostKit.ts`
 - `packages/flarex-backend/src/artifactRuntime.ts`
+- `packages/flarex-backend/src/types.ts`
+- `packages/flarex-protocol/src/invoke.ts`
 - `packages/flarex-dev/src/runtimeMaterializer.ts`
 - `apps/artifact-runtime/src/worker.ts`
 - `packages/flarex-backend/test/artifactRuntime.test.ts`
@@ -74,45 +77,41 @@ Files expected to change:
 
 Implementation tasks:
 
-- [x] Move executor/project/auth/invoke-attempt/internal-token env construction
-  into `executionArtifactWorkerEnv(...)`.
-- [x] Share the `ExecutionArtifactWorkerExecutorTransport` type between local
-  and hosted adapters.
-- [x] Keep host-specific binding injection outside the helper:
-  - local `FLAREX_BACKEND` remains a Miniflare service binding;
-  - hosted `FLAREX_EXECUTOR` remains a Dynamic Worker service binding.
-- [x] Preserve hosted invalid transport errors at the hosted adapter boundary.
-- [x] Add focused shared HostKit tests for env shape and retry-attempt
-  stringification.
+- [x] Add shared internal request/header helpers:
+  - `executionArtifactInternalRequestHeaders(...)`
+  - `executionArtifactInternalInvokeRequest(...)`
+- [x] Use the shared invoke request helper from local Miniflare invokes.
+- [x] Use the shared invoke request helper from hosted Dynamic Worker invokes.
+- [x] Use the same invoke response decode path for local and hosted invokes.
+- [x] Keep local query-session response decoding available without claiming
+  hosted query-session support.
+- [x] Preserve `observedTs` in invoke response read sets by updating the invoke
+  protocol/backend read-set contract.
+- [x] Add focused shared tests for request construction and invoke response
+  decoding.
 
-Next slice after commit: `G-5 / H-4`, shared internal invoke request and
-response decode.
+Next slice after commit: `G-6 / H-5`, shared identity helpers.
 
 Validation gates:
 
 ```sh
+corepack pnpm --filter flarex-protocol typecheck
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter @flarex/artifact-runtime typecheck
 corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 corepack pnpm --filter @flarex/artifact-runtime exec vitest run test/worker.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-protocol test
 git diff --check
 ```
 
 Review gate:
 
-- Required, because H-3 is a public package-boundary refactor touching runtime
-  env construction.
+- Required, because H-4 is a public package-boundary refactor touching runtime
+  request/response contracts.
 
 ## Later Slices
-
-### G-5 / H-4: Shared Internal Invoke Request And Response Decode
-
-- [ ] Add shared internal invoke request/header helpers.
-- [ ] Use the same invoke response decode path for local and hosted.
-- [ ] Keep local query-session response decoding available without claiming
-  hosted query-session support.
 
 ### G-6 / H-5: Shared Identity Helpers
 

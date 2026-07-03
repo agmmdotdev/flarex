@@ -2,7 +2,7 @@ import {
   generatedExecutionWorkerSource,
   type GeneratedExecutionWorkerSourceOptions,
 } from "./GeneratedWorkerSource.ts";
-import type { PushSourcePackage } from "../types.ts";
+import type { ExecutionArtifactRef, InvokeRequest, PushSourcePackage } from "../types.ts";
 
 export type ExecutionArtifactRuntimeWorkerSourceProfile =
   | "local-miniflare"
@@ -36,6 +36,25 @@ export type ExecutionArtifactWorkerEnv = {
   readonly FLAREX_INVOKE_MAX_ATTEMPTS?: string;
   readonly FLAREX_PROJECT_ID?: string;
   readonly FLAREX_INTERNAL_TOKEN?: string;
+};
+
+export type ExecutionArtifactInternalRequestRef = ExecutionArtifactRef;
+
+export type ExecutionArtifactInternalRequestHeadersOptions = {
+  readonly ref: ExecutionArtifactInternalRequestRef;
+  readonly internalToken?: string | undefined;
+};
+
+export type ExecutionArtifactInternalInvokeRequestPayload = {
+  readonly deploymentId: string;
+  readonly ref: ExecutionArtifactInternalRequestRef;
+  readonly request: InvokeRequest;
+};
+
+export type ExecutionArtifactInternalInvokeRequestOptions = {
+  readonly url: string;
+  readonly payload: ExecutionArtifactInternalInvokeRequestPayload;
+  readonly internalToken?: string | undefined;
 };
 
 type ExecutionArtifactRuntimeWorkerSourceProfileOptions = Omit<
@@ -140,4 +159,33 @@ export function executionArtifactWorkerEnv(
     ...(options.projectId === undefined ? {} : { FLAREX_PROJECT_ID: options.projectId }),
     ...(options.internalToken === undefined ? {} : { FLAREX_INTERNAL_TOKEN: options.internalToken }),
   };
+}
+
+export function executionArtifactInternalRequestHeaders(
+  options: ExecutionArtifactInternalRequestHeadersOptions,
+): Record<string, string> {
+  return {
+    "content-type": "application/json",
+    "x-flarex-artifact-id": options.ref.artifactId,
+    "x-flarex-source-package-hash": options.ref.sourcePackageHash,
+    ...(options.internalToken === undefined
+      ? {}
+      : { authorization: `Bearer ${options.internalToken}` }),
+  };
+}
+
+export function executionArtifactInternalInvokeRequest(
+  options: ExecutionArtifactInternalInvokeRequestOptions,
+): Request {
+  return new Request(options.url, {
+    method: "POST",
+    headers: executionArtifactInternalRequestHeaders({
+      ref: options.payload.ref,
+      internalToken: options.internalToken,
+    }),
+    body: JSON.stringify({
+      deploymentId: options.payload.deploymentId,
+      ...options.payload.request,
+    }),
+  });
 }

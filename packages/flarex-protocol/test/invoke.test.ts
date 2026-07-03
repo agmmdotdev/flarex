@@ -99,17 +99,23 @@ describe("invoke protocol schemas", () => {
     expect(decodeInvokeResponse({
       value: { ok: true },
       readSet: {
-        documents: [{ tableId: 1, id: "1:user" }],
-        tables: [{ tableId: 2 }],
-        indexes: [{ indexId: 3, lower: "a", upper: "z" }],
+        documents: [
+          { tableId: 1, id: "1:user", observedTs: 12 },
+          { tableId: 1, id: "1:missing", observedTs: null },
+        ],
+        tables: [{ tableId: 2, observedTs: 13 }],
+        indexes: [{ indexId: 3, observedTs: 14, lower: "a", upper: "z" }],
       },
       readTs: 42,
     })).toEqual({
       value: { ok: true },
       readSet: {
-        documents: [{ tableId: 1, id: "1:user" }],
-        tables: [{ tableId: 2 }],
-        indexes: [{ indexId: 3, lower: "a", upper: "z" }],
+        documents: [
+          { tableId: 1, id: "1:user", observedTs: 12 },
+          { tableId: 1, id: "1:missing", observedTs: null },
+        ],
+        tables: [{ tableId: 2, observedTs: 13 }],
+        indexes: [{ indexId: 3, observedTs: 14, lower: "a", upper: "z" }],
       },
       readTs: 42,
     });
@@ -146,6 +152,18 @@ describe("invoke protocol schemas", () => {
     expect(() => decodeInvokeResponse({
       value: null,
       writes: [{ tableId: 1, id: "1:user", prevTs: null, ts: 1 }],
+    })).toThrow();
+    expect(() => decodeInvokeResponse({
+      value: null,
+      readSet: { documents: [{ tableId: 1, id: "1:user", observedTs: -1 }] },
+    })).toThrow();
+    expect(() => decodeInvokeResponse({
+      value: null,
+      readSet: { tables: [{ tableId: 2, observedTs: 1.5 }] },
+    })).toThrow();
+    expect(() => decodeInvokeResponse({
+      value: null,
+      readSet: { indexes: [{ indexId: 3, observedTs: -1 }] },
     })).toThrow();
   });
 });

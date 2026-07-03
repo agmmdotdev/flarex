@@ -1,5 +1,74 @@
 # Shared Artifact Runtime Host Kit
 
+## H-4 Shared Internal Invoke Request And Response Decode
+
+Previous completed checkpoint: `e69503d` (`Mark env host kit slice complete`).
+
+What changed:
+
+- Added `executionArtifactInternalRequestHeaders(...)` and
+  `executionArtifactInternalInvokeRequest(...)` to
+  `packages/flarex-backend/src/artifactRuntime/HostKit.ts`.
+- Added `decodeMaterializedExecutionArtifactInvokeResponse(...)` and
+  `MaterializedExecutionArtifactInvokeResponseError` to
+  `packages/flarex-backend/src/artifactRuntime.ts`.
+- Reused the shared internal invoke request helper from both
+  `packages/flarex-dev/src/runtimeMaterializer.ts` and
+  `apps/artifact-runtime/src/worker.ts`.
+- Reused the shared invoke response decode path from both local and hosted
+  materialized artifact invokes.
+- Kept local query-session response decoding local-only, while reusing the
+  shared internal request headers for its request.
+- Updated `packages/flarex-protocol/src/invoke.ts` and
+  `packages/flarex-backend/src/types.ts` so invoke response read sets preserve
+  optional `observedTs`.
+- Added focused backend tests for internal request construction and shared
+  invoke response decoding.
+
+Why it changed:
+
+Local and hosted materialized invokes should use one internal request contract
+and one invoke response decoder. During the migration, the focused local test
+showed the existing protocol schema would drop `observedTs`; preserving that
+timestamp is required for current local behavior and freshness-aware read-set
+consumers, so the shared contract now models it explicitly.
+
+Convex sources inspected:
+
+- None in this implementation slice. The Convex runner/source-package
+  rationale is recorded in the research checkpoint below; this slice only
+  standardizes Flarex internal artifact invoke boundaries.
+
+Cloudflare difference:
+
+- Local runtime still has the only query-session route for live-query test
+  support.
+- Hosted runtime still exposes only invoke through the Dynamic Worker
+  materialized artifact.
+- The shared request helper does not move Miniflare dispatch mechanics or
+  WorkerStub fetch mechanics into the host kit.
+
+Known limitations:
+
+- Hosted-only Dynamic Worker ID assembly and auth/executor identity helpers
+  remain in the hosted adapter until `H-5`.
+- A final adapter simplification pass is still needed after identity helpers
+  move.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter @flarex/artifact-runtime typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter @flarex/artifact-runtime exec vitest run test/worker.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-protocol test
+git diff --check
+```
+
 ## H-3 Shared Generated-Worker Env Construction
 
 Completed checkpoint: `eb4619d` (`Share artifact worker env construction`).

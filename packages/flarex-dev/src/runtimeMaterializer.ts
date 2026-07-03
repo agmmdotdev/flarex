@@ -2,6 +2,9 @@ import { Miniflare } from "miniflare";
 import { Data, Effect } from "effect";
 import type { RunLiveQuerySubscriptionWithInvokeInput } from "@flarex/executor";
 import {
+  decodeMaterializedExecutionArtifactInvokeResponse,
+  executionArtifactInternalInvokeRequest,
+  executionArtifactInternalRequestHeaders,
   executionArtifactRuntimeWorkerSource,
   executionArtifactWorkerEnv,
   executionArtifactWorkerModules,
@@ -11,6 +14,7 @@ import type {
   ExecutionArtifactMaterializer,
   MaterializedExecutionArtifactPayload,
   MaterializedExecutionArtifact,
+  MaterializedExecutionArtifactInvokeResponseError,
   ExecutionArtifactWorkerExecutorTransport,
 } from "flarex-backend/artifact-runtime";
 import type { InvokeResponse, Json } from "flarex-backend/types";
@@ -126,31 +130,26 @@ class LocalMiniflareMaterializedExecutionArtifact implements MaterializedExecuti
   }
 
   async invoke(payload: MaterializedExecutionArtifactPayload): Promise<InvokeResponse> {
+    const request = executionArtifactInternalInvokeRequest({
+      url: "https://flarex-artifact.internal/__flarex_internal/invoke",
+      payload,
+      internalToken: this.internalToken,
+    });
     const response = await this.artifact.dispatchFetch(
-      "https://flarex-artifact.internal/__flarex_internal/invoke",
+      request.url,
       {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-flarex-artifact-id": payload.ref.artifactId,
-          "x-flarex-source-package-hash": payload.ref.sourcePackageHash,
-          ...(this.internalToken === undefined
-            ? {}
-            : { authorization: `Bearer ${this.internalToken}` }),
-        },
-        body: JSON.stringify({
-          deploymentId: payload.deploymentId,
-          ...payload.request,
-        }),
+        method: request.method,
+        headers: Object.fromEntries(request.headers.entries()),
+        body: await request.text(),
       },
     );
     // Deliberate runtime bridge: materialized worker invoke API returns Promise.
     return await Effect.runPromise(
-      decodeMaterializedArtifactResponse<InvokeResponse>(
+      decodeMaterializedExecutionArtifactInvokeResponse(
         response,
         "Materialized execution artifact failed",
       ).pipe(
-        Effect.mapError(materializedArtifactResponseErrorToError),
+        Effect.mapError(materializedArtifactInvokeResponseErrorToError),
       ),
     );
   }
@@ -163,14 +162,10 @@ class LocalMiniflareMaterializedExecutionArtifact implements MaterializedExecuti
       "https://flarex-artifact.internal/__flarex_internal/query-session",
       {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-flarex-artifact-id": payload.ref.artifactId,
-          "x-flarex-source-package-hash": payload.ref.sourcePackageHash,
-          ...(this.internalToken === undefined
-            ? {}
-            : { authorization: `Bearer ${this.internalToken}` }),
-        },
+        headers: executionArtifactInternalRequestHeaders({
+          ref: payload.ref,
+          internalToken: this.internalToken,
+        }),
         body: JSON.stringify(input),
       },
     );
@@ -224,6 +219,14 @@ function materializedArtifactErrorMessage(
 
 function materializedArtifactResponseErrorToError(
   error: MaterializedArtifactResponseError,
+): Error & { status?: number } {
+  const legacy = new Error(error.message) as Error & { status?: number };
+  legacy.status = error.status;
+  return legacy;
+}
+
+function materializedArtifactInvokeResponseErrorToError(
+  error: MaterializedExecutionArtifactInvokeResponseError,
 ): Error & { status?: number } {
   const legacy = new Error(error.message) as Error & { status?: number };
   legacy.status = error.status;

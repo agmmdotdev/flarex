@@ -70,14 +70,17 @@ export type DeploymentSchema = {
 export type DocumentRead = {
   tableId: number;
   id: string;
+  observedTs?: number | null;
 };
 
 export type TableRead = {
   tableId: number;
+  observedTs?: number;
 };
 
 export type IndexRead = {
   indexId: number;
+  observedTs?: number;
   lower?: string;
   upper?: string;
 };

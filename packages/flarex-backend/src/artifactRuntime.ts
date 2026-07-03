@@ -20,12 +20,18 @@ export {
   type GeneratedProjectWorkerExecutorBridgeSourceOptions,
 } from "./artifactRuntime/GeneratedWorkerSource.ts";
 export {
+  executionArtifactInternalInvokeRequest,
+  executionArtifactInternalRequestHeaders,
   executionArtifactWorkerEnv,
   executionArtifactWorkerModules,
   executionArtifactRuntimeWorkerSource,
   ExecutionArtifactWorkerDuplicateModulePathError,
   ExecutionArtifactWorkerReservedModulePathError,
   ExecutionArtifactWorkerSourceModuleMissingError,
+  type ExecutionArtifactInternalInvokeRequestOptions,
+  type ExecutionArtifactInternalInvokeRequestPayload,
+  type ExecutionArtifactInternalRequestHeadersOptions,
+  type ExecutionArtifactInternalRequestRef,
   type ExecutionArtifactWorkerEnv,
   type ExecutionArtifactWorkerEnvOptions,
   type ExecutionArtifactWorkerExecutorTransport,
@@ -109,6 +115,14 @@ export class ServiceBindingExecutionArtifactRuntimeResponseError extends Data.Ta
 export type ServiceBindingExecutionArtifactRuntimeError =
   | ExecutionArtifactRuntimeOperationError
   | ServiceBindingExecutionArtifactRuntimeResponseError;
+
+export class MaterializedExecutionArtifactInvokeResponseError extends Data.TaggedError(
+  "MaterializedExecutionArtifactInvokeResponseError",
+)<{
+  readonly status: number;
+  readonly message: string;
+  readonly body: unknown;
+}> {}
 
 export class CachedExecutionArtifactMaterializer {
   private readonly materializer: ExecutionArtifactMaterializer;
@@ -337,6 +351,31 @@ export const decodeServiceBindingExecutionArtifactRuntimeInvokeResponse = Effect
   },
 );
 
+export const decodeMaterializedExecutionArtifactInvokeResponse = Effect.fn(
+  "MaterializedExecutionArtifact.decodeInvokeResponse",
+)(
+  function* (
+    response: ExecutionArtifactRuntimeHttpResponse,
+    fallbackMessage: string,
+  ): Effect.fn.Return<InvokeResponse, MaterializedExecutionArtifactInvokeResponseError> {
+    const body = yield* readServiceBindingExecutionArtifactRuntimeResponseJson(response);
+    if (!response.ok) {
+      return yield* Effect.fail(new MaterializedExecutionArtifactInvokeResponseError({
+        status: response.status,
+        message: materializedExecutionArtifactInvokeErrorMessage(body, fallbackMessage, response.status),
+        body,
+      }));
+    }
+    return yield* decodeServiceBindingExecutionArtifactRuntimeInvokeResponse(body).pipe(
+      Effect.mapError(error => new MaterializedExecutionArtifactInvokeResponseError({
+        status: error.status,
+        message: error.message,
+        body: error.body,
+      })),
+    );
+  },
+);
+
 function backendInvokeResponseFromProtocol(response: ProtocolInvokeResponse): InvokeResponse {
   return {
     value: cloneProtocolJson(response.value),
@@ -351,15 +390,27 @@ function backendReadSetFromProtocol(readSet: NonNullable<ProtocolInvokeResponse[
   return {
     ...(readSet.documents === undefined
       ? {}
-      : { documents: readSet.documents.map(read => ({ tableId: read.tableId, id: read.id })) }),
+      : {
+          documents: readSet.documents.map(read => ({
+            tableId: read.tableId,
+            id: read.id,
+            ...(read.observedTs === undefined ? {} : { observedTs: read.observedTs }),
+          })),
+        }),
     ...(readSet.tables === undefined
       ? {}
-      : { tables: readSet.tables.map(read => ({ tableId: read.tableId })) }),
+      : {
+          tables: readSet.tables.map(read => ({
+            tableId: read.tableId,
+            ...(read.observedTs === undefined ? {} : { observedTs: read.observedTs }),
+          })),
+        }),
     ...(readSet.indexes === undefined
       ? {}
       : {
           indexes: readSet.indexes.map(read => ({
             indexId: read.indexId,
+            ...(read.observedTs === undefined ? {} : { observedTs: read.observedTs }),
             ...(read.lower === undefined ? {} : { lower: read.lower }),
             ...(read.upper === undefined ? {} : { upper: read.upper }),
           })),
@@ -397,9 +448,24 @@ function serviceBindingExecutionArtifactRuntimeErrorMessage(
   body: unknown,
   status: number,
 ): string {
-  return typeof body === "object" && body !== null && "error" in body
-    ? String((body as { error: unknown }).error)
-    : `Execution artifact runtime failed with status ${status}`;
+  return errorBodyMessage(body) ?? `Execution artifact runtime failed with status ${status}`;
+}
+
+function materializedExecutionArtifactInvokeErrorMessage(
+  body: unknown,
+  fallbackMessage: string,
+  status: number,
+): string {
+  return errorBodyMessage(body) ?? `${fallbackMessage} with status ${status}`;
+}
+
+function errorBodyMessage(value: unknown): string | undefined {
+  if (!hasErrorBody(value)) return undefined;
+  return String(value.error);
+}
+
+function hasErrorBody(value: unknown): value is { readonly error: unknown } {
+  return typeof value === "object" && value !== null && "error" in value;
 }
 
 function serviceBindingExecutionArtifactRuntimeErrorToHttpError(

@@ -31,17 +31,24 @@ export const PublicInvokeRequestBodySchema = Schema.Struct({
   idempotencyKey: Schema.optional(Schema.String),
 });
 
+const ObservedTimestampSchema = Schema.Int.pipe(
+  Schema.check(Schema.isGreaterThanOrEqualTo(0)),
+);
+
 const InvokeDocumentReadSchema = Schema.Struct({
   tableId: Schema.Number,
   id: Schema.String,
+  observedTs: Schema.optional(Schema.Union([ObservedTimestampSchema, Schema.Null])),
 });
 
 const InvokeTableReadSchema = Schema.Struct({
   tableId: Schema.Number,
+  observedTs: Schema.optional(ObservedTimestampSchema),
 });
 
 const InvokeIndexReadSchema = Schema.Struct({
   indexId: Schema.Number,
+  observedTs: Schema.optional(ObservedTimestampSchema),
   lower: Schema.optional(Schema.String),
   upper: Schema.optional(Schema.String),
 });

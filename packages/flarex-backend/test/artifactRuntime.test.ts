@@ -6,6 +6,9 @@ import {
   decodeServiceBindingExecutionArtifactRuntimeInvokeResponse,
   createExecutionArtifactRuntimeService,
   decodeServiceBindingExecutionArtifactRuntimeResponse,
+  decodeMaterializedExecutionArtifactInvokeResponse,
+  executionArtifactInternalInvokeRequest,
+  executionArtifactInternalRequestHeaders,
   executionArtifactWorkerEnv,
   executionArtifactWorkerModules,
   ExecutionArtifactWorkerDuplicateModulePathError,
@@ -15,6 +18,7 @@ import {
   executionArtifactRuntimeRouteErrorToResponseEffect,
   invokeServiceBindingExecutionArtifactRuntime,
   serviceBindingExecutionArtifactRuntimeErrorToHttpErrorEffect,
+  MaterializedExecutionArtifactInvokeResponseError,
   ServiceBindingExecutionArtifactRuntime,
   ServiceBindingExecutionArtifactRuntimeResponseError,
   type ExecutionArtifactInvokePayload,
@@ -34,6 +38,36 @@ import type {
 } from "../src/types";
 
 describe("backend execution artifact runtime", () => {
+  it("builds internal artifact invoke requests and shared headers", async () => {
+    const request = executionArtifactInternalInvokeRequest({
+      url: "https://runtime.test/__flarex_internal/invoke",
+      payload: testPayload(),
+      internalToken: "internal-secret",
+    });
+
+    expect(request.method).toBe("POST");
+    expect(request.url).toBe("https://runtime.test/__flarex_internal/invoke");
+    expect(request.headers.get("content-type")).toBe("application/json");
+    expect(request.headers.get("x-flarex-artifact-id")).toBe(testPayload().ref.artifactId);
+    expect(request.headers.get("x-flarex-source-package-hash")).toBe(testPayload().ref.sourcePackageHash);
+    expect(request.headers.get("authorization")).toBe("Bearer internal-secret");
+    await expect(request.json()).resolves.toEqual({
+      deploymentId: "deployment1",
+      path: "users:get",
+      args: { id: "1:user" },
+      partitionKey: "user:1",
+      kind: "query",
+    });
+
+    expect(executionArtifactInternalRequestHeaders({
+      ref: testPayload().ref,
+    })).toEqual({
+      "content-type": "application/json",
+      "x-flarex-artifact-id": testPayload().ref.artifactId,
+      "x-flarex-source-package-hash": testPayload().ref.sourcePackageHash,
+    });
+  });
+
   it("builds generated worker env bindings without host service bindings", () => {
     expect(executionArtifactWorkerEnv({
       executorToken: "executor-secret",
@@ -183,6 +217,71 @@ describe("backend execution artifact runtime", () => {
       message: "Invalid execution artifact runtime invoke response.",
       body: { readTs: 42 },
     });
+  });
+
+  it("decodes materialized invoke responses through the shared protocol path", async () => {
+    await expect(Effect.runPromise(
+      decodeMaterializedExecutionArtifactInvokeResponse(
+        Response.json({
+          value: { ok: true },
+          readSet: {
+            documents: [
+              { tableId: 1, id: "1:user", observedTs: 12 },
+              { tableId: 1, id: "1:missing", observedTs: null },
+            ],
+            tables: [{ tableId: 2, observedTs: 13 }],
+            indexes: [{ indexId: 3, observedTs: 14, lower: "a", upper: "z" }],
+          },
+        }),
+        "Materialized execution artifact failed",
+      ),
+    )).resolves.toEqual({
+      value: { ok: true },
+      readSet: {
+        documents: [
+          { tableId: 1, id: "1:user", observedTs: 12 },
+          { tableId: 1, id: "1:missing", observedTs: null },
+        ],
+        tables: [{ tableId: 2, observedTs: 13 }],
+        indexes: [{ indexId: 3, observedTs: 14, lower: "a", upper: "z" }],
+      },
+    });
+
+    await expect(Effect.runPromise(Effect.flip(
+      decodeMaterializedExecutionArtifactInvokeResponse(
+        Response.json({ error: "artifact failed" }, { status: 409 }),
+        "Materialized execution artifact failed",
+      ),
+    ))).resolves.toMatchObject({
+      _tag: "MaterializedExecutionArtifactInvokeResponseError",
+      status: 409,
+      message: "artifact failed",
+      body: { error: "artifact failed" },
+    } satisfies Partial<MaterializedExecutionArtifactInvokeResponseError>);
+
+    await expect(Effect.runPromise(Effect.flip(
+      decodeMaterializedExecutionArtifactInvokeResponse(
+        new Response("not json", { status: 502 }),
+        "Materialized execution artifact failed",
+      ),
+    ))).resolves.toMatchObject({
+      _tag: "MaterializedExecutionArtifactInvokeResponseError",
+      status: 502,
+      message: "Materialized execution artifact failed with status 502",
+      body: null,
+    } satisfies Partial<MaterializedExecutionArtifactInvokeResponseError>);
+
+    await expect(Effect.runPromise(Effect.flip(
+      decodeMaterializedExecutionArtifactInvokeResponse(
+        Response.json({ readTs: 42 }),
+        "Materialized execution artifact failed",
+      ),
+    ))).resolves.toMatchObject({
+      _tag: "MaterializedExecutionArtifactInvokeResponseError",
+      status: 500,
+      message: "Invalid execution artifact runtime invoke response.",
+      body: { readTs: 42 },
+    } satisfies Partial<MaterializedExecutionArtifactInvokeResponseError>);
   });
 
   it("loads the active source package before invoking the runtime service", async () => {
