@@ -44,3 +44,4 @@ Start with:
 - [21-cloudflare-freshness-cache.md](./21-cloudflare-freshness-cache.md)
 - [22-effect-migration-checklist.md](./22-effect-migration-checklist.md)
 - [23-hosted-runtime-core.md](./23-hosted-runtime-core.md)
+- [24-shared-artifact-runtime-host-kit.md](./24-shared-artifact-runtime-host-kit.md)
