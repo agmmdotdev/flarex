@@ -38,6 +38,20 @@ export type ExecutionArtifactWorkerEnv = {
   readonly FLAREX_INTERNAL_TOKEN?: string;
 };
 
+export type ExecutionArtifactWorkerDefinitionOptions = {
+  readonly sourcePackage: PushSourcePackage;
+  readonly profile: ExecutionArtifactRuntimeWorkerSourceProfile;
+  readonly runtimeModulePath: string;
+  readonly reservedBy: string;
+  readonly env?: ExecutionArtifactWorkerEnvOptions | undefined;
+};
+
+export type ExecutionArtifactWorkerDefinition = {
+  readonly mainModule: string;
+  readonly modules: Record<string, string>;
+  readonly env: ExecutionArtifactWorkerEnv;
+};
+
 export type InternalAuthIdentityOptions = {
   readonly token?: string | undefined;
   readonly tokenVersion?: string | undefined;
@@ -171,6 +185,24 @@ export function executionArtifactWorkerEnv(
       : { FLAREX_INVOKE_MAX_ATTEMPTS: String(options.invokeMaxAttempts) }),
     ...(options.projectId === undefined ? {} : { FLAREX_PROJECT_ID: options.projectId }),
     ...(options.internalToken === undefined ? {} : { FLAREX_INTERNAL_TOKEN: options.internalToken }),
+  };
+}
+
+export function executionArtifactWorkerDefinition(
+  options: ExecutionArtifactWorkerDefinitionOptions,
+): ExecutionArtifactWorkerDefinition {
+  return {
+    mainModule: options.runtimeModulePath,
+    modules: executionArtifactWorkerModules({
+      sourcePackage: options.sourcePackage,
+      runtimeModulePath: options.runtimeModulePath,
+      runtimeWorkerSource: executionArtifactRuntimeWorkerSource({
+        profile: options.profile,
+        executionModule: options.sourcePackage.execution,
+      }),
+      reservedBy: options.reservedBy,
+    }),
+    env: executionArtifactWorkerEnv(options.env ?? {}),
   };
 }
 

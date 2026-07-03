@@ -5,9 +5,7 @@ import {
   decodeMaterializedExecutionArtifactInvokeResponse,
   executionArtifactInternalInvokeRequest,
   executionArtifactInternalRequestHeaders,
-  executionArtifactRuntimeWorkerSource,
-  executionArtifactWorkerEnv,
-  executionArtifactWorkerModules,
+  executionArtifactWorkerDefinition,
 } from "flarex-backend/artifact-runtime";
 import type {
   ExecutionArtifactQuerySessionRequest,
@@ -92,26 +90,27 @@ export class LocalMiniflareExecutionArtifactMaterializer implements ExecutionArt
   async materialize(
     payload: MaterializedExecutionArtifactPayload,
   ): Promise<MaterializedExecutionArtifact> {
-    const modules = executionArtifactWorkerModules({
+    const definition = executionArtifactWorkerDefinition({
       sourcePackage: payload.sourcePackage,
+      profile: "local-miniflare",
       runtimeModulePath: LOCAL_RUNTIME_WORKER_MODULE,
-      runtimeWorkerSource: runtimeWorkerSource(payload.sourcePackage.execution),
       reservedBy: "local execution artifact runtime",
-    });
-    const artifact = new Miniflare({
-      modules: Object.entries(modules).map(([path, contents]) => ({
-        type: "ESModule" as const,
-        path,
-        contents,
-      })),
-      compatibilityDate: this.compatibilityDate,
-      bindings: executionArtifactWorkerEnv({
+      env: {
         executorTransport: this.executorTransport,
         projectId: this.projectId,
         executorToken: this.executorToken,
         invokeMaxAttempts: this.invokeMaxAttempts,
         internalToken: this.internalToken,
-      }),
+      },
+    });
+    const artifact = new Miniflare({
+      modules: Object.entries(definition.modules).map(([path, contents]) => ({
+        type: "ESModule" as const,
+        path,
+        contents,
+      })),
+      compatibilityDate: this.compatibilityDate,
+      bindings: definition.env,
       serviceBindings: {
         FLAREX_BACKEND: async (request: Request) => this.backend(request),
       },
@@ -212,32 +211,28 @@ function materializedArtifactErrorMessage(
   fallbackMessage: string,
   status: number,
 ): string {
-  return typeof body === "object" && body !== null && "error" in body
-    ? String((body as { error: unknown }).error)
-    : `${fallbackMessage} with status ${status}`;
+  return errorBodyMessage(body) ?? `${fallbackMessage} with status ${status}`;
+}
+
+function errorBodyMessage(value: unknown): string | undefined {
+  if (!hasErrorBody(value)) return undefined;
+  return String(value.error);
+}
+
+function hasErrorBody(value: unknown): value is { readonly error: unknown } {
+  return typeof value === "object" && value !== null && "error" in value;
 }
 
 function materializedArtifactResponseErrorToError(
   error: MaterializedArtifactResponseError,
 ): Error & { status?: number } {
-  const legacy = new Error(error.message) as Error & { status?: number };
-  legacy.status = error.status;
-  return legacy;
+  return Object.assign(new Error(error.message), { status: error.status });
 }
 
 function materializedArtifactInvokeResponseErrorToError(
   error: MaterializedExecutionArtifactInvokeResponseError,
 ): Error & { status?: number } {
-  const legacy = new Error(error.message) as Error & { status?: number };
-  legacy.status = error.status;
-  return legacy;
+  return Object.assign(new Error(error.message), { status: error.status });
 }
 
 const LOCAL_RUNTIME_WORKER_MODULE = "worker.js";
-
-function runtimeWorkerSource(executionModule: string): string {
-  return executionArtifactRuntimeWorkerSource({
-    profile: "local-miniflare",
-    executionModule,
-  });
-}

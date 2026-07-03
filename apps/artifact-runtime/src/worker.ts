@@ -3,10 +3,9 @@ import {
   decodeMaterializedExecutionArtifactInvokeResponse,
   executionArtifactInternalInvokeRequest,
   executorIdentity,
-  executionArtifactWorkerEnv,
-  executionArtifactWorkerModules,
-  executionArtifactRuntimeWorkerSource,
+  executionArtifactWorkerDefinition,
   internalAuthIdentity,
+  type ExecutionArtifactWorkerDefinition,
   type ExecutionArtifactMaterializer,
   type ExecutionArtifactRuntimeService,
   type ExecutionArtifactWorkerExecutorTransport,
@@ -18,7 +17,7 @@ import {
   R2BackendExecutionArtifactStore,
   type R2BucketLike,
 } from "flarex-backend/artifact-store";
-import type { InvokeResponse, PushSourcePackage } from "flarex-backend/types";
+import type { InvokeResponse } from "flarex-backend/types";
 
 type ExecutorTransport = ExecutionArtifactWorkerExecutorTransport;
 
@@ -129,18 +128,25 @@ export class HostedDynamicWorkerExecutionArtifactMaterializer implements Executi
   }
 
   materialize(payload: MaterializedExecutionArtifactPayload): Promise<MaterializedExecutionArtifact> {
-    const code = dynamicWorkerCode(payload.sourcePackage, {
-      compatibilityDate: this.compatibilityDate,
-      executor: this.executor,
-      ...(this.executorToken === undefined ? {} : { executorToken: this.executorToken }),
-      ...(this.executorTransport === undefined ? {} : { executorTransport: this.executorTransport }),
-      ...(this.internalToken === undefined ? {} : { internalToken: this.internalToken }),
-      ...(this.invokeMaxAttempts === undefined ? {} : { invokeMaxAttempts: this.invokeMaxAttempts }),
-      ...(this.projectId === undefined ? {} : { projectId: this.projectId }),
+    const definition = executionArtifactWorkerDefinition({
+      sourcePackage: payload.sourcePackage,
+      profile: "hosted-dynamic-worker",
+      runtimeModulePath: DYNAMIC_WORKER_MAIN_MODULE,
+      reservedBy: "hosted artifact runtime",
+      env: {
+        executorToken: this.executorToken,
+        executorTransport: this.executorTransport,
+        invokeMaxAttempts: this.invokeMaxAttempts,
+        projectId: this.projectId,
+        internalToken: this.internalToken,
+      },
     });
     const worker = this.loader.get(
       dynamicWorkerId(payload, this.compatibilityDate, this.executorIdentity, this.internalAuthIdentity),
-      () => code,
+      () => dynamicWorkerCode(definition, {
+        compatibilityDate: this.compatibilityDate,
+        executor: this.executor,
+      }),
     );
     return Promise.resolve(new HostedDynamicWorkerMaterializedExecutionArtifact(worker, this.internalToken));
   }
@@ -301,46 +307,19 @@ function dynamicWorkerId(
   ].join(":");
 }
 
-function dynamicWorkerCode(sourcePackage: PushSourcePackage, options: {
+function dynamicWorkerCode(definition: ExecutionArtifactWorkerDefinition, options: {
   readonly compatibilityDate: string;
   readonly executor: Fetcher;
-  readonly executorToken?: string;
-  readonly executorTransport?: ExecutorTransport;
-  readonly internalToken?: string;
-  readonly invokeMaxAttempts?: string;
-  readonly projectId?: string;
 }): WorkerLoaderWorkerCode {
   return {
     compatibilityDate: options.compatibilityDate,
-    mainModule: DYNAMIC_WORKER_MAIN_MODULE,
-    modules: dynamicWorkerModules(sourcePackage),
+    mainModule: definition.mainModule,
+    modules: definition.modules,
     env: {
       FLAREX_EXECUTOR: options.executor,
-      ...executionArtifactWorkerEnv({
-        executorToken: options.executorToken,
-        executorTransport: options.executorTransport,
-        invokeMaxAttempts: options.invokeMaxAttempts,
-        projectId: options.projectId,
-        internalToken: options.internalToken,
-      }),
+      ...definition.env,
     },
     globalOutbound: null,
   };
-}
-
-function dynamicWorkerModules(sourcePackage: PushSourcePackage): Record<string, string> {
-  return executionArtifactWorkerModules({
-    sourcePackage,
-    runtimeModulePath: DYNAMIC_WORKER_MAIN_MODULE,
-    runtimeWorkerSource: dynamicWorkerRuntimeSource(sourcePackage.execution),
-    reservedBy: "hosted artifact runtime",
-  });
-}
-
-function dynamicWorkerRuntimeSource(executionModule: string): string {
-  return executionArtifactRuntimeWorkerSource({
-    profile: "hosted-dynamic-worker",
-    executionModule,
-  });
 }
 export default createArtifactRuntimeWorker() satisfies ExportedHandler<ArtifactRuntimeEnv>;

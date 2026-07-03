@@ -11,6 +11,7 @@ import {
   executionArtifactInternalRequestHeaders,
   executorIdentity,
   executionArtifactWorkerEnv,
+  executionArtifactWorkerDefinition,
   executionArtifactWorkerModules,
   ExecutionArtifactWorkerDuplicateModulePathError,
   ExecutionArtifactWorkerReservedModulePathError,
@@ -116,6 +117,51 @@ describe("backend execution artifact runtime", () => {
     })).toBe(
       "transport=postgres,project=project1,attempts=4,auth=version-ev1",
     );
+  });
+
+  it("builds shared worker definitions from source profile, modules, and env", () => {
+    expect(executionArtifactWorkerDefinition({
+      sourcePackage: testSourcePackage(),
+      profile: "hosted-dynamic-worker",
+      runtimeModulePath: "flarex-runtime-worker.js",
+      reservedBy: "hosted artifact runtime",
+      env: {
+        executorToken: "executor-secret",
+        executorTransport: "postgres",
+        invokeMaxAttempts: 4,
+        projectId: "project1",
+        internalToken: "internal-secret",
+      },
+    })).toMatchObject({
+      mainModule: "flarex-runtime-worker.js",
+      modules: {
+        "_flarex/execution.js": "export default {};",
+        "users.js": "export const get = {};",
+      },
+      env: {
+        FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        FLAREX_EXECUTOR_TRANSPORT: "postgres",
+        FLAREX_INVOKE_MAX_ATTEMPTS: "4",
+        FLAREX_INTERNAL_TOKEN: "internal-secret",
+        FLAREX_PROJECT_ID: "project1",
+      },
+    });
+
+    const localDefinition = executionArtifactWorkerDefinition({
+      sourcePackage: testSourcePackage(),
+      profile: "local-miniflare",
+      runtimeModulePath: "worker.js",
+      reservedBy: "local execution artifact runtime",
+    });
+    expect(localDefinition.mainModule).toBe("worker.js");
+    expect(Object.keys(localDefinition.modules).sort()).toEqual([
+      "_flarex/execution.js",
+      "users.js",
+      "worker.js",
+    ]);
+    expect(localDefinition.modules["worker.js"])
+      .toContain("FLAREX_BACKEND service binding is required for local execution artifact runtime.");
+    expect(localDefinition.env).toEqual({});
   });
 
   it("builds runtime worker module maps and validates source package modules", () => {

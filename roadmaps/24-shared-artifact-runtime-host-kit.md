@@ -1,5 +1,70 @@
 # Shared Artifact Runtime Host Kit
 
+## H-6 Adapter Simplification Pass
+
+Previous completed checkpoint: `fe1feb4` (`Mark identity host kit slice complete`).
+
+What changed:
+
+- Added shared `executionArtifactWorkerDefinition(...)` to
+  `packages/flarex-backend/src/artifactRuntime/HostKit.ts`.
+- Re-exported the worker-definition helper and types from
+  `flarex-backend/artifact-runtime`.
+- Updated `packages/flarex-dev/src/runtimeMaterializer.ts` so local
+  materialization receives one shared generated-worker definition, then only
+  performs Miniflare module conversion, local backend service binding, dispatch,
+  query-session support, and disposal.
+- Updated `apps/artifact-runtime/src/worker.ts` so hosted materialization
+  receives the same shared generated-worker definition, then only performs
+  Worker Loader code/cache assembly, hosted service binding injection, Dynamic
+  Worker dispatch, and fail-closed hosted checks.
+- Added direct HostKit tests for worker-definition main module, modules,
+  profile-specific generated runtime source, and env construction.
+- Removed a weak assertion from the local materialized JSON response error
+  helper while simplifying the local adapter.
+
+Why it changed:
+
+After H-1 through H-5, the remaining duplicated adapter logic was the same
+generated-worker definition assembly: source profile, module map, and string
+env. Moving that composition into the host kit makes the local-first and hosted
+runtime paths share the same generated execution contract while preserving
+different host mechanics.
+
+Convex sources inspected:
+
+- None in this implementation slice. The Convex runner/source-package
+  rationale is recorded in the research checkpoint below; this slice only
+  finishes the Flarex host-kit boundary refactor.
+
+Cloudflare difference:
+
+- Local runtime still owns Miniflare construction, local backend service
+  binding dispatch, and local-only query-session support.
+- Hosted runtime still owns Worker Loader `get(...)`, Dynamic Worker cache
+  identity, hosted fail-closed env validation, and `globalOutbound: null`.
+
+Known limitations:
+
+- The next step is the final audit proving local-first runtime and hosted
+  Dynamic Worker behavior now share the intended contracts and generated
+  runtime logic.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter @flarex/artifact-runtime typecheck
+corepack pnpm --filter @flarex/artifact-runtime exec vitest run test/worker.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter @flarex/artifact-runtime test
+git diff --check
+```
+
 ## H-5 Shared Identity Helpers
 
 Completed checkpoint: `77a9f6e` (`Share artifact runtime identity helpers`).
@@ -557,7 +622,7 @@ Host adapters that remain separate:
   - Keep the final Dynamic Worker ID construction hosted-only because it is a
     Worker Loader concern.
 
-- [ ] H-6. Adapter simplification pass
+- [x] H-6. Adapter simplification pass
   - Reduce `packages/flarex-dev/src/runtimeMaterializer.ts` to:
     - Miniflare construction;
     - local backend service binding;

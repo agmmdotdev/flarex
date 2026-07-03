@@ -23,7 +23,7 @@ Goal status:
 - [x] G-4. H-3 shared generated-worker env construction.
 - [x] G-5. H-4 shared internal invoke request and response decode.
 - [x] G-6. H-5 shared identity helpers.
-- [ ] G-7. H-6 adapter simplification pass.
+- [x] G-7. H-6 adapter simplification pass.
 - [ ] G-8. Final host-kit audit: local-first runtime and hosted Dynamic Worker
   behavior still share contracts and generated runtime logic.
 
@@ -51,21 +51,22 @@ Every implementation turn in this goal should follow this loop:
 
 ## Current Next Slice
 
-### G-6 / H-5: Shared Identity Helpers
+### G-7 / H-6: Adapter Simplification Pass
 
-Status: implemented and committed in `77a9f6e` (`Share artifact runtime identity helpers`).
+Status: implemented in this turn; commit pending.
 
 Purpose:
 
-Move executor and internal-auth identity string construction behind shared
-host-kit helpers. Hosted Dynamic Worker cache ID assembly remains hosted-only
-because it combines Worker Loader cache-key concerns with shared identity
-fragments.
+Reduce the local and hosted materializers to host adapter responsibilities by
+moving the remaining generated-worker definition composition into the host kit.
+The adapters still own Miniflare construction, Worker Loader code/cache
+assembly, service bindings, dispatch, and disposal.
 
 Files expected to change:
 
 - `packages/flarex-backend/src/artifactRuntime/HostKit.ts`
 - `packages/flarex-backend/src/artifactRuntime.ts`
+- `packages/flarex-dev/src/runtimeMaterializer.ts`
 - `apps/artifact-runtime/src/worker.ts`
 - `packages/flarex-backend/test/artifactRuntime.test.ts`
 - `roadmaps/24-shared-artifact-runtime-host-kit.md`
@@ -73,32 +74,42 @@ Files expected to change:
 
 Implementation tasks:
 
-- [x] Move `executorIdentity(...)` into the host kit.
-- [x] Move `internalAuthIdentity(...)` into the host kit.
-- [x] Use the shared helpers from hosted Worker Loader cache ID construction.
-- [x] Keep final Dynamic Worker ID assembly hosted-only.
-- [x] Add direct identity stability tests.
+- [x] Add shared `executionArtifactWorkerDefinition(...)` helper.
+- [x] Use the shared worker definition from local Miniflare materialization.
+- [x] Use the shared worker definition from hosted Dynamic Worker
+  materialization.
+- [x] Keep Miniflare module conversion and local service binding local-only.
+- [x] Keep Worker Loader code/cache assembly and `globalOutbound: null`
+  hosted-only.
+- [x] Add direct worker-definition tests.
 
-Next slice after commit: `G-7 / H-6`, adapter simplification pass.
+Next slice after commit: `G-8`, final host-kit audit.
 
 Validation gates:
 
 ```sh
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter @flarex/artifact-runtime typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
-corepack pnpm --filter @flarex/artifact-runtime exec vitest run test/worker.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 corepack pnpm --filter flarex-backend build
-corepack pnpm --filter @flarex/artifact-runtime build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter @flarex/artifact-runtime typecheck
+corepack pnpm --filter @flarex/artifact-runtime exec vitest run test/worker.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter @flarex/artifact-runtime test
 git diff --check
 ```
 
 Review gate:
 
-- Required, because H-5 changes exported host-kit helpers and hosted Worker
-  cache identity construction.
+- Required, because H-6 changes shared host-kit exported helpers and both
+  materializer adapter composition paths.
 
 ## Later Slices
+
+### Completed: G-6 / H-5 Shared Identity Helpers
+
+Committed in `77a9f6e` (`Share artifact runtime identity helpers`).
 
 ### Completed: G-5 / H-4 Shared Internal Invoke Request And Response Decode
 
@@ -113,9 +124,9 @@ Committed in `a9a894f` (`Share artifact invoke boundary helpers`).
 
 ### G-7 / H-6: Adapter Simplification Pass
 
-- [ ] Reduce local materializer to Miniflare adapter responsibilities.
-- [ ] Reduce hosted materializer to Worker Loader adapter responsibilities.
-- [ ] Ensure local-first runtime still uses the same source package and
+- [x] Reduce local materializer to Miniflare adapter responsibilities.
+- [x] Reduce hosted materializer to Worker Loader adapter responsibilities.
+- [x] Ensure local-first runtime still uses the same source package and
   generated execution contracts as hosted runtime.
 
 ### G-8: Final Host-Kit Audit
