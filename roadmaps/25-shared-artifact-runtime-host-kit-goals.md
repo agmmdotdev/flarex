@@ -53,7 +53,7 @@ Every implementation turn in this goal should follow this loop:
 
 ### G-5 / H-4: Shared Internal Invoke Request And Response Decode
 
-Status: implemented in this turn; commit pending.
+Status: implemented and committed in `a9a894f` (`Share artifact invoke boundary helpers`).
 
 Purpose:
 

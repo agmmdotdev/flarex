@@ -2,6 +2,8 @@
 
 ## H-4 Shared Internal Invoke Request And Response Decode
 
+Completed checkpoint: `a9a894f` (`Share artifact invoke boundary helpers`).
+
 Previous completed checkpoint: `e69503d` (`Mark env host kit slice complete`).
 
 What changed:
@@ -477,7 +479,7 @@ Host adapters that remain separate:
     - hosted env/cache identity tests;
     - local executor transport tests.
 
-- [ ] H-4. Shared internal invoke request and response decode
+- [x] H-4. Shared internal invoke request and response decode
   - Move internal request construction from
     `LocalMiniflareMaterializedExecutionArtifact.invoke(...)` and
     `HostedDynamicWorkerMaterializedExecutionArtifact.invoke(...)` into a
