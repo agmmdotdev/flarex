@@ -15,7 +15,9 @@ import {
 } from "./artifactRuntime/Errors.ts";
 export {
   generatedExecutionWorkerSource,
+  generatedProjectWorkerExecutorBridgeSource,
   type GeneratedExecutionWorkerSourceOptions,
+  type GeneratedProjectWorkerExecutorBridgeSourceOptions,
 } from "./artifactRuntime/GeneratedWorkerSource.ts";
 import { Data, Effect, Schema } from "effect";
 import { InvokeResponseSchema, type InvokeResponse as ProtocolInvokeResponse } from "flarex-protocol/invoke";

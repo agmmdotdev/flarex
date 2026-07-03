@@ -1,5 +1,59 @@
 # Hosted Runtime Core
 
+## Typed Generated Project Worker Bridge
+
+Previous completed checkpoint: `f02e156` (`Extract generated executor bridge`).
+
+What changed:
+
+- Added `generatedProjectWorkerExecutorBridgeSource(...)` in
+  `packages/flarex-backend/src/artifactRuntime/GeneratedWorkerSource.ts` as the
+  typed project-worker sibling to `generatedExecutionWorkerSource(...)`.
+- Re-exported the new builder from `flarex-backend/artifact-runtime`.
+- Replaced the inlined executor bridge in
+  `packages/flarex-dev/src/generate.ts` with the shared builder while keeping
+  the project-worker-specific metadata validation, table ID validation,
+  generated `ConnectionDO`, and request route code local to the generated
+  project worker.
+- Parameterized the backend base URL in the emitted bridge instead of keeping a
+  hardcoded `https://flarex-backend.internal` literal inside the shared source.
+
+Why it changed:
+
+The previous checkpoint removed drift between the hosted artifact-runtime
+Dynamic Worker template and the local runtime materializer. The generated
+project worker still carried the same executor/session/retry/syscall loop in a
+third place because it needs analyzed function metadata and validator imports.
+This checkpoint keeps those typed project-worker concerns in the generator but
+moves the duplicated executor bridge source into the same shared backend
+source-builder module.
+
+Known limitations:
+
+- The typed project-worker builder is a sibling to
+  `generatedExecutionWorkerSource(...)`, not the same helper. The project-worker
+  source still needs TypeScript-only emitted code for analyzed metadata,
+  validator return checks, `DatabaseWriter`, and generated `ConnectionDO`.
+- Executor protocol fragments still exist in both backend source builders:
+  transport selection, start/finish/abort calls, retry policy, syscall plumbing,
+  executor headers, and backend response parsing. This checkpoint removes the
+  third generated-worker copy; the next hardening slice should extract those
+  shared source fragments inside `GeneratedWorkerSource.ts`.
+- The generated-source helpers remain string-template based. The focused
+  generator tests execute the emitted worker, but a future hardening slice can
+  add direct source snapshot or parse checks for the helper output.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+git diff --check
+```
+
 ## Shared Generated Executor Bridge
 
 Previous completed checkpoint: `0781656` (`Bridge artifact runtime to executor`).
@@ -33,10 +87,11 @@ and local binding names/origins.
 
 Known limitations:
 
-- `packages/flarex-dev/src/generate.ts` still has a typed generated Worker path
-  for project workers. It shares the same behavior pattern but is not yet
-  emitted from `generatedExecutionWorkerSource(...)` because it also embeds
-  analyzed metadata, validators, schema table IDs, and connection DO code.
+- The typed generated project worker now uses the sibling
+  `generatedProjectWorkerExecutorBridgeSource(...)` helper described above. It
+  does not use `generatedExecutionWorkerSource(...)` directly because it still
+  embeds analyzed metadata, validators, schema table IDs, and connection DO
+  code.
 - The shared builder is string-template based. A future hardening slice can add
   direct unit tests for generated source snapshots or parse checks, but the
   current safety net executes the emitted source through artifact-runtime and
