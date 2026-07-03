@@ -1,7 +1,10 @@
 import { Miniflare } from "miniflare";
 import { Data, Effect } from "effect";
 import type { RunLiveQuerySubscriptionWithInvokeInput } from "@flarex/executor";
-import { executionArtifactRuntimeWorkerSource } from "flarex-backend/artifact-runtime";
+import {
+  executionArtifactRuntimeWorkerSource,
+  executionArtifactWorkerModules,
+} from "flarex-backend/artifact-runtime";
 import type {
   ExecutionArtifactQuerySessionRequest,
   ExecutionArtifactMaterializer,
@@ -83,24 +86,18 @@ export class LocalMiniflareExecutionArtifactMaterializer implements ExecutionArt
   async materialize(
     payload: MaterializedExecutionArtifactPayload,
   ): Promise<MaterializedExecutionArtifact> {
+    const modules = executionArtifactWorkerModules({
+      sourcePackage: payload.sourcePackage,
+      runtimeModulePath: LOCAL_RUNTIME_WORKER_MODULE,
+      runtimeWorkerSource: runtimeWorkerSource(payload.sourcePackage.execution),
+      reservedBy: "local execution artifact runtime",
+    });
     const artifact = new Miniflare({
-      modules: [
-        {
-          type: "ESModule",
-          path: "worker.js",
-          contents: runtimeWorkerSource(payload.sourcePackage.execution),
-        },
-        ...payload.sourcePackage.modules.map(module => {
-          if (module.source === undefined) {
-            throw new Error(`Source package module ${module.path} has no source.`);
-          }
-          return {
-            type: "ESModule" as const,
-            path: module.path,
-            contents: module.source,
-          };
-        }),
-      ],
+      modules: Object.entries(modules).map(([path, contents]) => ({
+        type: "ESModule" as const,
+        path,
+        contents,
+      })),
       compatibilityDate: this.compatibilityDate,
       bindings: {
         ...(this.executorTransport === undefined
@@ -234,6 +231,8 @@ function materializedArtifactResponseErrorToError(
   legacy.status = error.status;
   return legacy;
 }
+
+const LOCAL_RUNTIME_WORKER_MODULE = "worker.js";
 
 function runtimeWorkerSource(executionModule: string): string {
   return executionArtifactRuntimeWorkerSource({

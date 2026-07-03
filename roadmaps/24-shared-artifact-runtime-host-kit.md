@@ -1,5 +1,63 @@
 # Shared Artifact Runtime Host Kit
 
+## H-2 Shared Source Package Module-Map Validation
+
+Previous completed checkpoint: `87b33a8` (`Mark shared runtime source profiles complete`).
+
+What changed:
+
+- Added `executionArtifactWorkerModules(...)` to
+  `packages/flarex-backend/src/artifactRuntime/HostKit.ts`.
+- Added shared host-kit errors for missing source modules, reserved runtime
+  module paths, and duplicate source package module paths.
+- Re-exported the shared module-map helper and errors from
+  `flarex-backend/artifact-runtime`.
+- Updated `packages/flarex-dev/src/runtimeMaterializer.ts` so local Miniflare
+  modules are built from the shared module map.
+- Updated `apps/artifact-runtime/src/worker.ts` so hosted Dynamic Worker
+  modules are built from the same shared module map.
+- Added direct HostKit validation tests and local materializer validation
+  coverage.
+- Built the shared module map from entries so special paths such as
+  `__proto__` remain own enumerable module entries instead of mutating object
+  prototype behavior.
+
+Why it changed:
+
+Local and hosted materialization should accept the same source package module
+shape before diverging into Miniflare versus Dynamic Worker mechanics. This
+slice moves the source-package module-map contract into the shared host kit
+without moving host-specific loading, caching, bindings, or network isolation.
+
+Cloudflare difference:
+
+- Local runtime still converts the shared module map into Miniflare ES module
+  entries.
+- Hosted runtime still passes the shared module map to Worker Loader Dynamic
+  Worker code.
+- Hosted still owns Worker Loader cache identity and `globalOutbound: null`.
+
+Known limitations:
+
+- Generated worker env construction is still split between local and hosted
+  adapters. That is the next checklist item, `H-3`.
+- Internal invoke request and response decoding are still split. That remains
+  `H-4`.
+- Hosted-only Dynamic Worker ID assembly and auth/executor identity helpers
+  remain in the hosted adapter until `H-5`.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter @flarex/artifact-runtime typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter @flarex/artifact-runtime exec vitest run test/worker.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+git diff --check
+```
+
 ## H-1 Shared Runtime Worker Source Profiles
 
 Completed checkpoint: `737fcab` (`Add shared runtime source profiles`).

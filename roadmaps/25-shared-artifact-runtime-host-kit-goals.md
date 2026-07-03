@@ -19,7 +19,7 @@ Goal status:
     step, update the checklist each turn, validate, review significant changes,
     and commit each completed slice.
 - [x] G-2. H-1 shared runtime worker source profiles.
-- [ ] G-3. H-2 shared source package module-map validation.
+- [x] G-3. H-2 shared source package module-map validation.
 - [ ] G-4. H-3 shared generated-worker env construction.
 - [ ] G-5. H-4 shared internal invoke request and response decode.
 - [ ] G-6. H-5 shared identity helpers.
@@ -51,15 +51,16 @@ Every implementation turn in this goal should follow this loop:
 
 ## Current Next Slice
 
-### G-2 / H-1: Shared Runtime Worker Source Profiles
+### G-3 / H-2: Shared Source Package Module-Map Validation
 
-Status: completed in checkpoint `737fcab` (`Add shared runtime source profiles`).
+Status: implemented in this turn; commit pending.
 
 Purpose:
 
-Create the first shared SDK surface without changing runtime behavior. The
-host adapters should still own Miniflare and Worker Loader details, but the
-generated runtime worker source profile should come from one host-kit helper.
+Move source package module-map construction and validation behind the shared
+host kit. Local Miniflare and hosted Dynamic Worker adapters should reject the
+same missing-source, duplicate-path, and reserved-runtime-entrypoint cases
+before host-specific materialization begins.
 
 Files expected to change:
 
@@ -67,57 +68,44 @@ Files expected to change:
 - `packages/flarex-backend/src/artifactRuntime.ts`
 - `packages/flarex-dev/src/runtimeMaterializer.ts`
 - `apps/artifact-runtime/src/worker.ts`
+- `packages/flarex-backend/test/artifactRuntime.test.ts`
+- `packages/flarex-dev/test/runtimeMaterializer.test.ts`
 - `roadmaps/24-shared-artifact-runtime-host-kit.md`
 - this file
 
 Implementation tasks:
 
-- [x] Add `HostKit.ts`.
-- [x] Add `executionArtifactRuntimeWorkerSource(...)`.
-- [x] Support a local profile:
-  - `backendBinding: "FLAREX_BACKEND"`
-  - `backendBaseUrl: "https://flarex-backend.internal"`
-  - local missing-binding message
-  - `includeQuerySessionRoute: true`
-- [x] Support a hosted profile:
-  - `backendBinding: "FLAREX_EXECUTOR"`
-  - `backendBaseUrl: "https://flarex-executor.internal"`
-  - hosted missing-binding message
-  - `includeUnsupportedCapabilities: true`
-- [x] Replace local `runtimeWorkerSource(...)` with the host-kit helper.
-- [x] Replace hosted `dynamicWorkerRuntimeSource(...)` with the host-kit helper.
-- [x] Keep host adapters otherwise unchanged.
-- [x] Apply reviewer cleanup: derive the private profile option type from
-  `GeneratedExecutionWorkerSourceOptions` to avoid generator-contract drift.
+- [x] Move source-module validation to `executionArtifactWorkerModules(...)`.
+- [x] Preserve hosted reserved-path, duplicate-path, and missing-source errors.
+- [x] Reuse the same module validation from local Miniflare materialization.
+- [x] Add focused shared HostKit tests.
+- [x] Add focused local materializer validation tests.
+- [x] Apply reviewer cleanup: preserve special module paths such as
+  `__proto__` as own module-map entries.
+- [x] Keep hosted Worker Loader mechanics and local Miniflare mechanics outside
+  the shared helper.
 
-Next slice after commit: `G-3 / H-2`, shared source package module-map
-validation.
+Next slice after commit: `G-4 / H-3`, shared generated-worker env
+construction.
 
 Validation gates:
 
 ```sh
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend build
 corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev build
-corepack pnpm --filter @flarex/artifact-runtime test
+corepack pnpm --filter @flarex/artifact-runtime typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter @flarex/artifact-runtime exec vitest run test/worker.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 git diff --check
 ```
 
 Review gate:
 
-- Required, because H-1 is a public package-boundary refactor touching runtime
-  source generation.
+- Required, because H-2 is a public package-boundary refactor touching runtime
+  source package validation.
 
 ## Later Slices
-
-### G-3 / H-2: Shared Source Package Module-Map Validation
-
-- [ ] Move source-module validation to `executionArtifactWorkerModules(...)`.
-- [ ] Preserve hosted reserved-path, duplicate-path, and missing-source errors.
-- [ ] Reuse the same module validation from local Miniflare materialization.
-- [ ] Add or adjust focused tests for both adapters.
 
 ### G-4 / H-3: Shared Generated-Worker Env Construction
 

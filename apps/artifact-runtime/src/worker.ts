@@ -1,6 +1,7 @@
 import {
   createExecutionArtifactRuntimeService,
   decodeServiceBindingExecutionArtifactRuntimeInvokeResponse,
+  executionArtifactWorkerModules,
   executionArtifactRuntimeWorkerSource,
   type ExecutionArtifactMaterializer,
   type ExecutionArtifactRuntimeService,
@@ -68,33 +69,6 @@ export class HostedArtifactRuntimeInvalidExecutorTransportError extends Error {
   constructor(transport: string) {
     super(`Unsupported Flarex executor transport: ${transport}`);
     this.name = "HostedArtifactRuntimeInvalidExecutorTransportError";
-  }
-}
-
-export class HostedArtifactRuntimeSourceModuleMissingError extends Error {
-  readonly status = 400;
-
-  constructor(modulePath: string) {
-    super(`Source package module ${modulePath} has no source.`);
-    this.name = "HostedArtifactRuntimeSourceModuleMissingError";
-  }
-}
-
-export class HostedArtifactRuntimeReservedModulePathError extends Error {
-  readonly status = 400;
-
-  constructor(modulePath: string) {
-    super(`Source package module path ${modulePath} is reserved by the hosted artifact runtime.`);
-    this.name = "HostedArtifactRuntimeReservedModulePathError";
-  }
-}
-
-export class HostedArtifactRuntimeDuplicateModulePathError extends Error {
-  readonly status = 400;
-
-  constructor(modulePath: string) {
-    super(`Source package contains duplicate module path ${modulePath}.`);
-    this.name = "HostedArtifactRuntimeDuplicateModulePathError";
   }
 }
 
@@ -404,24 +378,12 @@ function dynamicWorkerCode(sourcePackage: PushSourcePackage, options: {
 }
 
 function dynamicWorkerModules(sourcePackage: PushSourcePackage): Record<string, string> {
-  const modules: Record<string, string> = {
-    [DYNAMIC_WORKER_MAIN_MODULE]: dynamicWorkerRuntimeSource(sourcePackage.execution),
-  };
-  const seenPaths = new Set([DYNAMIC_WORKER_MAIN_MODULE]);
-  for (const module of sourcePackage.modules) {
-    if (module.path === DYNAMIC_WORKER_MAIN_MODULE) {
-      throw new HostedArtifactRuntimeReservedModulePathError(module.path);
-    }
-    if (seenPaths.has(module.path)) {
-      throw new HostedArtifactRuntimeDuplicateModulePathError(module.path);
-    }
-    seenPaths.add(module.path);
-    if (module.source === undefined) {
-      throw new HostedArtifactRuntimeSourceModuleMissingError(module.path);
-    }
-    modules[module.path] = module.source;
-  }
-  return modules;
+  return executionArtifactWorkerModules({
+    sourcePackage,
+    runtimeModulePath: DYNAMIC_WORKER_MAIN_MODULE,
+    runtimeWorkerSource: dynamicWorkerRuntimeSource(sourcePackage.execution),
+    reservedBy: "hosted artifact runtime",
+  });
 }
 
 function dynamicWorkerRuntimeSource(executionModule: string): string {

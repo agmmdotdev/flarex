@@ -77,6 +77,52 @@ describe("runtime materializer", () => {
     } satisfies Partial<MaterializedArtifactResponseError>);
   });
 
+  it("validates local source package module maps before creating Miniflare artifacts", async () => {
+    const materializer = new LocalMiniflareExecutionArtifactMaterializer({
+      backend: async () => Response.json({ error: "backend should not run" }, { status: 500 }),
+    });
+
+    await expect(
+      materializer.materialize(payloadWithSourceModules([
+        ...indexedQueryPayload().sourcePackage.modules,
+        {
+          path: "worker.js",
+          environment: "isolate",
+          sha256: "k".repeat(64),
+          source: "export const reserved = true;",
+        },
+      ])),
+    ).rejects.toThrow(
+      "Source package module path worker.js is reserved by the local execution artifact runtime.",
+    );
+
+    await expect(
+      materializer.materialize(payloadWithSourceModules([
+        ...indexedQueryPayload().sourcePackage.modules,
+        {
+          path: "_flarex/execution.js",
+          environment: "isolate",
+          sha256: "l".repeat(64),
+          source: "export const duplicate = true;",
+        },
+      ])),
+    ).rejects.toThrow("Source package contains duplicate module path _flarex/execution.js.");
+
+    await expect(
+      materializer.materialize(payloadWithSourceModules(
+        indexedQueryPayload().sourcePackage.modules.map(module =>
+          module.path === "_flarex/execution.js"
+            ? {
+                path: module.path,
+                environment: module.environment,
+                sha256: module.sha256,
+              }
+            : module,
+        ),
+      )),
+    ).rejects.toThrow("Source package module _flarex/execution.js has no source.");
+  });
+
   it("materializes a stored source package and invokes it through backend sessions", async () => {
     const root = await createProject();
     const context = await initialCodegen({ root });
@@ -1266,6 +1312,19 @@ function indexedQueryPayload(): MaterializedExecutionArtifactPayload {
       args: { lessonId: "1:lesson" },
       partitionKey: "1:lesson",
       kind: "query",
+    },
+  };
+}
+
+function payloadWithSourceModules(
+  modules: PushSourcePackage["modules"],
+): MaterializedExecutionArtifactPayload {
+  const payload = indexedQueryPayload();
+  return {
+    ...payload,
+    sourcePackage: {
+      ...payload.sourcePackage,
+      modules,
     },
   };
 }

@@ -6,6 +6,10 @@ import {
   decodeServiceBindingExecutionArtifactRuntimeInvokeResponse,
   createExecutionArtifactRuntimeService,
   decodeServiceBindingExecutionArtifactRuntimeResponse,
+  executionArtifactWorkerModules,
+  ExecutionArtifactWorkerDuplicateModulePathError,
+  ExecutionArtifactWorkerReservedModulePathError,
+  ExecutionArtifactWorkerSourceModuleMissingError,
   ExecutionArtifactRuntimeMissingSourcePackageError,
   executionArtifactRuntimeRouteErrorToResponseEffect,
   invokeServiceBindingExecutionArtifactRuntime,
@@ -29,6 +33,98 @@ import type {
 } from "../src/types";
 
 describe("backend execution artifact runtime", () => {
+  it("builds runtime worker module maps and validates source package modules", () => {
+    expect(executionArtifactWorkerModules({
+      sourcePackage: testSourcePackage(),
+      runtimeModulePath: "worker.js",
+      runtimeWorkerSource: "export default {};",
+      reservedBy: "test runtime",
+    })).toEqual({
+      "worker.js": "export default {};",
+      "_flarex/execution.js": "export default {};",
+      "users.js": "export const get = {};",
+    });
+
+    const modulesWithPrototypePath = executionArtifactWorkerModules({
+      sourcePackage: {
+        ...testSourcePackage(),
+        modules: [
+          ...testSourcePackage().modules,
+          {
+            path: "__proto__",
+            environment: "isolate",
+            sha256: "d".repeat(64),
+            source: "export const proto = true;",
+          },
+        ],
+      },
+      runtimeModulePath: "worker.js",
+      runtimeWorkerSource: "export default {};",
+      reservedBy: "test runtime",
+    });
+    expect(
+      Object.prototype.hasOwnProperty.call(modulesWithPrototypePath, "__proto__"),
+    ).toBe(true);
+    expect(Object.entries(modulesWithPrototypePath)).toContainEqual([
+      "__proto__",
+      "export const proto = true;",
+    ]);
+
+    expect(() => executionArtifactWorkerModules({
+      sourcePackage: {
+        ...testSourcePackage(),
+        modules: [
+          ...testSourcePackage().modules,
+          {
+            path: "worker.js",
+            environment: "isolate",
+            sha256: "c".repeat(64),
+            source: "export const reserved = true;",
+          },
+        ],
+      },
+      runtimeModulePath: "worker.js",
+      runtimeWorkerSource: "export default {};",
+      reservedBy: "test runtime",
+    })).toThrow(ExecutionArtifactWorkerReservedModulePathError);
+
+    expect(() => executionArtifactWorkerModules({
+      sourcePackage: {
+        ...testSourcePackage(),
+        modules: [
+          ...testSourcePackage().modules,
+          {
+            path: "users.js",
+            environment: "isolate",
+            sha256: "c".repeat(64),
+            source: "export const duplicate = true;",
+          },
+        ],
+      },
+      runtimeModulePath: "worker.js",
+      runtimeWorkerSource: "export default {};",
+      reservedBy: "test runtime",
+    })).toThrow(ExecutionArtifactWorkerDuplicateModulePathError);
+
+    expect(() => executionArtifactWorkerModules({
+      sourcePackage: {
+        ...testSourcePackage(),
+        modules: testSourcePackage().modules.map(module =>
+          module.path === "_flarex/execution.js"
+            ? {
+                path: module.path,
+                environment: module.environment,
+                sha256: module.sha256,
+              }
+            : module,
+        ),
+      },
+      runtimeModulePath: "worker.js",
+      runtimeWorkerSource: "export default {};",
+      reservedBy: "test runtime",
+    })).toThrow(ExecutionArtifactWorkerSourceModuleMissingError);
+  });
+
   it("exposes typed service-binding runtime response failures before HTTP mapping", async () => {
     await expect(
       Effect.runPromise(

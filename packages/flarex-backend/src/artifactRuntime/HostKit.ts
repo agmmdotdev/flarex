@@ -2,6 +2,7 @@ import {
   generatedExecutionWorkerSource,
   type GeneratedExecutionWorkerSourceOptions,
 } from "./GeneratedWorkerSource.ts";
+import type { PushSourcePackage } from "../types.ts";
 
 export type ExecutionArtifactRuntimeWorkerSourceProfile =
   | "local-miniflare"
@@ -12,6 +13,13 @@ export type ExecutionArtifactRuntimeWorkerSourceOptions = {
   readonly executionModule: string;
 };
 
+export type ExecutionArtifactWorkerModulesOptions = {
+  readonly sourcePackage: PushSourcePackage;
+  readonly runtimeModulePath: string;
+  readonly runtimeWorkerSource: string;
+  readonly reservedBy: string;
+};
+
 type ExecutionArtifactRuntimeWorkerSourceProfileOptions = Omit<
   GeneratedExecutionWorkerSourceOptions,
   "executionModule" | "includeQuerySessionRoute" | "includeUnsupportedCapabilities"
@@ -19,6 +27,33 @@ type ExecutionArtifactRuntimeWorkerSourceProfileOptions = Omit<
   readonly includeQuerySessionRoute?: true;
   readonly includeUnsupportedCapabilities?: true;
 };
+
+export class ExecutionArtifactWorkerSourceModuleMissingError extends Error {
+  readonly status = 400;
+
+  constructor(modulePath: string) {
+    super(`Source package module ${modulePath} has no source.`);
+    this.name = "ExecutionArtifactWorkerSourceModuleMissingError";
+  }
+}
+
+export class ExecutionArtifactWorkerReservedModulePathError extends Error {
+  readonly status = 400;
+
+  constructor(modulePath: string, reservedBy: string) {
+    super(`Source package module path ${modulePath} is reserved by the ${reservedBy}.`);
+    this.name = "ExecutionArtifactWorkerReservedModulePathError";
+  }
+}
+
+export class ExecutionArtifactWorkerDuplicateModulePathError extends Error {
+  readonly status = 400;
+
+  constructor(modulePath: string) {
+    super(`Source package contains duplicate module path ${modulePath}.`);
+    this.name = "ExecutionArtifactWorkerDuplicateModulePathError";
+  }
+}
 
 const RUNTIME_WORKER_SOURCE_PROFILES = {
   "local-miniflare": {
@@ -48,4 +83,27 @@ export function executionArtifactRuntimeWorkerSource(
     ...profile,
     executionModule: options.executionModule,
   });
+}
+
+export function executionArtifactWorkerModules(
+  options: ExecutionArtifactWorkerModulesOptions,
+): Record<string, string> {
+  const entries: Array<readonly [string, string]> = [
+    [options.runtimeModulePath, options.runtimeWorkerSource],
+  ];
+  const seenPaths = new Set([options.runtimeModulePath]);
+  for (const module of options.sourcePackage.modules) {
+    if (module.path === options.runtimeModulePath) {
+      throw new ExecutionArtifactWorkerReservedModulePathError(module.path, options.reservedBy);
+    }
+    if (seenPaths.has(module.path)) {
+      throw new ExecutionArtifactWorkerDuplicateModulePathError(module.path);
+    }
+    seenPaths.add(module.path);
+    if (module.source === undefined) {
+      throw new ExecutionArtifactWorkerSourceModuleMissingError(module.path);
+    }
+    entries.push([module.path, module.source]);
+  }
+  return Object.fromEntries(entries);
 }
