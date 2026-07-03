@@ -142,130 +142,7 @@ function backendBinding(env) {
   return backend;
 }
 
-function executorTransport(request, env) {
-  const transport =
-    request.headers.get("x-flarex-executor-transport") ?? env.FLAREX_EXECUTOR_TRANSPORT ?? "legacy";
-  if (transport === "legacy" || transport === "postgres") return transport;
-  throw new Error(\`Unsupported Flarex executor transport: \${transport}\`);
-}
-
-function projectIdForTransport(transport, body, env, request) {
-  if (transport === "legacy") return undefined;
-  const projectId = request.headers.get("x-flarex-project") ?? body.projectId ?? env.FLAREX_PROJECT_ID;
-  if (!projectId) {
-    throw new Error("A projectId, x-flarex-project header, or FLAREX_PROJECT_ID binding is required for postgres executor transport.");
-  }
-  return projectId;
-}
-
-async function startExecution(backend, input) {
-  if (input.transport === "postgres") {
-    return executionStartResponse(await postBackend(backend, "/invoke/start", {
-      deploymentId: input.deploymentId,
-      projectId: input.projectId,
-      path: input.path,
-      args: input.args,
-      kind: input.kind,
-      visibility: input.visibility,
-      ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
-      ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
-    }, executorHeaders(input.executorToken)));
-  }
-  return executionStartResponse(await postBackend(backend, \`/deployments/\${input.deploymentId}/executions/start\`, {
-    path: input.path,
-    args: input.args,
-    kind: input.kind,
-    ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
-    ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
-  }));
-}
-
-function executionStartResponse(value) {
-  if (!isRecord(value) || typeof value.sessionId !== "string" || value.sessionId.length === 0) {
-    throw new Error("Executor start response did not include a sessionId.");
-  }
-  executionKind(value);
-  return value;
-}
-
-function executionKind(start) {
-  const kind = start.kind ?? start.function?.kind;
-  if (kind === "query" || kind === "mutation") return kind;
-  throw new Error("Backend execution start response did not include a query or mutation kind.");
-}
-
-const DEFAULT_INVOKE_MAX_ATTEMPTS = 8;
-const MAX_NESTED_CALL_DEPTH = 8;
-const RETRYABLE_INVOKE_ERROR_CODES = new Set([
-  "InvokeSessionOccConflictError",
-  "InvokeSessionTableOccConflictError",
-  "InvokeSessionIndexOccConflictError",
-  "40001",
-]);
-
-function invokeMaxAttempts(transport, kind, env) {
-  if (transport !== "postgres" || kind !== "mutation") return 1;
-  if (env.FLAREX_INVOKE_MAX_ATTEMPTS === undefined) {
-    return DEFAULT_INVOKE_MAX_ATTEMPTS;
-  }
-  const value = Number(env.FLAREX_INVOKE_MAX_ATTEMPTS);
-  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
-    throw new Error("FLAREX_INVOKE_MAX_ATTEMPTS must be a positive integer.");
-  }
-  return value;
-}
-
-function isRetryableInvokeAttempt(transport, kind, error) {
-  return (
-    transport === "postgres" &&
-    kind === "mutation" &&
-    isRetryableInvokeError(error)
-  );
-}
-
-function isRetryableInvokeError(error) {
-  if (error instanceof BackendRequestError) {
-    return error.status === 409 && error.code !== undefined && RETRYABLE_INVOKE_ERROR_CODES.has(error.code);
-  }
-  if (!isRecord(error)) return false;
-  return (
-    (typeof error.name === "string" && RETRYABLE_INVOKE_ERROR_CODES.has(error.name)) ||
-    (typeof error.code === "string" && RETRYABLE_INVOKE_ERROR_CODES.has(error.code))
-  );
-}
-
-async function finishExecution(backend, input) {
-  if (input.transport === "postgres") {
-    return await postBackend(backend, "/invoke/finish", {
-      deploymentId: input.deploymentId,
-      projectId: input.projectId,
-      sessionId: input.sessionId,
-      value: input.value,
-    }, executorHeaders(input.executorToken));
-  }
-  return await postBackend(
-    backend,
-    \`/deployments/\${input.deploymentId}/executions/\${input.sessionId}/finish\`,
-    { value: input.value },
-  );
-}
-
-async function abortExecution(backend, input) {
-  if (input.transport === "postgres") {
-    await postBackend(backend, "/invoke/abort", {
-      deploymentId: input.deploymentId,
-      projectId: input.projectId,
-      sessionId: input.sessionId,
-    }, executorHeaders(input.executorToken)).catch(() => undefined);
-    return;
-  }
-  await postBackend(
-    backend,
-    \`/deployments/\${input.deploymentId}/executions/\${input.sessionId}/abort\`,
-    {},
-  ).catch(() => undefined);
-}
-
+${executorProtocolSource("javascript")}
 function functionVisibility(value) {
   if (!isRecord(value)) {
     throw new Error("Flarex function is missing visibility metadata.");
@@ -292,43 +169,7 @@ function getFunctionName(reference) {
   throw new Error("ctx.runQuery and ctx.runMutation require a Flarex function reference.");
 }
 
-function databaseForSession(backend, deploymentId, sessionId, kind, transport, projectId, executorToken) {
-  const syscall = async (body) => {
-    if (transport === "postgres") {
-      const response = await postBackend(backend, "/invoke/syscall", {
-        deploymentId,
-        projectId,
-        sessionId,
-        ...body,
-      }, executorHeaders(executorToken));
-      return response.value;
-    }
-    return await postBackend(backend, \`/deployments/\${deploymentId}/executions/\${sessionId}/syscall\`, body);
-  };
-  const query = (queryRequest) =>
-    syscall({ op: "query", request: queryRequest });
-  return {
-    get: id => syscall({ op: "get", id }),
-    query: table => createQueryInitializer(table, query),
-    insert: async (table, value) => {
-      if (kind !== "mutation") throw new Error("Cannot insert during a query.");
-      return await syscall({ op: "insert", table, value });
-    },
-    patch: async (id, value) => {
-      if (kind !== "mutation") throw new Error("Cannot patch during a query.");
-      await syscall({ op: "patch", id, value });
-    },
-    replace: async (id, value) => {
-      if (kind !== "mutation") throw new Error("Cannot replace during a query.");
-      await syscall({ op: "replace", id, value });
-    },
-    delete: async id => {
-      if (kind !== "mutation") throw new Error("Cannot delete during a query.");
-      await syscall({ op: "delete", id });
-    },
-  };
-}
-
+${executorDatabaseForSessionSource("javascript")}
 function executionContextForSession(input) {
   const db = databaseForSession(
     input.backend,
@@ -467,7 +308,427 @@ function rangeBuilder(expressions = []) {
 }
 
 ${options.includeUnsupportedCapabilities === true ? unsupportedCapabilityImplementationSource() : ""}
-function executorHeaders(executorToken) {
+${executorBackendHelpersSource("javascript")}
+
+`;
+}
+
+type GeneratedExecutorProtocolSourceLanguage = "javascript" | "projectWorkerTypescript";
+
+function executorProtocolSource(language: GeneratedExecutorProtocolSourceLanguage): string {
+  if (language === "javascript") {
+    return `function executorTransport(request, env) {
+  const transport =
+    request.headers.get("x-flarex-executor-transport") ?? env.FLAREX_EXECUTOR_TRANSPORT ?? "legacy";
+  if (transport === "legacy" || transport === "postgres") return transport;
+  throw new Error(\`Unsupported Flarex executor transport: \${transport}\`);
+}
+
+function projectIdForTransport(transport, body, env, request) {
+  if (transport === "legacy") return undefined;
+  const projectId = request.headers.get("x-flarex-project") ?? body.projectId ?? env.FLAREX_PROJECT_ID;
+  if (!projectId) {
+    throw new Error("A projectId, x-flarex-project header, or FLAREX_PROJECT_ID binding is required for postgres executor transport.");
+  }
+  return projectId;
+}
+
+async function startExecution(backend, input) {
+  if (input.transport === "postgres") {
+    return executionStartResponse(await postBackend(backend, "/invoke/start", {
+      deploymentId: input.deploymentId,
+      projectId: input.projectId,
+      path: input.path,
+      args: input.args,
+      kind: input.kind,
+      visibility: input.visibility,
+      ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
+      ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+    }, executorHeaders(input.executorToken)));
+  }
+  return executionStartResponse(await postBackend(backend, \`/deployments/\${input.deploymentId}/executions/start\`, {
+    path: input.path,
+    args: input.args,
+    kind: input.kind,
+    ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
+    ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+  }));
+}
+
+function executionStartResponse(value) {
+  if (!isRecord(value) || typeof value.sessionId !== "string" || value.sessionId.length === 0) {
+    throw new Error("Executor start response did not include a sessionId.");
+  }
+  executionKind(value);
+  return value;
+}
+
+function executionKind(start) {
+  const kind = start.kind ?? start.function?.kind;
+  if (kind === "query" || kind === "mutation") return kind;
+  throw new Error("Backend execution start response did not include a query or mutation kind.");
+}
+
+const DEFAULT_INVOKE_MAX_ATTEMPTS = 8;
+const MAX_NESTED_CALL_DEPTH = 8;
+const RETRYABLE_INVOKE_ERROR_CODES = new Set([
+  "InvokeSessionOccConflictError",
+  "InvokeSessionTableOccConflictError",
+  "InvokeSessionIndexOccConflictError",
+  "40001",
+]);
+
+function invokeMaxAttempts(transport, kind, env) {
+  if (transport !== "postgres" || kind !== "mutation") return 1;
+  if (env.FLAREX_INVOKE_MAX_ATTEMPTS === undefined) {
+    return DEFAULT_INVOKE_MAX_ATTEMPTS;
+  }
+  const value = Number(env.FLAREX_INVOKE_MAX_ATTEMPTS);
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+    throw new Error("FLAREX_INVOKE_MAX_ATTEMPTS must be a positive integer.");
+  }
+  return value;
+}
+
+function isRetryableInvokeAttempt(transport, kind, error) {
+  return (
+    transport === "postgres" &&
+    kind === "mutation" &&
+    isRetryableInvokeError(error)
+  );
+}
+
+function isRetryableInvokeError(error) {
+  if (error instanceof BackendRequestError) {
+    return error.status === 409 && error.code !== undefined && RETRYABLE_INVOKE_ERROR_CODES.has(error.code);
+  }
+  if (!isRecord(error)) return false;
+  return (
+    (typeof error.name === "string" && RETRYABLE_INVOKE_ERROR_CODES.has(error.name)) ||
+    (typeof error.code === "string" && RETRYABLE_INVOKE_ERROR_CODES.has(error.code))
+  );
+}
+
+async function finishExecution(backend, input) {
+  if (input.transport === "postgres") {
+    return await postBackend(backend, "/invoke/finish", {
+      deploymentId: input.deploymentId,
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      value: input.value,
+    }, executorHeaders(input.executorToken));
+  }
+  return await postBackend(
+    backend,
+    \`/deployments/\${input.deploymentId}/executions/\${input.sessionId}/finish\`,
+    { value: input.value },
+  );
+}
+
+async function abortExecution(backend, input) {
+  if (input.transport === "postgres") {
+    await postBackend(backend, "/invoke/abort", {
+      deploymentId: input.deploymentId,
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+    }, executorHeaders(input.executorToken)).catch(() => undefined);
+    return;
+  }
+  await postBackend(
+    backend,
+    \`/deployments/\${input.deploymentId}/executions/\${input.sessionId}/abort\`,
+    {},
+  ).catch(() => undefined);
+}`;
+  }
+  return `const DEFAULT_INVOKE_MAX_ATTEMPTS = 8;
+const MAX_NESTED_CALL_DEPTH = 8;
+const RETRYABLE_INVOKE_ERROR_CODES = new Set([
+  "InvokeSessionOccConflictError",
+  "InvokeSessionTableOccConflictError",
+  "InvokeSessionIndexOccConflictError",
+  "40001",
+]);
+
+function executorTransport(request: Request, env: Env): ExecutorTransport {
+  const transport =
+    request.headers.get("x-flarex-executor-transport") ?? env.FLAREX_EXECUTOR_TRANSPORT ?? "legacy";
+  if (transport === "legacy" || transport === "postgres") return transport;
+  throw new Error(\`Unsupported Flarex executor transport: \${transport}\`);
+}
+
+function projectIdForTransport(
+  transport: ExecutorTransport,
+  body: InvokeBody,
+  env: Env,
+  request: Request,
+): string | undefined {
+  if (transport === "legacy") return undefined;
+  const projectId = request.headers.get("x-flarex-project") ?? body.projectId ?? env.FLAREX_PROJECT_ID;
+  if (!projectId) {
+    throw new Error("A projectId, x-flarex-project header, or FLAREX_PROJECT_ID binding is required for postgres executor transport.");
+  }
+  return projectId;
+}
+
+async function startExecution(
+  backend: Fetcher,
+  input: {
+    transport: ExecutorTransport;
+    deploymentId: string;
+    projectId?: string;
+    executorToken?: string;
+    path: string;
+    args: unknown;
+    kind: "query" | "mutation";
+    visibility: (typeof functionMetadata)[number]["visibility"];
+    partitionKey?: string;
+    idempotencyKey?: string;
+  },
+): Promise<ExecutionStartResponse> {
+  if (input.transport === "postgres") {
+    return executionStartResponse(await postBackend<unknown>(backend, "/invoke/start", {
+      deploymentId: input.deploymentId,
+      projectId: input.projectId,
+      path: input.path,
+      args: input.args,
+      kind: input.kind,
+      visibility: input.visibility,
+      ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
+      ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+    }, executorHeaders(input.executorToken)));
+  }
+  return executionStartResponse(await postBackend<unknown>(
+    backend,
+    \`/deployments/\${input.deploymentId}/executions/start\`,
+    {
+      path: input.path,
+      args: input.args,
+      kind: input.kind,
+      ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
+      ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+    },
+  ));
+}
+
+function executionStartResponse(value: unknown): ExecutionStartResponse {
+  if (!isRecord(value) || typeof value.sessionId !== "string" || value.sessionId.length === 0) {
+    throw new Error("Executor start response did not include a sessionId.");
+  }
+  executionKind(value);
+  const functionValue = value.function;
+  const functionKind =
+    isRecord(functionValue) && (functionValue.kind === "query" || functionValue.kind === "mutation")
+      ? functionValue.kind
+      : undefined;
+  return {
+    sessionId: value.sessionId,
+    ...(value.kind === "query" || value.kind === "mutation" ? { kind: value.kind } : {}),
+    ...(functionKind === undefined ? {} : { function: { kind: functionKind } }),
+  };
+}
+
+function executionKind(start: unknown): "query" | "mutation" {
+  if (!isRecord(start)) {
+    throw new Error("Backend execution start response did not include a query or mutation kind.");
+  }
+  const functionValue = start.function;
+  const functionKind = isRecord(functionValue) ? functionValue.kind : undefined;
+  const kind = start.kind ?? functionKind;
+  if (kind === "query" || kind === "mutation") return kind;
+  throw new Error("Backend execution start response did not include a query or mutation kind.");
+}
+
+function invokeMaxAttempts(
+  transport: ExecutorTransport,
+  kind: "query" | "mutation",
+  env: Env,
+): number {
+  if (transport !== "postgres" || kind !== "mutation") return 1;
+  if (env.FLAREX_INVOKE_MAX_ATTEMPTS === undefined) {
+    return DEFAULT_INVOKE_MAX_ATTEMPTS;
+  }
+  const value = Number(env.FLAREX_INVOKE_MAX_ATTEMPTS);
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+    throw new Error("FLAREX_INVOKE_MAX_ATTEMPTS must be a positive integer.");
+  }
+  return value;
+}
+
+function isRetryableInvokeAttempt(
+  transport: ExecutorTransport,
+  kind: "query" | "mutation",
+  error: unknown,
+): boolean {
+  return (
+    transport === "postgres" &&
+    kind === "mutation" &&
+    isRetryableInvokeError(error)
+  );
+}
+
+function isRetryableInvokeError(error: unknown): boolean {
+  if (error instanceof BackendRequestError) {
+    return error.status === 409 && error.code !== undefined && RETRYABLE_INVOKE_ERROR_CODES.has(error.code);
+  }
+  if (!isRecord(error)) return false;
+  const name = error.name;
+  const code = error.code;
+  return (
+    (typeof name === "string" && RETRYABLE_INVOKE_ERROR_CODES.has(name)) ||
+    (typeof code === "string" && RETRYABLE_INVOKE_ERROR_CODES.has(code))
+  );
+}
+
+async function finishExecution(
+  backend: Fetcher,
+  input: {
+    transport: ExecutorTransport;
+    deploymentId: string;
+    projectId?: string;
+    executorToken?: string;
+    sessionId: string;
+    value: unknown;
+  },
+): Promise<unknown> {
+  if (input.transport === "postgres") {
+    return await postBackend(backend, "/invoke/finish", {
+      deploymentId: input.deploymentId,
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      value: input.value,
+    }, executorHeaders(input.executorToken));
+  }
+  return await postBackend(
+    backend,
+    \`/deployments/\${input.deploymentId}/executions/\${input.sessionId}/finish\`,
+    { value: input.value },
+  );
+}
+
+async function abortExecution(
+  backend: Fetcher,
+  input: {
+    transport: ExecutorTransport;
+    deploymentId: string;
+    projectId?: string;
+    executorToken?: string;
+    sessionId: string;
+  },
+): Promise<void> {
+  if (input.transport === "postgres") {
+    await postBackend(
+      backend,
+      "/invoke/abort",
+      {
+        deploymentId: input.deploymentId,
+        projectId: input.projectId,
+        sessionId: input.sessionId,
+      },
+      executorHeaders(input.executorToken),
+    ).catch(() => undefined);
+    return;
+  }
+  await postBackend(
+    backend,
+    \`/deployments/\${input.deploymentId}/executions/\${input.sessionId}/abort\`,
+    {},
+  ).catch(() => undefined);
+}`;
+}
+
+function executorDatabaseForSessionSource(language: GeneratedExecutorProtocolSourceLanguage): string {
+  if (language === "javascript") {
+    return `function databaseForSession(backend, deploymentId, sessionId, kind, transport, projectId, executorToken) {
+  const syscall = async (body) => {
+    if (transport === "postgres") {
+      const response = await postBackend(backend, "/invoke/syscall", {
+        deploymentId,
+        projectId,
+        sessionId,
+        ...body,
+      }, executorHeaders(executorToken));
+      return response.value;
+    }
+    return await postBackend(backend, \`/deployments/\${deploymentId}/executions/\${sessionId}/syscall\`, body);
+  };
+  const query = (queryRequest) =>
+    syscall({ op: "query", request: queryRequest });
+  return {
+    get: id => syscall({ op: "get", id }),
+    query: table => createQueryInitializer(table, query),
+    insert: async (table, value) => {
+      if (kind !== "mutation") throw new Error("Cannot insert during a query.");
+      return await syscall({ op: "insert", table, value });
+    },
+    patch: async (id, value) => {
+      if (kind !== "mutation") throw new Error("Cannot patch during a query.");
+      await syscall({ op: "patch", id, value });
+    },
+    replace: async (id, value) => {
+      if (kind !== "mutation") throw new Error("Cannot replace during a query.");
+      await syscall({ op: "replace", id, value });
+    },
+    delete: async id => {
+      if (kind !== "mutation") throw new Error("Cannot delete during a query.");
+      await syscall({ op: "delete", id });
+    },
+  };
+}`;
+  }
+  return `function databaseForSession(
+  backend: Fetcher,
+  deploymentId: string,
+  sessionId: string,
+  kind: "query" | "mutation",
+  transport: ExecutorTransport,
+  projectId?: string,
+  executorToken?: string,
+): DatabaseWriter {
+  const syscall = async (body: Record<string, unknown>) => {
+    if (transport === "postgres") {
+      const response = await postBackend<{ value: unknown }>(backend, "/invoke/syscall", {
+        deploymentId,
+        projectId,
+        sessionId,
+        ...body,
+      }, executorHeaders(executorToken));
+      return response.value;
+    }
+    return await postBackend<unknown>(
+      backend,
+      \`/deployments/\${deploymentId}/executions/\${sessionId}/syscall\`,
+      body,
+    );
+  };
+  const query = (request: DatabaseQueryRequest) =>
+    syscall({ op: "query", request }) as Promise<DatabaseQueryResult>;
+  return {
+    get: id => syscall({ op: "get", id }) as never,
+    query: table => createQueryInitializer(table, query),
+    insert: async (table, value) => {
+      if (kind !== "mutation") throw new Error("Cannot insert during a query.");
+      return (await syscall({ op: "insert", table, value })) as never;
+    },
+    patch: async (id, value) => {
+      if (kind !== "mutation") throw new Error("Cannot patch during a query.");
+      await syscall({ op: "patch", id, value });
+    },
+    replace: async (id, value) => {
+      if (kind !== "mutation") throw new Error("Cannot replace during a query.");
+      await syscall({ op: "replace", id, value });
+    },
+    delete: async id => {
+      if (kind !== "mutation") throw new Error("Cannot delete during a query.");
+      await syscall({ op: "delete", id });
+    },
+  };
+}`;
+}
+
+function executorBackendHelpersSource(language: GeneratedExecutorProtocolSourceLanguage): string {
+  if (language === "javascript") {
+    return `function executorHeaders(executorToken) {
   return executorToken === undefined ? {} : { authorization: \`Bearer \${executorToken}\` };
 }
 
@@ -538,8 +799,90 @@ function isRecord(value) {
 
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}`;
+  }
+  return `class BackendRequestError extends Error {
+  readonly status: number;
+  readonly code: string | undefined;
+
+  constructor(status: number, code: string | undefined, message: string) {
+    super(message);
+    this.name = "BackendRequestError";
+    this.status = status;
+    this.code = code;
+  }
 }
-`;
+
+class InvokeRetryExhaustedError extends Error {
+  readonly attempts: number;
+
+  constructor(attempts: number, cause: unknown) {
+    super("Flarex invoke retry exhausted after " + attempts + " attempts: " + invokeErrorMessage(cause));
+    this.name = "InvokeRetryExhaustedError";
+    this.attempts = attempts;
+  }
+}
+
+function executorHeaders(executorToken: string | undefined): Record<string, string> {
+  return executorToken === undefined ? {} : { authorization: \`Bearer \${executorToken}\` };
+}
+
+function normalizeReturnValue(value: unknown): unknown {
+  return value === undefined ? null : value;
+}
+
+async function postBackend<T>(
+  backend: Fetcher,
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<T> {
+  const response = await backend.fetch(\`\${GENERATED_PROJECT_WORKER_BACKEND_BASE_URL}\${path}\`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+  const value = await readBackendResponseJson(response);
+  if (!response.ok) {
+    const code = backendErrorCode(value);
+    const message =
+      backendErrorMessage(value) ??
+      code ??
+      \`Backend request failed with status \${response.status}\`;
+    throw new BackendRequestError(response.status, code, message);
+  }
+  return value as T;
+}
+
+async function readBackendResponseJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function backendErrorCode(value: unknown): string | undefined {
+  if (isRecord(value) && typeof value.error === "string") {
+    return value.error;
+  }
+  return undefined;
+}
+
+function backendErrorMessage(value: unknown): string | undefined {
+  if (isRecord(value) && typeof value.message === "string") {
+    return value.message;
+  }
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function invokeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}`;
 }
 
 function querySessionRouteSource(): string {
@@ -643,38 +986,7 @@ type ExecutionStartResponse = {
   function?: { kind: "query" | "mutation" };
 };
 
-const DEFAULT_INVOKE_MAX_ATTEMPTS = 8;
-const MAX_NESTED_CALL_DEPTH = 8;
-const RETRYABLE_INVOKE_ERROR_CODES = new Set([
-  "InvokeSessionOccConflictError",
-  "InvokeSessionTableOccConflictError",
-  "InvokeSessionIndexOccConflictError",
-  "40001",
-]);
-
 const GENERATED_PROJECT_WORKER_BACKEND_BASE_URL = ${JSON.stringify(options.backendBaseUrl)};
-
-class BackendRequestError extends Error {
-  readonly status: number;
-  readonly code: string | undefined;
-
-  constructor(status: number, code: string | undefined, message: string) {
-    super(message);
-    this.name = "BackendRequestError";
-    this.status = status;
-    this.code = code;
-  }
-}
-
-class InvokeRetryExhaustedError extends Error {
-  readonly attempts: number;
-
-  constructor(attempts: number, cause: unknown) {
-    super("Flarex invoke retry exhausted after " + attempts + " attempts: " + invokeErrorMessage(cause));
-    this.name = "InvokeRetryExhaustedError";
-    this.attempts = attempts;
-  }
-}
 
 async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): Promise<unknown> {
   const fn = functions[body.path];
@@ -754,219 +1066,8 @@ async function invokeWithBackend(body: InvokeBody, env: Env, request: Request): 
   throw new Error("Flarex invoke retry policy did not run any attempts.");
 }
 
-function executorTransport(request: Request, env: Env): ExecutorTransport {
-  const transport =
-    request.headers.get("x-flarex-executor-transport") ?? env.FLAREX_EXECUTOR_TRANSPORT ?? "legacy";
-  if (transport === "legacy" || transport === "postgres") return transport;
-  throw new Error(\`Unsupported Flarex executor transport: \${transport}\`);
-}
-
-function projectIdForTransport(
-  transport: ExecutorTransport,
-  body: InvokeBody,
-  env: Env,
-  request: Request,
-): string | undefined {
-  if (transport === "legacy") return undefined;
-  const projectId = request.headers.get("x-flarex-project") ?? body.projectId ?? env.FLAREX_PROJECT_ID;
-  if (!projectId) {
-    throw new Error("A projectId, x-flarex-project header, or FLAREX_PROJECT_ID binding is required for postgres executor transport.");
-  }
-  return projectId;
-}
-
-async function startExecution(
-  backend: Fetcher,
-  input: {
-    transport: ExecutorTransport;
-    deploymentId: string;
-    projectId?: string;
-    executorToken?: string;
-    path: string;
-    args: unknown;
-    kind: "query" | "mutation";
-    visibility: (typeof functionMetadata)[number]["visibility"];
-    partitionKey?: string;
-    idempotencyKey?: string;
-  },
-): Promise<ExecutionStartResponse> {
-  if (input.transport === "postgres") {
-    return await postBackend<ExecutionStartResponse>(backend, "/invoke/start", {
-      deploymentId: input.deploymentId,
-      projectId: input.projectId,
-      path: input.path,
-      args: input.args,
-      kind: input.kind,
-      visibility: input.visibility,
-      ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
-      ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
-    }, executorHeaders(input.executorToken));
-  }
-  return await postBackend<ExecutionStartResponse>(
-    backend,
-    \`/deployments/\${input.deploymentId}/executions/start\`,
-    {
-      path: input.path,
-      args: input.args,
-      kind: input.kind,
-      ...(input.partitionKey === undefined ? {} : { partitionKey: input.partitionKey }),
-      ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
-    },
-  );
-}
-
-function executionKind(start: ExecutionStartResponse): "query" | "mutation" {
-  const kind = start.kind ?? start.function?.kind;
-  if (kind === "query" || kind === "mutation") return kind;
-  throw new Error("Backend execution start response did not include a query or mutation kind.");
-}
-
-function invokeMaxAttempts(
-  transport: ExecutorTransport,
-  kind: "query" | "mutation",
-  env: Env,
-): number {
-  if (transport !== "postgres" || kind !== "mutation") return 1;
-  if (env.FLAREX_INVOKE_MAX_ATTEMPTS === undefined) {
-    return DEFAULT_INVOKE_MAX_ATTEMPTS;
-  }
-  const value = Number(env.FLAREX_INVOKE_MAX_ATTEMPTS);
-  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
-    throw new Error("FLAREX_INVOKE_MAX_ATTEMPTS must be a positive integer.");
-  }
-  return value;
-}
-
-function isRetryableInvokeAttempt(
-  transport: ExecutorTransport,
-  kind: "query" | "mutation",
-  error: unknown,
-): boolean {
-  return (
-    transport === "postgres" &&
-    kind === "mutation" &&
-    isRetryableInvokeError(error)
-  );
-}
-
-function isRetryableInvokeError(error: unknown): boolean {
-  if (error instanceof BackendRequestError) {
-    return error.status === 409 && error.code !== undefined && RETRYABLE_INVOKE_ERROR_CODES.has(error.code);
-  }
-  if (!isRecord(error)) return false;
-  const name = error.name;
-  const code = error.code;
-  return (
-    (typeof name === "string" && RETRYABLE_INVOKE_ERROR_CODES.has(name)) ||
-    (typeof code === "string" && RETRYABLE_INVOKE_ERROR_CODES.has(code))
-  );
-}
-
-async function finishExecution(
-  backend: Fetcher,
-  input: {
-    transport: ExecutorTransport;
-    deploymentId: string;
-    projectId?: string;
-    executorToken?: string;
-    sessionId: string;
-    value: unknown;
-  },
-): Promise<unknown> {
-  if (input.transport === "postgres") {
-    return await postBackend(backend, "/invoke/finish", {
-      deploymentId: input.deploymentId,
-      projectId: input.projectId,
-      sessionId: input.sessionId,
-      value: input.value,
-    }, executorHeaders(input.executorToken));
-  }
-  return await postBackend(
-    backend,
-    \`/deployments/\${input.deploymentId}/executions/\${input.sessionId}/finish\`,
-    { value: input.value },
-  );
-}
-
-async function abortExecution(
-  backend: Fetcher,
-  input: {
-    transport: ExecutorTransport;
-    deploymentId: string;
-    projectId?: string;
-    executorToken?: string;
-    sessionId: string;
-  },
-): Promise<void> {
-  if (input.transport === "postgres") {
-    await postBackend(
-      backend,
-      "/invoke/abort",
-      {
-        deploymentId: input.deploymentId,
-        projectId: input.projectId,
-        sessionId: input.sessionId,
-      },
-      executorHeaders(input.executorToken),
-    ).catch(() => undefined);
-    return;
-  }
-  await postBackend(
-    backend,
-    \`/deployments/\${input.deploymentId}/executions/\${input.sessionId}/abort\`,
-    {},
-  ).catch(() => undefined);
-}
-
-function databaseForSession(
-  backend: Fetcher,
-  deploymentId: string,
-  sessionId: string,
-  kind: "query" | "mutation",
-  transport: ExecutorTransport,
-  projectId?: string,
-  executorToken?: string,
-): DatabaseWriter {
-  const syscall = async (body: Record<string, unknown>) => {
-    if (transport === "postgres") {
-      const response = await postBackend<{ value: unknown }>(backend, "/invoke/syscall", {
-        deploymentId,
-        projectId,
-        sessionId,
-        ...body,
-      }, executorHeaders(executorToken));
-      return response.value;
-    }
-    return await postBackend<unknown>(
-      backend,
-      \`/deployments/\${deploymentId}/executions/\${sessionId}/syscall\`,
-      body,
-    );
-  };
-  const query = (request: DatabaseQueryRequest) =>
-    syscall({ op: "query", request }) as Promise<DatabaseQueryResult>;
-  return {
-    get: id => syscall({ op: "get", id }) as never,
-    query: table => createQueryInitializer(table, query),
-    insert: async (table, value) => {
-      if (kind !== "mutation") throw new Error("Cannot insert during a query.");
-      return (await syscall({ op: "insert", table, value })) as never;
-    },
-    patch: async (id, value) => {
-      if (kind !== "mutation") throw new Error("Cannot patch during a query.");
-      await syscall({ op: "patch", id, value });
-    },
-    replace: async (id, value) => {
-      if (kind !== "mutation") throw new Error("Cannot replace during a query.");
-      await syscall({ op: "replace", id, value });
-    },
-    delete: async id => {
-      if (kind !== "mutation") throw new Error("Cannot delete during a query.");
-      await syscall({ op: "delete", id });
-    },
-  };
-}
-
+${executorProtocolSource("projectWorkerTypescript")}
+${executorDatabaseForSessionSource("projectWorkerTypescript")}
 function executionContextForSession(input: {
   backend: Fetcher;
   deploymentId: string;
@@ -1058,65 +1159,7 @@ function assertNestedCallDepth(depth: number): void {
   );
 }
 
-function executorHeaders(executorToken: string | undefined): Record<string, string> {
-  return executorToken === undefined ? {} : { authorization: \`Bearer \${executorToken}\` };
-}
+${executorBackendHelpersSource("projectWorkerTypescript")}
 
-function normalizeReturnValue(value: unknown): unknown {
-  return value === undefined ? null : value;
-}
-
-async function postBackend<T>(
-  backend: Fetcher,
-  path: string,
-  body: unknown,
-  headers: Record<string, string> = {},
-): Promise<T> {
-  const response = await backend.fetch(\`\${GENERATED_PROJECT_WORKER_BACKEND_BASE_URL}\${path}\`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...headers },
-    body: JSON.stringify(body),
-  });
-  const value = await readBackendResponseJson(response);
-  if (!response.ok) {
-    const code = backendErrorCode(value);
-    const message =
-      backendErrorMessage(value) ??
-      code ??
-      \`Backend request failed with status \${response.status}\`;
-    throw new BackendRequestError(response.status, code, message);
-  }
-  return value as T;
-}
-
-async function readBackendResponseJson(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-function backendErrorCode(value: unknown): string | undefined {
-  if (isRecord(value) && typeof value.error === "string") {
-    return value.error;
-  }
-  return undefined;
-}
-
-function backendErrorMessage(value: unknown): string | undefined {
-  if (isRecord(value) && typeof value.message === "string") {
-    return value.message;
-  }
-  return undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function invokeErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 `;
 }

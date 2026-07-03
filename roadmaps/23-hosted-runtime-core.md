@@ -1,5 +1,60 @@
 # Hosted Runtime Core
 
+## Generated Protocol Fragment Helpers
+
+Previous completed checkpoint: `d9242ec` (`Extract generated project worker bridge`).
+
+What changed:
+
+- Extracted generated executor protocol fragments inside
+  `packages/flarex-backend/src/artifactRuntime/GeneratedWorkerSource.ts`:
+  - transport and project routing,
+  - execution start/kind/retry/finish/abort helpers,
+  - database syscall plumbing,
+  - executor headers, backend response parsing, and generated error helpers.
+- Updated both generated-source builders to splice the shared fragments:
+  - `generatedExecutionWorkerSource(...)` for hosted Dynamic Worker and local
+    runtime materializer JavaScript modules,
+  - `generatedProjectWorkerExecutorBridgeSource(...)` for typed generated
+    project workers.
+- Added a typed generated project-worker guard for malformed execution start
+  responses so missing `sessionId` is rejected before finish/abort paths can
+  use it.
+- Kept the two emitted language variants explicit. The JavaScript output stays
+  valid for Worker Loader/Miniflare module execution; the TypeScript output
+  keeps generated project-worker types and validator integration.
+
+Why it changed:
+
+The previous checkpoint removed the third executor-loop copy by moving the
+typed project worker bridge into the backend source-builder module. Review then
+flagged that the two sibling builders still owned local copies of the same
+executor protocol pieces. This checkpoint centralizes those fragments so future
+transport/session/retry/syscall changes have one editing surface inside
+`GeneratedWorkerSource.ts`.
+
+Known limitations:
+
+- The fragment helpers still emit separate JavaScript and TypeScript variants
+  where the output language requires different annotations or return casts.
+  That is intentional; the shared boundary is the fragment helper, not one
+  single emitted source string for both runtimes.
+- The generated-source helpers remain string-template based. The emitted-worker
+  test suites execute the generated output, but direct source snapshot or parse
+  checks can still be added later if the generated-source surface grows again.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev build
+corepack pnpm --filter @flarex/artifact-runtime test
+corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+git diff --check
+```
+
 ## Typed Generated Project Worker Bridge
 
 Previous completed checkpoint: `f02e156` (`Extract generated executor bridge`).
@@ -34,11 +89,8 @@ Known limitations:
   `generatedExecutionWorkerSource(...)`, not the same helper. The project-worker
   source still needs TypeScript-only emitted code for analyzed metadata,
   validator return checks, `DatabaseWriter`, and generated `ConnectionDO`.
-- Executor protocol fragments still exist in both backend source builders:
-  transport selection, start/finish/abort calls, retry policy, syscall plumbing,
-  executor headers, and backend response parsing. This checkpoint removes the
-  third generated-worker copy; the next hardening slice should extract those
-  shared source fragments inside `GeneratedWorkerSource.ts`.
+- The follow-up checkpoint above extracted the shared executor protocol
+  fragments inside `GeneratedWorkerSource.ts`.
 - The generated-source helpers remain string-template based. The focused
   generator tests execute the emitted worker, but a future hardening slice can
   add direct source snapshot or parse checks for the helper output.

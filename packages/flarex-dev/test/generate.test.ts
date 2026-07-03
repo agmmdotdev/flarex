@@ -984,6 +984,53 @@ export const list = query({ args: {}, handler: async () => [] });
     }
   });
 
+  it("rejects generated invoke start responses without a session id", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/functions/messages.ts"),
+      `import { query } from "../_generated/server";
+export const list = query({ args: {}, handler: async () => [] });
+`,
+    );
+    await generateFlarex({ root });
+    const worker = new Miniflare({
+      modules: [
+        {
+          type: "ESModule",
+          path: "worker.js",
+          contents: await bundleGeneratedWorker(root),
+        },
+      ],
+      compatibilityDate: "2026-06-14",
+      bindings: {
+        FLAREX_DEPLOYMENT_ID: "deployment-generated-start-guard",
+        FLAREX_EXECUTOR_TRANSPORT: "postgres",
+        FLAREX_PROJECT_ID: "project-generated-start-guard",
+      },
+      serviceBindings: {
+        FLAREX_BACKEND: async () => Response.json({ kind: "query" }),
+      },
+      durableObjects: {
+        CONNECTIONS: { className: "ConnectionDO", useSQLite: true },
+        DELIVERIES: { className: "DeliveryDO", useSQLite: true },
+      },
+    });
+    try {
+      const response = await worker.dispatchFetch("http://flarex.test/invoke", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: "messages:list", args: {} }),
+      });
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: "Executor start response did not include a sessionId.",
+      });
+    } finally {
+      await worker.dispose();
+    }
+  });
+
   it("derives Postgres invoke visibility from public and internal routes", async () => {
     const root = await createProject();
     await writeFile(
