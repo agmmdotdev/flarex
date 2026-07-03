@@ -53,7 +53,7 @@ Every implementation turn in this goal should follow this loop:
 
 ### G-4 / H-3: Shared Generated-Worker Env Construction
 
-Status: implemented in this turn; commit pending.
+Status: completed in checkpoint `eb4619d` (`Share artifact worker env construction`).
 
 Purpose:
 

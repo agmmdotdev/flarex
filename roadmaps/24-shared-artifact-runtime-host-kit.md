@@ -2,6 +2,8 @@
 
 ## H-3 Shared Generated-Worker Env Construction
 
+Completed checkpoint: `eb4619d` (`Share artifact worker env construction`).
+
 Previous completed checkpoint: `01c81c2` (`Mark module validation host kit slice complete`).
 
 What changed:
