@@ -45,3 +45,4 @@ Start with:
 - [22-effect-migration-checklist.md](./22-effect-migration-checklist.md)
 - [23-hosted-runtime-core.md](./23-hosted-runtime-core.md)
 - [24-shared-artifact-runtime-host-kit.md](./24-shared-artifact-runtime-host-kit.md)
+- [25-shared-artifact-runtime-host-kit-goals.md](./25-shared-artifact-runtime-host-kit-goals.md)
