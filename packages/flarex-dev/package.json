@@ -21,6 +21,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@flarex/analysis": "workspace:*",
     "@flarex/executor": "workspace:*",
     "@flarex/executor-http": "workspace:*",
     "@flarex/freshness": "workspace:*",

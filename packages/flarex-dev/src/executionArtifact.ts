@@ -1,4 +1,8 @@
 import { Data, Effect } from "effect";
+import {
+  normalizeAnalyzerDiagnostics,
+  type AnalyzerDiagnostic,
+} from "@flarex/analysis";
 import { Miniflare } from "miniflare";
 import type { ExecutionArtifactRef } from "flarex/artifacts";
 import type { DeploymentAnalysis } from "./analyze.ts";
@@ -6,11 +10,8 @@ import { readDevResponseJsonOrNullEffect } from "./responseJson.ts";
 import type { SourcePackage } from "./sourcePackage.ts";
 
 export type { ExecutionArtifactRef } from "flarex/artifacts";
-
-export type AnalyzerDiagnostic = {
-  level: "log" | "warn" | "error";
-  message: string;
-};
+export { normalizeAnalyzerDiagnostics };
+export type { AnalyzerDiagnostic };
 
 export type ExecutionArtifactAnalysis = {
   analysis: DeploymentAnalysis;
@@ -193,21 +194,6 @@ function executionArtifactResponseErrorToAnalysisError(
 
 function executionArtifactResponseErrorToError(error: ExecutionArtifactResponseError): Error {
   return new Error(error.message);
-}
-
-export function normalizeAnalyzerDiagnostics(value: unknown): AnalyzerDiagnostic[] {
-  if (!Array.isArray(value)) return [];
-  return value.slice(-100).flatMap(diagnostic => {
-    if (typeof diagnostic !== "object" || diagnostic === null || Array.isArray(diagnostic)) {
-      return [];
-    }
-    const level = (diagnostic as Partial<AnalyzerDiagnostic>).level;
-    const message = (diagnostic as Partial<AnalyzerDiagnostic>).message;
-    if ((level !== "log" && level !== "warn" && level !== "error") || typeof message !== "string") {
-      return [];
-    }
-    return [{ level, message }];
-  });
 }
 
 function analysisWorkerSource(sourcePackage: SourcePackage): string {

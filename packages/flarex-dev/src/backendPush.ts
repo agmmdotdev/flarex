@@ -1,13 +1,16 @@
 import type { Miniflare } from "miniflare";
 import { Data, Effect } from "effect";
+import {
+  backendCodegenAnalysisFromCodegenAnalysis,
+  backendRequiredValidatorJsonFromValidatorJson,
+  deploymentAnalysisFromCodegenAnalysis,
+} from "@flarex/analysis";
 import { assertValidatorJson } from "flarex/validator-json";
 import type { ValidatorJSON } from "flarex/values";
 import type {
   DeploymentAnalysis as BackendDeploymentAnalysis,
   AbandonPushRequest,
   AnalyzeSourcePackageResponse,
-  DeploymentCodegenAnalysis as BackendDeploymentCodegenAnalysis,
-  DeploymentFunctionMetadata,
   FinishPushRejectionCode,
   FinishPushRequest,
   FinishPushResponse,
@@ -32,6 +35,8 @@ import {
 } from "./routeBoundary.ts";
 import { readDevResponseJsonOrNullEffect } from "./responseJson.ts";
 import type { SourcePackage } from "./sourcePackage.ts";
+
+export const backendAnalysisFromCodegenAnalysis = deploymentAnalysisFromCodegenAnalysis;
 
 export type DevPushStatus = {
   pushId: string;
@@ -454,162 +459,6 @@ export function createLocalAnalyzerService(
   };
 }
 
-export function backendAnalysisFromCodegenAnalysis(
-  analysis: CodegenDeploymentAnalysis,
-): BackendDeploymentAnalysis {
-  return {
-    schema: {
-      version: analysis.schema.version,
-      tables: analysis.schema.tables.map(table => ({
-        tableId: table.tableId,
-        name: table.name,
-        validator: backendValidatorJson(table.validator),
-        placement: table.placement,
-      })),
-      indexes: analysis.schema.indexes.map(index => ({
-        indexId: index.indexId,
-        tableId: index.tableId,
-        name: index.name,
-        fields: [...index.fields],
-      })),
-    },
-    functions: {
-      functions: analysis.functions.flatMap(module =>
-        module.functions.map((fn): DeploymentFunctionMetadata => ({
-          path: fn.exportName === "default" ? fn.moduleName : `${fn.moduleName}:${fn.exportName}`,
-          kind: fn.kind,
-          visibility: fn.visibility,
-          args: backendValidatorJson(fn.args),
-          returns: backendValidatorJson(fn.returns),
-          route: null,
-          partition: backendFunctionPartition(fn.partition ?? null),
-          ...(fn.position === undefined ? {} : { position: fn.position }),
-        })),
-      ),
-    },
-  };
-}
-
-function backendCodegenAnalysisFromCodegenAnalysis(
-  analysis: CodegenDeploymentAnalysis,
-): BackendDeploymentCodegenAnalysis {
-  return {
-    schema: {
-      version: analysis.schema.version,
-      tables: analysis.schema.tables.map(table => ({
-        tableId: table.tableId,
-        name: table.name,
-        validator: backendValidatorJson(table.validator),
-        placement: table.placement,
-      })),
-      indexes: analysis.schema.indexes.map(index => ({
-        indexId: index.indexId,
-        tableId: index.tableId,
-        name: index.name,
-        fields: [...index.fields],
-      })),
-    },
-    functions: analysis.functions.map(module => ({
-      moduleName: module.moduleName,
-      functions: module.functions.map(fn => ({
-        moduleName: fn.moduleName,
-        exportName: fn.exportName,
-        kind: fn.kind,
-        visibility: fn.visibility,
-        args: backendRequiredValidatorJson(fn.args),
-        returns: backendValidatorJson(fn.returns),
-        partition: backendFunctionPartition(fn.partition ?? null),
-        ...(fn.position === undefined ? {} : { position: fn.position }),
-      })),
-    })),
-  };
-}
-
-function backendFunctionPartition(
-  partition: CodegenDeploymentAnalysis["functions"][number]["functions"][number]["partition"] | null,
-): FunctionPartitionMetadata | null {
-  if (partition === null || partition === undefined) return null;
-  switch (partition.type) {
-    case "partition":
-      return {
-        type: "partition",
-        table: partition.table,
-        selector: partition.selector,
-        partitionField: partition.partitionField,
-        argField: partition.argField,
-      };
-    case "partitionCreateRoot":
-      return {
-        type: "partitionCreateRoot",
-        table: partition.table,
-        partitionField: partition.partitionField,
-      };
-    case "partitionRoot":
-      throw new Error(
-        `partitionRoot metadata for table ${partition.table} is not executable backend metadata.`,
-      );
-    default:
-      partition satisfies never;
-      return null;
-  }
-}
-
-function backendValidatorJson(value: ValidatorJSON | null): BackendValidatorJson | null {
-  if (value === null) return null;
-  switch (value.type) {
-    case "null":
-    case "number":
-    case "bigint":
-    case "boolean":
-    case "string":
-    case "bytes":
-    case "any":
-      return { type: value.type };
-    case "id":
-      return { type: "id", tableName: value.tableName };
-    case "literal": {
-      if (typeof value.value === "bigint") {
-        throw new Error("BigInt literal validators are not supported by backend deployment metadata.");
-      }
-      return { type: "literal", value: value.value };
-    }
-    case "array":
-      return { type: "array", value: backendRequiredValidatorJson(value.value) };
-    case "object": {
-      const fields: Record<string, { fieldType: BackendValidatorJson; optional: boolean }> = {};
-      for (const [name, field] of Object.entries(value.value)) {
-        fields[name] = {
-          fieldType: backendRequiredValidatorJson(field.fieldType),
-          optional: field.optional,
-        };
-      }
-      return { type: "object", value: fields };
-    }
-    case "record":
-      return {
-        type: "record",
-        keys: backendRequiredValidatorJson(value.keys),
-        values: backendRequiredValidatorJson(value.values),
-      };
-    case "union":
-      return {
-        type: "union",
-        value: value.value.map(member => backendRequiredValidatorJson(member)),
-      };
-    default:
-      value satisfies never;
-      throw new Error("Unsupported validator metadata.");
-  }
-}
-
-function backendRequiredValidatorJson(value: ValidatorJSON): BackendValidatorJson {
-  const validator = backendValidatorJson(value);
-  if (validator === null) {
-    throw new Error("Required backend validator cannot be null.");
-  }
-  return validator;
-}
-
 type CodegenAnalysisParseResult =
   | { ok: true; analysis: CodegenDeploymentAnalysis }
   | { ok: false; message: string };
@@ -803,7 +652,7 @@ function backendValidatorJsonFromUnknown(
   const parsed = validatorJson(value, path);
   if (parsed === undefined || parsed === null) return parseError(`${path} is invalid.`);
   try {
-    return { ok: true, value: backendRequiredValidatorJson(parsed) };
+    return { ok: true, value: backendRequiredValidatorJsonFromValidatorJson(parsed) };
   } catch (error) {
     return parseError(`${path} is invalid: ${errorMessage(error)}`);
   }

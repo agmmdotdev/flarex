@@ -228,7 +228,7 @@ export type ActionCtx = GenericActionCtx<DataModel>;
 `;
 }
 
-function functionMetadataSource(modules: AnalyzedModule[]): string {
+function functionMetadataSource(modules: readonly AnalyzedModule[]): string {
   const metadata = modules.flatMap(module =>
     module.functions.map(fn => ({
       path: functionPath(fn),
@@ -417,7 +417,7 @@ function propertyKey(value: string): string {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value) ? value : JSON.stringify(value);
 }
 
-function functionRegistrySource(modules: AnalyzedModule[]): string {
+function functionRegistrySource(modules: readonly AnalyzedModule[]): string {
   const activeModules = modules.filter(module => module.functions.length > 0);
   const imports = activeModules
     .map(
@@ -798,7 +798,7 @@ function functionPath(fn: AnalyzedFunction): string {
   return fn.exportName === "default" ? fn.moduleName : `${fn.moduleName}:${fn.exportName}`;
 }
 
-function referenceMetadataMapSource(modules: AnalyzedModule[]): Record<string, unknown> {
+function referenceMetadataMapSource(modules: readonly AnalyzedModule[]): Record<string, unknown> {
   return Object.fromEntries(
     modules.flatMap(module =>
       module.functions.flatMap(fn => {

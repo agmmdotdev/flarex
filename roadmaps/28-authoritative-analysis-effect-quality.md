@@ -80,7 +80,7 @@ Every implementation slice in this stream must satisfy these rules:
     or an existing package.
   - Identify which logic is pure analyzer semantics versus host adapter code.
   - Record source files, exported types, error tags, and test fixtures.
-- [ ] A-2. Extract pure analyzer semantics into the shared analyzer module
+- [x] A-2. Extract pure analyzer semantics into the shared analyzer module
   without changing runtime behavior.
   - Move schema analysis, function export analysis, validator JSON assertion,
     partition validation/lowering, source-position parsing, and diagnostics
@@ -406,25 +406,53 @@ git diff --check
 
 ## Current Checkpoint
 
-Previous completed checkpoint: `7b14f30` (`Plan authoritative analysis Effect
-quality goal`).
+Previous completed checkpoint: `4997d43` (`Audit authoritative analyzer
+contract`).
 
 What changed in this checkpoint:
 
-- Completed the A-1 analyzer contract audit.
-- Recorded the package-boundary decision for a future `@flarex/analysis`
+- Added `packages/analysis` as `@flarex/analysis`.
+- Extracted typed pure analyzer semantics from `packages/flarex-dev/src/analyze.ts`
+  into the shared package.
+- Added named Effect helpers and tagged analyzer errors for schema, function
+  metadata, validator, partition, source-map, host-import, and nondeterminism
+  failures.
+- Moved backend analysis/codegen conversion helpers into the shared analyzer
   package.
-- Froze the shared analyzer input/output, semantic behavior, typed error
-  contract, and fixture requirements before code movement.
+- Kept `flarex-dev` file discovery, Vite bundling, schema import, source-map
+  loading, and local host mechanics in `packages/flarex-dev/src/analyze.ts`.
+- Updated generated-code helpers to consume readonly analyzer module arrays.
+- Added shared-package tests for valid analysis, invalid validators, root
+  partition lowering, ambiguous root IDs, backend conversion, BigInt literal
+  conversion rejection, and diagnostic normalization.
 
 Known limitations:
 
-- This checkpoint is planning/audit only. It does not yet extract the analyzer
-  string, create the shared package, change route trust boundaries, or add
-  forged-analysis tests.
+- The Miniflare execution-artifact analyzer worker string still contains a
+  duplicated semantic analyzer copy. A-3 will replace that duplication with the
+  shared package.
+- `/push/start-analyzed` is still a prototype/internal trust boundary and is
+  not hardened until A-5.
+- Backend analyzer response validation still uses the existing backend
+  validation path; A-4 will prove shared-contract consumption on that side.
+
+Convex references:
+
+- No new Convex files were needed beyond the A-1 audit. This slice implements
+  the package-boundary decision from the inspected Convex analyzer/codegen
+  model.
+
+Cloudflare difference:
+
+- This slice only moved pure semantics. Miniflare, Vite, service bindings,
+  Durable Objects, R2, and route response mapping remain host-adapter concerns.
 
 Verification:
 
 ```sh
+corepack pnpm --filter @flarex/analysis typecheck
+corepack pnpm --filter @flarex/analysis test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/analyze.test.ts test/executionArtifact.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 git diff --check
 ```

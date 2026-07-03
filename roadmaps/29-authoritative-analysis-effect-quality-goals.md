@@ -18,7 +18,7 @@ Source roadmap:
 - [x] G-0. Start the long-running goal and create the concrete roadmap files.
 - [x] G-1. Complete A-1: analyzer and Convex reference audit plus shared
   contract freeze.
-- [ ] G-2. Complete A-2: shared pure analyzer semantics extraction.
+- [x] G-2. Complete A-2: shared pure analyzer semantics extraction.
 - [ ] G-3. Complete A-3: local Miniflare analyzer worker consumes shared
   semantics.
 - [ ] G-4. Complete A-4: backend analyzer response path proves shared contract
@@ -32,57 +32,68 @@ Source roadmap:
 
 ## Current Slice
 
-### G-1 / A-1: Analyzer Contract Audit
+### G-2 / A-2: Shared Analyzer Semantics Extraction
 
-Status: completed in this docs-only checkpoint.
+Status: completed in this code checkpoint.
 
 Purpose:
 
-Audit the current analyzer implementation and Convex references, then freeze
-the exact shared analyzer contract before moving code.
+Create `@flarex/analysis` and move pure analyzer semantics into it without
+changing local runtime behavior.
 
 Decision:
 
-- A-2 should add `packages/analysis` as `@flarex/analysis`.
-- The shared package owns analyzer semantics and typed analyzer errors.
-- `flarex-dev` keeps Vite, Miniflare, local double-run nondeterminism checks,
-  file discovery, and local response adapters.
-- `flarex-backend` keeps Worker service-binding fetch, deployment state,
-  artifact storage, public route mapping, and activation validation.
-- `flarex-protocol` remains the transport schema owner.
+- `packages/analysis` now owns pure analyzer semantics and backend conversion
+  helpers.
+- `packages/flarex-dev/src/analyze.ts` is now a host adapter for file
+  discovery, Vite bundling, schema imports, and source-map loading.
+- The Miniflare execution-artifact worker string is intentionally unchanged
+  until G-3/A-3.
 
 Files changed:
 
+- `packages/analysis/package.json`
+- `packages/analysis/tsconfig.json`
+- `packages/analysis/src/index.ts`
+- `packages/analysis/test/analyzer.test.ts`
+- `packages/flarex-dev/package.json`
+- `packages/flarex-dev/src/analyze.ts`
+- `packages/flarex-dev/src/generate.ts`
+- `pnpm-lock.yaml`
 - `roadmaps/28-authoritative-analysis-effect-quality.md`
 - this file
 
 Validation gates:
 
 ```sh
+corepack pnpm --filter @flarex/analysis typecheck
+corepack pnpm --filter @flarex/analysis test
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/analyze.test.ts test/executionArtifact.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 git diff --check
 ```
 
 Review gate:
 
-- Not required. This slice is docs-only.
+- Required because this adds a package, exports shared helpers, and moves
+  analyzer semantics.
 
 ## Previous Slice
 
-### G-0 / A-0: Plan And Goal Setup
+### G-1 / A-1: Analyzer Contract Audit
 
-Status: completed and committed in `7b14f30`
-(`Plan authoritative analysis Effect quality goal`).
+Status: completed and committed in `4997d43`
+(`Audit authoritative analyzer contract`).
 
 Purpose:
 
-Convert the backend-authoritative analysis concern into a concrete turn-by-turn
-goal with an Effect-specific quality bar.
+Audit the current analyzer implementation and Convex references, then freeze
+the exact shared analyzer contract before moving code.
 
 Files changed:
 
 - `roadmaps/28-authoritative-analysis-effect-quality.md`
 - this file
-- `roadmaps/README.md`
 
 Validation gates:
 
@@ -96,26 +107,27 @@ Review gate:
 
 ## Next Slice
 
-### G-2 / A-2: Shared Analyzer Semantics Extraction
+### G-3 / A-3: Local Miniflare Analyzer Worker Uses Shared Semantics
 
 Status: next.
 
 Purpose:
 
-Create `@flarex/analysis` and move pure analyzer semantics into it without
-changing behavior. This is the first code slice and must be protected by
-focused shared-package tests before the Miniflare worker string is changed.
+Refactor the local execution-artifact analyzer worker so its generated worker
+source calls the shared `@flarex/analysis` semantics instead of carrying a
+second analyzer implementation.
 
 Expected implementation:
 
-- add `packages/analysis/package.json`, `tsconfig.json`, `src/index.ts`, and
-  focused tests;
-- extract semantics from `packages/flarex-dev/src/analyze.ts`, not from the
-  untyped worker string first;
-- expose typed Effect helpers and conversion helpers named in
-  `roadmaps/28-authoritative-analysis-effect-quality.md`;
-- keep host adapters unchanged in this slice except for importing shared
-  helpers if needed to prove parity.
+- keep Miniflare creation, deterministic globals, console capture, rejected
+  import-time globals, and worker response envelope handling in
+  `packages/flarex-dev/src/executionArtifact.ts`;
+- bundle or inject the shared analyzer code through the existing execution
+  artifact host mechanics without adding backend or Cloudflare binding
+  dependencies to `@flarex/analysis`;
+- preserve local double-run nondeterminism checks in
+  `LocalExecutionArtifactBackendAnalyzer`;
+- keep behavior-compatible `executionArtifact` and `backendPush` tests green.
 
 Validation gates:
 
@@ -123,7 +135,7 @@ Validation gates:
 corepack pnpm --filter @flarex/analysis typecheck
 corepack pnpm --filter @flarex/analysis test
 corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/analyze.test.ts test/executionArtifact.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev exec vitest run test/executionArtifact.test.ts test/backendPush.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 git diff --check
 ```
 
