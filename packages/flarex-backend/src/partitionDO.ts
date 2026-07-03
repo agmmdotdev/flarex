@@ -21,14 +21,14 @@ import {
   type PartitionSubscriptionTargetRequest,
 } from "./partition/RouteBoundary";
 import {
-  decodePartitionStorageCommitResponseJsonSync,
-  decodePartitionStorageCommittedWritesJsonSync,
-  decodePartitionStorageDocumentJsonSync,
-  decodePartitionStorageIndexFieldsJsonSync,
-  decodePartitionStorageIndexWritesJsonSync,
-  decodePartitionStorageReadSetJsonSync,
-  decodePartitionStorageTablePlacementJsonSync,
-  decodePartitionStorageTableValidatorJsonSync,
+  decodePartitionStorageCommitResponseJson,
+  decodePartitionStorageCommittedWritesJson,
+  decodePartitionStorageDocumentJson,
+  decodePartitionStorageIndexFieldsJson,
+  decodePartitionStorageIndexWritesJson,
+  decodePartitionStorageReadSetJson,
+  decodePartitionStorageTablePlacementJson,
+  decodePartitionStorageTableValidatorJson,
 } from "./partition/StorageRows";
 import { Data, Effect } from "effect";
 import type {
@@ -205,13 +205,13 @@ export class PartitionDO extends DurableObject<Env> {
         currentTs: () => this.currentTs(),
         putSchemaCache: body => this.putSchemaCache(body),
         begin: () => this.begin(),
-        commit: body => this.commit(body),
+        commit: body => this.commitEffect(body),
         registerSubscription: body => this.registerSubscription(body),
         unregisterSubscription: body => this.unregisterSubscription(body),
         unregisterConnection: body => this.unregisterConnection(body),
-        readDocument: (tableId, id, at) => this.readDocument(tableId, id, at),
+        readDocument: (tableId, id, at) => this.readDocumentEffect(tableId, id, at),
         readIndex: (indexId, at, lower, upper, limit, cursor, order) =>
-          this.readIndex(indexId, at, lower, upper, limit, cursor, order),
+          this.readIndexEffect(indexId, at, lower, upper, limit, cursor, order),
       }));
     } catch (error) {
       if (isOccConflict(error)) return json(error, { status: 409 });
@@ -278,79 +278,94 @@ export class PartitionDO extends DurableObject<Env> {
     });
   }
 
-  private async commit(request: CommitRequest): Promise<CommitResponse> {
-    const idempotencyKey = request.idempotencyKey;
-    if (idempotencyKey) {
-      const cached = this.sql
-        .exec<{ result_json: string }>(
-          "SELECT result_json FROM idempotency_keys WHERE key = ?",
-          idempotencyKey,
-        )
-        .toArray()[0];
-      if (cached) {
-        return {
-          ...decodePartitionStorageCommitResponseJsonSync(cached.result_json),
-          replayed: true,
-        };
-      }
-    }
-
-    const result = await this.ctx.storage.transaction(async () => {
-      const currentTs = this.currentTs();
-      if (request.beginTs > currentTs) {
-        throw new Error(`beginTs ${request.beginTs} is newer than currentTs ${currentTs}.`);
-      }
-      if (request.schemaVersion !== undefined && request.schemaVersion !== this.schemaVersion()) {
-        throw new Error(
-          `Schema version mismatch. Request has ${request.schemaVersion}, partition has ${this.schemaVersion()}.`,
-        );
-      }
-      const writes = request.writes.map(resolveDocumentWrite);
-      const partitionOwnerChanges = this.validateWrites(writes);
-      this.validateReadSet(request.readSet ?? {}, request.beginTs, currentTs);
-
-      const commitTs = currentTs + 1;
-      const committedWrites: CommittedWrite[] = [];
-      const indexWrites: IndexWrite[] = [];
-      for (const write of writes) {
-        const committed = this.applyDocumentWrite(write, commitTs);
-        committedWrites.push(committed.write);
-        indexWrites.push(...committed.indexWrites);
-      }
-      this.applyPartitionOwnerChanges(partitionOwnerChanges, commitTs);
-
-      this.sql.exec(
-        `
-        INSERT INTO write_log (ts, source, writes_json, index_writes_json, created_at)
-        VALUES (?, ?, ?, ?, ?)
-        `,
-        commitTs,
-        request.source ?? null,
-        JSON.stringify(committedWrites),
-        JSON.stringify(indexWrites),
-        Date.now(),
-      );
-      this.setMeta("current_ts", String(commitTs));
-      const response: CommitResponse = { committedTs: commitTs, writes: committedWrites };
+  private commitEffect(request: CommitRequest): Effect.Effect<CommitResponse, unknown> {
+    const self = this;
+    return Effect.gen(function* () {
+      const idempotencyKey = request.idempotencyKey;
       if (idempotencyKey) {
-        this.sql.exec(
-          `
-          INSERT INTO idempotency_keys (key, result_json, committed_ts, created_at)
-          VALUES (?, ?, ?, ?)
-          `,
-          idempotencyKey,
-          JSON.stringify(response),
-          commitTs,
-          Date.now(),
-        );
+        const cached = self.sql
+          .exec<{ result_json: string }>(
+            "SELECT result_json FROM idempotency_keys WHERE key = ?",
+            idempotencyKey,
+          )
+          .toArray()[0];
+        if (cached) {
+          const decoded = yield* decodePartitionStorageCommitResponseJson(cached.result_json);
+          return { ...decoded, replayed: true };
+        }
       }
-      return {
-        response,
-        invalidations: this.invalidatedSubscriptions(commitTs, committedWrites, indexWrites),
-      };
+
+      const result = yield* runPartitionStorageTransactionEffect(
+        self.ctx,
+        Effect.gen(function* () {
+          const currentTs = self.currentTs();
+          if (request.beginTs > currentTs) {
+            return yield* Effect.fail(
+              new Error(`beginTs ${request.beginTs} is newer than currentTs ${currentTs}.`),
+            );
+          }
+          if (request.schemaVersion !== undefined && request.schemaVersion !== self.schemaVersion()) {
+            return yield* Effect.fail(
+              new Error(
+                `Schema version mismatch. Request has ${request.schemaVersion}, partition has ${self.schemaVersion()}.`,
+              ),
+            );
+          }
+          const writes = request.writes.map(resolveDocumentWrite);
+          const partitionOwnerChanges = yield* self.validateWritesEffect(writes);
+          yield* self.validateReadSetEffect(request.readSet ?? {}, request.beginTs, currentTs);
+
+          const commitTs = currentTs + 1;
+          const committedWrites: CommittedWrite[] = [];
+          const indexWrites: IndexWrite[] = [];
+          for (const write of writes) {
+            const committed = yield* self.applyDocumentWriteEffect(write, commitTs);
+            committedWrites.push(committed.write);
+            indexWrites.push(...committed.indexWrites);
+          }
+          self.applyPartitionOwnerChanges(partitionOwnerChanges, commitTs);
+
+          self.sql.exec(
+              `
+              INSERT INTO write_log (ts, source, writes_json, index_writes_json, created_at)
+              VALUES (?, ?, ?, ?, ?)
+              `,
+              commitTs,
+              request.source ?? null,
+              JSON.stringify(committedWrites),
+              JSON.stringify(indexWrites),
+              Date.now(),
+            );
+          self.setMeta("current_ts", String(commitTs));
+          const response: CommitResponse = { committedTs: commitTs, writes: committedWrites };
+          if (idempotencyKey) {
+            self.sql.exec(
+              `
+              INSERT INTO idempotency_keys (key, result_json, committed_ts, created_at)
+              VALUES (?, ?, ?, ?)
+              `,
+              idempotencyKey,
+              JSON.stringify(response),
+              commitTs,
+              Date.now(),
+            );
+          }
+          return {
+            response,
+            invalidations: yield* self.invalidatedSubscriptionsEffect(
+              commitTs,
+              committedWrites,
+              indexWrites,
+            ),
+          };
+          }),
+      );
+      yield* Effect.tryPromise({
+        try: () => self.notifyInvalidations(result.invalidations),
+        catch: cause => cause,
+      });
+      return result.response;
     });
-    await this.notifyInvalidations(result.invalidations);
-    return result.response;
   }
 
   private registerSubscription(
@@ -391,33 +406,39 @@ export class PartitionDO extends DurableObject<Env> {
     return { unregistered: true };
   }
 
-  private invalidatedSubscriptions(
+  private invalidatedSubscriptionsEffect(
     commitTs: number,
     writes: CommittedWrite[],
     indexWrites: IndexWrite[],
-  ): SubscriptionInvalidation[] {
-    if (writes.length === 0 && indexWrites.length === 0) return [];
-    const rows = this.sql
-      .exec<SubscriptionRow>(
-        `
-        SELECT connection_name, query_id, read_set_json
-        FROM sync_subscriptions
-        ORDER BY connection_name, query_id
-        `,
-      )
-      .toArray();
-    return rows.flatMap(row => {
-      const readSet = decodePartitionStorageReadSetJsonSync(row.read_set_json);
-      const conflict = findReadSetConflict(readSet, [
-        { ts: commitTs, writes, indexWrites },
-      ]);
-      return conflict === null
-        ? []
-        : [{
-            connectionName: row.connection_name,
-            queryId: row.query_id,
-            invalidatedTs: commitTs,
-          }];
+  ): Effect.Effect<SubscriptionInvalidation[], unknown> {
+    if (writes.length === 0 && indexWrites.length === 0) return Effect.succeed([]);
+    const self = this;
+    return Effect.gen(function* () {
+      const rows = self.sql
+        .exec<SubscriptionRow>(
+          `
+          SELECT connection_name, query_id, read_set_json
+          FROM sync_subscriptions
+          ORDER BY connection_name, query_id
+          `,
+        )
+        .toArray();
+      const invalidationGroups = yield* Effect.forEach(rows, row =>
+        decodePartitionStorageReadSetJson(row.read_set_json).pipe(
+          Effect.map(readSet => {
+            const conflict = findReadSetConflict(readSet, [
+              { ts: commitTs, writes, indexWrites },
+            ]);
+            return conflict === null
+              ? []
+              : [{
+                  connectionName: row.connection_name,
+                  queryId: row.query_id,
+                  invalidatedTs: commitTs,
+                }];
+          }),
+        ));
+      return invalidationGroups.flat();
     });
   }
 
@@ -432,132 +453,136 @@ export class PartitionDO extends DurableObject<Env> {
     }));
   }
 
-  private validateWrites(writes: ResolvedDocumentWrite[]): PartitionOwnerChanges {
-    if (this.schemaVersion() === 0) return { claims: [], releases: [] };
+  private validateWritesEffect(writes: ResolvedDocumentWrite[]): Effect.Effect<PartitionOwnerChanges, unknown> {
+    if (this.schemaVersion() === 0) return Effect.succeed({ claims: [], releases: [] });
     const claims = new Map<string, PartitionOwnerChange>();
     const releases = new Map<string, PartitionOwnerChange>();
-    for (const write of writes) {
-      const row = this.sql
-        .exec<{
-          table_name: string;
-          schema_json: string | null;
-          partition_rule_json: string;
-        }>(
-          "SELECT table_name, schema_json, partition_rule_json FROM tables WHERE table_id = ? AND state != 'deleted'",
-          write.tableId,
-        )
-        .toArray()[0];
-      if (!row) {
-        throw partitionDomainValidationError(`Write references unknown table id ${write.tableId}.`);
-      }
-      const placement = decodePartitionStorageTablePlacementJsonSync(row.partition_rule_json);
-      if (write.value === null) {
-        const current = this.getCurrentDocument(write.tableId, write.id);
-        if (current !== null) {
-          this.validateDocumentPlacement(row.table_name, placement, current.value);
-          const ownerField = rootOwnerFieldForPlacement(placement);
-          if (ownerField !== null) {
-            const ownerValue = documentOwnerValue(row.table_name, ownerField, current.value);
-            const release = {
-              tableId: write.tableId,
-              tableName: row.table_name,
-              ownerField,
-              ownerValue,
-              documentId: write.id,
-            };
-            releases.set(partitionOwnerKey(release), release);
-          }
-        }
-        continue;
-      }
-      const validator = decodePartitionStorageTableValidatorJsonSync(row.schema_json ?? "null");
-      if (validator !== null) {
-        try {
-          validateJsonValue(validator, write.value, `$document(${row.table_name})`, {
-            validateId: this.validateId.bind(this),
-          });
-        } catch (error) {
-          if (error instanceof BackendValidationError) {
-            throw partitionDomainValidationError(`DocumentValidationError: ${error.message}`);
-          }
-          throw error;
-        }
-      }
-      this.validateDocumentPlacement(row.table_name, placement, write.value);
-      const ownerField = rootOwnerFieldForPlacement(placement);
-      if (ownerField !== null) {
-        const ownerValue = documentOwnerValue(row.table_name, ownerField, write.value);
-        const claim = {
-          tableId: write.tableId,
-          tableName: row.table_name,
-          ownerField,
-          ownerValue,
-          documentId: write.id,
-        };
-        const key = partitionOwnerKey(claim);
-        const existingClaim = claims.get(key);
-        if (existingClaim !== undefined && existingClaim.documentId !== write.id) {
-          throw partitionDomainValidationError(
-            `UniquePartitionOwnerError: ${row.table_name}.${ownerField} ${JSON.stringify(ownerValue)} is claimed by multiple documents in this commit.`,
+    const self = this;
+    return Effect.gen(function* () {
+      for (const write of writes) {
+        const row = self.sql
+          .exec<{
+            table_name: string;
+            schema_json: string | null;
+            partition_rule_json: string;
+          }>(
+            "SELECT table_name, schema_json, partition_rule_json FROM tables WHERE table_id = ? AND state != 'deleted'",
+            write.tableId,
+          )
+          .toArray()[0];
+        if (!row) {
+          return yield* Effect.fail(
+            partitionDomainValidationError(`Write references unknown table id ${write.tableId}.`),
           );
         }
-        claims.set(key, claim);
+        const placement = yield* decodePartitionStorageTablePlacementJson(row.partition_rule_json);
+        if (write.value === null) {
+          const current = yield* self.getCurrentDocumentEffect(write.tableId, write.id);
+          if (current !== null) {
+            yield* self.validateDocumentPlacementEffect(row.table_name, placement, current.value);
+            const ownerField = rootOwnerFieldForPlacement(placement);
+            if (ownerField !== null) {
+              const ownerValue = documentOwnerValue(row.table_name, ownerField, current.value);
+              const release = {
+                tableId: write.tableId,
+                tableName: row.table_name,
+                ownerField,
+                ownerValue,
+                documentId: write.id,
+              };
+              releases.set(partitionOwnerKey(release), release);
+            }
+          }
+          continue;
+        }
+        const validator = yield* decodePartitionStorageTableValidatorJson(row.schema_json ?? "null");
+        if (validator !== null) {
+          yield* Effect.try({
+            try: () => validateJsonValue(validator, write.value, `$document(${row.table_name})`, {
+              validateId: self.validateId.bind(self),
+            }),
+            catch: error => error instanceof BackendValidationError
+              ? partitionDomainValidationError(`DocumentValidationError: ${error.message}`)
+              : error,
+          });
+        }
+        yield* self.validateDocumentPlacementEffect(row.table_name, placement, write.value);
+        const ownerField = rootOwnerFieldForPlacement(placement);
+        if (ownerField !== null) {
+          const ownerValue = documentOwnerValue(row.table_name, ownerField, write.value);
+          const claim = {
+            tableId: write.tableId,
+            tableName: row.table_name,
+            ownerField,
+            ownerValue,
+            documentId: write.id,
+          };
+          const key = partitionOwnerKey(claim);
+          const existingClaim = claims.get(key);
+          if (existingClaim !== undefined && existingClaim.documentId !== write.id) {
+            return yield* Effect.fail(partitionDomainValidationError(
+              `UniquePartitionOwnerError: ${row.table_name}.${ownerField} ${JSON.stringify(ownerValue)} is claimed by multiple documents in this commit.`,
+            ));
+          }
+          claims.set(key, claim);
+        }
       }
-    }
-    for (const [key, claim] of claims) {
-      const existing = this.sql
-        .exec<{ document_id: string }>(
-          `
-          SELECT document_id
-          FROM partition_owners
-          WHERE table_id = ? AND owner_field = ? AND owner_value = ?
-          `,
-          claim.tableId,
-          claim.ownerField,
-          claim.ownerValue,
-        )
-        .toArray()[0];
-      const released = releases.get(key);
-      if (
-        existing !== undefined &&
-        existing.document_id !== claim.documentId &&
-        existing.document_id !== released?.documentId
-      ) {
-        throw partitionDomainValidationError(
-          `UniquePartitionOwnerError: ${claim.tableName}.${claim.ownerField} ${JSON.stringify(claim.ownerValue)} already belongs to document ${existing.document_id}.`,
-        );
+      for (const [key, claim] of claims) {
+        const existing = self.sql
+          .exec<{ document_id: string }>(
+            `
+            SELECT document_id
+            FROM partition_owners
+            WHERE table_id = ? AND owner_field = ? AND owner_value = ?
+            `,
+            claim.tableId,
+            claim.ownerField,
+            claim.ownerValue,
+          )
+          .toArray()[0];
+        const released = releases.get(key);
+        if (
+          existing !== undefined &&
+          existing.document_id !== claim.documentId &&
+          existing.document_id !== released?.documentId
+        ) {
+          return yield* Effect.fail(partitionDomainValidationError(
+            `UniquePartitionOwnerError: ${claim.tableName}.${claim.ownerField} ${JSON.stringify(claim.ownerValue)} already belongs to document ${existing.document_id}.`,
+          ));
+        }
       }
-    }
-    return { claims: Array.from(claims.values()), releases: Array.from(releases.values()) };
+      return { claims: Array.from(claims.values()), releases: Array.from(releases.values()) };
+    });
   }
 
-  private validateDocumentPlacement(
+  private validateDocumentPlacementEffect(
     tableName: string,
     placement: TablePlacement,
     value: Json,
-  ): void {
+  ): Effect.Effect<void, PartitionDomainValidationError> {
     const placementField = ownerFieldForPlacement(placement);
-    if (placementField === null) return;
+    if (placementField === null) return Effect.void;
     const partitionKey = this.partitionKey();
     if (partitionKey === null) {
-      throw partitionDomainValidationError("Partition placement validation requires a cached partitionKey.");
+      return Effect.fail(partitionDomainValidationError("Partition placement validation requires a cached partitionKey."));
     }
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-      throw partitionDomainValidationError(
+      return Effect.fail(partitionDomainValidationError(
         `PlacementValidationError: $document(${tableName}) must be an object for placement validation.`,
-      );
+      ));
     }
     const placementValue = value[placementField];
     if (typeof placementValue !== "string" || placementValue.length === 0) {
-      throw partitionDomainValidationError(
+      return Effect.fail(partitionDomainValidationError(
         `PlacementValidationError: $document(${tableName}).${placementField} must be a non-empty string matching partitionKey.`,
-      );
+      ));
     }
     if (placementValue !== partitionKey) {
-      throw partitionDomainValidationError(
+      return Effect.fail(partitionDomainValidationError(
         `PlacementValidationError: $document(${tableName}).${placementField} must match partitionKey ${partitionKey}.`,
-      );
+      ));
     }
+    return Effect.void;
   }
 
   private validateId(expectedTableName: string, id: string, path: string): void {
@@ -585,65 +610,68 @@ export class PartitionDO extends DurableObject<Env> {
     }
   }
 
-  private applyDocumentWrite(
+  private applyDocumentWriteEffect(
     write: ResolvedDocumentWrite,
     commitTs: number,
-  ): { write: CommittedWrite; indexWrites: IndexWrite[] } {
-    const id = write.id;
-    const previous = this.getCurrentDocument(write.tableId, id);
-    const prevTs = previous?.ts ?? null;
-    const indexWrites: IndexWrite[] = [];
+  ): Effect.Effect<{ write: CommittedWrite; indexWrites: IndexWrite[] }, unknown> {
+    const self = this;
+    return Effect.gen(function* () {
+      const id = write.id;
+      const previous = yield* self.getCurrentDocumentEffect(write.tableId, id);
+      const prevTs = previous?.ts ?? null;
+      const indexWrites: IndexWrite[] = [];
 
-    if (previous) {
-      indexWrites.push(...this.deleteIndexEntries(write.tableId, id, previous.value, commitTs));
-    }
+      if (previous) {
+        indexWrites.push(...(yield* self.deleteIndexEntriesEffect(write.tableId, id, previous.value, commitTs)));
+      }
 
-    this.sql.exec(
-      `
-      INSERT INTO documents (table_id, id, ts, json_value, deleted, prev_ts)
-      VALUES (?, ?, ?, ?, ?, ?)
-      `,
-      write.tableId,
-      id,
-      commitTs,
-      write.value === null ? null : JSON.stringify(write.value),
-      write.value === null ? 1 : 0,
-      prevTs,
-    );
-
-    if (write.value === null) {
-      this.sql.exec(
-        "DELETE FROM current_documents WHERE table_id = ? AND id = ?",
-        write.tableId,
-        id,
-      );
-    } else {
-      this.sql.exec(
+      self.sql.exec(
         `
-        INSERT INTO current_documents (table_id, id, ts, json_value)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(table_id, id) DO UPDATE SET
-          ts = excluded.ts,
-          json_value = excluded.json_value
+        INSERT INTO documents (table_id, id, ts, json_value, deleted, prev_ts)
+        VALUES (?, ?, ?, ?, ?, ?)
         `,
         write.tableId,
         id,
         commitTs,
-        JSON.stringify(write.value),
-      );
-      indexWrites.push(...this.insertIndexEntries(write.tableId, id, write.value, commitTs));
-    }
-
-    return {
-      write: {
-        tableId: write.tableId,
-        id,
+        write.value === null ? null : JSON.stringify(write.value),
+        write.value === null ? 1 : 0,
         prevTs,
-        ts: commitTs,
-        value: write.value,
-      },
-      indexWrites,
-    };
+      );
+
+      if (write.value === null) {
+        self.sql.exec(
+          "DELETE FROM current_documents WHERE table_id = ? AND id = ?",
+          write.tableId,
+          id,
+        );
+      } else {
+        self.sql.exec(
+          `
+          INSERT INTO current_documents (table_id, id, ts, json_value)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(table_id, id) DO UPDATE SET
+            ts = excluded.ts,
+            json_value = excluded.json_value
+          `,
+          write.tableId,
+          id,
+          commitTs,
+          JSON.stringify(write.value),
+        );
+        indexWrites.push(...(yield* self.insertIndexEntriesEffect(write.tableId, id, write.value, commitTs)));
+      }
+
+      return {
+        write: {
+          tableId: write.tableId,
+          id,
+          prevTs,
+          ts: commitTs,
+          value: write.value,
+        },
+        indexWrites,
+      };
+    });
   }
 
   private applyPartitionOwnerChanges(changes: PartitionOwnerChanges, commitTs: number): void {
@@ -682,39 +710,59 @@ export class PartitionDO extends DurableObject<Env> {
     }
   }
 
-  private validateReadSet(readSet: ReadSet, beginTs: number, currentTs: number): void {
-    if (beginTs === currentTs) return;
-    const rows = this.sql
-      .exec<WriteLogRow>(
-        `
-        SELECT ts, writes_json, index_writes_json
-        FROM write_log
-        WHERE ts > ? AND ts <= ?
-        ORDER BY ts ASC
-        `,
-        beginTs,
-        currentTs,
-      )
-      .toArray();
-    const conflict = findReadSetConflict(
-      readSet,
-      rows.map(row => ({
-        ts: row.ts,
-        writes: decodePartitionStorageCommittedWritesJsonSync(row.writes_json),
-        indexWrites: decodePartitionStorageIndexWritesJsonSync(row.index_writes_json),
+  private validateReadSetEffect(
+    readSet: ReadSet,
+    beginTs: number,
+    currentTs: number,
+  ): Effect.Effect<void, unknown> {
+    if (beginTs === currentTs) return Effect.void;
+    const self = this;
+    return Effect.gen(function* () {
+      const rows = self.sql
+        .exec<WriteLogRow>(
+          `
+          SELECT ts, writes_json, index_writes_json
+          FROM write_log
+          WHERE ts > ? AND ts <= ?
+          ORDER BY ts ASC
+          `,
+          beginTs,
+          currentTs,
+        )
+        .toArray();
+      const writeLog = yield* Effect.forEach(rows, row =>
+        Effect.gen(function* () {
+          const writes = yield* decodePartitionStorageCommittedWritesJson(row.writes_json);
+          const indexWrites = yield* decodePartitionStorageIndexWritesJson(row.index_writes_json);
+          return {
+            ts: row.ts,
+            writes,
+            indexWrites,
+          };
+        }),
+      );
+      const conflict = findReadSetConflict(
+        readSet,
+        writeLog,
+      );
+      if (conflict) return yield* Effect.fail(conflict);
+    });
+  }
+
+  private readDocumentEffect(
+    tableId: number,
+    id: string,
+    at: number,
+  ): Effect.Effect<DocumentReadResponse, unknown> {
+    return this.getDocumentAtEffect(tableId, id, at).pipe(
+      Effect.map(document => ({
+        document,
+        readSet: { documents: [{ tableId, id }] },
       })),
     );
-    if (conflict) throw conflict;
   }
 
-  private readDocument(tableId: number, id: string, at: number): DocumentReadResponse {
-    return {
-      document: this.getDocumentAt(tableId, id, at),
-      readSet: { documents: [{ tableId, id }] },
-    };
-  }
-
-  private readIndex(
+  private readIndexEffect(
     indexId: number,
     at: number,
     lower?: string,
@@ -722,21 +770,24 @@ export class PartitionDO extends DurableObject<Env> {
     limit = 100,
     cursor?: string,
     order: "asc" | "desc" = "asc",
-  ): IndexReadResponse {
+  ): Effect.Effect<IndexReadResponse, unknown> {
     const read = { indexId, ...(lower === undefined ? {} : { lower }), ...(upper === undefined ? {} : { upper }) };
     const pageLimit = Math.max(1, Math.min(limit, 1000));
-    const entries = this.queryIndexAt(indexId, at, lower, upper, pageLimit + 1, cursor, order);
-    const isDone = entries.length <= pageLimit;
-    const page = entries.slice(0, pageLimit);
-    return {
-      entries: page,
-      readSet: { indexes: [read] },
-      isDone,
-      continueCursor: page.at(-1)?.key ?? cursor ?? "",
-    };
+    return this.queryIndexAtEffect(indexId, at, lower, upper, pageLimit + 1, cursor, order).pipe(
+      Effect.map(entries => {
+        const isDone = entries.length <= pageLimit;
+        const page = entries.slice(0, pageLimit);
+        return {
+          entries: page,
+          readSet: { indexes: [read] },
+          isDone,
+          continueCursor: page.at(-1)?.key ?? cursor ?? "",
+        };
+      }),
+    );
   }
 
-  private queryIndexAt(
+  private queryIndexAtEffect(
     indexId: number,
     at: number,
     lower?: string,
@@ -744,215 +795,255 @@ export class PartitionDO extends DurableObject<Env> {
     limit = 100,
     cursor?: string,
     order: "asc" | "desc" = "asc",
-  ): Array<{ key: string; document: StoredDocument }> {
+  ): Effect.Effect<Array<{ key: string; document: StoredDocument }>, unknown> {
     const boundedLimit = Math.max(1, Math.min(limit, 1001));
     const cursorOperator = order === "asc" ? ">" : "<";
     const orderSql = order === "asc" ? "ASC" : "DESC";
-    const rows = this.sql
-      .exec<{ key: string; document_id: string }>(
-        `
-        SELECT latest.key, latest.document_id
-        FROM index_entries AS latest
-        JOIN (
-          SELECT index_id, key, document_id, MAX(ts) AS max_ts
-          FROM index_entries
-          WHERE index_id = ?
-            AND ts <= ?
-            AND (? IS NULL OR key >= ?)
-            AND (? IS NULL OR key < ?)
-          GROUP BY index_id, key, document_id
-        ) AS grouped
-          ON grouped.index_id = latest.index_id
-         AND grouped.key = latest.key
-         AND grouped.document_id = latest.document_id
-         AND grouped.max_ts = latest.ts
-        WHERE latest.deleted = 0
-          AND (? IS NULL OR latest.key ${cursorOperator} ?)
-        ORDER BY latest.key ${orderSql}
-        LIMIT ?
-        `,
-        indexId,
-        at,
-        lower ?? null,
-        lower ?? null,
-        upper ?? null,
-        upper ?? null,
-        cursor ?? null,
-        cursor ?? null,
-        boundedLimit,
-      )
-      .toArray();
-    return rows
-      .map(row => ({ key: row.key, document: this.getDocumentByIdAt(row.document_id, at) }))
-      .filter(
+    const self = this;
+    return Effect.gen(function* () {
+      const rows = self.sql
+        .exec<{ key: string; document_id: string }>(
+          `
+          SELECT latest.key, latest.document_id
+          FROM index_entries AS latest
+          JOIN (
+            SELECT index_id, key, document_id, MAX(ts) AS max_ts
+            FROM index_entries
+            WHERE index_id = ?
+              AND ts <= ?
+              AND (? IS NULL OR key >= ?)
+              AND (? IS NULL OR key < ?)
+            GROUP BY index_id, key, document_id
+          ) AS grouped
+            ON grouped.index_id = latest.index_id
+           AND grouped.key = latest.key
+           AND grouped.document_id = latest.document_id
+           AND grouped.max_ts = latest.ts
+          WHERE latest.deleted = 0
+            AND (? IS NULL OR latest.key ${cursorOperator} ?)
+          ORDER BY latest.key ${orderSql}
+          LIMIT ?
+          `,
+          indexId,
+          at,
+          lower ?? null,
+          lower ?? null,
+          upper ?? null,
+          upper ?? null,
+          cursor ?? null,
+          cursor ?? null,
+          boundedLimit,
+        )
+        .toArray();
+      const entries = yield* Effect.forEach(rows, row =>
+        self.getDocumentByIdAtEffect(row.document_id, at).pipe(
+          Effect.map(document => ({ key: row.key, document })),
+        ),
+      );
+      return entries.filter(
         (entry): entry is { key: string; document: StoredDocument } => entry.document !== null,
       );
-  }
-
-  private getCurrentDocument(tableId: number, id: string): StoredDocument | null {
-    const row = this.sql
-      .exec<CurrentDocumentRow>(
-        `
-        SELECT table_id, id, ts, json_value
-        FROM current_documents
-        WHERE table_id = ? AND id = ?
-        `,
-        tableId,
-        id,
-      )
-      .toArray()[0];
-    return row
-      ? {
-          tableId: row.table_id,
-          id: row.id,
-          ts: row.ts,
-          value: decodePartitionStorageDocumentJsonSync(row.json_value),
-        }
-      : null;
-  }
-
-  private getDocumentByIdAt(id: string, at: number): StoredDocument | null {
-    const row = this.sql
-      .exec<{
-        table_id: number;
-        id: string;
-        ts: number;
-        json_value: string | null;
-        deleted: number;
-      }>(
-        `
-        SELECT table_id, id, ts, json_value, deleted
-        FROM documents
-        WHERE id = ? AND ts <= ?
-        ORDER BY ts DESC
-        LIMIT 1
-        `,
-        id,
-        at,
-      )
-      .toArray()[0];
-    if (!row || row.deleted) return null;
-    return {
-      tableId: row.table_id,
-      id: row.id,
-      ts: row.ts,
-      value: decodePartitionStorageDocumentJsonSync(row.json_value ?? "null"),
-    };
-  }
-
-  private getDocumentAt(tableId: number, id: string, at: number): StoredDocument | null {
-    const row = this.sql
-      .exec<{
-        table_id: number;
-        id: string;
-        ts: number;
-        json_value: string | null;
-        deleted: number;
-      }>(
-        `
-        SELECT table_id, id, ts, json_value, deleted
-        FROM documents
-        WHERE table_id = ? AND id = ? AND ts <= ?
-        ORDER BY ts DESC
-        LIMIT 1
-        `,
-        tableId,
-        id,
-        at,
-      )
-      .toArray()[0];
-    if (!row || row.deleted) return null;
-    return {
-      tableId: row.table_id,
-      id: row.id,
-      ts: row.ts,
-      value: decodePartitionStorageDocumentJsonSync(row.json_value ?? "null"),
-    };
-  }
-
-  private insertIndexEntries(
-    tableId: number,
-    documentId: string,
-    value: Json,
-    ts: number,
-  ): IndexWrite[] {
-    return this.indexesForTable(tableId).map(index => {
-      const key = indexKeyForDocument(index, value, documentId);
-      this.sql.exec(
-        `
-        INSERT INTO index_entries (index_id, key, document_id, ts, deleted)
-        VALUES (?, ?, ?, ?, 0)
-        `,
-        index.indexId,
-        key,
-        documentId,
-        ts,
-      );
-      this.sql.exec(
-        `
-        INSERT INTO current_index_entries (index_id, key, document_id, ts)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(index_id, key, document_id) DO UPDATE SET ts = excluded.ts
-        `,
-        index.indexId,
-        key,
-        documentId,
-        ts,
-      );
-      return { indexId: index.indexId, key, documentId, deleted: false };
     });
   }
 
-  private deleteIndexEntries(
+  private getCurrentDocumentEffect(
     tableId: number,
-    documentId: string,
-    value: Json,
-    ts: number,
-  ): IndexWrite[] {
-    return this.indexesForTable(tableId).map(index => {
-      const key = indexKeyForDocument(index, value, documentId);
-      this.sql.exec(
-        `
-        INSERT INTO index_entries (index_id, key, document_id, ts, deleted)
-        VALUES (?, ?, ?, ?, 1)
-        `,
-        index.indexId,
-        key,
-        documentId,
-        ts,
-      );
-      this.sql.exec(
-        `
-        DELETE FROM current_index_entries
-        WHERE index_id = ? AND key = ? AND document_id = ?
-        `,
-        index.indexId,
-        key,
-        documentId,
-      );
-      return { indexId: index.indexId, key, documentId, deleted: true };
-    });
-  }
-
-  private indexesForTable(tableId: number): SchemaIndex[] {
-    return this.sql
-      .exec<IndexRow>(
-        `
-        SELECT index_id, table_id, index_name, fields_json, state
-        FROM indexes
-        WHERE table_id = ? AND state = 'enabled'
-        ORDER BY index_id
-        `,
-        tableId,
-      )
-      .toArray()
-      .map(row => ({
-        indexId: row.index_id,
+    id: string,
+  ): Effect.Effect<StoredDocument | null, unknown> {
+    const self = this;
+    return Effect.gen(function* () {
+      const row = self.sql
+        .exec<CurrentDocumentRow>(
+          `
+          SELECT table_id, id, ts, json_value
+          FROM current_documents
+          WHERE table_id = ? AND id = ?
+          `,
+          tableId,
+          id,
+        )
+        .toArray()[0];
+      if (!row) return null;
+      const value = yield* decodePartitionStorageDocumentJson(row.json_value);
+      return {
         tableId: row.table_id,
-        name: row.index_name,
-        fields: decodePartitionStorageIndexFieldsJsonSync(row.fields_json),
-        state: row.state as NonNullable<SchemaIndex["state"]>,
-      }));
+        id: row.id,
+        ts: row.ts,
+        value,
+      };
+    });
+  }
+
+  private getDocumentByIdAtEffect(
+    id: string,
+    at: number,
+  ): Effect.Effect<StoredDocument | null, unknown> {
+    const self = this;
+    return Effect.gen(function* () {
+      const row = self.sql
+        .exec<{
+          table_id: number;
+          id: string;
+          ts: number;
+          json_value: string | null;
+          deleted: number;
+        }>(
+          `
+          SELECT table_id, id, ts, json_value, deleted
+          FROM documents
+          WHERE id = ? AND ts <= ?
+          ORDER BY ts DESC
+          LIMIT 1
+          `,
+          id,
+          at,
+        )
+        .toArray()[0];
+      if (!row || row.deleted) return null;
+      const value = yield* decodePartitionStorageDocumentJson(row.json_value ?? "null");
+      return {
+        tableId: row.table_id,
+        id: row.id,
+        ts: row.ts,
+        value,
+      };
+    });
+  }
+
+  private getDocumentAtEffect(
+    tableId: number,
+    id: string,
+    at: number,
+  ): Effect.Effect<StoredDocument | null, unknown> {
+    const self = this;
+    return Effect.gen(function* () {
+      const row = self.sql
+        .exec<{
+          table_id: number;
+          id: string;
+          ts: number;
+          json_value: string | null;
+          deleted: number;
+        }>(
+          `
+          SELECT table_id, id, ts, json_value, deleted
+          FROM documents
+          WHERE table_id = ? AND id = ? AND ts <= ?
+          ORDER BY ts DESC
+          LIMIT 1
+          `,
+          tableId,
+          id,
+          at,
+        )
+        .toArray()[0];
+      if (!row || row.deleted) return null;
+      const value = yield* decodePartitionStorageDocumentJson(row.json_value ?? "null");
+      return {
+        tableId: row.table_id,
+        id: row.id,
+        ts: row.ts,
+        value,
+      };
+    });
+  }
+
+  private insertIndexEntriesEffect(
+    tableId: number,
+    documentId: string,
+    value: Json,
+    ts: number,
+  ): Effect.Effect<IndexWrite[], unknown> {
+    return this.indexesForTableEffect(tableId).pipe(
+      Effect.map(indexes => indexes.map(index => {
+        const key = indexKeyForDocument(index, value, documentId);
+        this.sql.exec(
+          `
+          INSERT INTO index_entries (index_id, key, document_id, ts, deleted)
+          VALUES (?, ?, ?, ?, 0)
+          `,
+          index.indexId,
+          key,
+          documentId,
+          ts,
+        );
+        this.sql.exec(
+          `
+          INSERT INTO current_index_entries (index_id, key, document_id, ts)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(index_id, key, document_id) DO UPDATE SET ts = excluded.ts
+          `,
+          index.indexId,
+          key,
+          documentId,
+          ts,
+        );
+        return { indexId: index.indexId, key, documentId, deleted: false };
+      })),
+    );
+  }
+
+  private deleteIndexEntriesEffect(
+    tableId: number,
+    documentId: string,
+    value: Json,
+    ts: number,
+  ): Effect.Effect<IndexWrite[], unknown> {
+    return this.indexesForTableEffect(tableId).pipe(
+      Effect.map(indexes => indexes.map(index => {
+        const key = indexKeyForDocument(index, value, documentId);
+        this.sql.exec(
+          `
+          INSERT INTO index_entries (index_id, key, document_id, ts, deleted)
+          VALUES (?, ?, ?, ?, 1)
+          `,
+          index.indexId,
+          key,
+          documentId,
+          ts,
+        );
+        this.sql.exec(
+          `
+          DELETE FROM current_index_entries
+          WHERE index_id = ? AND key = ? AND document_id = ?
+          `,
+          index.indexId,
+          key,
+          documentId,
+        );
+        return { indexId: index.indexId, key, documentId, deleted: true };
+      })),
+    );
+  }
+
+  private indexesForTableEffect(tableId: number): Effect.Effect<SchemaIndex[], unknown> {
+    const self = this;
+    return Effect.gen(function* () {
+      const rows = self.sql
+        .exec<IndexRow>(
+          `
+          SELECT index_id, table_id, index_name, fields_json, state
+          FROM indexes
+          WHERE table_id = ? AND state = 'enabled'
+          ORDER BY index_id
+          `,
+          tableId,
+        )
+        .toArray();
+      return yield* Effect.forEach(rows, row =>
+        Effect.gen(function* () {
+          const fields = yield* decodePartitionStorageIndexFieldsJson(row.fields_json);
+          const state = yield* enabledIndexStateFromStorage(row.state);
+          return {
+            indexId: row.index_id,
+            tableId: row.table_id,
+            name: row.index_name,
+            fields,
+            state,
+          };
+        }),
+      );
+    });
   }
 
   private currentTs(): number {
@@ -996,11 +1087,11 @@ interface PartitionRouteHandlers {
   currentTs(): number;
   putSchemaCache(body: PartitionSchemaCacheRequest): Promise<{ schemaVersion: number }>;
   begin(): BeginResponse;
-  commit(body: CommitRequest): Promise<CommitResponse>;
+  commit(body: CommitRequest): Effect.Effect<CommitResponse, unknown, never>;
   registerSubscription(body: PartitionSubscriptionRegistrationRequest): { registered: true };
   unregisterSubscription(body: PartitionSubscriptionTargetRequest): { unregistered: true };
   unregisterConnection(body: PartitionConnectionUnregisterRequest): { unregistered: true };
-  readDocument(tableId: number, id: string, at: number): DocumentReadResponse;
+  readDocument(tableId: number, id: string, at: number): Effect.Effect<DocumentReadResponse, unknown, never>;
   readIndex(
     indexId: number,
     at: number,
@@ -1009,7 +1100,7 @@ interface PartitionRouteHandlers {
     limit: number,
     cursor: string | undefined,
     order: "asc" | "desc",
-  ): IndexReadResponse;
+  ): Effect.Effect<IndexReadResponse, unknown, never>;
 }
 
 const routePartitionDurableObject = Effect.fn("PartitionDO.route")(
@@ -1114,14 +1205,18 @@ const routePartitionSchemaCache = Effect.fn("PartitionDO.routeSchemaCache")(
     putSchemaCache: (body: PartitionSchemaCacheRequest) => Promise<{ schemaVersion: number }>,
   ) {
     const body = yield* decodePartitionSchemaCacheRequest(request);
-    return yield* routePartitionJsonResult("schema-cache", () => putSchemaCache(body));
+    return yield* routePartitionJsonResult("schema-cache", () =>
+      Effect.tryPromise({
+        try: () => putSchemaCache(body),
+        catch: cause => cause,
+      }));
   },
 );
 
 const routePartitionCommit = Effect.fn("PartitionDO.routeCommit")(
   function* (
     request: Request,
-    commit: (body: CommitRequest) => Promise<CommitResponse>,
+    commit: (body: CommitRequest) => Effect.Effect<CommitResponse, unknown, never>,
   ) {
     const body = yield* decodePartitionCommitRequest(request);
     return yield* routePartitionJsonResult(
@@ -1142,7 +1237,10 @@ const routePartitionSubscriptionRegistration = Effect.fn("PartitionDO.routeSubsc
     const body = yield* decodePartitionSubscriptionRegistrationRequest(request);
     return yield* routePartitionJsonResult(
       "subscription-register",
-      () => registerSubscription(body),
+      () => Effect.try({
+        try: () => registerSubscription(body),
+        catch: cause => cause,
+      }),
     );
   },
 );
@@ -1157,7 +1255,10 @@ const routePartitionSubscriptionUnregister = Effect.fn("PartitionDO.routeSubscri
     const body = yield* decodePartitionSubscriptionTargetRequest(request);
     return yield* routePartitionJsonResult(
       "subscription-unregister",
-      () => unregisterSubscription(body),
+      () => Effect.try({
+        try: () => unregisterSubscription(body),
+        catch: cause => cause,
+      }),
     );
   },
 );
@@ -1172,7 +1273,10 @@ const routePartitionConnectionUnregister = Effect.fn("PartitionDO.routeConnectio
     const body = yield* decodePartitionConnectionUnregisterRequest(request);
     return yield* routePartitionJsonResult(
       "connection-unregister",
-      () => unregisterConnection(body),
+      () => Effect.try({
+        try: () => unregisterConnection(body),
+        catch: cause => cause,
+      }),
     );
   },
 );
@@ -1208,15 +1312,28 @@ type PartitionInternalRouteError =
 
 function routePartitionJsonResult<A extends Json | object>(
   operation: PartitionRouteOperation,
-  execute: () => A | Promise<A>,
+  execute: () => Effect.Effect<A, unknown, never>,
   init?: (value: A) => ResponseInit,
 ): Effect.Effect<Response, PartitionRouteOperationError> {
-  return Effect.tryPromise({
-    try: async () => {
-      const value = await execute();
-      return json(value, init?.(value));
-    },
+  return Effect.try({
+    try: execute,
     catch: cause => partitionRouteOperationError(operation, cause),
+  }).pipe(
+    Effect.flatMap(effect => effect.pipe(
+      Effect.mapError(cause => partitionRouteOperationError(operation, cause)),
+      Effect.map(value => json(value, init?.(value))),
+    )),
+  );
+}
+
+function runPartitionStorageTransactionEffect<A>(
+  ctx: DurableObjectState,
+  effect: Effect.Effect<A, unknown, never>,
+): Effect.Effect<A, unknown> {
+  return Effect.tryPromise({
+    // Cloudflare storage transactions require a Promise-returning callback for rollback semantics.
+    try: () => ctx.storage.transaction(() => Effect.runPromise(effect)),
+    catch: cause => cause,
   });
 }
 
@@ -1289,6 +1406,13 @@ function partitionDomainValidationError(message: string): PartitionDomainValidat
     status: 400,
     message,
   });
+}
+
+function enabledIndexStateFromStorage(
+  state: string,
+): Effect.Effect<NonNullable<SchemaIndex["state"]>, PartitionDomainValidationError> {
+  if (state === "enabled") return Effect.succeed(state);
+  return Effect.fail(partitionDomainValidationError(`Expected enabled index row, got ${state}.`));
 }
 
 function ownerFieldForPlacement(placement: TablePlacement): string | null {

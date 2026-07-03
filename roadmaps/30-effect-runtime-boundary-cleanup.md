@@ -27,7 +27,6 @@ Production `Effect.runSync` occurrences by file:
 | Count | File | Treatment |
 | ---: | --- | --- |
 | 16 | `packages/flarex-backend/src/invoke.ts` | Convert domain helpers and validation branches to Effect-first composition. |
-| 8 | `packages/flarex-backend/src/partition/StorageRows.ts` | Remove `*Sync` JSON decode wrappers and make `PartitionDO` compose decoders through Effects. |
 | 3 | `packages/flarex-backend/src/transaction.ts` | Remove sync mutation facades or restrict them to tests by converting test seeding to Effect helpers. |
 | 2 | `packages/flarex-backend/src/liveQueryDelivery.ts` | Convert live-query body/response helpers to Effect-returning functions. |
 
@@ -61,7 +60,7 @@ boundary remains inside reusable helpers.
     - `corepack pnpm --filter flarex-protocol test`
     - affected backend/dev/executor typechecks
     - `git diff --check`
-- [ ] G-3. Convert partition storage row decoding to Effect-first flow.
+- [x] G-3. Convert partition storage row decoding to Effect-first flow.
   - Delete `decodePartitionStorage*JsonSync` wrappers.
   - Thread typed storage decode errors through `PartitionDO` methods.
   - Preserve OCC/SQL semantics and storage row JSON formats.
@@ -119,38 +118,35 @@ a small required fix.
 
 ## Current Checkpoint
 
-Status: G-2 completed. G-3 is next.
+Status: G-3 completed. G-4 is next.
 
-Previous completed checkpoint: `5ee190e` (`Start Effect runtime boundary
-cleanup`).
+Previous completed checkpoint: `2d7b1db` (`Remove protocol sync decoder
+exports`).
 
 What changed:
 
-- Removed all production sync parser exports from `flarex-protocol`
-  deployment, registry, execution, and invoke modules.
-- Kept the protocol package Effect-first by exposing `decode*Effect` as the
-  production API instead of `Effect.runSync` facades.
-- Updated protocol tests to run Effect decoders directly.
-- Updated backend route-boundary, handler, push, registry, and lifecycle
-  tests to consume Effect decoders without restoring protocol sync exports.
-- Resolved reviewer feedback by renaming backend test-boundary helpers to
-  `decode*ForTest` and running them through `Effect.runPromise`.
-- Tightened the invoke protocol optional-`args` test to assert omitted output
-  rather than accepting an `undefined` property.
-- Reconfirmed that `packages/flarex-protocol/src` has no `Effect.runSync` or
-  exported `parse*` wrappers.
+- Removed all `decodePartitionStorage*JsonSync` wrappers from
+  `packages/flarex-backend/src/partition/StorageRows.ts`.
+- Converted `PartitionDO` commit, OCC validation, subscription invalidation,
+  document lookup, index lookup, and index metadata loading to compose the
+  Effect row decoders directly.
+- Kept SQL write ordering, idempotency replay, OCC conflict detection,
+  subscription invalidation, document read, and index read behavior intact.
+- Made the new `*Effect` helpers lazy so SQL reads and row decode failures are
+  both inside the Effect contract.
+- Resolved reviewer feedback by wrapping `routePartitionJsonResult` effect
+  construction, replacing the changed-code index-state cast with a real
+  narrower, and extracting the Cloudflare storage transaction Promise bridge
+  into `runPartitionStorageTransactionEffect`.
+- Reconfirmed that the partition storage/DO slice has no `Effect.runSync`,
+  `decodePartitionStorage*JsonSync`, or index-state `as` cast.
 
 Verification:
 
 ```sh
-rg -n "Effect\\.runSync|export function parse[A-Za-z0-9]+\\(" packages/flarex-protocol/src -g "*.ts"
-rg -n "parse(ActiveDeploymentStatus|AnalyzedStartPushRequest|DeploymentErrorResponse|DeploymentHealthResponse|FinishPushResponse|PushStatus|DeploymentRecord|ListDeploymentsResponse|RegistryHealthResponse|RegistryStorageErrorResponse)" packages/flarex-backend/test -g "*.ts"
-corepack pnpm --filter flarex-protocol typecheck
-corepack pnpm --filter flarex-protocol test
+rg -n "Effect\\.runSync|decodePartitionStorage[A-Za-z0-9]+JsonSync|state as NonNullable<SchemaIndex" packages/flarex-backend/src/partition packages/flarex-backend/src/partitionDO.ts -g "*.ts"
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter executor-http typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/deploymentHttpApiHandlers.test.ts test/deploymentHttpApiRouteBoundary.test.ts test/push.test.ts test/registryDO.test.ts test/registryHttpApiHandlers.test.ts test/registryHttpApiRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
-corepack pnpm --filter flarex-dev exec vitest run test/artifactLifecycleParity.test.ts test/backendSyncRuntime.test.ts test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/partitionStorageRows.test.ts test/partitionRouteBoundary.test.ts test/partitionFlow.test.ts test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/invoke.test.ts test/invokeRequests.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 git diff --check
 ```

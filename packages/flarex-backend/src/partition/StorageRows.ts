@@ -191,38 +191,6 @@ export const decodePartitionStorageIndexFieldsJson = Effect.fn(
   return Array.from(decoded);
 });
 
-export function decodePartitionStorageCommitResponseJsonSync(raw: string): CommitResponse {
-  return Effect.runSync(decodePartitionStorageCommitResponseJson(raw));
-}
-
-export function decodePartitionStorageReadSetJsonSync(raw: string): ReadSet {
-  return Effect.runSync(decodePartitionStorageReadSetJson(raw));
-}
-
-export function decodePartitionStorageTablePlacementJsonSync(raw: string): TablePlacement {
-  return Effect.runSync(decodePartitionStorageTablePlacementJson(raw));
-}
-
-export function decodePartitionStorageTableValidatorJsonSync(raw: string): ValidatorJson | null {
-  return Effect.runSync(decodePartitionStorageTableValidatorJson(raw));
-}
-
-export function decodePartitionStorageCommittedWritesJsonSync(raw: string): CommittedWrite[] {
-  return Effect.runSync(decodePartitionStorageCommittedWritesJson(raw));
-}
-
-export function decodePartitionStorageIndexWritesJsonSync(raw: string): IndexWrite[] {
-  return Effect.runSync(decodePartitionStorageIndexWritesJson(raw));
-}
-
-export function decodePartitionStorageDocumentJsonSync(raw: string): Json {
-  return Effect.runSync(decodePartitionStorageDocumentJson(raw));
-}
-
-export function decodePartitionStorageIndexFieldsJsonSync(raw: string): string[] {
-  return Effect.runSync(decodePartitionStorageIndexFieldsJson(raw));
-}
-
 function parsePartitionStorageJson(
   raw: string,
   operation: PartitionStorageJsonOperation,
