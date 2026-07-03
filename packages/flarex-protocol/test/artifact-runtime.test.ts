@@ -2,7 +2,10 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   decodeExecutionArtifactInvokePayloadBodyEffect,
+  executionArtifactInvokePayload,
   ExecutionArtifactInvokePayloadError,
+  materializedExecutionArtifactInvokePayload,
+  type MaterializedExecutionArtifactInvokePayload,
 } from "../src/artifact-runtime";
 
 describe("artifact runtime protocol payload decoders", () => {
@@ -12,6 +15,32 @@ describe("artifact runtime protocol payload decoders", () => {
     await expect(Effect.runPromise(decodeExecutionArtifactInvokePayloadBodyEffect(payload)))
       .resolves
       .toEqual(payload);
+  });
+
+  it("builds ref-only execution artifact invoke payloads", () => {
+    const payload = executionArtifactInvokePayload({
+      deploymentId: "deployment-a",
+      ref: testPayload().ref,
+      request: testPayload().request,
+    });
+
+    expect(payload).toEqual({
+      deploymentId: "deployment-a",
+      ref: testPayload().ref,
+      request: testPayload().request,
+    });
+    expect(Object.prototype.hasOwnProperty.call(payload, "sourcePackage")).toBe(false);
+  });
+
+  it("builds materialized execution artifact invoke payloads with source packages", () => {
+    const payload = materializedExecutionArtifactInvokePayload({
+      deploymentId: "deployment-a",
+      ref: testPayload().ref,
+      sourcePackage: testPayload().sourcePackage,
+      request: testPayload().request,
+    });
+
+    expect(payload).toEqual(testPayload());
   });
 
   it("keeps execution artifact invoke payload failures typed", async () => {
@@ -72,7 +101,7 @@ describe("artifact runtime protocol payload decoders", () => {
   });
 });
 
-function testPayload() {
+function testPayload(): MaterializedExecutionArtifactInvokePayload {
   return {
     deploymentId: "deployment-a",
     ref: {

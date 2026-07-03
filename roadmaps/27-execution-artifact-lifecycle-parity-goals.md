@@ -21,7 +21,7 @@ Goal status:
     step, using the shared artifact runtime host kit as the foundation.
 - [x] G-2. L-1 shared artifact ref/source-package validation.
   - Commit: `e482969` (`Share execution artifact ref validation`)
-- [ ] G-3. L-2 shared artifact lifecycle payload helper.
+- [x] G-3. L-2 shared artifact lifecycle payload helper.
 - [ ] G-4. L-3 local dev lifecycle alignment.
 - [ ] G-5. L-4 hosted deploy/push lifecycle alignment.
 - [ ] G-6. L-5 cross-boundary lifecycle parity tests.
@@ -49,6 +49,44 @@ Every implementation turn in this goal should follow this loop:
 10. Commit the completed slice.
 
 ## Current Slice
+
+### G-3 / L-2: Shared Artifact Lifecycle Payload Helper
+
+Status: implemented in this turn; commit pending.
+
+Purpose:
+
+Make `flarex-protocol/artifact-runtime` own construction of the runtime invoke
+payload shape, including ref-only payloads and materialized payloads with
+`sourcePackage`. Backend service-binding runtime source loading stays backend
+owned, but the final object sent to the runtime binding now comes from shared
+protocol constructors.
+
+Files changed:
+
+- `packages/flarex-protocol/src/artifact-runtime.ts`
+- `packages/flarex-protocol/test/artifact-runtime.test.ts`
+- `packages/flarex-backend/src/artifactRuntime.ts`
+- `packages/flarex-backend/src/artifactRuntime/RuntimeRoute.ts`
+- this file
+- `roadmaps/26-execution-artifact-lifecycle-parity.md`
+
+Validation gates:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/artifact-runtime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts test/artifactRuntimeRequests.test.ts test/artifactRuntimeRoute.test.ts test/hostedRuntimeCore.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+git diff --check
+```
+
+Review gate:
+
+- Required because this changes shared protocol exports and backend runtime
+  payload construction.
+
+## Previous Slice
 
 ### G-2 / L-1: Shared Artifact Ref/Source-Package Validation
 
@@ -90,15 +128,16 @@ Review gate:
 
 ## Next Slice
 
-### G-3 / L-2: Shared Artifact Lifecycle Payload Helper
+### G-4 / L-3: Local Dev Lifecycle Alignment
 
-- [ ] Identify the current backend-only runtime invoke payload construction in
-  `packages/flarex-backend/src/artifactRuntime.ts`.
-- [ ] Extract a helper that produces the canonical runtime input from
-  `ExecutionArtifactRef`, `functionName`, `args`, and optional source package.
-- [ ] Update local/hosted call sites to consume that helper where the lifecycle
-  contract crosses package boundaries.
-- [ ] Add focused tests for with-source and ref-only materialization behavior.
+- [ ] Identify local dev runtime invoke/request construction paths that still
+  build lifecycle-shaped payloads directly.
+- [ ] Route local dev runtime construction through the shared protocol payload
+  helper where the lifecycle contract crosses package boundaries.
+- [ ] Keep Miniflare process setup, local file watching, and service-binding
+  dispatch dev-owned.
+- [ ] Add focused tests proving local runtime invokes use the same payload shape
+  as hosted runtime invokes.
 
 ## Completed Checkpoints
 

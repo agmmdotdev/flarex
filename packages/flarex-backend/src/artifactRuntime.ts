@@ -47,6 +47,12 @@ export {
   type InternalAuthIdentityOptions,
 } from "./artifactRuntime/HostKit.ts";
 import { Data, Effect, Schema } from "effect";
+import {
+  executionArtifactInvokePayload,
+  type ExecutionArtifactInvokePayloadFor,
+  materializedExecutionArtifactInvokePayload,
+  type MaterializedExecutionArtifactInvokePayloadFor,
+} from "flarex-protocol/artifact-runtime";
 import { InvokeResponseSchema, type InvokeResponse as ProtocolInvokeResponse } from "flarex-protocol/invoke";
 import {
   HttpError,
@@ -64,15 +70,18 @@ import type {
   ReadSet,
 } from "./types.ts";
 
-export type ExecutionArtifactInvokePayload = {
-  deploymentId: string;
-  ref: ActiveDeploymentStatus["executionArtifactRef"];
-  sourcePackage?: PushSourcePackage;
-  request: InvokeRequest;
-};
+export type ExecutionArtifactInvokePayload = ExecutionArtifactInvokePayloadFor<
+  ActiveDeploymentStatus["executionArtifactRef"],
+  InvokeRequest,
+  PushSourcePackage
+>;
 
 export type MaterializedExecutionArtifactPayload =
-  ExecutionArtifactInvokePayload & { sourcePackage: PushSourcePackage };
+  MaterializedExecutionArtifactInvokePayloadFor<
+    ActiveDeploymentStatus["executionArtifactRef"],
+    InvokeRequest,
+    PushSourcePackage
+  >;
 
 export type ExecutionArtifactQuerySessionRequest = {
   deploymentId: string;
@@ -283,14 +292,14 @@ function serviceBindingExecutionArtifactInvokePayloadEffect(
   request: InvokeRequest,
 ): Effect.Effect<ExecutionArtifactInvokePayload, ExecutionArtifactRuntimeOperationError> {
   if (options.sendSourcePackage === false) {
-    return Effect.succeed({
+    return Effect.succeed(executionArtifactInvokePayload({
       deploymentId: options.deploymentId,
       ref: deployment.executionArtifactRef,
       request,
-    });
+    }));
   }
   return Effect.tryPromise({
-    try: async () => ({
+    try: async () => materializedExecutionArtifactInvokePayload({
       deploymentId: options.deploymentId,
       ref: deployment.executionArtifactRef,
       sourcePackage: await options.store.get(deployment.executionArtifactRef),

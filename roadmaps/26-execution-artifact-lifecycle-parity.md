@@ -26,7 +26,7 @@ separate.
 - [x] L-1. Move execution artifact ref equality and source-package ref
   assertions into `flarex/artifacts`; make local in-memory, local durable, and
   backend durable stores use the same validation helper.
-- [ ] L-2. Extract a shared artifact lifecycle payload helper for
+- [x] L-2. Extract a shared artifact lifecycle payload helper for
   `ExecutionArtifactRef` plus optional `sourcePackage` materialization so local
   and hosted invocation paths build the same runtime input shape.
 - [ ] L-3. Align local dev push/runtime activation around the shared lifecycle

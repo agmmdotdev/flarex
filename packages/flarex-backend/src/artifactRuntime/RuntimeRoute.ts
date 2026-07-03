@@ -1,4 +1,5 @@
 import { Data, Effect } from "effect";
+import { materializedExecutionArtifactInvokePayload } from "flarex-protocol/artifact-runtime";
 import type { BackendExecutionArtifactStore } from "../artifactStore.ts";
 import {
   decodeExecutionArtifactInvokePayload,
@@ -136,7 +137,12 @@ function resolveSourcePackageEffect(
   ExecutionArtifactRuntimeMissingSourcePackageError | ExecutionArtifactRuntimeOperationError
 > {
   if (payload.sourcePackage !== undefined) {
-    return Effect.succeed(payload as MaterializedExecutionArtifactPayload);
+    return Effect.succeed(materializedExecutionArtifactInvokePayload({
+      deploymentId: payload.deploymentId,
+      ref: payload.ref,
+      sourcePackage: payload.sourcePackage,
+      request: payload.request,
+    }));
   }
   if (store === undefined) {
     return Effect.fail(new ExecutionArtifactRuntimeMissingSourcePackageError({
@@ -144,8 +150,10 @@ function resolveSourcePackageEffect(
     }));
   }
   return Effect.tryPromise({
-    try: async () => ({
-      ...payload,
+    try: async () => materializedExecutionArtifactInvokePayload({
+      deploymentId: payload.deploymentId,
+      ref: payload.ref,
+      request: payload.request,
       sourcePackage: await store.get(payload.ref),
     }),
     catch: cause => executionArtifactRuntimeOperationError("loadSourcePackage", cause),

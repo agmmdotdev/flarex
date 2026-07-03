@@ -17,12 +17,49 @@ export type ExecutionArtifactInvokeRequest = {
   idempotencyKey?: string;
 };
 
-export type ExecutionArtifactInvokePayload = {
+export type ExecutionArtifactInvokePayloadFor<
+  TRef extends ActiveDeploymentStatus["executionArtifactRef"] = ActiveDeploymentStatus["executionArtifactRef"],
+  TRequest extends ExecutionArtifactInvokeRequest = ExecutionArtifactInvokeRequest,
+  TSourcePackage extends PushSourcePackageType = PushSourcePackageType,
+> = {
   deploymentId: string;
-  ref: ActiveDeploymentStatus["executionArtifactRef"];
-  sourcePackage?: PushSourcePackageType;
-  request: ExecutionArtifactInvokeRequest;
+  ref: TRef;
+  sourcePackage?: TSourcePackage;
+  request: TRequest;
 };
+
+export type MaterializedExecutionArtifactInvokePayloadFor<
+  TRef extends ActiveDeploymentStatus["executionArtifactRef"] = ActiveDeploymentStatus["executionArtifactRef"],
+  TRequest extends ExecutionArtifactInvokeRequest = ExecutionArtifactInvokeRequest,
+  TSourcePackage extends PushSourcePackageType = PushSourcePackageType,
+> = ExecutionArtifactInvokePayloadFor<TRef, TRequest, TSourcePackage> & {
+  sourcePackage: TSourcePackage;
+};
+
+export type ExecutionArtifactInvokePayload = ExecutionArtifactInvokePayloadFor;
+
+export type MaterializedExecutionArtifactInvokePayload =
+  MaterializedExecutionArtifactInvokePayloadFor;
+
+export type ExecutionArtifactInvokePayloadOptions<
+  TRef extends ActiveDeploymentStatus["executionArtifactRef"] = ActiveDeploymentStatus["executionArtifactRef"],
+  TRequest extends ExecutionArtifactInvokeRequest = ExecutionArtifactInvokeRequest,
+  TSourcePackage extends PushSourcePackageType = PushSourcePackageType,
+> = {
+  readonly deploymentId: string;
+  readonly ref: TRef;
+  readonly request: TRequest;
+  readonly sourcePackage?: TSourcePackage | undefined;
+};
+
+export type MaterializedExecutionArtifactInvokePayloadOptions<
+  TRef extends ActiveDeploymentStatus["executionArtifactRef"] = ActiveDeploymentStatus["executionArtifactRef"],
+  TRequest extends ExecutionArtifactInvokeRequest = ExecutionArtifactInvokeRequest,
+  TSourcePackage extends PushSourcePackageType = PushSourcePackageType,
+> =
+  Omit<ExecutionArtifactInvokePayloadOptions<TRef, TRequest, TSourcePackage>, "sourcePackage"> & {
+    readonly sourcePackage: TSourcePackage;
+  };
 
 export class ExecutionArtifactInvokePayloadError extends Data.TaggedError(
   "ExecutionArtifactInvokePayloadError",
@@ -31,6 +68,36 @@ export class ExecutionArtifactInvokePayloadError extends Data.TaggedError(
 }> {}
 
 const decodeUnknownPushSourcePackage = Schema.decodeUnknownEffect(PushSourcePackage);
+
+export function executionArtifactInvokePayload<
+  TRef extends ActiveDeploymentStatus["executionArtifactRef"],
+  TRequest extends ExecutionArtifactInvokeRequest,
+  TSourcePackage extends PushSourcePackageType,
+>(
+  options: ExecutionArtifactInvokePayloadOptions<TRef, TRequest, TSourcePackage>,
+): ExecutionArtifactInvokePayloadFor<TRef, TRequest, TSourcePackage> {
+  return {
+    deploymentId: options.deploymentId,
+    ref: options.ref,
+    ...(options.sourcePackage === undefined ? {} : { sourcePackage: options.sourcePackage }),
+    request: options.request,
+  };
+}
+
+export function materializedExecutionArtifactInvokePayload<
+  TRef extends ActiveDeploymentStatus["executionArtifactRef"],
+  TRequest extends ExecutionArtifactInvokeRequest,
+  TSourcePackage extends PushSourcePackageType,
+>(
+  options: MaterializedExecutionArtifactInvokePayloadOptions<TRef, TRequest, TSourcePackage>,
+): MaterializedExecutionArtifactInvokePayloadFor<TRef, TRequest, TSourcePackage> {
+  return {
+    deploymentId: options.deploymentId,
+    ref: options.ref,
+    sourcePackage: options.sourcePackage,
+    request: options.request,
+  };
+}
 
 export const decodeExecutionArtifactInvokePayloadBodyEffect = Effect.fn(
   "ArtifactRuntimeProtocol.decodeInvokePayloadBody",
