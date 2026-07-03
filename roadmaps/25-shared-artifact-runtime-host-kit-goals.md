@@ -22,7 +22,7 @@ Goal status:
 - [x] G-3. H-2 shared source package module-map validation.
 - [x] G-4. H-3 shared generated-worker env construction.
 - [x] G-5. H-4 shared internal invoke request and response decode.
-- [ ] G-6. H-5 shared identity helpers.
+- [x] G-6. H-5 shared identity helpers.
 - [ ] G-7. H-6 adapter simplification pass.
 - [ ] G-8. Final host-kit audit: local-first runtime and hosted Dynamic Worker
   behavior still share contracts and generated runtime logic.
@@ -51,25 +51,21 @@ Every implementation turn in this goal should follow this loop:
 
 ## Current Next Slice
 
-### G-5 / H-4: Shared Internal Invoke Request And Response Decode
+### G-6 / H-5: Shared Identity Helpers
 
-Status: implemented and committed in `a9a894f` (`Share artifact invoke boundary helpers`).
+Status: implemented in this turn; commit pending.
 
 Purpose:
 
-Move internal invoke request construction and invoke response decoding behind
-shared runtime helpers. Local Miniflare and hosted Dynamic Worker adapters
-should use the same invoke request body/header contract and the same invoke
-response protocol decode path. Local query-session response decoding remains
-local-only and does not imply hosted query-session support.
+Move executor and internal-auth identity string construction behind shared
+host-kit helpers. Hosted Dynamic Worker cache ID assembly remains hosted-only
+because it combines Worker Loader cache-key concerns with shared identity
+fragments.
 
 Files expected to change:
 
 - `packages/flarex-backend/src/artifactRuntime/HostKit.ts`
 - `packages/flarex-backend/src/artifactRuntime.ts`
-- `packages/flarex-backend/src/types.ts`
-- `packages/flarex-protocol/src/invoke.ts`
-- `packages/flarex-dev/src/runtimeMaterializer.ts`
 - `apps/artifact-runtime/src/worker.ts`
 - `packages/flarex-backend/test/artifactRuntime.test.ts`
 - `roadmaps/24-shared-artifact-runtime-host-kit.md`
@@ -77,48 +73,43 @@ Files expected to change:
 
 Implementation tasks:
 
-- [x] Add shared internal request/header helpers:
-  - `executionArtifactInternalRequestHeaders(...)`
-  - `executionArtifactInternalInvokeRequest(...)`
-- [x] Use the shared invoke request helper from local Miniflare invokes.
-- [x] Use the shared invoke request helper from hosted Dynamic Worker invokes.
-- [x] Use the same invoke response decode path for local and hosted invokes.
-- [x] Keep local query-session response decoding available without claiming
-  hosted query-session support.
-- [x] Preserve `observedTs` in invoke response read sets by updating the invoke
-  protocol/backend read-set contract.
-- [x] Add focused shared tests for request construction and invoke response
-  decoding.
+- [x] Move `executorIdentity(...)` into the host kit.
+- [x] Move `internalAuthIdentity(...)` into the host kit.
+- [x] Use the shared helpers from hosted Worker Loader cache ID construction.
+- [x] Keep final Dynamic Worker ID assembly hosted-only.
+- [x] Add direct identity stability tests.
 
-Next slice after commit: `G-6 / H-5`, shared identity helpers.
+Next slice after commit: `G-7 / H-6`, adapter simplification pass.
 
 Validation gates:
 
 ```sh
-corepack pnpm --filter flarex-protocol typecheck
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-dev typecheck
 corepack pnpm --filter @flarex/artifact-runtime typecheck
 corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
-corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 corepack pnpm --filter @flarex/artifact-runtime exec vitest run test/worker.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
-corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/artifact-runtime build
 git diff --check
 ```
 
 Review gate:
 
-- Required, because H-4 is a public package-boundary refactor touching runtime
-  request/response contracts.
+- Required, because H-5 changes exported host-kit helpers and hosted Worker
+  cache identity construction.
 
 ## Later Slices
 
+### Completed: G-5 / H-4 Shared Internal Invoke Request And Response Decode
+
+Committed in `a9a894f` (`Share artifact invoke boundary helpers`).
+
 ### G-6 / H-5: Shared Identity Helpers
 
-- [ ] Move `executorIdentity(...)` and `internalAuthIdentity(...)` into the
+- [x] Move `executorIdentity(...)` and `internalAuthIdentity(...)` into the
   host kit.
-- [ ] Keep final Dynamic Worker ID assembly hosted-only.
-- [ ] Add direct identity stability tests.
+- [x] Keep final Dynamic Worker ID assembly hosted-only.
+- [x] Add direct identity stability tests.
 
 ### G-7 / H-6: Adapter Simplification Pass
 

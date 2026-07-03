@@ -38,6 +38,19 @@ export type ExecutionArtifactWorkerEnv = {
   readonly FLAREX_INTERNAL_TOKEN?: string;
 };
 
+export type InternalAuthIdentityOptions = {
+  readonly token?: string | undefined;
+  readonly tokenVersion?: string | undefined;
+};
+
+export type ExecutorIdentityOptions = {
+  readonly executorToken?: string | undefined;
+  readonly executorTokenVersion?: string | undefined;
+  readonly executorTransport?: ExecutionArtifactWorkerExecutorTransport | undefined;
+  readonly invokeMaxAttempts?: string | number | undefined;
+  readonly projectId?: string | undefined;
+};
+
 export type ExecutionArtifactInternalRequestRef = ExecutionArtifactRef;
 
 export type ExecutionArtifactInternalRequestHeadersOptions = {
@@ -159,6 +172,23 @@ export function executionArtifactWorkerEnv(
     ...(options.projectId === undefined ? {} : { FLAREX_PROJECT_ID: options.projectId }),
     ...(options.internalToken === undefined ? {} : { FLAREX_INTERNAL_TOKEN: options.internalToken }),
   };
+}
+
+export function executorIdentity(options: ExecutorIdentityOptions): string {
+  return [
+    `transport=${options.executorTransport ?? "legacy"}`,
+    `project=${options.projectId ?? "none"}`,
+    `attempts=${options.invokeMaxAttempts === undefined ? "default" : String(options.invokeMaxAttempts)}`,
+    `auth=${internalAuthIdentity({
+      token: options.executorToken,
+      tokenVersion: options.executorTokenVersion,
+    })}`,
+  ].join(",");
+}
+
+export function internalAuthIdentity(options: InternalAuthIdentityOptions): string {
+  if (options.token === undefined) return "none";
+  return options.tokenVersion === undefined ? "enabled-unversioned" : `version-${options.tokenVersion}`;
 }
 
 export function executionArtifactInternalRequestHeaders(

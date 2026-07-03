@@ -2,9 +2,11 @@ import {
   createExecutionArtifactRuntimeService,
   decodeMaterializedExecutionArtifactInvokeResponse,
   executionArtifactInternalInvokeRequest,
+  executorIdentity,
   executionArtifactWorkerEnv,
   executionArtifactWorkerModules,
   executionArtifactRuntimeWorkerSource,
+  internalAuthIdentity,
   type ExecutionArtifactMaterializer,
   type ExecutionArtifactRuntimeService,
   type ExecutionArtifactWorkerExecutorTransport,
@@ -120,7 +122,10 @@ export class HostedDynamicWorkerExecutionArtifactMaterializer implements Executi
     this.projectId = options.projectId;
     this.internalToken = options.internalToken;
     this.executorIdentity = executorIdentity(options);
-    this.internalAuthIdentity = internalAuthIdentity(options.internalToken, options.internalTokenVersion);
+    this.internalAuthIdentity = internalAuthIdentity({
+      token: options.internalToken,
+      tokenVersion: options.internalTokenVersion,
+    });
   }
 
   materialize(payload: MaterializedExecutionArtifactPayload): Promise<MaterializedExecutionArtifact> {
@@ -294,29 +299,6 @@ function dynamicWorkerId(
     `executor=${executorIdentity}`,
     `auth=${internalAuthIdentity}`,
   ].join(":");
-}
-
-function executorIdentity(options: {
-  readonly executorToken?: string;
-  readonly executorTokenVersion?: string;
-  readonly executorTransport?: ExecutorTransport;
-  readonly invokeMaxAttempts?: string;
-  readonly projectId?: string;
-}): string {
-  return [
-    `transport=${options.executorTransport ?? "legacy"}`,
-    `project=${options.projectId ?? "none"}`,
-    `attempts=${options.invokeMaxAttempts ?? "default"}`,
-    `auth=${internalAuthIdentity(options.executorToken, options.executorTokenVersion)}`,
-  ].join(",");
-}
-
-function internalAuthIdentity(
-  internalToken: string | undefined,
-  internalTokenVersion: string | undefined,
-): string {
-  if (internalToken === undefined) return "none";
-  return internalTokenVersion === undefined ? "enabled-unversioned" : `version-${internalTokenVersion}`;
 }
 
 function dynamicWorkerCode(sourcePackage: PushSourcePackage, options: {

@@ -22,9 +22,12 @@ export {
 export {
   executionArtifactInternalInvokeRequest,
   executionArtifactInternalRequestHeaders,
+  executorIdentity,
   executionArtifactWorkerEnv,
   executionArtifactWorkerModules,
   executionArtifactRuntimeWorkerSource,
+  internalAuthIdentity,
+  type ExecutorIdentityOptions,
   ExecutionArtifactWorkerDuplicateModulePathError,
   ExecutionArtifactWorkerReservedModulePathError,
   ExecutionArtifactWorkerSourceModuleMissingError,
@@ -38,6 +41,7 @@ export {
   type ExecutionArtifactWorkerModulesOptions,
   type ExecutionArtifactRuntimeWorkerSourceOptions,
   type ExecutionArtifactRuntimeWorkerSourceProfile,
+  type InternalAuthIdentityOptions,
 } from "./artifactRuntime/HostKit.ts";
 import { Data, Effect, Schema } from "effect";
 import { InvokeResponseSchema, type InvokeResponse as ProtocolInvokeResponse } from "flarex-protocol/invoke";

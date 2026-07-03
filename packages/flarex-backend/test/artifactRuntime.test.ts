@@ -9,6 +9,7 @@ import {
   decodeMaterializedExecutionArtifactInvokeResponse,
   executionArtifactInternalInvokeRequest,
   executionArtifactInternalRequestHeaders,
+  executorIdentity,
   executionArtifactWorkerEnv,
   executionArtifactWorkerModules,
   ExecutionArtifactWorkerDuplicateModulePathError,
@@ -21,6 +22,7 @@ import {
   MaterializedExecutionArtifactInvokeResponseError,
   ServiceBindingExecutionArtifactRuntime,
   ServiceBindingExecutionArtifactRuntimeResponseError,
+  internalAuthIdentity,
   type ExecutionArtifactInvokePayload,
   type ExecutionArtifactMaterializer,
   type MaterializedExecutionArtifactPayload,
@@ -87,6 +89,33 @@ describe("backend execution artifact runtime", () => {
     expect(env).toEqual({});
     expect(Object.prototype.hasOwnProperty.call(env, "FLAREX_EXECUTOR")).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(env, "FLAREX_BACKEND")).toBe(false);
+  });
+
+  it("builds stable shared execution artifact identity strings", () => {
+    expect(internalAuthIdentity({})).toBe("none");
+    expect(internalAuthIdentity({
+      token: "secret",
+    })).toBe("enabled-unversioned");
+    expect(internalAuthIdentity({
+      token: "secret",
+      tokenVersion: "v1",
+    })).toBe("version-v1");
+    expect(internalAuthIdentity({
+      tokenVersion: "ignored-without-token",
+    })).toBe("none");
+
+    expect(executorIdentity({})).toBe(
+      "transport=legacy,project=none,attempts=default,auth=none",
+    );
+    expect(executorIdentity({
+      executorToken: "executor-secret",
+      executorTokenVersion: "ev1",
+      executorTransport: "postgres",
+      invokeMaxAttempts: 4,
+      projectId: "project1",
+    })).toBe(
+      "transport=postgres,project=project1,attempts=4,auth=version-ev1",
+    );
   });
 
   it("builds runtime worker module maps and validates source package modules", () => {

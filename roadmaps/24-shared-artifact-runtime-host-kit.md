@@ -1,5 +1,59 @@
 # Shared Artifact Runtime Host Kit
 
+## H-5 Shared Identity Helpers
+
+Previous completed checkpoint: `424cfde` (`Mark invoke boundary host kit slice complete`).
+
+What changed:
+
+- Added shared `executorIdentity(...)` and `internalAuthIdentity(...)` helpers
+  to `packages/flarex-backend/src/artifactRuntime/HostKit.ts`.
+- Re-exported the identity helpers and option types from
+  `flarex-backend/artifact-runtime`.
+- Updated `apps/artifact-runtime/src/worker.ts` so hosted Dynamic Worker cache
+  ID construction uses the shared identity helpers.
+- Kept final Dynamic Worker ID assembly hosted-only.
+- Added direct HostKit tests for stable executor identity and internal-auth
+  identity strings.
+
+Why it changed:
+
+Local and hosted execution artifacts should share executor/auth identity
+fragments even though only the hosted Worker app currently uses those fragments
+for Worker Loader cache keys. This keeps the host-kit contract complete before
+the adapter simplification pass.
+
+Convex sources inspected:
+
+- None in this implementation slice. The Convex runner/source-package
+  rationale is recorded in the research checkpoint below; this slice only
+  standardizes Flarex runtime host identity strings.
+
+Cloudflare difference:
+
+- Hosted runtime still owns the final Dynamic Worker cache ID because that ID
+  includes Worker Loader cache semantics, artifact ref fields, and the
+  compatibility date.
+- Local Miniflare runtime does not use Worker Loader cache IDs.
+
+Known limitations:
+
+- `packages/flarex-dev/src/runtimeMaterializer.ts` and
+  `apps/artifact-runtime/src/worker.ts` still need the final adapter
+  simplification pass after all shared helpers are available.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter @flarex/artifact-runtime typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter @flarex/artifact-runtime exec vitest run test/worker.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/artifact-runtime build
+git diff --check
+```
+
 ## H-4 Shared Internal Invoke Request And Response Decode
 
 Completed checkpoint: `a9a894f` (`Share artifact invoke boundary helpers`).
@@ -438,7 +492,7 @@ Host adapters that remain separate:
 
 ## Concrete Implementation Checklist
 
-- [ ] H-1. Shared runtime worker source profiles
+- [x] H-1. Shared runtime worker source profiles
   - Add `HostKit.ts`.
   - Move `runtimeWorkerSource(...)` and `dynamicWorkerRuntimeSource(...)` into
     `executionArtifactRuntimeWorkerSource(...)`.
@@ -453,7 +507,7 @@ Host adapters that remain separate:
     - `corepack pnpm --filter @flarex/artifact-runtime test`
     - `corepack pnpm --filter flarex-dev exec vitest run test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1`
 
-- [ ] H-2. Shared source package module-map validation
+- [x] H-2. Shared source package module-map validation
   - Move duplicate source-module validation into
     `executionArtifactWorkerModules(...)`.
   - Return `Record<string, string>` plus `mainModule` for Worker Loader.
@@ -466,7 +520,7 @@ Host adapters that remain separate:
     - local runtime materializer missing-source tests;
     - `git diff --check`.
 
-- [ ] H-3. Shared generated-worker env construction
+- [x] H-3. Shared generated-worker env construction
   - Move executor transport/project/token/invoke-attempt/internal-token env
     construction into `executionArtifactWorkerEnv(...)`.
   - Keep binding object injection host-specific:
@@ -493,7 +547,7 @@ Host adapters that remain separate:
     - `packages/flarex-dev/test/runtimeMaterializer.test.ts`
     - `apps/artifact-runtime/test/worker.test.ts`
 
-- [ ] H-5. Shared identity helpers
+- [x] H-5. Shared identity helpers
   - Move `executorIdentity(...)` and `internalAuthIdentity(...)` into the host
     kit.
   - Use them from hosted Worker Loader cache ID construction.
