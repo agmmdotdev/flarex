@@ -25,7 +25,8 @@ Goal status:
   - Commit: `3e2bd56` (`Share artifact runtime invoke payload builders`)
 - [x] G-4. L-3 local dev lifecycle alignment.
   - Commit: `ece1188` (`Align local executor artifact payloads`)
-- [ ] G-5. L-4 hosted deploy/push lifecycle alignment.
+- [x] G-5. L-4 hosted deploy/push lifecycle alignment.
+  - Commit: `2d0f118` (`Align hosted artifact ref lifecycle`)
 - [ ] G-6. L-5 cross-boundary lifecycle parity tests.
 - [ ] G-7. L-6 final lifecycle parity audit.
 
@@ -51,6 +52,40 @@ Every implementation turn in this goal should follow this loop:
 10. Commit the completed slice.
 
 ## Current Slice
+
+### G-5 / L-4: Hosted Deploy/Push Lifecycle Alignment
+
+Status: completed and committed in `2d0f118`
+(`Align hosted artifact ref lifecycle`).
+
+Purpose:
+
+Make the hosted finish-push preflight derive execution artifact refs through the
+same deployment artifact Effect helper used by deployment service code. Worker
+route policy, R2-backed artifact availability, and public dispatch error mapping
+remain backend-owned host mechanics.
+
+Files changed:
+
+- `packages/flarex-backend/src/deployment/Runtime.ts`
+- `packages/flarex-backend/src/deployment/PublicFinishArtifactBoundary.ts`
+- `packages/flarex-backend/test/publicFinishArtifactBoundary.test.ts`
+- this file
+- `roadmaps/26-execution-artifact-lifecycle-parity.md`
+
+Validation gates:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/publicFinishArtifactBoundary.test.ts test/deploymentService.test.ts test/hostedRuntimeCore.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+git diff --check
+```
+
+Review gate:
+
+- Required because this changes hosted finish-push artifact ref derivation.
+
+## Previous Slice
 
 ### G-4 / L-3: Local Dev Lifecycle Alignment
 
@@ -170,18 +205,20 @@ Review gate:
 
 ## Next Slice
 
-### G-5 / L-4: Hosted Deploy/Push Lifecycle Alignment
+### G-6 / L-5: Cross-Boundary Lifecycle Parity Tests
 
-- [ ] Audit hosted deploy/push activation paths for direct artifact lifecycle
-  payload or ref construction that should use shared helpers.
-- [ ] Keep Durable Object state, R2 persistence, and service-binding dispatch
-  backend-owned.
-- [ ] Route any hosted lifecycle payload construction through the shared
-  protocol/artifact helpers where the contract crosses package boundaries.
-- [ ] Add focused tests for hosted push/deploy activation parity if a behavior
-  path changes.
+- [ ] Audit existing backend and local tests that already cover source-package
+  bundling, artifact ref derivation, deployment activation, runtime
+  materialization, and invoke payload construction.
+- [ ] Add or extend focused parity tests so local dev and hosted backend paths
+  prove the same lifecycle contract without merging their host adapters.
+- [ ] Keep Miniflare/PGlite/local watchers and Worker Loader/R2/service bindings
+  as separate adapter mechanics in the tests.
+- [ ] Run both local and backend focused runtime suites plus typechecks.
 
 ## Completed Checkpoints
 
 - `579b1bf` (`Mark host kit audit complete`) completed the previous host-kit
   goal before this lifecycle parity stream started.
+- `2d0f118` (`Align hosted artifact ref lifecycle`) completed the hosted
+  deploy/push lifecycle alignment slice.

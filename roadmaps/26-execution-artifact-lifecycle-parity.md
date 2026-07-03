@@ -31,7 +31,7 @@ separate.
   and hosted invocation paths build the same runtime input shape.
 - [x] L-3. Align local dev push/runtime activation around the shared lifecycle
   helper, keeping Miniflare and local file watching as dev-only host mechanics.
-- [ ] L-4. Align hosted deploy/push activation around the same lifecycle helper,
+- [x] L-4. Align hosted deploy/push activation around the same lifecycle helper,
   keeping Worker Loader, service bindings, and R2 as hosted-only mechanics.
 - [ ] L-5. Add parity tests that exercise source-package bundle, artifact ref,
   deployment activation, runtime materialization, and invoke behavior across dev
@@ -58,3 +58,5 @@ separate.
 
 - `579b1bf` (`Mark host kit audit complete`) finished the shared runtime host
   kit foundation before this lifecycle parity stream began.
+- `2d0f118` (`Align hosted artifact ref lifecycle`) aligned hosted finish-push
+  artifact ref derivation around the shared deployment artifact Effect helper.
