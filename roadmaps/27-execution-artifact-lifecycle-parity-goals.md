@@ -29,7 +29,8 @@ Goal status:
   - Commit: `2d0f118` (`Align hosted artifact ref lifecycle`)
 - [x] G-6. L-5 cross-boundary lifecycle parity tests.
   - Commit: `1a192cf` (`Add artifact lifecycle parity tests`)
-- [ ] G-7. L-6 final lifecycle parity audit.
+- [x] G-7. L-6 final lifecycle parity audit.
+  - Commit: reported in final response (`Mark lifecycle parity audit complete`)
 
 ## Turn Protocol
 
@@ -53,6 +54,43 @@ Every implementation turn in this goal should follow this loop:
 10. Commit the completed slice.
 
 ## Current Slice
+
+### G-7 / L-6: Final Lifecycle Parity Audit
+
+Status: completed; docs marker commit reported in the final response.
+
+Purpose:
+
+Audit the completed lifecycle stream against the original objective and prove
+the local-first and hosted deploy/push paths share the same execution artifact
+contract while preserving separate host adapters.
+
+Files changed:
+
+- this file
+- `roadmaps/26-execution-artifact-lifecycle-parity.md`
+
+Validation gates:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/artifact-runtime.test.ts test/deployment.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/deployments.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/sourcePackage.test.ts test/executionArtifactStore.test.ts test/artifactLifecycleParity.test.ts test/executorHttpRuntime.test.ts test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/artifactStore.test.ts test/publicStartArtifactBoundary.test.ts test/publicFinishArtifactBoundary.test.ts test/deploymentService.test.ts test/hostedRuntimeCore.test.ts test/artifactRuntime.test.ts test/artifactRuntimeRoute.test.ts test/artifactRuntimeRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+git diff --check
+```
+
+Review gate:
+
+- Not required. This slice is docs-only after validating the final state.
+
+## Previous Slice
 
 ### G-6 / L-5: Cross-Boundary Lifecycle Parity Tests
 
@@ -252,17 +290,8 @@ Review gate:
 
 ## Next Slice
 
-### G-7 / L-6: Final Lifecycle Parity Audit
-
-- [ ] Audit the current local-first and hosted push/deploy runtime paths against
-  the full lifecycle contract: source package, artifact ref, materialized
-  runtime, invoke payload, and host adapters.
-- [ ] Confirm local and hosted tests cover the contract without relying on a
-  narrower subset than the roadmap requires.
-- [ ] Record any remaining gaps as explicit follow-up work, or mark the goal
-  complete only if the audit proves the lifecycle parity objective.
-- [ ] Run final focused validation across `flarex`, `flarex-protocol`,
-  `@flarex/executor`, `flarex-dev`, and `flarex-backend` as needed by the audit.
+No next slice for this lifecycle parity goal. The remaining work moves back to
+the broader core implementation roadmaps after this audit marker.
 
 ## Completed Checkpoints
 

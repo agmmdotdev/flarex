@@ -36,7 +36,7 @@ separate.
 - [x] L-5. Add parity tests that exercise source-package bundle, artifact ref,
   deployment activation, runtime materialization, and invoke behavior across dev
   and backend boundaries.
-- [ ] L-6. Final audit: local-first runtime and hosted push/deploy still share
+- [x] L-6. Final audit: local-first runtime and hosted push/deploy still share
   lifecycle behavior while preserving their different host adapters.
 
 ## Quality Bar
@@ -63,3 +63,64 @@ separate.
 - `1a192cf` (`Add artifact lifecycle parity tests`) added cross-boundary local
   and hosted lifecycle tests plus shared fixtures for source-package,
   activation, materialization, and invoke payload parity.
+
+## Final Audit
+
+Status: completed.
+
+Previous checkpoint recorded in this turn:
+
+- `1a192cf` (`Add artifact lifecycle parity tests`)
+
+Convex source files inspected or used as inspiration:
+
+- None for this final verification slice. This audit checked the
+  Cloudflare-specific execution artifact lifecycle contract introduced in this
+  roadmap rather than porting a new Convex runtime behavior.
+
+Evidence:
+
+- Source-package bundling remains local tooling owned and is covered by
+  `packages/flarex-dev/test/sourcePackage.test.ts`.
+- Deterministic artifact refs and ref/source-package validation are owned by
+  `packages/flarex/src/artifacts.ts` and covered by
+  `packages/flarex/test/artifacts.test.ts`.
+- Ref-only and materialized runtime invoke payload construction is owned by
+  `packages/flarex-protocol/src/artifact-runtime.ts` and covered by
+  `packages/flarex-protocol/test/artifact-runtime.test.ts`.
+- Local runtime materialization builds `materializedExecutionArtifactInvokePayload`
+  in `packages/flarex-dev/src/executorHttpRuntime.ts`, preserving PGlite,
+  Miniflare, freshness, and local request handling as local adapter mechanics.
+- Hosted runtime dispatch builds shared artifact runtime payloads in
+  `packages/flarex-backend/src/artifactRuntime.ts`, preserving Worker Loader,
+  R2, Durable Object deployment state, and service bindings as hosted adapter
+  mechanics.
+- Hosted deploy/push artifact refs derive through
+  `packages/flarex-backend/src/deployment/Runtime.ts` and
+  `packages/flarex-backend/src/deployment/Service.ts`, with public finish-push
+  preflight delegating to the same helper.
+- `packages/flarex-dev/test/artifactLifecycleParity.test.ts` now proves the
+  same source package produces the same artifact ref and equivalent invoke
+  payload contract across local materialized and hosted ref-only runtime paths.
+
+Known limitations and follow-up work:
+
+- This closes the lifecycle parity stream only. Broader Convex-compatible
+  backend behavior, transaction semantics, sync correctness, and production
+  deployment hardening remain tracked by their domain roadmaps.
+
+Verification commands run:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/artifact-runtime.test.ts test/deployment.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/deployments.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/sourcePackage.test.ts test/executionArtifactStore.test.ts test/artifactLifecycleParity.test.ts test/executorHttpRuntime.test.ts test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/artifactStore.test.ts test/publicStartArtifactBoundary.test.ts test/publicFinishArtifactBoundary.test.ts test/deploymentService.test.ts test/hostedRuntimeCore.test.ts test/artifactRuntime.test.ts test/artifactRuntimeRoute.test.ts test/artifactRuntimeRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+git diff --check
+```
