@@ -56,6 +56,7 @@ describe("backend execution artifact runtime", () => {
     expect(request.headers.get("authorization")).toBe("Bearer internal-secret");
     await expect(request.json()).resolves.toEqual({
       deploymentId: "deployment1",
+      identity: { kind: "anonymous" },
       path: "users:get",
       args: { id: "1:user" },
       partitionKey: "user:1",
@@ -411,12 +412,55 @@ describe("backend execution artifact runtime", () => {
         authorization: "Bearer runtime-secret",
         body: {
           deploymentId: "deployment1",
+          identity: { kind: "anonymous" },
           ref: activeDeployment.executionArtifactRef,
           sourcePackage,
           request: invokeRequest,
         },
       },
     ]);
+  });
+
+  it("sends explicit execution identity to service-binding runtimes", async () => {
+    const calls: Array<{ body: unknown }> = [];
+    const runtime = new ServiceBindingExecutionArtifactRuntime({
+      deploymentId: "deployment1",
+      store: {
+        put: async () => activeDeployment.executionArtifactRef,
+        get: async () => testSourcePackage(),
+      },
+      runtime: {
+        fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+          const request = new Request(input, init);
+          calls.push({ body: await request.json() });
+          return Response.json({ value: { ok: true } });
+        },
+      } as unknown as Fetcher,
+    });
+    const identity = {
+      kind: "user",
+      user: {
+        tokenIdentifier: "issuer|user-1",
+        subject: "user-1",
+        issuer: "https://auth.example.com",
+      },
+    } as const;
+
+    await expect(runtime.invoke(activeDeployment, {
+      path: "users:get",
+      args: { id: "1:user" },
+      partitionKey: "user:1",
+      kind: "query",
+    }, identity)).resolves.toEqual({
+      value: { ok: true },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.body).toMatchObject({
+      deploymentId: "deployment1",
+      identity,
+      ref: activeDeployment.executionArtifactRef,
+    });
   });
 
   it("can invoke the runtime without embedding sourcePackage when the runtime owns artifact loading", async () => {
@@ -453,6 +497,7 @@ describe("backend execution artifact runtime", () => {
       {
         body: {
           deploymentId: "deployment1",
+          identity: { kind: "anonymous" },
           ref: activeDeployment.executionArtifactRef,
           request: invokeRequest,
         },
@@ -1192,6 +1237,7 @@ function testSourcePackage(): PushSourcePackage {
 function testPayload(): MaterializedExecutionArtifactPayload {
   return {
     deploymentId: "deployment1",
+    identity: { kind: "anonymous" },
     ref: activeDeployment.executionArtifactRef,
     sourcePackage: testSourcePackage(),
     request: {

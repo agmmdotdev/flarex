@@ -3,6 +3,7 @@ import {
   type GeneratedExecutionWorkerSourceOptions,
 } from "./GeneratedWorkerSource.ts";
 import type { ExecutionArtifactRef, InvokeRequest, PushSourcePackage } from "../types.ts";
+import type { ExecutionIdentity } from "flarex-protocol/auth";
 
 export type ExecutionArtifactRuntimeWorkerSourceProfile =
   | "local-miniflare"
@@ -76,6 +77,7 @@ export type ExecutionArtifactInternalInvokeRequestPayload = {
   readonly deploymentId: string;
   readonly ref: ExecutionArtifactInternalRequestRef;
   readonly request: InvokeRequest;
+  readonly identity?: ExecutionIdentity;
 };
 
 export type ExecutionArtifactInternalInvokeRequestOptions = {
@@ -247,6 +249,7 @@ export function executionArtifactInternalInvokeRequest(
     }),
     body: JSON.stringify({
       deploymentId: options.payload.deploymentId,
+      identity: options.payload.identity ?? { kind: "anonymous" },
       ...options.payload.request,
     }),
   });

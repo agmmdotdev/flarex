@@ -26,10 +26,36 @@ describe("artifact runtime protocol payload decoders", () => {
 
     expect(payload).toEqual({
       deploymentId: "deployment-a",
+      identity: { kind: "anonymous" },
       ref: testPayload().ref,
       request: testPayload().request,
     });
     expect(Object.prototype.hasOwnProperty.call(payload, "sourcePackage")).toBe(false);
+  });
+
+  it("builds execution artifact invoke payloads with explicit user identity", () => {
+    const payload = executionArtifactInvokePayload({
+      deploymentId: "deployment-a",
+      identity: {
+        kind: "user",
+        user: {
+          tokenIdentifier: "issuer|user-1",
+          subject: "user-1",
+          issuer: "https://auth.example.com",
+        },
+      },
+      ref: testPayload().ref,
+      request: testPayload().request,
+    });
+
+    expect(payload.identity).toEqual({
+      kind: "user",
+      user: {
+        tokenIdentifier: "issuer|user-1",
+        subject: "user-1",
+        issuer: "https://auth.example.com",
+      },
+    });
   });
 
   it("builds materialized execution artifact invoke payloads with source packages", () => {
@@ -91,6 +117,17 @@ describe("artifact runtime protocol payload decoders", () => {
         kind: "subscription",
       },
     }))).rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
+
+    await expect(Effect.runPromise(decodeExecutionArtifactInvokePayloadBodyEffect({
+      ...testPayload(),
+      identity: {
+        kind: "user",
+        user: {
+          subject: "user-1",
+          issuer: "https://auth.example.com",
+        },
+      },
+    }))).rejects.toBeInstanceOf(ExecutionArtifactInvokePayloadError);
   });
 
   it("rejects invalid present source packages", async () => {
@@ -104,6 +141,7 @@ describe("artifact runtime protocol payload decoders", () => {
 function testPayload(): MaterializedExecutionArtifactInvokePayload {
   return {
     deploymentId: "deployment-a",
+    identity: { kind: "anonymous" },
     ref: {
       runtime: "dynamic-worker",
       artifactId: "artifact_1234567890abcdef1234567890abcdef",

@@ -4,6 +4,10 @@ import {
   type ActiveDeploymentStatus,
   type PushSourcePackage as PushSourcePackageType,
 } from "./deployment";
+import {
+  ExecutionIdentitySchema,
+  type ExecutionIdentity,
+} from "./auth";
 import { isJson, type Json } from "./json";
 
 const INVALID_INVOKE_PAYLOAD_MESSAGE = "Invalid execution artifact invoke payload.";
@@ -23,6 +27,7 @@ export type ExecutionArtifactInvokePayloadFor<
   TSourcePackage extends PushSourcePackageType = PushSourcePackageType,
 > = {
   deploymentId: string;
+  identity: ExecutionIdentity;
   ref: TRef;
   sourcePackage?: TSourcePackage;
   request: TRequest;
@@ -47,6 +52,7 @@ export type ExecutionArtifactInvokePayloadOptions<
   TSourcePackage extends PushSourcePackageType = PushSourcePackageType,
 > = {
   readonly deploymentId: string;
+  readonly identity?: ExecutionIdentity | undefined;
   readonly ref: TRef;
   readonly request: TRequest;
   readonly sourcePackage?: TSourcePackage | undefined;
@@ -68,6 +74,7 @@ export class ExecutionArtifactInvokePayloadError extends Data.TaggedError(
 }> {}
 
 const decodeUnknownPushSourcePackage = Schema.decodeUnknownEffect(PushSourcePackage);
+const decodeUnknownExecutionIdentity = Schema.decodeUnknownEffect(ExecutionIdentitySchema);
 
 export function executionArtifactInvokePayload<
   TRef extends ActiveDeploymentStatus["executionArtifactRef"],
@@ -78,6 +85,7 @@ export function executionArtifactInvokePayload<
 ): ExecutionArtifactInvokePayloadFor<TRef, TRequest, TSourcePackage> {
   return {
     deploymentId: options.deploymentId,
+    identity: options.identity ?? { kind: "anonymous" },
     ref: options.ref,
     ...(options.sourcePackage === undefined ? {} : { sourcePackage: options.sourcePackage }),
     request: options.request,
@@ -93,6 +101,7 @@ export function materializedExecutionArtifactInvokePayload<
 ): MaterializedExecutionArtifactInvokePayloadFor<TRef, TRequest, TSourcePackage> {
   return {
     deploymentId: options.deploymentId,
+    identity: options.identity ?? { kind: "anonymous" },
     ref: options.ref,
     sourcePackage: options.sourcePackage,
     request: options.request,
@@ -106,6 +115,13 @@ export const decodeExecutionArtifactInvokePayloadBodyEffect = Effect.fn(
 ): Effect.fn.Return<ExecutionArtifactInvokePayload, ExecutionArtifactInvokePayloadError> {
   const payload = yield* executionArtifactInvokePayloadValidationResultToEffect(
     normalizeExecutionArtifactInvokePayload(value),
+  );
+  yield* decodeUnknownExecutionIdentity(payload.identity).pipe(
+    Effect.mapError(() =>
+      new ExecutionArtifactInvokePayloadError({
+        message: INVALID_INVOKE_PAYLOAD_MESSAGE,
+      })
+    ),
   );
   if (payload.sourcePackage !== undefined) {
     yield* decodeUnknownPushSourcePackage(payload.sourcePackage).pipe(
@@ -171,6 +187,7 @@ function isExecutionArtifactInvokePayload(
   const payload = value as Partial<ExecutionArtifactInvokePayload>;
   return (
     typeof payload.deploymentId === "string" &&
+    payload.identity !== undefined &&
     isExecutionArtifactRef(payload.ref) &&
     (payload.sourcePackage === undefined ||
       (typeof payload.sourcePackage === "object" && payload.sourcePackage !== null)) &&

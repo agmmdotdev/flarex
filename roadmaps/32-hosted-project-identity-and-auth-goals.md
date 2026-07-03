@@ -18,7 +18,7 @@ Source roadmap:
 - [x] G-0. Create the concrete hosted project identity and auth roadmap.
 - [x] G-1. Start the long-running Codex goal for this implementation stream.
 - [x] G-2. Complete I-1: public and protocol identity contracts.
-- [ ] G-3. Complete I-2: backend identity resolver and invoke payload propagation.
+- [x] G-3. Complete I-2: backend identity resolver and invoke payload propagation.
 - [ ] G-4. Complete I-3: trusted executor session identity.
 - [ ] G-5. Complete I-4: generated runtime `ctx.auth`.
 - [ ] G-6. Complete I-5: HTTP client identity propagation.
@@ -132,7 +132,7 @@ Reviewer gate:
 
 ### G-3 / I-2: Backend Identity Resolver And Invoke Payload Propagation
 
-Status: next.
+Status: complete.
 
 Purpose:
 
@@ -140,12 +140,17 @@ Thread the newly defined `ExecutionIdentity` from trusted backend boundaries
 into artifact runtime invoke payloads while keeping hosted production
 anonymous until a backend-owned resolver validates identity.
 
-Expected files:
+Files changed:
 
-- `packages/flarex-backend/src/project.ts`
-- `packages/flarex-backend/src/artifactRuntime/*`
-- `packages/flarex-protocol/src/invoke.ts`
-- backend and protocol tests
+- `packages/flarex-backend/src/auth.ts`
+- `packages/flarex-backend/src/types.ts`
+- `packages/flarex-backend/src/worker.ts`
+- `packages/flarex-backend/src/artifactRuntime.ts`
+- `packages/flarex-backend/src/artifactRuntime/HostKit.ts`
+- `packages/flarex-backend/src/artifactRuntime/RuntimeRoute.ts`
+- `packages/flarex-protocol/src/artifact-runtime.ts`
+- backend and protocol tests covering resolver and artifact-runtime identity
+  payloads
 - both roadmap files
 
 Initial constraints:
@@ -155,13 +160,64 @@ Initial constraints:
 - Capability-token and internal-token checks must remain before identity
   reaches executor/user code.
 
-## Later Slices
+Completed this turn:
+
+- Added backend `resolveExecutionIdentityEffect`, returning anonymous identity
+  by default.
+- Added a fail-closed trusted header path guarded by
+  `FLAREX_TRUSTED_EXECUTION_IDENTITY=true` plus a matching
+  `FLAREX_TRUSTED_EXECUTION_IDENTITY_TOKEN` shared secret for local/test
+  tooling.
+- Kept public invoke request bodies from becoming identity input.
+- Extended execution artifact invoke payloads with required
+  `ExecutionIdentity`, defaulting builder-created payloads to anonymous.
+- Propagated resolved identity from public worker `/invoke` to the internal
+  service-binding artifact runtime payload.
+- Preserved artifact runtime capability-token and artifact header checks.
+
+Cloudflare difference:
+
+- This is not JWT/JWKS auth. Hosted production remains anonymous unless a
+  backend-owned resolver explicitly verifies identity in a later slice.
+- The trusted identity header is deliberately named and env-gated so public
+  client JSON is not trusted by default.
+- Even when the trusted path is enabled, the request must supply the matching
+  trusted identity token header before identity JSON is decoded.
+
+Validation:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test -- artifact-runtime.test.ts
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/auth.test.ts test/artifactRuntime.test.ts test/artifactRuntimeRequests.test.ts test/artifactRuntimeRouteBoundary.test.ts test/invokeRequests.test.ts test/artifactRuntimeRoute.test.ts test/hostedRuntimeCore.test.ts
+```
+
+Reviewer gate:
+
+- `typescript-diff-reviewer`: fixed duplicate identity guard and test env cast
+  findings.
+- `code-quality-diff-reviewer`: fixed trusted identity public-boundary finding
+  by requiring a shared secret token, and added route-level artifact runtime
+  identity assertions.
 
 ### G-4 / I-3: Trusted Executor Session Identity
 
-- Persist execution identity in invoke session metadata.
-- Return or expose identity where generated runtime needs it.
-- Preserve deployment/project mismatch checks before user code sees identity.
+Status: next.
+
+Purpose:
+
+Persist the propagated `ExecutionIdentity` into trusted executor invoke
+sessions, so generated runtime code can later answer
+`ctx.auth.getUserIdentity()` from session metadata.
+
+Initial constraints:
+
+- Keep deployment/project mismatch checks before identity reaches user code.
+- Keep anonymous identity as the default for existing executor callers.
+- Do not implement generated runtime `ctx.auth` until I-4.
+
+## Later Slices
 
 ### G-5 / I-4: Generated Runtime `ctx.auth`
 

@@ -53,6 +53,7 @@ import {
   materializedExecutionArtifactInvokePayload,
   type MaterializedExecutionArtifactInvokePayloadFor,
 } from "flarex-protocol/artifact-runtime";
+import type { ExecutionIdentity } from "flarex-protocol/auth";
 import { InvokeResponseSchema, type InvokeResponse as ProtocolInvokeResponse } from "flarex-protocol/invoke";
 import {
   HttpError,
@@ -96,6 +97,7 @@ export interface BackendExecutionArtifactRuntime {
   invoke(
     deployment: ActiveDeploymentStatus,
     request: InvokeRequest,
+    identity?: ExecutionIdentity,
   ): Promise<InvokeResponse>;
 }
 
@@ -238,6 +240,7 @@ export class ServiceBindingExecutionArtifactRuntime implements BackendExecutionA
   async invoke(
     deployment: ActiveDeploymentStatus,
     request: InvokeRequest,
+    identity: ExecutionIdentity = { kind: "anonymous" },
   ): Promise<InvokeResponse> {
     // Deliberate runtime bridge: service-binding runtime invokes by Promise.
     return await Effect.runPromise(
@@ -251,6 +254,7 @@ export class ServiceBindingExecutionArtifactRuntime implements BackendExecutionA
         },
         deployment,
         request,
+        identity,
       ).pipe(
         Effect.catch(serviceBindingExecutionArtifactRuntimeErrorToHttpErrorEffect),
       ),
@@ -271,11 +275,13 @@ export const invokeServiceBindingExecutionArtifactRuntime = Effect.fn(
     },
     deployment: ActiveDeploymentStatus,
     request: InvokeRequest,
+    identity: ExecutionIdentity = { kind: "anonymous" },
   ) {
     const payload = yield* serviceBindingExecutionArtifactInvokePayloadEffect(
       options,
       deployment,
       request,
+      identity,
     );
     const response = yield* fetchServiceBindingExecutionArtifactRuntime(options, deployment, payload);
     return yield* decodeServiceBindingExecutionArtifactRuntimeResponse(response);
@@ -290,10 +296,12 @@ function serviceBindingExecutionArtifactInvokePayloadEffect(
   },
   deployment: ActiveDeploymentStatus,
   request: InvokeRequest,
+  identity: ExecutionIdentity,
 ): Effect.Effect<ExecutionArtifactInvokePayload, ExecutionArtifactRuntimeOperationError> {
   if (options.sendSourcePackage === false) {
     return Effect.succeed(executionArtifactInvokePayload({
       deploymentId: options.deploymentId,
+      identity,
       ref: deployment.executionArtifactRef,
       request,
     }));
@@ -301,6 +309,7 @@ function serviceBindingExecutionArtifactInvokePayloadEffect(
   return Effect.tryPromise({
     try: async () => materializedExecutionArtifactInvokePayload({
       deploymentId: options.deploymentId,
+      identity,
       ref: deployment.executionArtifactRef,
       sourcePackage: await options.store.get(deployment.executionArtifactRef),
       request,

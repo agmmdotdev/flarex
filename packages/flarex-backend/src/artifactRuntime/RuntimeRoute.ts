@@ -139,6 +139,7 @@ function resolveSourcePackageEffect(
   if (payload.sourcePackage !== undefined) {
     return Effect.succeed(materializedExecutionArtifactInvokePayload({
       deploymentId: payload.deploymentId,
+      identity: payload.identity,
       ref: payload.ref,
       sourcePackage: payload.sourcePackage,
       request: payload.request,
@@ -152,6 +153,7 @@ function resolveSourcePackageEffect(
   return Effect.tryPromise({
     try: async () => materializedExecutionArtifactInvokePayload({
       deploymentId: payload.deploymentId,
+      identity: payload.identity,
       ref: payload.ref,
       request: payload.request,
       sourcePackage: await store.get(payload.ref),

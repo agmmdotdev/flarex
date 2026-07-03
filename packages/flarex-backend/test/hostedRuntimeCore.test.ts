@@ -119,6 +119,7 @@ describe("hosted runtime core", () => {
         sourcePackageHash: ref.sourcePackageHash,
         body: {
           deploymentId,
+          identity: { kind: "anonymous" },
           ref,
           request: {
             path: "users:get",

@@ -33,7 +33,11 @@ describe("backend artifact runtime route", () => {
       body: unknown;
     }> = [];
     const harness = await createBackendHarness({
-      bindings: { FLAREX_ARTIFACT_RUNTIME_TOKEN: "route-secret" },
+      bindings: {
+        FLAREX_ARTIFACT_RUNTIME_TOKEN: "route-secret",
+        FLAREX_TRUSTED_EXECUTION_IDENTITY: "true",
+        FLAREX_TRUSTED_EXECUTION_IDENTITY_TOKEN: "trusted-secret",
+      },
       r2Buckets: ["ARTIFACTS"],
       serviceBindings: {
         FLAREX_ARTIFACT_RUNTIME: createExecutionArtifactRuntimeService({
@@ -81,6 +85,14 @@ describe("backend artifact runtime route", () => {
           kind: "query",
           partitionKey: "user:1",
           args: { id: "1:user" },
+          identity: {
+            kind: "user",
+            user: {
+              tokenIdentifier: "public-body|user-1",
+              subject: "public-body-user-1",
+              issuer: "https://untrusted.example.com",
+            },
+          },
         }),
       },
     );
@@ -126,6 +138,37 @@ describe("backend artifact runtime route", () => {
       value: { runtime: "artifact", path: "users:get" },
     });
 
+    const trustedIdentity = {
+      kind: "user",
+      user: {
+        tokenIdentifier: "issuer|user-1",
+        subject: "user-1",
+        issuer: "https://auth.example.com",
+      },
+    } as const;
+    const trustedResponse = await harness.mf.dispatchFetch(
+      "http://flarex.test/deployments/artifact-runtime-route/invoke",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-flarex-trusted-execution-identity": JSON.stringify(trustedIdentity),
+          "x-flarex-trusted-execution-identity-token": "trusted-secret",
+        },
+        body: JSON.stringify({
+          path: "users:get",
+          kind: "query",
+          partitionKey: "user:1",
+          args: { id: "1:user" },
+        }),
+      },
+    );
+    const trustedBody = await trustedResponse.json();
+    expect(trustedResponse.ok).toBe(true);
+    expect(trustedBody).toEqual({
+      value: { runtime: "artifact", path: "users:get" },
+    });
+
     const ref = await executionArtifactRefForSourcePackage(sourcePackage);
     expect(runtimeCalls).toEqual([
       {
@@ -133,6 +176,7 @@ describe("backend artifact runtime route", () => {
         sourcePackageHash: ref.sourcePackageHash,
         body: {
           deploymentId: "artifact-runtime-route",
+          identity: { kind: "anonymous" },
           ref,
           sourcePackage,
           request: {
@@ -148,6 +192,7 @@ describe("backend artifact runtime route", () => {
         sourcePackageHash: ref.sourcePackageHash,
         body: {
           deploymentId: "artifact-runtime-route",
+          identity: { kind: "anonymous" },
           ref,
           sourcePackage,
           request: {
@@ -162,6 +207,7 @@ describe("backend artifact runtime route", () => {
         sourcePackageHash: ref.sourcePackageHash,
         body: {
           deploymentId: "artifact-runtime-route",
+          identity: { kind: "anonymous" },
           ref,
           sourcePackage,
           request: {
@@ -169,6 +215,22 @@ describe("backend artifact runtime route", () => {
             kind: "query",
             partitionKey: "user:1",
             args: null,
+          },
+        },
+      },
+      {
+        artifactId: ref.artifactId,
+        sourcePackageHash: ref.sourcePackageHash,
+        body: {
+          deploymentId: "artifact-runtime-route",
+          identity: trustedIdentity,
+          ref,
+          sourcePackage,
+          request: {
+            path: "users:get",
+            kind: "query",
+            partitionKey: "user:1",
+            args: { id: "1:user" },
           },
         },
       },

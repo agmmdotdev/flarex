@@ -8,6 +8,7 @@ import {
   InvokeProtocolValidationError,
   type PublicInvokeRequestBody,
 } from "flarex-protocol/invoke";
+import type { ExecutionIdentity } from "flarex-protocol/auth";
 import {
   R2BackendExecutionArtifactStore,
   type BackendExecutionArtifactStore,
@@ -19,6 +20,11 @@ import {
   ServiceBindingExecutionArtifactRuntime,
   type BackendExecutionArtifactRuntime,
 } from "./artifactRuntime";
+import {
+  resolveExecutionIdentityEffect,
+  trustedExecutionIdentityErrorToHttpError,
+  TrustedExecutionIdentityError,
+} from "./auth";
 import { ConnectionDO } from "./connectionDO";
 import { DeliveryDO } from "./deliveryDO";
 import {
@@ -382,6 +388,7 @@ type PublicWorkerDeploymentPushRouteError =
 
 type PublicWorkerInvokeRouteError =
   | PublicInvokeRouteError
+  | TrustedExecutionIdentityError
   | MissingInvokeDeploymentError
   | MissingInvokePathError
   | MissingInvokePartitionKeyError
@@ -850,13 +857,14 @@ const routeInvoke = Effect.fn("Worker.routeInvoke")(
     env: Env,
     deploymentId: string,
     body: PublicInvokeRequestBody,
+    identity: ExecutionIdentity,
   ) {
     const invokeRequest = yield* invokeRequestFromPublicInvokeBodyEffect(body);
     const artifactRuntime = artifactRuntimeFromEnv(env, deploymentId);
     if (artifactRuntime !== undefined) {
       const activeDeployment = yield* loadActiveDeploymentEffect(env, deploymentId);
       const result = yield* Effect.tryPromise({
-        try: () => artifactRuntime.invoke(activeDeployment, invokeRequest),
+        try: () => artifactRuntime.invoke(activeDeployment, invokeRequest, identity),
         catch: error => publicWorkerDispatchError("invoke-execute", error),
       });
       return json(result);
@@ -874,7 +882,8 @@ const routePublicInvoke = Effect.fn("Worker.routePublicInvoke")(
   ) {
     const body = yield* decodePublicInvokeRouteRequest(request);
     const deploymentId = yield* publicInvokeDeploymentIdEffect(routeDeploymentId, body);
-    return yield* routeInvoke(env, deploymentId, body);
+    const identity = yield* resolveExecutionIdentityEffect(request, env);
+    return yield* routeInvoke(env, deploymentId, body, identity);
   },
 );
 
@@ -895,7 +904,8 @@ function publicInvokeRouteErrorToHttpError(
     | PublicInvokeRouteError
     | MissingInvokeDeploymentError
     | MissingInvokePathError
-    | MissingInvokePartitionKeyError,
+    | MissingInvokePartitionKeyError
+    | TrustedExecutionIdentityError,
 ): HttpError {
   if (error instanceof RequestJsonError) {
     return requestJsonErrorToHttpError(error);
@@ -908,6 +918,9 @@ function publicInvokeRouteErrorToHttpError(
   }
   if (error instanceof MissingInvokePartitionKeyError) {
     return new HttpError(400, "Missing partition key.");
+  }
+  if (error instanceof TrustedExecutionIdentityError) {
+    return trustedExecutionIdentityErrorToHttpError(error);
   }
   return new HttpError(400, error.message);
 }

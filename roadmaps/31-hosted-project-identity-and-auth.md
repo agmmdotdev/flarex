@@ -149,7 +149,7 @@ identity mechanism is enabled.
     typings to include `auth`.
   - Add tests for identity schema acceptance, custom claims, anonymous identity,
     and rejection of malformed identity JSON.
-- [ ] I-2. Backend identity resolver and invoke payload propagation.
+- [x] I-2. Backend identity resolver and invoke payload propagation.
   - Add a backend identity resolver that returns anonymous identity by default.
   - Add a trusted internal/dev identity input path for tests and local tooling,
     with explicit fail-closed production naming.
@@ -254,48 +254,45 @@ closing the stream.
 
 ## Current Checkpoint
 
-Previous completed checkpoint: `e3f1c30` (`Plan hosted project identity auth`).
+Previous completed checkpoint: `026d466` (`Add hosted identity contracts`).
 
 What changed:
 
-- Added public SDK `Auth`, `UserIdentity`, `UserIdentityAttributes`, and
-  `JSONValue` types.
-- Added `auth` to query, mutation, partition-scoped mutation, and action
-  contexts.
-- Added protocol `UserIdentity` and `ExecutionIdentity` schemas plus Effect
-  decode helpers.
-- Added auth protocol tests for anonymous identity, user identity, custom
-  claims, and malformed identity rejection.
-- Re-exported auth contracts from package root, `flarex/server`, and
-  `flarex-protocol`.
-- Added an analysis type guard test so public SDK identity types stay
-  compatible with protocol identities.
+- Added backend `resolveExecutionIdentityEffect`, returning anonymous identity
+  by default.
+- Added a fail-closed trusted header path guarded by
+  `FLAREX_TRUSTED_EXECUTION_IDENTITY=true` plus a matching
+  `FLAREX_TRUSTED_EXECUTION_IDENTITY_TOKEN` shared secret for local/test
+  tooling.
+- Kept public invoke request bodies from becoming identity input.
+- Extended execution artifact invoke payloads with required
+  `ExecutionIdentity`, defaulting builder-created payloads to anonymous.
+- Propagated resolved identity from public worker `/invoke` to the internal
+  service-binding artifact runtime payload.
+- Preserved artifact runtime capability-token and artifact header checks.
 
 Convex references inspected:
 
+- `crates/application/src/api.rs`
+- `crates/isolate/src/environment/udf/async_syscall.rs`
+- `crates/sync/src/worker.rs`
 - `npm-packages/convex/src/server/authentication.ts`
-- `npm-packages/convex/src/server/registration.ts`
-- `npm-packages/convex/src/browser/sync/protocol.ts`
-- `npm-packages/convex/src/browser/sync/local_state.ts`
-- `npm-packages/convex/src/browser/sync/authentication_manager.ts`
 
 Known limitations:
 
-- Runtime identity propagation has not been added yet.
+- Trusted executor invoke sessions do not persist identity yet.
 - Existing hosted generated runtime still throws for `ctx.auth`.
 - Existing sync protocol has an `Authenticate` skeleton, but identity changes
   are not yet wired to backend resolver or live-query reruns.
-- Hosted production still defaults to anonymous identity until the resolver
-  slice is implemented.
+- Hosted production still defaults to anonymous identity until a real auth
+  provider resolver is implemented.
 
 Verification:
 
 ```sh
-corepack pnpm --filter flarex typecheck
-corepack pnpm --filter flarex test -- registration.test.ts
 corepack pnpm --filter flarex-protocol typecheck
-corepack pnpm --filter flarex-protocol test -- auth.test.ts
-corepack pnpm --filter @flarex/analysis typecheck
-corepack pnpm --filter @flarex/analysis test -- auth-contract.test.ts
+corepack pnpm --filter flarex-protocol test -- artifact-runtime.test.ts
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/auth.test.ts test/artifactRuntime.test.ts test/artifactRuntimeRequests.test.ts test/artifactRuntimeRouteBoundary.test.ts test/invokeRequests.test.ts test/artifactRuntimeRoute.test.ts test/hostedRuntimeCore.test.ts
 git diff --check
 ```

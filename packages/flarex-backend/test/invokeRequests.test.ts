@@ -35,6 +35,22 @@ describe("public invoke request payloads", () => {
       path: "users:list",
       kind: "query",
     });
+
+    await expect(Effect.runPromise(decodePublicInvokePayload({
+      path: "users:list",
+      kind: "query",
+      identity: {
+        kind: "user",
+        user: {
+          tokenIdentifier: "issuer|user-1",
+          subject: "user-1",
+          issuer: "https://auth.example.com",
+        },
+      },
+    }))).resolves.toEqual({
+      path: "users:list",
+      kind: "query",
+    });
   });
 
   it("keeps protocol failures typed before route HTTP mapping", async () => {

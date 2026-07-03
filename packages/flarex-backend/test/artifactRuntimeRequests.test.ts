@@ -80,6 +80,7 @@ function jsonRequest(body: unknown): Request {
 function testPayload() {
   return {
     deploymentId: "deployment-a",
+    identity: { kind: "anonymous" },
     ref: {
       runtime: "dynamic-worker",
       artifactId: "artifact_1234567890abcdef1234567890abcdef",
