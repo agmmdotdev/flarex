@@ -20,6 +20,7 @@ Goal status:
   - Goal objective: implement local-first runtime and deploy/push parity step by
     step, using the shared artifact runtime host kit as the foundation.
 - [x] G-2. L-1 shared artifact ref/source-package validation.
+  - Commit: `e482969` (`Share execution artifact ref validation`)
 - [ ] G-3. L-2 shared artifact lifecycle payload helper.
 - [ ] G-4. L-3 local dev lifecycle alignment.
 - [ ] G-5. L-4 hosted deploy/push lifecycle alignment.
@@ -51,7 +52,8 @@ Every implementation turn in this goal should follow this loop:
 
 ### G-2 / L-1: Shared Artifact Ref/Source-Package Validation
 
-Status: implemented in this turn; commit pending.
+Status: completed and committed in `e482969`
+(`Share execution artifact ref validation`).
 
 Purpose:
 
