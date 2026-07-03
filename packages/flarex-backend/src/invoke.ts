@@ -562,22 +562,6 @@ export const validateInvokeArgumentsEffect = Effect.fn(
   );
 });
 
-export function resolveFunctionExecutionScope(
-  partition: FunctionPartitionMetadata | null | undefined,
-  route: FunctionRoutePolicy | null | undefined,
-  request: Pick<InvokeRequest, "path" | "args"> & { partitionKey?: string },
-  schema: DeploymentSchema,
-  options: {
-    allocateRootId?: (table: SchemaTable) => string;
-  } = {},
-): FunctionExecutionScope {
-  return Effect.runSync(
-    resolveFunctionExecutionScopeEffect(partition, route, request, schema, options).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
-  );
-}
-
 export const resolveFunctionExecutionScopeEffect = Effect.fn(
   "Invoke.resolveFunctionExecutionScope",
 )(function* (
@@ -628,22 +612,6 @@ export const resolveFunctionExecutionScopeEffect = Effect.fn(
   };
 });
 
-function resolveCreateRootExecutionScope(
-  partition: Extract<FunctionPartitionMetadata, { type: "partitionCreateRoot" }>,
-  route: FunctionRoutePolicy | null | undefined,
-  request: Pick<InvokeRequest, "path" | "args"> & { partitionKey?: string },
-  schema: DeploymentSchema,
-  options: {
-    allocateRootId?: (table: SchemaTable) => string;
-  },
-): FunctionExecutionScope {
-  return Effect.runSync(
-    resolveCreateRootExecutionScopeEffect(partition, route, request, schema, options).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
-  );
-}
-
 const resolveCreateRootExecutionScopeEffect = Effect.fn(
   "Invoke.resolveCreateRootExecutionScope",
 )(function* (
@@ -692,18 +660,6 @@ const resolveCreateRootExecutionScopeEffect = Effect.fn(
   };
 });
 
-function validatePartitionPolicyAgainstSchema(
-  partition: FunctionPartitionPolicy,
-  path: string,
-  schema: DeploymentSchema,
-): void {
-  Effect.runSync(
-    validatePartitionPolicyAgainstSchemaEffect(partition, path, schema).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
-  );
-}
-
 export const validatePartitionPolicyAgainstSchemaEffect = Effect.fn(
   "Invoke.validatePartitionPolicyAgainstSchema",
 )(function* (
@@ -729,18 +685,6 @@ export const validatePartitionPolicyAgainstSchemaEffect = Effect.fn(
     );
   }
 });
-
-function partitionKeyFromArgs(
-  request: Pick<InvokeRequest, "path" | "args">,
-  field: string,
-  label: string,
-): string {
-  return Effect.runSync(
-    partitionKeyFromArgsEffect(request, field, label).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
-  );
-}
 
 export const partitionKeyFromArgsEffect = Effect.fn("Invoke.partitionKeyFromArgs")(function* (
   request: Pick<InvokeRequest, "path" | "args">,
@@ -940,14 +884,6 @@ export const queryDocumentsEffect = Effect.fn("Invoke.queryDocuments")(function*
   };
 });
 
-function requireQueryIndex(index: string | undefined): string {
-  return Effect.runSync(
-    requireQueryIndexEffect(index).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
-  );
-}
-
 export const requireQueryIndexEffect = Effect.fn("Invoke.requireQueryIndex")(function* (
   index: string | undefined,
 ): Effect.fn.Return<string, InvokeQueryPlanningError> {
@@ -956,18 +892,6 @@ export const requireQueryIndexEffect = Effect.fn("Invoke.requireQueryIndex")(fun
   }
   return index;
 });
-
-function findQueryIndex(
-  schema: DeploymentSchema,
-  table: SchemaTable,
-  index: string,
-): SchemaIndex {
-  return Effect.runSync(
-    findQueryIndexEffect(schema, table, index).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
-  );
-}
 
 export const findQueryIndexEffect = Effect.fn("Invoke.findQueryIndex")(function* (
   schema: DeploymentSchema,
@@ -985,19 +909,6 @@ export const findQueryIndexEffect = Effect.fn("Invoke.findQueryIndex")(function*
   }
   return metadata;
 });
-
-function queryIndexBounds(
-  table: string,
-  index: string,
-  metadata: SchemaIndex,
-  expressions: IndexRangeExpression[],
-): { lower?: string; upper?: string } {
-  return Effect.runSync(
-    queryIndexBoundsEffect(table, index, metadata, expressions).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
-  );
-}
 
 export const queryIndexBoundsEffect = Effect.fn("Invoke.queryIndexBounds")(function* (
   table: string,
@@ -1017,14 +928,6 @@ export const queryIndexBoundsEffect = Effect.fn("Invoke.queryIndexBounds")(funct
     }
   });
 });
-
-function validateUniqueQueryResult(documents: Json[]): void {
-  Effect.runSync(
-    validateUniqueQueryResultEffect(documents).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
-  );
-}
 
 export const validateUniqueQueryResultEffect = Effect.fn(
   "Invoke.validateUniqueQueryResult",
@@ -1051,18 +954,6 @@ function backendRangeBuilder(
     lt: (field, value) => backendRangeBuilder([...expressions, { op: "lt", field, value }]),
     lte: (field, value) => backendRangeBuilder([...expressions, { op: "lte", field, value }]),
   };
-}
-
-function validateQueryPlacement(
-  table: SchemaTable,
-  expressions: IndexRangeExpression[],
-  partitionKey: string,
-): void {
-  Effect.runSync(
-    validateQueryPlacementEffect(table, expressions, partitionKey).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
-  );
 }
 
 export const validateQueryPlacementEffect = Effect.fn(
@@ -1294,18 +1185,6 @@ export function isInvokableKind(kind: DeploymentFunctionKind): kind is BackendFu
   return kind === "query" || kind === "mutation";
 }
 
-function tableIdForName(schema: DeploymentSchema, table: string): number {
-  return tableForName(schema, table).tableId;
-}
-
-export function tableForName(schema: DeploymentSchema, table: string): SchemaTable {
-  return Effect.runSync(
-    tableForNameEffect(schema, table).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
-  );
-}
-
 export const tableForNameEffect = Effect.fn("Invoke.tableForName")(function* (
   schema: DeploymentSchema,
   table: string,
@@ -1316,18 +1195,6 @@ export const tableForNameEffect = Effect.fn("Invoke.tableForName")(function* (
   }
   return metadata;
 });
-
-function tableIdFromDocumentId(id: string, schema: DeploymentSchema): number {
-  return tableFromDocumentId(id, schema).tableId;
-}
-
-function tableFromDocumentId(id: string, schema: DeploymentSchema): SchemaTable {
-  return Effect.runSync(
-    tableFromDocumentIdEffect(id, schema).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
-  );
-}
 
 export const tableFromDocumentIdEffect = Effect.fn("Invoke.tableFromDocumentId")(function* (
   id: string,
@@ -1350,14 +1217,6 @@ export const tableFromDocumentIdEffect = Effect.fn("Invoke.tableFromDocumentId")
   return metadata;
 });
 
-function validateDocumentIdTable(id: string, expectedTableId: number): void {
-  Effect.runSync(
-    validateDocumentIdTableEffect(id, expectedTableId).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
-  );
-}
-
 export const validateDocumentIdTableEffect = Effect.fn(
   "Invoke.validateDocumentIdTable",
 )(function* (
@@ -1374,14 +1233,6 @@ function documentValue(id: string, value: Json): Json {
     return { ...value, _id: id };
   }
   return value;
-}
-
-function validateDocument(table: SchemaTable, value: Json, schema?: DeploymentSchema): void {
-  Effect.runSync(
-    validateDocumentEffect(table, value, schema).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
-  );
 }
 
 export const validateDocumentEffect = Effect.fn("Invoke.validateDocument")(function* (
@@ -1401,18 +1252,6 @@ export const validateDocumentEffect = Effect.fn("Invoke.validateDocument")(funct
     Effect.mapError(error => new InvokeDocumentValidationError({ message: error.message })),
   );
 });
-
-function validateDocumentPlacement(
-  table: SchemaTable,
-  value: Json,
-  partitionKey: string,
-): void {
-  Effect.runSync(
-    validateDocumentPlacementEffect(table, value, partitionKey).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
-  );
-}
 
 export const validateDocumentPlacementEffect = Effect.fn(
   "Invoke.validateDocumentPlacement",
@@ -1447,18 +1286,6 @@ function ownerFieldForPlacement(table: SchemaTable): string | null {
     return table.placement.field;
   }
   return null;
-}
-
-export function validateReturn(
-  validator: ValidatorJson | null | undefined,
-  value: Json,
-  schema: DeploymentSchema,
-): void {
-  Effect.runSync(
-    validateReturnEffect(validator, value, schema).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
-  );
 }
 
 export const validateReturnEffect = Effect.fn("Invoke.validateReturn")(function* (
@@ -1571,14 +1398,6 @@ export function idValidatorForSchema(schema: DeploymentSchema) {
       );
     }
   };
-}
-
-export function parseInvokeKind(value: unknown): BackendFunctionKind | undefined {
-  return Effect.runSync(
-    parseInvokeKindEffect(value).pipe(
-      Effect.mapError(invokeValidationErrorToHttpError),
-    ),
-  );
 }
 
 export const parseInvokeKindEffect = Effect.fn("Invoke.parseInvokeKind")(function* (

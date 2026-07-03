@@ -29,7 +29,6 @@ import {
   loadActiveFunctionMetadata,
   loadActiveFunctionMetadataEffect,
   partitionKeyFromArgsEffect,
-  parseInvokeKind,
   parseInvokeKindEffect,
   patchDocumentEffect,
   queryDocumentsEffect,
@@ -37,7 +36,6 @@ import {
   readActiveDeploymentResponseJson,
   requireQueryIndexEffect,
   resolveInvokeFunctionForRequest,
-  resolveFunctionExecutionScope,
   resolveFunctionExecutionScopeEffect,
   tableFromDocumentIdEffect,
   tableForNameEffect,
@@ -198,7 +196,9 @@ describe("executeInvoke", () => {
       status: 400,
       message: "Invoke kind must be query or mutation.",
     });
-    expect(() => parseInvokeKind("action")).toThrow("Invoke kind must be query or mutation.");
+    await expect(Effect.runPromise(
+      parseInvokeKindEffect("action").pipe(Effect.mapError(invokeValidationErrorToHttpError)),
+    )).rejects.toThrow("Invoke kind must be query or mutation.");
   });
 
   it("reports invoke argument validation as a typed Effect failure before adapter mapping", async () => {
@@ -1139,7 +1139,7 @@ describe("executeInvoke", () => {
     });
   });
 
-  it("plans create-root partitions by preallocating the root id before execution", () => {
+  it("plans create-root partitions by preallocating the root id before execution", async () => {
     const schema: DeploymentSchema = {
       version: 1,
       tables: [
@@ -1152,7 +1152,7 @@ describe("executeInvoke", () => {
       indexes: [],
     };
 
-    const scope = resolveFunctionExecutionScope(
+    const scope = await Effect.runPromise(resolveFunctionExecutionScopeEffect(
       {
         type: "partitionCreateRoot",
         table: "users",
@@ -1167,7 +1167,7 @@ describe("executeInvoke", () => {
       {
         allocateRootId: table => `${table.tableId}:preallocated-user`,
       },
-    );
+    ));
 
     expect(scope).toEqual({
       kind: "partitionCreateRoot",
@@ -1178,7 +1178,7 @@ describe("executeInvoke", () => {
     });
   });
 
-  it("rejects invalid create-root execution plans before transaction begin", () => {
+  it("rejects invalid create-root execution plans before transaction begin", async () => {
     const schema: DeploymentSchema = {
       version: 1,
       tables: [
@@ -1196,17 +1196,17 @@ describe("executeInvoke", () => {
       partitionField: "_id" as const,
     };
 
-    expect(() =>
-      resolveFunctionExecutionScope(
+    await expect(Effect.runPromise(
+      resolveFunctionExecutionScopeEffect(
         partition,
         { type: "args", field: "userId" },
         { path: "users:create", args: { name: "Ada" } },
         schema,
-      ),
-    ).toThrow("create-root partition for users:create cannot declare route metadata.");
+      ).pipe(Effect.mapError(invokeValidationErrorToHttpError)),
+    )).rejects.toThrow("create-root partition for users:create cannot declare route metadata.");
 
-    expect(() =>
-      resolveFunctionExecutionScope(
+    await expect(Effect.runPromise(
+      resolveFunctionExecutionScopeEffect(
         partition,
         null,
         {
@@ -1216,20 +1216,20 @@ describe("executeInvoke", () => {
         },
         schema,
         { allocateRootId: () => "2:preallocated-user" },
-      ),
-    ).toThrow(
+      ).pipe(Effect.mapError(invokeValidationErrorToHttpError)),
+    )).rejects.toThrow(
       "partitionKey cannot be supplied for create-root users:create; backend preallocated 2:preallocated-user.",
     );
 
-    expect(() =>
-      resolveFunctionExecutionScope(
+    await expect(Effect.runPromise(
+      resolveFunctionExecutionScopeEffect(
         partition,
         null,
         { path: "users:create", args: { name: "Ada" } },
         schema,
         { allocateRootId: () => "1:not-a-user" },
-      ),
-    ).toThrow(
+      ).pipe(Effect.mapError(invokeValidationErrorToHttpError)),
+    )).rejects.toThrow(
       "preallocated root id for users:create must be an ID for table users.",
     );
   });

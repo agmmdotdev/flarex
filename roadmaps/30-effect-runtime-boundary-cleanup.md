@@ -26,7 +26,6 @@ Production `Effect.runSync` occurrences by file:
 
 | Count | File | Treatment |
 | ---: | --- | --- |
-| 16 | `packages/flarex-backend/src/invoke.ts` | Convert domain helpers and validation branches to Effect-first composition. |
 | 3 | `packages/flarex-backend/src/transaction.ts` | Remove sync mutation facades or restrict them to tests by converting test seeding to Effect helpers. |
 | 2 | `packages/flarex-backend/src/liveQueryDelivery.ts` | Convert live-query body/response helpers to Effect-returning functions. |
 
@@ -68,7 +67,7 @@ boundary remains inside reusable helpers.
     - `corepack pnpm --filter flarex-backend typecheck`
     - focused partition/transaction tests
     - `git diff --check`
-- [ ] G-4. Remove backend invoke domain-level `runSync`.
+- [x] G-4. Remove backend invoke domain-level `runSync`.
   - Convert exported sync helpers and private validation branches in
     `invoke.ts` to Effect-returning helpers.
   - Keep a single `runPromise` at request/runtime adapter boundaries.
@@ -118,35 +117,31 @@ a small required fix.
 
 ## Current Checkpoint
 
-Status: G-3 completed. G-4 is next.
+Status: G-4 completed. G-5 is next.
 
-Previous completed checkpoint: `2d7b1db` (`Remove protocol sync decoder
-exports`).
+Previous completed checkpoint: `1ee9b1b` (`Convert partition row decoding to
+Effect`).
 
 What changed:
 
-- Removed all `decodePartitionStorage*JsonSync` wrappers from
-  `packages/flarex-backend/src/partition/StorageRows.ts`.
-- Converted `PartitionDO` commit, OCC validation, subscription invalidation,
-  document lookup, index lookup, and index metadata loading to compose the
-  Effect row decoders directly.
-- Kept SQL write ordering, idempotency replay, OCC conflict detection,
-  subscription invalidation, document read, and index read behavior intact.
-- Made the new `*Effect` helpers lazy so SQL reads and row decode failures are
-  both inside the Effect contract.
-- Resolved reviewer feedback by wrapping `routePartitionJsonResult` effect
-  construction, replacing the changed-code index-state cast with a real
-  narrower, and extracting the Cloudflare storage transaction Promise bridge
-  into `runPartitionStorageTransactionEffect`.
-- Reconfirmed that the partition storage/DO slice has no `Effect.runSync`,
-  `decodePartitionStorage*JsonSync`, or index-state `as` cast.
+- Removed backend invoke sync helper/facade wrappers from
+  `packages/flarex-backend/src/invoke.ts`.
+- Kept the existing `*Effect` helpers as the production API for function scope
+  resolution, partition validation, query planning, document validation,
+  return validation, and invoke-kind parsing.
+- Updated invoke tests to run Effect helpers at the test boundary instead of
+  importing sync wrappers.
+- Preserved adapter error mapping in tests only where the assertion covers HTTP
+  message/status behavior.
+- Reconfirmed that `invoke.ts` has no `Effect.runSync`; remaining production
+  `Effect.runSync` occurrences are in the later transaction/live-query slices.
 
 Verification:
 
 ```sh
-rg -n "Effect\\.runSync|decodePartitionStorage[A-Za-z0-9]+JsonSync|state as NonNullable<SchemaIndex" packages/flarex-backend/src/partition packages/flarex-backend/src/partitionDO.ts -g "*.ts"
+rg -n "Effect\\.runSync|export function (resolveFunctionExecutionScope|tableForName|validateReturn|parseInvokeKind)|function (resolveCreateRootExecutionScope|validatePartitionPolicyAgainstSchema|partitionKeyFromArgs|requireQueryIndex|findQueryIndex|queryIndexBounds|validateUniqueQueryResult|validateQueryPlacement|tableIdForName|tableIdFromDocumentId|tableFromDocumentId|validateDocumentIdTable|validateDocument|validateDocumentPlacement)\\b" packages/flarex-backend/src/invoke.ts
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/partitionStorageRows.test.ts test/partitionRouteBoundary.test.ts test/partitionFlow.test.ts test/transaction.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
-corepack pnpm --filter flarex-backend exec vitest run test/invoke.test.ts test/invokeRequests.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/invoke.test.ts test/invokeRequests.test.ts test/publicInvokeRouteBoundary.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-backend exec vitest run test/executionDO.test.ts test/push.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 git diff --check
 ```
