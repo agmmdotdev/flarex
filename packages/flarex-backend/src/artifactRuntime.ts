@@ -98,7 +98,7 @@ export interface BackendExecutionArtifactRuntime {
   invoke(
     deployment: ActiveDeploymentStatus,
     request: InvokeRequest,
-    identity?: ExecutionIdentity,
+    identity: ExecutionIdentity,
   ): Promise<InvokeResponse>;
 }
 
@@ -241,7 +241,7 @@ export class ServiceBindingExecutionArtifactRuntime implements BackendExecutionA
   async invoke(
     deployment: ActiveDeploymentStatus,
     request: InvokeRequest,
-    identity: ExecutionIdentity = { kind: "anonymous" },
+    identity: ExecutionIdentity,
   ): Promise<InvokeResponse> {
     // Deliberate runtime bridge: service-binding runtime invokes by Promise.
     return await Effect.runPromise(

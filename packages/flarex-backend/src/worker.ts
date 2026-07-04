@@ -22,9 +22,15 @@ import {
 } from "./artifactRuntime";
 import {
   resolveExecutionIdentityEffect,
+  TRUSTED_EXECUTION_IDENTITY_HEADER,
   trustedExecutionIdentityErrorToHttpError,
   TrustedExecutionIdentityError,
 } from "./auth";
+import {
+  JwtAuthError,
+  jwtAuthErrorToHttpError,
+  resolveBearerExecutionIdentityEffect,
+} from "./authJwt";
 import { ConnectionDO } from "./connectionDO";
 import { DeliveryDO } from "./deliveryDO";
 import {
@@ -211,6 +217,7 @@ import {
 } from "./schedulerRoutes";
 import type { PartitionRequestError } from "./transaction";
 import type {
+  ActiveDeploymentStatus,
   Env,
   PushStatus,
   StartPushRequest,
@@ -389,6 +396,7 @@ type PublicWorkerDeploymentPushRouteError =
 type PublicWorkerInvokeRouteError =
   | PublicInvokeRouteError
   | TrustedExecutionIdentityError
+  | JwtAuthError
   | MissingInvokeDeploymentError
   | MissingInvokePathError
   | MissingInvokePartitionKeyError
@@ -558,6 +566,8 @@ function isPublicWorkerInvokeRouteError(
   if (error instanceof MissingInvokeDeploymentError) return true;
   if (error instanceof MissingInvokePathError) return true;
   if (error instanceof MissingInvokePartitionKeyError) return true;
+  if (error instanceof TrustedExecutionIdentityError) return true;
+  if (error instanceof JwtAuthError) return true;
   return error instanceof PublicWorkerDispatchError && error.source === "invoke-execute";
 }
 
@@ -856,18 +866,24 @@ const routeInvoke = Effect.fn("Worker.routeInvoke")(
   function* (
     env: Env,
     deploymentId: string,
+    activeDeployment: ActiveDeploymentStatus,
     body: PublicInvokeRequestBody,
     identity: ExecutionIdentity,
   ) {
     const invokeRequest = yield* invokeRequestFromPublicInvokeBodyEffect(body);
     const artifactRuntime = artifactRuntimeFromEnv(env, deploymentId);
     if (artifactRuntime !== undefined) {
-      const activeDeployment = yield* loadActiveDeploymentEffect(env, deploymentId);
       const result = yield* Effect.tryPromise({
         try: () => artifactRuntime.invoke(activeDeployment, invokeRequest, identity),
         catch: error => publicWorkerDispatchError("invoke-execute", error),
       });
       return json(result);
+    }
+    if (identity.kind !== "anonymous") {
+      return yield* Effect.fail(publicWorkerDispatchError(
+        "invoke-execute",
+        new Error("Authenticated HTTP invoke requires an execution artifact runtime."),
+      ));
     }
     const result = yield* executeInvokeEffect(env, deploymentId, invokeRequest, functions);
     return json(result);
@@ -882,8 +898,25 @@ const routePublicInvoke = Effect.fn("Worker.routePublicInvoke")(
   ) {
     const body = yield* decodePublicInvokeRouteRequest(request);
     const deploymentId = yield* publicInvokeDeploymentIdEffect(routeDeploymentId, body);
-    const identity = yield* resolveExecutionIdentityEffect(request, env);
-    return yield* routeInvoke(env, deploymentId, body, identity);
+    const activeDeployment = yield* loadActiveDeploymentEffect(env, deploymentId);
+    const identity = yield* resolvePublicInvokeIdentity(request, env, activeDeployment);
+    return yield* routeInvoke(env, deploymentId, activeDeployment, body, identity);
+  },
+);
+
+const resolvePublicInvokeIdentity = Effect.fn("Worker.resolvePublicInvokeIdentity")(
+  function* (
+    request: Request,
+    env: Env,
+    activeDeployment: ActiveDeploymentStatus,
+  ): Effect.fn.Return<ExecutionIdentity, TrustedExecutionIdentityError | JwtAuthError> {
+    if (request.headers.has(TRUSTED_EXECUTION_IDENTITY_HEADER)) {
+      return yield* resolveExecutionIdentityEffect(request, env);
+    }
+    return yield* resolveBearerExecutionIdentityEffect({
+      authorization: request.headers.get("authorization"),
+      authConfig: activeDeployment.sourcePackage.authConfig ?? null,
+    });
   },
 );
 
@@ -905,7 +938,8 @@ function publicInvokeRouteErrorToHttpError(
     | MissingInvokeDeploymentError
     | MissingInvokePathError
     | MissingInvokePartitionKeyError
-    | TrustedExecutionIdentityError,
+    | TrustedExecutionIdentityError
+    | JwtAuthError,
 ): HttpError {
   if (error instanceof RequestJsonError) {
     return requestJsonErrorToHttpError(error);
@@ -921,6 +955,9 @@ function publicInvokeRouteErrorToHttpError(
   }
   if (error instanceof TrustedExecutionIdentityError) {
     return trustedExecutionIdentityErrorToHttpError(error);
+  }
+  if (error instanceof JwtAuthError) {
+    return jwtAuthErrorToHttpError(error);
   }
   return new HttpError(400, error.message);
 }

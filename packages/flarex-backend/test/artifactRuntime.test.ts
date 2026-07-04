@@ -401,7 +401,7 @@ describe("backend execution artifact runtime", () => {
       kind: "query",
     };
 
-    await expect(runtime.invoke(activeDeployment, invokeRequest)).resolves.toEqual({
+    await expect(runtime.invoke(activeDeployment, invokeRequest, { kind: "anonymous" })).resolves.toEqual({
       value: { ok: true },
     });
     expect(calls).toEqual([
@@ -490,7 +490,7 @@ describe("backend execution artifact runtime", () => {
       kind: "query",
     };
 
-    await expect(runtime.invoke(activeDeployment, invokeRequest)).resolves.toEqual({
+    await expect(runtime.invoke(activeDeployment, invokeRequest, { kind: "anonymous" })).resolves.toEqual({
       value: { ok: true },
     });
     expect(calls).toEqual([
@@ -590,7 +590,7 @@ describe("backend execution artifact runtime", () => {
       path: "users:get",
       args: {},
       kind: "query",
-    })).rejects.toMatchObject({
+    }, { kind: "anonymous" })).rejects.toMatchObject({
       name: "HttpError",
       status: 503,
       message: "Execution artifact runtime failed with status 503",
@@ -613,7 +613,7 @@ describe("backend execution artifact runtime", () => {
       path: "users:get",
       args: {},
       kind: "query",
-    })).rejects.toMatchObject({
+    }, { kind: "anonymous" })).rejects.toMatchObject({
       name: "HttpError",
       status: 500,
       message: "Invalid execution artifact runtime invoke response.",
@@ -640,7 +640,7 @@ describe("backend execution artifact runtime", () => {
       path: "users:get",
       args: {},
       kind: "query",
-    })).rejects.toMatchObject({
+    }, { kind: "anonymous" })).rejects.toMatchObject({
       name: "HttpError",
       status: 504,
       message: "Runtime binding unavailable",

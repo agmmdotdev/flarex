@@ -110,7 +110,7 @@ JSON or provider configuration.
     advance identity version.
   - On failure, send `AuthError` without advancing identity version.
   - Add forced-refresh client behavior only where server errors require it.
-- [ ] A-6. HTTP invoke integration.
+- [x] A-6. HTTP invoke integration.
   - Use the same resolver for one-shot HTTP query/mutation/action invokes.
   - Keep trusted dev/test identity headers explicitly env-gated and separate
     from bearer-token identity.
@@ -161,33 +161,27 @@ Every turn in this stream must:
 
 ## Current Checkpoint
 
-Status: A-5 complete.
+Status: A-6 complete.
 
-Previous completed checkpoint: `2bec273` (`Add backend JWT auth resolver`).
+Previous completed checkpoint: `70b3e77` (`Verify sync Authenticate tokens`).
 
 What changed:
 
-- Wired `ConnectionDO` `Authenticate` messages through the backend JWT/JWKS
-  resolver.
-- `Authenticate` with `tokenType: "User"` now loads the active deployment,
-  reads backend-owned `sourcePackage.authConfig`, verifies the bearer token, and
-  only then updates the WebSocket execution identity.
-- Successful sync auth advances identity version and reruns active queries with
-  the verified `ExecutionIdentity`.
-- Failed sync auth sends `AuthError` with generic auth failure text and does not
-  advance identity version.
-- The SDK rolls back its optimistic local auth version when the server returns
-  `AuthError`, avoiding follow-up `BaseIdentityVersionMismatch` drift.
-- `Authenticate` with `tokenType: "None"` still clears to anonymous without
-  loading provider config.
-- `Authenticate` with `tokenType: "Admin"` remains separate from end-user
-  identity and fails closed.
-- Authenticated sync execution fails rather than silently dropping verified
-  identity if the legacy direct-invoke fallback is used without an artifact
-  runtime.
-- Added sync tests with a real RS256 JWT, active deployment auth config, JWKS
-  fetch, signature verification, verified identity rerun, and invalid-token
-  failure.
+- Routed public HTTP invoke bearer authorization through the same backend
+  JWT/JWKS resolver used by sync `Authenticate`.
+- `routePublicInvoke` now loads the active deployment, resolves identity from
+  active package `sourcePackage.authConfig`, and invokes the artifact runtime
+  with the verified `ExecutionIdentity`.
+- Preserved explicitly env-gated trusted dev/test identity headers as a separate
+  path from bearer-token identity.
+- Required artifact runtime invoke call sites to pass an explicit
+  `ExecutionIdentity`, keeping anonymous fallback at route/auth boundaries.
+- Invalid explicit bearer auth maps to generic `401 Authentication failed.`
+- Authenticated HTTP invoke fails rather than silently dropping verified identity
+  if the legacy direct-invoke fallback is used without an artifact runtime.
+- Added HTTP route tests with a real RS256 JWT, active deployment auth config,
+  JWKS fetch, verified runtime identity, invalid-token failure, trusted-header
+  failure coverage, and direct fallback guard coverage.
 
 Convex references inspected:
 
@@ -201,18 +195,20 @@ Convex references inspected:
 
 Cloudflare difference:
 
-- Sync verification runs in the Connection Durable Object and uses the active
-  deployment package metadata as the provider source.
+- HTTP verification runs in the Worker route before artifact-runtime dispatch,
+  using active deployment package metadata as the provider source.
 - The test uses a `data:` JWKS URL to exercise real Worker `fetch` plus
   WebCrypto verification without adding a production test hook.
-- HTTP invoke still uses the older auth boundary and is left to A-6.
+- Trusted dev/test identity headers remain explicitly env-gated and are not
+  derived from end-user bearer tokens.
 
-Next unchecked implementation item: A-6 HTTP invoke integration.
+Next unchecked implementation item: A-7 live-query and scheduler auth proof.
 
 Verification:
 
 ```sh
 corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntimeRoute.test.ts test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000
 corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testNamePattern "Authenticate" --testTimeout=120000 --hookTimeout=120000
 corepack pnpm --filter flarex typecheck
 corepack pnpm --filter flarex test -- client.test.ts

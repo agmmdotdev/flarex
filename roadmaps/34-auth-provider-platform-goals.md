@@ -20,7 +20,7 @@ Source roadmap:
 - [x] A-3. Persistence and active deployment metadata.
 - [x] A-4. Backend JWT/JWKS resolver.
 - [x] A-5. Sync `Authenticate` integration.
-- [ ] A-6. HTTP invoke integration.
+- [x] A-6. HTTP invoke integration.
 - [ ] A-7. Live-query and scheduler auth proof.
 - [ ] A-8. Deploy/admin identity boundary.
 - [ ] A-9. Final platform audit.
@@ -485,6 +485,94 @@ Review gate:
   Added a regression proving verified sync identity fails explicitly when the
   artifact runtime is unavailable instead of falling through as anonymous.
 
+### A-6: HTTP Invoke Integration
+
+Status: complete.
+
+Purpose:
+
+Use the same backend-owned bearer-token verification semantics for one-shot
+HTTP invokes that sync `Authenticate` now uses.
+
+Files changed:
+
+- `packages/flarex-backend/src/worker.ts`
+- `packages/flarex-backend/src/artifactRuntime.ts`
+- `packages/flarex-backend/test/authFixtures.ts`
+- `packages/flarex-backend/test/artifactRuntime.test.ts`
+- `packages/flarex-backend/test/artifactRuntimeRoute.test.ts`
+- `packages/flarex-backend/test/sync.test.ts`
+- `roadmaps/33-auth-provider-platform.md`
+- `roadmaps/34-auth-provider-platform-goals.md`
+
+Exit criteria:
+
+- HTTP `Authorization: Bearer <token>` is verified against active deployment
+  `sourcePackage.authConfig`.
+- Verified HTTP identity is passed into artifact-runtime invocation.
+- Invalid explicit bearer auth fails closed with generic auth text.
+- Trusted dev/test identity headers remain explicitly env-gated and separate
+  from bearer-token identity.
+- Authenticated HTTP invoke cannot fall through to legacy direct invoke as
+  anonymous.
+
+What changed:
+
+- `routePublicInvoke` loads the active deployment before identity resolution and
+  resolves bearer identity with `resolveBearerExecutionIdentityEffect` using the
+  active package auth config.
+- Trusted dev/test identity headers still route through
+  `resolveExecutionIdentityEffect`, and only when the explicit trusted identity
+  header is present.
+- `routeInvoke` now receives the loaded active deployment and passes verified
+  identity to the artifact runtime.
+- The artifact runtime interface now requires call sites to pass an explicit
+  `ExecutionIdentity`; anonymous identity is chosen at route/auth boundaries.
+- The legacy direct-invoke fallback now fails for authenticated HTTP identity
+  instead of dropping it.
+- HTTP route tests sign a real RS256 token, serve JWKS through `data:`, assert
+  the runtime receives the verified identity, assert invalid bearer auth returns
+  `401`, cover trusted-header failure modes, and cover the direct-fallback
+  guard.
+- Shared RS256 JWT/JWKS test fixtures are reused by HTTP and sync auth tests.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/authentication.ts`
+- `crates/authentication/src/lib.rs`
+- `crates/model/src/auth/types.rs`
+- `crates/model/src/auth/mod.rs`
+- `crates/application/src/api.rs`
+
+Cloudflare difference:
+
+- HTTP auth runs in the Worker route before artifact-runtime service binding
+  dispatch, using package-versioned active deployment metadata instead of a
+  separate deployment auth-settings table.
+
+Validation:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntimeRoute.test.ts test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testNamePattern "Authenticate" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test -- client.test.ts
+git diff --check
+```
+
+Review gate:
+
+- Required before commit because this changes the public HTTP auth boundary and
+  identity propagation into user code.
+- TypeScript reviewer found the artifact runtime interface still allowed omitted
+  identity, runtime-call assertions used `unknown`, and an R2 bucket test cast
+  should be guarded. Fixed with an explicit identity runtime API, typed payload
+  decoding, and an R2 bucket guard.
+- Quality reviewer found duplicated JWT test fixtures and missing route-level
+  trusted-header failure coverage. Fixed with `test/authFixtures.ts` and
+  trusted-header disabled/missing-token assertions.
+
 ## Turn Protocol
 
 Every implementation turn follows this loop:
@@ -508,9 +596,9 @@ Every implementation turn follows this loop:
 - [ ] Public SDK auth types stay Convex-compatible where practical.
 - [x] Bearer tokens are never treated as identity without backend verification.
 - [x] Invalid explicit auth attempts fail closed.
-- [ ] Sync and HTTP use the same token verification semantics.
+- [x] Sync and HTTP use the same token verification semantics.
 - [x] Sync query reruns use verified Authenticate identity.
 - [ ] Live-query scheduler deliveries use the verified subscription identity.
 - [ ] Deploy/admin identity is separate from end-user `ctx.auth`.
-- [ ] Trusted dev/test identity remains explicitly env-gated.
+- [x] Trusted dev/test identity remains explicitly env-gated.
 - [x] Significant code slices pass reviewers.
