@@ -1,8 +1,14 @@
 import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
-import { executionIdentityFingerprint } from "flarex-protocol/auth";
+import {
+  executionIdentityFingerprint,
+  type AuthConfig,
+} from "flarex-protocol/auth";
 import { afterAll, describe, expect, it } from "vitest";
 import { R2BackendExecutionArtifactStore, type R2BucketLike } from "../src/artifactStore";
-import { createExecutionArtifactRuntimeService } from "../src/artifactRuntime";
+import {
+  createExecutionArtifactRuntimeService,
+  type MaterializedExecutionArtifactPayload,
+} from "../src/artifactRuntime";
 import type { DeliveryDrainFailureResult } from "../src/deliveryDO";
 import type {
   AnalyzedStartPushRequest,
@@ -12,6 +18,7 @@ import type {
   InvokeResponse,
   Json,
   PushSourcePackage,
+  PushSourceModule,
   PushStatus,
 } from "../src/types";
 import {
@@ -41,6 +48,8 @@ type MiniflareWebSocket = {
     options?: { once?: boolean },
   ): void;
 };
+
+type SyncRuntimePayload = Pick<MaterializedExecutionArtifactPayload, "identity" | "request">;
 
 describe("sync protocol", () => {
   const harnesses: BackendHarness[] = [];
@@ -116,9 +125,33 @@ describe("sync protocol", () => {
 
   it("advances identity version and reruns active queries on Authenticate", async () => {
     const runtimeCalls: unknown[] = [];
-    const harness = await createSyncHarness(runtimeCalls);
+    const keys = await createRsaSigningKeys("sync-rs");
+    const token = await signJwt({
+      privateKey: keys.privateKey,
+      kid: keys.jwk.kid,
+      payload: {
+        iss: "https://issuer.example.com",
+        sub: "user_123",
+        aud: "flarex-sync",
+        exp: Math.floor(Date.now() / 1000) + 60,
+        email: "ada@example.com",
+      },
+    });
+    const harness = await createSyncHarness(
+      runtimeCalls,
+      payload => payload.identity.kind === "anonymous"
+        ? { auth: null }
+        : { auth: payload.identity.user.tokenIdentifier },
+    );
     harnesses.push(harness);
-    await activateDeployment(harness, "sync-auth-deployment");
+    await activateDeployment(
+      harness,
+      "sync-auth-deployment",
+      testSourcePackage({
+        authConfig: customJwtConfig(dataJsonUrl({ keys: [keys.jwk] })),
+        authConfigModule: "_flarex/auth.config.js",
+      }),
+    );
 
     const ws = await openSync(harness, "sync-auth-deployment");
     ws.send(JSON.stringify({
@@ -144,7 +177,7 @@ describe("sync protocol", () => {
         {
           type: "QueryUpdated",
           queryId: 7,
-          value: { result: "users:get", args: { id: "1:ada" } },
+          value: { auth: null },
         },
       ],
     });
@@ -152,7 +185,7 @@ describe("sync protocol", () => {
     ws.send(JSON.stringify({
       type: "Authenticate",
       tokenType: "User",
-      value: "token-1",
+      value: token,
       baseVersion: 0,
     }));
 
@@ -164,15 +197,173 @@ describe("sync protocol", () => {
         {
           type: "QueryUpdated",
           queryId: 7,
-          value: { result: "users:get", args: { id: "1:ada" } },
+          value: { auth: "https://issuer.example.com|user_123" },
         },
       ],
     });
     expect(runtimeCalls).toHaveLength(2);
     expect(runtimeCalls).toEqual([
       expect.objectContaining({ identity: { kind: "anonymous" } }),
-      expect.objectContaining({ identity: { kind: "anonymous" } }),
+      expect.objectContaining({
+        identity: {
+          kind: "user",
+          user: expect.objectContaining({
+            tokenIdentifier: "https://issuer.example.com|user_123",
+            subject: "user_123",
+            issuer: "https://issuer.example.com",
+            email: "ada@example.com",
+          }),
+        },
+      }),
     ]);
+    ws.close();
+  });
+
+  it("returns AuthError without advancing identity version when Authenticate token verification fails", async () => {
+    const harness = await createSyncHarness([]);
+    harnesses.push(harness);
+    await activateDeployment(
+      harness,
+      "sync-auth-invalid-token-deployment",
+      testSourcePackage({
+        authConfig: customJwtConfig(dataJsonUrl({ keys: [] })),
+        authConfigModule: "_flarex/auth.config.js",
+      }),
+    );
+
+    const ws = await openSync(harness, "sync-auth-invalid-token-deployment");
+    ws.send(JSON.stringify({
+      type: "Authenticate",
+      tokenType: "User",
+      value: "not-a-jwt",
+      baseVersion: 0,
+    }));
+
+    await expect(nextJsonMessage(ws)).resolves.toEqual({
+      type: "AuthError",
+      error: "Authentication failed.",
+      baseVersion: 0,
+      authUpdateAttempted: true,
+    });
+
+    ws.send(JSON.stringify({
+      type: "Authenticate",
+      tokenType: "None",
+      baseVersion: 0,
+    }));
+
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      startVersion: { querySet: 0, ts: 0, identity: 0 },
+      endVersion: { querySet: 0, ts: 0, identity: 1 },
+      modifications: [],
+    });
+    ws.close();
+  });
+
+  it("returns AuthError without advancing identity version for unsupported Admin Authenticate", async () => {
+    const harness = await createSyncHarness([]);
+    harnesses.push(harness);
+    await activateDeployment(harness, "sync-auth-admin-deployment");
+
+    const ws = await openSync(harness, "sync-auth-admin-deployment");
+    ws.send(JSON.stringify({
+      type: "Authenticate",
+      tokenType: "Admin",
+      value: "admin-token",
+      baseVersion: 0,
+    }));
+
+    await expect(nextJsonMessage(ws)).resolves.toEqual({
+      type: "AuthError",
+      error: "Admin authentication over /sync is not supported.",
+      baseVersion: 0,
+      authUpdateAttempted: true,
+    });
+
+    ws.send(JSON.stringify({
+      type: "Authenticate",
+      tokenType: "None",
+      baseVersion: 0,
+    }));
+
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      startVersion: { querySet: 0, ts: 0, identity: 0 },
+      endVersion: { querySet: 0, ts: 0, identity: 1 },
+      modifications: [],
+    });
+    ws.close();
+  });
+
+  it("does not drop verified Authenticate identity in the direct-invoke fallback", async () => {
+    const keys = await createRsaSigningKeys("sync-direct-rs");
+    const token = await signJwt({
+      privateKey: keys.privateKey,
+      kid: keys.jwk.kid,
+      payload: {
+        iss: "https://issuer.example.com",
+        sub: "user_direct",
+        aud: "flarex-sync",
+        exp: Math.floor(Date.now() / 1000) + 60,
+      },
+    });
+    const harness = await createBackendHarness({
+      bindings: { FLAREX_PROJECT_ID: "project_sync" },
+      r2Buckets: ["ARTIFACTS"],
+    });
+    harnesses.push(harness);
+    await activateDeployment(
+      harness,
+      "sync-auth-direct-fallback-deployment",
+      testSourcePackage({
+        authConfig: customJwtConfig(dataJsonUrl({ keys: [keys.jwk] })),
+        authConfigModule: "_flarex/auth.config.js",
+      }),
+    );
+
+    const ws = await openSync(harness, "sync-auth-direct-fallback-deployment");
+    ws.send(JSON.stringify({
+      type: "Authenticate",
+      tokenType: "User",
+      value: token,
+      baseVersion: 0,
+    }));
+
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      startVersion: { querySet: 0, ts: 0, identity: 0 },
+      endVersion: { querySet: 0, ts: 0, identity: 1 },
+      modifications: [],
+    });
+
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 7,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      startVersion: { querySet: 0, ts: 0, identity: 1 },
+      endVersion: { querySet: 1, ts: 1, identity: 1 },
+      modifications: [
+        {
+          type: "QueryFailed",
+          queryId: 7,
+          errorMessage: "Authenticated sync execution requires an execution artifact runtime.",
+        },
+      ],
+    });
     ws.close();
   });
 
@@ -184,8 +375,7 @@ describe("sync protocol", () => {
     const ws = await openSync(harness, "sync-stale-auth-deployment");
     ws.send(JSON.stringify({
       type: "Authenticate",
-      tokenType: "User",
-      value: "token-1",
+      tokenType: "None",
       baseVersion: 0,
     }));
 
@@ -198,8 +388,7 @@ describe("sync protocol", () => {
 
     ws.send(JSON.stringify({
       type: "Authenticate",
-      tokenType: "User",
-      value: "stale-token",
+      tokenType: "None",
       baseVersion: 0,
     }));
 
@@ -7126,26 +7315,12 @@ describe("sync protocol", () => {
 
 async function createSyncHarness(
   runtimeCalls: unknown[],
-  valueForRequest: (payload: {
-    request: {
-      path: string;
-      kind?: "query" | "mutation";
-      args: unknown;
-      partitionKey?: string;
-    };
-  }) => Json | Promise<Json> =
+  valueForRequest: (payload: SyncRuntimePayload) => Json | Promise<Json> =
     payload => ({
       result: payload.request.path,
-      args: payload.request.args as Json,
+      args: payload.request.args,
     }),
-  responseForRequest?: (payload: {
-    request: {
-      path: string;
-      kind?: "query" | "mutation";
-      args: unknown;
-      partitionKey?: string;
-    };
-  }) => InvokeResponse | Promise<InvokeResponse>,
+  responseForRequest?: (payload: SyncRuntimePayload) => InvokeResponse | Promise<InvokeResponse>,
   options: BackendHarnessOptions = {},
 ): Promise<BackendHarness> {
   return createBackendHarness({
@@ -7301,8 +7476,8 @@ function collectJsonMessages(ws: MiniflareWebSocket, count: number): Promise<unk
 async function activateDeployment(
   harness: BackendHarness,
   deploymentId: string,
+  sourcePackage: PushSourcePackage = testSourcePackage(),
 ): Promise<void> {
-  const sourcePackage = testSourcePackage();
   const start = await startPush(harness, deploymentId, {
     sourcePackage,
     analysis: testAnalysis(),
@@ -7414,7 +7589,10 @@ function testAnalysis(): DeploymentAnalysis {
   };
 }
 
-function testSourcePackage(): PushSourcePackage {
+function testSourcePackage(options: {
+  authConfig?: AuthConfig;
+  authConfigModule?: string;
+} = {}): PushSourcePackage {
   return {
     modules: [
       {
@@ -7429,10 +7607,100 @@ function testSourcePackage(): PushSourcePackage {
         sha256: "b".repeat(64),
         source: "export const get = {};",
       },
+      ...(options.authConfigModule === undefined
+        ? []
+        : [{
+            path: options.authConfigModule,
+            environment: "isolate",
+            sha256: "c".repeat(64),
+            source: "export default {};",
+          } satisfies PushSourceModule]),
     ],
     functions: ["users.js"],
     execution: "_flarex/execution.js",
+    ...(options.authConfig === undefined ? {} : { authConfig: options.authConfig }),
+    ...(options.authConfigModule === undefined ? {} : { authConfigModule: options.authConfigModule }),
   };
+}
+
+function customJwtConfig(jwks: string): AuthConfig {
+  return {
+    providers: [
+      {
+        type: "customJwt",
+        issuer: "https://issuer.example.com",
+        jwks,
+        algorithm: "RS256",
+        applicationID: "flarex-sync",
+      },
+    ],
+  };
+}
+
+async function createRsaSigningKeys(kid: string): Promise<{
+  privateKey: CryptoKey;
+  jwk: Record<string, Json> & { kid: string; alg: "RS256" };
+}> {
+  const keyPair = await crypto.subtle.generateKey(
+    {
+      name: "RSASSA-PKCS1-v1_5",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: "SHA-256",
+    },
+    true,
+    ["sign", "verify"],
+  );
+  const exported = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+  return {
+    privateKey: keyPair.privateKey,
+    jwk: {
+      kty: requiredString(exported.kty, "jwk.kty"),
+      n: requiredString(exported.n, "jwk.n"),
+      e: requiredString(exported.e, "jwk.e"),
+      kid,
+      alg: "RS256",
+    },
+  };
+}
+
+async function signJwt(input: {
+  privateKey: CryptoKey;
+  kid: string;
+  payload: Record<string, Json>;
+}): Promise<string> {
+  const header = { alg: "RS256", typ: "JWT", kid: input.kid };
+  const encodedHeader = base64UrlJson(header);
+  const encodedPayload = base64UrlJson(input.payload);
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+  const signature = await crypto.subtle.sign(
+    { name: "RSASSA-PKCS1-v1_5" },
+    input.privateKey,
+    new TextEncoder().encode(signingInput),
+  );
+  return `${signingInput}.${base64UrlBytes(new Uint8Array(signature))}`;
+}
+
+function dataJsonUrl(value: Json): string {
+  return `data:application/json,${encodeURIComponent(JSON.stringify(value))}`;
+}
+
+function requiredString(value: unknown, field: string): string {
+  if (typeof value === "string" && value.length > 0) return value;
+  throw new Error(`${field} must be a non-empty string.`);
+}
+
+function base64UrlJson(value: unknown): string {
+  return base64UrlBytes(new TextEncoder().encode(JSON.stringify(value)));
+}
+
+function base64UrlBytes(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/u, "");
 }
 
 function deliveryMaintenanceRequests(

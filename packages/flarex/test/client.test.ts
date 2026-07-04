@@ -467,6 +467,44 @@ describe("FlarexClient", () => {
     });
   });
 
+  it("rolls back sync auth version after server AuthError", async () => {
+    FakeWebSocket.instances = [];
+    const callback = vi.fn();
+    const client = new FlarexClient("https://example.test/deployments/app", {
+      webSocketConstructor: FakeWebSocket,
+    });
+
+    client.onUpdate(
+      { _path: "lessons:list", _kind: "query", _partition: userPartition },
+      { courseId: "english", userId: "user-1" },
+      callback,
+    );
+    const ws = FakeWebSocket.instances[0]!;
+
+    client.setAuth(async () => "invalid-token");
+    await Promise.resolve();
+    expect(ws.sent.map(message => JSON.parse(message)).at(-1)).toEqual({
+      type: "Authenticate",
+      tokenType: "User",
+      value: "invalid-token",
+      baseVersion: 0,
+    });
+
+    ws.receive({
+      type: "AuthError",
+      error: "Authentication failed.",
+      baseVersion: 0,
+      authUpdateAttempted: true,
+    });
+    client.clearAuth();
+
+    expect(ws.sent.map(message => JSON.parse(message)).at(-1)).toEqual({
+      type: "Authenticate",
+      tokenType: "None",
+      baseVersion: 0,
+    });
+  });
+
   it("applies existing bearer auth when a sync client is created later", async () => {
     FakeWebSocket.instances = [];
     const callback = vi.fn();

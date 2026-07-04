@@ -33,10 +33,17 @@ import {
   RequestJsonError,
   requestJsonErrorToHttpError,
 } from "./http";
+import {
+  JwtAuthError,
+  jwtAuthErrorToHttpError,
+  resolveBearerExecutionIdentityEffect,
+} from "./authJwt";
 import { Data, Effect } from "effect";
 import {
   executeInvoke,
+  InvokeActiveDeploymentLoadError,
   loadActiveDeployment,
+  loadActiveDeploymentEffect,
 } from "./invoke";
 import {
   addLiveQueryDeliverySkipReason,
@@ -199,9 +206,34 @@ export class ConnectionDO extends DurableObject<Env> {
           });
           return;
         }
+        let nextIdentity: ExecutionIdentity;
+        try {
+          nextIdentity = await resolveSyncAuthenticateIdentity(
+            this.env,
+            requireDeploymentId(this.state.deploymentId),
+            message,
+          );
+        } catch (error) {
+          send(ws, {
+            type: "AuthError",
+            error: syncAuthenticateErrorMessage(error),
+            baseVersion: message.baseVersion,
+            authUpdateAttempted: true,
+          });
+          return;
+        }
+        if (message.baseVersion !== this.state.identityVersion) {
+          send(ws, {
+            type: "AuthError",
+            error: `BaseIdentityVersionMismatch: base version ${message.baseVersion} does not match current identity version ${this.state.identityVersion}.`,
+            baseVersion: message.baseVersion,
+            authUpdateAttempted: true,
+          });
+          return;
+        }
         const startVersion = this.currentVersion();
         this.state.identityVersion = message.baseVersion + 1;
-        this.state.executionIdentity = { kind: "anonymous" };
+        this.state.executionIdentity = nextIdentity;
         this.markActiveQueriesWithCurrentIdentity();
         await this.rerunQueriesForIdentityChange(ws, startVersion);
         return;
@@ -818,6 +850,59 @@ function runConnectionWebSocketMessage(
   );
 }
 
+type SyncAuthenticateMessage = Extract<ClientMessage, { type: "Authenticate" }>;
+
+class SyncAuthenticateAdminUnsupportedError extends Data.TaggedError(
+  "SyncAuthenticateAdminUnsupportedError",
+)<{}> {}
+
+type SyncAuthenticateIdentityError =
+  | InvokeActiveDeploymentLoadError
+  | JwtAuthError
+  | SyncAuthenticateAdminUnsupportedError;
+
+const resolveSyncAuthenticateIdentityEffect = Effect.fn(
+  "ConnectionDO.resolveSyncAuthenticateIdentity",
+)(function* (
+  env: Env,
+  deploymentId: string,
+  message: SyncAuthenticateMessage,
+): Effect.fn.Return<ExecutionIdentity, SyncAuthenticateIdentityError> {
+  if (message.tokenType === "None") {
+    return { kind: "anonymous" };
+  }
+  if (message.tokenType === "Admin") {
+    return yield* Effect.fail(new SyncAuthenticateAdminUnsupportedError());
+  }
+  const activeDeployment = yield* loadActiveDeploymentEffect(env, deploymentId);
+  return yield* resolveBearerExecutionIdentityEffect({
+    authorization: `Bearer ${message.value}`,
+    authConfig: activeDeployment.sourcePackage.authConfig ?? null,
+  });
+});
+
+function resolveSyncAuthenticateIdentity(
+  env: Env,
+  deploymentId: string,
+  message: SyncAuthenticateMessage,
+): Promise<ExecutionIdentity> {
+  // Deliberate runtime bridge: WebSocket auth callbacks complete through Promises.
+  return Effect.runPromise(resolveSyncAuthenticateIdentityEffect(env, deploymentId, message));
+}
+
+function syncAuthenticateErrorMessage(error: unknown): string {
+  if (error instanceof SyncAuthenticateAdminUnsupportedError) {
+    return "Admin authentication over /sync is not supported.";
+  }
+  if (error instanceof JwtAuthError) {
+    return jwtAuthErrorToHttpError(error).message;
+  }
+  if (error instanceof InvokeActiveDeploymentLoadError) {
+    return "Authentication failed.";
+  }
+  return "Authentication failed.";
+}
+
 type ConnectionInternalRouteError =
   | ConnectionRouteError
   | ConnectionRouteOperationError;
@@ -890,6 +975,9 @@ async function executeSyncInvoke(
   if (artifactRuntime !== undefined) {
     const activeDeployment = await loadActiveDeployment(env, deploymentId);
     return artifactRuntime.invoke(activeDeployment, request, identity);
+  }
+  if (identity.kind !== "anonymous") {
+    throw new Error("Authenticated sync execution requires an execution artifact runtime.");
   }
   return executeInvoke(env, deploymentId, request, {});
 }

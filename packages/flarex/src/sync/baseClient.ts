@@ -166,6 +166,7 @@ export class BaseFlarexClient {
         this.failAll(new Error(message.error));
         return;
       case "AuthError":
+        this.state.rollbackAuth(message.baseVersion);
         this.failAll(new Error(message.error));
         return;
       case "Ping":

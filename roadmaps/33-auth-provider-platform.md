@@ -104,7 +104,7 @@ JSON or provider configuration.
   - Cache JWKS conservatively without making stale invalid keys authoritative
     forever.
   - Return typed auth errors and fail closed.
-- [ ] A-5. Sync `Authenticate` integration.
+- [x] A-5. Sync `Authenticate` integration.
   - Validate the token in `ConnectionDO` through the same backend resolver.
   - On success, set `executionIdentity` to the verified user identity and
     advance identity version.
@@ -161,22 +161,33 @@ Every turn in this stream must:
 
 ## Current Checkpoint
 
-Status: A-4 complete.
+Status: A-5 complete.
 
-Previous completed checkpoint: `868852d` (`Persist active auth provider metadata`).
+Previous completed checkpoint: `2bec273` (`Add backend JWT auth resolver`).
 
 What changed:
 
-- Added `packages/flarex-backend/src/authJwt.ts`, a reusable backend JWT/JWKS
-  resolver that parses explicit `Authorization: Bearer <token>` inputs and raw
-  sync tokens, selects a provider from unverified issuer/audience only, then
-  verifies signature, algorithm, issuer, audience, `exp`, and `nbf`.
-- Supported custom JWT provider JWKS and OIDC discovery plus JWKS.
-- Supported `RS256` and `ES256` WebCrypto verification.
-- Mapped verified claims into `ExecutionIdentity`/`UserIdentity`, including
-  Convex-compatible `tokenIdentifier` as `issuer|subject`.
-- Added fail-closed typed `JwtAuthError` reasons and an HTTP error mapper for
-  later HTTP/sync boundary integration.
+- Wired `ConnectionDO` `Authenticate` messages through the backend JWT/JWKS
+  resolver.
+- `Authenticate` with `tokenType: "User"` now loads the active deployment,
+  reads backend-owned `sourcePackage.authConfig`, verifies the bearer token, and
+  only then updates the WebSocket execution identity.
+- Successful sync auth advances identity version and reruns active queries with
+  the verified `ExecutionIdentity`.
+- Failed sync auth sends `AuthError` with generic auth failure text and does not
+  advance identity version.
+- The SDK rolls back its optimistic local auth version when the server returns
+  `AuthError`, avoiding follow-up `BaseIdentityVersionMismatch` drift.
+- `Authenticate` with `tokenType: "None"` still clears to anonymous without
+  loading provider config.
+- `Authenticate` with `tokenType: "Admin"` remains separate from end-user
+  identity and fails closed.
+- Authenticated sync execution fails rather than silently dropping verified
+  identity if the legacy direct-invoke fallback is used without an artifact
+  runtime.
+- Added sync tests with a real RS256 JWT, active deployment auth config, JWKS
+  fetch, signature verification, verified identity rerun, and invalid-token
+  failure.
 
 Convex references inspected:
 
@@ -186,22 +197,24 @@ Convex references inspected:
 - `crates/keybroker/src/broker.rs`
 - `crates/model/src/auth/types.rs`
 - `crates/model/src/auth/mod.rs`
+- `npm-packages/convex/src/browser/sync/authentication_manager.ts`
 
 Cloudflare difference:
 
-- The resolver is implemented in the Worker/backend package with injected
-  `fetch` and WebCrypto verification. It is reusable by both HTTP and sync
-  boundaries, but those call-site integrations are intentionally left to A-5
-  and A-6.
-- Clients still do not submit trusted identity JSON. They submit only bearer
-  tokens, and the resolver returns identity only after backend verification.
+- Sync verification runs in the Connection Durable Object and uses the active
+  deployment package metadata as the provider source.
+- The test uses a `data:` JWKS URL to exercise real Worker `fetch` plus
+  WebCrypto verification without adding a production test hook.
+- HTTP invoke still uses the older auth boundary and is left to A-6.
 
-Next unchecked implementation item: A-5 sync `Authenticate` integration.
+Next unchecked implementation item: A-6 HTTP invoke integration.
 
 Verification:
 
 ```sh
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/authJwt.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testNamePattern "Authenticate" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test -- client.test.ts
 git diff --check
 ```

@@ -55,6 +55,12 @@ export class LocalSyncState {
     };
   }
 
+  rollbackAuth(baseVersion: IdentityVersion): void {
+    if (this.identityVersion === baseVersion + 1) {
+      this.identityVersion = baseVersion;
+    }
+  }
+
   subscribe(
     udfPath: string,
     args: Record<string, unknown>,

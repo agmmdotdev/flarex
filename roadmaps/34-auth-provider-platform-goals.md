@@ -19,7 +19,7 @@ Source roadmap:
 - [x] A-2. Source-package and deploy ingestion.
 - [x] A-3. Persistence and active deployment metadata.
 - [x] A-4. Backend JWT/JWKS resolver.
-- [ ] A-5. Sync `Authenticate` integration.
+- [x] A-5. Sync `Authenticate` integration.
 - [ ] A-6. HTTP invoke integration.
 - [ ] A-7. Live-query and scheduler auth proof.
 - [ ] A-8. Deploy/admin identity boundary.
@@ -399,7 +399,7 @@ Review gate:
 
 ### A-5: Sync `Authenticate` Integration
 
-Status: next.
+Status: complete.
 
 Purpose:
 
@@ -407,13 +407,15 @@ Wire sync `Authenticate` messages through the backend JWT/JWKS resolver so
 WebSocket identity changes use verified user identity instead of resetting to
 anonymous.
 
-Expected files:
+Files changed:
 
+- `packages/flarex/src/sync/baseClient.ts`
+- `packages/flarex/src/sync/localState.ts`
+- `packages/flarex/test/client.test.ts`
 - `packages/flarex-backend/src/connectionDO.ts`
-- `packages/flarex-backend/src/authJwt.ts` only if the resolver needs small
-  integration helpers
-- sync protocol/backend tests
-- both roadmap files
+- `packages/flarex-backend/test/sync.test.ts`
+- `roadmaps/33-auth-provider-platform.md`
+- `roadmaps/34-auth-provider-platform-goals.md`
 
 Exit criteria:
 
@@ -424,6 +426,64 @@ Exit criteria:
 - Failure sends `AuthError` without advancing identity version.
 - `Authenticate` with `tokenType: "None"` clears to anonymous without needing a
   provider.
+
+What changed:
+
+- `ConnectionDO` resolves the next sync identity before mutating connection
+  state. User tokens are wrapped as bearer tokens and verified through
+  `resolveBearerExecutionIdentityEffect` using the active deployment package's
+  `sourcePackage.authConfig`.
+- Successful user auth updates `executionIdentity`, advances identity version,
+  and reruns active queries with the verified identity.
+- Invalid user auth sends generic `AuthError` and leaves the current identity
+  version unchanged.
+- The SDK rolls back its optimistic local identity version when the server
+  returns `AuthError`, so the next auth message uses the server base version.
+- `None` auth clears to anonymous locally; `Admin` auth remains separate from
+  end-user identity and fails closed.
+- Authenticated sync execution now fails instead of dropping verified identity
+  if the legacy direct-invoke fallback is used without an artifact runtime.
+- Sync tests now activate a deployment with auth config, sign a real RS256 JWT,
+  serve JWKS through a `data:` URL, and assert rerun execution receives the
+  verified `ExecutionIdentity`.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/browser/sync/authentication_manager.ts`
+- `npm-packages/convex/src/server/authentication.ts`
+- `crates/authentication/src/lib.rs`
+- `crates/model/src/auth/types.rs`
+- `crates/model/src/auth/mod.rs`
+
+Cloudflare difference:
+
+- Verification happens inside `ConnectionDO` because the sync WebSocket state
+  owns identity versions and active query reruns.
+- The backend loads provider config from the active deployment package rather
+  than accepting provider config or identity JSON from the client.
+
+Validation:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testNamePattern "Authenticate" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test -- client.test.ts
+git diff --check
+```
+
+Review gate:
+
+- Required before commit because this changes the sync auth boundary and
+  identity rerun behavior.
+- First-pass reviewers found SDK auth-version desync after `AuthError`,
+  possible stale async auth commit, generic error leakage, untested `Admin`
+  auth, direct invoke identity drop, and weaker copied test types. These were
+  fixed in the main thread and validation was rerun.
+- Second-pass TypeScript reviewers found no remaining actionable findings.
+- The second-pass quality reviewer found missing direct-invoke guard coverage.
+  Added a regression proving verified sync identity fails explicitly when the
+  artifact runtime is unavailable instead of falling through as anonymous.
 
 ## Turn Protocol
 
@@ -449,7 +509,8 @@ Every implementation turn follows this loop:
 - [x] Bearer tokens are never treated as identity without backend verification.
 - [x] Invalid explicit auth attempts fail closed.
 - [ ] Sync and HTTP use the same token verification semantics.
-- [ ] Live-query reruns use the verified subscription identity.
+- [x] Sync query reruns use verified Authenticate identity.
+- [ ] Live-query scheduler deliveries use the verified subscription identity.
 - [ ] Deploy/admin identity is separate from end-user `ctx.auth`.
 - [ ] Trusted dev/test identity remains explicitly env-gated.
 - [x] Significant code slices pass reviewers.
