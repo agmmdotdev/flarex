@@ -47,6 +47,7 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/flarex-backend/src/connectionDO.ts", "requireProjectId"), 1],
   [siteKey("packages/flarex-backend/src/connectionDO.ts", "runConnectionRoute"), 1],
   [siteKey("packages/flarex-backend/src/connectionDO.ts", "runConnectionWebSocketMessage"), 1],
+  [siteKey("packages/flarex-backend/src/connectionDO.ts", "resolveSyncAuthenticateIdentity"), 1],
   [siteKey("packages/flarex-backend/src/deliveryDO.ts", "DeliveryDO.alarm"), 1],
   [siteKey("packages/flarex-backend/src/deliveryDO.ts", "DeliveryDO.wakeEffect"), 1],
   [siteKey("packages/flarex-backend/src/deliveryDO.ts", "runDeliveryRoute"), 1],
@@ -77,6 +78,7 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/flarex-dev/src/executionArtifact.ts", "analysisWorkerSource <generated:analyze>"), 1],
   [siteKey("packages/flarex-dev/src/runtimeMaterializer.ts", "LocalMiniflareMaterializedExecutionArtifact.executeQuerySession"), 1],
   [siteKey("packages/flarex-dev/src/runtimeMaterializer.ts", "LocalMiniflareMaterializedExecutionArtifact.invoke"), 1],
+  [siteKey("packages/flarex-protocol/src/auth.ts", "decodeAuthConfigPromise"), 1],
 ]);
 
 if (isCliEntrypoint()) {

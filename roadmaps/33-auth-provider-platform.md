@@ -125,7 +125,7 @@ JSON or provider configuration.
   - Keep deploy keys, dashboard users, and project ownership out of end-user
     `ctx.auth`.
   - Add tests that public end-user tokens cannot mutate provider config.
-- [ ] A-9. Final platform audit.
+- [x] A-9. Final platform audit.
   - Run the broad auth, sync, backend, executor, persistence, and dev package
     gates.
   - Run both standing reviewers.
@@ -161,52 +161,86 @@ Every turn in this stream must:
 
 ## Current Checkpoint
 
-Status: A-8 complete.
+Status: A-9 final audit complete.
 
-Previous completed checkpoint: `b44aca4` (`Prove live query auth identity`).
+Previous completed checkpoint: `e7b79ee` (`Separate deploy push auth identity`).
 
 What changed:
 
-- All public Worker deployment push mutations now require the deploy/admin push
-  bearer token before JSON body parsing: `push/start`, `push/start-analyzed`,
-  `push/:pushId/finish`, and `push/:pushId/abandon`.
-- The deploy-push authorization helper now has a generic mutation entry point,
-  generic public error text, deploy-push-named test credentials, and an
-  explicit compatibility path for the older analyzed-start unit API.
-- Added a regression with a real end-user JWT matching the active deployment
-  auth config. The user bearer token is rejected for all four deploy-push
-  mutation routes, and the active auth config remains unchanged.
-- Local dev's in-process backend push coordinator now sends an explicit local
-  deploy-push token, and the local backend runtime binds the same token.
-- Reviewer findings fixed before commit: local deploy POST credentials are
-  required at the helper boundary; route-matrix coverage now covers all
-  deploy-push mutations; deploy-push naming is first-class in the public auth
-  helper and test harness; the compatibility error keeps the legacy Effect tag
-  while the deploy-push class is nominally typed.
+- Added a public SDK type regression proving Convex-style auth provider config
+  types are exported from `flarex/server` and remain assignable through the
+  protocol-owned `AuthProvider` union.
+- The broad workspace typecheck found stale cross-package test surfaces after
+  authenticated artifact execution became explicit. Fixed app artifact-runtime
+  invoke payloads to carry anonymous `ExecutionIdentity`, executor-http/nitro
+  fakes to implement `getActiveDeploymentAuthConfig`, nitro fake persistence
+  rows to include `identityJson`, and executor-http delivery assertions to
+  include identity fingerprints.
+- The Effect boundary checker found auth-related Promise bridges that were not
+  audited. Centralized dev auth-config decoding through the exported protocol
+  Promise decoder and added explicit site/count tracking for the remaining sync
+  Authenticate bridge plus protocol auth-config Promise decoder.
 
 Convex references inspected:
 
+- `npm-packages/convex/src/server/authentication.ts`
+- `npm-packages/convex/src/browser/sync/authentication_manager.ts`
+- `crates/authentication/src/lib.rs`
+- `crates/model/src/auth/types.rs`
 - `crates/model/src/auth/mod.rs`
-- `crates/keybroker/src/broker.rs`
-- `crates/local_backend/src/deploy_config2.rs`
-- `crates/application/src/lib.rs`
+- `crates/application/src/api.rs`
 
 Cloudflare difference:
 
-- Convex routes auth config and deploy writes through admin/system identities
-  and `DeploymentOp::Deploy`; Flarex currently uses a configured deploy-push
-  bearer token for the Worker deploy boundary.
-- End-user bearer JWTs are only execution identity for `ctx.auth` and are not
-  accepted as deploy/admin credentials for provider config mutation.
+- Flarex's verified identity path crosses Cloudflare Worker, Durable Object,
+  service-binding artifact runtime, Dynamic Worker, executor HTTP/Nitro, and
+  Postgres persistence package boundaries. The final audit checks those package
+  boundaries instead of only the focused backend tests.
+- Deployment auth configuration remains package-versioned active metadata.
+  There is still no separate dashboard auth-provider settings API.
 
-Next unchecked implementation item: A-9 final platform audit.
+Final limitations and follow-ups:
+
+- The deploy-push Worker binding is still named `FLAREX_ANALYZED_START_TOKEN`
+  for compatibility; a future config cleanup can rename it with an alias window.
+- OIDC/custom-JWT provider support is implemented for the configured provider
+  shapes in this stream; dashboard/project owner auth and deploy key lifecycle
+  remain outside this auth-provider platform goal.
+- Client token refresh behavior is limited to the current `setAuth`/sync
+  retry semantics; long-lived proactive refresh scheduling can be a later SDK
+  ergonomics slice.
+
+Next unchecked implementation item: none for this auth-provider platform
+stream.
 
 Verification:
 
 ```sh
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/push.test.ts test/publicAnalyzedStartAuthorization.test.ts --testTimeout=120000 --hookTimeout=120000
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts test/dev.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm typecheck
+corepack pnpm --filter flarex test -- registration.test.ts
+corepack pnpm --filter flarex-protocol test -- auth.test.ts deployment.test.ts
+corepack pnpm --filter @flarex/executor test -- deployments.test.ts
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend exec vitest run test/authJwt.test.ts test/publicAnalyzedStartAuthorization.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntimeRoute.test.ts test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend exec vitest run test/push.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev exec vitest run test/sourcePackage.test.ts test/executorHttpRuntime.test.ts test/backendPush.test.ts test/dev.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/artifact-runtime test -- worker.test.ts
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm --filter @flarex/executor-nitro test -- health.test.ts
+corepack pnpm check:effect-boundaries
+corepack pnpm test:scripts
 git diff --check
 ```
+
+Review gate:
+
+- TypeScript reviewer found no actionable findings.
+- Maintainability reviewer found two avoidable local auth-config decode
+  `Effect.runPromise` bridges and the pending-review status wording. Fixed by
+  reusing `decodeAuthConfigPromise(...)`, removing the two local allowlist
+  entries, rerunning validation, and updating this checkpoint status.
+- Final re-review found a stale `Effect` import plus roadmap file-list/heading
+  accuracy issues. Fixed those and reran the affected gates plus the full
+  workspace typecheck.

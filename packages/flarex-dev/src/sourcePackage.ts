@@ -2,9 +2,8 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { stat } from "node:fs/promises";
-import { Effect } from "effect";
 import {
-  decodeAuthConfigEffect,
+  decodeAuthConfigPromise,
   type AuthConfig,
 } from "flarex-protocol/auth";
 import { build, type Plugin } from "vite";
@@ -218,5 +217,5 @@ async function loadAuthConfig(module: SourceModule): Promise<AuthConfig> {
   const loaded = await import(
     `data:text/javascript;base64,${Buffer.from(module.source, "utf8").toString("base64")}`
   ) as { default?: unknown };
-  return Effect.runPromise(decodeAuthConfigEffect(loaded.default));
+  return await decodeAuthConfigPromise(loaded.default);
 }

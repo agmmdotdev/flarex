@@ -23,9 +23,9 @@ Source roadmap:
 - [x] A-6. HTTP invoke integration.
 - [x] A-7. Live-query and scheduler auth proof.
 - [x] A-8. Deploy/admin identity boundary.
-- [ ] A-9. Final platform audit.
+- [x] A-9. Final platform audit.
 
-## Current Next Slice
+## Completed Slice History
 
 ### A-0: Roadmap And Goal Checklist
 
@@ -762,6 +762,112 @@ Review gate:
 - All reviewer findings were fixed before commit; focused backend/dev
   validation and `git diff --check` passed afterward.
 
+### A-9: Final Platform Audit
+
+Status: complete.
+
+Purpose:
+
+Prove the full hosted auth-provider platform across package boundaries instead
+of relying only on the focused slice tests.
+
+Files changed:
+
+- `apps/artifact-runtime/test/worker.test.ts`
+- `packages/executor-http/test/http.test.ts`
+- `packages/executor-nitro/test/health.test.ts`
+- `packages/executor-nitro/test/helpers.ts`
+- `packages/flarex-dev/src/executorHttpRuntime.ts`
+- `packages/flarex-dev/src/sourcePackage.ts`
+- `packages/flarex/test/registration.test.ts`
+- `scripts/check-effect-boundaries.mjs`
+- `roadmaps/33-auth-provider-platform.md`
+- `roadmaps/34-auth-provider-platform-goals.md`
+
+Exit criteria:
+
+- Public SDK auth provider types are verified through `flarex/server`.
+- Workspace-wide typecheck passes after all auth identity boundary changes.
+- Broad auth, sync, backend, executor, persistence, dev, artifact-runtime,
+  executor-http, and executor-nitro gates pass.
+- Effect runtime boundary checker passes with audited auth-related Promise
+  bridges and zero production `Effect.runSync` sites.
+- Final limitations and follow-ups are recorded in the main roadmap.
+
+What changed:
+
+- Added a public SDK type regression for Convex-style `AuthConfig`,
+  `AuthProvider`, OIDC provider, and custom-JWT provider imports from
+  `flarex/server`.
+- Fixed app artifact-runtime tests to include explicit anonymous
+  `ExecutionIdentity` in invoke payloads, materialized payload assertions, and
+  generated Dynamic Worker request bodies.
+- Fixed executor HTTP/Nitro test fakes so they implement the required active
+  auth-config executor API and persisted identity fields.
+- Updated executor-http live-query delivery expectations to include identity
+  fingerprints.
+- Centralized dev auth-config decoding through `decodeAuthConfigPromise(...)`
+  and added the remaining auth-related Promise bridges found by A-9 to the
+  Effect boundary checker allowlist with exact site/count tracking.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/authentication.ts`
+- `npm-packages/convex/src/browser/sync/authentication_manager.ts`
+- `crates/authentication/src/lib.rs`
+- `crates/model/src/auth/types.rs`
+- `crates/model/src/auth/mod.rs`
+- `crates/application/src/api.rs`
+
+Cloudflare difference:
+
+- Flarex crosses explicit Worker, Durable Object, service-binding artifact
+  runtime, Dynamic Worker, executor HTTP/Nitro, and Postgres package
+  boundaries. The audit fixes the package-local test surfaces that still
+  assumed implicit anonymous identity.
+
+Final limitations and follow-ups:
+
+- `FLAREX_ANALYZED_START_TOKEN` remains the deploy-push binding name for
+  compatibility; rename with an alias window later.
+- Dashboard/project owner auth and deploy key lifecycle are outside this stream.
+- Proactive SDK token refresh scheduling can be added later on top of the
+  current backend-verified `setAuth`/sync semantics.
+
+Validation:
+
+```sh
+corepack pnpm typecheck
+corepack pnpm --filter flarex test -- registration.test.ts
+corepack pnpm --filter flarex-protocol test -- auth.test.ts deployment.test.ts
+corepack pnpm --filter @flarex/executor test -- deployments.test.ts
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend exec vitest run test/authJwt.test.ts test/publicAnalyzedStartAuthorization.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntimeRoute.test.ts test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend exec vitest run test/push.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev exec vitest run test/sourcePackage.test.ts test/executorHttpRuntime.test.ts test/backendPush.test.ts test/dev.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/artifact-runtime test -- worker.test.ts
+corepack pnpm --filter @flarex/executor-http test -- http.test.ts
+corepack pnpm --filter @flarex/executor-nitro test -- health.test.ts
+corepack pnpm check:effect-boundaries
+corepack pnpm test:scripts
+git diff --check
+```
+
+Review gate:
+
+- Required before commit because this is the final audit checkpoint and it
+  touches cross-package tests plus the Effect runtime boundary checker.
+- TypeScript reviewer found no actionable findings.
+- Maintainability reviewer found avoidable local auth-config decode
+  `Effect.runPromise` bridges and pending-review status wording. Fixed by
+  reusing the protocol `decodeAuthConfigPromise(...)`, removing the two local
+  Effect-boundary allowlist entries, rerunning validation, and updating the
+  roadmap statuses.
+- Final re-review found a stale `Effect` import and roadmap accuracy issues.
+  Fixed those and reran the affected gates plus the full workspace typecheck.
+
 ## Turn Protocol
 
 Every implementation turn follows this loop:
@@ -782,7 +888,7 @@ Every implementation turn follows this loop:
 ## Required Quality Checklist
 
 - [x] Provider config is backend-owned and decoded through Effect Schema.
-- [ ] Public SDK auth types stay Convex-compatible where practical.
+- [x] Public SDK auth types stay Convex-compatible where practical.
 - [x] Bearer tokens are never treated as identity without backend verification.
 - [x] Invalid explicit auth attempts fail closed.
 - [x] Sync and HTTP use the same token verification semantics.

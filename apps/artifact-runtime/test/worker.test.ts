@@ -23,6 +23,8 @@ import {
   createArtifactRuntimeWorker,
 } from "../src/worker";
 
+const anonymousIdentity = { kind: "anonymous" } as const;
+
 describe("artifact runtime worker", () => {
   it("accepts backend service-binding ref-only invokes through the deployable wrapper", async () => {
     const sourcePackage = testSourcePackage();
@@ -65,12 +67,16 @@ describe("artifact runtime worker", () => {
       sendSourcePackage: false,
     });
 
-    await expect(backendRuntime.invoke(activeDeployment(ref, sourcePackage), {
-      path: "users:get",
-      kind: "query",
-      partitionKey: "user:1",
-      args: { id: "1:user" },
-    })).resolves.toEqual({
+    await expect(backendRuntime.invoke(
+      activeDeployment(ref, sourcePackage),
+      {
+        path: "users:get",
+        kind: "query",
+        partitionKey: "user:1",
+        args: { id: "1:user" },
+      },
+      anonymousIdentity,
+    )).resolves.toEqual({
       value: {
         deploymentId: "deployment1",
         path: "users:get",
@@ -81,6 +87,7 @@ describe("artifact runtime worker", () => {
       {
         deploymentId: "deployment1",
         ref,
+        identity: anonymousIdentity,
         sourcePackage,
         request: {
           path: "users:get",
@@ -115,6 +122,7 @@ describe("artifact runtime worker", () => {
     const payload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment1",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "users:get",
         kind: "query",
@@ -166,6 +174,7 @@ describe("artifact runtime worker", () => {
     const payload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment1",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "users:get",
         kind: "query",
@@ -214,6 +223,7 @@ describe("artifact runtime worker", () => {
     const payload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment1",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "users:get",
         kind: "query",
@@ -241,6 +251,7 @@ describe("artifact runtime worker", () => {
         loaded: true,
         body: {
           deploymentId: "deployment1",
+          identity: anonymousIdentity,
           path: "users:get",
           kind: "query",
           args: { id: "1:user" },
@@ -324,6 +335,7 @@ describe("artifact runtime worker", () => {
     const payload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment-hosted",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "messages:list",
         kind: "query",
@@ -355,6 +367,7 @@ describe("artifact runtime worker", () => {
         },
         body: JSON.stringify({
           deploymentId: payload.deploymentId,
+          identity: payload.identity,
           ...payload.request,
         }),
       }),
@@ -374,6 +387,7 @@ describe("artifact runtime worker", () => {
         body: {
           deploymentId: "deployment-hosted",
           projectId: "project-hosted",
+          identity: anonymousIdentity,
           path: "messages:list",
           args: { lessonId: "1:lesson" },
           kind: "query",
@@ -428,6 +442,7 @@ describe("artifact runtime worker", () => {
     const payload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment-hosted",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "messages:list",
         kind: "query",
@@ -479,6 +494,7 @@ describe("artifact runtime worker", () => {
     const payload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment-wrong-kind",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "messages:create",
         kind: "mutation",
@@ -540,6 +556,7 @@ describe("artifact runtime worker", () => {
     const payload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment-mutation",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "messages:create",
         kind: "mutation",
@@ -650,6 +667,7 @@ describe("artifact runtime worker", () => {
     const payload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment-retry",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "messages:create",
         kind: "mutation",
@@ -729,6 +747,7 @@ describe("artifact runtime worker", () => {
     const queryPayload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment-nested",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "messages:outerQuery",
         kind: "query",
@@ -738,6 +757,7 @@ describe("artifact runtime worker", () => {
     const mutationPayload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment-nested",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "messages:outerMutation",
         kind: "mutation",
@@ -786,6 +806,7 @@ describe("artifact runtime worker", () => {
     const payload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment1",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "users:get",
         kind: "query",
@@ -837,6 +858,7 @@ describe("artifact runtime worker", () => {
     const payload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment1",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "users:get",
         kind: "query",
@@ -870,6 +892,7 @@ describe("artifact runtime worker", () => {
     const payload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment1",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "users:get",
         kind: "query",
@@ -902,6 +925,7 @@ describe("artifact runtime worker", () => {
     const payload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment1",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "users:get",
         kind: "query",
@@ -927,6 +951,7 @@ describe("artifact runtime worker", () => {
     const payload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment1",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "users:get",
         kind: "query",
@@ -956,6 +981,7 @@ describe("artifact runtime worker", () => {
     const payload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment1",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "users:get",
         kind: "query",
@@ -988,6 +1014,7 @@ describe("artifact runtime worker", () => {
     const response = await worker.fetch(runtimeInvokeRequest({
       deploymentId: "deployment1",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "users:get",
         kind: "query",
@@ -1019,6 +1046,7 @@ describe("artifact runtime worker", () => {
     const payload: ExecutionArtifactInvokePayload = {
       deploymentId: "deployment1",
       ref,
+      identity: anonymousIdentity,
       request: {
         path: "users:get",
         kind: "query",
@@ -1075,6 +1103,7 @@ async function invokeWithStoredSourcePackage(
   return await worker.fetch(runtimeInvokeRequest({
     deploymentId: "deployment1",
     ref,
+    identity: anonymousIdentity,
     request: {
       path: "users:get",
       kind: "query",

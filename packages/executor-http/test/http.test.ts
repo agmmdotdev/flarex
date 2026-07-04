@@ -1438,6 +1438,7 @@ describe("createFlarexHttpApp", () => {
         queryId: 1,
         functionPath: "messages:list",
         argsJson: { teamId: "team_a" },
+        identityFingerprint: anonymousIdentityFingerprint,
         resultJson: ["fresh"],
         previousResultHash: "old_hash",
         resultHash: "new_hash",
@@ -3607,6 +3608,11 @@ function fakeExecutor(
     async getActiveDeploymentPackage() {
       throw new Error(
         "getActiveDeploymentPackage is not implemented by test fake",
+      );
+    },
+    async getActiveDeploymentAuthConfig() {
+      throw new Error(
+        "getActiveDeploymentAuthConfig is not implemented by test fake",
       );
     },
     async beginInvokeSession() {

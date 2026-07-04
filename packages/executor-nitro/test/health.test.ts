@@ -173,6 +173,7 @@ describe("createFlarexNitroHandler", () => {
             queryId: 1,
             functionPath: "messages:list",
             argsJson: { teamId: "team_a" },
+            identityJson: { kind: "anonymous" },
             partitionKey: "team_a",
             beginTs: 10,
             readSetJson: {},

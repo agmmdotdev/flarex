@@ -7,6 +7,8 @@ import type {
 
 import { createFlarexNitroHandler } from "../src/index";
 
+const anonymousIdentity = { kind: "anonymous" } as const;
+
 export function healthyPersistence(): FlarexExecutorPersistence {
   return {
     async check() {
@@ -61,6 +63,7 @@ export function healthyPersistence(): FlarexExecutorPersistence {
         partitionKey: input.partitionKey,
         scopeJson: input.scopeJson,
         argsJson: input.argsJson,
+        identityJson: input.identityJson ?? anonymousIdentity,
         idempotencyKey: input.idempotencyKey ?? null,
         state: input.state ?? "active",
         beginTs: input.beginTs,
@@ -84,6 +87,7 @@ export function healthyPersistence(): FlarexExecutorPersistence {
         partitionKey: "team:1",
         scopeJson: {},
         argsJson: null,
+        identityJson: anonymousIdentity,
         idempotencyKey: null,
         state: "finished",
         beginTs: 1,
@@ -104,6 +108,7 @@ export function healthyPersistence(): FlarexExecutorPersistence {
         partitionKey: "team:1",
         scopeJson: {},
         argsJson: null,
+        identityJson: anonymousIdentity,
         idempotencyKey: null,
         state: "aborted",
         beginTs: 1,
@@ -230,6 +235,7 @@ export function healthyPersistence(): FlarexExecutorPersistence {
         queryId: input.queryId,
         functionPath: input.functionPath,
         argsJson: input.argsJson,
+        identityJson: input.identityJson ?? anonymousIdentity,
         partitionKey: input.partitionKey ?? null,
         beginTs: input.beginTs,
         readSetJson: input.readSetJson,
@@ -354,6 +360,11 @@ export function fakeExecutor(
     async getActiveDeploymentPackage() {
       throw new Error(
         "getActiveDeploymentPackage is not implemented by test fake",
+      );
+    },
+    async getActiveDeploymentAuthConfig() {
+      throw new Error(
+        "getActiveDeploymentAuthConfig is not implemented by test fake",
       );
     },
     async beginInvokeSession() {

@@ -3,7 +3,6 @@ import {
   createFlarexHttpHandler,
   type FlarexHttpAppConfig,
 } from "@flarex/executor-http";
-import { Effect } from "effect";
 import type {
   FlarexExecutor,
   FlarexExecutorConfig,
@@ -25,7 +24,7 @@ import {
   type MaterializedExecutionArtifactPayload,
 } from "flarex-backend/artifact-runtime";
 import { materializedExecutionArtifactInvokePayload } from "flarex-protocol/artifact-runtime";
-import { decodeAuthConfigEffect, type ExecutionIdentity } from "flarex-protocol/auth";
+import { decodeAuthConfigPromise, type ExecutionIdentity } from "flarex-protocol/auth";
 import type { ExecutionArtifactRef } from "flarex/artifacts";
 import type { PushSourcePackage } from "flarex-backend/types";
 
@@ -289,7 +288,7 @@ async function decodeMaterializableAuthConfig(
 ): Promise<PushSourcePackage["authConfig"]> {
   if (value === undefined) return undefined;
   try {
-    return await Effect.runPromise(decodeAuthConfigEffect(value));
+    return await decodeAuthConfigPromise(value);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Deployment package ${packageId} has invalid auth config: ${message}`);

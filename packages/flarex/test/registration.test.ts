@@ -7,9 +7,13 @@ import {
   mutation,
   query,
   workflowMutation,
+  type AuthConfig,
+  type AuthProvider,
+  type CustomJwtAuthProvider,
   type DefaultFunctionArgs,
   type FunctionReference,
   type MutationBuilder,
+  type OidcAuthProvider,
   type UserIdentity,
 } from "../src/server";
 import type { Auth } from "../src/auth";
@@ -94,6 +98,27 @@ declare const internalUserAction: FunctionReference<
 >;
 
 describe("Convex-style function registration", () => {
+  it("exports Convex-style auth config types from flarex/server", () => {
+    const oidcProvider = {
+      domain: "https://auth.example.com",
+      applicationID: "flarex-app",
+    } satisfies OidcAuthProvider;
+    const customJwtProvider = {
+      type: "customJwt",
+      issuer: "https://issuer.example.com",
+      jwks: "https://issuer.example.com/.well-known/jwks.json",
+      algorithm: "RS256",
+      applicationID: "flarex-custom",
+    } satisfies CustomJwtAuthProvider;
+    const authConfig = {
+      providers: [oidcProvider, customJwtProvider],
+    } satisfies AuthConfig;
+
+    expect(authConfig.providers).toHaveLength(2);
+    expectTypeOf(oidcProvider).toMatchTypeOf<AuthProvider>();
+    expectTypeOf(customJwtProvider).toMatchTypeOf<AuthProvider>();
+  });
+
   it("attaches exclusive function kind and visibility markers", () => {
     const functions = [
       [query({ args: {}, handler: async () => null }), "isQuery", "isPublic"],
