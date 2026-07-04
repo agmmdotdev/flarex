@@ -25,7 +25,7 @@ import {
   type MaterializedExecutionArtifactPayload,
 } from "flarex-backend/artifact-runtime";
 import { materializedExecutionArtifactInvokePayload } from "flarex-protocol/artifact-runtime";
-import { decodeAuthConfigEffect } from "flarex-protocol/auth";
+import { decodeAuthConfigEffect, type ExecutionIdentity } from "flarex-protocol/auth";
 import type { ExecutionArtifactRef } from "flarex/artifacts";
 import type { PushSourcePackage } from "flarex-backend/types";
 
@@ -95,6 +95,7 @@ export function createLocalExecutorHttpRuntime(
         subscription.functionPath,
         subscription.argsJson as Json,
         subscription.partitionKey,
+        subscription.identityJson,
       );
       const artifact = await materializer.get(payload);
       return await createMaterializedArtifactLiveQueryExecutionHost({
@@ -184,6 +185,7 @@ async function materializedPayloadForSubscription(
   path: string,
   args: Json,
   partitionKey: string | null,
+  identity: ExecutionIdentity,
 ): Promise<MaterializedExecutionArtifactPayload> {
   const active = await executor.getActiveDeploymentPackage({
     deploymentId,
@@ -208,6 +210,7 @@ async function materializedPayloadForSubscription(
       kind: "query",
       ...(partitionKey === null ? {} : { partitionKey }),
     },
+    identity,
   });
 }
 

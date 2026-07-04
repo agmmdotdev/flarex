@@ -92,6 +92,7 @@ function throwingExecutorDefaults(): FlarexExecutor {
     ensureDeployment: () => unexpectedExecutorCall("ensureDeployment"),
     getActiveFunction: () => unexpectedExecutorCall("getActiveFunction"),
     getActiveDeploymentPackage: () => unexpectedExecutorCall("getActiveDeploymentPackage"),
+    getActiveDeploymentAuthConfig: () => unexpectedExecutorCall("getActiveDeploymentAuthConfig"),
     beginInvokeSession: () => unexpectedExecutorCall("beginInvokeSession"),
     finishInvokeSession: () => unexpectedExecutorCall("finishInvokeSession"),
     abortInvokeSession: () => unexpectedExecutorCall("abortInvokeSession"),

@@ -115,7 +115,7 @@ JSON or provider configuration.
   - Keep trusted dev/test identity headers explicitly env-gated and separate
     from bearer-token identity.
   - Prove HTTP and sync auth map the same token to the same user identity.
-- [ ] A-7. Live-query and scheduler auth proof.
+- [x] A-7. Live-query and scheduler auth proof.
   - Prove verified identities persist into subscription `identity_json`.
   - Prove executor reruns use the subscription identity.
   - Prove stale previous-user deliveries are still blocked with real verified
@@ -161,37 +161,36 @@ Every turn in this stream must:
 
 ## Current Checkpoint
 
-Status: A-6 complete.
+Status: A-7 complete.
 
-Previous completed checkpoint: `70b3e77` (`Verify sync Authenticate tokens`).
+Previous completed checkpoint: `af6a204` (`Verify HTTP invoke bearer tokens`).
 
 What changed:
 
-- Routed public HTTP invoke bearer authorization through the same backend
-  JWT/JWKS resolver used by sync `Authenticate`.
-- `routePublicInvoke` now loads the active deployment, resolves identity from
-  active package `sourcePackage.authConfig`, and invokes the artifact runtime
-  with the verified `ExecutionIdentity`.
-- Preserved explicitly env-gated trusted dev/test identity headers as a separate
-  path from bearer-token identity.
-- Required artifact runtime invoke call sites to pass an explicit
-  `ExecutionIdentity`, keeping anonymous fallback at route/auth boundaries.
-- Invalid explicit bearer auth maps to generic `401 Authentication failed.`
-- Authenticated HTTP invoke fails rather than silently dropping verified identity
-  if the legacy direct-invoke fallback is used without an artifact runtime.
-- Added HTTP route tests with a real RS256 JWT, active deployment auth config,
-  JWKS fetch, verified runtime identity, invalid-token failure, trusted-header
-  failure coverage, and direct fallback guard coverage.
+- Added a backend sync regression that authenticates with a real RS256 JWT,
+  records an executor live-query subscription, and asserts the subscription
+  body carries the backend-verified `ExecutionIdentity`.
+- Extended the PGlite-backed executor HTTP rerun test to record through the real
+  `/live-query-subscriptions/record` route with verified identity, then rerun
+  through `/maintenance/live-queries/rerun` and assert persisted subscription
+  and delivery fingerprints.
+- The same backend regression sends an anonymous-fingerprint delivery and proves
+  it is treated as stale, then sends a verified-fingerprint delivery and proves
+  it reaches the active WebSocket under the authenticated identity version.
+- Updated the local executor HTTP runtime rerun test to use a stored verified
+  user `identityJson`, proving rerun materialization and query-session execution
+  receive the subscription identity instead of defaulting to anonymous.
+- Fixed the local executor HTTP runtime materialization helper to include stored
+  subscription `identityJson` in the materialized artifact payload.
 
 Convex references inspected:
 
 - `npm-packages/convex/src/server/authentication.ts`
-- `crates/common/src/auth.rs`
-- `crates/authentication/src/lib.rs`
-- `crates/keybroker/src/broker.rs`
-- `crates/model/src/auth/types.rs`
-- `crates/model/src/auth/mod.rs`
 - `npm-packages/convex/src/browser/sync/authentication_manager.ts`
+- `npm-packages/convex/src/browser/sync/client.ts`
+- `crates/local_backend/src/subs/mod.rs`
+- `crates/application/src/api.rs`
+- `crates/application/src/application_function_runner/mod.rs`
 
 Cloudflare difference:
 
@@ -202,15 +201,14 @@ Cloudflare difference:
 - Trusted dev/test identity headers remain explicitly env-gated and are not
   derived from end-user bearer tokens.
 
-Next unchecked implementation item: A-7 live-query and scheduler auth proof.
+Next unchecked implementation item: A-8 deploy/admin identity boundary.
 
 Verification:
 
 ```sh
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/artifactRuntimeRoute.test.ts test/artifactRuntime.test.ts --testTimeout=120000 --hookTimeout=120000
-corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testNamePattern "Authenticate" --testTimeout=120000 --hookTimeout=120000
-corepack pnpm --filter flarex typecheck
-corepack pnpm --filter flarex test -- client.test.ts
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testNamePattern "verified Authenticate identity" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts --testNamePattern "local live-query materialization|PGlite-backed executor state" --testTimeout=120000 --hookTimeout=120000
 git diff --check
 ```

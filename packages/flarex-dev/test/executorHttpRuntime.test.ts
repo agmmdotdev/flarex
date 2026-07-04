@@ -20,6 +20,10 @@ import { createPGlitePersistence } from "@flarex/persistence-postgres/pglite";
 import {
   materializedExecutionArtifactInvokePayload,
 } from "flarex-protocol/artifact-runtime";
+import {
+  executionIdentityFingerprint,
+  type ExecutionIdentity,
+} from "flarex-protocol/auth";
 import type {
   ExecutionArtifactMaterializer,
   MaterializedExecutionArtifact,
@@ -191,6 +195,15 @@ describe("createLocalExecutorHttpRuntime", () => {
     const materializedPayloads: MaterializedExecutionArtifactPayload[] = [];
     const querySessionPayloads: MaterializedExecutionArtifactPayload[] = [];
     const querySessionRequests: QuerySessionRequest[] = [];
+    const verifiedIdentity = {
+      kind: "user",
+      user: {
+        tokenIdentifier: "https://issuer.example.com|user_123",
+        subject: "user_123",
+        issuer: "https://issuer.example.com",
+        email: "ada@example.com",
+      },
+    } satisfies ExecutionIdentity;
     const executor = fakeExecutor({
       async getActiveDeploymentPackage(input: GetActiveDeploymentPackageInput) {
         expect(input).toEqual({
@@ -225,7 +238,7 @@ describe("createLocalExecutorHttpRuntime", () => {
           argsJson: { lessonId: "1:lesson" },
           partitionKey: "1:lesson",
           beginTs: 10,
-          identityJson: { kind: "anonymous" as const },
+          identityJson: verifiedIdentity,
           readSetJson: {},
           resultJson: [],
           resultHash: "previous",
@@ -258,7 +271,10 @@ describe("createLocalExecutorHttpRuntime", () => {
         input: RunLiveQuerySubscriptionWithInvokeInput,
       ) {
         return {
-          value: await input.executeQuery(liveQueryAttempt(), input.subscription),
+          value: await input.executeQuery(
+            liveQueryAttempt(verifiedIdentity),
+            input.subscription,
+          ),
           beginTs: 20,
           readSet: { indexes: [{ indexId: 1, observedTs: 20 }] },
         };
@@ -320,6 +336,7 @@ describe("createLocalExecutorHttpRuntime", () => {
             kind: "query",
             partitionKey: "1:lesson",
           },
+          identity: verifiedIdentity,
         }),
       ]);
       expect(querySessionPayloads).toEqual(materializedPayloads);
@@ -327,7 +344,7 @@ describe("createLocalExecutorHttpRuntime", () => {
         {
           deploymentId: "deployment-local-payload",
           projectId: "project-local-payload",
-          identity: { kind: "anonymous" },
+          identity: verifiedIdentity,
           path: "messages:list",
           args: { lessonId: "1:lesson" },
           partitionKey: "1:lesson",
@@ -426,6 +443,16 @@ describe("createLocalExecutorHttpRuntime", () => {
       persistence,
     });
     const sourcePackage = getMessageSourcePackage();
+    const verifiedIdentity = {
+      kind: "user",
+      user: {
+        tokenIdentifier: "https://issuer.example.com|user_123",
+        subject: "user_123",
+        issuer: "https://issuer.example.com",
+        email: "ada@example.com",
+      },
+    } satisfies ExecutionIdentity;
+    const verifiedIdentityFingerprint = executionIdentityFingerprint(verifiedIdentity);
     const registered = await executor.registerDeploymentPackage({
       deploymentId: "deployment-pglite-live",
       projectId: "project-pglite-live",
@@ -465,30 +492,46 @@ describe("createLocalExecutorHttpRuntime", () => {
       store: freshnessStore,
       events: outbox.events,
     });
-
-    const initial = await executor.recordLiveQuerySubscription({
-      deploymentId: "deployment-pglite-live",
-      projectId: "project-pglite-live",
-      connectionId: "connection-pglite",
-      queryId: 1,
-      functionPath: "messages:get",
-      argsJson: { messageId: "1:message" },
-      partitionKey: "1:message",
-      beginTs: seeded.beginTs - 1,
-      readSet: {
-        documents: [{ tableId: 1, id: "1:message", observedTs: null }],
-      },
-      resultJson: null,
-    });
-
     const runtime = createLocalExecutorHttpRuntime({
       executor,
       projectId: "project-pglite-live",
       capabilityToken: "executor-secret",
       freshnessStore,
     });
+    let initialResultHash = "";
 
     try {
+      const recordResponse = await runtime.fetch(jsonRequest(
+        "https://executor.test/live-query-subscriptions/record",
+        {
+          deploymentId: "deployment-pglite-live",
+          projectId: "project-pglite-live",
+          connectionId: "connection-pglite",
+          queryId: 1,
+          functionPath: "messages:get",
+          argsJson: { messageId: "1:message" },
+          identity: verifiedIdentity,
+          partitionKey: "1:message",
+          beginTs: seeded.beginTs - 1,
+          readSet: {
+            documents: [{ tableId: 1, id: "1:message", observedTs: null }],
+          },
+          resultJson: null,
+        },
+        "executor-secret",
+      ));
+      expect(recordResponse.status).toBe(200);
+      const recorded: unknown = await recordResponse.json();
+      expect(recorded).toMatchObject({
+        subscription: {
+          deploymentId: "deployment-pglite-live",
+          connectionId: "connection-pglite",
+          queryId: 1,
+          identityJson: verifiedIdentity,
+        },
+      });
+      initialResultHash = resultHashFromLiveQueryRecord(recorded);
+
       const response = await runtime.fetch(jsonRequest(
         "https://executor.test/maintenance/live-queries/rerun",
         {
@@ -504,13 +547,14 @@ describe("createLocalExecutorHttpRuntime", () => {
       expect(body).toMatchObject({
         changed: [
           {
-            previousResultHash: initial.resultHash,
+            previousResultHash: initialResultHash,
             changed: true,
             subscription: {
               deploymentId: "deployment-pglite-live",
               connectionId: "connection-pglite",
               queryId: 1,
               functionPath: "messages:get",
+              identityJson: verifiedIdentity,
               resultJson: { _id: "1:message", text: "fresh" },
             },
           },
@@ -522,8 +566,9 @@ describe("createLocalExecutorHttpRuntime", () => {
             queryId: 1,
             functionPath: "messages:get",
             argsJson: { messageId: "1:message" },
+            identityFingerprint: verifiedIdentityFingerprint,
             resultJson: { _id: "1:message", text: "fresh" },
-            previousResultHash: initial.resultHash,
+            previousResultHash: initialResultHash,
           },
         ],
         unchanged: [],
@@ -557,8 +602,9 @@ describe("createLocalExecutorHttpRuntime", () => {
           connectionId: "connection-pglite",
           queryId: 1,
           payloadJson: {
+            identityFingerprint: verifiedIdentityFingerprint,
             resultJson: { _id: "1:message", text: "fresh" },
-            previousResultHash: initial.resultHash,
+            previousResultHash: initialResultHash,
           },
           deliveredAt: null,
         },
@@ -571,6 +617,7 @@ describe("createLocalExecutorHttpRuntime", () => {
       }),
     ).resolves.toEqual([
       expect.objectContaining({
+        identityJson: verifiedIdentity,
         resultJson: { _id: "1:message", text: "fresh" },
       }),
     ]);
@@ -834,14 +881,14 @@ function getMessageAnalysisJson(): Record<string, unknown> {
   };
 }
 
-function liveQueryAttempt(): InvokeAttemptContext {
+function liveQueryAttempt(identity: ExecutionIdentity = { kind: "anonymous" }): InvokeAttemptContext {
   return {
     attempt: 1,
     maxAttempts: 1,
     session: {
       sessionId: "session-live",
       beginTs: 20,
-      identity: { kind: "anonymous" },
+      identity,
       schemaVersion: 1,
       function: { path: "messages:list", kind: "query" },
       scope: {
@@ -874,4 +921,18 @@ function committedTsFromInvokeFinish(
     throw new Error("Invoke finish committedTs must be an integer.");
   }
   return committedTs;
+}
+
+function resultHashFromLiveQueryRecord(value: unknown): string {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Live query record response must be an object.");
+  }
+  if (!("resultHash" in value)) {
+    throw new Error("Live query record resultHash is missing.");
+  }
+  const resultHash = value.resultHash;
+  if (typeof resultHash !== "string" || resultHash.length === 0) {
+    throw new Error("Live query record resultHash must be a non-empty string.");
+  }
+  return resultHash;
 }

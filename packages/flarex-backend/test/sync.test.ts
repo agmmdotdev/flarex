@@ -2,6 +2,7 @@ import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
 import {
   executionIdentityFingerprint,
   type AuthConfig,
+  type ExecutionIdentity,
 } from "flarex-protocol/auth";
 import { afterAll, describe, expect, it } from "vitest";
 import { R2BackendExecutionArtifactStore, type R2BucketLike } from "../src/artifactStore";
@@ -582,6 +583,230 @@ describe("sync protocol", () => {
         },
       },
     ]);
+    ws.close();
+  });
+
+  it("records verified Authenticate identity for executor subscriptions and delivery freshness", async () => {
+    const executorRequests: Array<{
+      path: string;
+      authorization: string | null;
+      body: unknown;
+    }> = [];
+    const keys = await createRsaSigningKeys("sync-executor-rs");
+    const token = await signJwt({
+      privateKey: keys.privateKey,
+      kid: keys.jwk.kid,
+      payload: {
+        iss: "https://issuer.example.com",
+        sub: "user_123",
+        aud: "flarex-sync",
+        exp: Math.floor(Date.now() / 1000) + 60,
+        email: "ada@example.com",
+      },
+    });
+    const verifiedIdentity = {
+      kind: "user",
+      user: {
+        tokenIdentifier: "https://issuer.example.com|user_123",
+        subject: "user_123",
+        issuer: "https://issuer.example.com",
+        email: "ada@example.com",
+      },
+    } satisfies ExecutionIdentity;
+    const verifiedIdentityFingerprint = executionIdentityFingerprint(verifiedIdentity);
+    const initialValue = { auth: verifiedIdentity.user.tokenIdentifier };
+    const initialResultHash = JSON.stringify(initialValue);
+    const harness = await createSyncHarness(
+      [],
+      payload => ({
+        auth: payload.identity.kind === "anonymous"
+          ? null
+          : payload.identity.user.tokenIdentifier,
+      }),
+      undefined,
+      {
+        bindings: {
+          FLAREX_EXECUTOR_TOKEN: "executor-secret",
+        },
+        serviceBindings: {
+          FLAREX_EXECUTOR: async request => {
+            const url = new URL(request.url);
+            const body: unknown = await request.json();
+            executorRequests.push({
+              path: url.pathname,
+              authorization: request.headers.get("authorization"),
+              body,
+            });
+            if (url.pathname === "/live-query-subscriptions/record") {
+              return Response.json({
+                subscription: {
+                  ...jsonRecord(body),
+                  resultHash: initialResultHash,
+                  createdAt: "2026-06-22T00:00:00.000Z",
+                  updatedAt: "2026-06-22T00:00:00.000Z",
+                },
+                resultHash: initialResultHash,
+              });
+            }
+            if (url.pathname === "/live-query-subscriptions/remove-connection") {
+              return Response.json({ deleted: true });
+            }
+            return Response.json({ error: "not found" }, { status: 404 });
+          },
+        },
+      },
+    );
+    harnesses.push(harness);
+    const deploymentId = "sync-executor-verified-subscription-deployment";
+    const sessionId = "verified-subscription-session";
+    const durableConnectionId = `connection:${deploymentId}:${sessionId}`;
+    await activateDeployment(
+      harness,
+      deploymentId,
+      testSourcePackage({
+        authConfig: customJwtConfig(dataJsonUrl({ keys: [keys.jwk] })),
+        authConfigModule: "_flarex/auth.config.js",
+      }),
+    );
+
+    const ws = await openSync(harness, deploymentId, sessionId);
+    ws.send(JSON.stringify({
+      type: "Authenticate",
+      tokenType: "User",
+      value: token,
+      baseVersion: 0,
+    }));
+
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      startVersion: { querySet: 0, ts: 0, identity: 0 },
+      endVersion: { querySet: 0, ts: 0, identity: 1 },
+      modifications: [],
+    });
+
+    ws.send(JSON.stringify({
+      type: "ModifyQuerySet",
+      baseVersion: 0,
+      newVersion: 1,
+      modifications: [
+        {
+          type: "Add",
+          queryId: 19,
+          udfPath: "users:get",
+          args: [{ id: "1:ada" }],
+          partitionKey: "user:ada",
+        },
+      ],
+    }));
+
+    await expect(nextJsonMessage(ws)).resolves.toMatchObject({
+      type: "Transition",
+      startVersion: { querySet: 0, ts: 0, identity: 1 },
+      endVersion: { querySet: 1, ts: 3, identity: 1 },
+      modifications: [
+        {
+          type: "QueryUpdated",
+          queryId: 19,
+          value: initialValue,
+        },
+      ],
+    });
+    expect(executorRequests).toEqual([
+      {
+        path: "/live-query-subscriptions/record",
+        authorization: "Bearer executor-secret",
+        body: {
+          deploymentId,
+          projectId: "project_sync",
+          connectionId: durableConnectionId,
+          queryId: 19,
+          functionPath: "users:get",
+          argsJson: { id: "1:ada" },
+          identity: verifiedIdentity,
+          partitionKey: "user:ada",
+          beginTs: 3,
+          readSet: { documents: [{ tableId: 1, id: "1:ada" }] },
+          resultJson: initialValue,
+        },
+      },
+    ]);
+
+    const env = await harness.mf.getBindings<Env>();
+    const connection = env.CONNECTIONS.getByName(durableConnectionId);
+    const staleIdentityResponse = await connection.fetch(
+      "https://flarex.internal/deliver/live-query",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deliveries: [
+            {
+              kind: "updated",
+              deploymentId,
+              connectionId: durableConnectionId,
+              queryId: 19,
+              functionPath: "users:get",
+              argsJson: { id: "1:ada" },
+              identityFingerprint: anonymousIdentityFingerprint,
+              resultJson: { auth: "anonymous-result" },
+              previousResultHash: initialResultHash,
+              resultHash: '{"auth":"anonymous-result"}',
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(staleIdentityResponse.status).toBe(200);
+    await expect(staleIdentityResponse.json()).resolves.toEqual({
+      delivered: 0,
+      skipped: 1,
+      staleSkipped: 1,
+      skipReasons: { stale: 1 },
+    });
+
+    const delivered = nextJsonMessage(ws);
+    const verifiedIdentityResponse = await connection.fetch(
+      "https://flarex.internal/deliver/live-query",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          deliveries: [
+            {
+              kind: "updated",
+              deploymentId,
+              connectionId: durableConnectionId,
+              queryId: 19,
+              functionPath: "users:get",
+              argsJson: { id: "1:ada" },
+              identityFingerprint: verifiedIdentityFingerprint,
+              resultJson: { auth: "verified-update" },
+              previousResultHash: initialResultHash,
+              resultHash: '{"auth":"verified-update"}',
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(verifiedIdentityResponse.status).toBe(200);
+    await expect(verifiedIdentityResponse.json()).resolves.toEqual({
+      delivered: 1,
+      skipped: 0,
+    });
+    await expect(delivered).resolves.toMatchObject({
+      type: "Transition",
+      startVersion: { querySet: 1, ts: 3, identity: 1 },
+      endVersion: { querySet: 1, ts: 4, identity: 1 },
+      modifications: [
+        {
+          type: "QueryUpdated",
+          queryId: 19,
+          value: { auth: "verified-update" },
+        },
+      ],
+    });
     ws.close();
   });
 

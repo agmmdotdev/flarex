@@ -21,7 +21,7 @@ Source roadmap:
 - [x] A-4. Backend JWT/JWKS resolver.
 - [x] A-5. Sync `Authenticate` integration.
 - [x] A-6. HTTP invoke integration.
-- [ ] A-7. Live-query and scheduler auth proof.
+- [x] A-7. Live-query and scheduler auth proof.
 - [ ] A-8. Deploy/admin identity boundary.
 - [ ] A-9. Final platform audit.
 
@@ -573,6 +573,98 @@ Review gate:
   trusted-header failure coverage. Fixed with `test/authFixtures.ts` and
   trusted-header disabled/missing-token assertions.
 
+### A-7: Live-Query And Scheduler Auth Proof
+
+Status: complete.
+
+Purpose:
+
+Prove that backend-verified user identity does not stop at sync
+`Authenticate` or HTTP invoke. Live-query subscription recording, scheduler
+rerun execution, and delivery freshness checks must all preserve the same
+verified `ExecutionIdentity`.
+
+Files changed:
+
+- `packages/flarex-backend/test/sync.test.ts`
+- `packages/flarex-dev/src/executorHttpRuntime.ts`
+- `packages/flarex-dev/test/executorHttpRuntime.test.ts`
+- `packages/flarex-dev/test/localRuntimeFixture.ts`
+- `roadmaps/33-auth-provider-platform.md`
+- `roadmaps/34-auth-provider-platform-goals.md`
+
+Exit criteria:
+
+- A WebSocket authenticated with a real RS256 JWT records executor subscription
+  metadata with the backend-verified user identity.
+- The real executor HTTP record route persists verified identity as
+  subscription `identityJson` in PGlite-backed executor state.
+- A stale delivery computed for anonymous identity is rejected for that
+  authenticated live query.
+- A delivery computed with the verified identity fingerprint reaches the active
+  WebSocket and advances the authenticated identity version path.
+- Executor HTTP rerun materialization uses stored subscription `identityJson`
+  when building the materialized payload and query-session request.
+
+What changed:
+
+- Added a backend sync regression that signs a real JWT, authenticates the
+  WebSocket, adds a live query through the executor-backed subscription path,
+  and asserts `/live-query-subscriptions/record` receives the verified user
+  identity.
+- Extended that regression to send both anonymous and verified delivery
+  fingerprints to the connection Durable Object, proving stale previous-user
+  results are blocked with a real verified identity.
+- Updated the local executor HTTP runtime lifecycle test to use a stored
+  verified user `identityJson` and assert both materialization and
+  `executeQuerySession` run under that identity.
+- Extended the PGlite-backed executor HTTP rerun test to record a verified
+  identity through `/live-query-subscriptions/record`, rerun via
+  `/maintenance/live-queries/rerun`, and assert the persisted subscription and
+  durable delivery use the verified identity/fingerprint.
+- Fixed the local executor HTTP runtime to pass subscription `identityJson` into
+  the materialized artifact payload instead of materializing as anonymous.
+- Added the new auth-config lookup method to the dev fake executor defaults so
+  `flarex-dev` typecheck continues to exercise the full executor interface.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/authentication.ts`
+- `npm-packages/convex/src/browser/sync/authentication_manager.ts`
+- `npm-packages/convex/src/browser/sync/client.ts`
+- `crates/local_backend/src/subs/mod.rs`
+- `crates/application/src/api.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+Cloudflare difference:
+
+- Convex keeps live subscriptions inside its database/subscription worker
+  model. Flarex persists executor subscription identity as JSON and uses
+  Durable Object delivery freshness checks, so the proof covers the explicit
+  Worker/DO/executor boundaries.
+
+Validation:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testNamePattern "verified Authenticate identity" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts --testNamePattern "local live-query materialization" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts --testNamePattern "PGlite-backed executor state" --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
+Review gate:
+
+- Required before commit because this proves authenticated live-query identity
+  persistence and scheduler rerun behavior across backend and executor package
+  boundaries.
+- First-pass quality reviewer found the proof was split between backend route
+  emission and fake stored subscription consumption. Fixed by extending the
+  PGlite-backed executor HTTP runtime test to cover real record route,
+  persistence, rerun, and delivery fingerprint behavior.
+- Final TypeScript and quality re-reviews found no actionable findings.
+
 ## Turn Protocol
 
 Every implementation turn follows this loop:
@@ -598,7 +690,7 @@ Every implementation turn follows this loop:
 - [x] Invalid explicit auth attempts fail closed.
 - [x] Sync and HTTP use the same token verification semantics.
 - [x] Sync query reruns use verified Authenticate identity.
-- [ ] Live-query scheduler deliveries use the verified subscription identity.
+- [x] Live-query scheduler deliveries use the verified subscription identity.
 - [ ] Deploy/admin identity is separate from end-user `ctx.auth`.
 - [x] Trusted dev/test identity remains explicitly env-gated.
 - [x] Significant code slices pass reviewers.
