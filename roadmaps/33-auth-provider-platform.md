@@ -90,11 +90,11 @@ JSON or provider configuration.
   - Add local dev tests proving auth config is included or absent consistently.
 - [x] A-3. Persistence and active deployment metadata.
   - Store provider config as backend-owned deployment/project metadata.
-  - Add migrations and storage decoders for auth config.
+  - Use package-versioned deployment package storage when no new table is needed.
   - Decide whether config is package-versioned, deployment-active-versioned, or
     project-level with active package linkage; document the choice in this file.
   - Keep deploy/admin mutation authority separate from end-user auth.
-- [ ] A-4. Backend JWT/JWKS resolver.
+- [x] A-4. Backend JWT/JWKS resolver.
   - Parse `Authorization: Bearer <token>` only at public/backend auth
     boundaries.
   - Select provider from unverified issuer/audience only, then verify signature,
@@ -161,53 +161,47 @@ Every turn in this stream must:
 
 ## Current Checkpoint
 
-Status: A-3 complete.
+Status: A-4 complete.
 
-Previous completed checkpoint: `be640f5` (`Ingest auth config in source packages`).
+Previous completed checkpoint: `868852d` (`Persist active auth provider metadata`).
 
 What changed:
 
-- Added a typed executor `getActiveDeploymentAuthConfig` API that resolves the
-  active package through deployment/project ownership checks and returns decoded
-  `AuthConfig` plus the owning module path.
-- Added fail-closed persisted metadata validation for malformed stored auth
-  config, missing config-module pairing, and auth modules missing from package
-  modules.
-- Added a protocol `decodeAuthConfigPromise` boundary helper so executor code can
-  decode through Effect Schema without adding a direct `effect` dependency.
-- Made backend Deployment DO finish activation write `active_auth_config` and
-  `active_auth_config_module` metadata when the activated source package
-  includes auth providers.
-- Proved PGlite package metadata round-trips `authConfig` and
-  `authConfigModule`.
+- Added `packages/flarex-backend/src/authJwt.ts`, a reusable backend JWT/JWKS
+  resolver that parses explicit `Authorization: Bearer <token>` inputs and raw
+  sync tokens, selects a provider from unverified issuer/audience only, then
+  verifies signature, algorithm, issuer, audience, `exp`, and `nbf`.
+- Supported custom JWT provider JWKS and OIDC discovery plus JWKS.
+- Supported `RS256` and `ES256` WebCrypto verification.
+- Mapped verified claims into `ExecutionIdentity`/`UserIdentity`, including
+  Convex-compatible `tokenIdentifier` as `issuer|subject`.
+- Added fail-closed typed `JwtAuthError` reasons and an HTTP error mapper for
+  later HTTP/sync boundary integration.
 
 Convex references inspected:
 
 - `npm-packages/convex/src/server/authentication.ts`
+- `crates/common/src/auth.rs`
+- `crates/authentication/src/lib.rs`
+- `crates/keybroker/src/broker.rs`
 - `crates/model/src/auth/types.rs`
 - `crates/model/src/auth/mod.rs`
 
 Cloudflare difference:
 
-- The durable ownership choice is package-versioned storage: auth config lives in
-  `deployment_packages.source_package_json`, and "active" is derived from
-  deployment activation (`deployments.active_package_id`) plus Deployment DO
-  active metadata. No new project-level auth table or client-writeable config
-  endpoint was added.
-- This slice still does not verify bearer tokens; that begins in A-4.
+- The resolver is implemented in the Worker/backend package with injected
+  `fetch` and WebCrypto verification. It is reusable by both HTTP and sync
+  boundaries, but those call-site integrations are intentionally left to A-5
+  and A-6.
+- Clients still do not submit trusted identity JSON. They submit only bearer
+  tokens, and the resolver returns identity only after backend verification.
 
-Next unchecked implementation item: A-4 backend JWT/JWKS resolver.
+Next unchecked implementation item: A-5 sync `Authenticate` integration.
 
 Verification:
 
 ```sh
-corepack pnpm --filter flarex-protocol typecheck
-corepack pnpm --filter flarex-protocol test -- auth.test.ts
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
-corepack pnpm --filter @flarex/executor typecheck
-corepack pnpm --filter @flarex/executor test -- deployments.test.ts
-corepack pnpm --filter @flarex/persistence-postgres typecheck
-corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend exec vitest run test/authJwt.test.ts --testTimeout=120000 --hookTimeout=120000
 git diff --check
 ```

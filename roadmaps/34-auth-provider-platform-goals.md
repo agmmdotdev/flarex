@@ -18,7 +18,7 @@ Source roadmap:
 - [x] A-1. Public and protocol auth-provider contracts.
 - [x] A-2. Source-package and deploy ingestion.
 - [x] A-3. Persistence and active deployment metadata.
-- [ ] A-4. Backend JWT/JWKS resolver.
+- [x] A-4. Backend JWT/JWKS resolver.
 - [ ] A-5. Sync `Authenticate` integration.
 - [ ] A-6. HTTP invoke integration.
 - [ ] A-7. Live-query and scheduler auth proof.
@@ -338,28 +338,92 @@ Review gate:
 
 ### A-4: Backend JWT/JWKS Resolver
 
-Status: next.
+Status: complete.
 
 Purpose:
 
 Validate bearer tokens against the active backend-owned auth provider config and
 turn successful verification into `ExecutionIdentity`.
 
-Expected files:
+Files changed:
 
-- `packages/executor/src/authConfig.ts` or a new auth resolver module
-- `packages/flarex-backend/src` HTTP auth boundary files
-- sync `Authenticate` handling
-- shared protocol auth tests
-- backend and executor tests
+- `packages/flarex-backend/src/authJwt.ts`
+- `packages/flarex-backend/test/authJwt.test.ts`
 - both roadmap files
 
-Exit criteria:
+Completed:
 
 - Bearer tokens are parsed from explicit HTTP/sync auth inputs.
 - OIDC and custom JWT provider metadata resolves JWKS without trusting clients.
 - Invalid explicit auth attempts fail closed.
 - No deploy/admin identity is reused as end-user `ctx.auth`.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/authentication.ts`
+- `crates/common/src/auth.rs`
+- `crates/authentication/src/lib.rs`
+- `crates/keybroker/src/broker.rs`
+- `crates/model/src/auth/types.rs`
+- `crates/model/src/auth/mod.rs`
+
+Cloudflare difference:
+
+- The resolver uses injected `fetch` plus Worker/WebCrypto primitives rather
+  than adding a Node/Jose dependency.
+- HTTP invoke and sync `Authenticate` are not wired in this slice; they will call
+  this resolver in A-5/A-6.
+
+Validation:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/authJwt.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
+Review gate:
+
+- Required, because this is the shared bearer-token verification path for HTTP
+  and sync.
+- `typescript-diff-reviewer` found that camel-case reserved `UserIdentity` keys
+  could be injected through custom JWT claims, and flagged weak JSON-boundary
+  assertions. Fixed by excluding reserved output identity keys from custom
+  claims and keeping parsed JSON typed as `unknown` at the boundary.
+- `code-quality-diff-reviewer` found fail-open malformed `nbf` handling, overly
+  loose OIDC audience/issuer validation, optional OIDC discovery issuer
+  handling, overly detailed public HTTP errors, and case-sensitive Bearer scheme
+  parsing. Fixed with fail-closed `nbf` validation, provider-specific audience
+  checks, required matching discovery issuer, generic HTTP auth failure text, and
+  case-insensitive Bearer parsing.
+
+### A-5: Sync `Authenticate` Integration
+
+Status: next.
+
+Purpose:
+
+Wire sync `Authenticate` messages through the backend JWT/JWKS resolver so
+WebSocket identity changes use verified user identity instead of resetting to
+anonymous.
+
+Expected files:
+
+- `packages/flarex-backend/src/connectionDO.ts`
+- `packages/flarex-backend/src/authJwt.ts` only if the resolver needs small
+  integration helpers
+- sync protocol/backend tests
+- both roadmap files
+
+Exit criteria:
+
+- `Authenticate` with `tokenType: "User"` verifies the token against active
+  backend-owned auth config.
+- Success advances identity version and reruns active queries with the verified
+  identity.
+- Failure sends `AuthError` without advancing identity version.
+- `Authenticate` with `tokenType: "None"` clears to anonymous without needing a
+  provider.
 
 ## Turn Protocol
 
@@ -382,8 +446,8 @@ Every implementation turn follows this loop:
 
 - [x] Provider config is backend-owned and decoded through Effect Schema.
 - [ ] Public SDK auth types stay Convex-compatible where practical.
-- [ ] Bearer tokens are never treated as identity without backend verification.
-- [ ] Invalid explicit auth attempts fail closed.
+- [x] Bearer tokens are never treated as identity without backend verification.
+- [x] Invalid explicit auth attempts fail closed.
 - [ ] Sync and HTTP use the same token verification semantics.
 - [ ] Live-query reruns use the verified subscription identity.
 - [ ] Deploy/admin identity is separate from end-user `ctx.auth`.
