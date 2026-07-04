@@ -1,4 +1,5 @@
 import { activateDeploymentPackage, ensureDeployment } from "./deployments";
+import { getActiveDeploymentAuthConfig } from "./authConfig";
 import {
   deploymentPackageSourcePackageJson,
   getActiveDeploymentPackage,
@@ -65,6 +66,7 @@ import type {
 export {
   InvokeDeleteDocumentNotFoundError,
   DeploymentFunctionMetadataUnavailableError,
+  DeploymentAuthConfigMetadataUnavailableError,
   DeploymentNotFoundError,
   DeploymentPackageMismatchError,
   DeploymentPackageNotActivatedError,
@@ -190,6 +192,8 @@ export type {
   GetActiveFunctionResult,
   GetActiveDeploymentPackageInput,
   GetActiveDeploymentPackageResult,
+  GetActiveDeploymentAuthConfigInput,
+  GetActiveDeploymentAuthConfigResult,
   PrepareInvokeInput,
   PrepareInvokeResult,
   RegisterDeploymentPackageInput,
@@ -255,6 +259,8 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     getActiveFunction: (input) => getActiveFunction(persistence, input),
     getActiveDeploymentPackage: (input) =>
       getActiveDeploymentPackage(persistence, input),
+    getActiveDeploymentAuthConfig: (input) =>
+      getActiveDeploymentAuthConfig(persistence, input),
     beginInvokeSession: (input) =>
       beginInvokeSession(persistence, clock, ids, input),
     finishInvokeSession: (input) =>

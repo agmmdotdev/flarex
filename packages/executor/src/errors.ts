@@ -85,6 +85,20 @@ export class DeploymentSchemaMetadataUnavailableError extends Error {
   }
 }
 
+export class DeploymentAuthConfigMetadataUnavailableError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly packageId: string,
+    message: string,
+    readonly cause?: unknown,
+  ) {
+    super(
+      `Deployment auth config metadata unavailable for ${deploymentId}/${packageId}: ${message}`,
+    );
+    this.name = "DeploymentAuthConfigMetadataUnavailableError";
+  }
+}
+
 export class FunctionKindMismatchError extends Error {
   constructor(
     readonly deploymentId: string,

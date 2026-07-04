@@ -17,7 +17,7 @@ Source roadmap:
   checklist.
 - [x] A-1. Public and protocol auth-provider contracts.
 - [x] A-2. Source-package and deploy ingestion.
-- [ ] A-3. Persistence and active deployment metadata.
+- [x] A-3. Persistence and active deployment metadata.
 - [ ] A-4. Backend JWT/JWKS resolver.
 - [ ] A-5. Sync `Authenticate` integration.
 - [ ] A-6. HTTP invoke integration.
@@ -252,7 +252,7 @@ Review gate:
 
 ### A-3: Persistence And Active Deployment Metadata
 
-Status: next.
+Status: complete.
 
 Purpose:
 
@@ -260,23 +260,106 @@ Store active auth provider config as backend-owned deployment metadata so the
 HTTP and sync auth resolvers can load the currently active providers without
 trusting client input.
 
-Expected files:
+Files changed:
 
-- `packages/persistence-postgres/src/schema.ts`
-- `packages/persistence-postgres/src/deploymentPackages.ts` or a dedicated auth
-  metadata module
+- `packages/executor/src/authConfig.ts`
+- `packages/executor/src/errors.ts`
+- `packages/executor/src/index.ts`
+- `packages/executor/src/types.ts`
+- `packages/executor/test/deployments.test.ts`
 - `packages/flarex-backend/src/deployment/Store.ts`
-- `packages/flarex-backend/src/deployment/Validation.ts`
-- backend, persistence, executor, and route tests
+- `packages/flarex-backend/test/deploymentService.test.ts`
+- `packages/flarex-protocol/src/auth.ts`
+- `packages/persistence-postgres/test/pglite.test.ts`
 - both roadmap files
 
-Exit criteria:
+Completed:
 
 - Provider config is persisted and recoverable for the active deployment.
 - The storage shape is explicitly package-versioned, deployment-active, or
   project-level; the chosen ownership is documented.
 - Deploy/admin write authority remains separate from end-user `ctx.auth`.
 - No JWT/JWKS bearer verification changes happen in this slice.
+
+Ownership decision:
+
+- The persisted source of truth is package-versioned:
+  `deployment_packages.source_package_json` stores the decoded deploy-owned
+  `authConfig` and `authConfigModule`.
+- Active auth config is derived through `deployments.active_package_id` and
+  exposed by executor `getActiveDeploymentAuthConfig`.
+- Deployment DO activation also writes `active_auth_config` and
+  `active_auth_config_module` active metadata for the backend active deployment
+  store.
+- No new project-level auth table or client-writeable auth settings route was
+  added in this slice.
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/authentication.ts`
+- `crates/model/src/auth/types.rs`
+- `crates/model/src/auth/mod.rs`
+
+Cloudflare difference:
+
+- Hosted auth provider config follows package activation instead of a separate
+  global Convex deployment auth settings model. This keeps local-first package
+  identity and hosted active runtime behavior aligned.
+- End-user invoke/sync requests still only carry bearer tokens. They do not
+  carry provider config or trusted identity JSON.
+
+Validation:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test -- auth.test.ts
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test -- deployments.test.ts
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
+Review gate:
+
+- Required, because this adds a public executor API and active auth metadata
+  persistence.
+- `typescript-diff-reviewer` found that the active auth config result type did
+  not encode the `authConfig`/`authConfigModule` nullability relationship, and
+  that backend active metadata could serialize an empty auth module for an
+  invalid internal state. Fixed with a correlated result union and a
+  fail-closed active metadata guard.
+- `code-quality-diff-reviewer` found missing tests for corrupt persisted auth
+  metadata pairing/module states. Fixed with table-driven executor tests for
+  module-without-config, config-without-module, and module-missing-from-package
+  recovery failures.
+
+### A-4: Backend JWT/JWKS Resolver
+
+Status: next.
+
+Purpose:
+
+Validate bearer tokens against the active backend-owned auth provider config and
+turn successful verification into `ExecutionIdentity`.
+
+Expected files:
+
+- `packages/executor/src/authConfig.ts` or a new auth resolver module
+- `packages/flarex-backend/src` HTTP auth boundary files
+- sync `Authenticate` handling
+- shared protocol auth tests
+- backend and executor tests
+- both roadmap files
+
+Exit criteria:
+
+- Bearer tokens are parsed from explicit HTTP/sync auth inputs.
+- OIDC and custom JWT provider metadata resolves JWKS without trusting clients.
+- Invalid explicit auth attempts fail closed.
+- No deploy/admin identity is reused as end-user `ctx.auth`.
 
 ## Turn Protocol
 
@@ -297,7 +380,7 @@ Every implementation turn follows this loop:
 
 ## Required Quality Checklist
 
-- [ ] Provider config is backend-owned and decoded through Effect Schema.
+- [x] Provider config is backend-owned and decoded through Effect Schema.
 - [ ] Public SDK auth types stay Convex-compatible where practical.
 - [ ] Bearer tokens are never treated as identity without backend verification.
 - [ ] Invalid explicit auth attempts fail closed.
@@ -305,4 +388,4 @@ Every implementation turn follows this loop:
 - [ ] Live-query reruns use the verified subscription identity.
 - [ ] Deploy/admin identity is separate from end-user `ctx.auth`.
 - [ ] Trusted dev/test identity remains explicitly env-gated.
-- [ ] Significant code slices pass reviewers.
+- [x] Significant code slices pass reviewers.

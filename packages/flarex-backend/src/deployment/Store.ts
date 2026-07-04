@@ -120,6 +120,7 @@ export interface DeploymentMetaApplication {
 
 export interface DeploymentActiveMetadataApplicationPlan {
   readonly entries: ReadonlyArray<DeploymentMetaApplication>;
+  readonly deleteKeys: ReadonlyArray<string>;
 }
 
 export interface DeploymentStartPushRowApplication {
@@ -256,12 +257,55 @@ export const deploymentActiveMetadataApplicationPlan = Effect.fn(
   "DeploymentPushStore.deploymentActiveMetadataApplicationPlan",
 )(function* (
   input: FinishPushStoreInput,
-): Effect.fn.Return<DeploymentActiveMetadataApplicationPlan> {
+  sourcePackage: PushSourcePackage,
+): Effect.fn.Return<DeploymentActiveMetadataApplicationPlan, DeploymentValidationError> {
+  const authMetadata = yield* deploymentActiveAuthMetadataApplication(sourcePackage);
   return {
+    deleteKeys: authMetadata.deleteKeys,
     entries: [
       { key: "active_push_id", value: input.pushId },
       { key: "active_activated_at", value: String(input.now) },
       { key: "active_execution_artifact_ref", value: JSON.stringify(input.executionArtifactRef) },
+      ...authMetadata.entries,
+    ],
+  };
+});
+
+const deploymentActiveAuthMetadataApplication = Effect.fn(
+  "DeploymentPushStore.deploymentActiveAuthMetadataApplication",
+)(function* (
+  sourcePackage: PushSourcePackage,
+): Effect.fn.Return<DeploymentActiveMetadataApplicationPlan, DeploymentValidationError> {
+  if (sourcePackage.authConfig === undefined) {
+    if (sourcePackage.authConfigModule !== undefined) {
+      return yield* Effect.fail(new DeploymentValidationError({
+        message: "Active auth config module exists without auth config.",
+      }));
+    }
+    return {
+      deleteKeys: ["active_auth_config", "active_auth_config_module"],
+      entries: [],
+    };
+  }
+  if (
+    typeof sourcePackage.authConfigModule !== "string" ||
+    sourcePackage.authConfigModule.length === 0
+  ) {
+    return yield* Effect.fail(new DeploymentValidationError({
+      message: "Active auth config requires a non-empty auth config module.",
+    }));
+  }
+  return {
+    deleteKeys: [],
+    entries: [
+      {
+        key: "active_auth_config",
+        value: JSON.stringify(sourcePackage.authConfig),
+      },
+      {
+        key: "active_auth_config_module",
+        value: sourcePackage.authConfigModule,
+      },
     ],
   };
 });
@@ -306,10 +350,11 @@ export const finishPushActivationApplication = Effect.fn(
 )(function* (
   input: FinishPushStoreInput,
   analysis: DeploymentAnalysis,
-): Effect.fn.Return<FinishPushActivationApplication> {
+  sourcePackage: PushSourcePackage,
+): Effect.fn.Return<FinishPushActivationApplication, DeploymentValidationError> {
   const schema = yield* deploymentSchemaApplicationPlan(analysis.schema);
   const functions = yield* deploymentFunctionsApplicationPlan(analysis.functions);
-  const activeMetadata = yield* deploymentActiveMetadataApplicationPlan(input);
+  const activeMetadata = yield* deploymentActiveMetadataApplicationPlan(input, sourcePackage);
   return { schema, functions, activeMetadata };
 });
 
@@ -552,6 +597,9 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
         };
 
         const applyActiveMetadataPlan = (plan: DeploymentActiveMetadataApplicationPlan): void => {
+          for (const key of plan.deleteKeys) {
+            sql.exec("DELETE FROM meta WHERE key = ?", key);
+          }
           for (const metadata of plan.entries) {
             setMeta(metadata.key, metadata.value);
           }
@@ -728,7 +776,11 @@ export class DeploymentPushStore extends Context.Service<DeploymentPushStore, {
             if (decision._tag === "reject") {
               return decision.response;
             }
-            const application = yield* finishPushActivationApplication(input, decision.status.analysis);
+            const application = yield* finishPushActivationApplication(
+              input,
+              decision.status.analysis,
+              decision.status.sourcePackage,
+            );
             return yield* runFinishPushTransaction(input, decision.status, application);
           },
         );

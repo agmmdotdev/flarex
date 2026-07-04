@@ -855,8 +855,11 @@ describe("DeploymentService", () => {
       }],
     });
 
-    const activeMetadataPlan = await Effect.runPromise(deploymentActiveMetadataApplicationPlan(finishInput));
+    const activeMetadataPlan = await Effect.runPromise(
+      deploymentActiveMetadataApplicationPlan(finishInput, sourcePackage()),
+    );
     expect(activeMetadataPlan).toEqual({
+      deleteKeys: ["active_auth_config", "active_auth_config_module"],
       entries: [
         { key: "active_push_id", value: "push-application-plan" },
         { key: "active_activated_at", value: "2285000" },
@@ -867,12 +870,63 @@ describe("DeploymentService", () => {
       ],
     });
 
-    const application = await Effect.runPromise(finishPushActivationApplication(finishInput, { schema, functions }));
+    const application = await Effect.runPromise(
+      finishPushActivationApplication(finishInput, { schema, functions }, sourcePackage()),
+    );
     expect(application).toEqual({
       schema: schemaPlan,
       functions: functionsPlan,
       activeMetadata: activeMetadataPlan,
     });
+  });
+
+  it("adds auth provider config to active deployment metadata plans", async () => {
+    const finishInput: FinishPushStoreInput = {
+      pushId: "push-auth-metadata-plan",
+      now: 2_286_000,
+      executionArtifactRef: executionArtifactRef(),
+    };
+    const authPackage = sourcePackageWithAuthConfig();
+
+    await expect(
+      Effect.runPromise(deploymentActiveMetadataApplicationPlan(finishInput, authPackage)),
+    ).resolves.toEqual({
+      deleteKeys: [],
+      entries: [
+        { key: "active_push_id", value: "push-auth-metadata-plan" },
+        { key: "active_activated_at", value: "2286000" },
+        {
+          key: "active_execution_artifact_ref",
+          value: JSON.stringify(finishInput.executionArtifactRef),
+        },
+        {
+          key: "active_auth_config",
+          value: JSON.stringify(authPackage.authConfig),
+        },
+        {
+          key: "active_auth_config_module",
+          value: "flarex/auth.config.ts",
+        },
+      ],
+    });
+  });
+
+  it("rejects active auth metadata plans without an auth config module", async () => {
+    const invalidPackage: PushSourcePackage = {
+      ...sourcePackage(),
+      authConfig: authConfig(),
+    };
+
+    await expect(
+      Effect.runPromise(deploymentActiveMetadataApplicationPlan(
+        {
+          pushId: "push-invalid-auth-metadata-plan",
+          now: 2_287_000,
+          executionArtifactRef: executionArtifactRef(),
+        },
+        invalidPackage,
+      )),
+    ).rejects.toThrow(DeploymentValidationError);
   });
 
   it("builds start and abandon application plans before write transactions", async () => {
@@ -1841,7 +1895,10 @@ describe("DeploymentService", () => {
   });
 
   it("writes active deployment metadata from the finish transaction", async () => {
-    const status = analyzedPushStatus("push-store-metadata");
+    const status = analyzedPushStatus(
+      "push-store-metadata",
+      sourcePackageWithAuthConfig(),
+    );
     const storage = {
       transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
     } as DeploymentTransactionStorage;
@@ -1878,6 +1935,50 @@ describe("DeploymentService", () => {
         ["schema_version", String(status.analysis?.schema.version)],
         ["active_push_id", status.pushId],
         ["active_activated_at", "2450000"],
+        ["active_execution_artifact_ref", JSON.stringify(ref)],
+        ["active_auth_config", JSON.stringify(status.sourcePackage.authConfig)],
+        ["active_auth_config_module", "flarex/auth.config.ts"],
+      ]));
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("clears stale auth provider metadata when activating a package without auth", async () => {
+    const status = analyzedPushStatus("push-store-clear-auth");
+    const storage = {
+      transaction: async <A>(callback: () => A | Promise<A>): Promise<A> => callback(),
+    } as DeploymentTransactionStorage;
+    const metadata = new Map<string, string>([
+      ["active_auth_config", JSON.stringify(sourcePackageWithAuthConfig().authConfig)],
+      ["active_auth_config_module", "flarex/auth.config.ts"],
+    ]);
+    const ref = executionArtifactRef();
+    const sql = sqlWithPushes([status], { metadata });
+    const runtime = ManagedRuntime.make(
+      DeploymentPushStore.layer(
+        storage,
+        sql,
+      ),
+    );
+
+    try {
+      await runtime.runPromise(
+        DeploymentPushStore.use(store =>
+          store.finishPush({
+            pushId: status.pushId,
+            now: 2_460_000,
+            executionArtifactRef: ref,
+          }),
+        ),
+      );
+
+      expect(metadata.has("active_auth_config")).toBe(false);
+      expect(metadata.has("active_auth_config_module")).toBe(false);
+      expect(metadata).toEqual(new Map<string, string>([
+        ["schema_version", String(status.analysis?.schema.version)],
+        ["active_push_id", status.pushId],
+        ["active_activated_at", "2460000"],
         ["active_execution_artifact_ref", JSON.stringify(ref)],
       ]));
     } finally {
@@ -2616,6 +2717,10 @@ function sqlWithPushRows(
           metadata.set(key, value);
         }
       }
+      if (query.includes("DELETE FROM meta")) {
+        const key = args[0];
+        if (typeof key === "string") metadata.delete(key);
+      }
       if (query.includes("UPDATE pushes SET state = 'activated'")) {
         const [updatedAt, pushId] = args;
         if (typeof pushId === "string" && typeof updatedAt === "number") {
@@ -2681,6 +2786,7 @@ function pushStatusRow(push: PushStatus): DeploymentPushStatusRow {
 
 function analyzedPushStatus(
   pushId: string,
+  package_: PushSourcePackage = sourcePackage(),
 ): PushStatus & {
   readonly analysis: DeploymentAnalysis;
   readonly codegenAnalysis: DeploymentCodegenAnalysis;
@@ -2688,7 +2794,7 @@ function analyzedPushStatus(
   return {
     pushId,
     state: "analyzed",
-    sourcePackage: sourcePackage(),
+    sourcePackage: package_,
     analysis: deploymentAnalysis(),
     codegenAnalysis: deploymentCodegenAnalysis(),
     createdAt: 1_000,
@@ -2748,6 +2854,33 @@ function sourcePackage(): PushSourcePackage {
     ],
     functions: ["lessons.ts"],
     execution: "__execution.ts",
+  };
+}
+
+function sourcePackageWithAuthConfig(): PushSourcePackage {
+  return {
+    ...sourcePackage(),
+    modules: [
+      ...sourcePackage().modules,
+      {
+        path: "flarex/auth.config.ts",
+        environment: "isolate",
+        sha256: "c".repeat(64),
+      },
+    ],
+    authConfig: authConfig(),
+    authConfigModule: "flarex/auth.config.ts",
+  };
+}
+
+function authConfig(): NonNullable<PushSourcePackage["authConfig"]> {
+  return {
+    providers: [
+      {
+        domain: "https://issuer.example.com",
+        applicationID: "flarex-app",
+      },
+    ],
   };
 }
 

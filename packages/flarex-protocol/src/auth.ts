@@ -174,6 +174,10 @@ export const decodeAuthConfigEffect = Effect.fn(
   );
 });
 
+export function decodeAuthConfigPromise(value: unknown): Promise<AuthConfig> {
+  return Effect.runPromise(decodeAuthConfigEffect(value));
+}
+
 function isAuthConfig(value: unknown): value is AuthConfig {
   if (!isRecord(value) || !hasOnlyKeys(value, ["providers"])) return false;
   return Array.isArray(value.providers) && value.providers.every(isAuthProvider);

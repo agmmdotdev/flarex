@@ -317,8 +317,19 @@ describe("createPGlitePersistence", () => {
       sourcePackageHash: "a".repeat(64),
       executionModule: "_flarex/execution.js",
       sourcePackageJson: {
-        modules: [],
+        modules: [
+          { path: "flarex/auth.config.ts", environment: "isolate", sha256: "b".repeat(64) },
+        ],
         functions: [],
+        authConfig: {
+          providers: [
+            {
+              domain: "https://issuer.example.com",
+              applicationID: "flarex-app",
+            },
+          ],
+        },
+        authConfigModule: "flarex/auth.config.ts",
         execution: "_flarex/execution.js",
       },
       analysisJson: { functions: [] },
@@ -330,8 +341,19 @@ describe("createPGlitePersistence", () => {
       sourcePackageHash: "a".repeat(64),
       executionModule: "_flarex/execution.js",
       sourcePackageJson: {
-        modules: [],
+        modules: [
+          { path: "flarex/auth.config.ts", environment: "isolate", sha256: "b".repeat(64) },
+        ],
         functions: [],
+        authConfig: {
+          providers: [
+            {
+              domain: "https://issuer.example.com",
+              applicationID: "flarex-app",
+            },
+          ],
+        },
+        authConfigModule: "flarex/auth.config.ts",
         execution: "_flarex/execution.js",
       },
       analysisJson: { functions: [] },
@@ -343,6 +365,17 @@ describe("createPGlitePersistence", () => {
     ).resolves.toMatchObject({
       deploymentId: "deployment_package",
       packageId: "package_a",
+      sourcePackageJson: {
+        authConfig: {
+          providers: [
+            {
+              domain: "https://issuer.example.com",
+              applicationID: "flarex-app",
+            },
+          ],
+        },
+        authConfigModule: "flarex/auth.config.ts",
+      },
     });
   });
 

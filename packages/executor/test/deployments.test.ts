@@ -6,6 +6,7 @@ import {
 
 import {
   DeploymentNotFoundError,
+  DeploymentAuthConfigMetadataUnavailableError,
   DeploymentPackageMismatchError,
   DeploymentPackageNotActivatedError,
   DeploymentPackageNotFoundError,
@@ -253,6 +254,159 @@ describe("executor deployment behavior", () => {
     });
   });
 
+  it("resolves active auth config from the active package metadata", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+    const source = sourcePackageWithAuthConfig();
+
+    const registered = await executor.registerDeploymentPackage({
+      deploymentId: "deployment_active_auth",
+      projectId: "project_active_auth",
+      sourcePackage: source,
+    });
+    await executor.activateDeploymentPackage({
+      deploymentId: "deployment_active_auth",
+      projectId: "project_active_auth",
+      packageId: registered.package.packageId,
+      schemaVersion: 9,
+    });
+
+    await expect(
+      executor.getActiveDeploymentAuthConfig({
+        deploymentId: "deployment_active_auth",
+        projectId: "project_active_auth",
+      }),
+    ).resolves.toMatchObject({
+      deployment: {
+        deploymentId: "deployment_active_auth",
+        projectId: "project_active_auth",
+        activePackageId: registered.package.packageId,
+      },
+      package: {
+        deploymentId: "deployment_active_auth",
+        packageId: registered.package.packageId,
+      },
+      authConfig: source.authConfig,
+      authConfigModule: "flarex/auth.config.ts",
+    });
+  });
+
+  it("returns null active auth config for deployments without auth providers", async () => {
+    const persistence = memoryPersistence();
+    const executor = createFlarexExecutor({ persistence });
+
+    const registered = await executor.registerDeploymentPackage({
+      deploymentId: "deployment_no_auth",
+      projectId: "project_no_auth",
+      sourcePackage: sourcePackage(),
+    });
+    await executor.activateDeploymentPackage({
+      deploymentId: "deployment_no_auth",
+      projectId: "project_no_auth",
+      packageId: registered.package.packageId,
+      schemaVersion: 1,
+    });
+
+    await expect(
+      executor.getActiveDeploymentAuthConfig({
+        deploymentId: "deployment_no_auth",
+        projectId: "project_no_auth",
+      }),
+    ).resolves.toMatchObject({
+      authConfig: null,
+      authConfigModule: null,
+    });
+  });
+
+  it("rejects corrupt persisted active auth config metadata", async () => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence(
+        [
+          deploymentMetadata({
+            deploymentId: "deployment_corrupt_auth",
+            projectId: "project_corrupt_auth",
+            activePackageId: "package_corrupt_auth",
+            activeSchemaVersion: 1,
+          }),
+        ],
+        [
+          deploymentPackageMetadata({
+            deploymentId: "deployment_corrupt_auth",
+            packageId: "package_corrupt_auth",
+            sourcePackageHash: "a".repeat(64),
+            executionModule: "_flarex/execution.js",
+            sourcePackageJson: {
+              ...sourcePackageJson(),
+              authConfig: { providers: [{ domain: "", applicationID: "app" }] },
+              authConfigModule: "flarex/auth.config.ts",
+            },
+          }),
+        ],
+      ),
+    });
+
+    await expect(
+      executor.getActiveDeploymentAuthConfig({
+        deploymentId: "deployment_corrupt_auth",
+        projectId: "project_corrupt_auth",
+      }),
+    ).rejects.toThrow(DeploymentAuthConfigMetadataUnavailableError);
+  });
+
+  it.each([
+    {
+      name: "auth module without auth config",
+      sourcePackageJson: {
+        ...sourcePackageJson(),
+        authConfigModule: "flarex/auth.config.ts",
+      },
+    },
+    {
+      name: "auth config without auth module",
+      sourcePackageJson: {
+        ...sourcePackageJson(),
+        authConfig: sourcePackageWithAuthConfig().authConfig,
+      },
+    },
+    {
+      name: "auth module missing from modules",
+      sourcePackageJson: {
+        ...sourcePackageJson(),
+        authConfig: sourcePackageWithAuthConfig().authConfig,
+        authConfigModule: "flarex/auth.config.ts",
+      },
+    },
+  ])("rejects corrupt persisted active auth metadata: $name", async ({ sourcePackageJson }) => {
+    const executor = createFlarexExecutor({
+      persistence: memoryPersistence(
+        [
+          deploymentMetadata({
+            deploymentId: "deployment_corrupt_auth_pairing",
+            projectId: "project_corrupt_auth_pairing",
+            activePackageId: "package_corrupt_auth_pairing",
+            activeSchemaVersion: 1,
+          }),
+        ],
+        [
+          deploymentPackageMetadata({
+            deploymentId: "deployment_corrupt_auth_pairing",
+            packageId: "package_corrupt_auth_pairing",
+            sourcePackageHash: "a".repeat(64),
+            executionModule: "_flarex/execution.js",
+            sourcePackageJson,
+          }),
+        ],
+      ),
+    });
+
+    await expect(
+      executor.getActiveDeploymentAuthConfig({
+        deploymentId: "deployment_corrupt_auth_pairing",
+        projectId: "project_corrupt_auth_pairing",
+      }),
+    ).rejects.toThrow(DeploymentAuthConfigMetadataUnavailableError);
+  });
+
   it("rejects active package resolution for a missing deployment", async () => {
     const executor = createFlarexExecutor({
       persistence: memoryPersistence(),
@@ -438,6 +592,29 @@ function sourcePackage(): ArtifactSourcePackage {
     ],
     functions: [],
     execution: "_flarex/execution.js",
+  };
+}
+
+function sourcePackageWithAuthConfig(): ArtifactSourcePackage {
+  return {
+    ...sourcePackage(),
+    modules: [
+      ...sourcePackage().modules,
+      {
+        path: "flarex/auth.config.ts",
+        environment: "isolate",
+        sha256: "b".repeat(64),
+      },
+    ],
+    authConfig: {
+      providers: [
+        {
+          domain: "https://issuer.example.com",
+          applicationID: "flarex-app",
+        },
+      ],
+    },
+    authConfigModule: "flarex/auth.config.ts",
   };
 }
 

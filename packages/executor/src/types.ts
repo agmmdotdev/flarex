@@ -4,7 +4,7 @@ import type {
   FreshnessMirrorStore,
 } from "@flarex/freshness";
 import type { LiveQueryDeliveryChange } from "flarex";
-import type { ExecutionIdentity } from "flarex-protocol/auth";
+import type { AuthConfig, ExecutionIdentity } from "flarex-protocol/auth";
 import type {
   DeploymentPackageMetadataRecord,
   DeploymentMetadataRecord,
@@ -152,6 +152,9 @@ export interface FlarexExecutor {
   getActiveDeploymentPackage(
     input: GetActiveDeploymentPackageInput,
   ): Promise<GetActiveDeploymentPackageResult>;
+  getActiveDeploymentAuthConfig(
+    input: GetActiveDeploymentAuthConfigInput,
+  ): Promise<GetActiveDeploymentAuthConfigResult>;
   beginInvokeSession(
     input: BeginInvokeSessionInput,
   ): Promise<BeginInvokeSessionResult>;
@@ -672,6 +675,29 @@ export interface GetActiveDeploymentPackageResult {
   deployment: DeploymentMetadataRecord;
   package: DeploymentPackageMetadataRecord;
 }
+
+export interface GetActiveDeploymentAuthConfigInput {
+  deploymentId: string;
+  projectId: string;
+}
+
+interface GetActiveDeploymentAuthConfigBase {
+  deployment: DeploymentMetadataRecord;
+  package: DeploymentPackageMetadataRecord;
+}
+
+export type GetActiveDeploymentAuthConfigResult =
+  GetActiveDeploymentAuthConfigBase &
+    (
+      | {
+          authConfig: AuthConfig;
+          authConfigModule: string;
+        }
+      | {
+          authConfig: null;
+          authConfigModule: null;
+        }
+    );
 
 export interface GetActiveFunctionInput {
   deploymentId: string;

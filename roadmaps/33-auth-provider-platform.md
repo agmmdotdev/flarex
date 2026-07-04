@@ -88,7 +88,7 @@ JSON or provider configuration.
     are deploy-visible and reproducible.
   - Extend analyzer/push/deployment validation to carry decoded auth config.
   - Add local dev tests proving auth config is included or absent consistently.
-- [ ] A-3. Persistence and active deployment metadata.
+- [x] A-3. Persistence and active deployment metadata.
   - Store provider config as backend-owned deployment/project metadata.
   - Add migrations and storage decoders for auth config.
   - Decide whether config is package-versioned, deployment-active-versioned, or
@@ -161,26 +161,25 @@ Every turn in this stream must:
 
 ## Current Checkpoint
 
-Status: A-2 complete.
+Status: A-3 complete.
 
-Previous completed checkpoint: `89fb9e4` (`Add auth-aware live query metadata`).
+Previous completed checkpoint: `be640f5` (`Ingest auth config in source packages`).
 
 What changed:
 
-- Added optional `authConfig` and `authConfigModule` to source-package,
-  protocol, backend, and artifact source package contracts.
-- Made `flarex-dev` bundle and evaluate `flarex/auth.config.ts` or
-  `flarex/auth.config.js`, validate its default export through
-  `flarex-protocol/auth`, and include the decoded config in the source package.
-- Included auth config metadata and module path in stable artifact manifests so
-  auth config changes produce different execution artifact refs.
-- Made backend deployment validation require the auth config module to exist
-  when config is present, and require config when the module path is present.
-- Preserved auth config through public deployment request decoding, R2 artifact
-  stores, local artifact stores, executor package JSON, and executor HTTP
-  materialization.
-- Updated stale local-dev live-query fixtures with anonymous identity metadata
-  required by the current live-query contract.
+- Added a typed executor `getActiveDeploymentAuthConfig` API that resolves the
+  active package through deployment/project ownership checks and returns decoded
+  `AuthConfig` plus the owning module path.
+- Added fail-closed persisted metadata validation for malformed stored auth
+  config, missing config-module pairing, and auth modules missing from package
+  modules.
+- Added a protocol `decodeAuthConfigPromise` boundary helper so executor code can
+  decode through Effect Schema without adding a direct `effect` dependency.
+- Made backend Deployment DO finish activation write `active_auth_config` and
+  `active_auth_config_module` metadata when the activated source package
+  includes auth providers.
+- Proved PGlite package metadata round-trips `authConfig` and
+  `authConfigModule`.
 
 Convex references inspected:
 
@@ -190,27 +189,25 @@ Convex references inspected:
 
 Cloudflare difference:
 
-- Auth config enters through deploy/source-package metadata, not client invoke
-  requests. This keeps provider configuration backend-owned while still making
-  local-first and hosted artifact identity share the same package hash behavior.
-- This slice still does not persist active provider config separately or verify
-  bearer tokens; that begins in A-3/A-4.
+- The durable ownership choice is package-versioned storage: auth config lives in
+  `deployment_packages.source_package_json`, and "active" is derived from
+  deployment activation (`deployments.active_package_id`) plus Deployment DO
+  active metadata. No new project-level auth table or client-writeable config
+  endpoint was added.
+- This slice still does not verify bearer tokens; that begins in A-4.
 
-Next unchecked implementation item: A-3 persistence and active deployment
-metadata.
+Next unchecked implementation item: A-4 backend JWT/JWKS resolver.
 
 Verification:
 
 ```sh
-corepack pnpm --filter flarex typecheck
-corepack pnpm --filter flarex test -- artifacts.test.ts
 corepack pnpm --filter flarex-protocol typecheck
-corepack pnpm --filter flarex-protocol test -- deployment.test.ts
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/sourcePackage.test.ts test/executorHttpRuntime.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-protocol test -- auth.test.ts
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/deploymentValidation.test.ts test/deploymentRequests.test.ts test/deploymentStorageRows.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentService.test.ts --testTimeout=120000 --hookTimeout=120000
 corepack pnpm --filter @flarex/executor typecheck
 corepack pnpm --filter @flarex/executor test -- deployments.test.ts
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --testTimeout=120000 --hookTimeout=120000
 git diff --check
 ```
