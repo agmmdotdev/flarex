@@ -105,6 +105,8 @@ export interface BackendPushCoordinator {
   abandon?(pushId: string, request?: AbandonPushRequest): Promise<DevPushStatus>;
 }
 
+export const LOCAL_BACKEND_DEPLOY_PUSH_TOKEN = "local-dev-deploy-push";
+
 export interface BackendSourceAnalyzer {
   analyze(sourcePackage: SourcePackage): Promise<BackendSourceAnalysisResult>;
 }
@@ -221,10 +223,16 @@ export class HttpBackendSourceAnalyzer implements BackendSourceAnalyzer {
 export class LocalBackendPushCoordinator implements BackendPushCoordinator {
   private readonly backend: Miniflare;
   private readonly deploymentId: string;
+  private readonly deployPushToken: string;
 
-  constructor(backend: Miniflare, deploymentId: string) {
+  constructor(
+    backend: Miniflare,
+    deploymentId: string,
+    deployPushToken = LOCAL_BACKEND_DEPLOY_PUSH_TOKEN,
+  ) {
     this.backend = backend;
     this.deploymentId = deploymentId;
+    this.deployPushToken = deployPushToken;
   }
 
   async start(sourcePackage: SourcePackage): Promise<DevPushStatus> {
@@ -234,6 +242,7 @@ export class LocalBackendPushCoordinator implements BackendPushCoordinator {
       {
         sourcePackage,
       },
+      this.deployPushToken,
     );
   }
 
@@ -241,7 +250,7 @@ export class LocalBackendPushCoordinator implements BackendPushCoordinator {
     const path = `/deployments/${this.deploymentId}/push/${pushId}/finish`;
     const response = await this.backend.dispatchFetch(`http://flarex.backend${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: localBackendDeployHeaders(this.deployPushToken),
       body: JSON.stringify({}),
     });
     // Deliberate runtime bridge: local backend finish API is Promise-based.
@@ -258,6 +267,7 @@ export class LocalBackendPushCoordinator implements BackendPushCoordinator {
       this.backend,
       `/deployments/${this.deploymentId}/push/${pushId}/abandon`,
       request,
+      this.deployPushToken,
     );
   }
 }
@@ -867,10 +877,15 @@ function stableAnalysisJson(analysis: CodegenDeploymentAnalysis): string {
   return JSON.stringify(analysis);
 }
 
-async function postBackend<T>(backend: Miniflare, path: string, body: unknown): Promise<T> {
+async function postBackend<T>(
+  backend: Miniflare,
+  path: string,
+  body: unknown,
+  deployPushToken: string,
+): Promise<T> {
   const response = await backend.dispatchFetch(`http://flarex.backend${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: localBackendDeployHeaders(deployPushToken),
     body: JSON.stringify(body),
   });
   if (!response.ok) {
@@ -878,4 +893,11 @@ async function postBackend<T>(backend: Miniflare, path: string, body: unknown): 
     throw new Error(`Backend request ${path} failed with status ${response.status}: ${text}`);
   }
   return response.json() as Promise<T>;
+}
+
+function localBackendDeployHeaders(deployPushToken: string): Record<string, string> {
+  return {
+    authorization: `Bearer ${deployPushToken}`,
+    "content-type": "application/json",
+  };
 }

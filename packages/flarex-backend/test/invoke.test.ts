@@ -60,8 +60,8 @@ import type {
   SchemaTable,
 } from "../src/types";
 import {
-  ANALYZED_START_TEST_AUTHORIZATION,
   createBackendHarness,
+  deployPushJsonHeaders,
   type BackendHarness,
 } from "./backendHarness";
 import { sourcePackageForFunctions } from "./sourcePackageFixtures";
@@ -2798,7 +2798,7 @@ async function activateTestDeployment(deploymentId: string): Promise<void> {
     `http://flarex.test/deployments/${deploymentId}/push/${start.pushId}/finish`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: deployPushJsonHeaders(),
       body: JSON.stringify({}),
     },
   );
@@ -2822,10 +2822,7 @@ async function startPushResponse(
     `http://flarex.test/deployments/${deploymentId}/push/start-analyzed`,
     {
       method: "POST",
-      headers: {
-        authorization: ANALYZED_START_TEST_AUTHORIZATION,
-        "content-type": "application/json",
-      },
+      headers: deployPushJsonHeaders(),
       body: JSON.stringify(body),
     },
   );

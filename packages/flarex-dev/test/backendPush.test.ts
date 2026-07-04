@@ -7,6 +7,7 @@ import {
   devFinishPushErrorMessage,
   HttpBackendPushCoordinator,
   HttpBackendSourceAnalyzer,
+  LOCAL_BACKEND_DEPLOY_PUSH_TOKEN,
   LocalBackendPushCoordinator,
   LocalExecutionArtifactBackendAnalyzer,
   type BackendSourceAnalyzer,
@@ -21,11 +22,16 @@ describe("backend push coordinator", () => {
   it("starts public backend push with only the source package", async () => {
     const sourcePackage = testSourcePackage();
     const analysis = testAnalysis();
-    const requests: Array<{ url: string; body: unknown }> = [];
+    const requests: Array<{
+      url: string;
+      headers: Record<string, string>;
+      body: unknown;
+    }> = [];
     const backend = {
       dispatchFetch: async (url: string, init?: RequestInit) => {
         requests.push({
           url,
+          headers: Object.fromEntries(new Headers(init?.headers).entries()),
           body: init?.body === undefined ? null : JSON.parse(String(init.body)),
         });
         return Response.json({
@@ -47,6 +53,10 @@ describe("backend push coordinator", () => {
     expect(requests).toEqual([
       {
         url: "http://flarex.backend/deployments/deployment1/push/start",
+        headers: {
+          authorization: `Bearer ${LOCAL_BACKEND_DEPLOY_PUSH_TOKEN}`,
+          "content-type": "application/json",
+        },
         body: { sourcePackage },
       },
     ]);

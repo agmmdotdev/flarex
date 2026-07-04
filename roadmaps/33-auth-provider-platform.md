@@ -120,7 +120,7 @@ JSON or provider configuration.
   - Prove executor reruns use the subscription identity.
   - Prove stale previous-user deliveries are still blocked with real verified
     identities, not only trusted test identities.
-- [ ] A-8. Deploy/admin identity boundary.
+- [x] A-8. Deploy/admin identity boundary.
   - Define how auth config is updated by deploy/admin actors.
   - Keep deploy keys, dashboard users, and project ownership out of end-user
     `ctx.auth`.
@@ -161,54 +161,52 @@ Every turn in this stream must:
 
 ## Current Checkpoint
 
-Status: A-7 complete.
+Status: A-8 complete.
 
-Previous completed checkpoint: `af6a204` (`Verify HTTP invoke bearer tokens`).
+Previous completed checkpoint: `b44aca4` (`Prove live query auth identity`).
 
 What changed:
 
-- Added a backend sync regression that authenticates with a real RS256 JWT,
-  records an executor live-query subscription, and asserts the subscription
-  body carries the backend-verified `ExecutionIdentity`.
-- Extended the PGlite-backed executor HTTP rerun test to record through the real
-  `/live-query-subscriptions/record` route with verified identity, then rerun
-  through `/maintenance/live-queries/rerun` and assert persisted subscription
-  and delivery fingerprints.
-- The same backend regression sends an anonymous-fingerprint delivery and proves
-  it is treated as stale, then sends a verified-fingerprint delivery and proves
-  it reaches the active WebSocket under the authenticated identity version.
-- Updated the local executor HTTP runtime rerun test to use a stored verified
-  user `identityJson`, proving rerun materialization and query-session execution
-  receive the subscription identity instead of defaulting to anonymous.
-- Fixed the local executor HTTP runtime materialization helper to include stored
-  subscription `identityJson` in the materialized artifact payload.
+- All public Worker deployment push mutations now require the deploy/admin push
+  bearer token before JSON body parsing: `push/start`, `push/start-analyzed`,
+  `push/:pushId/finish`, and `push/:pushId/abandon`.
+- The deploy-push authorization helper now has a generic mutation entry point,
+  generic public error text, deploy-push-named test credentials, and an
+  explicit compatibility path for the older analyzed-start unit API.
+- Added a regression with a real end-user JWT matching the active deployment
+  auth config. The user bearer token is rejected for all four deploy-push
+  mutation routes, and the active auth config remains unchanged.
+- Local dev's in-process backend push coordinator now sends an explicit local
+  deploy-push token, and the local backend runtime binds the same token.
+- Reviewer findings fixed before commit: local deploy POST credentials are
+  required at the helper boundary; route-matrix coverage now covers all
+  deploy-push mutations; deploy-push naming is first-class in the public auth
+  helper and test harness; the compatibility error keeps the legacy Effect tag
+  while the deploy-push class is nominally typed.
 
 Convex references inspected:
 
-- `npm-packages/convex/src/server/authentication.ts`
-- `npm-packages/convex/src/browser/sync/authentication_manager.ts`
-- `npm-packages/convex/src/browser/sync/client.ts`
-- `crates/local_backend/src/subs/mod.rs`
-- `crates/application/src/api.rs`
-- `crates/application/src/application_function_runner/mod.rs`
+- `crates/model/src/auth/mod.rs`
+- `crates/keybroker/src/broker.rs`
+- `crates/local_backend/src/deploy_config2.rs`
+- `crates/application/src/lib.rs`
 
 Cloudflare difference:
 
-- HTTP verification runs in the Worker route before artifact-runtime dispatch,
-  using active deployment package metadata as the provider source.
-- The test uses a `data:` JWKS URL to exercise real Worker `fetch` plus
-  WebCrypto verification without adding a production test hook.
-- Trusted dev/test identity headers remain explicitly env-gated and are not
-  derived from end-user bearer tokens.
+- Convex routes auth config and deploy writes through admin/system identities
+  and `DeploymentOp::Deploy`; Flarex currently uses a configured deploy-push
+  bearer token for the Worker deploy boundary.
+- End-user bearer JWTs are only execution identity for `ctx.auth` and are not
+  accepted as deploy/admin credentials for provider config mutation.
 
-Next unchecked implementation item: A-8 deploy/admin identity boundary.
+Next unchecked implementation item: A-9 final platform audit.
 
 Verification:
 
 ```sh
 corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/sync.test.ts --testNamePattern "verified Authenticate identity" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend exec vitest run test/push.test.ts test/publicAnalyzedStartAuthorization.test.ts --testTimeout=120000 --hookTimeout=120000
 corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts --testNamePattern "local live-query materialization|PGlite-backed executor state" --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts test/dev.test.ts --testTimeout=120000 --hookTimeout=120000
 git diff --check
 ```

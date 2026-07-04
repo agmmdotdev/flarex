@@ -22,7 +22,7 @@ Source roadmap:
 - [x] A-5. Sync `Authenticate` integration.
 - [x] A-6. HTTP invoke integration.
 - [x] A-7. Live-query and scheduler auth proof.
-- [ ] A-8. Deploy/admin identity boundary.
+- [x] A-8. Deploy/admin identity boundary.
 - [ ] A-9. Final platform audit.
 
 ## Current Next Slice
@@ -665,6 +665,103 @@ Review gate:
   persistence, rerun, and delivery fingerprint behavior.
 - Final TypeScript and quality re-reviews found no actionable findings.
 
+### A-8: Deploy/Admin Identity Boundary
+
+Status: complete.
+
+Purpose:
+
+Keep end-user bearer tokens scoped to application execution identity
+(`ctx.auth`) and prevent them from mutating backend-owned provider config or
+deployment state. Auth config changes must enter through deploy/admin push
+credentials.
+
+Files changed:
+
+- `packages/flarex-backend/src/worker.ts`
+- `packages/flarex-backend/src/worker/PublicAnalyzedStartAuthorization.ts`
+- `packages/flarex-backend/test/artifactRuntimeRoute.test.ts`
+- `packages/flarex-backend/test/executionDO.test.ts`
+- `packages/flarex-backend/test/invoke.test.ts`
+- `packages/flarex-backend/test/lifecycleFixture.ts`
+- `packages/flarex-backend/test/publicAnalyzedStartAuthorization.test.ts`
+- `packages/flarex-backend/test/push.test.ts`
+- `packages/flarex-backend/test/sync.test.ts`
+- `packages/flarex-dev/src/backendPush.ts`
+- `packages/flarex-dev/src/dev.ts`
+- `packages/flarex-dev/test/backendPush.test.ts`
+- `packages/flarex-dev/test/backendSyncRuntime.test.ts`
+- `packages/flarex-dev/test/runtimeMaterializer.test.ts`
+- `roadmaps/33-auth-provider-platform.md`
+- `roadmaps/34-auth-provider-platform-goals.md`
+
+Exit criteria:
+
+- Public Worker deploy-push mutations require deploy/admin credentials before
+  body decoding.
+- Valid end-user bearer JWTs are rejected for auth-config start/finish deploy
+  mutations.
+- Valid end-user bearer JWTs are rejected for every public deploy-push
+  mutation route.
+- Rejected end-user deploy attempts do not alter the active provider config.
+- Local dev backend push still uses explicit deploy credentials and does not
+  bypass the hosted Worker boundary.
+
+What changed:
+
+- Added `authorizePublicDeploymentPushMutationRequest(...)` as the generic
+  deploy-push authorization entry point using the configured
+  `FLAREX_ANALYZED_START_TOKEN` deploy token.
+- Added `PublicDeploymentPushAuthorizationError` as the deploy-push-named error
+  boundary while preserving the legacy `PublicAnalyzedStartAuthorizationError`
+  Effect tag for compatibility. The deploy-push class has a private declared
+  brand so the narrower route error type remains nominal in TypeScript.
+- Routed public `push/start`, `push/start-analyzed`, `push/:pushId/finish`, and
+  `push/:pushId/abandon` through that authorization boundary before body
+  parsing or dispatch.
+- Added a backend regression that activates an auth config, signs a real user
+  JWT accepted by that config, then proves the user bearer token cannot call
+  any public deploy-push mutation route and the active auth config is
+  unchanged.
+- Updated backend and dev test helpers to use deploy credentials for legitimate
+  push mutations.
+- Added deploy-push-named backend test credentials and a shared
+  `deployPushJsonHeaders(...)` helper; the older analyzed-start constants
+  remain aliases for compatibility only.
+- Added an explicit local-dev deploy-push token used by
+  `LocalBackendPushCoordinator` and bound into the local backend Miniflare.
+
+Convex references inspected:
+
+- `crates/model/src/auth/mod.rs`
+- `crates/keybroker/src/broker.rs`
+- `crates/local_backend/src/deploy_config2.rs`
+- `crates/application/src/lib.rs`
+
+Cloudflare difference:
+
+- Convex uses admin/system identities and `DeploymentOp::Deploy` checks around
+  auth config and deploy writes. Flarex currently models this as a configured
+  Worker deploy-push bearer token; end-user JWTs remain execution identity only.
+
+Validation:
+
+```sh
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/push.test.ts test/publicAnalyzedStartAuthorization.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/backendPush.test.ts test/dev.test.ts --testTimeout=120000 --hookTimeout=120000
+git diff --check
+```
+
+Review gate:
+
+- TypeScript and quality reviewers found issues in the first passes around
+  optional local deploy credentials, incomplete route-matrix coverage,
+  analyzed-start naming drift, and compatibility tagged-error behavior.
+- All reviewer findings were fixed before commit; focused backend/dev
+  validation and `git diff --check` passed afterward.
+
 ## Turn Protocol
 
 Every implementation turn follows this loop:
@@ -691,6 +788,6 @@ Every implementation turn follows this loop:
 - [x] Sync and HTTP use the same token verification semantics.
 - [x] Sync query reruns use verified Authenticate identity.
 - [x] Live-query scheduler deliveries use the verified subscription identity.
-- [ ] Deploy/admin identity is separate from end-user `ctx.auth`.
+- [x] Deploy/admin identity is separate from end-user `ctx.auth`.
 - [x] Trusted dev/test identity remains explicitly env-gated.
 - [x] Significant code slices pass reviewers.

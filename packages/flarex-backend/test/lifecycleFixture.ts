@@ -16,7 +16,10 @@ import type {
   PushSourcePackage,
   StartPushRequest,
 } from "../src/types";
-import type { BackendHarness } from "./backendHarness";
+import {
+  deployPushJsonHeaders,
+  type BackendHarness,
+} from "./backendHarness";
 
 export type LifecycleQueryInvokeRequest = InvokeRequest & {
   readonly kind: "query";
@@ -31,7 +34,7 @@ export async function startSourceOnlyPush(
     `http://flarex.test/deployments/${deploymentId}/push/start`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: deployPushJsonHeaders(),
       body: JSON.stringify(body),
     },
   );
@@ -48,7 +51,7 @@ export async function finishPush(
     `http://flarex.test/deployments/${deploymentId}/push/${pushId}/finish`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: deployPushJsonHeaders(),
       body: JSON.stringify({}),
     },
   );

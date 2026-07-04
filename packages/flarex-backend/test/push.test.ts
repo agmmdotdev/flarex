@@ -26,10 +26,15 @@ import type {
   StartPushRequest,
 } from "../src/types";
 import {
-  ANALYZED_START_TEST_AUTHORIZATION,
   createBackendHarness,
+  deployPushJsonHeaders,
   type BackendHarness,
 } from "./backendHarness";
+import {
+  createRsaSigningKeys,
+  dataJsonUrl,
+  signJwt,
+} from "./authFixtures";
 import { sourcePackageForFunctions } from "./sourcePackageFixtures";
 
 async function decodeActiveDeploymentStatusForTest(value: unknown) {
@@ -107,7 +112,6 @@ describe("deployment push lifecycle", () => {
     ))).rejects.toMatchObject({
       _tag: "BackendAnalyzerResponseError",
       status: 200,
-      message: "Source package modules must be an array.",
     });
   });
 
@@ -239,12 +243,108 @@ describe("deployment push lifecycle", () => {
     });
   });
 
+  it("rejects end-user bearer tokens for deploy push mutations", async () => {
+    const keys = await createRsaSigningKeys("push-user-rs");
+    const activeAuthConfig = customJwtAuthConfig(
+      dataJsonUrl({ keys: [keys.jwk] }),
+      "flarex-push",
+    );
+    const activeStart = await startPush(
+      "push-user-token-boundary",
+      analyzedPush(
+        candidateSchema(),
+        candidateFunctions(),
+        sourcePackageWithAuthConfig(activeAuthConfig),
+      ),
+    );
+    await finishPush("push-user-token-boundary", activeStart.pushId);
+    const userToken = await signJwt({
+      privateKey: keys.privateKey,
+      kid: keys.jwk.kid,
+      payload: {
+        iss: "https://issuer.example.com",
+        sub: "deploy-user",
+        aud: "flarex-push",
+        exp: Math.floor(Date.now() / 1000) + 60,
+      },
+    });
+    const userAuthorization = `Bearer ${userToken}`;
+    const replacementAuthConfig = customJwtAuthConfig(
+      dataJsonUrl({ keys: [] }),
+      "flarex-replacement",
+    );
+
+    const finishCandidate = await startPush(
+      "push-user-token-boundary",
+      analyzedPush(
+        candidateSchema(),
+        candidateFunctions(),
+        sourcePackageWithAuthConfig(replacementAuthConfig),
+      ),
+    );
+    const abandonCandidate = await startPush(
+      "push-user-token-boundary",
+      analyzedPush(
+        candidateSchema(),
+        candidateFunctions(),
+        sourcePackageWithAuthConfig(replacementAuthConfig),
+      ),
+    );
+    const rejectedMutations = [
+      {
+        name: "source-only start",
+        path: "/push/start",
+        body: { sourcePackage: sourcePackageWithAuthConfig(replacementAuthConfig) },
+      },
+      {
+        name: "analyzed start",
+        path: "/push/start-analyzed",
+        body: analyzedPush(
+          candidateSchema(),
+          candidateFunctions(),
+          sourcePackageWithAuthConfig(replacementAuthConfig),
+        ),
+      },
+      {
+        name: "finish",
+        path: `/push/${finishCandidate.pushId}/finish`,
+        body: {},
+      },
+      {
+        name: "abandon",
+        path: `/push/${abandonCandidate.pushId}/abandon`,
+        body: {},
+      },
+    ] satisfies ReadonlyArray<{ name: string; path: string; body: unknown }>;
+
+    for (const mutation of rejectedMutations) {
+      const rejected = await dispatchPushMutationWithAuthorization(
+        "push-user-token-boundary",
+        mutation.path,
+        userAuthorization,
+        mutation.body,
+      );
+
+      expect(rejected.status, mutation.name).toBe(401);
+      await expect(rejected.json(), mutation.name).resolves.toEqual({
+        error: "Unauthorized deployment push request.",
+      });
+    }
+    await expect(getActiveDeployment("push-user-token-boundary")).resolves.toMatchObject({
+      activePushId: activeStart.pushId,
+      sourcePackage: {
+        authConfig: activeAuthConfig,
+        authConfigModule: "_flarex/auth.config.js",
+      },
+    });
+  });
+
   it("keeps public start source-only until backend analysis is configured", async () => {
     const invalidJson = await harness.mf.dispatchFetch(
       "http://flarex.test/deployments/push-source-only/push/start",
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: deployPushJsonHeaders(),
         body: "{",
       },
     );
@@ -285,7 +385,7 @@ describe("deployment push lifecycle", () => {
       );
       expect(missingTokenRoute.status).toBe(401);
       await expect(missingTokenRoute.json()).resolves.toEqual({
-        error: "Unauthorized analyzed start-push request.",
+        error: "Unauthorized deployment push request.",
       });
     } finally {
       await productionLikeHarness.dispose();
@@ -301,20 +401,17 @@ describe("deployment push lifecycle", () => {
     );
     expect(unauthorized.status).toBe(401);
     await expect(unauthorized.json()).resolves.toEqual({
-      error: "Unauthorized analyzed start-push request.",
+      error: "Unauthorized deployment push request.",
     });
 
     const invalidJson = await harness.mf.dispatchFetch(
-      "http://flarex.test/deployments/push-start-bad-body/push/start-analyzed",
-      {
-        method: "POST",
-        headers: {
-          authorization: ANALYZED_START_TEST_AUTHORIZATION,
-          "content-type": "application/json",
+        "http://flarex.test/deployments/push-start-bad-body/push/start-analyzed",
+        {
+          method: "POST",
+          headers: deployPushJsonHeaders(),
+          body: "{",
         },
-        body: "{",
-      },
-    );
+      );
     expect(invalidJson.status).toBe(400);
     await expect(invalidJson.json()).resolves.toEqual({
       error: "Request body must be JSON.",
@@ -329,7 +426,7 @@ describe("deployment push lifecycle", () => {
     });
     expect(invalidSourcePackage.status).toBe(400);
     await expect(invalidSourcePackage.json()).resolves.toEqual({
-      error: "Source package modules must be an array.",
+      error: "Source package must include modules, functions, and execution fields with valid module entries.",
     });
 
     const invalidDiagnostics = await startPushRawResponse("push-start-bad-body", {
@@ -460,7 +557,7 @@ describe("deployment push lifecycle", () => {
         "http://flarex.test/deployments/push-source-only-bad-body/push/start",
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: deployPushJsonHeaders(),
           body: "{",
         },
       );
@@ -909,7 +1006,7 @@ describe("deployment push lifecycle", () => {
       `http://flarex.test/deployments/push-finish-bad-body/push/${start.pushId}/finish`,
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: deployPushJsonHeaders(),
         body: "{",
       },
     );
@@ -922,7 +1019,7 @@ describe("deployment push lifecycle", () => {
       `http://flarex.test/deployments/push-finish-bad-body/push/${start.pushId}/finish`,
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: deployPushJsonHeaders(),
         body: JSON.stringify(null),
       },
     );
@@ -935,7 +1032,7 @@ describe("deployment push lifecycle", () => {
       `http://flarex.test/deployments/push-finish-bad-body/push/${start.pushId}/finish`,
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: deployPushJsonHeaders(),
         body: JSON.stringify({ activate: "yes" }),
       },
     );
@@ -1019,7 +1116,7 @@ describe("deployment push lifecycle", () => {
       `http://flarex.test/deployments/push-abandon-bad-body/push/${start.pushId}/abandon`,
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: deployPushJsonHeaders(),
         body: "{",
       },
     );
@@ -1032,7 +1129,7 @@ describe("deployment push lifecycle", () => {
       `http://flarex.test/deployments/push-abandon-bad-body/push/${start.pushId}/abandon`,
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: deployPushJsonHeaders(),
         body: JSON.stringify(null),
       },
     );
@@ -1056,7 +1153,7 @@ describe("deployment push lifecycle", () => {
       `http://flarex.test/deployments/push-abandon-encoded/push/${encodeURIComponent(start.pushId)}/abandon`,
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: deployPushJsonHeaders(),
         body: JSON.stringify({ reason: "encoded route" }),
       },
     );
@@ -1125,6 +1222,43 @@ function sourcePackage(
     functions: [functionModulePath],
     schema: "_flarex/schema.js",
     execution: "_flarex/execution.js",
+  };
+}
+
+function sourcePackageWithAuthConfig(
+  authConfig: NonNullable<StartPushRequest["sourcePackage"]["authConfig"]>,
+): StartPushRequest["sourcePackage"] {
+  const base = sourcePackage();
+  return {
+    ...base,
+    modules: [
+      ...base.modules,
+      {
+        path: "_flarex/auth.config.js",
+        environment: "isolate",
+        sha256: "d".repeat(64),
+        source: "export default {};",
+      },
+    ],
+    authConfig,
+    authConfigModule: "_flarex/auth.config.js",
+  };
+}
+
+function customJwtAuthConfig(
+  jwks: string,
+  applicationID: string,
+): NonNullable<StartPushRequest["sourcePackage"]["authConfig"]> {
+  return {
+    providers: [
+      {
+        type: "customJwt",
+        issuer: "https://issuer.example.com",
+        jwks,
+        algorithm: "RS256",
+        applicationID,
+      },
+    ],
   };
 }
 
@@ -1447,10 +1581,23 @@ async function startPushResponseWithHarness(
     `http://flarex.test/deployments/${deploymentId}/push/start-analyzed`,
     {
       method: "POST",
-      headers: {
-        authorization: ANALYZED_START_TEST_AUTHORIZATION,
-        "content-type": "application/json",
-      },
+      headers: deployPushJsonHeaders(),
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+async function dispatchPushMutationWithAuthorization(
+  deploymentId: string,
+  path: string,
+  authorization: string,
+  body: unknown,
+): Promise<Awaited<ReturnType<BackendHarness["mf"]["dispatchFetch"]>>> {
+  return harness.mf.dispatchFetch(
+    `http://flarex.test/deployments/${deploymentId}${path}`,
+    {
+      method: "POST",
+      headers: deployPushJsonHeaders(authorization),
       body: JSON.stringify(body),
     },
   );
@@ -1472,7 +1619,7 @@ async function startSourceOnlyPushResponseWithHarness(
     `http://flarex.test/deployments/${deploymentId}/push/start`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: deployPushJsonHeaders(),
       body: JSON.stringify(body),
     },
   );
@@ -1547,7 +1694,7 @@ async function finishPushResponseWithHarness(
     `http://flarex.test/deployments/${deploymentId}/push/${pushId}/finish`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: deployPushJsonHeaders(),
       body: JSON.stringify(body),
     },
   );
@@ -1572,7 +1719,7 @@ async function abandonPushResponse(
     `http://flarex.test/deployments/${deploymentId}/push/${pushId}/abandon`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: deployPushJsonHeaders(),
       body: JSON.stringify(body),
     },
   );

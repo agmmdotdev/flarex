@@ -15,8 +15,8 @@ import {
 } from "flarex-backend/artifact-store";
 import { afterAll, describe, expect, it } from "vitest";
 import {
-  ANALYZED_START_TEST_AUTHORIZATION,
   createBackendHarness,
+  deployPushJsonHeaders,
   type BackendHarness,
 } from "flarex-backend/test/backendHarness";
 import type { DeploymentAnalysis } from "../src/analyze";
@@ -2093,10 +2093,7 @@ async function startPush(
     `http://flarex.test/deployments/${deploymentId}/push/start-analyzed`,
     {
       method: "POST",
-      headers: {
-        authorization: ANALYZED_START_TEST_AUTHORIZATION,
-        "content-type": "application/json",
-      },
+      headers: deployPushJsonHeaders(),
       body: JSON.stringify(body),
     },
   );
@@ -2113,7 +2110,7 @@ async function finishPush(
     `http://flarex.test/deployments/${deploymentId}/push/${pushId}/finish`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: deployPushJsonHeaders(),
       body: JSON.stringify({}),
     },
   );

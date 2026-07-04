@@ -11,8 +11,19 @@ export type BackendHarness = {
   dispose: () => Promise<void>;
 };
 
-export const ANALYZED_START_TEST_TOKEN = "test-analyzed-start-secret";
-export const ANALYZED_START_TEST_AUTHORIZATION = `Bearer ${ANALYZED_START_TEST_TOKEN}`;
+export const DEPLOY_PUSH_TEST_TOKEN = "test-deploy-push-secret";
+export const DEPLOY_PUSH_TEST_AUTHORIZATION = `Bearer ${DEPLOY_PUSH_TEST_TOKEN}`;
+export const ANALYZED_START_TEST_TOKEN = DEPLOY_PUSH_TEST_TOKEN;
+export const ANALYZED_START_TEST_AUTHORIZATION = DEPLOY_PUSH_TEST_AUTHORIZATION;
+
+export function deployPushJsonHeaders(
+  authorization = DEPLOY_PUSH_TEST_AUTHORIZATION,
+): Record<string, string> {
+  return {
+    authorization,
+    "content-type": "application/json",
+  };
+}
 
 export type BackendHarnessOptions = {
   bindings?: Record<string, string>;
@@ -48,7 +59,7 @@ export async function createBackendHarness(options: BackendHarnessOptions = {}):
     bindings: {
       ...(options.analyzedStartTestToken === false
         ? {}
-        : { FLAREX_ANALYZED_START_TOKEN: options.analyzedStartTestToken ?? ANALYZED_START_TEST_TOKEN }),
+        : { FLAREX_ANALYZED_START_TOKEN: options.analyzedStartTestToken ?? DEPLOY_PUSH_TEST_TOKEN }),
       ...options.bindings,
     },
     ...(options.serviceBindings === undefined ? {} : { serviceBindings: options.serviceBindings }),

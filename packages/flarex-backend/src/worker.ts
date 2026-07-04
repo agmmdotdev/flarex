@@ -90,9 +90,9 @@ import {
   publicRoutePathErrorToHttpError,
 } from "./worker/PublicRoutePathBoundary";
 import {
-  authorizePublicAnalyzedStartRequest,
-  publicAnalyzedStartAuthorizationErrorToHttpError,
-  PublicAnalyzedStartAuthorizationError,
+  authorizePublicDeploymentPushMutationRequest,
+  publicDeploymentPushAuthorizationErrorToHttpError,
+  PublicDeploymentPushAuthorizationError,
 } from "./worker/PublicAnalyzedStartAuthorization";
 import {
   authorizePublicLiveQueryDeliveryRequest,
@@ -389,7 +389,7 @@ const routeDeploymentScheduler = Effect.fn("Worker.routeDeploymentScheduler")(
 
 type PublicWorkerDeploymentPushRouteError =
   | PublicDeploymentRouteError
-  | PublicAnalyzedStartAuthorizationError
+  | PublicDeploymentPushAuthorizationError
   | PublicWorkerDispatchError
   | MissingDeploymentPushIdError;
 
@@ -487,8 +487,8 @@ function publicWorkerDeploymentRouteErrorToHttpError(
   if (error instanceof PublicWorkerDispatchError) {
     return publicWorkerDispatchErrorToHttpError(error);
   }
-  if (error instanceof PublicAnalyzedStartAuthorizationError) {
-    return publicAnalyzedStartAuthorizationErrorToHttpError(error);
+  if (error instanceof PublicDeploymentPushAuthorizationError) {
+    return publicDeploymentPushAuthorizationErrorToHttpError(error);
   }
   if (
     error instanceof MissingPublicDeploymentIdError ||
@@ -708,11 +708,12 @@ const routeDeploymentPushEffect = Effect.fn("Worker.routeDeploymentPush")(
     const deployment = env.DEPLOYMENTS.getByName(deploymentObjectName(deploymentId));
     const path = yield* publicDeploymentPushPathFromPartsEffect(parts, request.method);
     if (path.kind === "start" && request.method === "POST") {
+      yield* authorizePublicDeploymentPushMutationRequest(request, env);
       const routeInput = yield* decodePublicStartPushRouteInput(request);
       return yield* routeDeploymentStartPush(routeInput, env, deployment, deploymentId);
     }
     if (path.kind === "startAnalyzed" && request.method === "POST") {
-      yield* authorizePublicAnalyzedStartRequest(request, env);
+      yield* authorizePublicDeploymentPushMutationRequest(request, env);
       const routeInput = yield* decodePublicAnalyzedStartPushRouteInput(request);
       return yield* routeDeploymentAnalyzedStartPush(routeInput, deployment);
     }
@@ -725,10 +726,12 @@ const routeDeploymentPushEffect = Effect.fn("Worker.routeDeploymentPush")(
       return yield* routeDeploymentReadPush(deployment, publicDeploymentReadPushRouteInput(pushId));
     }
     if (action === DeploymentPushAction.finish && request.method === "POST") {
+      yield* authorizePublicDeploymentPushMutationRequest(request, env);
       const routeInput = yield* decodePublicFinishPushRouteInput(request, pushId);
       return yield* routeDeploymentFinishPush(routeInput, env, deployment);
     }
     if (action === DeploymentPushAction.abandon && request.method === "POST") {
+      yield* authorizePublicDeploymentPushMutationRequest(request, env);
       const routeInput = yield* decodePublicAbandonPushRouteInput(request, pushId);
       return yield* routeDeploymentAbandonPush(routeInput, deployment);
     }

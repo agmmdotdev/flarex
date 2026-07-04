@@ -10,6 +10,7 @@ import {
   createLocalAnalyzerService,
   devFinishPushErrorMessage,
   devPushStatusErrorMessage,
+  LOCAL_BACKEND_DEPLOY_PUSH_TOKEN,
   LocalBackendPushCoordinator,
   type BackendPushCoordinator,
   type DevPushStatus,
@@ -490,6 +491,7 @@ async function createBackendMiniflare(
     ],
     compatibilityDate,
     bindings: {
+      FLAREX_ANALYZED_START_TOKEN: LOCAL_BACKEND_DEPLOY_PUSH_TOKEN,
       FLAREX_ARTIFACT_RUNTIME_TOKEN: artifactRuntimeToken,
       FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE: "true",
       ...(executorRuntime === undefined
