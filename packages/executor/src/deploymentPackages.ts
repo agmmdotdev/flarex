@@ -138,6 +138,12 @@ export function deploymentPackageSourcePackageJson(
     modules: sourcePackage.modules.map((module) => ({ ...module })),
     functions: [...sourcePackage.functions],
     ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
+    ...(sourcePackage.authConfig === undefined
+      ? {}
+      : { authConfig: structuredClone(sourcePackage.authConfig) }),
+    ...(sourcePackage.authConfigModule === undefined
+      ? {}
+      : { authConfigModule: sourcePackage.authConfigModule }),
     execution: sourcePackage.execution,
   };
 }

@@ -119,6 +119,8 @@ describe("deployment protocol schemas", () => {
   it("decodes deep deployment analysis and codegen analysis payloads", async () => {
     await expect(Effect.runPromise(decodePushSourcePackageEffect(sourcePackage())))
       .resolves.toEqual(sourcePackage());
+    await expect(Effect.runPromise(decodePushSourcePackageEffect(sourcePackageWithAuth())))
+      .resolves.toEqual(sourcePackageWithAuth());
     await expect(Effect.runPromise(decodeDeploymentAnalysisEffect(deploymentAnalysis())))
       .resolves.toEqual(deploymentAnalysis());
     await expect(Effect.runPromise(decodeDeploymentCodegenAnalysisEffect(deploymentCodegenAnalysis())))
@@ -139,6 +141,40 @@ describe("deployment protocol schemas", () => {
     }))).rejects.toMatchObject({
       schema: "PushSourcePackage",
       message: "Source package must include modules, functions, and execution fields with valid module entries.",
+    });
+    await expect(Effect.runPromise(decodePushSourcePackageEffect({
+      ...sourcePackage(),
+      authConfig: {
+        providers: [{
+          type: "customJwt",
+          issuer: "https://auth.example.com",
+          jwks: "https://auth.example.com/jwks.json",
+          algorithm: "HS256",
+        }],
+      },
+    }))).rejects.toMatchObject({
+      schema: "PushSourcePackage",
+      message: "Source package must include modules, functions, and execution fields with valid module entries.",
+    });
+    await expect(Effect.runPromise(decodePushSourcePackageEffect({
+      ...sourcePackage(),
+      authConfigModule: "_flarex/auth.config.js",
+    }))).rejects.toMatchObject({
+      schema: "PushSourcePackage",
+      message: "Source package authConfig is required when auth config module is present.",
+    });
+    await expect(Effect.runPromise(decodePushSourcePackageEffect({
+      ...sourcePackage(),
+      authConfigModule: "_flarex/auth.config.js",
+      authConfig: {
+        providers: [{
+          domain: "https://auth.example.com",
+          applicationID: "app-123",
+        }],
+      },
+    }))).rejects.toMatchObject({
+      schema: "PushSourcePackage",
+      message: "Source package auth config module _flarex/auth.config.js is missing.",
     });
 
     await expect(Effect.runPromise(decodeDeploymentAnalysisEffect({
@@ -297,6 +333,20 @@ describe("deployment protocol schemas", () => {
     await expect(Effect.runPromise(decodeStartPushRequestEffect({
       sourcePackage: { ...sourcePackage(), modules: "not-modules" },
     }))).rejects.toBeInstanceOf(DeploymentProtocolValidationError);
+    await expect(Effect.runPromise(decodeStartPushRequestEffect({
+      sourcePackage: {
+        ...sourcePackage(),
+        authConfig: {
+          providers: [{
+            domain: "https://auth.example.com",
+            applicationID: "app-123",
+          }],
+        },
+      },
+    }))).rejects.toMatchObject({
+      schema: "PushSourcePackage",
+      message: "Source package auth config module is required when authConfig is present.",
+    });
   });
 
   it("exposes typed source-only start push decode failures", async () => {
@@ -387,6 +437,27 @@ function sourcePackage() {
     ],
     functions: ["lessons.ts"],
     execution: "__execution.ts",
+  };
+}
+
+function sourcePackageWithAuth() {
+  return {
+    ...sourcePackage(),
+    modules: [
+      ...sourcePackage().modules,
+      {
+        path: "_flarex/auth.config.js",
+        environment: "isolate",
+        sha256: "c".repeat(64),
+      },
+    ],
+    authConfigModule: "_flarex/auth.config.js",
+    authConfig: {
+      providers: [{
+        domain: "https://auth.example.com",
+        applicationID: "app-123",
+      }],
+    },
   };
 }
 

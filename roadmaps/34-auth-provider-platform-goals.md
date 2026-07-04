@@ -16,7 +16,7 @@ Source roadmap:
 - [x] A-0. Create the concrete auth-provider platform roadmap and goal
   checklist.
 - [x] A-1. Public and protocol auth-provider contracts.
-- [ ] A-2. Source-package and deploy ingestion.
+- [x] A-2. Source-package and deploy ingestion.
 - [ ] A-3. Persistence and active deployment metadata.
 - [ ] A-4. Backend JWT/JWKS resolver.
 - [ ] A-5. Sync `Authenticate` integration.
@@ -157,7 +157,7 @@ Review gate:
 
 ### A-2: Source-Package And Deploy Ingestion
 
-Status: next.
+Status: complete.
 
 Purpose:
 
@@ -174,13 +174,109 @@ Expected files:
 - focused dev, protocol, and backend deployment tests
 - both roadmap files
 
-Exit criteria:
+Completed:
 
 - The local source package can include or omit auth config consistently.
 - Source-package hashing accounts for auth config when present.
 - Deployment validation decodes auth config through the protocol contract.
 - No persistence schema or backend JWT verification changes happen in this
   slice.
+
+Files changed:
+
+- `packages/flarex-dev/src/sourcePackage.ts`
+- `packages/flarex-dev/src/executionArtifactStore.ts`
+- `packages/flarex-dev/src/executorHttpRuntime.ts`
+- `packages/flarex-dev/test/sourcePackage.test.ts`
+- `packages/flarex-dev/test/artifactLifecycleParity.test.ts`
+- `packages/flarex-dev/test/executorHttpRuntime.test.ts`
+- `packages/flarex-dev/test/runtimeMaterializer.test.ts`
+- `packages/flarex/src/artifacts.ts`
+- `packages/flarex/test/artifacts.test.ts`
+- `packages/flarex-protocol/src/deployment.ts`
+- `packages/flarex-protocol/test/deployment.test.ts`
+- `packages/flarex-backend/src/types.ts`
+- `packages/flarex-backend/src/deployment/Validation.ts`
+- `packages/flarex-backend/src/deployment/Requests.ts`
+- `packages/flarex-backend/src/deployment/StorageRows.ts`
+- `packages/flarex-backend/src/artifactStore.ts`
+- `packages/flarex-backend/test/deploymentValidation.test.ts`
+- `packages/flarex-backend/test/deploymentRequests.test.ts`
+- `packages/flarex-backend/test/deploymentStorageRows.test.ts`
+- `packages/executor/src/deploymentPackages.ts`
+- both roadmap files
+
+Convex references inspected:
+
+- `npm-packages/convex/src/server/authentication.ts`
+- `crates/model/src/auth/types.rs`
+- `crates/model/src/auth/mod.rs`
+
+Cloudflare difference:
+
+- The deploy/source-package path carries decoded provider config metadata and
+  the config module path. It does not expose provider config through end-user
+  invoke requests.
+- Artifact refs include auth config metadata, so local Miniflare and hosted
+  Dynamic Worker execution agree on package identity.
+- Active provider persistence and token verification remain future slices.
+
+Validation:
+
+```sh
+corepack pnpm --filter flarex typecheck
+corepack pnpm --filter flarex test -- artifacts.test.ts
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test -- deployment.test.ts
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/sourcePackage.test.ts test/executorHttpRuntime.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentValidation.test.ts test/deploymentRequests.test.ts test/deploymentStorageRows.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test -- deployments.test.ts
+git diff --check
+```
+
+Review gate:
+
+- Required, because this changes shared source-package and deployment protocol
+  contracts.
+- `typescript-diff-reviewer` found that protocol decoders allowed auth config
+  states that backend validation rejected, and local materialization accepted
+  looser metadata than hosted validation. Fixed by adding protocol-level source
+  package invariants and matching local materialization checks.
+- `code-quality-diff-reviewer` found that deployment storage row decoding
+  stripped auth config metadata before backend validation could preserve it.
+  Fixed by adding explicit stored source-package auth fields and storage-row
+  coverage.
+
+### A-3: Persistence And Active Deployment Metadata
+
+Status: next.
+
+Purpose:
+
+Store active auth provider config as backend-owned deployment metadata so the
+HTTP and sync auth resolvers can load the currently active providers without
+trusting client input.
+
+Expected files:
+
+- `packages/persistence-postgres/src/schema.ts`
+- `packages/persistence-postgres/src/deploymentPackages.ts` or a dedicated auth
+  metadata module
+- `packages/flarex-backend/src/deployment/Store.ts`
+- `packages/flarex-backend/src/deployment/Validation.ts`
+- backend, persistence, executor, and route tests
+- both roadmap files
+
+Exit criteria:
+
+- Provider config is persisted and recoverable for the active deployment.
+- The storage shape is explicitly package-versioned, deployment-active, or
+  project-level; the chosen ownership is documented.
+- Deploy/admin write authority remains separate from end-user `ctx.auth`.
+- No JWT/JWKS bearer verification changes happen in this slice.
 
 ## Turn Protocol
 

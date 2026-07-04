@@ -1,3 +1,5 @@
+import type { AuthConfig } from "flarex-protocol/auth";
+
 export type ArtifactSourceModule = {
   path: string;
   environment: "isolate";
@@ -8,6 +10,8 @@ export type ArtifactSourcePackage = {
   modules: ArtifactSourceModule[];
   functions: string[];
   schema?: string;
+  authConfig?: AuthConfig;
+  authConfigModule?: string;
   execution: string;
 };
 
@@ -56,6 +60,10 @@ export function stableSourcePackageManifest(sourcePackage: ArtifactSourcePackage
   return JSON.stringify({
     execution: sourcePackage.execution,
     schema: sourcePackage.schema ?? null,
+    authConfig: sourcePackage.authConfig === undefined
+      ? null
+      : canonicalValue(sourcePackage.authConfig),
+    authConfigModule: sourcePackage.authConfigModule ?? null,
     functions: [...sourcePackage.functions].sort(),
     modules: [...sourcePackage.modules]
       .map(module => ({
@@ -93,6 +101,16 @@ export function validateExecutionArtifactRef(value: unknown): ExecutionArtifactR
     sourcePackageHash: ref.sourcePackageHash,
     executionModule: ref.executionModule,
   };
+}
+
+function canonicalValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, canonicalValue(item)]),
+  );
 }
 
 async function sha256Hex(value: string): Promise<string> {

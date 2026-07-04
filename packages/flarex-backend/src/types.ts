@@ -1,5 +1,6 @@
 import type { ExecutionArtifactRef } from "flarex/artifacts";
 import type { DeploymentRecord } from "flarex-protocol";
+import type { AuthConfig } from "flarex-protocol/auth";
 export type { ExecutionArtifactRef } from "flarex/artifacts";
 export type { DeploymentRecord } from "flarex-protocol";
 
@@ -203,6 +204,8 @@ export type PushSourcePackage = {
   modules: PushSourceModule[];
   functions: string[];
   schema?: string;
+  authConfig?: AuthConfig;
+  authConfigModule?: string;
   execution: string;
 };
 

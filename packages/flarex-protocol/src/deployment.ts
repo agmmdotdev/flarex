@@ -1,5 +1,6 @@
 import { Effect, Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
+import { AuthConfigSchema } from "./auth";
 
 export const DeploymentRoute = {
   health: "/health",
@@ -199,6 +200,8 @@ export class PushSourcePackage extends Schema.Class<PushSourcePackage>(
   modules: Schema.Array(PushSourceModule),
   functions: Schema.Array(Schema.String),
   schema: Schema.optional(Schema.String),
+  authConfig: Schema.optional(AuthConfigSchema),
+  authConfigModule: Schema.optional(Schema.String),
   execution: Schema.String,
 }) {}
 
@@ -566,7 +569,7 @@ export const decodeStartPushRequestEffect = Effect.fn(
       value,
     );
   }
-  return yield* decodeUnknownStartPushRequest(value).pipe(
+  const request = yield* decodeUnknownStartPushRequest(value).pipe(
     Effect.mapError(cause =>
       new DeploymentProtocolValidationError({
         schema: "StartPushRequest",
@@ -575,6 +578,11 @@ export const decodeStartPushRequestEffect = Effect.fn(
       })
     ),
   );
+  const sourcePackage = yield* decodePushSourcePackageEffect(request.sourcePackage);
+  return {
+    ...request,
+    sourcePackage,
+  };
 });
 
 export const decodePushSourcePackageEffect = Effect.fn(
@@ -582,7 +590,7 @@ export const decodePushSourcePackageEffect = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<PushSourcePackage, DeploymentProtocolValidationError> {
-  return yield* decodeUnknownPushSourcePackage(value).pipe(
+  const sourcePackage = yield* decodeUnknownPushSourcePackage(value).pipe(
     Effect.mapError(cause =>
       new DeploymentProtocolValidationError({
         schema: "PushSourcePackage",
@@ -591,6 +599,8 @@ export const decodePushSourcePackageEffect = Effect.fn(
       })
     ),
   );
+  yield* validatePushSourcePackageAuthConfig(sourcePackage);
+  return sourcePackage;
 });
 
 export const decodeDeploymentAnalysisEffect = Effect.fn(
@@ -713,7 +723,11 @@ export const decodeAnalyzedStartPushRequestEffect = Effect.fn(
       value,
     );
   }
-  return request;
+  const sourcePackage = yield* decodePushSourcePackageEffect(request.sourcePackage);
+  return {
+    ...request,
+    sourcePackage,
+  };
 });
 
 export const decodeActiveDeploymentStatusEffect = Effect.fn(
@@ -721,7 +735,7 @@ export const decodeActiveDeploymentStatusEffect = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<ActiveDeploymentStatus, DeploymentProtocolValidationError> {
-  return yield* decodeUnknownActiveDeploymentStatus(value).pipe(
+  const status = yield* decodeUnknownActiveDeploymentStatus(value).pipe(
     Effect.mapError(cause =>
       new DeploymentProtocolValidationError({
         schema: "ActiveDeploymentStatus",
@@ -730,6 +744,8 @@ export const decodeActiveDeploymentStatusEffect = Effect.fn(
       })
     ),
   );
+  yield* validatePushSourcePackageAuthConfig(status.sourcePackage);
+  return status;
 });
 
 export const decodePushStatusEffect = Effect.fn(
@@ -737,7 +753,7 @@ export const decodePushStatusEffect = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<PushStatus, DeploymentProtocolValidationError> {
-  return yield* decodeUnknownPushStatus(value).pipe(
+  const status = yield* decodeUnknownPushStatus(value).pipe(
     Effect.mapError(cause =>
       new DeploymentProtocolValidationError({
         schema: "PushStatus",
@@ -746,6 +762,8 @@ export const decodePushStatusEffect = Effect.fn(
       })
     ),
   );
+  yield* validatePushSourcePackageAuthConfig(status.sourcePackage);
+  return status;
 });
 
 export const decodeFinishPushResponseEffect = Effect.fn(
@@ -756,7 +774,7 @@ export const decodeFinishPushResponseEffect = Effect.fn(
   ActivatedFinishPushResponse | RejectedFinishPushResponse,
   DeploymentProtocolValidationError
 > {
-  return yield* decodeUnknownFinishPushResponse(value).pipe(
+  const response = yield* decodeUnknownFinishPushResponse(value).pipe(
     Effect.mapError(cause =>
       new DeploymentProtocolValidationError({
         schema: "FinishPushResponse",
@@ -765,7 +783,42 @@ export const decodeFinishPushResponseEffect = Effect.fn(
       })
     ),
   );
+  yield* validatePushSourcePackageAuthConfig(response.push.sourcePackage);
+  return response;
 });
+
+function validatePushSourcePackageAuthConfig(
+  sourcePackage: PushSourcePackage,
+): Effect.Effect<void, DeploymentProtocolValidationError> {
+  if (
+    sourcePackage.authConfig !== undefined &&
+    (sourcePackage.authConfigModule === undefined || sourcePackage.authConfigModule.length === 0)
+  ) {
+    return deploymentProtocolValidationFailure(
+      "PushSourcePackage",
+      "Source package auth config module is required when authConfig is present.",
+      sourcePackage,
+    );
+  }
+  if (sourcePackage.authConfigModule !== undefined && sourcePackage.authConfig === undefined) {
+    return deploymentProtocolValidationFailure(
+      "PushSourcePackage",
+      "Source package authConfig is required when auth config module is present.",
+      sourcePackage,
+    );
+  }
+  if (
+    sourcePackage.authConfigModule !== undefined &&
+    !sourcePackage.modules.some(module => module.path === sourcePackage.authConfigModule)
+  ) {
+    return deploymentProtocolValidationFailure(
+      "PushSourcePackage",
+      `Source package auth config module ${sourcePackage.authConfigModule} is missing.`,
+      sourcePackage,
+    );
+  }
+  return Effect.void;
+}
 
 function deploymentProtocolValidationFailure(
   schema: string,

@@ -50,9 +50,23 @@ describe("deployment storage row decoders", () => {
         sha256: "a".repeat(64),
       }],
       functions: [],
+      authConfigModule: "_flarex/auth.config.js",
+      authConfig: {
+        providers: [{
+          domain: "https://auth.example.com",
+          applicationID: "app-123",
+        }],
+      },
       execution: "__execution.ts",
     })))).resolves.toMatchObject({
       execution: "__execution.ts",
+      authConfigModule: "_flarex/auth.config.js",
+      authConfig: {
+        providers: [{
+          domain: "https://auth.example.com",
+          applicationID: "app-123",
+        }],
+      },
     });
     await expect(Effect.runPromise(decodeDeploymentStorageSchemaJson(JSON.stringify(schema))))
       .resolves.toEqual(schema);

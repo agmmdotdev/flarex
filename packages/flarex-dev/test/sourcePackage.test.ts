@@ -122,6 +122,59 @@ export const get = query({ args: {}, handler: async () => "changed" });
     expect(hashFor(changed, "lessons.js")).toBe(hashFor(first, "lessons.js"));
     expect(hashFor(changed, "_flarex/schema.js")).toBe(hashFor(first, "_flarex/schema.js"));
   });
+
+  it("includes auth config when present and omits it when absent", async () => {
+    const withoutAuthRoot = await createProject();
+    const withoutAuthContext = await initialCodegen({ root: withoutAuthRoot });
+    const withoutAuth = await bundleFlarexSourcePackage(withoutAuthContext);
+
+    expect(withoutAuth.authConfig).toBeUndefined();
+    expect(withoutAuth.authConfigModule).toBeUndefined();
+    expect(withoutAuth.modules.map(module => module.path)).not.toContain("_flarex/auth.config.js");
+
+    const withAuthRoot = await createProject();
+    await writeAuthConfig(withAuthRoot, "app-a");
+    const withAuthContext = await initialCodegen({ root: withAuthRoot });
+    const withAuth = await bundleFlarexSourcePackage(withAuthContext);
+
+    expect(withAuth.authConfigModule).toBe("_flarex/auth.config.js");
+    expect(withAuth.authConfig).toEqual({
+      providers: [{
+        domain: "https://auth.example.com",
+        applicationID: "app-a",
+      }],
+    });
+    expect(withAuth.modules.map(module => module.path)).toContain("_flarex/auth.config.js");
+
+    await writeAuthConfig(withAuthRoot, "app-b");
+    const changedAuth = await bundleFlarexSourcePackage(withAuthContext);
+    expect(changedAuth.authConfig).toEqual({
+      providers: [{
+        domain: "https://auth.example.com",
+        applicationID: "app-b",
+      }],
+    });
+    expect(hashFor(changedAuth, "_flarex/auth.config.js")).not.toBe(
+      hashFor(withAuth, "_flarex/auth.config.js"),
+    );
+    expect(hashFor(changedAuth, "_flarex/execution.js")).toBe(
+      hashFor(withAuth, "_flarex/execution.js"),
+    );
+  });
+
+  it("rejects invalid auth config during source package bundling", async () => {
+    const root = await createProject();
+    await writeFile(
+      path.join(root, "flarex/auth.config.ts"),
+      `export default { providers: [{ type: "customJwt", issuer: "https://auth.example.com", jwks: "https://auth.example.com/jwks.json", algorithm: "HS256" }] };
+`,
+    );
+    const context = await initialCodegen({ root });
+
+    await expect(bundleFlarexSourcePackage(context)).rejects.toThrow(
+      "Auth config must include a providers array of valid auth providers.",
+    );
+  });
 });
 
 function hashFor(package_: Awaited<ReturnType<typeof bundleFlarexSourcePackage>>, modulePath: string) {
@@ -153,4 +206,19 @@ export const get = query({ args: {}, handler: async () => null });
 `,
   );
   return root;
+}
+
+function writeAuthConfig(root: string, applicationID: string): Promise<void> {
+  return writeFile(
+    path.join(root, "flarex/auth.config.ts"),
+    `import type { AuthConfig } from "flarex/server";
+
+export default {
+  providers: [{
+    domain: "https://auth.example.com",
+    applicationID: ${JSON.stringify(applicationID)},
+  }],
+} satisfies AuthConfig;
+`,
+  );
 }

@@ -83,6 +83,7 @@ describe("createLocalExecutorHttpRuntime", () => {
           argsJson: { lessonId: "1:lesson" },
           partitionKey: "1:lesson",
           beginTs: 10,
+          identityJson: { kind: "anonymous" as const },
           readSetJson: {},
           resultJson: [],
           resultHash: "previous",
@@ -224,6 +225,7 @@ describe("createLocalExecutorHttpRuntime", () => {
           argsJson: { lessonId: "1:lesson" },
           partitionKey: "1:lesson",
           beginTs: 10,
+          identityJson: { kind: "anonymous" as const },
           readSetJson: {},
           resultJson: [],
           resultHash: "previous",
@@ -332,6 +334,82 @@ describe("createLocalExecutorHttpRuntime", () => {
           sessionId: "session-live",
         },
       ]);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("rejects half-present auth config metadata during local materialization", async () => {
+    const sourcePackage = indexedQuerySourcePackage();
+    const ref = await executionArtifactRefForSourcePackage(sourcePackage);
+    const executor = fakeExecutor({
+      async getActiveDeploymentPackage() {
+        return {
+          deployment: {
+            deploymentId: "deployment-invalid-auth-package",
+            projectId: "project-invalid-auth-package",
+            activePackageId: ref.artifactId,
+            activeSchemaVersion: 1,
+            createdAt: new Date("2026-06-21T00:00:00.000Z"),
+          },
+          package: {
+            deploymentId: "deployment-invalid-auth-package",
+            packageId: ref.artifactId,
+            sourcePackageHash: ref.sourcePackageHash,
+            executionModule: ref.executionModule,
+            sourcePackageJson: {
+              ...sourcePackageJson(sourcePackage),
+              authConfigModule: "_flarex/auth.config.js",
+            },
+            analysisJson: null,
+            createdAt: new Date("2026-06-21T00:00:00.000Z"),
+          },
+        };
+      },
+      async rerunStaleLiveQuerySubscriptions(input: RerunStaleLiveQuerySubscriptionsInput) {
+        await input.runQuery({
+          deploymentId: "deployment-invalid-auth-package",
+          connectionId: "connection-invalid-auth-package",
+          queryId: 12,
+          functionPath: "messages:list",
+          argsJson: { lessonId: "1:lesson" },
+          partitionKey: "1:lesson",
+          beginTs: 10,
+          identityJson: { kind: "anonymous" as const },
+          readSetJson: {},
+          resultJson: [],
+          resultHash: "previous",
+          createdAt: new Date("2026-06-21T00:00:00.000Z"),
+          updatedAt: new Date("2026-06-21T00:00:00.000Z"),
+        });
+        throw new Error("invalid auth metadata should fail before rerun result");
+      },
+      async runLiveQuerySubscriptionWithInvoke() {
+        throw new Error("invalid auth metadata should fail before invoke execution");
+      },
+    });
+    const runtime = createLocalExecutorHttpRuntime({
+      executor,
+      projectId: "project-invalid-auth-package",
+      capabilityToken: "executor-secret",
+      freshnessStore: emptyFreshnessStore(),
+    });
+
+    try {
+      const response = await runtime.fetch(jsonRequest(
+        "https://executor.test/maintenance/live-queries/rerun",
+        {
+          deploymentId: "deployment-invalid-auth-package",
+          projectId: "project-invalid-auth-package",
+          limit: 1,
+        },
+        "executor-secret",
+      ));
+
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toMatchObject({
+        error: "internal_error",
+      });
     } finally {
       await runtime.dispose();
     }

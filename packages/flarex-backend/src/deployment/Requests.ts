@@ -84,6 +84,12 @@ function backendStartPushRequest(request: ProtocolStartPushRequest): StartPushRe
       ...(request.sourcePackage.schema === undefined
         ? {}
         : { schema: request.sourcePackage.schema }),
+      ...(request.sourcePackage.authConfig === undefined
+        ? {}
+        : { authConfig: request.sourcePackage.authConfig }),
+      ...(request.sourcePackage.authConfigModule === undefined
+        ? {}
+        : { authConfigModule: request.sourcePackage.authConfigModule }),
       execution: request.sourcePackage.execution,
     },
   };

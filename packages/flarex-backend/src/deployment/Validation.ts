@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { decodeAnalyzerProtocolSuccessResponseEffect } from "@flarex/analysis";
+import { decodeAuthConfigEffect } from "flarex-protocol/auth";
 import type { AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest } from "flarex-protocol/deployment";
 import {
   decodeDeploymentStorageCodegenAnalysisJson,
@@ -110,6 +111,34 @@ export const decodeSourcePackage = Effect.fn("DeploymentValidation.decodeSourceP
         `Source package schema module ${sourcePackage.schema} is missing.`,
       );
     }
+    if (
+      sourcePackage.authConfig !== undefined &&
+      (typeof sourcePackage.authConfigModule !== "string" || sourcePackage.authConfigModule.length === 0)
+    ) {
+      return yield* deploymentValidationFailureEffect(
+        "Source package auth config module is required when authConfig is present.",
+      );
+    }
+    if (sourcePackage.authConfigModule !== undefined) {
+      if (typeof sourcePackage.authConfigModule !== "string") {
+        return yield* deploymentValidationFailureEffect("Source package auth config module must be a string.");
+      }
+      if (!seen.has(sourcePackage.authConfigModule)) {
+        return yield* deploymentValidationFailureEffect(
+          `Source package auth config module ${sourcePackage.authConfigModule} is missing.`,
+        );
+      }
+      if (sourcePackage.authConfig === undefined) {
+        return yield* deploymentValidationFailureEffect(
+          "Source package authConfig is required when auth config module is present.",
+        );
+      }
+    }
+    const authConfig = sourcePackage.authConfig === undefined
+      ? undefined
+      : yield* decodeAuthConfigEffect(sourcePackage.authConfig).pipe(
+        Effect.mapError(error => new DeploymentValidationError({ message: error.message })),
+      );
     const functions = [...sourcePackage.functions].sort();
     for (const fn of functions) {
       if (typeof fn !== "string" || !seen.has(fn)) {
@@ -120,6 +149,10 @@ export const decodeSourcePackage = Effect.fn("DeploymentValidation.decodeSourceP
       modules,
       functions,
       ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
+      ...(authConfig === undefined ? {} : { authConfig }),
+      ...(sourcePackage.authConfigModule === undefined
+        ? {}
+        : { authConfigModule: sourcePackage.authConfigModule }),
       execution: sourcePackage.execution,
     };
   },

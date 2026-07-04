@@ -3,6 +3,7 @@ import {
   createFlarexHttpHandler,
   type FlarexHttpAppConfig,
 } from "@flarex/executor-http";
+import { Effect } from "effect";
 import type {
   FlarexExecutor,
   FlarexExecutorConfig,
@@ -24,6 +25,7 @@ import {
   type MaterializedExecutionArtifactPayload,
 } from "flarex-backend/artifact-runtime";
 import { materializedExecutionArtifactInvokePayload } from "flarex-protocol/artifact-runtime";
+import { decodeAuthConfigEffect } from "flarex-protocol/auth";
 import type { ExecutionArtifactRef } from "flarex/artifacts";
 import type { PushSourcePackage } from "flarex-backend/types";
 
@@ -196,7 +198,7 @@ async function materializedPayloadForSubscription(
   return materializedExecutionArtifactInvokePayload({
     deploymentId,
     ref,
-    sourcePackage: validateMaterializableSourcePackage(
+    sourcePackage: await validateMaterializableSourcePackage(
       active.package.sourcePackageJson,
       active.package.packageId,
     ),
@@ -209,10 +211,10 @@ async function materializedPayloadForSubscription(
   });
 }
 
-function validateMaterializableSourcePackage(
+async function validateMaterializableSourcePackage(
   value: Record<string, unknown>,
   packageId: string,
-): PushSourcePackage {
+): Promise<PushSourcePackage> {
   if (!Array.isArray(value.modules)) {
     throw new Error(`Deployment package ${packageId} is missing source modules.`);
   }
@@ -242,15 +244,51 @@ function validateMaterializableSourcePackage(
   if (!Array.isArray(value.functions) || typeof value.execution !== "string") {
     throw new Error(`Deployment package ${packageId} is not a valid source package.`);
   }
+  const functions = value.functions;
+  const execution = value.execution;
+  const authConfigModule = value.authConfigModule;
+  if (value.authConfig !== undefined && (typeof authConfigModule !== "string" || authConfigModule.length === 0)) {
+    throw new Error(`Deployment package ${packageId} auth config module is required when auth config is present.`);
+  }
+  if (authConfigModule !== undefined && typeof authConfigModule !== "string") {
+    throw new Error(`Deployment package ${packageId} has an invalid auth config module.`);
+  }
+  if (authConfigModule !== undefined && value.authConfig === undefined) {
+    throw new Error(`Deployment package ${packageId} auth config is required when auth config module is present.`);
+  }
+  if (
+    typeof authConfigModule === "string" &&
+    !modules.some(module => module.path === authConfigModule)
+  ) {
+    throw new Error(`Deployment package ${packageId} auth config module ${authConfigModule} is missing.`);
+  }
+  const authConfig = await decodeMaterializableAuthConfig(value.authConfig, packageId);
   return {
     modules,
-    functions: value.functions.map((fn, index) => {
+    functions: functions.map((fn, index) => {
       if (typeof fn !== "string") {
         throw new Error(`Deployment package ${packageId} has an invalid function at ${index}.`);
       }
       return fn;
     }),
     ...(typeof value.schema === "string" ? { schema: value.schema } : {}),
-    execution: value.execution,
+    ...(authConfig === undefined ? {} : { authConfig }),
+    ...(typeof authConfigModule === "string"
+      ? { authConfigModule }
+      : {}),
+    execution,
   };
+}
+
+async function decodeMaterializableAuthConfig(
+  value: unknown,
+  packageId: string,
+): Promise<PushSourcePackage["authConfig"]> {
+  if (value === undefined) return undefined;
+  try {
+    return await Effect.runPromise(decodeAuthConfigEffect(value));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Deployment package ${packageId} has invalid auth config: ${message}`);
+  }
 }

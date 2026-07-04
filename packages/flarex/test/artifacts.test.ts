@@ -35,6 +35,29 @@ describe("execution artifact refs", () => {
     });
   });
 
+  it("changes refs when auth config changes", async () => {
+    const first = await executionArtifactRefForSourcePackage(sourcePackageWithAuth("app-a"));
+    const second = await executionArtifactRefForSourcePackage(sourcePackageWithAuth("app-b"));
+
+    expect(second).not.toEqual(first);
+    expect(second.executionModule).toBe(first.executionModule);
+  });
+
+  it("canonicalizes auth config object key order in stable manifests", () => {
+    const first = sourcePackageWithAuth("app-a");
+    const reordered: ArtifactSourcePackage = {
+      ...first,
+      authConfig: {
+        providers: [{
+          applicationID: "app-a",
+          domain: "https://auth.example.com",
+        }],
+      },
+    };
+
+    expect(stableSourcePackageManifest(reordered)).toBe(stableSourcePackageManifest(first));
+  });
+
   it("compares execution artifact ref fields that can differ between typed refs", async () => {
     const ref = await executionArtifactRefForSourcePackage(sourcePackage());
 
@@ -88,5 +111,22 @@ function sourcePackage(functionHash = "a".repeat(64)): ArtifactSourcePackage {
     functions: ["lessons.js"],
     schema: "_flarex/schema.js",
     execution: "_flarex/execution.js",
+  };
+}
+
+function sourcePackageWithAuth(applicationID: string): ArtifactSourcePackage {
+  return {
+    ...sourcePackage(),
+    modules: [
+      ...sourcePackage().modules,
+      { path: "_flarex/auth.config.js", environment: "isolate", sha256: "2".repeat(64) },
+    ],
+    authConfigModule: "_flarex/auth.config.js",
+    authConfig: {
+      providers: [{
+        domain: "https://auth.example.com",
+        applicationID,
+      }],
+    },
   };
 }

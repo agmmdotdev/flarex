@@ -82,7 +82,7 @@ JSON or provider configuration.
   - Support custom JWT
     `{ type: "customJwt", issuer, jwks, algorithm, applicationID? }`.
   - Keep public SDK types lightweight and shared protocol schemas strict.
-- [ ] A-2. Source-package and deploy ingestion.
+- [x] A-2. Source-package and deploy ingestion.
   - Decide and implement how local `auth.config.ts` enters the source package.
   - Extend source-package/artifact identity deliberately so auth config changes
     are deploy-visible and reproducible.
@@ -161,40 +161,56 @@ Every turn in this stream must:
 
 ## Current Checkpoint
 
-Status: A-1 complete.
+Status: A-2 complete.
 
 Previous completed checkpoint: `89fb9e4` (`Add auth-aware live query metadata`).
 
 What changed:
 
-- Added public SDK auth-provider types in `packages/flarex/src/auth.ts`.
-- Added protocol auth-provider types, Effect Schema declarations, and decode
-  helpers in `packages/flarex-protocol/src/auth.ts`.
-- Added protocol tests for OIDC providers, custom JWT providers with `RS256` and
-  `ES256`, optional custom JWT `applicationID`, malformed providers, malformed
-  config, unsupported algorithms, and extra fields.
-- Kept this slice contract-only. No source-package, deployment storage, backend
-  resolver, or sync behavior changed.
+- Added optional `authConfig` and `authConfigModule` to source-package,
+  protocol, backend, and artifact source package contracts.
+- Made `flarex-dev` bundle and evaluate `flarex/auth.config.ts` or
+  `flarex/auth.config.js`, validate its default export through
+  `flarex-protocol/auth`, and include the decoded config in the source package.
+- Included auth config metadata and module path in stable artifact manifests so
+  auth config changes produce different execution artifact refs.
+- Made backend deployment validation require the auth config module to exist
+  when config is present, and require config when the module path is present.
+- Preserved auth config through public deployment request decoding, R2 artifact
+  stores, local artifact stores, executor package JSON, and executor HTTP
+  materialization.
+- Updated stale local-dev live-query fixtures with anonymous identity metadata
+  required by the current live-query contract.
 
 Convex references inspected:
 
 - `npm-packages/convex/src/server/authentication.ts`
 - `crates/model/src/auth/types.rs`
-- `crates/authentication/src/lib.rs`
+- `crates/model/src/auth/mod.rs`
 
 Cloudflare difference:
 
-- These contracts are backend-owned configuration shapes only. Public clients
-  still send bearer tokens, not provider config or trusted identity JSON.
+- Auth config enters through deploy/source-package metadata, not client invoke
+  requests. This keeps provider configuration backend-owned while still making
+  local-first and hosted artifact identity share the same package hash behavior.
+- This slice still does not persist active provider config separately or verify
+  bearer tokens; that begins in A-3/A-4.
 
-Next unchecked implementation item: A-2 source-package and deploy ingestion.
+Next unchecked implementation item: A-3 persistence and active deployment
+metadata.
 
 Verification:
 
 ```sh
 corepack pnpm --filter flarex typecheck
-corepack pnpm --filter flarex test
+corepack pnpm --filter flarex test -- artifacts.test.ts
 corepack pnpm --filter flarex-protocol typecheck
-corepack pnpm --filter flarex-protocol test -- auth.test.ts
+corepack pnpm --filter flarex-protocol test -- deployment.test.ts
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/sourcePackage.test.ts test/executorHttpRuntime.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend exec vitest run test/deploymentValidation.test.ts test/deploymentRequests.test.ts test/deploymentStorageRows.test.ts --testTimeout=120000 --hookTimeout=120000
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test -- deployments.test.ts
 git diff --check
 ```

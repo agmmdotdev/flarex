@@ -47,6 +47,33 @@ describe("deployment validation", () => {
     expect(normalized.functions).toEqual(["functions/list.ts"]);
   });
 
+  it("normalizes source package auth config metadata", () => {
+    const normalized = validateSourcePackage({
+      modules: [
+        sourceModule("convex/_generated/server.ts"),
+        sourceModule("_flarex/auth.config.js"),
+        sourceModule("messages.ts"),
+      ],
+      functions: ["messages.ts"],
+      authConfigModule: "_flarex/auth.config.js",
+      authConfig: {
+        providers: [{
+          domain: "https://auth.example.com",
+          applicationID: "app-123",
+        }],
+      },
+      execution: "convex/_generated/server.ts",
+    });
+
+    expect(normalized.authConfigModule).toBe("_flarex/auth.config.js");
+    expect(normalized.authConfig).toEqual({
+      providers: [{
+        domain: "https://auth.example.com",
+        applicationID: "app-123",
+      }],
+    });
+  });
+
   it("preserves source package validation error messages", () => {
     expectDeploymentValidationFailure(
       () =>
@@ -66,6 +93,50 @@ describe("deployment validation", () => {
           execution: "convex/_generated/server.ts",
         }),
       "Source package function module missing.ts is missing.",
+    );
+
+    expectDeploymentValidationFailure(
+      () =>
+        validateSourcePackage({
+          ...sourcePackage(),
+          authConfig: {
+            providers: [{
+              domain: "https://auth.example.com",
+              applicationID: "app-123",
+            }],
+          },
+        }),
+      "Source package auth config module is required when authConfig is present.",
+    );
+
+    expectDeploymentValidationFailure(
+      () =>
+        validateSourcePackage({
+          ...sourcePackage(),
+          authConfigModule: "_flarex/auth.config.js",
+        }),
+      "Source package auth config module _flarex/auth.config.js is missing.",
+    );
+
+    expectDeploymentValidationFailure(
+      () =>
+        validateSourcePackage({
+          ...sourcePackage(),
+          modules: [
+            ...sourcePackage().modules,
+            sourceModule("_flarex/auth.config.js"),
+          ],
+          authConfigModule: "_flarex/auth.config.js",
+          authConfig: {
+            providers: [{
+              type: "customJwt",
+              issuer: "https://auth.example.com",
+              jwks: "https://auth.example.com/jwks.json",
+              algorithm: "HS256",
+            }],
+          },
+      } as unknown as PushSourcePackage),
+      "Auth config must include a providers array of valid auth providers.",
     );
   });
 

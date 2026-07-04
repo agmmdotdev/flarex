@@ -2,6 +2,11 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { stat } from "node:fs/promises";
+import { Effect } from "effect";
+import {
+  decodeAuthConfigEffect,
+  type AuthConfig,
+} from "flarex-protocol/auth";
 import { build, type Plugin } from "vite";
 import type { FunctionModule } from "./analyze.ts";
 
@@ -17,6 +22,8 @@ export type SourcePackage = {
   modules: SourceModule[];
   functions: string[];
   schema?: string;
+  authConfig?: AuthConfig;
+  authConfigModule?: string;
   execution: string;
 };
 
@@ -37,13 +44,27 @@ export async function bundleSourcePackage(
   const schema = schemaPath
     ? await bundleEntry(schemaPath, "_flarex/schema.js", options.appDir)
     : undefined;
+  const authConfigPath = await findAuthConfig(options.appDir);
+  const authConfigModule = authConfigPath
+    ? await bundleEntry(authConfigPath, "_flarex/auth.config.js", options.appDir)
+    : undefined;
+  const authConfig = authConfigModule === undefined
+    ? undefined
+    : await loadAuthConfig(authConfigModule);
   const execution = await bundleExecutionEntry(options.functionModules, options.appDir);
-  const modules = [...functions, ...(schema ? [schema] : []), execution]
+  const modules = [
+    ...functions,
+    ...(schema ? [schema] : []),
+    ...(authConfigModule ? [authConfigModule] : []),
+    execution,
+  ]
     .sort((left, right) => left.path.localeCompare(right.path));
   return {
     modules,
     functions: functions.map(module => module.path).sort(),
     ...(schema ? { schema: schema.path } : {}),
+    ...(authConfig === undefined ? {} : { authConfig }),
+    ...(authConfigModule === undefined ? {} : { authConfigModule: authConfigModule.path }),
     execution: execution.path,
   };
 }
@@ -183,4 +204,19 @@ async function findSchema(appDir: string): Promise<string | undefined> {
     if (await stat(candidate).then(() => true, () => false)) return candidate;
   }
   return undefined;
+}
+
+async function findAuthConfig(appDir: string): Promise<string | undefined> {
+  for (const name of ["auth.config.ts", "auth.config.js"]) {
+    const candidate = path.join(appDir, name);
+    if (await stat(candidate).then(() => true, () => false)) return candidate;
+  }
+  return undefined;
+}
+
+async function loadAuthConfig(module: SourceModule): Promise<AuthConfig> {
+  const loaded = await import(
+    `data:text/javascript;base64,${Buffer.from(module.source, "utf8").toString("base64")}`
+  ) as { default?: unknown };
+  return Effect.runPromise(decodeAuthConfigEffect(loaded.default));
 }

@@ -150,6 +150,7 @@ async function materializeLocalPayload(options: {
         argsJson: options.request.args,
         partitionKey: options.request.partitionKey ?? null,
         beginTs: 10,
+        identityJson: { kind: "anonymous" as const },
         readSetJson: {},
         resultJson: null,
         resultHash: "previous",

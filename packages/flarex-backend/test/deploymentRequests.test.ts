@@ -65,9 +65,21 @@ describe("deployment request payloads", () => {
           sha256: "hash-users",
           source: "export const list = query()",
           sourceMap: "{}",
+        }, {
+          path: "convex/auth.config.ts",
+          environment: "isolate",
+          sha256: "hash-auth",
+          source: "export default { providers: [] }",
         }],
         functions: ["users:list"],
         schema: "convex/schema.ts",
+        authConfig: {
+          providers: [{
+            domain: "https://auth.example.com",
+            applicationID: "app-123",
+          }],
+        },
+        authConfigModule: "convex/auth.config.ts",
         execution: "convex/users.ts",
       },
     };

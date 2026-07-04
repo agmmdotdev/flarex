@@ -40,6 +40,8 @@ const StoredPushSourcePackageShape = Schema.Struct({
   modules: Schema.Array(Schema.Unknown),
   functions: Schema.Array(Schema.Unknown),
   schema: Schema.optional(Schema.String),
+  authConfig: Schema.optional(Schema.Unknown),
+  authConfigModule: Schema.optional(Schema.String),
   execution: Schema.String,
 });
 
