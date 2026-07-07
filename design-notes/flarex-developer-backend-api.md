@@ -113,10 +113,15 @@ Design rules:
 - Physical storage, migrations, indexes, tenant scope, OCC, outbox, and live
   sync are FlarexDB-owned.
 - Developer-facing tables are logical tables. In hosted shared-schema mode,
-  Flarex app rows, relations, declared indexes, and unique keys can be stored in
-  shared physical tables such as `fx_app_row`, `fx_app_edge`,
-  `fx_app_index_entry`, and `fx_app_unique_key`; developers should not depend
-  on physical per-app table names.
+  Flarex app/Payload content uses typed authoritative row JSON plus relational
+  sidecars such as `fx_app_row_rev/current`,
+  `fx_app_edge_rev/current`, `fx_app_index_entry_rev/current`,
+  `fx_app_unique_key`, and optional block metadata indexes. Developers should
+  not depend on physical per-app table names.
+- Payload blocks, arrays, rich text, groups, tabs, and localized values stay
+  embedded in the row by default. Declared indexed fields, relationship/upload
+  refs, uniqueness, and block metadata are extracted into sidecars for query,
+  OCC, and sync.
 - Payload CMS content can share the logical app tables where `.cms()` exposes
   them, while Payload lifecycle state remains in fixed internal Payload system
   tables. Medusa commerce remains in fixed Medusa reserved system tables behind
@@ -401,12 +406,13 @@ const categoryViews = defineTable({
 
 Relation rules:
 
-- Stored forward relations are real Flarex relation edges or typed reference
-  attrs.
+- Stored forward relations are embedded typed references plus derived Flarex
+  relation edge sidecars when they need joins, reverse lookup, invalidation, or
+  population.
 - Reverse relations are virtual and resolved from relation indexes.
 - Ordered many-relations store stable positions.
 - Polymorphic relations store target collection discriminator plus target id.
-- Relation writes participate in the same FlarexDB commit as document/row
+- Relation sidecar writes participate in the same FlarexDB commit as row
   writes.
 
 Populate:

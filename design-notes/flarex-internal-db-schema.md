@@ -16,6 +16,8 @@ not chosen as core:
 
 current direction:
   Postgres/FlarexDB is source of truth
+  app/Payload data is stored as typed JSON rows plus relational sidecars
+  Medusa data is stored in Flarex-owned reserved relational system tables
   Flarex server query functions are the default sync unit
   DeploymentSyncDO caches/reruns/fans out live query results
   projections/read models are optional internal optimizations only
@@ -24,6 +26,36 @@ current direction:
 This is a logical schema direction, not a finished migration file. Exact
 physical names can change, but ownership boundaries should not.
 
+## Canonical Storage Rule
+
+For Flarex app data and Payload CMS-shaped content, the authoritative value is
+the typed row JSON body. Relational tables around it are sidecars derived during
+the same final commit:
+
+```text
+fx_app_row_rev/current.data_json
+  = source of truth for app/Payload row value
+
+fx_app_index_entry_rev/current
+  = declared scalar/compound index acceleration and range read dependencies
+
+fx_app_edge_rev/current
+  = relationship, upload, join, reverse lookup, access, and invalidation graph
+
+fx_app_unique_key
+  = uniqueness enforcement, including sparse/localized Payload semantics
+
+fx_app_block_index or equivalent declared index entries
+  = block type/order metadata when block queries need it
+```
+
+This is not a loose document database and not pure InstantDB-style EAV. It is a
+typed relational row store with JSON value bodies and normalized sidecars.
+
+Medusa is different: Medusa commerce data uses Flarex-owned reserved relational
+system tables generated from Medusa DML. Medusa rows are not stored in the
+generic app/Payload row table.
+
 ## Core Rules
 
 - One physical FlarexDB can contain app data, Payload-backed CMS data, Medusa
@@ -31,12 +63,20 @@ physical names can change, but ownership boundaries should not.
   control tables.
 - Postgres/FlarexDB is the authoritative data store for the proposed
   Hyperdrive/Worker executor path.
-- Flarex app data uses a shared physical app storage schema by default. App
-  tables remain logical tables in the catalog, not one physical Postgres table
-  per app table.
+- Flarex app data uses a shared physical app storage schema by default: typed
+  authoritative row JSON plus derived relational sidecars for scalar indexes,
+  relationships/uploads, uniqueness, block metadata, read-set/OCC, and sync.
+  App tables remain logical tables in the catalog, not one physical Postgres
+  table per app table.
 - Payload CMS content can share Flarex app storage for CMS-marked app tables,
   while Payload lifecycle/system state uses fixed `fx_payload_*` tables.
-- Medusa data is generated from Medusa DML into reserved system tables.
+- Payload blocks, arrays, rich text, groups, and localized values stay embedded
+  in the authoritative row by default. Only declared queryable fields,
+  relationships/uploads, uniqueness, and block metadata are extracted into
+  sidecars.
+- Medusa data is generated from Medusa DML into reserved relational system
+  tables. Medusa Product, Cart, Order, Pricing, Inventory, workflow, and link
+  tables are not stored in generic app row storage.
 - Payload and Medusa adapters call internal FlarexDB APIs, not raw Postgres.
 - Live sync reads server query results by default. It does not require a
   browser-side database.
@@ -61,7 +101,8 @@ fx_control.*
   platform catalog, schema catalog, deployment state
 
 fx_app.*
-  shared physical app rows, app edges, app indexes, and app unique keys
+  shared physical app row history/current rows, derived app edges, declared
+  app indexes, block metadata indexes, and app unique keys
 
 fx_payload.*
   fixed Payload/CMS system tables for drafts, versions, uploads, auth, locks,
@@ -230,21 +271,28 @@ Default hosted Flarex app tables should not compile to one physical Postgres
 table per app table. That would pollute a shared database when thousands of apps
 exist.
 
-Instead, app tables are logical catalog tables stored in a fixed shared physical
-schema:
+Instead, app tables are logical catalog tables stored in a fixed shared
+physical schema. The authoritative value is the row JSON body. Queryable and
+consistency structures are derived relational sidecars.
 
 ```text
-fx_app_row
-  logical app rows/documents
+fx_app_row_rev
+  authoritative app/Payload row history
 
-fx_app_edge
-  logical app relationships
+fx_app_row_current
+  current authoritative app/Payload rows
 
-fx_app_index_entry
-  declared query indexes
+fx_app_index_entry_rev/current
+  declared scalar and compound query indexes
+
+fx_app_edge_rev/current
+  derived relationship, upload, join, and reverse lookup edges
 
 fx_app_unique_key
   declared unique constraints
+
+fx_app_block_index
+  optional block type/order metadata for Payload-style blocks
 ```
 
 Example Flarex schema:
@@ -260,24 +308,56 @@ posts: defineTable({
 
 Generated catalog rows describe `posts`, `users`, `categories`, columns,
 relations, indexes, CMS metadata, and write policies. The physical app data goes
-into shared tables:
+into shared row-history/current tables:
 
 ```sql
-fx_app_row (
+fx_app_row_rev (
   scope_id text not null,
   table_id text not null,
   row_id text not null,
+  commit_ts bigint not null,
+  prev_commit_ts bigint,
   schema_version_id text not null,
+
   data_json jsonb not null,
-  fx_version bigint not null,
+  data_hash bytea not null,
+
   created_at timestamptz not null,
   updated_at timestamptz not null,
   deleted_at timestamptz,
+  status text,
+  deleted boolean not null default false,
+
+  primary key (scope_id, table_id, row_id, commit_ts)
+)
+
+create index fx_app_row_rev_latest_idx
+  on fx_app_row_rev (scope_id, table_id, row_id, commit_ts desc);
+
+create index fx_app_row_rev_commit_idx
+  on fx_app_row_rev (scope_id, table_id, commit_ts);
+
+fx_app_row_current (
+  scope_id text not null,
+  table_id text not null,
+  row_id text not null,
+  commit_ts bigint not null,
+  schema_version_id text not null,
+
+  data_json jsonb not null,
+  data_hash bytea not null,
+
+  created_at timestamptz not null,
+  updated_at timestamptz not null,
+  deleted_at timestamptz,
+  status text,
+  deleted boolean not null default false,
+
   primary key (scope_id, table_id, row_id)
 )
 
-create index fx_app_row_live_version_idx
-  on fx_app_row (scope_id, table_id, fx_version);
+create index fx_app_row_current_updated_idx
+  on fx_app_row_current (scope_id, table_id, updated_at desc);
 ```
 
 `scope_id` is internal deployment/project isolation. Developers should not model
@@ -285,23 +365,70 @@ their own app tenancy by relying on this column. If the deployment uses
 per-project schemas/databases, `scope_id` can disappear physically while the
 logical contract remains.
 
-Forward has-one relations can be stored inside `data_json` and extracted into
-indexes when they are queried. Many, ordered many, polymorphic, CMS, and
-cross-table references use `fx_app_edge`:
+Forward has-one relations, Payload relationship fields, Payload upload refs,
+and relationships nested inside blocks stay in `data_json` in the shape the
+runtime expects. Flarex also extracts them into edge sidecars for joins, reverse
+lookups, access checks, invalidation, and generated relation APIs:
 
 ```sql
-fx_app_edge (
+fx_app_edge_rev (
   scope_id text not null,
   relation_id text not null,
   source_table_id text not null,
   source_row_id text not null,
   target_table_id text not null,
   target_row_id text not null,
+  field_path text,
+  relation_to text,
   position integer,
   locale text,
   metadata_json jsonb,
-  fx_version bigint not null,
-  deleted_at timestamptz,
+  commit_ts bigint not null,
+  deleted boolean not null default false,
+
+  primary key (
+    scope_id,
+    relation_id,
+    source_table_id,
+    source_row_id,
+    target_table_id,
+    target_row_id,
+    commit_ts
+  )
+)
+
+create index fx_app_edge_rev_source_idx
+  on fx_app_edge_rev (
+    scope_id,
+    relation_id,
+    source_table_id,
+    source_row_id,
+    position,
+    commit_ts desc
+  );
+
+create index fx_app_edge_rev_target_idx
+  on fx_app_edge_rev (
+    scope_id,
+    relation_id,
+    target_table_id,
+    target_row_id,
+    commit_ts desc
+  );
+
+fx_app_edge_current (
+  scope_id text not null,
+  relation_id text not null,
+  source_table_id text not null,
+  source_row_id text not null,
+  target_table_id text not null,
+  target_row_id text not null,
+  field_path text,
+  relation_to text,
+  position integer,
+  locale text,
+  metadata_json jsonb,
+  commit_ts bigint not null,
   primary key (
     scope_id,
     relation_id,
@@ -312,37 +439,77 @@ fx_app_edge (
   )
 )
 
-create index fx_app_edge_source_idx
-  on fx_app_edge (scope_id, relation_id, source_table_id, source_row_id, position);
+create index fx_app_edge_current_source_idx
+  on fx_app_edge_current (
+    scope_id,
+    relation_id,
+    source_table_id,
+    source_row_id,
+    position
+  );
 
-create index fx_app_edge_target_idx
-  on fx_app_edge (scope_id, relation_id, target_table_id, target_row_id);
+create index fx_app_edge_current_target_idx
+  on fx_app_edge_current (
+    scope_id,
+    relation_id,
+    target_table_id,
+    target_row_id
+  );
 ```
 
 Declared app indexes are not arbitrary JSON scans. The compiler writes index
 rows when app rows change:
 
 ```sql
-fx_app_index_entry (
+fx_app_index_entry_rev (
   scope_id text not null,
   index_id text not null,
   table_id text not null,
   row_id text not null,
+  commit_ts bigint not null,
+
+  encoded_key bytea not null,
+  key_hash bytea not null,
   key_json jsonb not null,
-  key_hash text not null,
-  key_text_1 text,
-  key_text_2 text,
-  key_num_1 numeric,
-  key_num_2 numeric,
-  key_time_1 timestamptz,
-  key_bool_1 boolean,
-  fx_version bigint not null,
+  locale text,
+  deleted boolean not null default false,
+
+  primary key (scope_id, index_id, key_hash, row_id, commit_ts)
+)
+
+create index fx_app_index_entry_rev_scan_idx
+  on fx_app_index_entry_rev (
+    scope_id,
+    index_id,
+    encoded_key,
+    row_id,
+    commit_ts desc
+  );
+
+fx_app_index_entry_current (
+  scope_id text not null,
+  index_id text not null,
+  table_id text not null,
+  row_id text not null,
+  commit_ts bigint not null,
+
+  encoded_key bytea not null,
+  key_hash bytea not null,
+  key_json jsonb not null,
+  locale text,
+
   primary key (scope_id, index_id, key_hash, row_id)
 )
 
-create index fx_app_index_scan_idx
-  on fx_app_index_entry (scope_id, index_id, key_text_1, key_text_2, row_id);
+create index fx_app_index_entry_current_scan_idx
+  on fx_app_index_entry_current (scope_id, index_id, encoded_key, row_id);
 ```
+
+`encoded_key` is the ordered scan key. `key_hash` is for equality, dedupe, and
+unique enforcement. The exact codec is a core database contract; it must sort
+strings, numbers, booleans, time values, null/sparse markers, locale, compound
+segments, and row-id tie breakers consistently across Postgres and any future
+executor.
 
 Declared unique constraints use a fixed unique-key table:
 
@@ -351,8 +518,11 @@ fx_app_unique_key (
   scope_id text not null,
   constraint_id text not null,
   key_hash text not null,
+  key_json jsonb not null,
   table_id text not null,
   row_id text not null,
+  locale text,
+  commit_ts bigint not null,
   primary key (scope_id, constraint_id, key_hash)
 )
 ```
@@ -361,28 +531,88 @@ This keeps hosted Flarex from creating thousands of physical app tables while
 still preserving logical tables, relations, indexes, uniqueness, OCC, and live
 sync semantics.
 
-Do not store Medusa commerce data in `fx_app_row`. Medusa has its own reserved
-system tables. Do not store Payload lifecycle state in `fx_app_row` unless it is
-normal CMS content for a CMS-marked app table.
+Payload blocks are the stress test for this rule. Do not default to one SQL row
+per block, and do not store every block subfield as an authoritative triple.
+Blocks, arrays, rich text, groups, tabs, and localized values stay embedded in
+`data_json` by default:
 
-Payload complex fields use shared app storage for normal CMS content plus
-generated fixed system support:
+```json
+{
+  "content": [
+    {
+      "id": "block_1",
+      "blockType": "hero",
+      "headline": "Hello",
+      "image": "media_123"
+    },
+    {
+      "id": "block_2",
+      "blockType": "richText",
+      "body": {}
+    }
+  ]
+}
+```
+
+Extract sidecars only where needed:
+
+```text
+declared scalar/block subfield index
+  -> fx_app_index_entry_rev/current
+
+relationship/upload inside a block
+  -> fx_app_edge_rev/current
+
+block type/order lookup
+  -> fx_app_block_index, or an equivalent declared index entry
+```
+
+Optional block metadata table:
 
 ```sql
-fx_payload_child_entity (
-  id text primary key,
+fx_app_block_index (
   scope_id text not null,
-  parent_table text not null,
-  parent_id text not null,
+  table_id text not null,
+  row_id text not null,
   field_path text not null,
-  block_type text,
-  locale text,
+  block_id text not null,
+  block_type text not null,
   position integer not null,
-  value_json jsonb not null,
-  fx_version bigint not null,
-  fx_deleted_at timestamptz
+  locale text,
+  commit_ts bigint not null,
+  primary key (scope_id, table_id, row_id, field_path, block_id)
 )
 
+create index fx_app_block_index_type_idx
+  on fx_app_block_index (
+    scope_id,
+    table_id,
+    field_path,
+    block_type,
+    row_id
+  );
+```
+
+If block metadata participates in OCC or sync invalidation, it must be updated
+inside the same final commit as the row and either carry `commit_ts` or be
+represented by normal revision/current sidecars.
+
+Do not store Medusa commerce data in `fx_app_row_current` or
+`fx_app_row_rev`. Medusa has its own reserved system tables. Do not store
+Payload lifecycle state in app rows unless it is normal CMS content for a
+CMS-marked app table.
+
+Payload complex fields use shared app storage for normal CMS content. The fixed
+Payload system tables are for lifecycle state that Payload owns: versions,
+drafts, uploads, globals, document locks, scheduled publish, and auth/session
+state.
+
+Do not create `fx_payload_child_entity` by default. It is a possible v2 escape
+hatch for block-level editing/querying at scale, not the v1 representation for
+normal blocks and arrays. The v1 representation is embedded row JSON plus
+declared index/edge/block metadata sidecars.
+
+```sql
 fx_payload_version (
   id text primary key,
   scope_id text not null,
@@ -542,7 +772,7 @@ Rules:
   or custom repositories must be classified during adapter work. They cannot
   bypass FlarexDB by receiving raw Postgres access in the Worker path.
 - App-to-commerce references should normally live in app tables or
-  `fx_app_edge`, not as public Medusa Module Links.
+  app edge sidecars, not as public Medusa Module Links.
 - Internal Medusa Module Links remain allowed where original Medusa expects
   them.
 
@@ -644,7 +874,7 @@ fx_system_row_version (
 ```
 
 Many physical tables also carry `fx_version`. `fx_system_row_version` is useful
-when generic rows, relation edges, Payload child entities, or Medusa reserved
+when generic rows, relation edges, Payload system rows, or Medusa reserved
 tables need one common OCC lookup path.
 
 `fx_system_tx_dependency` can be omitted for tiny prototype transactions if the
@@ -1062,9 +1292,10 @@ The clean mental model is:
 
 ```text
 source data:
-  Flarex app logical rows in fx_app_row
-  Flarex app logical relations in fx_app_edge
-  Flarex app declared indexes/unique keys in fx_app_index_entry/fx_app_unique_key
+  Flarex app logical row history/current rows in fx_app_row_rev/current
+  Flarex app logical relations/uploads in fx_app_edge_rev/current
+  Flarex app declared indexes/unique keys in fx_app_index_entry_*/fx_app_unique_key
+  optional block metadata in fx_app_block_index or declared index entries
   Payload-marked app content in shared Flarex app storage
   Payload lifecycle/system state in fixed fx_payload_* tables
   Medusa DML-generated reserved tables
@@ -1154,9 +1385,11 @@ Borrowed:
 Changed for Flarex:
 
 - InstantDB's public data model is closer to an entity/attribute/link graph.
-  Flarex app data should use a similar shared row/edge/index shape so hosted
-  Flarex can support thousands of logical app schemas without creating
-  thousands of physical Postgres tables.
+  Flarex borrows the graph/index/transaction thinking, but app/Payload scalar
+  values should not all become authoritative EAV triples. The authoritative
+  app value is a typed row JSON body; scalar indexes, relationship/upload
+  edges, uniqueness keys, block metadata, OCC dependencies, and sync topics are
+  derived relational sidecars.
 - InstantDB can be the whole application database. Flarex also needs Medusa DML
   compatibility, so Medusa commerce gets reserved real relational tables rather
   than being forced through the same generic app graph.
@@ -1175,10 +1408,11 @@ fx_control_table
 fx_control_column
 fx_control_index
 fx_control_relation
-fx_app_row
-fx_app_edge
-fx_app_index_entry
+fx_app_row_rev/current
+fx_app_edge_rev/current
+fx_app_index_entry_rev/current
 fx_app_unique_key
+fx_app_block_index
 fx_system_idempotency
 ```
 
@@ -1331,9 +1565,11 @@ Changed for Flarex:
 
 - Payload config is generated from Flarex app schema. Payload does not create a
   separate source-of-truth app database.
-- Flarex shared app storage remains the main stored CMS content for
-  CMS-marked app tables. Payload-only complexity uses `fx_payload_*` system
-  tables for child entities, versions, drafts, uploads, locks, sessions, and
+- Flarex shared app storage remains the main stored CMS content for CMS-marked
+  app tables: embedded row JSON for blocks/arrays/rich text/localization, plus
+  derived index, edge, unique-key, and optional block-metadata sidecars.
+  Payload-only lifecycle complexity uses `fx_payload_*` system tables for
+  versions, drafts, uploads, locks, sessions, globals, scheduled publish, and
   auth support.
 - Public `ctx.db` may access CMS-marked app fields according to Flarex write
   policy, but it cannot directly bypass Payload-only lifecycle-sensitive rows.
@@ -1342,8 +1578,10 @@ Schema pieces from this lineage:
 
 ```text
 cms_enabled and cms_metadata in fx_control_*
-fx_app_row / fx_app_edge for CMS-marked collections
-fx_payload_child_entity
+fx_app_row_rev/current for CMS-marked row values
+fx_app_edge_rev/current for Payload relationships/uploads/joins
+fx_app_index_entry_rev/current for declared CMS indexes
+fx_app_block_index or equivalent index entries for block metadata
 fx_payload_version
 fx_payload_draft
 fx_payload_upload
@@ -1394,7 +1632,12 @@ without requiring PostgreSQL 19:
 
 ```text
 Now:
-  shared Flarex app storage: fx_app_row, fx_app_edge, fx_app_index_entry
+  shared Flarex app storage:
+    fx_app_row_rev/current
+    fx_app_edge_rev/current
+    fx_app_index_entry_rev/current
+    fx_app_unique_key
+    optional fx_app_block_index
   Medusa reserved relational tables
   Payload system tables
   graph metadata in fx_control_table and fx_control_relation
@@ -1411,18 +1654,18 @@ Example future generated app graph over shared storage:
 ```sql
 CREATE PROPERTY GRAPH flarex_app_graph
   VERTEX TABLES (
-    fx_app_row
+    fx_app_row_current
       KEY (scope_id, table_id, row_id)
       LABEL app_entity
       PROPERTIES (scope_id, table_id, row_id, data_json)
   )
   EDGE TABLES (
-    fx_app_edge
+    fx_app_edge_current
       KEY (scope_id, relation_id, source_table_id, source_row_id, target_table_id, target_row_id)
       SOURCE KEY (scope_id, source_table_id, source_row_id)
-        REFERENCES fx_app_row (scope_id, table_id, row_id)
+        REFERENCES fx_app_row_current (scope_id, table_id, row_id)
       DESTINATION KEY (scope_id, target_table_id, target_row_id)
-        REFERENCES fx_app_row (scope_id, table_id, row_id)
+        REFERENCES fx_app_row_current (scope_id, table_id, row_id)
       LABEL app_relation
   );
 ```
@@ -1477,8 +1720,9 @@ replacement for Flarex query functions
 ```
 
 This means the current schema adjustment is shared-storage discipline: Flarex
-app data goes through `fx_app_row`, `fx_app_edge`, declared app indexes, and
-unique keys; Medusa and Payload system state keep fixed reserved tables.
+app data goes through `fx_app_row_rev/current`,
+`fx_app_edge_rev/current`, declared app indexes, unique keys, and optional
+block metadata; Medusa and Payload system state keep fixed reserved tables.
 PostgreSQL 19 graph support can be generated later over those shapes without
 changing the source-of-truth storage model.
 
@@ -1496,8 +1740,9 @@ adapter path.
 ### Shared App Storage Performance
 
 The shared app schema avoids table explosion, but it creates a new pressure
-point: many logical app tables share `fx_app_row`, `fx_app_edge`,
-`fx_app_index_entry`, and `fx_app_unique_key`.
+point: many logical app tables share `fx_app_row_rev/current`,
+`fx_app_edge_rev/current`, `fx_app_index_entry_rev/current`,
+`fx_app_unique_key`, and optional block metadata sidecars.
 
 The implementation must prove:
 
@@ -1572,9 +1817,11 @@ scheduled publish, drafts, versions, uploads, access rules, and hook order. The
 schema now has placeholders for the major system tables, but the adapter still
 has to prove Payload lifecycle compatibility.
 
-The key boundary to test is that CMS content can share `fx_app_row` and
-`fx_app_edge`, while Payload-only lifecycle state remains in fixed
-`fx_payload_*` tables and cannot be bypassed by direct `ctx.db` writes.
+The key boundary to test is that CMS content can share app row JSON and derived
+sidecars, while Payload-only lifecycle state remains in fixed `fx_payload_*`
+tables and cannot be bypassed by direct `ctx.db` writes. Blocks and arrays are
+embedded by default; child-row storage is a future optimization, not the v1
+baseline.
 
 ### Cross-Scope And Global Queries
 
@@ -1601,9 +1848,9 @@ logical tables:
   categories
 
 shared storage:
-  fx_app_row
-  fx_app_edge
-  fx_app_index_entry
+  fx_app_row_rev/current
+  fx_app_edge_rev/current
+  fx_app_index_entry_rev/current
   fx_app_unique_key
 
 operation:
@@ -1626,8 +1873,9 @@ These are still implementation choices, not product boundary changes:
 - one Postgres schema with prefixes vs multiple Postgres schemas;
 - whether any high-scale paid deployment can opt into promoted physical app
   tables later, while hosted shared-schema mode remains the default;
-- exact layout and type columns for `fx_app_index_entry` so declared indexes are
-  efficient without creating app-specific physical tables;
+- exact ordered-key codec and table layout for `fx_app_index_entry_rev/current`
+  so declared indexes are efficient without creating app-specific physical
+  tables;
 - whether PostgreSQL 19 `CREATE PROPERTY GRAPH` generation is enabled only for
   admin/internal tooling at first or also for selected query-planner paths;
 - durable server query cache enabled by default or only after measurement;

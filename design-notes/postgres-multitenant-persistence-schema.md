@@ -3,15 +3,24 @@
 This note records the storage-shape decision for the Postgres-authoritative
 Flarex design.
 
+Status: implemented baseline / historical design note. This remains useful for
+understanding the current Convex-compatible Postgres executor tables. The newer
+future FlarexDB design in `flarex-internal-db-schema.md` keeps the same
+Convex-like runtime idea, but changes app/Payload storage from generic
+document/index tables to typed JSON rows plus relational sidecars for indexes,
+edges, uniqueness, OCC, and sync. Do not treat this file as the final future
+schema for Payload-compatible FlarexDB.
+
 ```txt
 Developer-facing schema stays Convex-style.
-Physical Postgres schema is a shared multitenant document/index store.
+Current implemented physical Postgres schema is a shared multitenant
+document/index store.
 Flarex does not create one SQL table per developer table.
 ```
 
-## Decision
+## Implemented Baseline Decision
 
-Flarex should copy Convex's logical persistence model closely:
+The current executor baseline copies Convex's logical persistence model closely:
 
 - `defineSchema` and `defineTable` remain the public developer schema model.
 - Developer tables are logical tables with stable table IDs.
@@ -27,8 +36,16 @@ Flarex should copy Convex's logical persistence model closely:
 This is different from a Prisma/Supabase-style design where every app table
 becomes its own SQL table. That SQL-native approach would make normal Postgres
 queries easier, but it would move Flarex away from Convex's schema push,
-generated data model, logical document IDs, versioned history, OCC, and live
-query invalidation model.
+generated data model, logical IDs, versioned history, OCC, and live query
+invalidation model.
+
+Future design update: for Flarex app data and Payload CMS-shaped content, the
+preferred model is no longer "every field as a document/triple/index fact."
+The authoritative value should be a typed row JSON body, with derived
+relational sidecars for declared scalar indexes, relationships/uploads,
+uniqueness, block metadata, read-set/OCC, and sync invalidation. Medusa remains
+separate again: it uses Flarex-owned reserved relational system tables generated
+from Medusa DML, not the generic app row store.
 
 ## Convex Reference Shape
 

@@ -15,17 +15,18 @@ domain file.
   - Postgres as source of truth with Cloudflare WebSocket/cache/freshness
     layers.
 - `postgres-multitenant-persistence-schema.md`
-  - Convex-style multitenant generic document/index persistence for the
-    Postgres-authoritative Flarex track.
+  - Implemented baseline for the current Convex-style generic document/index
+    persistence. Future FlarexDB design notes supersede it for app/Payload
+    storage with typed JSON rows plus relational sidecars.
 - `flarex-instant-like-medusa-storage.md`
-  - Research note on evolving FlarexDB toward an InstantDB-like relational
-    graph, while sharing one Flarex-owned data plane with Medusa commerce and
-    Payload-style CMS logic.
+  - Research note on evolving FlarexDB toward a Convex-like transactional
+    runtime with InstantDB-inspired derived edges/indexes, while sharing one
+    Flarex-owned data plane with Medusa commerce and Payload-style CMS logic.
 - `flarex-internal-db-schema.md`
   - Proposed internal FlarexDB schema direction for platform catalog data,
-    app/Payload data, Medusa reserved system tables, commit/OCC metadata,
-    outbox, sync cursors, locks, workflow state, and optional internal read
-    models.
+    typed app/Payload JSON rows, relational sidecars, Medusa reserved system
+    tables, commit/OCC metadata, outbox, sync cursors, locks, workflow state,
+    and optional internal read models.
 - `flarex-developer-backend-api.md`
   - Proposed backend-only developer API for schemas, validators, relations,
     indexes, functions, `ctx.db`, transactions, commerce, CMS, live sync, and

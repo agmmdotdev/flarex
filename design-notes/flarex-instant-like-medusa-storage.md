@@ -36,8 +36,9 @@ Medusa module services, workflows, APIs, and public contracts
   -> internal FlarexDB persistence API
   -> FlarexDB executor/storage engine
   -> physical backend selected by Flarex
-       entity/attribute/link catalog
-       typed indexes and optional internal read models
+       typed row JSON for app/Payload content
+       derived index, edge, unique-key, and block-metadata sidecars
+       optional internal read models
        commit log, outbox, freshness, and sync invalidation
        system stores for workflows and locks
 ```
@@ -53,7 +54,8 @@ Flarex defineTable app schema
   -> generated Payload config artifact
   -> Payload collection/global operation lifecycle
   -> @payloadcms/db-flarex adapter
-  -> the same Flarex app tables, attrs, child entities, links, indexes, and tx
+  -> the same Flarex app rows, sidecar indexes, sidecar edges, unique keys,
+     block metadata, and transaction protocol
 ```
 
 This keeps Payload as the CMS semantics engine while Flarex remains the source
@@ -80,7 +82,8 @@ Payload database adapter
   -> CMS-marked Flarex app schema
   -> generated Payload config and operation lifecycle
   -> collection/global CRUD, auth, uploads, versions, drafts, and hooks
-  -> adapter-level mapping into Flarex tables, attrs, child entities, and links
+  -> adapter-level mapping into Flarex app rows, sidecar indexes, sidecar
+     edges, unique keys, block metadata, and Payload system tables
 ```
 
 The same physical database can be shared. The same Flarex platform catalog and
@@ -147,8 +150,11 @@ owners of the physical database schema.
 
 ## Foundation Storage Model
 
-The current foundation direction is one FlarexDB control plane with two storage
-shapes underneath it.
+The current foundation direction is one FlarexDB control plane with three
+storage classes underneath it. The important correction from earlier notes is
+that the app/Payload class is not pure EAV/triples as the authoritative value
+store. It is a typed row store with embedded structured JSON plus relational
+sidecars.
 
 ```text
 FlarexDB control plane
@@ -160,13 +166,22 @@ FlarexDB control plane
   live-query cache and read-set indexes
   tenant/project/deployment scope
 
-Storage shape A: app and Payload data
-  Instant-like entity / attribute / relation graph
-  flexible developer-defined tables
+Storage class A: app and Payload content
+  typed authoritative row JSON
+  derived scalar/compound index sidecars
+  derived relationship/upload/join edge sidecars
+  derived unique-key sidecars
+  optional block type/order metadata sidecars
+  flexible developer-defined logical tables
   CMS-marked app tables and fields
   public ctx.db access according to schema policies
 
-Storage shape B: Medusa system data
+Storage class B: Payload system state
+  fixed Payload lifecycle tables
+  versions, drafts, uploads, globals, auth/session state, locks, scheduled publish
+  adapter-only writes where Payload lifecycle semantics are required
+
+Storage class C: Medusa system data
   DML-generated real relational system tables
   DML-generated link/pivot tables
   DML-generated indexes and constraints
@@ -177,6 +192,11 @@ This avoids two bad extremes:
 
 - Do not force Medusa Product, Pricing, Order, Inventory, RBAC, and Index into a
   generic triples/entities-only physical model first.
+- Do not force Payload blocks, arrays, rich text, groups, tabs, and localized
+  values into normalized child rows or EAV triples by default.
+- Do not make every app/Payload scalar field an authoritative triple. Store the
+  row value once, then derive sidecars for the fields that need query,
+  uniqueness, relationships, OCC, and sync.
 - Do not let Medusa own raw Postgres or bypass the FlarexDB transaction,
   tenancy, schema, outbox, and invalidation layers.
 
@@ -185,8 +205,8 @@ adapters:
 
 ```text
 Flarex app schema
-  -> app/Payload graph schema compiler
-  -> entity, attr, relation-edge storage
+  -> app/Payload row-and-sidecar schema compiler
+  -> row JSON, index entries, relation/upload edges, unique keys, block metadata
 
 Medusa DML metadata
   -> Medusa system schema compiler
@@ -199,7 +219,9 @@ Both shapes
 ```
 
 The shared control plane is the important product boundary. Storage shape is an
-implementation decision per namespace.
+implementation decision per namespace. App/Payload storage borrows InstantDB's
+relationship/index/transaction ideas, but not InstantDB's full EAV/triple value
+store as the authoritative storage for every field.
 
 ## Current Sync Foundation After Lunora Review
 
@@ -428,8 +450,8 @@ The target has three owners with different authority:
 Flarex owns the data plane
   -> DB engine and executor bindings
   -> source-of-truth schema catalog
-  -> document/entity storage and typed attrs
-  -> relation edges, indexes, constraints, and projections
+  -> app/Payload row JSON storage
+  -> derived relation edges, indexes, unique keys, block metadata, and read models
   -> transaction authority, OCC/read-set validation, and commit log
   -> migrations, tenant/project/deployment isolation, outbox, freshness, sync
 
@@ -465,10 +487,11 @@ Payload
   -> adapter implements Payload database/session contracts
 ```
 
-That is still one FlarexDB design: entities/documents, typed attrs, relation
-edges, indexes, constraints, commit protocol, outbox, freshness, migrations,
-and tenant/deployment scope. Medusa and Payload may project their semantics
-onto that design, but they should not fork the data plane.
+That is still one FlarexDB design: typed app rows, derived relation/upload
+edges, declared indexes, unique constraints, commit protocol, outbox,
+freshness, migrations, and tenant/deployment scope. Medusa and Payload may
+project their semantics onto that design, but they should not fork the data
+plane.
 
 ## BaaS Product Scope
 
@@ -694,19 +717,19 @@ does not force every field into one flat document shape.
 
 | Payload field family | Flarex representation |
 | --- | --- |
-| `text`, `textarea`, `email`, `code`, `checkbox`, `date`, `number`, `radio`, single `select` | Direct typed attrs or columns. |
-| `json`, `richText` | JSON attrs first; optional extracted indexes/projections for queried subpaths. |
-| Named `group` and named `tab` | Nested attrs with stable path metadata. |
-| `array` | Ordered child entities or embedded JSON when not independently queried. |
-| `blocks` | Ordered child entities for queryable blocks; JSON attr for opaque editor payloads. |
-| `relationship` | Typed links or reference attrs, including polymorphic relation metadata. |
-| `upload` | Relationship to an upload collection plus file metadata fields. |
-| `text`, `number`, or `select` with `hasMany` | Ordered multi-value attrs or child value rows. |
-| Localized fields | Locale-scoped attrs or locale child records. |
-| `join` | Virtual/query-only reverse relation resolved by links and indexes. |
-| `point` | Typed point attr; advanced geospatial queries require a dedicated index. |
+| `text`, `textarea`, `email`, `code`, `checkbox`, `date`, `number`, `radio`, single `select` | Embedded in row JSON; extract declared indexes/unique keys into sidecars. |
+| `json`, `richText` | Embedded JSON first; optional declared subpath indexes/search read models for queried paths. |
+| Named `group` and named `tab` | Embedded nested JSON object with stable field-path metadata. |
+| `array` | Embedded ordered JSON array by default; sidecar indexes/edges only for declared queryable subfields or refs. |
+| `blocks` | Embedded ordered JSON array with `blockType` by default; optional block metadata and declared subfield sidecars. |
+| `relationship` | Embedded Payload relationship shape plus derived edge sidecars, including polymorphic relation metadata. |
+| `upload` | Embedded relationship shape plus derived edge to upload/media collection and fixed upload system metadata. |
+| `text`, `number`, or `select` with `hasMany` | Embedded multi-value array; sidecar indexes only for declared filters/sorts/uniqueness. |
+| Localized fields | Embedded locale-keyed JSON; locale included in index/edge/unique sidecars. |
+| `join` | Virtual/query-only reverse relation resolved by edge sidecars and indexes. |
+| `point` | Embedded point value; advanced geospatial queries require a dedicated index. |
 | `row`, `collapsible`, unnamed layout tabs, and `ui` | Presentational config only; no stored field unless nested data fields exist. |
-| Payload auth/system fields | Generated hidden Flarex attrs for email/username, password hash/salt, reset tokens, API key indexes, verification, sessions, locks, and login attempts. |
+| Payload auth/system fields | Generated hidden Payload system rows/fields for email/username, password hash/salt, reset tokens, API key indexes, verification, sessions, locks, and login attempts. |
 
 This means all Payload field families can be represented, but not all should be
 represented as simple columns. Arrays, blocks, localized content, polymorphic
@@ -716,24 +739,23 @@ relationships, uploads, and joins need first-class Flarex storage patterns.
 
 The Payload adapter cannot treat every CMS field as a flat Flarex attr. Payload
 itself distinguishes simple fields from complex fields in its SQL adapters:
-arrays and blocks become ordered child structures, relationships can become
-relationship rows, localized values move into locale-aware storage, and versions
-use separate version records. Flarex should adopt those concepts as logical
-storage primitives even if the physical backend is Postgres, Hyperdrive, D1,
-Durable Object SQLite, or another executor.
+arrays and blocks need order and identity, relationships need population and
+reverse lookup, localized values need locale-aware query behavior, and versions
+use separate version records. Flarex should preserve those semantics without
+forcing the default physical representation to become one SQL row or one EAV
+triple per nested value.
 
 Required Flarex primitives for Payload:
 
 ```text
-root entity/document
+authoritative row JSON
   -> CMS collection row
 
-typed attr
-  -> scalar field, JSON, rich text, direct date/number/text fields
+declared scalar index sidecar
+  -> indexed scalar field, localized scalar field, sortable field
 
-ordered child entity
-  -> array row, block row, nested rows
-  -> parent id, field path, position/order, optional locale
+optional block metadata sidecar
+  -> block type, block id, field path, order, optional locale
 
 typed relation edge
   -> relationship, upload reference, app relation
@@ -742,17 +764,17 @@ polymorphic relation edge
   -> relationship/upload where relationTo is multiple collections
   -> target collection discriminator plus target id
 
-locale-scoped attr or edge
+locale-scoped row value plus sidecars
   -> localized fields, localized arrays, localized blocks, localized relations
 
-hidden system entity
+hidden system table
   -> versions, drafts, auth state, sessions, upload metadata, document locks
 
 virtual reverse relation
   -> Payload join field
   -> no stored field value; resolved from relation indexes
 
-projection/index
+internal read model/search index
   -> admin search, deep filters, expensive nested browse paths
 ```
 
@@ -760,19 +782,19 @@ The compiler should choose the representation from the field's semantics:
 
 | Payload feature | Preferred Flarex representation |
 | --- | --- |
-| Simple scalar fields | Typed attrs or direct columns. |
-| `json` / `richText` | JSON attr first; extracted indexes only for queried subpaths. |
-| `group` / named `tab` | Stable nested field paths over attrs/children. |
-| `array` | Ordered child entities with parent id, field path, order, and optional locale. |
-| `blocks` | Ordered child entities by block type when queryable; JSON only for opaque editor payloads. |
-| `relationship` has-one | Typed relation edge or reference attr with target collection. |
-| `relationship` has-many | Ordered or unordered relation edge rows. |
+| Simple scalar fields | Row JSON plus declared index/unique sidecars when needed. |
+| `json` / `richText` | Embedded JSON first; extracted indexes only for queried subpaths. |
+| `group` / named `tab` | Stable nested field paths inside row JSON. |
+| `array` | Embedded ordered JSON array by default; optional v2 child rows only for block/array-level editing at scale. |
+| `blocks` | Embedded ordered JSON array with `blockType`; derived block metadata and declared subfield sidecars when needed. |
+| `relationship` has-one | Embedded Payload relationship shape plus derived edge sidecar. |
+| `relationship` has-many | Embedded ordered/unordered relationship values plus derived edge sidecars. |
 | Polymorphic relationship | Relation edge with target collection discriminator. |
 | `upload` | Relation edge to upload collection plus file/storage metadata. |
 | `join` | Virtual reverse relation resolved by relation indexes; no stored field value. |
-| Localized field | Locale-scoped attr, child row, or relation edge. |
-| Drafts and versions | Hidden version entities/records linked to the parent document. |
-| Auth/session fields | Hidden Payload system attrs/entities, not normal app fields. |
+| Localized field | Locale-keyed row JSON with locale in derived index/edge/unique sidecars. |
+| Drafts and versions | Fixed Payload version/draft system rows linked to the parent row. |
+| Auth/session fields | Fixed Payload system rows, not normal app fields. |
 | Document locks | Hidden Payload lock/system store, separate from Medusa locks. |
 
 JSON is allowed, but it should be an explicit choice:
@@ -958,7 +980,8 @@ Payload operation
   -> beginTransaction(req)
   -> validation, access, hooks, field transforms
   -> create/find/update/delete through @payloadcms/db-flarex
-  -> Flarex storage session stages attrs, children, links, versions, uploads
+  -> Flarex storage session stages row JSON, index sidecars, edge sidecars,
+     unique keys, Payload system rows, versions, uploads
   -> commitTransaction(req)
   -> Flarex commit protocol writes revisions, indexes, outbox, invalidations
 ```
@@ -1014,9 +1037,10 @@ should not be exposed as one universal developer transaction API.
 
 ```text
 Flarex app transaction
-  -> custom application documents, entities, attrs, links, and indexes
+  -> custom application rows, row JSON, edge sidecars, index sidecars, and
+     unique keys
   -> includes tables and fields that are marked CMS-managed
-  -> Instant-like tx steps
+  -> Instant-inspired tx steps over Flarex row/sidecar operations
   -> Flarex OCC/read-set validation, commit log, outbox, and sync freshness
 
 Payload CMS transaction
@@ -1261,10 +1285,11 @@ FlarexDB remains the single commit authority across both shapes.
 The shared transaction session must be able to stage and validate:
 
 ```text
-app/Payload graph writes
-  -> entities
-  -> attrs
-  -> relation edges
+app/Payload row-and-sidecar writes
+  -> row JSON revisions/current rows
+  -> declared index and unique-key sidecars
+  -> relation/upload edge sidecars
+  -> optional block metadata sidecars
 
 Medusa system relational writes
   -> generated DML rows
@@ -1765,7 +1790,8 @@ The live sync flow should be:
    ConnectionDO or DeploymentSyncDO -> query runtime / executor
    query reads source data or a fresh-enough internal read model
    query records read dependencies:
-     documents / rows / attrs / relation edges / ranges / internal read-model
+     rows / relation edges / block metadata / declared index ranges /
+     internal read-model
      version
    subscription metadata is stored for rerun and reconnect
 
@@ -1841,8 +1867,10 @@ For simple app/Payload writes, the physical transaction should look closer to:
 
 ```text
 BEGIN
-validate app entity, attr, relation, and range reads in set-based queries
-bulk insert/update app entities, attrs, child rows, and relation edges
+validate app row, relation edge, block metadata, declared index, and range reads
+  in set-based queries
+bulk insert/update app row revisions/current rows, index sidecars, edge
+  sidecars, unique keys, and optional block metadata
 bulk insert commit, freshness, and outbox rows
 COMMIT
 ```
@@ -2047,7 +2075,8 @@ Payload create/update/find/delete/count/etc.
   -> @payloadcms/db-flarex
   -> generated mapping manifest
   -> Flarex storage transaction/session
-  -> CMS-marked Flarex app tables, attrs, child rows, links, and indexes
+  -> CMS-marked Flarex app rows, index sidecars, edge sidecars, unique keys,
+     optional block metadata, and Payload system tables
 ```
 
 Payload's config should be compiled from Flarex schema. It should not become a
@@ -2083,7 +2112,7 @@ or too complex for Product, catalog, and admin filtering workloads.
 ## Workflow Storage
 
 Workflow execution state should be treated as system runtime storage, not as
-ordinary Flarex app documents.
+ordinary Flarex app rows.
 
 Workflow storage needs:
 
@@ -2209,9 +2238,9 @@ It should not be treated as source data:
 
 ```text
 source of truth
-  -> Flarex app graph rows/entities/attrs
+  -> Flarex app row JSON plus derived sidecars
   -> Medusa reserved relational tables
-  -> relation/link rows
+  -> relation/upload/link rows
   -> correctness indexes
   -> commit log
 
@@ -2516,19 +2545,21 @@ shared Postgres or Hyperdrive-backed database
 
 Flarex platform catalog
   apps / tenants / deployments / environments
-  entity definitions / attrs / links
+  logical tables / fields / relations / indexes
   commits / outbox / freshness / live query topics
 
 Flarex application data
-  developer-defined entities and links
+  developer-defined logical tables
+  typed row JSON plus relational sidecars
   public ctx.db access
-  custom app indexes
+  declared app indexes, unique keys, relation/upload edges, block metadata
 
 Flarex CMS-marked application data
   developer-defined tables and fields with CMS metadata
   generated Payload config view
-  Payload adapter access to the same app rows
-  generated hidden system fields for auth, uploads, versions, and drafts
+  Payload adapter access to the same app row JSON and sidecars
+  fixed Payload system tables for auth, uploads, versions, drafts, globals,
+  locks, and scheduled publish
 
 Medusa reserved commerce namespace
   real authoritative DML-derived tables, links, and constraints
@@ -2572,8 +2603,9 @@ Before this can be treated as a real Medusa storage candidate, Flarex needs:
    commit log, outbox, freshness, live-query invalidation, and
    tenant/project/deployment scope across both shared app storage and Medusa
    system table storage.
-2. Flarex app storage target based on shared `fx_app_row`, `fx_app_edge`,
-   declared index entries, and unique-key rows.
+2. Flarex app/Payload storage target based on shared row history/current rows,
+   declared index-entry sidecars, relationship/upload edge sidecars,
+   unique-key rows, and optional block metadata sidecars.
 3. Medusa storage target based on real DML-generated relational system tables,
    link/pivot tables, indexes, and constraints.
 4. Shared or extracted DML-to-schema compiler IR that consumes Medusa
@@ -2585,9 +2617,11 @@ Before this can be treated as a real Medusa storage candidate, Flarex needs:
    system table writes in one FlarexDB commit when the commerce work enters
    through Medusa-owned commands, workflows, repositories, and adapter
    semantics.
-7. Expanded OCC/read-set support for app entities, attrs, relation edges,
-   Medusa rows, Medusa relation/link rows, and Medusa query/index/range reads.
-8. Entity and attribute catalog compatible with Medusa DML metadata.
+7. Expanded OCC/read-set support for app rows, declared index ranges, relation
+   edges, block metadata sidecars, Medusa rows, Medusa relation/link rows, and
+   Medusa query/index/range reads.
+8. Table/field/relation catalog compatible with Flarex app schema and Medusa
+   DML metadata.
 9. Reference and reverse-reference storage with relation traversal.
 10. Typed indexes for scalar and relation queries.
 11. Partial and composite unique constraint support.
@@ -2628,10 +2662,11 @@ Before this can be treated as a real Medusa storage candidate, Flarex needs:
     `DeploymentSyncDO` after commit, carrying a compact commit summary or a
     pointer to a bounded durable commit summary, with durable outbox cursor
     recovery if the direct wake fails.
-28. Compact commit summaries that include changed document ids, app
-    entity/attr ids, relation edge keys, Medusa row ids, Medusa link row ids,
-    table ids, index/range keys, optional internal read-model dependency keys,
-    write source, deployment/tenant scope, commit ts, and outbox sequence.
+28. Compact commit summaries that include changed row ids, app table ids,
+    declared index/range keys, relation/upload edge keys, block metadata keys,
+    Medusa row ids, Medusa link row ids, optional internal read-model
+    dependency keys, write source, deployment/tenant scope, commit ts, and
+    outbox sequence.
 29. Foundation live-sync topology with `ConnectionDO` owning hibernating
     WebSocket sessions and `DeploymentSyncDO` owning commit/outbox/freshness,
     affected-subscription discovery, rerun dedupe, and push to `ConnectionDO`s.
@@ -2660,8 +2695,9 @@ needs:
 
 1. CMS metadata on tables and fields.
 2. A compiler from Flarex schema to Payload config.
-3. A generated mapping manifest from Payload fields to Flarex attrs, child
-   entities, links, indexes, and hidden system fields.
+3. A generated mapping manifest from Payload fields to row JSON paths,
+   declared index sidecars, relation/upload edge sidecars, unique-key sidecars,
+   optional block metadata sidecars, and hidden system fields.
 4. Payload adapter methods for create, find, count, update, delete, versions,
    globals, migrations, and transaction sessions.
 5. Type-safe relation builders for has-one, has-many, polymorphic has-one,
@@ -2673,9 +2709,10 @@ needs:
    population, drafts, versions, locales, and admin search.
 8. CMS write-policy enforcement so direct `ctx.db` writes cannot bypass
    Payload lifecycle semantics for `payload-only` collections or fields.
-9. Ordered child-entity storage with parent id, field path, position, locale,
-   block type, and stable row identity for arrays and blocks.
-10. Polymorphic relation-edge storage with target collection discriminator and
+9. Embedded ordered arrays/blocks with stable item ids, field path, position,
+   locale, and block type metadata, plus optional v2 child-row storage only
+   where block-level editing/querying at scale requires it.
+10. Polymorphic relation-edge sidecars with target collection discriminator and
     relation indexes for has-one, has-many, uploads, and reverse joins.
 11. Hidden system stores for Payload versions, drafts, auth/session state,
     upload metadata, document locks, and scheduled publish metadata.
@@ -2764,10 +2801,10 @@ The direction is worth researching further, but only under these constraints:
   behavior.
 - FlarexDB remains the single data-plane design; Medusa and Payload only add
   metadata, generated config, and adapter mappings.
-- The foundation model is one FlarexDB control plane with three physical storage
-  classes: shared Flarex app storage for logical app rows/edges/indexes, fixed
-  Payload system tables for CMS lifecycle state, and Medusa DML-generated real
-  relational system tables for commerce.
+- The foundation model is one FlarexDB control plane with three physical
+  storage classes: typed shared app/Payload row JSON with relational sidecars,
+  fixed Payload system tables for CMS lifecycle state, and Medusa
+  DML-generated real relational system tables for commerce.
 - Medusa and Payload adapters talk to internal FlarexDB persistence APIs, not
   raw Postgres, Hyperdrive, D1, Durable Object SQLite, or physical SQL tables.
 - Medusa DML models are the source of truth for `system.medusa` schema;
@@ -2779,13 +2816,16 @@ The direction is worth researching further, but only under these constraints:
 - Flarex app schema is the source of truth for CMS-marked Payload collections.
 - CMS-managed collections need explicit write policies; lifecycle-sensitive
   collections default to Payload-only writes.
-- Payload complex fields compile to Flarex storage primitives: shared app rows
-  for normal CMS content, shared app edges for relationships and joins, fixed
-  Payload system tables for drafts/versions/auth/uploads/locks/globals/scheduled
-  publish, and virtual reverse relations for Join fields.
-- JSON is acceptable for rich text, opaque blocks, plugin data, and whole-value
-  reads, but it must not be the only representation for fields that need
-  filtering, population, localization, ordering, joins, or version semantics.
+- Payload complex fields compile to Flarex storage primitives: embedded row
+  JSON for normal CMS content, derived app edges for relationships/uploads and
+  joins, derived index/unique sidecars for declared queryable fields, optional
+  block metadata sidecars, fixed Payload system tables for
+  drafts/versions/auth/uploads/locks/globals/scheduled publish, and virtual
+  reverse relations for Join fields.
+- JSON is the authoritative row value for app/Payload content, but it must not
+  be the only representation for fields that need filtering, sorting,
+  uniqueness, relationship population, reverse joins, block lookup, OCC
+  dependency tracking, or live-sync invalidation.
 - Flarex app schema and Medusa reserved commerce schema remain separate logical
   layers inside the same FlarexDB data plane.
 - Medusa reserved commerce tables are real authoritative system tables, not
@@ -2833,10 +2873,10 @@ The direction is worth researching further, but only under these constraints:
   The durable FlarexDB outbox remains the recovery and ordering source; direct
   DO wake is only the fast path.
 - Direct wake should carry a compact commit summary or a pointer to a bounded
-  durable summary. The summary should include changed docs/rows/attrs/relation
-  edges/Medusa rows/link rows/table ids/index ranges/internal read-model
-  dependency keys, so live-sync matching does not need to rescan physical
-  tables after every commit.
+  durable summary. The summary should include changed rows, relation/upload
+  edges, block metadata keys, Medusa rows/link rows, table ids, declared
+  index/range keys, and internal read-model dependency keys, so live-sync
+  matching does not need to rescan physical tables after every commit.
 - Live-query reruns should be coalesced to the latest safe commit version and
   deduped by result hash before sending WebSocket transitions.
 - Cloudflare Queues are optional for heavy/external consumers. REST callbacks
@@ -2932,9 +2972,10 @@ PostgreSQL 19
 The design still needs proof in these areas:
 
 ```text
-shared fx_app_row/fx_app_edge query performance at scale
-fx_app_index_entry layout for rich declared indexes
-OCC dependency tracking over rows, edges, index ranges, Payload tables, and Medusa tables
+shared fx_app_row_rev/current and fx_app_edge_rev/current query performance at scale
+fx_app_index_entry_rev/current ordered-key layout for rich declared indexes
+Payload block sidecar extraction without turning blocks into default child rows
+OCC dependency tracking over rows, edges, block metadata, index ranges, Payload tables, and Medusa tables
 Medusa adapter compatibility for Product, Cart, Order, Inventory, Pricing, workflows, locks, Query/Index
 Payload adapter compatibility for blocks, drafts, versions, auth, uploads, hooks, access rules
 DeploymentSyncDO recovery after hibernation or eviction
@@ -2945,9 +2986,10 @@ The first proof should be a small Flarex-only vertical slice:
 
 ```text
 logical posts/categories schema
-  -> fx_app_row rows
-  -> fx_app_edge relation rows
-  -> fx_app_index_entry declared index rows
+  -> fx_app_row_rev/current rows
+  -> fx_app_edge_rev/current relation rows
+  -> fx_app_index_entry_rev/current declared index rows
+  -> fx_app_unique_key rows where needed
   -> tx commit + outbox
   -> live query by category reruns through DeploymentSyncDO
 ```
