@@ -266,22 +266,22 @@ name: commerce.products
 kind: commerce_reserved
 resolver: commerce
 
- table_id: 11
+table_id: 11
 name: commerce.collections
 kind: commerce_reserved
 resolver: commerce
 
- table_id: 20
+table_id: 20
 name: productReviews
 kind: app
 resolver: fx_row
 
- table_id: 30
+table_id: 30
 name: pages
 kind: cms_collection
 resolver: fx_row
 
- table_id: 40
+table_id: 40
 name: media
 kind: cms_collection
 resolver: fx_row
