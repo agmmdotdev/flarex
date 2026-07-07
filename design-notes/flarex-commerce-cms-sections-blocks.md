@@ -2,7 +2,7 @@
 
 Status: design note / proposed direction
 
-This note captures the agreed direction for supporting Payload-style blocks, Shopify-like commerce CMS section authoring, Flarex app relational schemas, and commerce-aware schema APIs on top of one Flarex-owned multitenant database design.
+This note captures the agreed direction for supporting Payload-style blocks, Shopify-like commerce CMS section authoring, Flarex app relational schemas, commerce-aware schema APIs, and the internal relationship/edge layer that connects Flarex app/CMS rows to commerce/Medusa-reserved logical tables.
 
 The goal is not to build a visual editor in v1. The goal is to define a durable schema, developer API, and storage model that can power a high-quality form-based block/section editor now, while leaving room for a future visual editor.
 
@@ -50,7 +50,7 @@ This gives Flarex:
 - Convex-like developer ergonomics, declared indexes, function execution, OCC, and live sync.
 - Payload-compatible nested content, blocks, groups, relationships, uploads, drafts, versions, and globals.
 - Shopify-inspired sections, templates, regions, presets, and commerce resource pickers.
-- App-to-commerce relationships such as product reviews, Q&A, wishlists, bundles, and CMS featured products.
+- App-to-commerce relationships such as product reviews, Q&A, wishlists, bundles, product sets, and CMS featured products.
 - A fixed multitenant Postgres physical schema suitable for many apps in one database.
 
 The key rule is:
@@ -94,6 +94,7 @@ Do not build these in v1:
 - Arbitrary JSON path querying without declared indexes.
 - Table-per-user-model physical DDL as the default Flarex app storage model.
 - Physical extension of commerce-owned product rows by arbitrary app fields.
+- Full projection of every Medusa internal table/link into Flarex edges.
 
 V1 should be a strong form-based CMS section/block editor with draft preview, commerce pickers, and relation-backed app extensions. It should not be a full Shopify/Webflow-style visual builder.
 
@@ -206,87 +207,58 @@ v.relation.many(c.tables.products, {
 
 The selected ids are persisted in row JSON and mirrored into `fx_edge_*` rows. The helper is sugar; the connection is durable.
 
-## Primitive storage model
+## Revised internal schema
 
-The same primitive storage model should support app rows, relational fields, CMS fields, commerce sections, and app-to-commerce edges.
+This section is the canonical mental model for the internal Flarex schema proposed by this note.
 
-Core physical table groups:
-
-```text
-fx_table
-fx_field
-fx_index_def
-
-fx_row_current
-fx_row_rev
-
-fx_index_entry_current
-fx_index_entry_rev
-
-fx_edge_current
-fx_edge_rev
-
-fx_block_index
-fx_unique_key
-
-fx_commit
-fx_invoke_session
-fx_read_set / invoke session reads
-fx_outbox
-fx_idempotency
-```
-
-Optional Payload/CMS-specific table groups:
+The important distinction:
 
 ```text
-fx_payload_version
-fx_payload_global
-fx_payload_global_version
-fx_payload_document_lock
-media collection / upload metadata rows
+Flarex app/CMS rows
+  source of truth = fx_row_current / fx_row_rev
+
+Commerce/Medusa-reserved rows
+  source of truth = reserved commerce/Medusa tables or a trusted commerce adapter
+
+fx_edge_current / fx_edge_rev
+  source of truth = no, derived relationship index / dependency graph
+
+fx_relation_def
+  source of truth for relation metadata, not row values
 ```
 
-The central invariant:
+Do not copy Medusa product/order/variant rows into `fx_row_current` just to relate to them. Instead, register public commerce entities as logical Flarex tables and store only small relationship edges that point at them.
 
-```text
-fx_row_current.data_json / fx_row_rev.data_json
-  = authoritative value
+### Table group overview
 
-fx_index_entry_*
-  = derived scalar/compound index entries
+| Table | Purpose | Stores full app data? | Source of truth? |
+| --- | --- | ---: | ---: |
+| `fx_table` | Logical table registry for app, CMS, media, commerce, system tables | No | Yes for schema catalog |
+| `fx_field` | Field/path metadata for logical tables | No | Yes for field catalog |
+| `fx_index_def` | Declared scalar/compound/search-adjacent indexes | No | Yes for index catalog |
+| `fx_relation_def` | Declared relation metadata | No | Yes for relation catalog |
+| `fx_row_current` | Latest app/CMS row values | Yes, for app/CMS rows | Yes for app/CMS current state |
+| `fx_row_rev` | Historical app/CMS row revisions | Yes, historical | Yes for internal history/OCC window |
+| `fx_index_entry_current` | Current derived scalar/compound index entries | No | Derived sidecar |
+| `fx_index_entry_rev` | Historical derived index entries | No | Derived sidecar for OCC/sync/history |
+| `fx_edge_current` | Current derived relation/upload/picker edges | No | Derived sidecar |
+| `fx_edge_rev` | Historical derived relation/upload/picker edges | No | Derived sidecar for OCC/sync/history |
+| `fx_block_index` | Current block/section path/type/position metadata | No | Derived sidecar |
+| `fx_unique_key` | Generic uniqueness enforcement | No full row | Yes for uniqueness claim |
+| `fx_commit` | Commit timeline | No | Yes for commit log |
+| `fx_invoke_session` | Query/mutation/action execution sessions | No | Yes for runtime bookkeeping |
+| `fx_read_set` / invoke reads | OCC and live-query dependencies | No | Yes for runtime dependency tracking |
+| `fx_outbox` | Durable post-commit events/deliveries | No | Yes for recovery pipeline |
+| `fx_idempotency` | Mutation idempotency/result replay | No | Yes for retry safety |
+| Payload-specific tables | Payload-visible versions/globals/locks | Payload/CMS-specific | Yes for CMS lifecycle data |
 
-fx_edge_*
-  = derived relationship, upload, CMS picker, and commerce picker edges
+### `fx_table`
 
-fx_block_index
-  = derived block/section type, position, parent, and path metadata
+`fx_table` is the logical table registry.
 
-fx_unique_key
-  = uniqueness enforcement
+It must include normal Flarex app tables, CMS collections, media collections, globals/singletons, exposed commerce entities, and any system table that participates in schema, query, or relation planning.
 
-fx_commit / read sets / outbox / idempotency
-  = transactional runtime, OCC, sync, and recovery
-```
-
-Blocks, groups, relations, uploads, and commerce picker values remain embedded in row JSON for normal read/render/edit flows, while Flarex derives sidecar rows for query, invalidation, uniqueness, reverse lookup, and cache/sync dependency tracking.
-
-## Logical table ids and cross-kind relations
-
-`fx_edge_*` must support targets that are not necessarily stored in `fx_row_current`.
-
-Targets may be:
-
-```text
-app rows
-CMS collection rows
-CMS globals / singleton rows
-media/upload rows
-commerce reserved rows
-Medusa-backed rows
-system rows
-```
-
-Therefore `fx_table` should describe logical table ids:
+Example rows:
 
 ```text
 table_id: 10
@@ -294,29 +266,466 @@ name: commerce.products
 kind: commerce_reserved
 resolver: commerce
 
-table_id: 20
+ table_id: 11
+name: commerce.collections
+kind: commerce_reserved
+resolver: commerce
+
+ table_id: 20
 name: productReviews
 kind: app
 resolver: fx_row
 
-table_id: 30
+ table_id: 30
 name: pages
 kind: cms_collection
 resolver: fx_row
 
-table_id: 40
+ table_id: 40
 name: media
 kind: cms_collection
 resolver: fx_row
 ```
 
-`fx_edge_current.target_table_id` points to a logical Flarex table id, not necessarily a physical `fx_row_current` table. The resolver determines how to fetch the target.
+`resolver` decides where the row is fetched from:
 
-Suggested edge shape:
+```text
+fx_row
+  fetch from fx_row_current / fx_row_rev
+
+commerce
+  fetch through trusted commerce adapter / reserved tables
+
+system
+  fetch through system resolver
+```
+
+The key point: `commerce.products` can be a first-class relation target even if products are not stored in `fx_row_current`.
+
+Suggested shape:
+
+```sql
+fx_table (
+  deployment_id text not null,
+  table_id int not null,
+  name text not null,
+  kind text not null,
+  resolver text not null,
+  schema_version bigint not null,
+  schema_json jsonb not null,
+  created_at timestamptz not null default now(),
+  primary key (deployment_id, table_id),
+  unique (deployment_id, name)
+);
+```
+
+### `fx_field`
+
+`fx_field` stores normalized field/path metadata from the schema compiler.
+
+It answers:
+
+```text
+What fields exist on this logical table?
+Which paths are relations?
+Which paths are localized?
+Which paths are indexed?
+Which paths are blocks/sections/groups?
+Which paths are CMS exposed?
+```
+
+Example rows:
+
+```text
+productReviews.product
+  kind = commerce_relation
+  target = commerce.products
+  indexed = true
+
+pages.sections
+  kind = blocks_or_sections
+  indexed_block_types = true
+
+pages.sections.*.settings.products
+  kind = commerce_relation_many
+  target = commerce.products
+  ordered = true
+  max = 12
+```
+
+Suggested shape:
+
+```sql
+fx_field (
+  deployment_id text not null,
+  table_id int not null,
+  field_id int not null,
+  path text not null,
+  kind text not null,
+  indexed boolean not null default false,
+  unique_key boolean not null default false,
+  localized boolean not null default false,
+  cms_json jsonb,
+  relation_json jsonb,
+  block_json jsonb,
+  primary key (deployment_id, table_id, field_id),
+  unique (deployment_id, table_id, path)
+);
+```
+
+### `fx_index_def`
+
+`fx_index_def` stores declared indexes. It is the schema-level definition; it is not the index entries themselves.
+
+Example:
+
+```ts
+const productReviews = defineTable({
+  product: c.product().required().index(),
+  status: v.enum(["pending", "approved", "rejected"]).index(),
+  createdAt: v.number().index(),
+})
+  .index("byProductStatusCreatedAt", ["product", "status", "createdAt"])
+```
+
+Produces an index definition like:
+
+```text
+index_id = 501
+name = byProductStatusCreatedAt
+table = productReviews
+fields = [product, status, createdAt]
+```
+
+The actual keys for each review row live in `fx_index_entry_current` and `fx_index_entry_rev`.
+
+Suggested shape:
+
+```sql
+fx_index_def (
+  deployment_id text not null,
+  index_id int not null,
+  table_id int not null,
+  name text not null,
+  fields_json jsonb not null,
+  unique_key boolean not null default false,
+  state text not null default 'enabled',
+  primary key (deployment_id, index_id),
+  unique (deployment_id, table_id, name)
+);
+```
+
+### `fx_relation_def`
+
+`fx_relation_def` is the missing schema-level companion to `fx_edge_current`.
+
+It describes what a relation means. `fx_edge_current` stores actual row-to-row edges.
+
+Example relation definitions:
+
+```text
+relation_id = 700
+name = productReviews.product
+source = productReviews
+source_path = product
+target = commerce.products
+cardinality = one
+relation_kind = commerce_picker
+on_delete = restrict
+
+relation_id = 701
+name = pages.sections.settings.products
+source = pages
+source_path = sections.*.settings.products
+target = commerce.products
+cardinality = many_ordered
+relation_kind = commerce_picker
+on_delete = soft_warn
+```
+
+Suggested shape:
+
+```sql
+fx_relation_def (
+  deployment_id text not null,
+  relation_id int not null,
+  name text not null,
+
+  source_table_id int not null,
+  source_path text not null,
+  target_table_id int not null,
+
+  cardinality text not null,
+  -- one | many | many_ordered | polymorphic_one | polymorphic_many | reverse_many
+
+  relation_kind text not null,
+  -- relation | upload | commerce_picker | cms_picker | block_ref | internal_commerce
+
+  reverse_name text,
+  indexed boolean not null default true,
+  exposed_to_admin boolean not null default true,
+
+  on_delete text not null default 'preserve',
+  -- restrict | set_null | detach | cascade | preserve | soft_warn
+
+  metadata_json jsonb not null default '{}',
+
+  primary key (deployment_id, relation_id),
+  unique (deployment_id, source_table_id, source_path, target_table_id)
+);
+```
+
+Delete policy examples:
+
+```text
+product review -> product
+  on_delete = restrict
+
+CMS featured product list -> product
+  on_delete = soft_warn or detach later
+
+order line historical product reference
+  on_delete = preserve
+
+image upload field -> media
+  on_delete = restrict or soft_warn
+```
+
+### `fx_row_current`
+
+`fx_row_current` stores the latest row value for Flarex-owned app/CMS rows.
+
+It should not normally store Medusa product/order/variant rows unless Flarex later fully owns those physical tables.
+
+Example product review row:
+
+```json
+{
+  "product": "prod_123",
+  "user": "user_456",
+  "rating": 5,
+  "title": "Great product",
+  "body": "Loved it",
+  "status": "approved",
+  "createdAt": 1730000000
+}
+```
+
+Example page row:
+
+```json
+{
+  "title": "Home",
+  "slug": "home",
+  "sections": [
+    {
+      "id": "sec_grid_1",
+      "sectionType": "featuredProducts",
+      "settings": {
+        "heading": "Featured products",
+        "products": ["prod_1", "prod_2"],
+        "showPrices": true
+      }
+    }
+  ]
+}
+```
+
+Suggested shape:
+
+```sql
+fx_row_current (
+  deployment_id text not null,
+  table_id int not null,
+  row_id text not null,
+  commit_ts bigint not null,
+  schema_version bigint not null,
+
+  created_at timestamptz,
+  updated_at timestamptz,
+  deleted_at timestamptz,
+  status text,
+
+  data_json jsonb not null,
+  data_hash bytea not null,
+  deleted boolean not null default false,
+
+  primary key (deployment_id, table_id, row_id)
+);
+```
+
+### `fx_row_rev`
+
+`fx_row_rev` stores historical row revisions for internal OCC/sync/history windows.
+
+It is not the same as Payload user-visible versions.
+
+Payload versions answer:
+
+```text
+What versions can an editor restore?
+```
+
+`fx_row_rev` answers:
+
+```text
+What did the database row look like at commit timestamp T?
+Can this mutation commit without conflicting with reads?
+What changed for sync/invalidation?
+```
+
+Suggested shape:
+
+```sql
+fx_row_rev (
+  deployment_id text not null,
+  table_id int not null,
+  row_id text not null,
+  commit_ts bigint not null,
+  prev_commit_ts bigint,
+  schema_version bigint not null,
+
+  created_at timestamptz,
+  updated_at timestamptz,
+  deleted_at timestamptz,
+  status text,
+
+  data_json jsonb not null,
+  data_hash bytea not null,
+  deleted boolean not null default false,
+
+  primary key (deployment_id, table_id, row_id, commit_ts)
+);
+```
+
+### `fx_index_entry_current`
+
+`fx_index_entry_current` stores current derived scalar/compound index keys.
+
+Example:
+
+```ts
+.index("byProductStatusCreatedAt", ["product", "status", "createdAt"])
+```
+
+For review row `review_1`, Flarex writes an index entry like:
+
+```text
+index = byProductStatusCreatedAt
+key = [prod_123, approved, 1730000000, review_1]
+row = review_1
+```
+
+This powers:
+
+```ts
+ctx.db.query("productReviews")
+  .withIndex("byProductStatusCreatedAt", q =>
+    q.eq("product", productId)
+     .eq("status", "approved")
+  )
+  .order("desc")
+  .take(20)
+```
+
+Suggested shape:
+
+```sql
+fx_index_entry_current (
+  deployment_id text not null,
+  index_id int not null,
+  table_id int not null,
+  row_id text not null,
+
+  key_prefix bytea not null,
+  key_suffix bytea,
+  key_sha256 bytea not null,
+  locale text,
+  commit_ts bigint not null,
+
+  primary key (deployment_id, index_id, key_sha256, row_id)
+);
+```
+
+### `fx_index_entry_rev`
+
+`fx_index_entry_rev` stores historical index-entry changes.
+
+It is needed for:
+
+```text
+snapshot index reads
+OCC index-range conflict detection
+live query invalidation
+sync/history windows
+```
+
+If a product review changes from `pending` to `approved`, the old index key is tombstoned and the new index key is inserted in revision history.
+
+Suggested shape:
+
+```sql
+fx_index_entry_rev (
+  deployment_id text not null,
+  index_id int not null,
+  table_id int not null,
+  row_id text not null,
+  commit_ts bigint not null,
+
+  key_prefix bytea not null,
+  key_suffix bytea,
+  key_sha256 bytea not null,
+  locale text,
+  deleted boolean not null default false,
+
+  primary key (deployment_id, index_id, key_sha256, row_id, commit_ts)
+);
+```
+
+### `fx_edge_current`
+
+`fx_edge_current` stores current derived references between logical rows.
+
+It is a relationship index, not a duplicate data table.
+
+It can connect:
+
+```text
+app row -> app row
+app row -> commerce product
+app row -> CMS page
+CMS section -> commerce product
+CMS section -> collection
+CMS block upload -> media
+media usage -> CMS/app row
+```
+
+Example product review edge:
+
+```text
+source = productReviews.review_1.product
+target = commerce.products.prod_123
+relation_kind = commerce_picker
+```
+
+Example CMS section edges:
+
+```text
+source = pages.home.sections.sec_grid_1.settings.products[0]
+target = commerce.products.prod_1
+position = 0
+
+source = pages.home.sections.sec_grid_1.settings.products[1]
+target = commerce.products.prod_2
+position = 1
+```
+
+Suggested shape:
 
 ```sql
 fx_edge_current (
   deployment_id text not null,
+  relation_id int,
 
   source_table_id int not null,
   source_row_id text not null,
@@ -325,7 +734,7 @@ fx_edge_current (
   target_table_id int not null,
   target_row_id text not null,
 
-  relation_kind text not null, -- relation | upload | commerce_picker | cms_picker | block_ref
+  relation_kind text not null,
   locale text,
   position int,
   commit_ts bigint not null,
@@ -363,108 +772,638 @@ create index fx_edge_current_forward
   );
 ```
 
-The same shape applies to `fx_edge_rev` with `commit_ts`/`deleted` history for OCC/sync.
+Why it exists:
 
-## One schema system, several authoring styles
-
-Flarex should support all of these without introducing separate database products.
-
-### 1. Document-style app table
-
-```ts
-const logs = defineTable({
-  type: v.string().index(),
-  payload: v.json(),
-  createdAt: v.number().index(),
-})
+```text
+Which pages use product prod_123?
+Which reviews belong to product prod_123?
+Which product sets include prod_123?
+Which CMS sections reference collection col_999?
+Which rows use media file media_123?
 ```
 
-This is useful for flexible event/config/state data. Querying arbitrary JSON paths should not be allowed in production unless those paths are declared as indexed paths.
+Without this table, those questions become JSON scans.
 
-### 2. Typed embedded object table
+### `fx_edge_rev`
 
-```ts
-const users = defineTable({
-  name: v.string(),
-  email: v.string().unique().index(),
-  profile: v.object({
-    bio: v.optional(v.string()),
-    avatarUrl: v.optional(v.string()),
-  }),
-  settings: v.json(),
-})
+`fx_edge_rev` stores historical edge changes.
+
+It is needed for:
+
+```text
+OCC checks over relation reads
+live query invalidation when references change
+sync history
+rebuilding current edges
 ```
 
-Embedded objects are still authoritative row data. Indexed paths produce sidecar index entries.
+Example: editor removes `prod_2` from a featured-products section and adds `prod_3`.
 
-### 3. Relational app table
+`fx_edge_rev` records:
 
-```ts
-const posts = defineTable({
-  title: v.string(),
-  slug: v.string().unique(),
-  author: v.relation.one(users).required().index(),
-  status: v.enum(["draft", "published"]).index(),
-  publishedAt: v.optional(v.number()).index(),
-})
-  .index("bySlug", ["slug"])
-  .index("byAuthorStatusPublishedAt", ["author", "status", "publishedAt"])
-  .index("byStatusPublishedAt", ["status", "publishedAt"])
+```text
+tombstone edge page.home -> prod_2
+insert edge page.home -> prod_3
 ```
 
-Relations are stored in row JSON and mirrored into `fx_edge_current` / `fx_edge_rev`.
+Suggested shape is the same as `fx_edge_current`, plus:
 
-### 4. App table related to commerce
+```sql
+commit_ts bigint not null,
+deleted boolean not null default false
+```
+
+### `fx_block_index`
+
+`fx_block_index` stores derived block/section metadata.
+
+It does not store the block content. The content stays embedded in `fx_row_current.data_json`.
+
+Example page JSON:
+
+```json
+{
+  "sections": [
+    {
+      "id": "sec_hero_1",
+      "sectionType": "hero",
+      "settings": { "headline": "Build faster" }
+    },
+    {
+      "id": "sec_grid_1",
+      "sectionType": "featuredProducts",
+      "settings": { "products": ["prod_1"] }
+    }
+  ]
+}
+```
+
+Derived block index entries:
+
+```text
+page home has section hero at sections[0]
+page home has section featuredProducts at sections[1]
+```
+
+Suggested shape:
+
+```sql
+fx_block_index (
+  deployment_id text not null,
+  table_id int not null,
+  row_id text not null,
+
+  field_path text not null,
+  block_id text not null,
+  block_type text not null,
+  parent_block_id text,
+  position int not null,
+  locale text,
+  commit_ts bigint not null,
+
+  primary key (
+    deployment_id,
+    table_id,
+    row_id,
+    field_path,
+    block_id
+  )
+);
+```
+
+Use cases:
+
+```text
+Find pages with a hero section.
+Find pages using featuredProducts sections.
+Support admin block lists/reordering.
+Prepare for future visual-editor block selection.
+Invalidate pages with certain block types if block renderer changes.
+```
+
+### `fx_unique_key`
+
+`fx_unique_key` enforces uniqueness without creating per-app physical unique indexes.
+
+Examples:
+
+```text
+users.email
+pages.slug
+productCmsMeta.product
+wishlistItems unique [wishlist, product]
+```
+
+Suggested shape:
+
+```sql
+fx_unique_key (
+  deployment_id text not null,
+  constraint_id int not null,
+  table_id int not null,
+  row_id text not null,
+
+  key_hash bytea not null,
+  key_json jsonb not null,
+  locale text,
+  commit_ts bigint not null,
+
+  primary key (deployment_id, constraint_id, key_hash)
+);
+```
+
+### `fx_commit`
+
+`fx_commit` is the logical commit timeline.
+
+It records that a trusted executor commit happened and ties together row revisions, index revisions, edge revisions, outbox messages, and sync invalidation.
+
+Minimum fields:
+
+```sql
+fx_commit (
+  deployment_id text not null,
+  commit_ts bigint not null,
+  mutation_id text,
+  actor_identity text,
+  created_at timestamptz not null default now(),
+  summary_json jsonb,
+  primary key (deployment_id, commit_ts)
+);
+```
+
+### `fx_invoke_session` and read/write staging tables
+
+These tables track query/mutation/action execution sessions.
+
+They are used for:
+
+```text
+recording begin timestamp
+recording read sets
+staging writes
+retrying OCC conflicts
+recording errors/results
+```
+
+The user-facing function does not get a raw database transaction. It calls `ctx.db`; the trusted executor records reads/writes and commits through Flarex.
+
+### `fx_read_set` / invoke session reads
+
+Read-set tables record what a query/mutation read:
+
+```text
+row id
+logical table scan
+index range
+edge range
+block type range
+search dependency later
+```
+
+This powers both:
+
+```text
+OCC conflict detection for mutations
+live-query invalidation for subscriptions/previews
+```
+
+Example read set for approved product reviews:
+
+```text
+read index range:
+  productReviews.byProductStatusCreatedAt
+  product = prod_123
+  status = approved
+```
+
+If a new approved review for `prod_123` commits, the live query can be invalidated.
+
+### `fx_outbox`
+
+`fx_outbox` stores durable post-commit work.
+
+Examples:
+
+```text
+notify live-query invalidator
+update search index
+publish commerce/CMS event
+refresh cached page render
+send webhook
+```
+
+For production this should include:
+
+```text
+status
+attempts
+claimed_by
+claimed_until
+next_attempt_at
+last_error
+dead-letter state
+```
+
+### `fx_idempotency`
+
+`fx_idempotency` prevents duplicate mutation application when a client retries after a timeout/network error.
+
+It should key by:
+
+```text
+deployment_id
+identity/user/session
+function path
+client mutation id / idempotency key
+```
+
+It stores:
+
+```text
+started/committed/failed status
+commit_ts
+result_json or error_json
+```
+
+If the same mutation is retried after commit, Flarex replays the result instead of applying it again.
+
+### Payload-specific tables
+
+Payload-visible lifecycle data should not be confused with internal `fx_row_rev` history.
+
+Recommended optional tables:
+
+```text
+fx_payload_version
+  user-visible collection document versions/drafts
+
+fx_payload_global
+  global/singleton values or pointers
+
+fx_payload_global_version
+  global version history
+
+fx_payload_document_lock
+  admin editing locks later
+```
+
+## Concrete end-to-end examples
+
+### Example A: app product reviews referencing commerce products
+
+Developer schema:
 
 ```ts
 const productReviews = defineTable({
   product: c.product().required().index(),
   user: v.relation.one(users).required().index(),
-
   rating: v.number().min(1).max(5).index(),
-  title: v.string(),
   body: v.string(),
-
   status: v.enum(["pending", "approved", "rejected"]).index(),
   createdAt: v.number().index(),
 })
-  .index("byProductCreatedAt", ["product", "createdAt"])
   .index("byProductStatusCreatedAt", ["product", "status", "createdAt"])
 ```
 
-This is a stored many-to-one relation from reviews to products. The reverse one-to-many relation from product to reviews is virtual and backed by indexes/edges.
+Logical schema:
 
-### 5. CMS block table
+```text
+fx_table:
+  commerce.products -> commerce resolver
+  productReviews -> fx_row resolver
+
+fx_relation_def:
+  productReviews.product -> commerce.products
+
+fx_index_def:
+  productReviews.byProductStatusCreatedAt(product, status, createdAt)
+```
+
+When inserting review `review_1`:
+
+```json
+{
+  "product": "prod_123",
+  "user": "user_456",
+  "rating": 5,
+  "body": "Great",
+  "status": "approved",
+  "createdAt": 1730000000
+}
+```
+
+Flarex writes:
+
+```text
+fx_row_current:
+  productReviews.review_1 = full review JSON
+
+fx_row_rev:
+  revision of review_1 at commit_ts 100
+
+fx_index_entry_current:
+  byProductStatusCreatedAt [prod_123, approved, 1730000000, review_1]
+
+fx_edge_current:
+  productReviews.review_1.product -> commerce.products.prod_123
+  productReviews.review_1.user -> users.user_456
+
+fx_commit:
+  commit_ts 100
+
+fx_outbox:
+  invalidate product review queries / notify sync
+```
+
+Query:
 
 ```ts
-const hero = defineBlock({
-  slug: "hero",
-  label: "Hero",
-  fields: {
-    variant: v.enum(["centered", "split", "minimal"]).default("centered"),
-    headline: v.string(),
-    image: v.optional(v.upload(media)),
-    cta: v.group({
-      label: v.string(),
-      href: v.string(),
-      variant: v.enum(["primary", "secondary"]),
-    }),
-  },
-})
+ctx.db.query("productReviews")
+  .withIndex("byProductStatusCreatedAt", q =>
+    q.eq("product", "prod_123")
+     .eq("status", "approved")
+  )
+  .order("desc")
+  .take(20)
+```
 
-const pages = defineTable({
-  title: v.string().index(),
-  slug: v.string().unique(),
-  sections: v.blocks([hero]).indexBlockTypes(),
-}).cms({
-  collection: "pages",
-  drafts: true,
-  versions: true,
-  writes: "cmsOnly",
+Reverse lookup:
+
+```text
+Which app/CMS rows reference prod_123?
+  query fx_edge_current_reverse where target = commerce.products.prod_123
+```
+
+### Example B: CMS featured-products section
+
+Developer schema:
+
+```ts
+const FeaturedProducts = defineSection({
+  slug: "featuredProducts",
+  label: "Featured products",
+  category: "Commerce",
+
+  settings: {
+    heading: v.string(),
+    products: c.products({ max: 12, ordered: true }),
+    showPrices: v.boolean().default(true),
+  },
 })
 ```
 
-Blocks are embedded arrays with stable block ids and block types. Sidecars are derived for block type lookup, relations inside blocks, and indexed block fields.
+Page row:
+
+```json
+{
+  "title": "Home",
+  "slug": "home",
+  "sections": [
+    {
+      "id": "sec_1",
+      "sectionType": "featuredProducts",
+      "settings": {
+        "heading": "Featured products",
+        "products": ["prod_1", "prod_2"],
+        "showPrices": true
+      }
+    }
+  ]
+}
+```
+
+Flarex writes:
+
+```text
+fx_row_current:
+  pages.home = full page JSON
+
+fx_block_index:
+  pages.home sections sec_1 featuredProducts position=0
+
+fx_edge_current:
+  pages.home.sections.sec_1.settings.products[0] -> commerce.products.prod_1
+  pages.home.sections.sec_1.settings.products[1] -> commerce.products.prod_2
+
+fx_index_entry_current:
+  pages.bySlug [home]
+```
+
+Forward relationship:
+
+```text
+page section -> product
+  durable embedded value + durable edge sidecar
+```
+
+Reverse relationship:
+
+```text
+product -> pages/sections using it
+  virtual query over fx_edge_current_reverse
+```
+
+### Example C: CMS dynamic product source
+
+Manual product lists are stored as selected product ids. Dynamic product sources are different: they store a query definition.
+
+Developer schema:
+
+```ts
+const ProductGrid = defineSection({
+  slug: "productGrid",
+  settings: {
+    heading: v.string(),
+    source: c.productSource({
+      modes: ["manual", "collection", "query"],
+      filters: ["status", "productType", "vendor", "tags", "inStock"],
+      sorts: ["newest", "priceAsc", "priceDesc"],
+      maxProducts: 24,
+    }),
+  },
+})
+```
+
+Stored section value:
+
+```json
+{
+  "id": "sec_grid_1",
+  "sectionType": "productGrid",
+  "settings": {
+    "heading": "Summer collection",
+    "source": {
+      "type": "collection",
+      "collection": "col_summer",
+      "sort": "newest",
+      "limit": 8
+    }
+  }
+}
+```
+
+Edges:
+
+```text
+pages.home.sections.sec_grid_1.settings.source.collection
+  -> commerce.collections.col_summer
+```
+
+Do not write permanent edges to every matching product. The matching products are dynamic query results.
+
+At render time:
+
+```text
+1. Read page row.
+2. Compile productSource to commerce product query.
+3. Query commerce product index/search source.
+4. Record read set over the product index/search dependency.
+5. Return resolved products.
+```
+
+If the query result changes because product status/stock/price changes, invalidation must come from read-set/index dependency tracking, not static product edges.
+
+### Example D: product set with bounded many products
+
+Developer schema:
+
+```ts
+const productSets = defineTable({
+  title: v.string(),
+  products: c.products({ max: 24, ordered: true }),
+  createdAt: v.number().index(),
+})
+```
+
+Stored row:
+
+```json
+{
+  "title": "Summer picks",
+  "products": ["prod_1", "prod_2", "prod_3"]
+}
+```
+
+Edges:
+
+```text
+productSets.set_1.products[0] -> commerce.products.prod_1
+productSets.set_1.products[1] -> commerce.products.prod_2
+productSets.set_1.products[2] -> commerce.products.prod_3
+```
+
+This is good for small curated lists. Do not use this for unbounded/high-write many-to-many relationships.
+
+### Example E: wishlist join table
+
+Developer schema:
+
+```ts
+const wishlists = defineTable({
+  user: v.relation.one(users).required().index(),
+  name: v.string(),
+  createdAt: v.number().index(),
+})
+  .index("byUserCreatedAt", ["user", "createdAt"])
+
+const wishlistItems = defineTable({
+  wishlist: v.relation.one(wishlists).required().index(),
+  product: c.product().required().index(),
+  addedAt: v.number().index(),
+  note: v.optional(v.string()),
+})
+  .unique(["wishlist", "product"])
+  .index("byWishlistAddedAt", ["wishlist", "addedAt"])
+  .index("byProductAddedAt", ["product", "addedAt"])
+```
+
+Writes:
+
+```text
+fx_row_current:
+  wishlistItems.item_1 = { wishlist, product, addedAt, note }
+
+fx_unique_key:
+  unique [wishlist, product]
+
+fx_index_entry_current:
+  byWishlistAddedAt [wishlist_1, addedAt, item_1]
+  byProductAddedAt [prod_123, addedAt, item_1]
+
+fx_edge_current:
+  wishlistItems.item_1.wishlist -> wishlists.wishlist_1
+  wishlistItems.item_1.product -> commerce.products.prod_123
+```
+
+Use join tables when the relationship itself has data such as `quantity`, `position`, `note`, `role`, `status`, `createdAt`, price, or workflow state.
+
+### Example F: product extension metadata
+
+Developer schema:
+
+```ts
+const productCmsMeta = defineTable({
+  product: c.product().unique(),
+  seoTitle: v.optional(v.string()),
+  seoDescription: v.optional(v.string()),
+  merchPriority: v.optional(v.number()).index(),
+})
+```
+
+This is preferred in v1 over physically extending commerce product rows.
+
+Writes:
+
+```text
+fx_row_current:
+  productCmsMeta.meta_1 = extension data
+
+fx_unique_key:
+  productCmsMeta.product unique prod_123
+
+fx_edge_current:
+  productCmsMeta.meta_1.product -> commerce.products.prod_123
+```
+
+The commerce product row remains owned by commerce/Medusa. The extension data is owned by Flarex app/CMS.
+
+## Delete and stale-edge behavior
+
+Edges only stay correct if writes/deletes go through Flarex-controlled APIs or a reliable projection process.
+
+Safe rule:
+
+```text
+If commerce data participates in Flarex relations,
+commerce writes/deletes should go through ctx.commerce / trusted commerce adapter.
+```
+
+When deleting or archiving a commerce product:
+
+```text
+1. Check fx_edge_current_reverse for references to commerce.products.prod_123.
+2. Apply relation delete policies from fx_relation_def.
+3. Prefer soft delete/archive/unpublish for commerce products.
+4. Allow hard delete only when no blocking references exist.
+5. Write commit/outbox invalidation.
+```
+
+If commerce rows are deleted outside Flarex:
+
+```text
+fx_edge_current may become stale unless there is CDC, an outbox integration, triggers, or a repair/rebuild job.
+```
+
+V1 recommendation:
+
+```text
+Do not hard-delete commerce products by default.
+Use soft delete/archive.
+Keep explicit app/CMS edges accurate.
+Do not mirror every Medusa internal relationship.
+Add stale-edge repair later as safety net.
+```
 
 ## Relationship modeling rules
 
@@ -506,21 +1445,6 @@ const reviews = await ctx.db
   )
   .order("desc")
   .take(20)
-```
-
-Physically:
-
-```text
-fx_row_current
-  table = productReviews
-  row = review_1
-  data_json.product = prod_123
-
-fx_index_entry_current
-  byProductStatusCreatedAt(prod_123, approved, createdAt, review_1)
-
-fx_edge_current
-  productReviews.review_1.product -> commerce.products.prod_123
 ```
 
 The product row does not need:
@@ -876,6 +1800,8 @@ c.variants({ max })
 c.collection()
 c.collections({ max })
 
+c.productSource(...)
+
 v.cms.page()
 v.cms.pages({ max })
 v.cms.entry(table)
@@ -1100,6 +2026,58 @@ c.products({ max: 12 })
   -> ordered edge rows
   -> Payload/admin product multi-picker
 ```
+
+## Product source/query settings
+
+Manual product pickers and dynamic product queries should be separate concepts.
+
+```text
+c.products(...)
+  selected product relations; stores selected product ids and writes product edges
+
+c.productSource(...)
+  dynamic product source/query/search definition; stores query config and resolves products at render/query time
+```
+
+Example dynamic section:
+
+```ts
+const ProductGrid = defineSection({
+  slug: "productGrid",
+  label: "Product grid",
+  category: "Commerce",
+
+  settings: {
+    heading: v.string(),
+
+    source: c.productSource({
+      modes: ["manual", "collection", "query"],
+      filters: ["status", "productType", "vendor", "tags", "inStock"],
+      sorts: ["newest", "priceAsc", "priceDesc"],
+      maxProducts: 24,
+    }),
+  },
+})
+```
+
+Stored collection-based source:
+
+```json
+{
+  "type": "collection",
+  "collection": "col_summer",
+  "sort": "newest",
+  "limit": 8
+}
+```
+
+Edges:
+
+```text
+source.collection -> commerce.collections.col_summer
+```
+
+Do not write permanent product edges for every dynamic result. Dynamic result products are resolved through declared commerce indexes/search at render/query time.
 
 ## Full app + commerce + CMS schema example
 
@@ -1457,6 +2435,7 @@ c.collection
 c.collections
 c.variant
 c.variants
+c.productSource for manual/collection/simple query sources
 
 v.cms.entry / v.cms.entries
 v.design.color
@@ -1487,6 +2466,7 @@ arbitrary deep nested blocks
 arbitrary JSON path queries
 block-level physical tables by default
 physical arbitrary extension of commerce product rows
+full projection of every Medusa internal relation
 ```
 
 ## V2 / future
@@ -1508,6 +2488,8 @@ client patch protocol for live preview
 collaborative editing/presence
 physical commerce row extension if the adapter layer supports it
 advanced commerce relation helpers
+commerce public graph projections, such as product -> variants / collections / media
+full-text dynamic product search sections
 ```
 
 These should build on the same primitive storage model, not replace it.
@@ -1517,22 +2499,24 @@ These should build on the same primitive storage model, not replace it.
 1. Add schema AST nodes for `defineBlock`, `defineSection`, `defineTemplate`, and `defineRegion`.
 2. Add `flarex/cms` and `flarex/commerce` package boundaries.
 3. Add commerce logical table refs under `c.tables.*`.
-4. Keep `defineSection` as high-level sugar over block-like embedded section objects.
-5. Add stable block/section ids to stored row JSON.
-6. Add `fx_block_index` derivation for block/section type, path, position, and parent.
-7. Derive `fx_edge_*` rows for relations/uploads/pickers inside app rows, blocks, and sections.
-8. Derive `fx_index_entry_*` rows for declared indexes, including block/section subfield indexes.
-9. Add compiler support for commerce picker aliases over normal relations.
-10. Add logical table resolver support for app, CMS, media, commerce reserved, and system targets.
-11. Generate Payload-compatible field/block configs from `.cms(...)` metadata.
-12. Add CMS write policies and enforce them in mutation execution.
-13. Add product/collection/media picker UI components in the admin.
-14. Add form-based section/block editor UI.
-15. Add draft preview URL/token support.
-16. Add schema compile-time write amplification estimates, including relation edge counts.
-17. Add query planner rejection for unindexed nested/block/section JSON queries.
-18. Add relation modeling docs/generators for child tables, bounded many lists, and join tables.
-19. Keep visual editor APIs out of v1 public docs.
+4. Add `fx_relation_def` as relation metadata catalog.
+5. Keep `defineSection` as high-level sugar over block-like embedded section objects.
+6. Add stable block/section ids to stored row JSON.
+7. Add `fx_block_index` derivation for block/section type, path, position, and parent.
+8. Derive `fx_edge_*` rows for relations/uploads/pickers inside app rows, blocks, and sections.
+9. Derive `fx_index_entry_*` rows for declared indexes, including block/section subfield indexes.
+10. Add compiler support for commerce picker aliases over normal relations.
+11. Add logical table resolver support for app, CMS, media, commerce reserved, and system targets.
+12. Generate Payload-compatible field/block configs from `.cms(...)` metadata.
+13. Add CMS write policies and enforce them in mutation execution.
+14. Add product/collection/media picker UI components in the admin.
+15. Add form-based section/block editor UI.
+16. Add draft preview URL/token support.
+17. Add schema compile-time write amplification estimates, including relation edge counts.
+18. Add query planner rejection for unindexed nested/block/section JSON queries.
+19. Add relation modeling docs/generators for child tables, bounded many lists, and join tables.
+20. Add safe commerce delete behavior: soft delete/archive by default and reverse-edge checks before hard delete.
+21. Keep visual editor APIs out of v1 public docs.
 
 ## Open decisions
 
@@ -1547,6 +2531,8 @@ These should build on the same primitive storage model, not replace it.
 - How much Payload-specific admin metadata belongs in core schema vs `.cms(...)` metadata.
 - Whether section presets are deploy-time schema metadata only or can be user-defined later.
 - How much `c.extend(...)` should support in v1 beyond virtual reverse relations.
+- Whether `fx_relation_def` should be a separate table or folded into `fx_field.relation_json` for v1.
+- Which public commerce/Medusa relationships should be projected into `fx_edge_*` in v2.
 
 ## Reference notes
 
