@@ -1,6 +1,8 @@
 # Flarex Commerce CMS Sections and Blocks
 
-Status: design note / proposed direction
+Status: design note / long-term architecture superset
+
+Implementation cutline: see `design-notes/flarex-commerce-cms-v1-schema-cutline.md` before building this design. This file intentionally describes the broader architecture vocabulary; it is not the v1 physical schema inventory.
 
 This note captures the agreed direction for supporting Payload-style blocks, Shopify-like commerce CMS section authoring, Flarex app relational schemas, commerce-aware schema APIs, and the internal relationship/edge layer that connects Flarex app/CMS rows to commerce/Medusa-reserved logical tables.
 
