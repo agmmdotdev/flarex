@@ -16,11 +16,17 @@ should move toward Postgres-authoritative semantics while still using
 Cloudflare for sandboxed execution, WebSockets, cache/freshness DOs, and
 realtime fanout.
 
-Physical storage for this track should use the Convex-style generic
-multitenant document/index schema described in
-`postgres-multitenant-persistence-schema.md`. Sync/cache freshness depends on
-versioned document history, encoded index entries, commit records, and outbox
-events being written by the same trusted Postgres transaction.
+Physical storage for this track is now described by
+`flarex-internal-db-schema.md`: one FlarexDB control plane, internal
+`scope_id` data-plane authority, app/Payload row JSON plus sidecars, Payload
+system tables, Medusa reserved system tables, scoped commit cursors, and scoped
+outbox cursors. The older generic multitenant document/index schema remains
+useful implementation background, but the forward design is not the public
+`partitionBy`/shard API model.
+
+Sync/cache freshness depends on versioned row history, encoded index/range
+dependency entries, commit records, and outbox events being written by the same
+trusted Postgres transaction.
 
 ## Finding
 
@@ -152,11 +158,17 @@ Postgres transaction
   commits
 
 Outbox dispatcher
-  forwards commitVersion, row ids, row versions, and optional row images
+  forwards scope_id, commitSeq, changed dependency keys, row ids, row versions,
+  and optional row images
 
 VersionDO / DocCacheDO / QueryCacheDO
   stores latest known versions and hot replicated document/query data
 ```
+
+These DOs are internal cache/sync infrastructure. They are not developer-visible
+partition objects, and they do not own write authority. The routing key is
+`scope_id` plus a derived bucket, row key, dependency key, or canonical query
+hash.
 
 Then a live query can use Hyperdrive but validate the result against the
 freshness mirror:
@@ -240,12 +252,101 @@ Mutation:
   Executor commits.
 
 Invalidation:
-  Outbox dispatcher forwards commitVersion and changed dependencies.
+  Outbox dispatcher forwards scope_id, commitSeq, and changed dependencies.
   Cloudflare freshness/cache DOs update their version mirrors.
-  ConnectionDO or SubscriptionDO finds affected live queries.
-  Affected shared queries rerun with required freshness >= commitVersion.
+  DeploymentSyncDO finds affected active live queries.
+  Affected shared queries rerun with required freshness >= commitSeq.
   Only fresh changed results are published over WebSocket.
 ```
+
+## Dispatcher Routing
+
+The dispatcher does not keep a registry of all Durable Object instances. It
+uses deterministic names derived from the commit summary:
+
+```txt
+VersionDO:
+  version:{scope_id}:{hash(dependency_key) % version_bucket_count}
+
+DocCacheDO:
+  doc-cache:{scope_id}:{hash(namespace, table, row_id) % row_bucket_count}
+
+QueryCacheDO:
+  query-cache:{scope_id}:{canonical_query_hash}
+
+DeploymentSyncDO:
+  deployment-sync:{scope_id}:{optional_bucket}
+```
+
+A commit summary contains changed rows and changed dependency keys:
+
+```txt
+commit_seq = 56
+changed rows:
+  app.products/prod_123
+  app.cartItems/item_9
+
+changed dependencies:
+  row:app.products/prod_123
+  index-range:app.cartItems.by_cart(cart_777)
+```
+
+The dispatcher routes each key by formula:
+
+```txt
+changed dependency -> VersionDO bucket
+changed row        -> DocCacheDO bucket, if row cache is enabled for that row
+changed dependency -> DeploymentSyncDO, for active query invalidation
+```
+
+`VersionDO` updates freshness metadata only. It should not call `DocCacheDO` or
+`QueryCacheDO`. Rerun orchestration belongs to `DeploymentSyncDO`.
+
+`DeploymentSyncDO` stores only active subscription mappings:
+
+```txt
+dependency key -> canonical query hashes
+canonical query hash -> client subscriptions / ConnectionDO targets
+```
+
+When a dependency changes, `DeploymentSyncDO` wakes the affected `QueryCacheDO`
+instances by deterministic query hash. No component scans every cache DO.
+
+## Overlapping Query Results
+
+Two clients can subscribe to different canonical queries that overlap in rows:
+
+```txt
+qA = products where category = "shoes"
+qB = products where category = "shoes" and price < 100
+```
+
+They have different query hashes:
+
+```txt
+query-cache:{scope_id}:{qA}
+query-cache:{scope_id}:{qB}
+```
+
+They may still share dependency keys:
+
+```txt
+products.by_category("shoes") -> qA, qB
+products.price_bucket("<100") -> qB
+```
+
+If a commit changes a product in category `shoes`, `DeploymentSyncDO` marks both
+queries stale. Each `QueryCacheDO` reruns its exact query and compares
+`resultHash`:
+
+```txt
+new resultHash == old resultHash -> update observed freshness, publish nothing
+new resultHash != old resultHash -> store result and notify subscribers
+```
+
+This keeps correctness independent from query hash equality. Query hashes
+identify exact shared results; dependency keys identify what data changes can
+make those results stale.
 
 ## Cache Layer Roles
 
@@ -253,15 +354,23 @@ Invalidation:
 VersionDO:
   latest known document/table/range versions
   lightweight freshness checks
+  passive; does not orchestrate cache reruns
 
 DocCacheDO:
   hot replicated document rows
   useful for get-by-id live queries and fanout
+  bucketed by row key; not a whole-scope database
 
 QueryCacheDO:
   canonical shared query results
   resultHash, observedVersion, dependency ranges
   many subscribers can share one rerun
+  reruns exact query hash and suppresses unchanged results
+
+DeploymentSyncDO:
+  active dependency-to-query maps
+  rerun scheduling
+  subscriber fanout coordination
 
 ConnectionDO:
   WebSocket session state
@@ -304,10 +413,10 @@ Phase 1:
 
 Phase 2:
 
-- Add `commitVersion`/LSN-style metadata and Postgres transactional outbox.
+- Add scoped `commitSeq`/LSN-style metadata and Postgres transactional outbox.
 - Add `VersionDO` to replicate document/table/range versions into Cloudflare.
 - Live query reruns must publish only results fresh through the required
-  commit version.
+  commit sequence.
 
 Phase 3:
 
@@ -358,5 +467,7 @@ Runtime live-query freshness must be explicit and versioned internally.
   version cardinality?
 - How much replicated row data should DocCacheDO store before it becomes a
   second database to operate?
-- Should QueryCacheDO be per deployment, per table/index family, or per
-  canonical query hash?
+- What bucket counts and split policy should VersionDO, DocCacheDO, and
+  DeploymentSyncDO use for high-write scopes?
+- Which dependency keys should start precise, and which should intentionally use
+  table-level fallback until range encoding is proven?

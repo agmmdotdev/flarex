@@ -1,5 +1,72 @@
 # Cloudflare Freshness Cache
 
+## Cache DO Routing And Query Dependency Cleanup
+
+Previous completed checkpoint: `fc5a78b` Document commit compiler session
+intent.
+
+What changed:
+
+- Clarified that the forward cache/sync design uses internal `scope_id`,
+  dependency keys, row buckets, and canonical query hashes rather than the old
+  public `partitionBy`/client partition-key model.
+- Recorded deterministic Durable Object routing:
+  - `VersionDO` by `scope_id` plus dependency-key bucket,
+  - `DocCacheDO` by `scope_id` plus row-key bucket,
+  - `QueryCacheDO` by `scope_id` plus canonical query hash,
+  - `DeploymentSyncDO` by `scope_id` and optional coordination bucket.
+- Split responsibilities:
+  - `VersionDO` is a passive freshness map,
+  - `DeploymentSyncDO` owns dependency-to-query routing and rerun scheduling,
+  - `QueryCacheDO` reruns exact canonical queries and suppresses unchanged
+    results with `resultHash`,
+  - `DocCacheDO` stores hot row images only.
+- Updated the Postgres-authoritative sync design note with dispatcher routing
+  and overlapping-query examples.
+
+Why it changed:
+
+The older shard/partition language made it sound as if the dispatcher needed to
+know or scan many Durable Object instances. The forward design instead routes by
+deterministic names derived from commit summaries. A changed dependency wakes
+the small set of active canonical queries registered under that dependency; it
+does not require full cache scans or query-hash equality between overlapping
+queries.
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - committed write summaries are the source for invalidation.
+- `crates/database/src/subscription.rs`
+  - read dependencies map writes to affected subscriptions.
+- `crates/sync/src/state.rs`
+  - active query state and result hashing suppress unchanged transitions.
+- `crates/sync/src/worker.rs`
+  - sync workers rerun affected queries after invalidation.
+
+How Flarex differs:
+
+- Convex keeps the database, subscription invalidation, and sync worker close in
+  one backend. Flarex must bridge Postgres authority to Cloudflare DOs through
+  scoped outbox/commit summaries.
+- Flarex cache DOs are internal accelerators. They are not developer-visible
+  partition objects and not authoritative write storage.
+
+Known limitations:
+
+- No dispatcher-to-DO routing implementation exists yet.
+- Dependency key precision is still a design risk: table-level fallback is safe
+  but can over-rerun; fine-grained range keys are efficient but harder to encode
+  correctly.
+- High-write scopes may need bucket splitting and backpressure before eager
+  cache updates are useful.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Project Required Parameter Effects
 
 Previous completed checkpoint: `33054dd` Propagate public worker route errors.
@@ -1520,7 +1587,7 @@ but they are not the source of truth.
 
 ```txt
 Postgres
-  authoritative document/index/commit/outbox storage
+  authoritative FlarexDB row/index/system/commit/outbox storage
 
 Cloudflare
   WebSocket sessions
@@ -1533,6 +1600,10 @@ Cloudflare
 The cache layer exists to reduce executor/Postgres read pressure and make
 live-query fanout efficient. It must be rebuildable from Postgres commit/outbox
 state and must never be used as the authoritative write path.
+
+The forward design uses internal `scope_id` and dependency keys. Legacy
+`PartitionDO`, same-partition routing, and client-visible partition keys are not
+the target cache architecture.
 
 ## Layer Roles
 
@@ -1548,36 +1619,51 @@ Owns a client WebSocket session:
 
 `ConnectionDO` should not own authoritative documents.
 
+### DeploymentSyncDO
+
+Owns active live-query coordination for a `scope_id`:
+
+- dependency key to canonical query hash mappings,
+- query hash to subscriber/`ConnectionDO` mappings,
+- rerun queues and coalescing,
+- result transition fanout after `QueryCacheDO` proves a changed result.
+
+`DeploymentSyncDO` is the component that decides which active `QueryCacheDO`
+instances should rerun after a commit summary names changed dependencies. It
+does not own row values and should not scan all cache DOs.
+
 ### VersionDO
 
 Replicates freshness metadata from committed Postgres outbox events:
 
 ```txt
-document version:
-  deploymentId + tableId + documentId -> latestCommitVersion
+row version:
+  scope_id + namespace + table_name + row_id -> latestCommitSeq
 
 range version:
-  deploymentId + indexId + rangeKey -> latestCommitVersion
+  scope_id + namespace + table_name + index/range key -> latestCommitSeq
 
 table version:
-  deploymentId + tableId -> latestCommitVersion
+  scope_id + namespace + table_name -> latestCommitSeq
 ```
 
 Use it to answer:
 
 ```txt
-Can this cached/query result be published as fresh through commitVersion N?
+Can this cached/query result be published as fresh through commitSeq N?
 ```
 
-VersionDO detects staleness. It does not repair stale results by itself.
+VersionDO detects staleness. It does not repair stale results by itself and
+does not wake `DocCacheDO` or `QueryCacheDO`. The dispatcher updates VersionDO
+from commit/outbox summaries; `DeploymentSyncDO` schedules reruns.
 
 ### DocCacheDO
 
-Stores hot replicated row images keyed by deployment/table/document:
+Stores hot replicated row images keyed by scoped row bucket:
 
 ```txt
-deploymentId + tableId + documentId
-  -> { commitVersion, jsonValue, deleted }
+scope_id + namespace + table_name + row_id
+  -> { commitSeq, jsonValue, deleted }
 ```
 
 Use it for:
@@ -1594,11 +1680,11 @@ fall back to the executor/no-cache query path.
 Stores canonical shared query results:
 
 ```txt
-deploymentId + functionPath + canonicalArgsHash
+scope_id + functionPath + canonicalArgsHash
   -> {
        result,
        resultHash,
-       observedCommitVersion,
+       observedCommitSeq,
        readDependencies
      }
 ```
@@ -1609,6 +1695,47 @@ each running the same query independently.
 
 QueryCacheDO is the hardest layer because range freshness can be invalidated by
 documents that are not present in the returned result.
+
+Different query hashes can overlap in rows. Invalidation is driven by
+dependency keys, not query-hash equality:
+
+```txt
+products.by_category("shoes") -> qA, qB
+products.price_bucket("<100") -> qB
+```
+
+When `products.by_category("shoes")` changes, `DeploymentSyncDO` schedules both
+`qA` and `qB`. Each `QueryCacheDO` reruns its exact query and compares
+`resultHash`; unchanged results update observed freshness without notifying
+clients.
+
+## Dispatcher Routing
+
+The dispatcher never scans all Durable Objects. It computes names from commit
+summary keys:
+
+```txt
+VersionDO:
+  version:{scope_id}:{hash(dependency_key) % version_bucket_count}
+
+DocCacheDO:
+  doc-cache:{scope_id}:{hash(namespace, table, row_id) % row_bucket_count}
+
+QueryCacheDO:
+  query-cache:{scope_id}:{canonical_query_hash}
+
+DeploymentSyncDO:
+  deployment-sync:{scope_id}:{optional_bucket}
+```
+
+Commit summaries must include changed row keys and changed dependency keys so
+the dispatcher can route without a cache registry:
+
+```txt
+changed rows -> DocCacheDO buckets, when row-cache updates are enabled
+changed dependencies -> VersionDO buckets
+changed dependencies -> DeploymentSyncDO for active query invalidation
+```
 
 ## Hyperdrive Rule
 
@@ -1643,14 +1770,17 @@ COMMIT;
 
 Outbox events must include enough data to update freshness mirrors:
 
-- `deploymentId`,
-- `commitVersion`,
-- changed table/document IDs,
+- `scope_id`,
+- `commitSeq`,
+- changed namespace/table/row IDs,
 - index/range dependency hints,
 - optional document row images,
 - event sequence/idempotency key.
 
-The dispatcher must tolerate duplicate, out-of-order, and delayed events.
+The dispatcher must tolerate duplicate, out-of-order, and delayed events. Cache
+lag is a latency problem, not a correctness problem: callers must require a
+freshness proof and fall back to catch-up or no-cache Postgres reads when a DO
+has not applied the required commit.
 
 ## Phasing
 
@@ -1677,6 +1807,7 @@ Phase 4: shared query cache.
 
 - Add `QueryCacheDO`.
 - Canonicalize query keys.
+- Register dependency-to-query mappings in `DeploymentSyncDO`.
 - Deduplicate reruns and fan out one fresh result to many `ConnectionDO`
   subscribers.
 
@@ -1698,6 +1829,14 @@ Replace:
 - `PartitionDO` read-set registration,
 - same-partition rerun logic,
 - client-visible `partitionKey` routing.
+
+Use instead:
+
+- internal `scope_id` routing,
+- commit/outbox dependency keys,
+- deterministic cache DO names,
+- `DeploymentSyncDO` dependency-to-query maps,
+- `QueryCacheDO` result-hash suppression for overlapping query results.
 
 Do not build `VersionDO`, `DocCacheDO`, or `QueryCacheDO` before the Postgres
 executor can write commit/outbox records. Freshness mirrors need a durable
@@ -1728,9 +1867,10 @@ Cloudflare-side consumer has been built yet.
 - A Postgres commit outbox writer exists, but no dispatcher or Cloudflare cache
   mirror consumes it yet.
 - No cache DOs exist yet.
-- Range freshness representation is still open.
+- Range freshness representation is still open; broad dependency keys are safe
+  but may over-rerun.
 - QueryCacheDO invalidation can become expensive without careful canonical
-  query keys and range dependency encoding.
+  query keys, active dependency maps, and bucketed DO routing.
 - Hyperdrive can be useful but cannot by itself prove freshness.
 
 ## Checkpoint
