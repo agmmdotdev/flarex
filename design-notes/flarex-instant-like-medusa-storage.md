@@ -1,15 +1,22 @@
 # Flarex Instant-Like Medusa And Payload Storage Research
 
+Status: research and rationale; mixed app/commerce transaction proposal is
+superseded
+
 ## Purpose
 
 This note records the architecture discussion about whether Flarex storage can
 grow an InstantDB-like layer and become the shared storage substrate for Flarex
 applications, the Medusa runtime, and Payload CMS logic.
 
-For the current proposed internal table layout, use
+For accepted decisions, use
+[`flarex-db-accepted-design.md`](./flarex-db-accepted-design.md). For the
+current proposed internal table layout, use
 [`flarex-internal-db-schema.md`](./flarex-internal-db-schema.md) as the
-canonical schema direction. This file keeps the broader reasoning and rejected
-alternatives.
+long-form schema direction. This file keeps the broader reasoning and rejected
+alternatives. Any text below that implies a universal SessionDO transaction or
+automatic atomic `ctx.db + ctx.commerce` is historical, not an implementation
+instruction.
 
 The short answer is yes, but only as a hybrid platform storage layer under
 separate adapters. Medusa should use a Flarex-backed Medusa persistence
@@ -25,6 +32,11 @@ A Flarex storage core with an InstantDB-like entity, attribute, link, and
 transaction layer could support Medusa, but only if it satisfies Medusa's
 existing repository, transaction, workflow, locking, and integration-test
 contracts.
+
+The accepted design unifies the trusted Postgres authority, scope clock,
+commit/change feed, outbox, and adapter infrastructure. It does not unify all
+framework operations into one transaction engine. Generic app OCC, Payload
+request transactions, and Medusa commerce transactions remain separate lanes.
 
 The viable Medusa shape is:
 
@@ -177,14 +189,14 @@ Storage class A: app and Payload content
   public ctx.db access according to schema policies
 
 Storage class B: Payload system state
-  fixed Payload lifecycle tables
+  reserved logical Payload lifecycle collections first
+  optional dedicated physical tables after parity/measurement
   versions, drafts, uploads, globals, auth/session state, locks, scheduled publish
   adapter-only writes where Payload lifecycle semantics are required
 
 Storage class C: Medusa system data
-  DML-generated real relational system tables
-  DML-generated link/pivot tables
-  DML-generated indexes and constraints
+  relational tables from DML + link/joiner metadata + migration history
+  custom repository/provider capability declarations
   adapter-only access through Medusa repositories and workflows
 ```
 
@@ -213,8 +225,8 @@ Medusa DML metadata
   -> generated relational system tables
 
 Both shapes
-  -> same FlarexDB transaction/session/OCC layer
-  -> same commit log
+  -> separate app, Payload, and Medusa transaction lanes
+  -> same scope-local commit/change protocol
   -> same outbox/freshness/live-query invalidation model
 ```
 
@@ -224,6 +236,12 @@ relationship/index/transaction ideas, but not InstantDB's full EAV/triple value
 store as the authoritative storage for every field.
 
 ## Current Sync Foundation After Lunora Review
+
+Accepted v1 details live in
+[`postgres-authoritative-sync.md`](./postgres-authoritative-sync.md). In
+particular, the scope's DeploymentSyncDO persists a contiguous cursor and query
+dependency state in SQLite; the current Postgres subscription registry remains
+during migration; `VersionDO`, `DocCacheDO`, and `QueryCacheDO` are deferred.
 
 The current sync direction is Convex-like server query reactivity with selected
 Lunora protocol ideas, not a mandatory client-side database.
@@ -246,9 +264,15 @@ Flarex mutation or explicit transaction
   -> records read dependencies and write intent while user code runs
   -> trusted executor opens the short physical Postgres transaction
   -> validates OCC, idempotency, watermarks, locks, and constraints
-  -> writes app, Payload, Medusa, workflow, commit, and outbox rows
+  -> writes supported app rows/sidecars, result outcome, commit atoms, and
+     outbox rows
   -> commits once
-  -> directly wakes DeploymentSyncDO with a compact commit summary
+  -> directly wakes the scope's DeploymentSyncDO as a latency hint
+
+Payload/Medusa adapter transaction
+  -> preserves its own transaction semantics
+  -> writes scope commit/change atoms and outbox before the same commit
+  -> wakes the same sync path
 ```
 
 Therefore the default architecture is not:
@@ -267,9 +291,8 @@ Postgres / FlarexDB
 
 DeploymentSyncDO
   -> hot live-sync coordinator
-  -> query-result cache
-  -> read-set indexes
-  -> commit cursor/outbox cursor
+  -> durable SQLite canonical-query and dependency index
+  -> contiguous commit cursor
   -> coalesced query reruns
   -> result-hash based skip or settled notification
 
@@ -345,13 +368,22 @@ TanStack DB is not the Flarex sync engine. It can be an optional adapter later:
 Most app, Payload, and Medusa flows should not require TanStack DB because
 complex query logic already belongs in Flarex server query functions.
 
-## Medusa DML As The Source For FlarexDB System Schema
+## Medusa Schema Inputs For FlarexDB
 
 Medusa already owns its persistence shape through DML models such as
-`model.define(...)`. A FlarexDB Medusa adapter should consume those DML models
-directly and generate the `system.medusa` schema from them. Flarex should not
-hand-author a second copy of Medusa tables in its public app schema or physical
-schema files.
+`model.define(...)`, but DML is necessary rather than sufficient. A FlarexDB
+Medusa adapter consumes:
+
+```text
+DML models
++ ModuleJoinerConfig and link definitions
++ ModuleMigrationAdapter history, including data backfills and triggers
++ custom repository/provider capability declarations
+```
+
+Flarex should not hand-author a second copy of Medusa tables in its public app
+schema. It also must not reconstruct link tables or migration semantics from a
+final DML snapshot.
 
 The current fork already proves the compiler shape:
 
@@ -363,21 +395,26 @@ Medusa model.define(...)
   -> Drizzle SQLite table, D1 SQL migration, and repository implementation
 ```
 
-For FlarexDB, the target should change while the source remains the same:
+For FlarexDB, DML compilation is one input to the target:
 
 ```text
 Medusa model.define(...)
   -> PortableEntity / ModulePersistenceModel
   -> shared DML schema compiler
   -> neutral DatabaseSchema IR
+ModuleJoinerConfig/link definitions
+ModuleMigrationAdapter history
+custom adapter capabilities
+  -> combined Medusa persistence manifest
   -> FlarexDB system schema manifest
   -> FlarexDB catalog rows
   -> generated internal Drizzle/Postgres tables
   -> Flarex-backed Medusa repositories
 ```
 
-The foundation should therefore be a FlarexDB schema compiler target, not a new
-Medusa schema authoring system.
+The foundation should therefore be a FlarexDB schema compiler target plus a
+lossless migration/link/capability manifest, not a new Medusa schema authoring
+system.
 
 Conceptually:
 
@@ -433,8 +470,9 @@ Recommended foundation order:
 1. Extract or share the DML-to-`DatabaseSchema` compiler IR so it is not
    conceptually owned by the Drizzle SQLite package.
 2. Add a FlarexDB Medusa schema registry that stores compiled tables, columns,
-   indexes, checks, foreign keys, relationships, module name, schema hash,
-   namespace, visibility, and write policy.
+   indexes, checks, foreign keys, relationships, link definitions, migration
+   checksums/dependencies/backfill cursors, custom capabilities, module name,
+   schema hash, namespace, visibility, and write policy.
 3. Add a Flarex physical renderer for Postgres/Drizzle-backed internal tables.
 4. Add the `@medusajs/db-flarex` `ModulePersistenceAdapter` implementation.
 5. Prove the path with a small DML module such as Currency, Store, or Region
@@ -1207,8 +1245,9 @@ ctx.db.transact callback
      budget
 
 tx.commerce.* inside ctx.db.transact
-  -> allowed only for Medusa DB-local workflow phases that can join the Flarex
-     transaction and defer event release
+  -> rejected as a generic API
+  -> commerce-affecting atomic extension behavior belongs behind a
+     Medusa-owned facade/workflow and trusted transaction
 
 long work
   -> schedule an action/workflow/job through the outbox and return
@@ -1257,9 +1296,10 @@ Medusa service or workflow
   -> Medusa reserved namespace in Flarex storage
 ```
 
-The adapter may translate Medusa repository operations into the same underlying
-entity, attribute, link, index, commit, and outbox storage primitives. That
-translation is private to the Medusa adapter. It must preserve Medusa rollback,
+The adapter translates Medusa repository operations into Medusa-owned
+relational tables compiled from the complete persistence manifest. It shares
+only the scope commit lane, typed change atoms, idempotency/outbox protocol, and
+sync feed with the generic app engine. It must preserve Medusa rollback,
 read-your-own-writes, nested transaction propagation, event/mutation sink
 behavior, and unchanged module integration assertions.
 
@@ -1271,16 +1311,19 @@ class FlarexMedusaDatabaseSession {
     operation: (session: FlarexMedusaDatabaseSession) => Promise<T>
   ): Promise<T> {
     // Reuse an existing transaction/session when nested.
-    // Otherwise open a Flarex storage transaction.
+    // Otherwise open the trusted Medusa Postgres transaction lane.
     // Expose only Medusa repository/session behavior upward.
   }
 }
 ```
 
-### Mixed App And Commerce Mutations
+### Historical Mixed App And Commerce Proposal (Rejected)
 
-The two-storage-shape model can support atomic app-and-commerce writes only if
-FlarexDB remains the single commit authority across both shapes.
+This subsection records the earlier shared-session proposal so its motivation
+is not lost. It is not accepted for v1 and must not be implemented as the
+public transaction model. The two storage shapes can share Postgres, commit
+change atoms, and outbox infrastructure without sharing one generic
+SessionDO/user transaction.
 
 The shared transaction session must be able to stage and validate:
 
@@ -1324,17 +1367,16 @@ ctx.db only
 ctx.commerce only
   -> Medusa service transaction or Medusa workflow
 
-ctx.db + ctx.commerce in an explicit FlarexDB transaction
-  -> one shared FlarexDB commit session
-  -> app writes use shared Flarex app storage
-  -> commerce writes use Medusa-owned commands, workflows, repositories, and
-     adapter semantics
-  -> app code still cannot write system.medusa tables directly
+rejected generic ctx.db + ctx.commerce transaction
+  -> not supported as a generic atomic transaction
+  -> use a Medusa-owned facade/workflow when the extension is part of a
+     commerce invariant
+  -> otherwise connect app state by stable commerce IDs and transactional
+     outbox processing
 ```
 
-If extension behavior must be atomic with commerce invariants, it belongs
-behind a Medusa-owned commerce facade, command, or workflow that can join the
-shared FlarexDB transaction session:
+The following sketch is a rejected API, retained only to show what must not be
+exposed:
 
 ```ts
 await ctx.db.transact(async (tx) => {
@@ -1355,22 +1397,24 @@ Internally, `tx.commerce.products.create(...)` must run Medusa validation,
 workflow/repository logic, mutation events, and constraints. It is not a raw row
 insert into `system.medusa`.
 
-So the rule is:
+Accepted rule:
 
-- Atomic app plus commerce writes are allowed through explicit FlarexDB
-  transaction sessions.
-- The commerce part must be expressed as a Medusa-owned command or workflow.
+- Generic atomic app plus commerce writes are not exposed through
+  `ctx.db.transact`.
+- Commerce-affecting atomic extension behavior is expressed entirely behind a
+  Medusa-owned command/workflow and its transaction.
 - App code cannot directly mutate Medusa reserved tables.
 - Arbitrary calls to unrelated external commerce APIs are not automatically
   atomic; they need workflows, compensation, or outbox/event consistency.
 - Display-only metadata can stay in app graph data and connect through typed
   commerce IDs, dependency tokens, and outbox events.
 
-### Medusa Workflow Boundary Inside Flarex Transactions
+### Historical Shared Workflow Boundary (Rejected)
 
 Existing Medusa workflows should stay Medusa-owned. The Flarex integration
 should not fork or rewrite `create-products`, cart completion, order, inventory,
-or pricing workflows as Flarex workflows.
+or pricing workflows as Flarex workflows. The outer `ctx.db.transact` boundary
+described below was explored but is not the accepted execution model.
 
 The refactor point is the workflow execution boundary:
 
@@ -1420,12 +1464,26 @@ Medusa workflow commits product independently
 Flarex app write commits later
 ```
 
-The target is:
+The rejected target was:
 
 ```text
 Medusa workflow stages commerce writes in the Flarex session
 Flarex app code stages app writes in the same session
 one FlarexDB commit publishes both or neither
+```
+
+The accepted target is:
+
+```text
+Medusa-owned facade/workflow opens the trusted Medusa Postgres transaction
+  -> Medusa repositories and modules preserve their normal semantics
+  -> any commerce-invariant extension writes are performed inside that lane
+  -> Flarex commit/change atoms and outbox are written before the same commit
+
+ordinary app/display state
+  -> commits through ctx.db separately
+  -> references stable commerce IDs
+  -> reacts idempotently through the transactional outbox
 ```
 
 If a Medusa workflow contains external side effects that cannot be rolled back,
@@ -1434,10 +1492,12 @@ plugin code, those effects must not execute inside the uncommitted atomic
 phase. They must be post-commit outbox work, compensating workflow work, or a
 separate orchestration step.
 
-### Failure And Recovery Rules
+### Failure And Recovery Rules For The Accepted Boundary
 
-The shared transaction design is safe only if FlarexDB remains the single commit
-authority when commerce runs inside `ctx.db.transact`.
+Do not rely on `ctx.db.transact` to roll back Medusa commerce. Atomic Medusa
+state, commerce-invariant extension state, Medusa event grouping, Flarex change
+atoms, and outbox rows must share the Medusa-owned trusted Postgres transaction.
+Separate app follow-up is idempotent and recoverable from outbox delivery.
 
 Required failure behavior:
 
@@ -1457,10 +1517,10 @@ server dies after Flarex commit but before event delivery
   -> recovery replays the outbox idempotently
   -> product.created may arrive late, but it must not disappear
 
-OCC or constraint conflict at final commit
-  -> app writes and Medusa writes abort together
-  -> grouped Medusa events are cleared
-  -> caller can retry the whole transaction
+commerce constraint/deadlock/serialization failure
+  -> Medusa-owned transaction rolls back
+  -> grouped events are not released
+  -> retry follows the Medusa transaction/workflow policy
 
 external subscriber fails after commit
   -> committed data remains valid
@@ -1475,26 +1535,24 @@ Flarex app relation failed
 product.created already delivered
 ```
 
-That state is only prevented if Medusa repositories, workflow storage, grouped
-events, and outbox writes all participate in the Flarex-owned transaction or
-are explicitly deferred until after the Flarex commit record exists.
+That state is prevented by keeping commerce invariants and their extension
+writes inside the Medusa-owned transaction. App-side relations that are not
+commerce invariants are eventual and recover through idempotent outbox work.
 
 Deadlock and long-running workflow rules:
 
 - Acquire commerce locks late, close to the atomic write phase.
 - Sort multi-key locks deterministically.
 - Do not hold commerce locks while arbitrary app code or external calls run.
-- Do not open nested independent database transactions inside a shared Flarex
-  transaction.
+- Preserve nested transaction propagation inside the Medusa transaction lane.
 - Use transaction leases, timeouts, and recovery for abandoned sessions.
 - Use idempotency keys for workflow steps, commit records, and event delivery.
 - Treat async projections, internal read models, and search indexes as derived
   infrastructure, not authoritative validation sources.
 
-If a built-in Medusa workflow cannot obey these rules in a given path, Flarex
-should not allow that path inside `ctx.db.transact`. It should run as a normal
-Medusa workflow and connect app data through an idempotent follow-up command,
-hook, or outbox subscriber.
+Built-in Medusa workflows run as normal Medusa workflows. App data connects
+through stable IDs and idempotent follow-up commands, hooks, or outbox
+subscribers unless the extension is explicitly part of a Medusa-owned facade.
 
 ### Worker And Hyperdrive Commit Executor
 
@@ -1511,10 +1569,15 @@ Dynamic Worker
 FlarexDB executor Worker
   -> trusted internal platform service
   -> uses Hyperdrive or another Flarex-selected physical executor
-  -> opens the final SQL transaction only after user code finishes
-  -> validates OCC read sets, ranges, constraints, and locks
-  -> applies app, Payload, Medusa, workflow, freshness, and outbox writes
-  -> commits or aborts as the single authority
+  -> opens the final app SQL transaction only after user code finishes
+  -> validates supported app OCC read sets, ranges, constraints, and locks
+  -> derives app sidecars, commit/change atoms, result outcome, and outbox
+  -> does not compile arbitrary Payload or Medusa operations from app intent
+
+Payload/Medusa trusted adapters
+  -> preserve their own transaction contracts
+  -> write Flarex commit/change atoms and outbox in their authoritative
+     transaction
 
 Postgres
   -> authoritative physical store for the Hyperdrive-backed deployment shape
@@ -1523,7 +1586,8 @@ Postgres
 Hyperdrive can replace a Node-side Postgres executor as the Worker transport,
 but it must not become the consistency model. FlarexDB remains responsible for
 OCC, transaction sessions, commit records, outbox rows, freshness markers,
-schema scope, tenant scope, and adapter write policies.
+schema scope, tenant scope, and adapter write policies. That shared
+infrastructure does not imply one public cross-adapter transaction.
 
 Correctness paths must use no-cache or cache-disabled database access:
 
@@ -1826,9 +1890,12 @@ outbox remain in FlarexDB.
 
 Current detailed roadmap: see
 [`roadmaps/35-commit-compiler-and-session-intent.md`](../roadmaps/35-commit-compiler-and-session-intent.md).
-That file owns the SessionDO intent journal, `beginTs`, read-your-writes
-overlay, `CommitIntent`, and final Postgres round-trip strategy. This section
-keeps the Medusa/Payload storage motivation.
+That file owns the optional bounded SessionDO app journal, scope-local
+`SnapshotToken`, read-your-writes
+overlay, trusted commit envelope/planner, and final Postgres round-trip
+strategy. Its accepted scope is bounded Flarex app operations. This section
+keeps the Medusa/Payload storage motivation without putting their transactions
+into that generic journal.
 
 The final commit must not be implemented as a generic ORM loop that performs one
 awaited SQL statement per row or per Medusa entity.
@@ -1856,16 +1923,22 @@ inventory, order, and pricing flows can touch many tables, so a naive adapter
 would turn Medusa complexity into connection-pool pressure and avoidable
 latency.
 
-The FlarexDB executor should compile the whole commit intent before opening the
-SQL transaction:
+Each trusted lane should compile its own complete physical plan before opening
+the SQL transaction:
 
 ```text
-commit intent
-  -> classify app graph writes, Payload writes, Medusa system writes, locks,
-     workflow writes, freshness writes, and outbox writes
+app commit intent
+  -> classify supported app row/index/edge/unique writes and read dependencies
+
+Payload adapter operation
+  -> preserve Payload request-transaction and lifecycle semantics
+
+Medusa adapter operation
+  -> preserve Medusa repository/workflow/link/migration semantics
+
+each trusted lane
   -> build set-based read/range/lock validation batches
-  -> build bulk document/entity/row/edge/link write batches
-  -> build commit/freshness/outbox/workflow-state batches
+  -> derive physical writes, commit/change atoms, and system outbox
   -> execute as one short physical transaction
 ```
 
@@ -1900,7 +1973,8 @@ Allowed optimizations:
 - batch writes with multi-row `insert`, `insert ... on conflict`, `unnest(...)`,
   JSON-to-recordset, or generated CTEs;
 - use deterministic lock ordering and set-based lock checks;
-- compile Medusa DML write intent into a table-aware FlarexDB commit plan;
+- compile a Medusa transaction into a table-aware plan inside the trusted
+  Medusa adapter lane, not from the generic app SessionDO journal;
 - keep the executor Worker close to the database with Worker placement when the
   commit needs multiple sequential SQL calls;
 - for very complex commits, consider a database-side function such as
@@ -1914,8 +1988,9 @@ contracts.
 
 Implementation rules:
 
-- Do not let Medusa services, Payload adapters, or app code emit arbitrary raw
-  SQL during final commit.
+- Do not let app code emit arbitrary raw SQL or physical system batches. Any
+  narrowly supported Medusa/Payload escape hatch remains adapter-owned and
+  must preserve its transaction and commit/outbox protocol.
 - Do not call Medusa repository methods row-by-row inside the final physical
   transaction when the whole write set is already known.
 - Do not deliver events, run subscribers, rerun live queries, update search, or
@@ -1923,7 +1998,8 @@ Implementation rules:
 - Do record enough outbox/freshness/workflow data inside the transaction for
   post-commit workers to complete those jobs idempotently.
 - Do keep a Node/Postgres adapter and a Worker/Hyperdrive adapter as separate
-  physical executor implementations behind the same FlarexDB commit contract.
+  physical executor implementations behind lane-specific commit contracts and
+  the same scope/change/outbox protocol.
 
 ## Why Instant-Like Storage Helps
 
@@ -2538,8 +2614,8 @@ Recommended rollout:
    selected by the Flarex runtime.
 2. Stronger isolation: per-project schema or database selected by the same
    tenant/deployment context.
-3. Cloudflare scale: tenant-scoped Durable Object partitions for write-heavy
-   authority, with Flarex-managed projection databases only for read models.
+3. Cloudflare scale: Postgres remains write authority; tenant/scope-scoped
+   Durable Objects coordinate sessions, live queries, and optional caches.
 
 ## Recommended Physical Shape
 
@@ -2564,17 +2640,18 @@ Flarex CMS-marked application data
   developer-defined tables and fields with CMS metadata
   generated Payload config view
   Payload adapter access to the same app row JSON and sidecars
-  fixed Payload system tables for auth, uploads, versions, drafts, globals,
-  locks, and scheduled publish
+  reserved logical Payload collections first for auth, uploads, versions,
+  drafts, globals, locks, and scheduled publish
 
 Medusa reserved commerce namespace
-  real authoritative DML-derived tables, links, and constraints
+  real authoritative tables compiled from DML, links/joiner metadata,
+  migration history, and adapter capabilities
   repository adapter access only
   typed indexes and transactional read helpers
   soft-delete-aware unique constraints
 
 Medusa system namespace
-  workflow execution state
+  Medusa workflow execution state compiled from its real model
   delayed actions
   locks or lock-provider metadata
   event/outbox bridge
@@ -2612,17 +2689,16 @@ Before this can be treated as a real Medusa storage candidate, Flarex needs:
 2. Flarex app/Payload storage target based on shared row history/current rows,
    declared index-entry sidecars, relationship/upload edge sidecars,
    unique-key rows, and optional block metadata sidecars.
-3. Medusa storage target based on real DML-generated relational system tables,
-   link/pivot tables, indexes, and constraints.
+3. Medusa storage target based on DML plus ModuleJoinerConfig/link definitions,
+   ModuleMigrationAdapter history, and custom adapter capabilities.
 4. Shared or extracted DML-to-schema compiler IR that consumes Medusa
    `model.define(...)` metadata instead of duplicating Medusa table definitions.
 5. FlarexDB Medusa schema registry for compiled DML tables, columns,
    relationships, indexes, constraints, namespace, visibility, write policy,
    schema hash, and physical table mapping.
-6. Shared transaction sessions that can stage app graph writes and Medusa
-   system table writes in one FlarexDB commit when the commerce work enters
-   through Medusa-owned commands, workflows, repositories, and adapter
-   semantics.
+6. Separate app, Payload, and Medusa transaction lanes that write one
+   scope-local commit/change/outbox protocol; commerce-invariant extension
+   writes belong behind a Medusa-owned facade/workflow.
 7. Expanded OCC/read-set support for app rows, declared index ranges, relation
    edges, block metadata sidecars, Medusa rows, Medusa relation/link rows, and
    Medusa query/index/range reads.
@@ -2646,11 +2722,10 @@ Before this can be treated as a real Medusa storage candidate, Flarex needs:
 18. Transaction/session API compatible with Medusa transaction managers.
 19. OCC/read-set or database transaction semantics strong enough for Medusa
    service methods.
-20. Public `ctx.db.transact(...)` implemented as a staging API over the Flarex
-    commit protocol and executor transaction, not as a separate transaction
-    engine.
-21. Reserved system stores for workflow execution and locking, including lock
-    leases, owner tokens, TTLs, fencing tokens, and release/retry metadata.
+20. Public `ctx.db.transact(...)` implemented for the supported generic app
+    operation/overlay matrix; it is not a cross-adapter transaction API.
+21. Flarex-native workflow stores and locking providers, while Medusa workflow
+    persistence is compiled from the real Medusa model.
 22. Outbox and invalidation tokens for Flarex sync subscriptions.
 23. Worker-safe import graph with Node-only persistence implementations kept
     out of Cloudflare bundles.
@@ -2658,27 +2733,28 @@ Before this can be treated as a real Medusa storage candidate, Flarex needs:
     lane, with no-cache correctness reads, short transaction-pooling windows,
     and Worker placement near Postgres when final commits require multiple
     sequential SQL calls.
-25. Commit planner that compiles app, Payload, Medusa, workflow, lock,
-    freshness, and outbox intent into set-based validation and bulk write
-    batches instead of row-by-row ORM loops.
+25. Trusted lane-specific planners that compile app, Payload, or Medusa work
+    into set-based validation and bulk writes, deriving system commit/change
+    atoms and outbox instead of accepting them from user intent.
 26. Optional database-side commit function boundary for high-complexity commits,
     such as `flarexdb_commit(jsonb)`, while preserving FlarexDB as the commit
     protocol and schema authority.
-27. Same-deployment direct wake path from the FlarexDB executor Worker to
+27. Same-scope direct wake path from the FlarexDB executor Worker to
     `DeploymentSyncDO` after commit, carrying a compact commit summary or a
-    pointer to a bounded durable commit summary, with durable outbox cursor
-    recovery if the direct wake fails.
+    pointer to a bounded durable commit summary, with a lagging-scope sweep and
+    contiguous Postgres commit catch-up if the direct wake fails.
 28. Compact commit summaries that include changed row ids, app table ids,
     declared index/range keys, relation/upload edge keys, block metadata keys,
     Medusa row ids, Medusa link row ids, optional internal read-model
-    dependency keys, write source, deployment/tenant scope, commit ts, and
+    dependency keys, write source, scope, epoch, commit sequence, and
     outbox sequence.
 29. Foundation live-sync topology with `ConnectionDO` owning hibernating
-    WebSocket sessions and `DeploymentSyncDO` owning commit/outbox/freshness,
-    affected-subscription discovery, rerun dedupe, and push to `ConnectionDO`s.
-30. `DeploymentSyncDO` hot-state indexes: bounded in-memory write-log window,
-    document/row/edge/table/range/internal-read-model read-set maps, coalesced
-    rerun queues, subscription freshness cursors, and result hashes.
+    WebSocket sessions and one deterministic `DeploymentSyncDO` per scope
+    owning the contiguous commit cursor, affected-query discovery, rerun
+    dedupe, and push to `ConnectionDO`s.
+30. `DeploymentSyncDO` durable SQLite state: canonical query definitions,
+    dependency indexes, cursor, dirty-through/running generations, bounded
+    continuations, targets, and result hashes.
 31. Query planner freshness rules so live queries can read internal read models
     only when the read model is fresh enough for the required
     commit/dependency version; stale internal read models must not be published
@@ -2795,7 +2871,13 @@ contract test that only proves the Flarex adapter's own API.
   sync/read-model maintenance as separate developer responsibilities would make
   the BaaS feel like three frameworks instead of one platform.
 
-## Current Decision
+## Historical Decision (Superseded)
+
+The list below preserves the conclusion reached during the original research.
+It is superseded wherever it proposes fixed Payload tables, DML-only Medusa
+schema generation, a shared app/commerce session, cache-first sync, or
+in-memory-only recovery. The accepted decision is summarized after the list and
+specified in `flarex-db-accepted-design.md`.
 
 The direction is worth researching further, but only under these constraints:
 
@@ -2809,14 +2891,13 @@ The direction is worth researching further, but only under these constraints:
   metadata, generated config, and adapter mappings.
 - The foundation model is one FlarexDB control plane with three physical
   storage classes: typed shared app/Payload row JSON with relational sidecars,
-  fixed Payload system tables for CMS lifecycle state, and Medusa
-  DML-generated real relational system tables for commerce.
+  reserved logical Payload lifecycle collections (optional later physical
+  tables), and Medusa relational tables compiled from all persistence inputs.
 - Medusa and Payload adapters talk to internal FlarexDB persistence APIs, not
   raw Postgres, Hyperdrive, D1, Durable Object SQLite, or physical SQL tables.
-- Medusa DML models are the source of truth for `system.medusa` schema;
-  FlarexDB should compile Medusa `model.define(...)` metadata into internal
-  catalog rows and physical table mappings instead of manually duplicating
-  Medusa table definitions.
+- Medusa DML defines module table shapes, while link/joiner definitions,
+  migration history, and custom capabilities complete the authoritative
+  persistence manifest.
 - Medusa Link remains internal compatibility for original Medusa module links;
   Flarex app developers use Flarex relations, not public custom Medusa links.
 - Flarex app schema is the source of truth for CMS-marked Payload collections.
@@ -2825,9 +2906,9 @@ The direction is worth researching further, but only under these constraints:
 - Payload complex fields compile to Flarex storage primitives: embedded row
   JSON for normal CMS content, derived app edges for relationships/uploads and
   joins, derived index/unique sidecars for declared queryable fields, optional
-  block metadata sidecars, fixed Payload system tables for
-  drafts/versions/auth/uploads/locks/globals/scheduled publish, and virtual
-  reverse relations for Join fields.
+  block metadata sidecars, reserved Payload lifecycle collections (with later
+  dedicated tables only if justified), and virtual reverse relations for Join
+  fields.
 - JSON is the authoritative row value for app/Payload content, but it must not
   be the only representation for fields that need filtering, sorting,
   uniqueness, relationship population, reverse joins, block lookup, OCC
@@ -2839,10 +2920,9 @@ The direction is worth researching further, but only under these constraints:
 - Existing raw-SQL/custom-repository behavior becomes FlarexDB
   adapter-specific repository or provider work; it does not justify exposing
   raw physical database access to Medusa.
-- Cross app-and-commerce atomicity is possible only through explicit shared
-  FlarexDB transaction sessions where app writes use shared app storage and
-  commerce writes enter through Medusa-owned commands, workflows, repositories,
-  and adapter semantics.
+- The historical shared app-and-commerce session proposal is rejected. Atomic
+  commerce-invariant extension behavior belongs entirely behind a Medusa-owned
+  facade/workflow; ordinary app state follows through stable IDs and outbox.
 - Flarex mutations and `ctx.db.transact` callbacks should be bounded like
   Convex-style transactional functions: short deterministic user code,
   explicit transaction-size quotas, and long work moved to actions, workflows,
@@ -2862,14 +2942,15 @@ The direction is worth researching further, but only under these constraints:
   writes must not become one awaited SQL round trip per row inside the final
   transaction.
 - Node/Postgres and Worker/Hyperdrive should be separate physical executor
-  adapters behind the same FlarexDB commit contract.
+  adapters behind lane-specific transaction contracts and the shared
+  scope/change/outbox protocol.
 - The first Cloudflare live-sync topology should split only where there is a
   real platform reason: `ConnectionDO` owns WebSocket hibernation and client
   sessions, while `DeploymentSyncDO` owns commit/outbox/freshness, affected
   query discovery, rerun dedupe, and delivery to `ConnectionDO`s.
 - `DeploymentSyncDO` should be the Convex-like hot live-sync engine. It should
-  keep a bounded in-memory write-log window, active read-set indexes,
-  coalesced rerun queues, subscription freshness cursors, and result hashes.
+  keep durable SQLite canonical-query/dependency indexes, a contiguous cursor,
+  coalesced rerun generations, targets, and result hashes.
   Durable Postgres rows remain the replay and recovery layer, not the preferred
   per-commit invalidation engine.
 - Do not start with separate `QueryDO`, `ProjectionDO`, or `DeliveryDO`
@@ -2907,9 +2988,9 @@ The direction is worth researching further, but only under these constraints:
   tenant/project/deployment scope, owner tokens, TTLs, deterministic multi-key
   acquisition, and fencing tokens. It must not expose lock rows through public
   `ctx.db` or Payload CMS.
-- When a Medusa workflow runs inside `ctx.db.transact`, workflow success is not
-  the commit authority. The outer FlarexDB commit decides whether Medusa events
-  are released or cleared.
+- Medusa workflows do not run inside generic `ctx.db.transact`. The
+  Medusa-owned transaction decides commerce state and atomically records Flarex
+  change/outbox rows before commerce events are released.
 - Crash recovery must distinguish pre-commit, post-workflow/pre-commit, and
   post-commit/pre-event-release states using Flarex commit records, workflow
   state, leases, and outbox idempotency.
@@ -2950,6 +3031,28 @@ The direction is worth researching further, but only under these constraints:
   records.
 - The current Drizzle/Durable Object Cloudflare milestone remains the active
   implementation path until a Flarex-backed adapter proves parity.
+
+## Accepted Current Decision
+
+- Postgres is authoritative for committed app, Payload, and Medusa state.
+- App/CMS content uses typed row JSON plus trusted derived sidecars.
+- Payload starts with reserved logical collections and a conformance-tested
+  adapter; dedicated tables are later implementation choices.
+- Medusa schema inputs are DML, link/joiner definitions, migration history, and
+  custom capabilities. Medusa keeps its repository/workflow transaction lane.
+- Generic `ctx.db` OCC, Payload request transactions, and Medusa transactions
+  share scope/commit/change/outbox infrastructure, not one universal session.
+- There is no generic atomic `ctx.db + ctx.commerce`; commerce-invariant
+  extension behavior belongs behind a Medusa-owned facade/workflow.
+- One exact `(scope_id, epoch, commit_seq)` token defines transaction snapshots.
+- One deterministic DeploymentSyncDO per scope persists a contiguous cursor,
+  canonical queries, dependencies, and rerun generations in SQLite.
+- The current Postgres subscription registry remains during migration;
+  direct wake is a hint and durable lag detection/catch-up owns recovery.
+- VersionDO, DocCacheDO, and QueryCacheDO remain deferred measured
+  optimizations.
+- Replacement storage ships behind a generation flag with backfill,
+  verification, dual-read comparison, scoped cutover, and rollback.
 
 ## Current Challenge Verdict
 

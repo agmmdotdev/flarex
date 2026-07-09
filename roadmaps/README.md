@@ -18,6 +18,13 @@ create a global chronological implementation log or combine all project
 history into one giant file. After verification, create and report an
 automatic checkpoint commit.
 
+For the accepted FlarexDB schema/compiler/sync/Payload/Medusa architecture
+boundary, start with
+[`../design-notes/flarex-db-accepted-design.md`](../design-notes/flarex-db-accepted-design.md).
+Roadmaps 20, 21, and 35 record the corresponding executor and sync checkpoints;
+older cache or mixed-transaction text is not authoritative when it conflicts
+with that decision record.
+
 Start with:
 
 - [01-backend-data-model-and-do-shape.md](./01-backend-data-model-and-do-shape.md)

@@ -1,5 +1,52 @@
 # Hosted Project Identity And Auth
 
+## Bind Commit Sessions To Trusted Authorization Grants
+
+Previous completed checkpoint: `01c11ab` Clarify SessionDO cache read bridge.
+
+What changed:
+
+- Required every compiler-backed attempt to use a short-lived authoritative
+  Postgres grant containing scope, function, validated canonical arguments,
+  authenticated inert claims/capabilities, policy version, expiry, and
+  revocation epoch.
+- Kept identity/access fingerprint for matching and cache keys, but stopped
+  treating a fingerprint as enough information to authorize operations.
+- Pinned policy semantics for the short grant lifetime unless its revocation
+  epoch advances, which fences the attempt.
+- Required trusted argument validation before execution and trusted return
+  validation before mutation commit.
+
+Why it changed:
+
+The SessionDO journal is untrusted transport. A fingerprint cannot evaluate
+claim-based policy, and Worker-only validation cannot protect the authoritative
+commit boundary. The trusted executor needs a resolvable grant and pinned
+validators to prevent scope/function/policy substitution.
+
+Convex references:
+
+- `crates/application/src/application_function_runner/mod.rs`
+  - trusted function execution and session-request outcome boundary.
+- `npm-packages/convex/src/server/authentication.ts`
+  - identity claims exposed to functions.
+
+How Flarex differs:
+
+- Flarex crosses Dynamic Worker, Durable Object, and Postgres boundaries, so
+  authority must be explicit, short-lived, fenced, and revocable.
+
+Known limitations:
+
+- The grant schema, signing/resolution mechanism, claims minimization,
+  encryption/retention, and revocation store remain unimplemented.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 This roadmap tracks the next core implementation stream after the Effect
 runtime-boundary cleanup: introduce a Convex-shaped identity path for hosted
 Flarex without jumping straight into a full auth-provider platform.

@@ -1,12 +1,66 @@
 # Flarex Commerce/CMS v1 Schema Cutline
 
-Status: design cutline / implementation guidance
+Status: accepted v1 implementation cutline; replacement remains unimplemented
+
+Authoritative review:
+
+- [`flarex-db-accepted-design.md`](./flarex-db-accepted-design.md)
 
 Related architecture note:
 
 - `design-notes/flarex-commerce-cms-sections-blocks.md`
 
 That larger note is a long-term architecture superset. This file is the stricter v1 cutline. It challenges the superset, removes non-essential tables from the first implementation, and defines the smaller schema that should actually be built first.
+
+## 2026-07-10 Accepted Correction
+
+The original cutline correctly reduced the physical table count, but it still
+assumed Postgres read/write staging for every transaction and did not give edge
+occurrences, scope isolation, snapshots, or schema evolution enough precision.
+
+The corrected first implementation is:
+
+```text
+stable catalog ids + immutable versioned definitions
+app row current + revision history
+declared index current + revision history
+stable current edge occurrences
+unique-key enforcement
+scope clock + commit/change atoms
+authoritative fenced session/grant anchor + snapshot lease
+result-bearing idempotency
+leased transactional outbox
+existing Postgres subscription registry during sync migration
+```
+
+SessionDO may later hold a bounded logical app journal, but the v1 schema does
+not require deleting the authoritative Postgres session anchor. The generic
+compiler covers only app operations with complete read-your-writes overlays.
+Payload request transactions and Medusa transactions remain adapter-owned
+lanes.
+
+Naming rule: `scope_id` is the internal data-plane authority. In shared-table
+mode, it participates in every
+primary key, unique constraint, and intra-scope foreign key. It is derived from
+trusted session authority, not supplied by the logical journal.
+
+Snapshot rule:
+
+```text
+SnapshotToken = (scope_id, epoch, commit_seq)
+```
+
+Wall-clock `beginTs` and global/dense sequence assumptions are rejected.
+Epoch rollover fences old sessions/subscriptions and requires full resnapshot,
+but scope-local commit/outbox sequences remain strictly monotonic and are never
+reset or reused. Current rows and uniqueness keys therefore survive the epoch
+change. Records and cursors that interpret a token still carry epoch.
+Engine revision retention is bounded by active snapshot leases and reconnect
+cursors. Payload user-visible versions are excluded from engine-history GC.
+
+The current `documents`/`indexes`/invoke-session/subscription/outbox schema is
+the compatibility baseline. Introduce this cutline behind a generation flag,
+then backfill, verify, dual-read compare, cut over by scope, and retain rollback.
 
 ## Verdict
 
@@ -31,7 +85,8 @@ Blocks/sections:
   embedded in row JSON, with optional derived metadata/index sidecars
 
 Transactions/sync:
-  commit log + read sets + outbox + idempotency
+  scope clock + exact snapshots + typed read sets + commit atoms + outbox +
+  result-bearing idempotency
 ```
 
 But the full design currently includes tables for field catalog, relation catalog, edge history, block metadata, Payload lifecycle, and more. Those are useful long-term, but many are not necessary to prove the first implementation.
@@ -44,7 +99,7 @@ indexes
 edges
 uniqueness
 commits
-sessions/read sets
+fenced session anchors / snapshot leases / typed read sets
 outbox
 idempotency
 ```
@@ -100,7 +155,8 @@ The main simplification is:
 
 ```text
 v1 schema catalog:
-  fx_table.schema_json + fx_index_def
+  fx_schema_version.manifest_json + stable fx_table/fx_index identities
+  + immutable fx_index_def rows
 
 not:
   fx_table + fx_field + fx_relation_def + many metadata tables
@@ -111,11 +167,18 @@ not:
 ### Catalog
 
 ```text
+fx_schema_version
 fx_table
+fx_index
 fx_index_def
+fx_index_build_state
 ```
 
-`fx_table.schema_json` should contain field, relation, block, CMS, and commerce metadata for v1.
+`fx_schema_version.manifest_json` is the immutable submitted schema artifact.
+`fx_table`, `fx_index`, and `fx_index_def` are its lossless normalized compiled
+catalog, written transactionally and verified against the manifest checksum;
+they are never independently edited. `fx_table` and `fx_index` keep stable
+identities across versions.
 
 Do not create physical `fx_field` or `fx_relation_def` in the first cut unless the compiler/runtime needs fast SQL-level introspection.
 
@@ -155,15 +218,21 @@ A separate `fx_edge_rev` table can be deferred. Edge changes can be represented 
 ### Runtime/recovery
 
 ```text
+fx_scope_clock
 fx_commit
-fx_invoke_session
-fx_invoke_session_reads
-fx_invoke_session_writes
+fx_commit_write
+fx_tx_session_anchor
+fx_snapshot_lease
+fx_sync_reconnect_lease
 fx_outbox
 fx_idempotency
 ```
 
-These are non-negotiable for trusted execution, OCC, retry safety, and post-commit recovery.
+These are non-negotiable for trusted execution, OCC, exact snapshots,
+result replay, and post-commit recovery. A normalized dependency table is
+optional when the trusted commit planner can validate a bounded typed batch
+directly. A SessionDO journal is an implementation choice, not the authority
+schema.
 
 ### Optional v1 if CMS editor requires it
 
@@ -179,8 +248,11 @@ The v1 cut should look like this:
 
 ```text
 Required:
+  fx_schema_version
   fx_table
+  fx_index
   fx_index_def
+  fx_index_build_state
 
   fx_row_current
   fx_row_rev
@@ -191,10 +263,12 @@ Required:
 
   fx_edge_current
 
+  fx_scope_clock
   fx_commit
-  fx_invoke_session
-  fx_invoke_session_reads
-  fx_invoke_session_writes
+  fx_commit_write
+  fx_tx_session_anchor
+  fx_snapshot_lease
+  fx_sync_reconnect_lease
   fx_outbox
   fx_idempotency
 
@@ -233,24 +307,38 @@ users
 
 Important: `commerce.products` can be a first-class relation target even if product rows are fetched through a commerce resolver instead of `fx_row_current`.
 
-Suggested v1 shape:
+Suggested v1 shape uses a stable table identity plus an immutable schema
+manifest. Do not mutate a table identity into a new historical meaning:
 
 ```sql
 fx_table (
-  deployment_id text not null,
+  scope_id text not null,
   table_id int not null,
   name text not null,
   kind text not null,
   resolver text not null,
-  schema_version bigint not null,
-  schema_json jsonb not null,
   created_at timestamptz not null default now(),
-  primary key (deployment_id, table_id),
-  unique (deployment_id, name)
+  primary key (scope_id, table_id),
+  unique (scope_id, name)
+);
+
+fx_schema_version (
+  scope_id text not null,
+  schema_version bigint not null,
+  checksum text not null,
+  manifest_json jsonb not null,
+  status text not null,
+  created_at timestamptz not null default now(),
+  primary key (scope_id, schema_version)
 );
 ```
 
-Example `schema_json` for a review table:
+`manifest_json` carries the immutable table, field, relation, constraint, and
+index definitions for that version while preserving stable IDs. The scope's
+single active-version pointer changes only after required index backfills and
+validation succeed.
+
+Example table definition inside `fx_schema_version.manifest_json`:
 
 ```json
 {
@@ -299,37 +387,69 @@ field-level analytics
 field-level permission indexing
 ```
 
-But for v1, it duplicates `fx_table.schema_json`.
+But for v1, it duplicates the immutable schema manifest.
 
 Recommendation:
 
 ```text
 v1:
-  keep field metadata inside fx_table.schema_json
+  keep field metadata inside fx_schema_version.manifest_json
 
 v2:
   materialize fx_field if schema introspection becomes hot or complex
 ```
 
-### `fx_index_def`: keep
+### `fx_index` / `fx_index_def`: keep
 
 This is required because index entries need stable index IDs.
 
 Suggested shape:
 
 ```sql
-fx_index_def (
-  deployment_id text not null,
+fx_index (
+  scope_id text not null,
   index_id int not null,
   table_id int not null,
   name text not null,
+  created_at timestamptz not null default now(),
+  primary key (scope_id, index_id),
+  unique (scope_id, table_id, name),
+  foreign key (scope_id, table_id)
+    references fx_table (scope_id, table_id)
+);
+
+fx_index_def (
+  scope_id text not null,
+  schema_version bigint not null,
+  index_id int not null,
   fields_json jsonb not null,
   unique_key boolean not null default false,
-  state text not null default 'enabled',
-  primary key (deployment_id, index_id),
-  unique (deployment_id, table_id, name)
+  key_codec_version int not null,
+  primary key (scope_id, schema_version, index_id),
+  foreign key (scope_id, schema_version)
+    references fx_schema_version (scope_id, schema_version),
+  foreign key (scope_id, index_id)
+    references fx_index (scope_id, index_id)
+);
+
+fx_index_build_state (
+  scope_id text not null,
+  schema_version bigint not null,
+  index_id int not null,
+  state text not null default 'building',
+  backfill_cursor_json jsonb,
+  attempt int not null default 0,
+  updated_at timestamptz not null default now(),
+  primary key (scope_id, schema_version, index_id),
+  foreign key (scope_id, schema_version, index_id)
+    references fx_index_def (scope_id, schema_version, index_id)
 );
 ```
+
+Definitions are immutable. Mutable lifecycle lives in
+`fx_index_build_state`: `building -> backfilling -> validating -> enabled ->
+retiring`. Query planning uses only definitions whose per-scope build state is
+enabled for the active schema version.
 
 Example:
 
@@ -356,14 +476,14 @@ on-delete behavior
 admin exposure
 ```
 
-For v1, store that metadata in `fx_table.schema_json`.
+For v1, store that metadata in `fx_schema_version.manifest_json`.
 
 Recommendation:
 
 ```text
 v1:
   no physical fx_relation_def
-  relation metadata lives in schema_json
+  relation metadata lives in fx_schema_version.manifest_json
 
 v1.5/v2:
   add fx_relation_def if relation introspection becomes hot
@@ -410,10 +530,11 @@ Suggested shape:
 
 ```sql
 fx_row_current (
-  deployment_id text not null,
+  scope_id text not null,
+  epoch text not null,
   table_id int not null,
   row_id text not null,
-  commit_ts bigint not null,
+  commit_seq bigint not null,
   schema_version bigint not null,
   data_json jsonb not null,
   data_hash bytea not null,
@@ -422,7 +543,7 @@ fx_row_current (
   updated_at timestamptz,
   deleted_at timestamptz,
   status text,
-  primary key (deployment_id, table_id, row_id)
+  primary key (scope_id, table_id, row_id)
 );
 ```
 
@@ -445,11 +566,12 @@ Suggested shape:
 
 ```sql
 fx_row_rev (
-  deployment_id text not null,
+  scope_id text not null,
+  epoch text not null,
   table_id int not null,
   row_id text not null,
-  commit_ts bigint not null,
-  prev_commit_ts bigint,
+  commit_seq bigint not null,
+  prev_commit_seq bigint,
   schema_version bigint not null,
   data_json jsonb not null,
   data_hash bytea not null,
@@ -458,7 +580,7 @@ fx_row_rev (
   updated_at timestamptz,
   deleted_at timestamptz,
   status text,
-  primary key (deployment_id, table_id, row_id, commit_ts)
+  primary key (scope_id, table_id, row_id, commit_seq)
 );
 ```
 
@@ -481,7 +603,8 @@ Suggested shape:
 
 ```sql
 fx_index_entry_current (
-  deployment_id text not null,
+  scope_id text not null,
+  epoch text not null,
   index_id int not null,
   table_id int not null,
   row_id text not null,
@@ -489,8 +612,8 @@ fx_index_entry_current (
   key_suffix bytea,
   key_sha256 bytea not null,
   locale text,
-  commit_ts bigint not null,
-  primary key (deployment_id, index_id, key_sha256, row_id)
+  commit_seq bigint not null,
+  primary key (scope_id, index_id, key_sha256, row_id)
 );
 ```
 
@@ -536,7 +659,10 @@ Suggested shape:
 
 ```sql
 fx_edge_current (
-  deployment_id text not null,
+  scope_id text not null,
+  epoch text not null,
+  edge_id text not null,
+  occurrence_key text not null,
   relation_id int,
 
   source_table_id int not null,
@@ -549,25 +675,32 @@ fx_edge_current (
   relation_kind text not null,
   locale text,
   position int,
-  commit_ts bigint not null,
+  commit_seq bigint not null,
 
   primary key (
-    deployment_id,
+    scope_id,
+    edge_id
+  ),
+  unique (
+    scope_id,
     source_table_id,
     source_row_id,
-    source_path,
-    target_table_id,
-    target_row_id
+    occurrence_key
   )
 );
 ```
+
+`occurrence_key` includes the stable nested item/block id, source path, locale,
+and occurrence identity. Position is ordering metadata, not identity. This is
+required when the same target appears twice, in two locales, or in different
+nested blocks.
 
 Recommended indexes:
 
 ```sql
 create index fx_edge_current_reverse
   on fx_edge_current (
-    deployment_id,
+    scope_id,
     target_table_id,
     target_row_id,
     source_table_id,
@@ -576,7 +709,7 @@ create index fx_edge_current_reverse
 
 create index fx_edge_current_forward
   on fx_edge_current (
-    deployment_id,
+    scope_id,
     source_table_id,
     source_row_id,
     source_path,
@@ -653,17 +786,21 @@ Suggested shape:
 
 ```sql
 fx_unique_key (
-  deployment_id text not null,
+  scope_id text not null,
+  epoch text not null,
   constraint_id int not null,
   table_id int not null,
   row_id text not null,
   key_hash bytea not null,
   key_json jsonb not null,
-  locale text,
-  commit_ts bigint not null,
-  primary key (deployment_id, constraint_id, key_hash)
+  locale_key text not null default '',
+  commit_seq bigint not null,
+  primary key (scope_id, constraint_id, locale_key, key_hash)
 );
 ```
+
+The normalized `locale_key` is also part of canonical key encoding and hashing;
+it is empty for non-localized constraints.
 
 ### `fx_commit`: keep
 
@@ -673,34 +810,47 @@ Suggested shape:
 
 ```sql
 fx_commit (
-  deployment_id text not null,
-  commit_ts bigint not null,
+  scope_id text not null,
+  epoch text not null,
+  commit_seq bigint not null,
   mutation_id text,
   actor_identity text,
   created_at timestamptz not null default now(),
   summary_json jsonb,
-  primary key (deployment_id, commit_ts)
+  primary key (scope_id, commit_seq),
+  unique (scope_id, epoch, commit_seq)
 );
 ```
 
-### `fx_invoke_session` / reads / writes: keep, with cleanup
+### Authoritative session anchor and snapshot lease: keep
 
-These are needed for trusted executor staging and OCC.
+These are needed for trusted authority, fencing, exact-snapshot retention,
+idempotent finish, and uncertain-result recovery. Active logical read/write
+journals may remain in Postgres for compatibility or move to SessionDO for the
+bounded app compiler; the authority fields remain in Postgres.
 
 Required properties:
 
 ```text
 session status
-begin timestamp
-function path
-identity
-attempt count
-result/error
-commit timestamp
+scope + epoch + begin commit sequence
+package/artifact + function reference
+identity/access-policy fingerprint
+validated canonical arguments + authenticated inert authorization grant
+allowed capabilities + policy revocation epoch
+schema/policy version
+attempt fence + protocol version + syscall sequence + journal digest
+request key + canonical request hash
+result/error + committed epoch/sequence
 TTL/cleanup
 ```
 
-Do not let session rows grow forever.
+Lifecycle is `created -> running -> finishing -> committing ->
+committed|aborted|expired`. Late syscalls are rejected once finishing begins.
+Repeated finish and lost responses resolve through the stored authoritative
+outcome. Snapshot leases prevent history GC from passing a live attempt.
+The trusted executor validates arguments against the pinned authoritative
+validator before execution and validates the encoded return before commit.
 
 ### `fx_outbox`: keep
 
@@ -720,10 +870,17 @@ status
 attempts
 claimed_by
 claimed_until
+claim_fence
 next_attempt_at
 last_error
-dead-letter state
+delivered_at
+dead_lettered_at
 ```
+
+Never GC pending or claimed rows. Dead letters require explicit operator
+policy. Compact delivered rows only after all required consumer progress and
+delivery-idempotency retention requirements are satisfied; snapshot/reconnect
+leases do not prove side-effect delivery.
 
 ### `fx_idempotency`: keep
 
@@ -731,25 +888,45 @@ Non-negotiable.
 
 Without idempotency, client retries can double-apply mutations.
 
-Required key shape:
+Database uniqueness/lookup key:
 
 ```text
-deployment_id
-identity/session
-function path
+scope_id
 client mutation id / idempotency key
+```
+
+Stored match fields:
+
+```text
+identity/access-policy fingerprint
+function reference
+canonical argument/request hash
 ```
 
 Stored result:
 
 ```text
-started/committed/failed
-commit_ts
+in_progress / committed
+epoch + commit_seq
 result_json
 error_json
 ```
 
+The successful result is written atomically with data, commit atoms, and
+outbox. Reusing the key for another identity, function, or request hash is an
+error.
+Only `committed` is replayable. OCC conflicts, SQL serialization/deadlock
+rollbacks, and transport uncertainty are not terminal replayable failures.
+Only the in-progress attempt lease expires. A committed key is never reusable:
+after the result replay window, retain a compact identity/function/request-hash
+and commit-token tombstone and return `CommittedResultExpired` to late retries.
+
 ### Payload-specific physical tables: defer
+
+Derive the logical contract from Payload `BaseDatabaseAdapter`, sanitized
+internal collections, and transaction/conformance tests rather than the table
+names below. Drafts are version semantics; collection and global versions are
+distinct; document-lock targets and owners can be polymorphic.
 
 Instead of creating dedicated physical tables immediately:
 
@@ -781,10 +958,13 @@ Recommendation:
 
 ```text
 v1:
-  Payload lifecycle as reserved CMS/system tables over row store
+  scalar Payload CRUD and request transactions through reserved logical
+  CMS/system collections over the row store
 
 v2:
-  dedicated physical Payload tables only if adapter performance/compatibility requires them
+  relations, versions/drafts, globals, auth/locks, preferences/jobs/migrations,
+  and hooks in conformance-tested slices; dedicated physical tables only if
+  adapter performance/compatibility requires them
 ```
 
 ## Concrete v1 write example
@@ -823,13 +1003,13 @@ fx_row_current:
   productReviews.review_1 = full review JSON
 
 fx_row_rev:
-  review_1 at commit_ts 100
+  review_1 at commit_seq 100
 
 fx_index_entry_current:
   byProductStatusCreatedAt [prod_123, approved, 1730000000, review_1]
 
 fx_index_entry_rev:
-  insert current index key at commit_ts 100
+  insert current index key at commit_seq 100
 
 fx_edge_current:
   review_1.product -> commerce.products.prod_123
@@ -839,7 +1019,7 @@ fx_unique_key:
   only if schema declares a unique constraint
 
 fx_commit:
-  commit_ts 100
+  commit_seq 100
 
 fx_outbox:
   notify live-query/search/cache/event workers
@@ -878,7 +1058,7 @@ fx_row_current:
   pages.home = full page JSON
 
 fx_row_rev:
-  pages.home at commit_ts 101
+  pages.home at commit_seq 101
 
 fx_index_entry_current:
   pages.bySlug [home]
@@ -889,7 +1069,7 @@ fx_edge_current:
   pages.home.sections.sec_1.settings.products[1] -> commerce.products.prod_2
 
 fx_commit:
-  commit_ts 101
+  commit_seq 101
 
 fx_outbox:
   invalidate page render/live preview
@@ -947,17 +1127,23 @@ commerce writes/deletes should go through ctx.commerce / trusted commerce adapte
 
 ## V1 implementation order
 
-1. `fx_table` with `schema_json`.
-2. `fx_row_current` / `fx_row_rev`.
-3. `fx_index_def` / `fx_index_entry_current` / `fx_index_entry_rev`.
-4. `fx_unique_key`.
-5. `fx_edge_current`.
-6. Commit/session/read/write staging.
-7. Outbox.
-8. Idempotency.
-9. Hidden block type indexes through `fx_index_entry_current`.
-10. Reserved CMS/Payload lifecycle tables as normal row-store tables.
-11. Only then consider physical `fx_field`, `fx_relation_def`, `fx_edge_rev`, or dedicated Payload tables.
+1. Add scope/epoch/commit-sequence tokens and a single active schema pointer.
+2. Add stable catalog IDs plus immutable schema manifests and index lifecycle.
+3. Add `fx_row_current` / `fx_row_rev` behind a storage-generation flag.
+4. Add stable `fx_index`, immutable `fx_index_def`, and current/revision entries
+   with a versioned ordered
+   key codec.
+5. Add `fx_unique_key` and stable-occurrence `fx_edge_current`.
+6. Add the fenced session anchor, snapshot lease, typed dependency validation,
+   result-bearing idempotency, commit atoms, and leased outbox.
+7. Prove point CRUD and one indexed query on PGlite and real Postgres.
+8. Backfill, verify, dual-read compare, scoped cut over, and preserve rollback.
+9. Add two-phase live-query activation and per-scope contiguous catch-up while
+   retaining the current Postgres subscription registry.
+10. Add hidden block-type indexes through `fx_index_entry_current` if needed.
+11. Add a scalar Payload adapter over reserved logical collections.
+12. Only then consider normalized catalog tables, `fx_edge_rev`, dedicated
+    Payload physical tables, or cache DOs.
 
 ## Documentation patch recommendation
 
@@ -971,6 +1157,11 @@ not v1 implementation inventory
 ```
 
 This cutline should be referenced wherever implementation starts, so future work does not accidentally build every table in the superset note before proving the core.
+
+Medusa is deliberately not part of this generic app-storage migration. Prove
+one small Medusa module separately through its real DML, link/joiner,
+migration, repository, workflow, and trusted Postgres transaction boundaries.
+There is no general atomic `ctx.db + ctx.commerce` transaction.
 
 ## Final rule
 
@@ -991,12 +1182,12 @@ For v1, the platform should be boring:
 ```text
 row JSON
 index entries
-edge entries
+stable edge occurrences
 unique keys
-commits
-read sets
-outbox
-idempotency
+exact snapshots + typed read sets
+commit/change atoms
+leased outbox
+result-bearing idempotency
 ```
 
 That is enough to prove the architecture without overbuilding it.

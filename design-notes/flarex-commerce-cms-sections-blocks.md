@@ -2,9 +2,18 @@
 
 Status: design note / long-term architecture superset
 
-Implementation cutline: see `design-notes/flarex-commerce-cms-v1-schema-cutline.md` before building this design. This file intentionally describes the broader architecture vocabulary; it is not the v1 physical schema inventory.
+Authoritative correction: see
+[`flarex-db-accepted-design.md`](./flarex-db-accepted-design.md), then
+[`flarex-commerce-cms-v1-schema-cutline.md`](./flarex-commerce-cms-v1-schema-cutline.md)
+before building this design. This file intentionally describes broader
+architecture vocabulary; it is not the v1 physical schema inventory. Any older
+session, snapshot, scope-key, idempotency, Payload-table, Medusa, or sync detail
+that conflicts with those documents is superseded.
 
-This note captures the agreed direction for supporting Payload-style blocks, Shopify-like commerce CMS section authoring, Flarex app relational schemas, commerce-aware schema APIs, and the internal relationship/edge layer that connects Flarex app/CMS rows to commerce/Medusa-reserved logical tables.
+This note captures the research direction for supporting Payload-style blocks,
+Shopify-like commerce CMS section authoring, Flarex app relational schemas,
+commerce-aware schema APIs, and the internal relationship/edge layer that
+connects Flarex app/CMS rows to commerce/Medusa-reserved logical tables.
 
 The goal is not to build a visual editor in v1. The goal is to define a durable schema, developer API, and storage model that can power a high-quality form-based block/section editor now, while leaving room for a future visual editor.
 

@@ -1,6 +1,65 @@
 # Postgres Executor
 
-## Commit Compiler And Session Intent Direction
+## Correct FlarexDB Commit And Adapter Boundaries
+
+Previous completed checkpoint: `01c11ab` Clarify SessionDO cache read bridge.
+
+What changed:
+
+- Corrected the focused commit-compiler roadmap so a SessionDO journal is a
+  bounded app-data optimization, not the authority for scope, schema, locks,
+  constraints, freshness, outbox, Payload, or Medusa.
+- Standardized the transaction snapshot on
+  `(scope_id, epoch, commit_seq)` instead of wall-clock `beginTs`.
+- Kept a small Postgres session/grant anchor for fencing, authority, snapshot
+  retention, idempotent finish, and uncertain-outcome recovery.
+- Separated generic Flarex app OCC, Payload adapter transactions, and
+  Medusa-owned trusted Postgres transactions.
+- Required physical sidecars, change atoms, system outbox, and result-bearing
+  idempotency to be derived and written by the trusted executor.
+
+Why it changed:
+
+The earlier design let a logical commit intent describe physical/system work,
+treated a newer cache value as valid for an older mutation snapshot, and used a
+Postgres fallback for query overlays that Postgres cannot see. It also implied
+that full Payload and Medusa transactions could use the generic journal before
+their read-your-writes and repository contracts were proven.
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - read validation and ordered publication remain backend authority.
+- `crates/database/src/transaction.rs`
+  - read-your-writes is transaction semantics, not a conservative dependency.
+- `crates/application/src/application_function_runner/mod.rs`
+  - durable session-request outcome checks and result replay.
+- `crates/model/src/session_requests/types.rs`
+  - result-bearing session request state.
+
+How Flarex differs:
+
+- Flarex crosses Dynamic Worker, Durable Object, and Postgres boundaries, so it
+  requires an explicit protocol version, attempt fence, journal digest,
+  authoritative grant, and lost-response lookup.
+- Payload and Medusa preserve their own adapter transaction boundaries while
+  participating in the same scope-local commit/change/outbox protocol.
+
+Known limitations:
+
+- Current code still uses Postgres invoke-session staging and wall-clock
+  `beginTs`; this checkpoint corrects the target design only.
+- Exact index/range/relation overlays and conflict checks remain unproven.
+- The per-scope commit lane is safe but needs real Postgres throughput and
+  deadlock/serialization tests.
+
+Verification:
+
+```sh
+git diff --check
+```
+
+## Superseded Commit Compiler And Session Intent Direction
 
 Previous completed checkpoint: `523a006` Refactor FlarexDB schema to enhance
 app data storage and indexing.
@@ -9,7 +68,7 @@ What changed:
 
 - Added the focused design record
   [35-commit-compiler-and-session-intent.md](./35-commit-compiler-and-session-intent.md).
-- Recorded the accepted executor direction: user-code execution should keep
+- Recorded the historical executor direction: user-code execution should keep
   read-set and staged-write intent in SessionDO/ExecutionDO SQLite where
   possible, then send a compact `CommitIntent` to Postgres for final
   OCC validation and publication.

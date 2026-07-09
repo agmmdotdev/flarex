@@ -1,5 +1,51 @@
 # Backend Data Model And Durable Object Shape
 
+## Accept Staged FlarexDB Data Model
+
+Previous completed checkpoint: `01c11ab` Clarify SessionDO cache read bridge.
+
+What changed:
+
+- Accepted typed app row JSON plus derived index, stable edge-occurrence, and
+  unique-key sidecars as the target app/CMS storage shape.
+- Kept Payload lifecycle as reserved logical collections for the first adapter
+  slices and Medusa commerce as real relational tables behind Medusa adapters.
+- Separated stable catalog identities from immutable versioned definitions and
+  added storage-generation backfill/dual-read/cutover/rollback requirements.
+- Kept the current document/index schema as an implemented compatibility
+  baseline instead of describing the proposal as already implemented.
+
+Why it changed:
+
+The previous schema examples could collide repeated/localized relation edges,
+mutate catalog identity across schema versions, and implied dedicated Payload
+tables and DML-only Medusa generation before their adapter contracts were
+proven.
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - revisions and derived write metadata share one authoritative commit.
+- `crates/database/src/reads.rs`
+  - typed row/range dependencies are part of correctness.
+
+How Flarex differs:
+
+- Hosted shared app storage uses stable logical table IDs over fixed physical
+  row/sidecar tables, while Medusa requires relational adapter-owned tables.
+- Durable Objects coordinate sessions and sync but do not own committed rows.
+
+Known limitations:
+
+- The proposed storage generation, tagged Flarex value codec, retention/GC,
+  Payload parity, and Medusa parity are unimplemented.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Partition Route Request Effects
 
 Previous completed checkpoint: `e752f33` Type registry create request boundary.

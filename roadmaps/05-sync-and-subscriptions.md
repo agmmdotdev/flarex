@@ -1,5 +1,57 @@
 # Sync And Subscriptions
 
+## Accept Per-Scope Contiguous Sync Topology
+
+Previous completed checkpoint: `01c11ab` Clarify SessionDO cache read bridge.
+
+What changed:
+
+- Accepted Postgres `(scope_id, epoch, commit_seq)` as the canonical sync feed.
+- Selected one deterministic DeploymentSyncDO per scope for the first target,
+  with durable SQLite cursor, canonical queries, dependency index, dirty state,
+  and rerun generations.
+- Required provisional initial registration plus refresh through the contiguous
+  cursor before publishing the first result.
+- Kept the current Postgres subscription registry during migration and added a
+  durable lagging-scope recovery owner.
+- Deferred VersionDO, DocCacheDO, and QueryCacheDO until the authoritative
+  invalidation/rerun loop is proven.
+
+Why it changed:
+
+The earlier cache-first topology did not close the initial registration race,
+could confuse a maximum observed sequence with gap-free progress, and relied on
+best-effort wakes before a durable recovery item necessarily existed.
+
+Convex references:
+
+- `crates/database/src/subscription.rs`
+  - subscription token refresh against processed writes.
+- `crates/sync/src/worker.rs`
+  - initial activation, rerun, and ordered publication.
+- `crates/sync/src/state.rs`
+  - query state, generations, and result-hash suppression.
+
+How Flarex differs:
+
+- Flarex separates Postgres authority from Cloudflare connections and must
+  persist explicit cursors, route by scope, catch up gaps, and recover after DO
+  eviction.
+
+Known limitations:
+
+- This is a design correction; current ConnectionDO/SchedulerDO behavior still
+  has the recorded execute-before-register, global scheduler, and lost-wake
+  gaps.
+- Real Postgres mutation-to-WebSocket recovery remains the required
+  correctness lane.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Live Query Callback Protocol Decoders
 
 Previous completed checkpoint: `b3badab` Decide executor HTTP adapter
@@ -4918,7 +4970,10 @@ corepack pnpm --filter @flarex/executor test
 git diff --check
 ```
 
-## Current Decision
+## Historical PartitionDO Decision (Superseded)
+
+This section describes the implemented DO-authoritative prototype. The
+per-scope Postgres-authoritative checkpoint at the top is the accepted target.
 
 Subscriptions should be read-set based, inspired by Convex. A query result
 should be accompanied by a read token. Later writes invalidate subscriptions
@@ -5307,7 +5362,7 @@ Validation:
 - `corepack pnpm --filter @flarex/example typecheck`
 - `corepack pnpm --filter @flarex/example build`
 
-## Postgres-Authoritative Sync Design Note
+## Historical Cache-First Postgres Sync Design Note
 
 Previous completed checkpoint: `d40b5ba` Remove legacy SDK route APIs.
 
@@ -5341,9 +5396,9 @@ subscription's required freshness.
 
 Known limitations:
 
-- This was originally recorded as an alternative authority model. After the
-  Postgres executor pivot, it is the forward sync authority model, but the
-  implementation is still not built.
+- Postgres authority remains accepted, but the VersionDO/DocCacheDO/
+  QueryCacheDO-first topology described here is superseded by the simpler
+  per-scope DeploymentSyncDO correctness design at the top of this roadmap.
 - Range freshness for indexed/list queries remains the hardest part.
 - Cache detection of staleness does not automatically provide the fresh row or
   query result; the runtime still needs no-cache fallback, replicated row

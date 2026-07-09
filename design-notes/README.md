@@ -1,7 +1,7 @@
 # Flarex Design Notes
 
-This folder holds exploratory design findings that are not implementation
-roadmaps yet.
+This folder holds accepted architecture decisions and exploratory design
+findings that are not implementation roadmaps yet.
 
 Use this folder for architecture comparisons, alternative authority models, and
 research write-ups that should inform later roadmap work but should not become
@@ -11,9 +11,13 @@ domain file.
 
 ## Notes
 
+- `flarex-db-accepted-design.md`
+  - Authoritative review and accepted correction for the unified FlarexDB
+    schema, commit compiler, sync engine, Payload adapter, and Medusa boundary.
+    When an older design note conflicts with it, this document controls.
+
 - `postgres-authoritative-sync.md`
-  - Postgres as source of truth with Cloudflare WebSocket/cache/freshness
-    layers.
+  - Accepted v1 Postgres-authoritative sync topology and deferred cache layers.
 - `postgres-multitenant-persistence-schema.md`
   - Implemented baseline for the current Convex-style generic document/index
     persistence. Future FlarexDB design notes supersede it for app/Payload
@@ -22,11 +26,14 @@ domain file.
   - Research note on evolving FlarexDB toward a Convex-like transactional
     runtime with InstantDB-inspired derived edges/indexes, while sharing one
     Flarex-owned data plane with Medusa commerce and Payload-style CMS logic.
+    Its mixed app/commerce transaction proposal is historical and is corrected
+    by `flarex-db-accepted-design.md`.
 - `flarex-internal-db-schema.md`
   - Proposed internal FlarexDB schema direction for platform catalog data,
     typed app/Payload JSON rows, relational sidecars, Medusa reserved system
     tables, commit/OCC metadata, outbox, sync cursors, locks, workflow state,
-    and optional internal read models.
+    and optional internal read models. Use its accepted-corrections section and
+    `flarex-db-accepted-design.md` for implementation decisions.
 - `flarex-developer-backend-api.md`
   - Proposed backend-only developer API for schemas, validators, relations,
     indexes, functions, `ctx.db`, transactions, commerce, CMS, live sync, and

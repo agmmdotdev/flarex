@@ -1,5 +1,8 @@
 # Flarex Developer Backend API
 
+Status: proposed API; transaction details are constrained by
+[`flarex-db-accepted-design.md`](./flarex-db-accepted-design.md)
+
 This note records the proposed developer-facing backend API for Flarex schema,
 database access, functions, transactions, live sync, CMS exposure, and commerce
 access.
@@ -726,24 +729,12 @@ Rules:
   consumers.
 - Transaction windows and total reads/writes have quotas.
 
-Cross app and commerce:
-
-```ts
-await ctx.db.transact(async (tx) => {
-  await tx.insert("campaigns", {
-    name: "Summer lessons",
-  })
-
-  await ctx.commerce.products.update(productId, {
-    metadata: { campaign: "summer-lessons" },
-  })
-})
-```
-
-This is allowed only when `ctx.commerce` operation enters through a
-Flarex-backed Medusa transaction manager/session. Medusa workflow success is
-not the commit authority; the outer FlarexDB commit decides whether app writes,
-commerce writes, workflow state, and grouped events are committed.
+`ctx.commerce` is not allowed inside generic `ctx.db.transact`. There is no
+automatic atomic app-and-commerce transaction. If extension state is part of a
+commerce invariant, the commerce extension exposes one Medusa-owned
+facade/workflow and its trusted transaction owns both the commerce rows and its
+extension rows. Ordinary app/display state references stable commerce IDs and
+follows commerce changes idempotently through the transactional outbox.
 
 ## ctx.commerce
 
@@ -769,7 +760,8 @@ Rules:
 - Medusa remains the behavior owner for commerce semantics.
 - Commerce reads/writes use the Flarex-backed Medusa adapter internally.
 - Public app code does not access Medusa reserved tables through `ctx.db`.
-- Commerce events are released after Flarex commit succeeds.
+- Commerce events are released after the Medusa-owned transaction commits its
+  commerce state plus Flarex change/outbox records.
 
 ## ctx.cms
 
@@ -1014,6 +1006,8 @@ projection primitives.
   markers as the schema source.
 - Use `ctx.db` for app data.
 - Use `ctx.commerce` for commerce behavior.
+- Do not expose a generic atomic transaction across `ctx.db` and
+  `ctx.commerce`; commerce-invariant extensions use a Medusa-owned facade.
 - Use `ctx.cms` only when Payload CMS lifecycle semantics are required.
 - Do not expose raw Medusa/Payload/SQL/storage internals.
 - Do not expose `ctx.db.projection(...)` as a primary public developer API.

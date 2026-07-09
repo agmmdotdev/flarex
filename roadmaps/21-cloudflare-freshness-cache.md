@@ -1,6 +1,79 @@
 # Cloudflare Freshness Cache
 
-## Cache DO Routing And Query Dependency Cleanup
+## Simplify V1 Sync And Defer Cache Authorities
+
+Previous completed checkpoint: `01c11ab` Clarify SessionDO cache read bridge.
+
+What changed:
+
+- Replaced the v1 `VersionDO + DocCacheDO + QueryCacheDO +
+  DeploymentSyncDO` dependency with one deterministic DeploymentSyncDO per
+  scope over a contiguous Postgres commit feed.
+- Required durable SQLite cursor, canonical query, dependency index,
+  dirty-through, in-flight, and generation state in DeploymentSyncDO.
+- Kept the implemented Postgres subscription registry and connection leases as
+  the migration/recovery baseline instead of removing them before DO recovery
+  parity exists.
+- Added two-phase initial subscription activation, ordered gap catch-up, a
+  durable lagging-scope sweep, generation-checked reruns, and identity/package
+  safe query keys.
+- Split exact mutation snapshot reads from live-query
+  `requiredFreshThrough`; cache sequence `>= begin` is no longer accepted as a
+  mutation snapshot proof.
+- Deferred VersionDO, DocCacheDO, and QueryCacheDO until measurements and a
+  gap-free cache stream justify them.
+
+Why it changed:
+
+The earlier design could advance a maximum observed sequence across missing
+commits, miss a commit between query execution and registration, share cached
+results across identity/package changes, and lose a wake before any delivery
+row existed. It also added three cache actors before the authoritative
+invalidation/rerun loop was proven.
+
+Current P0 implementation findings:
+
+- `connectionDO.ts` executes before durable registration.
+- one global SchedulerDO name and singleton pending/in-flight rerun state can
+  conflate unrelated deployments.
+- the post-commit wake is best-effort and scheduled recovery does not own the
+  pre-rerun trigger gap.
+- concurrent reruns need compare-and-swap generations.
+
+Convex references:
+
+- `crates/database/src/subscription.rs`
+  - refresh query tokens against already processed writes.
+- `crates/sync/src/worker.rs`
+  - subscription activation, rerun, and ordered publication.
+- `crates/sync/src/state.rs`
+  - canonical query state and result-hash suppression.
+- `crates/database/src/committer.rs`
+  - committed write metadata drives invalidation.
+
+How Flarex differs:
+
+- Convex keeps commit processing and sync workers close together. Flarex needs
+  explicit per-scope actor routing, durable lag detection, Postgres catch-up,
+  and recovery across Cloudflare eviction.
+- The Postgres registry is temporary compatibility state, but it remains until
+  another durable owner passes eviction/reconnect parity.
+
+Known limitations:
+
+- The accepted per-scope DeploymentSyncDO topology is not implemented.
+- Current sync still performs broad Postgres subscription scans.
+- Typed range keys, retention floors, per-scope capacity, and the durable sweep
+  owner remain implementation gates.
+- Real Postgres mutation-to-WebSocket recovery is still required.
+
+Verification:
+
+```sh
+git diff --check
+```
+
+## Superseded Cache DO Routing And Query Dependency Cleanup
 
 Previous completed checkpoint: `fc5a78b` Document commit compiler session
 intent.
@@ -67,7 +140,7 @@ Verification:
 git diff --check
 ```
 
-## SessionDO Cache Read Bridge
+## Superseded SessionDO Cache Read Bridge
 
 Previous completed checkpoint: `44e5f54` Clarify cache DO routing design.
 
@@ -1634,7 +1707,10 @@ Verification:
 git diff --check
 ```
 
-## Decision
+## Historical Cache-First Decision (Superseded)
+
+This section records the older cache-first proposal. The checkpoint at the top
+of this roadmap supersedes its VersionDO/DocCacheDO/QueryCacheDO phase order.
 
 Cloudflare cache layers are part of the future Postgres-authoritative design,
 but they are not the source of truth.
@@ -1655,7 +1731,7 @@ The cache layer exists to reduce executor/Postgres read pressure and make
 live-query fanout efficient. It must be rebuildable from Postgres commit/outbox
 state and must never be used as the authoritative write path.
 
-The forward design uses internal `scope_id` and dependency keys. Legacy
+The historical design used internal `scope_id` and dependency keys. Legacy
 `PartitionDO`, same-partition routing, and client-visible partition keys are not
 the target cache architecture.
 

@@ -1,5 +1,13 @@
 # Flarex Internal Database Schema Direction
 
+Status: accepted logical target with an explicit staged v1 cutline; not the
+currently implemented schema
+
+Authoritative correction: see
+[`flarex-db-accepted-design.md`](./flarex-db-accepted-design.md). When an older
+example in this long-form note conflicts with that decision record or the v1
+cutline below, the accepted design controls.
+
 ## Purpose
 
 This note is the current internal FlarexDB schema direction after the Medusa,
@@ -19,12 +27,47 @@ current direction:
   app/Payload data is stored as typed JSON rows plus relational sidecars
   Medusa data is stored in Flarex-owned reserved relational system tables
   Flarex server query functions are the default sync unit
-  DeploymentSyncDO caches/reruns/fans out live query results
+  one DeploymentSyncDO per scope tracks a contiguous commit cursor, reruns,
+  and fanout
   projections/read models are optional internal optimizations only
 ```
 
 This is a logical schema direction, not a finished migration file. Exact
 physical names can change, but ownership boundaries should not.
+
+## Accepted Corrections And Status
+
+This note previously blended a long-term schema, a v1 inventory, and an
+unimplemented SessionDO/cache design. Use these statuses:
+
+| Item | Status |
+| --- | --- |
+| Current `documents`, `indexes`, Postgres invoke sessions, subscriptions, and outbox | Implemented compatibility baseline |
+| Typed app row JSON plus derived index/edge/unique sidecars | Accepted target, introduced behind a storage generation |
+| Edge revision history | Long-term target; current-only stable occurrence rows are sufficient for the first slice when commit atoms cover invalidation |
+| Dedicated physical Payload lifecycle tables | Deferred until adapter parity or measurement; start with reserved logical collections |
+| Medusa relational tables | Accepted, but generated from DML, links/joiner metadata, migrations, and adapter capabilities; not DML alone |
+| Generic SessionDO for Payload/Medusa | Rejected as a v1 assumption |
+| Per-scope DeploymentSyncDO plus Postgres commit feed/registry | Accepted v1 sync migration |
+| VersionDO, DocCacheDO, QueryCacheDO | Deferred optimization |
+
+Additional invariants:
+
+- `scope_id` is mandatory authority in shared-table data and operational state
+  and participates in every primary key, unique constraint, and intra-scope
+  foreign key. Control catalog IDs may be globally unique, but composite
+  foreign keys must prevent definitions from mixing deployments.
+- One `SnapshotToken { scopeId, epoch, commitSeq }` replaces ambiguous
+  wall-clock `beginTs` comparisons.
+- Stable catalog identities are separated from immutable versioned
+  definitions.
+- Relation sidecars key each occurrence, including nested path and locale; a
+  repeated target must not collide with another occurrence.
+- A generic `ctx.db + ctx.commerce` atomic transaction is not supported.
+  Commerce-affecting atomic behavior belongs behind a Medusa-owned
+  facade/workflow and trusted transaction lane.
+- The replacement schema uses flag, backfill, verification, dual-read
+  comparison, scoped cutover, and rollback rather than an in-place rewrite.
 
 ## Canonical Storage Rule
 
@@ -53,8 +96,9 @@ This is not a loose document database and not pure InstantDB-style EAV. It is a
 typed relational row store with JSON value bodies and normalized sidecars.
 
 Medusa is different: Medusa commerce data uses Flarex-owned reserved relational
-system tables generated from Medusa DML. Medusa rows are not stored in the
-generic app/Payload row table.
+system tables generated from DML, link/joiner metadata, migration history, and
+adapter capabilities. Medusa rows are not stored in the generic app/Payload row
+table.
 
 ## Core Rules
 
@@ -69,14 +113,15 @@ generic app/Payload row table.
   App tables remain logical tables in the catalog, not one physical Postgres
   table per app table.
 - Payload CMS content can share Flarex app storage for CMS-marked app tables,
-  while Payload lifecycle/system state uses fixed `fx_payload_*` tables.
+  while Payload lifecycle/system state starts as reserved logical collections;
+  dedicated `fx_payload_*` tables are a later parity/performance choice.
 - Payload blocks, arrays, rich text, groups, and localized values stay embedded
   in the authoritative row by default. Only declared queryable fields,
   relationships/uploads, uniqueness, and block metadata are extracted into
   sidecars.
-- Medusa data is generated from Medusa DML into reserved relational system
-  tables. Medusa Product, Cart, Order, Pricing, Inventory, workflow, and link
-  tables are not stored in generic app row storage.
+- Medusa data is generated from its complete persistence manifest into reserved
+  relational system tables. Product, Cart, Order, Pricing, Inventory, workflow,
+  and link tables are not stored in generic app row storage.
 - Payload and Medusa adapters call internal FlarexDB APIs, not raw Postgres.
 - Live sync reads server query results by default. It does not require a
   browser-side database.
@@ -105,11 +150,13 @@ fx_app.*
   app indexes, block metadata indexes, and app unique keys
 
 fx_payload.*
-  fixed Payload/CMS system tables for drafts, versions, uploads, auth, locks,
-  globals, and scheduled publish
+  reserved Payload/CMS logical collections first; optional dedicated physical
+  tables later for drafts, versions, uploads, auth, locks, globals, and
+  scheduled publish
 
 fx_medusa.*
-  Medusa DML-generated reserved commerce tables
+  Medusa reserved commerce tables generated from DML, link/joiner metadata,
+  migration history, and adapter capabilities
 
 fx_system.*
   commits, OCC, idempotency, locks, workflow state, outbox
@@ -157,7 +204,6 @@ fx_control_deployment (
   id text primary key,
   project_id text not null,
   environment text not null,
-  active_schema_version_id text,
   status text not null,
   created_at timestamptz not null
 )
@@ -172,7 +218,11 @@ fx_control_scope (
   isolation_kind text not null, -- shared_database, schema_per_scope, database_per_scope
   physical_locator_json jsonb,
   created_at timestamptz not null,
-  unique (deployment_id)
+  unique (deployment_id),
+  unique (id, deployment_id),
+  foreign key (deployment_id) references fx_control_deployment (id),
+  foreign key (deployment_id, active_schema_version_id)
+    references fx_control_schema_version (deployment_id, id)
 )
 
 fx_control_schema_version (
@@ -182,27 +232,61 @@ fx_control_schema_version (
   checksum text not null,
   status text not null,
   created_at timestamptz not null,
-  unique (deployment_id, version)
+  unique (deployment_id, version),
+  unique (deployment_id, id),
+  foreign key (deployment_id) references fx_control_deployment (id)
 )
 ```
 
-Schema catalog:
+`fx_control_scope.active_schema_version_id` is the only data-plane activation
+pointer. Deployment records may expose a derived/control-plane view, but must
+not own a second independently mutable active version.
+
+Schema catalog separates stable identities from versioned definitions:
 
 ```sql
 fx_control_table (
   id text primary key,
-  schema_version_id text not null,
+  deployment_id text not null,
   namespace text not null, -- app, payload, medusa, system
   logical_name text not null,
-  physical_name text not null,
   access_policy text not null, -- public_ctx_db, payload_only, medusa_reserved, system
   cms_enabled boolean not null default false,
   created_at timestamptz not null,
-  unique (schema_version_id, namespace, logical_name)
+  unique (deployment_id, namespace, logical_name),
+  unique (deployment_id, id),
+  foreign key (deployment_id) references fx_control_deployment (id)
+)
+
+fx_control_table_definition (
+  deployment_id text not null,
+  schema_version_id text not null,
+  table_id text not null,
+  physical_name text not null,
+  definition_json jsonb not null,
+  primary key (deployment_id, schema_version_id, table_id),
+  foreign key (deployment_id, schema_version_id)
+    references fx_control_schema_version (deployment_id, id),
+  foreign key (deployment_id, table_id)
+    references fx_control_table (deployment_id, id)
 )
 
 fx_control_column (
   id text primary key,
+  deployment_id text not null,
+  table_id text not null,
+  stable_name text not null,
+  created_at timestamptz not null,
+  unique (deployment_id, id),
+  unique (deployment_id, table_id, stable_name),
+  foreign key (deployment_id, table_id)
+    references fx_control_table (deployment_id, id)
+)
+
+fx_control_column_definition (
+  deployment_id text not null,
+  schema_version_id text not null,
+  column_id text not null,
   table_id text not null,
   logical_name text not null,
   physical_name text not null,
@@ -210,37 +294,104 @@ fx_control_column (
   nullable boolean not null,
   unique_key boolean not null default false,
   cms_metadata jsonb,
-  created_at timestamptz not null,
-  unique (table_id, logical_name)
+  primary key (deployment_id, schema_version_id, column_id),
+  unique (deployment_id, schema_version_id, table_id, logical_name),
+  foreign key (deployment_id, schema_version_id)
+    references fx_control_schema_version (deployment_id, id),
+  foreign key (deployment_id, column_id)
+    references fx_control_column (deployment_id, id),
+  foreign key (deployment_id, table_id)
+    references fx_control_table (deployment_id, id)
 )
 
 fx_control_index (
   id text primary key,
+  deployment_id text not null,
   table_id text not null,
   name text not null,
+  created_at timestamptz not null,
+  unique (deployment_id, id),
+  unique (deployment_id, table_id, name),
+  foreign key (deployment_id, table_id)
+    references fx_control_table (deployment_id, id)
+)
+
+fx_control_index_definition (
+  deployment_id text not null,
+  schema_version_id text not null,
+  index_id text not null,
   columns_json jsonb not null,
   unique_index boolean not null default false,
   predicate_json jsonb,
-  created_at timestamptz not null,
-  unique (table_id, name)
+  key_codec_version integer not null,
+  primary key (deployment_id, schema_version_id, index_id),
+  foreign key (deployment_id, schema_version_id)
+    references fx_control_schema_version (deployment_id, id),
+  foreign key (deployment_id, index_id)
+    references fx_control_index (deployment_id, id)
+)
+
+fx_control_index_build_state (
+  scope_id text not null,
+  deployment_id text not null,
+  schema_version_id text not null,
+  index_id text not null,
+  lifecycle text not null, -- building, backfilling, validating, enabled, retiring
+  backfill_cursor_json jsonb,
+  attempt integer not null default 0,
+  updated_at timestamptz not null,
+  primary key (scope_id, schema_version_id, index_id),
+  foreign key (scope_id, deployment_id)
+    references fx_control_scope (id, deployment_id),
+  foreign key (deployment_id, schema_version_id, index_id)
+    references fx_control_index_definition (deployment_id, schema_version_id, index_id)
 )
 
 fx_control_constraint (
   id text primary key,
+  deployment_id text not null,
   table_id text not null,
   name text not null,
+  created_at timestamptz not null,
+  unique (deployment_id, id),
+  unique (deployment_id, table_id, name),
+  foreign key (deployment_id, table_id)
+    references fx_control_table (deployment_id, id)
+)
+
+fx_control_constraint_definition (
+  deployment_id text not null,
+  schema_version_id text not null,
+  constraint_id text not null,
   constraint_kind text not null, -- not_null, check, foreign_key, unique, exclusion
   definition_json jsonb not null,
-  created_at timestamptz not null,
-  unique (table_id, name)
+  primary key (deployment_id, schema_version_id, constraint_id),
+  foreign key (deployment_id, schema_version_id)
+    references fx_control_schema_version (deployment_id, id),
+  foreign key (deployment_id, constraint_id)
+    references fx_control_constraint (deployment_id, id)
 )
 
 fx_control_relation (
   id text primary key,
-  schema_version_id text not null,
+  deployment_id text not null,
   source_table_id text not null,
-  source_field text not null,
   target_table_id text,
+  stable_name text not null,
+  created_at timestamptz not null,
+  unique (deployment_id, id),
+  unique (deployment_id, source_table_id, stable_name),
+  foreign key (deployment_id, source_table_id)
+    references fx_control_table (deployment_id, id),
+  foreign key (deployment_id, target_table_id)
+    references fx_control_table (deployment_id, id)
+)
+
+fx_control_relation_definition (
+  deployment_id text not null,
+  schema_version_id text not null,
+  relation_id text not null,
+  source_field text not null,
   relation_kind text not null, -- one, many, one_of, many_of, back
   polymorphic_targets_json jsonb,
   ordered boolean not null default false,
@@ -249,19 +400,39 @@ fx_control_relation (
   source_graph_label text,
   target_graph_label text,
   graph_exposable boolean not null default false,
-  created_at timestamptz not null
+  primary key (deployment_id, schema_version_id, relation_id),
+  foreign key (deployment_id, schema_version_id)
+    references fx_control_schema_version (deployment_id, id),
+  foreign key (deployment_id, relation_id)
+    references fx_control_relation (deployment_id, id)
 )
 
 fx_control_migration (
-  id text primary key,
+  id text not null,
   scope_id text not null,
+  deployment_id text not null,
   schema_version_id text not null,
+  owner_module text not null,
   migration_name text not null,
+  checksum text not null,
+  depends_on_json jsonb not null,
+  direction text not null,
+  transactional_mode text not null,
   status text not null, -- planned, running, applied, failed, rolled_back
+  attempt integer not null default 0,
+  lease_owner text,
+  lease_fence bigint,
+  lease_expires_at timestamptz,
+  backfill_cursor_json jsonb,
   started_at timestamptz,
   finished_at timestamptz,
   error_json jsonb,
-  unique (scope_id, schema_version_id, migration_name)
+  primary key (scope_id, id),
+  unique (scope_id, schema_version_id, migration_name),
+  foreign key (scope_id, deployment_id)
+    references fx_control_scope (id, deployment_id),
+  foreign key (deployment_id, schema_version_id)
+    references fx_control_schema_version (deployment_id, id)
 )
 ```
 
@@ -313,10 +484,11 @@ into shared row-history/current tables:
 ```sql
 fx_app_row_rev (
   scope_id text not null,
+  epoch text not null,
   table_id text not null,
   row_id text not null,
-  commit_ts bigint not null,
-  prev_commit_ts bigint,
+  commit_seq bigint not null,
+  prev_commit_seq bigint,
   schema_version_id text not null,
 
   data_json jsonb not null,
@@ -328,20 +500,21 @@ fx_app_row_rev (
   status text,
   deleted boolean not null default false,
 
-  primary key (scope_id, table_id, row_id, commit_ts)
+  primary key (scope_id, table_id, row_id, commit_seq)
 )
 
 create index fx_app_row_rev_latest_idx
-  on fx_app_row_rev (scope_id, table_id, row_id, commit_ts desc);
+  on fx_app_row_rev (scope_id, table_id, row_id, commit_seq desc);
 
 create index fx_app_row_rev_commit_idx
-  on fx_app_row_rev (scope_id, table_id, commit_ts);
+  on fx_app_row_rev (scope_id, table_id, commit_seq);
 
 fx_app_row_current (
   scope_id text not null,
+  epoch text not null,
   table_id text not null,
   row_id text not null,
-  commit_ts bigint not null,
+  commit_seq bigint not null,
   schema_version_id text not null,
 
   data_json jsonb not null,
@@ -373,6 +546,9 @@ lookups, access checks, invalidation, and generated relation APIs:
 ```sql
 fx_app_edge_rev (
   scope_id text not null,
+  epoch text not null,
+  edge_id text not null,
+  occurrence_key text not null,
   relation_id text not null,
   source_table_id text not null,
   source_row_id text not null,
@@ -383,17 +559,13 @@ fx_app_edge_rev (
   position integer,
   locale text,
   metadata_json jsonb,
-  commit_ts bigint not null,
+  commit_seq bigint not null,
   deleted boolean not null default false,
 
   primary key (
     scope_id,
-    relation_id,
-    source_table_id,
-    source_row_id,
-    target_table_id,
-    target_row_id,
-    commit_ts
+    edge_id,
+    commit_seq
   )
 )
 
@@ -404,7 +576,7 @@ create index fx_app_edge_rev_source_idx
     source_table_id,
     source_row_id,
     position,
-    commit_ts desc
+    commit_seq desc
   );
 
 create index fx_app_edge_rev_target_idx
@@ -413,11 +585,14 @@ create index fx_app_edge_rev_target_idx
     relation_id,
     target_table_id,
     target_row_id,
-    commit_ts desc
+    commit_seq desc
   );
 
 fx_app_edge_current (
   scope_id text not null,
+  epoch text not null,
+  edge_id text not null,
+  occurrence_key text not null,
   relation_id text not null,
   source_table_id text not null,
   source_row_id text not null,
@@ -428,15 +603,9 @@ fx_app_edge_current (
   position integer,
   locale text,
   metadata_json jsonb,
-  commit_ts bigint not null,
-  primary key (
-    scope_id,
-    relation_id,
-    source_table_id,
-    source_row_id,
-    target_table_id,
-    target_row_id
-  )
+  commit_seq bigint not null,
+  primary key (scope_id, edge_id),
+  unique (scope_id, relation_id, source_table_id, source_row_id, occurrence_key)
 )
 
 create index fx_app_edge_current_source_idx
@@ -454,8 +623,14 @@ create index fx_app_edge_current_target_idx
     relation_id,
     target_table_id,
     target_row_id
-  );
+);
 ```
+
+`edge_id` is a stable occurrence identity derived from relation id, source row,
+stable nested item/block id, field path, locale, and occurrence identity.
+`position` is mutable ordering metadata and is not identity. This allows the
+same target to appear more than once, in more than one locale, or under more
+than one nested path without a primary-key collision.
 
 Declared app indexes are not arbitrary JSON scans. The compiler writes index
 rows when app rows change:
@@ -463,10 +638,11 @@ rows when app rows change:
 ```sql
 fx_app_index_entry_rev (
   scope_id text not null,
+  epoch text not null,
   index_id text not null,
   table_id text not null,
   row_id text not null,
-  commit_ts bigint not null,
+  commit_seq bigint not null,
 
   encoded_key bytea not null,
   key_hash bytea not null,
@@ -474,7 +650,7 @@ fx_app_index_entry_rev (
   locale text,
   deleted boolean not null default false,
 
-  primary key (scope_id, index_id, key_hash, row_id, commit_ts)
+  primary key (scope_id, index_id, key_hash, row_id, commit_seq)
 )
 
 create index fx_app_index_entry_rev_scan_idx
@@ -483,15 +659,16 @@ create index fx_app_index_entry_rev_scan_idx
     index_id,
     encoded_key,
     row_id,
-    commit_ts desc
+    commit_seq desc
   );
 
 fx_app_index_entry_current (
   scope_id text not null,
+  epoch text not null,
   index_id text not null,
   table_id text not null,
   row_id text not null,
-  commit_ts bigint not null,
+  commit_seq bigint not null,
 
   encoded_key bytea not null,
   key_hash bytea not null,
@@ -516,16 +693,21 @@ Declared unique constraints use a fixed unique-key table:
 ```sql
 fx_app_unique_key (
   scope_id text not null,
+  epoch text not null,
   constraint_id text not null,
   key_hash text not null,
   key_json jsonb not null,
   table_id text not null,
   row_id text not null,
-  locale text,
-  commit_ts bigint not null,
-  primary key (scope_id, constraint_id, key_hash)
+  locale_key text not null default '',
+  commit_seq bigint not null,
+  primary key (scope_id, constraint_id, locale_key, key_hash)
 )
 ```
+
+`locale_key` is empty for non-localized constraints and the normalized locale
+for localized constraints. The same normalized locale is included in the
+canonical key encoding/hash.
 
 This keeps hosted Flarex from creating thousands of physical app tables while
 still preserving logical tables, relations, indexes, uniqueness, OCC, and live
@@ -572,15 +754,16 @@ Optional block metadata table:
 ```sql
 fx_app_block_index (
   scope_id text not null,
+  epoch text not null,
   table_id text not null,
   row_id text not null,
   field_path text not null,
   block_id text not null,
   block_type text not null,
   position integer not null,
-  locale text,
-  commit_ts bigint not null,
-  primary key (scope_id, table_id, row_id, field_path, block_id)
+  locale_key text not null default '',
+  commit_seq bigint not null,
+  primary key (scope_id, table_id, row_id, field_path, locale_key, block_id)
 )
 
 create index fx_app_block_index_type_idx
@@ -588,13 +771,14 @@ create index fx_app_block_index_type_idx
     scope_id,
     table_id,
     field_path,
+    locale_key,
     block_type,
     row_id
   );
 ```
 
 If block metadata participates in OCC or sync invalidation, it must be updated
-inside the same final commit as the row and either carry `commit_ts` or be
+inside the same final commit as the row and either carry `commit_seq` or be
 represented by normal revision/current sidecars.
 
 Do not store Medusa commerce data in `fx_app_row_current` or
@@ -602,10 +786,17 @@ Do not store Medusa commerce data in `fx_app_row_current` or
 Payload lifecycle state in app rows unless it is normal CMS content for a
 CMS-marked app table.
 
-Payload complex fields use shared app storage for normal CMS content. The fixed
-Payload system tables are for lifecycle state that Payload owns: versions,
-drafts, uploads, globals, document locks, scheduled publish, and auth/session
-state.
+Payload complex fields use shared app storage for normal CMS content. Reserved
+logical Payload collections initially hold lifecycle state that Payload owns:
+versions, drafts, uploads, globals, document locks, scheduled publish, and
+auth/session state. Dedicated tables below are optional later mappings.
+
+For v1, represent these as reserved logical Payload collections over the app
+row store and derive their exact shape from `BaseDatabaseAdapter` plus adapter
+conformance. The physical tables below are long-term examples, not the first
+implementation inventory. In particular, drafts are version semantics,
+collection and global versions are distinct, and lock target/owner identities
+must support globals and polymorphic auth collections.
 
 Do not create `fx_payload_child_entity` by default. It is a possible v2 escape
 hatch for block-level editing/querying at scale, not the v1 representation for
@@ -614,7 +805,7 @@ declared index/edge/block metadata sidecars.
 
 ```sql
 fx_payload_version (
-  id text primary key,
+  id text not null,
   scope_id text not null,
   collection text not null,
   document_id text not null,
@@ -622,6 +813,7 @@ fx_payload_version (
   snapshot_json jsonb not null,
   created_by text,
   created_at timestamptz not null,
+  primary key (scope_id, id),
   unique (scope_id, collection, document_id, version_number)
 )
 
@@ -636,7 +828,7 @@ fx_payload_draft (
 )
 
 fx_payload_upload (
-  id text primary key,
+  id text not null,
   scope_id text not null,
   collection text not null,
   document_id text not null,
@@ -646,7 +838,8 @@ fx_payload_upload (
   mime_type text not null,
   size_bytes bigint not null,
   metadata jsonb,
-  created_at timestamptz not null
+  created_at timestamptz not null,
+  primary key (scope_id, id)
 )
 
 fx_payload_global_state (
@@ -670,7 +863,7 @@ fx_payload_document_lock (
 )
 
 fx_payload_scheduled_publish (
-  id text primary key,
+  id text not null,
   scope_id text not null,
   collection text not null,
   document_id text not null,
@@ -678,11 +871,12 @@ fx_payload_scheduled_publish (
   run_at timestamptz not null,
   status text not null,
   created_at timestamptz not null,
-  updated_at timestamptz not null
+  updated_at timestamptz not null,
+  primary key (scope_id, id)
 )
 
 fx_payload_auth_account (
-  id text primary key,
+  id text not null,
   scope_id text not null,
   collection text not null,
   document_id text not null,
@@ -693,17 +887,22 @@ fx_payload_auth_account (
   reset_token_hash text,
   reset_token_expires_at timestamptz,
   metadata jsonb,
+  primary key (scope_id, id),
   unique (scope_id, collection, email),
   unique (scope_id, collection, username)
 )
 
 fx_payload_session (
-  id text primary key,
+  id text not null,
   scope_id text not null,
   account_id text not null,
-  token_hash text not null unique,
+  token_hash text not null,
   expires_at timestamptz not null,
-  created_at timestamptz not null
+  created_at timestamptz not null,
+  primary key (scope_id, id),
+  unique (scope_id, token_hash),
+  foreign key (scope_id, account_id)
+    references fx_payload_auth_account (scope_id, id)
 )
 ```
 
@@ -711,20 +910,21 @@ Payload uses these through `@payloadcms/db-flarex`. Public `ctx.db` can read or
 write CMS-marked app tables only according to the collection write policy.
 Lifecycle-sensitive fields can be `payload_only`.
 
-Only generate Payload system tables when the corresponding feature is enabled.
-For simple CMS-marked logical app tables, shared app rows plus app edges may be
-enough.
+Only generate dedicated Payload system tables after the adapter slice and
+measurement justify them, and only for enabled features. For simple CMS-marked
+logical app tables, shared app rows plus app edges may be enough.
 
 ## Medusa Reserved Tables
 
-Medusa tables are real relational tables generated from Medusa DML, but they are
+Medusa tables are real relational tables generated from Medusa DML, link/joiner
+metadata, migration history, and declared custom adapter capabilities. They are
 reserved. App developers do not access them through public `ctx.db`.
 
 Example shape:
 
 ```sql
 fx_medusa_product (
-  id text primary key,
+  id text not null,
   scope_id text not null,
   title text not null,
   handle text,
@@ -733,7 +933,8 @@ fx_medusa_product (
   fx_version bigint not null,
   deleted_at timestamptz,
   created_at timestamptz not null,
-  updated_at timestamptz not null
+  updated_at timestamptz not null,
+  primary key (scope_id, id)
 )
 
 create unique index fx_medusa_product_handle_uq
@@ -741,7 +942,7 @@ create unique index fx_medusa_product_handle_uq
   where deleted_at is null;
 
 fx_medusa_product_variant (
-  id text primary key,
+  id text not null,
   scope_id text not null,
   product_id text not null,
   title text not null,
@@ -750,7 +951,10 @@ fx_medusa_product_variant (
   fx_version bigint not null,
   deleted_at timestamptz,
   created_at timestamptz not null,
-  updated_at timestamptz not null
+  updated_at timestamptz not null,
+  primary key (scope_id, id),
+  foreign key (scope_id, product_id)
+    references fx_medusa_product (scope_id, id)
 )
 
 fx_medusa_link_product_sales_channel (
@@ -759,13 +963,17 @@ fx_medusa_link_product_sales_channel (
   sales_channel_id text not null,
   fx_version bigint not null,
   deleted_at timestamptz,
-  primary key (scope_id, product_id, sales_channel_id)
+  primary key (scope_id, product_id, sales_channel_id),
+  foreign key (scope_id, product_id)
+    references fx_medusa_product (scope_id, id)
 )
 ```
 
 Rules:
 
-- Medusa DML is the schema source for `fx_medusa_*`.
+- Medusa DML is one schema input for `fx_medusa_*`; ModuleJoinerConfig/link
+  definitions, ModuleMigrationAdapter history, backfills/triggers, and custom
+  repository/provider capabilities are also required.
 - Medusa services/workflows access these tables through the Flarex-backed
   Medusa adapter.
 - Medusa modules or services that use raw SQL, database-specific query helpers,
@@ -775,6 +983,12 @@ Rules:
   app edge sidecars, not as public Medusa Module Links.
 - Internal Medusa Module Links remain allowed where original Medusa expects
   them.
+- Shared physical Medusa tables require one homogeneous platform Medusa schema
+  and module set. Staggered versions or custom modules use per-scope
+  schemas/databases until another safe strategy is proven.
+- Medusa reads are current relational reads inside a Medusa-owned transaction.
+  They are not generic SessionDO exact-snapshot reads unless a separate MVCC
+  representation and complete query overlay are implemented.
 
 ## Commit, OCC, And Transaction Tables
 
@@ -801,14 +1015,16 @@ fx_system_commit (
   mutation_id text,
   summary_json jsonb not null,
   committed_at timestamptz not null,
-  primary key (scope_id, commit_seq)
+  primary key (scope_id, commit_seq),
+  unique (scope_id, epoch, commit_seq)
 )
 
 create index fx_commit_source_idx
-  on fx_system_commit (scope_id, source, committed_at);
+  on fx_system_commit (scope_id, epoch, source, committed_at);
 
 fx_system_commit_write (
   scope_id text not null,
+  epoch text not null,
   commit_seq bigint not null,
   write_id text not null,
   namespace text not null,
@@ -816,15 +1032,32 @@ fx_system_commit_write (
   row_id text,
   relation_key text,
   index_key text,
+  dependency_key_json jsonb,
+  key_codec_version integer,
   operation text not null,
-  primary key (scope_id, commit_seq, write_id)
+  primary key (scope_id, commit_seq, write_id),
+  foreign key (scope_id, epoch, commit_seq)
+    references fx_system_commit (scope_id, epoch, commit_seq)
 )
 
 create index fx_commit_write_lookup_idx
-  on fx_system_commit_write (scope_id, namespace, table_name, row_id, relation_key, index_key);
+  on fx_system_commit_write (scope_id, epoch, namespace, table_name, row_id, relation_key, index_key);
 ```
 
-OCC/read validation can be stored compactly for retries, debugging, and recovery:
+The authoritative snapshot token is `(scope_id, epoch, commit_seq)`. Do not use
+wall-clock time as the transaction begin token.
+
+Epoch rollover fences every old session and subscription and forces a full
+resnapshot, but it does not reset authoritative data. Scope-local commit/outbox
+sequences remain monotonic and are never reused. Current rows and uniqueness
+keys stay epoch-independent; durable tokens/cursors still store epoch so an
+old-epoch attempt cannot commit.
+An epoch column on a persisted row records the epoch of its last write; readers
+do not hide untouched rows merely because their write epoch is older.
+
+The active read/write journal may live in SessionDO SQLite for supported app
+operations, but Postgres keeps a small authoritative session/grant anchor and
+snapshot lease for authority, fencing, idempotent recovery, and history GC:
 
 `fx_system_scope_clock` is locked only during the final trusted commit phase.
 Do not hold this row lock while user code, Payload hooks, Medusa workflow steps,
@@ -832,18 +1065,48 @@ network calls, or long actions are running.
 
 ```sql
 fx_system_tx_session (
-  id text primary key,
+  id text not null,
   scope_id text not null,
-  actor_id text,
-  state text not null, -- staged, committing, committed, aborted, expired
-  read_set_json jsonb not null,
-  write_intent_json jsonb not null,
+  state text not null, -- created, running, finishing, committing, committed, aborted, expired
+  attempt_fence bigint not null,
+  protocol_version integer not null,
+  package_hash text not null,
+  function_ref text not null,
+  identity_fingerprint text not null,
+  authorization_grant_id text not null,
+  authorization_grant_json jsonb not null,
+  authorization_revocation_epoch bigint not null,
+  validated_args_json jsonb not null,
+  schema_version_id text not null,
+  policy_version text not null,
+  begin_epoch text not null,
+  begin_commit_seq bigint not null,
+  request_key text not null,
+  request_hash text not null,
+  last_syscall_seq bigint not null default 0,
+  journal_digest text,
+  result_json jsonb,
+  error_json jsonb,
+  committed_epoch text,
+  committed_seq bigint,
   created_at timestamptz not null,
-  expires_at timestamptz not null
+  updated_at timestamptz not null,
+  expires_at timestamptz not null,
+  primary key (scope_id, id)
+)
+
+fx_system_snapshot_lease (
+  scope_id text not null,
+  session_id text not null,
+  begin_epoch text not null,
+  begin_commit_seq bigint not null,
+  generation bigint not null,
+  expires_at timestamptz not null,
+  primary key (scope_id, session_id)
 )
 
 fx_system_tx_dependency (
-  id text primary key,
+  id text not null,
   scope_id text not null,
   tx_session_id text not null,
   dependency_kind text not null, -- row, relation, index_range, table_version
@@ -855,8 +1118,12 @@ fx_system_tx_dependency (
   range_start_json jsonb,
   range_end_json jsonb,
   observed_version bigint,
+  observed_epoch text,
   observed_commit_seq bigint,
-  created_at timestamptz not null
+  created_at timestamptz not null,
+  primary key (scope_id, id),
+  foreign key (scope_id, tx_session_id)
+    references fx_system_tx_session (scope_id, id)
 )
 
 create index fx_tx_dependency_lookup_idx
@@ -864,6 +1131,7 @@ create index fx_tx_dependency_lookup_idx
 
 fx_system_row_version (
   scope_id text not null,
+  epoch text not null,
   namespace text not null,
   table_name text not null,
   row_id text not null,
@@ -873,14 +1141,24 @@ fx_system_row_version (
 )
 ```
 
+`authorization_grant_json` is an authenticated inert grant containing scope,
+function, allowed operations/capabilities, required claims, policy version,
+expiry, and revocation epoch. The trusted executor validates arguments before
+creating the anchor and validates the encoded return against the pinned return
+validator before `committing`. Policy semantics stay pinned for the short grant
+lifetime unless the authoritative revocation epoch advances, which invalidates
+the active attempt. Anchor and snapshot lease are created atomically.
+
 Many physical tables also carry `fx_version`. `fx_system_row_version` is useful
 when generic rows, relation edges, Payload system rows, or Medusa reserved
 tables need one common OCC lookup path.
 
-`fx_system_tx_dependency` can be omitted for tiny prototype transactions if the
-executor stores `read_set_json` only. It becomes useful when read sets include
-many rows, relation edges, index ranges, or table-version reads and the commit
-validator needs set-based checks instead of parsing one large JSON value.
+`fx_system_tx_dependency` is optional normalized audit/validation storage. The
+active SessionDO journal must use the same typed dependency model. An opaque
+`index_key` alone cannot validate range inserts, deletes, or key moves; precise
+ranges carry ordered codec version, inclusive/exclusive bounds, and begin
+sequence. Until that exists, adapter queries use conservative table/index
+version fences.
 
 ## Idempotency And Client Watermarks
 
@@ -890,26 +1168,48 @@ Stable mutation IDs prevent duplicate application after retries.
 fx_system_idempotency (
   scope_id text not null,
   actor_fingerprint text not null,
-  mutation_id text not null,
+  request_key text not null,
+  function_ref text not null,
+  request_hash text not null,
   result_json jsonb,
+  error_json jsonb,
+  log_metadata_json jsonb,
+  epoch text,
   commit_seq bigint,
   status text not null,
   created_at timestamptz not null,
-  expires_at timestamptz not null,
-  primary key (scope_id, actor_fingerprint, mutation_id)
+  attempt_expires_at timestamptz,
+  result_expires_at timestamptz,
+  primary key (scope_id, request_key)
 )
 ```
+
+The successful result and commit token are written in the same transaction as
+the authoritative data, commit row, and outbox. A matching key with a different
+identity, function, or request hash fails instead of replaying the wrong result.
+Only `committed` is a replayable terminal outcome. `in_progress` may coordinate
+one active attempt, while OCC conflicts, SQL serialization/deadlock rollbacks,
+and transport uncertainty remain recoverable states and must not be stored as a
+replayable failure. Diagnostic failures expire without masquerading as a
+committed mutation result.
+Committed keys never become reusable. After `result_expires_at`, large
+result/log payloads may be cleared, but a compact key,
+identity/function/request hash, status, and commit-token tombstone remains for
+the scope lifetime. Late retries receive `CommittedResultExpired` rather than
+reapplying the mutation. Tombstones can be compacted only with proof that the
+client request namespace is permanently retired.
 
 Optional advanced local-first/offline sequencing can use client watermarks:
 
 ```sql
 fx_system_client_watermark (
   scope_id text not null,
+  epoch text not null,
   actor_fingerprint text not null,
   client_id text not null,
   last_mutation_seq bigint not null,
   updated_at timestamptz not null,
-  primary key (scope_id, actor_fingerprint, client_id)
+  primary key (scope_id, epoch, actor_fingerprint, client_id)
 )
 ```
 
@@ -936,6 +1236,7 @@ same-Worker live sync.
 fx_system_outbox (
   outbox_id bigserial unique,
   scope_id text not null,
+  epoch text not null,
   outbox_seq bigint not null,
   commit_seq bigint not null,
   event_type text not null,
@@ -945,13 +1246,21 @@ fx_system_outbox (
   status text not null default 'pending',
   created_at timestamptz not null,
   available_at timestamptz not null,
+  next_attempt_at timestamptz not null,
   attempts integer not null default 0,
+  claimed_by text,
+  claim_fence bigint,
+  claimed_until timestamptz,
+  delivered_at timestamptz,
+  dead_lettered_at timestamptz,
   last_error text,
-  primary key (scope_id, outbox_seq)
+  primary key (scope_id, outbox_seq),
+  foreign key (scope_id, epoch, commit_seq)
+    references fx_system_commit (scope_id, epoch, commit_seq)
 )
 
 create index fx_outbox_consumer_pending_idx
-  on fx_system_outbox (scope_id, consumer_group, status, available_at, outbox_seq);
+  on fx_system_outbox (scope_id, epoch, consumer_group, status, next_attempt_at, claimed_until, outbox_seq);
 
 create unique index fx_outbox_idempotency_idx
   on fx_system_outbox (scope_id, consumer_group, idempotency_key)
@@ -960,11 +1269,17 @@ create unique index fx_outbox_idempotency_idx
 fx_system_outbox_cursor (
   scope_id text not null,
   consumer_name text not null,
+  epoch text not null,
   last_outbox_seq bigint not null,
   updated_at timestamptz not null,
   primary key (scope_id, consumer_name)
 )
 ```
+
+Outbox GC is independent from snapshot/reconnect MVCC retention. Pending and
+claimed rows are never removed. Dead letters follow explicit operator policy.
+Delivered rows compact only after every required consumer has advanced and the
+consumer/delivery idempotency window or tombstone policy is satisfied.
 
 Typical consumers:
 
@@ -983,97 +1298,94 @@ Same-Worker live sync fast path:
 
 ```text
 commit succeeds
-  -> executor directly wakes DeploymentSyncDO with compact summary
+  -> executor or dispatcher directly wakes the scope's DeploymentSyncDO with a
+     compact summary
   -> DeploymentSyncDO matches active read sets and reruns affected queries
 ```
 
-Outbox recovery path:
+Durable recovery path:
 
 ```text
 direct wake fails or DO was evicted
-  -> DeploymentSyncDO drains fx_system_outbox or fx_system_commit from cursor
+  -> a queue/cron/executor sweep detects scope cursor behind latest commit
+  -> DeploymentSyncDO drains fx_system_commit in contiguous order
   -> rebuilds missed hot state
   -> reruns affected queries
 ```
 
 ## Live Sync Durable Tables
 
-Most live sync state is hot state inside `DeploymentSyncDO` and `ConnectionDO`.
-Do not mirror every active subscription row-by-row in Postgres by default.
+The current implementation has a durable Postgres live-query registry and
+connection leases. Keep those as the compatibility/recovery baseline while a
+deterministic per-scope `DeploymentSyncDO` becomes the sole hot invalidation
+owner. Do not remove the registry until DO eviction, hibernation, reconnect,
+lease cleanup, initial activation, and lost-wake recovery have parity tests.
 
-Durable sync tables should be small recovery checkpoints:
+Postgres keeps a fenced operational cursor mirror during migration:
 
 ```sql
 fx_sync_deployment_cursor (
   scope_id text primary key,
-  last_seen_commit_seq bigint not null,
-  last_seen_outbox_seq bigint not null,
+  applied_through_commit_seq bigint not null,
   epoch text not null,
   updated_at timestamptz not null
 )
 
-fx_sync_query_cache (
+fx_sync_reconnect_lease (
   scope_id text not null,
-  query_key_hash text not null,
-  schema_version_id text not null,
-  result_hash text not null,
-  result_json jsonb,
-  read_set_summary_json jsonb not null,
-  commit_seq bigint not null,
-  expires_at timestamptz,
-  primary key (scope_id, query_key_hash)
+  connection_or_session_id text not null,
+  epoch text not null,
+  minimum_required_commit_seq bigint not null,
+  generation bigint not null,
+  expires_at timestamptz not null,
+  primary key (scope_id, connection_or_session_id)
 )
 ```
 
-`fx_sync_query_cache` is optional. The first implementation can keep query
-results in `DeploymentSyncDO` memory and only persist cursor/recovery state.
-Use durable query cache when it measurably reduces Postgres load or improves
-cold resume.
-
-The first design should not require a separate `QueryShardDO` or persistent
-cache row per arbitrary `where` clause. Normal live sync can rerun affected
-server queries through `DeploymentSyncDO` and fall back to indexed
-Postgres/FlarexDB reads.
-
-Future optimization, not v1:
+DeploymentSyncDO SQLite, not JavaScript memory alone, stores:
 
 ```text
-normalized query shape + args + scope + schema version
-  -> query shape hash
-  -> optional QueryShardDO or durable fx_sync_query_cache entry
-  -> bounded result ids/selected fields/read set/result hash/cursor
+epoch and contiguous appliedThroughCommitSeq
+canonical query definitions and generations
+dependency -> canonical query index
+dirtyThrough/runningAt/resultHash
+active ConnectionDO targets or recoverable registrations
+bounded continuation state
 ```
 
-This optimization exists to reduce Postgres load for hot shared query shapes
-such as large product lists, leaderboards, or common CMS collection views. It
-must remain disposable: if invalidation is uncertain, mark the query dirty and
-refresh from Postgres/FlarexDB. Coarse invalidation is the correctness model;
-precise row patching is a later performance optimization.
+The canonical query key includes scope, scope epoch, active package hash,
+schema and policy version, function/component path, canonical arguments, and
+identity/access-policy fingerprint. Epoch and package hash are both required.
 
-Client read cache is not part of this server schema. Browser cache belongs in
-the Flarex client, usually IndexedDB.
+Initial subscriptions use provisional registration, known-snapshot execution,
+durable Postgres registry upsert of the generation/epoch/package/policy/
+identity/dependency/result hash, DeploymentSyncDO dependency installation, and
+refresh through the current contiguous cursor before publication. Removal
+deactivates the registry before the DO forgets the registration. This closes
+the execute-before-register and publish-before-registry races.
 
-Important recovery rule:
+DeploymentSyncDO SQLite is the actor cursor authority. The DO advances the
+fenced Postgres mirror only after committing its local cursor. The mirror may
+lag but must never lead; the external lagging-scope sweep reads the mirror, so
+lag creates a harmless duplicate wake.
+
+GC retains commit/change history through the minimum live snapshot lease and
+reconnect lease plus a safety margin. A reconnect cursor from another epoch or
+below the retained floor receives an explicit reset/resnapshot response, never
+a partial replay presented as complete.
+
+Cursor rule:
 
 ```text
-ConnectionDO owns websocket/session/subscription attachment state.
-DeploymentSyncDO owns hot read-set indexes and rerun scheduling.
-
-If DeploymentSyncDO loses memory:
-  -> reload scope cursor
-  -> ask ConnectionDOs to replay active subscription registrations
-  -> rebuild read-set maps by rerunning active queries or loading a valid query cache
-
-If ConnectionDO loses memory but websockets hibernate:
-  -> restore subscription metadata from websocket attachments
-  -> re-register with DeploymentSyncDO
-
-If both are unavailable or attachments are stale:
-  -> client reconnects with last cursor/epoch and resubscribes
+N == appliedThrough + 1 -> apply and advance
+N <= appliedThrough     -> duplicate; ignore idempotently
+N > appliedThrough + 1  -> load and apply the missing Postgres interval first
+epoch mismatch          -> fence old generations and perform a full resnapshot
 ```
 
-That is why this schema does not include a large
-`fx_sync_active_subscription` table by default.
+`VersionDO`, `DocCacheDO`, `QueryCacheDO`, and durable query-result tables are
+future measured optimizations. Mutation snapshots and initial live-query
+correctness do not depend on them. Client read cache remains a browser concern.
 
 ## Locks And Hot Partitions
 
@@ -1107,12 +1419,12 @@ optimistically is too expensive or unsafe.
 
 ## Workflow And Scheduler State
 
-Workflow state belongs in reserved system tables so Medusa workflow behavior can
-remain intact while Flarex owns storage and recovery.
+Flarex-native workflow state belongs in reserved system tables. These generic
+tables do not claim compatibility with the Medusa Workflow Engine.
 
 ```sql
 fx_system_workflow_execution (
-  id text primary key,
+  id text not null,
   scope_id text not null,
   workflow_id text not null,
   transaction_id text,
@@ -1121,7 +1433,8 @@ fx_system_workflow_execution (
   result_json jsonb,
   event_group_id text,
   created_at timestamptz not null,
-  updated_at timestamptz not null
+  updated_at timestamptz not null,
+  primary key (scope_id, id)
 )
 
 fx_system_workflow_step (
@@ -1137,7 +1450,7 @@ fx_system_workflow_step (
 )
 
 fx_system_delayed_action (
-  id text primary key,
+  id text not null,
   scope_id text not null,
   kind text not null,
   payload_json jsonb not null,
@@ -1145,13 +1458,17 @@ fx_system_delayed_action (
   status text not null,
   attempts integer not null default 0,
   created_at timestamptz not null,
-  updated_at timestamptz not null
+  updated_at timestamptz not null,
+  primary key (scope_id, id)
 )
 ```
 
-These tables can back Medusa Workflow Engine persistence, Flarex scheduled
-functions, and recovery paths. The app API should expose scheduler/workflow
-commands, not raw workflow rows.
+These tables back Flarex scheduled functions and Flarex-native recovery paths.
+Medusa workflow persistence is compiled from its real DML model, including its
+composite workflow/transaction/run identity, execution/context fields,
+retention behavior, and partial indexes, or is handled by a lossless
+adapter-specific schema. The app API exposes scheduler/workflow commands, not
+raw workflow rows.
 
 ## Optional Internal Read Models
 
@@ -1162,7 +1479,7 @@ Catalog:
 
 ```sql
 fx_read_model_definition (
-  id text primary key,
+  id text not null,
   scope_id text not null,
   name text not null,
   owner text not null, -- app, payload, medusa, search, system
@@ -1170,6 +1487,7 @@ fx_read_model_definition (
   freshness_policy_json jsonb not null,
   physical_name text not null,
   created_at timestamptz not null,
+  primary key (scope_id, id),
   unique (scope_id, name)
 )
 
@@ -1217,12 +1535,13 @@ Live query:
 
 ```text
 Client useQuery(api.leaderboard, args)
-  -> ConnectionDO registers subscription
-  -> DeploymentSyncDO checks hot query cache
-  -> if missing/stale, Query Executor runs Flarex query function
-  -> query reads source tables or a fresh-enough read model
-  -> query returns result + read-set summary
-  -> DeploymentSyncDO caches result/read set by query key
+  -> ConnectionDO asks the scope's DeploymentSyncDO for a provisional query
+     generation at its contiguous cursor
+  -> authoritative Query Executor runs the Flarex query at a known snapshot
+  -> query returns result + resultHash + typed read set + snapshot token
+  -> DeploymentSyncDO installs dependencies and refreshes them through its
+     current contiguous cursor
+  -> if invalidated during activation, rerun before publication
   -> client receives data(result, commitCursor)
 ```
 
@@ -1231,16 +1550,22 @@ Mutation:
 ```text
 Client mutation(args, mutationId)
   -> user code runs without a SQL transaction
-  -> reads and write intents are staged
+  -> supported logical app reads and writes are journaled
   -> trusted executor opens Postgres transaction
-  -> validates fx_version/read sets/ranges/locks/idempotency
-  -> writes app/Payload/Medusa/source rows
+  -> validates authority/snapshot/read sets/ranges/locks/idempotency
+  -> derives and writes app rows and sidecars
   -> writes relation edges and required indexes
   -> writes fx_system_commit and fx_system_outbox
-  -> writes idempotency/watermark rows when applicable
+  -> writes successful result-bearing idempotency outcome
   -> commits
   -> wakes DeploymentSyncDO with summary
 ```
+
+Payload request transactions and Medusa commerce transactions use their own
+trusted adapter lanes. They participate in the same scope commit/change/outbox
+protocol, but they are not automatically lowered from the generic app
+SessionDO journal and are not exposed as one `ctx.db + ctx.commerce`
+transaction.
 
 DeploymentSyncDO after commit:
 
@@ -1258,9 +1583,10 @@ V1 sync should follow an InstantDB-style invalidation model:
 
 ```text
 query starts
-  -> record broad dependency topics/read-set keys before expensive reads
+  -> provisionally register before execution
 query finishes
   -> refine dependencies from actual rows, relations, indexes, and ranges read
+  -> refresh the query token through the current contiguous cursor
 commit arrives
   -> mark matching queries stale
   -> rerun stale queries against Postgres/FlarexDB or fresh internal read models
@@ -1297,8 +1623,10 @@ source data:
   Flarex app declared indexes/unique keys in fx_app_index_entry_*/fx_app_unique_key
   optional block metadata in fx_app_block_index or declared index entries
   Payload-marked app content in shared Flarex app storage
-  Payload lifecycle/system state in fixed fx_payload_* tables
-  Medusa DML-generated reserved tables
+  Payload lifecycle/system state in reserved logical collections, with optional
+  later dedicated fx_payload_* tables
+  Medusa reserved tables generated from DML, links/joiner metadata, migration
+  history, and adapter capabilities
 
 control data:
   schema catalog
@@ -1339,10 +1667,9 @@ Borrowed:
 
 Changed for Flarex:
 
-- Convex owns one integrated database/runtime. Flarex must also host Medusa and
-  Payload as backend harnesses, so the commit/OCC layer covers shared app rows,
-  app edges, app index entries, Payload system tables, Medusa reserved
-  relational tables, locks, workflow state, and outbox rows.
+- Convex owns one integrated database/runtime. Flarex hosts app, Payload, and
+  Medusa adapter lanes over shared scope-clock/commit/change/outbox
+  infrastructure; the generic app OCC journal does not execute every adapter.
 - Convex hides the physical database. Flarex's proposed implementation still
   uses Postgres/Hyperdrive for the authoritative physical commit, so OCC is the
   logical validation layer and Postgres is the final atomic durability layer.
@@ -1439,8 +1766,8 @@ Changed for Flarex:
 - Lunora's current public positioning includes D1/Durable Objects as core
   Cloudflare storage building blocks. The current Flarex direction keeps
   Postgres/FlarexDB as authoritative storage and uses Durable Objects primarily
-  for live connection coordination, hot query caches, cursor recovery, and
-  reruns.
+  for live connection coordination, durable sync cursors/dependency indexes,
+  reruns, and optional later caches.
 - We borrow cursor/resume/settled/offline concepts, but do not make TanStack DB
   or a browser-side normalized DB mandatory. Default Flarex reads are still
   server query results.
@@ -1452,8 +1779,7 @@ Schema pieces from this lineage:
 ```text
 fx_system_client_watermark
 fx_system_idempotency
-fx_sync_deployment_cursor
-optional fx_sync_query_cache
+fx_sync_deployment_cursor operational mirror
 commit_seq + epoch resume model
 settled acknowledgement after unchanged rerun results
 ```
@@ -1481,17 +1807,17 @@ Changed for Flarex:
 - Durable Objects are not the authoritative app database in this design.
   `DeploymentSyncDO` is a hot coordination/cache/rerun actor. FlarexDB remains
   authoritative.
-- We split durable recovery data from hot live subscription maps. The schema
-  stores small recovery checkpoints, not every active WebSocket subscription as
-  Postgres rows.
+- During migration, the current Postgres subscription registry and connection
+  leases remain the durable recovery baseline. DeploymentSyncDO SQLite owns
+  the hot query/dependency/rerun state. A later design may remove the registry
+  only after eviction, hibernation, reconnect, and lost-wake parity.
 
 Schema pieces from this lineage:
 
 ```text
 fx_sync_deployment_cursor
 fx_system_outbox_cursor
-optional fx_sync_query_cache
-DeploymentSyncDO in-memory read-set indexes
+DeploymentSyncDO durable SQLite canonical-query/dependency indexes
 ConnectionDO WebSocket session ownership
 ```
 
@@ -1509,7 +1835,8 @@ References:
 
 Borrowed:
 
-- Medusa DML is already the source for module table shapes.
+- Medusa DML is the source for module table shapes, while links/joiner metadata,
+  migration history, and custom capabilities complete the persistence schema.
 - Medusa services are the commerce behavior boundary.
 - Medusa Module Links are an internal compatibility mechanism for module
   isolation and query traversal.
@@ -1534,9 +1861,7 @@ Schema pieces from this lineage:
 ```text
 fx_medusa_* reserved tables
 fx_medusa_link_* compatibility tables
-fx_system_workflow_execution
-fx_system_workflow_step
-fx_system_delayed_action
+Medusa-owned workflow persistence compiled from the real workflow model
 fx_system_lock_lease
 fx_system_outbox events for medusa-domain-events
 ```
@@ -1568,7 +1893,7 @@ Changed for Flarex:
 - Flarex shared app storage remains the main stored CMS content for CMS-marked
   app tables: embedded row JSON for blocks/arrays/rich text/localization, plus
   derived index, edge, unique-key, and optional block-metadata sidecars.
-  Payload-only lifecycle complexity uses `fx_payload_*` system tables for
+  Payload-only lifecycle complexity starts in reserved logical collections for
   versions, drafts, uploads, locks, sessions, globals, scheduled publish, and
   auth support.
 - Public `ctx.db` may access CMS-marked app fields according to Flarex write
@@ -1582,9 +1907,8 @@ fx_app_row_rev/current for CMS-marked row values
 fx_app_edge_rev/current for Payload relationships/uploads/joins
 fx_app_index_entry_rev/current for declared CMS indexes
 fx_app_block_index or equivalent index entries for block metadata
-fx_payload_version
-fx_payload_draft
-fx_payload_upload
+reserved logical Payload lifecycle collections
+optional later fx_payload_* physical tables after parity/measurement
 relation edges for Payload relationship/join shapes
 ```
 
@@ -1596,20 +1920,22 @@ combining all constraints above:
 - One FlarexDB control plane for schema catalog, deployments, commit/OCC,
   outbox, locks, workflows, sync recovery, and optional read models.
 - Three authoritative physical storage classes under that control plane:
-  shared Flarex app storage, fixed Payload system tables, and Medusa
-  DML-generated reserved relational system tables.
-- Payload and Medusa are backend harnesses over FlarexDB, not separate database
-  owners.
+  shared Flarex app storage, reserved Payload logical storage (with optional
+  later dedicated tables), and Medusa relational tables compiled from DML,
+  links, migrations, and adapter capabilities.
+- Payload and Medusa use Flarex-owned persistence infrastructure, but preserve
+  their own adapter/transaction semantics. They are not automatically executed
+  through the generic app SessionDO compiler.
 - Public developer APIs stay simple: `ctx.db`, `ctx.db.transact`,
   `ctx.commerce`, and `ctx.cms` facades. No public Payload plugin API, no public
   Medusa Link API, and no public projection API in the first design.
 - Projections/read models are internal planner/runtime optimizations only. They
   can live in the same FlarexDB or a Flarex-selected derived store later, but
   they are never the source of truth.
-- The final commit phase is short: user code stages intent, then the trusted
-  executor opens a real Postgres transaction, validates OCC/locks/idempotency,
-  writes all authoritative rows, writes commit/outbox records, commits, and
-  wakes sync.
+- Each lane's final commit phase is short. The trusted lane validates its own
+  OCC/transaction invariants, acquires the common scope commit lane, writes
+  authoritative rows plus commit/change/outbox records, commits, and wakes
+  sync.
 
 ## Future PostgreSQL 19 SQL/PGQ Compatibility
 
@@ -1639,7 +1965,7 @@ Now:
     fx_app_unique_key
     optional fx_app_block_index
   Medusa reserved relational tables
-  Payload system tables
+  reserved Payload logical collections and optional later physical tables
   graph metadata in fx_control_table and fx_control_relation
   no per-app physical table explosion
 
@@ -1661,7 +1987,7 @@ CREATE PROPERTY GRAPH flarex_app_graph
   )
   EDGE TABLES (
     fx_app_edge_current
-      KEY (scope_id, relation_id, source_table_id, source_row_id, target_table_id, target_row_id)
+      KEY (scope_id, edge_id)
       SOURCE KEY (scope_id, source_table_id, source_row_id)
         REFERENCES fx_app_row_current (scope_id, table_id, row_id)
       DESTINATION KEY (scope_id, target_table_id, target_row_id)
@@ -1670,9 +1996,11 @@ CREATE PROPERTY GRAPH flarex_app_graph
   );
 ```
 
-That generic app graph is useful for internal traversal, admin/debug views, and
-schema visualization. It is less optimized than a graph over typed physical
-tables, but it avoids table pollution in hosted shared-schema mode.
+This abbreviated graph assumes an app-to-app edge subset; polymorphic and
+commerce-target edges need generated label-specific views with valid endpoint
+tables. That generic app graph is useful for internal traversal, admin/debug
+views, and schema visualization. It is less optimized than a graph over typed
+physical tables, but it avoids table pollution in hosted shared-schema mode.
 
 Medusa can still get more specific graph definitions because Medusa uses fixed
 reserved system tables:
@@ -1722,7 +2050,8 @@ replacement for Flarex query functions
 This means the current schema adjustment is shared-storage discipline: Flarex
 app data goes through `fx_app_row_rev/current`,
 `fx_app_edge_rev/current`, declared app indexes, unique keys, and optional
-block metadata; Medusa and Payload system state keep fixed reserved tables.
+block metadata; Payload starts with reserved logical collections and Medusa
+keeps adapter-owned relational tables compiled from all required schema inputs.
 PostgreSQL 19 graph support can be generated later over those shapes without
 changing the source-of-truth storage model.
 
@@ -1763,8 +2092,10 @@ over `data_json` should not become the normal API promise.
 
 Commit and outbox cursors must be scoped. A single global Postgres sequence is
 useful for debugging, but client sync should not rely on global sequence density
-or ordering across unrelated deployments. Use `(scope_id, commit_seq)` and
-`(scope_id, outbox_seq)` as the sync cursors.
+or ordering across unrelated deployments. Live sync uses
+`(scope_id, epoch, commit_seq)`. Outbox cursors use
+`(scope_id, epoch, outbox_seq)` only for consumer delivery progress and are not
+the canonical live-query cursor.
 
 ### Read-Set Granularity
 
@@ -1790,17 +2121,20 @@ not parse huge JSON blobs under a row lock.
 
 ### Live Subscription Recovery
 
-The schema intentionally avoids a large durable active-subscription table. That
-means the runtime must implement one of these recovery paths correctly:
+The migration intentionally retains the current Postgres active-subscription
+registry and connection leases while DeploymentSyncDO durable SQLite becomes
+the hot invalidation owner. Recovery combines:
 
 ```text
-ConnectionDO websocket attachment restore
-DeploymentSyncDO read-set map rebuild from ConnectionDO registrations
+Postgres registry/lease rebuild
+DeploymentSyncDO SQLite cursor/query/dependency state
+ConnectionDO websocket attachment restore and idempotent re-registration
 client cursor/epoch reconnect and resubscribe
 ```
 
-If that is not implemented, hibernation or eviction can silently drop live
-query invalidation state.
+Removing the Postgres registry is a post-migration possibility only after these
+paths pass eviction, hibernation, reconnect, activation-race, and lost-wake
+tests.
 
 ### Medusa Compatibility
 
@@ -1818,8 +2152,9 @@ schema now has placeholders for the major system tables, but the adapter still
 has to prove Payload lifecycle compatibility.
 
 The key boundary to test is that CMS content can share app row JSON and derived
-sidecars, while Payload-only lifecycle state remains in fixed `fx_payload_*`
-tables and cannot be bypassed by direct `ctx.db` writes. Blocks and arrays are
+sidecars, while Payload-only lifecycle state remains in reserved logical
+collections (or later justified `fx_payload_*` tables) and cannot be bypassed by
+direct `ctx.db` writes. Blocks and arrays are
 embedded by default; child-row storage is a future optimization, not the v1
 baseline.
 
@@ -1849,7 +2184,7 @@ logical tables:
 
 shared storage:
   fx_app_row_rev/current
-  fx_app_edge_rev/current
+  fx_app_edge_current
   fx_app_index_entry_rev/current
   fx_app_unique_key
 

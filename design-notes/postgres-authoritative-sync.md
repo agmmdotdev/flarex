@@ -1,473 +1,438 @@
-# Postgres-Authoritative Sync and Cloudflare Cache Design
+# Postgres-Authoritative Sync And Cloudflare Coordination
 
-This note records the forward Flarex authority model after the pivot away from
-Durable Object authoritative storage:
+Status: accepted v1 sync design; caches remain deferred optimizations
 
-```txt
-Postgres is the source of truth.
-Cloudflare runs user code, WebSockets, live-query state, and edge caches.
-Trusted executors near Postgres own authoritative commits.
+Last reviewed: 2026-07-10
+
+This note defines the sync design that follows from
+`flarex-db-accepted-design.md`. It replaces the earlier assumption that
+`VersionDO`, `DocCacheDO`, and `QueryCacheDO` must be built before Flarex can
+provide correct live queries.
+
+## Verdict
+
+Postgres-authoritative sync is the right direction. The earlier cache topology
+was too complex for the correctness proof and did not define gap-free ordering,
+initial subscription activation, identity-safe cache keys, or lost-wake
+recovery.
+
+V1 is:
+
+```text
+Postgres commit feed per scope
+  -> deterministic per-scope DeploymentSyncDO
+  -> ConnectionDO query sets and WebSocket delivery
 ```
 
-This is now the target architecture. The existing implementation still contains
-the earlier Durable Object shard-authoritative prototype, but that path is
-legacy implementation scaffolding. New executor, SDK, sync, and testing work
-should move toward Postgres-authoritative semantics while still using
-Cloudflare for sandboxed execution, WebSockets, cache/freshness DOs, and
-realtime fanout.
+Direct wakes reduce latency. A durable sweep and Postgres catch-up provide
+recovery. Live-query reruns use authoritative Postgres reads. Cache DOs are
+optional later layers.
 
-Physical storage for this track is now described by
-`flarex-internal-db-schema.md`: one FlarexDB control plane, internal
-`scope_id` data-plane authority, app/Payload row JSON plus sidecars, Payload
-system tables, Medusa reserved system tables, scoped commit cursors, and scoped
-outbox cursors. The older generic multitenant document/index schema remains
-useful implementation background, but the forward design is not the public
-`partitionBy`/shard API model.
+## Authority Model
 
-Sync/cache freshness depends on versioned row history, encoded index/range
-dependency entries, commit records, and outbox events being written by the same
-trusted Postgres transaction.
+Postgres owns:
 
-## Finding
+- authoritative rows and revision history;
+- the scope epoch and commit sequence;
+- canonical commit/change atoms;
+- transactional outbox and recovery feed;
+- the implemented durable active-subscription registry during migration.
 
-The Durable Object shard model gives strong local transactions but makes
-arbitrary cross-shard atomic writes expensive. Moving authority to Postgres
-changes the constraint:
+Cloudflare owns:
 
-```txt
-DO-authoritative:
-  one PartitionDO is one transaction manager
-  cross-shard atomicMutation needs coordination
+- sandboxed function execution;
+- WebSocket sessions;
+- active query coordination and dependency indexes;
+- ordered delivery state;
+- disposable cached results when later enabled.
 
-Postgres-authoritative:
-  Postgres is one transaction manager
-  rows across many logical tables can commit in one SQL transaction
-```
+Cloudflare does not own committed data or the only copy of recovery state.
 
-This removes the small `atomicMutation` participant limit for data that lives
-inside the same Postgres primary. It does not remove performance limits. The
-new sensitive areas are:
+## Tokens And Freshness
 
-- network distance between transaction executor and Postgres,
-- number of SQL round trips,
-- connection pool pressure,
-- row and index lock contention,
-- long transaction age,
-- sync invalidation fanout.
-
-The safe rule is:
-
-```txt
-Untrusted user code must not hold a Postgres transaction open.
-```
-
-User code can run in a Cloudflare Dynamic Worker and produce read dependencies
-plus write intent. A trusted executor near Postgres opens a short transaction,
-revalidates the read set or predicates, applies the write batch, writes a
-change-log/outbox entry, and commits.
-
-## Proposed Runtime Split
-
-```txt
-Browser
-  <WebSocket>
-ConnectionDO on Cloudflare
-  owns query subscriptions, local result cache, and fanout
-
-Dynamic Worker on Cloudflare
-  runs untrusted user TypeScript
-  uses a restricted ctx.db syscall/client API
-  does not receive a raw Postgres connection
-
-Query runtime on Cloudflare
-  can run read-only query code
-  can use Hyperdrive for ordinary reads
-  records read dependencies and observed freshness
-
-Trusted mutation executor near Postgres
-  opens short DB transactions
-  revalidates versions and predicates
-  applies writes
-  writes outbox/change_log rows
-  commits
-
-Postgres
-  source of truth
-  global constraints and transactions
-
-Outbox dispatcher near Postgres
-  reads committed change_log/outbox rows
-  forwards commit events to Cloudflare
-```
-
-## Query Versus Live Query
-
-Convex exposes one server `query(...)` API. The distinction is client-side:
+Use the same scope-local token as the transaction engine:
 
 ```ts
-useQuery(api.messages.list, args);       // live subscription
-await client.query(api.messages.list, args); // one-shot result
+type SnapshotToken = {
+  scopeId: ScopeId;
+  epoch: ScopeEpoch;
+  commitSeq: CommitSeq;
+};
 ```
 
-Flarex should keep that developer model. Internally, however, live queries need
-stricter freshness handling than one-shot queries.
+Commit/outbox sequences are scope-monotonic and never reset or reused. Epoch
+rollover fences old sessions/subscriptions and requires a full client/query
+resnapshot, but it does not copy or reset authoritative data.
 
-```txt
-one-shot query:
-  may use Hyperdrive cache when staleness is acceptable
+There are two different correctness rules.
 
-live query:
-  must prove its result is fresh enough for the subscription state
-  must record read dependencies
-  must suppress stale or out-of-order updates
+### Mutation/session reads
+
+Mutation reads require the exact begin snapshot plus the supported staged-write
+overlay. A value from a newer commit is not valid merely because its sequence
+is greater:
+
+```text
+mutation begins at commit 100
+row changes at commit 103
+cache holds commit 105
+
+105 >= 100 does not make that value valid at snapshot 100
 ```
 
-## Hyperdrive Is Not a Freshness Proof
+V1 uses Postgres history for mutation/session reads. A future cache needs an
+MVCC version valid at the exact token and absence/range proofs.
 
-Hyperdrive query caching is useful for ordinary reads, but it cannot by itself
-prove live-query freshness. Cloudflare documents read query caching with
-`max_age` and `stale_while_revalidate`; during stale-while-revalidate a cached
-result may be served while refresh is happening.
+### Live-query publication
 
-That means this sequence is possible:
+A live-query result may be computed at a snapshot at or after
+`requiredFreshThrough` when:
 
-```txt
-T1: live query reads version 1 from cache
-T2: version 2 commits in Postgres
-T3: Hyperdrive starts revalidation
-T4: version 3 commits in Postgres
-T5: live query still receives version 1 or version 2
+- the whole result is from one consistent snapshot;
+- the executor returns its actual snapshot token and dependency set;
+- the sync cursor reached every commit in between without gaps;
+- package, schema, policy, and identity inputs still match;
+- publication is generation-checked and ordered.
+
+Hyperdrive response caching is not a freshness proof. Correct live-query reruns
+use a no-cache authoritative path until an explicit versioned cache protocol is
+proven.
+
+## V1 Components
+
+### Postgres commit feed
+
+Each scope has one current epoch and a monotonically increasing scope-lifetime
+`commit_seq`. The final
+data transaction writes:
+
+```text
+authoritative data/history
+derived index/edge/unique sidecars
+commit row
+typed change atoms / dependency summary
+transactional outbox rows
 ```
 
-The sync layer must not treat a Hyperdrive result as current unless it also has
-a trusted freshness marker.
+The commit feed, not generic side-effect delivery order, is the canonical sync
+ordering source. Outbox workers can transport wake hints and other effects, but
+DeploymentSyncDO catches up by `(scope_id, epoch, commit_seq)`.
 
-References:
+### DeploymentSyncDO per scope
 
-- Cloudflare Hyperdrive query caching:
-  https://developers.cloudflare.com/hyperdrive/concepts/query-caching/
+Use one deterministic name initially:
 
-## Freshness Mirror Idea
-
-The proposed Cloudflare-side freshness layer:
-
-```txt
-Postgres transaction
-  writes app rows
-  writes outbox/change_log rows in the same transaction
-  commits
-
-Outbox dispatcher
-  forwards scope_id, commitSeq, changed dependency keys, row ids, row versions,
-  and optional row images
-
-VersionDO / DocCacheDO / QueryCacheDO
-  stores latest known versions and hot replicated document/query data
+```text
+deployment-sync:{scopeId}
 ```
 
-These DOs are internal cache/sync infrastructure. They are not developer-visible
-partition objects, and they do not own write authority. The routing key is
-`scope_id` plus a derived bucket, row key, dependency key, or canonical query
-hash.
+Durable Object SQLite stores:
 
-Then a live query can use Hyperdrive but validate the result against the
-freshness mirror:
-
-```txt
-1. Query reads through Hyperdrive.
-2. Result includes row versions and observed commit marker.
-3. ConnectionDO asks VersionDO for latest known versions.
-4. If Hyperdrive result is older, do not publish it as latest.
-5. Retry through no-cache path, wait for cache refresh, or use replicated row
-   image from DocCacheDO.
+```text
+epoch
+appliedThroughCommitSeq
+dirtyThroughCommitSeq
+canonical query definitions
+dependency -> canonical query index
+query generation / runningAt / result hash / requiredFreshThrough
+active ConnectionDO targets or recoverable registration handles
+bounded work continuation state
 ```
 
-This avoids an additional Postgres query just to detect stale results.
+Do not keep correctness state only in JavaScript memory. Do not use one global
+SchedulerDO singleton for unrelated scopes.
 
-Detection is not the same as repair:
+The first per-scope DO is a correctness boundary and may be a throughput hot
+spot. Add coordination buckets only after measurement and an explicit rule for
+query ownership and cursor handoff.
 
-```txt
-Hyperdrive returned version 17.
-VersionDO knows version 18 exists.
+### ConnectionDO
+
+ConnectionDO owns:
+
+- the WebSocket/session attachment;
+- client query identifiers and transition ordering;
+- scope, epoch, active package, schema/policy, and identity metadata;
+- mapping client subscriptions to canonical DeploymentSyncDO queries;
+- reconnect/resubscribe behavior.
+
+ConnectionDO must not become the only copy of a subscription needed for
+post-eviction recovery.
+
+Each reconnectable session has a bounded Postgres reconnect lease containing
+scope, epoch, minimum required commit sequence, generation, and expiry. Commit
+history retention respects the minimum live lease. Epoch mismatch or a cursor
+below the retained floor produces an explicit reset/resnapshot response.
+
+### Durable Postgres registry during migration
+
+The current implementation relies on Postgres live-query subscription and
+connection-lease rows. Keep this as the durable baseline while
+DeploymentSyncDO SQLite is introduced.
+
+During migration:
+
+```text
+Postgres registry
+  durable compatibility/recovery authority
+
+DeploymentSyncDO SQLite
+  hot query/dependency/rerun owner
 ```
 
-At that point Flarex still needs one of:
+Do not run two independent invalidation authorities. The DO can rebuild from
+the Postgres registry and authoritative reruns. Remove the registry only after
+eviction, hibernation, reconnect, lease cleanup, and lost-wake tests prove a
+different durable owner.
 
-- retry Hyperdrive until the observed version catches up,
-- use a no-cache query executor path,
-- read a replicated latest row image from DocCacheDO,
-- rebuild the affected shared query from QueryCacheDO.
+## Canonical Query Identity
 
-## Document Freshness Versus Range Freshness
+The key must include every input that can change a result:
 
-Single document freshness is straightforward:
-
-```txt
-row: carts/cart_123
-returned version: 17
-latest known version: 18
-result is stale
+```text
+scope
+scope epoch
+active package hash
+schema version
+policy version
+function/component path
+canonical encoded arguments
+identity/access-policy fingerprint
 ```
 
-List and index queries need range freshness:
+Do not share results across identities unless authoritative analysis proves the
+query is identity-independent. Package activation invalidates or namespaces old
+query entries even when the path and arguments are unchanged.
 
-```ts
-await ctx.db
-  .query("cartItems")
-  .withIndex("by_cart", q => q.eq("cartId", cartId))
-  .collect();
+Canonical identical queries rerun once and fan out to many client
+subscriptions. Overlapping but non-identical queries share dependency keys,
+not result identity.
+
+## Initial Subscription Activation
+
+Executing first and registering afterward can miss a commit. Use two-phase
+activation:
+
+1. ConnectionDO asks DeploymentSyncDO to create a provisional canonical query
+   registration with the current contiguous cursor.
+2. The trusted query executor runs at a known Postgres snapshot and returns
+   result, result hash, dependency set, and snapshot token.
+3. During migration, the executor durably upserts the same provisional
+   generation, epoch/package/policy/identity, dependency token, and result hash
+   in the Postgres subscription registry.
+4. DeploymentSyncDO installs/refines the dependency set for that provisional
+   generation.
+5. It refreshes the token against every commit through the current contiguous
+   cursor.
+6. If no relevant change invalidated the result, it marks the registry/DO
+   generation active and publishes it. Otherwise it reruns before publication.
+
+Removal is idempotent and deactivates the Postgres registry before the DO
+forgets its final durable registration. This makes the registry a real recovery
+authority rather than an eventually written shadow.
+
+This follows the Convex idea that a query token is refreshed against already
+processed writes before the subscription is accepted.
+
+## Commit Processing And Gap Recovery
+
+`appliedThroughCommitSeq` means every commit through that number has been
+examined. It is not the maximum sequence observed.
+
+An epoch mismatch stops incremental processing. DeploymentSyncDO fences the old
+query generations and adopts the new epoch only through a full authoritative
+resnapshot. It then records the current scope-monotonic commit sequence; it does
+not reset the cursor to zero.
+
+```text
+receive N == appliedThrough + 1
+  -> apply change atoms
+  -> advance cursor
+
+receive N <= appliedThrough
+  -> duplicate; ignore idempotently
+
+receive N > appliedThrough + 1
+  -> do not advance
+  -> load the missing Postgres commit interval
+  -> apply commits in order
 ```
 
-A stale cached result might omit a new row entirely. The returned documents
-cannot prove freshness for rows that are missing. The freshness mirror must
-therefore track query dependency ranges:
+Changed dependencies mark canonical queries dirty. Per query:
 
-```txt
-range: cartItems.by_cart(cart_123)
-latestRangeVersion: 44
-queryObservedRangeVersion: 41
-result is stale
+```text
+dirtyThrough = max(dirtyThrough, changedCommitSeq)
+single-flight one rerun generation
+execute authoritatively at snapshot >= dirtyThrough
+compare-and-swap expected generation
+publish only if result hash changed
+advance freshness even when result is unchanged
 ```
 
-This is close to the same dependency model needed for Convex-style live query
-invalidation: document reads, table/index range reads, result hashes, and
-commit watermarks.
+If another commit arrives while a rerun is in flight, the query remains dirty
+and runs again or refreshes its dependency token before publication.
 
-## Sync Flow
+## Wake And Recovery Ownership
 
-```txt
-Client subscribes:
-  ConnectionDO records query path and args.
+The final commit or outbox dispatcher may directly call
+`DeploymentSyncDO.wake(scope, epoch, commitSeq)` as a fast path. Failure of that
+call must not lose invalidation.
 
-Initial run:
-  Query runtime runs user query.
-  Runtime returns result, read dependencies, resultHash, and observedVersion.
-  ConnectionDO stores subscription state.
+At least one durable external owner periodically compares the latest Postgres
+scope commit with the sync cursor and wakes lagging scopes. This may be a queue
+consumer, cron sweep, or executor dispatcher, but it must run even when no
+delivery row has been created yet.
 
-Mutation:
-  Dynamic Worker runs user mutation and produces write intent.
-  Trusted executor near Postgres opens transaction.
-  Executor revalidates read dependencies.
-  Executor applies writes and outbox rows.
-  Executor commits.
+DeploymentSyncDO SQLite is the actor's cursor authority. After committing its
+local cursor, the DO may advance a fenced Postgres checkpoint mirror. That
+mirror may lag but must never lead. The external sweep reads the Postgres
+mirror; lag creates a duplicate idempotent wake, not missed work.
 
-Invalidation:
-  Outbox dispatcher forwards scope_id, commitSeq, and changed dependencies.
-  Cloudflare freshness/cache DOs update their version mirrors.
-  DeploymentSyncDO finds affected active live queries.
-  Affected shared queries rerun with required freshness >= commitSeq.
-  Only fresh changed results are published over WebSocket.
+Recovery flow:
+
+```text
+lost direct wake / DO eviction / Worker crash
+  -> durable sweep observes scope cursor behind latest commit
+  -> wakes deterministic DeploymentSyncDO
+  -> DO catches up the contiguous Postgres interval
+  -> rebuilds or validates query registrations
+  -> reruns dirty canonical queries
+  -> ConnectionDO delivers ordered transitions
 ```
 
-## Dispatcher Routing
+Delivery rows and claim leases remain useful after changed results exist, but a
+delivery reconciler alone cannot recover a trigger lost before reruns created
+those rows.
 
-The dispatcher does not keep a registry of all Durable Object instances. It
-uses deterministic names derived from the commit summary:
+## Dependency Model
 
-```txt
-VersionDO:
-  version:{scope_id}:{hash(dependency_key) % version_bucket_count}
+V1 dependency types:
 
-DocCacheDO:
-  doc-cache:{scope_id}:{hash(namespace, table, row_id) % row_bucket_count}
+- exact app row;
+- declared app index/range with typed ordered bounds;
+- relation/edge occurrence or relation range;
+- conservative table/index version fence for adapter reads that do not yet
+  have precise interval conflict data.
 
-QueryCacheDO:
-  query-cache:{scope_id}:{canonical_query_hash}
+The safe fallback is broader invalidation and rerun, not stale publication.
+Opaque strings are insufficient for precise range overlap. Bounds must carry
+codec version, inclusivity, and ordered key bytes.
 
-DeploymentSyncDO:
-  deployment-sync:{scope_id}:{optional_bucket}
-```
+Maintain a dependency-to-query inverted index in DeploymentSyncDO SQLite. The
+current `all active subscriptions x all dependencies` scan is compatibility
+behavior, not the target scaling model.
 
-A commit summary contains changed rows and changed dependency keys:
+## Cache Layers Are Deferred
 
-```txt
-commit_seq = 56
-changed rows:
-  app.products/prod_123
-  app.cartItems/item_9
+### VersionDO
 
-changed dependencies:
-  row:app.products/prod_123
-  index-range:app.cartItems.by_cart(cart_777)
-```
+A maximum observed sequence is not an applied-through proof. A sharded
+VersionDO would need a transactionally generated contiguous bucket stream or a
+catch-up rule before it could claim freshness. Defer it.
 
-The dispatcher routes each key by formula:
+### DocCacheDO
 
-```txt
-changed dependency -> VersionDO bucket
-changed row        -> DocCacheDO bucket, if row cache is enabled for that row
-changed dependency -> DeploymentSyncDO, for active query invalidation
-```
+Hot row images can later accelerate exact-snapshot reads only when each entry
+has version validity intervals and tombstone/absence proofs. Otherwise use it
+for non-authoritative one-shot reads only.
 
-`VersionDO` updates freshness metadata only. It should not call `DocCacheDO` or
-`QueryCacheDO`. Rerun orchestration belongs to `DeploymentSyncDO`.
+### QueryCacheDO
 
-`DeploymentSyncDO` stores only active subscription mappings:
+DeploymentSyncDO can initially own canonical result hashes and single-flight
+reruns. Split query results into QueryCacheDO only after memory/load measurements
+justify another actor and generation handoff is specified.
 
-```txt
-dependency key -> canonical query hashes
-canonical query hash -> client subscriptions / ConnectionDO targets
-```
+All cache state is disposable. An uncertain cache entry is marked dirty and
+rebuilt from Postgres.
 
-When a dependency changes, `DeploymentSyncDO` wakes the affected `QueryCacheDO`
-instances by deterministic query hash. No component scans every cache DO.
+## Implemented P0 Problems To Fix Before Claiming V1 Safety
 
-## Overlapping Query Results
+The current code remains a compatibility baseline and has known P0 gaps:
 
-Two clients can subscribe to different canonical queries that overlap in rows:
+- `packages/flarex-backend/src/connectionDO.ts` executes a query before its
+  durable registration, exposing a missed-commit activation race.
+- `packages/flarex-backend/src/schedulerRoutes.ts` routes unrelated deployments
+  to one scheduler name, while `schedulerDO.ts` has singleton pending/in-flight
+  rerun state.
+- `packages/executor/src/sessions.ts` performs post-commit notification
+  best-effort, while current scheduled recovery does not own the pre-rerun
+  trigger gap.
+- current query cache proposals omit active package and identity/access-policy
+  fingerprints.
+- concurrent reruns need compare-and-swap generations so Postgres/DO/delivery
+  state cannot retain different winners.
 
-```txt
-qA = products where category = "shoes"
-qB = products where category = "shoes" and price < 100
-```
-
-They have different query hashes:
-
-```txt
-query-cache:{scope_id}:{qA}
-query-cache:{scope_id}:{qB}
-```
-
-They may still share dependency keys:
-
-```txt
-products.by_category("shoes") -> qA, qB
-products.price_bucket("<100") -> qB
-```
-
-If a commit changes a product in category `shoes`, `DeploymentSyncDO` marks both
-queries stale. Each `QueryCacheDO` reruns its exact query and compares
-`resultHash`:
-
-```txt
-new resultHash == old resultHash -> update observed freshness, publish nothing
-new resultHash != old resultHash -> store result and notify subscribers
-```
-
-This keeps correctness independent from query hash equality. Query hashes
-identify exact shared results; dependency keys identify what data changes can
-make those results stale.
-
-## Cache Layer Roles
-
-```txt
-VersionDO:
-  latest known document/table/range versions
-  lightweight freshness checks
-  passive; does not orchestrate cache reruns
-
-DocCacheDO:
-  hot replicated document rows
-  useful for get-by-id live queries and fanout
-  bucketed by row key; not a whole-scope database
-
-QueryCacheDO:
-  canonical shared query results
-  resultHash, observedVersion, dependency ranges
-  many subscribers can share one rerun
-  reruns exact query hash and suppresses unchanged results
-
-DeploymentSyncDO:
-  active dependency-to-query maps
-  rerun scheduling
-  subscriber fanout coordination
-
-ConnectionDO:
-  WebSocket session state
-  client query-set protocol
-  maps client subscriptions to shared query entries
-```
-
-This reduces trusted query/mutation executor load:
-
-- repeated subscribers can share one query result,
-- hot document reads can be served from Cloudflare SQLite,
-- Hyperdrive can accelerate cold or ordinary reads,
-- VersionDO can reject stale cached results without hitting Postgres,
-- Postgres-side executors focus on commits, cold reads, and cache rebuilds.
-
-## What This Does Not Solve
-
-This design does not make Hyperdrive a correctness source. It also does not
-make Cloudflare cache authoritative for writes.
-
-The authoritative write path remains:
-
-```txt
-trusted executor near Postgres -> short Postgres transaction -> outbox -> commit
-```
-
-The cache path is a replicated read and freshness layer. It can lag. It must be
-replayable from Postgres outbox or CDC. It must handle duplicates,
-out-of-order events, dispatcher crashes, and backpressure.
+These are implementation findings, not evidence that the Postgres-authoritative
+direction is wrong.
 
 ## Phased Plan
 
-Phase 1:
+Phase 1, correctness:
 
-- Treat Postgres-authoritative design as the forward path.
-- Introduce framework-neutral executor and persistence package boundaries.
-- Use PGlite for local/test executor runs.
-- Use no-cache or near-Postgres query executor for live-query reruns.
-- Use Hyperdrive for one-shot/ordinary reads where stale cache is acceptable.
+1. Adopt `SnapshotToken` and scope-local contiguous commit feed.
+2. Fix initial subscription activation.
+3. Route deterministic per-scope DeploymentSyncDO instances.
+4. Persist cursor, query definitions, dependency index, and generations in DO
+   SQLite.
+5. Add durable lagging-scope sweep and ordered Postgres catch-up.
+6. Keep Postgres registry as migration/recovery baseline.
+7. Execute live-query reruns through authoritative no-cache Postgres reads.
 
-Phase 2:
+Phase 2, scaling:
 
-- Add scoped `commitSeq`/LSN-style metadata and Postgres transactional outbox.
-- Add `VersionDO` to replicate document/table/range versions into Cloudflare.
-- Live query reruns must publish only results fresh through the required
-  commit sequence.
+1. Canonical query deduplication and inverted dependency indexes.
+2. Bounded rerun continuations, backpressure, and per-scope load tests.
+3. Remove Postgres registry only after recovery parity.
 
-Phase 3:
+Phase 3, measured caches:
 
-- Add `DocCacheDO` for hot row images.
-- Serve simple get-by-id live queries from Cloudflare when version matches.
+1. MVCC-aware DocCacheDO for proven hot point reads.
+2. QueryCacheDO split for large shared results.
+3. VersionDO only with a gap-free bucket-feed protocol.
 
-Phase 4:
+## Correctness Tests
 
-- Add shared `QueryCacheDO` for canonical live query results.
-- Deduplicate reruns and fan out one fresh result to many subscribers.
+- a commit lands during initial query execution/registration;
+- duplicate, reverse-ordered, and gapped commit notifications;
+- lost direct wake before any changed-result delivery exists;
+- simultaneous triggers for two scopes;
+- concurrent reruns of one canonical query;
+- commit arrives while a rerun is running;
+- package activation and identity/policy change;
+- mutation at snapshot 100 while a cache has a row from 103;
+- DeploymentSyncDO and ConnectionDO eviction/hibernation;
+- reconnect with cursor or epoch mismatch;
+- broad dependency fallback for inserts, deletes, key moves, and pagination;
+- real Postgres mutation-to-WebSocket recovery, not PGlite alone.
 
 ## Convex Comparison
 
-Convex can run user function execution, transaction state, database reads, and
-sync invalidation very close together. That is why its `ctx.db` calls can be
-ergonomic and reactive without exposing cache freshness details.
+Relevant Convex sources:
 
-This Postgres-authoritative Flarex design keeps the Convex developer surface
-where possible, but the runtime boundary differs:
+- `../../../crates/database/src/subscription.rs`
+  - refreshes subscription tokens against processed writes.
+- `../../../crates/sync/src/worker.rs`
+  - query execution, subscription activation, rerun, and ordered updates.
+- `../../../crates/sync/src/state.rs`
+  - active query state and result-hash suppression.
+- `../../../crates/database/src/committer.rs`
+  - commit/write metadata feeds invalidation.
 
-```txt
-Convex:
-  backend-owned function execution and database engine are close together
+Convex keeps these pieces close in one backend. Flarex bridges Postgres and
+Cloudflare, so it needs explicit cursors, deterministic actor routing, durable
+lag detection, and idempotent catch-up. The developer-facing query model can
+remain Convex-like; the internal recovery protocol cannot be implicit.
 
-Flarex Postgres-authoritative:
-  untrusted user code runs on Cloudflare
-  authoritative commits happen near Postgres
-  sync freshness is bridged through outbox and Cloudflare cache DOs
-```
+## Remaining Questions
 
-The required invariant is:
+- How much durable query state fits safely in one DeploymentSyncDO before
+  coordination buckets are necessary?
+- Which precise typed interval encoding should be shared by OCC and sync?
+- What is the operational owner and cadence for lagging-scope sweeps?
+- What reconnect-lease duration and history budget are operationally feasible?
+  The semantic floor is already the minimum live snapshot/reconnect lease plus
+  safety margin; older cursors reset/resnapshot.
+- Which queries can be proven identity-independent and safely shared?
 
-```txt
-Developer-facing query API can stay Convex-like.
-Runtime live-query freshness must be explicit and versioned internally.
-```
-
-## Open Questions
-
-- How aggressively should the old Durable Object authoritative prototype be
-  removed once the Postgres executor can run basic invoke and sync tests?
-- What is the smallest read-dependency model that supports both OCC commit
-  validation and live query invalidation?
-- Do we use commit sequence numbers, WAL LSNs, or logical timestamps as the
-  primary freshness marker?
-- Which live queries are allowed to use Hyperdrive cache during initial load?
-- How should range versions be represented for index queries without exploding
-  version cardinality?
-- How much replicated row data should DocCacheDO store before it becomes a
-  second database to operate?
-- What bucket counts and split policy should VersionDO, DocCacheDO, and
-  DeploymentSyncDO use for high-write scopes?
-- Which dependency keys should start precise, and which should intentionally use
-  table-level fallback until range encoding is proven?
+These are implementation choices to prove after the v1 correctness topology,
+not reasons to add cache actors early.

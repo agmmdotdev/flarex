@@ -1,5 +1,49 @@
 # Schema Placement And Shards
 
+## Define Scope-Safe Physical Topologies
+
+Previous completed checkpoint: `01c11ab` Clarify SessionDO cache read bridge.
+
+What changed:
+
+- Made `scope_id` the mandatory data-plane authority in shared-table mode.
+- Required scope-qualified primary keys, unique constraints, and intra-scope
+  foreign keys, with RLS or equivalent transaction-local scope defense.
+- Allowed redundant scope columns to disappear only in schema-per-scope or
+  database-per-scope physical layouts.
+- Limited shared Medusa tables to homogeneous platform schema/module versions;
+  custom or staggered Medusa projects use per-scope schemas/databases until a
+  safe compiled strategy is proven.
+
+Why it changed:
+
+The long-form schema declared scope authority but used global primary keys and
+unqualified relationships in several Payload/Medusa examples. It also allowed
+multiple physical topologies without explaining how generated constraints
+change between them.
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - authority and transaction ordering remain deployment-local.
+
+How Flarex differs:
+
+- Cloudflare routing identifies the scope, while Postgres must still enforce
+  the scope in shared physical tables. Per-scope schemas/databases are an
+  operational isolation option, not a public shard API.
+
+Known limitations:
+
+- The exact shared-table RLS policy, schema promotion tooling, Medusa version
+  compatibility checks, and tenant migration path remain unimplemented.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Superseded By Postgres Authority
 
 Previous completed checkpoint: `e80e176` Plan Postgres executor package

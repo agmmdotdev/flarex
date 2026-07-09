@@ -1,5 +1,55 @@
 # OCC And Transactions
 
+## Correct Snapshot, Overlay, Idempotency, And Retry Semantics
+
+Previous completed checkpoint: `01c11ab` Clarify SessionDO cache read bridge.
+
+What changed:
+
+- Standardized OCC on an exact `(scope_id, epoch, commit_seq)` snapshot token.
+- Required a Postgres session/grant anchor, snapshot lease, fenced lifecycle,
+  journal digest, idempotent finish, and lost-outcome lookup.
+- Required unsupported read-your-writes query shapes to fail closed instead of
+  falling back to Postgres after a staged DO write.
+- Made successful results part of the same transaction as data, commit atoms,
+  idempotency, and outbox.
+- Split OCC reruns, SQL plan retries, and uncertain-outcome recovery.
+
+Why it changed:
+
+A newer cache sequence is not an exact older mutation snapshot, a conservative
+dependency cannot repair an incorrect value returned after an unsupported
+overlay, and an optional indexed idempotency key cannot replay a lost committed
+result safely.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transaction-local read-your-writes behavior.
+- `crates/database/src/committer.rs`
+  - validate reads before ordered publication.
+- `crates/model/src/session_requests/types.rs`
+  - durable request outcomes.
+- `crates/application/src/application_function_runner/mod.rs`
+  - prior-result lookup and atomic successful result storage.
+
+How Flarex differs:
+
+- The Dynamic Worker/DO/Postgres split requires explicit fences, digests,
+  leases, and recovery protocols that Convex can keep inside its backend.
+
+Known limitations:
+
+- Current code still uses wall-clock `beginTs` and Postgres staging.
+- Typed range/phantom validation, `40P01` handling, and real Postgres crash
+  tests remain open.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## PartitionDO Storage Row Decoders
 
 Previous completed checkpoint: `564a342` Dispatch registry routes directly.
