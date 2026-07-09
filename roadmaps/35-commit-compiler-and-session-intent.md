@@ -107,10 +107,41 @@ Dynamic Worker
 
 Read syscalls:
 
-- read authoritative data from Postgres at `beginTs`;
+- read authoritative data from Postgres at `beginTs`, or use a Cloudflare cache
+  read only when the cache can prove `freshThroughCommitSeq >= beginTs`;
 - merge the result with the SessionDO staged-write overlay;
 - record read dependencies in SessionDO SQLite;
 - return a Convex-like result to user code.
+
+The cache path is optional and must be fail-closed:
+
+```txt
+ctx.db.get(row)
+  -> SessionDO checks staged-write overlay first
+  -> if no local staged value:
+       ask VersionDO/DocCacheDO for row and freshness proof
+  -> if freshThroughCommitSeq >= beginTs:
+       use cached row
+  -> otherwise:
+       read Postgres through no-cache authoritative path at beginTs
+  -> record row dependency in SessionDO
+```
+
+For canonical query reads, `SessionDO` may use `QueryCacheDO` only when the
+cached result carries read dependencies and an observed freshness marker that
+satisfies the session snapshot:
+
+```txt
+ctx.db.query(...)
+  -> QueryCacheDO result if observedCommitSeq >= beginTs for all dependencies
+  -> otherwise trusted query executor/Postgres
+  -> SessionDO records returned dependency ranges
+  -> SessionDO applies staged-write overlay where the query shape supports it
+```
+
+Cached reads are an accelerator, not a correctness source. Missing freshness,
+stale freshness, unsupported dependency shapes, or unsupported overlay merging
+must fall back to Postgres or a conservative dependency record.
 
 Write syscalls:
 
@@ -119,6 +150,10 @@ Write syscalls:
 - coalesce repeated writes to the same document or row when possible;
 - update the read-your-writes overlay;
 - do not publish authoritative rows.
+
+Staged writes remain private to the current SessionDO attempt. `DocCacheDO`,
+`QueryCacheDO`, `VersionDO`, and `DeploymentSyncDO` only observe committed
+changes through the Postgres commit/outbox stream.
 
 Read-your-writes is mandatory. A second `ctx.db.get(id)` after a staged patch
 must observe the patched value even though Postgres still contains the old
@@ -272,6 +307,9 @@ Postgres remains the final commit authority.
 - Precise overlay semantics for indexed queries, relation queries, Medusa
   filters, Payload nested fields, and table scans need separate design and
   tests.
+- Cache-assisted execution reads need explicit freshness proof plumbing between
+  `SessionDO`, `VersionDO`, `DocCacheDO`, `QueryCacheDO`, and the no-cache
+  Postgres fallback path.
 - The final commit function boundary should wait until bulk helper and CTE
   renderers prove the plan format.
 - PGlite and real Postgres must both be tested; real Postgres remains required

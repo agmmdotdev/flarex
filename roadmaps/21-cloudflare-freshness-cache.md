@@ -67,6 +67,60 @@ Verification:
 git diff --check
 ```
 
+## SessionDO Cache Read Bridge
+
+Previous completed checkpoint: `44e5f54` Clarify cache DO routing design.
+
+What changed:
+
+- Made the user-code execution read path explicit in
+  [35-commit-compiler-and-session-intent.md](./35-commit-compiler-and-session-intent.md):
+  `SessionDO` may use `DocCacheDO` or `QueryCacheDO` only when the cache result
+  carries a freshness proof that satisfies the session `beginTs` /
+  `beginCommitSeq`.
+- Recorded the fail-closed rule: missing freshness, stale freshness,
+  unsupported dependency shapes, or unsupported staged-write overlay merging
+  must fall back to the no-cache Postgres/trusted executor read path.
+- Reaffirmed that staged writes are private to the current `SessionDO` attempt;
+  cache DOs observe only committed changes through Postgres outbox events.
+
+Why it changed:
+
+The cache/freshness roadmap described the cache DO roles, and the commit
+compiler roadmap described SessionDO intent, but the bridge between them was
+implicit. Cache-assisted reads during user-code execution need a concrete
+freshness gate so Cloudflare mirrors can reduce read latency without becoming a
+second source of truth.
+
+Convex references:
+
+- `crates/database/src/transaction.rs`
+  - transaction-local read-your-writes state.
+- `crates/database/src/committer.rs`
+  - final commit validates reads before publishing writes.
+- `crates/database/src/subscription.rs`
+  - read dependencies must be precise enough for invalidation and OCC.
+
+How Flarex differs:
+
+- Convex keeps the transaction state and database engine close together. Flarex
+  may consult Cloudflare cache DOs during execution, but every cache result must
+  prove freshness against the session snapshot or fall back to Postgres.
+
+Known limitations:
+
+- No cache-assisted SessionDO read implementation exists yet.
+- Query overlay merging remains hard for indexes, relations, Medusa filters,
+  Payload nested fields, and table scans.
+- The exact freshness proof shape is still a design detail, but it must include
+  scoped commit sequence coverage for all returned dependencies.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Project Required Parameter Effects
 
 Previous completed checkpoint: `33054dd` Propagate public worker route errors.
