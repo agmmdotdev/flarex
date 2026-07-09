@@ -1,5 +1,64 @@
 # Postgres Executor
 
+## Commit Compiler And Session Intent Direction
+
+Previous completed checkpoint: `523a006` Refactor FlarexDB schema to enhance
+app data storage and indexing.
+
+What changed:
+
+- Added the focused design record
+  [35-commit-compiler-and-session-intent.md](./35-commit-compiler-and-session-intent.md).
+- Recorded the accepted executor direction: user-code execution should keep
+  read-set and staged-write intent in SessionDO/ExecutionDO SQLite where
+  possible, then send a compact `CommitIntent` to Postgres for final
+  OCC validation and publication.
+- Preserved Postgres/PGlite as the authoritative source for committed data,
+  read validation, commit timestamps, commit log, freshness, and outbox rows.
+
+Why it changed:
+
+The current Postgres executor path is a correctness foundation, but staging
+read-set and write-set rows in Postgres during user-code execution creates
+avoidable round trips. The optimized design keeps authoritative reads in
+Postgres, records temporary invocation intent near the Dynamic Worker in Durable
+Object SQLite, then opens a short Postgres transaction only for final
+set-based validation and bulk publication.
+
+Convex references:
+
+- `crates/database/src/committer.rs`
+  - final read validation, write computation, and commit publication.
+- `crates/database/src/transaction.rs`
+  - transaction-local read/write state and read-your-writes behavior.
+- `crates/sync/src/worker.rs`
+  - committed write metadata drives subscription invalidation.
+
+How Flarex differs:
+
+- Convex can keep user execution and transaction state close to its Rust
+  backend. Flarex splits Dynamic Worker execution, SessionDO intent, and
+  Postgres authority across Cloudflare/runtime boundaries.
+- Durable Object SQLite may own temporary session intent, but it must not become
+  a second authoritative data store.
+- KV is not acceptable for correctness-critical mutation intent.
+
+Known limitations:
+
+- No implementation exists yet for a general `CommitIntent`/`CommitPlan`
+  compiler.
+- Overlay-aware query behavior is straightforward for `get(id)` but still needs
+  precise design for indexes, relations, Medusa filters, Payload nested fields,
+  and table scans.
+- Real Postgres validation remains required for lock ordering, isolation,
+  deadlock, and production query-plan behavior.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Live Query Callback Protocol Contracts
 
 Previous completed checkpoint: `b3badab` Decide executor HTTP adapter

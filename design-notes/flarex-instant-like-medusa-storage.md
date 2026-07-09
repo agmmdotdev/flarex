@@ -1824,6 +1824,12 @@ outbox remain in FlarexDB.
 
 ### Final Commit Planning And Round Trips
 
+Current detailed roadmap: see
+[`roadmaps/35-commit-compiler-and-session-intent.md`](../roadmaps/35-commit-compiler-and-session-intent.md).
+That file owns the SessionDO intent journal, `beginTs`, read-your-writes
+overlay, `CommitIntent`, and final Postgres round-trip strategy. This section
+keeps the Medusa/Payload storage motivation.
+
 The final commit must not be implemented as a generic ORM loop that performs one
 awaited SQL statement per row or per Medusa entity.
 

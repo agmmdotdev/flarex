@@ -52,3 +52,4 @@ Start with:
 - [29-authoritative-analysis-effect-quality-goals.md](./29-authoritative-analysis-effect-quality-goals.md)
 - [31-hosted-project-identity-and-auth.md](./31-hosted-project-identity-and-auth.md)
 - [32-hosted-project-identity-and-auth-goals.md](./32-hosted-project-identity-and-auth-goals.md)
+- [35-commit-compiler-and-session-intent.md](./35-commit-compiler-and-session-intent.md)
