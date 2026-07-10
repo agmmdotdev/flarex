@@ -108,7 +108,7 @@ export interface FlarexSqlClient {
 
 export interface FlarexPersistenceTx extends FlarexSqlClient {}
 
-export interface FlarexPersistence
+export interface FlarexRuntimePersistence
   extends FlarexSqlClient, LegacyV1AppDataStore {
   check(): Promise<FlarexPersistenceCheck>;
   insertDeploymentPackageMetadata(
@@ -249,8 +249,11 @@ export interface FlarexPersistence
   claimLiveQueryDeliveries(
     input: ClaimLiveQueryDeliveriesInput,
   ): Promise<ClaimLiveQueryDeliveriesResult>;
-  migrate(): Promise<void>;
   transaction<T>(fn: (tx: FlarexPersistenceTx) => Promise<T>): Promise<T>;
+}
+
+export interface FlarexPersistence extends FlarexRuntimePersistence {
+  migrate(): Promise<void>;
 }
 
 export interface FlarexPersistenceCheck {

@@ -1,5 +1,9 @@
-import { Pool } from "pg";
+import { Client, Pool } from "pg";
 
+import {
+  createPostgresClientPersistence,
+  type PostgresClientFlarexPersistence,
+} from "../src/postgresClient";
 import {
   createPostgresPersistence,
   type PostgresFlarexPersistence,
@@ -54,6 +58,75 @@ export async function withTemporaryPostgresPersistence(
     if (primaryError === undefined && cleanupErrors.length > 0) {
       throw new Error(
         `Failed to clean up temporary Postgres schemas: ${cleanupErrors
+          .map(errorMessage)
+          .join("; ")}`,
+      );
+    }
+  }
+}
+
+export async function withTemporaryPostgresClientPersistence(
+  fn: (
+    persistence: PostgresClientFlarexPersistence,
+    client: Client,
+  ) => Promise<void>,
+): Promise<void> {
+  const connectionString = requiredPostgresUrl();
+  const schemaName = temporaryIdentifier("flarex_client_test");
+  const migrationsSchema = temporaryIdentifier("flarex_client_migrations");
+  const adminPool = new Pool({ connectionString });
+  let migrationPersistence: PostgresFlarexPersistence | undefined;
+  let client: Client | undefined;
+  let primaryError: unknown;
+
+  try {
+    await adminPool.query(`create schema ${quoteIdentifier(schemaName)}`);
+    await adminPool.query(`create schema ${quoteIdentifier(migrationsSchema)}`);
+    migrationPersistence = await createPostgresPersistence({
+      connectionString,
+      migrationsSchema,
+      poolConfig: { options: `-c search_path=${schemaName}` },
+    });
+    await migrationPersistence.migrate();
+    await migrationPersistence.close();
+    migrationPersistence = undefined;
+
+    client = new Client({
+      connectionString,
+      options: `-c search_path=${schemaName}`,
+    });
+    await client.connect();
+    await fn(createPostgresClientPersistence(client), client);
+  } catch (error) {
+    primaryError = error;
+    throw error;
+  } finally {
+    const cleanupErrors: unknown[] = [];
+    const clientToClose = client;
+    if (clientToClose !== undefined) {
+      await recordCleanupError(cleanupErrors, () => clientToClose.end());
+    }
+    const migrationPersistenceToClose = migrationPersistence;
+    if (migrationPersistenceToClose !== undefined) {
+      await recordCleanupError(
+        cleanupErrors,
+        () => migrationPersistenceToClose.close(),
+      );
+    }
+    await recordCleanupError(cleanupErrors, () =>
+      adminPool.query(
+        `drop schema if exists ${quoteIdentifier(schemaName)} cascade`,
+      ),
+    );
+    await recordCleanupError(cleanupErrors, () =>
+      adminPool.query(
+        `drop schema if exists ${quoteIdentifier(migrationsSchema)} cascade`,
+      ),
+    );
+    await recordCleanupError(cleanupErrors, () => adminPool.end());
+    if (primaryError === undefined && cleanupErrors.length > 0) {
+      throw new Error(
+        `Failed to clean up temporary Postgres client schemas: ${cleanupErrors
           .map(errorMessage)
           .join("; ")}`,
       );

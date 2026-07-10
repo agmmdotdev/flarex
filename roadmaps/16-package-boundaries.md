@@ -1,5 +1,79 @@
 # Package Boundaries
 
+## Add The Worker-Safe Connected-Client Persistence Seam
+
+Previous completed checkpoint: `3155884` (`Define hosted executor proof
+gates`).
+
+What changed:
+
+- Split `FlarexRuntimePersistence` from the migration-capable
+  `FlarexPersistence` contract. Existing PGlite and pooled Postgres adapters
+  still implement the full contract; the Worker path no longer needs a fake
+  `migrate()` method.
+- Extracted the duplicated repository facade into one driver-neutral runtime
+  composer used by PGlite, pooled Postgres, and the new connected-client path.
+  Transaction-backed repository operations now receive one driver-owned
+  transaction context instead of duplicating five Drizzle casts per adapter.
+- Added the server-only `@flarex/persistence-postgres/postgres-client` subpath.
+  Its synchronous factory accepts one already-connected `pg.Client`, exposes
+  no raw client, Drizzle database, pool, migration, connect, end, or close
+  capability, and uses that same client for raw and repository transactions.
+- Added a separate Worker-safe shared-authority helper that accepts the
+  caller-owned client and returns only the provisioner. The persistence facade
+  never exposes Drizzle's runtime `$client`. Bootstrap, split placement, and
+  located-target runtime composition remain outside the client subpath because
+  H02 does not implement split runtime resolution.
+- Made rollback best-effort cleanup preserve the primary callback/domain or
+  COMMIT failure. Deterministic unit cases cover callback-plus-rollback and
+  commit-plus-rollback failure precedence, while the pooled wrapper marks a
+  rollback-failed connection for removal instead of returning it to the pool.
+
+Why it changed:
+
+The previous Node adapter combined runtime repositories, `pg.Pool`, migrations,
+and filesystem path discovery. The private Worker needs the same trusted
+repository behavior but must receive a caller-owned request client without
+importing or pretending to own those Node control-plane capabilities.
+
+Convex references inspected:
+
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/isolate/src/environment/udf/syscall.rs`
+
+How Flarex differs:
+
+- Convex's function runner returns the final transaction/read set to its owned
+  application backend. Flarex keeps its executor/persistence core in-process
+  too, but the Cloudflare host must express database lifecycle as a narrow
+  request adapter because user execution occurs in a separate Dynamic Worker.
+
+Known limitations:
+
+- H02 creates no Worker and owns no `pg.Client.connect()` or `client.end()`;
+  H03 owns request lifecycle, authorization-before-allocation, and cleanup
+  precedence.
+- The common runtime composer reuses the existing `FlarexMetadataDatabase`
+  contract. One documented assertion remains at the caller-declared generic
+  row boundary because Drizzle returns `Assume<Row, ...>` for both drivers.
+- Drizzle's node-postgres driver itself contains Pool-aware code. H03 must ban
+  Flarex's pooled adapter, migrators, PGlite, and filesystem helpers rather
+  than treating every bundled `Pool` symbol as application-owned pooling.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:postgres
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Freeze The Worker-Safe Postgres Import Boundary
 
 Previous completed checkpoint: `0f4874d` (`Complete split scope authority

@@ -1,7 +1,7 @@
 # FlarexDB Schema And Migration Plan
 
-Status: S01 through S02-C and hosted-proof H01 complete; H02 is next and S02-D
-remains blocked through H05
+Status: S01 through S02-C and hosted-proof H01-H02 complete; H03 is next and
+S02-D remains blocked through H05
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -152,7 +152,7 @@ Progress:
       projection.
 - [x] H01 — Freeze the pre-S02-D Worker/Hyperdrive proof contract and split
   local workerd/direct-Postgres evidence from the hosted activation receipt.
-- [ ] H02 — Add the Worker-safe request-scoped Postgres persistence seam.
+- [x] H02 — Add the Worker-safe request-scoped Postgres persistence seam.
 - [ ] H03 — Add the private executor Worker and bundle/import-graph proof.
 - [ ] H04 — Prove its named local service binding against real PostgreSQL.
 - [ ] H05 — Record cache-disabled Hyperdrive and hosted service-binding

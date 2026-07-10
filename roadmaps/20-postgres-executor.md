@@ -1,5 +1,89 @@
 # Postgres Executor
 
+## Add Request-Scoped Postgres Client Persistence
+
+Previous completed checkpoint: `3155884` (`Define hosted executor proof
+gates`).
+
+What changed:
+
+- Added a synchronous adapter for an already-connected `pg.Client`. It owns
+  BEGIN/COMMIT/ROLLBACK on that one connection but never connects, ends,
+  releases, migrates, discovers files, or creates a pool.
+- Routed the existing PGlite and pooled Postgres adapters through the same
+  runtime repository composer while retaining their migration and lifecycle
+  wrappers. The ordinary lane passed 148 tests, and a disposable PostgreSQL 18
+  cluster passed all 25 real-Postgres tests.
+- Added a real-Postgres client case proving direct SQL, typed Drizzle execute,
+  repository insert/read, shared authority provisioning, exact backend-PID
+  reuse across a committed transaction, rollback with primary error identity,
+  and successful queries afterward. The fixture—not the adapter—connects and
+  ends the client.
+- Added compile-time and runtime assertions that the connected-client result
+  has no `client`, `drizzle`, `pool`, `migrate`, `connect`, `end`, or `close`
+  surface. Shared authority is composed from a separate client-taking helper.
+- Preserved callback/domain and COMMIT failures when a secondary rollback also
+  fails, with deterministic unit tests for both precedence paths. The pooled
+  adapter records that secondary failure when releasing the poisoned client.
+
+Why it changed:
+
+Existing PostgreSQL evidence used `pg.Pool`, and the PGlite lane could not prove
+the concrete Worker database driver. H02 establishes the exact persistence
+object H03 can create inside each Fetch invocation without broadening the
+executor protocol or moving connection lifecycle into the framework-neutral
+core.
+
+Convex references inspected:
+
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/isolate/src/environment/udf/syscall.rs`
+
+How Flarex differs:
+
+- Convex owns transaction construction inside one hosted backend. Flarex's
+  private Worker will receive a Hyperdrive connection string per invocation,
+  construct one client, and inject this adapter into the same trusted executor
+  core while the untrusted Dynamic Worker sees only serialized syscalls.
+
+Known limitations:
+
+- This is H02, not a Worker/Hyperdrive proof. No Fetch handler, Wrangler bundle,
+  capability-token gate, request cleanup, service binding, or hosted resource
+  exists yet.
+- Only shared-database authority composition is exposed on the client subpath.
+  Split-locator runtime resolution remains explicitly outside this goal.
+- H03 must prove the Worker bundle excludes `/postgres`, `/pglite`, Drizzle
+  migrators, and filesystem path/URL helpers. H04 and H05 still own local named
+  service-binding and hosted Hyperdrive receipts respectively.
+- The workspace build completed the changed package and every other library,
+  then retained the existing example-only failure: Vite cannot resolve the
+  extensionless `../http` import from
+  `packages/flarex-backend/src/artifactRuntime/RouteBoundary.ts`.
+- The workspace test reached and passed the changed persistence package (148
+  ordinary tests), then failed in three untouched `flarex-backend` delivery
+  decoder expectations. The decoded values now include the committed
+  `identityFingerprint` field, while
+  `connectionRequests.test.ts`, `liveQueryDelivery.test.ts`, and
+  `publicLiveQueryDeliveryRouteBoundary.test.ts` still expect the older shape.
+  This existing backend expectation drift is outside H02.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:postgres
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm typecheck
+corepack pnpm check:effect-boundaries
+corepack pnpm build # existing example-only module-resolution failure
+corepack pnpm test # existing three-test identityFingerprint expectation drift
+git diff --check
+```
+
 ## Freeze Local And Hosted Executor Proof Evidence
 
 Previous completed checkpoint: `0f4874d` (`Complete split scope authority

@@ -1,7 +1,7 @@
 # FlarexDB Foundation Execution Plans
 
-Status: S01 through S02-C and hosted-proof H01 are complete; H02 is next and
-S02-D remains blocked through H05
+Status: S01 through S02-C and hosted-proof H01-H02 are complete; H03 is next
+and S02-D remains blocked through H05
 
 This folder turns the accepted FlarexDB architecture into small, reviewable,
 commit-sized implementation turns. It is intentionally limited to the
@@ -69,7 +69,7 @@ S02-D or introduce the replacement FlarexDB schema/OCC/compiler.
 
 - [x] H01 — Freeze the host contract, local-versus-hosted evidence, exact OCC
   smoke, privacy/placement policy, and exclusions.
-- [ ] H02 — Add the Worker-safe request-scoped `pg.Client` persistence seam;
+- [x] H02 — Add the Worker-safe request-scoped `pg.Client` persistence seam;
   retain Node migrations/`pg.Pool` and PGlite behind their existing subpaths.
 - [ ] H03 — Add the private `apps/executor` Worker, lifecycle tests, Wrangler
   dry-run, and metafile exclusions for PGlite and filesystem migrations.
@@ -185,8 +185,9 @@ commit are complete.
    `reserved -> ready` control CAS without advertising located readiness.
    S02-C3b2 added the trusted two-store target-clock reconciliation loop,
    exact initial `legacy_v1` authority, crash/replay recovery, and final ready
-   projection. H01 has frozen the Worker/Hyperdrive proof contract; H02 through
-   H05 remain hard prerequisites for S02-D runtime routing.
+   projection. H01 froze the Worker/Hyperdrive proof contract and H02 added the
+   connected-client persistence seam; H03 through H05 remain hard
+   prerequisites for S02-D runtime routing.
 3. `S03` add the minimal stable catalog.
 4. `S04` migrate active-schema pointer authority while mirroring legacy reads.
 5. `S05` freeze tagged value and ordered-key codecs.

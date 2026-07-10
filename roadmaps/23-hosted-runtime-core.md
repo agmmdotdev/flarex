@@ -1,5 +1,61 @@
 # Hosted Runtime Core
 
+## Complete The H02 Persistence Boundary
+
+Previous completed checkpoint: `3155884` (`Define hosted executor proof
+gates`).
+
+What changed:
+
+- Completed H02 by adding the Worker-safe connected-`pg.Client` persistence
+  subpath and retaining Pool/migration/PGlite ownership outside it.
+- Kept connection creation and cleanup out of persistence. H03's Fetch handler
+  must validate its capability token first, create and connect exactly one
+  client from `HYPERDRIVE_CACHE_DISABLED.connectionString`, inject this
+  adapter, and attempt `client.end()` in `finally`.
+- Made a client-taking shared-scope authority helper available without
+  importing the Node `/postgres` entrypoint or exposing Drizzle/`$client`, so
+  H03 can compose `withReadyDeploymentAuthority(...)` from the safe graph.
+- Proved the client adapter against PostgreSQL 18 without introducing the
+  deployable Worker, runtime generation routing, or new FlarexDB behavior.
+
+Why it changed:
+
+H03 cannot honestly prove its Worker bundle while the only concrete Postgres
+composition imports filesystem migrations and `pg.Pool`. H02 removes that
+dependency edge first and leaves Worker hosting as the next independent turn.
+
+Convex references inspected:
+
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/isolate/src/environment/udf/syscall.rs`
+
+How Flarex differs:
+
+- Convex owns the function runner and database runtime in one backend process.
+  Flarex still keeps the trusted executor and persistence in-process with each
+  other, but Cloudflare invocation lifecycle belongs to a thin Worker adapter.
+
+Known limitations:
+
+- `apps/executor` still does not exist. H03 remains the next checkpoint.
+- H02 does not prove `nodejs_compat`, a Wrangler bundle, private reachability,
+  capability rejection, Hyperdrive configuration, or per-Fetch cleanup.
+- H04 and H05 remain required before S02-D; no status beyond H02 is implied.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:postgres
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Freeze The Hosted Executor Proof Gate
 
 Previous completed checkpoint: `0f4874d` (`Complete split scope authority
