@@ -1,5 +1,57 @@
 # Local Dev Server
 
+## Provision Shared Scope Authority Before Local Executor Writes
+
+Previous completed checkpoint: `5f377e9` Add resumable scope authority
+bootstrap.
+
+What changed:
+
+- Composed `createLocalPGliteExecutorHttpRuntime(...)` with the C1 shared scope
+  authority provisioner after migrations and before constructing the executor.
+- Added a fixed local `shared_database` locator (`primary` / `public`) and an
+  optional trusted override for callers that supply persistence with a
+  different immutable locator.
+- Kept the underlying PGlite persistence available to trusted local tooling,
+  while the executor receives a facade without the bare deployment writer.
+- Added local runtime proof that package registration creates explicit
+  `legacy_v1`, fence `1`, zero-counter scope-clock authority before activation.
+
+Why it changed:
+
+Local dev is the current concrete executor composition point. Leaving it on the
+raw persistence object would preserve the very future-creation gap C3a is meant
+to close.
+
+Convex references inspected:
+
+- `crates/model/src/lib.rs`
+- `crates/model/src/database_globals/mod.rs`
+
+How Flarex differs:
+
+- Convex backend startup initializes its database before serving developer
+  operations. Flarex local dev explicitly composes the same postcondition from
+  PGlite persistence and a trusted authority provisioner.
+
+Known limitations:
+
+- This does not create the hosted Cloudflare executor Worker, Hyperdrive
+  request client, or backend-push/Postgres bridge.
+- Split topologies remain C3b and are not selectable through local request or
+  public executor input.
+- The changed `executorHttpRuntime.test.ts` file passes five tests. The broad
+  package command retains a Vitest process without output and was stopped after
+  its bounded three-minute timeout.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts
+git diff --check
+```
+
 ## Flarex Dev Response JSON Shared Boundary
 
 Previous completed checkpoint: `8e89a84` Type backend response JSON reads.

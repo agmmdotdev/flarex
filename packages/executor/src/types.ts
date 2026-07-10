@@ -20,7 +20,6 @@ import type {
   FlarexPersistenceCheck,
   FinishInvokeSessionMetadataInput,
   InsertDeploymentPackageMetadataInput,
-  InsertDeploymentMetadataInput,
   InsertInvokeSessionMetadataInput,
   InsertOutboxEventInput,
   InvokeSessionMetadataRecord,
@@ -265,9 +264,9 @@ export interface FlarexExecutorControlPersistence {
   listDeploymentMetadata(
     input: ListDeploymentMetadataInput,
   ): Promise<ListDeploymentMetadataResult>;
-  insertDeploymentMetadata(
-    input: InsertDeploymentMetadataInput,
-  ): Promise<DeploymentMetadataRecord>;
+  ensureDeploymentAuthority(
+    input: EnsureDeploymentInput,
+  ): Promise<EnsureDeploymentAuthorityResult>;
   updateDeploymentMetadataActivation(
     input: UpdateDeploymentMetadataActivationInput,
   ): Promise<DeploymentMetadataRecord | null>;
@@ -992,6 +991,17 @@ export interface EnsureDeploymentInput {
 export interface EnsureDeploymentResult {
   deployment: DeploymentMetadataRecord;
   created: boolean;
+}
+
+export interface EnsureDeploymentAuthorityResult {
+  readonly deployment: DeploymentMetadataRecord;
+  readonly createdDeployment: boolean;
+}
+
+export interface ReadyDeploymentAuthorityProvisioner {
+  ensure(
+    input: EnsureDeploymentInput,
+  ): Promise<EnsureDeploymentAuthorityResult>;
 }
 
 export interface FlarexHealth {

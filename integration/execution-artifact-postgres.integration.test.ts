@@ -8,6 +8,7 @@ import {
   type ArtifactSourcePackage,
 } from "flarex/artifacts";
 import { LocalMiniflareExecutionArtifactMaterializer } from "../packages/flarex-dev/src/runtimeMaterializer";
+import { withPGliteIntegrationDeploymentAuthority } from "./executorPersistence";
 
 type SourcePackageWithSource = ArtifactSourcePackage & {
   modules: Array<ArtifactSourcePackage["modules"][number] & { source: string }>;
@@ -23,7 +24,7 @@ describe("execution artifact to Postgres executor integration", () => {
     const executor = createFlarexExecutor({
       clock: { now: () => new Date(nowMs) },
       ids: { nextId: () => `id_${++generatedId}` },
-      persistence,
+      persistence: withPGliteIntegrationDeploymentAuthority(persistence),
     });
     const handler = createFlarexNitroHandler({
       executor,

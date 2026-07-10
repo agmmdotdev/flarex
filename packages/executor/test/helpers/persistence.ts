@@ -3,7 +3,6 @@ import {
   type CommitInvokeSessionWritesInput,
   type CommitInvokeSessionWritesResult,
   type DeploymentPackageMetadataRecord,
-  DeploymentMetadataAlreadyExistsError,
   type DeploymentMetadataRecord,
   type DocumentRevisionRecord,
   type AbortInvokeSessionMetadataInput,
@@ -209,13 +208,20 @@ export function memoryPersistence(
         hasMore,
       };
     },
-    async insertDeploymentMetadata(input: InsertDeploymentMetadataInput) {
-      if (deployments.has(input.deploymentId)) {
-        throw new DeploymentMetadataAlreadyExistsError(input.deploymentId);
+    async ensureDeploymentAuthority(input: InsertDeploymentMetadataInput) {
+      const existing = deployments.get(input.deploymentId);
+      if (existing !== undefined) {
+        return {
+          deployment: existing,
+          createdDeployment: false,
+        };
       }
       const deployment = deploymentMetadata(input);
       deployments.set(deployment.deploymentId, deployment);
-      return deployment;
+      return {
+        deployment,
+        createdDeployment: true,
+      };
     },
     async updateDeploymentMetadataActivation(
       input: UpdateDeploymentMetadataActivationInput,

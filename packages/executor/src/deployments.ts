@@ -1,7 +1,4 @@
-import {
-  DeploymentMetadataAlreadyExistsError,
-  type DeploymentMetadataRecord,
-} from "@flarex/persistence-postgres";
+import type { DeploymentMetadataRecord } from "@flarex/persistence-postgres";
 
 import {
   DeploymentPackageNotFoundError,
@@ -53,35 +50,23 @@ export async function ensureDeployment(
   persistence: FlarexExecutorControlPersistence,
   input: EnsureDeploymentInput,
 ): Promise<EnsureDeploymentResult> {
-  const existingDeployment = await persistence.getDeploymentMetadata(
-    input.deploymentId,
-  );
-  if (existingDeployment !== null) {
-    return {
-      deployment: assertDeploymentProject(existingDeployment, input),
-      created: false,
-    };
-  }
-
   try {
-    const deployment = await persistence.insertDeploymentMetadata(input);
-    return { deployment, created: true };
-  } catch (error) {
-    if (!(error instanceof DeploymentMetadataAlreadyExistsError)) {
-      throw error;
-    }
-
-    const racedDeployment = await persistence.getDeploymentMetadata(
-      input.deploymentId,
-    );
-    if (racedDeployment === null) {
-      throw error;
-    }
-
+    const ensured = await persistence.ensureDeploymentAuthority(input);
     return {
-      deployment: assertDeploymentProject(racedDeployment, input),
-      created: false,
+      deployment: assertDeploymentProject(ensured.deployment, input),
+      created: ensured.createdDeployment,
     };
+  } catch (error) {
+    let deployment: DeploymentMetadataRecord | null;
+    try {
+      deployment = await persistence.getDeploymentMetadata(input.deploymentId);
+    } catch {
+      throw error;
+    }
+    if (deployment !== null) {
+      assertDeploymentProject(deployment, input);
+    }
+    throw error;
   }
 }
 

@@ -1,5 +1,60 @@
 # Schema Placement And Shards
 
+## Keep Future Creation On The Proven Shared Placement
+
+Previous completed checkpoint: `5f377e9` Add resumable scope authority
+bootstrap.
+
+What changed:
+
+- Bound local PGlite and real-Postgres executor composition to one copied,
+  trusted `shared_database` locator and the existing C1 atomic provisioner.
+- Kept topology, database key, schema name, scope ID, epoch, generation, fence,
+  and counters out of every public executor input.
+- Added a trusted local locator override for callers that supply their own
+  PGlite persistence; immutable stored-locator mismatches remain typed
+  conflicts rather than being rewritten.
+- Split the earlier C3 wording into C3a shared writer fencing and C3b durable
+  split-topology readiness so a shared-schema test is not used as evidence for
+  cross-schema or cross-database atomicity.
+
+Why it changed:
+
+The only concrete adapter today addresses one unqualified schema. Future
+creation should use that proven topology immediately, while separate physical
+targets need an explicit persisted reservation/readiness protocol before they
+can be advertised as ready.
+
+Convex references inspected:
+
+- `crates/model/src/database_globals/mod.rs`
+- `crates/application/src/lib.rs`
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+
+How Flarex differs:
+
+- Convex resolves one persisted storage configuration into runtime storage and
+  fails loudly on mismatch. Flarex's shared adapter follows that rule, but its
+  later split placements also need a trusted locator resolver and durable
+  recovery receipt that Convex does not require.
+
+Known limitations:
+
+- `schema_per_scope` and `database_per_scope` remain unavailable to executor
+  composition. C3b must persist `reserved` versus `ready`, exact locator intent,
+  protocol version, and expected initial epoch before adding a target resolver.
+- No schema-qualified connection, database creation, credential/Hyperdrive
+  resolver, RLS, or cleanup workflow is included.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor exec vitest run test/deploymentAuthority.test.ts
+corepack pnpm --filter @flarex/executor exec vitest run test/deploymentAuthority.postgres.test.ts --reporter verbose
+corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts
+git diff --check
+```
+
 ## Inventory One Fixed Shared Placement Without Claiming A Router
 
 Previous completed checkpoint: `7793ed9` Add shared scope authority
@@ -101,7 +156,7 @@ Known limitations:
 - S02-C2 bootstrap is shared-database-only until a trusted placement provider
   and located data-plane inventory exist. It must use a separate explicit
   repair capability for an inventoried locator missing its initial clock.
-- S02-C3 must define atomic readiness for split topologies: a missing clock is
+- S02-C3b must define atomic readiness for split topologies: a missing clock is
   incomplete and fail-closed, not silently legacy authority.
 - No schema-qualified adapter, database resolver, RLS, or pooled-scope proof is
   included here.

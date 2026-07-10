@@ -13,7 +13,6 @@ import {
 
 import {
   DeploymentMetadataAlreadyExistsError,
-  getDeploymentMetadata,
   insertDeploymentMetadata,
   type DeploymentMetadataRecord,
   type FlarexMetadataDatabase,
@@ -51,6 +50,7 @@ export type SharedScopeAuthorityProvisioningStatus =
 
 export interface EnsureSharedScopeAuthorityResult {
   readonly status: SharedScopeAuthorityProvisioningStatus;
+  readonly createdDeployment: boolean;
   readonly deployment: DeploymentMetadataRecord;
   readonly scope: ScopeMetadataRecord;
   readonly clock: ScopeClockRecord;
@@ -289,6 +289,7 @@ async function ensureSharedScopeAuthorityInTransaction(
       ensuredDeployment.created,
       ensuredScope.created,
     ),
+    createdDeployment: ensuredDeployment.created,
     deployment: ensuredDeployment.deployment,
     scope: ensuredScope.scope,
     clock: ensuredClock.clock,
@@ -299,7 +300,10 @@ async function ensureDeployment(
   tx: FlarexMetadataDatabase,
   input: EnsureSharedScopeAuthorityInput,
 ): Promise<EnsureDeploymentResult> {
-  const existing = await getDeploymentMetadata(tx, input.deploymentId);
+  const existing = await lockDeploymentForAuthority(
+    tx,
+    input.deploymentId,
+  );
   if (existing !== null) {
     return {
       deployment: requireProjectMatch(existing, input.projectId),
@@ -314,13 +318,26 @@ async function ensureDeployment(
     };
   } catch (error) {
     if (!(error instanceof DeploymentMetadataAlreadyExistsError)) throw error;
-    const raced = await getDeploymentMetadata(tx, input.deploymentId);
+    const raced = await lockDeploymentForAuthority(tx, input.deploymentId);
     if (raced === null) throw error;
     return {
       deployment: requireProjectMatch(raced, input.projectId),
       created: false,
     };
   }
+}
+
+async function lockDeploymentForAuthority(
+  tx: FlarexMetadataDatabase,
+  deploymentId: string,
+): Promise<DeploymentMetadataRecord | null> {
+  const rows = await tx
+    .select()
+    .from(deployments)
+    .where(eq(deployments.deploymentId, deploymentId))
+    .limit(1)
+    .for("share");
+  return rows[0] ?? null;
 }
 
 async function requireExistingBootstrapDeployment(

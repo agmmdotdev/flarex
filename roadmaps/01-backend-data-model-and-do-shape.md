@@ -1,5 +1,82 @@
 # Backend Data Model And Durable Object Shape
 
+## Fence Future Shared Deployment Creation Behind Ready Authority
+
+Previous completed checkpoint: `5f377e9` Add resumable scope authority
+bootstrap.
+
+What changed:
+
+- Replaced the executor-owned bare deployment insert with one narrow
+  `ensureDeploymentAuthority(...)` capability. Direct ensure, package
+  registration/activation, and live-query mutators now stop before side effects
+  unless deployment, `fx_control_scope`, and `fx_system_scope_clock` authority
+  are ready.
+- Added an executor-facing persistence facade that removes the raw metadata
+  writer while retaining it on the underlying persistence object for explicit
+  bootstrap, migration, and fixture ownership.
+- Wired current local PGlite and real-Postgres test compositions to the C1
+  shared-database transaction and preserved public created/existing and project
+  mismatch behavior.
+- Held a shared lock on existing deployment identity/project metadata through
+  scope/clock commit, preventing privileged replacement or project mutation
+  from changing the row after authority validation.
+- Proved the operational cutover sequence: bootstrap a pre-fence deployment,
+  switch to authority-only creation, create a later deployment, then capture
+  and verify a fresh C2 frontier with no missing locator or clock.
+
+Why it changed:
+
+C2 could inventory a point in time but the executor could immediately reopen a
+gap. The executor now consumes only a ready-authority result; creation policy
+and topology remain trusted persistence composition concerns.
+
+Convex references inspected:
+
+- `crates/model/src/lib.rs`
+- `crates/model/src/database_globals/mod.rs`
+- `crates/model/src/migrations.rs`
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+
+How Flarex differs:
+
+- Convex initializes its system tables in one configured database before use.
+  Flarex also records a control-plane physical locator, so its current shared
+  lane adapts one atomic locator/clock transaction into the executor's narrower
+  ready-deployment capability.
+- A code commit cannot prove that old deployed writers are quiesced. The final
+  fresh C2 rerun is an explicit operational cutover step, not an automatic
+  production migration claim.
+
+Known limitations:
+
+- This is S02-C3a. S02-C3b still owns durable `reserved` versus `ready`
+  receipts and located-target recovery for `schema_per_scope` and
+  `database_per_scope`; the parent S02-C checkpoint remains open.
+- Hosted DeploymentDO push does not provision Postgres today, and no executor
+  Worker/Hyperdrive host, HTTP deployment bridge, or cross-DO/Postgres
+  atomicity is claimed.
+- No runtime generation resolution, allocator, OCC, compiler, sync, Payload,
+  or Medusa behavior changed.
+- Focused PGlite and local-runtime tests pass, and all four executor
+  PostgreSQL tests pass against an isolated PostgreSQL 18 cluster. Workspace
+  typecheck and changed-package builds pass; the unchanged broad Vitest hang,
+  example extensionless-import build failure, and two stale integration
+  expectations remain recorded in `roadmaps/20-postgres-executor.md`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/deployments.test.ts test/appDataBoundary.test.ts test/deploymentAuthority.test.ts test/liveQueries.test.ts
+corepack pnpm --filter @flarex/executor exec vitest run test/deploymentAuthority.postgres.test.ts --reporter verbose
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioning.postgres.test.ts --reporter verbose
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts
+git diff --check
+```
+
 ## Bootstrap Existing Shared Authority Through A Captured Frontier
 
 Previous completed checkpoint: `7793ed9` Add shared scope authority
@@ -135,8 +212,9 @@ How Flarex differs:
 
 Known limitations:
 
-- S02-C2 still owns bounded existing-deployment bootstrap and parity inventory.
-- S02-C3 still owns future executor creation wiring and cross-topology recovery.
+- S02-C2 owns bounded existing-deployment bootstrap and parity inventory.
+- C3a has since wired shared executor creation; S02-C3b still owns
+  cross-topology recovery.
 - No runtime generation resolution, sequence allocation, OCC, schema catalog,
   physical database creation, or scope-pool guard is introduced.
 - The focused PostgreSQL 18 provisioning tests pass. The broader twelve-test

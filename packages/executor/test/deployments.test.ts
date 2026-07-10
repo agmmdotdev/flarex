@@ -528,22 +528,22 @@ describe("executor deployment behavior", () => {
     });
   });
 
-  it("recovers from duplicate insert races by re-reading deployment metadata", async () => {
+  it("delegates existing deployments through the authority capability", async () => {
     const persistence = memoryPersistence([
       deploymentMetadata({
         deploymentId: "deployment_race",
         projectId: "project_race",
       }),
     ]);
-    let firstRead = true;
+    let authorityCalls = 0;
     const racingPersistence = {
       ...persistence,
-      async getDeploymentMetadata(deploymentId: string) {
-        if (firstRead) {
-          firstRead = false;
-          return null;
-        }
-        return persistence.getDeploymentMetadata(deploymentId);
+      async ensureDeploymentAuthority(input: {
+        deploymentId: string;
+        projectId: string;
+      }) {
+        authorityCalls += 1;
+        return persistence.ensureDeploymentAuthority(input);
       },
     };
     const executor = createFlarexExecutor({ persistence: racingPersistence });
@@ -560,6 +560,61 @@ describe("executor deployment behavior", () => {
         projectId: "project_race",
       },
     });
+    expect(authorityCalls).toBe(1);
+  });
+
+  it("canonicalizes project mismatch after an authority race", async () => {
+    const persistence = memoryPersistence();
+    const authorityFailure = new Error("authority conflict");
+    const executor = createFlarexExecutor({
+      persistence: {
+        ...persistence,
+        async ensureDeploymentAuthority() {
+          await persistence.ensureDeploymentAuthority({
+            deploymentId: "deployment_authority_race",
+            projectId: "project_winner",
+          });
+          throw authorityFailure;
+        },
+      },
+    });
+
+    await expect(
+      executor.ensureDeployment({
+        deploymentId: "deployment_authority_race",
+        projectId: "project_loser",
+      }),
+    ).rejects.toThrow(DeploymentProjectMismatchError);
+  });
+
+  it("stops package writes when ready authority provisioning fails", async () => {
+    const persistence = memoryPersistence();
+    const authorityFailure = new Error("scope clock unavailable");
+    let packageWrites = 0;
+    const executor = createFlarexExecutor({
+      persistence: {
+        ...persistence,
+        async ensureDeploymentAuthority() {
+          throw authorityFailure;
+        },
+        async insertDeploymentPackageMetadata(input) {
+          packageWrites += 1;
+          return persistence.insertDeploymentPackageMetadata(input);
+        },
+      },
+    });
+
+    await expect(
+      executor.registerDeploymentPackage({
+        deploymentId: "deployment_authority_failure",
+        projectId: "project_authority_failure",
+        sourcePackage: sourcePackage(),
+      }),
+    ).rejects.toBe(authorityFailure);
+    expect(packageWrites).toBe(0);
+    await expect(
+      persistence.getDeploymentMetadata("deployment_authority_failure"),
+    ).resolves.toBeNull();
   });
 
   it("rejects deployment metadata from another project", async () => {

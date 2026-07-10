@@ -15,8 +15,14 @@ import type {
   RerunStaleLiveQuerySubscriptionsInput,
   RunLiveQuerySubscriptionWithInvokeInput,
 } from "@flarex/executor";
-import { createFlarexExecutor } from "@flarex/executor";
-import { createPGlitePersistence } from "@flarex/persistence-postgres/pglite";
+import {
+  createFlarexExecutor,
+  withReadyDeploymentAuthority,
+} from "@flarex/executor";
+import {
+  createPGlitePersistence,
+  createPGliteSharedScopeAuthorityProvisioner,
+} from "@flarex/persistence-postgres/pglite";
 import {
   materializedExecutionArtifactInvokePayload,
 } from "flarex-protocol/artifact-runtime";
@@ -440,7 +446,16 @@ describe("createLocalExecutorHttpRuntime", () => {
     const executor = createFlarexExecutor({
       clock: { now: () => new Date(++now) },
       ids: { nextId: () => `session_pglite_${++nextSession}` },
-      persistence,
+      persistence: withReadyDeploymentAuthority(
+        persistence,
+        createPGliteSharedScopeAuthorityProvisioner(persistence, {
+          physicalLocator: {
+            kind: "shared_database",
+            databaseKey: "flarex_dev_test",
+            schemaName: "public",
+          },
+        }),
+      ),
     });
     const sourcePackage = getMessageSourcePackage();
     const verifiedIdentity = {
@@ -665,6 +680,25 @@ describe("createLocalExecutorHttpRuntime", () => {
         projectId: "project-pglite-trigger",
         sourcePackage,
         analysisJson: getMessageAnalysisJson(),
+      });
+      const scope = await runtime.persistence.getScopeMetadataByDeploymentId(
+        "deployment-pglite-trigger",
+      );
+      if (scope === null) {
+        throw new Error("Local executor did not provision scope authority.");
+      }
+      expect(scope.physicalLocator).toEqual({
+        kind: "shared_database",
+        databaseKey: "primary",
+        schemaName: "public",
+      });
+      await expect(
+        runtime.persistence.getScopeClock(scope.scopeId),
+      ).resolves.toMatchObject({
+        storageGeneration: "legacy_v1",
+        storageGenerationFence: 1n,
+        lastCommitSeq: 0n,
+        lastOutboxSeq: 0n,
       });
       await runtime.executor.activateDeploymentPackage({
         deploymentId: "deployment-pglite-trigger",

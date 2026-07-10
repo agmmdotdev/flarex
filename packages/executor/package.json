@@ -12,7 +12,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "test:postgres": "vitest run test/postgresRetry.test.ts"
+    "test:postgres": "vitest run test/postgresRetry.test.ts test/deploymentAuthority.postgres.test.ts"
   },
   "dependencies": {
     "@flarex/freshness": "workspace:*",

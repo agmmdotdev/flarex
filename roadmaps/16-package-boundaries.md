@@ -1,5 +1,65 @@
 # Package Boundaries
 
+## Give The Executor Only Ready Deployment Authority
+
+Previous completed checkpoint: `5f377e9` Add resumable scope authority
+bootstrap.
+
+What changed:
+
+- Replaced `insertDeploymentMetadata(...)` on
+  `FlarexExecutorControlPersistence` with
+  `ensureDeploymentAuthority(...)`. The new return type contains only the
+  deployment and `createdDeployment`; it exposes no locator, scope, epoch,
+  generation, fence, counter, database handle, or topology selector.
+- Added `withReadyDeploymentAuthority(...)` as a framework-neutral composition
+  helper. It adapts C1's server-only provisioner and omits the low-level writer
+  from the executor-facing object.
+- Projected the concrete provisioner's runtime result to exactly
+  `{ deployment, createdDeployment }`; scope, locator, clock, epoch, generation,
+  fence, counters, and internal status never cross the facade at runtime.
+- Left root `FlarexPersistence.insertDeploymentMetadata(...)` intact for C2,
+  migrations, imports, and controlled fixtures; the fence is an executor port
+  boundary rather than a misleading database-global prohibition.
+- Updated local PGlite, real-Postgres tests, integration composition, memory
+  fakes, and Nitro fakes without adding any executor HTTP deployment route.
+
+Why it changed:
+
+The executor should consume the postcondition it needs—ready authority—not the
+primitive that can create an incomplete row. This also keeps storage placement
+inside trusted server composition.
+
+Convex references inspected:
+
+- `crates/model/src/lib.rs`
+- `crates/model/src/database_globals/mod.rs`
+- `crates/application/src/deploy_config.rs`
+
+How Flarex differs:
+
+- Convex's hosted application owns initialization and deployment publication
+  inside one backend. Flarex uses an explicit capability seam because its
+  executor host and future located Postgres targets are separate composition
+  concerns.
+
+Known limitations:
+
+- C3b must add a separate trusted planner/resolver capability and durable split
+  receipt; it must not widen executor inputs or restore a raw insert fallback.
+- The hosted executor Worker composition is still absent. Local PGlite is the
+  concrete runtime consumer in this slice.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/appDataBoundary.test.ts test/deploymentAuthority.test.ts
+corepack pnpm --filter @flarex/executor-nitro typecheck
+corepack pnpm --filter flarex-dev typecheck
+git diff --check
+```
+
 ## Keep Existing-Authority Bootstrap On Server Adapter Subpaths
 
 Previous completed checkpoint: `7793ed9` Add shared scope authority

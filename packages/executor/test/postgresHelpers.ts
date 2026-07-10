@@ -1,16 +1,26 @@
 import { Pool } from "pg";
+import type { SharedDatabaseScopePhysicalLocator } from "@flarex/persistence-postgres";
 
 import {
   createPostgresPersistence,
+  createPostgresSharedScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
 } from "@flarex/persistence-postgres/postgres";
+import {
+  withReadyDeploymentAuthority,
+  type FlarexExecutorPersistence,
+} from "../src";
 
 export const postgresUrl = normalizePostgresUrl(
   process.env.FLAREX_POSTGRES_DATABASE_URL,
 );
 
 export async function withTemporaryPostgresExecutorPersistence(
-  fn: (persistence: PostgresFlarexPersistence) => Promise<void>,
+  fn: (
+    persistence: PostgresFlarexPersistence,
+    executorPersistence: FlarexExecutorPersistence,
+    scopePhysicalLocator: SharedDatabaseScopePhysicalLocator,
+  ) => Promise<void>,
 ): Promise<void> {
   const connectionString = requiredPostgresUrl();
   const schemaName = temporaryIdentifier("flarex_executor_test");
@@ -30,7 +40,18 @@ export async function withTemporaryPostgresExecutorPersistence(
       },
     });
     await persistence.migrate();
-    await fn(persistence);
+    const scopePhysicalLocator = Object.freeze({
+      kind: "shared_database",
+      databaseKey: "executor_test",
+      schemaName,
+    }) satisfies SharedDatabaseScopePhysicalLocator;
+    const executorPersistence = withReadyDeploymentAuthority(
+      persistence,
+      createPostgresSharedScopeAuthorityProvisioner(persistence, {
+        physicalLocator: scopePhysicalLocator,
+      }),
+    );
+    await fn(persistence, executorPersistence, scopePhysicalLocator);
   } catch (error) {
     primaryError = error;
     throw error;

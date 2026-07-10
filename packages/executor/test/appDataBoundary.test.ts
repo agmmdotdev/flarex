@@ -17,6 +17,18 @@ type StorageSelectionKey =
   | "appDataEngineRegistry"
   | "storageEngine";
 
+type AuthoritySelectionKey =
+  | "scopeId"
+  | "scopeEpoch"
+  | "epoch"
+  | "physicalLocator"
+  | "isolationKind"
+  | "databaseKey"
+  | "schemaName"
+  | "storageGenerationFence"
+  | "lastCommitSeq"
+  | "lastOutboxSeq";
+
 type FirstArgument<FunctionType> =
   FunctionType extends (...arguments_: infer Arguments) => unknown
     ? Arguments[0]
@@ -28,6 +40,10 @@ type ExecutorInput = {
 
 type ForbiddenStorageSelectionKey<Value> = Value extends unknown
   ? Extract<keyof Value, StorageSelectionKey>
+  : never;
+
+type ForbiddenAuthoritySelectionKey<Value> = Value extends unknown
+  ? Extract<keyof Value, AuthoritySelectionKey>
   : never;
 
 it("keeps legacy app-data capabilities out of executor control persistence", () => {
@@ -58,4 +74,18 @@ it("keeps storage generation selection out of the public executor surface", () =
       | "selectAppDataEngine"
     >
   >().toEqualTypeOf<never>();
+});
+
+it("keeps bare deployment creation out of executor persistence", () => {
+  expectTypeOf<
+    Extract<keyof FlarexExecutorControlPersistence, "insertDeploymentMetadata">
+  >().toEqualTypeOf<never>();
+  expectTypeOf<
+    Extract<keyof FlarexExecutorControlPersistence, "ensureDeploymentAuthority">
+  >().toEqualTypeOf<"ensureDeploymentAuthority">();
+});
+
+it("keeps scope authority selection out of public executor inputs", () => {
+  expectTypeOf<ForbiddenAuthoritySelectionKey<ExecutorInput>>()
+    .toEqualTypeOf<never>();
 });

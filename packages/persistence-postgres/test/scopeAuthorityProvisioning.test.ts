@@ -82,6 +82,7 @@ describe("shared scope authority provisioning", () => {
 
     expect(result).toMatchObject({
       status: "created",
+      createdDeployment: true,
       deployment: {
         deploymentId: "deployment_provision_fresh",
         projectId: "project_provision_fresh",
@@ -135,6 +136,7 @@ describe("shared scope authority provisioning", () => {
       }),
     ).resolves.toMatchObject({
       status: "created_scope_and_clock",
+      createdDeployment: false,
       scope: { scopeId: `scope_${uuids.scopeA}` },
       clock: { epoch: `epoch_${uuids.epochA}` },
     });
@@ -220,6 +222,7 @@ describe("shared scope authority provisioning", () => {
 
     expect(retried).toMatchObject({
       status: "already_provisioned",
+      createdDeployment: false,
       scope: { scopeId: first.scope.scopeId },
       clock: {
         storageGeneration: "flarexdb_v1",

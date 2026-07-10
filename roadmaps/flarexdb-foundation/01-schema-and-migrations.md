@@ -1,6 +1,6 @@
 # FlarexDB Schema And Migration Plan
 
-Status: S01 through S02-B and S02-C1/C2 complete; S02-C3 is next
+Status: S01 through S02-B and S02-C1/C2/C3a complete; S02-C3b is next
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -140,8 +140,10 @@ Progress:
   establish a validated locator/clock authority pair.
   - [x] S02-C1 — Add the shared-database atomic initial-authority primitive.
   - [x] S02-C2 — Add bounded resumable bootstrap and parity inventory.
-  - [ ] S02-C3 — Wire future creation and add explicit split-topology
-    recovery/readiness semantics.
+  - [x] S02-C3a — Fence executor creation behind the shared-database ready
+    authority capability and prove the final cutover/parity sequence.
+  - [ ] S02-C3b — Add durable split-topology reservation, located-target
+    recovery, and monotonic readiness semantics.
 - [ ] S02-D — Replace the S01 compatibility alias with trusted scope/clock
   generation resolution and fail closed on missing metadata.
 - [ ] S02-E — Prove scope/fence isolation, including real-Postgres pooled
@@ -187,19 +189,22 @@ healthy merely because total row counts match.
 C2 deliberately does not claim a permanent global invariant. PostgreSQL cannot
 resume the same MVCC snapshot after a process restart, and a legacy deployment
 transaction may commit behind an advanced lexical cursor. Verification reports
-only `complete_through_frontier` in its statement snapshot. C3 must first
-fence/quiesce the legacy creation path, rerun C2 from a fresh frontier until the
-relational inventory is clean, and then keep future creation from reopening a
-gap.
+only `complete_through_frontier` in its statement snapshot. C3a now removes the
+legacy writer from the executor port and routes every current shared creation
+path through C1. Production rollout must still quiesce old binaries and rerun
+C2 from a fresh frontier before claiming the global invariant; the PGlite and
+PostgreSQL tests prove that sequence without claiming it already occurred in a
+hosted environment.
 
 The earlier word `atomically` is now topology-sensitive. Co-located C1 rows use
 one SQL transaction. Schema-per-scope needs a qualified same-connection proof,
 and database-per-scope needs durable, idempotent readiness reconciliation;
 neither may be claimed from the shared-schema tests. C2 can inventory committed
-rows through a captured frontier for the supported lane. C3 fences current
-creation, owns the split-topology protocol, and closes the final global gap. A
-locator without a valid clock is incomplete and must fail closed in S02-D,
-never imply `legacy_v1`.
+rows through a captured frontier for the supported lane. C3a fences current
+shared executor creation. C3b owns the durable split protocol: persist exact
+placement/initial-epoch intent in a `reserved` receipt, prepare and verify the
+located clock, then publish `ready` monotonically. A locator without a valid
+clock is incomplete and must fail closed in S02-D, never imply `legacy_v1`.
 
 S02-B and S02-C are deliberately host-neutral. They add and bootstrap trusted
 database authority without composing a production runtime. Before S02-D, a

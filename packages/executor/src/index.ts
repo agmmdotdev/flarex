@@ -4,6 +4,11 @@ import {
 
 import { createLegacyOnlyAppDataEngineRegistry } from "./appDataEngines";
 import { activateDeploymentPackage, ensureDeployment } from "./deployments";
+export {
+  withReadyDeploymentAuthority,
+  type FlarexExecutorPersistenceCompositionInput,
+  type FlarexExecutorPersistenceWithoutDeploymentAuthority,
+} from "./deploymentAuthority";
 import { getActiveDeploymentAuthConfig } from "./authConfig";
 import {
   deploymentPackageSourcePackageJson,
@@ -138,6 +143,7 @@ export type {
   DeploymentFunctionMetadata,
   DeploymentSchemaMetadata,
   EnsureDeploymentInput,
+  EnsureDeploymentAuthorityResult,
   EnsureDeploymentResult,
   FlarexExecutor,
   FlarexExecutorConfig,
@@ -149,6 +155,7 @@ export type {
   FinishInvokeSessionResult,
   FinishQueryInvokeSessionResult,
   IdGenerator,
+  ReadyDeploymentAuthorityProvisioner,
   FunctionVisibility,
   FunctionExecutionScope,
   FunctionPartitionCreateRootPolicy,

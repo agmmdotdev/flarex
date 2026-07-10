@@ -8,6 +8,8 @@ import { indexBoundsForExpressions } from "@flarex/persistence-postgres";
 import { createPGlitePersistence } from "@flarex/persistence-postgres/pglite";
 import type { ArtifactSourcePackage } from "flarex/artifacts";
 
+import { withPGliteIntegrationDeploymentAuthority } from "./executorPersistence";
+
 describe("Nitro invoke integration", () => {
   it("runs insert, patch, delete mutation syscalls through Nitro and PGlite", async () => {
     const persistence = await createPGlitePersistence();
@@ -19,7 +21,7 @@ describe("Nitro invoke integration", () => {
     const executor = createFlarexExecutor({
       clock: { now: () => new Date(nowMs) },
       ids: { nextId: () => nextSessionId },
-      persistence,
+      persistence: withPGliteIntegrationDeploymentAuthority(persistence),
       liveQueryInvalidation: {
         freshnessStore,
         notifyTrigger: input => {
@@ -304,7 +306,7 @@ describe("Nitro invoke integration", () => {
     const executor = createFlarexExecutor({
       clock: { now: () => new Date(nowMs) },
       ids: { nextId: () => nextSessionId },
-      persistence,
+      persistence: withPGliteIntegrationDeploymentAuthority(persistence),
       liveQueryInvalidation: {
         freshnessStore,
         notifyTrigger: input => {
@@ -496,7 +498,7 @@ describe("Nitro invoke integration", () => {
     const executor = createFlarexExecutor({
       clock: { now: () => new Date("2026-06-20T00:00:00.000Z") },
       ids: { nextId: () => "session_invalid" },
-      persistence,
+      persistence: withPGliteIntegrationDeploymentAuthority(persistence),
     });
     const handler = createFlarexNitroHandler({ executor });
 
@@ -555,7 +557,7 @@ describe("Nitro invoke integration", () => {
     const executor = createFlarexExecutor({
       clock: { now: () => new Date("2026-06-20T00:00:00.000Z") },
       ids: { nextId: () => "session_abort" },
-      persistence,
+      persistence: withPGliteIntegrationDeploymentAuthority(persistence),
     });
     const handler = createFlarexNitroHandler({ executor });
 

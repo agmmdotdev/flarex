@@ -1,5 +1,61 @@
 # OCC And Transactions
 
+## Preserve The Atomic Shared Provisioning Boundary At Executor Creation
+
+Previous completed checkpoint: `5f377e9` Add resumable scope authority
+bootstrap.
+
+What changed:
+
+- Routed executor creation through C1's short deployment/scope/clock
+  transaction and exposed only its ready deployment plus whether this attempt
+  created the deployment.
+- Removed the executor's separate read/insert/race-recovery algorithm. The
+  authority owner now performs idempotency and conflict recovery inside the
+  topology-appropriate transaction.
+- Locked existing deployment metadata in shared mode through authority commit;
+  an exact-PID PostgreSQL proof shows a concurrent project update blocked on
+  the authority transaction before scope publication.
+- Kept canonical executor project mismatch errors by rereading authoritative
+  deployment metadata after an authority failure, without converting locator
+  or missing-clock conflicts into success.
+- Proved concurrent real-Postgres executor ensures converge on one scope and
+  epoch, and that the final C2 pass remains clean after the writer fence.
+
+Why it changed:
+
+Two independent creation algorithms could disagree about when a deployment was
+usable. One authority capability makes "created" mean a completed current
+attempt and prevents package/live-query writes from observing a bare row.
+
+Convex references inspected:
+
+- `crates/model/src/lib.rs`
+- `crates/model/src/migrations.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+
+How Flarex differs:
+
+- Convex can publish initialized system metadata in one backend transaction.
+  Flarex C3a proves only the co-located equivalent. C3b needs a persisted
+  pre-ready state plus a final revalidation/CAS for external target work.
+
+Known limitations:
+
+- No commit timestamp or sequence allocation, read-set validation, lock-order
+  change, or application transaction behavior is part of C3a.
+- Split-topology recovery and its `reserved -> ready` CAS remain C3b.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor exec vitest run test/deploymentAuthority.test.ts
+corepack pnpm --filter @flarex/executor exec vitest run test/deploymentAuthority.postgres.test.ts --reporter verbose
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioning.test.ts
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioning.postgres.test.ts --reporter verbose
+git diff --check
+```
+
 ## Resume Bootstrap With One Short Transaction Per Deployment
 
 Previous completed checkpoint: `7793ed9` Add shared scope authority

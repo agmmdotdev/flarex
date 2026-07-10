@@ -9,15 +9,20 @@ import type {
   Json,
   RerunStaleLiveQuerySubscriptionsInput,
 } from "@flarex/executor";
-import { createFlarexExecutor } from "@flarex/executor";
+import {
+  createFlarexExecutor,
+  withReadyDeploymentAuthority,
+} from "@flarex/executor";
 import {
   createPostgresFreshnessMirrorStore,
   type PostgresFreshnessMirrorStore,
 } from "@flarex/freshness";
 import {
   createPGlitePersistence,
+  createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "@flarex/persistence-postgres/pglite";
+import type { SharedDatabaseScopePhysicalLocator } from "@flarex/persistence-postgres";
 import {
   CachedExecutionArtifactMaterializer,
   type ExecutionArtifactMaterializer,
@@ -50,6 +55,7 @@ export type LocalPGliteExecutorHttpRuntimeOptions =
   Omit<LocalExecutorHttpRuntimeOptions, "executor" | "freshnessStore"> & {
     backendUrl: string | URL;
     persistence?: PGliteFlarexPersistence;
+    scopePhysicalLocator?: SharedDatabaseScopePhysicalLocator;
     migrate?: boolean;
     clock?: FlarexExecutorConfig["clock"];
     ids?: FlarexExecutorConfig["ids"];
@@ -125,6 +131,7 @@ export async function createLocalPGliteExecutorHttpRuntime(
   const {
     backendUrl,
     persistence: providedPersistence,
+    scopePhysicalLocator = localSharedScopePhysicalLocator,
     migrate,
     clock,
     ids,
@@ -141,8 +148,14 @@ export async function createLocalPGliteExecutorHttpRuntime(
     await persistence.migrate();
   }
   const freshnessStore = createPostgresFreshnessMirrorStore(persistence);
-  const executor = createFlarexExecutor({
+  const executorPersistence = withReadyDeploymentAuthority(
     persistence,
+    createPGliteSharedScopeAuthorityProvisioner(persistence, {
+      physicalLocator: scopePhysicalLocator,
+    }),
+  );
+  const executor = createFlarexExecutor({
+    persistence: executorPersistence,
     ...(clock === undefined ? {} : { clock }),
     ...(ids === undefined ? {} : { ids }),
     liveQueryInvalidation: {
@@ -176,6 +189,12 @@ export async function createLocalPGliteExecutorHttpRuntime(
     freshnessStore,
   };
 }
+
+const localSharedScopePhysicalLocator = Object.freeze({
+  kind: "shared_database",
+  databaseKey: "primary",
+  schemaName: "public",
+}) satisfies SharedDatabaseScopePhysicalLocator;
 
 async function materializedPayloadForSubscription(
   executor: FlarexExecutor,

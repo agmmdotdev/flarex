@@ -23,6 +23,81 @@ import {
 const anonymousIdentityFingerprint = executionIdentityFingerprint({ kind: "anonymous" });
 
 describe("executor live query subscriptions", () => {
+  it("blocks every live-query write behind ready deployment authority", async () => {
+    const base = memoryPersistence();
+    const authorityFailure = new Error("scope authority is not ready");
+    let sideEffects = 0;
+    const executor = createBaseFlarexExecutor({
+      persistence: {
+        ...base,
+        async ensureDeploymentAuthority() {
+          throw authorityFailure;
+        },
+        async upsertLiveQueryConnectionLease(input) {
+          sideEffects += 1;
+          return base.upsertLiveQueryConnectionLease(input);
+        },
+        async upsertLiveQuerySubscriptionWithLease(input) {
+          sideEffects += 1;
+          return base.upsertLiveQuerySubscriptionWithLease(input);
+        },
+        async deleteLiveQuerySubscription(input) {
+          sideEffects += 1;
+          return base.deleteLiveQuerySubscription(input);
+        },
+        async closeLiveQueryConnection(input) {
+          sideEffects += 1;
+          return base.closeLiveQueryConnection(input);
+        },
+        async deleteExpiredLiveQuerySubscriptions(input) {
+          sideEffects += 1;
+          return base.deleteExpiredLiveQuerySubscriptions(input);
+        },
+      },
+    });
+    const authorityInput = {
+      deploymentId: "deployment_authority_blocked",
+      projectId: "project_authority_blocked",
+    } as const;
+
+    await expect(
+      executor.touchLiveQueryConnection({
+        ...authorityInput,
+        connectionId: "connection_blocked",
+      }),
+    ).rejects.toBe(authorityFailure);
+    await expect(
+      executor.recordLiveQuerySubscription({
+        ...authorityInput,
+        connectionId: "connection_blocked",
+        queryId: 1,
+        functionPath: "messages:list",
+        argsJson: {},
+        beginTs: 1,
+        readSet: {},
+        resultJson: [],
+      }),
+    ).rejects.toBe(authorityFailure);
+    await expect(
+      executor.removeLiveQuerySubscription({
+        ...authorityInput,
+        connectionId: "connection_blocked",
+        queryId: 1,
+      }),
+    ).rejects.toBe(authorityFailure);
+    await expect(
+      executor.removeLiveQuerySubscriptionsForConnection({
+        ...authorityInput,
+        connectionId: "connection_blocked",
+      }),
+    ).rejects.toBe(authorityFailure);
+    await expect(
+      executor.removeExpiredLiveQuerySubscriptions(authorityInput),
+    ).rejects.toBe(authorityFailure);
+
+    expect(sideEffects).toBe(0);
+  });
+
   it("records a live query subscription with timestamped read set and result hash", async () => {
     const persistence = memoryPersistence();
     const executor = createLiveQueryExecutor({ persistence });
@@ -561,7 +636,7 @@ describe("executor live query subscriptions", () => {
     const executor = createLiveQueryExecutor({ persistence });
 
     for (const deploymentId of ["deployment_tie_a", "deployment_tie_b"]) {
-      await persistence.insertDeploymentMetadata({
+      await persistence.ensureDeploymentAuthority({
         deploymentId,
         projectId: "project_live_query",
       });

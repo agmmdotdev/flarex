@@ -19,7 +19,10 @@ const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("real Postgres invoke retry coordination", () => {
   it("reruns a mutation after a commit-time OCC conflict", async () => {
-    await withTemporaryPostgresExecutorPersistence(async (persistence) => {
+    await withTemporaryPostgresExecutorPersistence(async (
+      persistence,
+      executorPersistence,
+    ) => {
       await seedTeam(persistence, "deployment_pg_retry", "1:team", {
         name: "old",
         count: 0,
@@ -30,7 +33,7 @@ describePostgres("real Postgres invoke retry coordination", () => {
       const executor = createFlarexExecutor({
         clock: { now: () => new Date(nowMs) },
         ids: { nextId: () => `session_retry_${++nextSession}` },
-        persistence,
+        persistence: executorPersistence,
       });
       const registered = await registerActivePackage(executor, {
         deploymentId: "deployment_pg_retry",
@@ -112,7 +115,10 @@ describePostgres("real Postgres invoke retry coordination", () => {
   });
 
   it("exhausts retries when every attempt conflicts", async () => {
-    await withTemporaryPostgresExecutorPersistence(async (persistence) => {
+    await withTemporaryPostgresExecutorPersistence(async (
+      persistence,
+      executorPersistence,
+    ) => {
       await seedTeam(persistence, "deployment_pg_retry_exhausted", "1:team", {
         name: "old",
         count: 0,
@@ -123,7 +129,7 @@ describePostgres("real Postgres invoke retry coordination", () => {
       const executor = createFlarexExecutor({
         clock: { now: () => new Date(nowMs) },
         ids: { nextId: () => `session_retry_${++nextSession}` },
-        persistence,
+        persistence: executorPersistence,
       });
       const registered = await registerActivePackage(executor, {
         deploymentId: "deployment_pg_retry_exhausted",

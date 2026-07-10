@@ -34,13 +34,16 @@ export function healthyPersistence(): FlarexExecutorPersistence {
         createdAt: new Date("2026-06-19T00:00:00.000Z"),
       };
     },
-    async insertDeploymentMetadata(input) {
+    async ensureDeploymentAuthority(input) {
       return {
-        deploymentId: input.deploymentId,
-        projectId: input.projectId,
-        activePackageId: input.activePackageId ?? null,
-        activeSchemaVersion: input.activeSchemaVersion ?? 0,
-        createdAt: new Date("2026-06-19T00:00:00.000Z"),
+        createdDeployment: true,
+        deployment: {
+          deploymentId: input.deploymentId,
+          projectId: input.projectId,
+          activePackageId: null,
+          activeSchemaVersion: 0,
+          createdAt: new Date("2026-06-19T00:00:00.000Z"),
+        },
       };
     },
     async updateDeploymentMetadataActivation(input) {

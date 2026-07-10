@@ -1,5 +1,84 @@
 # Postgres Executor
 
+## Replace Bare Executor Creation With Shared Ready Authority
+
+Previous completed checkpoint: `5f377e9` Add resumable scope authority
+bootstrap.
+
+What changed:
+
+- Made `FlarexExecutorPersistence` require a ready-authority capability instead
+  of raw deployment insertion, then delegated every executor ensure to that
+  capability even when deployment metadata already exists.
+- Added a composition facade over PGlite/node-postgres persistence and the C1
+  provisioner. The facade strips the bare writer and maps C1's
+  `createdDeployment` fact into an exact two-field runtime result without
+  coupling executor logic to provisioning status, scope, or clock fields.
+- Wired `createLocalPGliteExecutorHttpRuntime(...)` with a fixed default shared
+  locator and an optional trusted override for supplied persistence.
+- Added PGlite tests for direct creation, registration/activation, missing-clock
+  fail-closed behavior, downstream side-effect fencing, and fresh C2 parity.
+  Added PostgreSQL 18 tests for concurrent convergence and the complete
+  cutover/parity sequence.
+- Added a shared deployment-row lock for existing authority creation plus an
+  exact-PID PostgreSQL contention test proving project mutation waits until
+  scope/clock authority commits.
+
+Why it changed:
+
+The previous executor `ensureDeployment(...)` created a legacy metadata row
+without locator/clock authority. That was the last executor-owned production
+Postgres writer able to reopen C2's inventory gap.
+
+Convex references inspected:
+
+- `crates/model/src/lib.rs`
+- `crates/model/src/database_globals/mod.rs`
+- `crates/model/src/migrations.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+- `crates/application/src/deploy_config.rs`
+
+How Flarex differs:
+
+- Convex performs idempotent system-table setup and deployment publication
+  within its backend. Flarex has a narrow executor port and a separate
+  topology-aware authority owner because Postgres may later be reached through
+  Worker/Hyperdrive and split placement capabilities.
+
+Known limitations:
+
+- This closes current shared Postgres creation only. Hosted push still writes
+  DeploymentDO state and has no Postgres executor deployment route; no
+  cross-system atomicity is claimed.
+- Split receipt schema, target preparation, target resolution, and monotonic
+  `reserved -> ready` publication remain S02-C3b.
+- The two existing integration files compile and reach their normal runtime
+  assertions, but the focused integration command retains two unrelated stale
+  expectations: one omits current query `readTs`, and one source fixture lacks
+  exactly-one public/internal visibility.
+- The executor package passes 152 tests with four PostgreSQL-gated tests
+  skipped in the ordinary lane; all four pass against the temporary PostgreSQL
+  18 correctness cluster. Persistence passes 115 tests with 17 environment
+  gates skipped, its focused authority PostgreSQL file passes six tests, Nitro
+  passes 16 tests, and the changed `flarex-dev` runtime file passes five tests.
+- Workspace typecheck, Effect-boundary check, schema check, and every changed
+  package build pass. The broad `flarex-dev` and workspace test commands retain
+  a Vitest process without output and were stopped after bounded three- and
+  five-minute timeouts. Workspace build reaches the unchanged example and
+  fails on its existing extensionless `RouteBoundary.ts` import of `../http`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor exec vitest run test/deployments.test.ts test/appDataBoundary.test.ts test/deploymentAuthority.test.ts test/liveQueries.test.ts
+corepack pnpm --filter @flarex/executor exec vitest run test/deploymentAuthority.postgres.test.ts --reporter verbose
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioning.postgres.test.ts --reporter verbose
+corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts
+corepack pnpm exec vitest run --config integration/vitest.config.ts integration/invoke.integration.test.ts integration/execution-artifact-postgres.integration.test.ts
+git diff --check
+```
+
 ## Add The Resumable Existing-Authority Bootstrap Lane
 
 Previous completed checkpoint: `7793ed9` Add shared scope authority
@@ -47,10 +126,11 @@ How Flarex differs:
 
 Known limitations:
 
-- Current executor `ensureDeployment` still creates bare legacy deployment
-  rows; C3 owns its fence/replacement and the final anti-missing rerun.
+- At the C2 checkpoint, executor `ensureDeployment` still created bare legacy
+  deployment rows. C3a now closes that executor path; hosted rollout still
+  requires the documented quiesce and final fresh parity rerun.
 - Split topology provisioning, Worker-safe persistence, and runtime
-  fail-closed generation resolution remain C3/S02-D work.
+  fail-closed generation resolution remain C3b/S02-D work.
 - The focused C2 PostgreSQL file passes five of five. The combined PostgreSQL
   lane passes sixteen of seventeen with only the pre-existing PostgreSQL 18
   `23001` versus expected `23503` assertion in unchanged scope-catalog coverage.
