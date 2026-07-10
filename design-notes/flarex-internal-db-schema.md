@@ -229,6 +229,8 @@ fx_control_schema_version (
   id text primary key,
   deployment_id text not null,
   version integer not null,
+  manifest_codec_version integer not null,
+  manifest_json jsonb not null,
   checksum text not null,
   status text not null,
   created_at timestamptz not null,
@@ -238,9 +240,18 @@ fx_control_schema_version (
 )
 ```
 
+`manifest_json` is immutable canonical schema input. `checksum` is computed from
+the versioned canonical encoding, and normalized catalog rows are compiled from
+and verified against that artifact rather than edited independently.
+
 `fx_control_scope.active_schema_version_id` is the only data-plane activation
 pointer. Deployment records may expose a derived/control-plane view, but must
 not own a second independently mutable active version.
+
+`fx_control_scope` locates the physical data plane. The authoritative active
+storage generation and its fence live on the data-plane scope-clock row that
+every final commit locks. Control-plane routing may cache that state, but it is
+not allowed to lead the data-plane fence or become a second commit authority.
 
 Schema catalog separates stable identities from versioned definitions:
 
@@ -490,6 +501,7 @@ fx_app_row_rev (
   commit_seq bigint not null,
   prev_commit_seq bigint,
   schema_version_id text not null,
+  value_codec_version integer not null,
 
   data_json jsonb not null,
   data_hash bytea not null,
@@ -516,6 +528,7 @@ fx_app_row_current (
   row_id text not null,
   commit_seq bigint not null,
   schema_version_id text not null,
+  value_codec_version integer not null,
 
   data_json jsonb not null,
   data_hash bytea not null,
@@ -646,6 +659,7 @@ fx_app_index_entry_rev (
 
   encoded_key bytea not null,
   key_hash bytea not null,
+  key_codec_version integer not null,
   key_json jsonb not null,
   locale text,
   deleted boolean not null default false,
@@ -672,6 +686,7 @@ fx_app_index_entry_current (
 
   encoded_key bytea not null,
   key_hash bytea not null,
+  key_codec_version integer not null,
   key_json jsonb not null,
   locale text,
 
@@ -695,7 +710,9 @@ fx_app_unique_key (
   scope_id text not null,
   epoch text not null,
   constraint_id text not null,
-  key_hash text not null,
+  encoded_key bytea not null,
+  key_hash bytea not null,
+  key_codec_version integer not null,
   key_json jsonb not null,
   table_id text not null,
   row_id text not null,
@@ -708,6 +725,12 @@ fx_app_unique_key (
 `locale_key` is empty for non-localized constraints and the normalized locale
 for localized constraints. The same normalized locale is included in the
 canonical key encoding/hash.
+
+Trusted code compares `encoded_key` whenever a `key_hash` slot already exists.
+Equal bytes enforce ordinary uniqueness. Unequal bytes are a fatal
+`CanonicalKeyHashCollision`; V1 aborts the mutation rather than pretending the
+hash alone proves equality or attempting to store two unequal keys in one hash
+slot.
 
 This keeps hosted Flarex from creating thousands of physical app tables while
 still preserving logical tables, relations, indexes, uniqueness, OCC, and live
@@ -998,8 +1021,11 @@ projection database is the normal sync source.
 ```sql
 fx_system_scope_clock (
   scope_id text primary key,
-  next_commit_seq bigint not null,
-  next_outbox_seq bigint not null,
+  storage_generation text not null, -- legacy_v1, flarexdb_v1
+  storage_generation_fence bigint not null default 1,
+  last_commit_seq bigint not null default 0,
+  last_outbox_seq bigint not null default 0,
+  oldest_available_commit_seq bigint not null default 0,
   epoch text not null,
   updated_at timestamptz not null
 )
@@ -1047,6 +1073,12 @@ create index fx_commit_write_lookup_idx
 The authoritative snapshot token is `(scope_id, epoch, commit_seq)`. Do not use
 wall-clock time as the transaction begin token.
 
+An empty scope has `last_commit_seq = 0`. The final trusted transaction locks
+the scope clock, allocates `last_commit_seq + 1`, publishes that commit and all
+authoritative effects, then advances the stored counter before the same SQL
+transaction commits. Rollback consumes no sequence. Outbox ordering follows
+the same rule with its own counter; it is not the live-query commit cursor.
+
 Epoch rollover fences every old session and subscription and forces a full
 resnapshot, but it does not reset authoritative data. Scope-local commit/outbox
 sequences remain monotonic and are never reused. Current rows and uniqueness
@@ -1067,7 +1099,9 @@ network calls, or long actions are running.
 fx_system_tx_session (
   id text not null,
   scope_id text not null,
-  state text not null, -- created, running, finishing, committing, committed, aborted, expired
+  storage_generation text not null,
+  storage_generation_fence bigint not null,
+  state text not null, -- created, running, finishing, committing, retrying, committed, aborted, expired
   attempt_fence bigint not null,
   protocol_version integer not null,
   package_hash text not null,
@@ -1100,7 +1134,8 @@ fx_system_snapshot_lease (
   session_id text not null,
   begin_epoch text not null,
   begin_commit_seq bigint not null,
-  generation bigint not null,
+  storage_generation text not null,
+  storage_generation_fence bigint not null,
   expires_at timestamptz not null,
   primary key (scope_id, session_id)
 )
@@ -1336,7 +1371,9 @@ fx_sync_reconnect_lease (
   connection_or_session_id text not null,
   epoch text not null,
   minimum_required_commit_seq bigint not null,
-  generation bigint not null,
+  storage_generation text not null,
+  storage_generation_fence bigint not null,
+  registration_generation bigint not null,
   expires_at timestamptz not null,
   primary key (scope_id, connection_or_session_id)
 )

@@ -1,5 +1,52 @@
 # Commit Compiler And Session Intent
 
+## Add The Commit Compiler Turn Plan
+
+Previous completed checkpoint: `478be74` Correct FlarexDB transaction and sync
+design.
+
+What changed:
+
+- Added the executor-ready
+  [commit compiler plan](./flarexdb-foundation/03-commit-compiler.md).
+- Ordered narrow compatibility ports, versioned logical protocol, point
+  read-your-writes, pure planning, atomic execution, idempotent finish,
+  real-Postgres proof, and derived index/unique/edge lowering.
+- Moved SessionDO journal storage to the final optional optimization turn after
+  the compiler is proven through the current Postgres-backed journal path.
+- Kept Payload and Medusa behind their own later adapter/transaction lanes.
+
+Why it changed:
+
+The current commit function mixes planning, validation, allocation,
+publication, outbox, and session completion. A turn-by-turn split is required
+before changing the storage generation or retry semantics safely.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/database/src/transaction.rs`
+- `crates/database/src/reads.rs`
+- `crates/model/src/session_requests/types.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+How Flarex differs:
+
+- Flarex authenticates a remote journal with a session anchor, attempt fence,
+  protocol version, sequence, and digest. Those boundaries are unnecessary in
+  the same form inside Convex's colocated backend.
+
+Known limitations:
+
+- No new compiler protocol, planner, executor integration, SessionDO journal,
+  Payload lowerer, or Medusa lowerer is implemented by this docs checkpoint.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Correct Commit Compiler Trust And Transaction Boundaries
 
 Previous completed checkpoint: `01c11ab` Clarify SessionDO cache read bridge.
@@ -187,13 +234,19 @@ The state machine is:
 
 ```text
 created -> running -> finishing -> committing -> committed
-             |           |             |          aborted
-             |           |             |          expired
+             ^                         |
+             |                         | OCC conflict
+             +------ retrying <--------+
+                                       | aborted
+                                       | expired
 ```
 
 Required invariants:
 
 - one active fenced attempt owner;
+- an OCC conflict atomically moves the same request anchor through `retrying`,
+  increments its attempt fence, replaces the snapshot lease, discards the old
+  journal, and returns to `running` on the pinned storage generation;
 - monotonic syscall sequence numbers;
 - a canonical journal encoding and digest;
 - no new syscall after `finishing` begins;
@@ -206,7 +259,8 @@ Required invariants:
 A minimal authoritative snapshot lease carries:
 
 ```text
-scope_id, session_id, begin_epoch, begin_commit_seq, generation, expires_at
+scope_id, session_id, begin_epoch, begin_commit_seq, storage_generation,
+storage_generation_fence, expires_at
 ```
 
 History GC must not advance past the minimum active lease.

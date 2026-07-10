@@ -25,6 +25,11 @@ Roadmaps 20, 21, and 35 record the corresponding executor and sync checkpoints;
 older cache or mixed-transaction text is not authoritative when it conflicts
 with that decision record.
 
+For the low-level turn-by-turn implementation order, use
+[`flarexdb-foundation/README.md`](./flarexdb-foundation/README.md). It links the
+separate schema/migration, OCC/transaction, and commit-compiler plans and keeps
+Payload, Medusa, sync, caches, and high-level APIs outside the first proof.
+
 Start with:
 
 - [01-backend-data-model-and-do-shape.md](./01-backend-data-model-and-do-shape.md)
@@ -60,3 +65,4 @@ Start with:
 - [31-hosted-project-identity-and-auth.md](./31-hosted-project-identity-and-auth.md)
 - [32-hosted-project-identity-and-auth-goals.md](./32-hosted-project-identity-and-auth-goals.md)
 - [35-commit-compiler-and-session-intent.md](./35-commit-compiler-and-session-intent.md)
+- [flarexdb-foundation/README.md](./flarexdb-foundation/README.md)

@@ -1,5 +1,50 @@
 # OCC And Transactions
 
+## Add The FlarexDB OCC And Transaction Turn Plan
+
+Previous completed checkpoint: `478be74` Correct FlarexDB transaction and sync
+design.
+
+What changed:
+
+- Added the turn-by-turn
+  [FlarexDB OCC and transaction plan](./flarexdb-foundation/02-occ-and-transactions.md).
+- Ordered typed contracts, exact snapshots, missing-row dependencies, fenced
+  sessions, point validation, atomic result/idempotency/outbox publication,
+  retry separation, one indexed phantom proof, retention, and scoped cutover.
+- Kept legacy `beginTs` private to the compatibility adapter and defined the new
+  dense scope `commitSeq` independently.
+
+Why it changed:
+
+The accepted semantics needed commit-sized gates that distinguish point OCC,
+range/phantom OCC, SQL retries, uncertain outcomes, and migration authority.
+
+Convex references inspected:
+
+- `crates/database/src/reads.rs`
+- `crates/database/src/transaction.rs`
+- `crates/database/src/committer.rs`
+- `crates/model/src/session_requests/types.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+How Flarex differs:
+
+- The session anchor, generation fence, protocol version, authorization grant,
+  and recovery lookup are explicit because execution, coordination, and
+  Postgres authority cross Cloudflare/runtime boundaries.
+
+Known limitations:
+
+- Current code still uses wall-clock session timestamps, broad persistence
+  interfaces, Postgres invoke staging, and the legacy retry coordinator.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Correct Snapshot, Overlay, Idempotency, And Retry Semantics
 
 Previous completed checkpoint: `01c11ab` Clarify SessionDO cache read bridge.

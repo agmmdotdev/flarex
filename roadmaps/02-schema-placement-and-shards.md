@@ -1,5 +1,48 @@
 # Schema Placement And Shards
 
+## Add The FlarexDB Schema And Migration Turn Plan
+
+Previous completed checkpoint: `478be74` Correct FlarexDB transaction and sync
+design.
+
+What changed:
+
+- Added the turn-by-turn
+  [FlarexDB schema and migration plan](./flarexdb-foundation/01-schema-and-migrations.md).
+- Fixed trusted per-scope storage-generation pinning, namespaced
+  `fx_control_*`/`fx_app_*`/`fx_system_*` physical ownership, bigint protocol
+  boundaries, and rollback-safe scope-clock counter semantics.
+- Kept all new migrations additive and placed backfill, invariant comparison,
+  scoped cutover, rollback, and retirement behind explicit gates.
+
+Why it changed:
+
+The accepted schema inventory was intentionally broad and used both short and
+namespaced example table names. Implementation needs one physical naming rule,
+one dense scope-counter invariant, and small vertical checkpoints.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/database/src/reads.rs`
+
+How Flarex differs:
+
+- Shared Postgres tables require explicit scope-qualified keys and trusted
+  scope binding, while Cloudflare routing and storage-generation fencing span
+  processes that Convex keeps inside one backend.
+
+Known limitations:
+
+- Exact DDL, Drizzle migrations, RLS policy, codecs, backfill tooling, and real
+  Postgres query-plan evidence are not implemented.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Define Scope-Safe Physical Topologies
 
 Previous completed checkpoint: `01c11ab` Clarify SessionDO cache read bridge.

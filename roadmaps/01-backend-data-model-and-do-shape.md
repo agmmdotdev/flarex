@@ -1,5 +1,48 @@
 # Backend Data Model And Durable Object Shape
 
+## Add The FlarexDB Foundation Execution Plans
+
+Previous completed checkpoint: `478be74` Correct FlarexDB transaction and sync
+design.
+
+What changed:
+
+- Added the low-level master order and focused schema, OCC, and commit-compiler
+  plans under [`flarexdb-foundation/`](./flarexdb-foundation/README.md).
+- Made one vertical Flarex app point-mutation proof the first milestone instead
+  of building the entire proposed physical schema before exercising it.
+- Reserved trusted adapter-facing capabilities for later Payload and Medusa
+  work without treating either system as generic app-row journal traffic.
+
+Why it changed:
+
+The accepted architecture needed an executor-ready sequence that preserves the
+legacy storage oracle, interleaves physical schema with transaction semantics,
+and states exactly where high-level adapter work stops.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/database/src/transaction.rs`
+- `crates/database/src/reads.rs`
+
+How Flarex differs:
+
+- Flarex pins trusted scope and storage generation across Dynamic Worker,
+  Cloudflare coordination, and Postgres boundaries. Durable Objects may later
+  hold temporary journals but never committed row authority.
+
+Known limitations:
+
+- The plans are not implementation. The new schema generation, OCC lane,
+  compiler, backfill, cutover, Payload adapter, and Medusa adapter remain open.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Accept Staged FlarexDB Data Model
 
 Previous completed checkpoint: `01c11ab` Clarify SessionDO cache read bridge.

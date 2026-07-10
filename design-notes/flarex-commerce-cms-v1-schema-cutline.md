@@ -246,6 +246,20 @@ But before adding a dedicated table, try representing block/section type metadat
 
 The v1 cut should look like this:
 
+The short names in this cutline are conceptual. Executable migrations use the
+namespaced physical families from the long-form schema so ownership is visible:
+
+```text
+catalog/control: fx_control_*
+app rows/sidecars: fx_app_*
+commit/session/outbox: fx_system_*
+```
+
+For example, `fx_row_current`, `fx_scope_clock`, and `fx_idempotency` below map
+to `fx_app_row_current`, `fx_system_scope_clock`, and
+`fx_system_idempotency`. The foundation schema plan is the implementation
+checklist: [`../roadmaps/flarexdb-foundation/01-schema-and-migrations.md`](../roadmaps/flarexdb-foundation/01-schema-and-migrations.md).
+
 ```text
 Required:
   fx_schema_version
@@ -483,13 +497,17 @@ Recommendation:
 ```text
 v1:
   no physical fx_relation_def
-  relation metadata lives in fx_schema_version.manifest_json
+  stable relation ids and relation metadata live in
+  fx_schema_version.manifest_json
 
 v1.5/v2:
   add fx_relation_def if relation introspection becomes hot
 ```
 
-`fx_edge_current` can exist without `fx_relation_def`. It can store `source_path`, `target_table_id`, `relation_kind`, and optional `relation_id = null` until relation IDs become useful.
+`fx_edge_current` can exist without `fx_relation_def`, but every edge still
+uses a stable non-null relation ID from the immutable schema manifest. It also
+stores `source_path`, `target_table_id`, and `relation_kind`. Stable relation
+identity is required before edge occurrence identity can be deterministic.
 
 ### `fx_row_current`: keep
 
@@ -536,6 +554,7 @@ fx_row_current (
   row_id text not null,
   commit_seq bigint not null,
   schema_version bigint not null,
+  value_codec_version integer not null,
   data_json jsonb not null,
   data_hash bytea not null,
   deleted boolean not null default false,
@@ -573,6 +592,7 @@ fx_row_rev (
   commit_seq bigint not null,
   prev_commit_seq bigint,
   schema_version bigint not null,
+  value_codec_version integer not null,
   data_json jsonb not null,
   data_hash bytea not null,
   deleted boolean not null default false,
@@ -611,6 +631,7 @@ fx_index_entry_current (
   key_prefix bytea not null,
   key_suffix bytea,
   key_sha256 bytea not null,
+  key_codec_version integer not null,
   locale text,
   commit_seq bigint not null,
   primary key (scope_id, index_id, key_sha256, row_id)
@@ -663,7 +684,7 @@ fx_edge_current (
   epoch text not null,
   edge_id text not null,
   occurrence_key text not null,
-  relation_id int,
+  relation_id int not null,
 
   source_table_id int not null,
   source_row_id text not null,
@@ -791,7 +812,9 @@ fx_unique_key (
   constraint_id int not null,
   table_id int not null,
   row_id text not null,
+  encoded_key bytea not null,
   key_hash bytea not null,
+  key_codec_version integer not null,
   key_json jsonb not null,
   locale_key text not null default '',
   commit_seq bigint not null,
@@ -801,6 +824,11 @@ fx_unique_key (
 
 The normalized `locale_key` is also part of canonical key encoding and hashing;
 it is empty for non-localized constraints.
+
+On an existing hash, trusted code compares `encoded_key`. Equal bytes mean the
+same logical key; unequal bytes are a fatal `CanonicalKeyHashCollision` and the
+mutation aborts. V1 does not attempt to store two unequal canonical keys behind
+one SHA-256 uniqueness slot.
 
 ### `fx_commit`: keep
 
@@ -833,7 +861,7 @@ Required properties:
 
 ```text
 session status
-scope + epoch + begin commit sequence
+scope + storage generation/fence + epoch + begin commit sequence
 package/artifact + function reference
 identity/access-policy fingerprint
 validated canonical arguments + authenticated inert authorization grant
@@ -845,8 +873,11 @@ result/error + committed epoch/sequence
 TTL/cleanup
 ```
 
-Lifecycle is `created -> running -> finishing -> committing ->
-committed|aborted|expired`. Late syscalls are rejected once finishing begins.
+Lifecycle is `created -> running -> finishing -> committing -> committed`, with
+an OCC-only `committing -> retrying -> running` transition that increments the
+attempt fence, replaces the snapshot lease, and discards the old journal.
+`aborted` and `expired` remain terminal. Late syscalls are rejected once
+finishing begins for the current attempt.
 Repeated finish and lost responses resolve through the stored authoritative
 outcome. Snapshot leases prevent history GC from passing a live attempt.
 The trusted executor validates arguments against the pinned authoritative

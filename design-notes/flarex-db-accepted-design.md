@@ -156,7 +156,8 @@ scope_id
 session_id
 begin_epoch
 begin_commit_seq
-generation
+storage_generation
+storage_generation_fence
 expires_at
 ```
 
@@ -174,7 +175,9 @@ scope_id
 connection_or_session_id
 epoch
 minimum_required_commit_seq
-generation
+storage_generation
+storage_generation_fence
+registration_generation
 expires_at
 ```
 
@@ -278,14 +281,20 @@ The session lifecycle is explicit and fenced:
 
 ```text
 created -> running -> finishing -> committing -> committed
-                                      |          aborted
-                                      |          expired
+             ^                         |
+             |                         | OCC conflict
+             +------ retrying <--------+
+                                       | aborted
+                                       | expired
 ```
 
 Requirements:
 
 - monotonic syscall sequence numbers;
 - one fenced attempt owner;
+- an OCC retry atomically enters `retrying`, increments the attempt fence,
+  replaces the snapshot lease, discards the old journal, and returns the same
+  request anchor to `running` without changing storage generation;
 - canonical journal digest;
 - rejection of late syscalls after `finishing` begins;
 - idempotent repeated `finish`;
@@ -316,6 +325,14 @@ and commit token for the scope lifetime. A late retry then returns
 `CommittedResultExpired` rather than reapplying the mutation. Future watermark
 compaction may remove tombstones only when it can prove the client request
 namespace is permanently retired.
+
+Storage-generation cutover fences request namespaces. Recoverable legacy
+committed keys are imported with their outcomes; committed keys without a
+recoverable result become permanent `LegacyCommittedOutcomeUnavailable`
+tombstones. An unnamespaced/legacy key that was already GCed or cannot be
+proven returns `LegacyOutcomeUnknown` and is never executed after cutover. New
+requests use a server-issued namespace prefix inside the canonical
+`request_key`; this does not make any old canonical key reusable.
 
 Keep three retry classes separate:
 
@@ -446,6 +463,13 @@ mirror, so lag produces harmless duplicate wakes.
 They are not part of the v1 correctness proof.
 
 ## Executable First Slices
+
+The executor-ready, turn-by-turn form of these slices is maintained in
+[`../roadmaps/flarexdb-foundation/README.md`](../roadmaps/flarexdb-foundation/README.md),
+with separate schema/migration, OCC/transaction, and commit-compiler plans.
+That index interleaves the three domains around one vertical app-data proof; it
+does not authorize completing the whole physical schema before exercising its
+snapshot and commit semantics.
 
 1. Introduce one scope/epoch/commit-sequence token in the existing executor.
 2. Add stable catalog identities plus immutable versioned definitions.

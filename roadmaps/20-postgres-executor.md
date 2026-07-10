@@ -1,5 +1,51 @@
 # Postgres Executor
 
+## Add The Interleaved FlarexDB Foundation Roadmap
+
+Previous completed checkpoint: `478be74` Correct FlarexDB transaction and sync
+design.
+
+What changed:
+
+- Added [`flarexdb-foundation/README.md`](./flarexdb-foundation/README.md) as the
+  master turn order for the schema, OCC, and compiler plans.
+- Kept stable SDK, deployment, analysis, protocol, HTTP/Nitro, Postgres/PGlite,
+  and test infrastructure while placing the new correctness kernel beside the
+  legacy generation behind narrow ports.
+- Required one vertical point-CRUD proof before sidecars, migration cutover,
+  SessionDO journal movement, Payload, Medusa, sync replacement, or cache work.
+
+Why it changed:
+
+Sequentially completing a large schema or mutating the all-in-one legacy commit
+path would hide integration failures. The new order interleaves immutable
+storage facts, exact OCC, pure planning, and one atomic publication path.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/database/src/transaction.rs`
+- `crates/database/src/reads.rs`
+- `crates/model/src/session_requests/types.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+How Flarex differs:
+
+- The trusted executor pins scope/generation and exposes stable remote
+  `/invoke/*` boundaries; a future SessionDO is a journal optimization, while
+  Postgres remains the only committed authority.
+
+Known limitations:
+
+- The new narrow ports, physical generation, compiler, migration router, and
+  real-Postgres correctness proof remain unimplemented.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Correct FlarexDB Commit And Adapter Boundaries
 
 Previous completed checkpoint: `01c11ab` Clarify SessionDO cache read bridge.
