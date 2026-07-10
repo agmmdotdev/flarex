@@ -1,5 +1,56 @@
 # Package Boundaries
 
+## Set The Hosted Executor Worker Boundary
+
+Previous completed checkpoint: `b581f1a` Add the FlarexDB scope locator.
+
+What changed:
+
+- Kept `@flarex/executor` as the framework-neutral trusted core and selected a
+  new thin `apps/executor` Cloudflare Worker as its hosted production shell.
+- Kept `@flarex/executor-http` temporarily as the private Web-standard Fetch
+  adapter consumed by generated workers and local PGlite tests.
+- Reclassified `@flarex/executor-nitro` as optional Nitro/Vercel compatibility,
+  not the production owner.
+- Required a Worker-safe persistence entrypoint that excludes PGlite,
+  filesystem migration discovery, and retained Node `pg.Pool` state. Migration
+  tooling remains a separate Node/control-plane entrypoint.
+
+Why it changed:
+
+The current package split already protects executor semantics from Nitro and
+Elysia, but it has no deployable Worker host and its Postgres constructor mixes
+runtime and migration responsibilities. Naming the host and import-graph rule
+prevents the Worker bundle from accidentally pulling local/test-only code into
+the production authority.
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/isolate/src/environment/udf/syscall.rs`
+
+How Flarex differs:
+
+- Convex does not need a separately deployable service-binding adapter between
+  its isolate and database. Flarex preserves that capability boundary while
+  keeping the transaction core host-neutral.
+
+Known limitations:
+
+- The exact Worker persistence subpath and construction API remain owned by
+  the later Worker/Hyperdrive spike.
+- No package was added or retired in this docs-only checkpoint.
+- The Fetch adapter may be renamed or split after hosted parity, but changing
+  its protocol is deliberately outside the FlarexDB foundation goal.
+
+Verification:
+
+```sh
+rg -n "executor-nitro|executor-http|flarex-executor|Hyperdrive" AGENTS.md design-notes roadmaps apps packages
+git diff --check
+```
+
 ## Keep Scope Location Inside Postgres Persistence
 
 Previous completed checkpoint: `7f4ce29` Resolve trusted app-data generation.

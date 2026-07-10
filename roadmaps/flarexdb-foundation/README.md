@@ -39,6 +39,27 @@ registry remain the compatibility oracle until the scoped retirement gates
 pass. This is a strangler migration, not an in-place rewrite and not a second
 product repository.
 
+## Hosted Execution Target And Proof Gate
+
+The hosted executor target is a dedicated private Cloudflare Worker backed by
+cache-disabled Hyperdrive. It composes the framework-neutral executor,
+FlarexDB OCC, commit compiler, and a Worker-safe request-scoped Postgres
+adapter. The current `/invoke/*` Fetch contract remains the first private
+service-binding transport; it is not a public Node/Nitro/Vercel bridge.
+
+This runtime decision does not expand the foundation goal:
+
+- S02-B and S02-C remain persistence-only, host-neutral turns;
+- a separate minimal Worker bundle/Hyperdrive proof must pass before S02-D
+  wires trusted generation resolution into production execution;
+- the proof adds no schema, OCC, compiler, sync, Payload, or Medusa behavior;
+- Nitro/Vercel and PGlite remain compatibility/local lanes until hosted parity
+  permits an explicit retirement decision.
+
+The Dynamic Worker shell retains only the private executor binding needed to
+implement `ctx.db`. Developer modules never receive Hyperdrive, database
+credentials, `pg`, Drizzle, SQL, persistence, or transaction handles.
+
 ## Authority And References
 
 When documents disagree, use this order:
@@ -131,7 +152,8 @@ commit are complete.
 1. `S01` freeze the legacy oracle and add the generation boundary.
 2. `S02` add trusted scope location and the authoritative data-plane scope
    clock/generation fence. S02-A has added only the scope locator; S02-B owns
-   the clock row next.
+   the clock row next. S02-B and S02-C do not wait on the host spike, but the
+   Worker/Hyperdrive proof is a hard prerequisite for S02-D runtime routing.
 3. `S03` add the minimal stable catalog.
 4. `S04` migrate active-schema pointer authority while mirroring legacy reads.
 5. `S05` freeze tagged value and ordered-key codecs.

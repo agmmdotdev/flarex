@@ -11,6 +11,14 @@ It consumes physical tables from
 trusted transaction primitive used by
 [03-commit-compiler.md](./03-commit-compiler.md).
 
+Hosted production execution uses a dedicated private Cloudflare executor
+Worker and a request-scoped Postgres client through cache-disabled Hyperdrive.
+This changes the host, not OCC semantics: the executor still holds no SQL
+transaction while untrusted user code runs, and only the short final trusted
+commit lane owns locks and publication. The existing `/invoke/*` Fetch
+protocol remains the first private service-binding adapter; Nitro/Vercel is an
+optional compatibility lane.
+
 ## Authoritative Inputs
 
 - [Accepted snapshot, idempotency, and retry rules](../../design-notes/flarex-db-accepted-design.md)
@@ -395,8 +403,9 @@ Retirement gate:
 - no active legacy session, lease, or reconnect cursor remains;
 - backfill/invariant/shadow reports are clean;
 - the rollback window is formally closed;
-- PGlite, real Postgres, executor, HTTP/Nitro, artifact-runtime, and sync
-  integration gates pass;
+- PGlite, real Postgres, executor, private Worker Fetch adapter,
+  artifact-runtime, and sync integration gates pass; optional Nitro/Vercel
+  compatibility is validated separately while it remains supported;
 - equivalent legacy tests have been ported;
 - only then remove legacy document/index OCC and Postgres invoke staging.
 

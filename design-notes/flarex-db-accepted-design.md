@@ -44,6 +44,59 @@ The correct unification point is the trusted Postgres authority, scope clock,
 commit feed, outbox, and adapter contracts. It is not one universal physical
 table shape or one universal user-visible transaction.
 
+## Hosted Runtime Topology
+
+The hosted production target is a dedicated private `flarex-executor`
+Cloudflare Worker:
+
+```text
+public backend Worker
+  -> artifact-runtime Worker
+  -> generated Dynamic Worker shell around untrusted user modules
+  -> private FLAREX_EXECUTOR service binding
+  -> trusted executor Worker
+  -> cache-disabled Hyperdrive
+  -> authoritative Postgres
+```
+
+This removes the former Cloudflare-to-Node/Nitro/Vercel deployment bridge. It
+does not remove the sandbox syscall boundary. The generated Dynamic Worker
+shell may call the executor binding, but developer modules receive only the
+restricted `ctx` capabilities. They never receive Hyperdrive, `pg`, Drizzle,
+SQL, persistence, physical routing, or transaction handles.
+
+Keep the stable `/invoke/start`, `/invoke/syscall`, `/invoke/finish`, and
+`/invoke/abort` Fetch protocol for the first Worker host. A service-binding
+Fetch is an internal capability call, not a public executor URL. Workers RPC
+may replace that transport later only as an independent compatibility change;
+it is not a FlarexDB correctness prerequisite.
+
+The trusted executor core and commit compiler remain framework-neutral and are
+called in-process by the executor Worker adapter. The Worker persistence
+adapter uses a request-scoped `pg.Client` through a cache-disabled Hyperdrive
+binding and closes it in `finally`. It does not retain the current Node-style
+`pg.Pool`, run filesystem-backed migrations, or perform unbounded migration,
+backfill, or maintenance work inside request handling. Migration generation
+and application remain deployment/control-plane or Node CLI responsibilities.
+PGlite remains the fast local/test lane. Nitro/Vercel remains an optional
+compatibility host until explicitly retired after hosted parity.
+
+The host decision is accepted, but production activation remains gated on a
+small proof: Worker-safe import graph and Wrangler bundle, request cleanup,
+cache-disabled Hyperdrive, and real-Postgres transaction/OCC behavior. S02-B
+and S02-C are host-neutral persistence turns. This proof must pass before
+S02-D wires production generation resolution into the hosted executor.
+
+Cloudflare references:
+
+- [Postgres drivers and Hyperdrive](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/)
+  for `pg`, Drizzle, `nodejs_compat`, and request-scoped clients;
+- [Hyperdrive behavior](https://developers.cloudflare.com/hyperdrive/concepts/how-hyperdrive-works/)
+  for transaction pooling and the lack of write-driven query-cache
+  invalidation;
+- [Workers service bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/)
+  for private Worker-to-Worker Fetch and RPC boundaries.
+
 ## Document And Implementation Status
 
 | Layer | Status | Meaning |

@@ -11,6 +11,12 @@ The first executable outcome is one point app mutation through the new schema
 and OCC lane. Moving the proven journal into SessionDO is the final optional
 optimization turn, not the starting point.
 
+The hosted production composition is a dedicated private Cloudflare executor
+Worker backed by cache-disabled Hyperdrive. The compiler and executor ports
+remain host-neutral. Generated Dynamic Workers continue to use the stable
+private `/invoke/*` Fetch protocol for the first host; Nitro/Vercel is an
+optional compatibility lane, not the forward production owner.
+
 ## Prerequisite Handoff
 
 Do not execute the compiler against production/canary scopes until the schema
@@ -133,8 +139,9 @@ Outcome:
 
 Exit gate:
 
-- existing executor, persistence, HTTP, Nitro, artifact-runtime, and test SDK
-  tests remain green;
+- existing executor, persistence, private Worker Fetch adapter,
+  artifact-runtime, and test SDK tests remain green; optional Nitro/Vercel
+  compatibility tests remain green while that adapter is supported;
 - this turn changes structure, not behavior;
 - new code does not add v1/v2 conditionals across the broad legacy interface.
 
@@ -259,7 +266,8 @@ Exit gate:
 
 - duplicate finish, concurrent finish, lost response, stale attempt, restart,
   expiry, mismatched idempotency reuse, and committed-result tombstone tests
-  pass through artifact, HTTP/Nitro, and stable `/invoke/*` endpoints.
+  pass through artifact runtime, the private Worker Fetch adapter, and stable
+  `/invoke/*` endpoints. Optional Nitro/Vercel parity is checked separately.
 
 ### [ ] C07 — Close The Real-Postgres Correctness Gate
 
@@ -375,10 +383,11 @@ corepack pnpm --filter @flarex/persistence-postgres test
 corepack pnpm --filter @flarex/persistence-postgres build
 ```
 
-Endpoint changes also run executor HTTP/Nitro and artifact-runtime integration
-tests. C07 and concurrency-sensitive later turns run both packages'
-real-Postgres scripts. Phase checkpoints run workspace `typecheck`, `test`, and
-`build`.
+Endpoint changes also run the executor Fetch adapter, artifact-runtime, and
+Worker-host integration tests. Optional Nitro/Vercel tests run while that
+compatibility adapter remains supported. C07 and concurrency-sensitive later
+turns run both packages' real-Postgres scripts. Phase checkpoints run workspace
+`typecheck`, `test`, and `build`.
 
 Significant code turns update
 `roadmaps/35-commit-compiler-and-session-intent.md` and

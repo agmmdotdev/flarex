@@ -1,5 +1,70 @@
 # Postgres Executor
 
+## Target A Dedicated Cloudflare Executor Worker
+
+Previous completed checkpoint: `b581f1a` Add the FlarexDB scope locator.
+
+What changed:
+
+- Made a dedicated private `flarex-executor` Cloudflare Worker the hosted
+  production target for the existing framework-neutral executor core and the
+  future FlarexDB commit compiler.
+- Kept the generated `/invoke/start`, `/invoke/syscall`, `/invoke/finish`, and
+  `/invoke/abort` Fetch protocol as the first internal service-binding
+  transport. It is no longer a public Cloudflare-to-Nitro/Vercel bridge.
+- Made cache-disabled Hyperdrive mandatory for authoritative snapshot, OCC,
+  lock, idempotency, and commit reads. The Worker adapter will use a
+  request-scoped `pg.Client` and will not retain the current Node-style pool.
+- Kept migrations and unbounded maintenance outside Worker request handling.
+  PGlite stays local/test; Nitro/Vercel becomes an optional compatibility host.
+- Preserved all older Nitro/Vercel entries below as implementation history;
+  they no longer control the forward hosted topology.
+
+Why it changed:
+
+The accepted FlarexDB design places sandboxed execution and coordination on
+Cloudflare while keeping Postgres authoritative. Cloudflare now supports the
+required `pg`/Drizzle path through Hyperdrive, so a separate Node deployment is
+no longer required. The isolate-to-executor boundary must remain because
+developer code cannot receive database or transaction authority.
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/isolate/src/environment/udf/syscall.rs`
+
+How Flarex differs:
+
+- Convex colocates its trusted function runner, transaction state, and database
+  backend. Flarex runs developer code in a Cloudflare Dynamic Worker and
+  therefore keeps an explicit private syscall boundary to a trusted executor
+  Worker.
+- The first Flarex transport remains Web-standard Fetch because generated
+  workers and compatibility tests already implement it. Workers RPC is a
+  possible later transport migration, not a database semantic.
+
+Known limitations:
+
+- No deployable `apps/executor` Worker or Worker-safe Hyperdrive persistence
+  adapter exists yet. Existing Wrangler configs reference `flarex-executor`,
+  but the target app is still missing.
+- `packages/persistence-postgres/src/postgres.ts` still combines a `pg.Pool`,
+  runtime persistence, and filesystem-oriented migration setup. The Worker
+  spike must split those responsibilities without rewriting executor core.
+- This decision does not claim hosted parity. Wrangler bundle/workerd checks,
+  cache-disabled Hyperdrive, request cleanup, placement, and real-Postgres OCC
+  tests remain required before S02-D production routing.
+- S02-B remains the next implementation checkpoint because its scope-clock
+  row and private lock/rollback proof are host-neutral.
+
+Verification:
+
+```sh
+rg -n "Nitro|Vercel|FLAREX_EXECUTOR|Hyperdrive|S02-D" AGENTS.md design-notes roadmaps apps packages
+git diff --check
+```
+
 ## Add The Scope Locator Repository And Migration
 
 Previous completed checkpoint: `7f4ce29` Resolve trusted app-data generation.

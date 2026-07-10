@@ -1,5 +1,57 @@
 # Hosted Runtime Core
 
+## Target A Private Worker-Native Executor Host
+
+Previous completed checkpoint: `b581f1a` Add the FlarexDB scope locator.
+
+What changed:
+
+- Selected a dedicated private Cloudflare Worker named `flarex-executor` as
+  the hosted executor composition point.
+- Preserved `FLAREX_EXECUTOR` as the generated Dynamic Worker shell's only
+  database capability and retained the stable `/invoke/*` Fetch protocol for
+  the first host.
+- Required the executor Worker alone to own the cache-disabled Hyperdrive
+  binding. Developer modules receive `ctx.db`, never the binding or a raw
+  executor/persistence object.
+- Put a Worker bundle plus real-Postgres proof before S02-D runtime routing;
+  S02-B and S02-C remain host-neutral database work.
+
+Why it changed:
+
+The checked-in backend and artifact-runtime Wrangler files already bind to a
+service named `flarex-executor`, but the repository has no matching deployable
+Worker. Making that implicit hop concrete removes the planned Node/Nitro
+deployment without weakening sandbox isolation.
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/isolate/src/environment/udf/syscall.rs`
+
+How Flarex differs:
+
+- Convex can mediate syscalls inside one hosted backend. Flarex uses a private
+  Worker service binding because its developer function isolate is a separate
+  Dynamic Worker.
+
+Known limitations:
+
+- The executor Worker, Hyperdrive binding, request-scoped Postgres adapter,
+  placement policy, and deployed service-binding test do not exist yet.
+- Keeping Fetch first does not reject Workers RPC. RPC remains an independent
+  later transport decision after endpoint and failure semantics are stable.
+- Capability-token and named-entrypoint hardening must be audited during the
+  host spike; the Worker must not expose a public executor surface by default.
+
+Verification:
+
+```sh
+rg -n "FLAREX_EXECUTOR|/invoke/|Hyperdrive|Nitro|Vercel" AGENTS.md design-notes roadmaps apps packages
+git diff --check
+```
+
 ## Generated Protocol Fragment Helpers
 
 Previous completed checkpoint: `d9242ec` (`Extract generated project worker bridge`).

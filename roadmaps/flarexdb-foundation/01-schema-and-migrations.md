@@ -143,6 +143,15 @@ Progress:
 - [ ] S02-E — Prove scope/fence isolation, including real-Postgres pooled
   connection and cross-scope rejection tests.
 
+S02-B and S02-C are deliberately host-neutral. They add and bootstrap trusted
+database authority without composing a production runtime. Before S02-D, a
+separate proof must bundle the framework-neutral executor into the dedicated
+private `flarex-executor` Cloudflare Worker, use a request-scoped Postgres
+client through cache-disabled Hyperdrive, exclude filesystem migration/PGlite
+code from the Worker import graph, and pass a real-Postgres service-binding
+smoke. Failure of that proof blocks runtime routing, not the additive clock DDL
+or repositories.
+
 S02-A fixed the production bootstrap ID convention before any rows are
 backfilled: the trusted control plane will issue `scope_<uuid-v4>` identifiers,
 using lowercase RFC 4122 UUID text. The value is opaque and stable; it is never

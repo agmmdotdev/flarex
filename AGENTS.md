@@ -164,10 +164,15 @@ user request.
    target `roadmaps/20-postgres-executor.md` unless the user explicitly asks to
    maintain the DO prototype.
 
-3. Keep Nitro as an adapter, not the executor core. Trusted transaction logic
+3. Keep runtime hosts as adapters, not the executor core. The hosted production
+   target is a dedicated private Cloudflare Worker reached through service
+   bindings and backed by cache-disabled Hyperdrive. Trusted transaction logic
    belongs in framework-neutral packages such as `@flarex/executor` and
-   `@flarex/persistence-postgres`; `@flarex/executor-nitro` should only map Nitro/Vercel
-   requests to that core.
+   `@flarex/persistence-postgres`. `@flarex/executor-http` may remain the
+   private Web-standard Fetch adapter while `/invoke/*` is stable;
+   `@flarex/executor-nitro` is an optional Nitro/Vercel compatibility adapter.
+   Do not retire either compatibility path until the Worker/Hyperdrive host
+   passes its declared bundle and real-Postgres correctness gates.
 
 4. Use PGlite for local and fast test lanes, but keep real Postgres as the
    required correctness lane for isolation, locks, migrations, outbox behavior,
