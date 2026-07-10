@@ -2,7 +2,7 @@
 
 Status: accepted architecture correction; implementation is still incomplete
 
-Last reviewed: 2026-07-10
+Last reviewed: 2026-07-11
 
 This document is the decision record for the proposed unified FlarexDB schema,
 commit compiler, sync engine, Payload adapter, and Medusa integration. It keeps
@@ -80,6 +80,13 @@ backfill, or maintenance work inside request handling. Migration generation
 and application remain deployment/control-plane or Node CLI responsibilities.
 PGlite remains the fast local/test lane. Nitro/Vercel remains an optional
 compatibility host until explicitly retired after hosted parity.
+
+Cloudflare's current connection-lifecycle guidance says invocation-scoped
+Workers-to-Hyperdrive clients are cleaned up automatically. Flarex still owns
+an explicit `client.end()` attempt in `finally` for deterministic portability
+through the direct-Postgres local/test lane. That rule is not a claim that
+Hyperdrive requires driver cleanup, and a cleanup failure must not replace the
+primary request failure. No client or driver pool may live in module scope.
 
 The host decision is accepted, but production activation remains gated on a
 small proof: Worker-safe import graph and Wrangler bundle, request cleanup,

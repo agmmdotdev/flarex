@@ -1,5 +1,73 @@
 # Postgres Executor
 
+## Freeze Local And Hosted Executor Proof Evidence
+
+Previous completed checkpoint: `0f4874d` (`Complete split scope authority
+reconciliation`).
+
+What changed:
+
+- Defined H02 through H05 as the only work allowed inside the pre-S02-D host
+  proof and kept the existing schema, authority, executor protocol, and legacy
+  OCC semantics unchanged.
+- Made H04 use the emitted H03 Worker bundle in one named multi-Worker workerd
+  graph. A probe caller binds `FLAREX_EXECUTOR` by service name; only the
+  executor receives the local Hyperdrive binding and executor capability
+  secret. Function-valued service-binding fakes do not satisfy this gate.
+- Required the H04 real-PostgreSQL case to migrate and seed outside the Worker,
+  then drive authenticated `/invoke/start`, `/invoke/syscall`,
+  `/invoke/finish`, and error/abort paths through the named binding. Two stale
+  sessions must produce one committed winner and one OCC conflict; a fresh
+  attempt must reread and converge, and Node-side assertions must verify the
+  final authoritative row/session state.
+- Required request-lifecycle tests for success, primary failure, connect
+  failure, and cleanup failure. Cleanup is attempted in `finally`; a cleanup
+  error is reported only when no primary error already exists.
+- Reserved H05 for a hosted staging receipt that proves the bound Hyperdrive
+  resource is cache-disabled and that the executor is unreachable through a
+  public Worker URL while the same transaction/OCC case succeeds through its
+  caller's service binding.
+
+Why it changed:
+
+The real-Postgres suites currently prove the executor through Node-owned
+`pg.Pool`, while Worker service-binding tests use callbacks/fakes. Both are
+valuable but neither proves the new boundary. The two-tier gate prevents the
+local direct-connection lane from being mistaken for deployed Hyperdrive
+correctness.
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/isolate/src/environment/udf/syscall.rs`
+
+How Flarex differs:
+
+- Convex's application runner receives transaction state directly from its
+  function runner. Flarex serializes restricted syscalls over private Fetch,
+  persists the session between requests, and commits only in the trusted
+  executor Worker.
+
+Known limitations:
+
+- H04 may be skipped without `FLAREX_POSTGRES_DATABASE_URL`, but it cannot be
+  marked complete from unit/PGlite evidence. H05 additionally needs Cloudflare
+  credentials and a staging database/Hyperdrive resource.
+- Local `localConnectionString` evidence bypasses Hyperdrive pooling and query
+  caching. It proves workerd compatibility and real SQL only.
+- No hosted parity claim includes live-query delivery or split-locator runtime
+  resolution in this proof. Those remain later explicit composition work.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/backend exec wrangler hyperdrive get --help
+corepack pnpm --filter @flarex/backend exec wrangler deploy --help
+rg -n "invoke/start|invoke/syscall|invoke/finish|OCC|conflict|retry" packages/executor-http packages/executor/test packages/persistence-postgres/test apps
+git diff --check
+```
+
 ## Add The Host-Neutral Split Authority Reconciler
 
 Previous completed checkpoint: `b320ab2` Add split scope provisioning

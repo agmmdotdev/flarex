@@ -1,5 +1,94 @@
 # Hosted Runtime Core
 
+## Freeze The Hosted Executor Proof Gate
+
+Previous completed checkpoint: `0f4874d` (`Complete split scope authority
+reconciliation`).
+
+What changed:
+
+- Split the prerequisite before S02-D into five checkpoint-sized turns:
+  - H01 freezes this proof contract;
+  - H02 adds the Worker-safe request-scoped Postgres persistence seam;
+  - H03 adds the private executor Worker and bundle/import-graph gate;
+  - H04 proves a named local service binding against real PostgreSQL;
+  - H05 records the hosted cache-disabled Hyperdrive activation receipt.
+- Fixed the host contract as a Fetch-only `apps/executor` Worker named
+  `flarex-executor` with `nodejs_compat`, `placement.mode = "smart"`, no routes,
+  `workers_dev = false`, preview URLs disabled, and a mandatory
+  `FLAREX_EXECUTOR_TOKEN`. Only a caller holding the `FLAREX_EXECUTOR` service
+  binding and matching bearer capability may invoke `/invoke/*`.
+- Fixed the database lifecycle as one `pg.Client` created inside each Fetch
+  invocation from `HYPERDRIVE_CACHE_DISABLED.connectionString`, with no
+  module-scope client or `pg.Pool`. Flarex keeps a best-effort explicit
+  `client.end()` in `finally` for deterministic direct-Postgres test cleanup,
+  even though Cloudflare now documents invocation cleanup as automatic.
+- Separated local proof from hosted proof. A Wrangler dry-run/metafile and a
+  named multi-Worker workerd test may prove bundle safety, real SQL, service
+  dispatch, OCC behavior, and Flarex-owned cleanup. A local Hyperdrive
+  `localConnectionString` connects directly to PostgreSQL and therefore cannot
+  prove Hyperdrive pooling or cache configuration.
+- Made H05 the production-activation receipt: capture the deployed Hyperdrive
+  configuration created or updated with `--caching-disabled`, deploy the
+  executor before its caller, invoke the executor only through the caller's
+  service binding, and verify the committed PostgreSQL result plus the stale
+  attempt/conflict/fresh-attempt convergence case. S02-D remains blocked until
+  that receipt exists.
+
+Why it changed:
+
+The earlier roadmap named a Worker/Hyperdrive spike but did not define which
+evidence was local, which evidence required Cloudflare, or how small each turn
+should be. Without those boundaries, a local direct-Postgres smoke could be
+misreported as hosted Hyperdrive proof or the prerequisite could expand into
+S02-D and the FlarexDB redesign itself.
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/isolate/src/environment/udf/syscall.rs`
+
+Cloudflare references inspected:
+
+- [Connection lifecycle](https://developers.cloudflare.com/hyperdrive/concepts/connection-lifecycle/)
+- [Postgres drivers and Hyperdrive](https://developers.cloudflare.com/hyperdrive/examples/connect-to-postgres/)
+- [Local Hyperdrive development](https://developers.cloudflare.com/hyperdrive/configuration/local-development/)
+- [Hyperdrive query caching](https://developers.cloudflare.com/hyperdrive/concepts/query-caching/)
+- [Workers service bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/)
+- [Workers placement](https://developers.cloudflare.com/workers/configuration/placement/)
+
+How Flarex differs:
+
+- Convex returns a final transaction/read set from its owned function runner
+  and mediates syscalls inside its hosted backend. Flarex preserves that
+  trusted execution/commit boundary across a Dynamic Worker and a private
+  service-bound executor Worker.
+- Cloudflare automatically tears down invocation-scoped Hyperdrive clients.
+  Flarex additionally attempts explicit client cleanup because the same host
+  seam is exercised with a direct PostgreSQL connection locally.
+
+Known limitations:
+
+- H01 changes no runtime code and proves no Worker bundle or database behavior.
+- H04 is not evidence that Hyperdrive caching is disabled: local Hyperdrive
+  bindings bypass Hyperdrive. Only H05 may close that hosted claim.
+- The H04 OCC case reuses the current legacy-generation behavior: two sessions
+  observe the same row, one commits, the stale finish conflicts, and a fresh
+  attempt rereads and converges. It does not add the future FlarexDB OCC model.
+- Runtime generation routing, sequence allocation, new OCC, commit compiler,
+  sync, Payload, Medusa, compatibility-adapter retirement, and Workers RPC are
+  excluded from H01 through H05.
+
+Verification:
+
+```sh
+rg -n "FunctionRunner|Transaction|syscall|run_function|execute" ../../crates/application/src/application_function_runner/mod.rs ../../crates/function_runner/src/lib.rs ../../crates/isolate/src/environment/udf/syscall.rs
+corepack pnpm --filter @flarex/backend exec wrangler hyperdrive get --help
+corepack pnpm --filter @flarex/backend exec wrangler deploy --help
+git diff --check
+```
+
 ## Target A Private Worker-Native Executor Host
 
 Previous completed checkpoint: `b581f1a` Add the FlarexDB scope locator.

@@ -1,5 +1,63 @@
 # Package Boundaries
 
+## Freeze The Worker-Safe Postgres Import Boundary
+
+Previous completed checkpoint: `0f4874d` (`Complete split scope authority
+reconciliation`).
+
+What changed:
+
+- Assigned H02 one narrow package task: add a server-only, client-backed
+  persistence entrypoint that can compose the executor from an already
+  connected request-scoped `pg.Client` without owning migrations or a pool.
+- Kept the current Node `@flarex/persistence-postgres/postgres` entrypoint as
+  the migration/`pg.Pool` compatibility owner and kept `/pglite` as the fast
+  local/test owner. Neither entrypoint may enter the executor Worker graph.
+- Required H02 to factor only the shared Drizzle repository composition needed
+  by the new entrypoint, while preserving current public persistence behavior
+  and tests. The new seam remains trusted/server-only and does not widen
+  `ctx.db`, SDK, protocol, Payload, or Medusa APIs.
+- Required H03's actual Wrangler metafile to reject the PGlite package,
+  Drizzle migrators, the current Node `src/postgres.ts` composition, and its
+  filesystem path/URL migration helpers. A source-level import assertion alone
+  is not sufficient.
+
+Why it changed:
+
+`@flarex/executor-http -> @flarex/executor ->
+@flarex/persistence-postgres` already bundles without the Node adapter. The
+missing seam is the concrete database implementation: the current Postgres
+entrypoint combines runtime repositories, filesystem migration discovery,
+`pg.Pool` ownership, and shutdown. Importing it into a Worker would erase the
+runtime boundary this proof is meant to establish.
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/isolate/src/environment/udf/syscall.rs`
+
+How Flarex differs:
+
+- Convex's owned backend can compose storage and function execution in one
+  binary. Flarex needs an explicit Worker-safe server subpath because its
+  deployment/control-plane migration process and request runtime are separate.
+
+Known limitations:
+
+- H01 deliberately does not freeze the exported TypeScript symbol name. H02
+  must choose it from the final narrow runtime interface and avoid duplicating
+  the full Postgres/PGlite repository wiring.
+- The worker entrypoint and bundle proof are H03; named service-binding and
+  real-Postgres proof are H04; hosted activation is H05.
+
+Verification:
+
+```sh
+rg -n "migrator|node:path|node:url|Pool|createPostgresPersistence" packages/persistence-postgres/src/postgres.ts packages/persistence-postgres/src/pglite.ts
+git diff --check
+```
+
 ## Keep Split Reconciliation In Server-Only Persistence Composition
 
 Previous completed checkpoint: `b320ab2` Add split scope provisioning

@@ -1,7 +1,7 @@
 # FlarexDB Schema And Migration Plan
 
-Status: S01 through S02-C complete; the Worker/Hyperdrive proof is next before
-S02-D runtime routing
+Status: S01 through S02-C and hosted-proof H01 complete; H02 is next and S02-D
+remains blocked through H05
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -150,6 +150,13 @@ Progress:
     - [x] S02-C3b2 — Add trusted located-target resolution, exact initial
       clock reconciliation, failure-window recovery, and final ready
       projection.
+- [x] H01 — Freeze the pre-S02-D Worker/Hyperdrive proof contract and split
+  local workerd/direct-Postgres evidence from the hosted activation receipt.
+- [ ] H02 — Add the Worker-safe request-scoped Postgres persistence seam.
+- [ ] H03 — Add the private executor Worker and bundle/import-graph proof.
+- [ ] H04 — Prove its named local service binding against real PostgreSQL.
+- [ ] H05 — Record cache-disabled Hyperdrive and hosted service-binding
+  activation evidence.
 - [ ] S02-D — Replace the S01 compatibility alias with trusted scope/clock
   generation resolution and fail closed on missing metadata.
 - [ ] S02-E — Prove scope/fence isolation, including real-Postgres pooled

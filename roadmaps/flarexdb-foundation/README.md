@@ -1,7 +1,7 @@
 # FlarexDB Foundation Execution Plans
 
-Status: S01 through S02-C are complete; the Worker/Hyperdrive proof is next
-before S02-D runtime routing
+Status: S01 through S02-C and hosted-proof H01 are complete; H02 is next and
+S02-D remains blocked through H05
 
 This folder turns the accepted FlarexDB architecture into small, reviewable,
 commit-sized implementation turns. It is intentionally limited to the
@@ -60,6 +60,29 @@ This runtime decision does not expand the foundation goal:
 The Dynamic Worker shell retains only the private executor binding needed to
 implement `ctx.db`. Developer modules never receive Hyperdrive, database
 credentials, `pg`, Drizzle, SQL, persistence, or transaction handles.
+
+### Hosted proof subloop
+
+Each checked item is one reviewed checkpoint and one automatic commit. These
+items prove the host for the existing executor semantics; they do not execute
+S02-D or introduce the replacement FlarexDB schema/OCC/compiler.
+
+- [x] H01 — Freeze the host contract, local-versus-hosted evidence, exact OCC
+  smoke, privacy/placement policy, and exclusions.
+- [ ] H02 — Add the Worker-safe request-scoped `pg.Client` persistence seam;
+  retain Node migrations/`pg.Pool` and PGlite behind their existing subpaths.
+- [ ] H03 — Add the private `apps/executor` Worker, lifecycle tests, Wrangler
+  dry-run, and metafile exclusions for PGlite and filesystem migrations.
+- [ ] H04 — Run the emitted Worker bundle behind a real named workerd service
+  binding and prove existing transaction/OCC convergence against PostgreSQL.
+- [ ] H05 — Record a hosted staging receipt for the cache-disabled Hyperdrive
+  configuration, non-public executor, placed Fetch handler, service-binding
+  invocation, and PostgreSQL transaction/OCC result.
+
+H04 is not a substitute for H05. Cloudflare's local Hyperdrive
+`localConnectionString` connects directly to PostgreSQL, so it does not
+exercise Hyperdrive pooling or query caching. If staging credentials are not
+available, H05 stays unchecked and S02-D does not start.
 
 ## Authority And References
 
@@ -162,8 +185,8 @@ commit are complete.
    `reserved -> ready` control CAS without advertising located readiness.
    S02-C3b2 added the trusted two-store target-clock reconciliation loop,
    exact initial `legacy_v1` authority, crash/replay recovery, and final ready
-   projection. The Worker/Hyperdrive proof remains a hard prerequisite for
-   S02-D runtime routing.
+   projection. H01 has frozen the Worker/Hyperdrive proof contract; H02 through
+   H05 remain hard prerequisites for S02-D runtime routing.
 3. `S03` add the minimal stable catalog.
 4. `S04` migrate active-schema pointer authority while mirroring legacy reads.
 5. `S05` freeze tagged value and ordered-key codecs.
