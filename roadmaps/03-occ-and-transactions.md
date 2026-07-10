@@ -1,5 +1,62 @@
 # OCC And Transactions
 
+## Publish Split Readiness With A Short Exact Control CAS
+
+Previous completed checkpoint: `a4c290f` Fence executor deployment creation.
+
+What changed:
+
+- Added package-internal primitives that require an already-open short control
+  transaction. Scope creation and receipt reservation can therefore commit
+  atomically, while final readiness publication occurs in a separate short
+  transaction after future target work.
+- Fixed lock order to canonical scope `FOR SHARE`, then receipt `FOR UPDATE`.
+  Reservation uses insert-on-conflict plus authoritative locked readback;
+  concurrent candidate epochs converge on the persisted winner.
+- Made readiness an exact protocol/locator/initial-epoch/state CAS. Concurrent
+  publishers produce one `published_ready` and one `already_ready`; rollback
+  leaves `reserved`, and no API can regress or delete a ready receipt.
+- Used exact-PID PostgreSQL blocking proofs to show a second publisher waits on
+  the receipt owner and a scope-locator mutation waits until publication
+  commits.
+
+Why it changed:
+
+No transaction may stay open across located-target I/O. Persisted pre-ready
+intent plus a separate revalidating CAS gives response-loss and crash recovery
+without pretending two databases share one atomic transaction.
+
+Convex references inspected:
+
+- `crates/database/src/database_index_workers/mod.rs`
+- `crates/application/src/schema_worker/mod.rs`
+- `crates/model/src/migrations.rs`
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+- `crates/common/src/bootstrap_model/schema_state.rs`
+
+How Flarex differs:
+
+- Convex can revalidate and publish within its OCC domain. Flarex adds the
+  receipt/CAS boundary because control and located data-plane commits are
+  independent.
+
+Known limitations:
+
+- C3b1 does not perform target I/O. C3b2 must ensure exactly `legacy_v1`, fence
+  `1`, commit/outbox `0`, and the receipt epoch before CAS, while never
+  overwriting a conflicting target clock.
+- Exact initial-clock equality applies only while the receipt remains
+  `reserved`; after `ready`, runtime may legitimately advance counters or
+  epoch, and S02-D must validate current authority.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioningReceipt.test.ts
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioningReceipt.postgres.test.ts --reporter verbose
+git diff --check
+```
+
 ## Preserve The Atomic Shared Provisioning Boundary At Executor Creation
 
 Previous completed checkpoint: `5f377e9` Add resumable scope authority

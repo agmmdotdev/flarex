@@ -1,5 +1,57 @@
 # Package Boundaries
 
+## Keep Split Receipt Mutation Inside Trusted Persistence Composition
+
+Previous completed checkpoint: `a4c290f` Fence executor deployment creation.
+
+What changed:
+
+- Added receipt contracts and transaction primitives only in package-internal
+  persistence modules. Root `FlarexPersistence`, executor ports, protocol,
+  SDK, Dynamic Worker, Nitro, and HTTP inputs gained no reservation or
+  readiness method.
+- Kept protocol, state, timestamps, locator credentials, generation, fence,
+  counters, and final publication outside caller-controlled reservation input.
+  The only candidate fact is a trusted initial epoch, and a race adopts the
+  persisted winner.
+- Kept mutation transaction-composable instead of exporting a convenience
+  transaction owner that could create a crash gap between scope and receipt.
+
+Why it changed:
+
+Readiness publication is a privileged control-plane capability. It must be
+available to the later two-store coordinator without becoming a general CRUD
+or executor API.
+
+Convex references inspected:
+
+- `crates/model/src/database_globals/mod.rs`
+- `crates/application/src/lib.rs`
+- `crates/application/src/schema_worker/mod.rs`
+
+How Flarex differs:
+
+- Convex keeps storage initialization and background publication in one
+  backend. Flarex needs an internal composition seam for separate control and
+  located Postgres targets, but does not expose that seam to developer code.
+
+Known limitations:
+
+- C3b2 still needs a trusted planner/resolver and host-neutral reconciler. It
+  must preserve this boundary: external input supplies deployment/project
+  identity only, never scope, epoch, locator, DSN, or database handle.
+- The existing broad trusted persistence object still exposes SQL/Drizzle to
+  server composition; this checkpoint narrows capability publication, not the
+  later package-splitting work.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioningReceipt.test.ts
+git diff --check
+```
+
 ## Give The Executor Only Ready Deployment Authority
 
 Previous completed checkpoint: `5f377e9` Add resumable scope authority

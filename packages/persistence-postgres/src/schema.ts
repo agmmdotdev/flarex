@@ -95,6 +95,65 @@ export const fxControlScopes = pgTable(
   ],
 );
 
+export const fxControlScopeProvisioning = pgTable(
+  "fx_control_scope_provisioning",
+  {
+    scopeId: text("scope_id")
+      .$type<ScopeId>()
+      .primaryKey()
+      .references(() => fxControlScopes.scopeId, { onDelete: "restrict" }),
+    protocolVersion: text("protocol_version").notNull(),
+    state: text("state").notNull(),
+    physicalLocator: jsonb("physical_locator_json").$type<unknown>().notNull(),
+    initialEpoch: text("initial_epoch").$type<ScopeEpoch>().notNull(),
+    reservedAt: timestamp("reserved_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    readyAt: timestamp("ready_at", { withTimezone: true }),
+  },
+  (table) => [
+    check(
+      "fx_control_scope_provisioning_protocol_version_check",
+      sql`${table.protocolVersion} = 'split_scope_authority_v1'`,
+    ),
+    check(
+      "fx_control_scope_provisioning_state_check",
+      sql`${table.state} in ('reserved', 'ready')`,
+    ),
+    check(
+      "fx_control_scope_provisioning_physical_locator_check",
+      sql`
+        jsonb_typeof(${table.physicalLocator}) = 'object'
+        and ${table.physicalLocator} ? 'kind'
+        and ${table.physicalLocator} ? 'databaseKey'
+        and ${table.physicalLocator} ? 'schemaName'
+        and (${table.physicalLocator} - 'kind' - 'databaseKey' - 'schemaName') = '{}'::jsonb
+        and jsonb_typeof(${table.physicalLocator} -> 'kind') = 'string'
+        and ${table.physicalLocator} ->> 'kind' in ('schema_per_scope', 'database_per_scope')
+        and jsonb_typeof(${table.physicalLocator} -> 'databaseKey') = 'string'
+        and ${nonBlankText(sql`${table.physicalLocator} ->> 'databaseKey'`)}
+        and jsonb_typeof(${table.physicalLocator} -> 'schemaName') = 'string'
+        and ${nonBlankText(sql`${table.physicalLocator} ->> 'schemaName'`)}
+      `,
+    ),
+    check(
+      "fx_control_scope_provisioning_initial_epoch_non_empty_check",
+      nonBlankText(table.initialEpoch),
+    ),
+    check(
+      "fx_control_scope_provisioning_state_ready_at_check",
+      sql`
+        (${table.state} = 'reserved' and ${table.readyAt} is null)
+        or (${table.state} = 'ready' and ${table.readyAt} is not null)
+      `,
+    ),
+    check(
+      "fx_control_scope_provisioning_ready_at_order_check",
+      sql`${table.readyAt} is null or ${table.readyAt} >= ${table.reservedAt}`,
+    ),
+  ],
+);
+
 export const fxSystemScopeClocks = pgTable(
   "fx_system_scope_clock",
   {
@@ -616,6 +675,7 @@ export const flarexSchema = {
   documentFreshnessVersions,
   documents,
   freshnessProcessedEvents,
+  fxControlScopeProvisioning,
   fxControlScopes,
   fxSystemScopeClocks,
   indexes,

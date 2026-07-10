@@ -23,6 +23,16 @@ export type SharedDatabaseScopePhysicalLocator = Extract<
   { readonly kind: "shared_database" }
 >;
 
+export type SplitScopeIsolationKind = Exclude<
+  ScopeIsolationKind,
+  "shared_database"
+>;
+
+export type SplitScopePhysicalLocator = Extract<
+  ScopePhysicalLocator,
+  { readonly kind: SplitScopeIsolationKind }
+>;
+
 export type ScopePlacement = {
   [Kind in ScopeIsolationKind]: {
     readonly isolationKind: Kind;

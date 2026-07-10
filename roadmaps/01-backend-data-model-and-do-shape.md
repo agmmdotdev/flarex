@@ -1,5 +1,74 @@
 # Backend Data Model And Durable Object Shape
 
+## Persist Split Provisioning Intent Before Publishing Readiness
+
+Previous completed checkpoint: `a4c290f` Fence executor deployment creation.
+
+What changed:
+
+- Added additive migration `0019` and the one-to-one
+  `fx_control_scope_provisioning` receipt. It stores only exact split-placement
+  intent, protocol `split_scope_authority_v1`, the winning initial epoch,
+  `reserved | ready`, and ordered reservation/readiness timestamps.
+- Kept the stable `fx_control_scope` locator separate from lifecycle state.
+  Existing shared and split scopes receive no synthetic receipt because their
+  original epoch/protocol intent cannot be reconstructed safely.
+- Added strict receipt decoding plus transaction-composable reservation and
+  exact `reserved -> ready` CAS primitives. They lock the canonical scope row,
+  reject locator drift, adopt the persisted epoch after a reservation race,
+  and expose no reverse/delete operation.
+- Proved atomic scope/receipt rollback, replay, constraints, corruption,
+  monotonic publication, concurrent convergence, receipt-row locking, and
+  scope-locator locking on PGlite and an isolated PostgreSQL 18 cluster.
+- Corrected the existing real-Postgres `ON DELETE RESTRICT` assertion to its
+  PostgreSQL SQLSTATE `23001`; ordinary missing-parent foreign keys remain
+  `23503`.
+
+Why it changed:
+
+A split locator with no clock is ambiguous after a crash. Durable immutable
+intent distinguishes unfinished target preparation from already-published
+authority without treating a partial locator row as usable.
+
+Convex references inspected:
+
+- `crates/model/src/database_globals/mod.rs`
+- `crates/application/src/lib.rs`
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+- `crates/common/src/bootstrap_model/schema_state.rs`
+- `crates/application/src/schema_worker/mod.rs`
+- `crates/model/src/migrations.rs`
+
+How Flarex differs:
+
+- Convex persists configuration and publishes completed background work inside
+  one OCC/backend domain. Flarex needs a separate control receipt because a
+  located Postgres target cannot commit atomically with the control database.
+- A `ready` receipt is historical publication evidence, not current clock
+  authority. Later runtime resolution must still read the located
+  `fx_system_scope_clock`.
+
+Known limitations:
+
+- This is S02-C3b1 only. C3b2 still must resolve the persisted locator outside
+  the control transaction, initialize/verify the exact target clock, and call
+  the final CAS. Split topology is not available to executor composition.
+- C2 parity remains intentionally shared-database-only; it is not mixed-
+  topology readiness evidence. No runtime generation routing, allocator, OCC,
+  compiler, sync, Payload, or Medusa behavior changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres test:postgres
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm typecheck
+git diff --check
+```
+
 ## Fence Future Shared Deployment Creation Behind Ready Authority
 
 Previous completed checkpoint: `5f377e9` Add resumable scope authority

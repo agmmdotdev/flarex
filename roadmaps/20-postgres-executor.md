@@ -1,5 +1,63 @@
 # Postgres Executor
 
+## Add Split Control Receipts Without Widening Executor Readiness
+
+Previous completed checkpoint: `a4c290f` Fence executor deployment creation.
+
+What changed:
+
+- Added PostgreSQL/PGlite migration and repository primitives for durable
+  split-scope reservation and exact readiness CAS in
+  `@flarex/persistence-postgres` only.
+- Added focused PGlite coverage and three isolated PostgreSQL 18 cases for
+  concurrent reservation winner adoption, exact ready-CAS/locator locks, and
+  recovery of a committed reserved receipt after external target failure. The
+  complete real-Postgres persistence lane passes all 21 tests.
+- Aligned the existing PostgreSQL 18 `ON DELETE RESTRICT` test with SQLSTATE
+  `23001` while retaining `23503` for missing-parent foreign-key inserts.
+- Left `withReadyDeploymentAuthority(...)`, executor persistence ports, local
+  runtime composition, and shared C1 creation unchanged. A reserved split
+  locator cannot be returned as executor-ready authority.
+
+Why it changed:
+
+The executor must eventually receive only fully reconciled located authority.
+This checkpoint establishes durable control evidence first, without fabricating
+a resolver or treating receipt persistence as target-clock readiness.
+
+Convex references inspected:
+
+- `crates/model/src/database_globals/mod.rs`
+- `crates/application/src/lib.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+- `crates/application/src/schema_worker/mod.rs`
+- `crates/model/src/migrations.rs`
+
+How Flarex differs:
+
+- Convex initializes and publishes within one backend. Flarex's future Worker
+  executor may locate another Postgres schema/database, so it needs a durable
+  control receipt and later two-store recovery loop.
+
+Known limitations:
+
+- This is C3b1, not production split execution. C3b2 must supply the trusted
+  resolver, exact target-clock initializer/verifier, failure-window recovery,
+  and final ready projection. Worker/Hyperdrive composition remains separate.
+- No HTTP executor bridge was restored, and no runtime generation routing,
+  sequence allocation, OCC, compiler, sync, Payload, or Medusa work is present.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres test:postgres
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm typecheck
+git diff --check
+```
+
 ## Replace Bare Executor Creation With Shared Ready Authority
 
 Previous completed checkpoint: `5f377e9` Add resumable scope authority

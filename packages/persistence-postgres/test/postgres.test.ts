@@ -171,7 +171,7 @@ describePostgres("createPostgresPersistence", () => {
           `delete from deployments where deployment_id = $1`,
           ["deployment_real_pg_scope_a"],
         ),
-      ).rejects.toMatchObject({ code: "23503" });
+      ).rejects.toMatchObject({ code: "23001" });
     });
   });
 

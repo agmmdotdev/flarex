@@ -60,6 +60,7 @@ describe("createPGlitePersistence", () => {
       "documents",
       "freshness_processed_events",
       "fx_control_scope",
+      "fx_control_scope_provisioning",
       "fx_system_scope_clock",
       "indexes",
       "invoke_session_document_reads",
@@ -214,6 +215,75 @@ describe("createPGlitePersistence", () => {
         `select count(*)::text as count from fx_system_scope_clock`,
       );
       expect(clockCount.rows).toEqual([{ count: "0" }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("upgrades split scopes without inventing provisioning receipts", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-receipt-upgrade-"));
+    const previousMigrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const previousJournal = resolve(
+      packageRoot,
+      "test/fixtures/drizzle-through-0018-journal.json",
+    );
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, previousMigrationsFolder, {
+        recursive: true,
+      });
+      await copyFile(
+        previousJournal,
+        resolve(previousMigrationsFolder, "meta/_journal.json"),
+      );
+      const previousPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder: previousMigrationsFolder,
+      });
+      await previousPersistence.migrate();
+      await previousPersistence.insertDeploymentMetadata({
+        deploymentId: "deployment_before_scope_receipt",
+        projectId: "project_before_scope_receipt",
+      });
+      const scopeId = ScopeIdSchema.make("scope_before_scope_receipt");
+      await previousPersistence.insertScopeMetadata({
+        scopeId,
+        deploymentId: "deployment_before_scope_receipt",
+        physicalLocator: {
+          kind: "schema_per_scope",
+          databaseKey: "primary",
+          schemaName: "fx_before_scope_receipt",
+        },
+      });
+      await expect(
+        previousPersistence.query(
+          `select scope_id from fx_control_scope_provisioning limit 1`,
+        ),
+      ).rejects.toThrow();
+
+      const currentPersistence = await createPGlitePersistence({ db });
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(currentPersistence.getScopeMetadata(scopeId)).resolves.toMatchObject({
+        scopeId,
+        deploymentId: "deployment_before_scope_receipt",
+        physicalLocator: {
+          kind: "schema_per_scope",
+          databaseKey: "primary",
+          schemaName: "fx_before_scope_receipt",
+        },
+      });
+      const receiptCount = await currentPersistence.query<{ count: string }>(
+        `select count(*)::text as count from fx_control_scope_provisioning`,
+      );
+      expect(receiptCount.rows).toEqual([{ count: "0" }]);
     } finally {
       try {
         await db.close();

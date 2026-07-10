@@ -1,6 +1,6 @@
 # FlarexDB Foundation Execution Plans
 
-Status: S01 through S02-B and S02-C1/C2/C3a are complete; S02-C3b is next
+Status: S01 through S02-B and S02-C1/C2/C3a/C3b1 are complete; S02-C3b2 is next
 
 This folder turns the accepted FlarexDB architecture into small, reviewable,
 commit-sized implementation turns. It is intentionally limited to the
@@ -157,8 +157,9 @@ commit are complete.
    deployment-ID-frontier bootstrap plus point-in-time relational parity for
    that fixed shared placement. S02-C3a removed the executor's bare writer,
    wired shared future creation, and proved the quiesce/bootstrap/switch/fresh
-   parity sequence. S02-C3b owns durable split-topology reservation and
-   readiness recovery. The
+   parity sequence. S02-C3b1 added the durable split-topology receipt and exact
+   `reserved -> ready` control CAS without advertising located readiness.
+   S02-C3b2 owns the trusted two-store target-clock reconciliation loop. The
    Worker/Hyperdrive proof remains a hard prerequisite for S02-D runtime
    routing.
 3. `S03` add the minimal stable catalog.

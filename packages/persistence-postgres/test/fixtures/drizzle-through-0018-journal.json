@@ -134,13 +134,6 @@
       "when": 1783678705893,
       "tag": "0018_sleepy_jimmy_woo",
       "breakpoints": true
-    },
-    {
-      "idx": 19,
-      "version": "7",
-      "when": 1783702730625,
-      "tag": "0019_concerned_ma_gnuci",
-      "breakpoints": true
     }
   ]
 }

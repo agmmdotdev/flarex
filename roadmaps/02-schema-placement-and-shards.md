@@ -1,5 +1,60 @@
 # Schema Placement And Shards
 
+## Reserve Exact Split Placement Without Advertising It As Ready
+
+Previous completed checkpoint: `a4c290f` Fence executor deployment creation.
+
+What changed:
+
+- Added a split-only provisioning receipt whose locator is an immutable copy
+  of the canonical `fx_control_scope` placement. Both schema-per-scope and
+  database-per-scope are accepted; shared-database rows cannot enter this
+  protocol.
+- Constrained the copied JSON to exactly `{ kind, databaseKey, schemaName }`,
+  with no DSN, credential, host, or caller-selected connection material.
+- Reservation and publication lock and revalidate the canonical scope locator.
+  A different locator never replaces either the scope or receipt winner.
+- Added a migration upgrade proof showing an existing split locator receives
+  zero backfilled receipts because its initial epoch is unknowable.
+
+Why it changed:
+
+Split placement needs a durable recovery identity before any resolver touches
+another schema or database. Locator existence alone cannot mean target-clock
+readiness.
+
+Convex references inspected:
+
+- `crates/model/src/database_globals/mod.rs`
+- `crates/application/src/lib.rs`
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+
+How Flarex differs:
+
+- Convex resolves one persisted storage configuration in one backend. Flarex
+  copies exact split intent into a receipt so work in another SQL domain can be
+  retried and published only after revalidation.
+
+Known limitations:
+
+- C3b1 adds no trusted locator resolver, schema-qualified adapter, database
+  creator, credential/Hyperdrive mapping, or cleanup workflow. C3b2 owns the
+  two-store reconciler and target-clock proof.
+- `getScopeMetadataByDeploymentId(...)` can see a reserved split scope. S02-D
+  must join/check readiness rather than treating locator existence as usable.
+- C2 remains closed over one shared locator and will classify split scopes as
+  locator conflicts; it must not be reported as global mixed-topology parity.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioningReceipt.test.ts
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioningReceipt.postgres.test.ts --reporter verbose
+corepack pnpm --filter @flarex/persistence-postgres db:check
+git diff --check
+```
+
 ## Keep Future Creation On The Proven Shared Placement
 
 Previous completed checkpoint: `5f377e9` Add resumable scope authority
