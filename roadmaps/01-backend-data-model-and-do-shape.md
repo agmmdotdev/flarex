@@ -1,5 +1,77 @@
 # Backend Data Model And Durable Object Shape
 
+## Resolve Existing Scopes To The Legacy App-Data Generation
+
+Previous completed checkpoint: `969c174` Isolate the legacy app-data engine.
+
+What changed:
+
+- Added an executor-internal app-data storage authority containing branded
+  `scopeId` and `storageGeneration` values.
+- Derived the transitional authority only from persisted, active invoke-session
+  metadata after deployment/project ownership checks. Existing deployment IDs
+  are temporary scope aliases and resolve to exact `legacy_v1` authority.
+- Added a legacy-only engine registry with an immutable list of registered
+  generations. A valid but unavailable generation throws the typed terminal
+  `AppDataStorageGenerationUnavailableError` before an app-data method runs.
+- Routed syscall and finish operations through that resolver while retaining
+  the same legacy engine across retries and invoke-backed live-query reruns.
+
+Why it changed:
+
+The S01 compatibility seam needs a trusted routing decision before later schema
+and OCC work can depend on generation identity. Resolution must follow persisted
+server state; treating a missing deployment/session, request field, header, or
+function partition key as storage authority would make migration unsafe.
+
+Convex references inspected:
+
+- `crates/database/src/database.rs`
+- `crates/database/src/transaction.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex's trusted backend creates a transaction from backend-owned identity and
+  snapshot state, then applies function-runner reads and writes back to that
+  transaction. It has no portable dual-storage-generation router to copy.
+- Flarex needs a migration-specific generation resolver because user code and
+  the trusted Postgres executor are separated and the legacy/new engines must
+  coexist temporarily.
+
+Known limitations:
+
+- This is not the S02 scope-location or scope-clock authority. It adds no table,
+  migration, generation fence, or permanent deployment-to-scope mapping.
+- Generation is re-derived per validated session operation. This is safe only
+  while `legacy_v1` is the sole derivable and registered engine; S02 and later
+  session/OCC turns own authoritative fences and durable pins.
+- No `flarexdb_v1` engine, storage schema, or production route exists.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol exec vitest run test/storage-authority.test.ts
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/legacyV1AppDataEngine.test.ts test/pglite.test.ts
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/executor exec vitest run test/appDataEngines.test.ts test/appDataBoundary.test.ts test/sessions.test.ts test/liveQueries.test.ts
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor build
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts -t "maps invoke syscalls without forwarding storage selection"
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Isolate The Legacy V1 App-Data Engine
 
 Previous completed checkpoint: `9de97f1` Define FlarexDB storage authority

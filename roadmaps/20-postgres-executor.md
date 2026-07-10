@@ -1,5 +1,77 @@
 # Postgres Executor
 
+## Resolve App-Data Generation From Persisted Session State
+
+Previous completed checkpoint: `969c174` Isolate the legacy app-data engine.
+
+What changed:
+
+- Replaced direct legacy-engine injection into syscall, finish, retry, and
+  invoke-backed live-query orchestration with one internal legacy-only registry.
+- After `requireActiveSession` validates persisted ownership and active state,
+  syscall and finish derive storage authority from that record and resolve one
+  engine for the complete operation.
+- Preserved the retry loop, attempt count, abort path, OCC classification,
+  commit transaction wrapper, invalidation hook, and public invoke contracts.
+- Added regression coverage proving caller body/header fields cannot select a
+  generation and project mismatch fails before resolution.
+
+Why it changed:
+
+Generation routing must be a trusted executor decision, not a property of the
+Dynamic Worker request. The persisted session is the earliest server-owned
+context common to point reads, staged writes, query finish, and mutation commit,
+so it is the narrow S01-C authority source.
+
+Convex references inspected:
+
+- `crates/database/src/database.rs`
+- `crates/database/src/transaction.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex's database creates and retains the authoritative transaction snapshot
+  inside one trusted backend. Flarex persists invoke-session state because user
+  execution crosses a network/runtime boundary.
+- Flarex's legacy-only resolver is a compatibility mechanism, not a claim that
+  generation is permanently stored on invoke-session or deployment metadata.
+
+Known limitations:
+
+- Missing deployment/session metadata retains its current typed failure and
+  never defaults to legacy. S02 later bootstraps scope-clock rows and makes
+  missing generation/fence metadata fail closed.
+- `AppDataStorageGenerationUnavailableError` is terminal and is not classified
+  as an OCC retry. It is currently unreachable through production inputs because
+  only `legacy_v1` can be derived.
+- No retry lifecycle, snapshot, OCC, compiler, sync, or public endpoint behavior
+  changed in this checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol exec vitest run test/storage-authority.test.ts
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/legacyV1AppDataEngine.test.ts test/pglite.test.ts
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/executor exec vitest run test/appDataEngines.test.ts test/appDataBoundary.test.ts test/sessions.test.ts test/liveQueries.test.ts
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor build
+corepack pnpm --filter @flarex/executor-http exec vitest run test/http.test.ts -t "maps invoke syscalls without forwarding storage selection"
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Route App Data Through The Legacy V1 Engine
 
 Previous completed checkpoint: `9de97f1` Define FlarexDB storage authority

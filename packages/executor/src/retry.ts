@@ -3,10 +3,8 @@ import {
   InvokeSessionOccConflictError,
   InvokeSessionTableOccConflictError,
 } from "@flarex/persistence-postgres";
-import type {
-  LegacyV1AppDataEngine,
-} from "@flarex/persistence-postgres/legacy-v1-app-data-engine";
 
+import type { AppDataEngineRegistry } from "./appDataEngines";
 import {
   InvokeRetryExhaustedError,
   InvokeRetryPolicyError,
@@ -34,7 +32,7 @@ const DEFAULT_MAX_ATTEMPTS = 8;
 
 export async function runInvokeWithRetries(
   persistence: FlarexExecutorControlPersistence,
-  appDataEngine: LegacyV1AppDataEngine,
+  appDataEngines: AppDataEngineRegistry,
   clock: Clock,
   ids: IdGenerator,
   liveQueryInvalidation: LiveQueryInvalidationConfig | undefined,
@@ -42,7 +40,7 @@ export async function runInvokeWithRetries(
 ): Promise<RunQueryInvokeWithRetriesResult>;
 export async function runInvokeWithRetries(
   persistence: FlarexExecutorControlPersistence,
-  appDataEngine: LegacyV1AppDataEngine,
+  appDataEngines: AppDataEngineRegistry,
   clock: Clock,
   ids: IdGenerator,
   liveQueryInvalidation: LiveQueryInvalidationConfig | undefined,
@@ -50,7 +48,7 @@ export async function runInvokeWithRetries(
 ): Promise<RunMutationInvokeWithRetriesResult>;
 export async function runInvokeWithRetries(
   persistence: FlarexExecutorControlPersistence,
-  appDataEngine: LegacyV1AppDataEngine,
+  appDataEngines: AppDataEngineRegistry,
   clock: Clock,
   ids: IdGenerator,
   liveQueryInvalidation: LiveQueryInvalidationConfig | undefined,
@@ -58,7 +56,7 @@ export async function runInvokeWithRetries(
 ): Promise<RunInvokeWithRetriesResult>;
 export async function runInvokeWithRetries(
   persistence: FlarexExecutorControlPersistence,
-  appDataEngine: LegacyV1AppDataEngine,
+  appDataEngines: AppDataEngineRegistry,
   clock: Clock,
   ids: IdGenerator,
   liveQueryInvalidation: LiveQueryInvalidationConfig | undefined,
@@ -82,7 +80,7 @@ export async function runInvokeWithRetries(
         maxAttempts,
         session,
         syscall: (syscall) =>
-          invokeSyscall(persistence, appDataEngine, {
+          invokeSyscall(persistence, appDataEngines, {
             deploymentId: input.deploymentId,
             projectId: input.projectId,
             sessionId: session.sessionId,
@@ -91,7 +89,7 @@ export async function runInvokeWithRetries(
       });
       const finished = await finishInvokeSession(
         persistence,
-        appDataEngine,
+        appDataEngines,
         clock,
         liveQueryInvalidation,
         {

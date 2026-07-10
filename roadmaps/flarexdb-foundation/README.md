@@ -1,6 +1,6 @@
 # FlarexDB Foundation Execution Plans
 
-Status: implementation in progress; S01-A and S01-B are complete
+Status: S01 is complete; S02 has not started
 
 This folder turns the accepted FlarexDB architecture into small, reviewable,
 commit-sized implementation turns. It is intentionally limited to the

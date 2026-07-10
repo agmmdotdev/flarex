@@ -31,6 +31,11 @@ import {
 import type {
   LegacyV1AppDataEngine,
 } from "@flarex/persistence-postgres/legacy-v1-app-data-engine";
+
+import {
+  legacyV1StorageAuthorityForPersistedSession,
+  type AppDataEngineRegistry,
+} from "./appDataEngines";
 import { prepareInvoke } from "./invoke";
 import {
   deploymentSchemaFromAnalysis,
@@ -103,7 +108,7 @@ export async function beginInvokeSession(
 
 export async function invokeSyscall(
   persistence: FlarexExecutorControlPersistence,
-  appDataEngine: LegacyV1AppDataEngine,
+  appDataEngines: AppDataEngineRegistry,
   input: InvokeSyscallInput,
 ): Promise<InvokeSyscallResult> {
   const session = await requireActiveSession(persistence, input);
@@ -114,6 +119,9 @@ export async function invokeSyscall(
       session.functionKind,
     );
   }
+  const appDataEngine = appDataEngines.resolve(
+    legacyV1StorageAuthorityForPersistedSession(session),
+  );
 
   if (input.syscall.op === "get") {
     const parsed = parseFlarexDocumentId(input.syscall.id);
@@ -413,12 +421,15 @@ export async function invokeSyscall(
 
 export async function finishInvokeSession(
   persistence: FlarexExecutorControlPersistence,
-  appDataEngine: LegacyV1AppDataEngine,
+  appDataEngines: AppDataEngineRegistry,
   clock: Clock,
   liveQueryInvalidation: LiveQueryInvalidationConfig | undefined,
   input: FinishInvokeSessionInput,
 ): Promise<FinishInvokeSessionResult> {
   const session = await requireActiveSession(persistence, input);
+  const appDataEngine = appDataEngines.resolve(
+    legacyV1StorageAuthorityForPersistedSession(session),
+  );
   if (session.functionKind === "query") {
     const documentReads = await appDataEngine.listInvokeSessionDocumentReads(
       input.deploymentId,

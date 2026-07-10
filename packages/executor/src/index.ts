@@ -2,6 +2,7 @@ import {
   createLegacyV1AppDataEngine,
 } from "@flarex/persistence-postgres/legacy-v1-app-data-engine";
 
+import { createLegacyOnlyAppDataEngineRegistry } from "./appDataEngines";
 import { activateDeploymentPackage, ensureDeployment } from "./deployments";
 import { getActiveDeploymentAuthConfig } from "./authConfig";
 import {
@@ -239,7 +240,9 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
   const clock = config.clock ?? defaultClock;
   const ids = config.ids ?? defaultIds;
   const persistence = config.persistence;
-  const appDataEngine = createLegacyV1AppDataEngine(persistence);
+  const appDataEngines = createLegacyOnlyAppDataEngineRegistry(
+    createLegacyV1AppDataEngine(persistence),
+  );
   const liveQueryInvalidation = config.liveQueryInvalidation;
 
   function runInvokeWithRetriesForExecutor(
@@ -256,7 +259,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
   ): Promise<RunInvokeWithRetriesResult> {
     return runInvokeWithRetriesInternal(
       persistence,
-      appDataEngine,
+      appDataEngines,
       clock,
       ids,
       liveQueryInvalidation,
@@ -278,7 +281,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     finishInvokeSession: (input) =>
       finishInvokeSession(
         persistence,
-        appDataEngine,
+        appDataEngines,
         clock,
         liveQueryInvalidation,
         input,
@@ -341,7 +344,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     runLiveQuerySubscriptionWithInvoke: (input) =>
       runLiveQuerySubscriptionWithInvoke(
         persistence,
-        appDataEngine,
+        appDataEngines,
         clock,
         ids,
         input,
@@ -349,7 +352,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     runMaintenanceSweep: (input) =>
       runMaintenanceSweep(persistence, clock, input),
     runInvokeWithRetries: runInvokeWithRetriesForExecutor,
-    invokeSyscall: (input) => invokeSyscall(persistence, appDataEngine, input),
+    invokeSyscall: (input) => invokeSyscall(persistence, appDataEngines, input),
     prepareInvoke: (input) => prepareInvoke(persistence, input),
     registerDeploymentPackage: (input) =>
       registerDeploymentPackage(persistence, input),

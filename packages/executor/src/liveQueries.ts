@@ -4,11 +4,9 @@ import {
 } from "@flarex/freshness";
 import type { FreshnessReadSet } from "@flarex/freshness";
 import type { DeleteLiveQuerySubscriptionResult } from "@flarex/persistence-postgres";
-import type {
-  LegacyV1AppDataEngine,
-} from "@flarex/persistence-postgres/legacy-v1-app-data-engine";
 import { executionIdentityFingerprint } from "flarex-protocol/auth";
 
+import type { AppDataEngineRegistry } from "./appDataEngines";
 import {
   DeploymentNotFoundError,
   DeploymentProjectMismatchError,
@@ -376,7 +374,7 @@ export async function rerunStaleLiveQuerySubscriptions(
 
 export async function runLiveQuerySubscriptionWithInvoke(
   persistence: FlarexExecutorControlPersistence,
-  appDataEngine: LegacyV1AppDataEngine,
+  appDataEngines: AppDataEngineRegistry,
   clock: Clock,
   ids: IdGenerator,
   input: RunLiveQuerySubscriptionWithInvokeInput,
@@ -410,7 +408,7 @@ export async function runLiveQuerySubscriptionWithInvoke(
 
   const result = await runInvokeWithRetries(
     persistence,
-    appDataEngine,
+    appDataEngines,
     clock,
     ids,
     undefined,

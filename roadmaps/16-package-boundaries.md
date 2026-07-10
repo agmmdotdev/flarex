@@ -1,5 +1,77 @@
 # Package Boundaries
 
+## Add The Internal Legacy-Only Generation Resolver
+
+Previous completed checkpoint: `969c174` Isolate the legacy app-data engine.
+
+What changed:
+
+- Added `packages/executor/src/appDataEngines.ts` as an executor-internal module;
+  it is not exported from the package root or accepted by
+  `FlarexExecutorConfig`.
+- Kept the registry surface limited to its registered generation tuple and a
+  resolver. It exposes no raw legacy engine property, SQL client, persistence
+  handle, or caller-configurable factory.
+- Added type-level guards across every public executor input and method so
+  storage generation, engine, fence, registry, and resolver selectors cannot be
+  added accidentally.
+- Added HTTP adapter coverage proving an extra body field and generation header
+  are discarded rather than forwarded to executor core.
+
+Boundary decision:
+
+Executor owns trusted generation selection because it already validates
+persisted session identity before app-data dispatch. Persistence continues to
+own the legacy engine implementation, and protocol owns branded generation and
+scope schemas. Dependency direction remains
+`executor -> persistence -> protocol`; HTTP remains an adapter only.
+
+Convex references inspected:
+
+- `crates/database/src/database.rs`
+- `crates/database/src/transaction.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+How Flarex differs:
+
+- Convex passes backend-created transaction state into its function runner and
+  receives logical reads/writes back. Flarex additionally needs an internal
+  registry because it is strangling one Postgres storage generation with
+  another across a remote execution boundary.
+- The valid protocol name `flarexdb_v1` intentionally has no registry entry or
+  engine stub. Unknown names fail protocol decoding; named but unavailable
+  generations fail resolution.
+
+Known limitations:
+
+- The persisted invoke session does not yet pin generation or fence metadata.
+  Those fields require authoritative S02/S07 storage rather than config or
+  package-analysis additions.
+- The transitional `deploymentId -> ScopeId` alias is internal and temporary;
+  it is not a claim about the final physical scope locator.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol exec vitest run test/storage-authority.test.ts
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/legacyV1AppDataEngine.test.ts
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/executor exec vitest run test/appDataEngines.test.ts test/appDataBoundary.test.ts test/sessions.test.ts test/liveQueries.test.ts
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor build
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-http build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Add The Legacy V1 App-Data Compatibility Module
 
 Previous completed checkpoint: `9de97f1` Define FlarexDB storage authority

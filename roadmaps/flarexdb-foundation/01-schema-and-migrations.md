@@ -1,6 +1,6 @@
 # FlarexDB Schema And Migration Plan
 
-Status: in progress; S01-A and S01-B are implemented
+Status: S01 complete; S02 has not started
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -81,7 +81,7 @@ These are not left for individual implementation turns to reinterpret:
 
 ## Turn Checklist
 
-### [ ] S01 — Freeze Legacy And Add The Generation Boundary
+### [x] S01 — Freeze Legacy And Add The Generation Boundary
 
 Progress:
 
@@ -89,7 +89,7 @@ Progress:
   runtime behavior.
 - [x] S01-B — Add the narrow app-data engine boundary and wrap current behavior
   as `legacy_v1`.
-- [ ] S01-C — Resolve generation from trusted scope authority, default existing
+- [x] S01-C — Resolve generation from trusted scope authority, default existing
   scopes to `legacy_v1`, and keep `flarexdb_v1` unreachable.
 
 Outcome:
@@ -107,10 +107,11 @@ the base legacy/new storage module split. O01 adds only OCC-specific dependency
 and transaction ports. C01 adds only compiler-facing composition adapters over
 those existing boundaries.
 
-Transitional S01-C rule: until S02 installs authoritative scope-clock metadata,
-derive scope context only from trusted server-side deployment/execution state
-and register only the `legacy_v1` adapter. This is a temporary compatibility
-default, not a permanent rule that missing metadata means legacy after S02.
+Implemented transitional S01-C rule: until S02 installs authoritative
+scope-clock metadata, scope context is derived only from validated persisted
+invoke-session state and only the `legacy_v1` adapter is registered. This is a
+temporary compatibility default, not a permanent rule that missing metadata
+means legacy after S02.
 
 Likely code areas:
 
@@ -120,11 +121,11 @@ Likely code areas:
 
 Exit gate:
 
-- all legacy executor and persistence tests remain green without rewritten
+- [x] all legacy executor and persistence tests remain green without rewritten
   expectations;
-- existing scopes resolve to `legacy_v1`;
-- invalid token/generation combinations fail typed decoding;
-- no production read or write routes to the new generation.
+- [x] existing scopes resolve to `legacy_v1`;
+- [x] invalid token/generation combinations fail typed decoding;
+- [x] no production read or write routes to the new generation.
 
 ### [ ] S02 — Add Trusted Scope Metadata And The Scope Clock
 

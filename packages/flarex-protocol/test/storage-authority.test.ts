@@ -132,7 +132,13 @@ describe("FlarexDB storage authority contracts", () => {
     expect(() => decodeLegacyV1StorageGeneration("flarexdb_v1")).toThrow();
     expect(() => decodeFlarexDbV1StorageGeneration("legacy_v1")).toThrow();
 
-    for (const value of ["legacy", "postgres", "flarexdb", undefined]) {
+    for (const value of [
+      "legacy",
+      "postgres",
+      "flarexdb",
+      "future_v1",
+      undefined,
+    ]) {
       expect(() => decodeStorageGeneration(value)).toThrow();
     }
   });

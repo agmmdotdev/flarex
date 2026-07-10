@@ -905,7 +905,7 @@ describe("createFlarexHttpApp", () => {
     });
   });
 
-  it("maps invoke syscall requests to the executor core", async () => {
+  it("maps invoke syscalls without forwarding storage selection", async () => {
     const calls: InvokeSyscallInput[] = [];
     const app = createFlarexHttpApp({
       executor: fakeExecutor({
@@ -920,13 +920,18 @@ describe("createFlarexHttpApp", () => {
     });
 
     const response = await app.handle(
-      jsonRequest("https://executor.test/invoke/syscall", {
-        deploymentId: "deployment_active",
-        projectId: "project_active",
-        sessionId: "session_active",
-        op: "get",
-        id: "1:message",
-      }),
+      jsonRequest(
+        "https://executor.test/invoke/syscall",
+        {
+          deploymentId: "deployment_active",
+          projectId: "project_active",
+          sessionId: "session_active",
+          storageGeneration: "flarexdb_v1",
+          op: "get",
+          id: "1:message",
+        },
+        { "x-flarex-storage-generation": "flarexdb_v1" },
+      ),
     );
 
     expect(response.status).toBe(200);
