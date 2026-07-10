@@ -1,5 +1,62 @@
 # Postgres Executor
 
+## Establish The FlarexDB Storage Authority Vocabulary
+
+Previous completed checkpoint: `cdb1e52` Plan FlarexDB foundation turns.
+
+What changed:
+
+- Added shared schema-derived brands for scope, epoch, commit sequence, outbox
+  sequence, storage generation, and snapshot token.
+- Made the token shape strict and made sequence serialization lossless and
+  canonical before introducing any generation-aware engine behavior.
+- Kept this checkpoint contract-only: executor routes, invoke sessions,
+  persistence repositories, SQL, and production generation routing are
+  unchanged.
+
+Why it changed:
+
+The executor cannot safely wrap legacy behavior or pin a trusted generation if
+each layer represents scope and snapshot identity with unrelated strings and
+numbers. This creates the common vocabulary without prematurely routing data.
+
+Convex references inspected:
+
+- `crates/common/src/types/timestamp.rs`
+- `crates/convex/sync_types/src/timestamp.rs`
+- `crates/value/src/document_id.rs`
+
+How Flarex differs:
+
+- Flarex serializes nonnegative sequences as strings and decodes them to
+  branded `bigint` because its trusted path crosses TypeScript package and
+  runtime boundaries.
+- Scope epoch and storage generation are explicit Flarex fencing concepts for
+  the Postgres/Cloudflare split and are not selectable by callers.
+
+Known limitations:
+
+- The `legacy_v1` adapter and trusted resolver are still absent, so this commit
+  intentionally has no behavioral integration.
+- `flarexdb_v1` is only a decoded name; no production path can route to it.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol exec vitest run test/storage-authority.test.ts
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Add The Interleaved FlarexDB Foundation Roadmap
 
 Previous completed checkpoint: `478be74` Correct FlarexDB transaction and sync

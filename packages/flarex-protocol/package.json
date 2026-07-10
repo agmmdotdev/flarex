@@ -18,7 +18,8 @@
     "./live-query": "./src/live-query.ts",
     "./partition": "./src/partition.ts",
     "./registry": "./src/registry.ts",
-    "./scheduler": "./src/scheduler.ts"
+    "./scheduler": "./src/scheduler.ts",
+    "./storage-authority": "./src/storage-authority.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

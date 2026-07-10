@@ -1,5 +1,67 @@
 # Backend Data Model And Durable Object Shape
 
+## Add Shared FlarexDB Storage Authority Contracts
+
+Previous completed checkpoint: `cdb1e52` Plan FlarexDB foundation turns.
+
+What changed:
+
+- Added an explicit `flarex-protocol/storage-authority` boundary for branded
+  `ScopeId`, `ScopeEpoch`, `CommitSeq`, `OutboxSeq`, `StorageGeneration`, and
+  `SnapshotToken` contracts.
+- Encoded commit and outbox sequences as canonical unsigned decimal strings at
+  the protocol edge and branded `bigint` values internally, preserving values
+  above JavaScript's safe-integer limit.
+- Kept the snapshot token strict and limited to
+  `(scopeId, epoch, commitSeq)`; generation and fence authority are not accepted
+  as token fields.
+
+Why it changed:
+
+The legacy/new engine split needs one nominal identity and snapshot vocabulary
+before an adapter or resolver can be introduced. Freezing the pure contracts
+first prevents persistence, OCC, compiler, and sync layers from inventing
+incompatible primitive aliases.
+
+Convex references inspected:
+
+- `crates/common/src/types/timestamp.rs`
+- `crates/convex/sync_types/src/timestamp.rs`
+- `crates/value/src/document_id.rs`
+
+How Flarex differs:
+
+- Convex keeps validated timestamps and distinct document identities in Rust
+  newtypes. Flarex mirrors nominal separation with Effect Schema brands and
+  uses canonical decimal strings across JavaScript boundaries.
+- Flarex adds explicit scope epoch and storage-generation identities because
+  the trusted executor spans Postgres and Cloudflare runtime boundaries.
+
+Known limitations:
+
+- This checkpoint changes no storage behavior. The named `legacy_v1` adapter,
+  trusted generation resolver, scope metadata, and `flarexdb_v1` engine remain
+  later S01/S02 work.
+- Token decoding validates syntax and shape only; authority membership and
+  stale-epoch checks require trusted scope metadata.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol exec vitest run test/storage-authority.test.ts
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Add The FlarexDB Foundation Execution Plans
 
 Previous completed checkpoint: `478be74` Correct FlarexDB transaction and sync

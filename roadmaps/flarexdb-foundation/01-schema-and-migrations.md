@@ -1,6 +1,6 @@
 # FlarexDB Schema And Migration Plan
 
-Status: planned; no turn is implemented
+Status: in progress; S01-A is implemented
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -82,6 +82,15 @@ These are not left for individual implementation turns to reinterpret:
 ## Turn Checklist
 
 ### [ ] S01 — Freeze Legacy And Add The Generation Boundary
+
+Progress:
+
+- [x] S01-A — Add shared branded storage-authority contracts without changing
+  runtime behavior.
+- [ ] S01-B — Add the narrow app-data engine boundary and wrap current behavior
+  as `legacy_v1`.
+- [ ] S01-C — Resolve generation from trusted scope authority, default existing
+  scopes to `legacy_v1`, and keep `flarexdb_v1` unreachable.
 
 Outcome:
 

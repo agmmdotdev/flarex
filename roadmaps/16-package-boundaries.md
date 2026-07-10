@@ -1,5 +1,56 @@
 # Package Boundaries
 
+## Add The Internal Storage Authority Protocol Boundary
+
+Previous completed checkpoint: `cdb1e52` Plan FlarexDB foundation turns.
+
+What changed:
+
+- Added `flarex-protocol/storage-authority` as the schema-backed shared boundary
+  for FlarexDB scope, epoch, sequence, generation, and snapshot-token types.
+- Exported the module only through its explicit package subpath. It is not
+  re-exported from the protocol root and is not exposed from the developer SDK.
+- Kept the canonical schemas in the protocol package, so executor and
+  persistence consumers do not duplicate primitive aliases. Consumers that
+  compile additional Effect decoders must still declare Effect directly.
+
+Boundary decision:
+
+These contracts are shared by persistence, executor, OCC, and later trusted
+runtime messages, so they belong in the neutral schema-first protocol package.
+Physical SQL rows and generation resolution remain persistence/executor
+responsibilities. App developers cannot select storage generation.
+
+Convex references inspected:
+
+- `crates/common/src/types/timestamp.rs`
+- `crates/value/src/document_id.rs`
+
+How Flarex differs:
+
+- Flarex uses one explicit TypeScript protocol subpath to preserve nominal
+  identities across package and JavaScript serialization boundaries.
+- `StorageGeneration` is a Flarex migration fence, not a Convex developer API or
+  a public transport option.
+
+Known limitations:
+
+- No current consumer imports this subpath yet; wiring begins in S01-B.
+- The root protocol barrel still exports its existing contracts unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol exec vitest run test/storage-authority.test.ts
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Remaining Protocol Contract Cleanup
 
 Previous completed checkpoint: `c314a78` Export remaining protocol decoders.
