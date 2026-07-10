@@ -8,6 +8,7 @@
   ],
   "exports": {
     ".": "./src/index.ts",
+    "./legacy-v1-app-data-engine": "./src/legacyV1AppDataEngine.ts",
     "./postgres": "./src/postgres.ts",
     "./pglite": "./src/pglite.ts"
   },

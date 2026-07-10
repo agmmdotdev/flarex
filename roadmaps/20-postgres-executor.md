@@ -1,5 +1,70 @@
 # Postgres Executor
 
+## Route App Data Through The Legacy V1 Engine
+
+Previous completed checkpoint: `9de97f1` Define FlarexDB storage authority
+contracts.
+
+What changed:
+
+- Constructed one `legacy_v1` app-data adapter inside `createFlarexExecutor`;
+  callers cannot inject or select an engine.
+- Threaded that adapter through syscall snapshot/overlay operations, query and
+  mutation finish, the existing retry coordinator, and invoke-backed live-query
+  reruns.
+- Restricted all downstream orchestration to a control persistence port that
+  cannot compile a direct call to any of the twelve legacy app-data methods.
+- Left begin/abort session metadata, deployment/package lookup, maintenance,
+  outbox delivery, live-query registry/delivery, and post-commit invalidation
+  behavior on their existing owners.
+- Preserved the existing Postgres/PGlite transaction wrappers around
+  `commitInvokeSessionWrites` instead of calling its raw implementation.
+
+Why it changed:
+
+S01 needs a single compatibility seam before trusted per-scope generation
+resolution can be wired. Selecting one adapter and reusing it across retries
+also prevents future OCC attempts from silently changing storage generation.
+
+Convex references inspected:
+
+- `crates/database/src/transaction.rs`
+- `crates/database/src/reads.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Flarex currently stages invoke reads/writes in Postgres and uses wall-clock
+  timestamps. Those semantics remain intact only inside the named legacy
+  adapter while the exact-snapshot engine is built beside it.
+- Cloudflare/Nitro/public invoke contracts remain unchanged; this is internal
+  dependency routing only.
+
+Known limitations:
+
+- `storageGeneration` is an implementation tag, not trusted scope authority.
+- S01-C still must resolve only server-derived scope context to this adapter and
+  fail closed for any unavailable `flarexdb_v1` selection.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol exec vitest run test/storage-authority.test.ts
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/legacyV1AppDataEngine.test.ts test/pglite.test.ts
+corepack pnpm --filter @flarex/executor exec vitest run test/appDataBoundary.test.ts test/sessions.test.ts test/liveQueries.test.ts
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Establish The FlarexDB Storage Authority Vocabulary
 
 Previous completed checkpoint: `cdb1e52` Plan FlarexDB foundation turns.

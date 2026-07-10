@@ -1,5 +1,76 @@
 # Backend Data Model And Durable Object Shape
 
+## Isolate The Legacy V1 App-Data Engine
+
+Previous completed checkpoint: `9de97f1` Define FlarexDB storage authority
+contracts.
+
+What changed:
+
+- Added a persistence-owned `LegacyV1AppDataStore` containing only the current
+  snapshot reads, invoke read/write journal, and atomic legacy commit methods.
+- Added a branded `LegacyV1AppDataEngine` adapter fixed to `legacy_v1` and
+  exported it only through an explicit internal package subpath.
+- Refined the shared generation union into exact branded `legacy_v1` and
+  `flarexdb_v1` constituent schemas so an engine cannot claim a broad or
+  unvalidated generation tag.
+- Routed executor syscall reads/writes, query finish, mutation commit, retries,
+  and invoke-backed live-query reruns through one adapter instance.
+- Split executor control persistence from the composition-root persistence
+  input, making all legacy app-data methods unavailable to downstream
+  orchestration except through the selected engine.
+- Kept deployment/package metadata, session lifecycle metadata, direct revision
+  insertion, raw SQL, freshness, delivery, and outbox consumption outside the
+  engine.
+
+Why it changed:
+
+The compatibility schema needs one named boundary before generation resolution
+is added. This prevents later routing from becoming a conditional inside every
+legacy document/index method and preserves the current implementation as the
+migration oracle.
+
+Convex references inspected:
+
+- `crates/database/src/transaction.rs`
+- `crates/database/src/reads.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex already composes transaction reads, read-set recording, and commit
+  publication behind mature Rust database boundaries. Flarex first isolates its
+  existing Postgres invoke-session implementation as an explicit compatibility
+  engine.
+- The legacy engine retains wall-clock `ts: number` and current journal records;
+  it does not pretend they are the future `SnapshotToken` or OCC contracts.
+
+Known limitations:
+
+- This is not the O01 snapshot/OCC port or C01 compiler API.
+- No generation resolver or `flarexdb_v1` implementation exists yet; S01-C
+  remains open and production behavior is still entirely legacy.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol exec vitest run test/storage-authority.test.ts
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/legacyV1AppDataEngine.test.ts
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts
+corepack pnpm --filter @flarex/executor exec vitest run test/appDataBoundary.test.ts test/sessions.test.ts test/liveQueries.test.ts
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Add Shared FlarexDB Storage Authority Contracts
 
 Previous completed checkpoint: `cdb1e52` Plan FlarexDB foundation turns.

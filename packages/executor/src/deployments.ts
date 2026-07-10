@@ -12,11 +12,11 @@ import type {
   ActivateDeploymentPackageResult,
   EnsureDeploymentInput,
   EnsureDeploymentResult,
-  FlarexExecutorPersistence,
+  FlarexExecutorControlPersistence,
 } from "./types";
 
 export async function activateDeploymentPackage(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: ActivateDeploymentPackageInput,
 ): Promise<ActivateDeploymentPackageResult> {
   const ensured = await ensureDeployment(persistence, input);
@@ -50,7 +50,7 @@ export async function activateDeploymentPackage(
 }
 
 export async function ensureDeployment(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: EnsureDeploymentInput,
 ): Promise<EnsureDeploymentResult> {
   const existingDeployment = await persistence.getDeploymentMetadata(

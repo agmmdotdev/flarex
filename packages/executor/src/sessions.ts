@@ -8,7 +8,7 @@ import type {
   Clock,
   FinishInvokeSessionInput,
   FinishInvokeSessionResult,
-  FlarexExecutorPersistence,
+  FlarexExecutorControlPersistence,
   IdGenerator,
   InvokeSyscallInput,
   InvokeSyscallResult,
@@ -28,6 +28,9 @@ import {
   type InvokeSessionDocumentWriteRecord,
   type IndexRangeExpression,
 } from "@flarex/persistence-postgres";
+import type {
+  LegacyV1AppDataEngine,
+} from "@flarex/persistence-postgres/legacy-v1-app-data-engine";
 import { prepareInvoke } from "./invoke";
 import {
   deploymentSchemaFromAnalysis,
@@ -57,7 +60,7 @@ import {
 const ANONYMOUS_EXECUTION_IDENTITY = { kind: "anonymous" } as const;
 
 export async function beginInvokeSession(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   ids: IdGenerator,
   input: BeginInvokeSessionInput,
@@ -99,7 +102,8 @@ export async function beginInvokeSession(
 }
 
 export async function invokeSyscall(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
+  appDataEngine: LegacyV1AppDataEngine,
   input: InvokeSyscallInput,
 ): Promise<InvokeSyscallResult> {
   const session = await requireActiveSession(persistence, input);
@@ -114,12 +118,12 @@ export async function invokeSyscall(
   if (input.syscall.op === "get") {
     const parsed = parseFlarexDocumentId(input.syscall.id);
     const document = await documentAtTransactionView(
-      persistence,
+      appDataEngine,
       session,
       input.syscall.id,
     );
     if (document.recordRead) {
-      await persistence.insertInvokeSessionDocumentRead({
+      await appDataEngine.insertInvokeSessionDocumentRead({
         deploymentId: input.deploymentId,
         sessionId: input.sessionId,
         tableId: parsed.tableId,
@@ -170,7 +174,7 @@ export async function invokeSyscall(
         );
       }
       const result = await indexDocumentsAtTransactionView(
-        persistence,
+        appDataEngine,
         session,
         index,
         bounds,
@@ -179,7 +183,7 @@ export async function invokeSyscall(
         request.limit,
       );
       for (const document of result.documents) {
-        await persistence.insertInvokeSessionDocumentRead({
+        await appDataEngine.insertInvokeSessionDocumentRead({
           deploymentId: input.deploymentId,
           sessionId: input.sessionId,
           tableId: index.tableId,
@@ -187,7 +191,7 @@ export async function invokeSyscall(
           observedTs: document.observedTs,
         });
       }
-      await persistence.insertInvokeSessionIndexRead({
+      await appDataEngine.insertInvokeSessionIndexRead({
         deploymentId: input.deploymentId,
         sessionId: input.sessionId,
         indexId: index.indexId,
@@ -223,13 +227,13 @@ export async function invokeSyscall(
       };
     }
     const documents = await tableDocumentsAtTransactionView(
-      persistence,
+      appDataEngine,
       session,
       table.tableId,
       request.order,
       request.limit,
     );
-    await persistence.insertInvokeSessionTableRead({
+    await appDataEngine.insertInvokeSessionTableRead({
       deploymentId: input.deploymentId,
       sessionId: input.sessionId,
       tableId: table.tableId,
@@ -257,7 +261,7 @@ export async function invokeSyscall(
   if (input.syscall.op === "insert") {
     const table = await tableForSession(persistence, session, input.syscall.table);
     const id = idForInsert(table.tableId, input.syscall.id);
-    await persistence.stageInvokeSessionDocumentWrite({
+    await appDataEngine.stageInvokeSessionDocumentWrite({
       deploymentId: input.deploymentId,
       sessionId: input.sessionId,
       tableId: table.tableId,
@@ -272,7 +276,7 @@ export async function invokeSyscall(
     const patch = requireJsonObject(input.syscall.value);
     const parsed = parseFlarexDocumentId(input.syscall.id);
     const document = await documentAtTransactionView(
-      persistence,
+      appDataEngine,
       session,
       input.syscall.id,
     );
@@ -289,7 +293,7 @@ export async function invokeSyscall(
       );
     }
     if (document.recordRead) {
-      await persistence.insertInvokeSessionDocumentRead({
+      await appDataEngine.insertInvokeSessionDocumentRead({
         deploymentId: input.deploymentId,
         sessionId: input.sessionId,
         tableId: parsed.tableId,
@@ -297,7 +301,7 @@ export async function invokeSyscall(
         observedTs: document.observedTs,
       });
     }
-    await persistence.stageInvokeSessionDocumentWrite({
+    await appDataEngine.stageInvokeSessionDocumentWrite({
       deploymentId: input.deploymentId,
       sessionId: input.sessionId,
       tableId: parsed.tableId,
@@ -321,7 +325,7 @@ export async function invokeSyscall(
   if (input.syscall.op === "replace") {
     const parsed = parseFlarexDocumentId(input.syscall.id);
     const document = await documentAtTransactionView(
-      persistence,
+      appDataEngine,
       session,
       input.syscall.id,
     );
@@ -332,7 +336,7 @@ export async function invokeSyscall(
       );
     }
     if (document.recordRead) {
-      await persistence.insertInvokeSessionDocumentRead({
+      await appDataEngine.insertInvokeSessionDocumentRead({
         deploymentId: input.deploymentId,
         sessionId: input.sessionId,
         tableId: parsed.tableId,
@@ -340,7 +344,7 @@ export async function invokeSyscall(
         observedTs: document.observedTs,
       });
     }
-    await persistence.stageInvokeSessionDocumentWrite({
+    await appDataEngine.stageInvokeSessionDocumentWrite({
       deploymentId: input.deploymentId,
       sessionId: input.sessionId,
       tableId: parsed.tableId,
@@ -364,7 +368,7 @@ export async function invokeSyscall(
   if (input.syscall.op === "delete") {
     const parsed = parseFlarexDocumentId(input.syscall.id);
     const document = await documentAtTransactionView(
-      persistence,
+      appDataEngine,
       session,
       input.syscall.id,
     );
@@ -375,7 +379,7 @@ export async function invokeSyscall(
       );
     }
     if (document.recordRead) {
-      await persistence.insertInvokeSessionDocumentRead({
+      await appDataEngine.insertInvokeSessionDocumentRead({
         deploymentId: input.deploymentId,
         sessionId: input.sessionId,
         tableId: parsed.tableId,
@@ -383,7 +387,7 @@ export async function invokeSyscall(
         observedTs: document.observedTs,
       });
     }
-    await persistence.stageInvokeSessionDocumentWrite({
+    await appDataEngine.stageInvokeSessionDocumentWrite({
       deploymentId: input.deploymentId,
       sessionId: input.sessionId,
       tableId: parsed.tableId,
@@ -408,22 +412,23 @@ export async function invokeSyscall(
 }
 
 export async function finishInvokeSession(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
+  appDataEngine: LegacyV1AppDataEngine,
   clock: Clock,
   liveQueryInvalidation: LiveQueryInvalidationConfig | undefined,
   input: FinishInvokeSessionInput,
 ): Promise<FinishInvokeSessionResult> {
   const session = await requireActiveSession(persistence, input);
   if (session.functionKind === "query") {
-    const documentReads = await persistence.listInvokeSessionDocumentReads(
+    const documentReads = await appDataEngine.listInvokeSessionDocumentReads(
       input.deploymentId,
       input.sessionId,
     );
-    const tableReads = await persistence.listInvokeSessionTableReads(
+    const tableReads = await appDataEngine.listInvokeSessionTableReads(
       input.deploymentId,
       input.sessionId,
     );
-    const indexReads = await persistence.listInvokeSessionIndexReads(
+    const indexReads = await appDataEngine.listInvokeSessionIndexReads(
       input.deploymentId,
       input.sessionId,
     );
@@ -444,7 +449,7 @@ export async function finishInvokeSession(
   }
 
   if (session.functionKind === "mutation") {
-    const commit = await persistence.commitInvokeSessionWrites({
+    const commit = await appDataEngine.commitInvokeSessionWrites({
       deploymentId: input.deploymentId,
       sessionId: input.sessionId,
       source: `invoke:${session.functionPath}`,
@@ -500,7 +505,7 @@ async function runLiveQueryInvalidationHook(
 }
 
 export async function abortInvokeSession(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   input: AbortInvokeSessionInput,
 ): Promise<AbortInvokeSessionResult> {
@@ -517,7 +522,7 @@ export async function abortInvokeSession(
 }
 
 export async function abortStaleInvokeSessions(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   input: AbortStaleInvokeSessionsInput,
 ): Promise<AbortStaleInvokeSessionsResult> {
@@ -557,7 +562,7 @@ export async function abortStaleInvokeSessions(
 }
 
 async function requireActiveSession(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: { deploymentId: string; projectId: string; sessionId: string },
 ): Promise<InvokeSessionMetadataRecord> {
   const session = await persistence.getInvokeSessionMetadata(
@@ -624,7 +629,7 @@ function isWriteSyscall(op: string): boolean {
 }
 
 async function documentAtTransactionView(
-  persistence: FlarexExecutorPersistence,
+  appDataEngine: LegacyV1AppDataEngine,
   session: InvokeSessionMetadataRecord,
   id: string,
 ): Promise<{
@@ -632,12 +637,12 @@ async function documentAtTransactionView(
   observedTs: number | null;
   recordRead: boolean;
 }> {
-  const base = await persistence.getDocumentRevisionAtTs(
+  const base = await appDataEngine.getDocumentRevisionAtTs(
     session.deploymentId,
     id,
     session.beginTs,
   );
-  const staged = await stagedWriteForDocument(persistence, session, id);
+  const staged = await stagedWriteForDocument(appDataEngine, session, id);
   if (staged === undefined) {
     return {
       value: base === null || base.deleted ? null : base.value,
@@ -692,13 +697,13 @@ async function documentAtTransactionView(
 }
 
 async function tableDocumentsAtTransactionView(
-  persistence: FlarexExecutorPersistence,
+  appDataEngine: LegacyV1AppDataEngine,
   session: InvokeSessionMetadataRecord,
   tableId: number,
   order: "asc" | "desc" | undefined,
   limit: number | undefined,
 ): Promise<Array<{ id: string; value: PersistenceJson }>> {
-  const baseDocuments = await persistence.listDocumentsInTableAtTs(
+  const baseDocuments = await appDataEngine.listDocumentsInTableAtTs(
     session.deploymentId,
     tableId,
     session.beginTs,
@@ -708,7 +713,7 @@ async function tableDocumentsAtTransactionView(
     visible.set(document.id, { id: document.id, value: document.value });
   }
 
-  const stagedWrites = await persistence.listInvokeSessionDocumentWrites(
+  const stagedWrites = await appDataEngine.listInvokeSessionDocumentWrites(
     session.deploymentId,
     session.sessionId,
   );
@@ -727,7 +732,7 @@ async function tableDocumentsAtTransactionView(
 }
 
 async function indexDocumentsAtTransactionView(
-  persistence: FlarexExecutorPersistence,
+  appDataEngine: LegacyV1AppDataEngine,
   session: InvokeSessionMetadataRecord,
   index: SchemaIndexMetadata,
   bounds: { lower?: string; upper?: string },
@@ -744,7 +749,7 @@ async function indexDocumentsAtTransactionView(
   isDone: boolean;
   continueCursor: string;
 }> {
-  const base = await persistence.listDocumentsInIndexAtTs({
+  const base = await appDataEngine.listDocumentsInIndexAtTs({
     deploymentId: session.deploymentId,
     indexId: index.indexId,
     ts: session.beginTs,
@@ -763,7 +768,7 @@ async function indexDocumentsAtTransactionView(
     });
   }
 
-  const stagedWrites = await persistence.listInvokeSessionDocumentWrites(
+  const stagedWrites = await appDataEngine.listInvokeSessionDocumentWrites(
     session.deploymentId,
     session.sessionId,
   );
@@ -771,7 +776,7 @@ async function indexDocumentsAtTransactionView(
     (candidate) => candidate.tableId === index.tableId,
   )) {
     await applyStagedWriteToIndexView(
-      persistence,
+      appDataEngine,
       session,
       visible,
       index,
@@ -796,7 +801,7 @@ async function indexDocumentsAtTransactionView(
 }
 
 async function applyStagedWriteToIndexView(
-  persistence: FlarexExecutorPersistence,
+  appDataEngine: LegacyV1AppDataEngine,
   session: InvokeSessionMetadataRecord,
   visible: Map<
     string,
@@ -814,7 +819,7 @@ async function applyStagedWriteToIndexView(
 
   const value =
     write.op === "patch"
-      ? await patchedIndexDocumentValue(persistence, session, write)
+      ? await patchedIndexDocumentValue(appDataEngine, session, write)
       : (write.valueJson as PersistenceJson);
   if (value === null) {
     return;
@@ -828,17 +833,17 @@ async function applyStagedWriteToIndexView(
     key,
     id: write.documentId,
     value,
-    observedTs: await observedTsForStagedWrite(persistence, session, write),
+    observedTs: await observedTsForStagedWrite(appDataEngine, session, write),
   });
 }
 
 async function observedTsForStagedWrite(
-  persistence: FlarexExecutorPersistence,
+  appDataEngine: LegacyV1AppDataEngine,
   session: InvokeSessionMetadataRecord,
   write: InvokeSessionDocumentWriteRecord,
 ): Promise<number | null> {
   if (write.op === "insert") return null;
-  const base = await persistence.getDocumentRevisionAtTs(
+  const base = await appDataEngine.getDocumentRevisionAtTs(
     session.deploymentId,
     write.documentId,
     session.beginTs,
@@ -847,11 +852,11 @@ async function observedTsForStagedWrite(
 }
 
 async function patchedIndexDocumentValue(
-  persistence: FlarexExecutorPersistence,
+  appDataEngine: LegacyV1AppDataEngine,
   session: InvokeSessionMetadataRecord,
   write: InvokeSessionDocumentWriteRecord,
 ): Promise<PersistenceJson | null> {
-  const base = await persistence.getDocumentRevisionAtTs(
+  const base = await appDataEngine.getDocumentRevisionAtTs(
     session.deploymentId,
     write.documentId,
     session.beginTs,
@@ -951,11 +956,11 @@ function cursorAllows(
 }
 
 async function stagedWriteForDocument(
-  persistence: FlarexExecutorPersistence,
+  appDataEngine: LegacyV1AppDataEngine,
   session: InvokeSessionMetadataRecord,
   id: string,
 ): Promise<InvokeSessionDocumentWriteRecord | undefined> {
-  const writes = await persistence.listInvokeSessionDocumentWrites(
+  const writes = await appDataEngine.listInvokeSessionDocumentWrites(
     session.deploymentId,
     session.sessionId,
   );
@@ -963,7 +968,7 @@ async function stagedWriteForDocument(
 }
 
 async function tableForSession(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   session: InvokeSessionMetadataRecord,
   tableName: string,
 ) {
@@ -972,7 +977,7 @@ async function tableForSession(
 }
 
 async function schemaForSession(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   session: InvokeSessionMetadataRecord,
 ): Promise<DeploymentSchemaMetadata> {
   const deploymentPackage = await persistence.getDeploymentPackageMetadata(

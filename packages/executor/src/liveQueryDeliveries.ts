@@ -7,7 +7,7 @@ import type {
   Clock,
   DeadLetterStuckLiveQueryDeliveriesInput,
   DeadLetterStuckLiveQueryDeliveriesResult,
-  FlarexExecutorPersistence,
+  FlarexExecutorControlPersistence,
   ListUndeliveredLiveQueryDeliveriesInput,
   ListUndeliveredLiveQueryDeliveriesResult,
   MarkLiveQueryDeliveriesDeadLetteredInput,
@@ -30,21 +30,21 @@ const MAX_DELIVERY_FAILURE_ERROR_LENGTH = 4000;
 const MAX_DELIVERY_DEAD_LETTER_REASON_LENGTH = 4000;
 
 export async function listUndeliveredLiveQueryDeliveries(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: ListUndeliveredLiveQueryDeliveriesInput,
 ): Promise<ListUndeliveredLiveQueryDeliveriesResult> {
   return await persistence.listUndeliveredLiveQueryDeliveries(input);
 }
 
 export async function markLiveQueryDeliveriesDelivered(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: MarkLiveQueryDeliveriesDeliveredInput,
 ): Promise<MarkLiveQueryDeliveriesDeliveredResult> {
   return await persistence.markLiveQueryDeliveriesDelivered(input);
 }
 
 export async function markLiveQueryDeliveriesDeadLettered(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: MarkLiveQueryDeliveriesDeadLetteredInput,
 ): Promise<MarkLiveQueryDeliveriesDeadLetteredResult> {
   validateDeliveryIds(input.deliveryIds);
@@ -55,7 +55,7 @@ export async function markLiveQueryDeliveriesDeadLettered(
 }
 
 export async function listPendingLiveQueryDeliveryDeployments(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: ListPendingLiveQueryDeliveryDeploymentsInput,
 ): Promise<ListPendingLiveQueryDeliveryDeploymentsResult> {
   const limit = liveQueryDeliveryLimit(input.limit);
@@ -66,7 +66,7 @@ export async function listPendingLiveQueryDeliveryDeployments(
 }
 
 export async function listStuckLiveQueryDeliveries(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: ListStuckLiveQueryDeliveriesInput,
 ): Promise<ListStuckLiveQueryDeliveriesResult> {
   const limit = liveQueryDeliveryLimit(input.limit);
@@ -88,7 +88,7 @@ export async function listStuckLiveQueryDeliveries(
 }
 
 export async function deadLetterStuckLiveQueryDeliveries(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   input: DeadLetterStuckLiveQueryDeliveriesInput,
 ): Promise<DeadLetterStuckLiveQueryDeliveriesResult> {
@@ -150,7 +150,7 @@ export async function deadLetterStuckLiveQueryDeliveries(
 }
 
 export async function recordLiveQueryDeliveryFailure(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: RecordLiveQueryDeliveryFailureInput,
 ): Promise<RecordLiveQueryDeliveryFailureResult> {
   if (input.stage !== "fanout" && input.stage !== "ack") {
@@ -164,7 +164,7 @@ export async function recordLiveQueryDeliveryFailure(
 }
 
 export async function claimLiveQueryDeliveryBatch(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   input: ClaimLiveQueryDeliveryBatchInput,
 ): Promise<ClaimLiveQueryDeliveryBatchResult> {
@@ -182,7 +182,7 @@ export async function claimLiveQueryDeliveryBatch(
 }
 
 export async function ackLiveQueryDeliveries(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   input: AckLiveQueryDeliveriesInput,
 ): Promise<AckLiveQueryDeliveriesResult> {
@@ -195,7 +195,7 @@ export async function ackLiveQueryDeliveries(
 }
 
 export async function runLiveQueryDeliveryBatch(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   input: RunLiveQueryDeliveryBatchInput,
 ): Promise<RunLiveQueryDeliveryBatchResult> {

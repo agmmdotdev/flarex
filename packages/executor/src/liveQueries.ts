@@ -2,10 +2,12 @@ import {
   checkReadSetFreshness,
   readSetToFreshnessReadSet,
 } from "@flarex/freshness";
-import type {
-  DeleteLiveQuerySubscriptionResult,
-} from "@flarex/persistence-postgres";
 import type { FreshnessReadSet } from "@flarex/freshness";
+import type { DeleteLiveQuerySubscriptionResult } from "@flarex/persistence-postgres";
+import type {
+  LegacyV1AppDataEngine,
+} from "@flarex/persistence-postgres/legacy-v1-app-data-engine";
+import { executionIdentityFingerprint } from "flarex-protocol/auth";
 
 import {
   DeploymentNotFoundError,
@@ -13,7 +15,6 @@ import {
   LiveQueryDeliveryPolicyError,
   LiveQuerySubscriptionRerunError,
 } from "./errors";
-import { executionIdentityFingerprint } from "flarex-protocol/auth";
 import { ensureDeployment } from "./deployments";
 import { runInvokeWithRetries } from "./retry";
 import type {
@@ -21,7 +22,7 @@ import type {
   DeleteExpiredLiveQuerySubscriptionsResult,
   FindStaleLiveQuerySubscriptionsInput,
   FindStaleLiveQuerySubscriptionsResult,
-  FlarexExecutorPersistence,
+  FlarexExecutorControlPersistence,
   IdGenerator,
   Json,
   ListExpiredLiveQueryConnectionDeploymentsInput,
@@ -46,7 +47,7 @@ const DEFAULT_LIVE_QUERY_CONNECTION_LEASE_MS = 60_000;
 const DEFAULT_EXPIRED_CONNECTION_DEPLOYMENT_LIMIT = 100;
 
 export async function touchLiveQueryConnection(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   input: TouchLiveQueryConnectionInput,
 ): Promise<TouchLiveQueryConnectionResult> {
@@ -55,7 +56,7 @@ export async function touchLiveQueryConnection(
 }
 
 async function upsertLiveQueryConnectionLease(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   input: Omit<TouchLiveQueryConnectionInput, "projectId">,
 ): Promise<TouchLiveQueryConnectionResult> {
@@ -86,7 +87,7 @@ function liveQueryConnectionLease(
 }
 
 export async function recordLiveQuerySubscription(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   input: RecordLiveQuerySubscriptionInput,
 ): Promise<RecordLiveQuerySubscriptionResult> {
@@ -120,7 +121,7 @@ export async function recordLiveQuerySubscription(
 }
 
 export async function removeLiveQuerySubscription(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: RemoveLiveQuerySubscriptionInput,
 ): Promise<DeleteLiveQuerySubscriptionResult> {
   await assertLiveQueryDeploymentProject(persistence, input);
@@ -128,7 +129,7 @@ export async function removeLiveQuerySubscription(
 }
 
 export async function removeLiveQuerySubscriptionsForConnection(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   input: RemoveLiveQuerySubscriptionsForConnectionInput,
 ): Promise<DeleteLiveQuerySubscriptionResult> {
@@ -142,7 +143,7 @@ export async function removeLiveQuerySubscriptionsForConnection(
 }
 
 export async function removeExpiredLiveQuerySubscriptions(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   input: RemoveExpiredLiveQuerySubscriptionsInput,
 ): Promise<DeleteExpiredLiveQuerySubscriptionsResult> {
@@ -154,7 +155,7 @@ export async function removeExpiredLiveQuerySubscriptions(
 }
 
 export async function listExpiredLiveQueryConnectionDeployments(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   input: ListExpiredLiveQueryConnectionDeploymentsInput,
 ): Promise<ListExpiredLiveQueryConnectionDeploymentsResult> {
@@ -167,7 +168,7 @@ export async function listExpiredLiveQueryConnectionDeployments(
 }
 
 async function assertLiveQueryDeploymentProject(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: { deploymentId: string; projectId: string },
 ): Promise<void> {
   await ensureDeployment(persistence, input);
@@ -180,7 +181,7 @@ function liveQueryConnectionCleanupLimit(limit: number | undefined): number {
 }
 
 export async function findStaleLiveQuerySubscriptions(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   input: FindStaleLiveQuerySubscriptionsInput,
 ): Promise<FindStaleLiveQuerySubscriptionsResult> {
@@ -214,7 +215,7 @@ export async function findStaleLiveQuerySubscriptions(
 }
 
 export async function rerunLiveQuerySubscription(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: RerunLiveQuerySubscriptionInput,
 ): Promise<RerunLiveQuerySubscriptionResult> {
   const previousResultHash = input.subscription.resultHash;
@@ -318,7 +319,7 @@ export async function rerunLiveQuerySubscription(
 }
 
 export async function rerunStaleLiveQuerySubscriptions(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   ids: IdGenerator,
   input: RerunStaleLiveQuerySubscriptionsInput,
@@ -374,7 +375,8 @@ export async function rerunStaleLiveQuerySubscriptions(
 }
 
 export async function runLiveQuerySubscriptionWithInvoke(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
+  appDataEngine: LegacyV1AppDataEngine,
   clock: Clock,
   ids: IdGenerator,
   input: RunLiveQuerySubscriptionWithInvokeInput,
@@ -406,17 +408,26 @@ export async function runLiveQuerySubscriptionWithInvoke(
     );
   }
 
-  const result = await runInvokeWithRetries(persistence, clock, ids, undefined, {
-    deploymentId: subscription.deploymentId,
-    projectId: deployment.projectId,
-    path: subscription.functionPath,
-    kind: "query",
-    args: subscription.argsJson as Json,
-    identity: subscription.identityJson,
-    partitionKey: subscription.partitionKey,
-    ...(input.maxAttempts === undefined ? {} : { maxAttempts: input.maxAttempts }),
-    runAttempt: (attempt) => input.executeQuery(attempt, subscription),
-  });
+  const result = await runInvokeWithRetries(
+    persistence,
+    appDataEngine,
+    clock,
+    ids,
+    undefined,
+    {
+      deploymentId: subscription.deploymentId,
+      projectId: deployment.projectId,
+      path: subscription.functionPath,
+      kind: "query",
+      args: subscription.argsJson as Json,
+      identity: subscription.identityJson,
+      partitionKey: subscription.partitionKey,
+      ...(input.maxAttempts === undefined
+        ? {}
+        : { maxAttempts: input.maxAttempts }),
+      runAttempt: (attempt) => input.executeQuery(attempt, subscription),
+    },
+  );
 
   return {
     value: result.value,

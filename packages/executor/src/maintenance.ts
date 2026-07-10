@@ -2,7 +2,7 @@ import { MaintenancePolicyError } from "./errors";
 import { abortStaleInvokeSessions } from "./sessions";
 import type {
   Clock,
-  FlarexExecutorPersistence,
+  FlarexExecutorControlPersistence,
   ListMaintenanceDeploymentsInput,
   ListMaintenanceDeploymentsResult,
   RunInvokeSessionMaintenanceInput,
@@ -15,7 +15,7 @@ const DEFAULT_MAX_SESSIONS = 100;
 const DEFAULT_MAINTENANCE_DEPLOYMENT_LIMIT = 100;
 
 export async function listMaintenanceDeployments(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: ListMaintenanceDeploymentsInput = {},
 ): Promise<ListMaintenanceDeploymentsResult> {
   const limit = input.limit ?? DEFAULT_MAINTENANCE_DEPLOYMENT_LIMIT;
@@ -30,7 +30,7 @@ export async function listMaintenanceDeployments(
 }
 
 export async function runInvokeSessionMaintenance(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   input: RunInvokeSessionMaintenanceInput,
 ): Promise<RunInvokeSessionMaintenanceResult> {
@@ -67,7 +67,7 @@ export async function runInvokeSessionMaintenance(
 }
 
 export async function runMaintenanceSweep(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   input: RunMaintenanceSweepInput,
 ): Promise<RunMaintenanceSweepResult> {

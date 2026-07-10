@@ -1,6 +1,6 @@
 # FlarexDB Foundation Execution Plans
 
-Status: accepted execution order; implementation has not started
+Status: implementation in progress; S01-A and S01-B are complete
 
 This folder turns the accepted FlarexDB architecture into small, reviewable,
 commit-sized implementation turns. It is intentionally limited to the
@@ -97,7 +97,9 @@ TransactionalOutboxStore
 TrustedAdapterCommitParticipant
 ```
 
-The names are finalized in the first boundary turn. The rules are already
+S01-B finalizes only the compatibility seam names
+`LegacyV1AppDataStore` and `LegacyV1AppDataEngine`. O01 owns the exact OCC
+capability names, and C01 owns compiler-composition names. The rules are already
 fixed:
 
 - the trusted backend locates the data plane from control metadata, then

@@ -3,14 +3,15 @@ import type {
   FreshnessSourceReadSet,
   FreshnessMirrorStore,
 } from "@flarex/freshness";
+import type {
+  LegacyV1AppDataStore,
+} from "@flarex/persistence-postgres/legacy-v1-app-data-engine";
 import type { LiveQueryDeliveryChange } from "flarex";
 import type { AuthConfig, ExecutionIdentity } from "flarex-protocol/auth";
 import type {
   DeploymentPackageMetadataRecord,
   DeploymentMetadataRecord,
   DeploymentMetadataCursor,
-  CommitInvokeSessionWritesInput,
-  CommitInvokeSessionWritesResult,
   AbortInvokeSessionMetadataInput,
   AbortStaleInvokeSessionsMetadataInput,
   AbortStaleInvokeSessionsMetadataResult,
@@ -21,15 +22,7 @@ import type {
   InsertDeploymentPackageMetadataInput,
   InsertDeploymentMetadataInput,
   InsertInvokeSessionMetadataInput,
-  InsertInvokeSessionDocumentReadInput,
-  StageInvokeSessionDocumentWriteInput,
-  InsertInvokeSessionIndexReadInput,
-  InsertInvokeSessionTableReadInput,
   InsertOutboxEventInput,
-  InvokeSessionDocumentReadRecord,
-  InvokeSessionDocumentWriteRecord,
-  InvokeSessionIndexReadRecord,
-  InvokeSessionTableReadRecord,
   InvokeSessionMetadataRecord,
   DeleteLiveQuerySubscriptionResult,
   ListExpiredLiveQueryConnectionDeploymentsResult,
@@ -61,9 +54,6 @@ import type {
   MarkOutboxEventsDeliveredResult,
   RecordLiveQueryDeliveryFailureInput,
   RecordLiveQueryDeliveryFailureResult,
-  DocumentRevisionRecord,
-  IndexedDocumentPage,
-  ListDocumentsInIndexAtTsInput,
   OutboxEventCursor,
   OutboxEventRecord,
   RecordLiveQueryRerunFailureInput,
@@ -260,7 +250,7 @@ export interface FlarexExecutor {
   health(): Promise<FlarexHealth>;
 }
 
-export interface FlarexExecutorPersistence {
+export interface FlarexExecutorControlPersistence {
   check(): Promise<FlarexPersistenceCheck>;
   getDeploymentPackageMetadata(
     deploymentId: string,
@@ -297,51 +287,6 @@ export interface FlarexExecutorPersistence {
   abortStaleInvokeSessionsMetadata(
     input: AbortStaleInvokeSessionsMetadataInput,
   ): Promise<AbortStaleInvokeSessionsMetadataResult>;
-  getDocumentRevisionAtTs(
-    deploymentId: string,
-    id: string,
-    ts: number,
-  ): Promise<DocumentRevisionRecord | null>;
-  listDocumentsInTableAtTs(
-    deploymentId: string,
-    tableId: number,
-    ts: number,
-    limit?: number,
-  ): Promise<DocumentRevisionRecord[]>;
-  listDocumentsInIndexAtTs(
-    input: ListDocumentsInIndexAtTsInput,
-  ): Promise<IndexedDocumentPage>;
-  insertInvokeSessionDocumentRead(
-    input: InsertInvokeSessionDocumentReadInput,
-  ): Promise<InvokeSessionDocumentReadRecord>;
-  listInvokeSessionDocumentReads(
-    deploymentId: string,
-    sessionId: string,
-  ): Promise<InvokeSessionDocumentReadRecord[]>;
-  insertInvokeSessionTableRead(
-    input: InsertInvokeSessionTableReadInput,
-  ): Promise<InvokeSessionTableReadRecord>;
-  listInvokeSessionTableReads(
-    deploymentId: string,
-    sessionId: string,
-  ): Promise<InvokeSessionTableReadRecord[]>;
-  insertInvokeSessionIndexRead(
-    input: InsertInvokeSessionIndexReadInput,
-  ): Promise<InvokeSessionIndexReadRecord>;
-  listInvokeSessionIndexReads(
-    deploymentId: string,
-    sessionId: string,
-  ): Promise<InvokeSessionIndexReadRecord[]>;
-  stageInvokeSessionDocumentWrite(
-    input: StageInvokeSessionDocumentWriteInput,
-  ): Promise<InvokeSessionDocumentWriteRecord>;
-  listInvokeSessionDocumentWrites(
-    deploymentId: string,
-    sessionId: string,
-  ): Promise<InvokeSessionDocumentWriteRecord[]>;
-  commitInvokeSessionWrites(
-    input: CommitInvokeSessionWritesInput,
-  ): Promise<CommitInvokeSessionWritesResult>;
   insertOutboxEvent(input: InsertOutboxEventInput): Promise<OutboxEventRecord>;
   listOutboxEvents(
     input: ListOutboxEventsInput,
@@ -410,6 +355,9 @@ export interface FlarexExecutorPersistence {
     input: RecordLiveQueryDeliveryFailureInput,
   ): Promise<RecordLiveQueryDeliveryFailureResult>;
 }
+
+export interface FlarexExecutorPersistence
+  extends FlarexExecutorControlPersistence, LegacyV1AppDataStore {}
 
 export interface RunOutboxDeliveryBatchInput {
   deploymentId: string;

@@ -12,7 +12,7 @@ import {
 } from "./errors";
 import { assertDeploymentProject, ensureDeployment } from "./deployments";
 import type {
-  FlarexExecutorPersistence,
+  FlarexExecutorControlPersistence,
   GetActiveDeploymentPackageInput,
   GetActiveDeploymentPackageResult,
   RegisterDeploymentPackageInput,
@@ -20,7 +20,7 @@ import type {
 } from "./types";
 
 export async function registerDeploymentPackage(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: RegisterDeploymentPackageInput,
 ): Promise<RegisterDeploymentPackageResult> {
   const ensured = await ensureDeployment(persistence, input);
@@ -79,7 +79,7 @@ export async function registerDeploymentPackage(
 }
 
 export async function getActiveDeploymentPackage(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: GetActiveDeploymentPackageInput,
 ): Promise<GetActiveDeploymentPackageResult> {
   const deployment = await persistence.getDeploymentMetadata(input.deploymentId);

@@ -6,7 +6,7 @@ import { getActiveDeploymentPackage } from "./deploymentPackages";
 import type {
   DeploymentFunctionKind,
   DeploymentFunctionMetadata,
-  FlarexExecutorPersistence,
+  FlarexExecutorControlPersistence,
   FunctionPartitionMetadata,
   FunctionRoutePolicy,
   FunctionVisibility,
@@ -15,7 +15,7 @@ import type {
 } from "./types";
 
 export async function getActiveFunction(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: GetActiveFunctionInput,
 ): Promise<GetActiveFunctionResult> {
   const active = await getActiveDeploymentPackage(persistence, input);

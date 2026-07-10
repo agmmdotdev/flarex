@@ -1,6 +1,6 @@
 # FlarexDB Schema And Migration Plan
 
-Status: in progress; S01-A is implemented
+Status: in progress; S01-A and S01-B are implemented
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -87,7 +87,7 @@ Progress:
 
 - [x] S01-A — Add shared branded storage-authority contracts without changing
   runtime behavior.
-- [ ] S01-B — Add the narrow app-data engine boundary and wrap current behavior
+- [x] S01-B — Add the narrow app-data engine boundary and wrap current behavior
   as `legacy_v1`.
 - [ ] S01-C — Resolve generation from trusted scope authority, default existing
   scopes to `legacy_v1`, and keep `flarexdb_v1` unreachable.
@@ -95,7 +95,7 @@ Progress:
 Outcome:
 
 - Preserve a named `legacy_v1` adapter over the current schema and behavior.
-- Create an isolated FlarexDB schema/module boundary rather than scattering
+- Create an isolated storage-engine module boundary rather than scattering
   generation conditionals through existing document methods.
 - Define branded `ScopeId`, `ScopeEpoch`, `CommitSeq`, `OutboxSeq`,
   `StorageGeneration`, and `SnapshotToken` contracts shared with the OCC plan.
@@ -106,6 +106,11 @@ Ownership rule: S01 is the sole owner of shared identity/generation types and
 the base legacy/new storage module split. O01 adds only OCC-specific dependency
 and transaction ports. C01 adds only compiler-facing composition adapters over
 those existing boundaries.
+
+Transitional S01-C rule: until S02 installs authoritative scope-clock metadata,
+derive scope context only from trusted server-side deployment/execution state
+and register only the `legacy_v1` adapter. This is a temporary compatibility
+default, not a permanent rule that missing metadata means legacy after S02.
 
 Likely code areas:
 

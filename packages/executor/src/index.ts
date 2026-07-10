@@ -1,3 +1,7 @@
+import {
+  createLegacyV1AppDataEngine,
+} from "@flarex/persistence-postgres/legacy-v1-app-data-engine";
+
 import { activateDeploymentPackage, ensureDeployment } from "./deployments";
 import { getActiveDeploymentAuthConfig } from "./authConfig";
 import {
@@ -235,6 +239,7 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
   const clock = config.clock ?? defaultClock;
   const ids = config.ids ?? defaultIds;
   const persistence = config.persistence;
+  const appDataEngine = createLegacyV1AppDataEngine(persistence);
   const liveQueryInvalidation = config.liveQueryInvalidation;
 
   function runInvokeWithRetriesForExecutor(
@@ -249,7 +254,14 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
   function runInvokeWithRetriesForExecutor(
     input: RunInvokeWithRetriesInput,
   ): Promise<RunInvokeWithRetriesResult> {
-    return runInvokeWithRetriesInternal(persistence, clock, ids, liveQueryInvalidation, input);
+    return runInvokeWithRetriesInternal(
+      persistence,
+      appDataEngine,
+      clock,
+      ids,
+      liveQueryInvalidation,
+      input,
+    );
   }
 
   return {
@@ -264,7 +276,13 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     beginInvokeSession: (input) =>
       beginInvokeSession(persistence, clock, ids, input),
     finishInvokeSession: (input) =>
-      finishInvokeSession(persistence, clock, liveQueryInvalidation, input),
+      finishInvokeSession(
+        persistence,
+        appDataEngine,
+        clock,
+        liveQueryInvalidation,
+        input,
+      ),
     abortInvokeSession: (input) =>
       abortInvokeSession(persistence, clock, input),
     abortStaleInvokeSessions: (input) =>
@@ -321,11 +339,17 @@ export function createFlarexExecutor(config: FlarexExecutorConfig): FlarexExecut
     rerunStaleLiveQuerySubscriptions: (input) =>
       rerunStaleLiveQuerySubscriptions(persistence, clock, ids, input),
     runLiveQuerySubscriptionWithInvoke: (input) =>
-      runLiveQuerySubscriptionWithInvoke(persistence, clock, ids, input),
+      runLiveQuerySubscriptionWithInvoke(
+        persistence,
+        appDataEngine,
+        clock,
+        ids,
+        input,
+      ),
     runMaintenanceSweep: (input) =>
       runMaintenanceSweep(persistence, clock, input),
     runInvokeWithRetries: runInvokeWithRetriesForExecutor,
-    invokeSyscall: (input) => invokeSyscall(persistence, input),
+    invokeSyscall: (input) => invokeSyscall(persistence, appDataEngine, input),
     prepareInvoke: (input) => prepareInvoke(persistence, input),
     registerDeploymentPackage: (input) =>
       registerDeploymentPackage(persistence, input),

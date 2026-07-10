@@ -1,7 +1,7 @@
 import type {
   Clock,
   FlarexExecutorDependencyHealth,
-  FlarexExecutorPersistence,
+  FlarexExecutorControlPersistence,
   FlarexHealth,
 } from "./types";
 
@@ -10,7 +10,7 @@ export const defaultClock: Clock = {
 };
 
 export async function getExecutorHealth(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
 ): Promise<FlarexHealth> {
   const persistenceHealth = await checkPersistence(persistence);
@@ -24,7 +24,7 @@ export async function getExecutorHealth(
 }
 
 async function checkPersistence(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
 ): Promise<FlarexExecutorDependencyHealth> {
   try {
     await persistence.check();

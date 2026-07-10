@@ -1,5 +1,71 @@
 # Package Boundaries
 
+## Add The Legacy V1 App-Data Compatibility Module
+
+Previous completed checkpoint: `9de97f1` Define FlarexDB storage authority
+contracts.
+
+What changed:
+
+- Added `@flarex/persistence-postgres/legacy-v1-app-data-engine` as an explicit
+  internal subpath below the executor package.
+- Moved the duplicated twelve-method app-data shape into
+  `LegacyV1AppDataStore`; both full persistence and executor persistence now
+  extend that single source type.
+- Added an explicit forwarding adapter so the engine exposes no raw SQL,
+  transaction handle, metadata repository, direct revision writer, freshness
+  probe, live-query registry, or delivery API.
+- Split `FlarexExecutorControlPersistence` from the composition-root
+  `FlarexExecutorPersistence` input and added a type-level regression test that
+  proves no legacy app-data capability is visible through the control port.
+
+Boundary decision:
+
+The compatibility store belongs to persistence because its timestamps, journal
+records, and combined commit are legacy storage contracts. Executor owns
+orchestration and consumes the adapter. Protocol remains limited to shared
+branded authority contracts, so dependency direction stays
+`executor -> persistence -> protocol`.
+
+Convex references inspected:
+
+- `crates/database/src/transaction.rs`
+- `crates/database/src/reads.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- This TypeScript workspace needs an explicit compatibility subpath while the
+  old and new storage generations coexist.
+- The engine tag identifies the adapter implementation; it does not resolve a
+  scope's authoritative generation and is never caller configurable.
+
+Known limitations:
+
+- O01 still owns final snapshot/OCC capability extraction, and C01 still owns
+  compiler composition.
+- S01-C must add trusted server-side resolution without exporting engine
+  selection through `FlarexExecutorConfig` or a request/header field.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol exec vitest run test/storage-authority.test.ts
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/legacyV1AppDataEngine.test.ts
+corepack pnpm --filter @flarex/executor exec vitest run test/appDataBoundary.test.ts test/sessions.test.ts test/liveQueries.test.ts
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Add The Internal Storage Authority Protocol Boundary
 
 Previous completed checkpoint: `cdb1e52` Plan FlarexDB foundation turns.

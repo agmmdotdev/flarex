@@ -1,6 +1,6 @@
 import type {
   Clock,
-  FlarexExecutorPersistence,
+  FlarexExecutorControlPersistence,
   ListOutboxEventsResult,
   RunOutboxDeliveryBatchInput,
   RunOutboxDeliveryBatchResult,
@@ -15,21 +15,21 @@ import type {
 const DEFAULT_OUTBOX_DELIVERY_LIMIT = 100;
 
 export async function listUndeliveredOutboxEvents(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: ListUndeliveredOutboxEventsInput,
 ): Promise<ListOutboxEventsResult> {
   return await persistence.listUndeliveredOutboxEvents(input);
 }
 
 export async function markOutboxEventsDelivered(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: MarkOutboxEventsDeliveredInput,
 ): Promise<MarkOutboxEventsDeliveredResult> {
   return await persistence.markOutboxEventsDelivered(input);
 }
 
 export async function runOutboxDeliveryBatch(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   clock: Clock,
   input: RunOutboxDeliveryBatchInput,
 ): Promise<RunOutboxDeliveryBatchResult> {

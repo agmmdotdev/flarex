@@ -1,9 +1,5 @@
 import type { SQLWrapper } from "drizzle-orm";
 import type {
-  CommitInvokeSessionWritesInput,
-  CommitInvokeSessionWritesResult,
-} from "./commits";
-import type {
   DeploymentPackageMetadataRecord,
   InsertDeploymentPackageMetadataInput,
 } from "./deploymentPackages";
@@ -27,22 +23,6 @@ import type {
   InvokeSessionMetadataRecord,
 } from "./invokeSessions";
 import type {
-  InsertInvokeSessionDocumentReadInput,
-  InvokeSessionDocumentReadRecord,
-} from "./invokeSessionReads";
-import type {
-  InsertInvokeSessionTableReadInput,
-  InvokeSessionTableReadRecord,
-} from "./invokeSessionTableReads";
-import type {
-  InsertInvokeSessionIndexReadInput,
-  InvokeSessionIndexReadRecord,
-} from "./invokeSessionIndexReads";
-import type {
-  StageInvokeSessionDocumentWriteInput,
-  InvokeSessionDocumentWriteRecord,
-} from "./invokeSessionWrites";
-import type {
   InsertOutboxEventInput,
   ListOutboxEventsInput,
   ListOutboxEventsResult,
@@ -51,11 +31,8 @@ import type {
   MarkOutboxEventsDeliveredResult,
   OutboxEventRecord,
 } from "./outbox";
-import type {
-  HasIndexEntryAfterTsInput,
-  IndexedDocumentPage,
-  ListDocumentsInIndexAtTsInput,
-} from "./indexEntries";
+import type { HasIndexEntryAfterTsInput } from "./indexEntries";
+import type { LegacyV1AppDataStore } from "./legacyV1AppDataEngine";
 import type {
   ApplyFreshnessCommitInput,
   ApplyFreshnessCommitResult,
@@ -124,7 +101,8 @@ export interface FlarexSqlClient {
 
 export interface FlarexPersistenceTx extends FlarexSqlClient {}
 
-export interface FlarexPersistence extends FlarexSqlClient {
+export interface FlarexPersistence
+  extends FlarexSqlClient, LegacyV1AppDataStore {
   check(): Promise<FlarexPersistenceCheck>;
   insertDeploymentPackageMetadata(
     input: InsertDeploymentPackageMetadataInput,
@@ -164,52 +142,7 @@ export interface FlarexPersistence extends FlarexSqlClient {
   insertDocumentRevision(
     input: InsertDocumentRevisionInput,
   ): Promise<DocumentRevisionRecord>;
-  getDocumentRevisionAtTs(
-    deploymentId: string,
-    id: string,
-    ts: number,
-  ): Promise<DocumentRevisionRecord | null>;
-  listDocumentsInTableAtTs(
-    deploymentId: string,
-    tableId: number,
-    ts: number,
-    limit?: number,
-  ): Promise<DocumentRevisionRecord[]>;
-  listDocumentsInIndexAtTs(
-    input: ListDocumentsInIndexAtTsInput,
-  ): Promise<IndexedDocumentPage>;
   hasIndexEntryAfterTs(input: HasIndexEntryAfterTsInput): Promise<boolean>;
-  insertInvokeSessionDocumentRead(
-    input: InsertInvokeSessionDocumentReadInput,
-  ): Promise<InvokeSessionDocumentReadRecord>;
-  listInvokeSessionDocumentReads(
-    deploymentId: string,
-    sessionId: string,
-  ): Promise<InvokeSessionDocumentReadRecord[]>;
-  insertInvokeSessionTableRead(
-    input: InsertInvokeSessionTableReadInput,
-  ): Promise<InvokeSessionTableReadRecord>;
-  listInvokeSessionTableReads(
-    deploymentId: string,
-    sessionId: string,
-  ): Promise<InvokeSessionTableReadRecord[]>;
-  insertInvokeSessionIndexRead(
-    input: InsertInvokeSessionIndexReadInput,
-  ): Promise<InvokeSessionIndexReadRecord>;
-  listInvokeSessionIndexReads(
-    deploymentId: string,
-    sessionId: string,
-  ): Promise<InvokeSessionIndexReadRecord[]>;
-  stageInvokeSessionDocumentWrite(
-    input: StageInvokeSessionDocumentWriteInput,
-  ): Promise<InvokeSessionDocumentWriteRecord>;
-  listInvokeSessionDocumentWrites(
-    deploymentId: string,
-    sessionId: string,
-  ): Promise<InvokeSessionDocumentWriteRecord[]>;
-  commitInvokeSessionWrites(
-    input: CommitInvokeSessionWritesInput,
-  ): Promise<CommitInvokeSessionWritesResult>;
   insertOutboxEvent(input: InsertOutboxEventInput): Promise<OutboxEventRecord>;
   listOutboxEvents(
     input: ListOutboxEventsInput,

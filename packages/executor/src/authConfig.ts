@@ -6,13 +6,13 @@ import {
 import { DeploymentAuthConfigMetadataUnavailableError } from "./errors";
 import { getActiveDeploymentPackage } from "./deploymentPackages";
 import type {
-  FlarexExecutorPersistence,
+  FlarexExecutorControlPersistence,
   GetActiveDeploymentAuthConfigInput,
   GetActiveDeploymentAuthConfigResult,
 } from "./types";
 
 export async function getActiveDeploymentAuthConfig(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: GetActiveDeploymentAuthConfigInput,
 ): Promise<GetActiveDeploymentAuthConfigResult> {
   const active = await getActiveDeploymentPackage(persistence, input);

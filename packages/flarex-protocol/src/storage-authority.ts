@@ -32,10 +32,22 @@ export const OutboxSeqSchema = CanonicalUnsignedBigIntFromString.pipe(
 );
 export type OutboxSeq = typeof OutboxSeqSchema.Type;
 
+export const LegacyV1StorageGenerationSchema = Schema.Literal("legacy_v1").pipe(
+  Schema.brand("FlarexDB/StorageGeneration"),
+);
+export type LegacyV1StorageGeneration =
+  typeof LegacyV1StorageGenerationSchema.Type;
+
+export const FlarexDbV1StorageGenerationSchema = Schema.Literal(
+  "flarexdb_v1",
+).pipe(Schema.brand("FlarexDB/StorageGeneration"));
+export type FlarexDbV1StorageGeneration =
+  typeof FlarexDbV1StorageGenerationSchema.Type;
+
 export const StorageGenerationSchema = Schema.Union([
-  Schema.Literal("legacy_v1"),
-  Schema.Literal("flarexdb_v1"),
-]).pipe(Schema.brand("FlarexDB/StorageGeneration"));
+  LegacyV1StorageGenerationSchema,
+  FlarexDbV1StorageGenerationSchema,
+]);
 export type StorageGeneration = typeof StorageGenerationSchema.Type;
 
 export const SnapshotTokenSchema = Schema.Struct({

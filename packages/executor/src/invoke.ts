@@ -8,7 +8,7 @@ import {
 import { getActiveFunction } from "./functions";
 import type {
   DeploymentSchemaMetadata,
-  FlarexExecutorPersistence,
+  FlarexExecutorControlPersistence,
   FunctionExecutionScope,
   FunctionPartitionCreateRootPolicy,
   FunctionPartitionPolicy,
@@ -22,7 +22,7 @@ import type {
 } from "./types";
 
 export async function prepareInvoke(
-  persistence: FlarexExecutorPersistence,
+  persistence: FlarexExecutorControlPersistence,
   input: PrepareInvokeInput,
 ): Promise<PrepareInvokeResult> {
   const active = await getActiveFunction(persistence, input);
