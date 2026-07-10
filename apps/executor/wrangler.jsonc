@@ -1,0 +1,21 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "flarex-executor",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-06-14",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "placement": {
+    "mode": "smart"
+  },
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE_CACHE_DISABLED",
+      "id": "00000000000000000000000000000000"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

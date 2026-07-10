@@ -1,0 +1,25 @@
+{
+  "name": "@flarex/executor-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm typecheck",
+    "check:bundle": "wrangler deploy --dry-run --outdir dist --metafile dist/bundle-meta.json && tsx scripts/checkBundleMeta.ts dist/bundle-meta.json",
+    "deploy:dry-run": "pnpm check:bundle",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.scripts.json"
+  },
+  "dependencies": {
+    "@flarex/executor": "workspace:*",
+    "@flarex/executor-http": "workspace:*",
+    "@flarex/persistence-postgres": "workspace:*",
+    "pg": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/pg": "^8.20.0",
+    "tsx": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

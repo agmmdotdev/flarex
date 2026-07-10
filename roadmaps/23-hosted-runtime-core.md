@@ -1,5 +1,97 @@
 # Hosted Runtime Core
 
+## Add The Private Executor Worker Boundary
+
+Previous completed checkpoint: `402eef7` (`Add Worker-safe Postgres client
+persistence`).
+
+What changed:
+
+- Added the Fetch-only `apps/executor` Worker named `flarex-executor`. Its
+  Wrangler configuration enables `nodejs_compat` and smart placement, disables
+  workers.dev and preview URLs, declares no route, and binds
+  `HYPERDRIVE_CACHE_DISABLED` without placing the executor capability in
+  plaintext vars.
+- Added a request-lifecycle boundary that requires a non-empty
+  `FLAREX_EXECUTOR_TOKEN`, validates the exact bearer capability before
+  inspecting Hyperdrive or allocating a client, then creates and connects one
+  client for that Fetch and always attempts `end()` in `finally`.
+- Preserved the primary connect/handler error when cleanup also fails. A
+  resolved non-2xx protocol response is also primary and remains authoritative
+  if cleanup fails. A cleanup-only failure remains visible, while synchronous
+  or asynchronous cleanup reporting is awaited best-effort and cannot mask the
+  primary outcome.
+- Composed the production request handler from `pg.Client`, H02's
+  `/postgres-client` persistence and shared-authority factories,
+  `withReadyDeploymentAuthority`, the framework-neutral executor, and the
+  existing Web Fetch adapter. The inner HTTP adapter retains its own bearer
+  check as defense in depth.
+- Added 34 strict lifecycle, adversarial bundle-gate, production-wrapper, and
+  Wrangler-policy tests. The
+  emitted Wrangler metafile contains 717 inputs and proves the real graph has
+  the executor, Fetch adapter, connected-client persistence, and node-postgres
+  while excluding PGlite, ElectricSQL, Drizzle migrators, the pooled
+  `postgres.ts` adapter, and its persistence-owned filesystem helpers.
+
+Why it changed:
+
+H02 supplied a Worker-safe database seam but no production host. H03 makes the
+dedicated private Worker and its exact import graph real before the local
+multi-Worker/PostgreSQL proof, without changing executor or FlarexDB semantics.
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/isolate/src/environment/udf/syscall.rs`
+
+How Flarex differs:
+
+- Convex's application runner passes the isolate's final reads and writes back
+  into its owned transaction directly. Flarex keeps the same trusted
+  executor/transaction ownership but reaches that executor through a private
+  Fetch service because user functions run in a separate Dynamic Worker.
+- The Cloudflare host owns only capability checks, per-request connection
+  lifecycle, and dependency composition. It does not reinterpret syscalls or
+  move commit logic into the Worker adapter.
+
+Known limitations:
+
+- The Hyperdrive ID is an explicit dry-run placeholder. Its binding name says
+  what H05 must provision; it is not evidence that a deployed Hyperdrive has
+  caching disabled.
+- H03 proves configuration, lifecycle, and the emitted import graph. H04 must
+  run this emitted Worker behind a real named workerd service binding against
+  PostgreSQL, and H05 must capture the hosted activation receipt.
+- The shared physical locator remains `primary/public` for this proof. H04 can
+  isolate it with a disposable database; split-locator runtime routing remains
+  outside this goal.
+- Runtime generation routing, sequence allocation, new OCC, commit compiler,
+  sync, Payload, Medusa, adapter retirement, and Workers RPC remain excluded.
+- The workspace build passed H03 and every library, then retained the existing
+  example-app failure resolving extensionless `../http` from
+  `packages/flarex-backend/src/artifactRuntime/RouteBoundary.ts`.
+- The workspace test passed its script, protocol, SDK, analysis, persistence,
+  and freshness lanes, then reproduced the existing three untouched
+  `flarex-backend` delivery-decoder expectation failures: decoded values now
+  include `identityFingerprint`, while the older expected shapes do not.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck
+corepack pnpm --filter @flarex/executor-worker test
+corepack pnpm --filter @flarex/executor-worker check:bundle
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm typecheck
+corepack pnpm check:effect-boundaries
+corepack pnpm build # existing example-app extensionless-import failure
+corepack pnpm test # existing three-test identityFingerprint expectation drift
+git diff --check
+```
+
 ## Complete The H02 Persistence Boundary
 
 Previous completed checkpoint: `3155884` (`Define hosted executor proof

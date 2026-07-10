@@ -1,5 +1,83 @@
 # Postgres Executor
 
+## Host The Existing Executor In A Request-Scoped Worker
+
+Previous completed checkpoint: `402eef7` (`Add Worker-safe Postgres client
+persistence`).
+
+What changed:
+
+- Added the dedicated executor Worker that constructs exactly one
+  `pg.Client` from `HYPERDRIVE_CACHE_DISABLED.connectionString` inside each
+  authorized Fetch. It does not create a pool, run migrations, or retain a
+  database object at module scope.
+- Connected H02's runtime-only persistence and client-taking shared authority
+  provisioner to the existing trusted executor and HTTP protocol. The current
+  shared `primary/public` authority remains unchanged.
+- Added deterministic tests for missing configuration, unauthorized requests
+  allocating no client, one client per Fetch, connect failure, handler failure,
+  cleanup-only failure, primary-plus-cleanup failure, non-2xx response plus
+  cleanup failure, and both synchronously throwing and asynchronously rejecting
+  cleanup reporters.
+- Added an executable Wrangler metafile gate. The 717-input production graph
+  includes node-postgres and the client adapter but excludes PGlite,
+  ElectricSQL, Drizzle migrators, and the Node pool/migration adapter.
+- Kept `noUncheckedIndexedAccess` enabled for the new app. That exposed and
+  corrected one bounds-unsafe index-key byte lookup without changing its
+  encoded-key behavior.
+
+Why it changed:
+
+The authoritative Postgres executor can only replace the old Node/Nitro-hosted
+shape after its concrete Cloudflare host proves request-scoped connection
+ownership and a Worker-safe dependency graph. H03 establishes that host; H04
+will prove its actual service-binding path and transaction behavior.
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/isolate/src/environment/udf/syscall.rs`
+
+How Flarex differs:
+
+- Convex applies the `FunctionFinalTransaction` back to the application
+  transaction in-process. Flarex persists invocation state across private
+  `/invoke/*` Fetches, but the trusted executor and database adapter remain
+  co-located inside this Worker.
+
+Known limitations:
+
+- No real PostgreSQL request was sent through a named workerd service binding
+  in H03. That exact proof, including stale-session OCC convergence and
+  authoritative SQL assertions, belongs to H04.
+- The placeholder Hyperdrive ID and binding name do not prove a cache-disabled
+  hosted resource. H05 remains required.
+- No migration, schema redesign, generation routing, new OCC, commit compiler,
+  sync, Payload, or Medusa behavior changed.
+- The workspace build passed H03 and all libraries before the existing example
+  app extensionless-`../http` resolution failure.
+- The workspace test passed the 148-test persistence lane, then reproduced the
+  existing three-test `flarex-backend` `identityFingerprint` expectation drift
+  in files untouched by H03.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck
+corepack pnpm --filter @flarex/executor-worker test
+corepack pnpm --filter @flarex/executor-worker check:bundle
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm typecheck
+corepack pnpm check:effect-boundaries
+corepack pnpm build # existing example-app extensionless-import failure
+corepack pnpm test # existing three-test identityFingerprint expectation drift
+git diff --check
+```
+
 ## Add Request-Scoped Postgres Client Persistence
 
 Previous completed checkpoint: `3155884` (`Define hosted executor proof

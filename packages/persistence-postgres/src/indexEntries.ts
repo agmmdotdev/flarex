@@ -395,8 +395,9 @@ export function encodeIndexValues(values: Array<PersistenceJson | undefined>): s
 export function indexKeyAfterPrefix(prefix: string): string | undefined {
   const bytes = hexToNumberArray(prefix);
   for (let index = bytes.length - 1; index >= 0; index -= 1) {
-    if (bytes[index] !== 0xff) {
-      bytes[index] += 1;
+    const byte = bytes[index];
+    if (byte !== undefined && byte !== 0xff) {
+      bytes[index] = byte + 1;
       return toHex(bytes.slice(0, index + 1));
     }
   }

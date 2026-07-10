@@ -1,5 +1,82 @@
 # Package Boundaries
 
+## Prove The Executor Worker Import Boundary
+
+Previous completed checkpoint: `402eef7` (`Add Worker-safe Postgres client
+persistence`).
+
+What changed:
+
+- Added `apps/executor` as the deployable Cloudflare wrapper. Its production
+  graph depends on `@flarex/executor`, `@flarex/executor-http`, the root
+  persistence types, the `/postgres-client` server subpath, and `pg`; it does
+  not import `/postgres`, `/pglite`, migration files, or dev-runtime packages.
+- Kept the generic lifecycle kernel separate from production composition so
+  tests can prove authorization and cleanup without fake Drizzle or database
+  handles. Production still bundles the actual `pg.Client` composition.
+- Added a checked Wrangler metafile parser instead of relying on a source
+  import search. It requires the expected executor/client inputs and rejects
+  PGlite, ElectricSQL, Drizzle migrators, the pooled adapter, and
+  persistence-owned filesystem imports. The pure verifier retains both
+  Wrangler's rewritten path and original specifier, rejects Node/bare/subpath
+  builtin variants and migration assets, and fails closed on malformed import
+  records.
+- Added a second strict TypeScript project for the Node-side bundle verifier,
+  leaving Node ambient types out of the Worker project. The Worker project
+  enables `noUncheckedIndexedAccess`; its one transitive persistence finding
+  was fixed with an explicit byte bounds check.
+- Kept the existing HTTP and Nitro adapters intact. H03 adds the preferred
+  Worker host but does not retire compatibility paths.
+
+Why it changed:
+
+The new connected-client export was only a claimed Worker boundary until the
+actual deployable graph consumed it. A generated esbuild/Wrangler metafile is
+the authoritative package-edge evidence and prevents a later barrel import
+from silently pulling Node migrations or PGlite into production.
+
+Convex references inspected:
+
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/isolate/src/environment/udf/syscall.rs`
+
+How Flarex differs:
+
+- Convex packages its application and function runner within an owned backend
+  process. Flarex needs an explicit Worker wrapper and machine-checked bundle
+  boundary because Cloudflare service bindings split the host topology.
+
+Known limitations:
+
+- H03's dry-run proves emitted code composition, not named service-binding
+  dispatch or PostgreSQL correctness. H04 owns both.
+- The base Wrangler config contains a non-deployable placeholder Hyperdrive ID;
+  H05 must replace it with the recorded cache-disabled hosted resource.
+- The bundle includes node-postgres's own compatibility code. The gate bans
+  Flarex's pool/migration composition, not every dependency symbol named
+  `Pool`.
+- The workspace build passed this app and every library, then stopped at the
+  existing example-app extensionless-import failure outside H03.
+- The workspace test reproduced the existing three stale
+  `identityFingerprint` expectations in untouched `flarex-backend` tests after
+  the persistence package passed all 148 ordinary tests.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck
+corepack pnpm --filter @flarex/executor-worker test
+corepack pnpm --filter @flarex/executor-worker check:bundle
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm typecheck
+corepack pnpm check:effect-boundaries
+corepack pnpm build # existing example-app extensionless-import failure
+corepack pnpm test # existing three-test identityFingerprint expectation drift
+git diff --check
+```
+
 ## Add The Worker-Safe Connected-Client Persistence Seam
 
 Previous completed checkpoint: `3155884` (`Define hosted executor proof
