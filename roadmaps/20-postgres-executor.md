@@ -1,5 +1,78 @@
 # Postgres Executor
 
+## Add The Host-Neutral Split Authority Reconciler
+
+Previous completed checkpoint: `b320ab2` Add split scope provisioning
+receipts.
+
+What changed:
+
+- Added node-postgres and PGlite factories for one framework-neutral split
+  authority coordinator and a narrow located clock target.
+- Implemented fresh control reservation, persisted-intent replay, exact
+  target-local initialization, final ready CAS, and current-clock validation
+  after ready. Production executor/runtime wiring remains unchanged.
+- Added 17 focused PGlite cases covering both locator kinds, invalid placement,
+  replay after advanced authority, every injected failure window, legacy-state
+  rejection, ID exhaustion, metadata drift, inexact target results, and
+  concurrent reconciliation.
+- Added two paired-store PostgreSQL cases for publish/replay/conflict and
+  deterministic concurrent recovery. The ordinary PGlite and seven-file
+  PostgreSQL lanes now run files serially to prevent independent
+  migration-heavy fixtures from exhausting Vitest's five-second per-test
+  budget; all 23 correctness-lane tests pass on PostgreSQL 18.
+
+Why it changed:
+
+The receipt alone was not ready authority. The executor foundation now has a
+reusable two-store recovery kernel that production Worker composition can
+adopt later without putting Node/Nitro transport assumptions into the core.
+
+Convex references inspected:
+
+- `crates/model/src/database_globals/mod.rs`
+- `crates/application/src/lib.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+- `crates/application/src/schema_worker/mod.rs`
+- `crates/model/src/migrations.rs`
+
+How Flarex differs:
+
+- Convex runs initialization against its configured backend. Flarex's
+  coordinator resolves an opaque persisted locator into another trusted SQL
+  capability and uses durable recovery rather than a distributed transaction.
+
+Known limitations:
+
+- The dedicated private Cloudflare Worker, cache-disabled Hyperdrive adapter,
+  bundle proof, and service-binding real-Postgres smoke remain prerequisites
+  before S02-D production generation routing.
+- `/invoke/*` Fetch and Nitro compatibility adapters are neither expanded nor
+  retired. No allocator, OCC, compiler, sync, Payload, or Medusa behavior is
+  part of this checkpoint.
+- The broad workspace test produced no output and hit its bounded ten-minute
+  timeout, matching the pre-existing workspace Vitest stall. The changed
+  persistence lane completed 145 ordinary tests and 23 PostgreSQL tests.
+- The workspace build completed the changed package and every other package,
+  then retained the existing example-only failure: Vite cannot resolve the
+  extensionless `../http` import from
+  `packages/flarex-backend/src/artifactRuntime/RouteBoundary.ts`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres test:postgres
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm typecheck
+corepack pnpm check:effect-boundaries
+corepack pnpm test # bounded timeout with no output
+corepack pnpm build # existing example-only module-resolution failure
+git diff --check
+```
+
 ## Add Split Control Receipts Without Widening Executor Readiness
 
 Previous completed checkpoint: `a4c290f` Fence executor deployment creation.

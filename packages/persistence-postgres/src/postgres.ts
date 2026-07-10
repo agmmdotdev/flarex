@@ -39,6 +39,16 @@ import {
   type SharedScopeAuthorityProvisionerOptions,
 } from "./scopeAuthorityProvisioning";
 import {
+  createSplitScopeAuthorityProvisioner,
+  type SplitScopeAuthorityProvisioner,
+  type SplitScopeAuthorityProvisionerOptions,
+} from "./splitScopeAuthorityProvisioning";
+import {
+  createLocatedSplitScopeClockTarget,
+  type LocatedSplitScopeClockTarget,
+} from "./splitScopeClockTarget";
+import type { SplitScopePhysicalLocator } from "./scopeMetadataTypes";
+import {
   getDocumentRevisionAtTs as getDocumentRevisionAtTsWithDb,
   insertDocumentRevision as insertDocumentRevisionWithDb,
   listDocumentsInTableAtTs as listDocumentsInTableAtTsWithDb,
@@ -145,6 +155,26 @@ export function createPostgresSharedScopeAuthorityBootstrapper(
   );
 }
 
+export function createPostgresSplitScopeAuthorityProvisioner(
+  persistence: Pick<PostgresFlarexPersistence, "drizzle">,
+  options: SplitScopeAuthorityProvisionerOptions,
+): SplitScopeAuthorityProvisioner {
+  return createSplitScopeAuthorityProvisioner(
+    persistence.drizzle,
+    options,
+  );
+}
+
+export function createPostgresLocatedSplitScopeClockTarget(
+  persistence: Pick<PostgresFlarexPersistence, "drizzle">,
+  physicalLocator: SplitScopePhysicalLocator,
+): LocatedSplitScopeClockTarget {
+  return createLocatedSplitScopeClockTarget(
+    persistence.drizzle,
+    physicalLocator,
+  );
+}
+
 export {
   InvalidSharedScopeAuthorityBootstrapBatchLimitError,
   InvalidSharedScopeAuthorityBootstrapFrontierError,
@@ -175,6 +205,29 @@ export {
   type SharedScopeAuthorityProvisionerOptions,
   type SharedScopeAuthorityProvisioningStatus,
 } from "./scopeAuthorityProvisioning";
+
+export {
+  SplitScopeAuthorityConflictError,
+  SplitScopeAuthorityPlacementPlanningError,
+  SplitScopeAuthorityProvisioningStatuses,
+  SplitScopeAuthorityTargetResolutionError,
+  type EnsureSplitScopeAuthorityInput,
+  type EnsureSplitScopeAuthorityResult,
+  type SplitScopeAuthorityConflict,
+  type SplitScopeAuthorityPlacementPlanner,
+  type SplitScopeAuthorityProvisioner,
+  type SplitScopeAuthorityProvisionerOptions,
+  type SplitScopeAuthorityTargetResolutionConflict,
+  type SplitScopeClockTargetResolver,
+} from "./splitScopeAuthorityProvisioning";
+
+export {
+  EnsureSplitScopeInitialClockStatuses,
+  SplitScopeInitialClockConflictError,
+  type EnsureSplitScopeInitialClockInput,
+  type EnsureSplitScopeInitialClockResult,
+  type LocatedSplitScopeClockTarget,
+} from "./splitScopeClockTarget";
 
 export async function createPostgresPersistence(
   options: PostgresPersistenceOptions = {},

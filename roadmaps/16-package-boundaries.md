@@ -1,5 +1,64 @@
 # Package Boundaries
 
+## Keep Split Reconciliation In Server-Only Persistence Composition
+
+Previous completed checkpoint: `b320ab2` Add split scope provisioning
+receipts.
+
+What changed:
+
+- Added server-subpath factories in `@flarex/persistence-postgres/postgres` and
+  `/pglite` for the split coordinator and located target capability. The root
+  `FlarexPersistence` interface remains unchanged and exposes no provisioning,
+  resolver, receipt-publication, or raw target method.
+- Limited coordinator input to deployment and project identity. The trusted
+  planner owns placement; shared ID generation owns scope/epoch; the target
+  capability owns its database transaction; and the coordinator owns final
+  exact publication.
+- Made the target return its initialized clock and revalidated that
+  postcondition before ready CAS. Concrete factories also verify the row
+  inside the target transaction, so custom server composition cannot
+  accidentally publish an inexact returned tuple.
+- Preserved the executor facade and all public HTTP, SDK, Dynamic Worker,
+  Payload, and Medusa contracts unchanged.
+
+Why it changed:
+
+Split readiness needs a composition seam for two trusted stores, but exposing
+that seam on the broad persistence or executor API would let callers select
+placement or bypass readiness invariants.
+
+Convex references inspected:
+
+- `crates/model/src/database_globals/mod.rs`
+- `crates/application/src/lib.rs`
+- `crates/application/src/schema_worker/mod.rs`
+
+How Flarex differs:
+
+- Convex keeps initialization workers inside its backend. Flarex exposes a
+  server-only TypeScript composition capability because a private Worker may
+  resolve a separate Postgres target.
+
+Known limitations:
+
+- Node-postgres and PGlite factories prove the host-neutral contract; no
+  Worker-safe request-scoped Postgres adapter or Hyperdrive resolver is wired
+  here.
+- The broad trusted persistence implementation still contains SQL/Drizzle for
+  migration and server composition. Narrow runtime ports remain later work.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Keep Split Receipt Mutation Inside Trusted Persistence Composition
 
 Previous completed checkpoint: `a4c290f` Fence executor deployment creation.

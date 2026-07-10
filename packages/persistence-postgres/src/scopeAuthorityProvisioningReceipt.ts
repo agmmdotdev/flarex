@@ -19,6 +19,7 @@ import {
   SplitScopeAuthorityProvisioningStates,
   type PublishSplitScopeAuthorityReadyInput,
   type PublishSplitScopeAuthorityReadyResult,
+  type ExactSplitScopeAuthorityProvisioningReceiptInput,
   type ReadySplitScopeAuthorityProvisioningReceipt,
   type ReserveSplitScopeAuthorityProvisioningReceiptInput,
   type ReserveSplitScopeAuthorityProvisioningReceiptResult,
@@ -215,20 +216,7 @@ export async function publishScopeAuthorityReadyInTransaction(
   input: PublishSplitScopeAuthorityReadyInput,
 ): Promise<PublishSplitScopeAuthorityReadyResult> {
   const expected = captureExpectedReceiptIdentity(input.expected);
-  await lockAndRequireScopePlacement(
-    tx,
-    expected.scopeId,
-    expected.physicalLocator,
-  );
-
-  const existing = await lockReceiptForUpdate(tx, expected.scopeId);
-  if (existing === null) {
-    throw new ScopeAuthorityProvisioningReceiptConflictError({
-      reason: "receiptMissingForReady",
-      scopeId: expected.scopeId,
-    });
-  }
-  requireReceiptIdentity(existing, expected);
+  const existing = await lockExactReceiptInTransaction(tx, expected);
   if (existing.state === SplitScopeAuthorityProvisioningStates.ready) {
     return {
       status: PublishSplitScopeAuthorityReadyStatuses.alreadyReady,
@@ -293,6 +281,41 @@ export async function publishScopeAuthorityReadyInTransaction(
     expected.scopeId,
     "the exact reserved-to-ready compare-and-set changed no row",
   );
+}
+
+/**
+ * C3b2 recovery primitive. It locks and revalidates the canonical scope plus
+ * exact immutable receipt without changing readiness state.
+ */
+export async function lockExactScopeAuthorityProvisioningReceiptInTransaction(
+  tx: ScopeAuthorityProvisioningReceiptTransaction,
+  input: ExactSplitScopeAuthorityProvisioningReceiptInput,
+): Promise<SplitScopeAuthorityProvisioningReceipt> {
+  return lockExactReceiptInTransaction(
+    tx,
+    captureExpectedReceiptIdentity(input.expected),
+  );
+}
+
+async function lockExactReceiptInTransaction(
+  tx: ScopeAuthorityProvisioningReceiptTransaction,
+  expected: SplitScopeAuthorityProvisioningReceiptIdentity,
+): Promise<SplitScopeAuthorityProvisioningReceipt> {
+  await lockAndRequireScopePlacement(
+    tx,
+    expected.scopeId,
+    expected.physicalLocator,
+  );
+
+  const existing = await lockReceiptForUpdate(tx, expected.scopeId);
+  if (existing === null) {
+    throw new ScopeAuthorityProvisioningReceiptConflictError({
+      reason: "receiptMissingForReady",
+      scopeId: expected.scopeId,
+    });
+  }
+  requireReceiptIdentity(existing, expected);
+  return existing;
 }
 
 export type ScopeAuthorityProvisioningReceiptTransaction =
@@ -528,7 +551,7 @@ function decodeScopeAuthorityProvisioningReceipt(
   }
 }
 
-function captureSplitScopePhysicalLocator(
+export function captureSplitScopePhysicalLocator(
   locator: SplitScopePhysicalLocator,
 ): SplitScopePhysicalLocator {
   const kind: string = locator.kind;

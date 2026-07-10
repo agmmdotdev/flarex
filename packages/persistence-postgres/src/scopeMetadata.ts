@@ -9,6 +9,7 @@ import { fxControlScopes } from "./schema";
 import type {
   ScopePhysicalLocator,
   ScopePlacement,
+  SplitScopeIsolationKind,
 } from "./scopeMetadataTypes";
 
 export interface InsertScopeMetadataInput {
@@ -25,6 +26,9 @@ interface ScopeMetadataRecordBase {
 }
 
 export type ScopeMetadataRecord = ScopeMetadataRecordBase & ScopePlacement;
+
+export type SplitScopeMetadataRecord = ScopeMetadataRecordBase &
+  Extract<ScopePlacement, { readonly isolationKind: SplitScopeIsolationKind }>;
 
 export interface ScopeMetadataCursor {
   readonly scopeId: ScopeId;

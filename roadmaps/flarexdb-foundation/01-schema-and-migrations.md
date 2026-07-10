@@ -1,6 +1,7 @@
 # FlarexDB Schema And Migration Plan
 
-Status: S01 through S02-B and S02-C1/C2/C3a/C3b1 complete; S02-C3b2 is next
+Status: S01 through S02-C complete; the Worker/Hyperdrive proof is next before
+S02-D runtime routing
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -136,17 +137,17 @@ Progress:
   runtime routing.
 - [x] S02-B — Add the authoritative `fx_system_scope_clock` row and private
   read/lock/rollback proof without a production sequence allocator.
-- [ ] S02-C — Bootstrap existing deployments and make future provisioning
+- [x] S02-C — Bootstrap existing deployments and make future provisioning
   establish a validated locator/clock authority pair.
   - [x] S02-C1 — Add the shared-database atomic initial-authority primitive.
   - [x] S02-C2 — Add bounded resumable bootstrap and parity inventory.
   - [x] S02-C3a — Fence executor creation behind the shared-database ready
     authority capability and prove the final cutover/parity sequence.
-  - [ ] S02-C3b — Add durable split-topology reservation, located-target
+  - [x] S02-C3b — Add durable split-topology reservation, located-target
     recovery, and monotonic readiness semantics.
     - [x] S02-C3b1 — Add the immutable split-placement receipt and exact
       package-internal `reserved -> ready` control CAS.
-    - [ ] S02-C3b2 — Add trusted located-target resolution, exact initial
+    - [x] S02-C3b2 — Add trusted located-target resolution, exact initial
       clock reconciliation, failure-window recovery, and final ready
       projection.
 - [ ] S02-D — Replace the S01 compatibility alias with trusted scope/clock
@@ -231,6 +232,25 @@ capability outside all control transactions, atomically ensure/read back
 then reopen control and CAS ready. A differing target clock while still
 reserved is terminal and must never be overwritten. After ready, S02-D reads
 current clock authority rather than requiring the initial tuple forever.
+
+S02-C3b2 now supplies the host-neutral coordinator and concrete
+node-postgres/PGlite target capabilities. Fresh split creation commits the
+deployment, generated scope, frozen locator, winning epoch, and reserved
+receipt atomically in control. The coordinator then resolves only that
+persisted locator, ensures and reads back the exact initial clock in one target
+transaction, and reopens control for exact ready CAS. Replay skips placement
+planning and ID generation. Existing bare deployments, shared scopes, and
+split scopes without a receipt fail closed because normal provisioning cannot
+reconstruct their original intent.
+
+Ready replay resolves and checks the current clock but does not require the
+historical initial tuple or recreate a missing clock. PGlite failure injection
+covers rollback and response-loss windows; paired PostgreSQL 18 schemas/pools
+prove exact conflict preservation and concurrent convergence. An advisory-lock
+gate holds both target transactions while a `FOR UPDATE NOWAIT` probe acquires
+the deployment, scope, and receipt rows in control, proving no control
+transaction spans target I/O. S02-C adds no runtime generation routing,
+sequence allocation, OCC, compiler, sync, Payload, or Medusa behavior.
 
 S02-B and S02-C are deliberately host-neutral. They add and bootstrap trusted
 database authority without composing a production runtime. Before S02-D, a

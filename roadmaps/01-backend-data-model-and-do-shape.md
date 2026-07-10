@@ -1,5 +1,77 @@
 # Backend Data Model And Durable Object Shape
 
+## Reconcile Split Authority Across Control And Located Target Stores
+
+Previous completed checkpoint: `b320ab2` Add split scope provisioning
+receipts.
+
+What changed:
+
+- Added a host-neutral split authority provisioner. A genuinely absent
+  deployment now receives one generated scope ID, one generated initial epoch,
+  one trusted split locator, and one `reserved` receipt in the same short
+  control transaction.
+- Added a located target capability that owns its own transaction and inserts
+  or reads back exactly `legacy_v1`, fence `1`, commit/outbox sequence `0`, and
+  the receipt epoch. A different existing clock is preserved and rejected.
+- Reopened control only after target completion and published `ready` through
+  the exact receipt CAS. Replay reuses persisted intent; once ready, it checks
+  current located-clock existence without requiring the historical initial
+  tuple or resetting legitimately advanced authority.
+- Proved reservation rollback, resolver failure, target rollback, lost target
+  response, final control drift, ready replay, stale-reserved races, conflicting
+  target preservation, and concurrent convergence on PGlite.
+- Added paired real-Postgres schemas/pools and a deterministic advisory-lock
+  proof. Two reconcilers overlap at target insertion while a `NOWAIT` probe
+  acquires deployment, scope, and receipt control locks, proving no control
+  transaction spans target I/O.
+
+Why it changed:
+
+C3b1 made partial split provisioning recoverable but did not create target
+authority. C3b2 completes the monotonic `reserved -> target ready -> control
+ready` protocol without claiming a distributed transaction.
+
+Convex references inspected:
+
+- `crates/model/src/database_globals/mod.rs`
+- `crates/application/src/lib.rs`
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+- `crates/common/src/bootstrap_model/schema_state.rs`
+- `crates/application/src/schema_worker/mod.rs`
+- `crates/model/src/migrations.rs`
+
+How Flarex differs:
+
+- Convex persists intent, completes background work, and publishes state inside
+  one backend/OCC domain. Flarex repeats that monotonic pattern with an exact
+  receipt because control and located Postgres targets are independent SQL
+  domains.
+
+Known limitations:
+
+- This remains host-neutral S02-C. No schema/database creator, credential or
+  Hyperdrive mapping, production Worker composition, runtime generation
+  routing, sequence allocation, OCC, compiler, sync, Payload, or Medusa work
+  is included.
+- The trusted synchronous planner is pure and may be evaluated by concurrent
+  absent-deployment contenders; only the transaction winner persists its
+  locator and generated authority.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres test:postgres
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Persist Split Provisioning Intent Before Publishing Readiness
 
 Previous completed checkpoint: `a4c290f` Fence executor deployment creation.

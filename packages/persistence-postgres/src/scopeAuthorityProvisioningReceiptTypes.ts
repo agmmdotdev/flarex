@@ -54,9 +54,12 @@ export interface ReserveSplitScopeAuthorityProvisioningReceiptInput {
   readonly candidateInitialEpoch: ScopeEpoch;
 }
 
-export interface PublishSplitScopeAuthorityReadyInput {
+export interface ExactSplitScopeAuthorityProvisioningReceiptInput {
   readonly expected: SplitScopeAuthorityProvisioningReceiptIdentity;
 }
+
+export type PublishSplitScopeAuthorityReadyInput =
+  ExactSplitScopeAuthorityProvisioningReceiptInput;
 
 export const ReserveSplitScopeAuthorityProvisioningReceiptStatuses = {
   createdReserved: "created_reserved",

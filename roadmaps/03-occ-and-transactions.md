@@ -1,5 +1,68 @@
 # OCC And Transactions
 
+## Complete Split Readiness Without A Cross-Database Transaction
+
+Previous completed checkpoint: `b320ab2` Add split scope provisioning
+receipts.
+
+What changed:
+
+- Composed three bounded phases: atomic control reservation, target-local exact
+  clock initialization/readback, and exact control readiness CAS. Resolver and
+  target awaits occur between control transactions.
+- Centralized the initial clock tuple so shared and split provisioning both
+  write explicit `legacy_v1`, generation fence `1`, commit sequence `0`, and
+  outbox sequence `0`; split provisioning supplies the receipt's persisted
+  epoch.
+- Made target initialization insert-on-conflict plus authoritative readback.
+  Exact replay succeeds, a differing row throws a typed conflict, and no path
+  updates, deletes, resets, or replaces target authority.
+- Revalidated deployment identity/project, scope identity/locator, and exact
+  receipt identity before CAS. A failed final transaction leaves the receipt
+  reserved and the successfully initialized target intact for recovery.
+- Proved concurrent target transactions and concurrent ready CAS on PostgreSQL,
+  including an exact control-lock probe while both target transactions are
+  blocked outside control.
+
+Why it changed:
+
+Holding a SQL transaction open across resolver or target I/O would couple pool
+health to external latency and still would not make two stores atomic. Durable
+intent plus idempotent target work and monotonic publication provides the
+recoverable invariant instead.
+
+Convex references inspected:
+
+- `crates/database/src/database_index_workers/mod.rs`
+- `crates/application/src/schema_worker/mod.rs`
+- `crates/model/src/migrations.rs`
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+- `crates/common/src/bootstrap_model/schema_state.rs`
+
+How Flarex differs:
+
+- Convex revalidates background state inside one backend transaction/OCC
+  domain. Flarex uses two local transactions around one idempotent target
+  transaction and records the gap explicitly in the receipt.
+
+Known limitations:
+
+- This adds no commit-sequence allocator, request transaction guard, snapshot,
+  read-set, mutation, or OCC behavior. O06 and later OCC turns retain those
+  responsibilities.
+- `ready` records completed initialization, not an immutable clock snapshot.
+  S02-D must read the current located clock because generation, fence,
+  counters, and epoch may advance after publication.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/splitScopeAuthorityProvisioning.test.ts
+corepack pnpm --filter @flarex/persistence-postgres test:postgres
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+git diff --check
+```
+
 ## Publish Split Readiness With A Short Exact Control CAS
 
 Previous completed checkpoint: `a4c290f` Fence executor deployment creation.

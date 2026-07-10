@@ -1,5 +1,63 @@
 # Schema Placement And Shards
 
+## Resolve Only Persisted Split Placement Into A Narrow Target Capability
+
+Previous completed checkpoint: `b320ab2` Add split scope provisioning
+receipts.
+
+What changed:
+
+- Added a synchronous trusted placement planner used only when the deployment
+  is absent. It returns `schema_per_scope` or `database_per_scope`; the
+  coordinator freezes and persists the locator before any target resolution.
+- Added an asynchronous resolver that accepts only the frozen persisted
+  `{ kind, databaseKey, schemaName }` and returns a locator-matched clock target
+  capability. Request input cannot provide a scope, locator, DSN, pool,
+  credential, epoch, generation, fence, or counter.
+- Replays skip placement planning and ID generation. Existing bare
+  deployments, shared scopes, and split scopes without a C3b receipt are
+  ambiguous legacy states and fail closed instead of being silently adopted.
+- Proved both split locator shapes with physically separate PGlite stores and
+  paired PostgreSQL schemas/pools. A mismatched resolver is rejected before a
+  target write, and scope/receipt locator drift blocks final publication.
+
+Why it changed:
+
+The control locator is durable routing intent, while the resolver is trusted
+runtime composition. Keeping them separate prevents request-selected placement
+and makes retries follow the original winner after a crash.
+
+Convex references inspected:
+
+- `crates/model/src/database_globals/mod.rs`
+- `crates/application/src/lib.rs`
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+
+How Flarex differs:
+
+- Convex resolves one configured nominal persistence domain. Flarex supports a
+  separately located target, so exact placement must be persisted and then
+  resolved through a narrow server capability.
+
+Known limitations:
+
+- The resolver interface is implemented for already-configured PGlite and
+  node-postgres stores only. Creating schemas/databases and mapping
+  `databaseKey` to a Worker Hyperdrive binding remain later trusted
+  composition work.
+- Reserved split scopes remain unusable to S02-D runtime routing until their
+  receipt is ready and the current located clock is read successfully.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/splitScopeAuthorityProvisioning.test.ts
+corepack pnpm --filter @flarex/persistence-postgres test:postgres
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+git diff --check
+```
+
 ## Reserve Exact Split Placement Without Advertising It As Ready
 
 Previous completed checkpoint: `a4c290f` Fence executor deployment creation.

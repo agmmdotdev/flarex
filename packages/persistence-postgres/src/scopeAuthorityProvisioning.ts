@@ -1,13 +1,6 @@
 import { eq } from "drizzle-orm";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
-  CommitSeqSchema,
-  LegacyV1StorageGenerationSchema,
-  OutboxSeqSchema,
-  ScopeEpochSchema,
-  ScopeIdSchema,
-  StorageGenerationFenceSchema,
-  type ScopeEpoch,
   type ScopeId,
 } from "flarex-protocol/storage-authority";
 
@@ -27,7 +20,23 @@ import {
 } from "./scopeMetadata";
 import type { SharedDatabaseScopePhysicalLocator } from "./scopeMetadataTypes";
 import { getScopeClock, type ScopeClockRecord } from "./scopeClock";
-import { deployments, fxSystemScopeClocks } from "./schema";
+import {
+  insertInitialScopeClockInTransaction,
+  type InsertInitialScopeClockResult,
+} from "./scopeClockInitialization";
+import { deployments } from "./schema";
+import {
+  generateScopeAuthorityEpoch,
+  generateScopeAuthorityScopeId,
+  InvalidGeneratedScopeAuthorityIdError,
+  MAX_SCOPE_AUTHORITY_ID_GENERATION_ATTEMPTS,
+  ScopeAuthorityIdGenerationExhaustedError,
+} from "./scopeAuthorityIds";
+
+export {
+  InvalidGeneratedScopeAuthorityIdError,
+  ScopeAuthorityIdGenerationExhaustedError,
+} from "./scopeAuthorityIds";
 
 export interface EnsureSharedScopeAuthorityInput {
   readonly deploymentId: string;
@@ -112,39 +121,6 @@ export class UnsupportedScopeAuthorityProvisioningTopologyError extends Error {
     this.name = "UnsupportedScopeAuthorityProvisioningTopologyError";
   }
 }
-
-export class InvalidGeneratedScopeAuthorityIdError extends Error {
-  constructor(
-    readonly field: "scopeId" | "epoch",
-    readonly value: string,
-  ) {
-    super(
-      `Generated scope authority ${field} is not a lowercase RFC 4122 UUID v4: ${value}`,
-    );
-    this.name = "InvalidGeneratedScopeAuthorityIdError";
-  }
-}
-
-export class ScopeAuthorityIdGenerationExhaustedError extends Error {
-  constructor(
-    readonly deploymentId: string,
-    readonly attempts: number,
-  ) {
-    super(
-      `Could not generate a collision-free scope ID for deployment ${deploymentId} after ${attempts} attempts`,
-    );
-    this.name = "ScopeAuthorityIdGenerationExhaustedError";
-  }
-}
-
-const UUID_V4_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const MAX_SCOPE_ID_GENERATION_ATTEMPTS = 8;
-const initialStorageGeneration =
-  LegacyV1StorageGenerationSchema.make("legacy_v1");
-const initialStorageGenerationFence = StorageGenerationFenceSchema.make(1n);
-const initialCommitSeq = CommitSeqSchema.make(0n);
-const initialOutboxSeq = OutboxSeqSchema.make(0n);
 
 export const ExistingSharedScopeAuthorityBootstrapStatuses = {
   createdScopeAndClock:
@@ -258,10 +234,6 @@ interface EnsureClockResult {
 
 interface EnsureInitialBootstrapClockResult extends EnsureClockResult {
   readonly clockCreated: boolean;
-}
-
-interface InsertInitialScopeClockResult extends EnsureClockResult {
-  readonly created: boolean;
 }
 
 async function ensureSharedScopeAuthorityInTransaction(
@@ -385,10 +357,10 @@ async function ensureScope(
 
   for (
     let attempt = 1;
-    attempt <= MAX_SCOPE_ID_GENERATION_ATTEMPTS;
+    attempt <= MAX_SCOPE_AUTHORITY_ID_GENERATION_ATTEMPTS;
     attempt += 1
   ) {
-    const candidateScopeId = generateScopeId(randomUuid);
+    const candidateScopeId = generateScopeAuthorityScopeId(randomUuid);
     const scopeCollision = await getScopeMetadata(tx, candidateScopeId);
     const clockCollision = await getScopeClock(tx, candidateScopeId);
     if (scopeCollision !== null || clockCollision !== null) continue;
@@ -417,7 +389,7 @@ async function ensureScope(
 
   throw new ScopeAuthorityIdGenerationExhaustedError(
     deploymentId,
-    MAX_SCOPE_ID_GENERATION_ATTEMPTS,
+    MAX_SCOPE_AUTHORITY_ID_GENERATION_ATTEMPTS,
   );
 }
 
@@ -508,24 +480,10 @@ async function insertInitialScopeClock(
   scopeId: ScopeId,
   randomUuid: () => string,
 ): Promise<InsertInitialScopeClockResult> {
-  const epoch = generateScopeEpoch(randomUuid);
-  const inserted = await tx
-    .insert(fxSystemScopeClocks)
-    .values({
-      scopeId,
-      storageGeneration: initialStorageGeneration,
-      storageGenerationFence: initialStorageGenerationFence,
-      lastCommitSeq: initialCommitSeq,
-      lastOutboxSeq: initialOutboxSeq,
-      epoch,
-    })
-    .onConflictDoNothing({ target: fxSystemScopeClocks.scopeId })
-    .returning({ scopeId: fxSystemScopeClocks.scopeId });
-  const clock = await getScopeClock(tx, scopeId);
-  if (clock === null) {
-    throw new Error(`Scope clock disappeared during initialization: ${scopeId}`);
-  }
-  return { clock, created: inserted.length > 0 };
+  return insertInitialScopeClockInTransaction(tx, {
+    scopeId,
+    initialEpoch: generateScopeAuthorityEpoch(randomUuid),
+  });
 }
 
 function requireProjectMatch(
@@ -580,26 +538,6 @@ function validateSharedPhysicalLocator(
   if (locator.schemaName.trim().length === 0) {
     throw new InvalidScopeMetadataInputError("physicalLocator.schemaName");
   }
-}
-
-function generateScopeId(randomUuid: () => string): ScopeId {
-  const uuid = requireGeneratedUuid("scopeId", randomUuid());
-  return ScopeIdSchema.make(`scope_${uuid}`);
-}
-
-function generateScopeEpoch(randomUuid: () => string): ScopeEpoch {
-  const uuid = requireGeneratedUuid("epoch", randomUuid());
-  return ScopeEpochSchema.make(`epoch_${uuid}`);
-}
-
-function requireGeneratedUuid(
-  field: "scopeId" | "epoch",
-  value: string,
-): string {
-  if (!UUID_V4_PATTERN.test(value)) {
-    throw new InvalidGeneratedScopeAuthorityIdError(field, value);
-  }
-  return value;
 }
 
 function provisioningStatus(

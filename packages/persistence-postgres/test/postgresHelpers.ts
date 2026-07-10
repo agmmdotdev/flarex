@@ -61,6 +61,81 @@ export async function withTemporaryPostgresPersistence(
   }
 }
 
+export async function withTemporaryPostgresPersistencePair(
+  fn: (
+    control: PostgresFlarexPersistence,
+    target: PostgresFlarexPersistence,
+  ) => Promise<void>,
+): Promise<void> {
+  const connectionString = requiredPostgresUrl();
+  const controlSchema = temporaryIdentifier("flarex_control_test");
+  const controlMigrationsSchema = temporaryIdentifier(
+    "flarex_control_migrations",
+  );
+  const targetSchema = temporaryIdentifier("flarex_target_test");
+  const targetMigrationsSchema = temporaryIdentifier(
+    "flarex_target_migrations",
+  );
+  const schemaNames = [
+    controlSchema,
+    controlMigrationsSchema,
+    targetSchema,
+    targetMigrationsSchema,
+  ] as const;
+  const adminPool = new Pool({ connectionString });
+  let control: PostgresFlarexPersistence | undefined;
+  let target: PostgresFlarexPersistence | undefined;
+  let primaryError: unknown;
+
+  try {
+    for (const schemaName of schemaNames) {
+      await adminPool.query(`create schema ${quoteIdentifier(schemaName)}`);
+    }
+    [control, target] = await Promise.all([
+      createPostgresPersistence({
+        connectionString,
+        migrationsSchema: controlMigrationsSchema,
+        poolConfig: { options: `-c search_path=${controlSchema}` },
+      }),
+      createPostgresPersistence({
+        connectionString,
+        migrationsSchema: targetMigrationsSchema,
+        poolConfig: { options: `-c search_path=${targetSchema}` },
+      }),
+    ]);
+    await Promise.all([control.migrate(), target.migrate()]);
+    await fn(control, target);
+  } catch (error) {
+    primaryError = error;
+    throw error;
+  } finally {
+    const cleanupErrors: unknown[] = [];
+    const controlToClose = control;
+    if (controlToClose !== undefined) {
+      await recordCleanupError(cleanupErrors, () => controlToClose.close());
+    }
+    const targetToClose = target;
+    if (targetToClose !== undefined) {
+      await recordCleanupError(cleanupErrors, () => targetToClose.close());
+    }
+    for (const schemaName of schemaNames) {
+      await recordCleanupError(cleanupErrors, () =>
+        adminPool.query(
+          `drop schema if exists ${quoteIdentifier(schemaName)} cascade`,
+        ),
+      );
+    }
+    await recordCleanupError(cleanupErrors, () => adminPool.end());
+    if (primaryError === undefined && cleanupErrors.length > 0) {
+      throw new Error(
+        `Failed to clean up paired temporary Postgres schemas: ${cleanupErrors
+          .map(errorMessage)
+          .join("; ")}`,
+      );
+    }
+  }
+}
+
 function requiredPostgresUrl(): string {
   if (postgresUrl === null) {
     throw new Error("FLAREX_POSTGRES_DATABASE_URL is required.");
