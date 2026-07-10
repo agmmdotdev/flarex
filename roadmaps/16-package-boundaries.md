@@ -1,5 +1,53 @@
 # Package Boundaries
 
+## Keep Scope Location Inside Postgres Persistence
+
+Previous completed checkpoint: `7f4ce29` Resolve trusted app-data generation.
+
+What changed:
+
+- Added scope-location contracts and repositories only to
+  `@flarex/persistence-postgres`, while reusing the existing protocol-owned
+  branded `ScopeId`.
+- Wired the same repository surface into PGlite and node-postgres adapters.
+  Executor, HTTP, Nitro, Worker, SDK, generated API, Payload, and Medusa
+  packages received no new surface.
+
+Why it changed:
+
+S02-A is a storage catalog checkpoint. Promoting locator selection to executor
+or public configuration before trusted bootstrap and scope-clock authority
+exist would create an unsafe caller-selected routing path.
+
+Convex references inspected:
+
+- `crates/common/src/types/mod.rs`
+- `crates/postgres/src/lib.rs`
+- `crates/postgres/src/sql.rs`
+
+How Flarex differs:
+
+- Convex passes its nominal instance identity into the persistence
+  implementation. Flarex needs an internal catalog repository because later
+  Cloudflare execution must resolve one of multiple Postgres topologies.
+
+Known limitations:
+
+- The current broad `FlarexPersistence` interface owns these methods until a
+  later capability split. No executor consumer uses them in S02-A.
+- Scope provisioning, runtime resolution, and adapter-facing low-level APIs are
+  intentionally deferred.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Add The Internal Legacy-Only Generation Resolver
 
 Previous completed checkpoint: `969c174` Isolate the legacy app-data engine.

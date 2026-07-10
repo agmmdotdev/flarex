@@ -1,6 +1,6 @@
 # FlarexDB Schema And Migration Plan
 
-Status: S01 complete; S02 has not started
+Status: S01 and S02-A complete; S02-B is next
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -128,6 +128,34 @@ Exit gate:
 - [x] no production read or write routes to the new generation.
 
 ### [ ] S02 — Add Trusted Scope Metadata And The Scope Clock
+
+Progress:
+
+- [x] S02-A — Add the minimal `fx_control_scope` locator catalog, typed
+  repositories, additive migration, and constraint tests without backfill or
+  runtime routing.
+- [ ] S02-B — Add the authoritative `fx_system_scope_clock` row and private
+  read/lock/rollback proof without a production sequence allocator.
+- [ ] S02-C — Bootstrap existing deployments and make future provisioning
+  create scope and clock metadata atomically.
+- [ ] S02-D — Replace the S01 compatibility alias with trusted scope/clock
+  generation resolution and fail closed on missing metadata.
+- [ ] S02-E — Prove scope/fence isolation, including real-Postgres pooled
+  connection and cross-scope rejection tests.
+
+S02-A fixed the production bootstrap ID convention before any rows are
+backfilled: the trusted control plane will issue `scope_<uuid-v4>` identifiers,
+using lowercase RFC 4122 UUID text. The value is opaque and stable; it is never
+derived from deployment, project, tenant, topology, or database names. S02-C
+owns generation and idempotent insertion under the unique deployment mapping.
+The repository continues to accept the shared branded non-empty `ScopeId` so
+tests and controlled imports are not coupled to one generator.
+
+The S02-A locator JSON is also fixed and deliberately contains no credentials:
+`{ kind, databaseKey, schemaName }`. `databaseKey` is an opaque key into trusted
+server configuration, never a connection string. `kind` must match the checked
+`isolation_kind`; the only accepted kinds are `shared_database`,
+`schema_per_scope`, and `database_per_scope`.
 
 Outcome:
 

@@ -1,5 +1,66 @@
 # Schema Placement And Shards
 
+## Define The Scope Physical-Locator Contract
+
+Previous completed checkpoint: `7f4ce29` Resolve trusted app-data generation.
+
+What changed:
+
+- Added one checked `fx_control_scope.isolation_kind` with the accepted
+  `shared_database`, `schema_per_scope`, and `database_per_scope` modes.
+- Defined `physical_locator_json` as the exact non-null object
+  `{ kind, databaseKey, schemaName }`; `kind` must equal `isolation_kind`, and
+  unknown keys or whitespace-only locator values fail before or at the
+  database boundary.
+- Kept database routing indirect: `databaseKey` names trusted server
+  configuration and cannot be a caller-provided connection contract.
+- Added PGlite coverage for all three modes and an environment-gated real
+  Postgres constraint test.
+
+Why it changed:
+
+The accepted design named a physical locator but left its JSON shape open. An
+untyped JSON record would let credentials, mismatched topology modes, or
+unreadable routing state enter the authority catalog before the resolver is
+built. S02-A fixes the smallest locator that works across all three declared
+Postgres placements.
+
+Convex references inspected:
+
+- `crates/postgres/src/lib.rs`
+- `crates/postgres/src/sql.rs`
+- `crates/value/src/table_mapping.rs`
+- `crates/common/src/bootstrap_model/tables.rs`
+
+How Flarex differs:
+
+- Convex's multitenant Postgres path uses one configured instance name and
+  qualifies persistence rows and joins with it. Flarex must also describe
+  whether a scope shares a database/schema or owns one, because deployment
+  routing crosses Cloudflare and independently configured Postgres targets.
+- The locator is internal routing metadata, not a public shard or partition
+  API. The developer model remains Convex-like.
+
+Known limitations:
+
+- S02-A stores but does not resolve or provision a locator. S02-C/S02-D own
+  those operations.
+- The strict three-key v1 object will require an additive contract/migration if
+  future routing needs region, replica, or table-family metadata.
+- RLS and transaction-local scope binding remain S02-E work.
+- The real-Postgres test was skipped because
+  `FLAREX_POSTGRES_DATABASE_URL` was unset.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+git diff --check
+```
+
 ## Add The FlarexDB Schema And Migration Turn Plan
 
 Previous completed checkpoint: `478be74` Correct FlarexDB transaction and sync

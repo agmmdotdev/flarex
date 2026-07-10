@@ -11,6 +11,12 @@ import type {
   UpdateDeploymentMetadataActivationInput,
 } from "./deployments";
 import type {
+  InsertScopeMetadataInput,
+  ListScopeMetadataInput,
+  ListScopeMetadataResult,
+  ScopeMetadataRecord,
+} from "./scopeMetadata";
+import type {
   DocumentRevisionRecord,
   InsertDocumentRevisionInput,
 } from "./documents";
@@ -123,6 +129,18 @@ export interface FlarexPersistence
   updateDeploymentMetadataActivation(
     input: UpdateDeploymentMetadataActivationInput,
   ): Promise<DeploymentMetadataRecord | null>;
+  insertScopeMetadata(
+    input: InsertScopeMetadataInput,
+  ): Promise<ScopeMetadataRecord>;
+  getScopeMetadata(
+    scopeId: InsertScopeMetadataInput["scopeId"],
+  ): Promise<ScopeMetadataRecord | null>;
+  getScopeMetadataByDeploymentId(
+    deploymentId: string,
+  ): Promise<ScopeMetadataRecord | null>;
+  listScopeMetadata(
+    input: ListScopeMetadataInput,
+  ): Promise<ListScopeMetadataResult>;
   insertInvokeSessionMetadata(
     input: InsertInvokeSessionMetadataInput,
   ): Promise<InvokeSessionMetadataRecord>;
@@ -237,6 +255,8 @@ export interface FlarexPersistenceCheck {
 
 export * from "./deploymentPackages";
 export * from "./deployments";
+export * from "./scopeMetadata";
+export * from "./scopeMetadataTypes";
 export * from "./documents";
 export * from "./commits";
 export * from "./indexEntries";

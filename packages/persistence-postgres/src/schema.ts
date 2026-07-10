@@ -1,6 +1,8 @@
+import { sql, type SQLWrapper } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   customType,
   index,
   integer,
@@ -9,8 +11,12 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
 } from "drizzle-orm/pg-core";
 import type { ExecutionIdentity } from "flarex-protocol/auth";
+import type { ScopeId } from "flarex-protocol/storage-authority";
+
+import type { ScopeIsolationKind } from "./scopeMetadataTypes";
 
 export const bytea = customType<{
   data: Uint8Array;
@@ -30,6 +36,57 @@ export const deployments = pgTable("deployments", {
     .default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const fxControlScopes = pgTable(
+  "fx_control_scope",
+  {
+    scopeId: text("id").$type<ScopeId>().primaryKey(),
+    deploymentId: text("deployment_id")
+      .notNull()
+      .references(() => deployments.deploymentId, { onDelete: "restrict" }),
+    activeSchemaVersionId: text("active_schema_version_id"),
+    isolationKind: text("isolation_kind").$type<ScopeIsolationKind>().notNull(),
+    physicalLocator: jsonb("physical_locator_json").$type<unknown>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    unique("fx_control_scope_deployment_id_unique").on(table.deploymentId),
+    unique("fx_control_scope_id_deployment_id_unique").on(
+      table.scopeId,
+      table.deploymentId,
+    ),
+    check(
+      "fx_control_scope_id_non_empty_check",
+      nonBlankText(table.scopeId),
+    ),
+    check(
+      "fx_control_scope_active_schema_version_id_non_empty_check",
+      sql`${table.activeSchemaVersionId} is null or ${nonBlankText(table.activeSchemaVersionId)}`,
+    ),
+    check(
+      "fx_control_scope_isolation_kind_check",
+      sql`${table.isolationKind} in ('shared_database', 'schema_per_scope', 'database_per_scope')`,
+    ),
+    check(
+      "fx_control_scope_physical_locator_check",
+      sql`
+        jsonb_typeof(${table.physicalLocator}) = 'object'
+        and ${table.physicalLocator} ? 'kind'
+        and ${table.physicalLocator} ? 'databaseKey'
+        and ${table.physicalLocator} ? 'schemaName'
+        and (${table.physicalLocator} - 'kind' - 'databaseKey' - 'schemaName') = '{}'::jsonb
+        and jsonb_typeof(${table.physicalLocator} -> 'kind') = 'string'
+        and ${table.physicalLocator} ->> 'kind' = ${table.isolationKind}
+        and jsonb_typeof(${table.physicalLocator} -> 'databaseKey') = 'string'
+        and ${nonBlankText(sql`${table.physicalLocator} ->> 'databaseKey'`)}
+        and jsonb_typeof(${table.physicalLocator} -> 'schemaName') = 'string'
+        and ${nonBlankText(sql`${table.physicalLocator} ->> 'schemaName'`)}
+      `,
+    ),
+  ],
+);
 
 export const deploymentPackages = pgTable(
   "deployment_packages",
@@ -498,6 +555,7 @@ export const flarexSchema = {
   documentFreshnessVersions,
   documents,
   freshnessProcessedEvents,
+  fxControlScopes,
   indexes,
   invokeSessionDocumentReads,
   invokeSessionTableReads,
@@ -513,3 +571,7 @@ export const flarexSchema = {
   readOnly,
   tableFreshnessVersions,
 };
+
+function nonBlankText(value: SQLWrapper) {
+  return sql`btrim(${value}, U&' \\0009\\000a\\000b\\000c\\000d\\00a0\\1680\\2000\\2001\\2002\\2003\\2004\\2005\\2006\\2007\\2008\\2009\\200a\\2028\\2029\\202f\\205f\\3000\\feff') <> ''`;
+}

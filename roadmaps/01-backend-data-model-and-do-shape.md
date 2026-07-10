@@ -1,5 +1,75 @@
 # Backend Data Model And Durable Object Shape
 
+## Add The Minimal FlarexDB Scope Locator
+
+Previous completed checkpoint: `7f4ce29` Resolve trusted app-data generation.
+
+What changed:
+
+- Added additive `fx_control_scope` metadata allowing at most one opaque branded
+  scope row for each parent `deployments` row, a restrictive foreign key, a
+  unique deployment mapping, and the intentional `(id, deployment_id)` unique
+  key needed by later scope-safe catalog relationships.
+- Kept `active_schema_version_id` nullable and inactive. There is no activation
+  writer or schema-version foreign key until S03/S04 owns the target catalog.
+- Made the physical locator non-null and exact:
+  `{ kind, databaseKey, schemaName }`. Write, read, and database checks require
+  non-whitespace values, reject extra keys, and require the locator kind to
+  match one of the three declared isolation modes.
+- Fixed the future production bootstrap convention as opaque
+  `scope_<uuid-v4>` IDs issued by the trusted control plane. S02-A neither
+  generates nor backfills them.
+
+Why it changed:
+
+S01 deliberately used deployment IDs only as temporary scope aliases. The
+first S02 slice needs a permanent deployment-to-data-plane location without
+also introducing the scope clock, full tenant/project/deployment hierarchy,
+schema catalog, runtime cutover, or provisioning workflow.
+
+Convex references inspected:
+
+- `crates/common/src/types/mod.rs`
+- `crates/postgres/src/lib.rs`
+- `crates/postgres/src/sql.rs`
+- `crates/value/src/table_mapping.rs`
+- `crates/common/src/bootstrap_model/schema_state.rs`
+
+How Flarex differs:
+
+- Convex uses nominal deployment/project identities and a configured
+  `PgInstanceName` directly throughout its multitenant persistence queries.
+  Flarex needs an explicit catalog hop from control-plane deployment identity
+  to an independently stable scope and Cloudflare/Postgres physical topology.
+- Convex namespaces tables/components inside one backend and enforces at most
+  one active schema state. Flarex stores one future active pointer on the scope,
+  but deliberately leaves it unwritable until the versioned catalog exists.
+- The `databaseKey`/`schemaName` locator is Flarex-specific. `databaseKey`
+  resolves only through trusted server configuration and stores no DSN or
+  credential.
+
+Known limitations:
+
+- Existing deployments remain unmapped; S02-C owns backfill and provisioning.
+- There is no scope clock, epoch, storage generation/fence, runtime resolver,
+  transaction scope guard, RLS policy, or pooled-connection proof in S02-A.
+- The full `fx_control_tenant`/project/deployment hierarchy from the long-form
+  design is not copied. The current `deployments` table remains the
+  transitional parent to avoid a second authority.
+- The real-Postgres constraint test is implemented but was skipped because
+  `FLAREX_POSTGRES_DATABASE_URL` was not configured in this run.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Resolve Existing Scopes To The Legacy App-Data Generation
 
 Previous completed checkpoint: `969c174` Isolate the legacy app-data engine.

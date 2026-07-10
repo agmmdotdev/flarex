@@ -1,5 +1,82 @@
 # Postgres Executor
 
+## Add The Scope Locator Repository And Migration
+
+Previous completed checkpoint: `7f4ce29` Resolve trusted app-data generation.
+
+What changed:
+
+- Added typed insert, get-by-scope, get-by-deployment, and exact scope-ID
+  cursor-list repositories for `fx_control_scope` to both PGlite and
+  node-postgres persistence adapters. Page limits must be integers from 1 to
+  1000.
+- Reused the protocol `ScopeId` brand, derived `isolation_kind` from the
+  discriminated locator input, and decoded unknown JSON rows back into a
+  correlated locator record. Duplicate scope/deployment ownership is a typed
+  domain failure; an invalid persisted locator is a typed corruption failure.
+- Generated additive migration `0017_wooden_morlun.sql`. Its deployment
+  foreign key is intentionally search-path relative so existing isolated
+  Postgres schemas and the temporary real-Postgres harness reference the same
+  migrated `deployments` table.
+- Added fresh-install/repeat migration inventory coverage, a pinned
+  through-0016 upgrade harness proving legacy deployments survive without
+  implicit scope backfill, PGlite repository/constraint/corruption coverage,
+  and an environment-gated real-Postgres SQLSTATE/constraint test.
+- Aligned repository input checks, row decoding, and database constraints on
+  the ECMAScript whitespace set so a rejected value cannot commit a row and
+  claim the deployment mapping before decode fails.
+
+Why it changed:
+
+The first S02 checkpoint needs a small trusted persistence API that can later
+bootstrap and resolve locations. Wiring the scope clock or executor routing in
+the same change would make rollback and authority failures difficult to isolate.
+
+Convex references inspected:
+
+- `crates/common/src/types/mod.rs`
+- `crates/postgres/src/lib.rs`
+- `crates/postgres/src/sql.rs`
+- `crates/common/src/bootstrap_model/schema_state.rs`
+
+How Flarex differs:
+
+- Convex's Postgres persistence object is constructed with one nominal
+  `PgInstanceName`. Flarex persists the deployment-to-scope/topology mapping
+  first because later requests may route across shared, schema-per-scope, and
+  database-per-scope targets.
+- The repository exposes no locator update, active-schema update, generation
+  update, or raw database handle. Those authority transitions belong to later
+  fenced workflows.
+
+Known limitations:
+
+- No scope rows are generated or backfilled, and the executor still uses the
+  S01 deployment-ID compatibility alias.
+- No clock, generation, fence, epoch, counters, OCC, commit compiler, Payload,
+  Medusa, sync, or public API behavior is present.
+- The real-Postgres constraint lane is implemented but skipped when
+  `FLAREX_POSTGRES_DATABASE_URL` is unset; it was unset for this checkpoint.
+- Workspace typecheck passes. Workspace test remains blocked outside this diff
+  by three `flarex-backend` expectations that omit the decoded
+  `identityFingerprint` field (729 backend tests pass), and workspace build
+  remains blocked outside this diff by the existing extensionless `../http`
+  import in `artifactRuntime/RouteBoundary.ts` during the example Vite bundle.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Resolve App-Data Generation From Persisted Session State
 
 Previous completed checkpoint: `969c174` Isolate the legacy app-data engine.

@@ -1,3 +1,8 @@
+import { cp, copyFile, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { PGlite } from "@electric-sql/pglite";
 import { describe, expect, it } from "vitest";
 import { executionIdentityFingerprint } from "flarex-protocol/auth";
 
@@ -53,6 +58,7 @@ describe("createPGlitePersistence", () => {
       "document_freshness_versions",
       "documents",
       "freshness_processed_events",
+      "fx_control_scope",
       "indexes",
       "invoke_session_document_reads",
       "invoke_session_document_writes",
@@ -86,6 +92,64 @@ describe("createPGlitePersistence", () => {
         table_name: "__drizzle_migrations",
       },
     ]);
+  });
+
+  it("upgrades legacy deployment metadata without backfilling scopes", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-scope-upgrade-"));
+    const previousMigrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const previousJournal = resolve(
+      packageRoot,
+      "test/fixtures/drizzle-through-0016-journal.json",
+    );
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, previousMigrationsFolder, {
+        recursive: true,
+      });
+      await copyFile(
+        previousJournal,
+        resolve(previousMigrationsFolder, "meta/_journal.json"),
+      );
+      const previousPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder: previousMigrationsFolder,
+      });
+      await previousPersistence.migrate();
+      await previousPersistence.insertDeploymentMetadata({
+        deploymentId: "deployment_before_scope_catalog",
+        projectId: "project_before_scope_catalog",
+      });
+      await expect(
+        previousPersistence.query(
+          `select id from fx_control_scope limit 1`,
+        ),
+      ).rejects.toThrow();
+
+      const currentPersistence = await createPGlitePersistence({ db });
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(
+        currentPersistence.getDeploymentMetadata(
+          "deployment_before_scope_catalog",
+        ),
+      ).resolves.toMatchObject({
+        deploymentId: "deployment_before_scope_catalog",
+        projectId: "project_before_scope_catalog",
+      });
+      await expect(
+        currentPersistence.getScopeMetadataByDeploymentId(
+          "deployment_before_scope_catalog",
+        ),
+      ).resolves.toBeNull();
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
   });
 
   it("rolls back failed transactions", async () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 
 import {
   type FlarexPersistence,
@@ -12,6 +13,168 @@ import {
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("createPostgresPersistence", () => {
+  it("enforces the scope catalog constraints on real Postgres", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      for (const deploymentId of [
+        "deployment_real_pg_scope_a",
+        "deployment_real_pg_scope_b",
+      ]) {
+        await persistence.insertDeploymentMetadata({
+          deploymentId,
+          projectId: `project_${deploymentId}`,
+        });
+      }
+
+      await persistence.insertScopeMetadata({
+        scopeId: ScopeIdSchema.make("scope_real_pg_a"),
+        deploymentId: "deployment_real_pg_scope_a",
+        physicalLocator: {
+          kind: "shared_database",
+          databaseKey: "primary",
+          schemaName: "public",
+        },
+      });
+      await persistence.insertScopeMetadata({
+        scopeId: ScopeIdSchema.make("scope_real_pg_b"),
+        deploymentId: "deployment_real_pg_scope_b",
+        physicalLocator: {
+          kind: "schema_per_scope",
+          databaseKey: "primary",
+          schemaName: "fx_scope_real_pg_b",
+        },
+      });
+
+      const firstPage = await persistence.listScopeMetadata({ limit: 1 });
+      expect(firstPage.scopes.map((scope) => scope.scopeId)).toEqual([
+        "scope_real_pg_a",
+      ]);
+      if (firstPage.nextCursor === null) {
+        throw new Error("Expected the first real Postgres scope page to continue.");
+      }
+      await expect(
+        persistence.listScopeMetadata({
+          limit: 1,
+          cursor: firstPage.nextCursor,
+        }),
+      ).resolves.toMatchObject({
+        scopes: [{ scopeId: "scope_real_pg_b" }],
+        nextCursor: null,
+        hasMore: false,
+      });
+
+      const constraints = await persistence.query<ConstraintRow>(
+        `
+          select conname, contype
+          from pg_constraint
+          where conrelid = 'fx_control_scope'::regclass
+          order by conname
+        `,
+      );
+      expect(constraints.rows).toEqual(
+        expect.arrayContaining([
+          {
+            conname: "fx_control_scope_deployment_id_deployments_deployment_id_fk",
+            contype: "f",
+          },
+          {
+            conname: "fx_control_scope_deployment_id_unique",
+            contype: "u",
+          },
+          {
+            conname: "fx_control_scope_isolation_kind_check",
+            contype: "c",
+          },
+          {
+            conname: "fx_control_scope_physical_locator_check",
+            contype: "c",
+          },
+        ]),
+      );
+
+      const sharedLocator = JSON.stringify({
+        kind: "shared_database",
+        databaseKey: "primary",
+        schemaName: "public",
+      });
+      await expect(
+        persistence.query(
+          `
+            insert into fx_control_scope (
+              id,
+              deployment_id,
+              isolation_kind,
+              physical_locator_json
+            ) values ($1, $2, $3, $4::jsonb)
+          `,
+          [
+            "scope_real_pg_duplicate_deployment",
+            "deployment_real_pg_scope_a",
+            "shared_database",
+            sharedLocator,
+          ],
+        ),
+      ).rejects.toMatchObject({ code: "23505" });
+      await expect(
+        persistence.query(
+          `
+            insert into fx_control_scope (
+              id,
+              deployment_id,
+              isolation_kind,
+              physical_locator_json
+            ) values ($1, $2, $3, $4::jsonb)
+          `,
+          [
+            "scope_real_pg_orphan",
+            "deployment_real_pg_missing",
+            "shared_database",
+            sharedLocator,
+          ],
+        ),
+      ).rejects.toMatchObject({ code: "23503" });
+      await expect(
+        persistence.query(
+          `
+            update fx_control_scope
+            set physical_locator_json = $1::jsonb
+            where id = $2
+          `,
+          [
+            JSON.stringify({
+              kind: "database_per_scope",
+              databaseKey: "primary",
+              schemaName: "public",
+            }),
+            "scope_real_pg_a",
+          ],
+        ),
+      ).rejects.toMatchObject({ code: "23514" });
+      await expect(
+        persistence.query(
+          `
+            update fx_control_scope
+            set physical_locator_json = $1::jsonb
+            where id = $2
+          `,
+          [
+            JSON.stringify({
+              kind: "shared_database",
+              databaseKey: "\t\n",
+              schemaName: "public",
+            }),
+            "scope_real_pg_a",
+          ],
+        ),
+      ).rejects.toMatchObject({ code: "23514" });
+      await expect(
+        persistence.query(
+          `delete from deployments where deployment_id = $1`,
+          ["deployment_real_pg_scope_a"],
+        ),
+      ).rejects.toMatchObject({ code: "23503" });
+    });
+  });
+
   it("uses the indexed freshness btree path on real Postgres", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const bounds = indexBoundsForExpressions(["text"], [
@@ -107,6 +270,11 @@ async function explainIndexedFreshnessPlan(
 
 interface ExplainRow extends Record<string, unknown> {
   "QUERY PLAN": unknown;
+}
+
+interface ConstraintRow extends Record<string, unknown> {
+  conname: string;
+  contype: string;
 }
 
 async function insertIndexedPackageAndSession(

@@ -22,6 +22,12 @@ import {
   updateDeploymentMetadataActivation as updateDeploymentMetadataActivationWithDb,
 } from "./deployments";
 import {
+  getScopeMetadata as getScopeMetadataWithDb,
+  getScopeMetadataByDeploymentId as getScopeMetadataByDeploymentIdWithDb,
+  insertScopeMetadata as insertScopeMetadataWithDb,
+  listScopeMetadata as listScopeMetadataWithDb,
+} from "./scopeMetadata";
+import {
   getDocumentRevisionAtTs as getDocumentRevisionAtTsWithDb,
   insertDocumentRevision as insertDocumentRevisionWithDb,
   listDocumentsInTableAtTs as listDocumentsInTableAtTsWithDb,
@@ -155,6 +161,14 @@ export async function createPostgresPersistence(
       listDeploymentMetadataWithDb(drizzleDb, input),
     updateDeploymentMetadataActivation: (input) =>
       updateDeploymentMetadataActivationWithDb(drizzleDb, input),
+    insertScopeMetadata: (input) =>
+      insertScopeMetadataWithDb(drizzleDb, input),
+    getScopeMetadata: (scopeId) =>
+      getScopeMetadataWithDb(drizzleDb, scopeId),
+    getScopeMetadataByDeploymentId: (deploymentId) =>
+      getScopeMetadataByDeploymentIdWithDb(drizzleDb, deploymentId),
+    listScopeMetadata: (input) =>
+      listScopeMetadataWithDb(drizzleDb, input),
     insertInvokeSessionMetadata: (input) =>
       insertInvokeSessionMetadataWithDb(drizzleDb, input),
     getInvokeSessionMetadata: (deploymentId, sessionId) =>
