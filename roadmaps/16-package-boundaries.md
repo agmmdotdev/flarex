@@ -1,5 +1,62 @@
 # Package Boundaries
 
+## Keep Existing-Authority Bootstrap On Server Adapter Subpaths
+
+Previous completed checkpoint: `7793ed9` Add shared scope authority
+provisioning.
+
+What changed:
+
+- Added `SharedScopeAuthorityBootstrapper` factories only to the server-side
+  `/postgres` and `/pglite` exports.
+- Kept root `FlarexPersistence`, executor request types, protocol, SDK, and
+  Dynamic Worker capabilities unchanged. They expose no bootstrap, repair,
+  frontier, parity, locator selection, or clock mutation method.
+- Closed the factory over the same fixed trusted shared locator and UUID source
+  as C1. Per-call inputs contain only an opaque frontier, deployment-ID cursor,
+  and validated operational batch limit.
+- Kept existing-deployment repair and direct initial-clock insertion in
+  package-internal modules; normal provisioning still fails closed on a missing
+  existing clock.
+
+Why it changed:
+
+C2 is an administrative migration capability, not a general database port and
+not a developer-facing API. Separate server factories let later composition
+run the migration without leaking clock authority or database selection into
+runtime calls.
+
+Convex references inspected:
+
+- `crates/model/src/lib.rs`
+- `crates/model/src/migrations.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+- `crates/model/src/database_globals/mod.rs`
+
+How Flarex differs:
+
+- Convex owns bootstrap inside one backend/model composition. Flarex keeps C2
+  host-neutral while exporting concrete construction only from its two trusted
+  Postgres adapter subpaths.
+
+Known limitations:
+
+- No backend Worker, executor, registry, CLI, HTTP/Nitro bridge, SDK, Payload,
+  Medusa, or sync package consumes the bootstrapper.
+- C3 must add a narrow creation/reconciliation composition seam; it must not
+  widen root persistence with caller-selected routing or clock facts.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Expose Provisioning Only Through Server Adapter Subpaths
 
 Previous completed checkpoint: `05d10f5` Add the FlarexDB scope clock.

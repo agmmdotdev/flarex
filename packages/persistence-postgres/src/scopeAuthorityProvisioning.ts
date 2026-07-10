@@ -1,3 +1,5 @@
+import { eq } from "drizzle-orm";
+import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
   CommitSeqSchema,
   LegacyV1StorageGenerationSchema,
@@ -26,7 +28,7 @@ import {
 } from "./scopeMetadata";
 import type { SharedDatabaseScopePhysicalLocator } from "./scopeMetadataTypes";
 import { getScopeClock, type ScopeClockRecord } from "./scopeClock";
-import { fxSystemScopeClocks } from "./schema";
+import { deployments, fxSystemScopeClocks } from "./schema";
 
 export interface EnsureSharedScopeAuthorityInput {
   readonly deploymentId: string;
@@ -83,6 +85,16 @@ export type SharedScopeAuthorityConflict =
       readonly reason: "clockMissingForExistingScope";
       readonly deploymentId: string;
       readonly scopeId: ScopeId;
+    }
+  | {
+      readonly reason: "deploymentMissingForBootstrap";
+      readonly deploymentId: string;
+    }
+  | {
+      readonly reason: "deploymentReplacedDuringBootstrap";
+      readonly deploymentId: string;
+      readonly expectedCreatedAt: Date;
+      readonly actualCreatedAt: Date;
     };
 
 export class SharedScopeAuthorityConflictError extends Error {
@@ -134,16 +146,31 @@ const initialStorageGenerationFence = StorageGenerationFenceSchema.make(1n);
 const initialCommitSeq = CommitSeqSchema.make(0n);
 const initialOutboxSeq = OutboxSeqSchema.make(0n);
 
+export const ExistingSharedScopeAuthorityBootstrapStatuses = {
+  createdScopeAndClock:
+    SharedScopeAuthorityProvisioningStatuses.createdScopeAndClock,
+  repairedMissingClock: "repaired_missing_clock",
+  alreadyProvisioned:
+    SharedScopeAuthorityProvisioningStatuses.alreadyProvisioned,
+} as const;
+
+export type ExistingSharedScopeAuthorityBootstrapStatus =
+  (typeof ExistingSharedScopeAuthorityBootstrapStatuses)[keyof typeof ExistingSharedScopeAuthorityBootstrapStatuses];
+
+export interface BootstrapExistingSharedScopeAuthorityResult {
+  readonly status: ExistingSharedScopeAuthorityBootstrapStatus;
+  readonly deployment: DeploymentMetadataRecord;
+  readonly scope: ScopeMetadataRecord;
+  readonly clock: ScopeClockRecord;
+}
+
 export function createSharedScopeAuthorityProvisioner(
   db: FlarexMetadataDatabase,
   options: SharedScopeAuthorityProvisionerOptions,
 ): SharedScopeAuthorityProvisioner {
-  validateSharedPhysicalLocator(options.physicalLocator);
-  const physicalLocator = Object.freeze({
-    kind: options.physicalLocator.kind,
-    databaseKey: options.physicalLocator.databaseKey,
-    schemaName: options.physicalLocator.schemaName,
-  }) satisfies SharedDatabaseScopePhysicalLocator;
+  const physicalLocator = captureSharedScopePhysicalLocator(
+    options.physicalLocator,
+  );
   const randomUuid = options.randomUuid ?? (() => crypto.randomUUID());
 
   return {
@@ -159,6 +186,62 @@ export function createSharedScopeAuthorityProvisioner(
   } satisfies SharedScopeAuthorityProvisioner;
 }
 
+/**
+ * C2-only existing-row bootstrap primitive. Unlike normal provisioning, this
+ * function never recreates a missing deployment and may initialize a missing
+ * clock for an already-inventoried scope. Callers must wrap exactly one
+ * deployment in a short database transaction.
+ */
+export async function bootstrapExistingSharedScopeAuthorityInTransaction(
+  tx: ScopeAuthorityBootstrapTransaction,
+  expectedDeployment: DeploymentMetadataRecord,
+  physicalLocator: SharedDatabaseScopePhysicalLocator,
+  randomUuid: () => string,
+): Promise<BootstrapExistingSharedScopeAuthorityResult> {
+  const deployment = await requireExistingBootstrapDeployment(
+    tx,
+    expectedDeployment,
+  );
+  const ensuredScope = await ensureScope(
+    tx,
+    expectedDeployment.deploymentId,
+    physicalLocator,
+    randomUuid,
+  );
+  const ensuredClock = await ensureInitialBootstrapClock(
+    tx,
+    expectedDeployment.deploymentId,
+    ensuredScope,
+    randomUuid,
+  );
+
+  return {
+    status: existingBootstrapStatus(
+      ensuredScope.created,
+      ensuredClock.clockCreated,
+    ),
+    deployment,
+    scope: ensuredScope.scope,
+    clock: ensuredClock.clock,
+  } satisfies BootstrapExistingSharedScopeAuthorityResult;
+}
+
+type ScopeAuthorityBootstrapTransaction = FlarexMetadataDatabase & {
+  rollback(): never;
+  setTransaction(config: PgTransactionConfig): Promise<void>;
+};
+
+export function captureSharedScopePhysicalLocator(
+  locator: SharedDatabaseScopePhysicalLocator,
+): SharedDatabaseScopePhysicalLocator {
+  validateSharedPhysicalLocator(locator);
+  return Object.freeze({
+    kind: locator.kind,
+    databaseKey: locator.databaseKey,
+    schemaName: locator.schemaName,
+  }) satisfies SharedDatabaseScopePhysicalLocator;
+}
+
 interface EnsureDeploymentResult {
   readonly deployment: DeploymentMetadataRecord;
   readonly created: boolean;
@@ -171,6 +254,14 @@ interface EnsureScopeResult {
 
 interface EnsureClockResult {
   readonly clock: ScopeClockRecord;
+}
+
+interface EnsureInitialBootstrapClockResult extends EnsureClockResult {
+  readonly clockCreated: boolean;
+}
+
+interface InsertInitialScopeClockResult extends EnsureClockResult {
+  readonly created: boolean;
 }
 
 async function ensureSharedScopeAuthorityInTransaction(
@@ -230,6 +321,35 @@ async function ensureDeployment(
       created: false,
     };
   }
+}
+
+async function requireExistingBootstrapDeployment(
+  tx: FlarexMetadataDatabase,
+  expected: DeploymentMetadataRecord,
+): Promise<DeploymentMetadataRecord> {
+  const rows = await tx
+    .select()
+    .from(deployments)
+    .where(eq(deployments.deploymentId, expected.deploymentId))
+    .limit(1)
+    .for("update");
+  const existing = rows[0] ?? null;
+  if (existing === null) {
+    throw new SharedScopeAuthorityConflictError({
+      reason: "deploymentMissingForBootstrap",
+      deploymentId: expected.deploymentId,
+    });
+  }
+  requireProjectMatch(existing, expected.projectId);
+  if (existing.createdAt.getTime() !== expected.createdAt.getTime()) {
+    throw new SharedScopeAuthorityConflictError({
+      reason: "deploymentReplacedDuringBootstrap",
+      deploymentId: expected.deploymentId,
+      expectedCreatedAt: expected.createdAt,
+      actualCreatedAt: existing.createdAt,
+    });
+  }
+  return existing;
 }
 
 async function ensureScope(
@@ -310,11 +430,72 @@ async function ensureClock(
     });
   }
 
+  const initialized = await insertInitialScopeClock(
+    tx,
+    ensuredScope.scope.scopeId,
+    randomUuid,
+  );
+
+  if (!initialized.created) {
+    throw new SharedScopeAuthorityConflictError({
+      reason: "clockPreexistedForNewScope",
+      deploymentId,
+      scopeId: ensuredScope.scope.scopeId,
+    });
+  }
+  return { clock: initialized.clock };
+}
+
+async function ensureInitialBootstrapClock(
+  tx: FlarexMetadataDatabase,
+  deploymentId: string,
+  ensuredScope: EnsureScopeResult,
+  randomUuid: () => string,
+): Promise<EnsureInitialBootstrapClockResult> {
+  const existing = await getScopeClock(tx, ensuredScope.scope.scopeId);
+  if (existing !== null) {
+    if (ensuredScope.created) {
+      throw new SharedScopeAuthorityConflictError({
+        reason: "clockPreexistedForNewScope",
+        deploymentId,
+        scopeId: ensuredScope.scope.scopeId,
+      });
+    }
+    return {
+      clock: existing,
+      clockCreated: false,
+    };
+  }
+
+  const initialized = await insertInitialScopeClock(
+    tx,
+    ensuredScope.scope.scopeId,
+    randomUuid,
+  );
+
+  if (!initialized.created && ensuredScope.created) {
+    throw new SharedScopeAuthorityConflictError({
+      reason: "clockPreexistedForNewScope",
+      deploymentId,
+      scopeId: ensuredScope.scope.scopeId,
+    });
+  }
+  return {
+    clock: initialized.clock,
+    clockCreated: initialized.created,
+  };
+}
+
+async function insertInitialScopeClock(
+  tx: FlarexMetadataDatabase,
+  scopeId: ScopeId,
+  randomUuid: () => string,
+): Promise<InsertInitialScopeClockResult> {
   const epoch = generateScopeEpoch(randomUuid);
   const inserted = await tx
     .insert(fxSystemScopeClocks)
     .values({
-      scopeId: ensuredScope.scope.scopeId,
+      scopeId,
       storageGeneration: initialStorageGeneration,
       storageGenerationFence: initialStorageGenerationFence,
       lastCommitSeq: initialCommitSeq,
@@ -323,22 +504,11 @@ async function ensureClock(
     })
     .onConflictDoNothing({ target: fxSystemScopeClocks.scopeId })
     .returning({ scopeId: fxSystemScopeClocks.scopeId });
-
-  if (inserted.length === 0 && ensuredScope.created) {
-    throw new SharedScopeAuthorityConflictError({
-      reason: "clockPreexistedForNewScope",
-      deploymentId,
-      scopeId: ensuredScope.scope.scopeId,
-    });
-  }
-
-  const clock = await getScopeClock(tx, ensuredScope.scope.scopeId);
+  const clock = await getScopeClock(tx, scopeId);
   if (clock === null) {
-    throw new Error(
-      `Scope clock disappeared during provisioning: ${ensuredScope.scope.scopeId}`,
-    );
+    throw new Error(`Scope clock disappeared during initialization: ${scopeId}`);
   }
-  return { clock };
+  return { clock, created: inserted.length > 0 };
 }
 
 function requireProjectMatch(
@@ -433,6 +603,24 @@ function provisioningStatus(
   );
 }
 
+function existingBootstrapStatus(
+  scopeCreated: boolean,
+  clockCreated: boolean,
+): ExistingSharedScopeAuthorityBootstrapStatus {
+  if (scopeCreated && clockCreated) {
+    return ExistingSharedScopeAuthorityBootstrapStatuses.createdScopeAndClock;
+  }
+  if (!scopeCreated && clockCreated) {
+    return ExistingSharedScopeAuthorityBootstrapStatuses.repairedMissingClock;
+  }
+  if (!scopeCreated && !clockCreated) {
+    return ExistingSharedScopeAuthorityBootstrapStatuses.alreadyProvisioned;
+  }
+  throw new Error(
+    `Invalid existing scope bootstrap outcome: scopeCreated=${scopeCreated}, clockCreated=${clockCreated}`,
+  );
+}
+
 function sharedScopeAuthorityConflictMessage(
   conflict: SharedScopeAuthorityConflict,
 ): string {
@@ -445,5 +633,9 @@ function sharedScopeAuthorityConflictMessage(
       return `Generated scope ${conflict.scopeId} already has clock authority`;
     case "clockMissingForExistingScope":
       return `Existing scope ${conflict.scopeId} for deployment ${conflict.deploymentId} is missing clock authority`;
+    case "deploymentMissingForBootstrap":
+      return `Deployment ${conflict.deploymentId} disappeared during existing-authority bootstrap`;
+    case "deploymentReplacedDuringBootstrap":
+      return `Deployment ${conflict.deploymentId} was replaced while existing-authority bootstrap was running`;
   }
 }

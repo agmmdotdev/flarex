@@ -31,6 +31,11 @@ import {
 } from "./scopeMetadata";
 import { getScopeClock as getScopeClockWithDb } from "./scopeClock";
 import {
+  createSharedScopeAuthorityBootstrapper,
+  type SharedScopeAuthorityBootstrapper,
+  type SharedScopeAuthorityBootstrapperOptions,
+} from "./scopeAuthorityBootstrap";
+import {
   createSharedScopeAuthorityProvisioner,
   type SharedScopeAuthorityProvisioner,
   type SharedScopeAuthorityProvisionerOptions,
@@ -143,6 +148,33 @@ export function createPGliteSharedScopeAuthorityProvisioner(
     options,
   );
 }
+
+export function createPGliteSharedScopeAuthorityBootstrapper(
+  persistence: Pick<PGliteFlarexPersistence, "drizzle">,
+  options: SharedScopeAuthorityBootstrapperOptions,
+): SharedScopeAuthorityBootstrapper {
+  return createSharedScopeAuthorityBootstrapper(
+    persistence.drizzle,
+    options,
+  );
+}
+
+export {
+  InvalidSharedScopeAuthorityBootstrapBatchLimitError,
+  InvalidSharedScopeAuthorityBootstrapFrontierError,
+  MAX_SHARED_SCOPE_AUTHORITY_BOOTSTRAP_BATCH_SIZE,
+  SharedScopeAuthorityBootstrapFrontierVersion,
+  SharedScopeAuthorityParityRowError,
+  type RunSharedScopeAuthorityBootstrapBatchInput,
+  type RunSharedScopeAuthorityBootstrapBatchResult,
+  type SharedScopeAuthorityBootstrapCursor,
+  type SharedScopeAuthorityBootstrapFrontier,
+  type SharedScopeAuthorityBootstrapItemResult,
+  type SharedScopeAuthorityBootstrapper,
+  type SharedScopeAuthorityBootstrapperOptions,
+  type SharedScopeAuthorityParityCounts,
+  type SharedScopeAuthorityParityReport,
+} from "./scopeAuthorityBootstrap";
 
 export {
   InvalidGeneratedScopeAuthorityIdError,

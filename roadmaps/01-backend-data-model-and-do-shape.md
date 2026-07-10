@@ -1,5 +1,94 @@
 # Backend Data Model And Durable Object Shape
 
+## Bootstrap Existing Shared Authority Through A Captured Frontier
+
+Previous completed checkpoint: `7793ed9` Add shared scope authority
+provisioning.
+
+What changed:
+
+- Added a server-only C2 bootstrapper that captures the greatest committed
+  deployment ID as a stable lexical frontier, scans only through that frontier
+  in validated batches of `1..1000`, and commits one deployment at a time.
+- Added an existing-deployment-only transaction path. It creates a missing
+  scope/clock pair or explicitly repairs an inventoried scope missing its clock,
+  but it never recreates a disappeared/replaced deployment and never weakens
+  normal C1 provisioning's fail-closed missing-clock behavior.
+- Initialized every newly inserted bootstrap clock explicitly as `legacy_v1`,
+  fence `1`, commit/outbox sequence `0`, and a server-generated epoch. Existing
+  valid clocks, including advanced clocks, are returned byte-for-byte unchanged.
+- Added one relational parity statement that classifies deployments through the
+  frontier as complete, missing scope, missing clock, or locator conflict and
+  counts orphan clocks separately so equal totals cannot hide opposite gaps.
+
+Why it changed:
+
+Existing deployments need a resumable migration that survives page replay and
+partial process failure without holding one large transaction. A cursor is
+returned only after every item in the page succeeds; if item N fails, prior
+item transactions remain idempotently complete and the caller retries the same
+page.
+
+Convex references inspected:
+
+- `crates/model/src/lib.rs`
+- `crates/model/src/database_globals/mod.rs`
+- `crates/database/src/bootstrap_model/index_backfills/types.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+- `crates/database/src/table_iteration.rs`
+- `crates/model/src/migrations.rs`
+
+How Flarex differs:
+
+- Convex can bind a resumable backfill cursor to its repeatable database
+  snapshot. PostgreSQL cannot preserve an MVCC snapshot across process restarts,
+  so C2 uses an indexed deployment-ID frontier plus an anti-join verification
+  statement and makes the weaker claim `complete_through_frontier`.
+- C2 remains co-located `shared_database` work with one fixed trusted locator.
+  It does not introduce a general placement provider or located data-plane
+  resolver.
+
+Known limitations:
+
+- A legacy deployment transaction can commit behind an advanced cursor. C2
+  detects such a row if it is visible at verification time, but global zero-gap
+  readiness requires C3 to fence/quiesce legacy creation and rerun C2.
+- C3 still owns future creation wiring and split-topology recovery/readiness.
+- No runtime generation routing, sequence allocation, OCC, compiler, sync,
+  Payload, Medusa, physical database creation, or scope-pool guard is included.
+- The focused PostgreSQL 18 C2 file passes five tests. The complete PostgreSQL
+  lane passes sixteen of seventeen and retains the pre-existing `ON DELETE
+  RESTRICT` SQLSTATE mismatch (`23503` expected, `23001` received).
+- The ordinary package lane passes 115 tests with 17 environment-gated tests
+  skipped. Package build/schema check, workspace typecheck, both backend
+  typecheck/build lanes, and the Effect-boundary check pass.
+- Workspace test reaches the unchanged `flarex-backend` Vitest command and
+  again times out without output after five minutes; its verified leftover
+  process tree exited. Workspace build passes every changed package and then
+  fails in the unchanged example Vite build on the extensionless
+  `artifactRuntime/RouteBoundary.ts` import of `../http`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityBootstrap.test.ts
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityBootstrap.postgres.test.ts
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres test:postgres
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm check:effect-boundaries
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Add The Shared-Database Initial Authority Primitive
 
 Previous completed checkpoint: `05d10f5` Add the FlarexDB scope clock.

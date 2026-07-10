@@ -1,5 +1,88 @@
 # Postgres Executor
 
+## Add The Resumable Existing-Authority Bootstrap Lane
+
+Previous completed checkpoint: `7793ed9` Add shared scope authority
+provisioning.
+
+What changed:
+
+- Added framework-neutral C2 bootstrap composition over both PGlite and
+  node-postgres Drizzle databases without adding an executor/runtime consumer.
+- Added explicit `captureFrontier`, `runBatch`, and `verifyFrontier` operations.
+  The cursor is deployment-ID-only, serializable, versioned by its frontier,
+  primary-key indexed, and returned only after the full page succeeds.
+- Added typed rejection for invalid limits, malformed frontiers, disappeared or
+  replaced deployments, and immutable project/locator conflicts.
+- Added bootstrap-only missing-clock repair with explicit `legacy_v1`, fence
+  `1`, zero counters, and server epoch. Response-loss replay and concurrent
+  repair preserve the persisted winner.
+- Added sixteen PGlite cases and five focused PostgreSQL 18 cases covering
+  paging, replay, rollback, late commits behind the cursor, concurrent
+  provisioning/repair, fixed-locator conflicts, advanced-clock preservation,
+  relational parity, and exact PID-scoped deployment-lock blocking.
+
+Why it changed:
+
+C1 supplied the atomic row-level primitive. C2 now makes it usable for existing
+committed deployments while keeping migration progress restartable and proving
+that missing and orphan authority cannot cancel in a simple count comparison.
+
+Convex references inspected:
+
+- `crates/model/src/lib.rs`
+- `crates/model/src/database_globals/mod.rs`
+- `crates/database/src/bootstrap_model/index_backfills/types.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+- `crates/database/src/table_iteration.rs`
+- `crates/model/src/migrations.rs`
+
+How Flarex differs:
+
+- Convex can persist repeatable snapshot identity with a backfill cursor. The
+  Postgres bootstrap cannot resume an MVCC snapshot, so it captures a lexical
+  frontier and verifies one relational snapshot after replayable batches.
+- The result is point-in-time `complete_through_frontier`, not a production
+  creation fence. C3 must wire future provisioning and rerun the final pass.
+
+Known limitations:
+
+- Current executor `ensureDeployment` still creates bare legacy deployment
+  rows; C3 owns its fence/replacement and the final anti-missing rerun.
+- Split topology provisioning, Worker-safe persistence, and runtime
+  fail-closed generation resolution remain C3/S02-D work.
+- The focused C2 PostgreSQL file passes five of five. The combined PostgreSQL
+  lane passes sixteen of seventeen with only the pre-existing PostgreSQL 18
+  `23001` versus expected `23503` assertion in unchanged scope-catalog coverage.
+- The package lane passes 115 tests with 17 environment-gated tests skipped;
+  package build/schema check, workspace typecheck, both backend typecheck/build
+  lanes, and the Effect-boundary check pass.
+- Workspace test again times out in the unchanged `flarex-backend` Vitest lane
+  without output. Workspace build passes the changed persistence package and
+  fails later in the unchanged example Vite build on the extensionless
+  `artifactRuntime/RouteBoundary.ts` import of `../http`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityBootstrap.test.ts
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityBootstrap.postgres.test.ts
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres test:postgres
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm check:effect-boundaries
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Add The Shared-Database Scope Provisioner
 
 Previous completed checkpoint: `05d10f5` Add the FlarexDB scope clock.

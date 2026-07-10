@@ -1,5 +1,67 @@
 # OCC And Transactions
 
+## Resume Bootstrap With One Short Transaction Per Deployment
+
+Previous completed checkpoint: `7793ed9` Add shared scope authority
+provisioning.
+
+What changed:
+
+- Added a bounded bootstrap page that performs no page-long transaction. Each
+  deployment gets one short transaction that verifies deployment identity,
+  ensures its fixed locator, and reads or creates its clock.
+- Added the only C2 repair mode: an existing matching scope with no clock may
+  receive one explicit initial clock. A deployment-row `FOR UPDATE` lock
+  serializes same-deployment bootstraps through scope/clock commit; the clock
+  insert also retains `ON CONFLICT DO NOTHING` plus authoritative readback as a
+  recovery defense.
+- Return no continuation cursor when any item fails. Previously committed page
+  items remain safe, and replay converges without regenerating their authority.
+- Preserved every existing valid clock without updating generation, epoch,
+  fence, or counters; the bootstrap has no allocator or advancement operation.
+- Proved on PostgreSQL with PID-derived advisory gates and exact
+  `pg_blocking_pids` chains that a second bootstrap and a project mutation wait
+  behind the deployment lock until scope/clock creation commits.
+
+Why it changed:
+
+A long migration cannot keep an open transaction across process restarts.
+Short idempotent item transactions plus a stable page frontier provide recovery
+without coupling bootstrap to the future OCC/commit transaction.
+
+Convex references inspected:
+
+- `crates/model/src/migrations.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+- `crates/database/src/table_iteration.rs`
+- `crates/model/src/database_globals/mod.rs`
+
+How Flarex differs:
+
+- Convex persists a snapshot timestamp with backfill progress. C2 cannot carry
+  a PostgreSQL MVCC snapshot across runs, so its cursor is an indexed lexical
+  frontier and its final evidence is a separate relational snapshot.
+- C2 reports visibility through a frontier only; C3 owns the writer fence that
+  turns a final rerun into a global invariant.
+
+Known limitations:
+
+- The bootstrap and parity APIs remain unreachable from executor deployment
+  creation until C3.
+- O06/O07 remain the only owners of sequence allocation, OCC validation,
+  outcome/idempotency, commit/change, and outbox publication.
+- No application transaction semantics or lock order changed in C2.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityBootstrap.test.ts
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityBootstrap.postgres.test.ts
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+git diff --check
+```
+
 ## Keep Provisioning Atomic Without Creating A Commit Allocator
 
 Previous completed checkpoint: `05d10f5` Add the FlarexDB scope clock.
@@ -39,7 +101,8 @@ How Flarex differs:
 Known limitations:
 
 - The primitive is unreachable from executor deployment creation until C3.
-- C2 still must prove resumable inventory and parity under ongoing creation.
+- C2 proves resumable point-in-time inventory through a captured frontier; C3
+  must fence ongoing creation and rerun it before global readiness is claimed.
 - O06/O07 remain the only owners of sequence allocation, OCC validation,
   result/idempotency, commit/change, and outbox publication.
 

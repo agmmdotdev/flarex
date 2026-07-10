@@ -1,6 +1,6 @@
 # FlarexDB Schema And Migration Plan
 
-Status: S01 through S02-B and S02-C1 complete; S02-C2 is next
+Status: S01 through S02-B and S02-C1/C2 complete; S02-C3 is next
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -139,7 +139,7 @@ Progress:
 - [ ] S02-C — Bootstrap existing deployments and make future provisioning
   establish a validated locator/clock authority pair.
   - [x] S02-C1 — Add the shared-database atomic initial-authority primitive.
-  - [ ] S02-C2 — Add bounded resumable bootstrap and parity inventory.
+  - [x] S02-C2 — Add bounded resumable bootstrap and parity inventory.
   - [ ] S02-C3 — Wire future creation and add explicit split-topology
     recovery/readiness semantics.
 - [ ] S02-D — Replace the S01 compatibility alias with trusted scope/clock
@@ -166,13 +166,40 @@ uses `scope_<lowercase uuid-v4>` and
 `epoch_<lowercase uuid-v4>` identifiers generated behind the trusted factory.
 The general brands remain non-empty strings for controlled imports and tests.
 
+S02-C2 now provides a separate server-only bootstrapper for committed
+deployments in that same fixed `shared_database` placement. It captures the
+greatest visible deployment ID, scans through that primary-key frontier in
+validated `1..1000` pages, and uses one short transaction per deployment. A
+missing scope creates the scope and initial clock together. A matching existing
+scope missing its clock may be repaired only through this inventoried C2 path;
+normal C1 provisioning still fails closed. Every new clock explicitly writes
+`legacy_v1`, fence `1`, commit/outbox sequence `0`, and one generated epoch.
+An existing valid clock, including one whose generation/fence/counters have
+advanced, is never reset.
+
+Page progress is replay-safe: no continuation cursor is returned if any item
+fails, while previously committed items converge to `already_provisioned` on
+retry. The parity statement classifies deployments through the frontier as
+complete, missing scope, missing clock, or locator conflict and separately
+counts orphan clocks. Therefore a missing pair plus an orphan cannot appear
+healthy merely because total row counts match.
+
+C2 deliberately does not claim a permanent global invariant. PostgreSQL cannot
+resume the same MVCC snapshot after a process restart, and a legacy deployment
+transaction may commit behind an advanced lexical cursor. Verification reports
+only `complete_through_frontier` in its statement snapshot. C3 must first
+fence/quiesce the legacy creation path, rerun C2 from a fresh frontier until the
+relational inventory is clean, and then keep future creation from reopening a
+gap.
+
 The earlier word `atomically` is now topology-sensitive. Co-located C1 rows use
 one SQL transaction. Schema-per-scope needs a qualified same-connection proof,
 and database-per-scope needs durable, idempotent readiness reconciliation;
-neither may be claimed from the shared-schema tests. C2 closes the existing-row
-inventory for the supported lane. C3 fences current creation and owns the
-split-topology protocol. A locator without a valid clock is incomplete and
-must fail closed in S02-D, never imply `legacy_v1`.
+neither may be claimed from the shared-schema tests. C2 can inventory committed
+rows through a captured frontier for the supported lane. C3 fences current
+creation, owns the split-topology protocol, and closes the final global gap. A
+locator without a valid clock is incomplete and must fail closed in S02-D,
+never imply `legacy_v1`.
 
 S02-B and S02-C are deliberately host-neutral. They add and bootstrap trusted
 database authority without composing a production runtime. Before S02-D, a
@@ -211,10 +238,11 @@ Outcome:
 - Require every repository query to carry `scope_id`, establish a trusted
   transaction scope guard, reject absent/mismatched scope, and prove pooled
   connections cannot leak a previous scope. RLS remains optional defense.
-- Bootstrap one clock/fence row for every existing deployment, verify count
-  parity, then make missing metadata fail closed. Future deployment creation
-  writes scope location and data-plane clock/fence atomically within the
-  topology's provisioning protocol.
+- Bootstrap one clock/fence row for every existing deployment, verify
+  relational anti-join parity rather than only equal totals, then make missing
+  metadata fail closed. Future deployment creation writes scope location and
+  data-plane clock/fence atomically within the topology's provisioning
+  protocol.
 
 Counter contract:
 

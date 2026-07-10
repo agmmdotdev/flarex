@@ -1,5 +1,65 @@
 # Schema Placement And Shards
 
+## Inventory One Fixed Shared Placement Without Claiming A Router
+
+Previous completed checkpoint: `7793ed9` Add shared scope authority
+provisioning.
+
+What changed:
+
+- Added a C2 bootstrap factory closed over one copied, validated
+  `shared_database` locator. No per-page or per-item input can choose a locator,
+  database key, schema, scope ID, epoch, generation, fence, or counter.
+- Scanned the indexed `deployment_id` primary key through a captured maximum
+  instead of reusing the unindexed `(created_at, deployment_id)` metadata cursor.
+- Compared every existing scope with the complete fixed locator before treating
+  its clock as provisioned. A topology/locator mismatch is typed conflict and
+  never rewritten.
+- Added point-in-time parity categories for missing scope, missing clock,
+  locator conflict, complete pair, and globally orphaned clock authority.
+
+Why it changed:
+
+C2 migrates only the placement the current adapter can actually address. A
+callback returning arbitrary locators would pretend C3's located data-plane
+capability already exists and could turn stored routing metadata into a
+caller-selected database target.
+
+Convex references inspected:
+
+- `crates/model/src/lib.rs`
+- `crates/model/src/database_globals/mod.rs`
+- `crates/database/src/bootstrap_model/index_backfills/types.rs`
+- `crates/database/src/table_iteration.rs`
+
+How Flarex differs:
+
+- Convex bootstraps one configured persistence instance. Flarex records a
+  control-plane locator even in the co-located lane, so exact locator equality
+  is part of bootstrap validity.
+- The C2 frontier is a resumable inventory boundary, not a shard router and not
+  a durable Postgres snapshot.
+
+Known limitations:
+
+- C2 makes only a `complete_through_frontier` point-in-time claim. C3 must
+  fence/quiesce legacy creation, rerun the inventory, and keep future authority
+  creation from reopening a gap.
+- `schema_per_scope` and `database_per_scope` still require target capabilities,
+  readiness recovery, and per-locator verification in C3.
+- No schema-qualified adapter, database resolver, RLS, pooled-scope proof, or
+  physical resource provisioning is introduced.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityBootstrap.test.ts
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityBootstrap.postgres.test.ts
+corepack pnpm --filter @flarex/persistence-postgres test:postgres
+git diff --check
+```
+
 ## Prove Only The Co-Located Provisioning Topology
 
 Previous completed checkpoint: `05d10f5` Add the FlarexDB scope clock.
