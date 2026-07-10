@@ -1,5 +1,71 @@
 # OCC And Transactions
 
+## Prove Scope-Clock Locking Without An Allocator
+
+Previous completed checkpoint: `7b18427` Target the Cloudflare executor
+Worker.
+
+What changed:
+
+- Added a validated ordinary clock read and a package-internal,
+  transaction-typed helper that performs `SELECT ... FOR UPDATE` for exactly
+  one `scope_id`; a compile-time negative assertion rejects the ordinary
+  database handle.
+- Added PGlite proof that a test-only tentative generation, fence, epoch, and
+  counter change disappears completely when the transaction throws.
+- Added an environment-gated real-Postgres proof in which exact backend PIDs
+  show one transaction blocking on the first transaction's clock lock, another
+  scope remains independently lockable, bounded server-side timeouts prevent
+  a hung test, and rollback exposes the original zero counter.
+- Added no public lock callback, counter update, next/advance/allocate method,
+  OCC validator, or production sequence allocator.
+
+Why it changed:
+
+The clock's row-lock and rollback behavior must be proven before later OCC code
+depends on it, but allocating a sequence without atomic commit/change/outcome/
+outbox publication would create gaps or false committed frontiers. O06 retains
+ownership of that complete primitive.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/database/src/write_log.rs`
+- `crates/common/src/persistence.rs`
+- `crates/common/src/types/timestamp.rs`
+- `crates/postgres/src/lib.rs`
+
+How Flarex differs:
+
+- Convex's in-process committer tracks pending writes and assigns non-dense
+  timestamps before persistence finishes. Flarex will allocate one dense
+  scope-local sequence only inside the final Postgres transaction, after the
+  scope clock is locked and OCC dependencies are validated.
+
+Known limitations:
+
+- The private transaction capability is structurally defined by Drizzle's
+  transaction-only rollback/configuration methods and rejects the ordinary
+  database type. It remains a proof seam; O06 must replace it with the bounded
+  commit primitive.
+- PGlite proves rollback and SQL shape. The focused lock test also passed on an
+  isolated PostgreSQL 18 cluster, proving same-scope exclusion and independent
+  scope progress. The broader package Postgres lane still has one unchanged
+  SQLSTATE expectation mismatch for `ON DELETE RESTRICT` (`23503` expected,
+  `23001` received).
+- No stale epoch/generation conflict is implemented in this checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeClock.test.ts
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeClock.postgres.test.ts --reporter verbose
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres test:postgres
+git diff --check
+```
+
 ## Add The FlarexDB OCC And Transaction Turn Plan
 
 Previous completed checkpoint: `478be74` Correct FlarexDB transaction and sync

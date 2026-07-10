@@ -1,5 +1,85 @@
 # Backend Data Model And Durable Object Shape
 
+## Add The Authoritative Data-Plane Scope Clock
+
+Previous completed checkpoint: `7b18427` Target the Cloudflare executor
+Worker.
+
+What changed:
+
+- Added `fx_system_scope_clock` with one `scope_id` primary-key row, explicit
+  storage generation and epoch, a positive generation fence, nonnegative
+  bigint commit/outbox counters, and update metadata.
+- Added database checks for the exact storage-generation set, positive fence,
+  nonnegative counters, and ECMAScript-compatible nonblank scope/epoch text.
+- Kept `storage_generation` without a SQL default. S02-C must deliberately
+  bootstrap existing scopes as `legacy_v1`; missing authority cannot silently
+  select a generation.
+- Added no control-plane foreign key, backfill, retention floor, commit table,
+  or production counter writer. `oldest_available_commit_seq` remains S08.
+- Added validated reads plus a package-internal, transaction-typed
+  `SELECT ... FOR UPDATE` helper used only inside explicit transaction tests.
+
+Why it changed:
+
+S02-B needs the smallest authoritative data-plane state from which later exact
+snapshots and fenced commits can be derived. Adding allocation, bootstrap, or
+runtime routing in the same checkpoint would make a partial clock usable
+before commit publication and recovery metadata are atomic.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/database/src/write_log.rs`
+- `crates/common/src/types/timestamp.rs`
+- `crates/postgres/src/lib.rs`
+- `crates/postgres/src/sql.rs`
+
+How Flarex differs:
+
+- Convex assigns unique non-dense timestamps in one in-process committer and
+  fences Postgres writers with an instance lease. Flarex needs a scope-local
+  persisted row because executor Workers are distributed and the later commit
+  feed must be dense with no sequence consumed on rollback.
+- The clock deliberately has no foreign key to `fx_control_scope`: the locator
+  is control-plane data while the authoritative clock may live in a separate
+  schema or database.
+
+Known limitations:
+
+- S02-C still must bootstrap existing scopes and atomically provision future
+  locator/clock authority. No migration DML creates clock rows.
+- S02-D/E still own fail-closed runtime resolution, stale-fence checks, trusted
+  scope guards, and pooled-connection isolation.
+- O06/O07 still own sequence advancement with OCC, commit/change publication,
+  outcomes, idempotency, and outbox in one final transaction.
+- The focused real-Postgres test passed against an isolated PostgreSQL 18
+  cluster, proving exact same-scope blocking, independent-scope progress, and
+  rollback visibility. The broader seven-test Postgres lane ran six tests
+  successfully but its unchanged scope-catalog delete test expects SQLSTATE
+  `23503` while PostgreSQL 18 reports `23001` for `ON DELETE RESTRICT`.
+- Workspace typecheck passes. Workspace test and a controlled one-worker
+  `flarex-backend` retry both time out in the unchanged backend test lane;
+  workspace build reaches every changed package and then fails on the existing
+  extensionless `../http` import in `artifactRuntime/RouteBoundary.ts` during
+  the example Vite build.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeClock.postgres.test.ts --reporter verbose
+corepack pnpm --filter @flarex/persistence-postgres test:postgres
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Add The Minimal FlarexDB Scope Locator
 
 Previous completed checkpoint: `7f4ce29` Resolve trusted app-data generation.

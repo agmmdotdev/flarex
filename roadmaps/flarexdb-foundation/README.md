@@ -1,6 +1,6 @@
 # FlarexDB Foundation Execution Plans
 
-Status: S01 and S02-A are complete; S02-B is next
+Status: S01 through S02-B are complete; S02-C is next
 
 This folder turns the accepted FlarexDB architecture into small, reviewable,
 commit-sized implementation turns. It is intentionally limited to the
@@ -151,8 +151,10 @@ commit are complete.
 
 1. `S01` freeze the legacy oracle and add the generation boundary.
 2. `S02` add trusted scope location and the authoritative data-plane scope
-   clock/generation fence. S02-A has added only the scope locator; S02-B owns
-   the clock row next. S02-B and S02-C do not wait on the host spike, but the
+   clock/generation fence. S02-A added the scope locator and S02-B added the
+   clock/read/transaction-typed lock proof without bootstrap or allocation,
+   including exact-PID contention and rollback verification on PostgreSQL 18.
+   S02-C owns clock bootstrap and future provisioning next. The
    Worker/Hyperdrive proof is a hard prerequisite for S02-D runtime routing.
 3. `S03` add the minimal stable catalog.
 4. `S04` migrate active-schema pointer authority while mirroring legacy reads.

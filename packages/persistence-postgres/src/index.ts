@@ -16,6 +16,7 @@ import type {
   ListScopeMetadataResult,
   ScopeMetadataRecord,
 } from "./scopeMetadata";
+import type { ScopeClockRecord } from "./scopeClock";
 import type {
   DocumentRevisionRecord,
   InsertDocumentRevisionInput,
@@ -141,6 +142,9 @@ export interface FlarexPersistence
   listScopeMetadata(
     input: ListScopeMetadataInput,
   ): Promise<ListScopeMetadataResult>;
+  getScopeClock(
+    scopeId: ScopeClockRecord["scopeId"],
+  ): Promise<ScopeClockRecord | null>;
   insertInvokeSessionMetadata(
     input: InsertInvokeSessionMetadataInput,
   ): Promise<InvokeSessionMetadataRecord>;
@@ -257,6 +261,10 @@ export * from "./deploymentPackages";
 export * from "./deployments";
 export * from "./scopeMetadata";
 export * from "./scopeMetadataTypes";
+export {
+  ScopeClockCorruptionError,
+  type ScopeClockRecord,
+} from "./scopeClock";
 export * from "./documents";
 export * from "./commits";
 export * from "./indexEntries";

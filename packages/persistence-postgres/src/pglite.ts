@@ -29,6 +29,7 @@ import {
   insertScopeMetadata as insertScopeMetadataWithDb,
   listScopeMetadata as listScopeMetadataWithDb,
 } from "./scopeMetadata";
+import { getScopeClock as getScopeClockWithDb } from "./scopeClock";
 import {
   getDocumentRevisionAtTs as getDocumentRevisionAtTsWithDb,
   insertDocumentRevision as insertDocumentRevisionWithDb,
@@ -171,6 +172,8 @@ export async function createPGlitePersistence(
       getScopeMetadataByDeploymentIdWithDb(drizzleDb, deploymentId),
     listScopeMetadata: (input) =>
       listScopeMetadataWithDb(drizzleDb, input),
+    getScopeClock: (scopeId) =>
+      getScopeClockWithDb(drizzleDb, scopeId),
     insertInvokeSessionMetadata: (input) =>
       insertInvokeSessionMetadataWithDb(drizzleDb, input),
     getInvokeSessionMetadata: (deploymentId, sessionId) =>

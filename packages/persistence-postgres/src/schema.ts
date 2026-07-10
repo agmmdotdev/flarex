@@ -14,7 +14,14 @@ import {
   unique,
 } from "drizzle-orm/pg-core";
 import type { ExecutionIdentity } from "flarex-protocol/auth";
-import type { ScopeId } from "flarex-protocol/storage-authority";
+import type {
+  CommitSeq,
+  OutboxSeq,
+  ScopeEpoch,
+  ScopeId,
+  StorageGeneration,
+  StorageGenerationFence,
+} from "flarex-protocol/storage-authority";
 
 import type { ScopeIsolationKind } from "./scopeMetadataTypes";
 
@@ -84,6 +91,60 @@ export const fxControlScopes = pgTable(
         and jsonb_typeof(${table.physicalLocator} -> 'schemaName') = 'string'
         and ${nonBlankText(sql`${table.physicalLocator} ->> 'schemaName'`)}
       `,
+    ),
+  ],
+);
+
+export const fxSystemScopeClocks = pgTable(
+  "fx_system_scope_clock",
+  {
+    scopeId: text("scope_id").$type<ScopeId>().primaryKey(),
+    storageGeneration: text("storage_generation")
+      .$type<StorageGeneration>()
+      .notNull(),
+    storageGenerationFence: bigint("storage_generation_fence", {
+      mode: "bigint",
+    })
+      .$type<StorageGenerationFence>()
+      .notNull()
+      .default(sql`1`),
+    lastCommitSeq: bigint("last_commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull()
+      .default(sql`0`),
+    lastOutboxSeq: bigint("last_outbox_seq", { mode: "bigint" })
+      .$type<OutboxSeq>()
+      .notNull()
+      .default(sql`0`),
+    epoch: text("epoch").$type<ScopeEpoch>().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      "fx_system_scope_clock_scope_id_non_empty_check",
+      nonBlankText(table.scopeId),
+    ),
+    check(
+      "fx_system_scope_clock_storage_generation_check",
+      sql`${table.storageGeneration} in ('legacy_v1', 'flarexdb_v1')`,
+    ),
+    check(
+      "fx_system_scope_clock_storage_generation_fence_positive_check",
+      sql`${table.storageGenerationFence} >= 1`,
+    ),
+    check(
+      "fx_system_scope_clock_last_commit_seq_non_negative_check",
+      sql`${table.lastCommitSeq} >= 0`,
+    ),
+    check(
+      "fx_system_scope_clock_last_outbox_seq_non_negative_check",
+      sql`${table.lastOutboxSeq} >= 0`,
+    ),
+    check(
+      "fx_system_scope_clock_epoch_non_empty_check",
+      nonBlankText(table.epoch),
     ),
   ],
 );
@@ -556,6 +617,7 @@ export const flarexSchema = {
   documents,
   freshnessProcessedEvents,
   fxControlScopes,
+  fxSystemScopeClocks,
   indexes,
   invokeSessionDocumentReads,
   invokeSessionTableReads,

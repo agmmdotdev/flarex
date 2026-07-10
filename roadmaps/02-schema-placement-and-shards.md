@@ -1,5 +1,62 @@
 # Schema Placement And Shards
 
+## Keep Clock Authority In The Located Data Plane
+
+Previous completed checkpoint: `7b18427` Target the Cloudflare executor
+Worker.
+
+What changed:
+
+- Added `fx_system_scope_clock` as a scope-keyed data-plane table with no
+  unconditional foreign key to the control-plane `fx_control_scope` locator.
+- Kept every read and lock predicate explicitly scoped by `scope_id`; the
+  primary key prevents collisions between two colocated scopes.
+- Required explicit storage generation and epoch while retaining only safe
+  initial defaults for fence `1` and commit/outbox counters `0`.
+- Added an upgrade proof showing pre-existing scope locator rows survive the
+  additive migration and receive no implicit clock row.
+
+Why it changed:
+
+Shared-database, schema-per-scope, and database-per-scope placement cannot all
+support a physical foreign key from the data plane back to the control plane.
+The provisioning protocol must establish locator/clock parity explicitly
+without turning one co-located development topology into the universal design.
+
+Convex references inspected:
+
+- `crates/postgres/src/lib.rs`
+- `crates/postgres/src/sql.rs`
+- `crates/common/src/persistence.rs`
+
+How Flarex differs:
+
+- Convex receives a configured nominal Postgres instance and does not resolve
+  a scope across multiple physical placement modes. Flarex locates the target
+  first, then reads authoritative generation/fence state inside that data
+  plane.
+
+Known limitations:
+
+- S02-C owns locator/clock parity and topology-specific provisioning recovery.
+- S02-E still owns transaction scope guards, shared-pool leak rejection, and
+  real-Postgres cross-scope access tests.
+- No RLS or runtime database locator is introduced by S02-B.
+- The S02-B PID-scoped lock proof passed on PostgreSQL 18. The broader package
+  Postgres lane has one unchanged catalog-test SQLSTATE mismatch: it expects
+  `23503`, while PostgreSQL 18 reports `23001` for `ON DELETE RESTRICT`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeClock.postgres.test.ts --reporter verbose
+corepack pnpm --filter @flarex/persistence-postgres test:postgres
+git diff --check
+```
+
 ## Define The Scope Physical-Locator Contract
 
 Previous completed checkpoint: `7f4ce29` Resolve trusted app-data generation.

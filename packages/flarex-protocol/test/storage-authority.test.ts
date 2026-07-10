@@ -8,6 +8,7 @@ import {
   ScopeEpochSchema,
   ScopeIdSchema,
   SnapshotTokenSchema,
+  StorageGenerationFenceSchema,
   StorageGenerationSchema,
 } from "../src/storage-authority";
 import type {
@@ -18,6 +19,7 @@ import type {
   ScopeEpoch,
   ScopeId,
   SnapshotToken,
+  StorageGenerationFence,
   StorageGeneration,
 } from "../src/storage-authority";
 
@@ -27,6 +29,12 @@ const decodeCommitSeq = Schema.decodeUnknownSync(CommitSeqSchema);
 const encodeCommitSeq = Schema.encodeSync(CommitSeqSchema);
 const decodeOutboxSeq = Schema.decodeUnknownSync(OutboxSeqSchema);
 const encodeOutboxSeq = Schema.encodeSync(OutboxSeqSchema);
+const decodeStorageGenerationFence = Schema.decodeUnknownSync(
+  StorageGenerationFenceSchema,
+);
+const encodeStorageGenerationFence = Schema.encodeSync(
+  StorageGenerationFenceSchema,
+);
 const decodeStorageGeneration = Schema.decodeUnknownSync(StorageGenerationSchema);
 const decodeLegacyV1StorageGeneration = Schema.decodeUnknownSync(
   LegacyV1StorageGenerationSchema,
@@ -46,6 +54,9 @@ describe("FlarexDB storage authority contracts", () => {
     expectTypeOf<CommitSeq>().toMatchTypeOf<bigint>();
     expectTypeOf<bigint>().not.toMatchTypeOf<CommitSeq>();
     expectTypeOf<CommitSeq>().not.toEqualTypeOf<OutboxSeq>();
+    expectTypeOf<StorageGenerationFence>().toMatchTypeOf<bigint>();
+    expectTypeOf<bigint>().not.toMatchTypeOf<StorageGenerationFence>();
+    expectTypeOf<StorageGenerationFence>().not.toEqualTypeOf<CommitSeq>();
 
     expectTypeOf<StorageGeneration>()
       .toMatchTypeOf<"legacy_v1" | "flarexdb_v1">();
@@ -121,6 +132,19 @@ describe("FlarexDB storage authority contracts", () => {
       epoch: ScopeEpochSchema.make("epoch-a"),
       commitSeq: uncheckedNegativeCommitSeq,
     })).toThrow();
+  });
+
+  it("round-trips only positive canonical storage-generation fences", () => {
+    for (const value of ["1", "9007199254740993"]) {
+      const fence = decodeStorageGenerationFence(value);
+      expect(fence).toBe(BigInt(value));
+      expect(encodeStorageGenerationFence(fence)).toBe(value);
+    }
+
+    for (const value of [0, 1, "0", "-1", "+1", "01", "1.0", " 1"]) {
+      expect(() => decodeStorageGenerationFence(value)).toThrow();
+    }
+    expect(() => StorageGenerationFenceSchema.make(0n)).toThrow();
   });
 
   it("accepts only named storage generations", () => {

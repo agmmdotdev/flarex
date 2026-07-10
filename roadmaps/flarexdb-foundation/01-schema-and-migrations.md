@@ -1,6 +1,6 @@
 # FlarexDB Schema And Migration Plan
 
-Status: S01 and S02-A complete; S02-B is next
+Status: S01 and S02-B complete; S02-C is next
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -134,7 +134,7 @@ Progress:
 - [x] S02-A — Add the minimal `fx_control_scope` locator catalog, typed
   repositories, additive migration, and constraint tests without backfill or
   runtime routing.
-- [ ] S02-B — Add the authoritative `fx_system_scope_clock` row and private
+- [x] S02-B — Add the authoritative `fx_system_scope_clock` row and private
   read/lock/rollback proof without a production sequence allocator.
 - [ ] S02-C — Bootstrap existing deployments and make future provisioning
   create scope and clock metadata atomically.
@@ -142,6 +142,15 @@ Progress:
   generation resolution and fail closed on missing metadata.
 - [ ] S02-E — Prove scope/fence isolation, including real-Postgres pooled
   connection and cross-scope rejection tests.
+
+S02-B implemented only the seven-column clock, a branded positive generation
+fence, validated scope-keyed reads, and a package-internal transaction-typed
+lock probe. Its exact-PID contention and rollback proof passed on PostgreSQL
+18. `storage_generation` is explicit rather than a DDL default; S02-C must
+write `legacy_v1` deliberately during bootstrap. The migration performs no
+backfill and adds no control-plane foreign key because the clock may live in a
+separate data-plane database. It also adds no allocator or retained-history
+floor; O06 owns allocation and S08 owns `oldest_available_commit_seq`.
 
 S02-B and S02-C are deliberately host-neutral. They add and bootstrap trusted
 database authority without composing a production runtime. Before S02-D, a

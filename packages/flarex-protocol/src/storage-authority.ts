@@ -8,6 +8,10 @@ const NonNegativeBigInt = Schema.BigInt.check(
   Schema.isGreaterThanOrEqualToBigInt(0n),
 );
 
+const PositiveBigInt = Schema.BigInt.check(
+  Schema.isGreaterThanOrEqualToBigInt(1n),
+);
+
 const CanonicalUnsignedBigIntFromString = CanonicalUnsignedDecimalString.pipe(
   Schema.decodeTo(NonNegativeBigInt, SchemaTransformation.bigintFromString),
 );
@@ -31,6 +35,17 @@ export const OutboxSeqSchema = CanonicalUnsignedBigIntFromString.pipe(
   Schema.brand("FlarexDB/OutboxSeq"),
 );
 export type OutboxSeq = typeof OutboxSeqSchema.Type;
+
+const CanonicalPositiveBigIntFromString = CanonicalUnsignedDecimalString.pipe(
+  Schema.decodeTo(PositiveBigInt, SchemaTransformation.bigintFromString),
+);
+
+export const StorageGenerationFenceSchema =
+  CanonicalPositiveBigIntFromString.pipe(
+    Schema.brand("FlarexDB/StorageGenerationFence"),
+  );
+export type StorageGenerationFence =
+  typeof StorageGenerationFenceSchema.Type;
 
 export const LegacyV1StorageGenerationSchema = Schema.Literal("legacy_v1").pipe(
   Schema.brand("FlarexDB/StorageGeneration"),

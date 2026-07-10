@@ -127,13 +127,6 @@
       "when": 1783675633380,
       "tag": "0017_wooden_morlun",
       "breakpoints": true
-    },
-    {
-      "idx": 18,
-      "version": "7",
-      "when": 1783678705893,
-      "tag": "0018_sleepy_jimmy_woo",
-      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,94 @@
 # Postgres Executor
 
+## Add The Scope-Clock Read And Lock Proof
+
+Previous completed checkpoint: `7b18427` Target the Cloudflare executor
+Worker.
+
+What changed:
+
+- Added branded positive storage-generation fences and the seven-column
+  `fx_system_scope_clock` Drizzle schema with true bigint counters.
+- Generated additive migration `0018_sleepy_jimmy_woo.sql`; it contains no
+  backfill, control-plane foreign key, generation default, retention floor, or
+  allocator.
+- Added validated clock decoding and a root persistence read to both PGlite and
+  node-postgres. Unsupported generations, nonpositive fences, negative
+  counters, blank epochs, and invalid timestamps fail as typed corruption.
+- Added a package-internal, transaction-typed `SELECT ... FOR UPDATE` helper
+  for explicit transaction tests only; the ordinary database handle fails a
+  compile-time assignability assertion.
+- Added fresh/repeated migration inventory, a pinned through-0017 upgrade
+  fixture proving existing scopes receive no clock, exact bigint and SQL
+  constraint coverage, PGlite rollback proof, and a real-Postgres blocking
+  test.
+
+Why it changed:
+
+The trusted executor will eventually derive exact snapshots and commit
+authority from this row. S02-B establishes storage and locking behavior first
+while preventing any caller from advancing a counter before OCC, outcome,
+commit/change, and outbox publication can be atomic.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/database/src/write_log.rs`
+- `crates/common/src/persistence.rs`
+- `crates/common/src/types/timestamp.rs`
+- `crates/postgres/src/lib.rs`
+- `crates/postgres/src/sql.rs`
+
+How Flarex differs:
+
+- Convex's leader committer assigns unique, non-dense timestamps and tracks
+  pending writes in memory. Flarex persists one scope-local clock because
+  Cloudflare executor Workers are distributed and the planned sync feed needs
+  dense sequences with rollback consuming nothing.
+- Convex uses one nominal Postgres instance and an instance lease. Flarex's
+  data-plane clock has no control-plane FK so database-per-scope placement
+  remains possible.
+
+Known limitations:
+
+- Existing scopes have no clock until S02-C backfills them. Missing reads still
+  return `null`; S02-D owns fail-closed runtime resolution.
+- There is no production epoch format, allocator, counter update, generation
+  switch, rollover, stale-fence validator, retained-history floor, or runtime
+  consumer.
+- PGlite proves rollback but not concurrent lock exclusion. The focused
+  PID-scoped blocking test passed against an isolated PostgreSQL 18 cluster,
+  proving same-scope exclusion, independent-scope progress, and visibility of
+  the original clock after rollback. The broader seven-test Postgres lane ran
+  six tests successfully; its unchanged catalog test expects SQLSTATE `23503`
+  while PostgreSQL 18 returns `23001` for `ON DELETE RESTRICT`.
+- The Worker/Hyperdrive host remains a separate proof required before S02-D;
+  this checkpoint is host-neutral.
+- Workspace typecheck passes. Workspace test and a controlled one-worker
+  `flarex-backend` retry both time out in the unchanged backend test lane;
+  workspace build reaches every changed package and then fails on the existing
+  extensionless `../http` import in `artifactRuntime/RouteBoundary.ts` during
+  the example Vite build.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeClock.postgres.test.ts --reporter verbose
+corepack pnpm --filter @flarex/persistence-postgres test:postgres
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm build
+git diff --check
+```
+
 ## Target A Dedicated Cloudflare Executor Worker
 
 Previous completed checkpoint: `b581f1a` Add the FlarexDB scope locator.

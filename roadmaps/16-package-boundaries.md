@@ -1,5 +1,63 @@
 # Package Boundaries
 
+## Keep Scope-Clock Mutation Below The Public Persistence Port
+
+Previous completed checkpoint: `7b18427` Target the Cloudflare executor
+Worker.
+
+What changed:
+
+- Added `StorageGenerationFence` beside the existing protocol-owned authority
+  brands so a fence cannot be mixed with commit or outbox counters.
+- Exposed only `getScopeClock(scopeId)` and its validated record/corruption
+  contract through the root `FlarexPersistence` port.
+- Kept the `FOR UPDATE` helper inside the non-root-exported `scopeClock.ts`
+  module and restricted its parameter to a transaction-only capability; a
+  compile-time negative assertion rejects an ordinary database handle. No
+  insert, bootstrap, lock callback, update, generation switch, or sequence
+  allocator was added to the public persistence surface.
+- Composed the same read through PGlite and node-postgres adapters without
+  adding executor, HTTP, Worker, SDK, Payload, or Medusa APIs.
+
+Why it changed:
+
+S02-B must make clock state readable without advertising an incomplete commit
+capability. Even a transaction-typed row lock is only one part of the later
+atomic commit primitive, so it remains internal until OCC, publication,
+outcomes, and outbox writes can be composed safely.
+
+Convex references inspected:
+
+- `crates/common/src/types/timestamp.rs`
+- `crates/common/src/persistence.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex has distinct Rust timestamp/frontier types inside one backend.
+  Flarex carries branded bigint values across TypeScript persistence adapters
+  while withholding mutation authority until the complete commit capability
+  exists.
+
+Known limitations:
+
+- S02-C will add trusted bootstrap/provisioning composition, and O01/O06 own
+  the eventual narrow clock-store and commit-executor capabilities.
+- The package-internal transaction capability and lock helper are proof seams,
+  not the final public API.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeClock.postgres.test.ts --reporter verbose
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Set The Hosted Executor Worker Boundary
 
 Previous completed checkpoint: `b581f1a` Add the FlarexDB scope locator.

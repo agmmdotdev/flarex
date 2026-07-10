@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { describe, expect, it } from "vitest";
 import { executionIdentityFingerprint } from "flarex-protocol/auth";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 
 import {
   DeploymentMetadataAlreadyExistsError,
@@ -59,6 +60,7 @@ describe("createPGlitePersistence", () => {
       "documents",
       "freshness_processed_events",
       "fx_control_scope",
+      "fx_system_scope_clock",
       "indexes",
       "invoke_session_document_reads",
       "invoke_session_document_writes",
@@ -143,6 +145,75 @@ describe("createPGlitePersistence", () => {
           "deployment_before_scope_catalog",
         ),
       ).resolves.toBeNull();
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("upgrades existing scopes without backfilling clock authority", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-clock-upgrade-"));
+    const previousMigrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const previousJournal = resolve(
+      packageRoot,
+      "test/fixtures/drizzle-through-0017-journal.json",
+    );
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, previousMigrationsFolder, {
+        recursive: true,
+      });
+      await copyFile(
+        previousJournal,
+        resolve(previousMigrationsFolder, "meta/_journal.json"),
+      );
+      const previousPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder: previousMigrationsFolder,
+      });
+      await previousPersistence.migrate();
+      await previousPersistence.insertDeploymentMetadata({
+        deploymentId: "deployment_before_scope_clock",
+        projectId: "project_before_scope_clock",
+      });
+      const scopeId = ScopeIdSchema.make("scope_before_scope_clock");
+      await previousPersistence.insertScopeMetadata({
+        scopeId,
+        deploymentId: "deployment_before_scope_clock",
+        physicalLocator: {
+          kind: "shared_database",
+          databaseKey: "primary",
+          schemaName: "public",
+        },
+      });
+      await expect(
+        previousPersistence.query(
+          `select scope_id from fx_system_scope_clock limit 1`,
+        ),
+      ).rejects.toThrow();
+
+      const currentPersistence = await createPGlitePersistence({ db });
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(
+        currentPersistence.getScopeMetadata(scopeId),
+      ).resolves.toMatchObject({
+        scopeId,
+        deploymentId: "deployment_before_scope_clock",
+      });
+      await expect(
+        currentPersistence.getScopeClock(scopeId),
+      ).resolves.toBeNull();
+      const clockCount = await currentPersistence.query<{ count: string }>(
+        `select count(*)::text as count from fx_system_scope_clock`,
+      );
+      expect(clockCount.rows).toEqual([{ count: "0" }]);
     } finally {
       try {
         await db.close();
