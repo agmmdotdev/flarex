@@ -1,5 +1,60 @@
 # Schema Placement And Shards
 
+## Prove Only The Co-Located Provisioning Topology
+
+Previous completed checkpoint: `05d10f5` Add the FlarexDB scope clock.
+
+What changed:
+
+- Added an initial-authority provisioner whose accepted locator is statically
+  and dynamically restricted to `shared_database`.
+- Copied the trusted locator into the provisioner at construction so later
+  caller mutation cannot redirect an in-flight ensure operation.
+- Created deployment, locator, and clock rows in one database transaction and
+  returned typed `created`, `created_scope_and_clock`, or
+  `already_provisioned` outcomes.
+- Rejected immutable locator mismatches and skipped both control-scope and
+  orphan-clock ID collisions before publishing a new locator.
+
+Why it changed:
+
+The current Drizzle adapter has one unqualified schema and one pool. It can
+prove ACID creation only when all three rows are co-located. The stored
+`schema_per_scope` and `database_per_scope` locator variants are contracts,
+not implemented routers; C1 must not use a shared-schema test as evidence for
+those topologies.
+
+Convex references inspected:
+
+- `crates/model/src/lib.rs`
+- `crates/model/src/database_globals/mod.rs`
+- `crates/common/src/bootstrap_model/schema_state.rs`
+
+How Flarex differs:
+
+- Convex starts from one configured nominal persistence instance. Flarex must
+  eventually publish control location and reconcile a separately located
+  clock before declaring a split-topology scope ready.
+
+Known limitations:
+
+- S02-C2 bootstrap is shared-database-only until a trusted placement provider
+  and located data-plane inventory exist. It must use a separate explicit
+  repair capability for an inventoried locator missing its initial clock.
+- S02-C3 must define atomic readiness for split topologies: a missing clock is
+  incomplete and fail-closed, not silently legacy authority.
+- No schema-qualified adapter, database resolver, RLS, or pooled-scope proof is
+  included here.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioning.test.ts
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioning.postgres.test.ts --reporter verbose
+git diff --check
+```
+
 ## Keep Clock Authority In The Located Data Plane
 
 Previous completed checkpoint: `7b18427` Target the Cloudflare executor

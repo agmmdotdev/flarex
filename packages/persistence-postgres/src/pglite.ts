@@ -31,6 +31,11 @@ import {
 } from "./scopeMetadata";
 import { getScopeClock as getScopeClockWithDb } from "./scopeClock";
 import {
+  createSharedScopeAuthorityProvisioner,
+  type SharedScopeAuthorityProvisioner,
+  type SharedScopeAuthorityProvisionerOptions,
+} from "./scopeAuthorityProvisioning";
+import {
   getDocumentRevisionAtTs as getDocumentRevisionAtTsWithDb,
   insertDocumentRevision as insertDocumentRevisionWithDb,
   listDocumentsInTableAtTs as listDocumentsInTableAtTsWithDb,
@@ -128,6 +133,30 @@ export interface PGlitePersistenceOptions {
 export interface PGliteFlarexPersistence extends FlarexPersistence {
   drizzle: PgliteDatabase<typeof flarexSchema>;
 }
+
+export function createPGliteSharedScopeAuthorityProvisioner(
+  persistence: Pick<PGliteFlarexPersistence, "drizzle">,
+  options: SharedScopeAuthorityProvisionerOptions,
+): SharedScopeAuthorityProvisioner {
+  return createSharedScopeAuthorityProvisioner(
+    persistence.drizzle,
+    options,
+  );
+}
+
+export {
+  InvalidGeneratedScopeAuthorityIdError,
+  ScopeAuthorityIdGenerationExhaustedError,
+  SharedScopeAuthorityConflictError,
+  SharedScopeAuthorityProvisioningStatuses,
+  UnsupportedScopeAuthorityProvisioningTopologyError,
+  type EnsureSharedScopeAuthorityInput,
+  type EnsureSharedScopeAuthorityResult,
+  type SharedScopeAuthorityConflict,
+  type SharedScopeAuthorityProvisioner,
+  type SharedScopeAuthorityProvisionerOptions,
+  type SharedScopeAuthorityProvisioningStatus,
+} from "./scopeAuthorityProvisioning";
 
 export async function createPGlitePersistence(
   options: PGlitePersistenceOptions = {},

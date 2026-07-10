@@ -1,6 +1,6 @@
 # FlarexDB Schema And Migration Plan
 
-Status: S01 and S02-B complete; S02-C is next
+Status: S01 through S02-B and S02-C1 complete; S02-C2 is next
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -137,7 +137,11 @@ Progress:
 - [x] S02-B — Add the authoritative `fx_system_scope_clock` row and private
   read/lock/rollback proof without a production sequence allocator.
 - [ ] S02-C — Bootstrap existing deployments and make future provisioning
-  create scope and clock metadata atomically.
+  establish a validated locator/clock authority pair.
+  - [x] S02-C1 — Add the shared-database atomic initial-authority primitive.
+  - [ ] S02-C2 — Add bounded resumable bootstrap and parity inventory.
+  - [ ] S02-C3 — Wire future creation and add explicit split-topology
+    recovery/readiness semantics.
 - [ ] S02-D — Replace the S01 compatibility alias with trusted scope/clock
   generation resolution and fail closed on missing metadata.
 - [ ] S02-E — Prove scope/fence isolation, including real-Postgres pooled
@@ -152,6 +156,24 @@ backfill and adds no control-plane foreign key because the clock may live in a
 separate data-plane database. It also adds no allocator or retained-history
 floor; O06 owns allocation and S08 owns `oldest_available_commit_seq`.
 
+S02-C1 now provides one server-only provisioner for the current co-located
+`shared_database` lane. It atomically ensures deployment, locator, and clock;
+explicitly initializes `legacy_v1`, fence `1`, and both counters at `0`; and
+returns typed created/existing outcomes without overwriting an advanced clock.
+Normal provisioning fails closed on an existing scope missing its clock; only
+C2 may expose an explicit inventoried bootstrap repair. Production creation
+uses `scope_<lowercase uuid-v4>` and
+`epoch_<lowercase uuid-v4>` identifiers generated behind the trusted factory.
+The general brands remain non-empty strings for controlled imports and tests.
+
+The earlier word `atomically` is now topology-sensitive. Co-located C1 rows use
+one SQL transaction. Schema-per-scope needs a qualified same-connection proof,
+and database-per-scope needs durable, idempotent readiness reconciliation;
+neither may be claimed from the shared-schema tests. C2 closes the existing-row
+inventory for the supported lane. C3 fences current creation and owns the
+split-topology protocol. A locator without a valid clock is incomplete and
+must fail closed in S02-D, never imply `legacy_v1`.
+
 S02-B and S02-C are deliberately host-neutral. They add and bootstrap trusted
 database authority without composing a production runtime. Before S02-D, a
 separate proof must bundle the framework-neutral executor into the dedicated
@@ -164,8 +186,9 @@ or repositories.
 S02-A fixed the production bootstrap ID convention before any rows are
 backfilled: the trusted control plane will issue `scope_<uuid-v4>` identifiers,
 using lowercase RFC 4122 UUID text. The value is opaque and stable; it is never
-derived from deployment, project, tenant, topology, or database names. S02-C
-owns generation and idempotent insertion under the unique deployment mapping.
+derived from deployment, project, tenant, topology, or database names. S02-C1
+now also fixes initial epochs as opaque `epoch_<uuid-v4>` values and owns
+generation plus idempotent insertion under the unique deployment mapping.
 The repository continues to accept the shared branded non-empty `ScopeId` so
 tests and controlled imports are not coupled to one generator.
 

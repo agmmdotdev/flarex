@@ -18,6 +18,11 @@ export type ScopePhysicalLocator = {
   };
 }[ScopeIsolationKind];
 
+export type SharedDatabaseScopePhysicalLocator = Extract<
+  ScopePhysicalLocator,
+  { readonly kind: "shared_database" }
+>;
+
 export type ScopePlacement = {
   [Kind in ScopeIsolationKind]: {
     readonly isolationKind: Kind;

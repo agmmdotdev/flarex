@@ -1,5 +1,82 @@
 # Backend Data Model And Durable Object Shape
 
+## Add The Shared-Database Initial Authority Primitive
+
+Previous completed checkpoint: `05d10f5` Add the FlarexDB scope clock.
+
+What changed:
+
+- Added a server-only shared-database provisioner that creates a transitional
+  deployment row, `fx_control_scope` locator, and `fx_system_scope_clock` in
+  one Drizzle transaction.
+- Fixed new production authority identifiers as lowercase RFC 4122 UUID-v4
+  text with `scope_` and `epoch_` prefixes. Per-call input contains only the
+  expected deployment/project; the trusted provisioner owns the locator and
+  UUID source.
+- Wrote `legacy_v1`, generation fence `1`, commit sequence `0`, and outbox
+  sequence `0` explicitly. No caller can select or advance those facts.
+- Made retries converge on persisted authority, reject project/locator
+  conflicts, avoid scope/clock ID collisions, preserve an already advanced
+  valid clock unchanged, and fail closed when an existing scope has lost its
+  clock. Only C2's explicit bootstrap repair may fill that partial state.
+
+Why it changed:
+
+S02-C needs one proven creation primitive before it can scan existing
+deployments or replace all future creation paths. Starting with the one
+topology the current adapter actually supports gives C2 a safe row-level
+operation without pretending separate Postgres databases share an ACID
+transaction.
+
+Convex references inspected:
+
+- `crates/model/src/lib.rs`
+- `crates/model/src/database_globals/mod.rs`
+- `crates/application/src/lib.rs`
+- `crates/common/src/bootstrap_model/schema_state.rs`
+
+How Flarex differs:
+
+- Convex initializes system tables and immutable storage configuration in one
+  configured persistence transaction. Flarex must additionally mint a stable
+  scope/epoch and pair control-plane location with data-plane clock authority.
+- C1 supports only co-located `shared_database` rows. Schema-per-scope and
+  database-per-scope require explicit topology composition and recovery state,
+  not a false cross-database transaction.
+
+Known limitations:
+
+- S02-C2 still owns bounded existing-deployment bootstrap and parity inventory.
+- S02-C3 still owns future executor creation wiring and cross-topology recovery.
+- No runtime generation resolution, sequence allocation, OCC, schema catalog,
+  physical database creation, or scope-pool guard is introduced.
+- The focused PostgreSQL 18 provisioning tests pass. The broader twelve-test
+  Postgres lane passes eleven tests and retains the pre-existing `ON DELETE
+  RESTRICT` SQLSTATE mismatch (`23503` expected, `23001` received).
+- `flarex-backend` and `@flarex/backend` typecheck/build pass. The unchanged
+  broad `flarex-backend` test lane again produced no output and timed out at
+  five minutes; its verified leftover Vitest process tree was stopped.
+- Workspace typecheck passes. Workspace build reaches every changed package
+  and then fails in the unchanged example Vite build on the extensionless
+  `artifactRuntime/RouteBoundary.ts` import of `../http`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioning.test.ts
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioning.postgres.test.ts --reporter verbose
+corepack pnpm --filter @flarex/persistence-postgres test:postgres
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm typecheck
+corepack pnpm build
+git diff --check
+```
+
 ## Add The Authoritative Data-Plane Scope Clock
 
 Previous completed checkpoint: `7b18427` Target the Cloudflare executor

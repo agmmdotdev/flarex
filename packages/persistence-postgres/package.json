@@ -18,7 +18,7 @@
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "test:postgres": "vitest run test/postgres.test.ts test/postgresConcurrency.test.ts test/scopeClock.postgres.test.ts"
+    "test:postgres": "vitest run test/postgres.test.ts test/postgresConcurrency.test.ts test/scopeClock.postgres.test.ts test/scopeAuthorityProvisioning.postgres.test.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.14",

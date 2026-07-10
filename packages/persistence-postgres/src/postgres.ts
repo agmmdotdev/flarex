@@ -29,6 +29,11 @@ import {
 } from "./scopeMetadata";
 import { getScopeClock as getScopeClockWithDb } from "./scopeClock";
 import {
+  createSharedScopeAuthorityProvisioner,
+  type SharedScopeAuthorityProvisioner,
+  type SharedScopeAuthorityProvisionerOptions,
+} from "./scopeAuthorityProvisioning";
+import {
   getDocumentRevisionAtTs as getDocumentRevisionAtTsWithDb,
   insertDocumentRevision as insertDocumentRevisionWithDb,
   listDocumentsInTableAtTs as listDocumentsInTableAtTsWithDb,
@@ -114,6 +119,30 @@ export interface PostgresFlarexPersistence extends FlarexPersistence {
   pool: Pool;
   close(): Promise<void>;
 }
+
+export function createPostgresSharedScopeAuthorityProvisioner(
+  persistence: Pick<PostgresFlarexPersistence, "drizzle">,
+  options: SharedScopeAuthorityProvisionerOptions,
+): SharedScopeAuthorityProvisioner {
+  return createSharedScopeAuthorityProvisioner(
+    persistence.drizzle,
+    options,
+  );
+}
+
+export {
+  InvalidGeneratedScopeAuthorityIdError,
+  ScopeAuthorityIdGenerationExhaustedError,
+  SharedScopeAuthorityConflictError,
+  SharedScopeAuthorityProvisioningStatuses,
+  UnsupportedScopeAuthorityProvisioningTopologyError,
+  type EnsureSharedScopeAuthorityInput,
+  type EnsureSharedScopeAuthorityResult,
+  type SharedScopeAuthorityConflict,
+  type SharedScopeAuthorityProvisioner,
+  type SharedScopeAuthorityProvisionerOptions,
+  type SharedScopeAuthorityProvisioningStatus,
+} from "./scopeAuthorityProvisioning";
 
 export async function createPostgresPersistence(
   options: PostgresPersistenceOptions = {},

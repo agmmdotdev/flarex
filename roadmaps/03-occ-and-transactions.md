@@ -1,5 +1,57 @@
 # OCC And Transactions
 
+## Keep Provisioning Atomic Without Creating A Commit Allocator
+
+Previous completed checkpoint: `05d10f5` Add the FlarexDB scope clock.
+
+What changed:
+
+- Added one short Drizzle transaction that can ensure the deployment, stable
+  locator, and initial clock together for the co-located shared topology.
+- Made `INSERT ... ON CONFLICT DO NOTHING` recovery read back and compare
+  authoritative project/locator state instead of treating every conflict as
+  success or overwriting the winner.
+- Proved real-Postgres concurrent provisioners return one scope/epoch pair and
+  one row in each table, and that invalid clock initialization rolls back a
+  freshly inserted deployment and locator.
+- Preserved existing clock generation, epoch, fence, and counters on retry;
+  provisioning has no update or advance path.
+
+Why it changed:
+
+Bootstrap must be retry-safe before missing authority can become a fatal
+runtime state. This transaction is initialization only: it does not validate
+application reads, allocate a commit sequence, publish a commit atom, or
+establish the later O06 lock order.
+
+Convex references inspected:
+
+- `crates/model/src/lib.rs`
+- `crates/model/src/database_globals/mod.rs`
+- `crates/application/src/lib.rs`
+
+How Flarex differs:
+
+- Convex performs idempotent initialization inside its one database. Flarex
+  needs a later recovery state machine when locator and clock live in separate
+  physical databases.
+
+Known limitations:
+
+- The primitive is unreachable from executor deployment creation until C3.
+- C2 still must prove resumable inventory and parity under ongoing creation.
+- O06/O07 remain the only owners of sequence allocation, OCC validation,
+  result/idempotency, commit/change, and outbox publication.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioning.test.ts
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioning.postgres.test.ts --reporter verbose
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+git diff --check
+```
+
 ## Prove Scope-Clock Locking Without An Allocator
 
 Previous completed checkpoint: `7b18427` Target the Cloudflare executor

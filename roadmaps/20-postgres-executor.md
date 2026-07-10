@@ -1,5 +1,77 @@
 # Postgres Executor
 
+## Add The Shared-Database Scope Provisioner
+
+Previous completed checkpoint: `05d10f5` Add the FlarexDB scope clock.
+
+What changed:
+
+- Added framework-neutral shared-database provisioning over concrete PGlite
+  and node-postgres Drizzle transactions.
+- Added production `scope_<uuid-v4>` and `epoch_<uuid-v4>` generation while
+  keeping the general `ScopeId`/`ScopeEpoch` brands compatible with controlled
+  imports and tests.
+- Added typed idempotent outcomes and conflicts, bounded generated scope-ID
+  collision retries, orphan-clock collision avoidance, fail-closed detection
+  of existing scopes missing clocks, and immutable advanced-clock preservation.
+- Added 13 PGlite cases plus five focused PostgreSQL 18 concurrency,
+  response-loss, rollback, and conflict cases.
+
+Why it changed:
+
+The first S02-C slice establishes the exact per-deployment operation that a
+later resumable bootstrap and future-creation integration can reuse. It remains
+outside `/invoke/*` and storage-generation routing until the full S02-C
+inventory and hosted Worker gates close.
+
+Convex references inspected:
+
+- `crates/model/src/lib.rs`
+- `crates/model/src/database_globals/mod.rs`
+- `crates/application/src/lib.rs`
+- `crates/common/src/bootstrap_model/schema_state.rs`
+
+How Flarex differs:
+
+- Convex's initialization transaction does not resolve a control-plane
+  physical locator. Flarex C1 deliberately supports only the current
+  co-located shared database and defers readiness reconciliation across
+  schemas/databases.
+
+Known limitations:
+
+- This is a factory on `/postgres` and `/pglite`, not a runtime executor port.
+- Existing deployments are not scanned yet and current `ensureDeployment`
+  still creates legacy deployment metadata without calling this primitive.
+- Split topology provisioning, Worker-safe persistence, and runtime
+  fail-closed resolution remain C3/S02-D work.
+- The focused real-Postgres file passes; the full lane remains at the existing
+  PostgreSQL 18 `23001` versus expected `23503` catalog assertion.
+- Both backend packages typecheck and build. The unchanged broad
+  `flarex-backend` test command again timed out after five minutes without
+  output; its verified stale Vitest process tree was stopped.
+- Workspace typecheck passes. Workspace build reaches the changed persistence
+  package and fails later in the unchanged example Vite build on the existing
+  extensionless `artifactRuntime/RouteBoundary.ts` import of `../http`.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioning.test.ts
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityProvisioning.postgres.test.ts --reporter verbose
+corepack pnpm --filter @flarex/persistence-postgres test:postgres
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm typecheck
+corepack pnpm build
+git diff --check
+```
+
 ## Add The Scope-Clock Read And Lock Proof
 
 Previous completed checkpoint: `7b18427` Target the Cloudflare executor

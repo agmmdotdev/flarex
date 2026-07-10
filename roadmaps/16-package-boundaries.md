@@ -1,5 +1,62 @@
 # Package Boundaries
 
+## Expose Provisioning Only Through Server Adapter Subpaths
+
+Previous completed checkpoint: `05d10f5` Add the FlarexDB scope clock.
+
+What changed:
+
+- Added one high-level `SharedScopeAuthorityProvisioner` factory to the
+  server-only `@flarex/persistence-postgres/postgres` and `/pglite` subpaths.
+- Kept `FlarexPersistence` unchanged: it still exposes the validated clock
+  read but no provision, bootstrap, initial-clock insert, lock, update, or
+  sequence-allocation method.
+- Closed each provisioner over the trusted shared locator and UUID source.
+  Individual ensure calls accept only deployment and expected project IDs.
+- Kept the transaction function and direct clock insertion inside the
+  package-private provisioning module.
+
+Why it changed:
+
+C1 is trusted control-plane infrastructure, not an app-data persistence method
+and not a Dynamic Worker capability. A separate provisioner can later be
+injected into bootstrap and executor composition without widening the broad
+legacy store or exposing raw database mutation.
+
+Convex references inspected:
+
+- `crates/model/src/lib.rs`
+- `crates/application/src/lib.rs`
+- `crates/model/src/database_globals/mod.rs`
+
+How Flarex differs:
+
+- Convex initializes inside its backend model layer. Flarex keeps the shared
+  primitive host-neutral but exports factories only from server-side adapters
+  because the eventual Cloudflare Worker and Node bootstrap have different
+  composition responsibilities.
+
+Known limitations:
+
+- No executor, backend Worker, registry, CLI, HTTP, SDK, Payload, or Medusa
+  package consumes the provisioner yet.
+- C2/C3 must introduce narrow composition ports rather than adding candidates
+  or clock mutation to public request types.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-backend test
+corepack pnpm --filter flarex-backend build
+corepack pnpm --filter @flarex/backend typecheck
+corepack pnpm --filter @flarex/backend build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Keep Scope-Clock Mutation Below The Public Persistence Port
 
 Previous completed checkpoint: `7b18427` Target the Cloudflare executor
