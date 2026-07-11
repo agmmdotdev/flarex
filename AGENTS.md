@@ -42,6 +42,39 @@ explicitly document where Cloudflare Durable Objects require a different design.
 
 Do not build a generic CRUD server and call it Convex-like.
 
+## Replacement Design Authority
+
+Flarex is in an intentional replacement migration. Do not confuse the currently
+implemented prototype or historical roadmap checkpoints with the accepted
+future architecture, and do not preserve an old design merely because code for
+it already exists. Agents are authorized and expected to make substantial
+schema, executor, and runtime changes when a validated replacement slice calls
+for them.
+
+Use these sources in this order when deciding the future design:
+
+1. `design-notes/flarex-db-accepted-design.md` for accepted architecture,
+   trust boundaries, and migration rules.
+2. `design-notes/flarex-internal-db-schema.md` for the proposed logical schema,
+   physical-type policy, and unresolved risks.
+3. The focused replacement plans under `roadmaps/flarexdb-foundation/` plus
+   `roadmaps/20-postgres-executor.md` for executable slice order and gates.
+4. Current code and older roadmap checkpoints only for compatibility inventory,
+   migration inputs, regression tests, and provenance.
+
+Read status labels literally. `Implemented compatibility baseline` is not the
+same as `accepted target`; deferred designs are not active requirements. If an
+older note or implementation conflicts with the accepted replacement design,
+follow the accepted design and update or explicitly mark the stale statement as
+superseded. Never silently combine legacy Durable Object storage assumptions
+with the Postgres-authoritative replacement.
+
+The replacement remains compatibility-first: introduce a storage generation,
+backfill, verify invariants, compare reads, cut over by scope, and retain a
+rollback switch until the declared correctness gates pass. "Do not be afraid to
+change the old design" does not authorize deleting the compatibility path
+before those gates pass.
+
 ## Convex-First System Rule
 
 Flarex must be developed Convex-first across the whole system, not only the

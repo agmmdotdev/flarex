@@ -155,6 +155,64 @@ homogeneous Medusa schema and module set. Projects with staggered Medusa
 versions, custom modules, or custom repository/provider behavior should use a
 per-project schema or database until a safe compiled shared strategy is proven.
 
+## Physical Identifier And Index Scalability Policy
+
+This policy applies to the replacement FlarexDB schema. Existing prefixed-text
+identifiers and legacy Durable Object keys are migration inputs, not the future
+physical-type authority.
+
+- Keep branded public identifiers at API and protocol boundaries, but do not
+  repeat strings such as `scope_<uuid>` through every hot Postgres primary key,
+  foreign key, and secondary index. The shared-database replacement stores the
+  trusted scope and epoch components as native `uuid` values and converts at the
+  trusted boundary.
+- Keep app document IDs opaque and table-qualified in the developer API. The
+  physical form must contain a compact table identity plus a 16-byte internal
+  identity. UUIDv7 is a candidate internal generator when time-ordered insertion
+  materially improves the measured Postgres workload, but it is not accepted
+  merely because lexical ID order looks convenient. A final choice must compare
+  it with Convex's portable table-number plus 16-byte internal-ID model and name
+  the compatibility, timestamp-disclosure, and ordering differences.
+- Prefer compact numeric physical identities for hot stable catalog keys such
+  as table, index, relation, and constraint identities. Public or globally
+  portable catalog references may additionally carry opaque UUIDs; those do not
+  need to be repeated in every data-plane index.
+- Preserve adapter-owned identity semantics. Payload collection IDs and Medusa
+  module IDs are compiled from their actual schema/manifest. Do not coerce them
+  all to UUID. If a wide external ID would dominate hot indexes, keep the
+  external unique key and add a compact trusted surrogate.
+- Continue using scope-local `bigint` commit and outbox sequences. IDs never
+  replace `commit_seq`, `outbox_seq`, or explicit business ordering.
+- Every ordered pagination index ends in a unique deterministic tie-breaker,
+  normally the compact row identity. Queries must use explicit `ORDER BY`; heap
+  or UUID insertion order is not an API contract.
+- Every index must correspond to a named read, uniqueness, OCC, delivery, or
+  recovery path. Avoid overlapping indexes unless query plans prove both are
+  necessary. Partial indexes, BRIN, hash partitioning, and scope promotion are
+  measured physical options, not unconditional v1 requirements.
+- The ordered-key codec has an enforced maximum encoded size. Equality hashes
+  cannot substitute for ordered bytes in range scans, and oversized compound
+  keys must fail deterministically rather than discover the B-tree tuple limit
+  in production.
+
+The migration must preserve a reversible mapping from legacy public IDs to the
+new compact physical representation. Public ID stability is required even when
+the underlying storage type changes.
+
+Postgres references for this policy:
+
+- [UUID type](https://www.postgresql.org/docs/current/datatype-uuid.html) and
+  [UUID functions](https://www.postgresql.org/docs/current/functions-uuid.html)
+  for native UUID storage and the time-ordered UUIDv7 candidate;
+- [multicolumn indexes](https://www.postgresql.org/docs/current/indexes-multicolumn.html)
+  and [indexes and ordering](https://www.postgresql.org/docs/current/indexes-ordering.html)
+  for equality prefixes, range columns, deterministic suffixes, and backward
+  B-tree scans;
+- [B-tree indexes](https://www.postgresql.org/docs/current/btree.html) for index
+  tuple-size constraints and
+  [BRIN indexes](https://www.postgresql.org/docs/current/brin.html) for measured
+  append-correlated history/feed optimization.
+
 ## Catalog And Schema Evolution
 
 Catalog identity must survive schema activation. Separate stable identities

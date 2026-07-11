@@ -136,6 +136,54 @@ table.
   not depend on one global sequence being dense or meaningful across unrelated
   deployments.
 
+## Normative Physical Identifier And Index Policy
+
+The SQL blocks in this document are logical DDL sketches. Earlier sketches use
+`text` broadly for convenience; those declarations are not an accepted mandate
+for replacement migrations. Concrete DDL must follow this section and the
+accepted architecture's physical identifier policy.
+
+```text
+trusted authority:
+  scope_id, epoch               -> native uuid in shared Postgres tables
+  branded scope_/epoch_ strings -> API/protocol representation only
+
+ordered transaction identity:
+  commit_seq, outbox_seq        -> scope-local bigint
+
+hot catalog identity:
+  table_id, index_id,
+  relation_id, constraint_id    -> compact trusted numeric physical key
+  public/global reference       -> optional separate opaque uuid
+
+Flarex app document identity:
+  developer representation     -> opaque and table-qualified
+  physical representation      -> compact table key + 16-byte internal ID
+  generator                    -> unresolved Convex-port vs measured UUIDv7
+
+adapter-owned identity:
+  Payload/Medusa IDs            -> compiled from the real adapter schema
+  wide external identity       -> external unique key plus compact surrogate
+                                  when required by hot index economics
+```
+
+UUIDv7 is not the transaction cursor and must not become implicit business
+ordering. If selected for Flarex-generated internal IDs, its time disclosure,
+clock behavior, insertion locality, and divergence from Convex must be recorded
+and benchmarked first. Payload and Medusa are not forced into that choice.
+
+Index column order follows the actual access path: equality authority prefixes
+first, the range/order column next, and a unique row identity last. Thus stable
+updated-row pagination is `(scope_id, table_id, updated_at DESC, row_id)`, and
+declared app index pagination is `(scope_id, index_id, encoded_key, row_id)`.
+Commit/outbox feeds retain their scope-local numeric cursors.
+
+Do not create a second latest-revision index solely to reverse `commit_seq` when
+the primary-key B-tree can satisfy the lookup with a backward scan. Every
+additional index requires an explicit query/OCC/uniqueness owner and measured
+justification because it increases write amplification. The physical plan must
+also define a maximum `encoded_key` size and test that bound before publication.
+
 ## Namespaces
 
 Use logical namespaces even if the first implementation is one Postgres schema
@@ -515,9 +563,6 @@ fx_app_row_rev (
   primary key (scope_id, table_id, row_id, commit_seq)
 )
 
-create index fx_app_row_rev_latest_idx
-  on fx_app_row_rev (scope_id, table_id, row_id, commit_seq desc);
-
 create index fx_app_row_rev_commit_idx
   on fx_app_row_rev (scope_id, table_id, commit_seq);
 
@@ -543,7 +588,7 @@ fx_app_row_current (
 )
 
 create index fx_app_row_current_updated_idx
-  on fx_app_row_current (scope_id, table_id, updated_at desc);
+  on fx_app_row_current (scope_id, table_id, updated_at desc, row_id);
 ```
 
 `scope_id` is internal deployment/project isolation. Developers should not model
@@ -1046,7 +1091,7 @@ fx_system_commit (
 )
 
 create index fx_commit_source_idx
-  on fx_system_commit (scope_id, epoch, source, committed_at);
+  on fx_system_commit (scope_id, epoch, source, committed_at, commit_seq);
 
 fx_system_commit_write (
   scope_id text not null,
@@ -2125,6 +2170,12 @@ The rule is: app queries must use primary keys, declared indexes, declared
 relations, search indexes, or internal read models. Arbitrary unindexed scans
 over `data_json` should not become the normal API promise.
 
+The replacement migration must additionally prove index economics rather than
+only query correctness: native authority-key width, compact catalog-key width,
+stable cursor plans, encoded-key bounds, duplicate/overlapping index removal,
+write amplification, and per-scope skew. BRIN, fixed-count hash partitioning,
+and hot-scope promotion remain measurement-triggered options.
+
 ### Cursor Semantics
 
 Commit and outbox cursors must be scoped. A single global Postgres sequence is
@@ -2255,7 +2306,10 @@ These are still implementation choices, not product boundary changes:
   graph or generated label-specific graph views filtered by table/relation id;
 - exact `fx_version` representation on Medusa reserved tables;
 - whether high-volume commit summaries stay JSONB or split into typed summary
-  tables.
+  tables;
+- whether the 16-byte Flarex app internal ID ports Convex generation closely or
+  deliberately uses UUIDv7 after Postgres locality benchmarks and a documented
+  compatibility/timestamp-disclosure review.
 
 Changing those physical choices should not change the public API or ownership
 rules above.

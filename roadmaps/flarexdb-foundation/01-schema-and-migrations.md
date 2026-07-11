@@ -49,6 +49,23 @@ These are not left for individual implementation turns to reinterpret:
 - Use `bigint` internally for commit/outbox counters and revisions. Encode them
   canonically as strings or branded values at JavaScript/protocol boundaries;
   do not rely on unsafe JS `number` precision.
+- In the replacement shared-database schema, store trusted scope and epoch
+  components as native Postgres `uuid`; branded `scope_<uuid>` and
+  `epoch_<uuid>` values remain boundary representations. Migration code owns a
+  reversible mapping and does not rewrite public identifiers.
+- Use compact numeric physical keys for hot stable catalog identities. Keep an
+  additional opaque UUID only where a catalog identity must be globally
+  portable. Do not repeat wide catalog strings through every app-side index.
+- Preserve opaque, table-qualified developer document IDs using a compact table
+  key plus 16-byte internal identity. The generator choice remains a gated
+  Convex-port-versus-UUIDv7 decision; UUIDv7 is not accepted as a substitute for
+  commit cursors or explicit ordering.
+- Compile Payload and Medusa identity types from their real schemas. A wide
+  adapter-owned external ID may use a compact physical surrogate, but its
+  external uniqueness and round-trip identity must remain intact.
+- Ordered pagination indexes end in a unique row tie-breaker. Every secondary
+  index needs a named access-path owner, and the ordered-key codec enforces a
+  maximum B-tree-safe encoded size.
 - The scope clock stores the last committed sequence. Empty scope is `0`;
   commit allocates `last + 1` inside the final transaction; rollback consumes
   nothing. Commit and outbox counters are separate.
@@ -183,10 +200,13 @@ S02-C1 now provides one server-only provisioner for the current co-located
 explicitly initializes `legacy_v1`, fence `1`, and both counters at `0`; and
 returns typed created/existing outcomes without overwriting an advanced clock.
 Normal provisioning fails closed on an existing scope missing its clock; only
-C2 may expose an explicit inventoried bootstrap repair. Production creation
-uses `scope_<lowercase uuid-v4>` and
-`epoch_<lowercase uuid-v4>` identifiers generated behind the trusted factory.
-The general brands remain non-empty strings for controlled imports and tests.
+C2 may expose an explicit inventoried bootstrap repair. The compatibility
+provisioner currently emits `scope_<lowercase uuid-v4>` and
+`epoch_<lowercase uuid-v4>` boundary identifiers behind the trusted factory.
+That implemented representation is not the replacement physical schema: future
+shared Postgres tables decode the trusted UUID components into native `uuid`
+columns while preserving the public values through a reversible mapping. The
+general brands remain non-empty strings for controlled imports and tests.
 
 S02-C2 now provides a separate server-only bootstrapper for committed
 deployments in that same fixed `shared_database` placement. It captures the
@@ -275,12 +295,14 @@ code from the Worker import graph, and pass a real-Postgres service-binding
 smoke. Failure of that proof blocks runtime routing, not the additive clock DDL
 or repositories.
 
-S02-A fixed the production bootstrap ID convention before any rows are
-backfilled: the trusted control plane will issue `scope_<uuid-v4>` identifiers,
-using lowercase RFC 4122 UUID text. The value is opaque and stable; it is never
-derived from deployment, project, tenant, topology, or database names. S02-C1
-now also fixes initial epochs as opaque `epoch_<uuid-v4>` values and owns
-generation plus idempotent insertion under the unique deployment mapping.
+S02-A fixed the compatibility bootstrap ID convention before any rows are
+backfilled: the trusted control plane currently issues `scope_<uuid-v4>`
+boundary identifiers using lowercase RFC 4122 UUID text. The value is opaque
+and stable; it is never derived from deployment, project, tenant, topology, or
+database names. S02-C1 now also fixes initial epochs as opaque
+`epoch_<uuid-v4>` boundary values and owns generation plus idempotent insertion
+under the unique deployment mapping. Replacement DDL stores their decoded UUID
+components natively; this does not change the external identifier contract.
 The repository continues to accept the shared branded non-empty `ScopeId` so
 tests and controlled imports are not coupled to one generator.
 
@@ -637,6 +659,56 @@ Exit gate:
 - stale fences cannot flip authority;
 - every phase is auditable and restart-recoverable;
 - no migration drops or rewrites the legacy generation.
+
+## Replacement Physical Identifier And Index Policy Checkpoint
+
+This docs-only checkpoint separates the accepted replacement schema from the
+currently implemented compatibility representation. It fixes native Postgres
+`uuid` storage for trusted scope/epoch components, compact hot catalog keys,
+scope-local numeric cursors, stable pagination tie-breakers, bounded ordered
+keys, and named ownership for every secondary index. It also preserves
+Payload/Medusa identity types and leaves the Flarex app 16-byte ID generator as
+a deliberate Convex-port-versus-UUIDv7 gate rather than choosing it by folklore.
+
+Why: wide prefixed text repeated through shared multitenant indexes can become a
+larger scaling cost than UUID randomness itself. IDs also must not silently
+become transaction cursors or business ordering. The policy makes those
+physical concerns explicit before replacement DDL is frozen.
+
+Previous completed repository checkpoint:
+`708b234ab4188ac2b16d63f8ab6c5688d886b955` —
+`Gate hosted executor activation receipts`.
+
+Convex sources inspected:
+
+- `crates/value/src/id_v6.rs`: developer document IDs encode a compact table
+  number, a 16-byte internal ID, and checksum instead of treating the public
+  string as the hot physical key;
+- `crates/value/src/document_id.rs`: `InternalId` is a sortable 16-byte value;
+- `crates/common/src/index.rs`: the developer document ID is appended to
+  declared index values as the stable ordered tie-breaker.
+
+Flarex difference: shared Postgres authority also needs a trusted `scope_id`
+prefix and Postgres-specific physical index economics. The replacement stores
+scope/epoch UUID components natively and may deliberately select UUIDv7 for the
+16-byte internal component only after benchmarks and an explicit compatibility
+decision. Payload and Medusa continue to compile their own identity semantics.
+
+Known limitations and follow-up:
+
+- no migration or runtime representation changes in this checkpoint;
+- existing SQL sketches still contain logical `text` declarations and must be
+  compiled through the normative type policy rather than copied verbatim;
+- the final app internal-ID generator, encoded-key byte ceiling, partition
+  trigger, and index budget require benchmark-backed follow-up slices;
+- actual DDL must prove reversible legacy-ID mapping and stable public IDs.
+
+Verification:
+
+```sh
+git diff --check
+rg -n "Replacement Design Authority|Physical Identifier And Index Scalability Policy|Normative Physical Identifier And Index Policy|Replacement Physical Identifier And Index Policy Checkpoint" AGENTS.md design-notes roadmaps/flarexdb-foundation
+```
 
 ## Adapter-Facing Schema Contract
 
