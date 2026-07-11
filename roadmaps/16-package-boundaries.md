@@ -1,5 +1,61 @@
 # Package Boundaries
 
+## Isolate The Hosted Proof Caller Capability
+
+Previous completed checkpoint: `e2921b5` (`Prove executor Worker service
+binding`).
+
+What changed:
+
+- Added the H05 proof caller as a separate deployable Worker entrypoint under
+  `apps/executor`, not in `apps/backend`, `apps/artifact-runtime`, the executor
+  core, or either compatibility adapter.
+- Its Wrangler surface contains exactly one service binding and no Hyperdrive,
+  raw database, ordinary variable, or route capability. Executor and probe
+  bearer values plus the run ID remain deployment secrets and are absent from
+  source/config; the two bearer capabilities must differ.
+- The probe reconstructs a four-path allowlisted request instead of forwarding
+  the caller's Request, and accepts only the deployment/project derived from
+  its configured run ID, so untrusted headers, arbitrary executor routes, and
+  other tenant identities do not cross the boundary.
+- Kept the framework-neutral executor, Worker Fetch adapter, Node/PGlite lanes,
+  and Nitro/Elysia compatibility paths unchanged.
+
+Why it changed:
+
+Reusing the backend or artifact runtime would import Durable Object or Dynamic
+Worker generation responsibilities into H05. A narrow disposable leaf keeps
+the proof capability visible and prevents staging access from becoming a new
+product API.
+
+Convex references inspected:
+
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex does not need a public proof caller for an internal Worker binding.
+  This Cloudflare-only leaf exists solely to verify the deployment topology;
+  it owns no transaction or persistence semantics.
+
+Known limitations:
+
+- The probe has not been deployed. Its live binding target, secret-name set,
+  public URL, and deletion/disable receipt remain H05-B work.
+- No compatibility adapter is retired by this checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck
+corepack pnpm --filter @flarex/executor-worker test
+corepack pnpm --filter @flarex/executor-worker check:bundle
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run
+git diff --check
+```
+
 ## Split The Worker Fetch Edge From The Compatibility Router
 
 Previous completed checkpoint: `f0ec41b` (`Add private executor Worker bundle

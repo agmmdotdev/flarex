@@ -4,5 +4,5 @@
     "noUncheckedIndexedAccess": true,
     "types": ["@cloudflare/workers-types"]
   },
-  "include": ["src", "test", "wrangler.jsonc"]
+  "include": ["src", "test", "wrangler.jsonc", "wrangler.h05-probe.jsonc"]
 }

@@ -1,5 +1,60 @@
 # OCC And Transactions
 
+## Share The Legacy OCC Oracle With The Hosted Proof Lane
+
+Previous completed checkpoint: `e2921b5` (`Prove executor Worker service
+binding`).
+
+What changed:
+
+- Extracted the already-proven H04 point-read OCC sequence into one typed helper
+  parameterized only by fixture identity and transport. Both lanes must observe
+  the same response bodies, timestamps, conflict, abort, and convergence.
+- Centralized authoritative PostgreSQL assertions for final `prev_ts`, all
+  three terminal session states, observed read timestamps, retained stale
+  staged intent, document revisions, commits, and outbox rows.
+- Added proof-owned deployment cleanup, information-schema coverage, and
+  captured-scope verification. H04 reran on PostgreSQL 18, proving the refactor
+  preserves behavior, leaves no deployment/scope rows, excludes a concurrent
+  run claimant, and releases that claim without holding a SQL transaction over
+  Worker calls.
+
+Why it changed:
+
+The hosted activation gate must compare the deployed Worker to the existing
+compatibility oracle exactly. A shared scenario prevents the local and hosted
+proofs from silently drifting before the FlarexDB OCC redesign starts.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+How Flarex differs:
+
+- Convex validates the final transaction read set against committed and
+  pending writes before persistence. Flarex's current oracle journals those
+  reads/writes in PostgreSQL between private requests and validates at finish.
+  This checkpoint measures that difference; it does not make it the new OCC
+  design.
+
+Known limitations:
+
+- Only one present-row point dependency is covered. Missing rows, ranges,
+  scope sequence allocation, generation fences, exact snapshots, retries, and
+  the commit compiler remain later foundation turns.
+- H05-B must still run this oracle through live Cloudflare and cache-disabled
+  Hyperdrive; H05 and S02-D remain incomplete.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker test
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/executor-worker test:service-binding:postgres
+git diff --check
+```
+
 ## Prove The Legacy OCC Oracle Through The Executor Worker
 
 Previous completed checkpoint: `f0ec41b` (`Add private executor Worker bundle

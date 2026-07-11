@@ -1,5 +1,74 @@
 # Postgres Executor
 
+## Prepare The Hosted Service-Binding PostgreSQL Lane
+
+Previous completed checkpoint: `e2921b5` (`Prove executor Worker service
+binding`).
+
+What changed:
+
+- Extracted H04's exact winner/stale-conflict/abort/fresh-convergence scenario
+  into one shared proof helper without changing executor or persistence
+  behavior. It returns typed runtime evidence and validates authoritative SQL
+  state for both local and hosted transports.
+- Added a hosted transport that can reach the executor only through the
+  authenticated H05 probe. The Node runner never receives the executor token;
+  setup, migration, seeding, SQL assertions, and scoped cleanup stay outside
+  Cloudflare user execution.
+- Added deployment-scoped cleanup covering every current persistence table,
+  captured scope provisioning/clock metadata, the scope locator, and the
+  deployment. Information-schema comparison makes a future deployment-keyed
+  table fail closed until the cleanup inventory is updated.
+- Added an exclusive session advisory claim for the run ID without holding a
+  database transaction across hosted Fetch. The runner also requires encrypted
+  PostgreSQL, validates the effective remote authority, rejects connection
+  target overrides, and bounds pool, statement, lock, query, and probe-request
+  waits.
+- H04 reran against a fresh PostgreSQL 18 cluster and proved no proof rows
+  remained, scope-owned rows were checked, a second claim was excluded, and
+  the claim became reusable before the disposable database was dropped.
+- Kept the hosted lane outside ordinary tests and made its explicit command
+  rebuild both production and probe bundles before any staging mutation.
+
+Why it changed:
+
+H05 needs the same existing OCC oracle as H04, not a similar hand-written
+scenario. Sharing the proof makes the later hosted result comparable while the
+strict staging configuration and cleanup guard against accidental mutation of
+an unnamed or local database.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+How Flarex differs:
+
+- Convex moves final reads and writes from the function runner directly into
+  its committer. Flarex's compatibility executor persists an invoke session
+  across four private HTTP operations, but the executor Worker still owns the
+  database capability and final commit.
+
+Known limitations:
+
+- The hosted test is prepared but has not run. It does not prove Hyperdrive
+  caching state, Worker placement/privacy, or Cloudflare deployment identity;
+  H05-B must pair those control-plane receipts with this data-plane result.
+- The shared helper validates legacy point-OCC only and changes no FlarexDB
+  schema, clock, fence, sequence, or compiler semantics.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck
+corepack pnpm --filter @flarex/executor-worker test
+corepack pnpm --filter @flarex/executor-worker check:bundle
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/executor-worker test:service-binding:postgres
+git diff --check
+```
+
 ## Prove Request-Scoped Worker Transactions Through A Named Binding
 
 Previous completed checkpoint: `f0ec41b` (`Add private executor Worker bundle

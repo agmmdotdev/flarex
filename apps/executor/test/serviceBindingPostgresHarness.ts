@@ -4,29 +4,36 @@ import { Miniflare, type MiniflareOptions } from "miniflare";
 import { Pool } from "pg";
 
 import {
-  createFlarexExecutor,
-  withReadyDeploymentAuthority,
-} from "@flarex/executor";
-import type { SharedDatabaseScopePhysicalLocator } from "@flarex/persistence-postgres";
-import {
   createPostgresPersistence,
-  createPostgresSharedScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
 } from "@flarex/persistence-postgres/postgres";
+import {
+  seedExecutorOccProof,
+  type ExecutorOccProofFixture,
+  type ExecutorOccProofResponse,
+  type ExecutorOccProofTransport,
+} from "./executorOccProof";
 
 export const serviceBindingPostgresUrl = normalizePostgresUrl(
   env.FLAREX_POSTGRES_DATABASE_URL,
 );
 
-export const h04DeploymentId = "deployment_h04_service_binding";
-export const h04ProjectId = "project_h04_service_binding";
+export const h04Fixture = {
+  deploymentId: "deployment_h04_service_binding",
+  projectId: "project_h04_service_binding",
+  markerText: "h04",
+} satisfies ExecutorOccProofFixture;
 
 const callerWorkerName = "flarex-h04-caller";
 const executorWorkerName = "flarex-executor";
 const executorToken = "flarex-h04-executor-secret";
 const serviceBindingHopHeader = "x-flarex-h04-hop";
+export const h04ServiceBindingHop = {
+  header: serviceBindingHopHeader,
+  value: "caller-to-executor",
+} as const;
 
-export interface ServiceBindingPostgresRuntime {
+export interface ServiceBindingPostgresRuntime extends ExecutorOccProofTransport {
   readonly callerBindingKeys: readonly string[];
   readonly executorBindingKeys: readonly string[];
   executorDirectUrl(): Promise<URL>;
@@ -34,13 +41,7 @@ export interface ServiceBindingPostgresRuntime {
     path: string,
     body: unknown,
     options?: { readonly authorized?: boolean },
-  ): Promise<ServiceBindingPostgresResponse>;
-}
-
-export interface ServiceBindingPostgresResponse {
-  readonly headers: { get(name: string): string | null };
-  readonly status: number;
-  json(): Promise<unknown>;
+  ): Promise<ExecutorOccProofResponse>;
 }
 
 export async function withTemporaryServiceBindingPostgres<RuntimeEvidence>(
@@ -76,7 +77,7 @@ export async function withTemporaryServiceBindingPostgres<RuntimeEvidence>(
       migrationsSchema: "flarex_migrations",
     });
     await setupPersistence.migrate();
-    await seedH04Deployment(setupPersistence);
+    await seedExecutorOccProof(setupPersistence, h04Fixture);
     await setupPersistence.close();
     setupPersistence = undefined;
 
@@ -147,41 +148,6 @@ export async function withTemporaryServiceBindingPostgres<RuntimeEvidence>(
   }
 }
 
-async function seedH04Deployment(
-  persistence: PostgresFlarexPersistence,
-): Promise<void> {
-  const physicalLocator = Object.freeze({
-    kind: "shared_database",
-    databaseKey: "primary",
-    schemaName: "public",
-  }) satisfies SharedDatabaseScopePhysicalLocator;
-  const executorPersistence = withReadyDeploymentAuthority(
-    persistence,
-    createPostgresSharedScopeAuthorityProvisioner(persistence, {
-      physicalLocator,
-    }),
-  );
-  const executor = createFlarexExecutor({ persistence: executorPersistence });
-  const registered = await executor.registerDeploymentPackage({
-    deploymentId: h04DeploymentId,
-    projectId: h04ProjectId,
-    sourcePackage: sourcePackage(),
-    analysisJson: analysisJson(),
-  });
-  await executor.activateDeploymentPackage({
-    deploymentId: h04DeploymentId,
-    projectId: h04ProjectId,
-    packageId: registered.package.packageId,
-    schemaVersion: 5,
-  });
-  await persistence.insertDocumentRevision({
-    deploymentId: h04DeploymentId,
-    id: "1:team",
-    ts: 10,
-    value: { name: "seed", count: 0 },
-  });
-}
-
 async function createServiceBindingMiniflare(
   databaseConnectionString: string,
 ): Promise<Miniflare> {
@@ -238,6 +204,7 @@ async function serviceBindingRuntime(
     executorWorkerName,
   );
   return {
+    hop: h04ServiceBindingHop,
     callerBindingKeys: Object.keys(callerBindings).sort(),
     executorBindingKeys: Object.keys(executorBindings).sort(),
     executorDirectUrl: () => miniflare.unsafeGetDirectURL(executorWorkerName),
@@ -289,63 +256,6 @@ export default {
   },
 };
 `;
-
-type SourcePackage = Parameters<
-  ReturnType<typeof createFlarexExecutor>["registerDeploymentPackage"]
->[0]["sourcePackage"];
-
-function sourcePackage(): SourcePackage {
-  return {
-    modules: [
-      {
-        path: "messages.js",
-        environment: "isolate",
-        sha256: "a".repeat(64),
-      },
-    ],
-    functions: ["messages.js"],
-    execution: "_flarex/execution.js",
-  };
-}
-
-function analysisJson(): Record<string, unknown> {
-  return {
-    schema: {
-      version: 5,
-      tables: [
-        {
-          tableId: 1,
-          name: "teams",
-          placement: { kind: "partitionBy", field: "_id" },
-        },
-      ],
-      indexes: [
-        {
-          indexId: 1,
-          tableId: 1,
-          name: "by_name",
-          fields: ["name"],
-        },
-      ],
-    },
-    functions: {
-      functions: [
-        {
-          path: "messages:send",
-          kind: "mutation",
-          route: { type: "args", field: "teamId" },
-          partition: {
-            type: "partition",
-            table: "teams",
-            selector: "byId",
-            partitionField: "_id",
-            argField: "teamId",
-          },
-        },
-      ],
-    },
-  };
-}
 
 function requiredPostgresUrl(): string {
   if (serviceBindingPostgresUrl === null) {
@@ -431,8 +341,3 @@ async function recordCleanupError(
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
-
-export const h04ServiceBindingHop = {
-  header: serviceBindingHopHeader,
-  value: "caller-to-executor",
-} as const;

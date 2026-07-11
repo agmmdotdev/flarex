@@ -1,7 +1,8 @@
 # FlarexDB Schema And Migration Plan
 
-Status: S01 through S02-C and hosted-proof H01-H04 complete; H05 is next and
-S02-D remains blocked through H05
+Status: S01 through S02-C and hosted-proof H01-H04 complete; H05-A local
+preparation is complete, H05-B hosted activation is next, and S02-D remains
+blocked through H05
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -157,6 +158,12 @@ Progress:
 - [x] H04 — Prove its named local service binding against real PostgreSQL.
 - [ ] H05 — Record cache-disabled Hyperdrive and hosted service-binding
   activation evidence.
+  - [x] H05-A — Prepare the authenticated probe, hosted PostgreSQL runner,
+    exclusive run claim, encrypted/bounded staging guards, shared OCC oracle,
+    exhaustive scoped cleanup, and production/probe dry-run gates.
+  - [ ] H05-B — Create and inspect the live cache-disabled Hyperdrive,
+    activate the private executor and probe, collect hosted OCC/SQL and
+    Cloudflare receipts, then remove or disable the probe.
 - [ ] S02-D — Replace the S01 compatibility alias with trusted scope/clock
   generation resolution and fail closed on missing metadata.
 - [ ] S02-E — Prove scope/fence isolation, including real-Postgres pooled

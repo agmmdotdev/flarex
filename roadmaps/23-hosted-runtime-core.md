@@ -1,5 +1,87 @@
 # Hosted Runtime Core
 
+## Prepare The Hosted Activation Probe
+
+Previous completed checkpoint: `e2921b5` (`Prove executor Worker service
+binding`).
+
+What changed:
+
+- Added a dedicated, ephemeral `flarex-executor-h05-probe` Worker. Its only
+  platform capability is the named `FLAREX_EXECUTOR -> flarex-executor`
+  service binding; it has no Hyperdrive binding, database URL, route, or
+  ordinary configuration variables.
+- Restricted the authenticated proof endpoint to the four invoke operations
+  used by the OCC scenario and to the exact deployment/project derived from
+  its configured H05 run ID. The probe creates a new internal request, injects
+  the executor capability itself, rejects identical probe/executor secrets,
+  compares the public capability through fixed-length digests, forwards no
+  caller headers, disables response caching on all replies, marks successful
+  hops, and redacts binding failures.
+- Added a hosted PostgreSQL runner that receives only the public probe URL,
+  probe token, and dedicated staging database URL. It fails closed without an
+  explicit mutation opt-in and exact database-name confirmation; requires one
+  non-downgradable TLS mode; rejects local, unresolved, unnamed, or default
+  databases, PostgreSQL target-override query parameters, and non-origin HTTPS
+  probe targets; bounds DNS, connection, SQL, and Fetch waits; and removes only
+  its run-owned rows.
+- Held one session-level PostgreSQL advisory claim, not a SQL transaction,
+  across each hosted run. A concurrent identical run ID now fails before
+  mutation, crash release is connection-owned, and PostgreSQL 18 proved one
+  claimant excludes another and the claim is reusable after release.
+- Made Wrangler dry-runs deterministic on Node 24/Windows by requiring fresh
+  bundle/metafile output plus Wrangler's success sentinel, allowing a bounded
+  stdout drain after normal exit, then awaiting a retained CLI process exit
+  with bounded kill escalation. Both the production executor and the 7.57 KiB
+  probe bundle now use that wrapper.
+
+Why it changed:
+
+H05 cannot be executed safely as an improvised public proxy. This checkpoint
+prepares the smallest authenticated caller and repeatable OCC/SQL harness so a
+later authenticated staging turn can collect the Cloudflare receipt without
+expanding into S02-D or runtime generation routing.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+How Flarex differs:
+
+- Convex returns one `FunctionFinalTransaction` to an in-process committer,
+  validates its read set, and retries a mutation around that boundary. Flarex
+  preserves trusted validation/commit ownership while journaling the current
+  compatibility transaction across private Fetch calls.
+- The H05 probe is a disposable Cloudflare verification capability, not a
+  developer API or a second executor host.
+
+Known limitations:
+
+- This is H05-A preparation only. No Cloudflare resource was created or
+  changed, the executor config still contains its placeholder Hyperdrive ID,
+  and H05 remains unchecked until H05-B records live cache-disabled
+  Hyperdrive, deployment/version, privacy, service-binding, trace, and SQL
+  evidence.
+- The current environment is not authenticated to Wrangler and has no
+  dedicated Internet-reachable staging PostgreSQL URL. S02-D remains blocked.
+- The proof intentionally retains the legacy `primary/public`, millisecond
+  timestamp, and session-OCC behavior. It adds no schema, sequence allocator,
+  compiler, sync, Payload, Medusa, or adapter-retirement behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck
+corepack pnpm --filter @flarex/executor-worker test
+corepack pnpm --filter @flarex/executor-worker check:bundle
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/executor-worker test:service-binding:postgres
+corepack pnpm --filter @flarex/executor-worker test:service-binding:hosted:postgres # expected fail-closed without H05 opt-in/config
+git diff --check
+```
+
 ## Prove The Named Executor Service Binding Against PostgreSQL
 
 Previous completed checkpoint: `f0ec41b` (`Add private executor Worker bundle

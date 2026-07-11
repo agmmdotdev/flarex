@@ -1,0 +1,17 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "flarex-executor-h05-probe",
+  "main": "test/h05ProbeWorker.ts",
+  "compatibility_date": "2026-06-14",
+  "workers_dev": true,
+  "preview_urls": false,
+  "services": [
+    {
+      "binding": "FLAREX_EXECUTOR",
+      "service": "flarex-executor"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

@@ -4,10 +4,13 @@
   "type": "module",
   "scripts": {
     "build": "pnpm typecheck",
-    "check:bundle": "wrangler deploy --dry-run --outdir dist --metafile dist/bundle-meta.json && tsx scripts/checkBundleMeta.ts dist/bundle-meta.json",
+    "bundle:wrangler": "tsx scripts/runWranglerBundleDryRun.ts executor",
+    "check:bundle": "pnpm bundle:wrangler && tsx scripts/checkBundleMeta.ts dist/bundle-meta.json",
     "deploy:dry-run": "pnpm check:bundle",
-    "test": "vitest run --exclude test/serviceBinding.postgres.test.ts",
+    "deploy:h05-probe:dry-run": "tsx scripts/runWranglerBundleDryRun.ts h05-probe",
+    "test": "vitest run --exclude test/serviceBinding.postgres.test.ts --exclude test/serviceBinding.hosted.postgres.test.ts",
     "test:service-binding:postgres": "pnpm check:bundle && vitest run test/serviceBinding.postgres.test.ts --no-file-parallelism",
+    "test:service-binding:hosted:postgres": "pnpm check:bundle && pnpm deploy:h05-probe:dry-run && vitest run test/serviceBinding.hosted.postgres.test.ts --no-file-parallelism",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.scripts.json"
   },
   "dependencies": {

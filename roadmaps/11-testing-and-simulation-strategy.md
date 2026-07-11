@@ -1,5 +1,68 @@
 # Testing and Simulation Strategy
 
+## Add The Fail-Closed Hosted Activation Harness
+
+Previous completed checkpoint: `e2921b5` (`Prove executor Worker service
+binding`).
+
+What changed:
+
+- Added unit coverage for missing probe configuration, exact bearer
+  authorization, route/method/path allowlists, caller-header isolation,
+  exact run ownership, distinct probe/executor capabilities, executor-token
+  injection, hop/no-store receipts, and redacted service-binding failure.
+- Added strict hosted-run configuration tests. The real lane requires an exact
+  staging-mutation opt-in, non-local PostgreSQL URL, exact target-database name
+  confirmation, non-downgradable TLS, HTTPS probe origin, probe token, and
+  bounded unique run ID; target-override query parameters are rejected,
+  malformed credential URLs are redacted, and missing configuration fails
+  rather than skipping.
+- Reused one typed OCC/SQL proof across H04 Miniflare and the future H05 hosted
+  transport. The H04 PostgreSQL 18 rerun also exercised the new scoped cleanup
+  and table-inventory gate, asserted deployment/scope rows were removed, and
+  proved concurrent run-claim exclusion and reuse.
+- Added separate, bounded Wrangler dry-run checks for the production executor
+  and public probe. Ordinary tests remain fast and do not imply hosted proof.
+
+Why it changed:
+
+The hosted gate needs reproducible negative and positive evidence, and must not
+turn unavailable staging credentials into a skipped green test. Preparing the
+harness separately keeps the future Cloudflare mutation turn small and
+auditable.
+
+Convex references inspected:
+
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex's comparable test boundary is runner to in-process committer. Flarex
+  additionally proves an authenticated public test caller to private Worker
+  service binding before the trusted PostgreSQL commit path.
+
+Known limitations:
+
+- Unit, dry-run, Miniflare, and direct PostgreSQL evidence cannot establish
+  live Hyperdrive cache settings or Cloudflare routing/privacy. H05-B remains
+  required and H05 remains unchecked.
+- The public probe is intended to be ephemeral and must be removed or disabled
+  after the hosted receipt is captured.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck
+corepack pnpm --filter @flarex/executor-worker test # 6 files, 75 tests
+corepack pnpm --filter @flarex/executor-worker check:bundle
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/executor-worker test:service-binding:postgres
+corepack pnpm --filter @flarex/executor-worker test:service-binding:hosted:postgres # expected fail-closed without H05 config
+git diff --check
+```
+
 ## Add The Named Workerd And PostgreSQL Host Proof
 
 Previous completed checkpoint: `f0ec41b` (`Add private executor Worker bundle

@@ -1,7 +1,8 @@
 # FlarexDB Foundation Execution Plans
 
-Status: S01 through S02-C and hosted-proof H01-H04 are complete; H05 is next
-and S02-D remains blocked through H05
+Status: S01 through S02-C and hosted-proof H01-H04 are complete; H05-A local
+preparation is complete, H05-B hosted activation is next, and S02-D remains
+blocked through H05
 
 This folder turns the accepted FlarexDB architecture into small, reviewable,
 commit-sized implementation turns. It is intentionally limited to the
@@ -78,6 +79,14 @@ S02-D or introduce the replacement FlarexDB schema/OCC/compiler.
 - [ ] H05 — Record a hosted staging receipt for the cache-disabled Hyperdrive
   configuration, non-public executor, placed Fetch handler, service-binding
   invocation, and PostgreSQL transaction/OCC result.
+  - [x] H05-A — Add the authenticated allowlisted probe, strict hosted
+    PostgreSQL runner, exclusive non-transactional run claim, encrypted/bounded
+    staging guards, shared H04/H05 OCC oracle, exhaustive scoped cleanup, and
+    bounded production/probe bundle gates without changing Cloudflare
+    resources.
+  - [ ] H05-B — Provision and verify live cache-disabled Hyperdrive, deploy
+    the private executor and ephemeral probe, run the hosted OCC/SQL proof,
+    capture control-plane and trace receipts, and remove or disable the probe.
 
 H04 is not a substitute for H05. Cloudflare's local Hyperdrive
 `localConnectionString` connects directly to PostgreSQL, so it does not
@@ -188,8 +197,9 @@ commit are complete.
    projection. H01 froze the Worker/Hyperdrive proof contract, H02 added the
    connected-client persistence seam, H03 added the private Worker plus
    emitted-bundle gate, and H04 proved that exact bundle through a named
-   workerd service binding against PostgreSQL; H05 remains the final hard
-   prerequisite for S02-D runtime routing.
+   workerd service binding against PostgreSQL. H05-A prepared the authenticated
+   hosted proof harness without changing cloud resources; H05-B remains the
+   final hard prerequisite for S02-D runtime routing.
 3. `S03` add the minimal stable catalog.
 4. `S04` migrate active-schema pointer authority while mirroring legacy reads.
 5. `S05` freeze tagged value and ordered-key codecs.
