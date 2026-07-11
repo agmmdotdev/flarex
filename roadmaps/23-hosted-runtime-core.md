@@ -1,5 +1,108 @@
 # Hosted Runtime Core
 
+## Compile Stable Version-Aware Hosted Trace Evidence
+
+Previous completed checkpoint: `e98d9fa` (`Collect hosted executor control-plane
+evidence`).
+
+What changed:
+
+- Added the strict canonical `flarex-h05-trace-evidence-v1` sidecar. It joins
+  independently verified control-plane artifacts from before and after the
+  hosted run with the canonical data-plane artifact, and refuses compilation
+  unless source, account hash, run identity, Hyperdrive projection, privacy
+  inventory, bindings, secrets, active Worker versions, and Wrangler identity
+  remain unchanged across the fence.
+- Made pageable `events` queries authoritative for discovery and version-aware
+  invocation evidence. The collector discovers exactly fifteen probe roots by
+  exact service, run-scoped path, `cf-worker-event` type, and `fetch`
+  classification, then queries all events for each exact trace ID. A separate
+  one-result `traces` query per ID
+  cross-checks service union, span count, timing, and zero trace errors without
+  inventing cursor semantics for trace summaries.
+- Requires every query execution to be completed, dry, account-matched, bound
+  to the frozen data-plane millisecond window, and unsampled at result-level
+  ABR `1`; any optional run-level ABR copy must agree.
+  Metadata-ID cursor pages must terminate without count drift or duplicates.
+  Two complete normalized sweeps must have the same evidence hash after a
+  bounded settle delay before an artifact can exist.
+- Proves the private hop structurally: fourteen traces contain exact probe and
+  executor roots, the executor root's parent chain reaches the probe root, its
+  interval is contained by that awaited parent invocation, both versions match
+  the fenced control plane, all Worker outcomes are `ok`, no
+  invocation is truncated, and propagated statuses are twelve `200`s plus two
+  expected `409`s. The one `401` trace is probe-only, and any third service is
+  rejected.
+- Domain-hashes raw trace IDs and event-ID sets before persistence. Provider
+  query/run IDs, cursors, request/ray/span IDs, raw account ID, source payloads,
+  messages, errors, URLs, headers, and bodies remain memory-only. A dedicated
+  `FLAREX_H05_TELEMETRY_API_TOKEN` drives a bounded adapter that can call only
+  Cloudflare's telemetry-query endpoint.
+- Added an outside-worktree collector CLI plus hostile fixtures for STARTED
+  runs, cursor pagination, ABR sampling, ingestion drift, version mismatch,
+  truncation, third-service contamination, broken parent graphs, oversized
+  provider responses, and redaction canaries.
+
+Why it changed:
+
+The final receipt's trace summary was previously only shape-checked. A trace
+services array cannot prove which Worker version ran or that the executor was a
+descendant of the disposable probe, and one eventually consistent query cannot
+prove completeness. H05 now has independently recomputable evidence rather
+than hash-shaped assertions, while the actual credentialed run and teardown
+remain separate later gates.
+
+Convex references inspected:
+
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/database/src/committer.rs`
+
+Cloudflare references inspected:
+
+- [Workers Observability telemetry query](https://developers.cloudflare.com/api/resources/workers/subresources/observability/subresources/telemetry/methods/query/)
+- [Trace spans and attributes](https://developers.cloudflare.com/workers/observability/traces/spans-and-attributes/)
+- [Tracing known limitations](https://developers.cloudflare.com/workers/observability/traces/known-limitations/)
+- [Automatic cross-Worker trace propagation](https://developers.cloudflare.com/changelog/post/2026-05-07-automatic-tracing-across-do-and-worker-subrequests/)
+
+How Flarex differs:
+
+- Convex owns function execution and commit publication inside one hosted
+  backend and can link its internal spans directly. Flarex's temporary H05
+  compatibility proof crosses a public disposable caller, a private Cloudflare
+  service binding, and PostgreSQL, so it needs an external redacted join over
+  two Worker versions and a provider-controlled eventually consistent trace
+  store.
+
+Known limitations:
+
+- No Cloudflare telemetry or hosted PostgreSQL was queried in this checkpoint;
+  the current environment still has no live H05 credentials. H05 remains open.
+- Cloudflare tracing is beta, the trace-summary cursor contract is internally
+  ambiguous, and attribute names may change. The projector deliberately fails
+  closed and the per-trace query strategy avoids relying on an undocumented
+  trace cursor.
+- The final live order still needs orchestration: pre-control evidence,
+  data-plane proof, post-control evidence, probe deletion/404 proof, two stable
+  telemetry sweeps, then final receipt compilation. This checkpoint performs
+  no deploy, delete, database connection, or provider mutation.
+- The final receipt compiler must derive its trace counts, observed interval,
+  domain-separated trace-ID aggregate, and `trace.evidenceSha256` from this
+  verified sidecar. No sequence, OCC, commit-compiler, sync, Payload, Medusa,
+  schema, or adapter-retirement behavior changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker test # 15 files, 153 tests passed
+corepack pnpm --filter @flarex/executor-worker build # passed
+corepack pnpm --filter @flarex/executor-worker check:bundle # passed; production graph remained 401 inputs
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run # passed; 7.66 KiB proof Worker
+corepack pnpm check:effect-boundaries # passed
+git diff --check # passed
+```
+
 ## Collect Race-Fenced Hosted Control-Plane Evidence
 
 Previous completed checkpoint: `2bd5b99` (`Capture hosted executor data-plane

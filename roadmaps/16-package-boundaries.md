@@ -1,5 +1,72 @@
 # Package Boundaries
 
+## Isolate Trace Contracts From Privileged Telemetry Collection
+
+Previous completed checkpoint: `e98d9fa` (`Collect hosted executor control-plane
+evidence`).
+
+What changed:
+
+- Kept the strict `flarex-h05-trace-evidence-v1` contract, dependency joins,
+  domain-separated hashing, canonical serialization, and relationship checks
+  under `apps/executor/h05/`. It imports no Fetch credentials, filesystem,
+  process environment, or provider response envelopes.
+- Kept the fixed-endpoint POST adapter, tolerant provider projector, pagination,
+  eventual-consistency loop, span-graph analysis, Git/filesystem checks, and
+  CLI under `apps/executor/scripts/`. The adapter exposes only `query(account,
+  request)` for the Observability endpoint rather than adding mutation-capable
+  POST support to the existing generic control-plane read adapter.
+- Uses `unknown` at provider/artifact JSON boundaries, branded evidence IDs and
+  hashes, discriminated authorized/unauthorized traces, exact canonical artifact
+  keys, and exhaustive runtime narrowing. Raw provider identifiers are consumed
+  only long enough to paginate, join, graph-check, and domain-hash them.
+- Added no export to `@flarex/executor`, `@flarex/persistence-postgres`, either
+  compatibility adapter, the backend, or developer SDK. Production and probe
+  Worker entrypoints do not import this Node operator tooling.
+
+Why it changed:
+
+Cloudflare telemetry querying needs a broader write-named API permission and
+receives potentially sensitive raw log envelopes. Keeping that capability and
+provider drift outside the deterministic evidence contract prevents proof
+tooling from becoming runtime surface or leaking into the Worker bundle.
+
+Convex references inspected:
+
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex can retain trace evidence inside its own hosted control plane. Flarex
+  currently needs a local operator tool to join Cloudflare-managed telemetry to
+  a PostgreSQL proof, so the privileged collector and sanitized contract remain
+  deliberately one-way internal layers.
+
+Known limitations:
+
+- The source layout must still be backed by both production bundle gates on
+  every checkpoint; package placement alone is not bundle proof.
+- Cloudflare's beta event fields remain a provider boundary. Missing version,
+  trace, outcome, truncation, cursor, parent-span, or count fields fail closed.
+  Lightweight `$workers` span/log rows remain valid provider input but cannot
+  become invocation evidence unless `$metadata.type` is `cf-worker-event`.
+- Final receipt compilation and probe teardown are still absent. No public API
+  or compatibility adapter changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker test # 15 files, 153 tests passed
+corepack pnpm --filter @flarex/executor-worker build # passed
+corepack pnpm --filter @flarex/executor-worker check:bundle # passed; production graph remained 401 inputs
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run # passed; 7.66 KiB proof Worker
+corepack pnpm check:effect-boundaries # passed
+git diff --check # passed
+```
+
 ## Separate Hosted Evidence Contracts From Node Collection
 
 Previous completed checkpoint: `2bd5b99` (`Capture hosted executor data-plane

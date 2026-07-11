@@ -1,5 +1,72 @@
 # Postgres Executor
 
+## Bind Hosted PostgreSQL Results To Stable Worker Traces
+
+Previous completed checkpoint: `e98d9fa` (`Collect hosted executor control-plane
+evidence`).
+
+What changed:
+
+- Added a canonical trace sidecar compiler that accepts the existing hosted
+  PostgreSQL data-plane artifact only between matching pre-run and post-run
+  control-plane fences. Its input hashes, source commit, run identity, exact
+  executor/probe versions, and data-plane window are all inside the outer hash.
+- Cross-checks the data-plane oracle's one unauthorized and fourteen authorized
+  calls against fifteen exact run-path traces. The fourteen executor roots must
+  descend from their probe roots and reproduce the oracle's twelve successful
+  and two OCC-conflict HTTP statuses while both Worker outcomes remain `ok`.
+- Keeps PostgreSQL and Hyperdrive secrets out of telemetry collection. The
+  collector reads only already-redacted control/data artifacts and Cloudflare
+  event metadata, uses a separate telemetry capability, and publishes only
+  domain-hashed provider identifiers outside the worktree.
+
+Why it changed:
+
+The SQL artifact proves the expected transaction and cleanup result, but on its
+own it cannot prove which active Worker version executed those private Fetch
+calls. The new join closes that offline evidence gap without altering the
+executor, persistence schema, transaction engine, or Hyperdrive adapter.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+Cloudflare references inspected:
+
+- [Workers Observability telemetry query](https://developers.cloudflare.com/api/resources/workers/subresources/observability/subresources/telemetry/methods/query/)
+- [Trace spans and attributes](https://developers.cloudflare.com/workers/observability/traces/spans-and-attributes/)
+
+How Flarex differs:
+
+- Convex's function runner returns one final transaction to its trusted
+  committer. The current Flarex H05 lane performs fourteen request-scoped
+  compatibility calls through another Worker, so temporary external evidence
+  must correlate the PostgreSQL oracle with both Cloudflare execution versions.
+
+Known limitations:
+
+- No real PostgreSQL, Hyperdrive, or telemetry endpoint was contacted in this
+  checkpoint. The trace sidecar contract and collector are validated offline;
+  the credentialed hosted proof remains required.
+- `trace.evidenceSha256` is not yet projected into the final hosted receipt.
+  Probe teardown and the final compiler remain later H05 checkpoints.
+- Persistence schema, timestamp allocation, OCC behavior, commit compilation,
+  sync, Payload, and Medusa integration are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker test # 15 files, 153 tests passed
+corepack pnpm --filter @flarex/executor-worker build # passed
+corepack pnpm --filter @flarex/executor-worker check:bundle # passed; production graph remained 401 inputs
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run # passed; 7.66 KiB proof Worker
+corepack pnpm check:effect-boundaries # passed
+git diff --check # passed
+```
+
 ## Bind Hosted Hyperdrive To The Exact Staging Target
 
 Previous completed checkpoint: `2bd5b99` (`Capture hosted executor data-plane
