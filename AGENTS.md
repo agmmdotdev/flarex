@@ -4,13 +4,17 @@ These are operating rules for future agents working in this workspace. Feature
 design records, implementation notes, Convex references, and Cloudflare
 differences belong in `roadmaps/`, not in this file.
 
+Keep this file durable. Do not copy milestone status, exact actor names,
+temporary test receipts, or unresolved DDL sketches here; link to the owning
+design note or roadmap and verify its current status instead.
+
 Before committing a significant code change, spawn both project custom reviewer
 subagents: `typescript-diff-reviewer` and `code-quality-diff-reviewer`.
 Significant code changes include behavior changes, public contract/type changes,
 data model/schema/migration changes, non-trivial refactors, or test changes
 that materially alter coverage or expectations.
 
-The two standing reviewers are now Effect-aware. Use them for ordinary core
+The two standing reviewers are Effect-aware. Use them for ordinary core
 implementation work and for changes that touch Effect services, Layers, Effect
 Schema contracts, HttpApi boundaries, typed Effect errors, runtime-boundary
 wiring, Effect-based tests, or promise/try-catch to Effect pipeline changes.
@@ -33,14 +37,36 @@ triage reviewer findings, apply useful fixes itself, rerun validation, then
 commit. If the diff changes after reviewers are spawned, the previous reviews
 are stale; rerun the required reviewer set against the final diff unless the
 only change is docs-only commentary.
+
 ## Core Rule
 
-Flarex is a Convex-inspired backend on Cloudflare. Implement it with care:
-copy Convex semantics where they are portable, copy or closely port Convex SDK
-and codegen logic where licensing and runtime boundaries allow it, and
-explicitly document where Cloudflare Durable Objects require a different design.
+Flarex is a Convex-inspired, Postgres-authoritative backend hosted on
+Cloudflare. Postgres is the only authoritative committed app-data store.
+Cloudflare hosts sandboxed execution, service bindings, WebSockets,
+coordination, and explicitly non-authoritative freshness/cache state.
+
+Implement Flarex with care: copy Convex semantics where they are portable,
+copy or closely port Convex SDK and codegen logic where licensing and runtime
+boundaries allow it, and explicitly document every necessary divergence.
 
 Do not build a generic CRUD server and call it Convex-like.
+
+## Design Challenge Rule
+
+The user explicitly wants evidence-backed design pushback. Treat every proposed
+design—including a user proposal, existing markdown, current code, and the
+agent's own first idea—as a hypothesis to pressure-test before implementation.
+
+Compare the proposal with the accepted design, current schema and code,
+relevant Convex semantics, and the declared slice boundary. Call out concrete
+contradictions, duplicate authorities, unsafe trust or transaction boundaries,
+stale assumptions, missing failure/recovery behavior, premature abstractions,
+and a smaller correctness-preserving alternative.
+
+Prefer respectful, evidence-backed disagreement over uncritical agreement. Do
+not manufacture objections or block mechanical work with a ritual critique. If
+the proposal survives review, say why. Once a decision is accepted, record it
+durably and proceed until new evidence invalidates it.
 
 ## Replacement Design Authority
 
@@ -55,18 +81,24 @@ Use these sources in this order when deciding the future design:
 
 1. `design-notes/flarex-db-accepted-design.md` for accepted architecture,
    trust boundaries, and migration rules.
-2. `design-notes/flarex-internal-db-schema.md` for the proposed logical schema,
-   physical-type policy, and unresolved risks.
-3. The focused replacement plans under `roadmaps/flarexdb-foundation/` plus
-   `roadmaps/20-postgres-executor.md` for executable slice order and gates.
-4. Current code and older roadmap checkpoints only for compatibility inventory,
+2. `design-notes/flarex-commerce-cms-v1-schema-cutline.md` for the minimal v1
+   inventory and explicit deferrals, not as verbatim physical DDL.
+3. `roadmaps/flarexdb-foundation/README.md` and its focused plans for active
+   slice order, accepted slice-level refinements, and correctness gates.
+4. The relevant domain roadmap for current decisions and chronological
+   implementation evidence.
+5. `design-notes/flarex-internal-db-schema.md` as a long-form proposal,
+   physical-policy inventory, provenance record, and unresolved-risk list.
+   Its unrefined DDL sketches are not accepted merely because they are written.
+6. Current code and older roadmap checkpoints only for compatibility inventory,
    migration inputs, regression tests, and provenance.
 
 Read status labels literally. `Implemented compatibility baseline` is not the
 same as `accepted target`; deferred designs are not active requirements. If an
 older note or implementation conflicts with the accepted replacement design,
 follow the accepted design and update or explicitly mark the stale statement as
-superseded. Never silently combine legacy Durable Object storage assumptions
+superseded. A newer timestamp alone does not promote a proposal to accepted
+authority. Never silently combine legacy Durable Object storage assumptions
 with the Postgres-authoritative replacement.
 
 The replacement remains compatibility-first: introduce a storage generation,
@@ -105,7 +137,8 @@ Record:
 - what changed
 - why it changed
 - the previous completed checkpoint's commit ID and title
-- Convex source files inspected or used as inspiration
+- Convex source files inspected or used as inspiration, or why none were
+  relevant for a governance-only or mechanical change
 - how the Flarex design differs from Convex
 - known limitations or follow-up work
 - verification commands run
@@ -147,55 +180,34 @@ user request.
 
 ## Where To Put Records
 
-- Backend database and DO shape:
-  `roadmaps/01-backend-data-model-and-do-shape.md`
-- Schema placement and shards:
-  `roadmaps/02-schema-placement-and-shards.md`
-- OCC and transaction engine:
-  `roadmaps/03-occ-and-transactions.md`
-- Index storage and range reads:
-  `roadmaps/04-indexes.md`
-- Sync and subscriptions:
-  `roadmaps/05-sync-and-subscriptions.md`
-- Dynamic Worker execution:
-  `roadmaps/06-dynamic-worker-execution.md`
-- Cross-shard workflows:
-  `roadmaps/07-cross-shard-workflows.md`
-- Projections and denormalized read models:
-  `roadmaps/08-projections.md`
-- SDK and CLI fork strategy:
-  `roadmaps/09-sdk-and-cli-fork.md`
-- Runtime argument and document validation:
-  `roadmaps/10-runtime-validation.md`
-- Cross-system Convex-first porting policy:
-  `roadmaps/13-convex-first-system-porting.md`
-- Local dev server and Vite plugin runtime:
-  `roadmaps/14-local-dev-server.md`
-- Test SDK:
-  `roadmaps/15-test-sdk.md`
-- Package boundaries and backend runtime reuse:
-  `roadmaps/16-package-boundaries.md`
-- Deployment push, authoritative module analysis, and activation:
-  `roadmaps/17-deployment-analysis-and-push.md`
-- Postgres trusted executor, Nitro adapter, and PGlite local/test lane:
-  `roadmaps/20-postgres-executor.md`
-- Cloudflare freshness/cache layers for Postgres-authoritative sync:
+Use `roadmaps/README.md` as the maintained domain index rather than duplicating
+its full mapping here. Current primary anchors are:
+
+- FlarexDB foundation and turn order: `roadmaps/flarexdb-foundation/`
+- Postgres trusted executor and host adapters: `roadmaps/20-postgres-executor.md`
+- Sync and non-authoritative cache layers:
   `roadmaps/21-cloudflare-freshness-cache.md`
-- Hosted project identity, auth, and `ctx.auth`:
-  `roadmaps/31-hosted-project-identity-and-auth.md`
+- Commit compiler and session intent:
+  `roadmaps/35-commit-compiler-and-session-intent.md`
+- Cross-system Convex-first policy: `roadmaps/13-convex-first-system-porting.md`
+
+Historical filenames containing `DO`, `partition`, or `shard` do not make
+their old architecture active. Read their status and the accepted design before
+using them.
 
 ## Backend Rules
 
 1. Keep `packages/flarex-backend` backend-only.
-   `apps/backend` is only the deployable Wrangler wrapper. Do not add client
-   APIs to either backend location. Client and generated developer APIs belong
-   in `packages/flarex`, `packages/flarex-dev`, and future test/dev packages.
+   `apps/backend` is its thin public Worker wrapper; `apps/executor` is the
+   private executor Worker adapter. Do not add client APIs to backend or host
+   packages. Client and generated developer APIs belong in `packages/flarex`,
+   `packages/flarex-dev`, and test/dev packages.
 
 2. Treat the Postgres trusted executor as the forward authoritative data path.
    The older Durable Object shard implementation is prototype/legacy
-   scaffolding. New storage, OCC, sync invalidation, and client API work should
-   target `roadmaps/20-postgres-executor.md` unless the user explicitly asks to
-   maintain the DO prototype.
+   scaffolding. New storage, OCC, and authoritative invalidation work should
+   follow the FlarexDB foundation plans and `roadmaps/20-postgres-executor.md`.
+   SDK and client work remains in its own domain roadmaps.
 
 3. Keep runtime hosts as adapters, not the executor core. The hosted production
    target is a dedicated private Cloudflare Worker reached through service
@@ -205,24 +217,28 @@ user request.
    private Web-standard Fetch adapter while `/invoke/*` is stable;
    `@flarex/executor-nitro` is an optional Nitro/Vercel compatibility adapter.
    Do not retire either compatibility path until the Worker/Hyperdrive host
-   passes its declared bundle and real-Postgres correctness gates.
+   passes its declared bundle and real-Postgres correctness gates. Hosted
+   activation gates do not block host-neutral schema, OCC, or compiler work.
 
 4. Use PGlite for local and fast test lanes, but keep real Postgres as the
    required correctness lane for isolation, locks, migrations, outbox behavior,
    and production query plans.
 
 5. Preserve Convex's core transaction idea.
-   Function execution produces reads and writes, then commit validates reads
-   against writes after the begin timestamp.
+   Function execution reads from an exact
+   `SnapshotToken { scopeId, epoch, commitSeq }` pinned to a storage generation
+   and fence, stages writes, and validates explicit read dependencies before
+   publication.
 
 6. Make reads explicit.
    `db.get`, index queries, table scans, and future search reads must record
    read-set entries that can be checked at commit and used for subscriptions.
 
 7. Make writes versioned.
-   Store history with commit timestamps and keep current rows only as an
-   optimization. Do not lose `prev_ts` or tombstone information in the
-   authoritative path.
+   Store revision history with scope-local `commit_seq` and `prev_commit_seq`,
+   and keep current rows only as an optimization. Do not lose tombstone
+   information. Legacy timestamps are migration inputs, not replacement commit
+   authority.
 
 8. Preserve idempotency.
    Mutation identifiers/idempotency keys are part of backend semantics so
@@ -231,30 +247,21 @@ user request.
 9. Use database transactions correctly.
    Postgres/PGlite transaction helpers should own `BEGIN`/`COMMIT`/rollback.
    Do not hold a Postgres transaction open while waiting on untrusted user code
-   in Cloudflare.
+   in any execution host.
 
-10. Keep Cloudflare DO names deterministic and tenant-scoped where DOs remain
-    useful for deployment metadata, sync connections, schedulers, and future
-    cache/freshness mirrors.
-
-    ```txt
-    registry:v1
-    deployment:{deploymentId}
-    connection:{deploymentId}:{sessionId}
-    delivery:{deploymentId}
-    scheduler:{deploymentId}
-    version:{deploymentId}:{bucket}
-    query-cache:{deploymentId}:{queryHash}
-    ```
+10. Keep any accepted Durable Object identity deterministic and scoped to its
+    real authority. Do not copy a legacy deployment-key convention into a
+    scope-owned sync or cache actor. Exact names and deferred actor status
+    belong in their owning roadmap and implementation.
 
 11. Do not expose raw storage or database handles to user code.
     Dynamic Worker user code should call a restricted syscall API. The backend
     owns routing, transaction state, OCC validation, and persistence.
 
 12. Prefer conservative correctness over hidden convenience.
-    If a feature cannot provide Convex-like semantics on Cloudflare, expose the
-    limitation in API design and generated errors instead of pretending it is
-    transparent.
+    If a runtime or storage boundary cannot provide Convex-like semantics,
+    expose the limitation in API design and generated errors instead of
+    pretending it is transparent.
 
 13. Keep Flarex-managed execution artifacts invisible to developers.
     Developers write ordinary TypeScript modules under `flarex/`; they do not
@@ -272,7 +279,13 @@ user request.
 
 ## Verification Rules
 
-When backend code changes, run at least:
+Validate proportionally to the changed correctness boundary. Run affected
+package typechecks, focused tests, and builds. Schema, transaction, isolation,
+lock, migration, outbox, and query-plan changes require the relevant PGlite
+fast lane plus a focused real-Postgres correctness lane.
+
+Run the backend-specific commands below when `packages/flarex-backend` or
+`apps/backend` changes, not for every unrelated workspace package change:
 
 ```sh
 corepack pnpm --filter flarex-backend typecheck
@@ -282,7 +295,8 @@ corepack pnpm --filter @flarex/backend typecheck
 corepack pnpm --filter @flarex/backend build
 ```
 
-For workspace-level changes, run:
+Run workspace-wide commands only for genuinely cross-cutting changes whose
+affected boundary cannot be covered by package-level gates:
 
 ```sh
 corepack pnpm typecheck
@@ -290,10 +304,16 @@ corepack pnpm test
 corepack pnpm build
 ```
 
+Focused core schema, OCC, and compiler slices do not authorize Cloudflare
+provisioning, deployment, or unrelated broad integration suites. If a broad
+command fails because of environment or resource pressure after relevant tests
+pass, record that honestly and rerun the affected files in bounded fresh
+processes; do not misreport the broad command as green.
+
 If `wrangler dev` is started for smoke testing, stop the Wrangler process and
 any `workerd` children before finishing.
 
 Use `corepack pnpm --filter @flarex/backend deploy:dry-run` only when checking
-the deployable Cloudflare wrapper. It may be slower or environment-sensitive
-because it invokes Wrangler; do not make the normal workspace `build` depend on
-it.
+the deployable Cloudflare wrapper as part of an explicitly in-scope host or
+deployment change. It may be slower or environment-sensitive because it
+invokes Wrangler; do not make the normal workspace `build` depend on it.

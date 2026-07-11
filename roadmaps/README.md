@@ -8,7 +8,8 @@ Every implementation turn must update the relevant domain file with:
 - what changed
 - why it changed
 - Convex source files inspected or used as inspiration
-- how Flarex differs because it runs on Cloudflare Durable Objects
+- how Flarex differs because of runtime, storage, licensing, or deliberate API
+  boundaries
 - known limitations and follow-up work
 - verification commands run
 

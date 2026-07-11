@@ -1,5 +1,64 @@
 # Convex-First System Porting Policy
 
+## Require Evidence-First Design Challenge
+
+Previous completed checkpoint: `ca565e7` Persist immutable schema artifacts.
+
+What changed:
+
+- Added an explicit `AGENTS.md` rule that treats user proposals, markdown,
+  current code, and an agent's own first idea as hypotheses to pressure-test.
+  Agents must identify concrete contradictions, duplicate authorities, unsafe
+  trust/transaction boundaries, stale assumptions, failure gaps, and smaller
+  correctness-preserving alternatives without manufacturing objections.
+- Corrected replacement-source precedence. The accepted design remains first;
+  the v1 cutline controls inventory/deferrals; focused foundation plans control
+  active slice refinements; and the long-form internal schema is explicitly a
+  proposal/provenance source whose unrefined DDL is not automatically accepted.
+- Removed the duplicated roadmap map and stale deployment-scoped Durable Object
+  name list from `AGENTS.md`. The maintained roadmap index now owns those
+  details, and historical `DO`/`partition`/`shard` filenames do not imply active
+  architecture.
+- Updated durable backend language to use Postgres authority, exact snapshot
+  tokens, scope-local commit sequences, host-neutral short transactions, and
+  proportional verification. Cloudflare provisioning and broad unrelated
+  suites are no longer implied by a narrow core slice.
+
+Why it changed:
+
+`AGENTS.md` is an operating contract, not a second roadmap. Volatile copies had
+already drifted from accepted S03 identities, the Postgres-authoritative host
+decision, scope-owned coordination, and the user's preference for explicit
+design pushback. Keeping only durable rules makes future critiques more likely
+to catch mixed old/new assumptions before they become migrations.
+
+Convex sources inspected:
+
+- No new Convex source inspection was needed for this governance-only change.
+  The existing Convex-first requirement and source-routing policy are retained.
+
+How Flarex differs:
+
+- Flarex has several migration-era documents and Cloudflare compatibility
+  hosts around one Postgres authority. That makes explicit source precedence
+  and stale-assumption checks more important than in a single-backend design.
+- Cloudflare remains a host and coordination boundary, but no longer appears in
+  the operating rules as the explanation for every database divergence.
+
+Known limitations and follow-up:
+
+- This checkpoint does not adjudicate the proposed S03-B2 table-definition
+  shape or rewrite historical roadmap entries; those remain separate design
+  decisions with their original provenance.
+- Exact active actor names and milestone status must stay in their owning
+  roadmap/code and may still require focused cleanup when touched.
+
+Verification:
+
+```sh
+git diff --check -- AGENTS.md roadmaps/README.md roadmaps/13-convex-first-system-porting.md
+```
+
 ## Decision
 
 Flarex should be developed as a Convex-first system across backend, runtime,
