@@ -1,8 +1,8 @@
 # FlarexDB Schema And Migration Plan
 
-Status: S01 through S02-C, resolve-only S02-D1, and catalog checkpoint S03-A
-complete; hosted-proof H01-H04 and H05-A complete, while H05-B and S02-D2
-production routing are deferred as core work proceeds to S03-B
+Status: S01 through S02-C, resolve-only S02-D1, and catalog checkpoints S03-A
+and S03-B1 complete; hosted-proof H01-H04 and H05-A complete, while H05-B and
+S02-D2 production routing are deferred as core work proceeds to S03-B2
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -385,8 +385,10 @@ Progress:
   transaction-only idempotent allocation and deployment-qualified point reads,
   and prove the additive migration without schema-version or index-catalog
   behavior.
-- [ ] S03-B — Persist immutable schema versions, canonical manifests, hashes,
-  and versioned table definitions.
+- [x] S03-B1 — Persist immutable schema-version artifacts, canonical manifest
+  bytes, and SHA-256 checksums without lifecycle or activation behavior.
+- [ ] S03-B2 — Bind stable table identities to immutable versioned table
+  definitions.
 - [ ] S03-C — Add stable index identities, immutable index definitions, and
   per-scope build state.
 - [ ] S03-D — Compile and verify normalized catalog state transactionally and
@@ -394,8 +396,9 @@ Progress:
 
 Outcome:
 
-- Add `fx_control_schema_version` with immutable manifest, checksum, status,
-  and deployment ownership.
+- Add `fx_control_schema_version` with an immutable manifest, canonical bytes,
+  checksum, and deployment ownership. Lifecycle status remains deferred to
+  S03-D rather than making this artifact row mutable.
 - Add stable `fx_control_table` and `fx_control_index` identities.
 - Assign stable relation and constraint IDs inside the immutable manifest even
   though their normalized physical definition tables remain deferred.
@@ -483,6 +486,114 @@ corepack pnpm --filter @flarex/persistence-postgres db:check
 corepack pnpm check:effect-boundaries
 git diff --check
 ```
+
+#### S03-B1 Implementation Checkpoint
+
+Previous completed checkpoint: `54f0022` Persist stable table identities.
+
+What changed:
+
+- Added branded schema-version identity, positive signed-32-bit version,
+  manifest-codec version, canonical-byte, and 32-byte SHA-256 contracts under
+  the focused `flarex-protocol/schema-manifest` subpath.
+- Froze manifest codec v1 as a domain-separated JSON envelope with
+  locale-independent UTF-16 object-key ordering, preserved array order, strict
+  JSON input validation, UTF-8 bytes, and Web Crypto SHA-256. The hash input is
+  those canonical bytes, never PostgreSQL `jsonb` serialization.
+- Added the deployment-owned `fx_control_schema_version` artifact table with
+  deployment-qualified identity and version uniqueness, codec version,
+  semantic `jsonb`, canonical `bytea`, checksum `bytea`, creation metadata,
+  restrictive deployment ownership, and no status or active pointer.
+- Added transaction-only idempotent insertion plus deployment-qualified point
+  reads. Exact artifacts replay; identity/version reuse conflicts fail typed;
+  and equal hashes with unequal bytes fail as collisions. Full point reads
+  re-encode stored JSON and verify both bytes and checksum outside the locked
+  write phase.
+- Final review hardened the codec against array subclasses/replaced prototypes
+  and removed dispatch through input-owned array methods. Repository-owned
+  preparation now validates, canonicalizes, and hashes before SQL begins,
+  returns an opaque token to the transaction-only phase, and distinguishes
+  invalid manifests from operational preparation failures.
+- The final review also made created-result byte arrays defensive copies and
+  kept canonicalization/Web Crypto out of the deployment-lock phase.
+  Transactional replay compares stored codec/byte/digest evidence; the explicit
+  point-read APIs remain the full JSON integrity audit.
+- Added protocol edge-case and golden-vector tests, PGlite repository,
+  constraint, rollback, corruption, isolation, and additive-upgrade tests, plus
+  real-Postgres concurrent replay/conflict proofs in a non-public schema.
+- Aligned the higher-authority internal-schema and v1-cutline sketches with the
+  accepted deployment-owned artifact, retained canonical bytes, raw digest,
+  deferred lifecycle state, and sole future scope activation pointer.
+
+Why it changed:
+
+Later table definitions, indexes, compilation, validation, and activation need
+one immutable source artifact whose identity and bytes survive retries and
+PostgreSQL JSON normalization. Persisting only that source keeps S03-B1 small
+and prevents lifecycle state or normalized rows from becoming a second schema
+authority.
+
+Convex sources inspected:
+
+- `crates/common/src/bootstrap_model/schema_metadata.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/common/src/bootstrap_model/schema_state.rs`
+- `crates/application/src/schema_worker/mod.rs`
+
+How Flarex differs:
+
+- Convex compares typed `DatabaseSchema` values inside its metadata model and
+  separates submission from later validation/activation. Flarex additionally
+  freezes a versioned canonical JSON codec and SHA-256 because shared
+  PostgreSQL `jsonb` does not preserve checksum input bytes.
+- Flarex owns the artifact by deployment and serializes registration with one
+  short deployment-row lock. The future sole active authority remains
+  `fx_control_scope.active_schema_version_id`; this checkpoint does not read or
+  write it.
+- Versions are explicit positive values and IDs are trusted opaque values. No
+  gapless allocator, content-addressed identity, or checksum uniqueness is
+  implied.
+
+Known limitations and follow-up:
+
+- S03-B2 still owns versioned table definitions. S03-C owns stable indexes and
+  build state; S03-D owns trusted compilation, validation lifecycle, and
+  activation readiness.
+- The repository is append-only but privileged SQL can still coherently mutate
+  JSON, bytes, and checksum. A trigger/role policy is a separate hardening
+  decision.
+- Codec v1 fixes a nesting limit of 128 but no maximum canonical byte size yet;
+  the API must remain trusted and unrouted until a bound is accepted.
+- Canonicalization normalizes object-key order only. Semantically reordered
+  arrays remain different artifacts until the trusted compiler constructs a
+  deterministic domain manifest.
+- This checkpoint adds no analyzer/executor routing, OCC, app rows, commit
+  compiler, sync, Payload, Medusa, or Cloudflare deployment behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/schema-manifest.test.ts
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaVersionArtifacts.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts -t "runs Drizzle Kit migrations idempotently|adds immutable schema artifacts" --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaVersionArtifacts.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaVersionArtifacts.test.ts test/stableTableCatalog.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
+The monolithic persistence-package test command was also attempted. Its
+assertions reached 173 passed and 28 skipped without a test failure, then a
+Vitest worker exited with a Windows/V8 zone out-of-memory error. The complete
+PGlite migration file and affected artifact/stable-catalog files were rerun in
+fresh bounded processes as the green regression gate above.
 
 ### [ ] S04 — Migrate Active Schema Pointer Authority
 

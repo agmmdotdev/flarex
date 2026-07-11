@@ -148,13 +148,6 @@
       "when": 1783788922731,
       "tag": "0020_open_mysterio",
       "breakpoints": true
-    },
-    {
-      "idx": 21,
-      "version": "7",
-      "when": 1783793350402,
-      "tag": "0021_solid_proudstar",
-      "breakpoints": true
     }
   ]
 }

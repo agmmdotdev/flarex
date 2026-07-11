@@ -270,27 +270,38 @@ fx_control_scope (
   unique (id, deployment_id),
   foreign key (deployment_id) references fx_control_deployment (id),
   foreign key (deployment_id, active_schema_version_id)
-    references fx_control_schema_version (deployment_id, id)
+    references fx_control_schema_version (deployment_id, schema_version_id)
 )
 
 fx_control_schema_version (
-  id text primary key,
   deployment_id text not null,
+  schema_version_id text not null,
   version integer not null,
   manifest_codec_version integer not null,
   manifest_json jsonb not null,
-  checksum text not null,
-  status text not null,
+  manifest_bytes bytea not null,
+  manifest_sha256 bytea not null,
   created_at timestamptz not null,
+  primary key (deployment_id, schema_version_id),
   unique (deployment_id, version),
-  unique (deployment_id, id),
+  check (octet_length(manifest_bytes) > 0),
+  check (octet_length(manifest_sha256) = 32),
   foreign key (deployment_id) references fx_control_deployment (id)
 )
 ```
 
-`manifest_json` is immutable canonical schema input. `checksum` is computed from
-the versioned canonical encoding, and normalized catalog rows are compiled from
-and verified against that artifact rather than edited independently.
+Accepted S03-B1 refinement: the schema-version row is a deployment-owned,
+immutable source artifact, not a lifecycle row. `manifest_json` is the semantic
+schema input; `manifest_bytes` retains the exact versioned canonical UTF-8
+encoding; and `manifest_sha256` stores its raw 32-byte SHA-256 digest. PostgreSQL
+`jsonb` serialization is never checksum input. Normalized catalog rows are
+compiled from and verified against this artifact rather than edited
+independently.
+
+The artifact has no mutable `status` in S03-B1. S03-D owns validation and
+activation lifecycle design and must keep any mutable state separate from the
+immutable source artifact. `fx_control_scope.active_schema_version_id` remains
+the sole future activation authority.
 
 `fx_control_scope.active_schema_version_id` is the only data-plane activation
 pointer. Deployment records may expose a derived/control-plane view, but must

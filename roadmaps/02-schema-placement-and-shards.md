@@ -1,5 +1,67 @@
 # Schema Placement And Shards
 
+## Keep Schema-Version Artifacts In The Deployment Control Catalog
+
+Previous completed checkpoint: `54f0022` Persist stable table identities.
+
+What changed:
+
+- Placed immutable `fx_control_schema_version` artifacts beside deployment
+  metadata, with primary identity `(deployment_id, schema_version_id)` and a
+  separate unique `(deployment_id, version)` key.
+- Kept manifest JSON, canonical bytes, codec version, checksum, and creation
+  metadata together under one restrictive deployment foreign key. The
+  migration works through a selected non-public `search_path` rather than
+  hard-coding `public`.
+- Serialized ensure/replay with only the owning deployment row, so independent
+  deployments can use the same opaque ID and version while conflicting claims
+  inside one deployment converge deterministically.
+- Added no data-plane copy, `scope_id`, cross-database foreign key, lifecycle
+  state, or active-pointer write.
+
+Why it changed:
+
+Schema identity must be resolved before the trusted backend locates any
+physical scope. Deployment ownership gives all supported placement topologies
+one logical artifact without inventing a second per-scope schema authority.
+
+Convex references inspected:
+
+- `crates/common/src/bootstrap_model/schema_metadata.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/common/src/bootstrap_model/schema_state.rs`
+
+How Flarex differs:
+
+- Convex owns schema metadata inside one backend database. Flarex qualifies
+  immutable artifacts by deployment in a shared control plane, then later
+  resolves the authoritative scope/data-plane placement separately.
+- PostgreSQL `jsonb` is retained for semantic inspection, but canonical UTF-8
+  bytes are the checksum authority because `jsonb` does not preserve encoding.
+
+Known limitations and follow-up:
+
+- S03-B2 must bind deployment-stable table IDs to versioned definitions without
+  copying the active pointer. S04 alone will migrate active authority to
+  `fx_control_scope.active_schema_version_id`.
+- No data-plane cache, pooled scope guard/RLS proof, adapter compilation, or
+  Payload/Medusa physical placement is included.
+- Repository immutability does not prevent coherent privileged SQL mutation.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaVersionArtifacts.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts -t "runs Drizzle Kit migrations idempotently|adds immutable schema artifacts" --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaVersionArtifacts.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaVersionArtifacts.test.ts test/stableTableCatalog.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Keep Stable Table Identity In The Deployment Control Catalog
 
 Previous completed checkpoint: `9b924dd` Resolve trusted scope authority.

@@ -1,5 +1,83 @@
 # Postgres Executor
 
+## Persist Schema Artifacts Behind Framework-Neutral Transaction APIs
+
+Previous completed checkpoint: `54f0022` Persist stable table identities.
+
+What changed:
+
+- Added a host-neutral canonical manifest codec and immutable schema-version
+  artifact repository in `flarex-protocol` and
+  `@flarex/persistence-postgres`; no HTTP, Nitro, Worker, or backend host owns
+  the logic.
+- A trusted preparation function validates, canonicalizes, and hashes before
+  opening SQL, then returns an opaque repository-owned token. The
+  transaction-only ensure phase accepts only that token and performs the short
+  deployment lock, conflict resolution, replay verification, and insert. It
+  accepts no caller-provided codec, bytes, digest, JSON copy, timestamp, or
+  active state.
+- Exact registration replays the stored artifact. ID/version conflicts fail
+  typed and checksum collision is distinct from mismatch. Under the deployment
+  lock, replay compares only validated scalar, canonical-byte, and digest
+  evidence; full point reads re-canonicalize JSON and verify stored bytes and
+  digest outside that locked write phase.
+- Final review rejected exotic array prototypes, removed input-owned method
+  dispatch from encoding, and separated invalid manifest input from
+  canonicalization/hash infrastructure failure. It also made returned byte
+  arrays defensive copies and removed canonicalization/Web Crypto awaits from
+  the deployment-lock phase.
+- PGlite covers local contracts and upgrades; PostgreSQL 18 covers concurrent
+  exact replay and competing version claims in a non-public schema.
+
+Why it changed:
+
+The future trusted compiler and executor need a stable schema input, but user
+analysis and runtime execution cannot hold or receive a database transaction.
+This slice persists only the trusted artifact and keeps all host composition,
+catalog compilation, and activation outside the transaction.
+
+Convex references inspected:
+
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/common/src/bootstrap_model/schema_metadata.rs`
+- `crates/application/src/schema_worker/mod.rs`
+- `crates/database/src/transaction.rs`
+
+How Flarex differs:
+
+- Convex reuses equal typed schemas. Flarex additionally compares frozen
+  canonical bytes and verifies SHA-256 because PostgreSQL JSON encoding is not
+  a stable hash boundary.
+- Distributed hosts converge through a short deployment-row lock. Neither the
+  private Worker nor the compatibility Fetch/Nitro adapters participate in
+  artifact semantics.
+
+Known limitations and follow-up:
+
+- The executor does not consume the artifact. S03-B2 table definitions and
+  S03-D trusted compilation/validation must land before any routing decision.
+- No active pointer, lifecycle transition, analyzer call, user code, OCC, app
+  row, commit compiler, sync, Payload, Medusa, Hyperdrive, or deployment work
+  is included.
+- A canonical byte-size limit and privileged-SQL immutability hardening remain
+  explicit follow-up decisions.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaVersionArtifacts.test.ts test/stableTableCatalog.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/persistence-postgres db:check
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaVersionArtifacts.postgres.test.ts --no-file-parallelism
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Establish The Framework-Neutral Stable Table Catalog
 
 Previous completed checkpoint: `9b924dd` Resolve trusted scope authority.

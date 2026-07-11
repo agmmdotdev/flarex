@@ -59,6 +59,7 @@ describe("createPGlitePersistence", () => {
       "document_freshness_versions",
       "documents",
       "freshness_processed_events",
+      "fx_control_schema_version",
       "fx_control_scope",
       "fx_control_scope_provisioning",
       "fx_control_table",
@@ -343,6 +344,82 @@ describe("createPGlitePersistence", () => {
         `select count(*)::text as count from fx_control_table`,
       );
       expect(catalogCount.rows).toEqual([{ count: "0" }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("adds immutable schema artifacts without backfilling deployments", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-schema-artifact-upgrade-"));
+    const previousMigrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const previousJournal = resolve(
+      packageRoot,
+      "test/fixtures/drizzle-through-0020-journal.json",
+    );
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, previousMigrationsFolder, {
+        recursive: true,
+      });
+      await copyFile(
+        previousJournal,
+        resolve(previousMigrationsFolder, "meta/_journal.json"),
+      );
+      const previousPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder: previousMigrationsFolder,
+      });
+      await previousPersistence.migrate();
+      await previousPersistence.insertDeploymentMetadata({
+        deploymentId: "deployment_before_schema_artifact",
+        projectId: "project_before_schema_artifact",
+      });
+      await previousPersistence.query(`
+        insert into fx_control_table
+          (deployment_id, table_id, namespace, logical_name)
+        values
+          ('deployment_before_schema_artifact', 1, 'app', 'users')
+      `);
+      await expect(
+        previousPersistence.query(
+          `select schema_version_id from fx_control_schema_version limit 1`,
+        ),
+      ).rejects.toThrow();
+
+      const currentPersistence = await createPGlitePersistence({ db });
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(
+        currentPersistence.getDeploymentMetadata(
+          "deployment_before_schema_artifact",
+        ),
+      ).resolves.toMatchObject({
+        deploymentId: "deployment_before_schema_artifact",
+        projectId: "project_before_schema_artifact",
+      });
+      const stableTables = await currentPersistence.query<{
+        table_id: number;
+        namespace: string;
+        logical_name: string;
+      }>(`
+        select table_id, namespace, logical_name
+        from fx_control_table
+        where deployment_id = 'deployment_before_schema_artifact'
+      `);
+      expect(stableTables.rows).toEqual([
+        { table_id: 1, namespace: "app", logical_name: "users" },
+      ]);
+      const artifactCount = await currentPersistence.query<{ count: string }>(
+        `select count(*)::text as count from fx_control_schema_version`,
+      );
+      expect(artifactCount.rows).toEqual([{ count: "0" }]);
     } finally {
       try {
         await db.close();

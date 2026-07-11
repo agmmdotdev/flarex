@@ -325,32 +325,43 @@ Suggested v1 shape uses a stable table identity plus an immutable schema
 manifest. Do not mutate a table identity into a new historical meaning:
 
 ```sql
-fx_table (
-  scope_id text not null,
+fx_control_table (
+  deployment_id text not null,
   table_id int not null,
-  name text not null,
-  kind text not null,
-  resolver text not null,
+  namespace text not null,
+  logical_name text not null,
   created_at timestamptz not null default now(),
-  primary key (scope_id, table_id),
-  unique (scope_id, name)
+  primary key (deployment_id, table_id),
+  unique (deployment_id, namespace, logical_name)
 );
 
-fx_schema_version (
-  scope_id text not null,
-  schema_version bigint not null,
-  checksum text not null,
+fx_control_schema_version (
+  deployment_id text not null,
+  schema_version_id text not null,
+  version integer not null,
+  manifest_codec_version integer not null,
   manifest_json jsonb not null,
-  status text not null,
+  manifest_bytes bytea not null,
+  manifest_sha256 bytea not null,
   created_at timestamptz not null default now(),
-  primary key (scope_id, schema_version)
+  primary key (deployment_id, schema_version_id),
+  unique (deployment_id, version),
+  check (octet_length(manifest_bytes) > 0),
+  check (octet_length(manifest_sha256) = 32)
 );
 ```
 
-`manifest_json` carries the immutable table, field, relation, constraint, and
-index definitions for that version while preserving stable IDs. The scope's
-single active-version pointer changes only after required index backfills and
-validation succeed.
+Accepted S03-A/S03-B1 refinement: stable table identity and immutable schema
+artifacts are deployment-owned control metadata. `manifest_json` carries the
+semantic schema input, while `manifest_bytes` retains the exact versioned
+canonical UTF-8 encoding and `manifest_sha256` stores its raw 32-byte digest;
+PostgreSQL `jsonb` is not checksum input. The artifact has no mutable status.
+S03-D owns later validation lifecycle, and the scope's sole active-version
+pointer changes only after required index backfills and validation succeed.
+
+Versioned table definitions remain S03-B2 work. This cutline does not imply
+that the S03-B1 artifact already normalizes or activates table, field,
+relation, constraint, or index definitions.
 
 Example table definition inside `fx_schema_version.manifest_json`:
 

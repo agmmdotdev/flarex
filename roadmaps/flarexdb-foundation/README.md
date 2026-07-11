@@ -1,8 +1,8 @@
 # FlarexDB Foundation Execution Plans
 
-Status: S01 through S02-C and resolve-only S02-D1 are complete; hosted-proof
-H01-H04 and H05-A are complete, while H05-B and S02-D2 production routing are
-deferred as core work proceeds to S03
+Status: S01 through S02-C, resolve-only S02-D1, S03-A, and S03-B1 are complete;
+hosted-proof H01-H04 and H05-A are complete, while H05-B and S02-D2 production
+routing are deferred as core work proceeds to S03-B2
 
 This folder turns the accepted FlarexDB architecture into small, reviewable,
 commit-sized implementation turns. It is intentionally limited to the
@@ -205,7 +205,9 @@ commit are complete.
    persisted scope/clock authority without routing execution. H05-B remains the
    final hard prerequisite for S02-D2 production runtime routing and is
    deferred while core foundation work continues.
-3. `S03` add the minimal stable catalog.
+3. `S03` add the minimal stable catalog. S03-A established stable table
+   identities and S03-B1 persisted immutable canonical schema-version
+   artifacts; S03-B2 versioned table definitions are next.
 4. `S04` migrate active-schema pointer authority while mirroring legacy reads.
 5. `S05` freeze tagged value and ordered-key codecs.
 6. `O01` add typed OCC contracts and narrow ports.

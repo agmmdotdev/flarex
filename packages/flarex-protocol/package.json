@@ -20,6 +20,7 @@
     "./partition": "./src/partition.ts",
     "./registry": "./src/registry.ts",
     "./scheduler": "./src/scheduler.ts",
+    "./schema-manifest": "./src/schema-manifest.ts",
     "./storage-authority": "./src/storage-authority.ts"
   },
   "scripts": {

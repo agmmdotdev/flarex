@@ -1,5 +1,85 @@
 # Backend Data Model And Durable Object Shape
 
+## Persist Immutable Deployment-Owned Schema Artifacts
+
+Previous completed checkpoint: `54f0022` Persist stable table identities.
+
+What changed:
+
+- Added strict branded schema-version, codec-version, canonical-byte, and
+  SHA-256 contracts plus deterministic manifest codec v1. It hashes the
+  codec's domain-separated UTF-8 bytes rather than PostgreSQL `jsonb`.
+- Added `fx_control_schema_version` as an additive deployment-owned artifact
+  table. It stores the semantic manifest JSON, exact canonical bytes, codec
+  version, 32-byte checksum, and creation time under deployment-qualified
+  identity and version uniqueness.
+- Added only transaction-scoped ensure and deployment-qualified point-read
+  functions. Exact replay is idempotent; identity/version conflicts, checksum
+  collisions, and stored evidence mismatches fail closed. Full point reads
+  re-encode JSON and detect stored JSON/byte/digest drift.
+- Added an opaque repository-prepared token: strict validation, canonical
+  encoding, and hashing finish before SQL begins, while the short transaction
+  receives no caller-controlled bytes or checksum. Invalid input and
+  operational preparation failure remain distinct errors.
+- Rejected array subclasses/replaced prototypes and encoded arrays by indexed
+  values so input-owned methods cannot alter canonical bytes after validation.
+- Returned defensive byte/digest copies so mutating a created result cannot
+  mutate its hidden prepared token across rollback or replay. The deployment
+  lock performs no canonicalization or Web Crypto work.
+- Proved the codec contract, PGlite migration/rollback/immutability behavior,
+  and concurrent real-Postgres replay and conflict behavior.
+- Updated the internal-schema and v1-cutline sketches so they no longer imply
+  a text checksum, omitted canonical bytes, or mutable artifact status.
+
+Why it changed:
+
+Stable table IDs need an immutable version artifact before later normalized
+table definitions can bind them. Keeping semantic JSON and canonical bytes
+together preserves both inspectability and exact checksum provenance without
+letting database JSON normalization define identity.
+
+Convex references inspected:
+
+- `crates/common/src/bootstrap_model/schema_metadata.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/common/src/bootstrap_model/schema_state.rs`
+- `crates/application/src/schema_worker/mod.rs`
+
+How Flarex differs:
+
+- Convex compares typed schema values in its metadata model. Flarex adds an
+  explicit canonical codec and SHA-256 boundary for a shared PostgreSQL
+  control catalog.
+- The artifact is deployment-owned and append-only through the repository.
+  Lifecycle status and the sole future scope active pointer remain separate;
+  this checkpoint changes neither.
+
+Known limitations and follow-up:
+
+- S03-B2 still owns versioned table definitions; indexes, lifecycle,
+  compilation, validation, and activation remain later S03 slices.
+- Privileged SQL can coherently rewrite the three stored representations; a
+  trigger/role policy is unresolved. Codec depth is bounded at 128, while a
+  maximum canonical byte size remains to be fixed before untrusted routing.
+- No analyzer/executor route, OCC, row storage, commit compiler, sync, Payload,
+  Medusa, or Cloudflare behavior changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaVersionArtifacts.test.ts test/stableTableCatalog.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/persistence-postgres db:check
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaVersionArtifacts.postgres.test.ts --no-file-parallelism
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Persist Stable Deployment-Scoped Table Identities
 
 Previous completed checkpoint: `9b924dd` Resolve trusted scope authority.

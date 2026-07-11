@@ -19,6 +19,14 @@ import type {
   CatalogTableNamespace,
 } from "flarex-protocol/catalog";
 import type {
+  CanonicalSchemaManifestBytes,
+  CatalogSchemaVersion,
+  CatalogSchemaVersionId,
+  SchemaManifestCodecVersion,
+  SchemaManifestJson,
+  SchemaManifestSha256,
+} from "flarex-protocol/schema-manifest";
+import type {
   CommitSeq,
   OutboxSeq,
   ScopeEpoch,
@@ -47,6 +55,67 @@ export const deployments = pgTable("deployments", {
     .default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const fxControlSchemaVersions = pgTable(
+  "fx_control_schema_version",
+  {
+    deploymentId: text("deployment_id")
+      .notNull()
+      .references(() => deployments.deploymentId, { onDelete: "restrict" }),
+    schemaVersionId: text("schema_version_id")
+      .$type<CatalogSchemaVersionId>()
+      .notNull(),
+    version: integer("version").$type<CatalogSchemaVersion>().notNull(),
+    manifestCodecVersion: integer("manifest_codec_version")
+      .$type<SchemaManifestCodecVersion>()
+      .notNull(),
+    manifestJson: jsonb("manifest_json").$type<SchemaManifestJson>().notNull(),
+    manifestBytes: bytea("manifest_bytes")
+      .$type<CanonicalSchemaManifestBytes>()
+      .notNull(),
+    manifestSha256: bytea("manifest_sha256")
+      .$type<SchemaManifestSha256>()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.deploymentId, table.schemaVersionId] }),
+    unique("fx_control_schema_version_deployment_version_unique").on(
+      table.deploymentId,
+      table.version,
+    ),
+    check(
+      "fx_control_schema_version_deployment_id_non_empty_check",
+      nonBlankText(table.deploymentId),
+    ),
+    check(
+      "fx_control_schema_version_id_non_empty_check",
+      nonBlankText(table.schemaVersionId),
+    ),
+    check(
+      "fx_control_schema_version_version_positive_check",
+      sql`${table.version} between 1 and 2147483647`,
+    ),
+    check(
+      "fx_control_schema_version_manifest_codec_check",
+      sql`${table.manifestCodecVersion} = 1`,
+    ),
+    check(
+      "fx_control_schema_version_manifest_object_check",
+      sql`jsonb_typeof(${table.manifestJson}) = 'object'`,
+    ),
+    check(
+      "fx_control_schema_version_manifest_bytes_non_empty_check",
+      sql`octet_length(${table.manifestBytes}) > 0`,
+    ),
+    check(
+      "fx_control_schema_version_manifest_sha256_length_check",
+      sql`octet_length(${table.manifestSha256}) = 32`,
+    ),
+  ],
+);
 
 export const fxControlTables = pgTable(
   "fx_control_table",
@@ -718,6 +787,7 @@ export const flarexSchema = {
   documentFreshnessVersions,
   documents,
   freshnessProcessedEvents,
+  fxControlSchemaVersions,
   fxControlTables,
   fxControlScopeProvisioning,
   fxControlScopes,
