@@ -19,10 +19,19 @@ import {
   type H05DataPlaneEvidence,
 } from "../h05/receipt";
 import {
+  compileH05ProbeTeardownEvidence,
+  h05ProbeTeardownMaximumAttempts,
+  h05ProbeTeardownPollIntervalMs,
+  h05ProbeTeardownStableObservationCount,
+  type H05ProbeTeardownEvidence,
+} from "../h05/probeTeardownEvidence";
+import {
+  compileH05TraceEvidence,
   decodeH05TraceCloudflareResourceId,
   h05NormalizedTraceEvidenceSha256,
   h05TelemetryEventIdsSha256,
   h05TraceIdSha256,
+  type H05TraceEvidence,
 } from "../h05/traceEvidence";
 
 export const h05TraceFixtureAccountId = "a".repeat(32);
@@ -245,6 +254,60 @@ export function validH05TraceCollection(): Readonly<Record<string, unknown>> {
   };
 }
 
+export function validH05TraceEvidence(): H05TraceEvidence {
+  const compiled = compileH05TraceEvidence(
+    validH05TraceControlPlaneEvidence("before"),
+    validH05TraceDataPlaneEvidence(),
+    validH05TraceControlPlaneEvidence("after"),
+    validH05TraceCollection(),
+  );
+  if (!compiled.ok) throw new Error(compiled.message);
+  return compiled.value;
+}
+
+export function validH05ProbeTeardownEvidence(
+  outcome: "already-absent" | "deleted" = "deleted",
+): H05ProbeTeardownEvidence {
+  const compiled = compileH05ProbeTeardownEvidence(
+    validH05TraceDataPlaneEvidence(),
+    validH05TraceControlPlaneEvidence("after"),
+    {
+      accountAccess: {
+        checkedAt: "2026-07-11T10:03:08.500Z",
+        method: "GET",
+        selection: "fixed-tag-filter",
+        source: "cloudflare-workers-scripts-api",
+        status: 200,
+      },
+      deletion: {
+        completedAt: "2026-07-11T10:03:09.000Z",
+        forceParameter: "omitted",
+        method: "DELETE",
+        outcome,
+        source: "cloudflare-workers-scripts-api",
+        status: outcome === "deleted" ? 200 : 404,
+      },
+      verification: {
+        attemptsUsed: 2,
+        maximumAttempts: h05ProbeTeardownMaximumAttempts,
+        observations: [
+          teardownObservation(1, "2026-07-11T10:03:10.000Z"),
+          teardownObservation(2, "2026-07-11T10:03:12.000Z"),
+        ],
+        pollIntervalMs: h05ProbeTeardownPollIntervalMs,
+        requiredConsecutiveObservations:
+          h05ProbeTeardownStableObservationCount,
+      },
+      window: {
+        finishedAt: "2026-07-11T10:03:13.000Z",
+        startedAt: "2026-07-11T10:03:08.000Z",
+      },
+    },
+  );
+  if (!compiled.ok) throw new Error(compiled.message);
+  return compiled.value;
+}
+
 export function validH05NormalizedTraces(): readonly Readonly<Record<string, unknown>>[] {
   const traces = Array.from({ length: 15 }, (_value, index) => {
     const rawTraceId = `trace-${index.toString().padStart(8, "0")}`;
@@ -397,4 +460,20 @@ function probeSecrets(): readonly {
     { type: "secret_text", name: "FLAREX_H05_PROBE_TOKEN" },
     { type: "secret_text", name: "FLAREX_H05_RUN_ID" },
   ];
+}
+
+function teardownObservation(
+  attempt: number,
+  checkedAt: string,
+): Readonly<Record<string, unknown>> {
+  return {
+    authenticatedScriptLookup: { method: "GET", status: 404 },
+    attempt,
+    checkedAt,
+    publicProbeLookup: {
+      authorization: "omitted",
+      method: "POST",
+      status: 404,
+    },
+  };
 }

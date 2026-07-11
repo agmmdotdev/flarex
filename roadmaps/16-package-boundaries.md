@@ -1,5 +1,65 @@
 # Package Boundaries
 
+## Keep Final Proof Derivation Pure And Self-Contained
+
+Previous completed checkpoint: `7f282b2` (`Prove hosted probe teardown`).
+
+What changed:
+
+- Added `apps/executor/h05/hostedProofBundle.ts` as a leaf contract module. It
+  imports the existing receipt, control-plane, trace, and teardown contracts;
+  none of those lower layers imports it, so the evidence graph remains acyclic.
+- Kept sidecar decoding, dependency joins, receipt-v2 derivation, canonical
+  equality, trace-ID aggregation, and outer hashing in the pure H05 layer.
+  Moved the source-evidence hash into that layer with an explicit domain and
+  retained a compatibility re-export for Node collectors.
+- Kept filesystem/Git/Wrangler inspection in Node scripts. Added a create-only
+  compiler for five outside-worktree inputs, a 16 MiB-aligned output/checker
+  bound, and a bundle-only local source verifier. Removed the raw-receipt
+  checker and package command.
+
+Why it changed:
+
+The final verifier must be deterministic without acquiring filesystem,
+process, network, database, or Cloudflare credentials. Keeping the proof graph
+below the operator CLIs also lets bundle audits prove that no finalization code
+entered either Worker runtime graph.
+
+Convex references inspected:
+
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex's owned backend can retain authoritative execution evidence directly.
+  Flarex currently composes five external/internal H05 sidecars locally, so its
+  pure compiler and privileged collection/checker boundaries are explicit.
+
+Known limitations:
+
+- These proof contracts and CLIs remain internal to `apps/executor`; no SDK,
+  backend, executor-core, or persistence package API was added.
+- No live bundle exists yet. The compiler/checker are credential-free finalization
+  infrastructure, not evidence that hosted Cloudflare/Postgres execution ran.
+- The normal bundle gates remain authoritative: source placement alone does not
+  prove the Node modules stayed out of workerd.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker test # 20 files, 171 tests passed
+corepack pnpm --filter @flarex/executor-worker build # passed
+corepack pnpm --filter @flarex/executor-worker check:bundle # passed; production graph remained 401 inputs
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run # passed; 7.66 KiB proof Worker
+corepack pnpm --filter @flarex/executor-worker compile:h05-hosted-proof-bundle # expected exit 1; usage guard rejected missing sidecars before filesystem access
+corepack pnpm --filter @flarex/executor-worker check:h05-hosted-proof-bundle package.json # expected exit 1; non-bundle JSON rejected
+corepack pnpm check:effect-boundaries # passed
+git diff --check # passed
+```
+
 ## Isolate Destructive Probe Teardown From Pure Evidence
 
 Previous completed checkpoint: `13d79d6` (`Compile hosted executor trace

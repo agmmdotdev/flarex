@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 
 import type { H05ControlPlaneSourceEvidence } from "../h05/controlPlaneEvidence";
+export { h05SourceEvidenceSha256 } from "../h05/controlPlaneEvidence";
 
 export type H05SourceEvidenceErrorCode =
   | "command-failed"
@@ -64,24 +64,6 @@ export function assertH05SourceEvidenceUnchanged(
   ) {
     throw new Error("H05 source evidence changed during collection.");
   }
-}
-
-export function h05SourceEvidenceSha256(
-  source: H05ControlPlaneSourceEvidence,
-): string {
-  return createHash("sha256")
-    .update(
-      `${JSON.stringify(
-        {
-          commit: source.commit,
-          worktreeClean: source.worktreeClean,
-          wranglerVersion: source.wranglerVersion,
-        },
-        null,
-        2,
-      )}\n`,
-    )
-    .digest("hex");
 }
 
 function commandOutput(executable: string, args: readonly string[]): string {

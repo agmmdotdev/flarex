@@ -424,6 +424,22 @@ export function h05NormalizedTraceEvidenceSha256(
   return sha256(serializeH05NormalizedTraceEvidence(traces));
 }
 
+export function h05TraceIdHashSetSha256(
+  traces: unknown,
+): H05TraceSha256 {
+  const decoded = decodeTraces(traces, "$traces");
+  validateTraceFacts(decoded);
+  const traceIdHashes = decoded
+    .map((trace) => trace.traceIdSha256)
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  if (new Set(traceIdHashes).size !== traceIdHashes.length) {
+    throw new Error("H05 trace ID hashes must be unique.");
+  }
+  return sha256(
+    `flarex-h05-trace-id-hash-set-v1\0${JSON.stringify(traceIdHashes)}`,
+  );
+}
+
 export function h05TraceIdSha256(rawTraceId: string): H05TraceSha256 {
   const validated = opaqueIdentifier(rawTraceId, "rawTraceId");
   return sha256(`flarex-h05-trace-id-v1\0${validated}`);

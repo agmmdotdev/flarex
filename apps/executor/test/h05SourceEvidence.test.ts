@@ -19,5 +19,8 @@ describe("H05 source evidence", () => {
     expect(h05SourceEvidenceSha256(first)).toBe(
       h05SourceEvidenceSha256(second),
     );
+    expect(h05SourceEvidenceSha256(first)).toBe(
+      "ad9ff0df18e6ea17504e624d49849297835bc4919b3a1f521282339a9e16816f",
+    );
   });
 });

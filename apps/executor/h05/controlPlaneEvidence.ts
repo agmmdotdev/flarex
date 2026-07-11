@@ -233,6 +233,15 @@ export function h05CloudflareAccountIdSha256(accountId: string): string {
   return sha256(`flarex-h05-cloudflare-account-id-v1\0${accountId}`);
 }
 
+export function h05SourceEvidenceSha256(
+  source: H05ControlPlaneSourceEvidence,
+): string {
+  const decoded = decodeSource(source, "source");
+  return sha256(
+    `flarex-h05-source-evidence-v1\0${canonicalJson(decoded)}`,
+  );
+}
+
 export function decodeH05ControlPlaneEvidence(
   value: unknown,
 ): H05ControlPlaneEvidenceDecode {

@@ -1,5 +1,83 @@
 # Hosted Runtime Core
 
+## Compile The Self-Contained Hosted Proof Bundle
+
+Previous completed checkpoint: `7f282b2` (`Prove hosted probe teardown`).
+
+What changed:
+
+- Added `flarex-h05-hosted-proof-bundle-v1`, containing the canonical pre-run
+  control plane, data plane, post-run control plane, probe teardown, and trace
+  artifacts in lifecycle order; a compiler-derived receipt-v2; and one
+  domain-separated outer hash over the complete canonical payload.
+- Bundle decoding independently rehashes every embedded sidecar, reruns the
+  trace and teardown dependency verifiers, and closes the remaining lifecycle
+  edge from teardown completion to trace-collection start. The complete fence
+  is now pre-control, data plane, post-control, teardown, trace collection.
+- Replaced the unsubstantiated receipt-v1 summary with
+  `flarex-h05-hosted-receipt-v2`. It cites all five exact sidecar hashes, uses
+  the real `cloudflare-hyperdrive-api` source and exact Postgres scheme/port/TLS
+  mode, removes invented component hashes, records both privacy fences, and
+  splits PostgreSQL cleanup from retry-safe probe absence.
+- Derives trace counts from normalized trace records and added a separate
+  domain-separated aggregate over the already-hashed trace IDs. `deleted` and
+  `already-absent` remain distinct cleanup outcomes; both project truthful
+  probe absence and exact authenticated/public `404` observations.
+- Added an outside-worktree, create-only bundle compiler and replaced the raw
+  receipt checker with a bounded bundle checker. The checker verifies the full
+  canonical bundle before comparing its derived source to clean local HEAD and
+  Wrangler. A standalone receipt is no longer accepted as H05 proof.
+
+Why it changed:
+
+The former receipt checked a strict summary shape but could not rederive most
+control-plane, trace, or cleanup hashes. H05 needs one durable artifact whose
+claims can be recomputed from the actual sidecars. Embedding those artifacts,
+deriving the summary internally, exact-comparing it, and hashing the full
+payload removes the remaining hash-shaped assertions from the offline gate.
+
+Convex references inspected:
+
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex links function execution, transaction outcome, publication, and
+  tracing inside one hosted backend. Flarex's temporary H05 proof crosses
+  Cloudflare control APIs, a disposable Worker, a private service binding,
+  Hyperdrive, and PostgreSQL, so it needs an explicit self-contained join and
+  lifecycle fence.
+
+Known limitations:
+
+- No H05 credential is present, so this checkpoint compiles and verifies the
+  gate offline but creates no live bundle. H05 and S02-D remain open.
+- Receipt-v2 is a compact derived index, not independent authority. Only the
+  containing bundle, with all five verified sidecars and its outer hash, is the
+  final proof input.
+- The credentialed run must still prove that retained account telemetry remains
+  queryable after deleting the disposable probe. Failure must revise the
+  declared live order; it must not weaken bundle validation.
+- No runtime-generation routing, sequence allocation, OCC redesign, commit
+  compiler, sync, Payload, Medusa, schema redesign, or compatibility-adapter
+  retirement behavior changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker test # 20 files, 171 tests passed
+corepack pnpm --filter @flarex/executor-worker build # passed
+corepack pnpm --filter @flarex/executor-worker check:bundle # passed; production graph remained 401 inputs
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run # passed; 7.66 KiB proof Worker
+corepack pnpm --filter @flarex/executor-worker compile:h05-hosted-proof-bundle # expected exit 1; usage guard rejected missing sidecars before filesystem access
+corepack pnpm --filter @flarex/executor-worker check:h05-hosted-proof-bundle package.json # expected exit 1; non-bundle JSON rejected
+corepack pnpm check:effect-boundaries # passed
+git diff --check # passed
+```
+
 ## Prove Disposable Probe Teardown Without Force
 
 Previous completed checkpoint: `13d79d6` (`Compile hosted executor trace

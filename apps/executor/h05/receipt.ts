@@ -30,7 +30,7 @@ type TupleOutput<Shape extends readonly Decoder<unknown>[]> = {
   readonly [Index in keyof Shape]: DecoderOutput<Shape[Index]>;
 };
 
-export const h05HostedReceiptFormat = "flarex-h05-hosted-receipt-v1";
+export const h05HostedReceiptFormat = "flarex-h05-hosted-receipt-v2";
 export const h05DataPlaneEvidenceFormat = "flarex-h05-data-plane-evidence-v1";
 export const h05ExecutorWorkerName = "flarex-executor";
 export const h05ProbeWorkerName = "flarex-executor-h05-probe";
@@ -132,6 +132,17 @@ const h05WindowDecoder = object({
   finishedAt: isoTimestampDecoder,
 });
 const h05PostgresCleanupDecoder = object({ proofRowsRemaining: literal(0) });
+const postgresSchemeDecoder = literalUnion(["postgres", "postgresql"]);
+const postgresPortDecoder = integerInRangeDecoder(1, 65_535);
+const postgresTlsModeDecoder = literalUnion([
+  "require",
+  "verify-ca",
+  "verify-full",
+]);
+const probeDeletionOutcomeDecoder = literalUnion([
+  "already-absent",
+  "deleted",
+]);
 const h05DataPlaneEvidencePayloadShape = {
   format: literal(h05DataPlaneEvidenceFormat),
   source: h05DataPlaneSourceDecoder,
@@ -163,16 +174,24 @@ const receiptDecoder = object({
   }),
   window: h05WindowDecoder,
   run: h05RunDecoder,
+  inputs: object({
+    controlPlaneBeforeEvidenceSha256: sha256Decoder,
+    dataPlaneEvidenceSha256: sha256Decoder,
+    controlPlaneAfterEvidenceSha256: sha256Decoder,
+    probeTeardownEvidenceSha256: sha256Decoder,
+    traceEvidenceSha256: sha256Decoder,
+  }),
   hyperdrive: object({
-    source: literal("wrangler-hyperdrive-get"),
+    source: literal("cloudflare-hyperdrive-api"),
     id: hyperdriveIdDecoder,
     name: hyperdriveNameDecoder,
     cachingDisabled: literal(true),
     originHostSha256: sha256Decoder,
     originDatabaseSha256: sha256Decoder,
-    tls: literal("require-or-stronger"),
+    originScheme: postgresSchemeDecoder,
+    originPort: postgresPortDecoder,
+    tlsMode: postgresTlsModeDecoder,
     capturedAt: isoTimestampDecoder,
-    evidenceSha256: sha256Decoder,
   }),
   executor: object({
     workerName: literal(h05ExecutorWorkerName),
@@ -193,15 +212,12 @@ const receiptDecoder = object({
       inventoryComplete: literal(true),
       workersDevEnabled: literal(false),
       previewUrlsEnabled: literal(false),
-      routeTargets: tuple([]),
-      customDomainTargets: tuple([]),
-      directPublicRequest: literal("unreachable"),
-      checkedAt: isoTimestampDecoder,
-      evidenceSha256: sha256Decoder,
+      routeTargetCount: literal(0),
+      customDomainTargetCount: literal(0),
+      directPublicRequestStatus: literal(404),
+      beforeCheckedAt: isoTimestampDecoder,
+      afterCheckedAt: isoTimestampDecoder,
     }),
-    deploymentEvidenceSha256: sha256Decoder,
-    versionEvidenceSha256: sha256Decoder,
-    secretsEvidenceSha256: sha256Decoder,
   }),
   probe: object({
     workerName: literal(h05ProbeWorkerName),
@@ -221,11 +237,12 @@ const receiptDecoder = object({
       literal(h05ProbeRunIdName),
     ]),
     bindingInventoryComplete: literal(true),
-    deploymentEvidenceSha256: sha256Decoder,
-    versionEvidenceSha256: sha256Decoder,
-    secretsEvidenceSha256: sha256Decoder,
   }),
-  dataPlane: h05DataPlaneEvidenceDecoder,
+  dataPlane: object({
+    window: h05WindowDecoder,
+    invocationEvidenceSha256: sha256Decoder,
+    proofRowsRemaining: literal(0),
+  }),
   trace: object({
     source: literal("cloudflare-observability-api"),
     probePath: nonEmptyString,
@@ -248,13 +265,21 @@ const receiptDecoder = object({
     evidenceSha256: sha256Decoder,
   }),
   cleanup: object({
-    source: literal("cloudflare-api-and-postgres"),
-    proofRowsRemaining: literal(0),
-    probeDeleted: literal(true),
-    probeLookupStatus: literal(404),
-    probePublicRequest: literal("unreachable"),
-    checkedAt: isoTimestampDecoder,
-    evidenceSha256: sha256Decoder,
+    postgres: object({
+      source: literal("data-plane-evidence"),
+      proofRowsRemaining: literal(0),
+      evidenceSha256: sha256Decoder,
+    }),
+    probe: object({
+      source: literal("probe-teardown-evidence"),
+      absent: literal(true),
+      deletionOutcome: probeDeletionOutcomeDecoder,
+      deletionStatus: literalUnion([200, 404]),
+      authenticatedLookupStatus: literal(404),
+      publicLookupStatus: literal(404),
+      checkedAt: isoTimestampDecoder,
+      evidenceSha256: sha256Decoder,
+    }),
   }),
 });
 
@@ -479,28 +504,6 @@ function validateReceiptRelationships(receipt: H05HostedReceipt): void {
   );
   exactValue(receipt.run.projectId, identity.projectId, "run.projectId");
 
-  validateDataPlaneEvidence(receipt.dataPlane);
-  exactValue(
-    receipt.dataPlane.run.runId,
-    receipt.run.runId,
-    "dataPlane.run.runId",
-  );
-  exactValue(
-    receipt.dataPlane.run.deploymentId,
-    receipt.run.deploymentId,
-    "dataPlane.run.deploymentId",
-  );
-  exactValue(
-    receipt.dataPlane.run.projectId,
-    receipt.run.projectId,
-    "dataPlane.run.projectId",
-  );
-  exactValue(
-    receipt.dataPlane.source.commit,
-    receipt.source.commit,
-    "dataPlane.source.commit",
-  );
-
   orderedTimestamps(
     receipt.window.startedAt,
     receipt.window.finishedAt,
@@ -522,8 +525,13 @@ function validateReceiptRelationships(receipt: H05HostedReceipt): void {
     receipt.window,
   );
   timestampInWindow(
-    receipt.executor.privacy.checkedAt,
-    "executor.privacy.checkedAt",
+    receipt.executor.privacy.beforeCheckedAt,
+    "executor.privacy.beforeCheckedAt",
+    receipt.window,
+  );
+  timestampInWindow(
+    receipt.executor.privacy.afterCheckedAt,
+    "executor.privacy.afterCheckedAt",
     receipt.window,
   );
   timestampInWindow(
@@ -552,8 +560,8 @@ function validateReceiptRelationships(receipt: H05HostedReceipt): void {
     "trace",
   );
   timestampInWindow(
-    receipt.cleanup.checkedAt,
-    "cleanup.checkedAt",
+    receipt.cleanup.probe.checkedAt,
+    "cleanup.probe.checkedAt",
     receipt.window,
   );
   orderedTimestamps(
@@ -562,20 +570,49 @@ function validateReceiptRelationships(receipt: H05HostedReceipt): void {
     "hyperdrive-to-trace",
   );
   orderedTimestamps(
-    receipt.executor.privacy.checkedAt,
-    receipt.trace.firstObservedAt,
-    "privacy-to-trace",
-  );
-  orderedTimestamps(
-    receipt.trace.lastObservedAt,
-    receipt.cleanup.checkedAt,
-    "trace-to-cleanup",
+    receipt.executor.privacy.beforeCheckedAt,
+    receipt.dataPlane.window.startedAt,
+    "privacy-before-to-data-plane",
   );
   orderedTimestamps(
     receipt.dataPlane.window.finishedAt,
-    receipt.cleanup.checkedAt,
-    "dataPlane-to-cleanup",
+    receipt.executor.privacy.afterCheckedAt,
+    "data-plane-to-privacy-after",
   );
+  orderedTimestamps(
+    receipt.executor.privacy.afterCheckedAt,
+    receipt.cleanup.probe.checkedAt,
+    "privacy-after-to-probe-cleanup",
+  );
+  orderedTimestamps(
+    receipt.trace.lastObservedAt,
+    receipt.cleanup.probe.checkedAt,
+    "trace-to-probe-cleanup",
+  );
+
+  exactValue(
+    receipt.cleanup.postgres.evidenceSha256,
+    receipt.inputs.dataPlaneEvidenceSha256,
+    "cleanup.postgres.evidenceSha256",
+  );
+  exactValue(
+    receipt.cleanup.probe.evidenceSha256,
+    receipt.inputs.probeTeardownEvidenceSha256,
+    "cleanup.probe.evidenceSha256",
+  );
+  exactValue(
+    receipt.trace.evidenceSha256,
+    receipt.inputs.traceEvidenceSha256,
+    "trace.evidenceSha256",
+  );
+  if (
+    (receipt.cleanup.probe.deletionOutcome === "deleted" &&
+      receipt.cleanup.probe.deletionStatus !== 200) ||
+    (receipt.cleanup.probe.deletionOutcome === "already-absent" &&
+      receipt.cleanup.probe.deletionStatus !== 404)
+  ) {
+    fail("cleanup.probe deletion outcome and status must agree.");
+  }
 
   exactValue(
     receipt.executor.hyperdriveBinding.id,
@@ -605,6 +642,16 @@ function validateReceiptRelationships(receipt: H05HostedReceipt): void {
   ]);
   if (controlPlaneIds.size !== 4) {
     fail("executor and probe deployment/version IDs must all be distinct.");
+  }
+  const inputHashes = new Set([
+    receipt.inputs.controlPlaneBeforeEvidenceSha256,
+    receipt.inputs.dataPlaneEvidenceSha256,
+    receipt.inputs.controlPlaneAfterEvidenceSha256,
+    receipt.inputs.probeTeardownEvidenceSha256,
+    receipt.inputs.traceEvidenceSha256,
+  ]);
+  if (inputHashes.size !== 5) {
+    fail("receipt input evidence hashes must all be distinct.");
   }
 }
 
@@ -752,6 +799,33 @@ function literal<const Value extends string | number | boolean>(
   return (value, path) => {
     exactValue(value, expected, path);
     return expected;
+  };
+}
+
+function literalUnion<
+  const Values extends readonly (string | number | boolean)[],
+>(values: Values): Decoder<Values[number]> {
+  return (value, path) => {
+    if (!values.some((candidate) => candidate === value)) {
+      fail(
+        `${path} must equal one of: ${values.map((candidate) => JSON.stringify(candidate)).join(", ")}.`,
+      );
+    }
+    return value as Values[number];
+  };
+}
+
+function integerInRangeDecoder(minimum: number, maximum: number): Decoder<number> {
+  return (value, path) => {
+    if (
+      typeof value !== "number" ||
+      !Number.isSafeInteger(value) ||
+      value < minimum ||
+      value > maximum
+    ) {
+      fail(`${path} must be a safe integer from ${minimum} through ${maximum}.`);
+    }
+    return value;
   };
 }
 

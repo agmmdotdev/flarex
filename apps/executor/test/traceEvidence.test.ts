@@ -6,6 +6,7 @@ import {
   decodeH05TraceEvidence,
   decodeH05TraceEvidenceJson,
   h05NormalizedTraceEvidenceSha256,
+  h05TraceIdHashSetSha256,
   serializeH05TraceEvidence,
   verifyH05TraceEvidenceDependencies,
 } from "../h05/traceEvidence";
@@ -57,6 +58,27 @@ describe("H05 trace evidence contract", () => {
     expect(serialized).not.toContain("requestId");
     expect(serialized).not.toContain("spanId");
     expect(serialized).toContain('"rawTelemetrySource": "omitted"');
+  });
+
+  it("derives a distinct domain-separated aggregate of trace ID hashes", () => {
+    const traces = validH05NormalizedTraces();
+    expect(h05TraceIdHashSetSha256(traces)).toBe(
+      "bc1c4adb68b6287f7273c91f716e01f0c93a26368c6095888cd9daeb6d3a8b5c",
+    );
+    expect(h05TraceIdHashSetSha256(traces)).not.toBe(
+      h05NormalizedTraceEvidenceSha256(traces),
+    );
+
+    const duplicateIds = traces.map((trace) => recordClone(trace));
+    const first = duplicateIds[0];
+    const second = duplicateIds[1];
+    if (first === undefined || second === undefined) {
+      throw new Error("trace fixture is incomplete");
+    }
+    second.traceIdSha256 = first.traceIdSha256;
+    expect(() => h05TraceIdHashSetSha256(duplicateIds)).toThrow(
+      "sorted by unique traceIdSha256",
+    );
   });
 
   it("rejects tampered hashes, extra fields, and non-canonical JSON", () => {

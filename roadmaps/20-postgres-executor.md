@@ -1,5 +1,71 @@
 # Postgres Executor
 
+## Derive Hosted PostgreSQL Proof From Canonical Sidecars
+
+Previous completed checkpoint: `7f282b2` (`Prove hosted probe teardown`).
+
+What changed:
+
+- Replaced the final receipt's embedded data-plane copy and arbitrary section
+  hashes with a compact receipt-v2 that cites the exact data-plane sidecar hash,
+  invocation hash, execution window, and zero-row cleanup fact. The containing
+  bundle embeds and rehashes the full data-plane artifact.
+- Corrected Hyperdrive provenance from the unused Wrangler label to the REST
+  API actually queried by the control-plane collector. Receipt-v2 retains exact
+  origin host/database hashes, scheme, port, TLS mode, resource identity, and
+  cache-disabled state from the fenced control evidence.
+- Split cleanup provenance: PostgreSQL cleanup cites the canonical data-plane
+  artifact, while disposable-probe absence cites the canonical teardown
+  artifact. Neither sidecar pretends to have observed the other's boundary.
+- The bundle compiler now refuses mixed runs, commits, configurations, Worker
+  versions, paths, or hashes before deriving the receipt and outer bundle hash.
+
+Why it changed:
+
+The former receipt's `cloudflare-api-and-postgres` cleanup label and component
+hashes described evidence that did not exist as one source. The final gate now
+preserves two independently authoritative facts and joins them only inside the
+self-contained bundle for the same source and run.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+How Flarex differs:
+
+- Convex owns persistence publication and execution evidence in one backend.
+  Flarex's hosted compatibility lane reaches real PostgreSQL through an
+  externally configured Hyperdrive binding, so the final gate explicitly joins
+  its data-plane cleanup to Cloudflare lifecycle and trace evidence.
+
+Known limitations:
+
+- This checkpoint opens no database connection and changes no persistence,
+  migration, schema, isolation, lock, transaction, or OCC behavior.
+- The real-Postgres/Hyperdrive claims remain unproven until the credentialed
+  sidecars and bundle are collected from one clean source commit. H05 remains
+  open.
+- The receipt is not a substitute for its embedded data-plane sidecar; only the
+  verified bundle is activation authority.
+- S02-D routing and all FlarexDB sequence, OCC, commit-compiler, sync, Payload,
+  Medusa, and schema work remain outside this slice.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker test # 20 files, 171 tests passed
+corepack pnpm --filter @flarex/executor-worker build # passed
+corepack pnpm --filter @flarex/executor-worker check:bundle # passed; production graph remained 401 inputs
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run # passed; 7.66 KiB proof Worker
+corepack pnpm --filter @flarex/executor-worker compile:h05-hosted-proof-bundle # expected exit 1; usage guard rejected missing sidecars before filesystem access
+corepack pnpm --filter @flarex/executor-worker check:h05-hosted-proof-bundle package.json # expected exit 1; non-bundle JSON rejected
+corepack pnpm check:effect-boundaries # passed
+git diff --check # passed
+```
+
 ## Bind Probe Teardown To Verified PostgreSQL Cleanup
 
 Previous completed checkpoint: `13d79d6` (`Compile hosted executor trace
