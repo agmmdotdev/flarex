@@ -350,8 +350,8 @@ function hostedProbeTransport(
   const endpoint = new URL(h05ProbeEndpoint, config.probeUrl);
   return {
     hop: h05ProbeHop,
-    request: async (path, body, options = {}) =>
-      await fetch(endpoint, {
+    request: async (path, body, options = {}) => {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -361,7 +361,10 @@ function hostedProbeTransport(
         },
         body: JSON.stringify({ path, body }),
         signal: AbortSignal.timeout(hostedProbeRequestTimeoutMs),
-      }),
+      });
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      return response;
+    },
   };
 }
 

@@ -1,5 +1,122 @@
 # Hosted Runtime Core
 
+## Make The Hosted Activation Receipt Fail Closed
+
+Previous completed checkpoint: `dcf64dc` (`Prepare hosted executor activation
+proof`).
+
+What changed:
+
+- Added a strict `flarex-h05-hosted-receipt-v1` decoder and local CLI
+  preflight. It rejects unknown keys and requires one clean source commit, a
+  bounded UTC collection window, complete names-only binding inventories,
+  hashed origin
+  and evidence values, exact Worker/deployment/version identities, and a
+  run-derived deployment/project pair. Placeholder IDs, incomplete binding
+  inventories, and out-of-order proof/cleanup evidence fail closed. It persists
+  no database URL, password, bearer capability value, or raw origin. The run
+  ID is deliberately included as non-sensitive proof identity; uploading it
+  through a Worker secret keeps ephemeral state out of config but does not make
+  it an authorization capability.
+- Made the JSON representation canonical as well as structurally strict. The
+  CLI rejects alternate whitespace/key order and duplicate-key documents, so
+  the bytes that are hashed and reviewed have one unambiguous interpretation.
+- Made the local preflight independently bind the receipt to the current Git
+  `HEAD`, an empty tracked/untracked worktree, and the installed Wrangler
+  version. It recomputes the source-evidence hash from that canonical tuple;
+  the future collector must keep its candidate receipt outside the worktree
+  until this check passes.
+- Invoked Wrangler through its resolved JavaScript entrypoint and
+  `process.execPath`, matching the existing dry-run wrapper so the same
+  preflight works on Windows without spawning a `.cmd` shim. Deployment and
+  version IDs are treated as bounded opaque Cloudflare identifiers instead of
+  assuming one UUID version/variant encoding.
+- Required independent control-plane evidence instead of trusting checked-in
+  Wrangler JSON. The executor receipt must bind one active 100% version to the
+  cache-disabled Hyperdrive ID, `nodejs_compat`, smart placement, and the exact
+  executor secret with a complete binding inventory. Workers Subdomain,
+  account domain, and every zone-route
+  inventory must jointly show no public executor ingress, and a direct request
+  must remain unreachable.
+- Required the disposable caller's active version to contain only the named
+  executor service binding and the three proof bindings. The caller must use
+  its exact `workers.dev` origin, while the executor stays service-binding-only.
+- Enabled persisted automatic traces at a 100% head-sampling rate on both
+  proof Workers. The receipt requires fifteen version-correlated traces: one
+  unauthorized caller-only request plus fourteen authorized traces containing
+  the caller-to-executor service-binding path, all within the proof window.
+  The Observability query must be complete and report zero truncated traces.
+- Made the hosted transport assert `cache-control: no-store` on every public
+  proof response. The receipt fixes the exact current H04/H05 oracle: fourteen
+  marked service-binding responses, winner/stale-conflict/abort/fresh
+  convergence, direct SQL counts and timestamps, zero retained proof rows,
+  and an independently verified probe deletion/404. The unauthorized response
+  must have no service-binding hop marker.
+
+Why it changed:
+
+Wrangler's deployment, version, Hyperdrive, and secret outputs each prove only
+part of H05. They do not prove Worker-subdomain privacy, absence of routes or
+custom domains, cross-Worker execution, PostgreSQL state, or teardown. Also,
+`observability.enabled` alone left traces disabled in the emitted Worker
+settings. A canonical, strict receipt prevents a static config, local
+Hyperdrive lane, or incomplete collection from being promoted to hosted proof.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+Cloudflare references inspected:
+
+- [Hyperdrive query caching](https://developers.cloudflare.com/hyperdrive/concepts/query-caching/)
+- [Workers versions and deployments](https://developers.cloudflare.com/workers/versions-and-deployments/)
+- [Workers tracing](https://developers.cloudflare.com/workers/observability/traces/)
+- [Workers observability API](https://developers.cloudflare.com/api/resources/workers/subresources/observability/)
+- [Workers service bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/)
+
+How Flarex differs:
+
+- Convex owns one hosted runner/committer boundary and can correlate execution
+  internally. Flarex's pre-S02-D compatibility proof crosses two Cloudflare
+  Workers and therefore binds control-plane versions, a distributed trace,
+  the hop marker, and authoritative PostgreSQL evidence into one receipt.
+- The exact fourteen-call oracle describes only the current compatibility
+  executor protocol. It is a proof fixture, not the future FlarexDB public API.
+
+Known limitations:
+
+- This checkpoint defines and tests the receipt gate but creates no receipt.
+  No Cloudflare account is authenticated here, no hosted Worker or Hyperdrive
+  was changed, the executor config still contains its placeholder Hyperdrive
+  ID, and H05 remains open.
+- A later collector still has to capture and sanitize fresh Wrangler deploy
+  sidecars/status/version/secret output, Hyperdrive output, Workers ingress
+  APIs, Workers Observability query output, hosted harness evidence, and the
+  post-delete negative lookup before invoking the preflight.
+- The 100% trace rate is deliberate for this bounded staging proof. A later
+  production observability policy must set its own sampling and retention
+  budget after H05; lowering it during H05 invalidates the receipt.
+- S02-D runtime generation routing, new sequences/OCC/compiler/sync, Payload,
+  Medusa, and compatibility-adapter retirement remain excluded.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker test # 7 files, 85 tests passed
+corepack pnpm --filter @flarex/executor-worker check:bundle # passed; 401-input executor graph remained clean
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run # passed; 7.57 KiB proof Worker
+corepack pnpm --filter @flarex/executor-worker check:h05-hosted-receipt package.json # expected exit 1; rejected non-receipt JSON
+corepack pnpm --filter @flarex/executor-worker exec node --no-warnings node_modules/wrangler/wrangler-dist/cli.js --version # passed on Windows; 4.100.0
+corepack pnpm check:effect-boundaries # passed
+corepack pnpm typecheck # passed across 15 workspace projects
+corepack pnpm test # bounded at 244s in the unrelated flarex-backend Vitest process; verified residual PIDs were stopped
+corepack pnpm build # executor built; unrelated apps/example Vite build failed on the existing extensionless flarex-backend/src/http import
+git diff --check # passed
+```
+
 ## Prepare The Hosted Activation Probe
 
 Previous completed checkpoint: `e2921b5` (`Prove executor Worker service

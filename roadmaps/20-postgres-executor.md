@@ -1,5 +1,92 @@
 # Postgres Executor
 
+## Bind Hosted OCC And SQL Evidence Into One Receipt
+
+Previous completed checkpoint: `dcf64dc` (`Prepare hosted executor activation
+proof`).
+
+What changed:
+
+- Added a strict redacted H05 receipt boundary for the existing hosted
+  PostgreSQL runner. The decoder cross-checks the run ID against its derived
+  deployment/project, the executor's active version against its bound
+  cache-disabled Hyperdrive, and the probe's active version against the named
+  executor service binding. Both version binding inventories must be complete,
+  and the correlated Observability query must be complete and untruncated.
+- Fixed the data-plane evidence at the same H04 oracle rather than inventing a
+  second hosted scenario: one unauthorized request, fourteen authenticated
+  no-store service-binding responses, a winner above seed timestamp `10`, a
+  stale `409` against that winner followed by abort, and a fresh commit whose
+  read and `prev_ts` both reference the winner.
+- Required the direct SQL receipt to show three sessions, zero active sessions,
+  three document revisions, two commits, two outbox events, the winner as the
+  final `prev_ts`, and the fresh commit as the final timestamp. Post-proof
+  evidence must independently show zero run-owned rows before H05 can close.
+- Added a package-local `check:h05-hosted-receipt` command. It reads at most a
+  1 MiB JSON artifact, validates it as unknown input, emits only run/commit
+  identity on success, and fails without printing bearer-capability or
+  database-origin material. A structurally valid receipt must also match local
+  `HEAD`, a clean
+  worktree, the installed Wrangler version, and their recomputed evidence hash.
+- Classified the run ID as non-sensitive proof identity even though it is
+  uploaded through a secret binding to avoid persistent config. Only the two
+  bearer capability values are omitted. Cloudflare deployment/version IDs stay
+  opaque rather than being constrained to a specific UUID version and variant.
+- Canonical serialization makes duplicate JSON keys and alternate byte
+  representations fail closed before a receipt can become a durable H05
+  checkpoint. The all-zero checked-in Hyperdrive placeholder and evidence that
+  places privacy/config checks after execution or cleanup before the last trace
+  are also rejected.
+
+Why it changed:
+
+The hosted Vitest lane proves transaction behavior only while it is running;
+Wrangler control-plane output proves resource configuration only. H05 needs a
+single fail-closed boundary that rejects a receipt unless those independent
+claims agree on the run, Hyperdrive, Worker versions, traces, OCC timestamps,
+SQL state, and cleanup.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+How Flarex differs:
+
+- Convex's hosted runner hands a final transaction directly to its committer.
+  This temporary Flarex compatibility path persists a session over fourteen
+  private Fetch calls, so H05 additionally proves the service-binding hop and
+  correlates both Worker versions through Cloudflare tracing.
+
+Known limitations:
+
+- This is still H05-B preparation, not hosted PostgreSQL evidence. The current
+  environment has neither confirmed Cloudflare authentication nor a dedicated
+  Internet-reachable staging PostgreSQL URL, so no live receipt was generated.
+- The receipt validates a sanitized summary and hashes of its source evidence;
+  the next collector slice must create those summaries from fresh command/API
+  output and retain the redacted evidence set for audit.
+- This checkpoint changes no persistence schema, timestamp source, sequence
+  allocator, OCC model, commit compiler, sync protocol, Payload, or Medusa
+  integration.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker test # 7 files, 85 tests passed
+corepack pnpm --filter @flarex/executor-worker check:bundle # passed
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run # passed
+corepack pnpm --filter @flarex/executor-worker check:h05-hosted-receipt package.json # expected exit 1; rejected non-receipt JSON
+corepack pnpm --filter @flarex/executor-worker exec node --no-warnings node_modules/wrangler/wrangler-dist/cli.js --version # passed on Windows; 4.100.0
+corepack pnpm check:effect-boundaries # passed
+corepack pnpm typecheck # passed across 15 workspace projects
+corepack pnpm test # bounded at 244s in the unrelated flarex-backend Vitest process; verified residual PIDs were stopped
+corepack pnpm build # executor built; unrelated apps/example Vite build failed on the existing extensionless flarex-backend/src/http import
+git diff --check # passed
+```
+
 ## Prepare The Hosted Service-Binding PostgreSQL Lane
 
 Previous completed checkpoint: `e2921b5` (`Prove executor Worker service

@@ -6,6 +6,7 @@
     "build": "pnpm typecheck",
     "bundle:wrangler": "tsx scripts/runWranglerBundleDryRun.ts executor",
     "check:bundle": "pnpm bundle:wrangler && tsx scripts/checkBundleMeta.ts dist/bundle-meta.json",
+    "check:h05-hosted-receipt": "tsx scripts/checkH05HostedReceipt.ts",
     "deploy:dry-run": "pnpm check:bundle",
     "deploy:h05-probe:dry-run": "tsx scripts/runWranglerBundleDryRun.ts h05-probe",
     "test": "vitest run --exclude test/serviceBinding.postgres.test.ts --exclude test/serviceBinding.hosted.postgres.test.ts",

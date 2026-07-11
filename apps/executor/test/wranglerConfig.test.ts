@@ -20,6 +20,10 @@ describe("private executor Wrangler configuration", () => {
       workers_dev: false,
       preview_urls: false,
       placement: { mode: "smart" },
+      observability: {
+        enabled: true,
+        traces: { enabled: true, head_sampling_rate: 1 },
+      },
       hyperdrive: [
         {
           binding: "HYPERDRIVE_CACHE_DISABLED",
@@ -54,6 +58,10 @@ describe("private executor Wrangler configuration", () => {
           service: "flarex-executor",
         },
       ],
+      observability: {
+        enabled: true,
+        traces: { enabled: true, head_sampling_rate: 1 },
+      },
     });
     expect(config).not.toHaveProperty("hyperdrive");
     expect(config).not.toHaveProperty("vars");
