@@ -1,5 +1,68 @@
 # Postgres Executor
 
+## Bind Probe Teardown To Verified PostgreSQL Cleanup
+
+Previous completed checkpoint: `13d79d6` (`Compile hosted executor trace
+evidence`).
+
+What changed:
+
+- Added a teardown dependency fence that accepts only the canonical hosted
+  data-plane artifact and canonical post-run control-plane artifact for the same
+  commit and run, with data-plane completion ordered before the post-run fence
+  and teardown ordered after it.
+- Kept PostgreSQL cleanup authoritative in the data-plane artifact. The new
+  Cloudflare teardown sidecar references its exact evidence hash but does not
+  copy `proofRowsRemaining: 0` or claim that a second database query occurred.
+  The final compiler must project that fact from the verified data plane and
+  project probe absence from the verified teardown sidecar.
+
+Why it changed:
+
+The final receipt currently describes one combined Cloudflare-and-Postgres
+cleanup source that does not exist. Separating the two facts preserves honest
+provenance while still binding them to one run: PostgreSQL rows are removed by
+the hosted proof runner, and the disposable caller is subsequently removed by
+the Cloudflare teardown boundary.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+How Flarex differs:
+
+- Convex publishes transaction completion inside its owned backend. Flarex's
+  temporary hosted compatibility lane must join a PostgreSQL cleanup artifact
+  to an independently collected Cloudflare lifecycle artifact.
+
+Known limitations:
+
+- This checkpoint opened no PostgreSQL connection and changed no executor,
+  persistence, schema, migration, isolation, lock, or OCC behavior.
+- No hosted credentials were available, so the zero-row data-plane claim and
+  Cloudflare teardown have not yet been observed together. H05 remains open.
+- Final bundle derivation must repair the standalone receipt's misleading
+  cleanup source/hash fields; no hash-shaped receipt assertion is accepted as
+  proof in this checkpoint.
+- S02-D routing and the FlarexDB sequence, OCC, commit compiler, sync, Payload,
+  Medusa, and schema redesign remain outside this slice.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker exec vitest run test/probeTeardownEvidence.test.ts test/cloudflareProbeTeardownApi.test.ts test/h05ProbeTeardownCollector.test.ts # 3 files, 19 tests passed
+corepack pnpm --filter @flarex/executor-worker test # 18 files, 172 tests passed
+corepack pnpm --filter @flarex/executor-worker build # passed
+corepack pnpm --filter @flarex/executor-worker check:bundle # passed; production graph remained 401 inputs
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run # passed; 7.66 KiB proof Worker
+corepack pnpm --filter @flarex/executor-worker collect:h05-probe-teardown-evidence # expected exit 1; usage guard rejected missing evidence paths before mutation
+corepack pnpm check:effect-boundaries # passed
+git diff --check # passed
+```
+
 ## Bind Hosted PostgreSQL Results To Stable Worker Traces
 
 Previous completed checkpoint: `e98d9fa` (`Collect hosted executor control-plane

@@ -9,6 +9,7 @@
     "check:h05-hosted-receipt": "tsx scripts/checkH05HostedReceipt.ts",
     "collect:h05-control-plane-evidence": "tsx scripts/collectH05ControlPlaneEvidence.ts",
     "collect:h05-data-plane-evidence": "tsx scripts/collectH05DataPlaneEvidence.ts",
+    "collect:h05-probe-teardown-evidence": "tsx scripts/collectH05ProbeTeardownEvidence.ts",
     "collect:h05-trace-evidence": "tsx scripts/collectH05TraceEvidence.ts",
     "deploy:dry-run": "pnpm check:bundle",
     "deploy:h05-probe:dry-run": "tsx scripts/runWranglerBundleDryRun.ts h05-probe",

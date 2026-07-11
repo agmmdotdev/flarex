@@ -1,5 +1,66 @@
 # Package Boundaries
 
+## Isolate Destructive Probe Teardown From Pure Evidence
+
+Previous completed checkpoint: `13d79d6` (`Compile hosted executor trace
+evidence`).
+
+What changed:
+
+- Kept the strict probe-teardown compiler, decoder, canonical serializer, hash,
+  dependency joins, and temporal checks under `apps/executor/h05/`. This pure
+  contract has no token, Fetch implementation, filesystem, process, or Git
+  command dependency.
+- Put the only destructive capability in a dedicated Node-side adapter under
+  `apps/executor/scripts/`. Its interface exposes only a fixed-tag-filtered
+  Scripts account-access check, delete-fixed-probe, exact-script status, and
+  exact public run-path status operations; it cannot accept an arbitrary Worker
+  name or Cloudflare API path.
+- Kept the teardown token distinct from the read-only control-plane token and
+  the observability token. The CLI additionally requires an exact probe-name
+  opt-in and writes evidence only outside the worktree after source revalidation.
+
+Why it changed:
+
+Final proof code must be deterministic and reviewable without importing an API
+capability. Keeping the mutation at a fixed operator boundary also prevents the
+future final bundle compiler from acquiring filesystem, process, network, or
+Cloudflare deletion authority.
+
+Convex references inspected:
+
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex can retain lifecycle proof inside its hosted control plane. Flarex
+  currently composes redacted sidecars across external Cloudflare APIs, so its
+  pure contracts and privileged collectors must be separate modules.
+
+Known limitations:
+
+- These H05 modules remain internal app tooling and are not package exports.
+- No live token was available and no external mutation occurred. The final
+  bundle/compiler and checker migration remain the next package-boundary slice.
+- No production Worker import changed: the executor graph remains 401 inputs,
+  and the disposable probe remains 7.66 KiB.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker exec vitest run test/probeTeardownEvidence.test.ts test/cloudflareProbeTeardownApi.test.ts test/h05ProbeTeardownCollector.test.ts # 3 files, 19 tests passed
+corepack pnpm --filter @flarex/executor-worker test # 18 files, 172 tests passed
+corepack pnpm --filter @flarex/executor-worker build # passed
+corepack pnpm --filter @flarex/executor-worker check:bundle # passed; production graph remained 401 inputs
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run # passed; 7.66 KiB proof Worker
+corepack pnpm --filter @flarex/executor-worker collect:h05-probe-teardown-evidence # expected exit 1; usage guard rejected missing evidence paths before mutation
+corepack pnpm check:effect-boundaries # passed
+git diff --check # passed
+```
+
 ## Isolate Trace Contracts From Privileged Telemetry Collection
 
 Previous completed checkpoint: `e98d9fa` (`Collect hosted executor control-plane

@@ -1,5 +1,100 @@
 # Hosted Runtime Core
 
+## Prove Disposable Probe Teardown Without Force
+
+Previous completed checkpoint: `13d79d6` (`Compile hosted executor trace
+evidence`).
+
+What changed:
+
+- Added the canonical `flarex-h05-probe-teardown-evidence-v1` sidecar. It
+  refuses compilation unless the verified data-plane artifact precedes the
+  verified post-run control fence, then derives the exact account hash, source,
+  run, probe deployment/version, `workers.dev` origin, and run-scoped path from
+  those dependencies rather than accepting operator summaries.
+- Added a dedicated teardown adapter that can mutate only
+  `flarex-executor-h05-probe`. It calls the exact Workers Scripts delete
+  endpoint with the `force` parameter omitted, accepts either the documented
+  `200` deletion or a retry-safe `404` already-absent result, and never retains
+  provider response bodies. Before deletion, the same token must successfully
+  query a fixed-tag-filtered account Scripts inventory, preventing an all-404
+  unauthorized token from masquerading as an interrupted retry. It then
+  performs an authenticated exact-script lookup and a bearer-free public
+  `POST` to the exact run path.
+- Requires two consecutive sweeps in which both surfaces return `404`, with a
+  verified two-second minimum interval and thirty-attempt bound. Each retained
+  observation carries its attempt number and must be the final consecutive pair.
+  A live probe returns `401` to the bearer-free `POST` before it can call the
+  executor, so a root-path `404` or a transport failure cannot masquerade as
+  teardown.
+- Added an outside-worktree collector CLI with a separate
+  `FLAREX_H05_TEARDOWN_API_TOKEN`, an exact destructive opt-in naming the probe,
+  clean-source rechecks, canonical self-verification, and create-only atomic
+  publication. If publication is interrupted after deletion, a later run can
+  safely record `already-absent` against the earlier control fence.
+
+Why it changed:
+
+The final hosted proof must close the temporary public capability instead of
+merely promising that an operator will remove it. A public `404` alone is
+ambiguous because a live Worker can reject an unrelated path; an authenticated
+script `404` proves control-plane absence, while the exact unauthenticated run
+path proves that edge routing has also converged.
+
+Convex references inspected:
+
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/database/src/committer.rs`
+
+Cloudflare references inspected:
+
+- [Delete Worker](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/methods/delete/)
+- [Download Worker](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/methods/get/)
+- [List Workers](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/methods/list/)
+- [Workers.dev](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/)
+- [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)
+
+How Flarex differs:
+
+- Convex owns its hosted execution lifecycle and does not need a public
+  disposable service-binding caller. Flarex's H05 compatibility proof therefore
+  has a Cloudflare-specific teardown artifact; the portable principle is that
+  execution, cleanup, and lifecycle closure remain bound to one source and run
+  identity.
+
+Known limitations:
+
+- No credential was available, so this checkpoint issued no Cloudflare request
+  and deleted no Worker. H05 and S02-D remain open.
+- The sidecar is Cloudflare-only and deliberately does not repeat PostgreSQL
+  cleanup. The data-plane artifact already hashes the authoritative zero-row
+  cleanup result; the final compiler must derive the combined receipt from both
+  artifacts instead of inventing a second database observation.
+- The current live order remains post-control, teardown, two stable telemetry
+  sweeps, then final compilation. Cloudflare documents Workers telemetry as an
+  account dataset with retained events, but does not explicitly promise
+  post-deletion trace lookup. The credentialed H05 run itself must prove that
+  assumption; if it does not, the orchestration must be revised before H05 can
+  close.
+- Final bundle compilation, receipt provenance repair, the credentialed run,
+  and all S02-D routing, sequence, OCC, compiler, sync, Payload, Medusa, schema,
+  and adapter-retirement work remain later checkpoints.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker exec vitest run test/probeTeardownEvidence.test.ts test/cloudflareProbeTeardownApi.test.ts test/h05ProbeTeardownCollector.test.ts # 3 files, 19 tests passed
+corepack pnpm --filter @flarex/executor-worker test # 18 files, 172 tests passed
+corepack pnpm --filter @flarex/executor-worker build # passed
+corepack pnpm --filter @flarex/executor-worker check:bundle # passed; production graph remained 401 inputs
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run # passed; 7.66 KiB proof Worker
+corepack pnpm --filter @flarex/executor-worker collect:h05-probe-teardown-evidence # expected exit 1; usage guard rejected missing evidence paths before mutation
+corepack pnpm check:effect-boundaries # passed
+git diff --check # passed
+```
+
 ## Compile Stable Version-Aware Hosted Trace Evidence
 
 Previous completed checkpoint: `e98d9fa` (`Collect hosted executor control-plane
@@ -196,8 +291,10 @@ Known limitations:
   S02-D remain open.
 - Matching opening/closing sweeps detect endpoint drift but Cloudflare exposes
   no atomic multi-endpoint privacy snapshot. The final live orchestrator must
-  repeat control-plane/privacy checks after trace collection before compiling
-  the final receipt.
+  retain distinct pre-run and post-run control fences. The older plan to repeat
+  a full probe control check after trace collection is superseded by the
+  teardown checkpoint above: once the probe is deleted, the final bundle must
+  bind the post-run fence to the later absence and telemetry sidecars instead.
 - The custom-domain API documents pagination metadata without pagination
   request parameters. The collector uses the exact service filter and fails
   closed if the result claims more than one page. Domain and zone sweeps retain
