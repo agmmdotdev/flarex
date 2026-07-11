@@ -1,5 +1,65 @@
 # Postgres Executor
 
+## Establish The Framework-Neutral Stable Table Catalog
+
+Previous completed checkpoint: `9b924dd` Resolve trusted scope authority.
+
+What changed:
+
+- Added stable deployment-scoped table identity contracts and the additive
+  `fx_control_table` mapping inside `flarex-protocol` and
+  `@flarex/persistence-postgres`, not in a Nitro, HTTP, Worker, or backend host.
+- Added a short transaction-only allocator that locks the deployment parent,
+  returns an exact existing mapping on retry, and otherwise appends a compact
+  positive table ID. Point reads remain deployment-qualified.
+- Proved rollback and migration behavior in PGlite and concurrent replay in an
+  isolated PostgreSQL 18 cluster. The real-Postgres lane also proves the
+  migration works under a non-public test schema.
+
+Why it changed:
+
+The trusted executor will eventually consume stable table identities for
+snapshots, OCC, commits, and adapter syscalls. Persisting the mapping first
+prevents the analyzer's order-derived table ordinal from becoming authority and
+keeps that core independent of every runtime host.
+
+Convex references inspected:
+
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/value/src/table_mapping.rs`
+- `crates/database/src/transaction.rs`
+
+How Flarex differs:
+
+- Convex allocates and resolves table metadata within one backend. Flarex uses
+  a deployment-row lock in PostgreSQL so distributed Workers converge through
+  one short trusted transaction.
+- No HTTP bridge or Cloudflare Worker behavior participates in this allocator;
+  those hosts remain adapters around the future executor composition.
+
+Known limitations and follow-up:
+
+- The executor does not consume this catalog yet. S03 schema versions and the
+  trusted compiler must exist before analyzer/runtime routing can switch.
+- This checkpoint adds no OCC, codecs, row storage, commit compiler, sync,
+  Payload, Medusa, Hyperdrive, or deployment behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts test/stableTableCatalog.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/stableTableCatalog.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Derive Hosted PostgreSQL Proof From Canonical Sidecars
 
 Previous completed checkpoint: `7f282b2` (`Prove hosted probe teardown`).

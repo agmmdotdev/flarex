@@ -1,8 +1,8 @@
 # FlarexDB Schema And Migration Plan
 
-Status: S01 through S02-C and resolve-only S02-D1 complete; hosted-proof
-H01-H04 and H05-A complete, while H05-B and S02-D2 production routing are
-deferred as core work proceeds to S03
+Status: S01 through S02-C, resolve-only S02-D1, and catalog checkpoint S03-A
+complete; hosted-proof H01-H04 and H05-A complete, while H05-B and S02-D2
+production routing are deferred as core work proceeds to S03-B
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -379,6 +379,19 @@ Exit gate:
 
 ### [ ] S03 — Add The Minimal Stable Catalog
 
+Progress:
+
+- [x] S03-A — Persist deployment-scoped stable table identities, expose
+  transaction-only idempotent allocation and deployment-qualified point reads,
+  and prove the additive migration without schema-version or index-catalog
+  behavior.
+- [ ] S03-B — Persist immutable schema versions, canonical manifests, hashes,
+  and versioned table definitions.
+- [ ] S03-C — Add stable index identities, immutable index definitions, and
+  per-scope build state.
+- [ ] S03-D — Compile and verify normalized catalog state transactionally and
+  gate activation readiness.
+
 Outcome:
 
 - Add `fx_control_schema_version` with immutable manifest, checksum, status,
@@ -398,6 +411,78 @@ Exit gate:
 - cross-deployment foreign keys and activation are rejected;
 - exactly one scope pointer is mutable authority;
 - field/relation physical catalogs have not slipped into the first migration.
+
+#### S03-A Implementation Checkpoint
+
+Previous completed checkpoint: `9b924dd` Resolve trusted scope authority.
+
+What changed:
+
+- Added the branded positive signed-32-bit `CatalogTableId` contract and the
+  closed `app | payload | medusa | system` namespace contract under the
+  internal catalog protocol subpath.
+- Added additive `fx_control_table` with primary key
+  `(deployment_id, table_id)` and unique
+  `(deployment_id, namespace, logical_name)`. Database checks enforce parent
+  ownership, compact positive IDs, accepted namespaces, and nonblank names.
+- Added a transaction-only allocator that accepts no table ID, locks the owning
+  deployment, replays an existing name mapping, and otherwise appends the next
+  deployment-local ID. Rollback consumes no identity.
+- Added deployment-qualified point reads by compact ID and namespace/name. No
+  allocator was added to the general runtime persistence facade.
+- Added PGlite contract, constraint, rollback, and no-backfill upgrade coverage
+  plus a real-Postgres concurrent replay test.
+
+Why it changed:
+
+Stable table identity must outlive any one schema manifest. The current
+analyzer derives ordinals from sorted table names, so adding an earlier name can
+renumber later tables. Those version-local ordinals cannot become catalog
+authority.
+
+Convex sources inspected:
+
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/common/src/bootstrap_model/schema_state.rs`
+
+How Flarex differs:
+
+- Flarex qualifies the compact numeric identity by deployment in a shared
+  Postgres control plane and serializes allocation with a parent-row lock.
+  Convex maintains its table mapping inside its transactional metadata model.
+- Flarex makes the four accepted adapter namespaces explicit. They reserve
+  identity domains but implement no Payload or Medusa behavior.
+- Each deployment-local sequence currently starts at `1`; this slice does not
+  copy Convex system-table number ranges. Any reservation must be an explicit
+  decision before app document IDs depend on it.
+
+Known limitations and follow-up:
+
+- S03 remains open. There is no schema-version row, canonical manifest/hash,
+  versioned table definition, stable index/relation/constraint identity, index
+  build state, compiler, validation, or activation.
+- The analyzer and executor do not populate or consume this catalog yet.
+- No rename, retirement, deletion, or privileged-SQL immutability policy is
+  defined. The repository exposes only ensure/read operations.
+- No OCC, codec, app-row storage, commit compiler, sync, Payload, Medusa, or
+  Cloudflare deployment behavior changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/stableTableCatalog.test.ts test/pglite.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/stableTableCatalog.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm check:effect-boundaries
+git diff --check
+```
 
 ### [ ] S04 — Migrate Active Schema Pointer Authority
 

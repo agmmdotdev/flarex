@@ -265,6 +265,7 @@ export * from "./deployments";
 export * from "./scopeMetadata";
 export * from "./scopeMetadataTypes";
 export * from "./scopeAuthorityResolution";
+export * from "./stableTableCatalog";
 export {
   ScopeClockCorruptionError,
   type ScopeClockRecord,

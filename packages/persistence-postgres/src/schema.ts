@@ -15,6 +15,10 @@ import {
 } from "drizzle-orm/pg-core";
 import type { ExecutionIdentity } from "flarex-protocol/auth";
 import type {
+  CatalogTableId,
+  CatalogTableNamespace,
+} from "flarex-protocol/catalog";
+import type {
   CommitSeq,
   OutboxSeq,
   ScopeEpoch,
@@ -43,6 +47,45 @@ export const deployments = pgTable("deployments", {
     .default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const fxControlTables = pgTable(
+  "fx_control_table",
+  {
+    deploymentId: text("deployment_id")
+      .notNull()
+      .references(() => deployments.deploymentId, { onDelete: "restrict" }),
+    tableId: integer("table_id").$type<CatalogTableId>().notNull(),
+    namespace: text("namespace").$type<CatalogTableNamespace>().notNull(),
+    logicalName: text("logical_name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.deploymentId, table.tableId] }),
+    unique("fx_control_table_deployment_namespace_name_unique").on(
+      table.deploymentId,
+      table.namespace,
+      table.logicalName,
+    ),
+    check(
+      "fx_control_table_deployment_id_non_empty_check",
+      nonBlankText(table.deploymentId),
+    ),
+    check(
+      "fx_control_table_table_id_positive_check",
+      sql`${table.tableId} between 1 and 2147483647`,
+    ),
+    check(
+      "fx_control_table_namespace_check",
+      sql`${table.namespace} in ('app', 'payload', 'medusa', 'system')`,
+    ),
+    check(
+      "fx_control_table_logical_name_non_empty_check",
+      nonBlankText(table.logicalName),
+    ),
+  ],
+);
 
 export const fxControlScopes = pgTable(
   "fx_control_scope",
@@ -675,6 +718,7 @@ export const flarexSchema = {
   documentFreshnessVersions,
   documents,
   freshnessProcessedEvents,
+  fxControlTables,
   fxControlScopeProvisioning,
   fxControlScopes,
   fxSystemScopeClocks,

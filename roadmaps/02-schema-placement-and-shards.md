@@ -1,5 +1,69 @@
 # Schema Placement And Shards
 
+## Keep Stable Table Identity In The Deployment Control Catalog
+
+Previous completed checkpoint: `9b924dd` Resolve trusted scope authority.
+
+What changed:
+
+- Placed `fx_control_table` beside deployment control metadata and qualified
+  every key and lookup by `deployment_id`. The compact ID is local to that
+  deployment, so two deployments may both own table ID `1` without collision.
+- Added a restrictive parent foreign key and a unique
+  `(deployment_id, namespace, logical_name)` mapping. Allocation locks only the
+  owning deployment row, allowing unrelated deployments to progress
+  independently.
+- Kept the migration compatible with `search_path`-selected non-public schemas.
+  Real PostgreSQL verification caught Drizzle's generated
+  `REFERENCES public.deployments` qualifier; the migration now references the
+  deployment table in the selected physical schema.
+- Added no data-plane `scope_id` row or cross-database foreign key. This catalog
+  describes deployment-owned logical schema identity; later app/OCC tables
+  still require the accepted scope-qualified physical keys.
+
+Why it changed:
+
+Stable schema identity must be resolved before a request reaches a physical
+data plane, while shared-, schema-, and database-per-scope placements must all
+preserve the same logical mapping. A global unqualified table number or a
+hard-coded `public` schema would violate that placement model.
+
+Convex references inspected:
+
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/value/src/table_mapping.rs`
+- `crates/postgres/src/lib.rs`
+
+How Flarex differs:
+
+- Convex's table mapping lives inside one configured database authority.
+  Flarex first owns the mapping by deployment in the control catalog and later
+  resolves a scope-specific data-plane location through trusted placement.
+- PostgreSQL schema-per-scope placement relies on the selected `search_path`;
+  catalog migrations therefore cannot hard-code `public` for intra-schema
+  foreign keys.
+
+Known limitations and follow-up:
+
+- This checkpoint does not copy or cache the table mapping into a data plane,
+  switch executor reads, or prove pooled scope guards/RLS.
+- Schema-version definitions must later bind the stable deployment table ID to
+  versioned physical definitions without creating a second active pointer.
+- Payload and Medusa namespaces are reserved identities only; their actual
+  physical placement is compiled later from their source schemas.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts test/stableTableCatalog.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/stableTableCatalog.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Resolve Current Authority Only From Persisted Placement
 
 Previous completed checkpoint: `d0ab976` Compile hosted proof bundle.

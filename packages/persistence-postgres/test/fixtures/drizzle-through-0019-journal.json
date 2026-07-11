@@ -141,13 +141,6 @@
       "when": 1783702730625,
       "tag": "0019_concerned_ma_gnuci",
       "breakpoints": true
-    },
-    {
-      "idx": 20,
-      "version": "7",
-      "when": 1783788922731,
-      "tag": "0020_open_mysterio",
-      "breakpoints": true
     }
   ]
 }

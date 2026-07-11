@@ -1,5 +1,78 @@
 # Backend Data Model And Durable Object Shape
 
+## Persist Stable Deployment-Scoped Table Identities
+
+Previous completed checkpoint: `9b924dd` Resolve trusted scope authority.
+
+What changed:
+
+- Added the first S03 replacement catalog row, `fx_control_table`, with a
+  compact positive integer `table_id`, explicit `app | payload | medusa |
+  system` namespace, logical name, creation time, restrictive deployment
+  ownership, and deployment-qualified primary/unique keys.
+- Added branded `CatalogTableId` protocol decoding bounded to PostgreSQL
+  `integer`, plus a closed namespace contract. The table-allocation input
+  forbids `tableId` structurally and rejects it at runtime, so the analyzer's
+  current sort-order ordinal cannot become catalog authority.
+- Added a transaction-only idempotent allocator. It locks the owning deployment,
+  replays an existing namespace/name mapping, or appends `max(table_id) + 1`.
+  Rollback consumes no identity, and a missing deployment fails closed.
+- Added deployment-qualified reads by table ID and namespace/name. No allocator
+  was added to the general runtime persistence interface.
+- Added migration `0020_open_mysterio` without backfill or legacy-table changes,
+  plus PGlite upgrade/constraint tests and a real PostgreSQL concurrency proof.
+
+Why it changed:
+
+The current analyzer sorts table names and assigns `index + 1`; inserting an
+earlier name can renumber every later table. S03 needs an authoritative stable
+mapping before immutable schema versions, app rows, OCC, or adapter compilation
+can safely refer to compact table identities.
+
+Convex references inspected:
+
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/value/src/table_mapping.rs`
+- `crates/value/src/document_id.rs`
+
+How Flarex differs:
+
+- Convex owns table-number and tablet mappings inside one backend metadata
+  model. Flarex serializes deployment-local allocation with a short PostgreSQL
+  transaction because distributed Workers must not hold a transaction across
+  analyzer or user-code execution.
+- Flarex records the accepted adapter namespaces explicitly. This reserves
+  identity domains for Payload and Medusa but does not implement either
+  adapter's schema or behavior.
+
+Known limitations and follow-up:
+
+- S03 remains open. Schema versions/manifests, stable index identities,
+  immutable definitions, build state, relation/constraint IDs, compilation,
+  checksum verification, and activation readiness are later slices.
+- The catalog API is append-only by ownership and exposes no update/delete
+  operation; this checkpoint does not add database triggers against privileged
+  manual mutation.
+- The analyzer and executor still use their legacy representations. No row
+  storage, OCC, commit compiler, sync, Payload, Medusa, or Cloudflare routing
+  behavior changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/pglite.test.ts test/stableTableCatalog.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/stableTableCatalog.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Resolve Trusted Scope Authority Without Routing Execution
 
 Previous completed checkpoint: `d0ab976` Compile hosted proof bundle.

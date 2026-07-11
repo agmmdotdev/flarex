@@ -61,6 +61,7 @@ describe("createPGlitePersistence", () => {
       "freshness_processed_events",
       "fx_control_scope",
       "fx_control_scope_provisioning",
+      "fx_control_table",
       "fx_system_scope_clock",
       "indexes",
       "invoke_session_document_reads",
@@ -284,6 +285,64 @@ describe("createPGlitePersistence", () => {
         `select count(*)::text as count from fx_control_scope_provisioning`,
       );
       expect(receiptCount.rows).toEqual([{ count: "0" }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("adds the stable table catalog without inventing legacy mappings", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-table-catalog-upgrade-"));
+    const previousMigrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const previousJournal = resolve(
+      packageRoot,
+      "test/fixtures/drizzle-through-0019-journal.json",
+    );
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, previousMigrationsFolder, {
+        recursive: true,
+      });
+      await copyFile(
+        previousJournal,
+        resolve(previousMigrationsFolder, "meta/_journal.json"),
+      );
+      const previousPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder: previousMigrationsFolder,
+      });
+      await previousPersistence.migrate();
+      await previousPersistence.insertDeploymentMetadata({
+        deploymentId: "deployment_before_table_catalog",
+        projectId: "project_before_table_catalog",
+      });
+      await expect(
+        previousPersistence.query(
+          `select table_id from fx_control_table limit 1`,
+        ),
+      ).rejects.toThrow();
+
+      const currentPersistence = await createPGlitePersistence({ db });
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(
+        currentPersistence.getDeploymentMetadata(
+          "deployment_before_table_catalog",
+        ),
+      ).resolves.toMatchObject({
+        deploymentId: "deployment_before_table_catalog",
+        projectId: "project_before_table_catalog",
+      });
+      const catalogCount = await currentPersistence.query<{ count: string }>(
+        `select count(*)::text as count from fx_control_table`,
+      );
+      expect(catalogCount.rows).toEqual([{ count: "0" }]);
     } finally {
       try {
         await db.close();
