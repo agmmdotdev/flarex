@@ -1,8 +1,8 @@
+import assert from "node:assert/strict";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { env } from "node:process";
 import type { PoolClient } from "pg";
-import { expect } from "vitest";
 import {
   createPostgresPersistence,
   type PostgresFlarexPersistence,
@@ -20,12 +20,19 @@ import {
   type ExecutorOccProofSqlEvidence,
   type ExecutorOccProofTransport,
 } from "./executorOccProof";
-import { h05ProbeEndpoint, h05ProbeHop } from "./h05ProbeWorker";
+import { h05ProbeEndpoint, h05ProbeHop } from "./probeProtocol";
 import {
   decodeH05ProofRunId,
   h05ProofIdentity,
   type H05ProofRunId,
-} from "./h05ProofIdentity";
+} from "./proofIdentity";
+import {
+  compileH05InvocationReceipt,
+  h05AuthorizedInvocationCount,
+  serializeH05InvocationEvidence,
+  type H05InvocationEvidence,
+  type H05InvocationReceipt,
+} from "./receipt";
 
 const hostedPostgresConnectionTimeoutMs = 15_000;
 const hostedPostgresDnsTimeoutMs = 5_000;
@@ -33,9 +40,25 @@ const hostedPostgresQueryTimeoutMs = 30_000;
 const hostedProbeRequestTimeoutMs = 20_000;
 
 export interface HostedExecutorOccProofResult {
+  readonly cleanup: { readonly proofRowsRemaining: 0 };
   readonly evidence: ExecutorOccProofEvidence;
   readonly fixture: ExecutorOccProofFixture;
+  readonly invocation: H05InvocationReceipt;
+  readonly invocationEvidenceJson: string;
+  readonly runId: H05ProofRunId;
   readonly sql: ExecutorOccProofSqlEvidence;
+}
+
+interface HostedProbeTransport extends ExecutorOccProofTransport {
+  evidence(): HostedProbeTransportEvidence;
+}
+
+export interface HostedProbeTransportEvidence {
+  readonly authorizedResponses: typeof h05AuthorizedInvocationCount;
+  readonly hopMarkedResponses: typeof h05AuthorizedInvocationCount;
+  readonly noStoreResponses: 15;
+  readonly unauthorizedHopAbsent: true;
+  readonly unauthorizedStatus: 401;
 }
 
 export interface HostedExecutorOccProofConfig {
@@ -56,6 +79,10 @@ export async function runHostedExecutorOccProof(): Promise<HostedExecutorOccProo
   let mutationStarted = false;
   let primaryFailed = false;
   let primaryError: unknown;
+  let proofResult:
+    | Omit<HostedExecutorOccProofResult, "cleanup">
+    | undefined;
+  let cleanup: HostedExecutorOccProofResult["cleanup"] | undefined;
 
   try {
     await assertRemotePostgresResolution(config.databaseHost);
@@ -103,7 +130,24 @@ export async function runHostedExecutorOccProof(): Promise<HostedExecutorOccProo
       config.fixture,
       evidence,
     );
-    return { fixture: config.fixture, evidence, sql };
+    const invocationEvidence = compileHostedInvocationEvidence(
+      evidence,
+      sql,
+      transport.evidence(),
+    );
+    const invocationEvidenceJson = serializeH05InvocationEvidence(
+      invocationEvidence,
+    );
+    const invocation = compileH05InvocationReceipt(invocationEvidence);
+    if (!invocation.ok) throw new Error(invocation.message);
+    proofResult = {
+      fixture: config.fixture,
+      evidence,
+      invocation: invocation.value,
+      invocationEvidenceJson,
+      runId: config.runId,
+      sql,
+    };
   } catch (error) {
     primaryFailed = true;
     primaryError = error;
@@ -112,12 +156,13 @@ export async function runHostedExecutorOccProof(): Promise<HostedExecutorOccProo
     const cleanupErrors: unknown[] = [];
     const activePersistence = persistence;
     if (activePersistence !== undefined && mutationStarted) {
-      await recordCleanupError(cleanupErrors, () =>
-        deleteExecutorOccProofDeployment(
+      await recordCleanupError(cleanupErrors, async () => {
+        await deleteExecutorOccProofDeployment(
           activePersistence,
           config.fixture.deploymentId,
-        ),
-      );
+        );
+        cleanup = { proofRowsRemaining: 0 };
+      });
     }
     const activeClaimClient = claimClient;
     if (activeClaimClient !== undefined) {
@@ -146,6 +191,16 @@ export async function runHostedExecutorOccProof(): Promise<HostedExecutorOccProo
       );
     }
   }
+
+  if (proofResult === undefined || cleanup === undefined) {
+    throw new Error(
+      "H05 hosted proof completed without invocation or PostgreSQL cleanup evidence.",
+    );
+  }
+  return {
+    ...proofResult,
+    cleanup,
+  };
 }
 
 export async function proveExclusiveHostedExecutorOccProofRunClaim(
@@ -346,8 +401,13 @@ export function decodeHostedExecutorOccProofConfig(
 
 function hostedProbeTransport(
   config: HostedExecutorOccProofConfig,
-): ExecutorOccProofTransport {
-  const endpoint = new URL(h05ProbeEndpoint, config.probeUrl);
+): HostedProbeTransport {
+  const endpoint = new URL(h05ProbeEndpoint(config.runId), config.probeUrl);
+  let authorizedResponses = 0;
+  let hopMarkedResponses = 0;
+  let noStoreResponses = 0;
+  let unauthorizedHopAbsent = false;
+  let unauthorizedStatus: number | undefined;
   return {
     hop: h05ProbeHop,
     request: async (path, body, options = {}) => {
@@ -362,8 +422,37 @@ function hostedProbeTransport(
         body: JSON.stringify({ path, body }),
         signal: AbortSignal.timeout(hostedProbeRequestTimeoutMs),
       });
-      expect(response.headers.get("cache-control")).toBe("no-store");
+      if (response.headers.get("cache-control") !== "no-store") {
+        throw new Error("H05 probe response must disable caching.");
+      }
+      noStoreResponses += 1;
+      if (options.authorized === false) {
+        if (unauthorizedStatus !== undefined) {
+          throw new Error("H05 proof issued more than one unauthorized probe.");
+        }
+        unauthorizedStatus = response.status;
+        unauthorizedHopAbsent = response.headers.get(h05ProbeHop.header) === null;
+      } else {
+        authorizedResponses += 1;
+        if (response.headers.get(h05ProbeHop.header) === h05ProbeHop.value) {
+          hopMarkedResponses += 1;
+        }
+      }
       return response;
+    },
+    evidence: () => {
+      assert.equal(unauthorizedStatus, 401);
+      assert.equal(unauthorizedHopAbsent, true);
+      assert.equal(authorizedResponses, h05AuthorizedInvocationCount);
+      assert.equal(hopMarkedResponses, h05AuthorizedInvocationCount);
+      assert.equal(noStoreResponses, 15);
+      return {
+        unauthorizedStatus: 401,
+        unauthorizedHopAbsent: true,
+        authorizedResponses: h05AuthorizedInvocationCount,
+        hopMarkedResponses: h05AuthorizedInvocationCount,
+        noStoreResponses: 15,
+      };
     },
   };
 }
@@ -377,12 +466,70 @@ async function expectUnauthorizedProbe(
     executorOccProofStartBody(fixture),
     { authorized: false },
   );
-  expect(response.status).toBe(401);
-  expect(response.headers.get(transport.hop.header)).toBeNull();
-  await expect(response.json()).resolves.toEqual({
+  assert.equal(response.status, 401);
+  assert.equal(response.headers.get(transport.hop.header), null);
+  assert.deepEqual(await response.json(), {
     error: "unauthorized",
     message: "Unauthorized H05 executor probe request.",
   });
+}
+
+export function compileHostedInvocationEvidence(
+  evidence: ExecutorOccProofEvidence,
+  sql: ExecutorOccProofSqlEvidence,
+  transport: HostedProbeTransportEvidence,
+): H05InvocationEvidence {
+  assert.equal(sql.sessions, 3);
+  assert.equal(sql.activeSessions, 0);
+  assert.equal(sql.documentRevisions, 3);
+  assert.equal(sql.commits, 2);
+  assert.equal(sql.outboxEvents, 2);
+  assert.equal(sql.finalTs, evidence.freshTs);
+  assert.equal(sql.finalPrevTs, evidence.winnerTs);
+  assert.equal(sql.winnerState, "finished");
+  assert.equal(sql.staleState, "aborted");
+  assert.equal(sql.freshState, "finished");
+  assert.equal(sql.winnerObservedTs, 10);
+  assert.equal(sql.staleObservedTs, 10);
+  assert.equal(sql.freshObservedTs, evidence.winnerTs);
+
+  return {
+    source: "hosted-occ-proof-harness",
+    unauthorizedStatus: transport.unauthorizedStatus,
+    unauthorizedHopAbsent: transport.unauthorizedHopAbsent,
+    authorizedResponses: transport.authorizedResponses,
+    hopMarkedResponses: transport.hopMarkedResponses,
+    noStoreResponses: transport.noStoreResponses,
+    hop: h05ProbeHop,
+    winner: {
+      committedTs: evidence.winnerTs,
+      observedTs: 10,
+      state: "finished",
+    },
+    stale: {
+      conflictStatus: 409,
+      observedTs: 10,
+      currentTs: evidence.winnerTs,
+      abortStatus: 200,
+      afterAbortStatus: 409,
+      state: "aborted",
+    },
+    fresh: {
+      committedTs: evidence.freshTs,
+      observedTs: evidence.winnerTs,
+      previousTs: evidence.winnerTs,
+      state: "finished",
+    },
+    sql: {
+      sessions: 3,
+      activeSessions: 0,
+      documentRevisions: 3,
+      commits: 2,
+      outboxEvents: 2,
+      finalTs: evidence.freshTs,
+      finalPrevTs: evidence.winnerTs,
+    },
+  };
 }
 
 async function tryAcquireH05RunClaim(

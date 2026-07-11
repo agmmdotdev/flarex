@@ -1,4 +1,4 @@
-import { expect } from "vitest";
+import assert from "node:assert/strict";
 import {
   createFlarexExecutor,
   withReadyDeploymentAuthority,
@@ -109,7 +109,7 @@ export async function runExecutorOccProof(
 ): Promise<ExecutorOccProofEvidence> {
   const winnerStart = await startSession(runtime, fixture);
   const staleStart = await startSession(runtime, fixture);
-  expect(staleStart.sessionId).not.toBe(winnerStart.sessionId);
+  assert.notEqual(staleStart.sessionId, winnerStart.sessionId);
 
   await expectSeedRead(runtime, fixture, winnerStart.sessionId);
   await expectSeedRead(runtime, fixture, staleStart.sessionId);
@@ -128,9 +128,9 @@ export async function runExecutorOccProof(
     sessionId: winnerStart.sessionId,
     value: { attempt: "winner" },
   });
-  expect(winnerFinish.response.status).toBe(200);
+  assert.equal(winnerFinish.response.status, 200);
   const winnerTs = numberField(winnerFinish.body, "committedTs");
-  expect(winnerFinish.body).toEqual({
+  assert.deepEqual(winnerFinish.body, {
     value: { attempt: "winner" },
     committedTs: winnerTs,
     writes: [
@@ -150,8 +150,8 @@ export async function runExecutorOccProof(
     sessionId: staleStart.sessionId,
     value: { attempt: "stale" },
   });
-  expect(staleFinish.response.status).toBe(409);
-  expect(staleFinish.body).toEqual({
+  assert.equal(staleFinish.response.status, 409);
+  assert.deepEqual(staleFinish.body, {
     error: "InvokeSessionOccConflictError",
     message: `OCC conflict for ${fixture.deploymentId}/${seedDocumentId}: observed ${seedDocumentTs}, current ${winnerTs}`,
   });
@@ -161,8 +161,8 @@ export async function runExecutorOccProof(
     projectId: fixture.projectId,
     sessionId: staleStart.sessionId,
   });
-  expect(aborted.response.status).toBe(200);
-  expect(aborted.body).toEqual({ aborted: true });
+  assert.equal(aborted.response.status, 200);
+  assert.deepEqual(aborted.body, { aborted: true });
 
   const afterAbort = await invokeJson(runtime, "/invoke/syscall", {
     deploymentId: fixture.deploymentId,
@@ -171,14 +171,12 @@ export async function runExecutorOccProof(
     op: "get",
     id: seedDocumentId,
   });
-  expect(afterAbort.response.status).toBe(409);
-  expect(afterAbort.body).toMatchObject({
-    error: "InvokeSessionNotActiveError",
-  });
+  assert.equal(afterAbort.response.status, 409);
+  assert.equal(afterAbort.body.error, "InvokeSessionNotActiveError");
 
   await waitForClockAfter(winnerTs);
   const freshStart = await startSession(runtime, fixture);
-  expect(freshStart.beginTs).toBeGreaterThan(winnerTs);
+  assert.ok(freshStart.beginTs > winnerTs);
   const freshRead = await invokeJson(runtime, "/invoke/syscall", {
     deploymentId: fixture.deploymentId,
     projectId: fixture.projectId,
@@ -186,8 +184,8 @@ export async function runExecutorOccProof(
     op: "get",
     id: seedDocumentId,
   });
-  expect(freshRead.response.status).toBe(200);
-  expect(freshRead.body).toEqual({
+  assert.equal(freshRead.response.status, 200);
+  assert.deepEqual(freshRead.body, {
     value: { _id: seedDocumentId, name: "seed", count: 1, winner: "A" },
     readSet: { documents: [{ tableId: 1, id: seedDocumentId }] },
   });
@@ -202,9 +200,9 @@ export async function runExecutorOccProof(
     sessionId: freshStart.sessionId,
     value: { attempt: "fresh" },
   });
-  expect(freshFinish.response.status).toBe(200);
+  assert.equal(freshFinish.response.status, 200);
   const freshTs = numberField(freshFinish.body, "committedTs");
-  expect(freshFinish.body).toEqual({
+  assert.deepEqual(freshFinish.body, {
     value: { attempt: "fresh" },
     committedTs: freshTs,
     writes: [
@@ -242,21 +240,19 @@ export async function verifyExecutorOccProofState(
     seedDocumentId,
     Number.MAX_SAFE_INTEGER,
   );
-  expect(finalRevision).toMatchObject({
-    id: seedDocumentId,
-    ts: evidence.freshTs,
-    prevTs: evidence.winnerTs,
-    value: {
-      name: "seed",
-      count: 3,
-      winner: "A",
-      converged: true,
-    },
-    deleted: false,
-  });
   if (finalRevision === null) {
     throw new Error("Executor OCC proof final document revision is missing.");
   }
+  assert.equal(finalRevision.id, seedDocumentId);
+  assert.equal(finalRevision.ts, evidence.freshTs);
+  assert.equal(finalRevision.prevTs, evidence.winnerTs);
+  assert.deepEqual(finalRevision.value, {
+    name: "seed",
+    count: 3,
+    winner: "A",
+    converged: true,
+  });
+  assert.equal(finalRevision.deleted, false);
 
   const winnerSession = await persistence.getInvokeSessionMetadata(
     fixture.deploymentId,
@@ -270,9 +266,6 @@ export async function verifyExecutorOccProofState(
     fixture.deploymentId,
     evidence.freshSessionId,
   );
-  expect(winnerSession).toMatchObject({ state: "finished" });
-  expect(staleSession).toMatchObject({ state: "aborted" });
-  expect(freshSession).toMatchObject({ state: "finished" });
   if (
     winnerSession === null ||
     staleSession === null ||
@@ -280,6 +273,9 @@ export async function verifyExecutorOccProofState(
   ) {
     throw new Error("Executor OCC proof session metadata is missing.");
   }
+  assert.equal(winnerSession.state, "finished");
+  assert.equal(staleSession.state, "aborted");
+  assert.equal(freshSession.state, "finished");
 
   const winnerReads = await persistence.listInvokeSessionDocumentReads(
     fixture.deploymentId,
@@ -293,24 +289,9 @@ export async function verifyExecutorOccProofState(
     fixture.deploymentId,
     evidence.freshSessionId,
   );
-  expect(winnerReads).toEqual([
-    expect.objectContaining({
-      documentId: seedDocumentId,
-      observedTs: seedDocumentTs,
-    }),
-  ]);
-  expect(staleReads).toEqual([
-    expect.objectContaining({
-      documentId: seedDocumentId,
-      observedTs: seedDocumentTs,
-    }),
-  ]);
-  expect(freshReads).toEqual([
-    expect.objectContaining({
-      documentId: seedDocumentId,
-      observedTs: evidence.winnerTs,
-    }),
-  ]);
+  assert.equal(winnerReads.length, 1);
+  assert.equal(staleReads.length, 1);
+  assert.equal(freshReads.length, 1);
   const winnerRead = winnerReads[0];
   const staleRead = staleReads[0];
   const freshRead = freshReads[0];
@@ -321,19 +302,25 @@ export async function verifyExecutorOccProofState(
   ) {
     throw new Error("Executor OCC proof document read evidence is missing.");
   }
+  assert.equal(winnerRead.documentId, seedDocumentId);
+  assert.equal(winnerRead.observedTs, seedDocumentTs);
+  assert.equal(staleRead.documentId, seedDocumentId);
+  assert.equal(staleRead.observedTs, seedDocumentTs);
+  assert.equal(freshRead.documentId, seedDocumentId);
+  assert.equal(freshRead.observedTs, evidence.winnerTs);
 
-  await expect(
-    persistence.listInvokeSessionDocumentWrites(
-      fixture.deploymentId,
-      evidence.staleSessionId,
-    ),
-  ).resolves.toEqual([
-    expect.objectContaining({
-      documentId: seedDocumentId,
-      op: "patch",
-      valueJson: { count: 2, stale: "B" },
-    }),
-  ]);
+  const staleWrites = await persistence.listInvokeSessionDocumentWrites(
+    fixture.deploymentId,
+    evidence.staleSessionId,
+  );
+  assert.equal(staleWrites.length, 1);
+  const staleWrite = staleWrites[0];
+  if (staleWrite === undefined) {
+    throw new Error("Executor OCC proof stale write evidence is missing.");
+  }
+  assert.equal(staleWrite.documentId, seedDocumentId);
+  assert.equal(staleWrite.op, "patch");
+  assert.deepEqual(staleWrite.valueJson, { count: 2, stale: "B" });
 
   const counts = await persistence.query<{
     active_sessions: number;
@@ -350,7 +337,7 @@ export async function verifyExecutorOccProofState(
        (select count(*)::int from outbox where deployment_id = $1) as outbox_events`,
     [fixture.deploymentId],
   );
-  expect(counts.rows).toEqual([
+  assert.deepEqual(counts.rows, [
     {
       sessions: 3,
       active_sessions: 0,
@@ -475,28 +462,51 @@ export async function listExecutorOccProofDeploymentRows(
 export async function assertExecutorOccProofCleanupCoverage(
   persistence: PostgresFlarexPersistence,
 ): Promise<void> {
-  const result = await persistence.query<{ table_name: string }>(
-    `select distinct columns.table_name
+  const result = await persistence.query<{
+    column_name: "deployment_id" | "scope_id";
+    table_name: string;
+  }>(
+    `select distinct columns.column_name, columns.table_name
      from information_schema.columns as columns
      join information_schema.tables as tables
        on tables.table_schema = columns.table_schema
       and tables.table_name = columns.table_name
      where columns.table_schema = current_schema()
-       and columns.column_name = 'deployment_id'
+       and columns.column_name in ('deployment_id', 'scope_id')
        and tables.table_type = 'BASE TABLE'
-     order by columns.table_name`,
+     order by columns.column_name, columns.table_name`,
   );
-  const actual = result.rows.map((row) => row.table_name);
-  const expected = [
+  const deploymentActual = result.rows
+    .filter((row) => row.column_name === "deployment_id")
+    .map((row) => row.table_name);
+  const deploymentExpected = [
     ...deploymentScopedCleanupTables,
     "deployments",
     "fx_control_scope",
   ].sort();
+  assertExactCleanupCoverage(
+    "deployment_id",
+    deploymentActual,
+    deploymentExpected,
+  );
+  const scopeActual = result.rows
+    .filter((row) => row.column_name === "scope_id")
+    .map((row) => row.table_name);
+  assertExactCleanupCoverage("scope_id", scopeActual, [
+    ...scopeScopedCleanupTables,
+  ]);
+}
+
+function assertExactCleanupCoverage(
+  column: "deployment_id" | "scope_id",
+  actual: readonly string[],
+  expected: readonly string[],
+): void {
   const missing = expected.filter((table) => !actual.includes(table));
   const unexpected = actual.filter((table) => !expected.includes(table));
   if (missing.length > 0 || unexpected.length > 0) {
     throw new Error(
-      `Executor OCC proof cleanup table coverage drifted (missing: ${missing.join(", ") || "none"}; unexpected: ${unexpected.join(", ") || "none"}).`,
+      `Executor OCC proof ${column} cleanup table coverage drifted (missing: ${missing.join(", ") || "none"}; unexpected: ${unexpected.join(", ") || "none"}).`,
     );
   }
 }
@@ -609,10 +619,10 @@ async function startSession(
     "/invoke/start",
     startBody(fixture),
   );
-  expect(started.response.status).toBe(200);
+  assert.equal(started.response.status, 200);
   const sessionId = stringField(started.body, "sessionId");
   const beginTs = numberField(started.body, "beginTs");
-  expect(started.body).toEqual({
+  assert.deepEqual(started.body, {
     sessionId,
     beginTs,
     identity: { kind: "anonymous" },
@@ -643,8 +653,8 @@ async function expectSeedRead(
     op: "get",
     id: seedDocumentId,
   });
-  expect(read.response.status).toBe(200);
-  expect(read.body).toEqual({
+  assert.equal(read.response.status, 200);
+  assert.deepEqual(read.body, {
     value: { _id: seedDocumentId, name: "seed", count: 0 },
     readSet: { documents: [{ tableId: 1, id: seedDocumentId }] },
   });
@@ -664,8 +674,8 @@ async function expectPatch(
     id: seedDocumentId,
     value,
   });
-  expect(patched.response.status).toBe(200);
-  expect(patched.body).toEqual({
+  assert.equal(patched.response.status, 200);
+  assert.deepEqual(patched.body, {
     value: null,
     readSet: { documents: [{ tableId: 1, id: seedDocumentId }] },
   });
@@ -711,7 +721,7 @@ async function invokeJson(
       `${path} service binding failed: ${String(decoded.message ?? "unknown error")}`,
     );
   }
-  expect(response.headers.get(runtime.hop.header)).toBe(runtime.hop.value);
+  assert.equal(response.headers.get(runtime.hop.header), runtime.hop.value);
   return { response, body: decoded };
 }
 

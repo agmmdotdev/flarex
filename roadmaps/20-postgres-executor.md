@@ -1,5 +1,74 @@
 # Postgres Executor
 
+## Capture Hosted OCC And Cleanup As One Data-Plane Artifact
+
+Previous completed checkpoint: `708b234` (`Gate hosted executor activation
+receipts`).
+
+What changed:
+
+- Removed Vitest from the reusable H04/H05 OCC oracle and hosted PostgreSQL
+  runner. Node assertions now enforce response bodies, commit ordering,
+  session/read/write state, direct SQL counts, and the private-hop marker, so a
+  standalone collector can run the exact same proof.
+- Made the hosted transport count its unauthorized, authorized, hop-marked,
+  and `no-store` responses and refuse evidence unless they equal the declared
+  `1/14/14/15` scenario.
+- Delayed the successful return until deployment-scoped rows, captured scope
+  clock/provisioning rows, the advisory claim, and database clients are all
+  cleaned. Only then is `{ proofRowsRemaining: 0 }` joined with the canonical
+  invocation receipt in `flarex-h05-data-plane-evidence-v1`.
+- Made cleanup coverage fail closed on schema drift for both `deployment_id`
+  and `scope_id` base tables, so a newly introduced scope-owned table cannot be
+  silently omitted from the zero-row proof.
+- Added shared verifiers that recompute the invocation SHA-256 and an outer
+  SHA-256 over format, source commit, collection window, run identity,
+  invocation, and cleanup before the collector atomically publishes the bundle
+  outside the Git worktree.
+- Bound final trace timestamps inside that hashed collection window and ordered
+  disposable-probe teardown after PostgreSQL cleanup completes.
+
+Why it changed:
+
+An in-memory Vitest result and a `finally` block are not durable H05 evidence.
+The final hosted receipt needs one artifact that proves both the current OCC/SQL
+oracle and successful run-owned PostgreSQL cleanup. The run, source, time
+window, and cleanup must be inside the same checked hash boundary as the
+invocation rather than accepted beside a hash-shaped string.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+How Flarex differs:
+
+- Convex returns one final transaction directly to its committer. The current
+  Flarex host journals one compatibility session over private Fetch calls, so
+  its temporary proof artifact also records transport counts and explicit row
+  cleanup.
+
+Known limitations:
+
+- This artifact has not been produced against hosted PostgreSQL. The current
+  environment has no H05 database URL or Cloudflare credentials.
+- Control-plane, privacy, trace, and disposable-probe teardown evidence are not
+  synthesized here and must still be joined before the existing full receipt
+  checker can pass.
+- Persistence schema and future FlarexDB transaction semantics are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker test # 8 files, 98 tests passed
+corepack pnpm --filter @flarex/executor-worker build # passed
+corepack pnpm --filter @flarex/executor-worker collect:h05-data-plane-evidence data-plane.json # expected exit 1; rejected in-worktree output without writing
+corepack pnpm check:effect-boundaries # passed
+git diff --check # passed
+```
+
 ## Bind Hosted OCC And SQL Evidence Into One Receipt
 
 Previous completed checkpoint: `dcf64dc` (`Prepare hosted executor activation

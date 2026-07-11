@@ -1,5 +1,59 @@
 # Package Boundaries
 
+## Promote Hosted Proof Contracts Out Of Test Modules
+
+Previous completed checkpoint: `708b234` (`Gate hosted executor activation
+receipts`).
+
+What changed:
+
+- Added an explicit `apps/executor/h05/` boundary for the proof identity,
+  run-scoped protocol, disposable probe entrypoint, receipt/data-plane schemas,
+  shared OCC oracle, and hosted PostgreSQL runner.
+- Kept `apps/executor/test/` as assertions and local Miniflare/PostgreSQL test
+  adapters only. The standalone `scripts/collectH05DataPlaneEvidence.ts` now
+  imports the H05 runtime boundary rather than importing a test module.
+- Updated the probe Wrangler entrypoint and deterministic dry-run bundle path
+  without adding H05 modules to the production executor Worker's import graph.
+- Kept the synchronous SHA-256 receipt verifier on the Node collector side of
+  that boundary. The disposable probe imports only its Worker-safe identity and
+  protocol modules, which the separate probe bundle gate verifies.
+
+Why it changed:
+
+Code needed by an authenticated staging collector is not test-only code. A
+named proof boundary makes that reuse explicit while preserving the production
+executor, framework-neutral core, persistence packages, and compatibility
+adapters unchanged.
+
+Convex references inspected:
+
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+How Flarex differs:
+
+- This disposable proof boundary exists because Flarex must demonstrate a
+  cross-Worker Cloudflare service binding. It is not a developer SDK surface or
+  part of the eventual Dynamic Worker module package.
+
+Known limitations:
+
+- `apps/executor/h05/` remains internal proof tooling and has no package export.
+- The next collector slices still need read-only Cloudflare API adapters and a
+  final evidence compiler. No compatibility adapter is retired here.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker test # 8 files, 98 tests passed
+corepack pnpm --filter @flarex/executor-worker build # passed
+corepack pnpm --filter @flarex/executor-worker check:bundle # passed; H05 stayed outside production graph
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run # passed
+git diff --check # passed
+```
+
 ## Isolate The Hosted Proof Caller Capability
 
 Previous completed checkpoint: `e2921b5` (`Prove executor Worker service

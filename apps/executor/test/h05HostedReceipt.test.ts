@@ -1,12 +1,22 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  compileH05DataPlaneEvidence,
+  compileH05InvocationReceipt,
   decodeH05HostedReceipt,
   decodeH05HostedReceiptJson,
+  decodeH05DataPlaneEvidence,
+  decodeH05InvocationEvidence,
+  decodeH05InvocationEvidenceJson,
   h05AuthorizedInvocationCount,
+  h05DataPlaneEvidenceFormat,
   h05HostedReceiptFormat,
   serializeH05HostedReceipt,
-} from "./h05HostedReceipt";
+  serializeH05DataPlaneEvidence,
+  serializeH05InvocationEvidence,
+  type H05DataPlaneEvidence,
+} from "../h05/receipt";
+import { decodeVerifiedH05DataPlaneEvidenceJson } from "../scripts/h05DataPlaneEvidence";
 
 describe("H05 hosted activation receipt preflight", () => {
   it("accepts one complete, redacted, internally consistent receipt", () => {
@@ -21,10 +31,79 @@ describe("H05 hosted activation receipt preflight", () => {
           deploymentId: "deployment_h05_run_a",
           projectId: "project_h05_run_a",
         },
-        invocation: {
-          authorizedResponses: h05AuthorizedInvocationCount,
+        dataPlane: {
+          invocation: {
+            authorizedResponses: h05AuthorizedInvocationCount,
+          },
         },
       },
+    });
+  });
+
+  it("emits one canonical standalone invocation evidence sidecar", () => {
+    const invocation = { ...invocationRecord(validReceipt()) };
+    delete invocation.evidenceSha256;
+    const decoded = decodeH05InvocationEvidence(invocation);
+    if (!decoded.ok) throw new Error(decoded.message);
+    const json = serializeH05InvocationEvidence(decoded.value);
+
+    expect(decodeH05InvocationEvidenceJson(json)).toEqual(decoded);
+    expect(decodeH05InvocationEvidenceJson(json.trimEnd())).toMatchObject({
+      ok: false,
+      message:
+        "Invalid H05 invocation evidence: evidence must use canonical JSON serialization.",
+    });
+  });
+
+  it("binds invocation evidence and PostgreSQL cleanup to one run", () => {
+    const decoded = decodeH05DataPlaneEvidence(dataPlaneRecord(validReceipt()));
+    if (!decoded.ok) throw new Error(decoded.message);
+    const json = serializeH05DataPlaneEvidence(decoded.value);
+
+    expect(JSON.parse(json)).toEqual(decoded.value);
+    expect(decodeVerifiedH05DataPlaneEvidenceJson(json)).toEqual(decoded);
+
+    expect(
+      decodeH05DataPlaneEvidence({
+      ...decoded.value,
+      invocation: {
+        ...decoded.value.invocation,
+        evidenceSha256: "d".repeat(64),
+      },
+      }),
+    ).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "Invalid H05 hosted receipt: invocation.evidenceSha256 must equal",
+      ),
+    });
+  });
+
+  it("rejects cross-run substitution even when the nested invocation hash is valid", () => {
+    const dataPlane = dataPlaneRecord(validReceipt());
+    dataPlane.run = {
+      runId: "run_b",
+      deploymentId: "deployment_h05_run_b",
+      projectId: "project_h05_run_b",
+    };
+
+    expect(decodeH05DataPlaneEvidence(dataPlane)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "Invalid H05 hosted receipt: dataPlane.evidenceSha256 must equal",
+      ),
+    });
+  });
+
+  it("rejects an altered invocation hash at the final hosted-receipt gate", () => {
+    const receipt = validReceipt();
+    invocationRecord(receipt).evidenceSha256 = "d".repeat(64);
+
+    expect(decodeH05HostedReceipt(receipt)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "Invalid H05 hosted receipt: invocation.evidenceSha256 must equal",
+      ),
     });
   });
 
@@ -77,7 +156,7 @@ describe("H05 hosted activation receipt preflight", () => {
 
   it("rejects an OCC receipt whose stale conflict is not against the winner", () => {
     const receipt = validReceipt();
-    nestedRecord(nestedRecord(receipt, "invocation"), "stale").currentTs = 12;
+    nestedRecord(invocationRecord(receipt), "stale").currentTs = 12;
 
     expect(decodeH05HostedReceipt(receipt)).toMatchObject({
       ok: false,
@@ -94,6 +173,17 @@ describe("H05 hosted activation receipt preflight", () => {
       ok: false,
       message:
         "Invalid H05 hosted receipt: trace.serviceBindingTraceCount must equal 14.",
+    });
+  });
+
+  it("binds trace collection to the exact run-scoped probe path", () => {
+    const receipt = validReceipt();
+    nestedRecord(receipt, "trace").probePath = "/__flarex_h05/invoke";
+
+    expect(decodeH05HostedReceipt(receipt)).toMatchObject({
+      ok: false,
+      message:
+        "Invalid H05 hosted receipt: trace.probePath must equal \"/__flarex_h05/invoke/run_a\".",
     });
   });
 
@@ -114,6 +204,65 @@ describe("H05 hosted activation receipt preflight", () => {
       ok: false,
       message:
         "Invalid H05 hosted receipt: cleanup.checkedAt must fall inside the receipt window.",
+    });
+  });
+
+  it("binds the data-plane source commit to the final receipt source", () => {
+    const receipt = validReceipt();
+    const dataPlane = dataPlaneRecord(receipt);
+    dataPlane.source = {
+      ...nestedRecord(dataPlane, "source"),
+      commit: "b".repeat(40),
+    };
+    receipt.dataPlane = recompileDataPlane(dataPlane);
+
+    expect(decodeH05HostedReceipt(receipt)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "Invalid H05 hosted receipt: dataPlane.source.commit must equal",
+      ),
+    });
+  });
+
+  it("places the data-plane collection interval inside the final receipt window", () => {
+    const receipt = validReceipt();
+    const dataPlane = dataPlaneRecord(receipt);
+    dataPlane.window = {
+      startedAt: "2026-07-11T09:59:59.000Z",
+      finishedAt: "2026-07-11T10:02:30.000Z",
+    };
+    receipt.dataPlane = recompileDataPlane(dataPlane);
+
+    expect(decodeH05HostedReceipt(receipt)).toMatchObject({
+      ok: false,
+      message:
+        "Invalid H05 hosted receipt: dataPlane.window.startedAt must fall inside the receipt window.",
+    });
+  });
+
+  it("rejects a trace interval disjoint from the hashed data-plane execution", () => {
+    const receipt = validReceipt();
+    nestedRecord(receipt, "trace").firstObservedAt =
+      "2026-07-11T10:03:00.000Z";
+    nestedRecord(receipt, "trace").lastObservedAt =
+      "2026-07-11T10:03:30.000Z";
+
+    expect(decodeH05HostedReceipt(receipt)).toMatchObject({
+      ok: false,
+      message:
+        "Invalid H05 hosted receipt: trace.firstObservedAt must fall inside the receipt window.",
+    });
+  });
+
+  it("requires final teardown after data-plane cleanup completes", () => {
+    const receipt = validReceipt();
+    nestedRecord(receipt, "cleanup").checkedAt =
+      "2026-07-11T10:02:15.000Z";
+
+    expect(decodeH05HostedReceipt(receipt)).toMatchObject({
+      ok: false,
+      message:
+        "Invalid H05 hosted receipt: dataPlane-to-cleanup timestamps are out of order.",
     });
   });
 
@@ -144,6 +293,61 @@ function validReceipt(): Record<string, unknown> {
   const probeDeploymentId = "33333333-3333-4333-8333-333333333333";
   const probeVersionId = "44444444-4444-4444-8444-444444444444";
   const evidenceHash = "c".repeat(64);
+  const sourceCommit = "a".repeat(40);
+  const run = {
+    runId: "run_a",
+    deploymentId: "deployment_h05_run_a",
+    projectId: "project_h05_run_a",
+  };
+  const invocation = compileH05InvocationReceipt({
+    source: "hosted-occ-proof-harness",
+    unauthorizedStatus: 401,
+    unauthorizedHopAbsent: true,
+    authorizedResponses: 14,
+    hopMarkedResponses: 14,
+    noStoreResponses: 15,
+    hop: {
+      header: "x-flarex-h05-hop",
+      value: "probe-to-executor",
+    },
+    winner: { committedTs: 11, observedTs: 10, state: "finished" },
+    stale: {
+      conflictStatus: 409,
+      observedTs: 10,
+      currentTs: 11,
+      abortStatus: 200,
+      afterAbortStatus: 409,
+      state: "aborted",
+    },
+    fresh: {
+      committedTs: 12,
+      observedTs: 11,
+      previousTs: 11,
+      state: "finished",
+    },
+    sql: {
+      sessions: 3,
+      activeSessions: 0,
+      documentRevisions: 3,
+      commits: 2,
+      outboxEvents: 2,
+      finalTs: 12,
+      finalPrevTs: 11,
+    },
+  });
+  if (!invocation.ok) throw new Error(invocation.message);
+  const dataPlane = compileH05DataPlaneEvidence({
+    format: h05DataPlaneEvidenceFormat,
+    source: { commit: sourceCommit, worktreeClean: true },
+    window: {
+      startedAt: "2026-07-11T10:00:40.000Z",
+      finishedAt: "2026-07-11T10:02:30.000Z",
+    },
+    run,
+    invocation: invocation.value,
+    postgresCleanup: { proofRowsRemaining: 0 },
+  });
+  if (!dataPlane.ok) throw new Error(dataPlane.message);
   return {
     format: h05HostedReceiptFormat,
     redaction: {
@@ -152,7 +356,7 @@ function validReceipt(): Record<string, unknown> {
       runIdentity: "included-non-sensitive",
     },
     source: {
-      commit: "a".repeat(40),
+      commit: sourceCommit,
       worktreeClean: true,
       wranglerVersion: "4.100.0",
       evidenceSha256: evidenceHash,
@@ -161,11 +365,7 @@ function validReceipt(): Record<string, unknown> {
       startedAt: "2026-07-11T10:00:00.000Z",
       finishedAt: "2026-07-11T10:05:00.000Z",
     },
-    run: {
-      runId: "run_a",
-      deploymentId: "deployment_h05_run_a",
-      projectId: "project_h05_run_a",
-    },
+    run,
     hyperdrive: {
       source: "wrangler-hyperdrive-get",
       id: "b".repeat(32),
@@ -228,45 +428,10 @@ function validReceipt(): Record<string, unknown> {
       versionEvidenceSha256: evidenceHash,
       secretsEvidenceSha256: evidenceHash,
     },
-    invocation: {
-      source: "hosted-occ-proof-harness",
-      unauthorizedStatus: 401,
-      unauthorizedHopAbsent: true,
-      authorizedResponses: 14,
-      hopMarkedResponses: 14,
-      noStoreResponses: 15,
-      hop: {
-        header: "x-flarex-h05-hop",
-        value: "probe-to-executor",
-      },
-      winner: { committedTs: 11, observedTs: 10, state: "finished" },
-      stale: {
-        conflictStatus: 409,
-        observedTs: 10,
-        currentTs: 11,
-        abortStatus: 200,
-        afterAbortStatus: 409,
-        state: "aborted",
-      },
-      fresh: {
-        committedTs: 12,
-        observedTs: 11,
-        previousTs: 11,
-        state: "finished",
-      },
-      sql: {
-        sessions: 3,
-        activeSessions: 0,
-        documentRevisions: 3,
-        commits: 2,
-        outboxEvents: 2,
-        finalTs: 12,
-        finalPrevTs: 11,
-      },
-      evidenceSha256: evidenceHash,
-    },
+    dataPlane: dataPlane.value,
     trace: {
       source: "cloudflare-observability-api",
+      probePath: "/__flarex_h05/invoke/run_a",
       samplingRate: 1,
       queryComplete: true,
       truncatedTraceCount: 0,
@@ -292,6 +457,27 @@ function validReceipt(): Record<string, unknown> {
       evidenceSha256: evidenceHash,
     },
   };
+}
+
+function dataPlaneRecord(
+  receipt: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  return nestedRecord(receipt, "dataPlane");
+}
+
+function invocationRecord(
+  receipt: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  return nestedRecord(dataPlaneRecord(receipt), "invocation");
+}
+
+function recompileDataPlane(
+  evidence: Readonly<Record<string, unknown>>,
+): H05DataPlaneEvidence {
+  const { evidenceSha256: _evidenceSha256, ...payload } = evidence;
+  const compiled = compileH05DataPlaneEvidence(payload);
+  if (!compiled.ok) throw new Error(compiled.message);
+  return compiled.value;
 }
 
 function nestedRecord(

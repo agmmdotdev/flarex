@@ -7,7 +7,7 @@ import { argv } from "node:process";
 import {
   decodeH05HostedReceiptJson,
   type H05HostedReceipt,
-} from "../test/h05HostedReceipt";
+} from "../h05/receipt";
 
 const maximumReceiptBytes = 1024 * 1024;
 const receiptPath = argv[2];

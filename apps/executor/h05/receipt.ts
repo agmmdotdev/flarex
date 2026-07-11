@@ -1,8 +1,11 @@
+import { createHash } from "node:crypto";
+
 import {
   decodeH05ProofRunId,
   h05ProofIdentity,
   type H05ProofRunId,
-} from "./h05ProofIdentity";
+} from "./proofIdentity";
+import { h05ProbeEndpoint, h05ProbeHop } from "./probeProtocol";
 
 declare const sha256Brand: unique symbol;
 declare const gitCommitBrand: unique symbol;
@@ -28,6 +31,7 @@ type TupleOutput<Shape extends readonly Decoder<unknown>[]> = {
 };
 
 export const h05HostedReceiptFormat = "flarex-h05-hosted-receipt-v1";
+export const h05DataPlaneEvidenceFormat = "flarex-h05-data-plane-evidence-v1";
 export const h05ExecutorWorkerName = "flarex-executor";
 export const h05ProbeWorkerName = "flarex-executor-h05-probe";
 export const h05ExecutorCompatibilityDate = "2026-06-14";
@@ -39,8 +43,8 @@ const h05HyperdriveBindingName = "HYPERDRIVE_CACHE_DISABLED";
 const h05ProbeRunIdName = "FLAREX_H05_RUN_ID";
 const h05ProbeTokenName = "FLAREX_H05_PROBE_TOKEN";
 const h05ServiceBindingName = "FLAREX_EXECUTOR";
-const h05HopHeader = "x-flarex-h05-hop";
-const h05HopValue = "probe-to-executor";
+const h05HopHeader = h05ProbeHop.header;
+const h05HopValue = h05ProbeHop.value;
 const h05SeedTimestamp = 10;
 
 const sha256Decoder = nonPlaceholderBrandedPattern<Sha256>(/^[a-f0-9]{64}$/);
@@ -67,6 +71,83 @@ const wranglerVersionDecoder = patternString(
   /^4\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/,
 );
 
+const h05InvocationEvidenceShape = {
+  source: literal("hosted-occ-proof-harness"),
+  unauthorizedStatus: literal(401),
+  unauthorizedHopAbsent: literal(true),
+  authorizedResponses: literal(h05AuthorizedInvocationCount),
+  hopMarkedResponses: literal(h05AuthorizedInvocationCount),
+  noStoreResponses: literal(15),
+  hop: object({
+    header: literal(h05HopHeader),
+    value: literal(h05HopValue),
+  }),
+  winner: object({
+    committedTs: positiveSafeInteger,
+    observedTs: literal(h05SeedTimestamp),
+    state: literal("finished"),
+  }),
+  stale: object({
+    conflictStatus: literal(409),
+    observedTs: literal(h05SeedTimestamp),
+    currentTs: positiveSafeInteger,
+    abortStatus: literal(200),
+    afterAbortStatus: literal(409),
+    state: literal("aborted"),
+  }),
+  fresh: object({
+    committedTs: positiveSafeInteger,
+    observedTs: positiveSafeInteger,
+    previousTs: positiveSafeInteger,
+    state: literal("finished"),
+  }),
+  sql: object({
+    sessions: literal(3),
+    activeSessions: literal(0),
+    documentRevisions: literal(3),
+    commits: literal(2),
+    outboxEvents: literal(2),
+    finalTs: positiveSafeInteger,
+    finalPrevTs: positiveSafeInteger,
+  }),
+} satisfies Readonly<Record<string, Decoder<unknown>>>;
+
+const h05InvocationEvidenceDecoder = object(h05InvocationEvidenceShape);
+const h05InvocationReceiptDecoder = object({
+  ...h05InvocationEvidenceShape,
+  evidenceSha256: sha256Decoder,
+});
+
+const h05RunDecoder = object({
+  runId: h05ProofRunIdDecoder,
+  deploymentId: nonEmptyString,
+  projectId: nonEmptyString,
+});
+const h05DataPlaneSourceDecoder = object({
+  commit: gitCommitDecoder,
+  worktreeClean: literal(true),
+});
+const h05WindowDecoder = object({
+  startedAt: isoTimestampDecoder,
+  finishedAt: isoTimestampDecoder,
+});
+const h05PostgresCleanupDecoder = object({ proofRowsRemaining: literal(0) });
+const h05DataPlaneEvidencePayloadShape = {
+  format: literal(h05DataPlaneEvidenceFormat),
+  source: h05DataPlaneSourceDecoder,
+  window: h05WindowDecoder,
+  run: h05RunDecoder,
+  invocation: h05InvocationReceiptDecoder,
+  postgresCleanup: h05PostgresCleanupDecoder,
+} satisfies Readonly<Record<string, Decoder<unknown>>>;
+const h05DataPlaneEvidencePayloadDecoder = object(
+  h05DataPlaneEvidencePayloadShape,
+);
+const h05DataPlaneEvidenceDecoder = object({
+  ...h05DataPlaneEvidencePayloadShape,
+  evidenceSha256: sha256Decoder,
+});
+
 const receiptDecoder = object({
   format: literal(h05HostedReceiptFormat),
   redaction: object({
@@ -80,15 +161,8 @@ const receiptDecoder = object({
     wranglerVersion: wranglerVersionDecoder,
     evidenceSha256: sha256Decoder,
   }),
-  window: object({
-    startedAt: isoTimestampDecoder,
-    finishedAt: isoTimestampDecoder,
-  }),
-  run: object({
-    runId: h05ProofRunIdDecoder,
-    deploymentId: nonEmptyString,
-    projectId: nonEmptyString,
-  }),
+  window: h05WindowDecoder,
+  run: h05RunDecoder,
   hyperdrive: object({
     source: literal("wrangler-hyperdrive-get"),
     id: hyperdriveIdDecoder,
@@ -151,49 +225,10 @@ const receiptDecoder = object({
     versionEvidenceSha256: sha256Decoder,
     secretsEvidenceSha256: sha256Decoder,
   }),
-  invocation: object({
-    source: literal("hosted-occ-proof-harness"),
-    unauthorizedStatus: literal(401),
-    unauthorizedHopAbsent: literal(true),
-    authorizedResponses: literal(h05AuthorizedInvocationCount),
-    hopMarkedResponses: literal(h05AuthorizedInvocationCount),
-    noStoreResponses: literal(15),
-    hop: object({
-      header: literal(h05HopHeader),
-      value: literal(h05HopValue),
-    }),
-    winner: object({
-      committedTs: positiveSafeInteger,
-      observedTs: literal(h05SeedTimestamp),
-      state: literal("finished"),
-    }),
-    stale: object({
-      conflictStatus: literal(409),
-      observedTs: literal(h05SeedTimestamp),
-      currentTs: positiveSafeInteger,
-      abortStatus: literal(200),
-      afterAbortStatus: literal(409),
-      state: literal("aborted"),
-    }),
-    fresh: object({
-      committedTs: positiveSafeInteger,
-      observedTs: positiveSafeInteger,
-      previousTs: positiveSafeInteger,
-      state: literal("finished"),
-    }),
-    sql: object({
-      sessions: literal(3),
-      activeSessions: literal(0),
-      documentRevisions: literal(3),
-      commits: literal(2),
-      outboxEvents: literal(2),
-      finalTs: positiveSafeInteger,
-      finalPrevTs: positiveSafeInteger,
-    }),
-    evidenceSha256: sha256Decoder,
-  }),
+  dataPlane: h05DataPlaneEvidenceDecoder,
   trace: object({
     source: literal("cloudflare-observability-api"),
+    probePath: nonEmptyString,
     samplingRate: literal(1),
     queryComplete: literal(true),
     truncatedTraceCount: literal(0),
@@ -224,6 +259,18 @@ const receiptDecoder = object({
 });
 
 export type H05HostedReceipt = DecoderOutput<typeof receiptDecoder>;
+export type H05InvocationEvidence = DecoderOutput<
+  typeof h05InvocationEvidenceDecoder
+>;
+export type H05InvocationReceipt = DecoderOutput<
+  typeof h05InvocationReceiptDecoder
+>;
+export type H05DataPlaneEvidence = DecoderOutput<
+  typeof h05DataPlaneEvidenceDecoder
+>;
+export type H05DataPlaneEvidencePayload = DecoderOutput<
+  typeof h05DataPlaneEvidencePayloadDecoder
+>;
 
 export type H05HostedReceiptDecode =
   | { readonly ok: true; readonly value: H05HostedReceipt }
@@ -240,6 +287,159 @@ export function decodeH05HostedReceipt(value: unknown): H05HostedReceiptDecode {
       message: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+export type H05InvocationEvidenceDecode =
+  | { readonly ok: true; readonly value: H05InvocationEvidence }
+  | { readonly ok: false; readonly message: string };
+
+export function decodeH05InvocationEvidence(
+  value: unknown,
+): H05InvocationEvidenceDecode {
+  try {
+    const evidence = h05InvocationEvidenceDecoder(value, "$");
+    validateInvocationRelationships(evidence);
+    return { ok: true, value: evidence };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export function decodeH05InvocationEvidenceJson(
+  raw: string,
+): H05InvocationEvidenceDecode {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {
+      ok: false,
+      message: "Invalid H05 invocation evidence: evidence must contain valid JSON.",
+    };
+  }
+  const decoded = decodeH05InvocationEvidence(parsed);
+  if (!decoded.ok) return decoded;
+  if (raw !== serializeH05InvocationEvidence(decoded.value)) {
+    return {
+      ok: false,
+      message:
+        "Invalid H05 invocation evidence: evidence must use canonical JSON serialization.",
+    };
+  }
+  return decoded;
+}
+
+export type H05InvocationReceiptDecode =
+  | { readonly ok: true; readonly value: H05InvocationReceipt }
+  | { readonly ok: false; readonly message: string };
+
+export function compileH05InvocationReceipt(
+  value: unknown,
+): H05InvocationReceiptDecode {
+  const evidence = decodeH05InvocationEvidence(value);
+  if (!evidence.ok) return evidence;
+  return decodeH05InvocationReceipt({
+    ...evidence.value,
+    evidenceSha256: sha256(serializeH05InvocationEvidence(evidence.value)),
+  });
+}
+
+export function decodeH05InvocationReceipt(
+  value: unknown,
+): H05InvocationReceiptDecode {
+  try {
+    const receipt = h05InvocationReceiptDecoder(value, "$");
+    validateInvocationReceipt(receipt);
+    return { ok: true, value: receipt };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export type H05DataPlaneEvidenceDecode =
+  | { readonly ok: true; readonly value: H05DataPlaneEvidence }
+  | { readonly ok: false; readonly message: string };
+
+export function compileH05DataPlaneEvidence(
+  value: unknown,
+): H05DataPlaneEvidenceDecode {
+  const payload = decodeH05DataPlaneEvidencePayload(value);
+  if (!payload.ok) return payload;
+  return decodeH05DataPlaneEvidence({
+    ...payload.value,
+    evidenceSha256: sha256(
+      serializeH05DataPlaneEvidencePayload(payload.value),
+    ),
+  });
+}
+
+export function decodeH05DataPlaneEvidence(
+  value: unknown,
+): H05DataPlaneEvidenceDecode {
+  try {
+    const evidence = h05DataPlaneEvidenceDecoder(value, "$");
+    validateDataPlaneEvidence(evidence);
+    return { ok: true, value: evidence };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export function decodeH05DataPlaneEvidenceJson(
+  raw: string,
+): H05DataPlaneEvidenceDecode {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {
+      ok: false,
+      message: "Invalid H05 data-plane evidence: evidence must contain valid JSON.",
+    };
+  }
+  const decoded = decodeH05DataPlaneEvidence(parsed);
+  if (!decoded.ok) return decoded;
+  if (raw !== serializeH05DataPlaneEvidence(decoded.value)) {
+    return {
+      ok: false,
+      message:
+        "Invalid H05 data-plane evidence: evidence must use canonical JSON serialization.",
+    };
+  }
+  return decoded;
+}
+
+export function serializeH05DataPlaneEvidence(
+  evidence: H05DataPlaneEvidence,
+): string {
+  const decoded = decodeH05DataPlaneEvidence(evidence);
+  if (!decoded.ok) throw new Error(decoded.message);
+  return `${JSON.stringify(decoded.value, null, 2)}\n`;
+}
+
+export function serializeH05DataPlaneEvidencePayload(
+  payload: H05DataPlaneEvidencePayload,
+): string {
+  const decoded = decodeH05DataPlaneEvidencePayload(payload);
+  if (!decoded.ok) throw new Error(decoded.message);
+  return `${JSON.stringify(decoded.value, null, 2)}\n`;
+}
+
+export function serializeH05InvocationEvidence(
+  evidence: H05InvocationEvidence,
+): string {
+  const decoded = decodeH05InvocationEvidence(evidence);
+  if (!decoded.ok) throw new Error(decoded.message);
+  return `${JSON.stringify(decoded.value, null, 2)}\n`;
 }
 
 export function decodeH05HostedReceiptJson(
@@ -279,10 +479,42 @@ function validateReceiptRelationships(receipt: H05HostedReceipt): void {
   );
   exactValue(receipt.run.projectId, identity.projectId, "run.projectId");
 
+  validateDataPlaneEvidence(receipt.dataPlane);
+  exactValue(
+    receipt.dataPlane.run.runId,
+    receipt.run.runId,
+    "dataPlane.run.runId",
+  );
+  exactValue(
+    receipt.dataPlane.run.deploymentId,
+    receipt.run.deploymentId,
+    "dataPlane.run.deploymentId",
+  );
+  exactValue(
+    receipt.dataPlane.run.projectId,
+    receipt.run.projectId,
+    "dataPlane.run.projectId",
+  );
+  exactValue(
+    receipt.dataPlane.source.commit,
+    receipt.source.commit,
+    "dataPlane.source.commit",
+  );
+
   orderedTimestamps(
     receipt.window.startedAt,
     receipt.window.finishedAt,
     "window",
+  );
+  timestampInWindow(
+    receipt.dataPlane.window.startedAt,
+    "dataPlane.window.startedAt",
+    receipt.window,
+  );
+  timestampInWindow(
+    receipt.dataPlane.window.finishedAt,
+    "dataPlane.window.finishedAt",
+    receipt.window,
   );
   timestampInWindow(
     receipt.hyperdrive.capturedAt,
@@ -303,6 +535,16 @@ function validateReceiptRelationships(receipt: H05HostedReceipt): void {
     receipt.trace.lastObservedAt,
     "trace.lastObservedAt",
     receipt.window,
+  );
+  timestampInWindow(
+    receipt.trace.firstObservedAt,
+    "trace.firstObservedAt",
+    receipt.dataPlane.window,
+  );
+  timestampInWindow(
+    receipt.trace.lastObservedAt,
+    "trace.lastObservedAt",
+    receipt.dataPlane.window,
   );
   orderedTimestamps(
     receipt.trace.firstObservedAt,
@@ -329,6 +571,11 @@ function validateReceiptRelationships(receipt: H05HostedReceipt): void {
     receipt.cleanup.checkedAt,
     "trace-to-cleanup",
   );
+  orderedTimestamps(
+    receipt.dataPlane.window.finishedAt,
+    receipt.cleanup.checkedAt,
+    "dataPlane-to-cleanup",
+  );
 
   exactValue(
     receipt.executor.hyperdriveBinding.id,
@@ -345,6 +592,11 @@ function validateReceiptRelationships(receipt: H05HostedReceipt): void {
     receipt.probe.versionId,
     "trace.probeVersionId",
   );
+  exactValue(
+    receipt.trace.probePath,
+    h05ProbeEndpoint(receipt.run.runId),
+    "trace.probePath",
+  );
   const controlPlaneIds = new Set([
     receipt.executor.deploymentId,
     receipt.executor.versionId,
@@ -354,37 +606,100 @@ function validateReceiptRelationships(receipt: H05HostedReceipt): void {
   if (controlPlaneIds.size !== 4) {
     fail("executor and probe deployment/version IDs must all be distinct.");
   }
+}
 
-  const winnerTs = receipt.invocation.winner.committedTs;
+type H05DataPlaneEvidencePayloadDecode =
+  | { readonly ok: true; readonly value: H05DataPlaneEvidencePayload }
+  | { readonly ok: false; readonly message: string };
+
+function decodeH05DataPlaneEvidencePayload(
+  value: unknown,
+): H05DataPlaneEvidencePayloadDecode {
+  try {
+    const payload = h05DataPlaneEvidencePayloadDecoder(value, "$");
+    validateDataPlaneEvidencePayload(payload);
+    return { ok: true, value: payload };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function validateDataPlaneEvidence(evidence: H05DataPlaneEvidence): void {
+  const { evidenceSha256, ...payload } = evidence;
+  validateDataPlaneEvidencePayload(payload);
+  const actualSha256 = sha256(serializeH05DataPlaneEvidencePayload(payload));
+  exactValue(evidenceSha256, actualSha256, "dataPlane.evidenceSha256");
+}
+
+function validateDataPlaneEvidencePayload(
+  payload: H05DataPlaneEvidencePayload,
+): void {
+  const identity = h05ProofIdentity(payload.run.runId);
+  exactValue(
+    payload.run.deploymentId,
+    identity.deploymentId,
+    "dataPlane.run.deploymentId",
+  );
+  exactValue(
+    payload.run.projectId,
+    identity.projectId,
+    "dataPlane.run.projectId",
+  );
+  orderedTimestamps(
+    payload.window.startedAt,
+    payload.window.finishedAt,
+    "dataPlane.window",
+  );
+  validateInvocationReceipt(payload.invocation);
+}
+
+function validateInvocationReceipt(invocation: H05InvocationReceipt): void {
+  validateInvocationRelationships(invocation);
+  const { evidenceSha256, ...evidence } = invocation;
+  const actualSha256 = sha256(serializeH05InvocationEvidence(evidence));
+  exactValue(evidenceSha256, actualSha256, "invocation.evidenceSha256");
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function validateInvocationRelationships(
+  invocation: H05InvocationEvidence,
+): void {
+  const winnerTs = invocation.winner.committedTs;
   if (winnerTs <= h05SeedTimestamp) {
     fail("invocation.winner.committedTs must be greater than the seed timestamp.");
   }
   exactValue(
-    receipt.invocation.stale.currentTs,
+    invocation.stale.currentTs,
     winnerTs,
     "invocation.stale.currentTs",
   );
-  const freshTs = receipt.invocation.fresh.committedTs;
+  const freshTs = invocation.fresh.committedTs;
   if (freshTs <= winnerTs) {
     fail("invocation.fresh.committedTs must be greater than the winner timestamp.");
   }
   exactValue(
-    receipt.invocation.fresh.observedTs,
+    invocation.fresh.observedTs,
     winnerTs,
     "invocation.fresh.observedTs",
   );
   exactValue(
-    receipt.invocation.fresh.previousTs,
+    invocation.fresh.previousTs,
     winnerTs,
     "invocation.fresh.previousTs",
   );
   exactValue(
-    receipt.invocation.sql.finalTs,
+    invocation.sql.finalTs,
     freshTs,
     "invocation.sql.finalTs",
   );
   exactValue(
-    receipt.invocation.sql.finalPrevTs,
+    invocation.sql.finalPrevTs,
     winnerTs,
     "invocation.sql.finalPrevTs",
   );

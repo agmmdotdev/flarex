@@ -2,15 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   createH05ProbeWorker,
-  h05ProbeEndpoint,
-  h05ProbeHop,
   type H05ProbeEnv,
   type H05ProbeExecutorBinding,
-} from "./h05ProbeWorker";
+} from "../h05/probeWorker";
+import { h05ProbeEndpoint, h05ProbeHop } from "../h05/probeProtocol";
 import {
   decodeH05ProofRunId,
   h05ProofIdentity,
-} from "./h05ProofIdentity";
+} from "../h05/proofIdentity";
 
 const probeToken = "h05-probe-secret";
 const executorToken = "h05-executor-secret";
@@ -20,6 +19,7 @@ if (!decodedRunId.ok) {
 }
 const runId = decodedRunId.value;
 const identity = h05ProofIdentity(decodedRunId.value);
+const probeEndpoint = h05ProbeEndpoint(runId);
 
 describe("hosted H05 executor proof probe", () => {
   it.each([
@@ -129,8 +129,22 @@ describe("hosted H05 executor proof probe", () => {
       message: "No H05 executor probe route for GET /not-a-proof-route",
     });
 
+    const otherRun = await worker.fetch(
+      new Request("https://probe.test/__flarex_h05/invoke/run_b", {
+        method: "POST",
+        headers: probeAuthorization(),
+      }),
+      env,
+    );
+    expect(otherRun.status).toBe(404);
+    await expect(otherRun.json()).resolves.toEqual({
+      error: "not_found",
+      message:
+        "No H05 executor probe route for POST /__flarex_h05/invoke/run_b",
+    });
+
     const wrongMethod = await worker.fetch(
-      new Request(`https://probe.test${h05ProbeEndpoint}`, {
+      new Request(`https://probe.test${probeEndpoint}`, {
         method: "PUT",
         headers: probeAuthorization(),
       }),
@@ -139,7 +153,7 @@ describe("hosted H05 executor proof probe", () => {
     expect(wrongMethod.status).toBe(405);
     await expect(wrongMethod.json()).resolves.toEqual({
       error: "method_not_allowed",
-      message: `${h05ProbeEndpoint} only supports POST`,
+      message: `${probeEndpoint} only supports POST`,
     });
   });
 
@@ -180,7 +194,7 @@ describe("hosted H05 executor proof probe", () => {
   ])("rejects %s before calling the executor", async (_, body, message) => {
     const calls: CapturedExecutorRequest[] = [];
     const response = await createH05ProbeWorker().fetch(
-      new Request(`https://probe.test${h05ProbeEndpoint}`, {
+      new Request(`https://probe.test${probeEndpoint}`, {
         method: "POST",
         headers: {
           ...probeAuthorization(),
@@ -313,7 +327,7 @@ function probeRequest(
   body: unknown,
   headers: Record<string, string> = probeAuthorization(),
 ): Request {
-  return new Request(`https://probe.test${h05ProbeEndpoint}`, {
+  return new Request(`https://probe.test${probeEndpoint}`, {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),

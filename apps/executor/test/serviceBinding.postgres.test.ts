@@ -6,14 +6,14 @@ import {
   listExecutorOccProofDeploymentRows,
   runExecutorOccProof,
   verifyExecutorOccProofState,
-} from "./executorOccProof";
+} from "../h05/executorOccProof";
 import {
   h04Fixture,
   h04ServiceBindingHop,
   type ServiceBindingPostgresRuntime,
   withTemporaryServiceBindingPostgres,
 } from "./serviceBindingPostgresHarness";
-import { proveExclusiveHostedExecutorOccProofRunClaim } from "./hostedServiceBindingPostgresHarness";
+import { proveExclusiveHostedExecutorOccProofRunClaim } from "../h05/hostedPostgresProof";
 
 describe(
   "private named executor service binding against real PostgreSQL",

@@ -2,7 +2,8 @@ import {
   decodeH05ProofRunId,
   h05ProofIdentity,
   type H05ProofIdentity,
-} from "./h05ProofIdentity";
+} from "./proofIdentity";
+import { h05ProbeEndpoint, h05ProbeHop } from "./probeProtocol";
 
 export interface H05ProbeExecutorBinding {
   fetch(request: Request): Promise<Response>;
@@ -18,12 +19,6 @@ export interface H05ProbeEnv {
 export interface H05ProbeWorker {
   fetch(request: Request, env: H05ProbeEnv): Promise<Response>;
 }
-
-export const h05ProbeEndpoint = "/__flarex_h05/invoke";
-export const h05ProbeHop = {
-  header: "x-flarex-h05-hop",
-  value: "probe-to-executor",
-} as const;
 
 const h05AllowedInvokePaths = {
   abort: "/invoke/abort",
@@ -82,7 +77,8 @@ export function createH05ProbeWorker(): H05ProbeWorker {
       }
 
       const pathname = new URL(request.url).pathname;
-      if (pathname !== h05ProbeEndpoint) {
+      const endpoint = h05ProbeEndpoint(identity.runId);
+      if (pathname !== endpoint) {
         return probeJson(
           {
             error: "not_found",
@@ -95,7 +91,7 @@ export function createH05ProbeWorker(): H05ProbeWorker {
         return probeJson(
           {
             error: "method_not_allowed",
-            message: `${h05ProbeEndpoint} only supports POST`,
+            message: `${endpoint} only supports POST`,
           },
           405,
         );

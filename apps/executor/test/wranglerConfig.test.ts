@@ -49,7 +49,7 @@ describe("private executor Wrangler configuration", () => {
 
     expect(config).toMatchObject({
       name: "flarex-executor-h05-probe",
-      main: "test/h05ProbeWorker.ts",
+      main: "h05/probeWorker.ts",
       workers_dev: true,
       preview_urls: false,
       services: [

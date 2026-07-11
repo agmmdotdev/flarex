@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { decodeHostedExecutorOccProofConfig } from "./hostedServiceBindingPostgresHarness";
+import {
+  compileHostedInvocationEvidence,
+  decodeHostedExecutorOccProofConfig,
+} from "../h05/hostedPostgresProof";
 
 const validInput = {
   FLAREX_H05_ALLOW_STAGING_MUTATION: "yes",
@@ -14,6 +17,36 @@ const validInput = {
 } satisfies Readonly<Record<string, string | undefined>>;
 
 describe("hosted executor proof configuration", () => {
+  it("compiles the exact counted transport and SQL oracle into receipt evidence", () => {
+    const invocation = compileHostedInvocationEvidence(
+      proofEvidence,
+      proofSql,
+      proofTransport,
+    );
+
+    expect(invocation).toMatchObject({
+      unauthorizedStatus: 401,
+      unauthorizedHopAbsent: true,
+      authorizedResponses: 14,
+      hopMarkedResponses: 14,
+      noStoreResponses: 15,
+      winner: { committedTs: 11, observedTs: 10, state: "finished" },
+      stale: { currentTs: 11, state: "aborted" },
+      fresh: { committedTs: 12, observedTs: 11, previousTs: 11 },
+      sql: { finalTs: 12, finalPrevTs: 11 },
+    });
+  });
+
+  it("refuses to compile invocation evidence from a drifted SQL oracle", () => {
+    expect(() =>
+      compileHostedInvocationEvidence(
+        proofEvidence,
+        { ...proofSql, commits: 1 },
+        proofTransport,
+      ),
+    ).toThrow();
+  });
+
   it("decodes only an explicit encrypted hosted staging configuration", () => {
     const config = decodeHostedExecutorOccProofConfig(validInput);
 
@@ -156,6 +189,38 @@ describe("hosted executor proof configuration", () => {
     expect(error.message).not.toContain("super-secret");
   });
 });
+
+const proofEvidence = {
+  winnerSessionId: "winner",
+  staleSessionId: "stale",
+  freshSessionId: "fresh",
+  winnerTs: 11,
+  freshTs: 12,
+} satisfies Parameters<typeof compileHostedInvocationEvidence>[0];
+
+const proofSql = {
+  sessions: 3,
+  activeSessions: 0,
+  documentRevisions: 3,
+  commits: 2,
+  outboxEvents: 2,
+  finalTs: 12,
+  finalPrevTs: 11,
+  winnerState: "finished",
+  staleState: "aborted",
+  freshState: "finished",
+  winnerObservedTs: 10,
+  staleObservedTs: 10,
+  freshObservedTs: 11,
+} satisfies Parameters<typeof compileHostedInvocationEvidence>[1];
+
+const proofTransport = {
+  unauthorizedStatus: 401,
+  unauthorizedHopAbsent: true,
+  authorizedResponses: 14,
+  hopMarkedResponses: 14,
+  noStoreResponses: 15,
+} satisfies Parameters<typeof compileHostedInvocationEvidence>[2];
 
 function captureError(run: () => unknown): Error {
   try {

@@ -12,7 +12,7 @@ import {
   type ExecutorOccProofFixture,
   type ExecutorOccProofResponse,
   type ExecutorOccProofTransport,
-} from "./executorOccProof";
+} from "../h05/executorOccProof";
 
 export const serviceBindingPostgresUrl = normalizePostgresUrl(
   env.FLAREX_POSTGRES_DATABASE_URL,

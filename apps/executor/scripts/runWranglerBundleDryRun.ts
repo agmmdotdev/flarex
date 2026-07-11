@@ -11,7 +11,7 @@ const targets = {
     outdir: "dist",
   },
   "h05-probe": {
-    bundleUrl: new URL("../dist/h05-probe/h05ProbeWorker.js", import.meta.url),
+    bundleUrl: new URL("../dist/h05-probe/probeWorker.js", import.meta.url),
     config: "wrangler.h05-probe.jsonc",
     metafile: "dist/h05-probe/bundle-meta.json",
     metafileUrl: new URL(

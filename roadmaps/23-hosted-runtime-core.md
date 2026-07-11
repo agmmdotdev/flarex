@@ -1,5 +1,93 @@
 # Hosted Runtime Core
 
+## Emit Run-Scoped Hosted Data-Plane Evidence
+
+Previous completed checkpoint: `708b234` (`Gate hosted executor activation
+receipts`).
+
+What changed:
+
+- Changed the disposable probe endpoint from one ambient static path to
+  `/__flarex_h05/invoke/{runId}`. The Worker derives that path from its
+  validated deployment secret, rejects another run's path, and the final
+  receipt now requires the exact same correlation path for the Observability
+  query.
+- Promoted the proof identity, protocol, probe Worker, receipt contract, shared
+  OCC oracle, and hosted PostgreSQL runner into `apps/executor/h05/`. The live
+  collector no longer imports a Vitest module; Node assertions enforce the
+  reusable proof contract while Vitest wrappers retain test reporting.
+- Counted the hosted public boundary rather than inferring it: one unauthorized
+  response with no hop, fourteen authenticated responses, fourteen private-hop
+  markers, and fifteen `no-store` responses must precede evidence emission.
+- Added a canonical `flarex-h05-data-plane-evidence-v1` artifact containing the
+  source commit and bounded collection window, run identity, exact
+  winner/stale/abort/fresh and SQL evidence, and verified zero retained
+  PostgreSQL rows. The shared decoder recomputes both the inner invocation hash
+  and an outer hash over the complete payload; the final hosted receipt embeds
+  that envelope and binds its source, run, and window to the final proof. Trace
+  observations must fall inside the hashed data-plane interval, and final
+  teardown must occur after that interval, preventing sequential reuse of one
+  run ID from mixing two proof executions.
+- Added `collect:h05-data-plane-evidence`. It requires a clean Git worktree,
+  refuses output inside that worktree or an existing target, publishes through
+  a same-directory temporary hard link, and writes only after proof and scoped
+  PostgreSQL cleanup both succeed. It rechecks both `HEAD` and the complete
+  worktree immediately before publication.
+
+Why it changed:
+
+The previous receipt gate described the final evidence but the hosted harness
+discarded transport counts and cleanup state inside `finally`, and its static
+path could overlap ambient requests in a trace window. A run-scoped,
+self-verifying data-plane sidecar gives the later Cloudflare collector one
+unambiguous input without persisting tokens, database URLs, session IDs, or raw
+PostgreSQL origin data.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+Cloudflare references inspected:
+
+- [Workers tracing](https://developers.cloudflare.com/workers/observability/traces/)
+- [Workers Observability query API](https://developers.cloudflare.com/api/resources/workers/subresources/observability/subresources/telemetry/methods/query/)
+- [Workers service bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/)
+
+How Flarex differs:
+
+- Convex correlates a hosted function run and final transaction inside its
+  owned runner/committer. This temporary Flarex compatibility proof spans one
+  public probe request per syscall and therefore emits an explicit counted,
+  run-scoped artifact before the control-plane and distributed-trace evidence
+  can be joined.
+
+Known limitations:
+
+- This checkpoint emits only the data-plane sidecar. The read-only Cloudflare
+  control-plane collector, paginated domain/zone-route inventory, invocation
+  and trace-summary queries, probe deletion proof, and final receipt compiler
+  remain the next H05 work.
+- No Cloudflare resource or hosted PostgreSQL row was changed in this turn;
+  credentials and a dedicated Internet-reachable staging database remain
+  absent. H05 and S02-D remain open.
+- The artifact proves only the current legacy point-OCC scenario. It adds no
+  new FlarexDB clock, sequence, OCC, compiler, sync, Payload, or Medusa behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker test # 8 files, 98 tests passed
+corepack pnpm --filter @flarex/executor-worker build # passed
+corepack pnpm --filter @flarex/executor-worker check:bundle # passed; production graph remained 401 inputs
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run # passed; 7.66 KiB proof Worker
+corepack pnpm --filter @flarex/executor-worker collect:h05-data-plane-evidence data-plane.json # expected exit 1; rejected in-worktree output without writing
+corepack pnpm check:effect-boundaries # passed
+git diff --check # passed
+```
+
 ## Make The Hosted Activation Receipt Fail Closed
 
 Previous completed checkpoint: `dcf64dc` (`Prepare hosted executor activation
