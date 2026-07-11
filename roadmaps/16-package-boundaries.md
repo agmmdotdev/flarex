@@ -1,5 +1,77 @@
 # Package Boundaries
 
+## Split The Worker Fetch Edge From The Compatibility Router
+
+Previous completed checkpoint: `f0ec41b` (`Add private executor Worker bundle
+gate`).
+
+What changed:
+
+- Added `@flarex/executor-http/fetch` as a narrow, code-generation-free package
+  subpath. It imports the existing typed route effects directly and exposes
+  only `GET /health` plus `/invoke/prepare`, `/invoke/start`,
+  `/invoke/syscall`, `/invoke/finish`, `/invoke/abort`, and
+  `/invoke/abort-stale`.
+- Pointed only `apps/executor` at that subpath. The package root still exports
+  the Elysia adapter for Nitro/Node compatibility; no compatibility adapter was
+  removed or silently redirected.
+- Made the Wrangler metafile a package-boundary gate: the Worker must contain
+  `fetch.ts` and must not contain the package root, Elysia routes, or Elysia
+  runtime, including rewritten import specifiers.
+- Added focused Web Fetch behavior tests and the named multi-Worker PostgreSQL
+  proof. The exact emitted Worker is loaded as module bytes rather than through
+  a Node runtime import.
+
+Why it changed:
+
+Static bundling had accepted Elysia, but its authorized runtime path constructs
+a router using string code generation that workerd rejects. A dedicated
+subpath makes the Worker constraint explicit without coupling the
+framework-neutral executor to Cloudflare or prematurely retiring compatibility
+hosts.
+
+Convex references inspected:
+
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/isolate/src/environment/udf/syscall.rs`
+
+How Flarex differs:
+
+- Convex's isolate runner talks to trusted backend services in-process. Flarex
+  needs a serializable Web Fetch boundary across a Dynamic Worker service
+  binding, so the host-specific router is an explicit leaf package subpath.
+
+Known limitations:
+
+- The Worker-specific subpath does not expose maintenance or live-query HTTP
+  routes. Those remain available on the Elysia compatibility adapter and need
+  a separate ownership decision before a hosted scheduler or delivery Worker
+  uses them.
+- This is still Fetch transport. Workers RPC retirement of `/invoke/*`, Nitro,
+  or Elysia is outside H04.
+- H05 remains required before the Worker host is accepted for S02-D.
+- Workspace build retained the existing example-app extensionless-`../http`
+  resolution failure after the Worker and HTTP packages built. Workspace test
+  retained the three existing backend `identityFingerprint` expectation
+  failures, unrelated to this package split.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-worker typecheck
+corepack pnpm --filter @flarex/executor-worker test
+corepack pnpm --filter @flarex/executor-worker check:bundle
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/executor-worker test:service-binding:postgres
+corepack pnpm typecheck
+corepack pnpm check:effect-boundaries
+corepack pnpm build # existing example-app extensionless-import failure
+corepack pnpm test # existing three-test identityFingerprint expectation drift
+git diff --check
+```
+
 ## Prove The Executor Worker Import Boundary
 
 Previous completed checkpoint: `402eef7` (`Add Worker-safe Postgres client

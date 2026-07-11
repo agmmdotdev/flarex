@@ -1,5 +1,68 @@
 # Testing and Simulation Strategy
 
+## Add The Named Workerd And PostgreSQL Host Proof
+
+Previous completed checkpoint: `f0ec41b` (`Add private executor Worker bundle
+gate`).
+
+What changed:
+
+- Added a conditional H04 integration lane that loads the exact Wrangler output
+  into a Miniflare multi-Worker graph. The first Worker has a string-valued
+  `FLAREX_EXECUTOR` binding; the target Worker is not directly reachable.
+- Asserted the complete binding capability surface: the caller sees only the
+  executor service, while the executor sees only its bearer token and local
+  Hyperdrive binding. A caller-injected response header proves every assertion
+  traversed that hop.
+- Created one random disposable PostgreSQL database per proof, ran migrations
+  and deployment seeding outside workerd, and polled for zero clients while
+  workerd remained alive. The fixture then disposes workerd, reopens the
+  database for authoritative assertions, performs a final zero-client poll,
+  and drops the database normally. Forced drop exists only as failure cleanup.
+- Added the explicit `test:service-binding:postgres` script, which rebuilds and
+  verifies the Worker bundle before running the scenario. Ordinary tests
+  exclude the real lane, while the explicit command fails closed when
+  `FLAREX_POSTGRES_DATABASE_URL` is absent.
+- The authorized proof exposed Elysia's forbidden workerd string code
+  generation, so the test now guards the corrected plain Fetch adapter and the
+  bundle gate permanently rejects compatibility-router inputs.
+
+Why it changed:
+
+Unit tests and a Wrangler dry-run could not prove actual named service dispatch,
+authorized router construction, real PostgreSQL transactions, or client
+cleanup. This lane is the smallest local system proof for those boundaries and
+keeps hosted Hyperdrive claims out of local evidence.
+
+Convex references inspected:
+
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex tests its in-process runner/committer boundary. Flarex additionally
+  needs a multi-Worker topology because untrusted execution and the trusted
+  database executor communicate through a Cloudflare service binding.
+
+Known limitations:
+
+- Miniflare local Hyperdrive uses the supplied PostgreSQL connection directly;
+  this test cannot prove hosted placement, pooling, or cache-disabled resource
+  configuration. H05 owns that receipt.
+- The real lane requires an external PostgreSQL URL and is intentionally not a
+  mandatory dependency of the ordinary unit suite.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker test
+corepack pnpm --filter @flarex/executor-worker check:bundle
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/executor-worker test:service-binding:postgres
+git diff --check
+```
+
 ## Test SDK Reset Coverage
 
 Previous completed checkpoint: `d94ef92` Cover packed test SDK Postgres

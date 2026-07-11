@@ -6,7 +6,8 @@
     "build": "pnpm typecheck",
     "check:bundle": "wrangler deploy --dry-run --outdir dist --metafile dist/bundle-meta.json && tsx scripts/checkBundleMeta.ts dist/bundle-meta.json",
     "deploy:dry-run": "pnpm check:bundle",
-    "test": "vitest run",
+    "test": "vitest run --exclude test/serviceBinding.postgres.test.ts",
+    "test:service-binding:postgres": "pnpm check:bundle && vitest run test/serviceBinding.postgres.test.ts --no-file-parallelism",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.scripts.json"
   },
   "dependencies": {
@@ -18,6 +19,7 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "@types/pg": "^8.20.0",
+    "miniflare": "catalog:",
     "tsx": "catalog:",
     "vitest": "catalog:",
     "wrangler": "catalog:"

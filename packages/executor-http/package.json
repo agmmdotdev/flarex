@@ -6,7 +6,8 @@
     "src"
   ],
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./fetch": "./src/fetch.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -1,5 +1,82 @@
 # Postgres Executor
 
+## Prove Request-Scoped Worker Transactions Through A Named Binding
+
+Previous completed checkpoint: `f0ec41b` (`Add private executor Worker bundle
+gate`).
+
+What changed:
+
+- Added the H04 real-PostgreSQL lane around the exact emitted executor Worker,
+  a caller Worker with a string-valued named service binding, and a disposable
+  database migrated and seeded by the Node fixture rather than the Worker.
+- Proved authorization, start/get/patch/finish, stale OCC rejection, explicit
+  abort, inactive-session rejection, fresh reread, and convergent finish through
+  the private Fetch protocol.
+- Polled PostgreSQL for zero target-database clients while workerd remained
+  alive, then disposed workerd and reopened PostgreSQL to assert the final
+  revision, `prev_ts` chain, session states, observed read timestamps, retained
+  stale staged write, commit count, and outbox count. A second zero-client poll
+  precedes normal database drop.
+- Replaced only the production Worker's Elysia edge with the Worker-safe Fetch
+  subpath after authorized workerd execution exposed forbidden string code
+  generation. Static bundle verification now prevents that dependency from
+  returning.
+
+Why it changed:
+
+The trusted executor's PostgreSQL behavior was previously proven through Node
+and direct adapters, not the actual Cloudflare Worker graph. H04 closes the
+local runtime gap and challenges the bundle with an authorized database path,
+while preserving the current transaction implementation as the oracle for the
+later redesign.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/isolate/src/environment/udf/syscall.rs`
+
+How Flarex differs:
+
+- Convex owns execution, read/write collection, commit validation, and
+  publication in one backend process. Flarex's current executor persists an
+  invoke session between service-bound requests, but the Worker still owns the
+  trusted persistence object and final commit.
+
+Known limitations:
+
+- H04 uses a local direct-PostgreSQL Hyperdrive binding. H05 must still prove a
+  deployed cache-disabled Hyperdrive and hosted service-binding call.
+- This validates existing timestamp/OCC semantics only; it does not implement
+  the future scope clock, generation fence, exact snapshot token, or commit
+  compiler.
+- The fixture uses the fixed shared `primary/public` locator and creates a
+  disposable database for isolation. Split data-plane runtime resolution is
+  still S02-D work.
+- Workspace build retained the existing example-app extensionless-`../http`
+  resolution failure after all changed packages built. Workspace and isolated
+  backend tests retained only the three existing `identityFingerprint`
+  expectation failures; 729 of 732 backend tests passed.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck
+corepack pnpm --filter @flarex/executor-worker test
+corepack pnpm --filter @flarex/executor-worker check:bundle
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/executor-worker test:service-binding:postgres
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm typecheck
+corepack pnpm check:effect-boundaries
+corepack pnpm build # existing example-app extensionless-import failure
+corepack pnpm test # existing three-test identityFingerprint expectation drift
+git diff --check
+```
+
 ## Host The Existing Executor In A Request-Scoped Worker
 
 Previous completed checkpoint: `402eef7` (`Add Worker-safe Postgres client

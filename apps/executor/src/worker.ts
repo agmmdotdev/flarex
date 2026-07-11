@@ -2,7 +2,7 @@ import {
   createFlarexExecutor,
   withReadyDeploymentAuthority,
 } from "@flarex/executor";
-import { createFlarexHttpHandler } from "@flarex/executor-http";
+import { createFlarexExecutorFetchHandler } from "@flarex/executor-http/fetch";
 import type { SharedDatabaseScopePhysicalLocator } from "@flarex/persistence-postgres";
 import {
   createPostgresClientPersistence,
@@ -33,7 +33,7 @@ const productionDependencies = {
         physicalLocator: sharedScopePhysicalLocator,
       }),
     );
-    return createFlarexHttpHandler({
+    return createFlarexExecutorFetchHandler({
       executor: createFlarexExecutor({ persistence: executorPersistence }),
       capabilityToken,
     });

@@ -1,6 +1,6 @@
 # FlarexDB Schema And Migration Plan
 
-Status: S01 through S02-C and hosted-proof H01-H03 complete; H04 is next and
+Status: S01 through S02-C and hosted-proof H01-H04 complete; H05 is next and
 S02-D remains blocked through H05
 
 This plan owns the additive physical schema, codecs, repositories, and
@@ -154,7 +154,7 @@ Progress:
   local workerd/direct-Postgres evidence from the hosted activation receipt.
 - [x] H02 — Add the Worker-safe request-scoped Postgres persistence seam.
 - [x] H03 — Add the private executor Worker and bundle/import-graph proof.
-- [ ] H04 — Prove its named local service binding against real PostgreSQL.
+- [x] H04 — Prove its named local service binding against real PostgreSQL.
 - [ ] H05 — Record cache-disabled Hyperdrive and hosted service-binding
   activation evidence.
 - [ ] S02-D — Replace the S01 compatibility alias with trusted scope/clock

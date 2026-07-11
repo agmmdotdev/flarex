@@ -22,6 +22,18 @@ describe("executor Worker bundle graph verifier", () => {
     );
   });
 
+  it("requires the Worker-safe Fetch adapter to be a bundled input", () => {
+    const meta = validMeta();
+    delete meta.inputs[fetchAdapterInputPath];
+    meta.inputs["src/worker.ts"] = {
+      imports: [{ path: fetchAdapterInputPath }],
+    };
+
+    expect(() => verifyExecutorBundleMeta(meta)).toThrow(
+      "Executor bundle is missing required runtime inputs",
+    );
+  });
+
   it.each([
     "../../node_modules/@electric-sql/pglite/dist/index.js",
     "../../node_modules/.pnpm/@electric-sql+pglite@0.3.14/index.js",
@@ -37,6 +49,33 @@ describe("executor Worker bundle graph verifier", () => {
 
     expect(() => verifyExecutorBundleMeta(meta)).toThrow(
       "Executor bundle contains prohibited persistence inputs",
+    );
+  });
+
+  it.each([
+    "../../packages/executor-http/src/index.ts",
+    "../../packages/executor-http/src/routes.ts",
+    "elysia",
+    "elysia/dist/index.mjs",
+    "../../node_modules/.pnpm/elysia@1.4.13/node_modules/elysia/dist/index.mjs",
+    "..\\..\\packages\\executor-http\\src\\routes.ts",
+  ])("rejects code-generating Worker adapter input %s", (path) => {
+    const meta = validMeta();
+    meta.inputs[path] = { imports: [] };
+
+    expect(() => verifyExecutorBundleMeta(meta)).toThrow(
+      "Executor bundle contains prohibited Worker adapter inputs",
+    );
+  });
+
+  it("rejects a rewritten import whose original specifier is Elysia", () => {
+    const meta = validMeta();
+    meta.inputs[fetchAdapterInputPath] = {
+      imports: [{ path: "external-runtime:elysia", original: "elysia" }],
+    };
+
+    expect(() => verifyExecutorBundleMeta(meta)).toThrow(
+      "Executor bundle contains prohibited Worker adapter inputs",
     );
   });
 
@@ -95,6 +134,7 @@ interface TestBundleMeta {
 }
 
 const executorInputPath = "../../packages/executor/src/index.ts";
+const fetchAdapterInputPath = "../../packages/executor-http/src/fetch.ts";
 const persistenceInputPath =
   "../../packages/persistence-postgres/src/postgresClient.ts";
 
@@ -103,7 +143,7 @@ function validMeta(): TestBundleMeta {
     inputs: {
       "src/worker.ts": { imports: [] },
       [executorInputPath]: { imports: [] },
-      "../../packages/executor-http/src/routes.ts": { imports: [] },
+      [fetchAdapterInputPath]: { imports: [] },
       [persistenceInputPath]: { imports: [] },
       "../../node_modules/.pnpm/pg@8.22.0/node_modules/pg/lib/client.js": {
         imports: [],

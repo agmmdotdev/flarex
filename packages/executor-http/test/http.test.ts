@@ -76,6 +76,7 @@ import {
   notifyFlarexBackendLiveQueryTriggerEffect,
   notifyFlarexBackendLiveQueryWakeEffect,
 } from "../src";
+import { createFlarexExecutorFetchHandler } from "../src/fetch";
 
 const anonymousIdentityFingerprint = executionIdentityFingerprint({ kind: "anonymous" });
 
@@ -3550,6 +3551,110 @@ describe("createFlarexHttpApp", () => {
     ).resolves.toMatchObject({
       status: 409,
       body: { error: "InvokeSessionOccConflictError" },
+    });
+  });
+});
+
+describe("createFlarexExecutorFetchHandler", () => {
+  it("maps health and authenticated invoke requests without the Elysia adapter", async () => {
+    const starts: BeginInvokeSessionInput[] = [];
+    const handler = createFlarexExecutorFetchHandler({
+      capabilityToken: "executor-secret",
+      executor: fakeExecutor({
+        async beginInvokeSession(input) {
+          starts.push(input);
+          return beginInvokeSessionResult({
+            sessionId: "session_fetch",
+            beginTs: 1781913600123,
+            path: input.path,
+            kind: input.kind ?? "query",
+            schemaVersion: 12,
+            executionModule: "_flarex/execution.js",
+          });
+        },
+      }),
+    });
+
+    const health = await handler(new Request("https://executor.test/health"));
+    expect(health.status).toBe(200);
+    await expect(health.json()).resolves.toMatchObject({
+      service: "executor",
+      status: "ok",
+    });
+
+    const start = await handler(
+      jsonRequest(
+        "https://executor.test/invoke/start",
+        {
+          deploymentId: "deployment_active",
+          projectId: "project_active",
+          path: "messages:list",
+          kind: "query",
+          args: { teamId: "team:1" },
+          partitionKey: "team:1",
+        },
+        { authorization: "Bearer executor-secret" },
+      ),
+    );
+    expect(start.status).toBe(200);
+    await expect(start.json()).resolves.toMatchObject({
+      sessionId: "session_fetch",
+      function: { path: "messages:list", kind: "query" },
+    });
+    expect(starts).toHaveLength(1);
+  });
+
+  it("preserves route-effect error status and unknown-route responses", async () => {
+    const handler = createFlarexExecutorFetchHandler({
+      capabilityToken: "executor-secret",
+      executor: fakeExecutor(),
+    });
+
+    const unauthorized = await handler(
+      jsonRequest("https://executor.test/invoke/start", {
+        deploymentId: "deployment_active",
+        projectId: "project_active",
+        path: "messages:list",
+        args: {},
+        partitionKey: "team:1",
+      }),
+    );
+    expect(unauthorized.status).toBe(401);
+    await expect(unauthorized.json()).resolves.toEqual({
+      error: "unauthorized",
+      message: "Unauthorized Flarex executor request.",
+    });
+
+    const missing = await handler(
+      new Request("https://executor.test/not-an-executor-route"),
+    );
+    expect(missing.status).toBe(404);
+    await expect(missing.json()).resolves.toEqual({
+      error: "not_found",
+      message:
+        "No Flarex executor adapter route for GET /not-an-executor-route",
+    });
+  });
+
+  it.each([
+    "/invoke/prepare",
+    "/invoke/start",
+    "/invoke/syscall",
+    "/invoke/finish",
+    "/invoke/abort",
+    "/invoke/abort-stale",
+  ])("rejects a non-POST request for %s", async (path) => {
+    const handler = createFlarexExecutorFetchHandler({
+      executor: fakeExecutor(),
+    });
+
+    const response = await handler(
+      new Request(`https://executor.test${path}`, { method: "PUT" }),
+    );
+    expect(response.status).toBe(405);
+    await expect(response.json()).resolves.toEqual({
+      error: "method_not_allowed",
+      message: `${path} only supports POST`,
     });
   });
 });

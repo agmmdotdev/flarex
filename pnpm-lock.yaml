@@ -117,6 +117,9 @@ importers:
       '@types/pg':
         specifier: ^8.20.0
         version: 8.20.0
+      miniflare:
+        specifier: 'catalog:'
+        version: 4.20260611.0
       tsx:
         specifier: 'catalog:'
         version: 4.22.4

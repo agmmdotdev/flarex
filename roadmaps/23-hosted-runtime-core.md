@@ -1,5 +1,100 @@
 # Hosted Runtime Core
 
+## Prove The Named Executor Service Binding Against PostgreSQL
+
+Previous completed checkpoint: `f0ec41b` (`Add private executor Worker bundle
+gate`).
+
+What changed:
+
+- Completed H04 with one Miniflare multi-Worker workerd graph. The caller owns
+  only the named `FLAREX_EXECUTOR -> flarex-executor` service binding; the
+  executor owns only its bearer token and local
+  `HYPERDRIVE_CACHE_DISABLED` binding. Direct executor access is disabled and
+  every proof request carries a caller-added hop receipt.
+- Loaded the exact H03 `dist/worker.js` bytes, migrated and seeded a disposable
+  PostgreSQL database outside workerd, and verified zero target-database
+  clients while workerd remained alive. A second zero-client check precedes
+  normal fixture-database removal after workerd disposal and SQL assertions.
+- Found that H03's unauthorized smoke never constructed Elysia. The first
+  authorized request did and failed because workerd forbids Elysia's string
+  code generation. Added a direct `@flarex/executor-http/fetch` subpath for
+  `GET /health` and the stable `/invoke/*` protocol. The existing root
+  Elysia/Nitro compatibility adapter remains intact.
+- Strengthened the emitted-bundle gate to require the plain Fetch subpath and
+  reject the root HTTP barrel, `routes.ts`, bare or rewritten `elysia`
+  specifiers, and installed Elysia package inputs. The resulting production
+  graph has 401 inputs and two outputs.
+- Proved the current transaction behavior end to end: two sessions read the
+  same revision, the first commits, the stale finish returns the exact OCC
+  conflict, that session aborts and becomes inactive, and a fresh session
+  rereads and converges. Authoritative SQL then showed three terminal sessions,
+  three document revisions, two commits, and two outbox rows.
+
+Why it changed:
+
+H03 proved only configuration and static bundling. H04 had to execute the exact
+bundle through the actual named service-binding topology. Doing so exposed a
+runtime incompatibility hidden behind the outer authorization gate and proved
+the replacement Worker edge without changing executor, persistence, or OCC
+semantics.
+
+Convex references inspected:
+
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/isolate/src/environment/udf/syscall.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex returns a `FunctionFinalTransaction` from its function runner and its
+  committer validates the read set before ordered publication in one backend.
+  Flarex keeps the same trusted validation/commit ownership but journals
+  syscalls across private service-bound Fetch requests because user code runs
+  in a separate Dynamic Worker.
+- The Worker-specific Fetch adapter intentionally exposes only health and the
+  stable invoke protocol. Maintenance and live-query HTTP routes remain on the
+  compatibility adapter until a later host decision gives them a Worker-owned
+  ingress.
+
+Known limitations:
+
+- Local Miniflare Hyperdrive connects directly to PostgreSQL; it does not prove
+  hosted pooling or disabled query caching. H05 remains the only gate for that
+  receipt, and S02-D remains blocked.
+- This proof retains `primary/public`, the current legacy generation,
+  millisecond `beginTs`, and current session OCC. It adds no new FlarexDB
+  schema, clock routing, sequence allocation, compiler, sync, Payload, or
+  Medusa behavior.
+- The real-PostgreSQL test is excluded from the ordinary unit suite. Its
+  explicit command fails when `FLAREX_POSTGRES_DATABASE_URL` is absent; H04 is
+  checked only because the PostgreSQL 18 lane ran and passed in this
+  checkpoint.
+- Workspace build passed every changed package, then retained the existing
+  example-app failure resolving extensionless `../http` from
+  `artifactRuntime/RouteBoundary.ts`. Workspace and isolated backend tests
+  retained only the three existing delivery-decoder expectation failures for
+  the now-decoded `identityFingerprint`; 729 of 732 backend tests passed.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-http typecheck
+corepack pnpm --filter @flarex/executor-http test
+corepack pnpm --filter @flarex/executor-worker typecheck
+corepack pnpm --filter @flarex/executor-worker test
+corepack pnpm --filter @flarex/executor-worker check:bundle
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/executor-worker test:service-binding:postgres
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/executor test
+corepack pnpm typecheck
+corepack pnpm check:effect-boundaries
+corepack pnpm build # existing example-app extensionless-import failure
+corepack pnpm test # existing three-test identityFingerprint expectation drift
+git diff --check
+```
+
 ## Add The Private Executor Worker Boundary
 
 Previous completed checkpoint: `402eef7` (`Add Worker-safe Postgres client

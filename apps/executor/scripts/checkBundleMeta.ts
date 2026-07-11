@@ -12,5 +12,5 @@ const parsed: unknown = JSON.parse(raw);
 const result = verifyExecutorBundleMeta(parsed);
 
 console.log(
-  `Verified executor bundle graph: ${result.inputCount} inputs, ${result.outputCount} outputs, no migration/PGlite persistence inputs.`,
+  `Verified executor bundle graph: ${result.inputCount} inputs, ${result.outputCount} outputs, no Elysia or migration/PGlite persistence inputs.`,
 );

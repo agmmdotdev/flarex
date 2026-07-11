@@ -26,8 +26,13 @@ export interface ExecutorBundleVerificationResult {
 const requiredInputs = [
   "src/worker.ts",
   "packages/executor/src/index.ts",
-  "packages/executor-http/src/routes.ts",
+  "packages/executor-http/src/fetch.ts",
   "packages/persistence-postgres/src/postgresClient.ts",
+] as const;
+
+const bannedWorkerAdapterSourceSuffixes = [
+  "packages/executor-http/src/index.ts",
+  "packages/executor-http/src/routes.ts",
 ] as const;
 
 const bannedFragments = [
@@ -68,6 +73,15 @@ export function verifyExecutorBundleMeta(
   }
   if (!inputPaths.some(isNodePostgresInput)) {
     throw new Error("Executor bundle does not contain the node-postgres client.");
+  }
+
+  const workerAdapterViolations = graphPaths.filter(
+    isBannedWorkerAdapterGraphPath,
+  );
+  if (workerAdapterViolations.length > 0) {
+    throw new Error(
+      `Executor bundle contains prohibited Worker adapter inputs:\n${[...new Set(workerAdapterViolations)].join("\n")}`,
+    );
   }
 
   const violations = graphPaths.filter(isBannedGraphPath);
@@ -194,6 +208,16 @@ function isBannedGraphPath(path: string): boolean {
   return (
     bannedFragments.some((fragment) => path.includes(fragment)) ||
     bannedSourceSuffixes.some((suffix) => path.endsWith(suffix))
+  );
+}
+
+function isBannedWorkerAdapterGraphPath(path: string): boolean {
+  return (
+    bannedWorkerAdapterSourceSuffixes.some((suffix) => path.endsWith(suffix)) ||
+    path === "elysia" ||
+    path.startsWith("elysia/") ||
+    path.includes("/node_modules/elysia/") ||
+    path.includes("/node_modules/.pnpm/elysia@")
   );
 }
 

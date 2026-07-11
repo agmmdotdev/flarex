@@ -1,5 +1,63 @@
 # OCC And Transactions
 
+## Prove The Legacy OCC Oracle Through The Executor Worker
+
+Previous completed checkpoint: `f0ec41b` (`Add private executor Worker bundle
+gate`).
+
+What changed:
+
+- Added H04's end-to-end PostgreSQL scenario through a caller's real named
+  workerd service binding and the exact emitted executor Worker.
+- Began two mutation sessions from the same seed revision, recorded point reads
+  at timestamp `10`, staged distinct patches, committed the winner, and proved
+  the stale finish returns `InvokeSessionOccConflictError` without publishing
+  its staged write.
+- Explicitly aborted the stale session, proved a later syscall is rejected as
+  inactive, then began a fresh session that observed the winner timestamp and
+  committed a convergent patch whose `prevTs` points at that winner.
+- Verified authoritative PostgreSQL state after workerd stopped: the winner and
+  fresh sessions are finished, the stale session is aborted, no session is
+  active, the stale staged write remains auditable, and only two commits/outbox
+  events exist.
+
+Why it changed:
+
+The current transaction engine is the compatibility oracle for the redesign,
+but its stale-conflict behavior had not been proven through the production
+Worker boundary. H04 validates that oracle before S02-D changes generation
+routing; it does not reinterpret this behavior as the future OCC design.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+How Flarex differs:
+
+- Convex's committer validates a final transaction read set and applies ordered
+  writes in one backend. Flarex currently persists the session read/write
+  journal across several private Fetches, then performs validation at finish.
+
+Known limitations:
+
+- This proves only the legacy millisecond-timestamp session OCC model. It does
+  not add the future scope commit sequence, exact snapshot token, missing-row
+  dependencies, range validation, generation fence, or commit compiler.
+- The scenario is one point row in fixed `primary/public`; it is not evidence
+  for cross-scope or split-topology transaction behavior.
+- Hosted Hyperdrive remains H05.
+
+Verification:
+
+```sh
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/executor-worker test:service-binding:postgres
+corepack pnpm --filter @flarex/executor test
+corepack pnpm --filter @flarex/persistence-postgres test
+git diff --check
+```
+
 ## Complete Split Readiness Without A Cross-Database Transaction
 
 Previous completed checkpoint: `b320ab2` Add split scope provisioning
