@@ -1,5 +1,125 @@
 # Hosted Runtime Core
 
+## Collect Race-Fenced Hosted Control-Plane Evidence
+
+Previous completed checkpoint: `2bd5b99` (`Capture hosted executor data-plane
+evidence`).
+
+What changed:
+
+- Added the strict canonical `flarex-h05-control-plane-evidence-v1` sidecar.
+  It binds one clean source commit and Wrangler version, the run-derived
+  deployment/project identity, a hashed Cloudflare account identity, a bounded
+  collection window, matching opening/closing redacted cache-disabled
+  Hyperdrive projections, and both Workers' active
+  deployment/version/settings/secret inventories.
+- Bracketed every inspected Worker with the same one-version, 100%-traffic
+  active deployment. Matching opening/closing Worker snapshots cover the
+  version-addressed bindings/runtime, non-versioned settings, script trace
+  settings, exact secret names, and subdomain state. Service bindings cannot
+  silently select another environment or named entrypoint. The executor alone
+  requires `nodejs_compat`; the probe requires no compatibility flags, and both
+  Workers must expose persisted traces at sampling rate `1`.
+- Made executor privacy a race-fenced proof instead of one late timestamp.
+  Matching opening and closing sweeps must cover the filtered custom-domain
+  result, every page of all four account zone types, one route read per exact
+  zone ID, and a direct executor `workers.dev` `404`. Executor and probe
+  subdomain settings are also read before and after the sweeps and must remain
+  unchanged. The account Workers subdomain is independently bracketed so both
+  direct checks and the retained probe origin cannot use a stale hostname.
+- Added a bounded, injectable Cloudflare REST reader. Authenticated requests
+  are fixed to `api.cloudflare.com/client/v4`; bearer auth is never sent to the
+  direct `workers.dev` check. Timeouts, response-size limits, success envelopes,
+  invalid JSON, stream/cancellation failures, and provider errors all fail with
+  sanitized messages that do not retain response bodies.
+- Added the read-only `collect:h05-control-plane-evidence` CLI. It validates all
+  credentials, the dedicated remote TLS PostgreSQL target, Hyperdrive identity,
+  run identity, and an explicit
+  `FLAREX_H05_ALL_ZONES_TOKEN_SCOPE=yes` operator attestation before network
+  access. It requires a clean unchanged worktree and publishes one new
+  canonical file atomically outside the repository only after verification.
+- Made trace persistence explicit in both Wrangler files. The collector
+  tolerates additive provider response fields but projects only strict
+  sanitized evidence; raw database host/name/user and URL, secret values,
+  unrelated domain names and route patterns, API bodies, and bearer values
+  never enter the sidecar. The exact account subdomain and derived probe public
+  origin remain intentional non-secret routing evidence.
+
+Why it changed:
+
+The data-plane artifact proves invocation behavior but cannot establish which
+Cloudflare versions, bindings, Hyperdrive, or ingress state produced it. A
+fresh, independently hashed preflight is required before invoking the hosted
+probe. Deployment and Hyperdrive rereads plus matching privacy sweeps prevent a
+mixed receipt from being compiled across an obvious control-plane race, while
+the account hash gives later trace and cleanup sidecars a non-secret join key.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+Cloudflare references inspected:
+
+- [Hyperdrive configuration GET](https://developers.cloudflare.com/api/go/resources/hyperdrive/subresources/configs/methods/get/)
+- [Hyperdrive query caching](https://developers.cloudflare.com/hyperdrive/concepts/query-caching/)
+- [Worker deployments](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/)
+- [Worker version detail](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/get/)
+- [Worker settings](https://developers.cloudflare.com/api/go/resources/workers/subresources/scripts/subresources/script_and_version_settings/methods/get/)
+- [Script observability settings](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/settings/methods/get/)
+- [Worker secrets](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/secrets/methods/list/)
+- [Worker subdomains](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/subdomain/)
+- [Account Worker domains](https://developers.cloudflare.com/api/resources/workers/subresources/domains/methods/list/)
+- [Account zones](https://developers.cloudflare.com/api/resources/zones/methods/list/)
+- [Worker routes](https://developers.cloudflare.com/api/resources/workers/subresources/routes/methods/list/)
+
+How Flarex differs:
+
+- Convex can correlate storage and function execution inside its owned hosted
+  runner. This temporary Flarex proof crosses Cloudflare control-plane APIs,
+  two Workers, Hyperdrive, and PostgreSQL, so it needs independently retained,
+  redacted sidecars and explicit account/version race fences.
+- Cloudflare does not let a zone-list response prove that the API token can see
+  every zone. Flarex therefore records an operator attestation and still
+  verifies every zone returned under all documented zone types; it does not
+  pretend the API response proves token scope.
+
+Known limitations:
+
+- This checkpoint is offline collector infrastructure. No Cloudflare or
+  PostgreSQL credential was available, no API request was sent, and no Worker,
+  Hyperdrive, secret, route, domain, or database row was changed. H05 and
+  S02-D remain open.
+- Matching opening/closing sweeps detect endpoint drift but Cloudflare exposes
+  no atomic multi-endpoint privacy snapshot. The final live orchestrator must
+  repeat control-plane/privacy checks after trace collection before compiling
+  the final receipt.
+- The custom-domain API documents pagination metadata without pagination
+  request parameters. The collector uses the exact service filter and fails
+  closed if the result claims more than one page. Domain and zone sweeps retain
+  a stable unfiltered `total_count`, but do not misinterpret Cloudflare's
+  documented unfiltered count as the filtered inventory size.
+- Observability trace/event joining, data-plane sidecar joining, disposable
+  probe deletion and post-delete `404`, final receipt compilation, and the
+  final receipt's REST-versus-Wrangler Hyperdrive source label remain later H05
+  checkpoints.
+- This adds no S02-D routing, sequence allocation, FlarexDB OCC/compiler/sync,
+  Payload, Medusa, or compatibility-adapter retirement behavior.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker test # 12 files, 128 tests passed
+corepack pnpm --filter @flarex/executor-worker build # passed
+corepack pnpm --filter @flarex/executor-worker check:bundle # passed; production graph remained 401 inputs
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run # passed; 7.66 KiB proof Worker
+corepack pnpm --filter @flarex/executor-worker collect:h05-control-plane-evidence control-plane.json # expected exit 1; missing API token rejected before network
+corepack pnpm check:effect-boundaries # passed
+git diff --check # passed
+```
+
 ## Emit Run-Scoped Hosted Data-Plane Evidence
 
 Previous completed checkpoint: `708b234` (`Gate hosted executor activation

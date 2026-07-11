@@ -38,11 +38,11 @@ export const h05ExecutorCompatibilityDate = "2026-06-14";
 export const h05AuthorizedInvocationCount = 14;
 export const h05UnauthorizedInvocationCount = 1;
 
-const h05ExecutorTokenName = "FLAREX_EXECUTOR_TOKEN";
-const h05HyperdriveBindingName = "HYPERDRIVE_CACHE_DISABLED";
-const h05ProbeRunIdName = "FLAREX_H05_RUN_ID";
-const h05ProbeTokenName = "FLAREX_H05_PROBE_TOKEN";
-const h05ServiceBindingName = "FLAREX_EXECUTOR";
+export const h05ExecutorTokenName = "FLAREX_EXECUTOR_TOKEN";
+export const h05HyperdriveBindingName = "HYPERDRIVE_CACHE_DISABLED";
+export const h05ProbeRunIdName = "FLAREX_H05_RUN_ID";
+export const h05ProbeTokenName = "FLAREX_H05_PROBE_TOKEN";
+export const h05ServiceBindingName = "FLAREX_EXECUTOR";
 const h05HopHeader = h05ProbeHop.header;
 const h05HopValue = h05ProbeHop.value;
 const h05SeedTimestamp = 10;

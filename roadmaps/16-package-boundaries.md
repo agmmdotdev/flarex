@@ -1,5 +1,73 @@
 # Package Boundaries
 
+## Separate Hosted Evidence Contracts From Node Collection
+
+Previous completed checkpoint: `2bd5b99` (`Capture hosted executor data-plane
+evidence`).
+
+What changed:
+
+- Kept the pure strict `flarex-h05-control-plane-evidence-v1` contract under
+  `apps/executor/h05/`, beside the existing proof identity, protocol, and final
+  receipt contracts. It owns normalized sidecar types, relationships,
+  role-specific executor/probe version types, branded run identity, canonical
+  serialization, opening/closing fence comparisons, and hash verification
+  without importing the live collector.
+- Kept authenticated Cloudflare Fetch, Git/Wrangler source inspection,
+  PostgreSQL URL parsing, pagination, transient redaction checks, output-path
+  enforcement, and CLI orchestration under `apps/executor/scripts/`. These are
+  Node-only operator tools, not Worker runtime capabilities or package APIs.
+- Extracted one typed source-evidence helper for both the final receipt checker
+  and the new collector. It preserves the receipt checker's specific dirty
+  worktree failure while hashing a fixed canonical field order.
+- Exported only the existing H05 binding-name constants needed to cross-check
+  strict live inventories. No client SDK, backend API, executor-core export,
+  persistence export, or compatibility-host contract changed.
+- Added fixture tests that inject the read adapter and hostile provider
+  responses. The production executor and disposable probe entrypoints import
+  none of the Node collector, Cloudflare REST, filesystem, or Git modules; the
+  existing bundle gates remain the authority for that separation.
+
+Why it changed:
+
+Evidence compilation must be deterministic and testable without credentials,
+while collection necessarily owns Node process/filesystem access and a bearer
+token. Keeping those directions explicit prevents proof tooling from becoming
+part of the production Worker graph or a developer-facing database surface.
+
+Convex references inspected:
+
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex's hosted control plane can retain deployment evidence inside its own
+  infrastructure. Flarex currently needs a local operator collector for the
+  cross-Cloudflare proof, so the sanitized contract and privileged collector
+  are deliberately separate internal layers.
+
+Known limitations:
+
+- These H05 modules remain internal app tooling with no package export.
+- A later trace collector, teardown orchestrator, and pure final-receipt
+  compiler must follow the same contract/collector separation.
+- The live bundle graph still needs its normal gate on every checkpoint; this
+  source layout alone is not proof that Node tooling stayed out of workerd.
+- No compatibility adapter is retired and no new public runtime API is added.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker test # 12 files, 128 tests passed
+corepack pnpm --filter @flarex/executor-worker build # passed
+corepack pnpm --filter @flarex/executor-worker check:bundle # passed; production graph remained 401 inputs
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run # passed; 7.66 KiB proof Worker
+git diff --check # passed
+```
+
 ## Promote Hosted Proof Contracts Out Of Test Modules
 
 Previous completed checkpoint: `708b234` (`Gate hosted executor activation

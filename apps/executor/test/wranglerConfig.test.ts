@@ -22,7 +22,7 @@ describe("private executor Wrangler configuration", () => {
       placement: { mode: "smart" },
       observability: {
         enabled: true,
-        traces: { enabled: true, head_sampling_rate: 1 },
+        traces: { enabled: true, head_sampling_rate: 1, persist: true },
       },
       hyperdrive: [
         {
@@ -60,7 +60,7 @@ describe("private executor Wrangler configuration", () => {
       ],
       observability: {
         enabled: true,
-        traces: { enabled: true, head_sampling_rate: 1 },
+        traces: { enabled: true, head_sampling_rate: 1, persist: true },
       },
     });
     expect(config).not.toHaveProperty("hyperdrive");

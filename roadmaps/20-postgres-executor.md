@@ -1,5 +1,83 @@
 # Postgres Executor
 
+## Bind Hosted Hyperdrive To The Exact Staging Target
+
+Previous completed checkpoint: `2bd5b99` (`Capture hosted executor data-plane
+evidence`).
+
+What changed:
+
+- Added a read-only Hyperdrive proof projection that requires the deployed
+  binding's exact 32-hex ID and expected resource name, explicit
+  `caching.disabled === true`, PostgreSQL scheme/port, and TLS mode `require`,
+  `verify-ca`, or `verify-full`. Matching opening and closing captures fence
+  the mutable Hyperdrive resource around the Worker and privacy reads.
+- Parses the dedicated H05 PostgreSQL URL without echoing it, rejects local or
+  unspecified hosts, default databases, extra URL parameters, missing/weak TLS,
+  and mismatched expected database names. Host, database, port, scheme, TLS,
+  and PostgreSQL role are compared transiently against fresh Hyperdrive output;
+  only domain-separated host/database hashes and non-secret settings persist.
+- Recursively rejects unexpected credential/key fields in Hyperdrive and
+  secret-binding responses. Raw origin host, database, username, password,
+  database URL, secret values, and provider response envelopes are discarded.
+- Cross-checks the active executor version's exact Hyperdrive binding against
+  the independently read Hyperdrive resource. Cache-disabled configuration is
+  therefore tied to the Worker version that the later data-plane proof will
+  invoke, rather than inferred from checked-in Wrangler JSON.
+
+Why it changed:
+
+The hosted OCC artifact proves PostgreSQL results but not that production used
+the intended Hyperdrive resource, target database role, TLS policy, or disabled
+query cache. This preflight closes that evidence gap without opening a database
+connection or changing transaction behavior.
+
+Convex references inspected:
+
+- `crates/database/src/committer.rs`
+- `crates/function_runner/src/lib.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+Cloudflare references inspected:
+
+- [Hyperdrive configuration GET](https://developers.cloudflare.com/api/go/resources/hyperdrive/subresources/configs/methods/get/)
+- [Hyperdrive query caching](https://developers.cloudflare.com/hyperdrive/concepts/query-caching/)
+- [Worker version bindings](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/get/)
+
+How Flarex differs:
+
+- Convex owns its database connection identity inside one trusted backend.
+  Flarex's hosted compatibility path reaches PostgreSQL through a separately
+  configured Cloudflare Hyperdrive binding, so the preflight compares that
+  external resource to the operator-declared staging target in memory and
+  retains only redacted proof.
+
+Known limitations:
+
+- No live Hyperdrive or PostgreSQL target was inspected in this checkpoint;
+  credentials remain absent and H05 is not complete.
+- This proves configuration only. Real PostgreSQL remains required for the
+  hosted isolation/OCC/cleanup run, and later trace evidence must prove that the
+  same active Worker version executed through the service binding.
+- The current final receipt calls its Hyperdrive source
+  `wrangler-hyperdrive-get`, while this sidecar uses the underlying REST API.
+  The final compiler must resolve that provenance label explicitly rather than
+  silently treating a hash-shaped field as proof.
+- Persistence schema, commit timestamps, OCC behavior, and FlarexDB generation
+  routing are unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/executor-worker typecheck # passed
+corepack pnpm --filter @flarex/executor-worker test # 12 files, 128 tests passed
+corepack pnpm --filter @flarex/executor-worker build # passed
+corepack pnpm --filter @flarex/executor-worker check:bundle # passed; production graph remained 401 inputs
+corepack pnpm --filter @flarex/executor-worker deploy:h05-probe:dry-run # passed; 7.66 KiB proof Worker
+corepack pnpm check:effect-boundaries # passed
+git diff --check # passed
+```
+
 ## Capture Hosted OCC And Cleanup As One Data-Plane Artifact
 
 Previous completed checkpoint: `708b234` (`Gate hosted executor activation

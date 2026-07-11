@@ -7,6 +7,7 @@
     "bundle:wrangler": "tsx scripts/runWranglerBundleDryRun.ts executor",
     "check:bundle": "pnpm bundle:wrangler && tsx scripts/checkBundleMeta.ts dist/bundle-meta.json",
     "check:h05-hosted-receipt": "tsx scripts/checkH05HostedReceipt.ts",
+    "collect:h05-control-plane-evidence": "tsx scripts/collectH05ControlPlaneEvidence.ts",
     "collect:h05-data-plane-evidence": "tsx scripts/collectH05DataPlaneEvidence.ts",
     "deploy:dry-run": "pnpm check:bundle",
     "deploy:h05-probe:dry-run": "tsx scripts/runWranglerBundleDryRun.ts h05-probe",

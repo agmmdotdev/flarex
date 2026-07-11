@@ -1,13 +1,15 @@
-import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { argv } from "node:process";
 
 import {
   decodeH05HostedReceiptJson,
   type H05HostedReceipt,
 } from "../h05/receipt";
+import {
+  H05SourceEvidenceError,
+  h05SourceEvidenceSha256,
+  readH05SourceEvidence,
+} from "./h05SourceEvidence";
 
 const maximumReceiptBytes = 1024 * 1024;
 const receiptPath = argv[2];
@@ -48,53 +50,26 @@ if (!decoded.ok) {
 function validateLocalSource(
   source: H05HostedReceipt["source"],
 ): string | undefined {
-  let commit: string;
-  let status: string;
-  let wranglerVersion: string;
+  let current: ReturnType<typeof readH05SourceEvidence>;
   try {
-    commit = commandOutput("git", ["rev-parse", "HEAD"]).trim();
-    status = commandOutput("git", [
-      "status",
-      "--porcelain=v1",
-      "--untracked-files=all",
-    ]);
-    wranglerVersion = commandOutput(process.execPath, [
-      "--no-warnings",
-      createRequire(import.meta.url).resolve("wrangler"),
-      "--version",
-    ]).trim();
-  } catch {
+    current = readH05SourceEvidence();
+  } catch (error) {
+    if (
+      error instanceof H05SourceEvidenceError &&
+      error.code === "dirty-worktree"
+    ) {
+      return "H05 hosted receipt requires a clean local worktree.";
+    }
     return "H05 hosted receipt local source verification could not run.";
   }
-  if (status.length !== 0) {
-    return "H05 hosted receipt requires a clean local worktree.";
-  }
-  if (commit !== source.commit) {
+  if (current.commit !== source.commit) {
     return "H05 hosted receipt source commit does not match local HEAD.";
   }
-  if (wranglerVersion !== source.wranglerVersion) {
+  if (current.wranglerVersion !== source.wranglerVersion) {
     return "H05 hosted receipt Wrangler version does not match the local CLI.";
   }
-  const sourceEvidence = `${JSON.stringify(
-    { commit, worktreeClean: true, wranglerVersion },
-    null,
-    2,
-  )}\n`;
-  const sourceEvidenceSha256 = createHash("sha256")
-    .update(sourceEvidence)
-    .digest("hex");
-  if (sourceEvidenceSha256 !== source.evidenceSha256) {
+  if (h05SourceEvidenceSha256(current) !== source.evidenceSha256) {
     return "H05 hosted receipt source evidence hash does not match local Git and Wrangler state.";
   }
   return undefined;
-}
-
-function commandOutput(executable: string, args: readonly string[]): string {
-  return execFileSync(executable, args, {
-    encoding: "utf8",
-    maxBuffer: 64 * 1024,
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: 10_000,
-    windowsHide: true,
-  });
 }
