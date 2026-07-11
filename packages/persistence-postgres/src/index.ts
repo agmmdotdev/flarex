@@ -264,6 +264,7 @@ export * from "./deploymentPackages";
 export * from "./deployments";
 export * from "./scopeMetadata";
 export * from "./scopeMetadataTypes";
+export * from "./scopeAuthorityResolution";
 export {
   ScopeClockCorruptionError,
   type ScopeClockRecord,

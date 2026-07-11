@@ -1,8 +1,8 @@
 # FlarexDB Foundation Execution Plans
 
-Status: S01 through S02-C and hosted-proof H01-H04 are complete; H05-A local
-preparation is complete, H05-B hosted activation is next, and S02-D remains
-blocked through H05
+Status: S01 through S02-C and resolve-only S02-D1 are complete; hosted-proof
+H01-H04 and H05-A are complete, while H05-B and S02-D2 production routing are
+deferred as core work proceeds to S03
 
 This folder turns the accepted FlarexDB architecture into small, reviewable,
 commit-sized implementation turns. It is intentionally limited to the
@@ -52,8 +52,9 @@ service-binding transport; it is not a public Node/Nitro/Vercel bridge.
 This runtime decision does not expand the foundation goal:
 
 - S02-B and S02-C remain persistence-only, host-neutral turns;
-- a separate minimal Worker bundle/Hyperdrive proof must pass before S02-D
-  wires trusted generation resolution into production execution;
+- a separate minimal Worker bundle/Hyperdrive proof must pass before S02-D2
+  wires trusted generation resolution into production execution; the
+  host-neutral, read-only S02-D1 resolver can be developed and tested offline;
 - the proof adds no schema, OCC, compiler, sync, Payload, or Medusa behavior;
 - Nitro/Vercel and PGlite remain compatibility/local lanes until hosted parity
   permits an explicit retirement decision.
@@ -90,8 +91,10 @@ S02-D or introduce the replacement FlarexDB schema/OCC/compiler.
 
 H04 is not a substitute for H05. Cloudflare's local Hyperdrive
 `localConnectionString` connects directly to PostgreSQL, so it does not
-exercise Hyperdrive pooling or query caching. If staging credentials are not
-available, H05 stays unchecked and S02-D does not start.
+exercise Hyperdrive pooling or query caching. While deployment work is
+deferred, H05 stays unchecked and S02-D2 production routing does not start.
+That operational gate does not block resolve-only S02-D1, additive schema and
+codec work, or narrow OCC contracts that remain unreachable from production.
 
 ## Authority And References
 
@@ -198,8 +201,10 @@ commit are complete.
    connected-client persistence seam, H03 added the private Worker plus
    emitted-bundle gate, and H04 proved that exact bundle through a named
    workerd service binding against PostgreSQL. H05-A prepared the authenticated
-   hosted proof harness without changing cloud resources; H05-B remains the
-   final hard prerequisite for S02-D runtime routing.
+   hosted proof harness without changing cloud resources. S02-D1 now resolves
+   persisted scope/clock authority without routing execution. H05-B remains the
+   final hard prerequisite for S02-D2 production runtime routing and is
+   deferred while core foundation work continues.
 3. `S03` add the minimal stable catalog.
 4. `S04` migrate active-schema pointer authority while mirroring legacy reads.
 5. `S05` freeze tagged value and ordered-key codecs.

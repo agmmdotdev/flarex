@@ -1,8 +1,8 @@
 # FlarexDB Schema And Migration Plan
 
-Status: S01 through S02-C and hosted-proof H01-H04 complete; H05-A local
-preparation is complete, H05-B hosted activation is next, and S02-D remains
-blocked through H05
+Status: S01 through S02-C and resolve-only S02-D1 complete; hosted-proof
+H01-H04 and H05-A complete, while H05-B and S02-D2 production routing are
+deferred as core work proceeds to S03
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -183,6 +183,11 @@ Progress:
     Cloudflare receipts, then remove or disable the probe.
 - [ ] S02-D — Replace the S01 compatibility alias with trusted scope/clock
   generation resolution and fail closed on missing metadata.
+  - [x] S02-D1 — Add the host-neutral read-only authority resolver for shared
+    and ready split placements without routing executor traffic.
+  - [ ] S02-D2 — Compose the resolver into persisted session execution,
+    remove the compatibility alias, and enable production routing only after
+    H05-B closes the hosted activation gate.
 - [ ] S02-E — Prove scope/fence isolation, including real-Postgres pooled
   connection and cross-scope rejection tests.
 
@@ -286,14 +291,28 @@ the deployment, scope, and receipt rows in control, proving no control
 transaction spans target I/O. S02-C adds no runtime generation routing,
 sequence allocation, OCC, compiler, sync, Payload, or Medusa behavior.
 
-S02-B and S02-C are deliberately host-neutral. They add and bootstrap trusted
-database authority without composing a production runtime. Before S02-D, a
-separate proof must bundle the framework-neutral executor into the dedicated
-private `flarex-executor` Cloudflare Worker, use a request-scoped Postgres
+S02-D1 now resolves a deployment through its persisted scope metadata and the
+current data-plane clock. Every topology uses an exact locator-bound target.
+Split placement first requires the matching `ready` receipt, then reads a
+clock for the same scope from that target. The result preserves the actual
+generation, generation fence, epoch, and counters;
+missing or inconsistent metadata never becomes an implicit `legacy_v1`.
+
+This checkpoint deliberately does not compose `createFlarexExecutor`, replace
+the persisted-session compatibility alias, issue snapshots, or route reads and
+writes. The live H05-B activation proof is deferred with deployment work and
+still gates S02-D2 production routing. It does not block S02-D1 or the next
+unrouted, additive S03-S05/O01 core turns.
+
+S02-B, S02-C, and S02-D1 are deliberately host-neutral. They add, bootstrap,
+and resolve trusted database authority without composing a production runtime.
+Before S02-D2, a separate proof must bundle the framework-neutral executor
+into the dedicated private `flarex-executor` Cloudflare Worker, use a
+request-scoped Postgres
 client through cache-disabled Hyperdrive, exclude filesystem migration/PGlite
 code from the Worker import graph, and pass a real-Postgres service-binding
-smoke. Failure of that proof blocks runtime routing, not the additive clock DDL
-or repositories.
+smoke. Failure of that proof blocks S02-D2 production runtime routing, not the
+read-only S02-D1 resolver, additive clock/catalog DDL, or repositories.
 
 S02-A fixed the compatibility bootstrap ID convention before any rows are
 backfilled: the trusted control plane currently issues `scope_<uuid-v4>`

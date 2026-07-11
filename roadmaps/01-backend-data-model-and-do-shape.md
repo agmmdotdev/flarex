@@ -1,5 +1,77 @@
 # Backend Data Model And Durable Object Shape
 
+## Resolve Trusted Scope Authority Without Routing Execution
+
+Previous completed checkpoint: `d0ab976` Compile hosted proof bundle.
+
+What changed:
+
+- Added the read-only S02-D1 resolver over three narrow capabilities:
+  deployment scope metadata, split provisioning receipts, and one
+  locator-bound clock-target resolver for every topology.
+- Every placement now resolves only through its defensively captured persisted
+  locator. Split placement additionally requires an exact `ready` receipt
+  before target resolution and rejects receipt, target-locator, or
+  returned-clock identity drift.
+- Deployment identity, scope ID, and topology are captured into immutable
+  intent before any receipt or target await, so reader-owned objects cannot be
+  mutated into a different authority mid-resolution.
+- Returned authority preserves the actual storage generation, generation
+  fence, epoch, commit/outbox counters, and physical placement. Missing
+  metadata or clocks never imply `legacy_v1`.
+- The result is a frozen scalar/branded projection with a frozen locator, not
+  an alias to reader-owned scope, clock, or mutable timestamp objects.
+- Added a PGlite-backed shared-authority proof plus a pure failure matrix for
+  missing metadata, cross-deployment scope confusion, reserved/mismatched
+  receipts, both split topologies, wrong shared/split targets, scope/locator
+  mutation, typed malformed target output, missing clocks, and cross-scope
+  clocks.
+
+Why it changed:
+
+S02-C made scope location and clock readiness durable, but current executor
+code still derives a temporary scope alias from the deployment ID. Catalog,
+snapshot, and OCC work need one fail-closed authority input before that legacy
+alias can eventually be removed.
+
+Convex references inspected:
+
+- `crates/database/src/database.rs`
+- `crates/database/src/transaction.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+How Flarex differs:
+
+- Convex constructs one transaction from its owned database snapshot and
+  carries that begin timestamp into function execution. Flarex must first join
+  a control-plane scope locator to a possibly separate data-plane clock, then
+  later pin and revalidate the returned epoch/generation fence.
+- The split `ready` receipt and locator resolver are Flarex topology concerns;
+  they do not exist in Convex's single backend authority domain.
+
+Known limitations:
+
+- This is resolve-only S02-D1. It does not wire `createFlarexExecutor`, alter
+  `/invoke/*`, remove the legacy session alias, issue a snapshot, or route any
+  application read/write.
+- Resolution is intentionally read-only and cannot make the control/target
+  reads one distributed snapshot. O02/O03 must pin the returned authority and
+  O06 must revalidate its epoch/generation fence inside the final transaction.
+- Live Cloudflare/Hyperdrive activation is deferred. H05-B remains required
+  before production executor routing is enabled, but is not required for this
+  host-neutral resolver or the next additive core schema turns.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityResolution.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Reconcile Split Authority Across Control And Located Target Stores
 
 Previous completed checkpoint: `b320ab2` Add split scope provisioning

@@ -1,5 +1,68 @@
 # Schema Placement And Shards
 
+## Resolve Current Authority Only From Persisted Placement
+
+Previous completed checkpoint: `d0ab976` Compile hosted proof bundle.
+
+What changed:
+
+- Added one host-neutral runtime-resolution boundary that accepts only a
+  deployment identity and trusted readers; no caller can provide scope,
+  locator, database key, schema, generation, fence, epoch, or clock values.
+- Every scope resolves an exact target capability from its defensively copied
+  persisted locator, including shared placement. Schema-per-scope and
+  database-per-scope rows must first have a matching `ready` receipt, then read
+  the same scope ID from that locator-bound target.
+- Rejected wrong-deployment scope rows, reserved or missing receipts, copied
+  locator drift, resolver/target locator drift, missing clocks, and clocks for
+  another scope before returning authority.
+- Captured scope identity and placement before asynchronous resolution and
+  decoded target locator shape into typed failures, including unsupported
+  runtime discriminants.
+- Returned authority captures the verified locator and clock values as an
+  alias-free frozen projection; it does not retain the target capability.
+  Later composition must resolve/bind the same locator and pin/revalidate its
+  generation fence before snapshot/session work.
+
+Why it changed:
+
+Persisting placement and completing target reconciliation are not sufficient
+if runtime code can still infer placement or generation from request/session
+aliases. S02-D1 establishes the narrow read-only join that later executor and
+OCC composition must consume.
+
+Convex references inspected:
+
+- `crates/database/src/database.rs`
+- `crates/database/src/transaction.rs`
+- `crates/application/src/application_function_runner/mod.rs`
+
+How Flarex differs:
+
+- Convex begins against one owned persistence snapshot. Flarex can locate a
+  scope in another schema/database, so it must verify immutable control intent
+  and the returned target identity before using the data-plane clock.
+
+Known limitations:
+
+- The resolver does not create targets, map `databaseKey` to credentials or
+  Hyperdrive, cache authority, or compose the executor runtime.
+- A resolved clock is a value to pin and revalidate, not a permanent lease.
+  Later snapshot/session/commit turns own fence checks across clock changes.
+- H05-B hosted activation remains deferred and still gates production routing;
+  no Cloudflare resource or deployment behavior changed in this checkpoint.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/scopeAuthorityResolution.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Resolve Only Persisted Split Placement Into A Narrow Target Capability
 
 Previous completed checkpoint: `b320ab2` Add split scope provisioning
