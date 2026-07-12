@@ -302,10 +302,11 @@ normalized operational catalog rows are compiled from and verified against
 this artifact rather than edited independently. A table-definition projection
 is not one of those rows.
 
-The artifact has no mutable `status` in S03-B1. S03-D owns validation and
-activation lifecycle design and must keep any mutable state separate from the
-immutable source artifact. `fx_control_scope.active_schema_version_id` remains
-the sole future activation authority.
+The artifact has no mutable `status` in S03-B1. D4 owns separate validation
+evidence/readiness; S04 owns activation writes. Any mutable state remains
+separate from the immutable source artifact.
+`fx_control_scope.active_schema_version_id` remains the sole future activation
+authority.
 
 `fx_control_scope.active_schema_version_id` is the only data-plane activation
 pointer. Deployment records may expose a derived/control-plane view, but must
@@ -471,8 +472,11 @@ fx_control_schema_version_index_binding (
 
 -- C3 persists developer definition/binding pairs through one package-internal
 -- caller-owned transaction operation. by_creation_time is representable as a
--- table-owned definition but its full-artifact injection/verification remains
--- S03-D. by_id is direct row-identity access and has no definition/build row.
+-- table-owned definition. D1 now compiles canonical developer plus intrinsic
+-- creation-time requirements from the bound full artifact, but writes none of
+-- them. D2 owns control-catalog publication/verification, D3 owns idempotent
+-- located build reconciliation, and D4 owns evidence-based readiness. by_id is
+-- direct row-identity access and has no definition/build row.
 
 -- This table is located with fx_system_scope_clock. It deliberately carries no
 -- deployment copy and has no cross-database control-catalog foreign key.

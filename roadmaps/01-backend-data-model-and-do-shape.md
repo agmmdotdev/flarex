@@ -1,5 +1,62 @@
 # Backend Data Model And Durable Object Shape
 
+## Compile Bound App-Schema Requirements
+
+Previous completed checkpoint: `e383e39` Fence per-scope index build state.
+
+What changed:
+
+- Added a protocol-only trusted compiler over the strict bound app-schema
+  manifest. It snapshots before async hashing, verifies recursive ID targets and
+  index-field reachability, and emits frozen canonical requirements.
+- App schema v1 resolves ID targets only to tables in that prospective app
+  manifest or intrinsic `_storage`. It derives one creation-time requirement
+  per table and one developer requirement per logical binding; direct ID access
+  remains definition-free.
+- The compiled result carries no manifest copy, deployment/scope authority,
+  physical ID, lifecycle, fence, cursor, receipt, or readiness state.
+
+Why it changed:
+
+The immutable source artifact must remain the only authored schema definition.
+Deriving the complete requirement set in one trusted compiler lets later
+publication compare exact normalized evidence without turning per-index calls
+or caller-authored physical fields into a second authority.
+
+Convex references inspected:
+
+- `crates/application/src/lib.rs`
+- `crates/common/src/schemas/mod.rs`
+- `crates/common/src/schemas/validator.rs`
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/model/src/components/config.rs`
+
+How Flarex differs:
+
+Convex compiles schemas and publishes pending indexes inside one integrated
+backend. Flarex D1 is deliberately pure. Atomic control publication is D2,
+located build reconciliation is D3, evidence-based readiness is D4, and active
+pointer mutation remains S04.
+
+Known limitations and follow-up:
+
+- No persisted normalized row, full-envelope facade, definition allocation,
+  build transition, readiness receipt, or active pointer changed.
+- Payload/Medusa/system target policies, analyzer wiring, commit compilation,
+  Cloudflare deployment, and legacy cleanup remain later work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/app-schema-catalog.test.ts --no-file-parallelism
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Add Fenced Data-Plane Index Build State
 
 Previous completed checkpoint: `37c522b` Persist immutable index definitions.
@@ -38,7 +95,7 @@ and attempt fencing, while keeping the Durable Object layer non-authoritative.
 
 Known limitations and follow-up:
 
-- S03-D owns creation/transitions and two-store reconciliation. S10 owns index
+- D3 owns creation/transitions and two-store reconciliation. S10 owns index
   entries and atomic cursor checkpoints. The current C4 row cannot be reached by
   runtime execution.
 - No Payload/Medusa, analyzer/compiler, Cloudflare deployment, or legacy data
@@ -100,7 +157,7 @@ separate fenced C4 row.
 
 Known limitations and follow-up:
 
-- C4 must add build-state shape; S03-D must verify all compiled definitions and
+- C4 added build-state shape; D2 must verify all compiled definitions and
   intrinsic requirements against the full artifact before activation.
 - No app row, index-entry, OCC, commit-compiler, sync, Payload/Medusa, Worker,
   Cloudflare, or legacy storage shape changed.

@@ -372,7 +372,7 @@ preparation make the whole plan stale. The global partial rule is intentional:
 a concurrently published table-only mapping is not evidence that its index
 bindings were atomically published. Tables insert before indexes for foreign-key
 order, the caller owns commit/rollback, and neither the plan/apply helper nor an
-allocator is a supported root/facade operation. S03-D must later compose this
+allocator is a supported root/facade operation. S03-D2 must later compose this
 primitive with immutable V2 artifact insertion and fresh-plan stale retry.
 
 S05-A accepts `AppOrderedIndexPhysicalSpecV1` as the replacement app ordered
@@ -443,9 +443,10 @@ C3 persists app physical definitions as exact compiled artifacts:
   conflict inside its transaction cannot commit an orphan definition. Exact-row
   comparison under the deployment lock uses already prepared canonical evidence
   and performs no Web Crypto. There is no standalone allocator, naked
-  definition reservation, or public publication method. S03-D must later verify
-  the complete normalized set against the full immutable manifest and inject
-  the intrinsic creation-time requirement.
+  definition reservation, or public publication method. D1 now compiles the
+  complete normalized requirement set and injects intrinsic creation-time
+  requirements; D2 must verify and publish that exact set against the full
+  immutable manifest.
 
 The old cutline sketch that required non-null `logical_index_id` on every
 physical definition was contradictory: intrinsic creation-time access consumes
@@ -464,8 +465,8 @@ the authoritative scope clock as `fx_system_index_build_state`, keyed by
 `(scope_id, index_definition_id)`. It has a local restrictive foreign key to
 `fx_system_scope_clock(scope_id)`, but no copied `deployment_id`, no foreign key
 to `fx_control_scope`, and no impossible cross-database foreign key to the
-deployment-owned physical definition. S03-D must verify the control definition
-and binding before later idempotent two-store publication; C4 does not pretend
+deployment-owned physical definition. D2 must verify the control definition
+and binding before D3's idempotent two-store publication; C4 does not pretend
 that split placement can commit both stores atomically.
 
 Each row pins `flarexdb_v1`, positive bigint storage-generation fence, epoch,
@@ -483,6 +484,36 @@ sequence no later than the clock; it does not mean `enabled`, queryable, or
 activation-ready. Stale rows remain readable for recovery and do not foreign-key
 their historical pin to mutable clock columns. C4 adds no insert, transition,
 claim, cursor-checkpoint, enable, retire, or readiness operation.
+
+S03-D is split across distinct correctness boundaries rather than treated as
+one atomic operation:
+
+1. D1 is a pure trusted compiler over the already-bound
+   `SchemaManifestAppSchemaV1`. It snapshots the strict manifest, validates
+   recursive ID targets and Convex-compatible index-field reachability, and
+   derives canonical physical requirements. It emits one table-owned
+   `by_creation_time` requirement per app table and one requirement per
+   developer logical index; direct `by_id` emits no definition or build.
+2. D2 will compose stable bindings, the immutable full artifact, physical
+   definitions, schema bindings, and exact projection verification in one
+   control-database transaction. API generation V2 does not mean a second
+   semantic manifest or canonical codec version.
+3. D3 will reconcile required definitions into located build state through a
+   durable idempotent protocol. It cannot be part of D2's SQL transaction in
+   schema-per-scope or database-per-scope placement.
+4. D4 will own validation evidence and readiness computation. It cannot claim
+   real backfill readiness before the later authoritative entry/backfill
+   slices, and S04 alone mutates the active-schema pointer.
+
+D1 output is ephemeral derived evidence. It contains no source-manifest copy,
+definition ID, lifecycle, cursor, fence, receipt, or readiness state, and a
+future publisher must compile its own authenticated manifest rather than accept
+caller-authored compiled evidence. App-schema v1 treats its table list as the
+closed app ID-target set plus the existing Convex-compatible `_storage`
+intrinsic. Arbitrary undeclared/reserved targets fail closed; Payload, Medusa,
+and additional system targets require their own later source-driven contracts.
+This is a named Flarex v1 divergence from Convex configurations that permit
+tables outside an enforced schema.
 
 Current text `scope_id`/epoch columns are compatibility representations. The
 accepted replacement still requires native UUID components before hot app-data

@@ -366,8 +366,9 @@ artifacts are deployment-owned control metadata. `manifest_json` carries the
 semantic schema input, while `manifest_bytes` retains the exact versioned
 canonical UTF-8 encoding and `manifest_sha256` stores its raw 32-byte digest;
 PostgreSQL `jsonb` is not checksum input. The artifact has no mutable status.
-S03-D owns later validation lifecycle, and the scope's sole active-version
-pointer changes only after required index backfills and validation succeed.
+D4 owns later validation evidence/readiness, kept separate from the immutable
+artifact, and the scope's sole active-version pointer changes only through S04
+after required index backfills and validation succeed.
 
 S03-B2a freezes only the semantic app-document table-definition section.
 S03-B2b1 now plans stable IDs optimistically from the current
@@ -573,7 +574,7 @@ work.
 The build row intentionally has no `deployment_id` or control-catalog foreign
 key. Schema-per-scope and database-per-scope targets cannot enforce a physical
 foreign key back to deployment metadata or `fx_control_index_definition`.
-S03-D must validate that control identity before an idempotent located-target
+D2 must validate that control identity before D3's idempotent located-target
 publication protocol. The local scope-clock foreign key is the only universal
 physical parent; the historical generation/fence/epoch pin is compared by the
 reader rather than foreign-keyed to mutable clock values.
@@ -582,8 +583,20 @@ The nullable definition owner is intentional, not weak identity. Developer
 definitions must match a same-table logical catalog row through a composite
 foreign key. Intrinsic `by_creation_time` is table-owned and consumes no logical
 ID. Direct `by_id` has no definition row because it orders only by the separate
-row identity. C3 writes only developer definition/binding pairs; S03-D must
-compile and verify the intrinsic table-owned set with the full schema artifact.
+row identity. C3 writes only developer definition/binding pairs. S03-D1 now
+compiles the complete ephemeral requirement set from the strict bound artifact:
+one table-owned creation-time requirement per app table and one canonical
+developer requirement per logical binding, while direct ID access remains
+definition-free. It also ports Convex's index-field reachability rule and
+checks recursive ID targets against the closed app-v1 table set plus intrinsic
+`_storage`. The compiler output is not another persisted schema copy and
+contains no caller-selected physical ID, lifecycle, or readiness state.
+
+S03-D2 still owns atomic control-catalog publication and exact projection
+verification. S03-D3 owns idempotent located build-state reconciliation because
+control and per-scope databases cannot share a transaction. S03-D4 may compute
+readiness only from real later validation/backfill evidence; S04 alone changes
+the active pointer.
 Migration `0023` also makes the strict spec predicate `IS TRUE`, bounds both the
 logical JSON text size and canonical byte evidence, and exposes canonical
 evidence as immutable hex through read contracts. The internal writer

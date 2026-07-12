@@ -1,9 +1,9 @@
 # FlarexDB Schema And Migration Plan
 
 Status: S01 through S02-C, resolve-only S02-D1, catalog checkpoints S03-A
-through S03-C4, and the interleaved S05-A ordered-index prerequisite are
+through S03-D1, and the interleaved S05-A ordered-index prerequisite are
 complete. Hosted-proof H01-H04 and H05-A are complete, while H05-B and S02-D2
-production routing are deferred as core work proceeds to S03-D.
+production routing are deferred as core work proceeds to S03-D2.
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -414,15 +414,23 @@ Progress:
     definition/schema-binding DDL and choose a compact definition-generation
     identity that permits old/new builds to coexist.
   - [x] S03-C4 — Add fenced per-scope build-state DDL/read contracts; mutation
-    and publication remain S03-D work.
-- [ ] S03-D — Compile and verify normalized catalog state transactionally and
-  gate activation readiness.
+    and reconciliation remain S03-D3 work.
+- [ ] S03-D — Compile, publish, reconcile, and verify normalized catalog state
+  before activation.
+  - [x] S03-D1 — Purely verify the bound app manifest and derive the complete
+    canonical developer plus intrinsic creation-time requirement set.
+  - [ ] S03-D2 — Publish and exactly verify the full immutable artifact and its
+    normalized control-catalog projection in one control-database transaction.
+  - [ ] S03-D3 — Reconcile required definitions into located per-scope build
+    state through a durable idempotent protocol.
+  - [ ] S03-D4 — Persist validation evidence and compute readiness from real
+    row/index backfill results; do not mutate the active pointer.
 
 Outcome:
 
 - Add `fx_control_schema_version` with an immutable manifest, canonical bytes,
-  checksum, and deployment ownership. Lifecycle status remains deferred to
-  S03-D rather than making this artifact row mutable.
+  checksum, and deployment ownership. D4 validation evidence and build
+  lifecycle remain separate; neither adds mutable status to this artifact.
 - Add stable `fx_control_table` and logical `fx_control_index` identities.
 - Add relation and constraint IDs only after their source-driven semantic
   contract is accepted; B2a deliberately does not invent them.
@@ -430,11 +438,13 @@ Outcome:
   `fx_control_index_definition`, and fenced per-scope
   `fx_system_index_build_state`. Stable logical index ID alone must never key
   entries or builds.
-- Compile the manifest transactionally and verify the normalized catalog against
-  its checksum; do not independently edit normalized rows.
+- Compile the bound manifest before SQL, then publish and verify the normalized
+  control catalog against its authenticated artifact; do not independently
+  edit normalized rows or accept caller-authored compiled evidence.
 - Keep plan application internal until B2b2 composes it with artifact insertion;
   never publish naked ID reservations as a successful schema operation.
-- Activate a schema only after required index backfill/validation succeeds.
+- Gate readiness only after required index backfill/validation succeeds; S04
+  alone mutates the active-schema pointer.
 
 Exit gate:
 
@@ -586,8 +596,8 @@ How Flarex differs:
 Known limitations and follow-up:
 
 - S03-B2 still owns versioned table definitions. S03-C owns stable indexes and
-  build state; S03-D owns trusted compilation, validation lifecycle, and
-  activation readiness.
+  build state. D1 now owns pure trusted compilation, D2 owns control
+  publication, D3 owns build reconciliation, and D4 owns validation readiness.
 - The repository is append-only but privileged SQL can still coherently mutate
   JSON, bytes, and checksum. A trigger/role policy is a separate hardening
   decision.
@@ -1301,7 +1311,8 @@ How Flarex differs:
 - Convex persists system index metadata. Flarex represents creation-time
   ownership directly by stable table ID and satisfies `by_id` through row
   identity without a physical definition. The C3 writer remains developer-only;
-  S03-D must compile/verify the intrinsic set against the full artifact.
+  D1 now compiles the intrinsic set; D2 must publish and verify it against the
+  full artifact.
 
 Known limitations and follow-up:
 
@@ -1309,7 +1320,7 @@ Known limitations and follow-up:
   read contracts. No build transition, backfill, validation, readiness,
   activation, entry row, query planner, or active-schema route exists.
 - C3 does not compare the definition set with the full app-schema artifact and
-  does not publish a V2 artifact. S03-D must compose all prepared definitions
+  does not publish a V2 artifact. D2 must compose all prepared definitions
   atomically, inject creation-time requirements, verify the manifest checksum,
   and retain the single active-schema authority.
 - No analyzer/compiler integration, row-value codec, Payload/Medusa compiler,
@@ -1364,7 +1375,7 @@ What changed:
   proves only generation/fence/epoch currency, never enabled/readiness.
 - Added no insert, transition, claim, checkpoint, enable, retire, readiness, or
   cross-store publication operation. PGlite tests use raw fixture writes only;
-  S03-D must later validate the control definition and reconcile the located
+  D2 must validate the control definition and D3 must reconcile the located
   data plane through a durable idempotent protocol.
 
 Why it changed:
@@ -1399,10 +1410,10 @@ How Flarex differs:
 
 Known limitations and follow-up:
 
-- S03-D owns trusted cross-store creation/reconciliation, complete manifest
-  verification, intrinsic creation-time injection, validation receipts, and
-  activation readiness. An ordinary SQL transaction cannot publish control and
-  database-per-scope state atomically.
+- D1 now owns trusted pure compilation and intrinsic creation-time injection.
+  D2 owns control-catalog verification/publication, D3 owns cross-store
+  reconciliation, and D4 owns validation evidence/readiness. An ordinary SQL
+  transaction cannot publish control and database-per-scope state atomically.
 - Entry/current/revision rows, worker checkpoints, cursor advancement with
   entry writes, backfill execution, query planning, and range OCC remain S06,
   S10, and later transaction work.
@@ -1422,6 +1433,104 @@ corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/indexBu
 FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/indexBuildStates.postgres.test.ts --no-file-parallelism
 corepack pnpm --filter @flarex/persistence-postgres test
 corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
+#### S03-D1 Implementation Checkpoint
+
+Previous completed checkpoint: `e383e39` Fence per-scope index build state.
+
+What changed:
+
+- Split S03-D into four correctness boundaries: pure compilation (D1), atomic
+  control-catalog publication (D2), idempotent located build reconciliation
+  (D3), and evidence-based readiness (D4). S04 alone owns active-pointer
+  mutation.
+- Added the focused `flarex-protocol/app-schema-catalog` compiler. It accepts
+  unknown input, strictly decodes and snapshots only the already-bound
+  `SchemaManifestAppSchemaV1`, and returns no source-manifest copy or accepted
+  persistence token.
+- Ported Convex's `can_contain_field` rule for developer index paths: an
+  exhausted path or `any` succeeds, a union succeeds when any branch permits
+  the path, objects traverse named fields, and scalar/array/record values cannot
+  fabricate a deeper named path. Object traversal requires an own field, so
+  prototype names such as `constructor`/`toString` cannot satisfy a missing
+  validator path or leak an untyped runtime error.
+- Recursively verifies every ID validator target. App-schema v1 is deliberately
+  closed to logical app tables in the same prospective manifest plus intrinsic
+  `_storage`; arbitrary app/reserved targets fail with a typed issue. Future
+  Payload, Medusa, and additional system targets require explicit contracts.
+- Derives frozen canonical evidence for one table-owned `by_creation_time`
+  requirement per app table and one developer requirement per logical binding.
+  Creation-time requirements are ordered by table ID and developer requirements
+  by logical index ID. All are required for activation. Direct `by_id` remains
+  row-identity access and emits no definition/build requirement.
+- Rejects caller-authored physical specs/IDs, activation flags, lifecycle, and
+  readiness fields through the strict manifest boundary. D1 performs no SQL,
+  allocation, build transition, publication, or activation operation.
+
+Why it changed:
+
+The completed C2/C3 primitives could be composed incorrectly by a future
+caller: one-index preparation did not prove the full manifest's field/ID
+references or inject its intrinsic creation-time set. Freezing the pure trusted
+compiler first prevents D2 from making caller-provided physical evidence or a
+partial set into a second schema authority.
+
+Convex sources inspected:
+
+- `crates/isolate/src/environment/schema.rs`
+- `crates/application/src/lib.rs`
+- `crates/common/src/schemas/mod.rs`
+- `crates/common/src/schemas/validator.rs`
+- `crates/common/src/schemas/json.rs`
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/model/src/components/config.rs`
+- `crates/application/src/schema_worker/mod.rs`
+- `crates/application/src/deploy_config.rs`
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+- `crates/indexing/src/index_registry.rs`
+- `npm-packages/convex/src/server/schema.ts`
+
+How Flarex differs:
+
+- Convex evaluates the developer schema, injects system access paths, persists
+  pending schema/index metadata, validates rows, and activates within one
+  integrated transactional backend. D1 ports only the pure semantic and
+  lowering rules; Flarex keeps control publication, located build state,
+  readiness evidence, and active-pointer mutation as separate fail-closed
+  boundaries.
+- Convex can permit tables outside an enforced schema. Flarex app-schema v1 is
+  closed-world for app ID targets, with `_storage` as the only accepted
+  intrinsic target. Later unified Payload/Medusa/system schemas must expand the
+  policy explicitly rather than silently accepting unknown targets.
+- Convex can mark built-ins enabled immediately for a newly empty table. Flarex
+  emits creation-time requirements as required but claims no readiness until
+  authoritative rows, entries, and real backfill evidence exist.
+
+Known limitations and follow-up:
+
+- D2 must expose a new full-envelope publication API generation while retaining
+  semantic manifest v1 and canonical codec v1. It must compile its own
+  authenticated C2 manifest, publish the exact control projection atomically,
+  and compare owner plus canonical bytes rather than trusting SHA-256 alone.
+- D3 must reconcile located build rows idempotently; an ordinary transaction
+  cannot span control and database-per-scope targets. D4 depends on S06/S10 and
+  later backfill/validation evidence. S04 alone may mutate the active pointer.
+- The 10,000-index semantic cap bounds count but not total compiler work. A
+  routed D2 API still needs a total canonical-byte/platform quota.
+- No DDL, Postgres repository, PGlite/Postgres correctness lane, analyzer,
+  commit compiler, Payload/Medusa, Cloudflare, or legacy behavior changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/app-schema-catalog.test.ts --no-file-parallelism
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
 corepack pnpm check:effect-boundaries
 git diff --check
 ```

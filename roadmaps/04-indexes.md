@@ -1,5 +1,67 @@
 # Indexes
 
+## Compile The Complete App Physical-Requirement Set
+
+Previous completed checkpoint: `e383e39` Fence per-scope index build state.
+
+What changed:
+
+- Added a pure D1 compiler that validates every developer index field against
+  its table validator with Convex's `can_contain_field` semantics and own-field
+  lookup rather than inherited JavaScript prototype properties.
+- Derived canonical physical evidence for one `by_creation_time` access per app
+  table and every developer logical binding. Results are deterministic, frozen,
+  and always required for later activation. `by_id` produces no physical
+  definition/build requirement.
+- Recursively checks ID validator targets against the closed app-v1 table set
+  plus intrinsic `_storage`. Caller-selected specs, physical IDs, activation
+  flags, and build/readiness state are rejected by the strict manifest decoder.
+
+Why it changed:
+
+One-index C3 preparation proved a single definition but could not prove that a
+full schema contained every required developer and intrinsic access path.
+Freezing the complete pure set prevents D2 from publishing a partial projection
+or trusting caller-composed physical evidence.
+
+Convex references inspected:
+
+- `crates/application/src/lib.rs`
+- `crates/common/src/schemas/mod.rs`
+- `crates/common/src/schemas/validator.rs`
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+- `crates/indexing/src/index_registry.rs`
+
+How Flarex differs:
+
+- Convex injects creation time and persists pending index metadata in its
+  integrated database. Flarex D1 derives canonical evidence only; D2 publishes
+  control rows and D3 reconciles per-scope build rows.
+- Convex may allow undeclared tables outside an enforced schema. Flarex app-v1
+  fails closed except for `_storage`; later namespaces must extend the policy
+  with explicit source-driven contracts.
+
+Known limitations and follow-up:
+
+- D1 allocates no definition ID and writes no definition, schema binding, or
+  build row. D2 must recompile its authenticated manifest and verify exact
+  owner plus canonical bytes; it must not accept D1 output as write authority.
+- There is no entry writer, backfill, query planner, readiness calculation,
+  analyzer route, Payload/Medusa integration, Cloudflare deployment, or legacy
+  rewiring.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/app-schema-catalog.test.ts --no-file-parallelism
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Fence Per-Scope Physical Index Builds
 
 Previous completed checkpoint: `37c522b` Persist immutable index definitions.
@@ -120,8 +182,9 @@ How Flarex differs:
 
 Known limitations and follow-up:
 
-- S03-C4 still owns fenced build state. S03-D owns complete manifest-to-catalog
-  verification and publication; S10 owns entry tables and range-query/OCC APIs.
+- S03-C4 now owns fenced build state. D1 compiles complete requirements, D2
+  owns manifest-to-catalog verification/publication, and S10 owns entry tables
+  and range-query/OCC APIs.
 - No backfill, enable/retire transition, analyzer, compiler, active-schema
   planner, Payload/Medusa, Cloudflare, or legacy rewiring changed.
 
