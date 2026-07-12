@@ -8,8 +8,10 @@ SessionDO journal authoritative, does not compile arbitrary Payload or Medusa
 transactions, and does not promise unsupported query overlays.
 
 The first executable outcome is one point app mutation through the new schema
-and OCC lane. Moving the proven journal into SessionDO is the final optional
-optimization turn, not the starting point.
+and OCC lane. Immediately after its real-Postgres correctness gate, measure the
+hosted journal round trips. If they cross a predeclared material-improvement
+threshold, moving the proven journal into SessionDO is the next checkpoint,
+before derived sidecars; it is not the starting point and is not unconditional.
 
 The hosted production composition is a dedicated private Cloudflare executor
 Worker backed by cache-disabled Hyperdrive. The compiler and executor ports
@@ -290,6 +292,48 @@ Exit gate:
 - the new compiler is eligible for a test/canary generation but is not yet a
   general Payload, Medusa, range-query, or sync engine.
 
+### [ ] C07A — Measure And Conditionally Move The Proven Journal To SessionDO
+
+Prerequisite:
+
+- C01-C07 and their PGlite/real-Postgres gates are green through the current
+  Postgres-backed journal path.
+
+Decision gate:
+
+- In the hosted Dynamic Worker/private executor/Hyperdrive composition,
+  separately measure service-binding latency, authoritative Postgres data-read
+  latency, Postgres journal persistence, and finish latency.
+- Declare the material-improvement threshold before comparing the
+  Postgres-backed and SessionDO journal paths.
+- If journal persistence meets the threshold, complete the SessionDO move as
+  the next checkpoint before C08/C09. Otherwise retain Postgres journaling,
+  record the receipt, and continue to C08.
+
+Outcome when the threshold is met:
+
+- Implement `SessionJournalStore` over deterministic per-session Durable Object
+  SQLite for temporary syscall sequence, logical read dependencies, and staged
+  logical writes only.
+- Keep actual data reads on trusted executor syscalls backed by authoritative
+  Postgres. The move removes journal-persistence database round trips; it does
+  not remove the syscall/service-binding hop or the authoritative data read.
+- Keep the Postgres session/grant anchor, snapshot lease, authority, result,
+  idempotency, OCC, commit feed, and outbox unchanged.
+- Use protocol version, fence, monotonic syscall sequence, digest, TTL, size
+  limits, and restart cleanup.
+- Keep a configuration switch back to the proven journal implementation.
+
+Exit gate:
+
+- the hosted latency receipt and predeclared threshold are recorded whether or
+  not the move is selected;
+- when selected, DO restart/eviction, duplicate syscall, late syscall, digest
+  mismatch, finish replay, expiry, and lost-response cases pass;
+- moving the journal reduces round trips but transfers no committed authority;
+- `DocCacheDO` and `QueryCacheDO` remain separate and are not part of mutation
+  correctness.
+
 ### [ ] C08 — Lower Index And Unique Sidecars
 
 Outcome:
@@ -329,33 +373,6 @@ Exit gate:
 - repeated targets, reordering, locale/path changes, nested moves, deletion,
   and stale-edge cleanup pass;
 - relation reads remain disabled until their separate OCC/overlay proof.
-
-### [ ] C10 — Optionally Move The Proven Journal To SessionDO
-
-Prerequisite:
-
-- C01-C09 and their PGlite/real-Postgres gates are green through the current
-  Postgres-backed journal path.
-
-This optimization is independent of O13 retirement. The Postgres-backed
-journal may remain permanently.
-
-Outcome:
-
-- Implement `SessionJournalStore` over deterministic per-session Durable Object
-  SQLite.
-- Keep the Postgres session/grant anchor, snapshot lease, authority, result,
-  idempotency, OCC, commit feed, and outbox unchanged.
-- Use protocol version, fence, monotonic syscall sequence, digest, TTL, size
-  limits, and restart cleanup.
-- Keep a configuration switch back to the proven journal implementation.
-
-Exit gate:
-
-- DO restart/eviction, duplicate syscall, late syscall, digest mismatch,
-  finish replay, expiry, and lost-response cases pass;
-- moving the journal reduces round trips but transfers no committed authority;
-- cache DOs are still not part of correctness.
 
 ## Payload And Medusa Boundary
 

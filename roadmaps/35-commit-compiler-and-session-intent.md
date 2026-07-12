@@ -1,5 +1,61 @@
 # Commit Compiler And Session Intent
 
+## Promote The Measured SessionDO Journal Gate
+
+Previous completed checkpoint: `268cc83` Prepare app schema catalog
+publication.
+
+What changed:
+
+- Replaced "final optional optimization" with an immediate post-`C07` hosted
+  latency gate.
+- Required separate measurements for the service-binding hop, authoritative
+  Postgres data read, Postgres journal persistence, and finish path, with a
+  material-improvement threshold declared before comparison.
+- Made `SessionDO` the next checkpoint when temporary journal persistence is a
+  material cost, while keeping actual reads and every committed authority in
+  Postgres.
+- Kept `DocCacheDO` and `QueryCacheDO` out of this gate; they cache committed
+  values/results and require their own freshness proof.
+
+Why it changed:
+
+Postgres-backed journaling is the safest compatibility path for proving the new
+snapshot/OCC/commit protocol, but persisting every logical dependency and
+staged write can add database round trips after the protocol is stable.
+Calling SessionDO a final optimization hid that likely next bottleneck and also
+made it easy to confuse temporary journaling with application-data caching.
+
+Convex references inspected:
+
+- `crates/database/src/transaction.rs`
+  - transaction-local reads/writes are kept close to execution and supplied to
+    commit validation rather than published as database authority.
+- `crates/database/src/committer.rs`
+  - authoritative validation and publication remain in the database commit
+    boundary.
+
+How Flarex differs:
+
+- Flarex crosses a Dynamic Worker, private executor service binding, optional
+  SessionDO, and Postgres. It therefore needs a fenced, digest-bound remote
+  journal and a measured reason to add that distributed hop.
+
+Known limitations and follow-up:
+
+- The replacement Postgres commit protocol and hosted latency receipt are not
+  implemented yet.
+- No performance threshold is accepted by this docs checkpoint; the C07A turn
+  must declare it before measurement.
+- SessionDO removes journal-persistence database round trips only. Syscalls and
+  authoritative data reads still reach the trusted executor/Postgres path.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Add The Commit Compiler Turn Plan
 
 Previous completed checkpoint: `478be74` Correct FlarexDB transaction and sync
@@ -12,8 +68,9 @@ What changed:
 - Ordered narrow compatibility ports, versioned logical protocol, point
   read-your-writes, pure planning, atomic execution, idempotent finish,
   real-Postgres proof, and derived index/unique/edge lowering.
-- Moved SessionDO journal storage to the final optional optimization turn after
-  the compiler is proven through the current Postgres-backed journal path.
+- Moved SessionDO journal storage behind the proven Postgres-backed compiler
+  path. The newer checkpoint above refines its position to the immediate
+  post-`C07`, measurement-gated optimization.
 - Kept Payload and Medusa behind their own later adapter/transaction lanes.
 
 Why it changed:
@@ -94,7 +151,9 @@ semantics.
 
 The current Postgres invoke-session implementation remains the compatibility
 baseline. Moving a journal to SessionDO is an optimization behind a protocol,
-not a reason to delete the authoritative session anchor.
+not a reason to delete the authoritative session anchor. Once the replacement
+point-commit path passes `C07`, journal movement is evaluated immediately from
+hosted latency evidence rather than deferred behind index/edge sidecars.
 
 ## Snapshot Contract
 
@@ -411,7 +470,8 @@ journal is a latency optimization, never an authority transfer.
 The next executor design/implementation gate is one end-to-end app point
 mutation using the scope/epoch/commit-sequence token, fenced session anchor,
 logical journal, trusted derivation, atomic result outcome, commit atoms, and
-outbox.
+outbox. After its real-Postgres `C07` gate, the next decision is the hosted C07A
+journal-latency receipt and conditional SessionDO move.
 
 ## Verification
 

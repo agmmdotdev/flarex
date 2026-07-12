@@ -274,6 +274,27 @@ This wave is the first end-to-end milestone. Do not start Payload, Medusa,
 SessionDO journal movement, sync replacement, or cache DO work before it is
 green.
 
+### Post-Wave-2 gate: measure and conditionally move the session journal
+
+Immediately after `C07`, measure the hosted Dynamic Worker -> private executor
+-> Hyperdrive/Postgres path before starting the derived sidecars in Wave 3.
+The receipt must separate service-binding latency, authoritative data-read
+latency, Postgres read-dependency/write-intent journal persistence, and finish
+latency. Define the material-improvement threshold before collecting the
+comparison.
+
+If Postgres journal persistence is a material source of round trips or latency,
+`C07A` becomes the next implementation checkpoint: move only the temporary,
+fenced logical read/write journal to per-session Durable Object SQLite. Actual
+data reads continue through trusted executor syscalls to authoritative
+Postgres, and OCC, idempotency, result publication, committed data, commit/feed,
+and outbox authority remain in Postgres. If the threshold is not met, retain
+the Postgres-backed journal and record the evidence before continuing.
+
+This gate is distinct from `DocCacheDO` or `QueryCacheDO`. Those actors mirror
+committed data/results and remain deferred until the gap-free freshness stream
+and a separate measured need exist.
+
 ### Wave 3: derived app-data sidecars
 
 1. `S10` add index revision/current and exact ordered bounds.
@@ -304,9 +325,9 @@ accepted contract is maintained in
 6. After the separate sync migration closes its compatibility/reconnect gates,
    `O13` may retire legacy storage and OCC.
 
-`C10` is an optional, independent optimization after `C01-C09`. It is not a
-prerequisite for cutover or retirement; the Postgres-backed journal may remain
-permanently.
+`C07A` is the conditional post-`C07` journal optimization described above. It is
+not a prerequisite for cutover or retirement when its predeclared performance
+threshold is not met; the Postgres-backed journal may remain permanently.
 
 ## Cross-Plan Rules
 
@@ -355,7 +376,8 @@ After the foundation passes its cutover gates, create separate plans for:
   transactions;
 - Medusa module integration through real repository/workflow/migration/link
   boundaries;
-- cache DOs and measured read-path optimization;
+- committed-data/result cache DOs and measured read-path optimization (separate
+  from the post-`C07` SessionDO journal gate);
 - high-level developer APIs and cross-system workflows.
 
 The desired-state, migrationless developer experience and its internal managed

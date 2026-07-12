@@ -110,7 +110,7 @@ Cloudflare references:
 | --- | --- | --- |
 | Existing `documents`, `indexes`, invoke sessions, Postgres live-query registry, and delivery outbox | Implemented baseline | Preserve while the replacement is built. Do not silently describe it as the final FlarexDB schema. |
 | Typed app row JSON with revision/current, declared index, edge, and unique sidecars | Accepted target | Prove first behind a storage-generation flag. |
-| SessionDO journal plus trusted commit compiler | Accepted only for a bounded app-data slice | Point reads and writes first. Broader query overlays must fail closed until implemented. |
+| SessionDO journal plus trusted commit compiler | Accepted only for a bounded app-data slice | Prove the Postgres-backed point path through the real-Postgres gate, then immediately measure journal overhead and move the temporary journal when a predeclared material-improvement threshold is met. Broader query overlays must fail closed until implemented. |
 | Payload adapter | Staged target | Start with reserved logical collections and scalar CRUD/transaction conformance; add relations, versions/drafts, globals, auth, locks, and hooks incrementally. |
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
 | DeploymentSyncDO | Accepted v1 coordination target | One deterministic instance per scope, durable SQLite cursor/query/dependency state, Postgres catch-up. |
@@ -687,6 +687,23 @@ not supply physical scope, table names, lock targets, unique-key rows,
 freshness atoms, system outbox rows, actor identity, or schema authority. The
 trusted planner derives those from logical writes, the session anchor, the
 pinned catalog, and adapter rules.
+
+This journal records syscall sequence, logical read dependencies, and supported
+staged logical writes. It does not store the application rows being queried.
+Actual data reads still cross the restricted syscall boundary to the trusted
+executor and authoritative Postgres. Moving the journal can remove Postgres
+round trips used only to persist this bookkeeping; it does not remove the
+service-binding/syscall hop or transfer final commit authority.
+
+Sequence the optimization from evidence: first close the replacement point
+mutation's PGlite and real-Postgres correctness gates, then immediately measure
+the hosted path with service binding, authoritative data read, journal
+persistence, and finish latency separated. Declare the material-improvement
+threshold before comparison. If journal persistence meets it, the SessionDO
+move is the next checkpoint before derived index/edge sidecars. Otherwise the
+Postgres-backed journal may remain permanently. This decision is independent of
+later `DocCacheDO` and `QueryCacheDO` work, which mirrors committed values or
+results and requires a gap-free freshness protocol.
 
 The trusted boundary validates arguments against the pinned authoritative
 argument validator before the attempt runs. It validates the encoded return

@@ -1,5 +1,58 @@
 # Cloudflare Freshness Cache
 
+## Separate Session Journaling From Committed Read Caches
+
+Previous completed checkpoint: `268cc83` Prepare app schema catalog
+publication.
+
+What changed:
+
+- Classified SessionDO SQLite as temporary execution-journal storage, not a
+  document/query cache.
+- Kept actual syscall data reads in the trusted Postgres executor path; a
+  SessionDO journal optimization saves persistence round trips for logical
+  read dependencies and staged writes only.
+- Kept `DocCacheDO` and `QueryCacheDO` deferred behind a gap-free freshness
+  protocol and separate performance evidence.
+- Linked the immediate post-`C07` measurement/conditional-move gate to the
+  commit-compiler roadmap instead of making it part of the cache rollout.
+
+Why it changed:
+
+The older wording grouped all Durable Object SQLite optimizations together.
+That obscured a useful early optimization: moving an already-proven temporary
+session journal can reduce bookkeeping round trips without mirroring committed
+application data or changing Postgres authority.
+
+Convex references inspected:
+
+- `crates/database/src/transaction.rs`
+  - transaction-local reads and writes are distinct from shared cached query
+    results.
+- `crates/database/src/subscription.rs`
+  - committed query freshness remains a separate dependency/invalidation
+    problem.
+
+How Flarex differs:
+
+- Flarex may place temporary transaction bookkeeping in a fenced SessionDO
+  because user execution and the trusted Postgres executor are remote. Convex
+  does not need that Cloudflare-specific journal boundary.
+
+Known limitations and follow-up:
+
+- The hosted latency receipt and SessionDO journal implementation do not exist
+  yet; they are owned by
+  [35-commit-compiler-and-session-intent.md](./35-commit-compiler-and-session-intent.md).
+- This decision does not accelerate the authoritative Postgres data read
+  itself and does not authorize cache-backed mutation snapshots.
+
+Verification:
+
+```sh
+git diff --check
+```
+
 ## Simplify V1 Sync And Defer Cache Authorities
 
 Previous completed checkpoint: `01c11ab` Clarify SessionDO cache read bridge.
