@@ -69,6 +69,7 @@ The current foundation next gate is `S03-D2c`, owned by
 | Roadmap | Domain authority |
 | --- | --- |
 | [`06-dynamic-worker-execution.md`](./06-dynamic-worker-execution.md) | Managed execution artifacts, local Miniflare and hosted Dynamic Workers, sandbox capabilities, runtime identity, and syscall execution. |
+| [`10-runtime-validation.md`](./10-runtime-validation.md) | Layered validators, protocol decoding, active metadata checks, commit validation, stored corruption detection, and error boundaries. |
 | [`13-convex-first-system-porting.md`](./13-convex-first-system-porting.md) | Cross-system rule: inspect/port Convex first and document narrow Flarex divergences. |
 | [`16-package-boundaries.md`](./16-package-boundaries.md) | Workspace package ownership, dependency direction, public/internal surfaces, host composition, and boundary enforcement. |
 | [`17-deployment-analysis-and-push.md`](./17-deployment-analysis-and-push.md) | Source-package analysis authority, candidate push lifecycle, final codegen, artifact validation, and activation gates. |
@@ -97,7 +98,6 @@ active authorities above.
 | Roadmap | Current use |
 | --- | --- |
 | [`09-sdk-and-cli-fork.md`](./09-sdk-and-cli-fork.md) | Public SDK, generated APIs, CLI/codegen, and packaging inventory. |
-| [`10-runtime-validation.md`](./10-runtime-validation.md) | Runtime validation, protocol decoding, error, and trust-boundary inventory. |
 | [`11-testing-and-simulation-strategy.md`](./11-testing-and-simulation-strategy.md) | Test lanes, hosted proofs, simulation, and correctness evidence inventory. |
 | [`14-local-dev-server.md`](./14-local-dev-server.md) | Local dev server, push, runtime materialization, and local authority inventory. |
 | [`15-test-sdk.md`](./15-test-sdk.md) | Test SDK, packed consumer, transport, and generated-app harness inventory. |
@@ -157,12 +157,11 @@ contain old “next slice” or append-history instructions.
 Do not compact files merely by size. Prioritize files that future work must
 read or whose stale authority creates real design risk:
 
-1. `10-runtime-validation.md`
-2. `09-sdk-and-cli-fork.md`
-3. `14-local-dev-server.md`
-4. `11-testing-and-simulation-strategy.md`
-5. `15-test-sdk.md`
-6. `18-react-client-hooks.md`
+1. `09-sdk-and-cli-fork.md`
+2. `14-local-dev-server.md`
+3. `11-testing-and-simulation-strategy.md`
+4. `15-test-sdk.md`
+5. `18-react-client-hooks.md`
 
 For each compaction:
 
