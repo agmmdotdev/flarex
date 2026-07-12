@@ -69,6 +69,7 @@ The current foundation next gate is `S03-D2c`, owned by
 | Roadmap | Domain authority |
 | --- | --- |
 | [`13-convex-first-system-porting.md`](./13-convex-first-system-porting.md) | Cross-system rule: inspect/port Convex first and document narrow Flarex divergences. |
+| [`16-package-boundaries.md`](./16-package-boundaries.md) | Workspace package ownership, dependency direction, public/internal surfaces, host composition, and boundary enforcement. |
 | [`20-postgres-executor.md`](./20-postgres-executor.md) | Trusted Postgres executor, hosted Worker, storage generations, and replacement data authority. |
 | [`21-cloudflare-freshness-cache.md`](./21-cloudflare-freshness-cache.md) | Postgres-authoritative sync, per-scope coordination, recovery, delivery boundaries, and deferred caches. |
 | [`35-commit-compiler-and-session-intent.md`](./35-commit-compiler-and-session-intent.md) | Logical session journal, trusted planner/executor split, exact snapshots, idempotency, and conditional SessionDO journaling. |
@@ -99,7 +100,6 @@ active authorities above.
 | [`11-testing-and-simulation-strategy.md`](./11-testing-and-simulation-strategy.md) | Test lanes, hosted proofs, simulation, and correctness evidence inventory. |
 | [`14-local-dev-server.md`](./14-local-dev-server.md) | Local dev server, push, runtime materialization, and local authority inventory. |
 | [`15-test-sdk.md`](./15-test-sdk.md) | Test SDK, packed consumer, transport, and generated-app harness inventory. |
-| [`16-package-boundaries.md`](./16-package-boundaries.md) | Package placement and import-boundary evidence; current binding rules in `AGENTS.md` take precedence. |
 | [`17-deployment-analysis-and-push.md`](./17-deployment-analysis-and-push.md) | Backend analysis, deployment push, activation, artifact, and codegen authority inventory. |
 | [`18-react-client-hooks.md`](./18-react-client-hooks.md) | React client implementation history; early partition-routing sections are legacy and require compaction. |
 
@@ -157,15 +157,14 @@ contain old “next slice” or append-history instructions.
 Do not compact files merely by size. Prioritize files that future work must
 read or whose stale authority creates real design risk:
 
-1. `16-package-boundaries.md`
-2. `17-deployment-analysis-and-push.md`
-3. `06-dynamic-worker-execution.md`
-4. `10-runtime-validation.md`
-5. `09-sdk-and-cli-fork.md`
-6. `14-local-dev-server.md`
-7. `11-testing-and-simulation-strategy.md`
-8. `15-test-sdk.md`
-9. `18-react-client-hooks.md`
+1. `17-deployment-analysis-and-push.md`
+2. `06-dynamic-worker-execution.md`
+3. `10-runtime-validation.md`
+4. `09-sdk-and-cli-fork.md`
+5. `14-local-dev-server.md`
+6. `11-testing-and-simulation-strategy.md`
+7. `15-test-sdk.md`
+8. `18-react-client-hooks.md`
 
 For each compaction:
 
