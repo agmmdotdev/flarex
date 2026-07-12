@@ -175,10 +175,12 @@ fx_index_build_state
 ```
 
 `fx_schema_version.manifest_json` is the immutable submitted schema artifact.
-`fx_table`, `fx_index`, and `fx_index_def` are its lossless normalized compiled
-catalog, written transactionally and verified against the manifest checksum;
-they are never independently edited. `fx_table` and `fx_index` keep stable
-identities across versions.
+`fx_table` keeps only stable table identity across versions. The manifest
+repeats the namespace and logical name as a version-pinned assertion, but the
+table definition itself is not copied into a normalized table-definition row.
+Later `fx_index` identity and `fx_index_def` rows are the intentionally
+normalized compiled index catalog, written transactionally and verified
+against the manifest checksum rather than independently edited.
 
 Do not create physical `fx_field` or `fx_relation_def` in the first cut unless the compiler/runtime needs fast SQL-level introspection.
 
@@ -359,44 +361,47 @@ PostgreSQL `jsonb` is not checksum input. The artifact has no mutable status.
 S03-D owns later validation lifecycle, and the scope's sole active-version
 pointer changes only after required index backfills and validation succeed.
 
-Versioned table definitions remain S03-B2 work. This cutline does not imply
-that the S03-B1 artifact already normalizes or activates table, field,
-relation, constraint, or index definitions.
+S03-B2a now freezes only the semantic app-document table-definition section.
+S03-B2b must resolve its names through stable `fx_control_table` identities,
+sort by numeric table ID, and persist the B1 artifact. This cutline does not
+imply that the artifact normalizes or activates field, relation, constraint,
+or index definitions, and it does not authorize a second table-definition
+copy.
 
-Example table definition inside `fx_schema_version.manifest_json`:
+Accepted S03-B2a table-definition section (using conceptual short catalog
+names in this cutline):
 
 ```json
 {
-  "fields": {
-    "product": {
-      "kind": "commerce_relation",
-      "target": "commerce.products",
-      "cardinality": "one",
-      "indexed": true,
-      "onDelete": "restrict"
-    },
-    "status": {
-      "kind": "enum",
-      "values": ["pending", "approved", "rejected"],
-      "indexed": true
-    },
-    "createdAt": {
-      "kind": "number",
-      "indexed": true
-    }
-  },
-  "relations": [
+  "kind": "tableDefinitions",
+  "sectionVersion": 1,
+  "tables": [
     {
-      "name": "productReviews.product",
-      "sourcePath": "product",
-      "targetTable": "commerce.products",
-      "cardinality": "one",
-      "relationKind": "commerce_picker",
-      "onDelete": "restrict"
+      "tableId": 7,
+      "namespace": "app",
+      "logicalName": "productReviews",
+      "definition": {
+        "kind": "appDocument",
+        "definitionVersion": 1,
+        "documentType": {
+          "type": "object",
+          "value": {
+            "status": {
+              "fieldType": { "type": "string" },
+              "optional": false
+            }
+          }
+        }
+      }
     }
   ]
 }
 ```
+
+The earlier unbound `fields`/`relations` JSON sketch was a design superset and
+is superseded for this slice. Explicit relation/cardinality/on-delete objects,
+Payload definitions, and Medusa relational DML need later source-driven
+contracts and must not be added as opaque optional fields to section v1.
 
 ### `fx_field`: defer
 

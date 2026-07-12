@@ -227,6 +227,29 @@ versioned:
   relation_definition, constraint_definition
 ```
 
+The `*_definition` names above describe semantic roles, not a requirement for
+one physical catalog table per role. In the accepted v1 table path,
+`fx_control_table` owns only the stable deployment-scoped mapping from compact
+`table_id` to `(namespace, logical_name)`. The version-pinned table definition
+lives exactly once inside `fx_control_schema_version.manifest_json`; there is
+no `fx_control_table_definition`, `physical_name`, or second `definition_json`
+projection. Names repeated in the manifest are immutable assertions that the
+trusted binder must verify against `fx_control_table`, not a competing identity
+authority.
+
+S03-B2a freezes only a composable `tableDefinitions` section. Its first proven
+variant is an `appDocument` definition with a required object validator and a
+stable table ID. App table names, nested object-field names, and `v.id(...)`
+targets follow Convex's 64-byte ASCII identifier rules; app table names also
+reject the reserved `_` system prefix. The definition pins
+`ObjectValidatorJsonV1`; expanding the compatibility validator later cannot
+silently widen an existing section/definition version. It is not the complete
+unified schema-manifest format:
+indexes remain S03-C work, relation and constraint semantics remain gated on a
+real compiler contract, and Payload/Medusa variants must be derived from their
+own source schemas rather than being disguised as app document validators.
+Extending the closed section requires an explicit semantic-version change.
+
 An index definition carries its ordered-key codec version and lifecycle:
 
 ```text

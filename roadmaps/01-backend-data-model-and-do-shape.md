@@ -1,5 +1,74 @@
 # Backend Data Model And Durable Object Shape
 
+## Freeze One Semantic Table-Definition Source
+
+Previous completed checkpoint: `00e15c7` Require evidence-first design review.
+
+What changed:
+
+- Added a strict, versioned `tableDefinitions` protocol section for stable
+  app-document table bindings and required object validators.
+- Required positive branded table IDs in ascending numeric order and unique
+  logical identity bindings. Unknown legacy, physical, index, relation, and
+  lifecycle fields fail decoding.
+- Ported Convex's 64-byte ASCII identifier rules for app table names, nested
+  object fields, and `v.id(...)` targets before append-only catalog allocation;
+  app table names cannot enter the reserved `_` system namespace.
+- Pinned the definition to immutable `ObjectValidatorJsonV1`; the existing
+  unversioned validator exports remain compatibility aliases, so later
+  validator growth cannot silently change definition v1.
+- Kept each versioned table definition only in the existing
+  `fx_control_schema_version.manifest_json` artifact. Explicitly removed the
+  proposed `fx_control_table_definition`, `physical_name`, and duplicate
+  `definition_json` from the accepted v1 design; no DDL changed.
+
+Why it changed:
+
+A per-table JSON projection would create a second schema authority and a new
+drift invariant without helping the first trusted app-row slice. The stable
+`fx_control_table` row needs only identity; the immutable artifact owns the
+versioned definition.
+
+Convex references inspected:
+
+- `crates/common/src/bootstrap_model/schema_metadata.rs`
+- `crates/common/src/bootstrap_model/tables.rs`
+- `crates/common/src/schemas/mod.rs`
+- `crates/common/src/schemas/json.rs`
+
+How Flarex differs:
+
+- Convex persists one typed schema string and a separate table mapping. Flarex
+  follows that split, adding a stable numeric ID plus namespace/name assertion
+  because its deployment catalog reserves app, Payload, Medusa, and system
+  identity domains.
+- Convex uses name-ordered maps. Flarex requires numeric-ID ordering before its
+  array-preserving canonical manifest codec hashes the section.
+
+Known limitations and follow-up:
+
+- Section v1 proves only app-document definitions. Payload and Medusa require
+  later source-derived variants; indexes, relation/constraint semantics,
+  catalog binding/persistence, activation, rows, and OCC remain deferred.
+- S03-D still owns target-existence and cross-reference validation after the
+  section's identifier-level checks.
+- The current analyzer's sorted-name ordinal IDs are not stable catalog IDs and
+  cannot be written into this section. S03-B2b owns trusted resolution.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/schema-manifest-table-definitions.test.ts
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/analysis typecheck
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Persist Immutable Deployment-Owned Schema Artifacts
 
 Previous completed checkpoint: `54f0022` Persist stable table identities.

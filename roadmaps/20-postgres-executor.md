@@ -1,5 +1,65 @@
 # Postgres Executor
 
+## Freeze Host-Neutral Semantic Table Definitions
+
+Previous completed checkpoint: `00e15c7` Require evidence-first design review.
+
+What changed:
+
+- Added the strict semantic app-document table-definition section to
+  `flarex-protocol`, including stable IDs, exact versioned discriminants,
+  object-validator requirements, Convex-compatible app identifiers, ordering,
+  and uniqueness.
+- Extracted the existing `ValidatorJson` codec from the HTTP deployment module
+  into a focused protocol subpath as immutable `ValidatorJsonV1` while
+  preserving the old names as compatibility re-exports.
+- Kept semantic decoding separate from the generic B1 canonical codec. No
+  executor, Fetch, Nitro, Worker, SQL repository, or migration code changed.
+
+Why it changed:
+
+The future trusted binder/compiler needs a host-neutral semantic input before
+it can safely register an immutable artifact. Importing the HTTP API module or
+adding a normalized definition table would couple that contract to a runtime
+host or persistence projection.
+
+Convex references inspected:
+
+- `crates/common/src/bootstrap_model/schema_metadata.rs`
+- `crates/common/src/bootstrap_model/tables.rs`
+- `crates/common/src/schemas/mod.rs`
+- `npm-packages/convex/src/server/schema.ts`
+
+How Flarex differs:
+
+- Convex reconstructs a typed schema through name-keyed maps. Flarex's trusted
+  B2b binder must first resolve stable deployment catalog IDs, sort numerically,
+  then pass the decoded section to the B1 canonical hasher.
+- Section v1 does not pretend app validators describe Medusa relational DML or
+  Payload adapter schemas; those need new explicit variants.
+
+Known limitations and follow-up:
+
+- No analyzer/compiler route consumes the section yet. S03-B2b owns stable-ID
+  resolution and artifact persistence; S03-D owns trusted cross-reference
+  validation/readiness.
+- No transaction, OCC, row, commit compiler, sync, Hyperdrive, or Cloudflare
+  deployment behavior changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/schema-manifest-table-definitions.test.ts
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/analysis typecheck
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Persist Schema Artifacts Behind Framework-Neutral Transaction APIs
 
 Previous completed checkpoint: `54f0022` Persist stable table identities.

@@ -1,8 +1,9 @@
 # FlarexDB Schema And Migration Plan
 
-Status: S01 through S02-C, resolve-only S02-D1, and catalog checkpoints S03-A
-and S03-B1 complete; hosted-proof H01-H04 and H05-A complete, while H05-B and
-S02-D2 production routing are deferred as core work proceeds to S03-B2
+Status: S01 through S02-C, resolve-only S02-D1, and catalog checkpoints S03-A,
+S03-B1, and S03-B2a complete; hosted-proof H01-H04 and H05-A complete, while
+H05-B and S02-D2 production routing are deferred as core work proceeds to
+S03-B2b
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -77,10 +78,13 @@ These are not left for individual implementation turns to reinterpret:
   one hash slot.
 - App row JSON is authoritative. Index, edge, unique, change, and outbox rows
   are trusted deterministic products of the row and pinned catalog.
-- V1 keeps stable table/index identities plus stable relation/constraint IDs in
-  the immutable manifest. Index definitions are normalized. Physical field,
-  constraint-definition, and relation-definition catalogs remain deferred
-  until a real compiler or adapter requires them.
+- V1 keeps stable table/index identities. The immutable manifest is the only
+  versioned table-definition source; do not add a table-definition projection.
+  Index definitions are intentionally normalized in S03-C. Stable relation and
+  constraint IDs remain a design gate until a real compiler contract defines
+  their semantics; do not manufacture opaque IDs or optional JSON placeholders.
+  Physical field, constraint-definition, and relation-definition catalogs
+  remain deferred until a real compiler or adapter requires them.
 - Migrations are additive. Legacy `documents`, `indexes`, invoke staging,
   commits, outbox, and subscription tables are not renamed or dropped here.
 
@@ -388,7 +392,12 @@ Progress:
 - [x] S03-B1 — Persist immutable schema-version artifacts, canonical manifest
   bytes, and SHA-256 checksums without lifecycle or activation behavior.
 - [ ] S03-B2 — Bind stable table identities to immutable versioned table
-  definitions.
+  definitions without a second persisted definition copy.
+  - [x] S03-B2a — Freeze the strict, composable app-document table-definition
+    section and deterministic ordering/uniqueness rules.
+  - [ ] S03-B2b — Resolve/allocate stable catalog IDs, verify name bindings,
+    assemble the section deterministically, and persist the existing B1
+    artifact.
 - [ ] S03-C — Add stable index identities, immutable index definitions, and
   per-scope build state.
 - [ ] S03-D — Compile and verify normalized catalog state transactionally and
@@ -400,8 +409,8 @@ Outcome:
   checksum, and deployment ownership. Lifecycle status remains deferred to
   S03-D rather than making this artifact row mutable.
 - Add stable `fx_control_table` and `fx_control_index` identities.
-- Assign stable relation and constraint IDs inside the immutable manifest even
-  though their normalized physical definition tables remain deferred.
+- Add relation and constraint IDs only after their source-driven semantic
+  contract is accepted; B2a deliberately does not invent them.
 - Add immutable `fx_control_index_definition` and per-scope
   `fx_control_index_build_state`.
 - Compile the manifest transactionally and verify the normalized catalog against
@@ -410,7 +419,8 @@ Outcome:
 
 Exit gate:
 
-- stable table/index/relation/constraint IDs survive multiple schema versions;
+- stable table/index IDs survive multiple schema versions, and any later
+  relation/constraint IDs pass their own semantic-identity gate;
 - cross-deployment foreign keys and activation are rejected;
 - exactly one scope pointer is mutable authority;
 - field/relation physical catalogs have not slipped into the first migration.
@@ -594,6 +604,88 @@ assertions reached 173 passed and 28 skipped without a test failure, then a
 Vitest worker exited with a Windows/V8 zone out-of-memory error. The complete
 PGlite migration file and affected artifact/stable-catalog files were rerun in
 fresh bounded processes as the green regression gate above.
+
+#### S03-B2a Implementation Checkpoint
+
+Previous completed checkpoint: `00e15c7` Require evidence-first design review.
+
+What changed:
+
+- Extracted the existing Convex-shaped validator codec into focused,
+  host-neutral immutable `ValidatorJsonV1`/`ObjectValidatorJsonV1` contracts
+  while preserving the old names and deployment-protocol re-export as
+  compatibility aliases.
+- Added a strict semantic `tableDefinitions` section contract under
+  `flarex-protocol/schema-manifest`. Section v1 accepts only the proven
+  `appDocument` variant with a required object `documentType`, positive branded
+  `CatalogTableId`, Convex-compatible non-system app table name, and explicit
+  definition version. The same 64-byte ASCII identifier rule applies
+  recursively to object fields and `v.id(...)` targets, and the definition
+  pins the validator-v1 union so later compatibility growth cannot widen it.
+- Required strictly increasing numeric table IDs, allowing gaps, and unique
+  `(namespace, logicalName)` bindings. Exact decoding rejects legacy placement
+  and lifecycle fields, physical names, opaque definition copies, indexes,
+  relations, unknown validator fields, and unsafe JSON/text.
+- Kept the B1 JSON codec generic and separate. Callers must decode the semantic
+  section before canonical hashing; B2a adds no persistence or migration.
+- Superseded the proposed `fx_control_table_definition` DDL and corrected the
+  accepted design/cutline so `manifest_json` remains the sole persisted
+  versioned table-definition source.
+
+Why it changed:
+
+Convex stores one typed whole-schema artifact and a separate stable table
+mapping, not a second per-table definition JSON copy. Freezing only the proven
+table section also prevents the current app validator model from falsely
+claiming to represent Payload or Medusa relational schemas.
+
+Convex sources inspected:
+
+- `crates/common/src/bootstrap_model/schema_metadata.rs`
+- `crates/common/src/bootstrap_model/tables.rs`
+- `crates/common/src/schemas/mod.rs`
+- `crates/common/src/schemas/json.rs`
+- `crates/common/src/schemas/validator.rs`
+- `crates/value/src/table_name.rs`
+- `npm-packages/convex/src/server/schema.ts`
+
+How Flarex differs:
+
+- Convex keys a schema's tables by name and carries component namespace outside
+  the schema. Flarex repeats its deployment catalog namespace/name beside the
+  stable numeric ID as a version-pinned assertion because app, Payload,
+  Medusa, and system identities share one catalog.
+- Convex normalizes table-array semantics through a `BTreeMap`. Flarex requires
+  the trusted binder to emit strict numeric-ID order before the B1 codec hashes
+  the preserved array order.
+- Section v1 is app-document-only. Payload and Medusa must add explicitly
+  versioned source-derived variants rather than reuse `ValidatorJson`.
+
+Known limitations and follow-up:
+
+- S03-B2b still owns catalog resolution/allocation, exact mapping checks,
+  deterministic section construction, and B1 artifact persistence.
+- S03-C owns indexes and build state. Relation/constraint semantics and IDs,
+  lifecycle/readiness, activation, OCC, app rows, commit compilation, sync,
+  Payload, Medusa, and Cloudflare routing remain out of scope.
+- S03-D still owns target-existence and cross-reference validation; B2a proves
+  only validator structure plus identifier-level semantics.
+- The generic B1 codec still accepts any strict JSON object by design; trusted
+  composition must invoke semantic section decoding first.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/schema-manifest-table-definitions.test.ts
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/analysis typecheck
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
 
 ### [ ] S04 — Migrate Active Schema Pointer Authority
 

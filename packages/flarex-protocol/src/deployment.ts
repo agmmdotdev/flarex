@@ -1,6 +1,9 @@
 import { Effect, Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
 import { AuthConfigSchema } from "./auth";
+import { ValidatorJson } from "./validator-json";
+
+export { ValidatorJson } from "./validator-json";
 
 export const DeploymentRoute = {
   health: "/health",
@@ -63,62 +66,6 @@ const FinishPushRejectionCode = Schema.Union([
   Schema.Literal("missing_analysis"),
   Schema.Literal("missing_artifact"),
 ]);
-
-export type ValidatorJson =
-  | { readonly type: "null" | "number" | "bigint" | "boolean" | "string" | "bytes" | "any" }
-  | { readonly type: "id"; readonly tableName: string }
-  | { readonly type: "literal"; readonly value: string | number | boolean }
-  | { readonly type: "array"; readonly value: ValidatorJson }
-  | {
-      readonly type: "object";
-      readonly value: Readonly<Record<string, { readonly fieldType: ValidatorJson; readonly optional: boolean }>>;
-    }
-  | { readonly type: "record"; readonly keys: ValidatorJson; readonly values: ValidatorJson }
-  | { readonly type: "union"; readonly value: ReadonlyArray<ValidatorJson> };
-
-export const ValidatorJson: Schema.Codec<ValidatorJson> = Schema.suspend(() =>
-  Schema.Union([
-    Schema.Struct({
-      type: Schema.Union([
-        Schema.Literal("null"),
-        Schema.Literal("number"),
-        Schema.Literal("bigint"),
-        Schema.Literal("boolean"),
-        Schema.Literal("string"),
-        Schema.Literal("bytes"),
-        Schema.Literal("any"),
-      ]),
-    }),
-    Schema.Struct({
-      type: Schema.Literal("id"),
-      tableName: Schema.String,
-    }),
-    Schema.Struct({
-      type: Schema.Literal("literal"),
-      value: Schema.Union([Schema.String, Schema.Number, Schema.Boolean]),
-    }),
-    Schema.Struct({
-      type: Schema.Literal("array"),
-      value: ValidatorJson,
-    }),
-    Schema.Struct({
-      type: Schema.Literal("object"),
-      value: Schema.Record(Schema.String, Schema.Struct({
-        fieldType: ValidatorJson,
-        optional: Schema.Boolean,
-      })),
-    }),
-    Schema.Struct({
-      type: Schema.Literal("record"),
-      keys: ValidatorJson,
-      values: ValidatorJson,
-    }),
-    Schema.Struct({
-      type: Schema.Literal("union"),
-      value: Schema.Array(ValidatorJson),
-    }),
-  ]),
-);
 
 export class PushSourceModule extends Schema.Class<PushSourceModule>(
   "PushSourceModule",

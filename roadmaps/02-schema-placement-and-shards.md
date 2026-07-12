@@ -1,5 +1,64 @@
 # Schema Placement And Shards
 
+## Keep Versioned Table Definitions In The Deployment Artifact
+
+Previous completed checkpoint: `00e15c7` Require evidence-first design review.
+
+What changed:
+
+- Froze a semantic app-document table-definition section that binds each
+  versioned entry to a deployment-stable `CatalogTableId` and checked
+  namespace/logical-name assertion.
+- Kept app names outside Convex's reserved `_` system namespace and validated
+  nested document identifiers without adding a physical placement name.
+- Kept that section in the single deployment-owned schema artifact contract.
+  Added no per-scope/data-plane copy, physical table name, placement field,
+  normalized table-definition row, or active pointer.
+
+Why it changed:
+
+Logical schema identity is resolved before a scope's physical topology. A
+`physical_name` in the versioned logical definition would mix placement with
+schema semantics and make shared/schema-per-scope/database-per-scope variants
+compete for authority.
+
+Convex references inspected:
+
+- `crates/common/src/bootstrap_model/schema_metadata.rs`
+- `crates/common/src/bootstrap_model/tables.rs`
+- `crates/value/src/table_mapping.rs`
+- `crates/common/src/schemas/json.rs`
+
+How Flarex differs:
+
+- Convex owns schema and mapping in one backend database. Flarex keeps the
+  deployment-owned logical artifact independent of later control-plane routing
+  and scope/data-plane placement.
+- The new section intentionally rejects the legacy Durable Object
+  `partitionBy | colocateWith | global` placement model.
+
+Known limitations and follow-up:
+
+- S03-B2b still must resolve stable mappings and persist the artifact. No
+  physical Payload/Medusa strategy, data-plane cache, RLS proof, lifecycle, or
+  activation behavior is included.
+- Section v1 is app-document-only; a Medusa DML compiler cannot be represented
+  by this validator shape.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/schema-manifest-table-definitions.test.ts
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/analysis typecheck
+corepack pnpm --filter flarex-backend typecheck
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Keep Schema-Version Artifacts In The Deployment Control Catalog
 
 Previous completed checkpoint: `54f0022` Persist stable table identities.

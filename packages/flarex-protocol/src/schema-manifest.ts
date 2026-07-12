@@ -1,9 +1,15 @@
 import { Schema } from "effect";
 
+import { CatalogTableIdSchema, type CatalogTableId } from "./catalog";
 import type { Json } from "./json";
+import {
+  ObjectValidatorJsonV1,
+  type ValidatorJsonV1,
+} from "./validator-json";
 
 export const MAX_CATALOG_SCHEMA_VERSION = 2_147_483_647;
 export const MAX_SCHEMA_MANIFEST_NESTING_DEPTH = 128;
+export const MAX_SCHEMA_MANIFEST_APP_IDENTIFIER_LENGTH = 64;
 
 const NonBlankPostgresText = Schema.String.check(
   Schema.makeFilter((value) =>
@@ -40,6 +46,86 @@ export const SCHEMA_MANIFEST_CODEC_VERSION_V1 =
 export const decodeSchemaManifestCodecVersion = Schema.decodeUnknownSync(
   SchemaManifestCodecVersionSchema,
 );
+
+const SchemaManifestAppIdentifierSchema = Schema.String.check(
+  Schema.makeFilter((value) =>
+    isValidSchemaManifestAppIdentifier(value)
+      ? undefined
+      : "Expected a Convex-compatible app identifier",
+  ),
+);
+
+export const SchemaManifestAppTableNameSchema =
+  SchemaManifestAppIdentifierSchema.check(
+    Schema.makeFilter((value) =>
+      value.startsWith("_")
+        ? "Expected an app table name outside the reserved system namespace"
+        : undefined,
+    ),
+  ).pipe(
+    Schema.brand("FlarexDB/SchemaManifestAppTableName"),
+  );
+export type SchemaManifestAppTableName =
+  typeof SchemaManifestAppTableNameSchema.Type;
+
+const StrictManifestStructOptions: {
+  readonly parseOptions: {
+    readonly onExcessProperty: "error";
+  };
+} = {
+  parseOptions: { onExcessProperty: "error" },
+};
+
+export const SchemaManifestAppDocumentDefinitionV1Schema = Schema.Struct({
+  kind: Schema.Literal("appDocument"),
+  definitionVersion: Schema.Literal(1),
+  documentType: ObjectValidatorJsonV1,
+}).check(
+  Schema.makeFilter((definition) =>
+    validateSchemaManifestAppValidatorIdentifiers(
+      definition.documentType,
+      "documentType",
+    ),
+  ),
+).annotate(StrictManifestStructOptions);
+export type SchemaManifestAppDocumentDefinitionV1 =
+  typeof SchemaManifestAppDocumentDefinitionV1Schema.Type;
+
+export const SchemaManifestAppTableDefinitionV1Schema = Schema.Struct({
+  tableId: CatalogTableIdSchema,
+  namespace: Schema.Literal("app"),
+  logicalName: SchemaManifestAppTableNameSchema,
+  definition: SchemaManifestAppDocumentDefinitionV1Schema,
+}).annotate(StrictManifestStructOptions);
+export type SchemaManifestAppTableDefinitionV1 =
+  typeof SchemaManifestAppTableDefinitionV1Schema.Type;
+
+const SchemaManifestAppTableDefinitionsV1Schema = Schema.Array(
+  SchemaManifestAppTableDefinitionV1Schema,
+).check(
+  Schema.makeFilter((tables) => validateSchemaManifestTableOrder(tables)),
+);
+
+export const SchemaManifestTableDefinitionsV1Schema = Schema.Struct({
+  kind: Schema.Literal("tableDefinitions"),
+  sectionVersion: Schema.Literal(1),
+  tables: SchemaManifestAppTableDefinitionsV1Schema,
+}).annotate(StrictManifestStructOptions);
+export type SchemaManifestTableDefinitionsV1 =
+  typeof SchemaManifestTableDefinitionsV1Schema.Type;
+
+const decodeSchemaManifestTableDefinitionsV1Shape = Schema.decodeUnknownSync(
+  SchemaManifestTableDefinitionsV1Schema,
+  { onExcessProperty: "error" },
+);
+
+export function decodeSchemaManifestTableDefinitionsV1(
+  value: unknown,
+): SchemaManifestTableDefinitionsV1 {
+  return decodeSchemaManifestTableDefinitionsV1Shape(
+    decodeSchemaManifestJson(value),
+  );
+}
 
 export type SchemaManifestJson = {
   readonly [key: string]: Json;
@@ -120,6 +206,141 @@ export function isSchemaManifestJson(
     value !== null &&
     typeof value === "object" &&
     !Array.isArray(value);
+}
+
+function validateSchemaManifestTableOrder(
+  tables: ReadonlyArray<{
+    readonly tableId: CatalogTableId;
+    readonly namespace: "app";
+    readonly logicalName: SchemaManifestAppTableName;
+  }>,
+): string | undefined {
+  let previousTableId: CatalogTableId | undefined;
+  const logicalIdentities = new Set<string>();
+
+  for (const table of tables) {
+    if (
+      previousTableId !== undefined &&
+      table.tableId <= previousTableId
+    ) {
+      return "Expected table IDs in strictly increasing numeric order";
+    }
+    previousTableId = table.tableId;
+
+    const logicalIdentity = JSON.stringify([
+      table.namespace,
+      table.logicalName,
+    ]);
+    if (logicalIdentities.has(logicalIdentity)) {
+      return "Expected unique table namespace and logical-name bindings";
+    }
+    logicalIdentities.add(logicalIdentity);
+  }
+
+  return undefined;
+}
+
+function isValidSchemaManifestAppIdentifier(value: string): boolean {
+  if (
+    value.length === 0 ||
+    value.length > MAX_SCHEMA_MANIFEST_APP_IDENTIFIER_LENGTH
+  ) {
+    return false;
+  }
+
+  const first = value.charCodeAt(0);
+  if (!isAsciiLetter(first) && first !== 0x5f) return false;
+
+  let hasNonUnderscore = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (isAsciiLetter(codeUnit) || isAsciiDigit(codeUnit)) {
+      hasNonUnderscore = true;
+    } else if (codeUnit !== 0x5f) {
+      return false;
+    }
+  }
+  return hasNonUnderscore;
+}
+
+function isAsciiLetter(codeUnit: number): boolean {
+  return (codeUnit >= 0x41 && codeUnit <= 0x5a) ||
+    (codeUnit >= 0x61 && codeUnit <= 0x7a);
+}
+
+function isAsciiDigit(codeUnit: number): boolean {
+  return codeUnit >= 0x30 && codeUnit <= 0x39;
+}
+
+function validateSchemaManifestAppValidatorIdentifiers(
+  validator: ValidatorJsonV1,
+  path: string,
+): string | undefined {
+  switch (validator.type) {
+    case "id":
+      return isValidSchemaManifestAppIdentifier(validator.tableName)
+        ? undefined
+        : `${path}.tableName must be a Convex-compatible table identifier`;
+    case "array":
+      return validateSchemaManifestAppValidatorIdentifiers(
+        validator.value,
+        `${path}.value`,
+      );
+    case "object":
+      for (const [fieldName, field] of Object.entries(validator.value)) {
+        if (!isValidSchemaManifestAppIdentifier(fieldName)) {
+          return `${path}.value field ${JSON.stringify(
+            fieldName,
+          )} must be a Convex-compatible identifier`;
+        }
+        const fieldError = validateSchemaManifestAppValidatorIdentifiers(
+          field.fieldType,
+          `${path}.value.${fieldName}.fieldType`,
+        );
+        if (fieldError !== undefined) return fieldError;
+      }
+      return undefined;
+    case "record": {
+      const keyError = validateSchemaManifestAppValidatorIdentifiers(
+        validator.keys,
+        `${path}.keys`,
+      );
+      return keyError ?? validateSchemaManifestAppValidatorIdentifiers(
+        validator.values,
+        `${path}.values`,
+      );
+    }
+    case "union":
+      for (let index = 0; index < validator.value.length; index += 1) {
+        const member = validator.value[index];
+        if (member === undefined) {
+          return `${path}.value lost a validator member`;
+        }
+        const memberError = validateSchemaManifestAppValidatorIdentifiers(
+          member,
+          `${path}.value[${index}]`,
+        );
+        if (memberError !== undefined) return memberError;
+      }
+      return undefined;
+    case "null":
+    case "number":
+    case "bigint":
+    case "boolean":
+    case "string":
+    case "bytes":
+    case "any":
+    case "literal":
+      return undefined;
+  }
+
+  return assertNeverSchemaManifestValidator(validator);
+}
+
+function assertNeverSchemaManifestValidator(value: never): never {
+  throw new Error(
+    `Unexpected ValidatorJsonV1 variant: ${JSON.stringify(value)}`,
+  );
 }
 
 function isCanonicalJsonValue(

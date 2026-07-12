@@ -286,17 +286,18 @@ fx_control_schema_version (
   unique (deployment_id, version),
   check (octet_length(manifest_bytes) > 0),
   check (octet_length(manifest_sha256) = 32),
-  foreign key (deployment_id) references fx_control_deployment (id)
+  foreign key (deployment_id) references deployments (deployment_id)
 )
 ```
 
-Accepted S03-B1 refinement: the schema-version row is a deployment-owned,
+Accepted S03-B1/S03-B2a refinement: the schema-version row is a deployment-owned,
 immutable source artifact, not a lifecycle row. `manifest_json` is the semantic
 schema input; `manifest_bytes` retains the exact versioned canonical UTF-8
 encoding; and `manifest_sha256` stores its raw 32-byte SHA-256 digest. PostgreSQL
-`jsonb` serialization is never checksum input. Normalized catalog rows are
-compiled from and verified against this artifact rather than edited
-independently.
+`jsonb` serialization is never checksum input. Stable identity and intentionally
+normalized operational catalog rows are compiled from and verified against
+this artifact rather than edited independently. A table-definition projection
+is not one of those rows.
 
 The artifact has no mutable `status` in S03-B1. S03-D owns validation and
 activation lifecycle design and must keep any mutable state separate from the
@@ -312,35 +313,35 @@ storage generation and its fence live on the data-plane scope-clock row that
 every final commit locks. Control-plane routing may cache that state, but it is
 not allowed to lead the data-plane fence or become a second commit authority.
 
-Schema catalog separates stable identities from versioned definitions:
+The accepted stable table catalog is the implemented S03-A shape:
 
 ```sql
 fx_control_table (
-  id text primary key,
   deployment_id text not null,
+  table_id integer not null,
   namespace text not null, -- app, payload, medusa, system
   logical_name text not null,
-  access_policy text not null, -- public_ctx_db, payload_only, medusa_reserved, system
-  cms_enabled boolean not null default false,
-  created_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  primary key (deployment_id, table_id),
   unique (deployment_id, namespace, logical_name),
-  unique (deployment_id, id),
-  foreign key (deployment_id) references fx_control_deployment (id)
+  check (table_id between 1 and 2147483647),
+  foreign key (deployment_id) references deployments (deployment_id)
 )
+```
 
-fx_control_table_definition (
-  deployment_id text not null,
-  schema_version_id text not null,
-  table_id text not null,
-  physical_name text not null,
-  definition_json jsonb not null,
-  primary key (deployment_id, schema_version_id, table_id),
-  foreign key (deployment_id, schema_version_id)
-    references fx_control_schema_version (deployment_id, id),
-  foreign key (deployment_id, table_id)
-    references fx_control_table (deployment_id, id)
-)
+There is deliberately no `fx_control_table_definition`. Its proposed
+`physical_name` and `definition_json` columns would copy the same versioned
+table definition already held by `fx_control_schema_version.manifest_json` and
+create drift/reconciliation risk. S03-B2a instead defines a closed,
+deterministically ordered `tableDefinitions` manifest section; S03-B2b will
+bind its asserted names to `fx_control_table` and persist only the existing
+schema-version artifact.
 
+The following column/index/relation/constraint sketches are longer-range
+provenance, not accepted S03-B2a DDL. Their IDs and physical projections remain
+deferred until the relevant compiler or adapter demonstrates a need:
+
+```sql
 fx_control_column (
   id text primary key,
   deployment_id text not null,

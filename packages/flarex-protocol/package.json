@@ -21,7 +21,8 @@
     "./registry": "./src/registry.ts",
     "./scheduler": "./src/scheduler.ts",
     "./schema-manifest": "./src/schema-manifest.ts",
-    "./storage-authority": "./src/storage-authority.ts"
+    "./storage-authority": "./src/storage-authority.ts",
+    "./validator-json": "./src/validator-json.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
