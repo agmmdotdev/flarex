@@ -1,165 +1,156 @@
 # Convex-First System Porting Policy
 
-## Require Evidence-First Design Challenge
+## Status And Scope
 
-Previous completed checkpoint: `ca565e7` Persist immutable schema artifacts.
+Status: active cross-system policy.
 
-What changed:
+This roadmap defines how Flarex uses Convex as its primary behavioral and
+developer-model reference across backend, storage, execution, generated APIs,
+sync, deployment, local development, clients, and tests. It does not own the
+current implementation status of those domains or chronological porting
+history.
 
-- Added an explicit `AGENTS.md` rule that treats user proposals, markdown,
-  current code, and an agent's own first idea as hypotheses to pressure-test.
-  Agents must identify concrete contradictions, duplicate authorities, unsafe
-  trust/transaction boundaries, stale assumptions, failure gaps, and smaller
-  correctness-preserving alternatives without manufacturing objections.
-- Corrected replacement-source precedence. The accepted design remains first;
-  the v1 cutline controls inventory/deferrals; focused foundation plans control
-  active slice refinements; and the long-form internal schema is explicitly a
-  proposal/provenance source whose unrefined DDL is not automatically accepted.
-- Removed the duplicated roadmap map and stale deployment-scoped Durable Object
-  name list from `AGENTS.md`. The maintained roadmap index now owns those
-  details, and historical `DO`/`partition`/`shard` filenames do not imply active
-  architecture.
-- Updated durable backend language to use Postgres authority, exact snapshot
-  tokens, scope-local commit sequences, host-neutral short transactions, and
-  proportional verification. Cloudflare provisioning and broad unrelated
-  suites are no longer implied by a narrow core slice.
+[`../AGENTS.md`](../AGENTS.md) owns the operating rule and design-source
+precedence. Domain roadmaps own each accepted port/divergence and its current
+status.
 
-Why it changed:
+## Core Rule
 
-`AGENTS.md` is an operating contract, not a second roadmap. Volatile copies had
-already drifted from accepted S03 identities, the Postgres-authoritative host
-decision, scope-owned coordination, and the user's preference for explicit
-design pushback. Keeping only durable rules makes future critiques more likely
-to catch mixed old/new assumptions before they become migrations.
+For every material system feature:
 
-Convex sources inspected:
+1. Inspect the relevant current Convex source and tests before designing the
+   Flarex behavior.
+2. Port the developer mental model, public API, invariants, and implementation
+   pattern closely when portable and licensed for the intended use.
+3. Identify the exact runtime/storage boundary that prevents a close port.
+4. Choose the smallest named Flarex divergence that preserves correctness.
+5. Record the Convex sources, retained semantics, divergence, limitations, and
+   verification in the owning living domain roadmap when those durable facts
+   change.
 
-- No new Convex source inspection was needed for this governance-only change.
-  The existing Convex-first requirement and source-routing policy are retained.
+Do not invent a new framework abstraction when Convex already supplies a
+portable pattern. Do not copy an implementation shape whose assumptions do not
+survive Postgres, Cloudflare isolation, service bindings, or licensing.
 
-How Flarex differs:
+## Evidence-First Challenge
 
-- Flarex has several migration-era documents and Cloudflare compatibility
-  hosts around one Postgres authority. That makes explicit source precedence
-  and stale-assumption checks more important than in a single-backend design.
-- Cloudflare remains a host and coordination boundary, but no longer appears in
-  the operating rules as the explanation for every database divergence.
+Treat user proposals, existing markdown, current code, historical prototypes,
+and the agent's first idea as hypotheses.
 
-Known limitations and follow-up:
+Before promoting a design, compare it with:
 
-- This checkpoint does not adjudicate the proposed S03-B2 table-definition
-  shape or rewrite historical roadmap entries; those remain separate design
-  decisions with their original provenance.
-- Exact active actor names and milestone status must stay in their owning
-  roadmap/code and may still require focused cleanup when touched.
+- [`../design-notes/flarex-db-accepted-design.md`](../design-notes/flarex-db-accepted-design.md)
+  and other accepted design records;
+- current Convex behavior and source;
+- current Flarex schemas, code, and decisive tests;
+- the active slice boundary; and
+- known migration and rollback requirements.
 
-Verification:
+Call out concrete contradictions, duplicate authorities, unsafe trust or
+transaction boundaries, missing failure/recovery behavior, stale assumptions,
+premature abstractions, and smaller correctness-preserving alternatives. Do
+not manufacture objections after a proposal survives the evidence.
 
-```sh
-git diff --check -- AGENTS.md roadmaps/README.md roadmaps/13-convex-first-system-porting.md
-```
+Current code is compatibility evidence, not automatic future authority.
+Historical filenames containing `DO`, `partition`, or `shard` do not promote
+their architecture over the accepted Postgres-authoritative replacement.
 
-## Decision
+## System Coverage
 
-Flarex should be developed as a Convex-first system across backend, runtime,
-SDK, generated APIs, local dev, sync, scheduling, validation, deployment
-metadata, and testing.
+The Convex-first rule applies to:
 
-The default implementation rule is:
+- schema definition, validators, table identity, document IDs, values, and
+  ordered index keys;
+- exact snapshots, OCC dependencies, transaction retries, idempotency, and
+  committed outcomes;
+- query/mutation/action registration and restricted syscall APIs;
+- function references, visibility, analysis, deployment metadata, and
+  backend-authoritative codegen;
+- generated `_generated/server`, `_generated/dataModel`, and API surfaces;
+- client query/mutation/watch semantics and React bindings;
+- live-query activation, subscription tokens, result hashing, reruns, and
+  ordered transitions;
+- scheduling, maintenance, recovery, and operational errors;
+- local dev, push, bundling, source-package identity, and artifact lifecycle;
+  and
+- testing strategy, simulation, conformance, and failure injection.
 
-1. inspect the relevant Convex source before designing a Flarex feature,
-2. copy or closely port Convex's behavior and public API shape when portable,
-3. diverge only when Cloudflare runtime constraints, Durable Object
-   partitioning, service bindings, licensing, or an intentional Flarex API
-   difference requires it,
-4. record the divergence in the relevant domain roadmap.
+Each feature should cite the narrowest relevant Convex files/functions rather
+than repeating only broad crate or package names.
 
-This policy applies beyond TypeScript type generation. It also applies to:
+## Current Flarex Boundaries
 
-- OCC and transaction semantics
-- document IDs, table mapping, and schema metadata
-- sync and subscription invalidation
-- function registration and analysis
-- generated `_generated/*` files
-- client APIs and transports
-- local dev server behavior
-- scheduler/workflow semantics
-- validation and value serialization
-- test strategy and simulation strategy
+Flarex's accepted storage/runtime topology differs from Convex in specific
+ways:
 
-## Why
+- Postgres is the only authoritative committed app-data store.
+- Untrusted developer modules run in generated Dynamic Workers.
+- Restricted syscalls cross a private service binding to a trusted executor
+  Worker.
+- The executor uses request-scoped Postgres clients through cache-disabled
+  Hyperdrive in hosted production.
+- Cloudflare Durable Objects own WebSockets, coordination, temporary session
+  bookkeeping when measurement justifies it, and disposable cache state—not
+  authoritative committed data.
+- Control/data placement and storage-generation migration require explicit
+  scope locators, fences, backfill, comparison, cutover, and rollback.
 
-The goal is not to build a generic Cloudflare CRUD backend. The goal is to make
-a Convex-like platform on Cloudflare where the developer mental model and core
-runtime behavior stay close to Convex unless the Cloudflare architecture forces
-a named difference.
+These differences require explicit adapters and recovery protocols. They do
+not justify changing ordinary developer APIs away from Convex without a
+separate accepted reason.
 
-Convex is the proven reference system. Flarex should use Convex's implementation
-as the first design input, then adapt it carefully to Cloudflare Workers,
-Durable Objects, Miniflare, and Flarex's partition/shard model.
+## Acceptable Divergence Tests
 
-## Convex References
+A Flarex divergence is acceptable only when at least one is true:
 
-Current high-level reference areas:
+- Cloudflare runtime isolation or service-binding placement requires it;
+- Postgres transaction, lock, indexing, or operational behavior requires it;
+- partitioning of physical infrastructure is internal and cannot preserve a
+  Convex implementation detail transparently;
+- licensing prevents a close code port;
+- a deliberately different public Flarex API has been accepted and documented;
+  or
+- evidence shows the Convex pattern is not portable to the declared slice.
 
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - Long-running dev loop, file watching, codegen, push, log watching, and
-    backend-state watching.
-- `npm-packages/convex/src/cli/lib/codegen.ts`
-  - Generated file preparation, dependency-ordered writes, stale file cleanup,
-    and function typechecking.
-- `npm-packages/convex/src/cli/codegen_templates`
-  - Generated API, server, and data-model shape.
-- `npm-packages/convex/src/server`
-  - Function registration, query/mutation/action builder APIs, validator-driven
-    handler typing, and runtime helpers.
-- `crates/database/src/transaction.rs`
-  - Core OCC transaction model.
-- `crates/database/src/committer.rs`
-  - Commit validation and persistence shape.
-- `crates/sync`
-  - Subscription and sync engine reference.
-- `crates/model`
-  - Schema, table mapping, indexes, and deployment metadata reference.
+Even then:
 
-Future roadmap records should cite narrower files and functions as features are
-implemented.
+- preserve the closest developer mental model;
+- keep the divergence behind a narrow adapter or typed boundary;
+- expose limitations and typed errors instead of pretending transparency;
+- define failure, retry, recovery, and compatibility behavior; and
+- add tests comparing the portable semantics with Convex expectations.
 
-## Cloudflare Difference
+Cloudflare hosting by itself is not a blanket reason to diverge. Neither is
+the existence of legacy Durable Object prototype code.
 
-Convex's backend can coordinate execution, OCC, sync, and persistence inside its
-own Rust-managed backend/runtime. Flarex has to split those responsibilities
-across Workers, Durable Objects, service bindings, and possibly Miniflare in
-local dev.
+## Reference Areas
 
-That difference does not remove the Convex-first rule. It means the expected
-workflow is:
+Common starting points include:
 
-```txt
-Convex behavior/API -> identify portable pieces -> port closely -> isolate
-Cloudflare-specific boundary -> document the difference
-```
+- `npm-packages/convex/src/server` for function registration, validators, and
+  developer APIs;
+- `npm-packages/convex/src/cli/lib/dev.ts`, `codegen.ts`, and codegen templates
+  for local development, push, and generated files;
+- `crates/database/src/transaction.rs`, `reads.rs`, and `committer.rs` for OCC,
+  dependencies, and authoritative commit;
+- `crates/database/src/subscription.rs` and `crates/sync` for subscriptions and
+  ordered live-query state;
+- `crates/model` for schema, indexes, deployment metadata, and lifecycle; and
+- existing Convex tests beside each implementation for edge-case semantics.
 
-Examples of acceptable divergence:
+Owning domain roadmaps must narrow these references for actual implementation
+slices.
 
-- Durable Object partitioning requires explicit shard boundaries where Convex
-  can use one deployment database transaction.
-- Local dev should use Miniflare-managed Workers/DOs instead of Convex's local
-  Rust backend process.
-- User code should call backend syscalls over service bindings instead of
-  Convex's in-process V8/Rust syscall path.
+## Durable Follow-Up Rule
 
-## Follow-Up Work
+When a port changes durable system truth, the owning roadmap records:
 
-1. Before each new feature, add the specific Convex files inspected to the
-   domain roadmap.
-2. Replace prototype-only implementations when a closer Convex-compatible port
-   is practical.
-3. Keep a short list of intentional differences so they do not accidentally
-   become hidden compatibility breaks.
-4. When a Flarex API differs from Convex, prefer generated/type-level guidance
-   and clear runtime errors.
+- the Convex behavior and exact sources inspected;
+- what Flarex preserves;
+- why any divergence is necessary;
+- the trust, transaction, failure, and recovery implications;
+- known compatibility gaps; and
+- the next correctness gate.
 
-## Verification
-
-Documentation-only change. No runtime verification was required.
+Commit messages and per-turn verification receipts remain in Git/task reports,
+not in this policy or other living roadmaps.
