@@ -1,5 +1,77 @@
 # Indexes
 
+## Persist Immutable Physical Index Generations
+
+Previous completed checkpoint: `6ac7286` Freeze ordered index key codec.
+
+What changed:
+
+- Added a separately branded deployment-local physical definition ID and an
+  exact canonical representation of the accepted app ordered-index spec.
+  Public read evidence is immutable branded hex, while Postgres stores bounded
+  bytes/digest plus size-bounded strict JSON.
+- Added immutable `fx_control_index_definition` rows. Developer generations are
+  owned by the matching stable logical index/table tuple; intrinsic
+  `by_creation_time` generations are table-owned without fake logical IDs.
+  Direct `by_id` has no definition because it uses only row identity.
+- Added developer schema-version bindings with a composite foreign key proving
+  the chosen definition belongs to that exact logical index. Exact specs reuse
+  a definition across schema versions; changed specs receive a new generation
+  while the old one remains addressable.
+- Added an internal caller-owned transaction operation that derives the physical
+  spec, canonical bytes, SHA-256, required activation flag, and physical ID.
+  Public APIs expose only decoded reads; there is no standalone allocation or
+  definition reservation route. It preflights an existing schema binding before
+  inserting and compares prepared evidence without hashing under the lock.
+- Added PGlite and PostgreSQL 18.3 proofs for migration, replay, coexistence,
+  ownership, corruption, exhaustion, rollback, and concurrent competition.
+
+Why it changed:
+
+The logical descriptor must remain stable when fields change, but physical
+entries/builds cannot collide during replacement. The previous all-non-null
+logical-owner sketch also contradicted the accepted intrinsic creation-time
+path. The discriminated owner and separate generation ID fix both issues before
+build-state or entry DDL exists.
+
+Convex references inspected:
+
+- `crates/common/src/types/index.rs`
+- `crates/common/src/bootstrap_model/index/index_config.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/indexing/src/index_registry.rs`
+
+How Flarex differs:
+
+- Convex gives each `_index` metadata document an `IndexId` and permits pending
+  plus enabled copies of one logical name. Flarex uses a compact Postgres
+  physical ID and normalizes immutable spec from mutable per-scope lifecycle.
+- Convex materializes system index metadata. Flarex keeps creation-time identity
+  table-owned and keeps `by_id` definition-free; the later compiler must verify
+  intrinsic requirements against the full schema artifact.
+
+Known limitations and follow-up:
+
+- S03-C4 still owns fenced build state. S03-D owns complete manifest-to-catalog
+  verification and publication; S10 owns entry tables and range-query/OCC APIs.
+- No backfill, enable/retire transition, analyzer, compiler, active-schema
+  planner, Payload/Medusa, Cloudflare, or legacy rewiring changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexDefinitions.test.ts test/pglite.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexDefinitions.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Freeze The Replacement Ordered App-Index Codec
 
 Previous completed checkpoint:

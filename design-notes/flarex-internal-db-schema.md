@@ -154,8 +154,8 @@ ordered transaction identity:
 catalog identity:
   table_id, logical_index_id,
   relation_id, constraint_id    -> compact trusted numeric logical key
-  index_definition_id           -> separate compact physical spec/build key;
-                                   exact representation gated on codec work
+  index_definition_id           -> separately branded deployment-local
+                                   positive signed-32-bit physical spec key
   public/global reference       -> optional separate opaque uuid
 
 Flarex app document identity:
@@ -353,13 +353,14 @@ three fresh attempts. Only typed stale plans retry; every retry replans and
 rehashes, while conflicts, corruption, invalid input, and SQL errors are
 terminal.
 
-The following column/relation/constraint sketches are longer-range provenance,
-not accepted S03-B2a DDL. S03-C1 accepted the logical app-index contract, and
-S03-C2 now accepts only the `fx_control_index` logical mapping plus an internal
-combined optimistic planner. The remaining index sketches distinguish that
-stable logical access path from a physical definition/build generation. Exact
-physical definition-ID representation, codec columns, and fenced cursor
-encoding remain gated on the ordered-key codec and trusted compiler contracts:
+The following column/relation/constraint sketches remain longer-range
+provenance, not accepted S03-B2a DDL. The `fx_control_index`, physical
+definition, and developer schema-binding blocks are now refined by S03-C2/C3:
+the physical ID is a separate signed-32-bit brand, the stored semantic payload
+is the accepted S05-A spec plus canonical evidence, and a composite foreign key
+proves each developer binding matches its definition owner. The build-state
+block remains conceptual C4 work; column/relation/constraint blocks remain
+unaccepted proposals.
 
 ```sql
 fx_control_column (
@@ -409,34 +410,73 @@ fx_control_index (
 
 fx_control_index_definition (
   deployment_id text not null,
-  index_definition_id <compact physical identity> not null,
-  logical_index_id integer not null,
-  index_kind text not null,
-  columns_json jsonb not null,
-  key_codec_version integer not null,
-  created_at timestamptz not null,
+  index_definition_id integer not null,
+  access_kind text not null, -- developer | by_creation_time
+  access_identity_id integer not null,
+  table_id integer not null,
+  logical_index_id integer,
+  physical_spec_codec_version integer not null,
+  physical_spec_json jsonb not null,
+  physical_spec_bytes bytea not null,
+  physical_spec_sha256 bytea not null,
+  created_at timestamptz not null default now(),
   primary key (deployment_id, index_definition_id),
-  foreign key (deployment_id, logical_index_id)
-    references fx_control_index (deployment_id, logical_index_id)
+  unique (deployment_id, index_definition_id, logical_index_id),
+  unique (
+    deployment_id,
+    access_kind,
+    access_identity_id,
+    physical_spec_sha256
+  ),
+  foreign key (deployment_id, table_id)
+    references fx_control_table (deployment_id, table_id),
+  foreign key (deployment_id, logical_index_id, table_id)
+    references fx_control_index (
+      deployment_id,
+      logical_index_id,
+      table_id
+    ),
+  check (
+    (access_kind = 'developer'
+      and logical_index_id is not null
+      and access_identity_id = logical_index_id)
+    or
+    (access_kind = 'by_creation_time'
+      and logical_index_id is null
+      and access_identity_id = table_id)
+  )
 )
 
 fx_control_schema_version_index_binding (
   deployment_id text not null,
   schema_version_id text not null,
   logical_index_id integer not null,
-  index_definition_id <compact physical identity> not null,
+  index_definition_id integer not null,
   required_for_activation boolean not null,
   primary key (deployment_id, schema_version_id, logical_index_id),
   foreign key (deployment_id, schema_version_id)
-    references fx_control_schema_version (deployment_id, id),
-  foreign key (deployment_id, index_definition_id)
-    references fx_control_index_definition (deployment_id, index_definition_id)
+    references fx_control_schema_version (deployment_id, schema_version_id),
+  foreign key (
+    deployment_id,
+    index_definition_id,
+    logical_index_id
+  ) references fx_control_index_definition (
+    deployment_id,
+    index_definition_id,
+    logical_index_id
+  ),
+  check (required_for_activation is true)
 )
+
+-- C3 persists developer definition/binding pairs through one package-internal
+-- caller-owned transaction operation. by_creation_time is representable as a
+-- table-owned definition but its full-artifact injection/verification remains
+-- S03-D. by_id is direct row-identity access and has no definition/build row.
 
 fx_control_index_build_state (
   scope_id text not null,
   deployment_id text not null,
-  index_definition_id <compact physical identity> not null,
+  index_definition_id integer not null,
   storage_generation text not null,
   storage_generation_fence text not null,
   epoch text not null,
@@ -752,7 +792,7 @@ rows when app rows change:
 fx_app_index_entry_rev (
   scope_id text not null,
   epoch text not null,
-  index_definition_id <compact physical identity> not null,
+  index_definition_id integer not null,
   table_id text not null,
   row_id text not null,
   commit_seq bigint not null,
@@ -779,7 +819,7 @@ create index fx_app_index_entry_rev_scan_idx
 fx_app_index_entry_current (
   scope_id text not null,
   epoch text not null,
-  index_definition_id <compact physical identity> not null,
+  index_definition_id integer not null,
   table_id text not null,
   row_id text not null,
   commit_seq bigint not null,

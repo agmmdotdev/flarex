@@ -60,7 +60,9 @@ describe("createPGlitePersistence", () => {
       "documents",
       "freshness_processed_events",
       "fx_control_index",
+      "fx_control_index_definition",
       "fx_control_schema_version",
+      "fx_control_schema_version_index_binding",
       "fx_control_scope",
       "fx_control_scope_provisioning",
       "fx_control_table",
@@ -515,6 +517,112 @@ describe("createPGlitePersistence", () => {
       `);
       expect(preserved.rows).toEqual([
         { table_count: "1", artifact_count: "1", index_count: "0" },
+      ]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("adds immutable index definitions without inventing generations or bindings", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-index-definition-upgrade-"));
+    const previousMigrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const previousJournal = resolve(
+      packageRoot,
+      "test/fixtures/drizzle-through-0022-journal.json",
+    );
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, previousMigrationsFolder, {
+        recursive: true,
+      });
+      await copyFile(
+        previousJournal,
+        resolve(previousMigrationsFolder, "meta/_journal.json"),
+      );
+      const previousPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder: previousMigrationsFolder,
+      });
+      await previousPersistence.migrate();
+      await previousPersistence.insertDeploymentMetadata({
+        deploymentId: "deployment_before_index_definition",
+        projectId: "project_before_index_definition",
+      });
+      await previousPersistence.query(`
+        insert into fx_control_table
+          (deployment_id, table_id, namespace, logical_name)
+        values
+          ('deployment_before_index_definition', 1, 'app', 'users')
+      `);
+      await previousPersistence.query(`
+        insert into fx_control_index
+          (deployment_id, logical_index_id, table_id, descriptor)
+        values
+          ('deployment_before_index_definition', 1, 1, 'by_email')
+      `);
+      await previousPersistence.query(`
+        insert into fx_control_schema_version
+          (
+            deployment_id,
+            schema_version_id,
+            version,
+            manifest_codec_version,
+            manifest_json,
+            manifest_bytes,
+            manifest_sha256
+          )
+        values
+          (
+            'deployment_before_index_definition',
+            'schema_before_index_definition',
+            1,
+            1,
+            '{}'::jsonb,
+            decode('7b7d', 'hex'),
+            decode(repeat('00', 32), 'hex')
+          )
+      `);
+      await expect(
+        previousPersistence.query(
+          `select index_definition_id from fx_control_index_definition limit 1`,
+        ),
+      ).rejects.toThrow();
+
+      const currentPersistence = await createPGlitePersistence({ db });
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      const preserved = await currentPersistence.query<{
+        table_count: string;
+        logical_index_count: string;
+        schema_count: string;
+        definition_count: string;
+        binding_count: string;
+      }>(`
+        select
+          (select count(*)::text from fx_control_table) as table_count,
+          (select count(*)::text from fx_control_index) as logical_index_count,
+          (select count(*)::text from fx_control_schema_version) as schema_count,
+          (select count(*)::text from fx_control_index_definition) as definition_count,
+          (
+            select count(*)::text
+            from fx_control_schema_version_index_binding
+          ) as binding_count
+      `);
+      expect(preserved.rows).toEqual([
+        {
+          table_count: "1",
+          logical_index_count: "1",
+          schema_count: "1",
+          definition_count: "0",
+          binding_count: "0",
+        },
       ]);
     } finally {
       try {

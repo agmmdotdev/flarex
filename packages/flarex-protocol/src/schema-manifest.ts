@@ -240,6 +240,11 @@ export const SchemaManifestAppDeveloperOrderedIndexSpecV1Schema =
   }).annotate(StrictManifestStructOptions);
 export type SchemaManifestAppDeveloperOrderedIndexSpecV1 =
   typeof SchemaManifestAppDeveloperOrderedIndexSpecV1Schema.Type;
+export const decodeSchemaManifestAppDeveloperOrderedIndexSpecV1 =
+  Schema.decodeUnknownSync(
+    SchemaManifestAppDeveloperOrderedIndexSpecV1Schema,
+    { onExcessProperty: "error" },
+  );
 
 export const SchemaManifestAppIndexDeclarationV1Schema = Schema.Struct({
   tableLogicalName: SchemaManifestAppTableNameSchema,

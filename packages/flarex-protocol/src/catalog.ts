@@ -2,6 +2,7 @@ import { Schema } from "effect";
 
 export const MAX_CATALOG_TABLE_ID = 2_147_483_647;
 export const MAX_CATALOG_INDEX_ID = 2_147_483_647;
+export const MAX_CATALOG_INDEX_DEFINITION_ID = 2_147_483_647;
 
 export const CatalogTableIdSchema = Schema.Int.check(
   Schema.isBetween({ minimum: 1, maximum: MAX_CATALOG_TABLE_ID }),
@@ -25,6 +26,25 @@ export const CatalogIndexIdSchema = Schema.Int.check(
 export type CatalogIndexId = typeof CatalogIndexIdSchema.Type;
 export const decodeCatalogIndexId = Schema.decodeUnknownSync(
   CatalogIndexIdSchema,
+);
+
+/**
+ * Deployment-scoped identity for one immutable physical index specification.
+ *
+ * This identity is deliberately distinct from the stable logical index ID. A
+ * changed field lowering, collation, or ordered-key codec must receive another
+ * physical definition ID while the prior definition remains addressable.
+ */
+export const CatalogIndexDefinitionIdSchema = Schema.Int.check(
+  Schema.isBetween({
+    minimum: 1,
+    maximum: MAX_CATALOG_INDEX_DEFINITION_ID,
+  }),
+).pipe(Schema.brand("FlarexDB/CatalogIndexDefinitionId"));
+export type CatalogIndexDefinitionId =
+  typeof CatalogIndexDefinitionIdSchema.Type;
+export const decodeCatalogIndexDefinitionId = Schema.decodeUnknownSync(
+  CatalogIndexDefinitionIdSchema,
 );
 
 export const CatalogTableNamespaceSchema = Schema.Union([

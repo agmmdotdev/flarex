@@ -1,5 +1,70 @@
 # Backend Data Model And Durable Object Shape
 
+## Separate Stable Access Paths From Physical Index Generations
+
+Previous completed checkpoint: `6ac7286` Freeze ordered index key codec.
+
+What changed:
+
+- Added deployment-local positive int32 physical definition identity with a
+  distinct TypeScript brand from stable table and logical index identities.
+- Added immutable Postgres definition rows carrying one discriminated access
+  owner and the complete canonical S05-A physical spec. Developer definitions
+  reference their same-table logical index; creation-time definitions reference
+  the stable table directly; `by_id` creates no physical row. Storage and reads
+  keep JSON/bytes bounded, and read evidence uses immutable hex snapshots.
+- Added immutable developer schema-version bindings. Composite foreign keys
+  prevent cross-owner or cross-deployment pairing, while exact-content reuse and
+  changed-content generations allow old/new physical shapes to coexist. Every
+  current app binding is database-pinned to required, and conflict preflight
+  prevents a caught error from committing an orphan definition.
+- Kept every Durable Object and legacy index row unchanged. This is replacement
+  control-plane state only; per-scope mutable build state follows in C4.
+
+Why it changed:
+
+Stable logical identity answers which developer access path a schema means;
+physical definition identity answers which exact bytes a build or future entry
+uses. Conflating them made replacement builds collide. Requiring intrinsic
+creation-time access to fabricate a logical ID was a second authority, so C3
+uses a table-owned branch instead.
+
+Convex references inspected:
+
+- `crates/common/src/types/index.rs`
+- `crates/common/src/bootstrap_model/index/index_config.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/indexing/src/index_registry.rs`
+
+How Flarex differs:
+
+Convex stores spec and mutable state in transactional `_index` metadata. Flarex
+uses shared-Postgres deployment-qualified identities, stores immutable spec and
+canonical evidence once, and will keep scope/storage-generation lifecycle in a
+separate fenced C4 row.
+
+Known limitations and follow-up:
+
+- C4 must add build-state shape; S03-D must verify all compiled definitions and
+  intrinsic requirements against the full artifact before activation.
+- No app row, index-entry, OCC, commit-compiler, sync, Payload/Medusa, Worker,
+  Cloudflare, or legacy storage shape changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexDefinitions.test.ts test/pglite.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexDefinitions.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Separate Encoded Index Fields From Compact Row Identity
 
 Previous completed checkpoint:

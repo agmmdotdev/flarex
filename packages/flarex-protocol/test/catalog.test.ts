@@ -1,9 +1,15 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
+  decodeCatalogIndexDefinitionId,
+  decodeCatalogIndexId,
   decodeCatalogTableId,
   decodeCatalogTableNamespace,
+  MAX_CATALOG_INDEX_DEFINITION_ID,
+  MAX_CATALOG_INDEX_ID,
   MAX_CATALOG_TABLE_ID,
+  type CatalogIndexDefinitionId,
+  type CatalogIndexId,
   type CatalogTableId,
   type CatalogTableNamespace,
 } from "../src/catalog";
@@ -29,6 +35,35 @@ describe("FlarexDB catalog contracts", () => {
       null,
     ]) {
       expect(() => decodeCatalogTableId(value)).toThrow();
+    }
+  });
+
+  it("keeps logical and physical index identities nominally distinct", () => {
+    expectTypeOf<CatalogIndexId>().toMatchTypeOf<number>();
+    expectTypeOf<CatalogIndexDefinitionId>().toMatchTypeOf<number>();
+    expectTypeOf<CatalogIndexId>()
+      .not.toEqualTypeOf<CatalogIndexDefinitionId>();
+    expectTypeOf<CatalogTableId>()
+      .not.toEqualTypeOf<CatalogIndexDefinitionId>();
+
+    expect(decodeCatalogIndexId(1)).toBe(1);
+    expect(decodeCatalogIndexId(MAX_CATALOG_INDEX_ID)).toBe(
+      MAX_CATALOG_INDEX_ID,
+    );
+    expect(decodeCatalogIndexDefinitionId(1)).toBe(1);
+    expect(
+      decodeCatalogIndexDefinitionId(MAX_CATALOG_INDEX_DEFINITION_ID),
+    ).toBe(MAX_CATALOG_INDEX_DEFINITION_ID);
+
+    for (const value of [
+      0,
+      -1,
+      1.5,
+      MAX_CATALOG_INDEX_DEFINITION_ID + 1,
+      "1",
+      null,
+    ]) {
+      expect(() => decodeCatalogIndexDefinitionId(value)).toThrow();
     }
   });
 

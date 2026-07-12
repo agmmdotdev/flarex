@@ -1,9 +1,9 @@
 # FlarexDB Foundation Execution Plans
 
-Status: S01 through S02-C, resolve-only S02-D1, S03-A through S03-C2, and the
+Status: S01 through S02-C, resolve-only S02-D1, S03-A through S03-C3, and the
 interleaved S05-A prerequisite are complete. Hosted-proof H01-H04 and H05-A are
 complete, while H05-B and S02-D2 production routing are deferred as core work
-proceeds to S03-C3.
+proceeds to fenced per-scope build-state slice S03-C4.
 
 This folder turns the accepted FlarexDB architecture into small, reviewable,
 commit-sized implementation turns. It is intentionally limited to the
@@ -219,8 +219,11 @@ commit are complete.
    persists the deployment-scoped logical catalog and one opaque table/index
    optimistic plan without a standalone reservation path. Interleaved S05-A
    has now frozen ordered physical spec/codec v1 and passed focused PGlite and
-   real-Postgres byte-order/composite-B-tree proofs. S03-C3 is next, followed by
-   fenced build-state C4. Atomic V2 publication remains S03-D work.
+   real-Postgres byte-order/composite-B-tree proofs. S03-C3 then added the
+   separately branded physical generation, immutable canonical definition rows,
+   table-owned creation-time representation, developer schema bindings, and
+   composite owner foreign keys. Fenced build-state C4 is next. Atomic V2
+   publication remains S03-D work.
 4. `S04` migrate active-schema pointer authority while mirroring legacy reads.
 5. `S05` freeze tagged value and ordered-key codecs. Its narrow S05-A ordered
    index prerequisite is complete; S05-B remains later full row-value-codec

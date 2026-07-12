@@ -235,8 +235,9 @@ produce a separate immutable physical definition/build identity so the old
 enabled index and its replacement can coexist. Per-scope build state and app
 index-entry rows key that physical identity, never `logical_index_id` alone.
 S05-A has frozen ordered-key codec v1 and the separate fixed 16-byte row
-identity representation. C3 still must choose the compact immutable
-`index_definition_id`; one ID must not serve both logical and physical roles.
+identity representation. C3 chooses a separately branded, deployment-local
+positive signed-32-bit `index_definition_id`; one ID never serves both logical
+and physical roles.
 
 The `*_definition` names above describe semantic roles, not a requirement for
 one physical catalog table per role. In the accepted v1 table path,
@@ -407,6 +408,51 @@ bytes/empty-object cases). Do not use Convex's broad raw prefix increment for
 v1 component equality, `gt`, or `lte` endpoints.
 
 An immutable physical index definition carries its ordered-key codec version.
+C3 persists app physical definitions as exact compiled artifacts:
+
+- `fx_control_index_definition` owns the compact physical ID, a discriminated
+  access owner, the accepted `AppOrderedIndexPhysicalSpecV1`, domain-separated
+  canonical bytes, canonical-codec version, SHA-256, and creation receipt. The
+  131,072-byte canonical-spec ceiling is above the closed worst-case v1 field
+  envelope; it is unrelated to the 2,048-byte encoded row-key ceiling. SQL caps
+  both canonical bytes and the detoasted logical JSON text size through
+  `octet_length(physical_spec_json::text)`, and the strict JSON check is
+  explicitly `IS TRUE` so missing keys cannot pass through SQL's nullable
+  `CHECK` semantics. Public reads expose immutable branded hex snapshots rather
+  than mutable typed-array evidence.
+- Developer definitions are owned by `(deployment_id, logical_index_id,
+  table_id)`. `by_creation_time` definitions are owned directly by the stable
+  table and carry no fabricated logical ID. `by_id` is direct row-identity
+  access and has no persisted physical definition or build.
+- Exact physical bytes for one access owner reuse the same definition ID across
+  schema versions. A changed lowering, field list, access kind, codec,
+  collation, tie-breaker, or byte ceiling allocates another immutable ID so old
+  and replacement generations coexist. Equal digests still require equal
+  canonical bytes; a mismatch is a terminal collision/corruption outcome.
+- `fx_control_schema_version_index_binding` binds each developer logical index
+  to one matching definition. A composite foreign key proves the definition is
+  owned by that exact logical index rather than merely existing in the same
+  deployment. Current app developer bindings are always required for
+  activation; a database check pins the flag to `true`, the read type is the
+  literal `true`, and callers cannot supply an optional-index policy.
+- The package-internal writer accepts only stable parent identities plus the
+  logical app spec. It lowers and hashes before SQL, locks the deployment,
+  verifies same-deployment schema/logical parents, allocates or reuses the
+  definition, and inserts the binding in the caller-owned transaction. Existing
+  bindings are classified before allocation, so even a caller that catches a
+  conflict inside its transaction cannot commit an orphan definition. Exact-row
+  comparison under the deployment lock uses already prepared canonical evidence
+  and performs no Web Crypto. There is no standalone allocator, naked
+  definition reservation, or public publication method. S03-D must later verify
+  the complete normalized set against the full immutable manifest and inject
+  the intrinsic creation-time requirement.
+
+The old cutline sketch that required non-null `logical_index_id` on every
+physical definition was contradictory: intrinsic creation-time access consumes
+no logical catalog ID. The discriminated owner above is the accepted correction.
+Likewise, independent schema and definition foreign keys are insufficient; the
+binding-to-definition owner foreign key must be composite.
+
 Mutable lifecycle belongs only to per-scope build state:
 
 ```text

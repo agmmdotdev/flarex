@@ -1,8 +1,8 @@
 import { Data, Schema } from "effect";
 
 import {
-  SchemaManifestAppDeveloperOrderedIndexSpecV1Schema,
   SchemaManifestAppIndexFieldPathSchema,
+  decodeSchemaManifestAppDeveloperOrderedIndexSpecV1,
   decodeSchemaManifestAppIndexFieldPath,
   type SchemaManifestAppDeveloperOrderedIndexSpecV1,
   type SchemaManifestAppIndexFieldPath,
@@ -98,11 +98,6 @@ const decodeAppOrderedIndexPhysicalFieldV1Shape = Schema.decodeUnknownSync(
   AppOrderedIndexPhysicalFieldV1Schema,
   { onExcessProperty: "error" },
 );
-const decodeAppDeveloperOrderedIndexSpecV1 = Schema.decodeUnknownSync(
-  SchemaManifestAppDeveloperOrderedIndexSpecV1Schema,
-  { onExcessProperty: "error" },
-);
-
 export const OrderedIndexKeyBytesHexV1Schema = Schema.String.check(
   Schema.makeFilter((value) => {
     if (value.length > MAX_ORDERED_INDEX_KEY_BYTES_V1 * 2) {
@@ -365,7 +360,8 @@ export function decodeAppOrderedIndexPhysicalSpecV1(
 export function lowerAppDeveloperOrderedIndexPhysicalSpecV1(
   logicalSpec: SchemaManifestAppDeveloperOrderedIndexSpecV1,
 ): AppOrderedIndexPhysicalSpecV1 {
-  const decodedLogicalSpec = decodeAppDeveloperOrderedIndexSpecV1(logicalSpec);
+  const decodedLogicalSpec =
+    decodeSchemaManifestAppDeveloperOrderedIndexSpecV1(logicalSpec);
   return decodeAppOrderedIndexPhysicalSpecV1({
     kind: "appOrdered",
     specVersion: 1,

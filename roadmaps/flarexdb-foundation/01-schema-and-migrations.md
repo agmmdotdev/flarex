@@ -1,9 +1,9 @@
 # FlarexDB Schema And Migration Plan
 
 Status: S01 through S02-C, resolve-only S02-D1, catalog checkpoints S03-A
-through S03-C2, and the interleaved S05-A ordered-index prerequisite are
+through S03-C3, and the interleaved S05-A ordered-index prerequisite are
 complete. Hosted-proof H01-H04 and H05-A are complete, while H05-B and S02-D2
-production routing are deferred as core work proceeds to S03-C3.
+production routing are deferred as core work proceeds to S03-C4.
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -410,7 +410,7 @@ Progress:
     logical index identity, and the closed composite app-schema envelope.
   - [x] S03-C2 — Add the deployment-scoped stable logical index catalog and
     opaque table/index optimistic planner without a standalone reservation API.
-  - [ ] S03-C3 — With S05-A complete, add immutable physical
+  - [x] S03-C3 — With S05-A complete, add immutable physical
     definition/schema-binding DDL and choose a compact definition-generation
     identity that permits old/new builds to coexist.
   - [ ] S03-C4 — Add fenced per-scope build-state DDL/read contracts; mutation
@@ -1220,6 +1220,113 @@ corepack pnpm --filter flarex-protocol build
 corepack pnpm --filter @flarex/persistence-postgres typecheck
 corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/orderedIndexKeyCodec.test.ts --no-file-parallelism
 FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/orderedIndexKeyCodec.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
+#### S03-C3 Implementation Checkpoint
+
+Previous completed checkpoint: `6ac7286` Freeze ordered index key codec.
+
+What changed:
+
+- Added separately branded positive signed-32-bit
+  `CatalogIndexDefinitionId`; it cannot be assigned where the stable logical
+  `CatalogIndexId` or table ID is expected.
+- Added a strict app physical-definition protocol with discriminated developer
+  versus table-owned `by_creation_time` access identities. Direct `by_id` is
+  intentionally not buildable/persisted. Domain-separated canonical spec bytes,
+  codec v1, SHA-256, and a 131,072-byte closed-envelope ceiling pin the complete
+  S05-A physical spec without confusing it with the 2,048-byte row-key ceiling.
+- Added additive migration `0023` for immutable
+  `fx_control_index_definition` and developer
+  `fx_control_schema_version_index_binding`. Database checks pin app spec v1,
+  ordered-key codec v1, binary UTF-8, the separate 16-byte tie-breaker, valid
+  owner shape, compact IDs, canonical evidence size, and same-deployment
+  parents. Detoasted logical JSON text size is bounded with
+  `octet_length(jsonb::text)` rather than representation-dependent
+  `pg_column_size`; missing JSON keys fail through an `IS TRUE` predicate, and
+  current developer bindings are database-pinned to required.
+  A composite definition-owner foreign key prevents a schema binding from
+  naming a physical definition owned by another logical index.
+- Corrected Drizzle's generated migration ordering so the referenced logical
+  owner unique constraint exists before its foreign key, and removed generated
+  `public` qualifiers so isolated deployment schemas remain valid.
+- Added one package-internal prepare/apply boundary. Callers provide only stable
+  schema/table/logical identities and the logical developer spec; trusted code
+  lowers and hashes outside SQL, then under the deployment lock reuses exact
+  content or allocates the next deployment-local physical ID and inserts the
+  required schema binding in the caller-owned transaction. The package root
+  exposes only strictly decoded reads with immutable hex evidence, not
+  allocation/publication. Binding conflict classification happens before any
+  insert, and locked exact-row comparison reuses prepared evidence without Web
+  Crypto, so caught conflicts cannot commit orphan definitions or lengthen the
+  critical section with hashing. Per-logical definition reads include the
+  CHECK-equivalent developer owner identity so Postgres can use the existing
+  owner/spec index before filtering accumulated generations.
+- Proved exact replay, definition reuse across schema versions, changed-spec
+  coexistence, table-owned creation-time representation, forged input/parent
+  rejection, composite ownership, missing/oversized JSON rejection, immutable
+  evidence, corruption detection, exhaustion, caught-conflict safety, maximum
+  valid spec acceptance, rollback, and the additive `0022 -> 0023` upgrade in
+  PGlite. PostgreSQL 18.3 proved concurrent exact convergence,
+  competing-binding serialization without an orphan definition, rollback,
+  search-path-safe composite foreign keys, and rejection of oversized logical
+  JSON even when its source datum is TOAST-compressed below the byte ceiling.
+
+Why it changed:
+
+One stable logical index ID cannot identify both an enabled old spec and a
+changed replacement while the latter is being built. The earlier sketch also
+required every definition to carry a logical ID even though the accepted
+intrinsic creation-time path deliberately consumes none. A separate physical
+generation plus discriminated owner preserves both coexistence and intrinsic
+identity without fabricating catalog rows.
+
+Convex sources inspected:
+
+- `crates/common/src/types/index.rs`
+- `crates/common/src/bootstrap_model/index/index_config.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/indexing/src/index_registry.rs`
+
+How Flarex differs:
+
+- Convex uses table/descriptor as logical identity and the `_index` metadata
+  document ID as physical identity; its metadata combines immutable spec with
+  mutable state. Flarex adds compact deployment-local logical and physical
+  integer brands, persists the exact immutable spec/canonical evidence in
+  Postgres, and leaves all per-scope lifecycle to C4.
+- Convex persists system index metadata. Flarex represents creation-time
+  ownership directly by stable table ID and satisfies `by_id` through row
+  identity without a physical definition. The C3 writer remains developer-only;
+  S03-D must compile/verify the intrinsic set against the full artifact.
+
+Known limitations and follow-up:
+
+- C4 still owns storage-generation/fence/epoch-pinned per-scope build state and
+  read contracts. No build transition, backfill, validation, readiness,
+  activation, entry row, query planner, or active-schema route exists.
+- C3 does not compare the definition set with the full app-schema artifact and
+  does not publish a V2 artifact. S03-D must compose all prepared definitions
+  atomically, inject creation-time requirements, verify the manifest checksum,
+  and retain the single active-schema authority.
+- No analyzer/compiler integration, row-value codec, Payload/Medusa compiler,
+  Cloudflare deployment, Worker/Hyperdrive routing, or legacy cleanup changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/catalog.test.ts test/index-definition.test.ts --no-file-parallelism
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexDefinitions.test.ts test/pglite.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexDefinitions.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres test
 corepack pnpm --filter @flarex/persistence-postgres build
 corepack pnpm check:effect-boundaries
 git diff --check

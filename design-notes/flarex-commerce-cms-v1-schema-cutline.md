@@ -441,11 +441,13 @@ identity. The earlier scope-scoped one-ID sketch could not keep an old enabled
 spec beside a changed backfilling spec. S03-C1 froze the logical manifest
 contract and S03-C2 implements only `fx_control_index`. S05-A has now accepted
 ordered physical spec v1, codec v1, an at-most-2,048-byte encoded field tuple,
-and the separate exact 16-byte row identity. Physical definition identity/DDL,
-schema binding, and build state remain conceptual C3/C4 work.
+and the separate exact 16-byte row identity. S03-C3 now implements physical
+definition identity/DDL plus developer schema bindings. Fenced per-scope build
+state remains C4 work.
 
-The SQL below remains a cutline sketch. C3 must derive its immutable definition
-shape from the accepted S05-A physical spec rather than copy this text as DDL.
+The SQL below is still abbreviated, but now reflects C3's accepted ownership and
+foreign-key shape. Migration `0023` and the Drizzle schema remain the executable
+source for exact checks and canonical-artifact columns.
 
 Suggested shape:
 
@@ -464,29 +466,70 @@ fx_control_index (
 
 fx_control_index_definition (
   deployment_id text not null,
-  index_definition_id <compact physical identity> not null,
-  logical_index_id int not null,
-  index_kind text not null,
-  fields_json jsonb not null,
-  key_codec_version int not null,
+  index_definition_id int not null,
+  access_kind text not null, -- developer | by_creation_time
+  access_identity_id int not null,
+  table_id int not null,
+  logical_index_id int,
+  physical_spec_codec_version int not null,
+  physical_spec_json jsonb not null,
+  physical_spec_bytes bytea not null,
+  physical_spec_sha256 bytea not null,
   primary key (deployment_id, index_definition_id),
-  foreign key (deployment_id, logical_index_id)
-    references fx_control_index (deployment_id, logical_index_id)
+  unique (deployment_id, index_definition_id, logical_index_id),
+  unique (
+    deployment_id,
+    access_kind,
+    access_identity_id,
+    physical_spec_sha256
+  ),
+  foreign key (deployment_id, table_id)
+    references fx_control_table (deployment_id, table_id),
+  foreign key (deployment_id, logical_index_id, table_id)
+    references fx_control_index (
+      deployment_id,
+      logical_index_id,
+      table_id
+    ),
+  check (
+    (access_kind = 'developer'
+      and logical_index_id is not null
+      and access_identity_id = logical_index_id)
+    or
+    (access_kind = 'by_creation_time'
+      and logical_index_id is null
+      and access_identity_id = table_id)
+  )
 );
 
 fx_control_schema_version_index_binding (
   deployment_id text not null,
   schema_version_id text not null,
   logical_index_id int not null,
-  index_definition_id <compact physical identity> not null,
+  index_definition_id integer not null,
   required_for_activation boolean not null,
-  primary key (deployment_id, schema_version_id, logical_index_id)
+  primary key (deployment_id, schema_version_id, logical_index_id),
+  foreign key (deployment_id, schema_version_id)
+    references fx_control_schema_version (
+      deployment_id,
+      schema_version_id
+    ),
+  foreign key (
+    deployment_id,
+    index_definition_id,
+    logical_index_id
+  ) references fx_control_index_definition (
+    deployment_id,
+    index_definition_id,
+    logical_index_id
+  ),
+  check (required_for_activation is true)
 );
 
 fx_control_index_build_state (
   scope_id text not null,
   deployment_id text not null,
-  index_definition_id <compact physical identity> not null,
+  index_definition_id integer not null,
   storage_generation text not null,
   storage_generation_fence text not null,
   epoch text not null,
@@ -505,6 +548,19 @@ Definitions are immutable. Mutable lifecycle lives in
 enabled -> retiring`. Query planning resolves the active schema's logical
 binding and uses only its enabled physical definition. The fence/start snapshot
 prevents a stale worker from resuming across storage-generation cutover.
+
+The nullable definition owner is intentional, not weak identity. Developer
+definitions must match a same-table logical catalog row through a composite
+foreign key. Intrinsic `by_creation_time` is table-owned and consumes no logical
+ID. Direct `by_id` has no definition row because it orders only by the separate
+row identity. C3 writes only developer definition/binding pairs; S03-D must
+compile and verify the intrinsic table-owned set with the full schema artifact.
+Migration `0023` also makes the strict spec predicate `IS TRUE`, bounds both the
+logical JSON text size and canonical byte evidence, and exposes canonical
+evidence as immutable hex through read contracts. The internal writer
+classifies an existing schema binding before allocating, preventing an orphan
+even when a trusted caller catches a conflict and commits its surrounding
+transaction.
 
 Example:
 
@@ -671,7 +727,7 @@ Suggested shape:
 fx_index_entry_current (
   scope_id text not null,
   epoch text not null,
-  index_definition_id <compact physical identity> not null,
+  index_definition_id integer not null,
   table_id int not null,
   row_id bytea not null check (octet_length(row_id) = 16),
   encoded_key bytea not null check (octet_length(encoded_key) <= 2048),

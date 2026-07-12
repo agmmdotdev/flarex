@@ -1,5 +1,77 @@
 # Postgres Executor
 
+## Persist Physical Index Definitions At The Trusted Boundary
+
+Previous completed checkpoint: `6ac7286` Freeze ordered index key codec.
+
+What changed:
+
+- Added additive migration `0023` for immutable physical definitions and
+  developer schema-version bindings. It is search-path-relative and orders the
+  new logical-owner unique constraint before dependent composite foreign keys.
+- Added a host-neutral internal prepare/apply operation: expensive lowering,
+  canonical encoding, and SHA-256 happen before SQL; the caller-owned
+  transaction locks the deployment, validates exact parents, allocates/reuses a
+  compact physical ID, and inserts definition plus binding without committing.
+  Existing-binding conflicts are classified before insertion, and locked replay
+  compares the prepared evidence without Web Crypto.
+- Added read-only root contracts that fully decode canonical JSON/bytes/digest
+  evidence and fail closed on corruption. They return immutable branded hex;
+  SQL rejects nullable/missing or oversized spec JSON and false activation
+  requirements. Per-logical definition reads reuse the checked developer owner
+  identity predicate supported by the existing owner/spec index. Allocation,
+  raw definition creation, and schema publication remain absent from the
+  runtime persistence facade.
+- PostgreSQL 18.3 proved concurrent exact replay, one-winner competing binding,
+  no orphan definition on failure, rollback identity reuse, isolated-schema
+  composite foreign keys, and rejection of logically oversized JSON from a
+  TOAST-compressed source. PGlite proved the complete additive migration and
+  contract matrix.
+
+Why it changed:
+
+The Worker executor will eventually reference one exact physical definition at
+commit/query/build boundaries. That identity must already be durable and
+transaction-safe, without holding a database transaction across analyzer/user
+code or routing through a Node/Nitro HTTP bridge.
+
+Convex references inspected:
+
+- `crates/common/src/types/index.rs`
+- `crates/common/src/bootstrap_model/index/index_config.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/indexing/src/index_registry.rs`
+
+How Flarex differs:
+
+Convex keeps index metadata in its own transactional document model. Flarex
+uses immutable, deployment-qualified Postgres definition rows and later
+per-scope build rows. The core operation is framework-neutral; no Worker,
+service-binding, HTTP, Nitro, Vercel, or Hyperdrive adapter participates here.
+
+Known limitations and follow-up:
+
+- C4 owns build-state reads/DDL, and S03-D owns full artifact verification and
+  publication. Entry writes, backfill, query plans, readiness, and activation
+  are deliberately absent.
+- No Cloudflare provisioning/deployment, Payload/Medusa compilation, analyzer
+  integration, or legacy executor cleanup changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexDefinitions.test.ts test/pglite.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexDefinitions.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Prove Ordered Index Bytes At The Postgres Boundary
 
 Previous completed checkpoint:

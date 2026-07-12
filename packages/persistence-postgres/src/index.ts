@@ -308,6 +308,17 @@ export {
   type StableLogicalIndexIdentityName,
 } from "./stableLogicalIndexCatalog";
 export {
+  AppIndexDefinitionCatalogCorruptionError,
+  getAppIndexDefinitionById,
+  getAppSchemaVersionIndexBinding,
+  InvalidAppIndexDefinitionBindingInputError,
+  listAppIndexDefinitionsForLogicalIndex,
+  listAppSchemaVersionIndexBindings,
+  type AppIndexDefinitionRecord,
+  type AppSchemaVersionIndexBindingRecord,
+  type InvalidAppIndexDefinitionBindingInputIssue,
+} from "./appIndexDefinitions";
+export {
   AppSchemaVersionArtifactRetryExhaustedError,
   InvalidAppSchemaVersionArtifactV1InputError,
   MAX_APP_SCHEMA_VERSION_ARTIFACT_ATTEMPTS,
