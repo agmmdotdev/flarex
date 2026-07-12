@@ -1,5 +1,60 @@
 # Backend Data Model And Durable Object Shape
 
+## Add Fenced Data-Plane Index Build State
+
+Previous completed checkpoint: `37c522b` Persist immutable index definitions.
+
+What changed:
+
+- Added a scope-owned build row keyed by physical definition identity, with an
+  exact clock-authority pin, start snapshot, lifecycle, cursor codec, positive
+  signed-int64 attempt fence, and timestamps.
+- Reused the ordered-index 16-byte row identity for an exclusive resumable
+  cursor instead of inventing JSON progress or another row-ID type.
+- Added only a clock-joined `absent | current | stale` read whose build record
+  makes a pre-backfill cursor unrepresentable. No Durable Object, builder,
+  entry writer, state transition, activation, or readiness API changed.
+
+Why it changed:
+
+The immutable definition says what bytes mean; the located scope row says
+whether one physical generation is being prepared or can later serve in that
+scope. Keeping those roles separate permits old and replacement definitions to
+coexist and prevents a stale distributed worker from treating its local state
+as current authority.
+
+Convex references inspected:
+
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+- `crates/database/src/bootstrap_model/index_backfills/types.rs`
+- `crates/database/src/database_index_workers/index_writer.rs`
+- `crates/indexing/src/index_registry.rs`
+
+How Flarex differs:
+
+Convex coordinates pending/enabled generations under one database worker.
+Flarex's Cloudflare/Postgres split requires explicit generation, fence, epoch,
+and attempt fencing, while keeping the Durable Object layer non-authoritative.
+
+Known limitations and follow-up:
+
+- S03-D owns creation/transitions and two-store reconciliation. S10 owns index
+  entries and atomic cursor checkpoints. The current C4 row cannot be reached by
+  runtime execution.
+- No Payload/Medusa, analyzer/compiler, Cloudflare deployment, or legacy data
+  model behavior changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/indexBuildStates.test.ts test/pglite.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/indexBuildStates.postgres.test.ts --no-file-parallelism
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Separate Stable Access Paths From Physical Index Generations
 
 Previous completed checkpoint: `6ac7286` Freeze ordered index key codec.

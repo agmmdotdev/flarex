@@ -1,5 +1,73 @@
 # Indexes
 
+## Fence Per-Scope Physical Index Builds
+
+Previous completed checkpoint: `37c522b` Persist immutable index definitions.
+
+What changed:
+
+- Added data-plane `fx_system_index_build_state` with scoped physical-definition
+  identity, exact storage generation/fence/epoch/start snapshot, closed
+  lifecycle, positive signed-int64 attempt fence, and exact cursor codec v1.
+- Defined cursor v1 as the exclusive last committed 16-byte row identity in an
+  ascending snapshot scan. Removed the earlier unbounded JSON cursor and
+  rejected cursors during `declared`/`building` preparation.
+- Added a one-statement clock-anchored point read returning frozen
+  `absent | current | stale` results with a lifecycle-discriminated build
+  record. Exact mismatch fields are visible, missing
+  clock authority fails, and start snapshots cannot lead the clock. Currency is
+  deliberately separate from `enabled`/readiness.
+- Kept all build mutation absent. Tests use raw fixtures to prove DDL/read
+  behavior without accidentally creating a standalone lifecycle writer.
+
+Why it changed:
+
+The earlier control-table sketch combined deployment catalog and scope runtime
+authority and could not work in database-per-scope placement. A local clock
+parent plus explicit historical pin lets stale workers stop without blocking a
+clock cutover or fabricating a second deployment authority.
+
+Convex references inspected:
+
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+- `crates/indexing/src/index_registry.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/database/src/bootstrap_model/index_backfills/types.rs`
+- `crates/database/src/bootstrap_model/index_backfills/mod.rs`
+- `crates/database/src/database_index_workers/index_writer.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+
+How Flarex differs:
+
+- Convex keeps definition state and progress under one database worker lease.
+  Flarex must pin located Postgres authority explicitly because control and data
+  may be separate and Cloudflare workers are distributed.
+- Flarex's `building` phase is only pre-backfill physical/write-fanout
+  preparation. Like Convex pending indexes, no non-enabled phase may serve app
+  queries.
+
+Known limitations and follow-up:
+
+- S03-D still owns control-definition verification, split-store reconciliation,
+  transitions, validation/readiness, and publication. S10 owns entry tables and
+  atomic progress checkpoint behavior.
+- No builder, backfill, active-schema planner, analyzer/compiler, Payload/Medusa,
+  Cloudflare deployment, or legacy rewiring changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/indexBuildStates.test.ts test/pglite.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/indexBuildStates.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Persist Immutable Physical Index Generations
 
 Previous completed checkpoint: `6ac7286` Freeze ordered index key codec.

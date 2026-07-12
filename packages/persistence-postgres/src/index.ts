@@ -319,6 +319,19 @@ export {
   type InvalidAppIndexDefinitionBindingInputIssue,
 } from "./appIndexDefinitions";
 export {
+  IndexBuildStateClockNotFoundError,
+  IndexBuildStateCorruptionError,
+  InvalidIndexBuildStateReadInputError,
+  readFencedIndexBuildState,
+  type FencedIndexBuildStateReadResult,
+  type IndexBuildAuthorityMismatch,
+  type IndexBuildAuthorityMismatches,
+  type IndexBuildStateRecord,
+  type IndexBuildStorageAuthority,
+  type InvalidIndexBuildStateReadInputIssue,
+  type ReadFencedIndexBuildStateInput,
+} from "./indexBuildStates";
+export {
   AppSchemaVersionArtifactRetryExhaustedError,
   InvalidAppSchemaVersionArtifactV1InputError,
   MAX_APP_SCHEMA_VERSION_ARTIFACT_ATTEMPTS,

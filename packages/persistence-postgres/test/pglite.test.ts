@@ -66,6 +66,7 @@ describe("createPGlitePersistence", () => {
       "fx_control_scope",
       "fx_control_scope_provisioning",
       "fx_control_table",
+      "fx_system_index_build_state",
       "fx_system_scope_clock",
       "indexes",
       "invoke_session_document_reads",
@@ -622,6 +623,82 @@ describe("createPGlitePersistence", () => {
           schema_count: "1",
           definition_count: "0",
           binding_count: "0",
+        },
+      ]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("adds fenced index build state without inventing per-scope builds", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-index-build-upgrade-"));
+    const previousMigrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const previousJournal = resolve(
+      packageRoot,
+      "test/fixtures/drizzle-through-0023-journal.json",
+    );
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, previousMigrationsFolder, {
+        recursive: true,
+      });
+      await copyFile(
+        previousJournal,
+        resolve(previousMigrationsFolder, "meta/_journal.json"),
+      );
+      const previousPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder: previousMigrationsFolder,
+      });
+      await previousPersistence.migrate();
+      await previousPersistence.query(`
+        insert into fx_system_scope_clock
+          (
+            scope_id,
+            storage_generation,
+            storage_generation_fence,
+            last_commit_seq,
+            last_outbox_seq,
+            epoch
+          )
+        values ('scope_before_index_build', 'flarexdb_v1', 7, 11, 13, 'epoch-before-build')
+      `);
+      await expect(
+        previousPersistence.query(
+          `select index_definition_id from fx_system_index_build_state limit 1`,
+        ),
+      ).rejects.toThrow();
+
+      const currentPersistence = await createPGlitePersistence({ db });
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      const preserved = await currentPersistence.query<{
+        clock_count: string;
+        build_count: string;
+        fence: string;
+        commit_seq: string;
+      }>(`
+        select
+          (select count(*)::text from fx_system_scope_clock) as clock_count,
+          (select count(*)::text from fx_system_index_build_state) as build_count,
+          storage_generation_fence::text as fence,
+          last_commit_seq::text as commit_seq
+        from fx_system_scope_clock
+        where scope_id = 'scope_before_index_build'
+      `);
+      expect(preserved.rows).toEqual([
+        {
+          clock_count: "1",
+          build_count: "0",
+          fence: "7",
+          commit_seq: "11",
         },
       ]);
     } finally {

@@ -459,6 +459,35 @@ Mutable lifecycle belongs only to per-scope build state:
 declared -> building -> backfilling -> validating -> enabled -> retiring
 ```
 
+C4 corrects the older control-table sketch. Build lifecycle is located beside
+the authoritative scope clock as `fx_system_index_build_state`, keyed by
+`(scope_id, index_definition_id)`. It has a local restrictive foreign key to
+`fx_system_scope_clock(scope_id)`, but no copied `deployment_id`, no foreign key
+to `fx_control_scope`, and no impossible cross-database foreign key to the
+deployment-owned physical definition. S03-D must verify the control definition
+and binding before later idempotent two-store publication; C4 does not pretend
+that split placement can commit both stores atomically.
+
+Each row pins `flarexdb_v1`, positive bigint storage-generation fence, epoch,
+nonnegative start commit sequence, and a positive signed-int64 attempt fence.
+Cursor codec v1 is the exclusive last fully committed 16-byte row identity in an
+ascending exact-snapshot scan; null means no row has been durably completed.
+`declared` and `building` rows cannot carry a cursor in either SQL or the
+public discriminated read type. `building` means only
+pre-backfill physical/write-fanout preparation and is never queryable.
+
+The only C4 root read anchors on the current scope clock in the same SQL
+statement and returns `absent | current | stale`. Missing clock authority is an
+error. `current` means only exact generation/fence/epoch equality and a start
+sequence no later than the clock; it does not mean `enabled`, queryable, or
+activation-ready. Stale rows remain readable for recovery and do not foreign-key
+their historical pin to mutable clock columns. C4 adds no insert, transition,
+claim, cursor-checkpoint, enable, retire, or readiness operation.
+
+Current text `scope_id`/epoch columns are compatibility representations. The
+accepted replacement still requires native UUID components before hot app-data
+keys become final physical authority.
+
 A schema version is activatable only when required backfills and validations
 have succeeded. There is one authoritative active schema pointer per scope;
 deployment metadata may reference it, but must not create a second authority.

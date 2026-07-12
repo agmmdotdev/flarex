@@ -171,16 +171,24 @@ fx_schema_version
 fx_table
 fx_control_index
 fx_control_index_definition
-fx_control_index_build_state
 ```
 
 `fx_schema_version.manifest_json` is the immutable submitted schema artifact.
 `fx_table` keeps only stable table identity across versions. The manifest
 repeats the namespace and logical name as a version-pinned assertion, but the
 table definition itself is not copied into a normalized table-definition row.
-Later `fx_control_index` identity and `fx_control_index_definition` rows are the intentionally
-normalized compiled index catalog, written transactionally and verified
-against the manifest checksum rather than independently edited.
+Later `fx_control_index` identity and `fx_control_index_definition` rows are the
+intentionally normalized compiled index catalog, written transactionally and
+verified against the manifest checksum rather than independently edited.
+
+### Data-plane operational state
+
+```text
+fx_system_index_build_state
+```
+
+Build state is scope-owned operational authority beside the located scope clock,
+not deployment catalog metadata.
 
 Do not create physical `fx_field` or `fx_relation_def` in the first cut unless the compiler/runtime needs fast SQL-level introspection.
 
@@ -268,7 +276,7 @@ Required:
   fx_table
   fx_control_index
   fx_control_index_definition
-  fx_control_index_build_state
+  fx_system_index_build_state
 
   fx_row_current
   fx_row_rev
@@ -441,13 +449,13 @@ identity. The earlier scope-scoped one-ID sketch could not keep an old enabled
 spec beside a changed backfilling spec. S03-C1 froze the logical manifest
 contract and S03-C2 implements only `fx_control_index`. S05-A has now accepted
 ordered physical spec v1, codec v1, an at-most-2,048-byte encoded field tuple,
-and the separate exact 16-byte row identity. S03-C3 now implements physical
-definition identity/DDL plus developer schema bindings. Fenced per-scope build
-state remains C4 work.
+and the separate exact 16-byte row identity. S03-C3 implements physical
+definition identity/DDL plus developer schema bindings. S03-C4 implements only
+fenced per-scope build-state DDL and its clock-anchored read contract.
 
 The SQL below is still abbreviated, but now reflects C3's accepted ownership and
-foreign-key shape. Migration `0023` and the Drizzle schema remain the executable
-source for exact checks and canonical-artifact columns.
+C4's corrected placement/fencing shape. Migrations `0023`/`0024` and the Drizzle
+schema remain the executable sources for exact checks and columns.
 
 Suggested shape:
 
@@ -526,28 +534,49 @@ fx_control_schema_version_index_binding (
   check (required_for_activation is true)
 );
 
-fx_control_index_build_state (
+fx_system_index_build_state (
   scope_id text not null,
-  deployment_id text not null,
   index_definition_id integer not null,
-  storage_generation text not null,
-  storage_generation_fence text not null,
+  storage_generation text not null check (storage_generation = 'flarexdb_v1'),
+  storage_generation_fence bigint not null check (storage_generation_fence >= 1),
   epoch text not null,
   start_commit_seq bigint not null,
-  state text not null default 'declared',
-  cursor_codec_version int not null,
-  backfill_cursor_json jsonb,
-  attempt int not null default 0,
+  lifecycle text not null,
+  cursor_codec_version integer not null check (cursor_codec_version = 1),
+  backfill_cursor_row_id bytea,
+  attempt_fence bigint not null check (attempt_fence >= 1),
+  created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  primary key (scope_id, index_definition_id)
+  primary key (scope_id, index_definition_id),
+  foreign key (scope_id)
+    references fx_system_scope_clock (scope_id),
+  check (
+    backfill_cursor_row_id is null
+    or octet_length(backfill_cursor_row_id) = 16
+  ),
+  check (
+    lifecycle not in ('declared', 'building')
+    or backfill_cursor_row_id is null
+  )
 );
 ```
 
 Definitions are immutable. Mutable lifecycle lives in
-`fx_control_index_build_state`: `declared -> building -> backfilling -> validating ->
-enabled -> retiring`. Query planning resolves the active schema's logical
-binding and uses only its enabled physical definition. The fence/start snapshot
-prevents a stale worker from resuming across storage-generation cutover.
+`fx_system_index_build_state`: `declared -> building -> backfilling -> validating
+-> enabled -> retiring`. `building` is pre-backfill physical/write-fanout
+preparation, not readiness. Cursor v1 is the exclusive last completed 16-byte
+row identity in an ascending exact-snapshot scan. The clock-joined C4 read
+returns `absent | current | stale`; `current` proves only the exact authority pin,
+not enabled/readiness. Query planning, transitions, and activation remain later
+work.
+
+The build row intentionally has no `deployment_id` or control-catalog foreign
+key. Schema-per-scope and database-per-scope targets cannot enforce a physical
+foreign key back to deployment metadata or `fx_control_index_definition`.
+S03-D must validate that control identity before an idempotent located-target
+publication protocol. The local scope-clock foreign key is the only universal
+physical parent; the historical generation/fence/epoch pin is compared by the
+reader rather than foreign-keyed to mutable clock values.
 
 The nullable definition owner is intentional, not weak identity. Developer
 definitions must match a same-table logical catalog row through a composite

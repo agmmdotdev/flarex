@@ -26,6 +26,11 @@ import {
   type AppIndexPhysicalSpecCodecVersion,
   type AppPhysicalIndexAccessKindV1,
 } from "flarex-protocol/index-definition";
+import type {
+  IndexBuildAttemptFence,
+  IndexBuildCursorCodecVersionV1,
+  IndexBuildLifecycleV1,
+} from "flarex-protocol/index-build-state";
 import type { AppOrderedIndexPhysicalSpecV1 } from "flarex-protocol/ordered-index";
 import type {
   CanonicalSchemaManifestBytes,
@@ -37,6 +42,7 @@ import type {
 } from "flarex-protocol/schema-manifest";
 import type {
   CommitSeq,
+  FlarexDbV1StorageGeneration,
   OutboxSeq,
   ScopeEpoch,
   ScopeId,
@@ -584,6 +590,109 @@ export const fxSystemScopeClocks = pgTable(
   ],
 );
 
+/**
+ * Data-plane lifecycle for one scoped physical index definition.
+ *
+ * The definition itself remains in the deployment control catalog. This row
+ * intentionally has no deployment copy or cross-database definition foreign
+ * key because the accepted split topologies locate it beside the scope clock.
+ */
+export const fxSystemIndexBuildStates = pgTable(
+  "fx_system_index_build_state",
+  {
+    scopeId: text("scope_id")
+      .$type<ScopeId>()
+      .notNull(),
+    indexDefinitionId: integer("index_definition_id")
+      .$type<CatalogIndexDefinitionId>()
+      .notNull(),
+    storageGeneration: text("storage_generation")
+      .$type<FlarexDbV1StorageGeneration>()
+      .notNull(),
+    storageGenerationFence: bigint("storage_generation_fence", {
+      mode: "bigint",
+    })
+      .$type<StorageGenerationFence>()
+      .notNull(),
+    epoch: text("epoch").$type<ScopeEpoch>().notNull(),
+    startCommitSeq: bigint("start_commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull(),
+    lifecycle: text("lifecycle").$type<IndexBuildLifecycleV1>().notNull(),
+    cursorCodecVersion: integer("cursor_codec_version")
+      .$type<IndexBuildCursorCodecVersionV1>()
+      .notNull(),
+    backfillCursorRowId: bytea("backfill_cursor_row_id"),
+    attemptFence: bigint("attempt_fence", { mode: "bigint" })
+      .$type<IndexBuildAttemptFence>()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.scopeId, table.indexDefinitionId],
+    }),
+    foreignKey({
+      name: "fx_system_index_build_scope_clock_fk",
+      columns: [table.scopeId],
+      foreignColumns: [fxSystemScopeClocks.scopeId],
+    }).onDelete("restrict"),
+    check(
+      "fx_system_index_build_scope_non_empty",
+      nonBlankText(table.scopeId),
+    ),
+    check(
+      "fx_system_index_build_definition_id_positive",
+      sql`${table.indexDefinitionId} between 1 and 2147483647`,
+    ),
+    check(
+      "fx_system_index_build_generation_check",
+      sql`${table.storageGeneration} = 'flarexdb_v1'`,
+    ),
+    check(
+      "fx_system_index_build_generation_fence_positive",
+      sql`${table.storageGenerationFence} >= 1`,
+    ),
+    check(
+      "fx_system_index_build_epoch_non_empty",
+      nonBlankText(table.epoch),
+    ),
+    check(
+      "fx_system_index_build_start_seq_non_negative",
+      sql`${table.startCommitSeq} >= 0`,
+    ),
+    check(
+      "fx_system_index_build_lifecycle_check",
+      sql`${table.lifecycle} in ('declared', 'building', 'backfilling', 'validating', 'enabled', 'retiring')`,
+    ),
+    check(
+      "fx_system_index_build_cursor_codec_check",
+      sql`${table.cursorCodecVersion} = 1`,
+    ),
+    check(
+      "fx_system_index_build_cursor_length_check",
+      sql`${table.backfillCursorRowId} is null or octet_length(${table.backfillCursorRowId}) = 16`,
+    ),
+    check(
+      "fx_system_index_build_pre_backfill_cursor_check",
+      sql`${table.lifecycle} not in ('declared', 'building') or ${table.backfillCursorRowId} is null`,
+    ),
+    check(
+      "fx_system_index_build_attempt_fence_positive",
+      sql`${table.attemptFence} >= 1`,
+    ),
+    check(
+      "fx_system_index_build_timestamp_order_check",
+      sql`${table.updatedAt} >= ${table.createdAt}`,
+    ),
+  ],
+);
+
 export const deploymentPackages = pgTable(
   "deployment_packages",
   {
@@ -1058,6 +1167,7 @@ export const flarexSchema = {
   fxControlTables,
   fxControlScopeProvisioning,
   fxControlScopes,
+  fxSystemIndexBuildStates,
   fxSystemScopeClocks,
   indexes,
   invokeSessionDocumentReads,

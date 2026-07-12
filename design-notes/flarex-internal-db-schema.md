@@ -358,9 +358,10 @@ provenance, not accepted S03-B2a DDL. The `fx_control_index`, physical
 definition, and developer schema-binding blocks are now refined by S03-C2/C3:
 the physical ID is a separate signed-32-bit brand, the stored semantic payload
 is the accepted S05-A spec plus canonical evidence, and a composite foreign key
-proves each developer binding matches its definition owner. The build-state
-block remains conceptual C4 work; column/relation/constraint blocks remain
-unaccepted proposals.
+proves each developer binding matches its definition owner. C4 now refines the
+build-state block into located data-plane DDL with a local clock parent and
+clock-joined fenced read. Column/relation/constraint blocks remain unaccepted
+proposals.
 
 ```sql
 fx_control_column (
@@ -473,25 +474,38 @@ fx_control_schema_version_index_binding (
 -- table-owned definition but its full-artifact injection/verification remains
 -- S03-D. by_id is direct row-identity access and has no definition/build row.
 
-fx_control_index_build_state (
+-- This table is located with fx_system_scope_clock. It deliberately carries no
+-- deployment copy and has no cross-database control-catalog foreign key.
+fx_system_index_build_state (
   scope_id text not null,
-  deployment_id text not null,
   index_definition_id integer not null,
-  storage_generation text not null,
-  storage_generation_fence text not null,
+  storage_generation text not null check (storage_generation = 'flarexdb_v1'),
+  storage_generation_fence bigint not null check (storage_generation_fence >= 1),
   epoch text not null,
-  start_commit_seq bigint not null,
+  start_commit_seq bigint not null check (start_commit_seq >= 0),
   lifecycle text not null, -- declared, building, backfilling, validating, enabled, retiring
-  cursor_codec_version integer not null,
-  backfill_cursor_json jsonb,
-  attempt integer not null default 0,
-  updated_at timestamptz not null,
+  cursor_codec_version integer not null check (cursor_codec_version = 1),
+  backfill_cursor_row_id bytea,
+  attempt_fence bigint not null check (attempt_fence >= 1),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   primary key (scope_id, index_definition_id),
-  foreign key (scope_id, deployment_id)
-    references fx_control_scope (id, deployment_id),
-  foreign key (deployment_id, index_definition_id)
-    references fx_control_index_definition (deployment_id, index_definition_id)
+  foreign key (scope_id)
+    references fx_system_scope_clock (scope_id),
+  check (
+    backfill_cursor_row_id is null
+    or octet_length(backfill_cursor_row_id) = 16
+  ),
+  check (
+    lifecycle not in ('declared', 'building')
+    or backfill_cursor_row_id is null
+  ),
+  check (updated_at >= created_at)
 )
+
+-- Cursor v1 is the exclusive last fully committed 16-byte row identity in an
+-- ascending exact-snapshot scan. A clock-joined read classifies absent,
+-- exact-current, or stale authority without implying enabled/readiness.
 
 fx_control_constraint (
   id text primary key,

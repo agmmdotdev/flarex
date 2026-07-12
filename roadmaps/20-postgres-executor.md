@@ -1,5 +1,71 @@
 # Postgres Executor
 
+## Read Located Index Builds Through The Scope Clock
+
+Previous completed checkpoint: `37c522b` Persist immutable index definitions.
+
+What changed:
+
+- Added migration `0024` for search-path-relative
+  `fx_system_index_build_state` beside the authoritative scope clock. Its only
+  foreign key is local to that clock; control-plane deployment/definition
+  identity is intentionally not copied or cross-database constrained.
+- Added a strict host-neutral read that selects the clock and optional physical
+  build in one Postgres statement. It returns `absent`, exact-authority
+  `current`, or `stale` with mismatch fields; it does not expose readiness.
+- Preserved bigint fence/sequence precision, bounded the new attempt token to
+  PostgreSQL's positive signed-int64 range, and made pre-backfill cursor state
+  unrepresentable in the public read type. Immutable hex cursor evidence is
+  preserved.
+  PostgreSQL 18.3 proved non-public search-path migration, no-control-row target
+  operation, the clock FK, exact bigint reads, stale-after-commit behavior,
+  uncommitted-clock snapshot consistency, and the two primary-key plan paths.
+
+Why it changed:
+
+The executor Worker will eventually run builders against the located data-plane
+database, not the central catalog connection. Reading the build without the
+same statement's clock would permit a torn authority decision; foreign-keying
+the historical pin to mutable clock columns would instead block legitimate
+cutover.
+
+Convex references inspected:
+
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+- `crates/database/src/bootstrap_model/index_backfills/types.rs`
+- `crates/database/src/database_index_workers/index_writer.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+- `crates/indexing/src/index_registry.rs`
+
+How Flarex differs:
+
+Convex can rely on one integrated database snapshot and database-worker lease.
+Flarex uses one located Postgres statement plus explicit generation, fence,
+epoch, start sequence, and attempt fence because distributed Worker attempts
+must be rejected after authority changes.
+
+Known limitations and follow-up:
+
+- There is no executor consumer or build mutation. S03-D must define durable
+  control/data reconciliation; S10 and later worker slices must commit entry
+  writes and cursor advancement atomically under the attempt fence.
+- No Worker/Hyperdrive route, service-binding adapter, HTTP/Nitro bridge,
+  Cloudflare deployment, or legacy cleanup changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/indexBuildStates.test.ts test/pglite.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/indexBuildStates.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Persist Physical Index Definitions At The Trusted Boundary
 
 Previous completed checkpoint: `6ac7286` Freeze ordered index key codec.

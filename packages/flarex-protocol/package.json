@@ -16,6 +16,7 @@
     "./execution": "./src/execution.ts",
     "./invoke": "./src/invoke.ts",
     "./index-definition": "./src/index-definition.ts",
+    "./index-build-state": "./src/index-build-state.ts",
     "./json": "./src/json.ts",
     "./live-query": "./src/live-query.ts",
     "./ordered-index": "./src/ordered-index.ts",

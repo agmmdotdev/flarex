@@ -1,9 +1,9 @@
 # FlarexDB Schema And Migration Plan
 
 Status: S01 through S02-C, resolve-only S02-D1, catalog checkpoints S03-A
-through S03-C3, and the interleaved S05-A ordered-index prerequisite are
+through S03-C4, and the interleaved S05-A ordered-index prerequisite are
 complete. Hosted-proof H01-H04 and H05-A are complete, while H05-B and S02-D2
-production routing are deferred as core work proceeds to S03-C4.
+production routing are deferred as core work proceeds to S03-D.
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -404,7 +404,7 @@ Progress:
     - [x] S03-B2b2 — Canonicalize the planned section outside SQL, then apply
       the plan and insert/replay the B1 artifact atomically with bounded stale
       retries.
-- [ ] S03-C — Add stable logical index identities, immutable physical index
+- [x] S03-C — Add stable logical index identities, immutable physical index
   definitions, and per-scope build state.
   - [x] S03-C1 — Freeze strict unbound developer-index declarations, branded
     logical index identity, and the closed composite app-schema envelope.
@@ -413,7 +413,7 @@ Progress:
   - [x] S03-C3 — With S05-A complete, add immutable physical
     definition/schema-binding DDL and choose a compact definition-generation
     identity that permits old/new builds to coexist.
-  - [ ] S03-C4 — Add fenced per-scope build-state DDL/read contracts; mutation
+  - [x] S03-C4 — Add fenced per-scope build-state DDL/read contracts; mutation
     and publication remain S03-D work.
 - [ ] S03-D — Compile and verify normalized catalog state transactionally and
   gate activation readiness.
@@ -428,7 +428,7 @@ Outcome:
   contract is accepted; B2a deliberately does not invent them.
 - Add a separate physical definition-generation identity, immutable
   `fx_control_index_definition`, and fenced per-scope
-  `fx_control_index_build_state`. Stable logical index ID alone must never key
+  `fx_system_index_build_state`. Stable logical index ID alone must never key
   entries or builds.
 - Compile the manifest transactionally and verify the normalized catalog against
   its checksum; do not independently edit normalized rows.
@@ -1326,6 +1326,100 @@ corepack pnpm --filter @flarex/persistence-postgres db:check
 corepack pnpm --filter @flarex/persistence-postgres typecheck
 corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexDefinitions.test.ts test/pglite.test.ts --no-file-parallelism
 FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexDefinitions.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
+#### S03-C4 Implementation Checkpoint
+
+Previous completed checkpoint: `37c522b` Persist immutable index definitions.
+
+What changed:
+
+- Rejected the older `fx_control_index_build_state` sketch because located
+  schema/database-per-scope targets cannot foreign-key operational rows back to
+  the deployment control catalog. Added data-plane
+  `fx_system_index_build_state`, keyed by
+  `(scope_id, index_definition_id)`, with only a local restrictive scope-clock
+  foreign key. It carries no copied deployment authority and no cross-database
+  definition foreign key.
+- Added additive migration `0024`. SQL pins `flarexdb_v1`, positive signed-int32
+  definition identity, a positive bigint generation fence, a positive
+  signed-int64 attempt fence, nonblank
+  epoch, nonnegative start sequence, the closed six-state lifecycle, ordered
+  timestamps, and cursor/state coherence. Scope and epoch remain transitional
+  text compatibility columns pending the accepted native-UUID physical cut.
+- Replaced the unbounded JSON cursor sketch with cursor codec v1: the nullable
+  exclusive last fully committed 16-byte row identity in an ascending exact-
+  snapshot scan. `declared` and `building` require null; later phases permit
+  null for an empty table. `building` means pre-backfill physical/write-fanout
+  preparation and never means queryable.
+- Added one root read that anchors on the scope clock and optional build row in
+  one SQL statement. Its frozen result and build record are discriminated so a
+  `declared`/`building` cursor is unrepresentable. The result is
+  `absent | current | stale`, with exact stale fields. Missing clock authority
+  fails, and a start sequence ahead of the scope clock is corruption. `current`
+  proves only generation/fence/epoch currency, never enabled/readiness.
+- Added no insert, transition, claim, checkpoint, enable, retire, readiness, or
+  cross-store publication operation. PGlite tests use raw fixture writes only;
+  S03-D must later validate the control definition and reconcile the located
+  data plane through a durable idempotent protocol.
+
+Why it changed:
+
+Per-scope build lifecycle is data-plane operational state, while immutable
+definition identity is deployment control state. Copying `deployment_id` and
+adding control foreign keys would make the co-located test topology the hidden
+authority and fail for the accepted split placements. A clock-joined read keeps
+the mutable clock authoritative and preserves stale build rows for recovery.
+
+Convex sources inspected:
+
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+- `crates/indexing/src/index_registry.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/database/src/bootstrap_model/index_backfills/types.rs`
+- `crates/database/src/bootstrap_model/index_backfills/mod.rs`
+- `crates/database/src/database_index_workers/index_writer.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+
+How Flarex differs:
+
+- Convex stores pending/enabled index metadata and backfill progress in one
+  transactional database under its database-worker lease. Flarex separates
+  deployment catalog definitions from located scope lifecycle and therefore
+  pins storage generation, fence, epoch, start sequence, and a Postgres attempt
+  fence explicitly.
+- Convex's database index states are `Backfilling -> Backfilled -> Enabled`.
+  Flarex retains the accepted broader chain for physical preparation,
+  validation, and rollback retirement, but only `enabled` may later be
+  queryable and C4 adds no transition or readiness logic.
+
+Known limitations and follow-up:
+
+- S03-D owns trusted cross-store creation/reconciliation, complete manifest
+  verification, intrinsic creation-time injection, validation receipts, and
+  activation readiness. An ordinary SQL transaction cannot publish control and
+  database-per-scope state atomically.
+- Entry/current/revision rows, worker checkpoints, cursor advancement with
+  entry writes, backfill execution, query planning, and range OCC remain S06,
+  S10, and later transaction work.
+- No analyzer/compiler integration, Payload/Medusa compilation, Cloudflare
+  deployment, runtime generation routing, or legacy cleanup changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/index-build-state.test.ts
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/indexBuildStates.test.ts test/pglite.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/indexBuildStates.postgres.test.ts --no-file-parallelism
 corepack pnpm --filter @flarex/persistence-postgres test
 corepack pnpm --filter @flarex/persistence-postgres build
 corepack pnpm check:effect-boundaries

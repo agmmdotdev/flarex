@@ -1,5 +1,59 @@
 # Schema Placement And Shards
 
+## Place Index Build Lifecycle With The Located Scope Clock
+
+Previous completed checkpoint: `37c522b` Persist immutable index definitions.
+
+What changed:
+
+- Replaced the proposed control build table with data-plane
+  `fx_system_index_build_state`. Its key is
+  `(scope_id, index_definition_id)` and its only parent is the locally available
+  `fx_system_scope_clock(scope_id)`.
+- Removed the redundant deployment copy and rejected physical foreign keys to
+  `fx_control_scope` or `fx_control_index_definition`. The trusted later
+  publisher must verify those control facts before locating the target.
+- Kept the historical generation/fence/epoch pin as compared values rather than
+  a foreign key to mutable clock columns, so cutover can advance the clock and
+  old rows remain classifiable as stale.
+
+Why it changed:
+
+Control definitions are deployment-owned, but build progress is scope-owned.
+Schema-per-scope and database-per-scope targets cannot enforce a cross-database
+control foreign key; doing so would silently make shared development placement
+the universal architecture.
+
+Convex references inspected:
+
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+- `crates/database/src/bootstrap_model/index_backfills/types.rs`
+- `crates/database/src/database_index_workers/mod.rs`
+- `crates/indexing/src/index_registry.rs`
+
+How Flarex differs:
+
+Convex's index metadata, progress, and worker lease share one transactional
+database. Flarex needs an explicit two-store boundary and a located scope-clock
+pin because the deployment catalog and app-data database may be separate.
+
+Known limitations and follow-up:
+
+- C4 adds only DDL and a fenced read. S03-D must define idempotent cross-store
+  publication/reconciliation before any builder can create or transition rows.
+- Text scope/epoch storage remains transitional; native UUID physical components
+  are still required before final hot data-plane DDL.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/indexBuildStates.test.ts test/pglite.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/indexBuildStates.postgres.test.ts --no-file-parallelism
+git diff --check
+```
+
 ## Keep Logical Index Bindings In Deployment Schema Authority
 
 Previous completed checkpoint: `636fa50` Register app schema artifacts

@@ -86,9 +86,9 @@ type ScopeClockTransaction = FlarexMetadataDatabase & {
   setTransaction(config: PgTransactionConfig): Promise<void>;
 };
 
-type ScopeClockRow = typeof fxSystemScopeClocks.$inferSelect;
+export type ScopeClockRow = typeof fxSystemScopeClocks.$inferSelect;
 
-function decodeScopeClockRecord(row: ScopeClockRow): ScopeClockRecord {
+export function decodeScopeClockRecord(row: ScopeClockRow): ScopeClockRecord {
   if (row.scopeId.trim().length === 0) {
     throw new ScopeClockCorruptionError(row.scopeId, "scope ID is empty");
   }
