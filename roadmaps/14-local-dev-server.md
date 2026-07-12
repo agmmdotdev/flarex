@@ -1,2132 +1,454 @@
-# Local Dev Server
-
-## Provision Shared Scope Authority Before Local Executor Writes
-
-Previous completed checkpoint: `5f377e9` Add resumable scope authority
-bootstrap.
-
-What changed:
-
-- Composed `createLocalPGliteExecutorHttpRuntime(...)` with the C1 shared scope
-  authority provisioner after migrations and before constructing the executor.
-- Added a fixed local `shared_database` locator (`primary` / `public`) and an
-  optional trusted override for callers that supply persistence with a
-  different immutable locator.
-- Kept the underlying PGlite persistence available to trusted local tooling,
-  while the executor receives a facade without the bare deployment writer.
-- Added local runtime proof that package registration creates explicit
-  `legacy_v1`, fence `1`, zero-counter scope-clock authority before activation.
-
-Why it changed:
-
-Local dev is the current concrete executor composition point. Leaving it on the
-raw persistence object would preserve the very future-creation gap C3a is meant
-to close.
-
-Convex references inspected:
-
-- `crates/model/src/lib.rs`
-- `crates/model/src/database_globals/mod.rs`
-
-How Flarex differs:
-
-- Convex backend startup initializes its database before serving developer
-  operations. Flarex local dev explicitly composes the same postcondition from
-  PGlite persistence and a trusted authority provisioner.
-
-Known limitations:
-
-- This does not create the hosted Cloudflare executor Worker, Hyperdrive
-  request client, or backend-push/Postgres bridge.
-- Split topologies remain C3b and are not selectable through local request or
-  public executor input.
-- The changed `executorHttpRuntime.test.ts` file passes five tests. The broad
-  package command retains a Vitest process without output and was stopped after
-  its bounded three-minute timeout.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts
-git diff --check
-```
-
-## Flarex Dev Response JSON Shared Boundary
-
-Previous completed checkpoint: `8e89a84` Type backend response JSON reads.
-
-What changed:
-
-- `flarex-dev` now has a shared `DevResponseJsonError` response-read boundary
-  in `responseJson.ts`.
-- HTTP backend analyzer/push/finish, execution artifact analysis/invoke, and
-  materialized artifact response decoders now use
-  `readDevResponseJsonOrNullEffect(...)`.
-- Direct tests cover the typed read failure before the compatibility `null`
-  fallback.
-
-Why it changed:
-
-The dev package already had named Effect response decoders, but each decoder
-still owned its own anonymous malformed-JSON fallback. Centralizing that read
-boundary keeps low-level transport failures source-owned while preserving the
-existing local-dev error messages and diagnostics behavior.
-
-Known limitations:
-
-- Generated worker source still has its own plain JavaScript
-  `readBackendResponseJson(...)` helpers and does not import Effect.
-- Successful response payload validation remains the existing parser/cast
-  behavior rather than Effect Schema.
-- Deployment runtime artifact-ref generation remains a separate backend
-  service boundary.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/responseJson.test.ts packages/flarex-dev/test/backendPush.test.ts packages/flarex-dev/test/executionArtifact.test.ts packages/flarex-dev/test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000
-corepack pnpm --filter flarex-dev build
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-protocol build
-corepack pnpm --filter flarex-protocol test
-git diff --check
-```
-
-## Generated Runtime Worker JSON Boundaries
-
-Previous completed checkpoint: `5dd89f8` Type deployment artifact ref
-failures.
-
-What changed:
-
-- Generated local materializer and application worker source now read internal
-  invoke and query-session request bodies through named request JSON
-  boundaries with stable malformed-JSON errors.
-- Generated local materializer and application worker backend response reads now
-  use explicit `readBackendResponseJson(...)` try/catch helpers instead of
-  anonymous inline `response.json().catch(() => null)` calls.
-- Generated source/runtime coverage asserts the emitted worker keeps the named
-  helpers and returns the named malformed invoke request error.
-
-Why it changed:
-
-The dev/runtime side still had generated worker templates with direct JSON
-parsing even after package-local adapters moved to named Effect response
-decoders. This checkpoint keeps generated worker behavior unchanged but makes
-those emitted runtime boundaries explicit before returning to fuller
-route/service Effect conversion.
-
-Known limitations:
-
-- The emitted workers remain plain generated Worker code and do not import
-  Effect.
-- Successful backend response payloads still use existing generated worker
-  contracts rather than Effect Schema.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts packages/flarex-dev/test/generate.test.ts --testTimeout=120000 --hookTimeout=120000
-corepack pnpm --filter flarex-dev build
-corepack pnpm --filter flarex-dev test -- --testTimeout=120000 --hookTimeout=120000
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend build
-corepack pnpm --filter flarex-protocol build
-corepack pnpm --filter flarex-protocol test
-git diff --check
-```
-
-## Backend Push And Artifact Response Effect Boundaries
-
-Previous completed checkpoint: `77c921a` Type materialized artifact responses
-with Effect.
-
-What changed:
-
-- `flarex-dev` backend analyzer, backend push, backend finish, and local finish
-  response reads now pass through named Effect decoders.
-- Execution artifact analysis and invoke response reads now pass through named
-  Effect decoders.
-- Non-JSON transport failures keep the previous status fallback messages while
-  moving the integration failure channel to typed Effect errors before adapter
-  conversion.
-- Added focused non-JSON failure coverage for HTTP analyzer, push, finish, and
-  execution artifact invoke responses.
-
-Why it changed:
-
-Local development owns several service-binding and HTTP-style integration
-edges. They were still using repeated `response.json().catch(() => null)` reads
-before separate parser/error handling. This checkpoint keeps the existing
-payload parsers but moves transport response decoding into named Effect
-boundaries.
-
-Convex references inspected:
-
-- None in this checkpoint. The touched paths are Flarex local development
-  adapters around backend push and execution artifact plumbing.
-
-Known limitations:
-
-- Successful response payload schemas are still validated by the existing
-  parsers rather than Effect Schema.
-- Generated runtime-worker source still has its own internal JSON response and
-  request parsing boundaries.
-
-Verification:
-
-```sh
-node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/backendPush.test.ts packages/flarex-dev/test/executionArtifact.test.ts --testTimeout=120000 --hookTimeout=120000
-corepack pnpm --filter flarex-dev typecheck
-node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000
-node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/analyze.test.ts packages/flarex-dev/test/generate.test.ts packages/flarex-dev/test/generatedTypecheck.test.ts packages/flarex-dev/test/sourcePackage.test.ts --testTimeout=120000 --hookTimeout=120000
-node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/cli.test.ts packages/flarex-dev/test/dev.test.ts packages/flarex-dev/test/devDispose.test.ts packages/flarex-dev/test/index.test.ts packages/flarex-dev/test/routeBoundary.test.ts packages/flarex-dev/test/vite.test.ts --testTimeout=120000 --hookTimeout=120000
-node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/backendSyncRuntime.test.ts packages/flarex-dev/test/executorHttpRuntime.test.ts packages/flarex-dev/test/executionArtifactStore.test.ts --testTimeout=120000 --hookTimeout=120000
-corepack pnpm --filter flarex-dev build
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend build
-corepack pnpm --filter flarex-protocol build
-corepack pnpm --filter flarex-protocol test
-git diff --check
-```
-
-## Materialized Artifact Response Effect Boundary
-
-Previous completed checkpoint: `92df423` Route generated HttpApi requests
-through Effect.
-
-What changed:
-
-- Local materialized execution artifact invocation now decodes artifact HTTP
-  responses through a named Effect helper.
-- Non-OK invoke and query-session responses become typed
-  `MaterializedArtifactResponseError` values before the local adapter maps them
-  back to the existing public `Error & { status }` shape.
-- Added direct tests for successful JSON, structured error JSON, and non-JSON
-  error responses.
-
-Why it changed:
-
-The local materialized artifact client had duplicated
-`response.json().catch(() => null)` and ad hoc status-error construction in
-both invoke paths. Moving this into one typed Effect boundary continues the
-migration from duplicated promise/try-catch edges to typed integration
-failures.
-
-Convex references inspected:
-
-- None in this checkpoint. This is Flarex local Miniflare artifact adapter
-  plumbing around the Cloudflare execution artifact model.
-
-Known limitations:
-
-- The generated runtime-worker source still reads its internal request bodies
-  directly. That generated-source boundary remains a separate migration target.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000
-node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/runtimeMaterializer.test.ts packages/flarex-dev/test/generate.test.ts packages/flarex-dev/test/executionArtifact.test.ts --testTimeout=120000 --hookTimeout=120000
-corepack pnpm --filter flarex-dev test -- --testTimeout=120000 --hookTimeout=120000
-corepack pnpm --filter flarex-dev build
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend build
-corepack pnpm --filter flarex-protocol build
-corepack pnpm --filter flarex-protocol test
-git diff --check
-```
-
-## Local Dev Effect Request Boundaries
-
-Previous completed checkpoint: `4aa94cb` Route partition fetch edges through
-Effect.
-
-What changed:
-
-- `/__flarex_dev/invoke` now uses a typed Effect body decoder before forwarding
-  to the backend invoke route.
-- The local analyzer service binding now uses a typed Effect body decoder
-  before invoking the backend analyzer.
-- Invalid local request bodies still return the existing `400 { error }`
-  adapter response shape, and analyzer operation failures still return
-  diagnostics.
-
-Why it changed:
-
-The local dev server is part of the migration surface because it owns HTTP
-request boundaries used by tests and local execution. Moving these normal
-TypeScript adapters to Effect keeps local behavior aligned with backend route
-boundary migration.
-
-Convex references inspected:
-
-- None in this checkpoint. This local dev service-binding shape is specific to
-  Flarex on Cloudflare/Miniflare.
-
-Known limitations:
-
-- The emitted runtime worker source still parses its internal invoke and
-  query-session bodies directly. That generated-source boundary should move in
-  a separate checkpoint with generated worker tests.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-node ./node_modules/vitest/vitest.mjs run --config packages/flarex-dev/vitest.config.ts packages/flarex-dev/test/routeBoundary.test.ts packages/flarex-dev/test/backendPush.test.ts --testTimeout=120000 --hookTimeout=120000
-corepack pnpm --filter flarex-dev test
-corepack pnpm --filter flarex-dev build
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend build
-git diff --check
-```
-
-## Local Codegen Dry-Run
-
-Previous completed checkpoint: `b40fb92` Preserve generated extension entries.
-
-What changed:
-
-- `flarex-dev codegen --dry-run` now computes local generated writes and stale
-  deletions without writing final generated files into the project.
-- Dry-run output uses Convex-style `Command would write file: ...` and
-  `Command would delete file/directory: ...` lines.
-- The command uses the same preserved-entry policy as normal local cleanup, so
-  `_generated/ai` is not reported as stale.
-- Fresh projects without a `flarex/` app directory are supported by creating an
-  empty temp app directory for analysis instead of touching the real project.
-
-Why it changed:
-
-Local development needs a safe codegen check before CI or editor workflows can
-ask whether checked-in generated output is current. Convex exposes this as a
-normal `codegen --dry-run` flag, so Flarex should match that mental model.
-
-Convex references inspected:
-
-- `npm-packages/convex/src/cli/codegen.ts`
-  - First-class `--dry-run` command option.
-- `npm-packages/convex/src/cli/lib/codegen.ts`
-  - Dry-run write reporting.
-- `npm-packages/convex/src/cli/lib/fsUtils.ts`
-  - Dry-run delete reporting.
-
-Flarex differences:
-
-- Local dry-run analyzes a temporary app directory to avoid mutating the real
-  `_generated` directory while still satisfying generated imports during
-  bundling.
-- Generated-output typecheck does not run in dry-run mode because the generated
-  files are not written into the real project.
-
-Known limitations:
-
-- No `flarex dev` watcher uses dry-run yet.
-- Imports that intentionally reach outside the Flarex app directory are not
-  part of the dry-run contract.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts -t "dry-run" --testTimeout=60000 --hookTimeout=60000
-corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "dry-runs" --testTimeout=60000 --hookTimeout=60000
-corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
-corepack pnpm --filter @flarex/example generate
-git diff --check
-```
-
-## Preserved Generated Entry Policy For Local Codegen
-
-Previous completed checkpoint: `6dda926` Plan stale generated cleanup.
-
-What changed:
-
-- Local codegen cleanup now preserves `_generated/ai`, matching the portable
-  Convex stale-cleanup policy.
-- `isPreservedGeneratedEntry(...)` is exported so a future local
-  `codegen --dry-run` implementation can report deletions with the same policy
-  as actual cleanup without exposing mutable cleanup state.
-- Generator coverage proves the preserved entry survives normal local codegen.
-
-Why it changed:
-
-Local dry-run behavior should not report `_generated/ai` as a deletion candidate
-if normal codegen would preserve it. Convex already has this rule, so Flarex
-should port it before exposing dry-run output.
-
-Convex references inspected:
-
-- `npm-packages/convex/src/cli/lib/codegen.ts`
-  - `PRESERVED_GENERATED_ENTRIES` preserves `ai`.
-  - `cleanupStaleGeneratedEntries(...)` applies the preserved-entry check before
-    stale deletion.
-
-Flarex differences:
-
-- Flarex currently preserves only by top-level generated entry name.
-- Local dev still lacks the user-facing dry-run command that will consume this
-  policy.
-
-Known limitations:
-
-- No local CLI `--dry-run` output exists yet.
-- Future generated extension directories must be added to the preserved set
-  explicitly and covered by tests.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "plans stale generated entries" --testTimeout=60000 --hookTimeout=60000
-corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
-corepack pnpm --filter @flarex/example generate
-git diff --check
-```
-
-## Dry-Run Deletion Foundation For Local Codegen
-
-Previous completed checkpoint: `8531b41` Extract final codegen write plan.
-
-What changed:
-
-- Local codegen can now compute stale generated entries through
-  `staleGeneratedEntries(...)` without deleting them.
-- Normal `finalCodegen(...)` reuses that plan for cleanup so future local
-  dry-run output and actual generated cleanup stay aligned.
-- Generator tests now cover the side-effect-free stale-entry plan and the
-  actual cleanup path.
-
-Why it changed:
-
-The local dev CLI should follow Convex's `codegen --dry-run` behavior. A real
-dry-run must report deletions as well as writes, so the deletion plan needs to
-exist before the command can be exposed.
-
-Convex references inspected:
-
-- `npm-packages/convex/src/cli/codegen.ts`
-  - Convex exposes `--dry-run` for local codegen workflows.
-- `npm-packages/convex/src/cli/dev.ts`
-  - local development depends on generated files staying current.
-
-Flarex differences:
-
-- No local `--dry-run` command exists yet.
-- This checkpoint is shared codegen plumbing only; the local server does not
-  consume dry-run output yet.
-
-Known limitations:
-
-- Dry-run CLI output still needs a combined write/delete report.
-- Initial bootstrap generation still writes to disk for local analysis.
-- Local dry-run must not claim full Convex-style deletion semantics until
-  Flarex has a preserved-entry policy for generated extensions, equivalent in
-  role to Convex's `PRESERVED_GENERATED_ENTRIES`.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "plans stale generated entries" --testTimeout=60000 --hookTimeout=60000
-corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
-corepack pnpm --filter @flarex/example generate
-git diff --check
-```
-
-## Dry-Run Write Foundation For Local Codegen
-
-Previous completed checkpoint: `f6a1984` Add codegen typecheck modes.
-
-What changed:
-
-- Final generated write output can now be computed through
-  `finalGeneratedFiles(...)` without writing files.
-- Local dev and CLI codegen still call `finalCodegen(...)`, but that writer now
-  consumes the same write plan a future dry-run command can print.
-
-Why it changed:
-
-Local command behavior should move toward Convex's `codegen --dry-run` without
-inventing a second generator path. A shared final write plan lets future local
-CLI dry-run output and normal codegen stay aligned.
-
-Convex references inspected:
-
-- `npm-packages/convex/src/cli/codegen.ts`
-  - Convex exposes `--dry-run` for generated configuration output.
-- `npm-packages/convex/src/cli/dev.ts`
-  - local workflows depend on generated code staying consistent.
-
-Flarex differences:
-
-- Flarex has only the write planning foundation; no local dry-run command
-  exists yet.
-- Initial bootstrap generation still writes to disk for local analysis.
-
-Known limitations:
-
-- No `flarex dev` command uses this yet.
-- Dry-run output format and stale deletion planning are not designed yet.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "plans final generated output" --testTimeout=60000 --hookTimeout=60000
-corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=60000 --hookTimeout=60000
-corepack pnpm --filter @flarex/example generate
-git diff --check
-```
-
-## Codegen Typecheck Mode For Local Commands
-
-Previous completed checkpoint: `7eeb277` Add source CLI entrypoint.
-
-What changed:
-
-- Local command help now exposes `--typecheck <mode>` for codegen.
-- The example generated-output command uses `--typecheck enable`.
-- The source CLI runner supports `try` mode for best-effort generated-output
-  validation.
-
-Why it changed:
-
-Local workflows need the same shape as the eventual CLI. Convex exposes
-typecheck policy as a codegen mode, which lets CI fail strictly while local/dev
-flows can choose best-effort behavior.
-
-Convex references inspected:
-
-- `npm-packages/convex/src/cli/codegen.ts`
-  - `--typecheck <mode>` supports explicit codegen typecheck policy.
-- `npm-packages/convex/src/cli/dev.ts`
-  - local workflow readiness is tied to generated code and typechecking.
-
-Flarex differences:
-
-- Flarex defaults to no generated-output typecheck unless a mode is provided.
-- `try` mode emits a plain stderr warning instead of Convex's richer CLI
-  diagnostics.
-
-Known limitations:
-
-- No `flarex dev` command uses these modes yet.
-- No global CLI binary exists yet.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
-corepack pnpm --filter flarex-dev cli -- codegen --help
-corepack pnpm --filter @flarex/example typecheck:generated
-corepack pnpm --filter @flarex/example generate
-corepack pnpm --filter @flarex/example typecheck
-git diff --check
-```
-
-## Source CLI Entrypoint For Local Workflow
-
-Previous completed checkpoint: `24fcc04` Route example generate through CLI
-runner.
-
-What changed:
-
-- `flarex-dev` now has a source-mode `cli` package script backed by
-  `packages/flarex-dev/src/bin.ts`.
-- The CLI runner accepts package-script invocation with a leading `--`, so
-  local commands can be exercised as process commands instead of only direct
-  function calls.
-- The example app still uses its app-local wrappers, but the underlying
-  command runner now has its own process entrypoint for local validation.
-
-Why it changed:
-
-Local development needs a command process boundary before a full `flarex dev`
-or installed binary exists. This mirrors Convex's split between a source
-development entrypoint and a packaged CLI entrypoint while staying honest about
-Flarex's current source-only package shape.
-
-Convex references inspected:
-
-- `npm-packages/convex/bin/main-dev`
-  - development CLI entrypoint runs from source.
-- `npm-packages/convex/bin/main.js`
-  - packaged CLI entrypoint runs built output.
-- `npm-packages/convex/src/cli/program.ts`
-  - command registration is centralized.
-
-Flarex differences:
-
-- This is a package script, not a published `bin`.
-- No `flarex dev` command exists yet.
-- The source entrypoint is only for local/dev validation while packages remain
-  `noEmit`.
-
-Known limitations:
-
-- A real installed CLI still requires a build/output strategy.
-- The local dev runtime is still invoked through Vite/dev APIs, not a CLI
-  `dev` command.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev cli -- codegen --help
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
-corepack pnpm --filter @flarex/example generate
-corepack pnpm --filter @flarex/example typecheck:generated
-corepack pnpm --filter @flarex/example typecheck
-git diff --check
-```
-
-## Example App Generation Uses Command Boundary
-
-Previous completed checkpoint: `5efa1f7` Default codegen CLI root to project.
-
-What changed:
-
-- `apps/example/scripts/generate.ts` now delegates to `flarex-dev/cli`.
-- The example app's `generate`, `typecheck`, `build`, and `test` scripts now
-  reach codegen through the CLI runner because they all depend on `pnpm
-  generate`.
-- The separate generated-output typecheck command already uses the same runner.
-
-Why it changed:
-
-Local app scripts should model the future user workflow. Using the command
-runner for normal generation keeps the example aligned with the Convex-style
-project command direction instead of preserving an app-local helper shortcut.
-
-Convex references inspected:
-
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - local workflows compose project commands around generated state.
-- `npm-packages/convex/src/cli/lib/codegen.ts`
-  - codegen is command workflow logic.
-
-Flarex differences:
-
-- This is still not a `flarex dev` process.
-- The app still invokes the source runner through `tsx`, not an installed
-  executable.
-
-Known limitations:
-
-- No watch mode is attached to the CLI runner.
-- No published binary installation path exists yet.
-
-Verification:
-
-```sh
-corepack pnpm --filter @flarex/example generate
-corepack pnpm --filter @flarex/example typecheck:generated
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
-corepack pnpm --filter @flarex/example typecheck
-git diff --check
-```
-
-## Project-Root CLI Script Shape
-
-Previous completed checkpoint: `1ae9066` Add source CLI runner for codegen.
-
-What changed:
-
-- The example app's generated-output command now invokes `codegen --typecheck`
-  without `--root`.
-- `runFlarexDevCli(...)` uses the current project directory as the default app
-  root, with explicit `--root` still available as an override.
-- Help text now describes `--root` as optional.
-
-Why it changed:
-
-The local development script should look like a command run from an app, not a
-wrapper around an internal helper. This is closer to Convex's `npx convex ...`
-style where the project directory is implicit.
-
-Convex references inspected:
-
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - local dev workflow runs from project context.
-- `npm-packages/convex/src/cli/lib/codegen.ts`
-  - codegen is part of the command workflow.
-
-Flarex differences:
-
-- The command is still invoked through an app-local `tsx` script because no
-  emitted CLI binary exists.
-- The script still passes workspace-specific typecheck path mappings.
-
-Known limitations:
-
-- No `flarex dev` command exists yet.
-- No published binary installation path is tested yet.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
-corepack pnpm --filter @flarex/example typecheck:generated
-git diff --check
-```
-
-## CLI Runner Boundary For Generated Codegen
-
-Previous completed checkpoint: `1a19708` Add example generated output
-typecheck.
-
-What changed:
-
-- `flarex-dev/cli` now exports `runFlarexDevCli(...)`.
-- The example app's `typecheck:generated` command uses the CLI runner to call
-  `codegen --typecheck`, so local app validation no longer composes the
-  lower-level helper directly.
-- The runner remains source-level and directly testable while the local dev
-  server and Vite plugin continue to use their existing lifecycle hooks.
-
-Why it changed:
-
-Local dev needs a command-shaped boundary that can later become the Convex-like
-CLI entrypoint. Keeping the runner separate from Vite avoids making the plugin
-the only way to validate generated output.
-
-Convex references inspected:
-
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - local dev is orchestrated through CLI/dev workflow state.
-- `npm-packages/convex/src/cli/lib/codegen.ts`
-  - codegen is a reusable command concern.
-
-Flarex differences:
-
-- Flarex still has no process-level CLI binary in this package.
-- The local dev runtime and Vite plugin still call shared package helpers
-  directly; the runner is for command-style app/CI use.
-
-Known limitations:
-
-- No watch mode is attached to the CLI runner.
-- No full `flarex dev` command exists yet.
-
-Verification:
-
-```sh
-corepack pnpm --filter @flarex/example typecheck:generated
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/cli.test.ts --testTimeout=60000 --hookTimeout=60000
-git diff --check
-```
-
-## Optional Generated Output Typecheck In Dev Flow
-
-Previous completed checkpoint: `7380900` Expose generated output typecheck.
-
-What changed:
-
-- `createFlarexDevRuntime(...)` now accepts
-  `typecheckGeneratedOutput?: false | FlarexGeneratedOutputTypecheckConfig`.
-- The dev runtime runs generated-output typecheck after authoritative final
-  codegen and before executor package activation or app replacement.
-- The Vite plugin accepts the same option and runs it after plugin-driven
-  `generateFlarex(...)` calls.
-- The Vite plugin passes the option into the local dev runtime so reloads can
-  enforce the same generated-output gate.
-- `dev.test.ts` now creates both legacy and Postgres dev runtimes with
-  generated-output typechecking enabled.
-- Dev runtime reload/typecheck startup failures now dispose local Miniflare
-  resources before rethrowing.
-- Reload/typecheck startup-failure cleanup is best-effort for each runtime
-  resource, preserves the primary startup error, and removes the default
-  `.flarex/dev` persist directory after disposals settle.
-- Public `dispose()` still reports cleanup failures, aggregating multiple
-  resource-disposal errors instead of silently swallowing them.
-- Added a dispose regression proving default persist cleanup failures are
-  reported during normal user-initiated shutdown.
-- The Vite plugin skips plugin-owned codegen/typecheck during normal dev
-  startup when the dev runtime will own authoritative final codegen.
-- The Vite plugin also avoids a second plugin-owned codegen/typecheck pass when
-  `dev: false` serve startup already ran one.
-- Added failure coverage proving dev runtime startup and Vite build codegen
-  reject when the generated-output typecheck command fails.
-- Added cleanup coverage proving the default dev persist directory is removed
-  when startup fails during generated-output typecheck.
-- Added Vite serve coverage proving `dev: false` startup does not rerun the
-  plugin-owned generated-output gate.
-- Added default Vite dev coverage proving `typecheckGeneratedOutput` is
-  forwarded into the dev runtime.
-- `dev: false` watcher generated-output failures are caught and reported
-  through the Vite logger instead of escaping the watcher callback.
-- Minimal Flarex test-project setup for lifecycle tests now lives in
-  `packages/flarex-dev/test/fixtures.ts`.
-
-Why it changed:
-
-The previous checkpoint exposed the typecheck helper but did not use it in the
-actual local dev lifecycle. Convex's dev flow treats generated code as a real
-developer-facing contract. Flarex should fail before activation when final
-codegen emits broken generated TypeScript, instead of letting the app continue
-with invalid local imports.
-
-Convex references inspected:
-
-- `npm-packages/convex/src/cli/lib/codegen.ts`
-  - Convex codegen participates in typecheck-aware dev workflows.
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - local dev orchestration owns push/codegen readiness before serving a
-    deployment.
-- `npm-packages/convex/src/cli/codegen_templates/api.ts`
-- `npm-packages/convex/src/cli/codegen_templates/server.ts`
-- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
-  - generated TypeScript is a first-class local import surface.
-
-Flarex differences:
-
-- Flarex keeps generated-output typecheck opt-in for now because workspace and
-  app package resolution can differ, especially in examples and tests.
-- The gate compiles `_generated/**/*.ts`, not the entire app's TypeScript
-  program.
-
-Known limitations:
-
-- Vite production builds and `dev: false` still run plugin-owned codegen and
-  optional generated-output typecheck.
-- No CLI command or diagnostic UI exists yet; errors surface as thrown
-  TypeScript stdout/stderr.
-- Backend construction failures before the dev runtime object exists are not
-  covered by this cleanup path yet.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/generatedTypecheck.test.ts --testTimeout=30000 --hookTimeout=30000
-corepack pnpm --filter flarex-dev exec vitest run test/devDispose.test.ts --testTimeout=60000 --hookTimeout=60000
-corepack pnpm --filter flarex-dev exec vitest run test/dev.test.ts --testTimeout=60000 --hookTimeout=60000
-corepack pnpm --filter flarex-dev exec vitest run test/vite.test.ts --testTimeout=60000 --hookTimeout=60000
-corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "typechecks generated output" --testTimeout=30000 --hookTimeout=30000
-corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=30000 --hookTimeout=30000
-corepack pnpm --filter flarex-dev build
-```
-
-## Generated Output Typecheck Building Block
-
-Previous completed checkpoint: `f7634e1` Typecheck generated output tree.
-
-What changed:
-
-- Added an exported `typecheckGeneratedOutput(...)` API in `flarex-dev`.
-- The API can be called by future Vite plugin, dev runtime, or CLI flows after
-  codegen completes.
-- The helper supports custom `typescriptCliPath`, `cwd`, ambient `types`,
-  `typeRoots`, and `paths` so local dev can use normal app resolution while
-  tests can resolve workspace source packages.
-- By default the helper writes its config to a temporary directory and cleans
-  it up after TypeScript exits.
-
-Why it changed:
-
-Local development should eventually follow the Convex-style sequence:
-generate, analyze/push, final codegen, then typecheck generated output before
-activating or serving a broken app. This checkpoint creates the reusable
-primitive without changing dev-server activation behavior yet.
-
-Convex references inspected:
-
-- `npm-packages/convex/src/cli/lib/codegen.ts`
-  - Convex's dev/push/codegen workflow owns generated-code correctness checks.
-- `npm-packages/convex/src/cli/codegen_templates/api.ts`
-- `npm-packages/convex/src/cli/codegen_templates/server.ts`
-- `npm-packages/convex/src/cli/codegen_templates/dataModel.ts`
-  - generated files are local developer imports and should be verified before
-    use.
-
-Flarex differences:
-
-- This slice does not yet call the helper from the Vite plugin or dev runtime.
-- The helper compiles only `_generated/**/*.ts`, not the whole application.
-
-Known limitations:
-
-- Dev-server push/codegen can still complete without invoking generated output
-  typecheck.
-- No surfaced diagnostic formatting beyond TypeScript stdout/stderr wrapping
-  exists yet.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts -t "typechecks generated output" --testTimeout=30000 --hookTimeout=30000
-corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --testTimeout=30000 --hookTimeout=30000
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev build
-```
-
-## Vite Config Load Boundary
-
-Previous completed checkpoint: `df4e8ad` Serialize Postgres commit timestamps.
-
-What changed:
-
-- Changed the Vite plugin so `createFlarexDevRuntime(...)` is imported lazily
-  inside `configureServer(...)` instead of at plugin module load.
-- This keeps `vite.config.ts` loading from eagerly importing local dev
-  executor dependencies such as PGlite/Postgres when the app is doing a
-  production worker build.
-
-Why it changed:
-
-The executor retry checkpoint added broader validation with `corepack pnpm
-build`. That surfaced a local-dev plugin boundary issue: the example app build
-only needs generation and worker bundling, but Vite config loading pulled in
-the Node-local executor runtime and hit package-source ESM resolution for
-`@flarex/persistence-postgres/pglite`.
-
-Convex references inspected:
-
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - dev-only orchestration stays in the dev command path.
-- `npm-packages/convex/src/cli/lib/codegen.ts`
-  - generation can run without starting the local backend runtime.
-
-Flarex differences:
-
-- Flarex currently exposes dev orchestration as a Vite plugin, so the module
-  loaded by `vite.config.ts` must be careful about runtime-only imports.
-- Convex has a CLI process boundary; Flarex's Vite plugin needs lazy imports to
-  recreate that separation.
-
-Known limitations:
-
-- This does not change the local dev runtime itself. It only prevents
-  production build config loading from pulling the local executor path.
-- A later package boundary pass should make the local dev runtime split more
-  explicit so config-time codegen and server-time orchestration are separate
-  modules.
-
-Verification:
-
-```sh
-corepack pnpm build
-```
-
-## Current Implementation
-
-Added the first Convex-shaped local dev runtime behind the Vite plugin.
-
-The Vite plugin now:
-
-1. generates Flarex files before dev startup,
-2. starts a backend Miniflare runtime with the backend Worker and Durable
-   Objects,
-3. starts a generated app Worker Miniflare runtime with a `FLAREX_BACKEND`
-   service binding to the backend runtime,
-4. reads generated schema/function metadata from the app Worker,
-5. deploys that metadata into the backend runtime,
-6. exposes `/__flarex_dev/*` through Vite middleware,
-7. debounces app file changes by 500ms and reloads/regenerates/redeploys.
-
-Current dev routes:
-
-```txt
-GET  /__flarex_dev/health
-POST /__flarex_dev/invoke
-GET  /__flarex_dev/sync
-```
-
-The proxy strips `/__flarex_dev` and forwards to the generated app Worker, so
-`/__flarex_dev/invoke` executes the same generated Worker `/invoke` path used by
-the example E2E test.
-
-## Why
-
-Convex local dev is a long-running orchestrator, not just a static generator.
-It watches files, generates code, talks to a running backend, and keeps local
-development state synchronized. Flarex should keep that shape while replacing
-the local Rust backend process with Cloudflare-native Miniflare Workers and
-Durable Objects.
-
-## Convex References
-
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - `devAgainstDeployment` owns the long-running dev loop.
-  - `watchAndPush` regenerates/pushes code and waits on file/backend changes.
-  - File watch uses a quiescence delay before rerunning push.
-- `npm-packages/convex/src/cli/lib/localDeployment/run.ts`
-  - Convex starts a separate local backend process, persists state, and
-    health-checks a local URL.
-- `npm-packages/convex/src/cli/lib/codegen.ts`
-  - Convex prepares generated files before analysis and push.
-
-## Cloudflare Difference
-
-Convex starts a local backend binary. Flarex starts Miniflare runtimes:
-
-```txt
-Vite dev server
-  /__flarex_dev/*
-    -> generated app Worker Miniflare
-      -> FLAREX_BACKEND service binding
-        -> backend Worker/DO Miniflare
-```
-
-The generated app Worker remains the user-code execution boundary. The backend
-Worker and Durable Objects remain the transaction/session/OCC boundary.
-
-The app project should not need a generated Wrangler config for normal Vite
-dev or hosted production. The application client should target either the
-hosted Flarex deployment URL or the local dev URL exposed by Vite
-(`/__flarex_dev`). Wrangler belongs to the Flarex backend/platform deployment
-target, not to every app using Flarex.
-
-## Known Limitations
-
-- The local dev runtime uses Vite bundling on reload. It does not yet implement
-  Convex's full module analysis pipeline or streamed logs.
-- WebSocket upgrade handling is not implemented in the Vite middleware yet.
-  Programmatic dev/runtime tests can use `createFlarexDevRuntime` and
-  `flarex-test` WebSocket support today; Vite's HTTP middleware still needs
-  explicit upgrade handling for browser dev servers.
-- Test runs should use a Vitest-specific config instead of loading an app's
-  Vite dev plugin. The example app now follows that rule.
-- The dev runtime persists state under `.flarex/dev` by default and removes it
-  on dispose unless a custom `persistDir` is provided.
-
-## Target Push Lifecycle
-
-Local dev must stop deploying metadata through a special shortcut. It should
-exercise the same Convex-shaped lifecycle as hosted Flarex:
-
-```txt
-file change
-  -> initial codegen
-  -> source package
-  -> local start_push
-  -> candidate Miniflare execution artifact
-  -> authoritative candidate analysis
-  -> final codegen from analysis response
-  -> typecheck
-  -> local finish_push
-  -> active candidate serves invoke requests
-```
-
-Miniflare is the local implementation of the execution-artifact adapter. The
-hosted implementation is the Flarex-managed Dynamic Worker runtime for the
-uploaded `flarex/` source package. The push state machine, analysis contract,
-final codegen input, and activation semantics must be shared.
-
-See `roadmaps/17-deployment-analysis-and-push.md`.
-
-## Push Lifecycle Gap
-
-The backend now exposes candidate push routes, but local dev still deploys by
-reading generated Worker metadata and calling legacy direct schema/functions
-PUT routes. This is intentionally left as a separate step.
-
-The next local-dev change should use:
-
-```txt
-initialCodegen
-  -> bundleFlarexSourcePackage
-  -> analyzeSourcePackageLocally
-  -> POST /push/start
-  -> finalCodegen from push response
-  -> POST /push/:pushId/finish
-```
-
-That change should keep the generated Worker behavior the same while making
-the dev server exercise the same backend push lifecycle as hosted deploy.
-
-## Push Lifecycle Implementation Update
-
-Local dev reload now follows the backend push lifecycle:
-
-```txt
-initialCodegen
-  -> bundleFlarexSourcePackage
-  -> analyzeSourcePackageLocally
-  -> POST /deployments/:deploymentId/push/start
-  -> finalCodegen
-  -> build generated app Worker
-  -> POST /deployments/:deploymentId/push/:pushId/finish
-```
-
-The dev runtime no longer reads generated Worker metadata to deploy schema or
-function metadata, and it no longer calls legacy direct schema/functions PUT
-routes during reload. The generated app Worker still serves `/invoke`, `/sync`,
-`/health`, and `/__flarex_internal/metadata` for compatibility, but local dev
-deployment no longer depends on that metadata endpoint.
-
-Activation is ordered conservatively: if final codegen or app Worker build
-fails, the push is not finished and the previous app runtime remains active.
-
-The dev health/push debug routes now expose the latest backend push state so
-tests and future Vite middleware can verify which candidate is active:
-
-```txt
-GET /__flarex_dev/health
-GET /__flarex_dev/push
-```
-
-Convex references:
-
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - local dev orchestration performs codegen, push, and backend coordination.
-- `crates/application/src/deploy_config.rs`
-  - push activation happens through `start_push` / `finish_push`.
-
-Cloudflare difference: Flarex still analyzes locally in the Node dev process
-and starts an app Miniflare Worker from generated code. The next step is to
-move analysis into an execution-artifact adapter so local Miniflare and the
-hosted Dynamic Worker runtime share the same analyzer boundary.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test
-corepack pnpm --filter @flarex/example test
-corepack pnpm typecheck
-corepack pnpm test
-corepack pnpm build
-git diff --check
-```
-
-## Postgres Executor HTTP Local Runtime
-
-Previous completed checkpoint: `3f441a8` Add local live query execution host.
-
-What changed:
-
-- Added `createLocalExecutorHttpRuntime(...)` in `flarex-dev`.
-- This is a forward-path local runtime for the Postgres executor HTTP adapter,
-  separate from the older Miniflare Durable Object dev backend.
-- It wires live-query rerun maintenance to materialized user query execution:
-  `/maintenance/live-queries/rerun` can now run stored query code locally and
-  route its `ctx.db` reads through `/invoke/syscall`.
-
-Why it changed:
-
-The Vite/DO dev runtime is still useful for legacy examples, but the forward
-architecture is the trusted Postgres executor plus managed source-package
-execution. Local tests and future dev middleware need a reusable assembly point
-for that path without booting Nitro or a hosted platform service.
-
-Convex references:
-
-- `npm-packages/convex/src/cli/lib/localDeployment/run.ts`
-  - local dev runs a backend service and points SDK traffic at that local URL.
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - local dev orchestrates codegen, push, backend state, and runtime behavior.
-- `crates/sync/src/worker.rs`
-  - live-query rerun behavior belongs to backend/sync orchestration.
-
-Flarex differences:
-
-- Convex's local backend is one binary. Flarex local forward path composes an
-  executor core, HTTP adapter, and Miniflare source-package artifact.
-- This helper does not replace the Vite plugin yet; it gives the Postgres
-  executor path a testable local runtime first.
-
-Known limitations:
-
-- Vite middleware is not yet switched to this Postgres executor runtime.
-- There is still no browser WebSocket dev route for the Postgres sync path.
-- The helper requires local package metadata with module source text.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
-git diff --check
-```
-
-## PGlite Local Executor Runtime Test
-
-Previous completed checkpoint: `3efd2a0` Wire local executor live query
-reruns.
-
-What changed:
-
-- Added PGlite-backed coverage for `createLocalExecutorHttpRuntime(...)`.
-- The test uses a real `FlarexExecutor`, real package registration/activation,
-  real invoke-session writes, durable freshness projection, and the local HTTP
-  maintenance route.
-
-Why it changed:
-
-The local Postgres executor runtime should be reusable for examples and future
-dev tooling without starting Nitro or relying on fake callback behavior. This
-test makes that local runtime concrete against the PGlite lane.
-
-Convex references:
-
-- `npm-packages/convex/src/cli/lib/localDeployment/run.ts`
-  - local dev provides a real backend target.
-- `crates/sync/src/worker.rs`
-  - local backend behavior should still exercise live-query reruns.
-
-Flarex differences:
-
-- Convex local dev starts a local backend binary. Flarex composes executor core,
-  PGlite persistence, an HTTP adapter, and a Miniflare source-package artifact.
-
-Known limitations:
-
-- This is test/runtime infrastructure only; the Vite plugin is not yet using
-  this path.
-- The test currently covers HTTP rerun behavior, not browser WebSocket sync.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test -- executorHttpRuntime.test.ts
-git diff --check
-```
-
-## Execution Artifact Analysis Update
-
-Previous completed checkpoint: `7abaa43` Use backend push lifecycle in local
-dev.
-
-Local dev reload now analyzes the source package through
-`LocalMiniflareExecutionArtifactAdapter` instead of direct Node import:
-
-```txt
-initialCodegen
-  -> bundleFlarexSourcePackage
-  -> local Miniflare execution artifact analysis
-  -> POST /deployments/:deploymentId/push/start
-  -> finalCodegen
-  -> build generated app Worker
-  -> POST /deployments/:deploymentId/push/:pushId/finish
-```
-
-This keeps the local dev server closer to the hosted target: the analyzer
-receives an immutable source package and runs in a Worker-shaped isolate. The
-app project still does not need Wrangler config for Vite dev; Flarex owns the
-internal Miniflare runtimes.
-
-Convex references:
-
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - local dev performs codegen, push, and backend coordination in a
-    long-running loop.
-- `crates/isolate/src/environment/analyze.rs`
-  - function metadata is derived from evaluated runtime exports.
-
-Cloudflare difference: Convex local dev talks to a local backend binary that
-owns analysis. Flarex now uses a local Miniflare execution artifact as an
-adapter boundary, while backend-owned hosted analysis remains future work.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test
-corepack pnpm --filter @flarex/example test
-corepack pnpm typecheck
-corepack pnpm test
-corepack pnpm build
-git diff --check
-```
-
-## Backend Codegen Analysis Update
-
-Previous completed checkpoint: `27bb9f5` Analyze source packages in execution
-artifact.
-
-Local dev now runs final codegen from the backend `push/start` response:
-
-```txt
-local Miniflare execution artifact analysis
-  -> POST /deployments/:deploymentId/push/start
-  -> backend returns codegenAnalysis
-  -> finalCodegen(context, started.codegenAnalysis)
-```
-
-The locally produced analysis is still needed temporarily because hosted
-backend-owned analysis has not been implemented. The important boundary change
-is that final generated files now consume the backend's validated and
-normalized response, matching Convex's push/codegen order more closely.
-
-Convex references:
-
-- `npm-packages/convex/src/cli/lib/components.ts`
-  - final codegen happens after push returns analyzed deployment metadata.
-- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
-  - push responses carry the analyzed metadata needed for generation.
-
-Cloudflare difference: Flarex's local backend reconstructs grouped codegen
-modules from flattened function paths. Hosted Flarex should replace the
-client-supplied analysis request with backend-created execution-artifact
-analysis.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend test
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test
-corepack pnpm --filter @flarex/example test
-corepack pnpm typecheck
-corepack pnpm test
-corepack pnpm build
-git diff --check
-```
-
-## Local Backend Push Coordinator Update
-
-Previous completed checkpoint: `3cbd471` Return codegen analysis from push
-start.
-
-Local dev now calls a backend push coordinator with only the bundled source
-package:
-
-```txt
-reload
-  -> initialCodegen
-  -> bundleFlarexSourcePackage
-  -> pushCoordinator.start(sourcePackage)
-  -> finalCodegen from backend push response
-  -> build app Worker
-  -> pushCoordinator.finish(pushId)
-```
-
-`LocalBackendPushCoordinator` owns the local execution-artifact analyzer and
-the conversion from grouped codegen metadata to flattened backend activation
-metadata. This keeps the reload loop closer to Convex's mental model: source
-is pushed to a backend boundary, and analyzed deployment metadata comes back.
-
-Convex references:
-
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - the dev loop pushes bundled source to a backend-controlled deployment
-    boundary.
-- `npm-packages/convex/src/cli/lib/components.ts`
-  - final codegen consumes metadata returned from the push process.
-
-Cloudflare difference: this coordinator is Node-side local dev scaffolding
-because the local backend Worker cannot spawn nested Miniflare analysis. The
-hosted replacement should be a backend-owned Dynamic Worker analyzer service
-for the uploaded source package.
-
-`flarex-dev` now runs Vitest files serially, like `flarex-backend`, because
-these tests start Vite/esbuild/Miniflare runtimes and can exhaust Windows
-workspace-test resources under file-level parallelism.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test
-corepack pnpm --filter @flarex/example test
-corepack pnpm typecheck
-corepack pnpm test
-corepack pnpm build
-git diff --check
-```
-
-## Source-Only Push Boundary Update
-
-Previous completed checkpoint: `67b2e04` Move local analysis behind push
-coordinator.
-
-The public backend `push/start` request is now source-package only. It no
-longer accepts analyzed metadata in `StartPushRequest`.
-
-Local dev still works through the coordinator:
-
-```txt
-reload
-  -> bundleFlarexSourcePackage
-  -> LocalBackendPushCoordinator.start(sourcePackage)
-      -> BackendSourceAnalyzer.analyze(sourcePackage)
-      -> POST /push/start-analyzed
-  -> finalCodegen from backend push response
-```
-
-`/push/start-analyzed` is explicitly an internal prototype route. It keeps
-local dev moving while the hosted backend analyzer is not implemented. The
-normal public route returns a clear 501 in this runtime instead of silently
-accepting client-authored analysis.
-
-Convex references:
-
-- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
-  - push sends source/config material and receives analyzed metadata.
-- `npm-packages/convex/src/cli/lib/components.ts`
-  - local dev treats analysis as part of backend push, not application code.
-
-Cloudflare difference: Flarex local dev uses a Node-side
-`BackendSourceAnalyzer` to run the local Miniflare artifact. Hosted Flarex
-should replace that analyzer with the Dynamic Worker analyzer service.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend test
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test
-corepack pnpm --filter @flarex/example test
-corepack pnpm typecheck
-corepack pnpm test
-corepack pnpm build
-git diff --check
-```
-
-## Analyzer Service Binding Update
-
-Previous completed checkpoint: `c563d88` Make push start source-only.
-
-Local dev now configures the backend Miniflare runtime with a
-`FLAREX_ANALYZER` service binding. The reload path still calls only:
-
-```txt
-pushCoordinator.start(sourcePackage)
-  -> POST /deployments/:deploymentId/push/start
-```
-
-The backend Worker receives that public source-only request, calls
-`FLAREX_ANALYZER`, then forwards the analyzed candidate to its internal
-`/push/start-analyzed` route. This is closer to Convex's local-dev shape:
-the tooling pushes source to the backend boundary and receives backend
-analysis in the response.
-
-Convex references:
-
-- `npm-packages/convex/src/cli/lib/components.ts`
-  - local dev pushes source and performs final codegen from the backend push
-    response.
-- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts`
-  - backend push response contains analyzed deployment metadata.
-
-Cloudflare difference: the local analyzer binding is a Node-side Miniflare
-service, not the hosted Dynamic Worker analyzer service. It is the adapter
-boundary for the hosted implementation.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend test
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test
-corepack pnpm --filter @flarex/example test
-corepack pnpm typecheck
-corepack pnpm test
-corepack pnpm build
-git diff --check
-```
-
-## Analyzer Diagnostics Update
-
-Previous completed checkpoint: `0a57edd` Analyze push source through backend
-binding.
-
-Local dev's analyzer service now preserves import-time diagnostics from the
-execution artifact.
-
-The local analyzer path is:
-
-```txt
-FLAREX_ANALYZER service binding
-  -> LocalExecutionArtifactBackendAnalyzer
-  -> LocalMiniflareExecutionArtifactAdapter.analyzeWithDiagnostics()
-  -> { analysis, diagnostics } or { error, diagnostics }
-```
-
-The execution artifact installs a console capture wrapper before dynamically
-importing the generated execution entrypoint and schema entrypoint. That makes
-top-level developer module output available to the backend push response,
-including failed analysis candidates.
-
-Convex reference:
-
-- `crates/isolate/src/environment/analyze.rs`
-  - analysis captures import-time logs for push failure reporting with a
-    100-entry bound.
-
-Cloudflare difference: Flarex local dev captures logs in Miniflare by
-dynamically importing the source package after installing the console wrapper.
-Hosted Flarex must preserve the same contract inside the dynamic execution
-isolate rather than in the Node-side dev package.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test
-```
-
-## Hosted Store Format Update
-
-Previous completed checkpoint: `bccc7cd` Add execution artifact store
-boundary.
-
-Local development still uses `LocalInMemoryExecutionArtifactStore`, but
-`flarex-dev` now also defines the hosted object-store shape with
-`R2ExecutionArtifactStore`.
-
-The serialized hosted format is:
-
-```txt
-artifacts/{artifactId}/manifest.json
-artifacts/{artifactId}/source-package.json
-```
-
-This lets local tests verify the hosted storage contract before local dev is
-changed to use R2 persistence.
-
-Convex reference:
-
-- `crates/model/src/source_packages/mod.rs`
-  - source packages are retrieved by durable package identity.
-
-Cloudflare difference: local dev does not use this adapter by default yet; the
-adapter is present for the upcoming hosted/runtime path and for contract tests.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test
-```
-
-## Local Artifact Store Update
-
-Previous completed checkpoint: `363d7e0` Add local execution artifact runtime
-invoke.
-
-Local dev now stores the bundled source package in a local
-`ExecutionArtifactStore` before activating the push. During
-`/__flarex_dev/invoke`, local dev resolves the active deployment and verifies
-the active `executionArtifactRef` is present in the store before dispatching
-to the generated internal invoke route.
-
-This keeps the local path close to the hosted shape:
-
-```txt
-bundle flarex/ source package
-  -> artifactStore.put(sourcePackage)
-  -> finish_push activates executionArtifactRef
-  -> dev invoke artifactStore.get(executionArtifactRef)
-  -> LocalMiniflareExecutionArtifactRuntime.invoke
-```
-
-Convex reference:
-
-- `crates/model/src/source_packages/mod.rs`
-  - source packages are stored and retrieved through a model boundary, not
-    passed around as ad hoc request state.
-
-Cloudflare difference: the store is process-local memory for development. It
-does not survive process restart and does not represent hosted R2/KV storage.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test
-```
-
-## Local Invoke Runtime Adapter Update
-
-Previous completed checkpoint: `d5e13dd` Store active execution artifact
-reference.
-
-Local dev invoke now uses the same shape as the intended hosted runtime:
-
-```txt
-/__flarex_dev/invoke
-  -> backend /deployments/:deploymentId/deployment
-  -> active executionArtifactRef
-  -> LocalMiniflareExecutionArtifactRuntime.invoke(...)
-  -> generated /__flarex_internal/invoke
-  -> backend execution session syscalls
-```
-
-`/__flarex_dev/deployment` was added as a development inspection endpoint so
-tests and tooling can see the active deployment record, including
-`executionArtifactRef`.
-
-The generated app Worker still supports `/invoke` for compatibility and direct
-local forwarding, but the dev server's preferred invoke path now exercises the
-execution artifact runtime adapter.
-
-Convex reference:
-
-- `crates/application/src/application_function_runner/mod.rs`
-  - function execution goes through a backend-owned runner boundary with source
-    package identity rather than directly exposing database state to user code.
-
-Cloudflare difference: local dev uses a Miniflare app Worker as the execution
-artifact. Hosted Flarex should replace only the runtime adapter with the
-Flarex-managed Dynamic Worker runtime.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test
-```
-
-## Stored Source Package Invoke Update
-
-Previous completed checkpoint: `0447832` Add artifact runtime materializer
-cache.
-
-Added a local materializer that executes the stored source package itself,
-rather than relying on a generated app Worker file as the invoke artifact.
-
-For local proof, the materializer uses Miniflare:
-
-```txt
-source package from active deployment storage
-  -> LocalMiniflareExecutionArtifactMaterializer
-  -> internal runtime wrapper imports _flarex/execution.js
-  -> function handler receives syscall-backed ctx.db
-  -> backend execution session owns validation and commit
-```
-
-This keeps local development aligned with the hosted target: the source package
-is the durable input, and the execution artifact is Flarex-managed.
-
-Convex reference:
-
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - local dev coordinates source push and backend execution instead of asking
-    the application server to own database execution.
-- `crates/application/src/application_function_runner/mod.rs`
-  - runtime execution is reached through a backend-owned runner boundary.
-
-Cloudflare difference: Miniflare is still the development implementation of
-the execution-artifact loader. Hosted Flarex should replace this with the
-Dynamic Worker runtime without changing the source-package push contract.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts
-```
-
-## Local Dev Backend Artifact Runtime Update
-
-Previous completed checkpoint: `c8c16bb` Materialize stored source packages
-locally.
-
-Local dev now invokes through the same backend-owned hosted shape instead of
-calling the generated app Worker as the normal execution artifact.
-
-Current `/__flarex_dev/invoke` flow:
-
-```txt
-Vite /__flarex_dev/invoke
-  -> backend /deployments/:deploymentId/invoke
-  -> active deployment metadata
-  -> backend R2 ARTIFACTS source package
-  -> FLAREX_ARTIFACT_RUNTIME service binding
-  -> LocalMiniflareExecutionArtifactMaterializer
-  -> backend execution sessions and PartitionDO commit
-```
-
-The generated app Worker remains available for health checks, direct
-compatibility routes, and future `/sync`, but it is no longer the normal local
-dev invoke runtime.
-
-Convex reference:
-
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - local dev pushes source to a backend deployment boundary and then invokes
-    against the local backend.
-- `crates/application/src/application_function_runner/mod.rs`
-  - execution resolves active deployment and package metadata before calling
-    the executor.
-
-Cloudflare difference: Flarex local dev uses Miniflare R2 plus a service
-binding to emulate hosted artifact storage and the Dynamic Worker runtime. The
-hosted runtime should replace the materializer implementation, not the public
-dev/deploy contract.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test -- dev.test.ts
-```
-
-## Runtime-Store Dev Invoke Update
-
-Previous completed checkpoint: `ef50030` Use artifact runtime for local dev
-invoke.
-
-Local dev now sets:
-
-```txt
-FLAREX_ARTIFACT_RUNTIME_LOADS_SOURCE=true
-```
-
-on the backend runtime and gives the local artifact runtime service a lazy R2
-store backed by the same `ARTIFACTS` bucket. This means `/__flarex_dev/invoke`
-does not move source-package JSON across the backend-to-runtime service call.
-The runtime service loads the source package by `executionArtifactRef`.
-
-Updated local path:
-
-```txt
-Vite /__flarex_dev/invoke
-  -> backend /deployments/:deploymentId/invoke
-  -> runtime service receives ref + request
-  -> runtime service loads source package from ARTIFACTS
-  -> LocalMiniflareExecutionArtifactMaterializer
-```
-
-Convex reference:
-
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - dev uses the same backend deployment and execution loop as hosted
-    semantics.
-- `crates/model/src/source_packages/mod.rs`
-  - source packages are retrieved through durable storage identity.
-
-Cloudflare difference: the local store is Miniflare R2. The hosted store can
-use the same service contract with platform R2 or another internal artifact
-registry.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test -- runtimeMaterializer.test.ts dev.test.ts
-```
-
-## Local Dev Artifact Cleanup Update
-
-Previous completed checkpoint: `e1ccf14` Let artifact runtime load source
-packages.
-
-Local dev now explicitly disposes the artifact runtime service before
-disposing the backend Miniflare runtime. This gives cached materialized
-artifacts a chance to dispose their nested Miniflare execution artifacts.
-
-The local dev cleanup order is now:
-
-```txt
-wait for reload chain
-  -> dispose generated app Worker
-  -> dispose artifact runtime cached materializations
-  -> dispose backend Worker/DO runtime
-  -> remove temporary dev persistence when appropriate
-```
-
-Convex reference:
-
-- `npm-packages/convex/src/cli/lib/localDeployment/run.ts`
-  - local dev owns backend process lifecycle and cleanup.
-
-Cloudflare difference: Flarex local dev owns multiple Miniflare runtimes
-inside one process, including nested materialized execution artifacts. Hosted
-Flarex should expose the same lifecycle at the Dynamic Worker runtime boundary.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test -- dev.test.ts runtimeMaterializer.test.ts
-```
-
-## Import-Phase Prelude Update
-
-Previous completed checkpoint: `b3e17bb` Preserve analyzer diagnostics in push
-state.
-
-Local execution-artifact analysis now installs a Convex-inspired import-phase
-prelude before dynamically importing developer modules.
-
-The prelude provides deterministic local-dev analysis behavior for:
-
-- `Date.now()`,
-- zero-argument `new Date()`,
-- `Math.random()`.
-
-It rejects these import-time APIs with structured diagnostics:
-
-- `fetch()`,
-- `crypto.randomUUID()`,
-- `crypto.getRandomValues()`,
-- `performance.now()`.
-
-Convex reference:
-
-- `crates/isolate/src/environment/analyze.rs`
-  - analysis uses a configured import timestamp and seeded RNG, while rejecting
-    crypto randomness and Performance APIs during import.
-
-Cloudflare difference: this is implemented as a generated Worker prelude in
-local Miniflare analysis. Hosted analysis must enforce the same behavior in
-the Flarex-managed Dynamic Worker runtime and verify that global patching is
-portable across cold analysis isolates.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test
-```
-
-## Architecture Terminology Cleanup
-
-Previous completed checkpoint: `da42b4a` Add analysis import phase prelude.
-
-Updated local-dev wording so the local Miniflare execution-artifact adapter is
-described as the development implementation of the same source-package
-analysis boundary used by the hosted Dynamic Worker runtime. Normalized the
-deployment input term to `source package`.
-
-Convex reference:
-
-- `npm-packages/convex/src/cli/lib/components.ts`
-  - local dev pushes backend modules and receives backend analysis; it does not
-    bundle the developer's whole app into the backend runtime.
-
-Verification:
-
-```sh
-git diff --check
-```
-
-## Cold-Isolate Consistency Update
-
-Previous completed checkpoint: `d1b83a9` Clarify Dynamic Worker source package
-architecture.
-
-Local backend analysis now runs the same source package through the
-execution-artifact adapter twice before returning metadata to `push/start`.
-If the two analyses differ, local dev receives a failed analyzer response with:
-
-```txt
-Flarex analysis is nondeterministic across cold isolates.
-```
-
-Diagnostics from both runs are preserved so import-time logs remain visible.
-This is a local-dev compatibility gate for the same stability guarantee the
-hosted Dynamic Worker analyzer must eventually enforce.
-
-Convex reference:
-
-- `crates/isolate/src/environment/analyze.rs`
-  - Convex controls import-time timestamp, RNG, unsupported APIs, syscalls, and
-    logs inside `AnalyzeEnvironment`.
-
-Cloudflare difference: Flarex uses a double-run local Miniflare gate while the
-hosted Dynamic Worker runtime is still being proven.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test
-```
-
-## Source Position Metadata Update
-
-Previous completed checkpoint: `c471b67` Gate analysis on cold isolate
-consistency.
-
-Local analysis now includes best-effort source positions for analyzed
-functions. The local execution-artifact analyzer embeds function module source
-maps into its analysis wrapper and scans original `sourcesContent` for exported
-registered function declarations.
-
-The position metadata flows through local push responses and final codegen so
-generated `functionMetadata.ts` can include:
+# Local Development Runtime
+
+## Status And Scope
+
+**Status:** Active domain authority with an implemented programmatic Miniflare
+runtime, Vite integration, a legacy Durable Object compatibility mode, and an
+opt-in PGlite/Postgres executor mode. The accepted destination is the
+Postgres-authoritative mode; browser WebSocket proxying and atomic reload
+cutover remain incomplete.
+
+This roadmap owns:
+
+- developer-process composition of backend, application, artifact, and local
+  executor runtimes;
+- startup, reload serialization, file watching, health, inspection, cleanup,
+  and local persistence behavior;
+- the Vite `/__flarex_dev/*` middleware boundary;
+- selection between legacy compatibility and forward Postgres execution; and
+- local-only diagnostics and lifecycle guarantees across those components.
+
+It does not own:
+
+- SDK, CLI, codegen, or package publication contracts, covered by
+  [`09-sdk-and-cli-fork.md`](./09-sdk-and-cli-fork.md);
+- source-package analysis and push authority, covered by
+  [`17-deployment-analysis-and-push.md`](./17-deployment-analysis-and-push.md);
+- execution-artifact sandbox and materialization semantics, covered by
+  [`06-dynamic-worker-execution.md`](./06-dynamic-worker-execution.md);
+- trusted transaction, storage-generation, OCC, or Postgres semantics, covered
+  by [`20-postgres-executor.md`](./20-postgres-executor.md) and the
+  [FlarexDB foundation](./flarexdb-foundation/README.md);
+- sync, freshness, invalidation, fanout, or delivery correctness, covered by
+  [`21-cloudflare-freshness-cache.md`](./21-cloudflare-freshness-cache.md); or
+- test-harness convenience APIs, covered by
+  [`15-test-sdk.md`](./15-test-sdk.md).
+
+Developers write ordinary TypeScript under `flarex/`. They do not create
+Worker entrypoints, Wrangler configuration, Miniflare instances, PGlite
+connections, service bindings, or executor tokens.
+
+## Current Sources Of Truth
+
+Use these authorities in order when they disagree:
+
+1. [`../AGENTS.md`](../AGENTS.md) and its accepted-design precedence;
+2. [`../design-notes/flarex-db-accepted-design.md`](../design-notes/flarex-db-accepted-design.md)
+   for Postgres authority and the hosted Worker topology;
+3. the active domain roadmaps linked above for their owned semantics;
+4. this roadmap for local composition and lifecycle;
+5. current source and tests for exact implemented behavior; and
+6. older checkpoints only as compatibility and provenance evidence.
+
+Current implementation anchors are:
+
+- [`packages/flarex-dev/src/dev.ts`](../packages/flarex-dev/src/dev.ts) for the
+  programmatic runtime, reload order, request surface, persistence, and cleanup;
+- [`packages/flarex-dev/src/vite.ts`](../packages/flarex-dev/src/vite.ts) for
+  Vite startup, middleware, watching, debounce, and shutdown integration;
+- [`packages/flarex-dev/src/executorHttpRuntime.ts`](../packages/flarex-dev/src/executorHttpRuntime.ts)
+  for the PGlite-backed executor, scope-authority provisioning, freshness, and
+  trigger composition;
+- [`packages/flarex-dev/src/backendPush.ts`](../packages/flarex-dev/src/backendPush.ts)
+  for local backend push/analyzer adapters;
+- [`packages/flarex-dev/src/runtimeMaterializer.ts`](../packages/flarex-dev/src/runtimeMaterializer.ts)
+  and [`executionArtifact.ts`](../packages/flarex-dev/src/executionArtifact.ts)
+  for the local Miniflare materialization and analysis adapters;
+- [`packages/flarex-dev/test/dev.test.ts`](../packages/flarex-dev/test/dev.test.ts),
+  [`devDispose.test.ts`](../packages/flarex-dev/test/devDispose.test.ts),
+  [`vite.test.ts`](../packages/flarex-dev/test/vite.test.ts), and
+  [`executorHttpRuntime.test.ts`](../packages/flarex-dev/test/executorHttpRuntime.test.ts)
+  for lifecycle and composition evidence; and
+- [`packages/flarex-dev/test/backendSyncRuntime.test.ts`](../packages/flarex-dev/test/backendSyncRuntime.test.ts)
+  and [`artifactLifecycleParity.test.ts`](../packages/flarex-dev/test/artifactLifecycleParity.test.ts)
+  for Postgres-backed sync and local/hosted artifact-contract evidence.
+
+## Current Architecture
+
+### Entry Points
+
+`createFlarexDevRuntime(options)` is the programmatic composition boundary. It
+returns:
 
 ```ts
-position?: {
-  path: string;
-  startLine: number;
-  startColumn: number;
+type FlarexDevRuntime = {
+  deploymentId: string;
+  reload(): Promise<void>;
+  fetch(request: Request): Promise<Response>;
+  dispose(): Promise<void>;
 };
 ```
 
-Convex reference:
+The `flarex-dev/vite` plugin creates this runtime during Vite serve unless
+`dev: false`. Build and `dev: false` serve perform codegen without starting the
+runtime. Public command behavior remains owned by roadmap 09; there is no
+standalone long-running `flarex dev` command today.
 
-- `crates/isolate/src/environment/analyze.rs`
-  - analysis maps function origins back through source maps.
-- `crates/model/src/modules/module_versions.rs`
-  - analyzed functions store optional source positions.
+### Runtime Composition
 
-Cloudflare difference: this local slice uses source-map contents and source
-text scanning. Hosted Dynamic Worker analysis should eventually resolve actual
-handler origins when the runtime can expose enough origin information.
+Every dev runtime creates a backend Miniflare Worker containing the current
+backend Worker, deployment registry, push routes, artifact R2 bucket, artifact
+runtime service, sync actors, and compatibility actors. It also creates a
+generated application Miniflare Worker used for health and compatibility
+forwarding.
 
-Verification:
+Execution is selectable:
 
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test
+| Mode | Current status | Authoritative app writes | Intended use |
+| --- | --- | --- | --- |
+| `legacy` | Default compatibility baseline | Legacy backend Durable Object path | Preserve prototype examples and regression coverage only |
+| `postgres` | Opt-in forward path | Trusted executor over PGlite | Local development and fast correctness evidence for the accepted architecture |
+
+The Postgres mode additionally creates `createLocalPGliteExecutorHttpRuntime`:
+
+```text
+backend Miniflare
+  -> artifact-runtime service
+  -> Miniflare materialized source package
+  -> restricted invoke Fetch protocol
+  -> local executor HTTP adapter
+  -> PGlite persistence
 ```
 
-## Local Sync Forwarding Update
+It migrates PGlite unless disabled by a trusted caller, provisions the fixed
+local shared-scope physical locator `primary/public`, wraps persistence with
+ready-deployment authority, creates the freshness mirror, and wires the
+post-commit Cloudflare-style trigger notifier back to the backend runtime.
+Split physical topologies are not a public local-dev option.
 
-Previous completed checkpoint: `be78189` Add Convex-style sync client slice.
+The deterministic development tokens used between these in-process runtimes
+are capabilities for local adapter wiring, not production authentication
+evidence.
 
-`createFlarexDevRuntime` now handles:
+### Startup And Reload
 
-```txt
-GET /__flarex_dev/sync
-  -> backend /deployments/:deploymentId/sync
-  -> ConnectionDO
-  -> active execution artifact
+Startup performs one reload before returning a ready runtime. Reloads are
+serialized through a promise chain so two deployments cannot mutate the local
+composition concurrently.
+
+The implemented reload is:
+
+```text
+initial codegen
+  -> bundle immutable source package
+  -> backend push start and backend-returned analysis
+  -> final codegen from that analysis
+  -> optional generated-output typecheck
+  -> in Postgres mode, register and activate executor package
+  -> build next generated app Worker
+  -> finish backend push
+  -> swap next app Worker into service
+  -> dispose previous app Worker
 ```
 
-The sync route deliberately targets the backend deployment sync endpoint instead
-of forwarding to the generated app Worker's compatibility `/sync` route. This
-keeps local dev and tests on the same backend-owned path as hosted Flarex:
-query-set state and mutation queues live in `ConnectionDO`, and function
-execution resolves through the active backend deployment/artifact runtime.
+If initial codegen, analysis, final codegen, typecheck, or app construction
+fails, startup fails or the previous application Worker remains selected. If
+backend finish rejects, the newly created app Worker is disposed and the prior
+one remains selected. Backend rejection diagnostics are preserved in the
+developer-facing error.
 
-Convex reference:
+This is not yet a fully atomic reload across all local authorities. In
+Postgres mode the executor package is activated before backend push finish and
+before the application Worker swap. A later failure can therefore leave the
+executor package ahead of the backend/app selection. Failed analyzed pushes
+are also not automatically abandoned by `createFlarexDevRuntime`.
 
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - local dev exposes a running backend URL used by clients.
-- `crates/local_backend/src/subs/mod.rs`
-  - WebSocket upgrades route into the backend sync socket worker.
+### Vite Watch Loop
 
-Cloudflare difference: this route works inside the programmatic Miniflare dev
-runtime and `flarex-test`. Vite middleware still needs explicit WebSocket
-upgrade handling before a browser app can use `/__flarex_dev/sync` through the
-Vite dev server itself.
+The Vite plugin:
 
-Verification:
+- watches `flarex/**/*.ts`;
+- ignores changes inside the generated directory;
+- debounces handled `change` events by 500 ms;
+- calls the runtime reload chain, or codegen-only flow when `dev: false`;
+- logs reload failures without tearing down the previous running app; and
+- starts runtime disposal when the Vite HTTP server closes.
 
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test
-corepack pnpm --filter flarex-dev build
-corepack pnpm --filter @flarex/example test
+Only the Chokidar `change` event is currently handled. Creation, deletion, and
+rename of developer modules are not explicit reload triggers.
+
+### Request Surface
+
+Vite forwards HTTP requests beginning with `/__flarex_dev` into the
+programmatic runtime. The current explicit routes are:
+
+| Route | Behavior |
+| --- | --- |
+| `GET /__flarex_dev/health` | Combines backend and generated-app health into `ok` or `degraded` status |
+| `GET /__flarex_dev/push` | Returns the last activated local push or `null` |
+| `GET /__flarex_dev/deployment` | Returns active backend deployment metadata, including artifact identity |
+| `POST /__flarex_dev/invoke` | Validates the dev request body and invokes through the backend-owned active artifact path |
+| `GET /__flarex_dev/sync` | Forwards the WebSocket-capable request to the backend deployment sync route |
+| Other `/__flarex_dev/*` | Strips the prefix and forwards to the generated app Worker compatibility surface |
+
+Programmatic Miniflare consumers and `flarex-test` can use the sync WebSocket
+response. Vite currently installs only HTTP middleware and does not bridge the
+Node HTTP upgrade event, so browser WebSocket sync through the Vite server is
+not implemented.
+
+### Persistence And Cleanup
+
+Runtime persistence is divided under the resolved dev directory:
+
+```text
+.flarex/dev/
+  backend/
+  app/
+  executor/
 ```
 
-## Verification
+`persistDir: false` disables persistence. An explicit `persistDir` is retained
+after disposal. The default `.flarex/dev` directory is removed on normal
+dispose and on failed startup; a crash can leave it behind for the next run.
+Test reset helpers may delete only an explicitly configured path beneath the
+project's `.flarex/` directory and reject roots or paths outside that boundary.
 
-```sh
-corepack pnpm --filter flarex-backend test
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-dev test
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm typecheck
-corepack pnpm test
-corepack pnpm --filter @flarex/example test
-corepack pnpm --filter flarex-backend build
-corepack pnpm --filter flarex-dev build
-corepack pnpm --filter flarex build
-corepack pnpm --filter @flarex/example build
+Disposal waits for the reload chain, then attempts to dispose the application
+Worker, PGlite executor runtime, cached artifact materializations, and backend
+Miniflare runtime. Cleanup uses all-settled semantics so one failure does not
+prevent remaining resources from being released; normal disposal reports one
+failure directly or several through `AggregateError`.
+
+## Invariants And Trust Boundaries
+
+1. **Postgres/PGlite is the forward local write authority.** Legacy Durable
+   Object storage is compatibility scaffolding, not the target architecture.
+2. **Developer code never receives storage authority.** It receives only the
+   restricted generated context and executor syscall surface.
+3. **Source is pushed to a backend boundary.** Final codegen consumes the
+   backend-returned analysis; local filesystem rescanning cannot silently
+   replace it after push start.
+4. **Analysis and invocation use separate runtime roles.** Local Miniflare is
+   an adapter for the same source-package contracts used by hosted analysis and
+   managed execution, not authority to invent different semantics.
+5. **Reloads are serialized and preserve the last usable app when possible.**
+   A failed candidate must not replace the selected application Worker.
+6. **Local mode cannot weaken activation prerequisites.** Schema readiness,
+   storage generation, scope authority, artifact identity, and execution
+   metadata must obey the same accepted contracts as hosted mode.
+7. **PGlite proves portability, not production database semantics.** Locks,
+   isolation, query plans, migrations, and outbox correctness still require
+   focused real-Postgres evidence.
+8. **Sync remains backend-owned.** Clients connect to the deployment sync
+   boundary; query state, mutation queues, freshness, and delivery do not move
+   into Vite or the application Worker.
+9. **Internal tokens stay internal.** Hard-coded development capabilities must
+   never be reused as hosted secrets or accepted as an authentication proof.
+10. **Cleanup is part of correctness.** Reload and shutdown must release nested
+    Miniflare, artifact-cache, executor, database, timer, and filesystem state.
+11. **Generated app/runtime Workers are tooling-owned.** Their compatibility
+    routes do not make developer-authored Workers part of the public contract.
+12. **Roadmap ownership stays narrow.** Local dev composes adjacent domains but
+    does not redefine their push, execution, transaction, or sync semantics.
+
+## Decisions And Rationale
+
+### Preserve The Convex Local-Backend Mental Model
+
+Developers should see one local Flarex endpoint and one watch/reload loop even
+though Cloudflare requires several internal runtimes. Exposing Miniflare,
+PGlite, Workers, or service-binding topology would turn platform internals into
+application configuration.
+
+### Compose Real Boundaries Instead Of A Separate Fake Backend
+
+The local lane reuses the backend Worker, push lifecycle, source-package
+artifact runtime, executor Fetch protocol, PGlite persistence, and sync actors.
+This catches contract drift that an in-memory fake would hide and lets
+`flarex-test` exercise the same composition.
+
+### Keep Legacy Mode Only As A Named Compatibility Path
+
+The legacy Durable Object path remains useful for regression coverage while
+replacement gates are incomplete. It must not influence new schema, OCC,
+freshness, or transaction design, and it should cease being the default after
+the Postgres local path passes the declared cutover gates.
+
+### Use Vite As The Current Host, Not The Domain Contract
+
+Vite supplies filesystem watching and an HTTP development server today. The
+programmatic `FlarexDevRuntime` is the durable composition boundary; a future
+CLI host can own the same runtime without changing backend semantics.
+
+### Fail Before Selecting A Broken App
+
+Final codegen and optional typecheck occur before the new app is selected.
+Backend finish must accept the candidate before the application Worker swap.
+This preserves a usable prior runtime during common developer errors, while the
+remaining multi-authority activation gap is tracked explicitly below.
+
+## Convex Compatibility And Flarex Divergences
+
+The local workflow follows these Convex patterns:
+
+- `npm-packages/convex/src/cli/lib/dev.ts` for a long-running watch, codegen,
+  push, backend coordination, and last-good deployment loop;
+- `npm-packages/convex/src/cli/lib/localDeployment/run.ts` for owning local
+  backend lifecycle, persistence, health, and cleanup;
+- `npm-packages/convex/src/cli/lib/codegen.ts` for initial/final generated
+  output around backend analysis;
+- `npm-packages/convex/src/cli/lib/deployApi/startPush.ts` and
+  `crates/application/src/deploy_config.rs` for source push, analyzed candidate,
+  and finish/activation sequencing; and
+- `crates/local_backend/src/subs` and `crates/sync/src` for clients targeting a
+  backend-owned local sync service.
+
+Named Flarex divergences are:
+
+- Convex starts an integrated native local backend; Flarex composes Miniflare
+  Workers, Durable Objects, a managed source-package runtime, and optionally a
+  PGlite executor in one developer process.
+- Flarex user modules run in a generated Worker-shaped sandbox and reach data
+  through the private invoke protocol; they do not execute inside the backend.
+- Cloudflare WebSockets and service bindings require explicit adapter behavior;
+  Vite HTTP middleware cannot transparently stand in for a Worker upgrade.
+- PGlite is the fast local adapter for the accepted Postgres authority, while
+  real Postgres remains a separate correctness lane.
+- The current local backend still contains legacy Durable Object actors and a
+  generated app Worker for compatibility during replacement migration.
+
+## Implemented Capabilities
+
+- Programmatic startup, serialized reload, Fetch dispatch, and disposal.
+- Vite codegen/runtime startup, 500 ms TypeScript-change debounce, generated
+  directory exclusion, middleware proxying, and close-triggered cleanup.
+- Backend source-only push, backend-returned codegen analysis, final codegen,
+  optional generated-output typecheck, and last-app preservation on common
+  failures.
+- Local Miniflare analysis with bounded diagnostics, import-phase restrictions,
+  cold-isolate consistency checks, and best-effort source positions.
+- R2-shaped local artifact storage, backend-owned active artifact resolution,
+  cached Miniflare materialization, and nested materialization cleanup.
+- Legacy and opt-in PGlite/Postgres execution modes.
+- PGlite migrations, shared-scope authority provisioning, package
+  registration/activation, executor HTTP routes, freshness mirror, and
+  post-commit trigger wiring.
+- Health, push, deployment, invoke, sync, and compatibility request routes.
+- Programmatic WebSocket sync proving indexed query subscription, mutation
+  response ordering, invalidation, rerun, and transition delivery.
+- Typed request/response JSON boundaries in normal TypeScript adapters, with
+  named generated-JavaScript parsing errors at generated Worker edges.
+- Safe reset-path validation and all-settled multi-runtime disposal.
+
+## Known Gaps And Limitations
+
+- `legacy` remains the default `executorTransport`, contrary to the accepted
+  Postgres-authoritative direction.
+- The Vite plugin does not expose `executorTransport`, project identity, or
+  executor/delivery configuration, so its normal dev path cannot select the
+  implemented Postgres mode.
+- Browser WebSocket upgrades through Vite are not wired. Programmatic runtime
+  and test SDK WebSockets do not prove browser dev-server behavior.
+- Postgres reload activation is not atomic across the executor package,
+  backend push, and application Worker. Executor activation currently happens
+  before backend finish and app swap.
+- Reload failures do not automatically abandon analyzed backend candidates;
+  failed final codegen/typecheck/build can leave candidate state behind.
+- Final generated files are written before complete activation. A failed later
+  gate can leave disk output ahead of the last active runtime.
+- The watcher handles only `change`, not explicit add/unlink/rename events, and
+  provides no surfaced reload state beyond logs and the last push route.
+- Vite shutdown initiates async disposal from the close callback but does not
+  provide a Vite-level awaited shutdown receipt.
+- The default persistence directory is deleted only during cooperative cleanup;
+  crashes can leave partial state. There is no startup recovery/validation or
+  user-facing reset command in the local host.
+- Local PGlite uses one fixed shared-database locator. Split topology, storage
+  generation selection, backfill/compare/cutover, and rollback are foundation
+  responsibilities and are not locally selectable.
+- PGlite and Miniflare do not prove real-Postgres isolation/locks/query plans or
+  hosted Worker/Hyperdrive lifecycle.
+- Post-commit sync trigger notification is best effort; durable retry and
+  recovery remain owned by roadmap 21.
+- Local development has no streamed function logs, backend-change watch,
+  structured status channel, interactive recovery, or standalone `dev` CLI.
+- Generated app Worker compatibility routes and legacy actors remain in the
+  composition, increasing the risk of testing a path that is not the accepted
+  hosted authority unless tests select Postgres explicitly.
+- Deterministic local capability tokens and in-process service bindings do not
+  exercise hosted authentication, authorization, or secret rotation.
+
+## Target Direction
+
+Local development should present one Convex-shaped endpoint while exercising
+the accepted Flarex runtime boundaries:
+
+```text
+file or config change
+  -> serialized source-package candidate
+  -> backend-controlled analysis
+  -> final codegen and mandatory local validation policy
+  -> atomically activate backend metadata + executor package + app view
+  -> backend-owned invoke and WebSocket sync endpoint
+  -> managed Miniflare user-code artifact
+  -> trusted PGlite executor
+  -> observable reload status and recoverable persistence
 ```
 
-The deployable backend wrapper no longer runs Wrangler as its normal `build`.
-Wrangler deployment validation is available through
-`corepack pnpm --filter @flarex/backend deploy:dry-run`.
+The same source package, analysis response, artifact identity, invoke protocol,
+scope authority, and sync semantics should carry to hosted Cloudflare. Only the
+adapters change: Miniflare to Dynamic Workers, PGlite to Postgres through
+cache-disabled Hyperdrive, and local in-process capabilities to deployed
+service bindings.
 
-## Optional Partition Dev Invoke Forwarding
+## Next Correctness Gates
 
-Previous completed checkpoint: `10c02a4` Run create-root execution sessions.
+1. **Make reload cutover coherent.** Define one local activation transaction or
+   compensating protocol across executor registration/activation, backend push
+   finish, generated output, and app swap. Prove every injected failure retains
+   one consistent previous generation and abandons or cleans the candidate.
+2. **Promote Postgres mode into Vite.** Expose the forward local composition,
+   make it the default after compatibility tests pass, and require an explicit
+   legacy opt-in. Prove ordinary Vite invoke and sync avoid authoritative
+   PartitionDO writes.
+3. **Wire browser WebSocket upgrades.** Bridge the Vite HTTP server upgrade to
+   the backend-owned `/sync` route and prove a browser-style client receives an
+   initial indexed query, mutation response, and later transition.
+4. **Complete watch and recovery behavior.** Handle add/unlink/rename, coalesce
+   changes during active reload, expose analyzing/failed/active status, and
+   prove recovery after syntax, analysis, typecheck, and backend failures.
+5. **Harden local persistence lifecycle.** Validate or repair leftover state on
+   startup, add a safe explicit reset surface, await host shutdown, and prove
+   no Miniflare, artifact, PGlite, timer, or filesystem handles leak.
+6. **Align replacement-generation gates.** Register and activate only exact
+   immutable schema/package generations that passed foundation readiness and
+   scope-authority provisioning; keep rollback selection until the declared
+   migration gates pass.
+7. **Add parity evidence without widening authority.** Compare the local
+   Postgres mode with focused real-Postgres and hosted Worker lanes for the same
+   invoke, failure, identity, and sync cases. Keep platform provisioning outside
+   ordinary local tests.
+8. **Improve developer operability.** Add a standalone long-running dev host,
+   structured diagnostics/log streaming, clear remediation for failed pushes,
+   and machine-readable health/reload state only after correctness gates 1-5.
 
-The local dev invoke proxy now forwards `partitionKey` only when the request or
-`x-flarex-partition` header supplies one. This matches hosted behavior for
-create-root functions: local dev must let the backend inspect active function
-metadata before deciding whether a partition key is required.
+## Current Checkpoint Record
 
-Convex reference:
-
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - local dev routes client calls to a backend-owned runtime.
-- `crates/local_backend/src/lib.rs`
-  - local backend execution uses the same semantic boundary as hosted
-    execution.
-
-Cloudflare difference: this is still a Vite/Miniflare proxy shape, but it now
-preserves the important backend-owned root id preallocation boundary.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/generate.test.ts --maxWorkers=1
-corepack pnpm --filter flarex-dev build
-```
-## Local PGlite Executor Runtime Trigger Wiring
-
-Previous completed checkpoint: `730d284` Trigger live query invalidation after
-commit.
-
-What changed:
-
-- Added `createLocalPGliteExecutorHttpRuntime(...)` in `flarex-dev`.
-- The helper creates/migrates PGlite persistence, creates a durable
-  Postgres/PGlite freshness mirror, constructs `createFlarexExecutor(...)` with
-  `liveQueryInvalidation`, and injects the Cloudflare trigger notifier.
-- Exported the helper from `flarex-dev`.
-- Added a local runtime test that drives real executor HTTP routes:
-  `/invoke/start`, `/invoke/syscall`, and `/invoke/finish`.
-- The test proves a mutation commit updates freshness and posts
-  `/scheduler/live-query-subscriptions/trigger` without manually calling the
-  scheduler route.
-- Moved `@flarex/freshness` and `@flarex/persistence-postgres` from
-  `flarex-dev` dev dependencies to runtime dependencies because this helper is
-  exported from `src`.
-
-Why it changed:
-
-The previous checkpoint added the post-commit hook but left host construction
-manual. Local dev and tests need a reusable factory that wires the same pieces
-the hosted executor will use: durable persistence, freshness store, and the
-Cloudflare trigger notifier.
-
-Convex references inspected:
-
-- `crates/database/src/committer.rs`
-  - commit publication is the only correct point to trigger invalidation.
-- `crates/sync/src/worker.rs`
-  - sync scheduling follows backend invalidation work.
-- `crates/sync/src/state.rs`
-  - clients see transitions after backend rerun/dedupe, not after raw writes.
-
-Flarex differences:
-
-- Convex dev runs against an integrated backend. Flarex local dev composes a
-  PGlite-backed trusted executor with a Cloudflare-style backend trigger route.
-- The helper is local/dev-oriented. Real hosted Nitro/Vercel deployment still
-  needs production persistence and real backend URL configuration.
-
-Known limitations:
-
-- This helper proves trigger notification through executor HTTP finish, but it
-  does not yet run a full app WebSocket mutation through Dynamic Worker user
-  code into this hosted executor path.
-- Trigger notification is still best-effort after commit; durable retry remains
-  future work.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/executorHttpRuntime.test.ts
-```
-
-## Local Dev Postgres Executor Sync Path
-
-Previous completed checkpoint: `09eb59c` feat: enhance live query subscription
-handling and executor integration.
-
-What changed:
-
-- Recorded the new opt-in `createFlarexDevRuntime({ executorTransport:
-  "postgres" })` path introduced in `09eb59c`.
-- Local dev can now compose three runtimes: backend Miniflare, generated app
-  Miniflare, and a PGlite-backed executor HTTP runtime.
-- Reload registers and activates the pushed source package in the local
-  executor so materialized Dynamic Worker code can run against
-  `/invoke/start`, `/invoke/syscall`, and `/invoke/finish`.
-- The dev test opens `/__flarex_dev/sync`, subscribes to a generated query,
-  sends a generated mutation, and observes both the mutation response and the
-  live-query transition without manually calling scheduler routes.
-
-Why it changed:
-
-The prior helper proved executor HTTP trigger wiring in isolation, but local
-dev still needed the actual app/backend/executor composition that developers
-will use. This moves the dev server closer to Convex's single local backend
-mental model while preserving Flarex's split runtime.
-
-Convex references inspected:
-
-- `npm-packages/convex/src/cli/lib/dev.ts`
-  - local dev routes client calls through backend-owned dev services.
-- `crates/local_backend/src/lib.rs`
-  - local backend execution uses the same semantic boundary as hosted
-    execution.
-- `crates/sync/src/worker.rs`
-  - live query updates are backend-driven, not client-polled.
-
-Flarex differences:
-
-- Convex local dev runs in one integrated Rust backend. Flarex local dev
-  composes Miniflare Workers/DOs with a local PGlite executor HTTP runtime.
-- Developers still do not write Worker code or Wrangler config; this is an
-  internal dev-runtime composition owned by Flarex tooling.
-
-Known limitations:
-
-- At this checkpoint the opt-in local Postgres path was tested through
-  table-read freshness only. Index/range freshness was still a separate
-  executor/freshness task.
-- The test asserts Convex-style ordering: the mutation response arrives before
-  the later live-query transition.
-
-Verification:
-
-```sh
-pnpm --filter flarex-dev typecheck
-pnpm --filter flarex-dev test -- dev.test.ts
-```
-
-## Local Dev Indexed Sync Update
-
-Previous completed checkpoint: `ccc5dea` Harden executor sync integration.
-
-What changed:
-
-- Removed the temporary `lessons:allProgress` table-scan helper from the
-  example app.
-- Updated the local Postgres `/__flarex_dev/sync` integration to subscribe to
-  the real generated `lessons:list` query, which uses
-  `.withIndex("by_user", ...)`.
-- Kept the same end-to-end proof: WebSocket subscribe, mutation through local
-  Postgres executor transport, mutation response, and live-query transition.
-
-Why it changed:
-
-The table-scan helper was only a workaround while index/range freshness was
-unsupported. Local dev should prove the normal Convex-style app path developers
-will write, not a special test-only query.
-
-Convex references inspected:
-
-- `crates/sync/src/state.rs`
-  - query subscriptions rerun after invalidation and dedupe unchanged results.
-- `crates/database/src/query/index_range.rs`
-  - indexed query execution records index intervals as read dependencies.
-
-Flarex differences:
-
-- Convex local dev runs through one integrated backend process. Flarex local
-  dev composes the app worker, backend worker, and PGlite-backed executor HTTP
-  runtime.
-- The app developer still writes only `flarex/` modules; the generated
-  Miniflare and executor composition remains tooling-owned.
-
-Known limitations:
-
-- The local sync test proves one indexed equality range. Compound ranges,
-  pagination invalidation, and search/vector queries need separate coverage.
-- Delivery still uses the current local trigger/fanout path, not a production
-  queue or hosted DeliveryDO deployment.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev exec vitest run test/dev.test.ts --testTimeout=30000
-```
+- **What changed:** replaced accumulated local-dev checkpoint narration with
+  the living composition, lifecycle, invariants, current gaps, and ordered
+  correctness gates above; promoted this file in the roadmap index.
+- **Why:** Git owns chronology. This roadmap must explain what local dev owns
+  today without duplicating analysis, runtime, executor, sync, or SDK authority.
+- **Previous completed domain checkpoint:** `a4c290f Fence executor deployment
+  creation`.
+- **Convex sources inspected:** the portable local-dev, codegen, push, backend,
+  and sync sources named in the compatibility section were retained from the
+  verified checkpoint evidence; no new behavior was designed in this docs-only
+  compaction.
+- **Flarex difference from Convex:** unchanged. Flarex composes Cloudflare-shaped
+  runtimes and a PGlite executor instead of starting one native backend binary.
+- **Known limitations/follow-up:** the gaps and gates above remain open; no code
+  behavior changed in this checkpoint.
+- **Verification:** repository-relative Markdown links, `git diff --check`, and
+  roadmap index classification were checked. No runtime command was required
+  for a docs-only rewrite grounded in current source and decisive tests.
