@@ -38,6 +38,15 @@ Effect-aware reviewers for ordinary core implementation work as well as Effect
 service/schema/runtime changes. Removed the migration-only reviewer prompt so
 reviewer routing no longer depends on a special migration exception.
 
+Broadened the two standing reviewers without weakening their read-only,
+uncommitted-diff boundary. The TypeScript reviewer now prioritizes API and wire
+compatibility, runtime/static contract agreement, type soundness, and precise
+error channels while treating the global TypeScript skill as contextual
+guidance rather than an unconditional style mandate. The code-quality reviewer
+now evaluates behavioral correctness, data and concurrency safety, trust
+boundaries, recovery and lifecycle behavior, performance, operability,
+maintainability, and test validity through path-sensitive review lenses.
+
 ## Why This Shape
 
 The Flarex work is now a separate Cloudflare-native backend and SDK prototype.
@@ -70,8 +79,11 @@ Convex source tree to remain nearby for reference.
   content-derived.
 - The standing reviewers rely on the ignored local `opensrc/` cache for
   optional Effect reference material. If that cache is missing on a future
-  machine, refresh `effect-TS/effect-smol` and `pingdotgg/t3code` before using
-  those reference-backed review sections.
+  machine, they continue from checked-in repository context; refresh
+  `effect-TS/effect-smol` only when deeper Effect reference work is needed.
+- Risk-adaptive prompts improve checkpoint breadth but do not replace focused
+  specialist review or the required real-Postgres correctness lane when a
+  future slice crosses those boundaries.
 
 ## Implementation Checkpoints
 
@@ -100,13 +112,22 @@ Cleaned up the global chronological implementation log, leaving implementation c
 Started the post-migration core implementation lane by wiring hosted backend
 bindings and adding the first hosted-shaped runtime integration proof.
 
-### Pending checkpoint
+### `bcc012d` Align reviewers with Effect runtime codebase
 
 Reworked `.codex/agents/typescript-diff-reviewer.toml` and
 `.codex/agents/code-quality-diff-reviewer.toml` to include the Effect quality
 bar from the migration-only reviewer, removed
 the migration-only reviewer file, and updated `AGENTS.md` so all significant
 code changes use the two standing Effect-aware reviewers.
+
+### Pending checkpoint
+
+Expanded the standing reviewers from a narrow type/reuse and
+maintainability/Effect split into complementary API-contract and systems-quality
+reviews. Preserved read-only diff scope and main-thread ownership while adding
+evidence-first severity, risk-adaptive package lenses, and explicit coverage of
+compatibility, transactions, concurrency, security, recovery, performance,
+operability, and test validity.
 
 ## Verification
 
@@ -117,4 +138,7 @@ git diff --check
 git -C C:\Users\Admin\Documents\github\convex-backend status --short -- .gitignore custom/cloudflare-executor
 Test-Path .codex/agents/*effect*quality*checker*.toml
 rg -n "legacy reviewers|Effect-TS migration changes" AGENTS.md .codex effect-ts-migration-draft -g "*.md" -g "*.toml"
+& 'C:\Users\Admin\AppData\Local\Programs\Python\Python312\python.exe' -c "import pathlib,tomllib; files=list(pathlib.Path('.codex/agents').glob('*.toml')); [tomllib.loads(p.read_text(encoding='utf-8')) for p in files]; print('parsed',len(files),'TOML agent files')"
+git diff --check -- .codex/agents AGENTS.md roadmaps/12-repository-operations.md
+git diff -- .codex/agents AGENTS.md roadmaps/12-repository-operations.md
 ```

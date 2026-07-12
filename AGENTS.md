@@ -14,10 +14,13 @@ Significant code changes include behavior changes, public contract/type changes,
 data model/schema/migration changes, non-trivial refactors, or test changes
 that materially alter coverage or expectations.
 
-The two standing reviewers are Effect-aware. Use them for ordinary core
-implementation work and for changes that touch Effect services, Layers, Effect
-Schema contracts, HttpApi boundaries, typed Effect errors, runtime-boundary
-wiring, Effect-based tests, or promise/try-catch to Effect pipeline changes.
+The two standing reviewers are risk-adaptive. The TypeScript reviewer owns
+type soundness, public API compatibility, runtime contract agreement, typed
+errors, and reusable types. The code-quality reviewer owns behavioral and data
+correctness, trust boundaries, transactions and concurrency, reliability,
+performance, operability, maintainability, and test quality. Both reviewers
+apply Effect-specific guidance when the diff touches Effect services, Layers,
+Schema contracts, typed errors, runtime boundaries, or Effect-based tests.
 There is no separate Effect migration reviewer.
 
 Do not require reviewer subagents for docs-only commits, planning/roadmap
