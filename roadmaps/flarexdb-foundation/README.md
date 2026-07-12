@@ -1,37 +1,40 @@
 # FlarexDB Foundation Execution Plans
 
-Status: S01 through S02-C, resolve-only S02-D1, S03-A through S03-D2b, and the
-interleaved S05-A prerequisite are complete. Hosted-proof H01-H04 and H05-A are
-complete, while H05-B and S02-D2 production routing are deferred as core work
-proceeds to atomic control-publication slice S03-D2c.
+## Status And Scope
 
-This folder turns the accepted FlarexDB architecture into small, reviewable,
-commit-sized implementation turns. It is intentionally limited to the
-low-level database foundation:
+Current next gate: `S03-D2c`, atomic full control-catalog publication and exact
+projection verification.
 
-- physical schema and compatibility migration;
-- exact-snapshot OCC and transaction semantics;
+| Stream | Current status |
+| --- | --- |
+| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2b`, and interleaved `S05-A` complete |
+| OCC/transactions | Planned; `O01` is the first unchecked OCC gate |
+| Commit compiler | Planned; `C01` is the first unchecked compiler gate |
+| Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
+| Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
+
+This folder converts the accepted FlarexDB architecture into small,
+reviewable implementation gates for:
+
+- additive physical schema and compatibility migration;
+- exact-snapshot OCC and transaction semantics; and
 - the bounded Flarex app-data commit compiler.
 
-Payload feature parity, Medusa module integration, the live-sync replacement,
-cache Durable Objects, public high-level APIs, and operational scale work are
-later plans. The low-level Payload relational compatibility contract is frozen
-here only far enough to prevent the shared row/edge foundation from creating a
-second data authority or an underspecified relation identity.
+It does not own Payload feature parity, Medusa integration, sync replacement,
+cache Durable Objects, public high-level APIs, or chronological implementation
+history. The low-level Payload relation contract is frozen only far enough to
+prevent a second row authority or ambiguous edge identity.
 
-## Decision
+## Foundation Decision
 
-Build the FlarexDB correctness kernel first, inside the existing repository and
-beside the legacy storage generation.
-
-Do not finish a large schema in isolation. The first proof is one vertical app
-data slice, so schema, OCC, and compiler turns are interleaved. The target is:
+Build one correctness kernel beside the legacy storage generation and prove it
+through a vertical app-data slice:
 
 ```text
 trusted scope + storage generation
-  -> exact snapshot token
-  -> minimal catalog and codecs
-  -> row history/current
+  -> exact SnapshotToken
+  -> stable catalog and codecs
+  -> row revision/current storage
   -> point-read OCC
   -> pure point-write planning
   -> one atomic result-bearing commit
@@ -39,358 +42,252 @@ trusted scope + storage generation
   -> backfill, compare, scoped cutover, rollback
 ```
 
-The legacy `documents`, `indexes`, invoke-session staging, and live-query
-registry remain the compatibility oracle until the scoped retirement gates
-pass. This is a strangler migration, not an in-place rewrite and not a second
-product repository.
+Schema, OCC, and compiler work are deliberately interleaved. Completing a
+large physical schema without exercising snapshot and commit semantics would
+freeze unproven abstractions.
 
-## Hosted Execution Target And Proof Gate
-
-The hosted executor target is a dedicated private Cloudflare Worker backed by
-cache-disabled Hyperdrive. It composes the framework-neutral executor,
-FlarexDB OCC, commit compiler, and a Worker-safe request-scoped Postgres
-adapter. The current `/invoke/*` Fetch contract remains the first private
-service-binding transport; it is not a public Node/Nitro/Vercel bridge.
-
-This runtime decision does not expand the foundation goal:
-
-- S02-B and S02-C remain persistence-only, host-neutral turns;
-- a separate minimal Worker bundle/Hyperdrive proof must pass before S02-D2
-  wires trusted generation resolution into production execution; the
-  host-neutral, read-only S02-D1 resolver can be developed and tested offline;
-- the proof adds no schema, OCC, compiler, sync, Payload, or Medusa behavior;
-- Nitro/Vercel and PGlite remain compatibility/local lanes until hosted parity
-  permits an explicit retirement decision.
-
-The Dynamic Worker shell retains only the private executor binding needed to
-implement `ctx.db`. Developer modules never receive Hyperdrive, database
-credentials, `pg`, Drizzle, SQL, persistence, or transaction handles.
-
-### Hosted proof subloop
-
-Each checked item is one reviewed checkpoint and one automatic commit. These
-items prove the host for the existing executor semantics; they do not execute
-S02-D or introduce the replacement FlarexDB schema/OCC/compiler.
-
-- [x] H01 — Freeze the host contract, local-versus-hosted evidence, exact OCC
-  smoke, privacy/placement policy, and exclusions.
-- [x] H02 — Add the Worker-safe request-scoped `pg.Client` persistence seam;
-  retain Node migrations/`pg.Pool` and PGlite behind their existing subpaths.
-- [x] H03 — Add the private `apps/executor` Worker, lifecycle tests, Wrangler
-  dry-run, and metafile exclusions for PGlite and filesystem migrations.
-- [x] H04 — Run the emitted Worker bundle behind a real named workerd service
-  binding and prove existing transaction/OCC convergence against PostgreSQL.
-- [ ] H05 — Record a hosted staging receipt for the cache-disabled Hyperdrive
-  configuration, non-public executor, placed Fetch handler, service-binding
-  invocation, and PostgreSQL transaction/OCC result.
-  - [x] H05-A — Add the authenticated allowlisted probe, strict hosted
-    PostgreSQL runner, exclusive non-transactional run claim, encrypted/bounded
-    staging guards, shared H04/H05 OCC oracle, exhaustive scoped cleanup, and
-    bounded production/probe bundle gates without changing Cloudflare
-    resources.
-  - [ ] H05-B — Provision and verify live cache-disabled Hyperdrive, deploy
-    the private executor and ephemeral probe, run the hosted OCC/SQL proof,
-    capture control-plane and trace receipts, and remove or disable the probe.
-
-H04 is not a substitute for H05. Cloudflare's local Hyperdrive
-`localConnectionString` connects directly to PostgreSQL, so it does not
-exercise Hyperdrive pooling or query caching. While deployment work is
-deferred, H05 stays unchecked and S02-D2 production routing does not start.
-That operational gate does not block resolve-only S02-D1, additive schema and
-codec work, or narrow OCC contracts that remain unreachable from production.
+The legacy `documents`, `indexes`, invoke-session staging, commit/outbox,
+freshness, and subscription paths remain the compatibility oracle until scoped
+retirement gates pass. This is a strangler migration, not an in-place rewrite
+and not a second product repository.
 
 ## Authority And References
 
-When documents disagree, use this order:
+Use these sources in order:
 
-1. [FlarexDB accepted design](../../design-notes/flarex-db-accepted-design.md)
-   controls architectural ownership and safety boundaries.
-2. [Commerce/CMS v1 schema cutline](../../design-notes/flarex-commerce-cms-v1-schema-cutline.md)
-   controls the minimal first physical inventory and explicit deferrals.
-3. The domain roadmaps own living architecture, rationale, current domain
-   status, gaps, and direction:
-   [data model](../01-backend-data-model-and-do-shape.md),
-   [schema placement](../02-schema-placement-and-shards.md),
-   [OCC](../03-occ-and-transactions.md),
-   [Postgres executor](../20-postgres-executor.md), and
-   [commit compiler](../35-commit-compiler-and-session-intent.md).
-4. [Internal database schema](../../design-notes/flarex-internal-db-schema.md)
-   supplies long-form DDL sketches, naming, design provenance, and unresolved
-   risks. Its proposals are not accepted merely because they are documented.
+1. [`../../design-notes/flarex-db-accepted-design.md`](../../design-notes/flarex-db-accepted-design.md)
+   owns architecture, trust, migration, and adapter boundaries.
+2. [`../../design-notes/flarex-commerce-cms-v1-schema-cutline.md`](../../design-notes/flarex-commerce-cms-v1-schema-cutline.md)
+   owns the minimal first physical inventory and explicit deferrals.
+3. The focused plans in this folder own executable gates and status.
+4. Living domain roadmaps own their durable architecture and direction:
+   - [`../20-postgres-executor.md`](../20-postgres-executor.md)
+   - [`../21-cloudflare-freshness-cache.md`](../21-cloudflare-freshness-cache.md)
+   - [`../35-commit-compiler-and-session-intent.md`](../35-commit-compiler-and-session-intent.md)
+5. [`../../design-notes/flarex-internal-db-schema.md`](../../design-notes/flarex-internal-db-schema.md)
+   supplies long-form proposals, physical-policy inventory, provenance, and
+   unresolved risks; its sketches are not automatically accepted.
+6. Current code/tests prove implementation status but do not override accepted
+   replacement design.
 
-Current code is evidence, not the target design:
+The most important compatibility evidence is:
 
-- [`packages/persistence-postgres/src/schema.ts`](../../packages/persistence-postgres/src/schema.ts)
-  is the legacy Postgres compatibility baseline.
-- [`packages/persistence-postgres/src/commits.ts`](../../packages/persistence-postgres/src/commits.ts)
-  currently combines planning, OCC, timestamp allocation, publication, and
-  session completion.
-- [`packages/executor/src/sessions.ts`](../../packages/executor/src/sessions.ts)
-  currently starts sessions with wall-clock `beginTs`.
-- [`packages/executor/src/types.ts`](../../packages/executor/src/types.ts)
-  currently exposes one broad persistence interface that must be split behind
-  compatibility adapters.
+- [`../../packages/persistence-postgres/src/schema.ts`](../../packages/persistence-postgres/src/schema.ts)
+  for current legacy plus additive foundation tables;
+- [`../../packages/persistence-postgres/src/commits.ts`](../../packages/persistence-postgres/src/commits.ts)
+  for the mixed legacy commit function still awaiting separation;
+- [`../../packages/executor/src/sessions.ts`](../../packages/executor/src/sessions.ts)
+  for wall-clock `beginTs` sessions; and
+- [`../../packages/executor/src/types.ts`](../../packages/executor/src/types.ts)
+  for the broad compatibility persistence surface.
 
-## The Low-Level Adapter Boundary
+## Hosted Execution Gate
 
-Yes, FlarexDB needs APIs that future Payload and Medusa adapters can use. Those
-APIs are trusted internal capabilities, not one universal user-visible
-transaction API and not raw Postgres handles.
+The production target is a dedicated private Cloudflare executor Worker using
+a request-scoped Postgres client through cache-disabled Hyperdrive. The
+existing `/invoke/*` Fetch protocol remains the first private service-binding
+transport. Nitro/Vercel remains optional compatibility, not production
+authority.
+
+Developer modules receive restricted `ctx` capabilities only. They never
+receive Hyperdrive, credentials, `pg`, Drizzle, SQL, persistence, physical
+routing, or transaction handles.
+
+Hosted proof status:
+
+- [x] `H01`: host contract, placement/privacy rules, and local-versus-hosted
+  evidence boundary.
+- [x] `H02`: Worker-safe request-scoped `pg.Client` persistence seam.
+- [x] `H03`: private executor Worker and bundle/import-graph exclusions.
+- [x] `H04`: emitted bundle through a named local workerd service binding
+  against real Postgres.
+- [x] `H05-A`: authenticated bounded hosted probe and receipt toolchain without
+  changing Cloudflare resources.
+- [ ] `H05-B`: provision and inspect live cache-disabled Hyperdrive, deploy the
+  private executor and ephemeral probe, run hosted SQL/OCC proof, collect
+  control/data/trace/cleanup evidence, and remove or disable the probe.
+
+Local Hyperdrive configuration points directly to Postgres and does not prove
+live Hyperdrive pooling or cache behavior. Therefore `H04` does not substitute
+for `H05-B`, and production generation routing `S02-D2` remains blocked.
+Host-neutral schema, catalog, codec, and narrow OCC/compiler work may continue
+without that deployment gate.
+
+## Low-Level Adapter Boundary
+
+Foundation APIs are trusted internal capabilities, not a universal public
+transaction API and never raw Postgres handles.
 
 | Consumer | Low-level capability | Boundary |
 | --- | --- | --- |
-| Flarex app data | exact snapshot reads plus `SessionJournalV1 -> CommitPlanner -> CommitExecutor` | first implementation lane; point CRUD only |
-| Payload | app-row/catalog primitives plus a Payload-owned request transaction adapter | implemented later from Payload adapter contracts and conformance tests |
-| Medusa | scope commit participation, change atoms, and outbox within a Medusa-owned SQL transaction | preserves repositories, transaction manager, modules, links, migrations, and workflows |
-| System writers | fenced scope commit participation for backfills, migrations, repairs, and admin work | never bypasses OCC/commit ordering or authors an independent commit stream |
+| Flarex app data | Exact snapshot reads plus `SessionJournalV1 -> CommitPlannerV1 -> CommitExecutor` | First lane; bounded point CRUD |
+| Payload | App-row/catalog primitives through a Payload-owned request transaction adapter | Later conformance-tested adapter |
+| Medusa | Scope commit participation, change atoms, and outbox inside a Medusa-owned SQL transaction | Preserves repositories, modules, links, migrations, and workflows |
+| System writers | Fenced scope commit participation for migrations, backfills, repairs, and admin work | Cannot bypass OCC/commit ordering |
 
-Shared trusted infrastructure may include conceptual capabilities such as:
+Shared conceptual capabilities include scope authority, generation resolution,
+scope clock, catalog reads, exact snapshots, commit/outcome/feed stores,
+transactional outbox, and trusted adapter commit participation. Exact port
+names are introduced by the owning `S*`, `O*`, and `C*` gates rather than
+invented globally in advance.
 
-```text
-ScopeAuthority
-StorageGenerationResolver
-ScopeClockStore
-CatalogReader
-SnapshotReader
-AppCommitStore
-CommitOutcomeStore
-CommitFeedStore
-TransactionalOutboxStore
-TrustedAdapterCommitParticipant
-```
+Fixed cross-adapter rules:
 
-S01-B finalizes only the compatibility seam names
-`LegacyV1AppDataStore` and `LegacyV1AppDataEngine`. O01 owns the exact OCC
-capability names, and C01 owns compiler-composition names. The rules are already
-fixed:
+- trusted control metadata locates the data plane; the data-plane scope clock
+  supplies current generation/fence;
+- one request anchor pins generation/fence across OCC attempts;
+- a request may rebind generations only after authoritative outcome lookup and
+  a fenced terminal transition prove no commit is in flight;
+- callers cannot author physical tables, locks, sequences, index/unique/edge
+  rows, change atoms, or system outbox rows;
+- `(scope_id, request_key)` idempotency is generation independent;
+- cutover seals the legacy request namespace and imports recoverable outcomes
+  or permanent tombstones; unknown legacy keys reject;
+- all authoritative writers share the scope-local commit lane;
+- there is no automatic atomic `ctx.db + ctx.commerce` transaction; and
+- no raw database/transaction handle reaches Dynamic Worker code.
 
-- the trusted backend locates the data plane from control metadata, then
-  resolves authoritative storage generation/fence from the scope-clock row;
-- one active request anchor pins generation/fence across all OCC attempts. A
-  fence change stops active attempts. The same request key may bind to the new
-  generation only after authoritative outcome lookup proves no commit and a
-  fenced CAS makes the old anchor terminal; uncertain outcomes never rebind;
-- callers do not supply physical tables, locks, commit sequences, change atoms,
-  unique-key rows, or system outbox rows;
-- `(scope_id, request_key)` idempotency is generation-independent; legacy and
-  FlarexDB adapters consult the same authoritative outcome before execution;
-- storage cutover seals the legacy request-key namespace. Recoverable outcomes
-  and tombstones are imported; unknown/GCed legacy keys reject without
-  execution, while new canonical keys carry a server-issued namespace prefix;
-- all authoritative writers participate in one scope-local commit lane;
-- there is no automatic atomic `ctx.db + ctx.commerce` transaction;
-- no raw database or transaction handle is exposed to Dynamic Worker code.
+## Master Execution Order
 
-## Master Turn Order
+One checked focused-plan item is the default implementation scope. Complete it
+only after proportional tests, required reviewer passes, and its automatic
+commit. Update living roadmaps only when durable status, architecture, gaps,
+direction, or correctness criteria change.
 
-One checked item is the default scope of one implementation turn and one
-automatic checkpoint commit. Do not mark an item complete until its focused
-tests, reviewer checkpoint when required, and commit are complete. Update an
-affected domain roadmap only when the turn changes its durable architecture,
-rationale, status, gaps, direction, or correctness gates.
+### Wave 0 — Compatibility Seam And Immutable Foundations
 
-### Wave 0: compatibility seam and immutable foundations
-
-1. `S01` freeze the legacy oracle and add the generation boundary.
-2. `S02` add trusted scope location and the authoritative data-plane scope
-   clock/generation fence. S02-A added the scope locator, S02-B added the
-   clock/read/transaction-typed lock proof, and S02-C1 added the co-located
-   shared-database initial-authority transaction. S02-C2 added a versioned,
-   deployment-ID-frontier bootstrap plus point-in-time relational parity for
-   that fixed shared placement. S02-C3a removed the executor's bare writer,
-   wired shared future creation, and proved the quiesce/bootstrap/switch/fresh
-   parity sequence. S02-C3b1 added the durable split-topology receipt and exact
-   `reserved -> ready` control CAS without advertising located readiness.
-   S02-C3b2 added the trusted two-store target-clock reconciliation loop,
-   exact initial `legacy_v1` authority, crash/replay recovery, and final ready
-   projection. H01 froze the Worker/Hyperdrive proof contract, H02 added the
-   connected-client persistence seam, H03 added the private Worker plus
-   emitted-bundle gate, and H04 proved that exact bundle through a named
-   workerd service binding against PostgreSQL. H05-A prepared the authenticated
-   hosted proof harness without changing cloud resources. S02-D1 now resolves
-   persisted scope/clock authority without routing execution. H05-B remains the
-   final hard prerequisite for S02-D2 production runtime routing and is
-   deferred while core foundation work continues.
-3. `S03` add the minimal stable catalog. S03-A established stable table
-   identities and S03-B1 persisted immutable canonical schema-version
-   artifacts. S03-B2a froze the strict app-document table-definition section
-   without a second persisted copy. S03-B2b1 added an internal optimistic
-   stable-ID plan/revalidation primitive, and S03-B2b2 added the bounded atomic
-   mapping-plus-artifact facade plus its real-Postgres correctness proof.
-   S03-C1 then froze the new composite app-schema envelope and separated stable
-   logical index identity from physical definition/build identity. S03-C2
-   persists the deployment-scoped logical catalog and one opaque table/index
-   optimistic plan without a standalone reservation path. Interleaved S05-A
-   has now frozen ordered physical spec/codec v1 and passed focused PGlite and
-   real-Postgres byte-order/composite-B-tree proofs. S03-C3 then added the
-   separately branded physical generation, immutable canonical definition rows,
-   table-owned creation-time representation, developer schema bindings, and
-   composite owner foreign keys. S03-C4 then placed fenced build state beside
-   the located scope clock, replaced cursor JSON with an exact row-identity
-   cursor, and added a clock-anchored `absent | current | stale` read without
-   mutation/readiness APIs. S03-D1 then added the pure trusted full-manifest
-   compiler: it validates ID/index references and derives canonical developer
-   plus intrinsic creation-time requirements without a manifest copy, physical
-   ID, or write API. S03-D2a then composed the C2 stable-binding plan, D1
-   requirements, and exact immutable artifact into one authenticated
-   package-internal no-write preparation token. S03-D2b then derived its
-   complete identity-only intrinsic token set, reused D1 canonical evidence,
-   verified exact app-table parents under the shared C3 deployment lock, and
-   added the table-owned definition ensure/replay primitive without a schema
-   binding or build row. S03-D2c next owns atomic full control publication and
-   exact verification; D2d retains bounded retry, facade/quota, and
-   whole-publication real-Postgres gates. Split-store build reconciliation
-   remains separate D3 work.
-4. `S04` migrate active-schema pointer authority while mirroring legacy reads.
-5. `S05` freeze tagged value and ordered-key codecs. Its narrow S05-A ordered
-   index prerequisite is complete; S05-B remains later full row-value-codec
-   work.
-6. `O01` add typed OCC contracts and narrow ports.
-7. `O02` issue exact snapshots while retaining legacy `beginTs` only inside the
+1. [x] `S01`: freeze legacy behavior behind a named generation boundary.
+2. [ ] `S02`: trusted scope location and scope clock.
+   - Complete: `S02-A`–`S02-C`, `S02-D1`.
+   - Deferred/remaining: `H05-B`, `S02-D2`, `S02-E`.
+3. [ ] `S03`: minimal stable catalog.
+   - Complete through `S03-D2b`, including interleaved `S05-A`.
+   - Next: `S03-D2c`.
+   - Then: `S03-D2d`, `S03-D3`, `S03-D4`.
+4. [ ] `S04`: migrate active-schema pointer authority.
+5. [ ] `S05`: complete tagged value/ordered-key codecs; `S05-A` is complete,
+   `S05-B` remains.
+6. [ ] `O01`: typed OCC contracts and narrow ports.
+7. [ ] `O02`: exact snapshot issuance; legacy `beginTs` stays inside the
    legacy adapter.
 
-### Wave 1: first row and point-OCC slice
+### Wave 1 — First Row And Point-OCC Slice
 
-1. `S06` add app row revision/current storage.
-2. `S07` add session, snapshot-lease, and reconnect-retention DDL.
-3. `O03` create and fence authoritative session anchors.
-4. `O04` implement exact-snapshot point reads, including missing-row
-   dependencies.
-5. `O05` implement the pure point-OCC validator.
-6. `C01` extract compiler/executor ports without changing public endpoints.
-7. `C02` define the versioned logical journal/envelope/plan protocol.
-8. `C03` implement point read-your-writes and fail-closed unsupported shapes.
-9. `C04` implement the pure point-row planner.
+1. `S06`: app row revision/current storage.
+2. `S07`: session, snapshot-lease, and reconnect-retention DDL.
+3. `O03`: authoritative fenced session anchors.
+4. `O04`: exact-snapshot point reads including missing-row dependencies.
+5. `O05`: pure point-OCC validator.
+6. `C01`: narrow compiler/executor ports without endpoint changes.
+7. `C02`: versioned journal/envelope/plan protocol.
+8. `C03`: point read-your-writes and fail-closed unsupported shapes.
+9. `C04`: pure deterministic point-row planner.
 
-### Wave 2: one atomic app-data commit
+### Wave 2 — One Atomic App-Data Commit
 
-1. `S08` add commit/change-feed DDL and the retained-history watermark.
-2. `S09` add result-bearing idempotency and leased-outbox DDL.
-3. `O06` implement a private, non-routable scope-local commit transaction
-   harness.
-4. `O07` make the result, idempotency outcome, commit/change atoms, and outbox
-   atomic.
-5. `C05` execute one point mutation through that complete atomic primitive.
-6. `C06` wire idempotent finish and lost-outcome recovery through the stable
-   `/invoke/*` endpoints.
-7. `O08` separate OCC reruns, SQL plan retries, and uncertain-outcome lookup.
-8. `C07` close the real-Postgres correctness gate.
+1. `S08`: commit/change-feed DDL and retained-history floor.
+2. `S09`: result-bearing idempotency and leased-outbox DDL.
+3. `O06`: private non-routable scope-local commit transaction harness.
+4. `O07`: atomic result, outcome, data, commit/change atoms, and outbox.
+5. `C05`: one point mutation through the complete primitive.
+6. `C06`: idempotent finish and lost-outcome recovery through `/invoke/*`.
+7. `O08`: separate OCC reruns, safe SQL retries, and uncertain-outcome lookup.
+8. `C07`: PGlite plus real-Postgres correctness gate.
 
-This wave is the first end-to-end milestone. Do not start Payload, Medusa,
-SessionDO journal movement, sync replacement, or cache DO work before it is
-green.
+`C07` is the first end-to-end replacement milestone. Payload, Medusa,
+SessionDO journal movement, sync replacement, and committed-data caches do not
+start before it is green.
 
-### Post-Wave-2 gate: measure and conditionally move the session journal
+### Post-Wave-2 — Conditional Session Journal Decision
 
-Immediately after `C07`, measure the hosted Dynamic Worker -> private executor
--> Hyperdrive/Postgres path before starting the derived sidecars in Wave 3.
-The receipt must separate service-binding latency, authoritative data-read
-latency, Postgres read-dependency/write-intent journal persistence, and finish
-latency. Define the material-improvement threshold before collecting the
-comparison.
+Immediately after `C07`, measure hosted service-binding, authoritative data
+read, Postgres journal persistence, and finish latency separately. Declare the
+material-improvement threshold before collecting comparisons.
 
-If Postgres journal persistence is a material source of round trips or latency,
-`C07A` becomes the next implementation checkpoint: move only the temporary,
-fenced logical read/write journal to per-session Durable Object SQLite. Actual
-data reads continue through trusted executor syscalls to authoritative
-Postgres, and OCC, idempotency, result publication, committed data, commit/feed,
-and outbox authority remain in Postgres. If the threshold is not met, retain
-the Postgres-backed journal and record the evidence before continuing.
+- If journal persistence meets the threshold, `C07A` moves only temporary,
+  fenced logical journal state to per-session DO SQLite before Wave 3.
+- Otherwise retain Postgres journaling and continue.
 
-This gate is distinct from `DocCacheDO` or `QueryCacheDO`. Those actors mirror
-committed data/results and remain deferred until the gap-free freshness stream
-and a separate measured need exist.
+Actual reads, session anchor, OCC, outcome, committed data, commit feed, and
+outbox remain in Postgres. This decision is unrelated to `DocCacheDO` or
+`QueryCacheDO`.
 
-### Wave 3: derived app-data sidecars
+### Wave 3 — Derived App-Data Sidecars
 
-1. `S10` add index revision/current and exact ordered bounds.
-2. `S11` add unique-key storage and collision verification.
-3. `R01` freeze relation identity, cardinality, direction, delete, locale,
-   ordering, polymorphism, and nested-occurrence semantics from source evidence.
-4. `R02` bind stable relation IDs and their immutable definitions into the
-   schema manifest without adding a second definition copy.
-5. `S12` add stable current edge occurrences; keep edge history deferred.
-6. `C08` lower index and unique sidecars from final row bodies.
-7. `C09` lower stable edge occurrences.
-8. `O09` add multi-row atomicity and unique conflicts.
-9. `O10` prove one exact indexed dependency and phantom-conflict shape.
+1. `S10`: index revision/current and exact ordered bounds.
+2. `S11`: unique-key storage and collision verification.
+3. `R01`: relation identity and semantics.
+4. `R02`: stable relation IDs and immutable manifest definitions.
+5. `S12`: stable current edge occurrences; edge history remains deferred.
+6. `C08`: lower index and unique sidecars from final rows.
+7. `C09`: lower stable edge occurrences.
+8. `O09`: multi-row atomicity and unique conflicts.
+9. `O10`: one exact indexed dependency and phantom-conflict proof.
 
-`R01` and `R02` are just-in-time prerequisites for `S12`/`C09`, not a reason to
-start Payload feature parity before the point-commit foundation is green. Their
-accepted contract is maintained in
-[04-payload-relational-contract.md](./04-payload-relational-contract.md).
+`R01`/`R02` are just-in-time prerequisites for `S12`/`C09`, not permission to
+start Payload feature parity. Their contract is in
+[`04-payload-relational-contract.md`](./04-payload-relational-contract.md).
 
-### Wave 4: compatibility migration and scoped authority
+### Wave 4 — Compatibility Migration And Scoped Authority
 
-1. `S13` add an unsealed current-state baseline import and migration state.
-2. `S14` implement normalized shadow-read comparison at a fenced watermark.
-3. `O11` enforce retention floors and explicit out-of-retention behavior.
-4. `S15` finalize transactional generation routing, a same-transaction legacy
-   compatibility publisher, rollback state, and fences.
-5. `O12` cut over one isolated canary scope with live subscriptions disabled.
-6. After the separate sync migration closes its compatibility/reconnect gates,
-   `O13` may retire legacy storage and OCC.
+1. `S13`: unsealed current-state baseline import and migration state.
+2. `S14`: normalized shadow comparison at one fenced watermark.
+3. `O11`: retention floors and explicit out-of-retention behavior.
+4. `S15`: transactional generation routing, same-transaction legacy mirror,
+   rollback state, and fences.
+5. `O12`: cut over one isolated canary scope with live subscriptions disabled.
+6. `O13`: retire legacy storage/OCC only after separate sync/reconnect gates.
 
-`C07A` is the conditional post-`C07` journal optimization described above. It is
-not a prerequisite for cutover or retirement when its predeclared performance
-threshold is not met; the Postgres-backed journal may remain permanently.
+`C07A` is not a cutover prerequisite when its predeclared threshold is not met.
 
-## Cross-Plan Rules
+## Cross-Plan Invariants
 
-- Add new tables and modules; do not rename or drop legacy tables during the
-  proof phase.
-- Keep executor transport (`legacy | postgres`) separate from trusted storage
-  generation (`legacy_v1 | flarexdb_v1`). A request header cannot select the
-  storage generation.
-- Preserve legacy MVCC `ts` while compatibility reads need it. Add an
-  independent dense per-scope `commitSeq`; never reinterpret old wall-clock
-  values as the new cursor.
-- An empty scope snapshot is sequence `0`. A successful transaction allocates
-  `lastCommitSeq + 1` and advances the clock atomically. Rollback consumes
-  nothing.
-- Epoch is a fence and provenance marker, not a visibility filter. Rollover
-  never resets commit/outbox sequences or hides untouched rows.
-- Shadow storage may observe and compare but cannot independently commit or
-  publish. Exactly one generation is authoritative for a scope.
-- If both representations are written during the rollback window, they are
-  written in the same Postgres transaction. Once legacy-compatible writes
-  stop, rollback requires reverse catch-up and verification.
-- Unsupported read-your-writes shapes fail closed. A fallback read cannot see
-  a staged journal and therefore cannot repair the returned value.
-- Before the separate sync plan exists, storage cutover is limited to isolated
-  canary scopes with live subscriptions/reconnect disabled. Production cutover
-  and legacy retirement wait for generation-aware registration, reconnect,
-  commit-feed, and resnapshot gates in that later plan.
-- PGlite is the fast lane. Real Postgres is mandatory for locks, concurrency,
-  serialization/deadlock behavior, constraints, outbox claims, and production
-  query plans.
+- Add replacement tables/modules; do not rename or drop legacy tables during
+  proof.
+- Keep host transport separate from trusted storage generation. No header or
+  client input chooses generation.
+- Preserve legacy MVCC `ts` only for compatibility. Never reinterpret it as
+  replacement `commitSeq`.
+- Empty scope is sequence `0`; a successful transaction allocates and advances
+  `last + 1` atomically; rollback consumes nothing.
+- Epoch is a fence/provenance marker, not a visibility filter. Rollover never
+  resets sequences or hides untouched rows.
+- Exactly one storage generation commits authoritatively per scope. Shadow
+  storage observes/compares only.
+- During rollback compatibility, both representations are written in the same
+  Postgres transaction. Ending that mirror requires reverse catch-up before
+  rollback can remain credible.
+- Unsupported read-your-writes shapes fail closed; Postgres cannot see a
+  private staged journal.
+- Before sync replacement, cutover is limited to isolated canary scopes with
+  live subscriptions/reconnect disabled.
+- PGlite is the fast lane. Real Postgres is mandatory for locks, isolation,
+  concurrency, serialization/deadlock, constraints, outbox claims, migrations,
+  and production query plans.
 
-## Plans In This Folder
+## Focused Plans
 
-- [01-schema-and-migrations.md](./01-schema-and-migrations.md)
-- [02-occ-and-transactions.md](./02-occ-and-transactions.md)
-- [03-commit-compiler.md](./03-commit-compiler.md)
-- [04-payload-relational-contract.md](./04-payload-relational-contract.md)
-- [05-managed-schema-deployment.md](./05-managed-schema-deployment.md)
+- [`01-schema-and-migrations.md`](./01-schema-and-migrations.md)
+- [`02-occ-and-transactions.md`](./02-occ-and-transactions.md)
+- [`03-commit-compiler.md`](./03-commit-compiler.md)
+- [`04-payload-relational-contract.md`](./04-payload-relational-contract.md)
+- [`05-managed-schema-deployment.md`](./05-managed-schema-deployment.md)
 
 ## Deferred High-Level Plans
 
-After the foundation passes its cutover gates, create separate plans for:
+After the foundation reaches its relevant gates, separate plans own:
 
-- DeploymentSyncDO and two-phase live-query activation;
-- Payload adapter conformance, beginning with scalar CRUD/request
-  transactions;
-- Medusa module integration through real repository/workflow/migration/link
+- per-scope `DeploymentSyncDO` and two-phase live-query activation;
+- Payload adapter conformance beginning with scalar CRUD/request transactions;
+- Medusa integration through real repository/workflow/migration/link
   boundaries;
-- committed-data/result cache DOs and measured read-path optimization (separate
-  from the post-`C07` SessionDO journal gate);
+- measured committed-data/result caches, separate from `C07A`; and
 - high-level developer APIs and cross-system workflows.
 
-The desired-state, migrationless developer experience and its internal managed
-migration safety classes are frozen in
-[05-managed-schema-deployment.md](./05-managed-schema-deployment.md). Its
-`M01`-`M05` turns remain deferred and do not change the current foundation turn
-order.
+The migrationless developer experience and managed migration safety classes
+are frozen in
+[`05-managed-schema-deployment.md`](./05-managed-schema-deployment.md), but its
+`M01`–`M05` turns remain deferred and do not change the foundation order.
 
-Deferral does not remove the adapter ports above. It prevents the foundation
-from claiming semantics that have not been proven.
+Deferral preserves necessary adapter ports while preventing the foundation
+from claiming unproven behavior.
