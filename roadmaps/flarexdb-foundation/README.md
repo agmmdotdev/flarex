@@ -328,6 +328,7 @@ permanently.
 - [02-occ-and-transactions.md](./02-occ-and-transactions.md)
 - [03-commit-compiler.md](./03-commit-compiler.md)
 - [04-payload-relational-contract.md](./04-payload-relational-contract.md)
+- [05-managed-schema-deployment.md](./05-managed-schema-deployment.md)
 
 ## Deferred High-Level Plans
 
@@ -340,6 +341,12 @@ After the foundation passes its cutover gates, create separate plans for:
   boundaries;
 - cache DOs and measured read-path optimization;
 - high-level developer APIs and cross-system workflows.
+
+The desired-state, migrationless developer experience and its internal managed
+migration safety classes are frozen in
+[05-managed-schema-deployment.md](./05-managed-schema-deployment.md). Its
+`M01`-`M05` turns remain deferred and do not change the current foundation turn
+order.
 
 Deferral does not remove the adapter ports above. It prevents the foundation
 from claiming semantics that have not been proven.

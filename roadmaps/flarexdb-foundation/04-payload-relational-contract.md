@@ -24,6 +24,68 @@ adapter compiles supported field behavior into the same trusted row, index,
 unique, and edge primitives used by app data; it does not bypass the scope
 commit lane or accept physical sidecars from user code.
 
+## Developer Relation API
+
+Flarex should use one inline logical relation declaration, not require
+developers to maintain a second Drizzle-style `defineRelations()` graph. Flarex
+owns schema compilation, physical edge generation, reverse API generation, and
+codegen, so a second authored declaration would be duplicate schema authority.
+
+The authoring API should combine InstantDB's bidirectional semantic model with
+Drizzle's explicit source/target, ambiguity, and traversal discipline:
+
+```ts
+posts: table({
+  title: string(),
+  author: relation.one("users", {
+    inverse: "posts",
+    inverseCardinality: "many",
+    required: true,
+    onDelete: "restrict",
+  }),
+})
+```
+
+The compiler, not the developer, expands that declaration into the canonical
+manifest definition:
+
+```text
+posts.author has one users row
+users.posts has many posts rows
+```
+
+The generated inverse is an API view over the same relation identity, not a
+second stored array or separately owned declaration. Multiple relations between
+the same tables require distinct logical names and inverse names; the compiler
+must never select one by shape or declaration order.
+
+For a pointer-only many-to-many relation, Flarex generates edge occurrences.
+When the association has business data such as role, status, joined time, or
+inviter, it is an ordinary application table with two explicit relations. A
+filtered view such as `publishedPosts` is a query over a relation, not another
+stored relation definition.
+
+The developer DSL is convenience input. The canonical, serializable relation
+AST in the immutable schema manifest remains the trusted compiler/runtime
+contract. Payload `relationship`, `upload`, and `join` declarations compile to
+that same AST.
+
+### AI-generated schema requirements
+
+Most schemas may be generated or revised by agents, so the authoring and plan
+contracts must be deterministic and machine-readable:
+
+- declare a relation once and generate the inverse;
+- prefer serializable table/logical-name references over callback identity;
+- require explicit cardinality, inverse name, delete behavior, ordering,
+  localization, and polymorphic targets when applicable;
+- reject ambiguous inverse names and multiple candidate relations with a
+  precise diagnostic;
+- never allow generated code to choose stable numeric IDs or physical table
+  names;
+- emit a canonical schema/diff plan that an agent can inspect without parsing
+  prose or answering an interactive prompt.
+
 ## Storage Compatibility Matrix
 
 "Compatible" means that the Payload field API has a deterministic Flarex
@@ -159,6 +221,14 @@ metadata, so an exact revision could not be established:
   `server/src/instant/db/model/triple.clj` for current triple indexes and
   forward/reverse reference behavior.
 
+Drizzle source reference:
+
+- <https://orm.drizzle.team/docs/relations> for separate soft-relation query
+  definitions, explicit `one`/`many`, `from`/`to`, aliases, reverse traversal,
+  and explicit many-to-many `through` mappings. Flarex keeps that explicitness
+  but does not expose physical foreign-key/junction choices for generated app
+  edge storage.
+
 Convex source was not the primary evidence for this docs checkpoint because the
 gap is Payload field compatibility and InstantDB-inspired relation metadata.
 The existing Convex-first row, stable-table, snapshot, OCC, and compiler rules
@@ -196,3 +266,26 @@ git diff --check
 rg -n "R01|R02|no duplicated|one authoritative|Payload Relational" \
   roadmaps/flarexdb-foundation
 ```
+
+### Relation API Refinement Checkpoint
+
+Previous completed checkpoint: `a4f3aec` -
+`Freeze Payload relational compatibility contract`.
+
+What changed: selected one inline Flarex relation declaration that compiles to
+an InstantDB-inspired bidirectional canonical manifest, retained Drizzle-style
+explicitness and ambiguity checks, distinguished pointer edges from
+association entities, and added deterministic AI-generation requirements.
+
+Why: requiring both field declarations and a separate relation-definition file
+would duplicate authored schema authority, while fully inferred relations would
+hide cardinality, inverse, deletion, and rename intent needed for safe deploys.
+
+Convex source files were not inspected for this API-only refinement because
+Convex document IDs do not define the richer bidirectional Payload relation
+surface being decided here. Existing Convex-first schema artifact, codegen, and
+deployment rules remain unchanged.
+
+Known follow-up: `R01` still owns the exact public TypeScript names and
+canonical AST schema. The examples above are normative semantics, not a frozen
+package API signature.
