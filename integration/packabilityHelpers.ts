@@ -19,6 +19,16 @@ export const internalPackedPackages = [
     tarballName: "flarex-0.0.1.tgz",
   },
   {
+    packageName: "flarex-protocol",
+    packageRoot: resolve(workspaceRoot, "packages/flarex-protocol"),
+    tarballName: "flarex-protocol-0.0.1.tgz",
+  },
+  {
+    packageName: "@flarex/analysis",
+    packageRoot: resolve(workspaceRoot, "packages/analysis"),
+    tarballName: "flarex-analysis-0.0.1.tgz",
+  },
+  {
     packageName: "flarex-backend",
     packageRoot: resolve(workspaceRoot, "packages/flarex-backend"),
     tarballName: "flarex-backend-0.0.1.tgz",

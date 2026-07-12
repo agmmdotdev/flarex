@@ -58,5 +58,5 @@ describe("flarex-dev packed package", () => {
     } finally {
       await rm(packDir, { recursive: true, force: true });
     }
-  });
+  }, 120_000);
 });

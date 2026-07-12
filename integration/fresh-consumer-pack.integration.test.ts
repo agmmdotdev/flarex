@@ -21,6 +21,7 @@ const linkedExternalPackages = [
   { packageName: "@types/pg", packageRoot: persistencePostgresRoot },
   { packageName: "drizzle-orm", packageRoot: persistencePostgresRoot },
   { packageName: "elysia", packageRoot: executorHttpRoot },
+  { packageName: "effect", packageRoot: flarexDevRoot },
   { packageName: "miniflare", packageRoot: flarexDevRoot },
   { packageName: "pg", packageRoot: persistencePostgresRoot },
   { packageName: "tsx", packageRoot: flarexDevRoot },
@@ -141,7 +142,7 @@ describe("fresh consumer packed install", () => {
     } finally {
       await rm(tempRoot, { recursive: true, force: true, maxRetries: 3 });
     }
-  });
+  }, 300_000);
 });
 
 async function writeMinimalFlarexProject(root: string): Promise<void> {

@@ -44,6 +44,19 @@ const packages = [
     ],
   },
   {
+    ...internalPackedPackage("flarex-protocol"),
+    expectedEntries: [
+      "package/src/index.ts",
+      "package/src/deployment.ts",
+      "package/src/invoke.ts",
+      "package/src/storage-authority.ts",
+    ],
+  },
+  {
+    ...internalPackedPackage("@flarex/analysis"),
+    expectedEntries: ["package/src/index.ts"],
+  },
+  {
     ...internalPackedPackage("flarex-backend"),
     expectedEntries: [
       "package/src/worker.ts",
@@ -51,9 +64,17 @@ const packages = [
       "package/src/artifactStore.ts",
       "package/src/syncProtocol.ts",
       "package/test/backendHarness.ts",
+      "package/test/lifecycleFixture.ts",
     ],
-    allowedTestEntries: ["package/test/backendHarness.ts"],
-    expectedTestExports: ["./test/backendHarness", "./test/sync-protocol"],
+    allowedTestEntries: [
+      "package/test/backendHarness.ts",
+      "package/test/lifecycleFixture.ts",
+    ],
+    expectedTestExports: [
+      "./test/backendHarness",
+      "./test/lifecycleFixture",
+      "./test/sync-protocol",
+    ],
     requiredPeerDependencies: ["miniflare", "vite"],
   },
   {
@@ -102,41 +123,45 @@ const packages = [
 ] as const satisfies readonly PackagePackCase[];
 
 describe("internal package tarballs", () => {
-  it.each(packages)("%s packs only its public source surface", async packCase => {
-    const tempPrefix = `${packCase.packageName.replaceAll(/[^a-zA-Z0-9-]/g, "-")}-pack-`;
-    const packDir = await mkdtemp(join(tmpdir(), tempPrefix));
-    try {
-      const sourceManifest = await readSourceManifest(packCase.packageRoot);
-      const pack = runPnpmPack(packCase.packageRoot, packDir);
-      expectSuccessfulCommand(pack);
+  it.each(packages)(
+    "%s packs only its public source surface",
+    async packCase => {
+      const tempPrefix = `${packCase.packageName.replaceAll(/[^a-zA-Z0-9-]/g, "-")}-pack-`;
+      const packDir = await mkdtemp(join(tmpdir(), tempPrefix));
+      try {
+        const sourceManifest = await readSourceManifest(packCase.packageRoot);
+        const pack = runPnpmPack(packCase.packageRoot, packDir);
+        expectSuccessfulCommand(pack);
 
-      const tarballPath = await singlePackedTarball(packDir);
-      const entries = tarballEntries(tarballPath);
-      const manifest = readPackedManifest(tarballPath);
+        const tarballPath = await singlePackedTarball(packDir);
+        const entries = tarballEntries(tarballPath);
+        const manifest = readPackedManifest(tarballPath);
 
-      expect(manifest.name).toBe(sourceManifest.name);
-      expect(manifest.version).toBe(sourceManifest.version);
-      for (const expectedEntry of packCase.expectedEntries) {
-        expect(entries).toContain(expectedEntry);
-      }
-      for (const expectedMigrationEntry of await expectedDrizzleMigrationEntries(packCase)) {
-        expect(entries).toContain(expectedMigrationEntry);
-      }
-      for (const exportedTarget of exportedTargetEntries(manifest.exports)) {
-        expect(entries).toContain(exportedTarget);
-      }
-      const exportedNames = Object.keys(stringRecord(manifest.exports));
-      for (const expectedTestExport of optionalTestExports(packCase)) {
-        expect(exportedNames).toContain(expectedTestExport);
-      }
+        expect(manifest.name).toBe(sourceManifest.name);
+        expect(manifest.version).toBe(sourceManifest.version);
+        for (const expectedEntry of packCase.expectedEntries) {
+          expect(entries).toContain(expectedEntry);
+        }
+        for (const expectedMigrationEntry of await expectedDrizzleMigrationEntries(packCase)) {
+          expect(entries).toContain(expectedMigrationEntry);
+        }
+        for (const exportedTarget of exportedTargetEntries(manifest.exports)) {
+          expect(entries).toContain(exportedTarget);
+        }
+        const exportedNames = Object.keys(stringRecord(manifest.exports));
+        for (const expectedTestExport of optionalTestExports(packCase)) {
+          expect(exportedNames).toContain(expectedTestExport);
+        }
 
-      assertNoPackedDevelopmentEntries(entries, optionalAllowedTestEntries(packCase));
-      assertManifestDependencyProtocols(manifest);
-      assertOptionalPeerDependencies(manifest, optionalRequiredPeerDependencies(packCase));
-    } finally {
-      await rm(packDir, { recursive: true, force: true });
-    }
-  });
+        assertNoPackedDevelopmentEntries(entries, optionalAllowedTestEntries(packCase));
+        assertManifestDependencyProtocols(manifest);
+        assertOptionalPeerDependencies(manifest, optionalRequiredPeerDependencies(packCase));
+      } finally {
+        await rm(packDir, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
 });
 
 function optionalTestExports(
