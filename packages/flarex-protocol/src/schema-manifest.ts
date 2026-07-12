@@ -1,6 +1,11 @@
 import { Schema } from "effect";
 
-import { CatalogTableIdSchema, type CatalogTableId } from "./catalog";
+import {
+  CatalogIndexIdSchema,
+  CatalogTableIdSchema,
+  type CatalogIndexId,
+  type CatalogTableId,
+} from "./catalog";
 import type { Json } from "./json";
 import {
   ObjectValidatorJsonV1,
@@ -11,6 +16,14 @@ export const MAX_CATALOG_SCHEMA_VERSION = 2_147_483_647;
 export const MAX_SCHEMA_MANIFEST_NESTING_DEPTH = 128;
 export const MAX_SCHEMA_MANIFEST_APP_IDENTIFIER_LENGTH = 64;
 export const MAX_SCHEMA_MANIFEST_APP_TABLES = 10_000;
+export const MAX_SCHEMA_MANIFEST_APP_INDEXES = 10_000;
+export const MAX_SCHEMA_MANIFEST_APP_INDEXES_PER_TABLE = 64;
+/**
+ * Convex appends `_creationTime` to developer fields and uses `_id` as the
+ * implicit final tie-breaker. Keeping one slot for `_creationTime` makes the
+ * effective ordered field list fit Convex's 16-field limit.
+ */
+export const MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS = 15;
 
 const NonBlankPostgresText = Schema.String.check(
   Schema.makeFilter((value) =>
@@ -181,6 +194,191 @@ export function decodeSchemaManifestTableDefinitionsV1(
   );
 }
 
+export const SchemaManifestAppIndexDescriptorSchema =
+  SchemaManifestAppIdentifierSchema.check(
+    Schema.makeFilter((value) =>
+      isReservedSchemaManifestAppIndexDescriptor(value)
+        ? "Expected a developer index descriptor outside the reserved system index namespace"
+        : undefined,
+    ),
+  ).pipe(
+    Schema.brand("FlarexDB/SchemaManifestAppIndexDescriptor"),
+  );
+export type SchemaManifestAppIndexDescriptor =
+  typeof SchemaManifestAppIndexDescriptorSchema.Type;
+export const decodeSchemaManifestAppIndexDescriptor =
+  Schema.decodeUnknownSync(SchemaManifestAppIndexDescriptorSchema);
+
+export const SchemaManifestAppIndexFieldPathSchema = Schema.String.check(
+  Schema.makeFilter((value) =>
+    isValidSchemaManifestAppFieldPath(value)
+      ? undefined
+      : "Expected a canonical Convex-compatible app field path",
+  ),
+).pipe(Schema.brand("FlarexDB/SchemaManifestAppIndexFieldPath"));
+export type SchemaManifestAppIndexFieldPath =
+  typeof SchemaManifestAppIndexFieldPathSchema.Type;
+export const decodeSchemaManifestAppIndexFieldPath = Schema.decodeUnknownSync(
+  SchemaManifestAppIndexFieldPathSchema,
+);
+
+const SchemaManifestAppIndexDeclaredFieldsV1Schema = Schema.Array(
+  SchemaManifestAppIndexFieldPathSchema,
+).check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS),
+  Schema.makeFilter((fields) =>
+    validateSchemaManifestAppIndexDeclaredFields(fields)
+  ),
+);
+
+export const SchemaManifestAppDeveloperOrderedIndexSpecV1Schema =
+  Schema.Struct({
+    kind: Schema.Literal("developerOrdered"),
+    specVersion: Schema.Literal(1),
+    fields: SchemaManifestAppIndexDeclaredFieldsV1Schema,
+  }).annotate(StrictManifestStructOptions);
+export type SchemaManifestAppDeveloperOrderedIndexSpecV1 =
+  typeof SchemaManifestAppDeveloperOrderedIndexSpecV1Schema.Type;
+
+export const SchemaManifestAppIndexDeclarationV1Schema = Schema.Struct({
+  tableLogicalName: SchemaManifestAppTableNameSchema,
+  descriptor: SchemaManifestAppIndexDescriptorSchema,
+  fields: SchemaManifestAppIndexDeclaredFieldsV1Schema,
+}).annotate(StrictManifestStructOptions);
+export type SchemaManifestAppIndexDeclarationV1 =
+  typeof SchemaManifestAppIndexDeclarationV1Schema.Type;
+export type SchemaManifestAppIndexDeclarationInputV1 =
+  typeof SchemaManifestAppIndexDeclarationV1Schema.Encoded & {
+    readonly logicalIndexId?: never;
+    readonly indexId?: never;
+    readonly indexDefinitionId?: never;
+    readonly tableId?: never;
+    readonly namespace?: never;
+    readonly spec?: never;
+    readonly keyCodecVersion?: never;
+    readonly lifecycle?: never;
+  };
+
+const SchemaManifestAppIndexDeclarationsV1Schema = Schema.Array(
+  SchemaManifestAppIndexDeclarationV1Schema,
+).check(
+  Schema.isMaxLength(MAX_SCHEMA_MANIFEST_APP_INDEXES),
+  Schema.makeFilter((indexes) =>
+    validateSchemaManifestAppIndexDeclarations(indexes)
+  ),
+);
+
+const SchemaManifestAppIndexCountSchema = Schema.Int.check(
+  Schema.isBetween({
+    minimum: 0,
+    maximum: MAX_SCHEMA_MANIFEST_APP_INDEXES,
+  }),
+);
+
+const decodeSchemaManifestAppIndexCount = Schema.decodeUnknownSync(
+  SchemaManifestAppIndexCountSchema,
+);
+
+const SchemaManifestAppIndexDeclaredFieldCountSchema = Schema.Int.check(
+  Schema.isBetween({
+    minimum: 1,
+    maximum: MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS,
+  }),
+);
+
+const decodeSchemaManifestAppIndexDeclaredFieldCount =
+  Schema.decodeUnknownSync(SchemaManifestAppIndexDeclaredFieldCountSchema);
+
+const decodeSchemaManifestAppIndexDeclarationsV1Shape =
+  Schema.decodeUnknownSync(
+    SchemaManifestAppIndexDeclarationsV1Schema,
+    { onExcessProperty: "error" },
+  );
+
+export function decodeSchemaManifestAppIndexDeclarationsV1(
+  value: unknown,
+): ReadonlyArray<SchemaManifestAppIndexDeclarationV1> {
+  preflightSchemaManifestAppIndexArray(value);
+  const wrapper = decodeSchemaManifestJson({ declarations: value });
+  return decodeSchemaManifestAppIndexDeclarationsV1Shape(
+    wrapper.declarations,
+  );
+}
+
+export const SchemaManifestAppIndexBindingV1Schema = Schema.Struct({
+  logicalIndexId: CatalogIndexIdSchema,
+  tableId: CatalogTableIdSchema,
+  namespace: Schema.Literal("app"),
+  descriptor: SchemaManifestAppIndexDescriptorSchema,
+  spec: SchemaManifestAppDeveloperOrderedIndexSpecV1Schema,
+}).annotate(StrictManifestStructOptions);
+export type SchemaManifestAppIndexBindingV1 =
+  typeof SchemaManifestAppIndexBindingV1Schema.Type;
+
+const SchemaManifestAppIndexBindingsV1Schema = Schema.Array(
+  SchemaManifestAppIndexBindingV1Schema,
+).check(
+  Schema.isMaxLength(MAX_SCHEMA_MANIFEST_APP_INDEXES),
+  Schema.makeFilter((indexes) =>
+    validateSchemaManifestAppIndexBindings(indexes)
+  ),
+);
+
+export const SchemaManifestIndexBindingsV1Schema = Schema.Struct({
+  kind: Schema.Literal("indexBindings"),
+  sectionVersion: Schema.Literal(1),
+  indexes: SchemaManifestAppIndexBindingsV1Schema,
+}).annotate(StrictManifestStructOptions);
+export type SchemaManifestIndexBindingsV1 =
+  typeof SchemaManifestIndexBindingsV1Schema.Type;
+
+interface SchemaManifestAppSchemaReferences {
+  readonly tableDefinitions: SchemaManifestTableDefinitionsV1;
+  readonly indexBindings: SchemaManifestIndexBindingsV1;
+}
+
+const decodeSchemaManifestIndexBindingsV1Shape = Schema.decodeUnknownSync(
+  SchemaManifestIndexBindingsV1Schema,
+  { onExcessProperty: "error" },
+);
+
+export function decodeSchemaManifestIndexBindingsV1(
+  value: unknown,
+): SchemaManifestIndexBindingsV1 {
+  preflightSchemaManifestIndexBindings(value);
+  return decodeSchemaManifestIndexBindingsV1Shape(
+    decodeSchemaManifestJson(value),
+  );
+}
+
+export const SchemaManifestAppSchemaV1Schema = Schema.Struct({
+  kind: Schema.Literal("appSchema"),
+  manifestVersion: Schema.Literal(1),
+  tableDefinitions: SchemaManifestTableDefinitionsV1Schema,
+  indexBindings: SchemaManifestIndexBindingsV1Schema,
+}).check(
+  Schema.makeFilter((manifest) =>
+    validateSchemaManifestAppSchemaReferences(manifest)
+  ),
+).annotate(StrictManifestStructOptions);
+export type SchemaManifestAppSchemaV1 =
+  typeof SchemaManifestAppSchemaV1Schema.Type;
+
+const decodeSchemaManifestAppSchemaV1Shape = Schema.decodeUnknownSync(
+  SchemaManifestAppSchemaV1Schema,
+  { onExcessProperty: "error" },
+);
+
+export function decodeSchemaManifestAppSchemaV1(
+  value: unknown,
+): SchemaManifestAppSchemaV1 {
+  preflightSchemaManifestAppSchema(value);
+  return decodeSchemaManifestAppSchemaV1Shape(
+    decodeSchemaManifestJson(value),
+  );
+}
+
 export type SchemaManifestJson = {
   readonly [key: string]: Json;
 };
@@ -278,6 +476,73 @@ function preflightSchemaManifestAppTableArray(value: unknown): void {
   }
 }
 
+function preflightSchemaManifestAppSchema(value: unknown): void {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return;
+  }
+  const tableDefinitions = Object.getOwnPropertyDescriptor(
+    value,
+    "tableDefinitions",
+  );
+  if (tableDefinitions !== undefined && "value" in tableDefinitions) {
+    preflightSchemaManifestTableDefinitions(tableDefinitions.value);
+  }
+  const indexBindings = Object.getOwnPropertyDescriptor(value, "indexBindings");
+  if (indexBindings !== undefined && "value" in indexBindings) {
+    preflightSchemaManifestIndexBindings(indexBindings.value);
+  }
+}
+
+function preflightSchemaManifestIndexBindings(value: unknown): void {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return;
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(value, "indexes");
+  if (descriptor !== undefined && "value" in descriptor) {
+    preflightSchemaManifestAppIndexArray(descriptor.value);
+  }
+}
+
+function preflightSchemaManifestAppIndexArray(value: unknown): void {
+  if (!Array.isArray(value)) return;
+  decodeSchemaManifestAppIndexCount(value.length);
+  for (let index = 0; index < value.length; index += 1) {
+    const item = Object.getOwnPropertyDescriptor(value, String(index));
+    if (item !== undefined && "value" in item) {
+      preflightSchemaManifestAppIndexFields(item.value);
+    }
+  }
+}
+
+function preflightSchemaManifestAppIndexFields(value: unknown): void {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return;
+  }
+  const directFields = Object.getOwnPropertyDescriptor(value, "fields");
+  if (directFields !== undefined && "value" in directFields) {
+    preflightSchemaManifestAppIndexFieldArray(directFields.value);
+  }
+  const spec = Object.getOwnPropertyDescriptor(value, "spec");
+  if (
+    spec !== undefined &&
+    "value" in spec &&
+    spec.value !== null &&
+    typeof spec.value === "object" &&
+    !Array.isArray(spec.value)
+  ) {
+    const specFields = Object.getOwnPropertyDescriptor(spec.value, "fields");
+    if (specFields !== undefined && "value" in specFields) {
+      preflightSchemaManifestAppIndexFieldArray(specFields.value);
+    }
+  }
+}
+
+function preflightSchemaManifestAppIndexFieldArray(value: unknown): void {
+  if (Array.isArray(value)) {
+    decodeSchemaManifestAppIndexDeclaredFieldCount(value.length);
+  }
+}
+
 function validateSchemaManifestTableOrder(
   tables: ReadonlyArray<{
     readonly tableId: CatalogTableId;
@@ -321,6 +586,128 @@ function validateSchemaManifestDeclarationIdentities(
     logicalNames.add(table.logicalName);
   }
   return undefined;
+}
+
+function validateSchemaManifestAppIndexDeclarations(
+  indexes: ReadonlyArray<SchemaManifestAppIndexDeclarationV1>,
+): string | undefined {
+  const identities = new Set<string>();
+  const fieldLists = new Set<string>();
+  const countByTable = new Map<SchemaManifestAppTableName, number>();
+
+  for (const index of indexes) {
+    const identity = JSON.stringify([
+      index.tableLogicalName,
+      index.descriptor,
+    ]);
+    if (identities.has(identity)) {
+      return "Expected unique app index table and descriptor declarations";
+    }
+    identities.add(identity);
+
+    const fieldList = JSON.stringify([
+      index.tableLogicalName,
+      index.fields,
+    ]);
+    if (fieldLists.has(fieldList)) {
+      return "Expected unique ordered app index field lists per table";
+    }
+    fieldLists.add(fieldList);
+
+    const nextCount = (countByTable.get(index.tableLogicalName) ?? 0) + 1;
+    if (nextCount > MAX_SCHEMA_MANIFEST_APP_INDEXES_PER_TABLE) {
+      return `Expected at most ${MAX_SCHEMA_MANIFEST_APP_INDEXES_PER_TABLE} developer indexes per app table`;
+    }
+    countByTable.set(index.tableLogicalName, nextCount);
+  }
+  return undefined;
+}
+
+function validateSchemaManifestAppIndexBindings(
+  indexes: ReadonlyArray<SchemaManifestAppIndexBindingV1>,
+): string | undefined {
+  let previousIndexId: CatalogIndexId | undefined;
+  const identities = new Set<string>();
+  const fieldLists = new Set<string>();
+  const countByTable = new Map<CatalogTableId, number>();
+
+  for (const index of indexes) {
+    if (
+      previousIndexId !== undefined &&
+      index.logicalIndexId <= previousIndexId
+    ) {
+      return "Expected logical index IDs in strictly increasing numeric order";
+    }
+    previousIndexId = index.logicalIndexId;
+
+    const identity = JSON.stringify([
+      index.tableId,
+      index.namespace,
+      index.descriptor,
+    ]);
+    if (identities.has(identity)) {
+      return "Expected unique app index table and descriptor bindings";
+    }
+    identities.add(identity);
+
+    const fieldList = JSON.stringify([index.tableId, index.spec.fields]);
+    if (fieldLists.has(fieldList)) {
+      return "Expected unique ordered app index field bindings per table";
+    }
+    fieldLists.add(fieldList);
+
+    const nextCount = (countByTable.get(index.tableId) ?? 0) + 1;
+    if (nextCount > MAX_SCHEMA_MANIFEST_APP_INDEXES_PER_TABLE) {
+      return `Expected at most ${MAX_SCHEMA_MANIFEST_APP_INDEXES_PER_TABLE} developer indexes per app table`;
+    }
+    countByTable.set(index.tableId, nextCount);
+  }
+  return undefined;
+}
+
+function validateSchemaManifestAppSchemaReferences(
+  manifest: SchemaManifestAppSchemaReferences,
+): string | undefined {
+  const tableIds = new Set(
+    manifest.tableDefinitions.tables.map((table) => table.tableId),
+  );
+  for (const index of manifest.indexBindings.indexes) {
+    if (!tableIds.has(index.tableId)) {
+      return `Expected logical index ${index.logicalIndexId} to reference an app table in this manifest`;
+    }
+  }
+  return undefined;
+}
+
+function validateSchemaManifestAppIndexDeclaredFields(
+  fields: ReadonlyArray<SchemaManifestAppIndexFieldPath>,
+): string | undefined {
+  const uniqueFields = new Set<SchemaManifestAppIndexFieldPath>();
+  for (const field of fields) {
+    if (field.split(".").some((segment) => segment.startsWith("_"))) {
+      return "Expected developer index fields outside the reserved system field namespace";
+    }
+    if (uniqueFields.has(field)) {
+      return "Expected unique ordered fields within an app index";
+    }
+    uniqueFields.add(field);
+  }
+  return undefined;
+}
+
+function isReservedSchemaManifestAppIndexDescriptor(value: string): boolean {
+  return value.startsWith("_") ||
+    value === "by_id" ||
+    value === "by_creation_time";
+}
+
+function isValidSchemaManifestAppFieldPath(value: string): boolean {
+  if (value.length === 0 || value.startsWith(".") || value.endsWith(".")) {
+    return false;
+  }
+  const segments = value.split(".");
+  return segments.length <= MAX_SCHEMA_MANIFEST_NESTING_DEPTH &&
+    segments.every(isValidSchemaManifestAppIdentifier);
 }
 
 function isValidSchemaManifestAppIdentifier(value: string): boolean {

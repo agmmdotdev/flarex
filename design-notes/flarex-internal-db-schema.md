@@ -151,9 +151,11 @@ trusted authority:
 ordered transaction identity:
   commit_seq, outbox_seq        -> scope-local bigint
 
-hot catalog identity:
-  table_id, index_id,
-  relation_id, constraint_id    -> compact trusted numeric physical key
+catalog identity:
+  table_id, logical_index_id,
+  relation_id, constraint_id    -> compact trusted numeric logical key
+  index_definition_id           -> separate compact physical spec/build key;
+                                   exact representation gated on codec work
   public/global reference       -> optional separate opaque uuid
 
 Flarex app document identity:
@@ -175,7 +177,8 @@ and benchmarked first. Payload and Medusa are not forced into that choice.
 Index column order follows the actual access path: equality authority prefixes
 first, the range/order column next, and a unique row identity last. Thus stable
 updated-row pagination is `(scope_id, table_id, updated_at DESC, row_id)`, and
-declared app index pagination is `(scope_id, index_id, encoded_key, row_id)`.
+declared app index pagination is
+`(scope_id, index_definition_id, encoded_key, row_id)`.
 Commit/outbox feeds retain their scope-local numeric cursors.
 
 Do not create a second latest-revision index solely to reverse `commit_seq` when
@@ -350,9 +353,13 @@ three fresh attempts. Only typed stale plans retry; every retry replans and
 rehashes, while conflicts, corruption, invalid input, and SQL errors are
 terminal.
 
-The following column/index/relation/constraint sketches are longer-range
-provenance, not accepted S03-B2a DDL. Their IDs and physical projections remain
-deferred until the relevant compiler or adapter demonstrates a need:
+The following column/relation/constraint sketches are longer-range provenance,
+not accepted S03-B2a DDL. S03-C1 now accepts only the logical app-index
+declaration/binding contract and composite manifest envelope; it adds no index
+DDL. The corrected index sketches below distinguish a stable logical access
+path from a physical definition/build generation. Exact physical definition-ID
+representation, codec columns, and fenced cursor encoding remain gated on the
+ordered-key codec and trusted compiler contracts:
 
 ```sql
 fx_control_column (
@@ -389,46 +396,61 @@ fx_control_column_definition (
 )
 
 fx_control_index (
-  id text primary key,
   deployment_id text not null,
+  logical_index_id integer not null,
   table_id text not null,
-  name text not null,
+  descriptor text not null,
   created_at timestamptz not null,
-  unique (deployment_id, id),
-  unique (deployment_id, table_id, name),
+  primary key (deployment_id, logical_index_id),
+  unique (deployment_id, table_id, descriptor),
   foreign key (deployment_id, table_id)
     references fx_control_table (deployment_id, id)
 )
 
 fx_control_index_definition (
   deployment_id text not null,
-  schema_version_id text not null,
-  index_id text not null,
+  index_definition_id <compact physical identity> not null,
+  logical_index_id integer not null,
+  index_kind text not null,
   columns_json jsonb not null,
-  unique_index boolean not null default false,
-  predicate_json jsonb,
   key_codec_version integer not null,
-  primary key (deployment_id, schema_version_id, index_id),
+  created_at timestamptz not null,
+  primary key (deployment_id, index_definition_id),
+  foreign key (deployment_id, logical_index_id)
+    references fx_control_index (deployment_id, logical_index_id)
+)
+
+fx_control_schema_version_index_binding (
+  deployment_id text not null,
+  schema_version_id text not null,
+  logical_index_id integer not null,
+  index_definition_id <compact physical identity> not null,
+  required_for_activation boolean not null,
+  primary key (deployment_id, schema_version_id, logical_index_id),
   foreign key (deployment_id, schema_version_id)
     references fx_control_schema_version (deployment_id, id),
-  foreign key (deployment_id, index_id)
-    references fx_control_index (deployment_id, id)
+  foreign key (deployment_id, index_definition_id)
+    references fx_control_index_definition (deployment_id, index_definition_id)
 )
 
 fx_control_index_build_state (
   scope_id text not null,
   deployment_id text not null,
-  schema_version_id text not null,
-  index_id text not null,
-  lifecycle text not null, -- building, backfilling, validating, enabled, retiring
+  index_definition_id <compact physical identity> not null,
+  storage_generation text not null,
+  storage_generation_fence text not null,
+  epoch text not null,
+  start_commit_seq bigint not null,
+  lifecycle text not null, -- declared, building, backfilling, validating, enabled, retiring
+  cursor_codec_version integer not null,
   backfill_cursor_json jsonb,
   attempt integer not null default 0,
   updated_at timestamptz not null,
-  primary key (scope_id, schema_version_id, index_id),
+  primary key (scope_id, index_definition_id),
   foreign key (scope_id, deployment_id)
     references fx_control_scope (id, deployment_id),
-  foreign key (deployment_id, schema_version_id, index_id)
-    references fx_control_index_definition (deployment_id, schema_version_id, index_id)
+  foreign key (deployment_id, index_definition_id)
+    references fx_control_index_definition (deployment_id, index_definition_id)
 )
 
 fx_control_constraint (
@@ -519,6 +541,14 @@ fx_control_migration (
     references fx_control_schema_version (deployment_id, id)
 )
 ```
+
+The index sketches intentionally omit `unique_index` and `predicate_json`.
+Convex ordinary database indexes define only a descriptor and ordered fields;
+uniqueness, partial predicates, text indexes, and vector indexes need separate
+source-driven contracts rather than nullable placeholders. Lifecycle policy is
+also not physical-spec identity. A staged/required-for-activation change can
+reuse a physical definition; a kind, field, predicate, or codec change cannot.
+The build-state fence columns above are requirements, not accepted C1 DDL.
 
 ## Flarex App Shared Storage And Payload Content
 
@@ -722,7 +752,7 @@ rows when app rows change:
 fx_app_index_entry_rev (
   scope_id text not null,
   epoch text not null,
-  index_id text not null,
+  index_definition_id <compact physical identity> not null,
   table_id text not null,
   row_id text not null,
   commit_seq bigint not null,
@@ -734,13 +764,13 @@ fx_app_index_entry_rev (
   locale text,
   deleted boolean not null default false,
 
-  primary key (scope_id, index_id, key_hash, row_id, commit_seq)
+  primary key (scope_id, index_definition_id, key_hash, row_id, commit_seq)
 )
 
 create index fx_app_index_entry_rev_scan_idx
   on fx_app_index_entry_rev (
     scope_id,
-    index_id,
+    index_definition_id,
     encoded_key,
     row_id,
     commit_seq desc
@@ -749,7 +779,7 @@ create index fx_app_index_entry_rev_scan_idx
 fx_app_index_entry_current (
   scope_id text not null,
   epoch text not null,
-  index_id text not null,
+  index_definition_id <compact physical identity> not null,
   table_id text not null,
   row_id text not null,
   commit_seq bigint not null,
@@ -760,11 +790,16 @@ fx_app_index_entry_current (
   key_json jsonb not null,
   locale text,
 
-  primary key (scope_id, index_id, key_hash, row_id)
+  primary key (scope_id, index_definition_id, key_hash, row_id)
 )
 
 create index fx_app_index_entry_current_scan_idx
-  on fx_app_index_entry_current (scope_id, index_id, encoded_key, row_id);
+  on fx_app_index_entry_current (
+    scope_id,
+    index_definition_id,
+    encoded_key,
+    row_id
+  );
 ```
 
 `encoded_key` is the ordered scan key. `key_hash` is for equality, dedupe, and
@@ -772,6 +807,12 @@ unique enforcement. The exact codec is a core database contract; it must sort
 strings, numbers, booleans, time values, null/sparse markers, locale, compound
 segments, and row-id tie breakers consistently across Postgres and any future
 executor.
+
+The physical definition identity is required here. A stable logical index ID
+cannot key these rows because a changed spec must backfill beside the old
+enabled spec until cutover. The active schema resolves logical index identity
+to one enabled physical definition before reads or OCC dependencies are
+recorded.
 
 Declared unique constraints use a fixed unique-key table:
 

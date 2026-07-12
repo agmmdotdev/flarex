@@ -1,5 +1,61 @@
 # Schema Placement And Shards
 
+## Keep Logical Index Bindings In Deployment Schema Authority
+
+Previous completed checkpoint: `636fa50` Register app schema artifacts
+atomically.
+
+What changed:
+
+- Added a deployment-scoped logical index ID and a closed composite app-schema
+  envelope; no scope locator or physical build state enters developer input.
+- Required every bound index table ID to reference the table section in the
+  same immutable envelope.
+- Separated deployment-owned logical identity from per-scope physical
+  definition/build state. Future entry/build rows use the physical generation,
+  not logical ID alone.
+
+Why it changed:
+
+Logical schema identity must be shared across a deployment, while the same
+physical spec may be building or enabled independently in different scopes. A
+scope-owned logical ID would duplicate schema authority; one ID for both layers
+would prevent old/new specs from coexisting.
+
+Convex references inspected:
+
+- `crates/common/src/types/index.rs`
+- `crates/common/src/bootstrap_model/index/index_metadata.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/application/src/deploy_config.rs`
+- `crates/model/src/components/config.rs`
+
+How Flarex differs:
+
+- Convex resolves logical names to physical metadata IDs in one database.
+  Flarex's deployment catalog will bind a compact logical ID, while fenced
+  per-scope build state remains a later Postgres-authoritative capability.
+- The existing V1 table-only facade is not widened. Full-envelope publication
+  will use a new trusted API version after index planning/codec work exists.
+
+Known limitations and follow-up:
+
+- No scope placement, split-database routing, RLS, active pointer, backfill,
+  activation, cache, Payload/Medusa, or Cloudflare behavior changed.
+- Physical definition identity and build cursor representation remain explicit
+  gates before index DDL.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Keep App Schema Registration In Deployment Catalog Authority
 
 Previous completed checkpoint: `4ef6f0c` Prepare stable schema table bindings.

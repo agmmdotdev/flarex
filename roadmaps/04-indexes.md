@@ -1,5 +1,67 @@
 # Indexes
 
+## Freeze Logical Index Semantics Before Physical Catalog DDL
+
+Previous completed checkpoint: `636fa50` Register app schema artifacts
+atomically.
+
+What changed:
+
+- Added nominal deployment-scoped `CatalogIndexId` for stable logical access
+  paths and a strict unbound developer-index declaration contract.
+- Added closed, ID-ordered `indexBindings` plus the composite `appSchema`
+  semantic envelope. The existing table-only publication API is unchanged.
+- Ported Convex descriptor, field-path, duplicate-spec, quota, implicit `_id`,
+  and appended `_creationTime` rules. `by_id` and `by_creation_time` are
+  intrinsic app-table paths and reserved from developer declarations.
+- Corrected the replacement design: physical entries and build state require a
+  separate immutable definition-generation identity. They must never key only
+  the stable logical ID.
+
+Why it changed:
+
+Convex can keep one enabled and one pending physical index with the same
+developer name while a changed field spec backfills. The old one-ID Flarex
+sketch would collide those entries. A semantic checkpoint before DDL preserves
+that coexistence requirement and keeps lifecycle out of immutable specs.
+
+Convex references inspected:
+
+- `crates/common/src/types/index.rs`
+- `crates/common/src/schemas/json.rs`
+- `crates/common/src/bootstrap_model/index/index_config.rs`
+- `crates/common/src/bootstrap_model/index/database_index/indexed_fields.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/indexing/src/index_registry.rs`
+- `crates/application/src/lib.rs`
+
+How Flarex differs:
+
+- Convex's logical identity is `(table, descriptor)` and its physical ID is an
+  `_index` document ID. Flarex keeps a compact numeric logical ID, but a later
+  codec/definition slice must add a distinct compact physical identity.
+- The immutable Flarex envelope contains logical bindings only. Physical codec,
+  build state, backfill, and active-schema query selection are not C1 behavior.
+
+Known limitations and follow-up:
+
+- No index DDL, entry writes, analyzer route, OCC, planner, backfill, activation,
+  Payload/Medusa adapter, or Cloudflare behavior changed.
+- S03-C2 owns the stable logical catalog/planner. Ordered-key bytes and physical
+  definition identity must be frozen before definition/build tables are added.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol exec vitest run test/schema-manifest-index-bindings.test.ts test/schema-manifest-table-definitions.test.ts test/schema-manifest.test.ts --no-file-parallelism
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Real Postgres Indexed Freshness Plan Check
 
 Previous completed checkpoint: `51911da` Harden indexed freshness range checks.
@@ -55,11 +117,16 @@ corepack pnpm --filter @flarex/persistence-postgres typecheck
 corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/postgres.test.ts --testTimeout=30000
 ```
 
-## Current Decision
+## Legacy Prototype Decision (Superseded For Replacement Work)
 
 Indexes are part of the shard-local authoritative database. A document write
 must produce index delete entries for the previous value and index insert
 entries for the new value.
+
+This section records the implemented Durable Object compatibility prototype.
+The accepted replacement makes Postgres authoritative and follows the logical
+versus physical index identity contract above; do not use this section as new
+catalog or persistence authority.
 
 ## Implemented So Far
 

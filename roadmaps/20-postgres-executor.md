@@ -1,5 +1,66 @@
 # Postgres Executor
 
+## Freeze The Full App-Schema Contract Before Index Persistence
+
+Previous completed checkpoint: `636fa50` Register app schema artifacts
+atomically.
+
+What changed:
+
+- Added branded stable logical index identity plus strict unbound declaration,
+  bound `indexBindings`, and composite `appSchema` protocol contracts.
+- Left `ensureAppSchemaVersionArtifactV1` exact: it still publishes only the
+  table-definition section. The new semantic envelope is not yet routed to any
+  persistence or executor facade.
+- Required a separate physical definition/build identity before Postgres index
+  entries or build state are added, and required future build rows to carry
+  storage-generation/fence, epoch, starting commit sequence, and cursor version.
+
+Why it changed:
+
+The executor must resolve active logical index names to one enabled physical
+definition. Convex proves a changed spec receives a new pending physical ID
+while the old enabled ID remains readable; persisting both under one stable
+logical `index_id` would be corrupt.
+
+Convex references inspected:
+
+- `crates/common/src/bootstrap_model/index/index_config.rs`
+- `crates/common/src/bootstrap_model/index/index_metadata.rs`
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/application/src/deploy_config.rs`
+- `crates/model/src/components/config.rs`
+- `crates/indexing/src/index_registry.rs`
+
+How Flarex differs:
+
+- Flarex retains a compact deployment-scoped logical numeric ID in canonical
+  artifacts. Physical identity, ordered-key bytes, and per-scope lifecycle are
+  separate trusted Postgres contracts.
+- No HTTP/Nitro bridge or Cloudflare host participates. The eventual private
+  Worker will call the host-neutral facade only after V2 atomic publication is
+  implemented.
+
+Known limitations and follow-up:
+
+- No migration, Drizzle table, Postgres query, facade method, analyzer caller,
+  retry path, index entry, backfill, activation, Payload/Medusa, or deployment
+  behavior changed.
+- S03-C2 will add only the logical catalog/planner. The codec and physical
+  definition identity are separate correctness gates before DDL/publication.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Compose Mapping And Artifact Registration Behind One Facade
 
 Previous completed checkpoint: `4ef6f0c` Prepare stable schema table bindings.

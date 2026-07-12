@@ -435,63 +435,80 @@ v2:
 
 ### `fx_index` / `fx_index_def`: keep
 
-This is required because index entries need stable index IDs.
+Replacement-design correction: stable logical index identity is
+deployment-scoped, while entries and builds need a separate physical definition
+identity. The earlier scope-scoped one-ID sketch could not keep an old enabled
+spec beside a changed backfilling spec. S03-C1 freezes only the logical manifest
+contract; the following remains a conceptual cutline until the ordered-key
+codec and physical identity representation are accepted.
 
 Suggested shape:
 
 ```sql
 fx_index (
-  scope_id text not null,
-  index_id int not null,
+  deployment_id text not null,
+  logical_index_id int not null,
   table_id int not null,
-  name text not null,
+  descriptor text not null,
   created_at timestamptz not null default now(),
-  primary key (scope_id, index_id),
-  unique (scope_id, table_id, name),
-  foreign key (scope_id, table_id)
-    references fx_table (scope_id, table_id)
+  primary key (deployment_id, logical_index_id),
+  unique (deployment_id, table_id, descriptor),
+  foreign key (deployment_id, table_id)
+    references fx_control_table (deployment_id, table_id)
 );
 
 fx_index_def (
-  scope_id text not null,
-  schema_version bigint not null,
-  index_id int not null,
+  deployment_id text not null,
+  index_definition_id <compact physical identity> not null,
+  logical_index_id int not null,
+  index_kind text not null,
   fields_json jsonb not null,
-  unique_key boolean not null default false,
   key_codec_version int not null,
-  primary key (scope_id, schema_version, index_id),
-  foreign key (scope_id, schema_version)
-    references fx_schema_version (scope_id, schema_version),
-  foreign key (scope_id, index_id)
-    references fx_index (scope_id, index_id)
+  primary key (deployment_id, index_definition_id),
+  foreign key (deployment_id, logical_index_id)
+    references fx_index (deployment_id, logical_index_id)
+);
+
+fx_schema_version_index_binding (
+  deployment_id text not null,
+  schema_version_id text not null,
+  logical_index_id int not null,
+  index_definition_id <compact physical identity> not null,
+  required_for_activation boolean not null,
+  primary key (deployment_id, schema_version_id, logical_index_id)
 );
 
 fx_index_build_state (
   scope_id text not null,
-  schema_version bigint not null,
-  index_id int not null,
-  state text not null default 'building',
+  deployment_id text not null,
+  index_definition_id <compact physical identity> not null,
+  storage_generation text not null,
+  storage_generation_fence text not null,
+  epoch text not null,
+  start_commit_seq bigint not null,
+  state text not null default 'declared',
+  cursor_codec_version int not null,
   backfill_cursor_json jsonb,
   attempt int not null default 0,
   updated_at timestamptz not null default now(),
-  primary key (scope_id, schema_version, index_id),
-  foreign key (scope_id, schema_version, index_id)
-    references fx_index_def (scope_id, schema_version, index_id)
+  primary key (scope_id, index_definition_id)
 );
 ```
 
 Definitions are immutable. Mutable lifecycle lives in
-`fx_index_build_state`: `building -> backfilling -> validating -> enabled ->
-retiring`. Query planning uses only definitions whose per-scope build state is
-enabled for the active schema version.
+`fx_index_build_state`: `declared -> building -> backfilling -> validating ->
+enabled -> retiring`. Query planning resolves the active schema's logical
+binding and uses only its enabled physical definition. The fence/start snapshot
+prevents a stale worker from resuming across storage-generation cutover.
 
 Example:
 
 ```text
-index_id = 501
+logical_index_id = 501
 name = byProductStatusCreatedAt
 table = productReviews
 fields = [product, status, createdAt]
+index_definition_id = <physical revision>
 ```
 
 ### `fx_relation_def`: defer
@@ -645,7 +662,7 @@ Suggested shape:
 fx_index_entry_current (
   scope_id text not null,
   epoch text not null,
-  index_id int not null,
+  index_definition_id <compact physical identity> not null,
   table_id int not null,
   row_id text not null,
   key_prefix bytea not null,
@@ -654,7 +671,7 @@ fx_index_entry_current (
   key_codec_version integer not null,
   locale text,
   commit_seq bigint not null,
-  primary key (scope_id, index_id, key_sha256, row_id)
+  primary key (scope_id, index_definition_id, key_sha256, row_id)
 );
 ```
 

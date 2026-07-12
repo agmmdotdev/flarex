@@ -1,5 +1,62 @@
 # Backend Data Model And Durable Object Shape
 
+## Separate Logical Index Identity From Physical Build Identity
+
+Previous completed checkpoint: `636fa50` Register app schema artifacts
+atomically.
+
+What changed:
+
+- Added the nominal compact `CatalogIndexId` as deployment-owned logical
+  identity and a strict app developer-index declaration/binding contract.
+- Added a composite immutable `appSchema` envelope that references the existing
+  table-definition section and the new logical index-binding section.
+- Corrected the proposed data model so physical index definition/build identity
+  is separate; future entry and build rows cannot key stable logical ID alone.
+- Kept intrinsic `by_id`/`by_creation_time` paths outside developer bindings and
+  rejected every caller-provided ID, codec, lifecycle, or physical field.
+
+Why it changed:
+
+A changed ordered spec must backfill beside the old enabled spec. The previous
+single-ID sketch could not represent both physical generations and would have
+mixed or overwritten sidecar rows.
+
+Convex references inspected:
+
+- `crates/common/src/types/index.rs`
+- `crates/common/src/bootstrap_model/index/index_config.rs`
+- `crates/common/src/bootstrap_model/index/database_index/indexed_fields.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/indexing/src/index_registry.rs`
+
+How Flarex differs:
+
+- Convex uses a logical table/descriptor pair plus a physical metadata-document
+  ID. Flarex retains a compact logical numeric ID for protocol/compiler use but
+  defers the distinct physical identity until its key codec is frozen.
+- No Durable Object shape changed; DO index tables remain legacy compatibility
+  scaffolding, not replacement authority.
+
+Known limitations and follow-up:
+
+- S03-C1 is protocol-only. No migration, allocator, physical definition, build
+  state, row/index sidecar, OCC, activation, Payload/Medusa, or runtime route
+  changed.
+- S03-C2 owns the deployment catalog planner; later state must pin storage
+  generation/fence, epoch, start sequence, and a versioned cursor.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Atomically Register App Mappings With Their Immutable Artifact
 
 Previous completed checkpoint: `4ef6f0c` Prepare stable schema table bindings.

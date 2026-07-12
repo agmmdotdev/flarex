@@ -220,12 +220,22 @@ from immutable versioned definitions:
 
 ```text
 stable:
-  table_id, index_id, relation_id, constraint_id
+  table_id, logical_index_id, relation_id, constraint_id
 
 versioned:
   table_definition, column_definition, index_definition,
   relation_definition, constraint_definition
 ```
+
+`logical_index_id` identifies the deployment-scoped developer access path
+`(table_id, descriptor)`. It is not sufficient to identify physical index
+entries or a build. A field, kind, predicate, or ordered-key-codec change must
+produce a separate immutable physical definition/build identity so the old
+enabled index and its replacement can coexist. Per-scope build state and app
+index-entry rows key that physical identity, never `logical_index_id` alone.
+The compact representation of the physical identity is deliberately deferred
+until the ordered-key codec contract is frozen; one ID must not serve both
+roles.
 
 The `*_definition` names above describe semantic roles, not a requirement for
 one physical catalog table per role. In the accepted v1 table path,
@@ -294,7 +304,52 @@ atomic publication invariant through optimistic revalidation because, unlike
 Convex's name-keyed schema JSON, the Flarex canonical artifact embeds stable
 numeric IDs.
 
-An index definition carries its ordered-key codec version and lifecycle:
+S03-C1 adds a new closed semantic envelope rather than widening the existing
+table-only publication contract:
+
+```text
+appSchema v1
+  -> tableDefinitions v1
+  -> indexBindings v1
+```
+
+An unbound developer index declaration contains only table logical name,
+descriptor, and ordered field paths. The bound section carries a branded
+deployment-scoped `logicalIndexId`, stable table ID, and the logical ordered
+spec. It excludes physical definition identity, codec version, lifecycle,
+build state, canonical bytes, and caller-supplied analyzer ordinals. Bindings
+are ordered by logical index ID and reject duplicate descriptors or equivalent
+ordered field lists per table.
+
+Developer index descriptors use Convex's 64-byte ASCII identifier rules and
+reserve `_...`, `by_id`, and `by_creation_time`. V1 accepts at most 64
+developer indexes per table and 15 declared fields per developer index: the
+later physical spec appends `_creationTime`, while `_id` remains the implicit
+final tie-breaker, matching Convex's 16-field effective limit. System field
+paths are forbidden in developer declarations. Field-existence validation
+against the table validator remains trusted compiler work.
+
+C1 also caps one app manifest at 10,000 developer index declarations. This is
+an intentional Flarex resource-safety divergence: Convex's portable semantic
+rule is the 64-per-table limit, while the current generic canonical codec has
+no byte-size ceiling. The count cap keeps the unrouted trusted decoder bounded;
+a routed API still needs an explicit canonical-byte limit and platform quota
+before this provisional aggregate ceiling can be treated as a product limit.
+
+`by_id` and `by_creation_time` are intrinsic app-table access paths in this
+generation, not developer-owned `indexBindings` entries. `by_id` is satisfied
+by row identity; creation-order storage remains a trusted physical compiler
+responsibility. The semantic manifest version pins those built-ins even though
+they do not consume developer logical index IDs.
+
+`SchemaManifestAppSchemaV1` is a new semantic format, while the existing
+`ensureAppSchemaVersionArtifactV1` remains the exact table-only compatibility
+operation. A later full-schema publication facade must use a new API version;
+the generic canonical JSON codec remains codec v1 because semantic-format and
+canonical-encoding versions are independent.
+
+An immutable physical index definition carries its ordered-key codec version.
+Mutable lifecycle belongs only to per-scope build state:
 
 ```text
 declared -> building -> backfilling -> validating -> enabled -> retiring

@@ -1,9 +1,9 @@
 # FlarexDB Schema And Migration Plan
 
 Status: S01 through S02-C, resolve-only S02-D1, and catalog checkpoints S03-A
-through S03-B2 complete. Hosted-proof H01-H04 and H05-A are complete, while
+through S03-C1 complete. Hosted-proof H01-H04 and H05-A are complete, while
 H05-B and S02-D2 production routing are deferred as core work proceeds to
-S03-C.
+S03-C2.
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -403,8 +403,17 @@ Progress:
     - [x] S03-B2b2 — Canonicalize the planned section outside SQL, then apply
       the plan and insert/replay the B1 artifact atomically with bounded stale
       retries.
-- [ ] S03-C — Add stable index identities, immutable index definitions, and
-  per-scope build state.
+- [ ] S03-C — Add stable logical index identities, immutable physical index
+  definitions, and per-scope build state.
+  - [x] S03-C1 — Freeze strict unbound developer-index declarations, branded
+    logical index identity, and the closed composite app-schema envelope.
+  - [ ] S03-C2 — Add the deployment-scoped stable logical index catalog and
+    opaque table/index optimistic planner without a standalone reservation API.
+  - [ ] S03-C3 — After S05-A, add immutable physical definition/schema-binding
+    DDL and choose a compact definition-generation identity that permits
+    old/new builds to coexist.
+  - [ ] S03-C4 — Add fenced per-scope build-state DDL/read contracts; mutation
+    and publication remain S03-D work.
 - [ ] S03-D — Compile and verify normalized catalog state transactionally and
   gate activation readiness.
 
@@ -413,11 +422,13 @@ Outcome:
 - Add `fx_control_schema_version` with an immutable manifest, canonical bytes,
   checksum, and deployment ownership. Lifecycle status remains deferred to
   S03-D rather than making this artifact row mutable.
-- Add stable `fx_control_table` and `fx_control_index` identities.
+- Add stable `fx_control_table` and logical `fx_control_index` identities.
 - Add relation and constraint IDs only after their source-driven semantic
   contract is accepted; B2a deliberately does not invent them.
-- Add immutable `fx_control_index_definition` and per-scope
-  `fx_control_index_build_state`.
+- Add a separate physical definition-generation identity, immutable
+  `fx_control_index_definition`, and fenced per-scope
+  `fx_control_index_build_state`. Stable logical index ID alone must never key
+  entries or builds.
 - Compile the manifest transactionally and verify the normalized catalog against
   its checksum; do not independently edit normalized rows.
 - Keep plan application internal until B2b2 composes it with artifact insertion;
@@ -426,7 +437,7 @@ Outcome:
 
 Exit gate:
 
-- stable table/index IDs survive multiple schema versions, and any later
+- stable table/logical-index IDs survive multiple schema versions, and any later
   relation/constraint IDs pass their own semantic-identity gate;
 - cross-deployment foreign keys and activation are rejected;
 - exactly one scope pointer is mutable authority;
@@ -889,6 +900,100 @@ corepack pnpm check:effect-boundaries
 git diff --check
 ```
 
+#### S03-C1 Implementation Checkpoint
+
+Previous completed checkpoint: `636fa50` Register app schema artifacts
+atomically.
+
+What changed:
+
+- Added the branded positive signed-32-bit `CatalogIndexId` contract and named
+  it explicitly as stable logical identity, not a physical definition/build ID.
+- Added strict unbound app developer-index declarations containing only table
+  logical name, developer descriptor, and ordered field paths. Caller-supplied
+  table/index/definition IDs, namespace, codec version, lifecycle, and prepared
+  state are rejected.
+- Added closed `indexBindings` and `appSchema` semantic formats. Bound entries
+  carry `logicalIndexId`, stable `tableId`, app namespace, descriptor, and a
+  versioned developer-ordered logical spec; logical IDs must be strictly
+  increasing and table references must resolve inside the same envelope.
+- Ported Convex identifier/reserved-name discipline, duplicate descriptor/spec
+  rejection, 64 developer indexes per table, and effective 16-field semantics.
+  V1 accepts at most 15 declared fields because physical lowering appends
+  `_creationTime`; `_id` remains the implicit final tie-breaker.
+- Decided that `by_id` and `by_creation_time` are intrinsic app-table access
+  paths, not developer-owned logical index bindings. Developer declarations
+  reserve both names and every `_`-prefixed descriptor/system field path.
+- Added focused protocol proofs for nominal identity, exact public input shape,
+  path/name/count rules, redundant-spec rejection, stable binding order,
+  cross-table references, closed-envelope versioning, and canonical hashing.
+- Corrected the design sketches so stable logical index identity no longer keys
+  physical entries/builds. A separate immutable definition-generation identity
+  is required before DDL; build state must pin storage generation/fence, epoch,
+  start commit sequence, and a versioned cursor.
+
+Why it changed:
+
+The prior S03-C line combined semantic input, stable catalog allocation,
+physical definition identity, codec choice, and mutable build state in one
+goal. More importantly, one stable `index_id` cannot safely represent both a
+logical name and physical data: changing fields must allow the old enabled
+index and a new backfilling index to coexist. Freezing the closed logical
+contract first prevents an unsafe one-ID DDL from becoming a migration.
+
+Convex sources inspected:
+
+- `crates/common/src/types/index.rs`
+- `crates/common/src/schemas/mod.rs`
+- `crates/common/src/schemas/json.rs`
+- `crates/common/src/bootstrap_model/index/index_config.rs`
+- `crates/common/src/bootstrap_model/index/index_metadata.rs`
+- `crates/common/src/bootstrap_model/index/database_index/indexed_fields.rs`
+- `crates/common/src/bootstrap_model/index/database_index/index_state.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/application/src/lib.rs`
+- `crates/application/src/deploy_config.rs`
+- `crates/model/src/components/config.rs`
+- `crates/indexing/src/index_registry.rs`
+
+How Flarex differs:
+
+- Convex uses `(table, descriptor)` as logical identity and a `_index` metadata
+  document ID as one physical incarnation. Flarex keeps a compact numeric
+  deployment-scoped logical ID for compiler/protocol references, but now
+  requires a different physical definition/build identity.
+- Convex stores a mutable schema/index lifecycle. Flarex's C1 artifact is an
+  immutable logical envelope; codec-bearing physical definitions and fenced
+  per-scope lifecycle rows remain later trusted compilation work.
+- The existing `ensureAppSchemaVersionArtifactV1` remains the exact bare
+  table-section compatibility API. A later full-envelope publication boundary
+  must use a new API version rather than silently widening V1.
+
+Known limitations and follow-up:
+
+- C1 adds no DDL, allocator, persistence facade, analyzer route, physical codec,
+  definition row, build transition, backfill, readiness, activation, index
+  entry, OCC, commit compiler, sync, Payload, Medusa, or Cloudflare behavior.
+- S03-C2 owns the logical index catalog/planner. S05-A must then freeze
+  ordered-key bytes before S03-C3 decides the compact definition identity;
+  stable logical ID alone is forbidden for build/entry keys.
+- Field existence against table validators and trusted injection/lowering of
+  intrinsic access paths remain compiler validation, not declaration parsing.
+- The generic canonical codec still has no byte-size cap. The trusted route
+  remains unrouted, and C1 caps developer index declarations at 10,000 total.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol exec vitest run test/schema-manifest-index-bindings.test.ts test/schema-manifest-table-definitions.test.ts test/schema-manifest.test.ts --no-file-parallelism
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ### [ ] S04 — Migrate Active Schema Pointer Authority
 
 Outcome:
@@ -911,6 +1016,14 @@ Exit gate:
 - direct legacy-pointer mutation fails after the authority switch.
 
 ### [ ] S05 — Freeze Value And Ordered-Key Codecs
+
+Progress:
+
+- [ ] S05-A — Freeze the ordered app-index physical spec and key codec first,
+  including `_creationTime` augmentation, implicit `_id` tie-breaking, byte
+  bounds, comparisons, and golden fixtures. S03-C3 depends on this checkpoint.
+- [ ] S05-B — Freeze the full tagged Flarex value codec needed by app rows and
+  later general key/value interpretation.
 
 Outcome:
 
