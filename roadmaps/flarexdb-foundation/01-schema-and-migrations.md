@@ -1,9 +1,9 @@
 # FlarexDB Schema And Migration Plan
 
 Status: S01 through S02-C, resolve-only S02-D1, catalog checkpoints S03-A
-through S03-D1, and the interleaved S05-A ordered-index prerequisite are
+through S03-D2a, and the interleaved S05-A ordered-index prerequisite are
 complete. Hosted-proof H01-H04 and H05-A are complete, while H05-B and S02-D2
-production routing are deferred as core work proceeds to S03-D2.
+production routing are deferred as core work proceeds to S03-D2b.
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -419,8 +419,20 @@ Progress:
   before activation.
   - [x] S03-D1 — Purely verify the bound app manifest and derive the complete
     canonical developer plus intrinsic creation-time requirement set.
-  - [ ] S03-D2 — Publish and exactly verify the full immutable artifact and its
-    normalized control-catalog projection in one control-database transaction.
+  - [ ] S03-D2 — Prepare, publish, and exactly verify the full immutable
+    artifact and its normalized control-catalog projection.
+    - [x] S03-D2a — Compose one strict unbound C2 binding plan, D1 requirement
+      set, and exact full-manifest artifact into a process-local authenticated
+      no-write token.
+    - [ ] S03-D2b — Add the trusted table-owned intrinsic
+      `by_creation_time` definition ensure/replay primitive without exposing a
+      standalone allocator or second schema copy.
+    - [ ] S03-D2c — In one caller-owned control transaction, revalidate/apply
+      the C2 plan, insert/replay the artifact, persist every required definition
+      and schema binding, and exactly verify the projection.
+    - [ ] S03-D2d — Add bounded whole-preparation stale retry, the routed V2
+      facade, canonical-byte/platform quota, and real-Postgres
+      concurrency/rollback proof.
   - [ ] S03-D3 — Reconcile required definitions into located per-scope build
     state through a durable idempotent protocol.
   - [ ] S03-D4 — Persist validation evidence and compute readiness from real
@@ -1531,6 +1543,81 @@ corepack pnpm --filter flarex-protocol typecheck
 corepack pnpm --filter flarex-protocol exec vitest run test/app-schema-catalog.test.ts --no-file-parallelism
 corepack pnpm --filter flarex-protocol test
 corepack pnpm --filter flarex-protocol build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
+#### S03-D2a Implementation Checkpoint
+
+Previous completed checkpoint: `423ba8a` Compile app schema catalog
+requirements.
+
+What changed:
+
+- Added a package-internal V2 preparation boundary that accepts exactly
+  `deploymentId`, `schemaVersionId`, `version`, unbound app table declarations,
+  and unbound app index declarations. It rejects inherited, accessor,
+  non-enumerable, symbol, missing, extra, and caller-authored authority fields
+  without invoking getters.
+- Snapshots and freezes all declarations before the first database await, then
+  composes the C2 stable table/index binding plan, D1 canonical requirement set,
+  and exact immutable full-manifest artifact from the same bound manifest.
+- Returns only a frozen identity token. A private WeakMap authenticates the
+  coupled state for later D2b/D2c package code; copied, spread, serialized, and
+  structurally forged values fail closed. The token is explicitly not a
+  durable receipt, serializable authority, or cryptographic capability.
+- Added focused PGlite proofs that valid and failed preparation leave stable
+  table/index mappings, schema artifacts, definitions, schema bindings, and
+  located build rows unchanged. Preparation exposes no root facade method,
+  transaction apply, retry loop, or persistence operation.
+
+Why it changed:
+
+Calling the existing C2 planner, D1 compiler, and artifact preparer separately
+would let later publication accidentally mix evidence from different manifests
+or accept caller-compiled facts. D2a creates one authenticated preparation
+unit while keeping expensive canonicalization and validation outside the short
+future control transaction.
+
+Convex sources inspected:
+
+- `crates/isolate/src/environment/schema.rs`
+- `crates/application/src/lib.rs`
+- `crates/model/src/components/config.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/database/src/bootstrap_model/table.rs`
+
+How Flarex differs:
+
+- Convex evaluates schema modules, injects system access paths, and prepares or
+  submits schema/index metadata inside one integrated backend. Flarex has a
+  separate Postgres deployment catalog and potentially separate scope data
+  plane, so D2a prepares authenticated evidence without writing and later D2c
+  revalidates it inside one control-database transaction.
+- Convex does not need a process-local composition token for this split. The
+  Flarex WeakMap token is only a package implementation seam and must never
+  cross an RPC, survive restart, or become stored authority.
+
+Known limitations and follow-up:
+
+- D2b must add the trusted table-owned intrinsic `by_creation_time` definition
+  ensure/replay primitive. D2c owns transaction apply plus exact persisted
+  projection verification. D2d owns bounded fresh-whole-preparation retry, the
+  routed V2 facade, total canonical-byte/platform quota, and focused
+  real-Postgres concurrency/rollback proofs.
+- D3 remains the first located build-state mutation and cross-store
+  reconciliation slice. D4 owns real validation/readiness evidence, and S04
+  alone may mutate the active-schema pointer.
+- No DDL/migration, definition or schema-binding write, root persistence API,
+  analyzer/commit-compiler integration, Payload/Medusa schema generation,
+  Cloudflare deployment, or legacy cleanup changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaCatalogPublicationV2.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
 corepack pnpm check:effect-boundaries
 git diff --check
 ```

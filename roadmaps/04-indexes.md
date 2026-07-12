@@ -1,5 +1,61 @@
 # Indexes
 
+## Couple The Complete Index Set To One Publication Attempt
+
+Previous completed checkpoint: `423ba8a` Compile app schema catalog
+requirements.
+
+What changed:
+
+- D2a now derives stable table/index bindings, recompiles the complete D1
+  developer plus intrinsic creation-time requirements, and prepares the exact
+  full manifest artifact as one authenticated no-write unit.
+- The input cannot carry caller-selected physical specs, definition IDs,
+  activation flags, lifecycle, readiness, or precompiled requirements. The
+  opaque token exposes none of its coupled index state.
+- Focused PGlite tests cover full-set coupling, impossible index fields,
+  unknown ID targets, immutable snapshots, token forgery, and zero definition,
+  binding, or build-state writes.
+
+Why it changed:
+
+Publishing developer indexes without the intrinsic creation-time set, or
+mixing requirements with a different stable-ID plan, would create a normalized
+projection that cannot be proven from its immutable source artifact. D2a makes
+that invalid composition unavailable to later package code.
+
+Convex references inspected:
+
+- `crates/application/src/lib.rs`
+- `crates/model/src/components/config.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/database/src/bootstrap_model/table.rs`
+
+How Flarex differs:
+
+Convex prepares pending index metadata in the same integrated database as its
+schema. Flarex first creates a process-local authenticated control-catalog
+attempt; D2c later persists the exact projection, while D3 separately
+reconciles located build rows.
+
+Known limitations and follow-up:
+
+- C3 still writes only developer definition/binding pairs. D2b must add the
+  table-owned `by_creation_time` definition path before D2c can publish the
+  complete set.
+- No definition allocation, build transition, entry fanout, backfill, query
+  planning, readiness, activation, or adapter schema generation changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaCatalogPublicationV2.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Compile The Complete App Physical-Requirement Set
 
 Previous completed checkpoint: `e383e39` Fence per-scope index build state.

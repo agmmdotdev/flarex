@@ -372,8 +372,10 @@ preparation make the whole plan stale. The global partial rule is intentional:
 a concurrently published table-only mapping is not evidence that its index
 bindings were atomically published. Tables insert before indexes for foreign-key
 order, the caller owns commit/rollback, and neither the plan/apply helper nor an
-allocator is a supported root/facade operation. S03-D2 must later compose this
-primitive with immutable V2 artifact insertion and fresh-plan stale retry.
+allocator is a supported root/facade operation. S03-D2a now composes the plan
+with D1 compilation and immutable V2 artifact preparation in one authenticated
+no-write token; D2c/D2d still own transactional application and fresh-plan
+stale retry.
 
 S05-A accepts `AppOrderedIndexPhysicalSpecV1` as the replacement app ordered
 index contract. A developer access path contains its declared document paths
@@ -445,8 +447,8 @@ C3 persists app physical definitions as exact compiled artifacts:
   and performs no Web Crypto. There is no standalone allocator, naked
   definition reservation, or public publication method. D1 now compiles the
   complete normalized requirement set and injects intrinsic creation-time
-  requirements; D2 must verify and publish that exact set against the full
-  immutable manifest.
+  requirements; D2c must verify and publish that exact set against the full
+  immutable manifest after D2b supplies the missing intrinsic writer.
 
 The old cutline sketch that required non-null `logical_index_id` on every
 physical definition was contradictory: intrinsic creation-time access consumes
@@ -465,9 +467,9 @@ the authoritative scope clock as `fx_system_index_build_state`, keyed by
 `(scope_id, index_definition_id)`. It has a local restrictive foreign key to
 `fx_system_scope_clock(scope_id)`, but no copied `deployment_id`, no foreign key
 to `fx_control_scope`, and no impossible cross-database foreign key to the
-deployment-owned physical definition. D2 must verify the control definition
-and binding before D3's idempotent two-store publication; C4 does not pretend
-that split placement can commit both stores atomically.
+deployment-owned physical definition. D2c must verify the control definition
+and binding before D3's idempotent located build-state reconciliation; C4 does
+not pretend that split placement can commit both stores atomically.
 
 Each row pins `flarexdb_v1`, positive bigint storage-generation fence, epoch,
 nonnegative start commit sequence, and a positive signed-int64 attempt fence.
@@ -494,14 +496,28 @@ one atomic operation:
    derives canonical physical requirements. It emits one table-owned
    `by_creation_time` requirement per app table and one requirement per
    developer logical index; direct `by_id` emits no definition or build.
-2. D2 will compose stable bindings, the immutable full artifact, physical
-   definitions, schema bindings, and exact projection verification in one
-   control-database transaction. API generation V2 does not mean a second
+2. D2a accepts only strict unbound deployment/schema identity plus table/index
+   declarations, snapshots them before asynchronous work, and composes the C2
+   stable-binding plan, D1 canonical requirements, and immutable full-manifest
+   artifact in one frozen package-internal token. WeakMap membership
+   authenticates same-process identity. The token is not a durable receipt,
+   serializable authority, cryptographic capability, or permission to write;
+   preparation performs catalog reads but no catalog writes.
+3. D2b will add the missing trusted table-owned `by_creation_time` definition
+   ensure/replay primitive. It will not persist a second manifest or expose a
+   standalone allocator; the existing C3 writer remains developer-index-only.
+4. D2c will consume one authenticated preparation inside one caller-owned
+   control-database transaction, revalidate/apply the C2 plan, insert/replay the
+   exact V2 artifact, persist all required physical definitions and schema
+   bindings, and exactly verify the normalized projection before commit.
+5. D2d will add the bounded fresh-whole-preparation retry coordinator, routed
+   V2 persistence facade, canonical-byte/platform quota, and real-Postgres
+   concurrency/rollback proof. API generation V2 does not mean a second
    semantic manifest or canonical codec version.
-3. D3 will reconcile required definitions into located build state through a
+6. D3 will reconcile required definitions into located build state through a
    durable idempotent protocol. It cannot be part of D2's SQL transaction in
    schema-per-scope or database-per-scope placement.
-4. D4 will own validation evidence and readiness computation. It cannot claim
+7. D4 will own validation evidence and readiness computation. It cannot claim
    real backfill readiness before the later authoritative entry/backfill
    slices, and S04 alone mutates the active-schema pointer.
 

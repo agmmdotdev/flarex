@@ -1,5 +1,57 @@
 # Schema Placement And Shards
 
+## Keep D2a Inside Deployment Catalog Authority
+
+Previous completed checkpoint: `423ba8a` Compile app schema catalog
+requirements.
+
+What changed:
+
+- Defined D2a as a deployment-control preparation boundary only: it observes
+  stable table/index mappings and composes those bindings with D1 requirements
+  and the immutable artifact, but writes neither the control catalog nor any
+  located scope database.
+- Split the remaining D2 work into intrinsic definition support (D2b), one
+  control-database apply/verification transaction (D2c), and retry/facade/quota
+  plus real-Postgres proof (D2d). D3 remains a separate idempotent located
+  build-state reconciliation protocol, not a fictitious two-database commit.
+
+Why it changed:
+
+Treating all of D2 as one goal obscured both the short-transaction boundary and
+the fact that control and database-per-scope state cannot commit atomically.
+The split lets each authority transition be proven independently.
+
+Convex references inspected:
+
+- `crates/application/src/lib.rs`
+- `crates/model/src/components/config.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+
+How Flarex differs:
+
+Convex can prepare schema and pending index metadata inside one integrated
+database. Flarex must publish deployment-owned catalog state first and later
+reconcile scope-owned physical build state using durable idempotency and the
+located scope clock.
+
+Known limitations and follow-up:
+
+- The D2a WeakMap token is process-local, non-serializable, non-durable, and
+  non-cryptographic. It cannot cross a Worker/RPC or serve as recovery evidence.
+- D2c/D2d have not yet proven control publication or concurrency, and D3 has
+  not created or transitioned a located build row.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaCatalogPublicationV2.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Place Index Build Lifecycle With The Located Scope Clock
 
 Previous completed checkpoint: `37c522b` Persist immutable index definitions.
@@ -34,13 +86,14 @@ Convex references inspected:
 How Flarex differs:
 
 Convex's index metadata, progress, and worker lease share one transactional
-database. Flarex needs an explicit two-store boundary and a located scope-clock
-pin because the deployment catalog and app-data database may be separate.
+database. Flarex needs an explicit control-to-located-data reconciliation
+boundary and a located scope-clock pin because the deployment catalog and
+app-data database may be separate.
 
 Known limitations and follow-up:
 
-- C4 adds only DDL and a fenced read. S03-D must define idempotent cross-store
-  publication/reconciliation before any builder can create or transition rows.
+- C4 adds only DDL and a fenced read. S03-D3 must define idempotent cross-store
+  reconciliation before any builder can create or transition rows.
 - Text scope/epoch storage remains transitional; native UUID physical components
   are still required before final hot data-plane DDL.
 

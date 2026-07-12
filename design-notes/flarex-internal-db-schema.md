@@ -474,9 +474,13 @@ fx_control_schema_version_index_binding (
 -- caller-owned transaction operation. by_creation_time is representable as a
 -- table-owned definition. D1 now compiles canonical developer plus intrinsic
 -- creation-time requirements from the bound full artifact, but writes none of
--- them. D2 owns control-catalog publication/verification, D3 owns idempotent
--- located build reconciliation, and D4 owns evidence-based readiness. by_id is
--- direct row-identity access and has no definition/build row.
+-- them. D2a composes one authenticated, process-local, no-write full-envelope
+-- preparation. D2b adds the table-owned intrinsic writer; D2c applies and
+-- verifies the projection in one control transaction; D2d owns bounded retry,
+-- the routed facade, quota, and real-Postgres concurrency proof. D3 owns
+-- idempotent located build reconciliation, and D4 owns evidence-based
+-- readiness. by_id is direct row-identity access and has no definition/build
+-- row.
 
 -- This table is located with fx_system_scope_clock. It deliberately carries no
 -- deployment copy and has no cross-database control-catalog foreign key.

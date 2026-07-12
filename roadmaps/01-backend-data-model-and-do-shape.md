@@ -1,5 +1,63 @@
 # Backend Data Model And Durable Object Shape
 
+## Prepare One Authenticated Full App-Schema Attempt
+
+Previous completed checkpoint: `423ba8a` Compile app schema catalog
+requirements.
+
+What changed:
+
+- Added the D2a package-internal composition boundary over strict unbound app
+  tables and indexes. It snapshots before asynchronous catalog reads and binds
+  the C2 stable identities, D1 requirements, and immutable artifact to one
+  frozen process-local token.
+- Kept the immutable manifest as the only authored schema. The token exposes no
+  manifest, physical definition identity, lifecycle/readiness state, scope
+  authority, or persistence method, and WeakMap membership rejects structural
+  or serialized forgeries.
+- Focused PGlite tests prove preparation and covered typed failure paths write no
+  stable catalog, schema artifact, definition/binding, or build-state rows.
+
+Why it changed:
+
+The future publisher needs one coherent internally derived input, not three
+caller-composable evidence objects that could represent different prospective
+schemas. This boundary preserves that invariant without prematurely adding the
+publication transaction or a public high-level API.
+
+Convex references inspected:
+
+- `crates/isolate/src/environment/schema.rs`
+- `crates/application/src/lib.rs`
+- `crates/model/src/components/config.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+
+How Flarex differs:
+
+Convex evaluates and submits schema metadata inside one integrated backend.
+Flarex prepares one process-local control-catalog attempt before its later
+short Postgres transaction because catalog and located scope state may live in
+different databases. The token is implementation identity, not durable or RPC
+authority.
+
+Known limitations and follow-up:
+
+- D2b adds the missing intrinsic-definition writer; D2c applies and verifies
+  the control projection; D2d owns retry, facade/quota, and real-Postgres
+  concurrency gates. D3 alone mutates located build state.
+- No app rows, OCC, commit compilation, Payload/Medusa, analyzer, Cloudflare
+  deployment, or legacy behavior changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaCatalogPublicationV2.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Compile Bound App-Schema Requirements
 
 Previous completed checkpoint: `e383e39` Fence per-scope index build state.

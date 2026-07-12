@@ -574,8 +574,8 @@ work.
 The build row intentionally has no `deployment_id` or control-catalog foreign
 key. Schema-per-scope and database-per-scope targets cannot enforce a physical
 foreign key back to deployment metadata or `fx_control_index_definition`.
-D2 must validate that control identity before D3's idempotent located-target
-publication protocol. The local scope-clock foreign key is the only universal
+D2c must validate that control identity before D3's idempotent located-target
+reconciliation protocol. The local scope-clock foreign key is the only universal
 physical parent; the historical generation/fence/epoch pin is compared by the
 reader rather than foreign-keyed to mutable clock values.
 
@@ -592,11 +592,17 @@ checks recursive ID targets against the closed app-v1 table set plus intrinsic
 `_storage`. The compiler output is not another persisted schema copy and
 contains no caller-selected physical ID, lifecycle, or readiness state.
 
-S03-D2 still owns atomic control-catalog publication and exact projection
-verification. S03-D3 owns idempotent located build-state reconciliation because
-control and per-scope databases cannot share a transaction. S03-D4 may compute
-readiness only from real later validation/backfill evidence; S04 alone changes
-the active pointer.
+S03-D2 is intentionally smaller than one publication goal. D2a prepares one
+same-process authenticated full-envelope attempt by composing the C2 stable-ID
+plan, D1 requirements, and exact immutable artifact without writing catalog
+rows. D2b adds the missing table-owned intrinsic definition writer; D2c applies
+and exactly verifies the normalized projection in one control-database
+transaction; D2d adds fresh-plan retries, the routed V2 facade, quota, and
+real-Postgres concurrency/rollback proof. The D2a token is neither durable nor
+serializable or cryptographic authority. S03-D3 owns idempotent located
+build-state reconciliation because control and per-scope databases cannot share
+a transaction. S03-D4 may compute readiness only from real later
+validation/backfill evidence; S04 alone changes the active pointer.
 Migration `0023` also makes the strict spec predicate `IS TRUE`, bounds both the
 logical JSON text size and canonical byte evidence, and exposes canonical
 evidence as immutable hex through read contracts. The internal writer

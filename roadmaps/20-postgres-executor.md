@@ -1,5 +1,64 @@
 # Postgres Executor
 
+## Prepare Full Catalog Publication Outside The Write Transaction
+
+Previous completed checkpoint: `423ba8a` Compile app schema catalog
+requirements.
+
+What changed:
+
+- Added a host-neutral persistence-package D2a preparer. It strictly snapshots
+  the unbound full app schema, performs the C2 catalog observations, runs the D1
+  compiler, and hashes the exact bound artifact before any future write
+  transaction.
+- Retained the coupled state behind a frozen WeakMap-authenticated token and an
+  unexported package state type. There is no root `FlarexPersistence` method,
+  SQL apply, transaction, commit, retry loop, Fetch route, or executor-host
+  adapter.
+- PGlite row-count proofs show successful and failed preparation perform no
+  writes; typed child errors propagate instead of being flattened into a
+  transport error.
+
+Why it changed:
+
+Canonicalization and semantic validation must not lengthen the future
+deployment lock, but separately prepared child plans would permit mixed schema
+evidence. One process-local preparation token gives D2c a coherent unit to
+revalidate in its short caller-owned control transaction.
+
+Convex references inspected:
+
+- `crates/isolate/src/environment/schema.rs`
+- `crates/application/src/lib.rs`
+- `crates/model/src/components/config.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+
+How Flarex differs:
+
+Convex's schema evaluation and metadata submission live in one backend and
+transactional document store. Flarex's executor core remains framework-neutral
+and prepares Postgres control evidence before a later transaction; the private
+Worker, service binding, HTTP adapter, Nitro/Vercel adapter, and Hyperdrive do
+not participate in this core slice.
+
+Known limitations and follow-up:
+
+- D2b/D2c still own the intrinsic writer and transactional apply/verification;
+  D2d owns whole-preparation stale retry, the routed facade, quota, and the
+  focused real-Postgres concurrency/rollback lane.
+- No host routing, Worker deployment, definition or binding write, located
+  build mutation, readiness, Payload/Medusa, or legacy cleanup changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaCatalogPublicationV2.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Read Located Index Builds Through The Scope Clock
 
 Previous completed checkpoint: `37c522b` Persist immutable index definitions.

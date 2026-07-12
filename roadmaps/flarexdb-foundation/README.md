@@ -1,9 +1,9 @@
 # FlarexDB Foundation Execution Plans
 
-Status: S01 through S02-C, resolve-only S02-D1, S03-A through S03-D1, and the
+Status: S01 through S02-C, resolve-only S02-D1, S03-A through S03-D2a, and the
 interleaved S05-A prerequisite are complete. Hosted-proof H01-H04 and H05-A are
 complete, while H05-B and S02-D2 production routing are deferred as core work
-proceeds to control-catalog publication slice S03-D2.
+proceeds to the intrinsic-definition slice S03-D2b.
 
 This folder turns the accepted FlarexDB architecture into small, reviewable,
 commit-sized implementation turns. It is intentionally limited to the
@@ -228,8 +228,13 @@ commit are complete.
    mutation/readiness APIs. S03-D1 then added the pure trusted full-manifest
    compiler: it validates ID/index references and derives canonical developer
    plus intrinsic creation-time requirements without a manifest copy, physical
-   ID, or write API. S03-D2 next owns atomic control-catalog V2 publication;
-   split-store build reconciliation remains separate D3 work.
+   ID, or write API. S03-D2a then composed the C2 stable-binding plan, D1
+   requirements, and exact immutable artifact into one authenticated
+   package-internal no-write preparation token. S03-D2b next adds only the
+   missing table-owned intrinsic-definition writer; D2c/D2d retain atomic
+   control publication, exact verification, bounded retry, facade/quota, and
+   real-Postgres gates. Split-store build reconciliation remains separate D3
+   work.
 4. `S04` migrate active-schema pointer authority while mirroring legacy reads.
 5. `S05` freeze tagged value and ordered-key codecs. Its narrow S05-A ordered
    index prerequisite is complete; S05-B remains later full row-value-codec
