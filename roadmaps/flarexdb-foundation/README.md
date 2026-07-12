@@ -14,7 +14,9 @@ low-level database foundation:
 
 Payload feature parity, Medusa module integration, the live-sync replacement,
 cache Durable Objects, public high-level APIs, and operational scale work are
-later plans.
+later plans. The low-level Payload relational compatibility contract is frozen
+here only far enough to prevent the shared row/edge foundation from creating a
+second data authority or an underspecified relation identity.
 
 ## Decision
 
@@ -260,11 +262,20 @@ green.
 
 1. `S10` add index revision/current and exact ordered bounds.
 2. `S11` add unique-key storage and collision verification.
-3. `S12` add stable current edge occurrences; keep edge history deferred.
-4. `C08` lower index and unique sidecars from final row bodies.
-5. `C09` lower stable edge occurrences.
-6. `O09` add multi-row atomicity and unique conflicts.
-7. `O10` prove one exact indexed dependency and phantom-conflict shape.
+3. `R01` freeze relation identity, cardinality, direction, delete, locale,
+   ordering, polymorphism, and nested-occurrence semantics from source evidence.
+4. `R02` bind stable relation IDs and their immutable definitions into the
+   schema manifest without adding a second definition copy.
+5. `S12` add stable current edge occurrences; keep edge history deferred.
+6. `C08` lower index and unique sidecars from final row bodies.
+7. `C09` lower stable edge occurrences.
+8. `O09` add multi-row atomicity and unique conflicts.
+9. `O10` prove one exact indexed dependency and phantom-conflict shape.
+
+`R01` and `R02` are just-in-time prerequisites for `S12`/`C09`, not a reason to
+start Payload feature parity before the point-commit foundation is green. Their
+accepted contract is maintained in
+[04-payload-relational-contract.md](./04-payload-relational-contract.md).
 
 ### Wave 4: compatibility migration and scoped authority
 
@@ -316,6 +327,7 @@ permanently.
 - [01-schema-and-migrations.md](./01-schema-and-migrations.md)
 - [02-occ-and-transactions.md](./02-occ-and-transactions.md)
 - [03-commit-compiler.md](./03-commit-compiler.md)
+- [04-payload-relational-contract.md](./04-payload-relational-contract.md)
 
 ## Deferred High-Level Plans
 

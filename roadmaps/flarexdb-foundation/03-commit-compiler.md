@@ -310,6 +310,13 @@ Exit gate:
 
 ### [ ] C09 — Lower Stable Edge Occurrences
 
+Prerequisite:
+
+- `R01` has frozen relation/cardinality/delete/locale/order/nested-occurrence
+  semantics and `R02` has bound the stable relation definition into the pinned
+  immutable manifest. The compiler does not infer relation identity from a
+  field name, Payload collection slug, or target row value.
+
 Outcome:
 
 - Derive current edge occurrences from final row values and pinned catalog.
@@ -356,11 +363,15 @@ FlarexDB exposes trusted foundation capabilities, but the generic compiler is
 only for the supported Flarex app-data IR.
 
 Payload later receives a dedicated adapter that matches Payload database and
-request-transaction behavior. Its first slice may use reserved logical
-collections over app-row storage for scalar CRUD, but Payload lifecycle,
-relations, versions/drafts, globals, locks/auth, access, and hook ordering need
-their own conformance turns. Payload operations are not silently encoded as
-`SessionJournalV1`.
+request-transaction behavior. A Payload collection may bind to an existing app
+`table_id` and expose the same authoritative row; it must not maintain a second
+Payload document copy. Scalar and structured values remain in that row,
+relationships/uploads lower to stable edge occurrences, and joins are reverse
+edge reads. Payload lifecycle, versions/drafts, globals, locks/auth, locale
+fallback, access, and hook ordering still need their own conformance turns.
+Payload operations are not silently encoded as `SessionJournalV1`. The frozen
+compatibility boundary is in
+[04-payload-relational-contract.md](./04-payload-relational-contract.md).
 
 Medusa retains its relational repositories, transaction manager, DML,
 ModuleJoiner/link metadata, migrations, modules, and workflows. Its trusted

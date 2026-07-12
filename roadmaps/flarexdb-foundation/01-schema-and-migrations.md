@@ -82,7 +82,8 @@ These are not left for individual implementation turns to reinterpret:
   versioned table-definition source; do not add a table-definition projection.
   Index definitions are intentionally normalized in S03-C. Stable relation and
   constraint IDs remain a design gate until a real compiler contract defines
-  their semantics; do not manufacture opaque IDs or optional JSON placeholders.
+  their semantics. `R01` and `R02` now own that relation gate before `S12`; do
+  not manufacture opaque IDs or optional JSON placeholders.
   Physical field, constraint-definition, and relation-definition catalogs
   remain deferred until a real compiler or adapter requires them.
 - Migrations are additive. Legacy `documents`, `indexes`, invoke staging,
@@ -1247,7 +1248,53 @@ Exit gate:
 - canonical collision detection cannot overwrite an existing claim;
 - real concurrent claim/rollback proof remains O09's responsibility.
 
+### [ ] R01 - Freeze Relation Semantics And Stable Identity
+
+Outcome:
+
+- Freeze the relation definition and stable occurrence rules in
+  [04-payload-relational-contract.md](./04-payload-relational-contract.md) from
+  Flarex, Payload, and InstantDB source evidence.
+- Define cardinality in both directions, requiredness, allowed target tables,
+  polymorphism, ordering, localization, nested paths/items, and directional
+  deletion policy before allocating a relation ID.
+- Preserve one authoritative app/CMS row. A Payload collection binding to an
+  existing table does not create another row store or schema authority.
+
+Exit gate:
+
+- every supported relation shape has one unambiguous semantic identity;
+- repeated/localized/nested occurrences can be distinguished without position
+  becoming identity;
+- joins are specified as reverse-edge reads, not duplicated forward values;
+- unsupported delete, locale, or polymorphic behavior fails schema validation.
+
+### [ ] R02 - Bind Relations Into The Immutable Manifest
+
+Outcome:
+
+- Allocate deployment-scoped stable relation IDs through an optimistic plan
+  with the same stale-plan discipline as other stable schema identities.
+- Persist version-pinned relation definitions exactly once in the immutable
+  schema manifest; keep a normalized `fx_control_relation_definition` table
+  deferred until measured runtime introspection requires it.
+- Treat rename/retarget/cardinality/delete-policy evolution as explicit schema
+  migration decisions rather than guessing identity from names or shape.
+
+Exit gate:
+
+- exact replay preserves relation IDs and conflicting bindings fail closed;
+- the manifest contains the complete accepted relation semantics required by
+  storage and compiler lowering;
+- no second mutable or persisted definition authority has been introduced.
+
 ### [ ] S12 — Add Stable Current Edge Occurrences
+
+Prerequisite:
+
+- `R01` and `R02` are complete for every relation accepted by the active
+  schema. `S12` must not invent relation semantics from row values or Payload
+  collection slugs.
 
 Outcome:
 
@@ -1429,7 +1476,13 @@ This plan creates database capabilities for later adapters without implementing
 their high-level behavior:
 
 - Payload scalar content may later use the app row/catalog/index/edge
-  primitives through a Payload-owned request transaction adapter.
+  primitives through a Payload-owned request transaction adapter. A Payload
+  collection can bind to an existing stable app `table_id`; that binding
+  exposes the same rows and never creates a duplicate Payload copy. One logical
+  table has one schema owner even when multiple API surfaces expose it.
+- Payload relationships, uploads, joins, arrays/blocks, and localized fields
+  compile according to
+  [04-payload-relational-contract.md](./04-payload-relational-contract.md).
 - Medusa does not store products, orders, carts, pricing, or inventory in
   `fx_app_row_*`. A later Medusa adapter keeps relational tables and joins the
   scope clock, commit/change feed, and outbox within its own trusted SQL
