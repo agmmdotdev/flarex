@@ -108,13 +108,13 @@ export class SchemaManifestTableBindingCorruptionError extends Error {
   }
 }
 
-interface PlannedAppTableBinding {
+export interface PlannedAppTableBinding {
   readonly logicalName: SchemaManifestAppTableName;
   readonly tableId: CatalogTableId;
   readonly wasMissing: boolean;
 }
 
-interface PreparedSchemaManifestAppTableBindingsState {
+export interface PreparedSchemaManifestAppTableBindingsState {
   readonly deploymentId: string;
   readonly observedHighWater: CatalogTableId | null;
   readonly tables: ReadonlyArray<PlannedAppTableBinding>;
@@ -125,6 +125,17 @@ const preparedBindingStates = new WeakMap<
   PreparedSchemaManifestAppTableBindingsV1,
   PreparedSchemaManifestAppTableBindingsState
 >();
+
+/** Internal composition seam for the full app-schema planner. */
+export function getPreparedSchemaManifestAppTableBindingsState(
+  prepared: PreparedSchemaManifestAppTableBindingsV1,
+): PreparedSchemaManifestAppTableBindingsState {
+  const state = preparedBindingStates.get(prepared);
+  if (state === undefined) {
+    throw new InvalidPreparedSchemaManifestTableBindingsError();
+  }
+  return state;
+}
 
 /**
  * Build a deterministic optimistic binding plan without taking a database lock.
@@ -145,7 +156,7 @@ export async function prepareSchemaManifestAppTableBindingsV1(
     throw new StableTableCatalogDeploymentNotFoundError(deploymentId);
   }
 
-  const observedBindings = await readAppTableBindings(
+  const observedBindings = await readSchemaManifestAppTableBindings(
     db,
     deploymentId,
     sortedDeclarations.map((table) => table.logicalName),
@@ -188,13 +199,10 @@ export async function applySchemaManifestAppTableBindingsV1InTransaction(
   tx: StableTableCatalogTransaction,
   prepared: PreparedSchemaManifestAppTableBindingsV1,
 ): Promise<SchemaManifestTableDefinitionsV1> {
-  const state = preparedBindingStates.get(prepared);
-  if (state === undefined) {
-    throw new InvalidPreparedSchemaManifestTableBindingsError();
-  }
+  const state = getPreparedSchemaManifestAppTableBindingsState(prepared);
 
-  await lockDeployment(tx, state.deploymentId);
-  const currentBindings = await readAppTableBindings(
+  await lockSchemaManifestBindingDeployment(tx, state.deploymentId);
+  const currentBindings = await readSchemaManifestAppTableBindings(
     tx,
     state.deploymentId,
     state.tables.map((table) => table.logicalName),
@@ -243,7 +251,11 @@ export async function applySchemaManifestAppTableBindingsV1InTransaction(
     });
   }
 
-  await insertPlannedBindings(tx, state, missingAtPreparation);
+  await insertPlannedSchemaManifestAppTableBindings(
+    tx,
+    state,
+    missingAtPreparation,
+  );
   return state.section;
 }
 
@@ -280,7 +292,7 @@ function compareDeclarationsByName(
       : 0;
 }
 
-async function lockDeployment(
+export async function lockSchemaManifestBindingDeployment(
   tx: StableTableCatalogTransaction,
   deploymentId: string,
 ): Promise<void> {
@@ -295,7 +307,7 @@ async function lockDeployment(
   }
 }
 
-async function readAppTableBindings(
+export async function readSchemaManifestAppTableBindings(
   db: FlarexMetadataDatabase,
   deploymentId: string,
   logicalNames: ReadonlyArray<SchemaManifestAppTableName>,
@@ -429,7 +441,7 @@ function deepFreezeJson(value: Json): void {
   Object.freeze(value);
 }
 
-async function insertPlannedBindings(
+export async function insertPlannedSchemaManifestAppTableBindings(
   tx: StableTableCatalogTransaction,
   state: PreparedSchemaManifestAppTableBindingsState,
   missingTables: ReadonlyArray<PlannedAppTableBinding>,

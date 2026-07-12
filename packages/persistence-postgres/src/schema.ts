@@ -4,6 +4,7 @@ import {
   boolean,
   check,
   customType,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -15,6 +16,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type { ExecutionIdentity } from "flarex-protocol/auth";
 import type {
+  CatalogIndexId,
   CatalogTableId,
   CatalogTableNamespace,
 } from "flarex-protocol/catalog";
@@ -152,6 +154,50 @@ export const fxControlTables = pgTable(
     check(
       "fx_control_table_logical_name_non_empty_check",
       nonBlankText(table.logicalName),
+    ),
+  ],
+);
+
+export const fxControlIndexes = pgTable(
+  "fx_control_index",
+  {
+    deploymentId: text("deployment_id").notNull(),
+    logicalIndexId: integer("logical_index_id")
+      .$type<CatalogIndexId>()
+      .notNull(),
+    tableId: integer("table_id").$type<CatalogTableId>().notNull(),
+    descriptor: text("descriptor").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.deploymentId, table.logicalIndexId] }),
+    unique("fx_control_index_deployment_table_descriptor_unique").on(
+      table.deploymentId,
+      table.tableId,
+      table.descriptor,
+    ),
+    foreignKey({
+      name: "fx_control_index_deployment_table_fk",
+      columns: [table.deploymentId, table.tableId],
+      foreignColumns: [fxControlTables.deploymentId, fxControlTables.tableId],
+    }).onDelete("restrict"),
+    check(
+      "fx_control_index_deployment_id_non_empty_check",
+      nonBlankText(table.deploymentId),
+    ),
+    check(
+      "fx_control_index_logical_index_id_positive_check",
+      sql`${table.logicalIndexId} between 1 and 2147483647`,
+    ),
+    check(
+      "fx_control_index_table_id_positive_check",
+      sql`${table.tableId} between 1 and 2147483647`,
+    ),
+    check(
+      "fx_control_index_descriptor_non_empty_check",
+      nonBlankText(table.descriptor),
     ),
   ],
 );
@@ -787,6 +833,7 @@ export const flarexSchema = {
   documentFreshnessVersions,
   documents,
   freshnessProcessedEvents,
+  fxControlIndexes,
   fxControlSchemaVersions,
   fxControlTables,
   fxControlScopeProvisioning,

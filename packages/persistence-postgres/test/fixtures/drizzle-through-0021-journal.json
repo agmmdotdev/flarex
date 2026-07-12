@@ -155,13 +155,6 @@
       "when": 1783793350402,
       "tag": "0021_solid_proudstar",
       "breakpoints": true
-    },
-    {
-      "idx": 22,
-      "version": "7",
-      "when": 1783843342462,
-      "tag": "0022_big_tombstone",
-      "breakpoints": true
     }
   ]
 }

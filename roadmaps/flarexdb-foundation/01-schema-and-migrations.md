@@ -1,9 +1,9 @@
 # FlarexDB Schema And Migration Plan
 
 Status: S01 through S02-C, resolve-only S02-D1, and catalog checkpoints S03-A
-through S03-C1 complete. Hosted-proof H01-H04 and H05-A are complete, while
-H05-B and S02-D2 production routing are deferred as core work proceeds to
-S03-C2.
+through S03-C2 complete. Hosted-proof H01-H04 and H05-A are complete, while
+H05-B and S02-D2 production routing are deferred as core work proceeds to the
+S05-A ordered-index prerequisite.
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -407,7 +407,7 @@ Progress:
   definitions, and per-scope build state.
   - [x] S03-C1 — Freeze strict unbound developer-index declarations, branded
     logical index identity, and the closed composite app-schema envelope.
-  - [ ] S03-C2 — Add the deployment-scoped stable logical index catalog and
+  - [x] S03-C2 — Add the deployment-scoped stable logical index catalog and
     opaque table/index optimistic planner without a standalone reservation API.
   - [ ] S03-C3 — After S05-A, add immutable physical definition/schema-binding
     DDL and choose a compact definition-generation identity that permits
@@ -990,6 +990,97 @@ corepack pnpm --filter flarex-protocol test
 corepack pnpm --filter flarex-protocol exec vitest run test/schema-manifest-index-bindings.test.ts test/schema-manifest-table-definitions.test.ts test/schema-manifest.test.ts --no-file-parallelism
 corepack pnpm --filter flarex-protocol build
 corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
+#### S03-C2 Implementation Checkpoint
+
+Previous completed checkpoint: `3104aa1` Freeze logical index manifest
+contracts.
+
+What changed:
+
+- Added additive `fx_control_index` as the deployment-scoped stable mapping
+  from `(table_id, descriptor)` to a compact logical index ID. The row stores no
+  fields, schema version, physical definition ID, codec, lifecycle, or build
+  state; its composite foreign key pins the table to the same deployment.
+- Added deployment-qualified read-only catalog lookups and kept the high-water
+  and checked next-ID allocator package-internal. There is deliberately no
+  standalone logical-index reservation operation or persistence-facade method.
+- Added one repository-authenticated combined table/index optimistic plan. It
+  reuses the exact table plan, resolves index table names only through that
+  prospective schema, allocates missing logical IDs by numeric table ID then
+  ASCII descriptor, and emits one deeply frozen `appSchema` manifest ordered by
+  final logical IDs.
+- Added one caller-owned transaction primitive that locks the deployment once,
+  revalidates both catalogs, rejects changed frontiers/bindings, classifies
+  partial application across tables and indexes before insertion, then inserts
+  tables before indexes for foreign-key order. Exact complete replay succeeds;
+  the helper never commits and is not exported from the package root.
+- Added the `0021 -> 0022` additive migration proof, focused PGlite catalog and
+  planner proofs, and real-Postgres lock/concurrency/rollback coverage. The
+  generated composite foreign key was made search-path-relative after the real
+  Postgres lane proved that an explicit `public` qualifier breaks isolated
+  deployment schemas.
+
+Why it changed:
+
+The logical name `(table, descriptor)` must survive schema versions and spec
+changes, but IDs embedded in a future immutable artifact must still be planned
+outside the short SQL lock. A combined authenticated plan preserves stable
+identity without allowing naked reservations or a table-only concurrent commit
+to be mistaken for a complete table/index publication.
+
+Convex sources inspected:
+
+- `crates/common/src/types/index.rs`
+- `crates/common/src/schemas/mod.rs`
+- `crates/common/src/bootstrap_model/index/index_config.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/database/src/transaction.rs`
+- `crates/database/src/writes.rs`
+- `crates/database/src/committer.rs`
+- `crates/database/src/database.rs`
+- `crates/application/src/deploy_config.rs`
+- `crates/model/src/components/config.rs`
+
+How Flarex differs:
+
+- Convex orders logical names directly and stores physical index incarnations
+  as `_index` metadata documents inside its OCC transaction. Flarex assigns a
+  compact deployment-local logical ID optimistically, then revalidates exact
+  table/index bindings and catalog frontiers under a Postgres deployment lock.
+- Convex's metadata document combines more physical spec/state concerns. This
+  C2 row is intentionally only logical identity; changed fields reuse the same
+  logical ID and must receive a distinct immutable physical definition in C3.
+- Convex automatically persists reserved system indexes. Flarex v1 treats
+  `by_id` and `by_creation_time` as intrinsic manifest semantics, so C2 creates
+  no catalog rows and consumes no logical IDs for them.
+
+Known limitations and follow-up:
+
+- C2 does not publish a V2 schema artifact and adds no retry coordinator. S03-D
+  must later bind this internal plan to canonical full-envelope artifact
+  insertion and retry only fresh typed stale attempts.
+- S05-A is now the next checkpoint. It must freeze physical ordered fields,
+  `_creationTime`/implicit `_id` lowering, key codec/version, comparisons, byte
+  bounds, and fixtures before C3 chooses physical definition identity/DDL.
+- Physical index definitions, per-scope build state, entries, backfill,
+  activation, analyzer/compiler integration, Payload/Medusa compilation,
+  Cloudflare routing/deployment, and legacy cleanup remain excluded. S03-C as a
+  whole is not complete.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestAppSchemaBindings.test.ts test/pglite.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestAppSchemaBindings.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
 corepack pnpm check:effect-boundaries
 git diff --check
 ```

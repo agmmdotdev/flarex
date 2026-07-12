@@ -1,5 +1,72 @@
 # Indexes
 
+## Persist And Plan Stable Logical Index Bindings
+
+Previous completed checkpoint: `3104aa1` Freeze logical index manifest
+contracts.
+
+What changed:
+
+- Added `fx_control_index` with deployment-local positive logical IDs, unique
+  `(deployment_id, table_id, descriptor)` identity, and a composite foreign key
+  to the stable table catalog.
+- Added generic read-only catalog lookups while keeping allocation internal and
+  refusing a standalone reservation API.
+- Added one opaque app-schema plan that binds indexes only through its exact
+  prospective table plan, allocates missing IDs by `(tableId, descriptor)`,
+  preserves logical IDs when fields change, and emits ID-ordered frozen logical
+  bindings.
+- Revalidation runs under the deployment lock and treats changed bindings,
+  changed frontiers, and any partial application across both catalogs as typed
+  stale outcomes. Exact complete replay is idempotent.
+
+Why it changed:
+
+Logical identity must be durable before full artifact publication, but it must
+remain independent of physical spec generations. The combined plan gives the
+future V2 publisher canonical stable IDs without letting callers reserve them
+or pair an index plan with table IDs from a different attempt.
+
+Convex references inspected:
+
+- `crates/common/src/types/index.rs`
+- `crates/common/src/schemas/mod.rs`
+- `crates/common/src/bootstrap_model/index/index_config.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/database/src/writes.rs`
+- `crates/database/src/committer.rs`
+- `crates/database/src/database.rs`
+
+How Flarex differs:
+
+- Convex's logical identity is the ordered table/descriptor name and physical
+  incarnations are `_index` metadata documents. Flarex maps that logical name
+  to a compact numeric ID but still defers physical identity/codec to C3.
+- Convex persists `by_id` and `by_creation_time` metadata automatically.
+  Flarex v1 keeps both intrinsic; C2 writes no rows and consumes no logical IDs
+  for them. Developer fields also remain unlowered until S05-A.
+
+Known limitations and follow-up:
+
+- No physical definition, schema-definition binding, build state, entry row,
+  query planner, backfill, readiness, or activation behavior exists yet.
+- S05-A is next, then S03-C3/C4. Full-envelope canonical publication and stale
+  retry belong to S03-D, not this internal transaction primitive.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestAppSchemaBindings.test.ts test/pglite.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestAppSchemaBindings.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Freeze Logical Index Semantics Before Physical Catalog DDL
 
 Previous completed checkpoint: `636fa50` Register app schema artifacts

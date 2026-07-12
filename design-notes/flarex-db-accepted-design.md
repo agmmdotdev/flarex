@@ -348,6 +348,29 @@ operation. A later full-schema publication facade must use a new API version;
 the generic canonical JSON codec remains codec v1 because semantic-format and
 canonical-encoding versions are independent.
 
+S03-C2 accepts `fx_control_index` as only the stable deployment-scoped mapping
+from `(table_id, descriptor)` to `logical_index_id`. The descriptor column is
+generic nonblank text at the database boundary; the app planner applies C1's
+stricter developer descriptor contract, while future Payload/Medusa compilers
+may define their own trusted naming policy. The row contains no logical fields,
+schema-version binding, physical definition identity, codec, lifecycle, or
+mutable timestamp. Its composite foreign key to `fx_control_table` prevents a
+table ID from another deployment from being paired with the mapping.
+
+C2 also accepts one internal combined table/index optimistic plan. Tables are
+planned first; index declarations must reference a table in that exact
+prospective schema, and missing logical IDs are assigned by resolved numeric
+table ID then ASCII descriptor. Final bindings remain ordered by logical index
+ID. Under one deployment lock, trusted code revalidates both catalog frontiers
+and every requested identity before insertion. Exact complete replay succeeds;
+changed bindings/frontiers or any proper subset of the rows missing at
+preparation make the whole plan stale. The global partial rule is intentional:
+a concurrently published table-only mapping is not evidence that its index
+bindings were atomically published. Tables insert before indexes for foreign-key
+order, the caller owns commit/rollback, and neither the plan/apply helper nor an
+allocator is a supported root/facade operation. S03-D must later compose this
+primitive with immutable V2 artifact insertion and fresh-plan stale retry.
+
 An immutable physical index definition carries its ordered-key codec version.
 Mutable lifecycle belongs only to per-scope build state:
 

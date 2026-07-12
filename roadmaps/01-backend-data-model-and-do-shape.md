@@ -1,5 +1,66 @@
 # Backend Data Model And Durable Object Shape
 
+## Persist Stable Logical Index Identity Without Physical State
+
+Previous completed checkpoint: `3104aa1` Freeze logical index manifest
+contracts.
+
+What changed:
+
+- Added authoritative Postgres `fx_control_index` mappings from deployment,
+  stable table ID, and descriptor to a compact logical index ID.
+- Kept the mapping append-only and normalized: fields/spec, schema-version
+  binding, physical definition identity, codec, and lifecycle are absent.
+- Added a combined opaque table/index plan whose transaction revalidates both
+  catalogs and rejects cross-catalog partial application before inserting.
+- Kept the planner/apply operation and allocator off the persistence facade and
+  package root. Only deployment-qualified logical-index reads are supported.
+
+Why it changed:
+
+The replacement data model needs stable logical references before it can hash a
+full schema artifact, but committing IDs separately would create a second
+publication authority. Cross-catalog partial detection also prevents an old
+table-only publication from being silently completed as though it were one
+atomic full-schema attempt.
+
+Convex references inspected:
+
+- `crates/common/src/types/index.rs`
+- `crates/common/src/bootstrap_model/index/index_config.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/database/src/transaction.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex uses table/name ordering and physical `_index` metadata document IDs.
+  Flarex adds a compact deployment-local logical ID, with a separate physical
+  definition identity still required for changed specs and concurrent builds.
+- No Durable Object data shape changed. Existing DO index state remains legacy
+  compatibility scaffolding and is not an authority for this catalog.
+
+Known limitations and follow-up:
+
+- S05-A must freeze ordered physical keys before S03-C3/C4 add definitions and
+  fenced per-scope build state. S03-D later owns atomic V2 artifact publication.
+- No rows, index entries, OCC, backfill, activation, analyzer, Payload/Medusa,
+  runtime route, Cloudflare deployment, or legacy cleanup changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestAppSchemaBindings.test.ts test/pglite.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestAppSchemaBindings.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Separate Logical Index Identity From Physical Build Identity
 
 Previous completed checkpoint: `636fa50` Register app schema artifacts

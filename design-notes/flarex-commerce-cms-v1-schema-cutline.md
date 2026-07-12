@@ -155,8 +155,8 @@ The main simplification is:
 
 ```text
 v1 schema catalog:
-  fx_schema_version.manifest_json + stable fx_table/fx_index identities
-  + immutable fx_index_def rows
+  fx_schema_version.manifest_json + stable fx_table/fx_control_index identities
+  + immutable fx_control_index_definition rows
 
 not:
   fx_table + fx_field + fx_relation_def + many metadata tables
@@ -169,16 +169,16 @@ not:
 ```text
 fx_schema_version
 fx_table
-fx_index
-fx_index_def
-fx_index_build_state
+fx_control_index
+fx_control_index_definition
+fx_control_index_build_state
 ```
 
 `fx_schema_version.manifest_json` is the immutable submitted schema artifact.
 `fx_table` keeps only stable table identity across versions. The manifest
 repeats the namespace and logical name as a version-pinned assertion, but the
 table definition itself is not copied into a normalized table-definition row.
-Later `fx_index` identity and `fx_index_def` rows are the intentionally
+Later `fx_control_index` identity and `fx_control_index_definition` rows are the intentionally
 normalized compiled index catalog, written transactionally and verified
 against the manifest checksum rather than independently edited.
 
@@ -266,9 +266,9 @@ checklist: [`../roadmaps/flarexdb-foundation/01-schema-and-migrations.md`](../ro
 Required:
   fx_schema_version
   fx_table
-  fx_index
-  fx_index_def
-  fx_index_build_state
+  fx_control_index
+  fx_control_index_definition
+  fx_control_index_build_state
 
   fx_row_current
   fx_row_rev
@@ -433,19 +433,20 @@ v2:
   materialize fx_field if schema introspection becomes hot or complex
 ```
 
-### `fx_index` / `fx_index_def`: keep
+### `fx_control_index` / physical index definitions: split by checkpoint
 
 Replacement-design correction: stable logical index identity is
 deployment-scoped, while entries and builds need a separate physical definition
 identity. The earlier scope-scoped one-ID sketch could not keep an old enabled
-spec beside a changed backfilling spec. S03-C1 freezes only the logical manifest
-contract; the following remains a conceptual cutline until the ordered-key
-codec and physical identity representation are accepted.
+spec beside a changed backfilling spec. S03-C1 froze the logical manifest
+contract and S03-C2 now implements only `fx_control_index`. The physical
+definition, schema binding, and build-state sketches remain conceptual until
+the ordered-key codec and physical identity representation are accepted.
 
 Suggested shape:
 
 ```sql
-fx_index (
+fx_control_index (
   deployment_id text not null,
   logical_index_id int not null,
   table_id int not null,
@@ -457,7 +458,7 @@ fx_index (
     references fx_control_table (deployment_id, table_id)
 );
 
-fx_index_def (
+fx_control_index_definition (
   deployment_id text not null,
   index_definition_id <compact physical identity> not null,
   logical_index_id int not null,
@@ -466,10 +467,10 @@ fx_index_def (
   key_codec_version int not null,
   primary key (deployment_id, index_definition_id),
   foreign key (deployment_id, logical_index_id)
-    references fx_index (deployment_id, logical_index_id)
+    references fx_control_index (deployment_id, logical_index_id)
 );
 
-fx_schema_version_index_binding (
+fx_control_schema_version_index_binding (
   deployment_id text not null,
   schema_version_id text not null,
   logical_index_id int not null,
@@ -478,7 +479,7 @@ fx_schema_version_index_binding (
   primary key (deployment_id, schema_version_id, logical_index_id)
 );
 
-fx_index_build_state (
+fx_control_index_build_state (
   scope_id text not null,
   deployment_id text not null,
   index_definition_id <compact physical identity> not null,
@@ -496,7 +497,7 @@ fx_index_build_state (
 ```
 
 Definitions are immutable. Mutable lifecycle lives in
-`fx_index_build_state`: `declared -> building -> backfilling -> validating ->
+`fx_control_index_build_state`: `declared -> building -> backfilling -> validating ->
 enabled -> retiring`. Query planning resolves the active schema's logical
 binding and uses only its enabled physical definition. The fence/start snapshot
 prevents a stale worker from resuming across storage-generation cutover.
@@ -1198,7 +1199,8 @@ commerce writes/deletes should go through ctx.commerce / trusted commerce adapte
 1. Add scope/epoch/commit-sequence tokens and a single active schema pointer.
 2. Add stable catalog IDs plus immutable schema manifests and index lifecycle.
 3. Add `fx_row_current` / `fx_row_rev` behind a storage-generation flag.
-4. Add stable `fx_index`, immutable `fx_index_def`, and current/revision entries
+4. Add stable `fx_control_index`, immutable
+   `fx_control_index_definition`, and current/revision entries
    with a versioned ordered
    key codec.
 5. Add `fx_unique_key` and stable-occurrence `fx_edge_current`.

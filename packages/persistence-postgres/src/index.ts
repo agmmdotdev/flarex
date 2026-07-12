@@ -300,6 +300,14 @@ export {
   type StableTableIdentityName,
 } from "./stableTableCatalog";
 export {
+  getStableLogicalIndexIdentityById,
+  getStableLogicalIndexIdentityByName,
+  InvalidStableLogicalIndexIdentityInputError,
+  StableLogicalIndexCatalogCorruptionError,
+  type StableLogicalIndexIdentity,
+  type StableLogicalIndexIdentityName,
+} from "./stableLogicalIndexCatalog";
+export {
   AppSchemaVersionArtifactRetryExhaustedError,
   InvalidAppSchemaVersionArtifactV1InputError,
   MAX_APP_SCHEMA_VERSION_ARTIFACT_ATTEMPTS,

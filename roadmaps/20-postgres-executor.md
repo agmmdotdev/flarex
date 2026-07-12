@@ -1,5 +1,72 @@
 # Postgres Executor
 
+## Add The Trusted Logical Index Catalog Boundary
+
+Previous completed checkpoint: `3104aa1` Freeze logical index manifest
+contracts.
+
+What changed:
+
+- Added migration `0022` for `fx_control_index`, with Postgres-enforced logical
+  ID bounds, unique logical names, and same-deployment stable-table ownership.
+  Its composite foreign key remains search-path-relative; real Postgres caught
+  and rejected Drizzle's generated `public` qualifier for isolated schemas.
+- Added safe reads and a host-neutral combined optimistic table/index plan.
+  The authenticated token contains one frozen app-schema manifest; callers
+  cannot supply IDs, split child plans, or invoke a standalone allocator.
+- Added one caller-owned Drizzle transaction primitive. It holds only the short
+  deployment lock, revalidates exact catalog observations, inserts tables then
+  indexes, and leaves commit/rollback to the future publication coordinator.
+- Proved the schema and planner in PGlite and proved lock serialization,
+  concurrent exact convergence, competing-frontier stale failure/replan, and
+  transaction rollback against real Postgres.
+
+Why it changed:
+
+Stable numeric IDs are part of the future canonical full-schema artifact, so
+they must be prepared before SQL. Exact Postgres revalidation preserves an
+atomic trusted boundary without holding a transaction across analyzer code,
+hashing, user code, or a network host.
+
+Convex references inspected:
+
+- `crates/application/src/deploy_config.rs`
+- `crates/model/src/components/config.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/database/src/transaction.rs`
+- `crates/database/src/committer.rs`
+- `crates/database/src/database.rs`
+
+How Flarex differs:
+
+- Convex uses its OCC read-set/retry loop over table and `_index` metadata.
+  Flarex uses a Postgres deployment-row lock plus exact binding/high-water
+  revalidation and exposes typed stale results for a later fresh-plan retry.
+- The Promise/Drizzle package boundary remains deliberate. No Effect runtime,
+  Fetch/HTTP adapter, Nitro host, Worker binding, or Hyperdrive path was added.
+
+Known limitations and follow-up:
+
+- C2 has no public full-schema persistence method and does not canonicalize or
+  insert a V2 artifact. S03-D must compose those operations atomically.
+- S05-A, C3, and C4 still own physical codec/definitions/build state. Analyzer,
+  Payload/Medusa, OCC rows, sync, Cloudflare deployment, and legacy cleanup are
+  excluded.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres db:check
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestAppSchemaBindings.test.ts test/pglite.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestAppSchemaBindings.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Freeze The Full App-Schema Contract Before Index Persistence
 
 Previous completed checkpoint: `636fa50` Register app schema artifacts

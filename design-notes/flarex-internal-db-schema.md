@@ -354,12 +354,12 @@ rehashes, while conflicts, corruption, invalid input, and SQL errors are
 terminal.
 
 The following column/relation/constraint sketches are longer-range provenance,
-not accepted S03-B2a DDL. S03-C1 now accepts only the logical app-index
-declaration/binding contract and composite manifest envelope; it adds no index
-DDL. The corrected index sketches below distinguish a stable logical access
-path from a physical definition/build generation. Exact physical definition-ID
-representation, codec columns, and fenced cursor encoding remain gated on the
-ordered-key codec and trusted compiler contracts:
+not accepted S03-B2a DDL. S03-C1 accepted the logical app-index contract, and
+S03-C2 now accepts only the `fx_control_index` logical mapping plus an internal
+combined optimistic planner. The remaining index sketches distinguish that
+stable logical access path from a physical definition/build generation. Exact
+physical definition-ID representation, codec columns, and fenced cursor
+encoding remain gated on the ordered-key codec and trusted compiler contracts:
 
 ```sql
 fx_control_column (
@@ -398,13 +398,13 @@ fx_control_column_definition (
 fx_control_index (
   deployment_id text not null,
   logical_index_id integer not null,
-  table_id text not null,
+  table_id integer not null,
   descriptor text not null,
-  created_at timestamptz not null,
+  created_at timestamptz not null default now(),
   primary key (deployment_id, logical_index_id),
   unique (deployment_id, table_id, descriptor),
   foreign key (deployment_id, table_id)
-    references fx_control_table (deployment_id, id)
+    references fx_control_table (deployment_id, table_id)
 )
 
 fx_control_index_definition (

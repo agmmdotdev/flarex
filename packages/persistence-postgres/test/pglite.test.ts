@@ -59,6 +59,7 @@ describe("createPGlitePersistence", () => {
       "document_freshness_versions",
       "documents",
       "freshness_processed_events",
+      "fx_control_index",
       "fx_control_schema_version",
       "fx_control_scope",
       "fx_control_scope_provisioning",
@@ -420,6 +421,101 @@ describe("createPGlitePersistence", () => {
         `select count(*)::text as count from fx_control_schema_version`,
       );
       expect(artifactCount.rows).toEqual([{ count: "0" }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("adds the logical index catalog without inventing index identities", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-index-catalog-upgrade-"));
+    const previousMigrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const previousJournal = resolve(
+      packageRoot,
+      "test/fixtures/drizzle-through-0021-journal.json",
+    );
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, previousMigrationsFolder, {
+        recursive: true,
+      });
+      await copyFile(
+        previousJournal,
+        resolve(previousMigrationsFolder, "meta/_journal.json"),
+      );
+      const previousPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder: previousMigrationsFolder,
+      });
+      await previousPersistence.migrate();
+      await previousPersistence.insertDeploymentMetadata({
+        deploymentId: "deployment_before_index_catalog",
+        projectId: "project_before_index_catalog",
+      });
+      await previousPersistence.query(`
+        insert into fx_control_table
+          (deployment_id, table_id, namespace, logical_name)
+        values
+          ('deployment_before_index_catalog', 1, 'app', 'users')
+      `);
+      await previousPersistence.query(`
+        insert into fx_control_schema_version
+          (
+            deployment_id,
+            schema_version_id,
+            version,
+            manifest_codec_version,
+            manifest_json,
+            manifest_bytes,
+            manifest_sha256
+          )
+        values
+          (
+            'deployment_before_index_catalog',
+            'schema_before_index_catalog',
+            1,
+            1,
+            '{}'::jsonb,
+            decode('7b7d', 'hex'),
+            decode(repeat('00', 32), 'hex')
+          )
+      `);
+      await expect(
+        previousPersistence.query(
+          `select logical_index_id from fx_control_index limit 1`,
+        ),
+      ).rejects.toThrow();
+
+      const currentPersistence = await createPGlitePersistence({ db });
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(
+        currentPersistence.getDeploymentMetadata(
+          "deployment_before_index_catalog",
+        ),
+      ).resolves.toMatchObject({
+        deploymentId: "deployment_before_index_catalog",
+        projectId: "project_before_index_catalog",
+      });
+      const preserved = await currentPersistence.query<{
+        table_count: string;
+        artifact_count: string;
+        index_count: string;
+      }>(`
+        select
+          (select count(*)::text from fx_control_table) as table_count,
+          (select count(*)::text from fx_control_schema_version) as artifact_count,
+          (select count(*)::text from fx_control_index) as index_count
+      `);
+      expect(preserved.rows).toEqual([
+        { table_count: "1", artifact_count: "1", index_count: "0" },
+      ]);
     } finally {
       try {
         await db.close();
