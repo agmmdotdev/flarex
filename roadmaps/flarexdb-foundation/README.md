@@ -107,14 +107,16 @@ When documents disagree, use this order:
    controls architectural ownership and safety boundaries.
 2. [Commerce/CMS v1 schema cutline](../../design-notes/flarex-commerce-cms-v1-schema-cutline.md)
    controls the minimal first physical inventory and explicit deferrals.
-3. [Internal database schema](../../design-notes/flarex-internal-db-schema.md)
-   supplies long-form DDL, naming, and design provenance.
-4. The domain roadmaps remain chronological implementation records:
+3. The domain roadmaps own living architecture, rationale, current domain
+   status, gaps, and direction:
    [data model](../01-backend-data-model-and-do-shape.md),
    [schema placement](../02-schema-placement-and-shards.md),
    [OCC](../03-occ-and-transactions.md),
    [Postgres executor](../20-postgres-executor.md), and
    [commit compiler](../35-commit-compiler-and-session-intent.md).
+4. [Internal database schema](../../design-notes/flarex-internal-db-schema.md)
+   supplies long-form DDL sketches, naming, design provenance, and unresolved
+   risks. Its proposals are not accepted merely because they are documented.
 
 Current code is evidence, not the target design:
 
@@ -183,8 +185,9 @@ fixed:
 
 One checked item is the default scope of one implementation turn and one
 automatic checkpoint commit. Do not mark an item complete until its focused
-tests, affected domain-roadmap entry, reviewer checkpoint when required, and
-commit are complete.
+tests, reviewer checkpoint when required, and commit are complete. Update an
+affected domain roadmap only when the turn changes its durable architecture,
+rationale, status, gaps, direction, or correctness gates.
 
 ### Wave 0: compatibility seam and immutable foundations
 

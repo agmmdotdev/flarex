@@ -35,9 +35,9 @@ roadmap match code merely to legitimize an unreviewed divergence.
 For the accepted FlarexDB schema/compiler/sync/Payload/Medusa architecture
 boundary, start with
 [`../design-notes/flarex-db-accepted-design.md`](../design-notes/flarex-db-accepted-design.md).
-Roadmaps 20, 21, and 35 record the corresponding executor and sync checkpoints;
-older cache or mixed-transaction text is not authoritative when it conflicts
-with that decision record.
+Roadmaps 20, 21, and 35 own the corresponding executor, sync/cache, and commit
+compiler domain truth; older cache or mixed-transaction text is not
+authoritative when it conflicts with that decision record.
 
 For the low-level turn-by-turn implementation order, use
 [`flarexdb-foundation/README.md`](./flarexdb-foundation/README.md). It links the
