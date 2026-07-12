@@ -417,7 +417,7 @@ compatibility adapter remains supported. C07 and concurrency-sensitive later
 turns run both packages' real-Postgres scripts. Phase checkpoints run workspace
 `typecheck`, `test`, and `build`.
 
-Significant code turns update
-`roadmaps/35-commit-compiler-and-session-intent.md` and
-`roadmaps/20-postgres-executor.md`; both standing diff reviewers run before the
-automatic checkpoint commit.
+Significant code turns run both standing diff reviewers before the automatic
+checkpoint commit. Update the compiler and executor domain roadmaps only when
+the turn changes durable architecture, status, gaps, direction, or correctness
+criteria.

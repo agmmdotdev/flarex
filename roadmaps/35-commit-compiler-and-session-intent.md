@@ -1,163 +1,157 @@
 # Commit Compiler And Session Intent
 
-## Promote The Measured SessionDO Journal Gate
+## Status And Scope
 
-Previous completed checkpoint: `268cc83` Prepare app schema catalog
-publication.
+Status: accepted bounded design with an implemented `legacy_v1` compatibility
+path; the replacement commit compiler is planned and no `C01` through `C09`
+slice is complete.
 
-What changed:
+This roadmap owns the durable direction for:
 
-- Replaced "final optional optimization" with an immediate post-`C07` hosted
-  latency gate.
-- Required separate measurements for the service-binding hop, authoritative
-  Postgres data read, Postgres journal persistence, and finish path, with a
-  material-improvement threshold declared before comparison.
-- Made `SessionDO` the next checkpoint when temporary journal persistence is a
-  material cost, while keeping actual reads and every committed authority in
-  Postgres.
-- Kept `DocCacheDO` and `QueryCacheDO` out of this gate; they cache committed
-  values/results and require their own freshness proof.
+- the logical session journal and authenticated finish envelope;
+- the trusted logical-to-physical commit planner;
+- the authoritative short Postgres commit executor;
+- session fencing, lifecycle, restart, expiry, and lost-outcome recovery;
+- exact-snapshot read-your-writes rules;
+- result-bearing idempotency and distinct retry classes;
+- the narrow Flarex app-data compiler boundary; and
+- the evidence gate for optionally moving temporary journal persistence from
+  Postgres to SessionDO SQLite.
 
-Why it changed:
+This roadmap does not own:
 
-Postgres-backed journaling is the safest compatibility path for proving the new
-snapshot/OCC/commit protocol, but persisting every logical dependency and
-staged write can add database round trips after the protocol is stable.
-Calling SessionDO a final optimization hid that likely next bottleneck and also
-made it easy to confuse temporary journaling with application-data caching.
+- physical schema/catalog construction and storage-generation cutover;
+- the low-level OCC transaction primitives;
+- live-query activation, commit-feed catch-up, or cache coordination;
+- Payload database parity or Medusa transaction semantics; or
+- chronological implementation history.
 
-Convex references inspected:
+Roadmap 20 owns the executor/data authority, roadmap 21 owns sync/freshness,
+and the focused foundation plans own executable turn order. Git owns the
+historical checkpoint record previously accumulated here.
 
-- `crates/database/src/transaction.rs`
-  - transaction-local reads/writes are kept close to execution and supplied to
-    commit validation rather than published as database authority.
-- `crates/database/src/committer.rs`
-  - authoritative validation and publication remain in the database commit
-    boundary.
+## Current Sources Of Truth
 
-How Flarex differs:
+Use these sources in order:
 
-- Flarex crosses a Dynamic Worker, private executor service binding, optional
-  SessionDO, and Postgres. It therefore needs a fenced, digest-bound remote
-  journal and a measured reason to add that distributed hop.
+1. [`../design-notes/flarex-db-accepted-design.md`](../design-notes/flarex-db-accepted-design.md)
+   owns the accepted snapshot, compiler trust, idempotency, retry, adapter, and
+   migration boundaries.
+2. [`flarexdb-foundation/README.md`](./flarexdb-foundation/README.md) owns the
+   interleaved schema/OCC/compiler execution order.
+3. [`flarexdb-foundation/03-commit-compiler.md`](./flarexdb-foundation/03-commit-compiler.md)
+   owns the executable `C01` through `C09` gates.
+4. [`flarexdb-foundation/02-occ-and-transactions.md`](./flarexdb-foundation/02-occ-and-transactions.md)
+   owns snapshot issuance, session anchors, OCC validation, atomic outcome,
+   retention, and retry primitives consumed by the compiler.
+5. [`20-postgres-executor.md`](./20-postgres-executor.md) owns current storage
+   generations, the hosted Worker, and production routing.
+6. [`21-cloudflare-freshness-cache.md`](./21-cloudflare-freshness-cache.md) owns
+   the distinct live-query freshness rule and deferred committed-read caches.
+7. Current code and decisive tests prove compatibility behavior:
+   - [`packages/executor/src/sessions.ts`](../packages/executor/src/sessions.ts)
+   - [`packages/executor/src/retry.ts`](../packages/executor/src/retry.ts)
+   - [`packages/persistence-postgres/src/commits.ts`](../packages/persistence-postgres/src/commits.ts)
+   - [`packages/persistence-postgres/src/invokeSessions.ts`](../packages/persistence-postgres/src/invokeSessions.ts)
+   - [`packages/persistence-postgres/src/invokeSessionReads.ts`](../packages/persistence-postgres/src/invokeSessionReads.ts)
+   - [`packages/persistence-postgres/src/invokeSessionTableReads.ts`](../packages/persistence-postgres/src/invokeSessionTableReads.ts)
+   - [`packages/persistence-postgres/src/invokeSessionIndexReads.ts`](../packages/persistence-postgres/src/invokeSessionIndexReads.ts)
+   - [`packages/persistence-postgres/src/invokeSessionWrites.ts`](../packages/persistence-postgres/src/invokeSessionWrites.ts)
+   - [`packages/executor/test/sessions.test.ts`](../packages/executor/test/sessions.test.ts)
+   - [`packages/executor/test/postgresRetry.test.ts`](../packages/executor/test/postgresRetry.test.ts)
 
-Known limitations and follow-up:
+[`../design-notes/flarex-instant-like-medusa-storage.md`](../design-notes/flarex-instant-like-medusa-storage.md)
+is long-form research and provenance. Its historical mixed-transaction and
+cache-first proposals are not accepted when they conflict with the sources
+above.
 
-- The replacement Postgres commit protocol and hosted latency receipt are not
-  implemented yet.
-- No performance threshold is accepted by this docs checkpoint; the C07A turn
-  must declare it before measurement.
-- SessionDO removes journal-persistence database round trips only. Syscalls and
-  authoritative data reads still reach the trusted executor/Postgres path.
+## Current Architecture
 
-Verification:
+### Implemented legacy path
 
-```sh
-git diff --check
+The working `legacy_v1` path is:
+
+```text
+prepare invoke metadata
+  -> begin Postgres invoke session at wall-clock beginTs
+  -> execute user code outside a transaction
+  -> persist document/table/index reads and staged document writes
+  -> serve supported read-your-writes overlays
+  -> finish through commitInvokeSessionWrites(...)
+  -> validate legacy read sets
+  -> allocate a wall-clock-compatible commit timestamp
+  -> write documents, indexes, commit row, outbox, and finished session
+     in one persistence transaction
+  -> trigger post-commit live-query work
 ```
 
-## Add The Commit Compiler Turn Plan
+The compatibility path supports inserts, patches, replaces, deletes, point
+reads, table scans, index reads, staged-write coalescing, point/table/index
+overlays, OCC conflicts, mutation reruns, abort, stale-session cleanup, commit
+rows, outbox rows, and post-commit notification.
 
-Previous completed checkpoint: `478be74` Correct FlarexDB transaction and sync
-design.
+This is evidence for behavior worth preserving. It is not the accepted
+replacement because it still uses deployment/partition vocabulary, wall-clock
+`beginTs`/commit timestamps, broad persistence interfaces, one mixed commit
+function, optional idempotency metadata without the final outcome contract,
+and a combined retry coordinator.
 
-What changed:
+The repository already defines the branded `SnapshotToken` protocol type for
+the replacement foundation, but current invoke sessions do not use it as their
+read/commit authority. No `SessionJournalV1`, `CommitEnvelopeV1`,
+`PreparedCommitV1`, or trusted commit planner implementation exists.
 
-- Added the executor-ready
-  [commit compiler plan](./flarexdb-foundation/03-commit-compiler.md).
-- Ordered narrow compatibility ports, versioned logical protocol, point
-  read-your-writes, pure planning, atomic execution, idempotent finish,
-  real-Postgres proof, and derived index/unique/edge lowering.
-- Moved SessionDO journal storage behind the proven Postgres-backed compiler
-  path. The newer checkpoint above refines its position to the immediate
-  post-`C07`, measurement-gated optimization.
-- Kept Payload and Medusa behind their own later adapter/transaction lanes.
+### Accepted replacement boundary
 
-Why it changed:
+The replacement separates four responsibilities:
 
-The current commit function mixes planning, validation, allocation,
-publication, outbox, and session completion. A turn-by-turn split is required
-before changing the storage generation or retry semantics safely.
-
-Convex references inspected:
-
-- `crates/database/src/committer.rs`
-- `crates/database/src/transaction.rs`
-- `crates/database/src/reads.rs`
-- `crates/model/src/session_requests/types.rs`
-- `crates/application/src/application_function_runner/mod.rs`
-
-How Flarex differs:
-
-- Flarex authenticates a remote journal with a session anchor, attempt fence,
-  protocol version, sequence, and digest. Those boundaries are unnecessary in
-  the same form inside Convex's colocated backend.
-
-Known limitations:
-
-- No new compiler protocol, planner, executor integration, SessionDO journal,
-  Payload lowerer, or Medusa lowerer is implemented by this docs checkpoint.
-
-Verification:
-
-```sh
-git diff --check
+```text
+SessionJournalV1
+  bounded logical app reads, staged logical writes, canonical result
+             |
+CommitEnvelopeV1
+  protocol version, session id, attempt fence, syscall sequence,
+  canonical journal bytes or authenticated journal reference, digest
+             |
+CommitPlannerV1
+  verified anchor/catalog/policy input -> deterministic physical plan
+             |
+PreparedCommitV1
+  internal immutable capability; never serialized over /invoke/*
+             |
+CommitExecutor
+  authority/fence checks, OCC, constraint checks, sequence allocation,
+  atomic publication, outcome, commit feed, and outbox
 ```
 
-## Correct Commit Compiler Trust And Transaction Boundaries
+The compiler is a lowering boundary, not a new authority. User code and the
+journal describe logical operations only. Trusted code derives physical rows,
+index/unique/edge sidecars, locks, change atoms, and system outbox records from
+the pinned catalog, policy, codecs, and final row bodies.
 
-Previous completed checkpoint: `01c11ab` Clarify SessionDO cache read bridge.
+### Authoritative session anchor
 
-What changed:
+Postgres retains a small authoritative anchor containing:
 
-- Replaced the earlier universal `CommitIntent` proposal with four explicit
-  boundaries: `SessionJournal`, `CommitEnvelopeV1`, trusted `CommitPlanner`, and
-  authoritative `CommitExecutor`.
-- Replaced `beginTs` ambiguity with one scope-local
-  `SnapshotToken { scopeId, epoch, commitSeq }`.
-- Limited the first SessionDO compiler slice to Flarex app operations whose
-  read-your-writes overlay is complete.
-- Kept a small authoritative Postgres session/grant anchor while allowing
-  temporary read/write journals in SessionDO SQLite.
-- Separated the generic app OCC lane, Payload adapter transaction lane, and
-  Medusa-owned transaction lane.
-- Required result-bearing idempotency, an explicit fenced session lifecycle,
-  and separate OCC, SQL, and uncertain-outcome retry behavior.
-- Removed caller-supplied physical scope, locks, unique-key rows, freshness
-  rows, and system outbox rows from the commit protocol.
+```text
+scope and storage generation/fence
+immutable package/artifact and function identity
+identity/access-policy fingerprint and inert authenticated claims
+authorization grant id, expiry, policy version, and revocation epoch
+validated canonical arguments
+schema/catalog version
+SnapshotToken and snapshot lease
+attempt fence and lifecycle state
+request/idempotency identity
+```
 
-Why it changed:
+Temporary journal placement does not change this anchor. It is needed to
+authenticate a remote journal, fence stale attempts, look up committed
+outcomes, and prevent SessionDO from becoming transaction authority.
 
-The previous direction correctly kept user code outside the final SQL
-transaction, but it gave the session intent too much authority and assumed that
-Postgres fallback could repair unsupported read-your-writes overlays. It also
-treated wall time and commit sequence as interchangeable and implied that
-Payload and Medusa operations could use the same generic journal before their
-transaction contracts were proven.
+### Snapshot contract
 
-Those assumptions would allow stale mutation reads, forged or omitted system
-side effects, ambiguous recovery after a lost response, and incorrect adapter
-semantics.
-
-## Accepted Runtime Split
-
-| Component | Owns | Must not own |
-| --- | --- | --- |
-| Postgres/PGlite trusted executor | authority scope, catalog/policy lookup, snapshots, OCC, constraints, commit tokens, committed rows, idempotency outcome, commit feed, system outbox | long-running untrusted user code |
-| Postgres session/grant anchor | scope, package/artifact, function, identity fingerprint, schema/policy version, snapshot, expiry, attempt fence, request identity | large mutation journal |
-| SessionDO SQLite | temporary syscall sequence, logical app read dependencies, supported staged app writes, journal digest, supported overlay | committed authority or physical schema facts |
-| Dynamic Worker | calls restricted generated APIs | raw SQL, raw database/DO handles, physical commit facts |
-| Cache DOs | optional committed read accelerators | mutation snapshot authority, idempotency, locks, uncommitted overlay |
-
-The current Postgres invoke-session implementation remains the compatibility
-baseline. Moving a journal to SessionDO is an optimization behind a protocol,
-not a reason to delete the authoritative session anchor. Once the replacement
-point-commit path passes `C07`, journal movement is evaluated immediately from
-hosted latency evidence rather than deferred behind index/edge sidecars.
-
-## Snapshot Contract
-
-Use one branded token everywhere:
+The replacement token is:
 
 ```ts
 type SnapshotToken = {
@@ -167,129 +161,25 @@ type SnapshotToken = {
 };
 ```
 
-Postgres obtains this token from the scope clock when it creates the attempt.
-The same scope and epoch bind read dependencies, revisions, the session anchor,
-the commit outcome, and the live-sync feed.
-
-Mutation reads mean:
+Mutation reads mean exactly:
 
 ```text
-authoritative state as of the exact SnapshotToken
-+ supported SessionDO staged-write overlay
+authoritative Postgres state as of SnapshotToken
++ the attempt's supported staged-write overlay
 ```
 
-Do not use Worker wall-clock time as the authoritative snapshot. Do not accept
-a cache value merely because its sequence is greater than the attempt's begin
-sequence. A later value can violate the earlier snapshot.
+A cache value from commit 105 cannot serve a mutation snapshot at commit 100
+merely because 105 is newer. V1 mutation/session reads use Postgres history.
+A future cache must return the MVCC version valid at the exact token and prove
+missing rows/ranges. Live queries have a different
+`requiredFreshThrough` rule owned by roadmap 21.
 
-V1 mutation reads use Postgres history. A future cache is eligible only when it
-can return the MVCC version valid at the exact snapshot and prove absent
-rows/ranges. Live queries use a separate `requiredFreshThrough` rule described
-in `design-notes/postgres-authoritative-sync.md`.
+Epoch rollover fences old attempts and forces resnapshot. It does not reset
+authoritative data or reuse scope commit/outbox sequences.
 
-Epoch rollover fences old sessions and forces subscription/client resnapshot,
-but does not reset data. Scope-local commit/outbox sequences remain monotonic
-and are never reused. Records that interpret those sequences carry epoch, and
-an old-epoch attempt cannot commit.
+### Session lifecycle
 
-## Protocol Boundaries
-
-### SessionJournal
-
-The journal stores logical, bounded facts:
-
-```ts
-type SessionJournal = {
-  protocolVersion: 1;
-  sessionId: SessionId;
-  attempt: AttemptFence;
-  nextSyscallSeq: SyscallSeq;
-  reads: readonly LogicalReadDependency[];
-  writes: readonly LogicalAppWrite[];
-  result?: EncodedFunctionResult;
-};
-```
-
-It does not store caller-authoritative physical table names, scope, actor,
-locks, constraint rows, freshness atoms, or system outbox rows.
-
-Apply incremental limits while recording each syscall, not only at finish:
-
-- encoded journal bytes;
-- read/write bytes and row counts;
-- scanned rows and index/range reads;
-- number of logical writes and domain-event requests;
-- total execution and session lease time.
-
-### CommitEnvelopeV1
-
-At finish, SessionDO sends a small authenticated reference:
-
-```ts
-type CommitEnvelopeV1 = {
-  protocolVersion: 1;
-  sessionId: SessionId;
-  attempt: AttemptFence;
-  lastSyscallSeq: SyscallSeq;
-  journalDigest: JournalDigest;
-  encodedJournal: EncodedSessionJournal;
-};
-```
-
-The executor loads the authoritative session anchor and verifies the attempt,
-digest, expiry, function, package, identity, policy, catalog, snapshot, and
-request identity before planning.
-
-The trusted executor validates arguments against the pinned authoritative
-argument validator before the attempt starts and validates the encoded return
-against the pinned return validator before commit. Dynamic Worker validation is
-only early feedback.
-The anchor stores validated canonical arguments plus an authenticated inert
-authorization grant with the claims/capabilities needed by policy, policy
-version, expiry, and revocation epoch. Policy stays pinned for the short grant
-lifetime unless the authoritative revocation epoch advances.
-
-### CommitPlanner
-
-The planner is a pure logical-to-physical lowering step after trusted catalog
-and policy lookup. It:
-
-- resolves stable logical table/index/relation/constraint identities;
-- validates logical writes against the pinned schema and write policy;
-- derives row revisions/current writes, ordered index keys, edge occurrences,
-  unique keys, typed dependency checks, change atoms, and system outbox rows;
-- invokes adapter-specific lowerers only for protocols explicitly supported;
-- sorts locks and physical writes deterministically;
-- returns typed preflight errors before the SQL transaction opens.
-
-The planner never accepts raw SQL or arbitrary physical identifiers from the
-Dynamic Worker journal.
-
-### CommitExecutor
-
-The executor owns the short physical transaction:
-
-```text
-load/lock scope commit lane and idempotency outcome
-  -> verify session attempt and pinned authority
-  -> validate typed read dependencies and constraints
-  -> allocate commit sequence
-  -> publish authoritative writes and sidecars
-  -> store successful result-bearing idempotency outcome
-  -> write commit/change atoms and system outbox
-  -> mark session committed
-  -> commit
-```
-
-All authoritative writers must acquire the scope-clock/commit-lane lock or use
-a formally equivalent serializable/fencing protocol that participates in the
-same conflict validation. Merely appending version/commit/outbox metadata is
-not sufficient. This includes migrations, backfills, admin repairs, Payload,
-and Medusa adapters.
-
-## Session Lifecycle And Recovery
-
-The state machine is:
+The accepted fenced lifecycle is:
 
 ```text
 created -> running -> finishing -> committing -> committed
@@ -300,192 +190,309 @@ created -> running -> finishing -> committing -> committed
                                        | expired
 ```
 
-Required invariants:
+An OCC retry keeps the same request anchor and storage generation, increments
+the attempt fence, replaces the snapshot lease, discards the old journal, and
+reruns deterministic user code at a new snapshot. A stale journal or Durable
+Object cannot reopen a terminal session.
 
-- one active fenced attempt owner;
-- an OCC conflict atomically moves the same request anchor through `retrying`,
-  increments its attempt fence, replaces the snapshot lease, discards the old
-  journal, and returns to `running` on the pinned storage generation;
-- monotonic syscall sequence numbers;
-- a canonical journal encoding and digest;
-- no new syscall after `finishing` begins;
-- repeated `finish` is idempotent;
-- a restart can reconstruct or reject the attempt from durable state;
-- a lost commit response is resolved from the authoritative outcome;
-- abandoned journals and sensitive values have bounded TTL cleanup;
-- committed/aborted/expired sessions cannot be reopened by a stale DO.
+### Planner and executor split
 
-A minimal authoritative snapshot lease carries:
+Before planning, trusted code verifies:
+
+- protocol version, canonical journal bytes/reference, digest, and last syscall
+  sequence;
+- session lifecycle, attempt fence, expiry, generation/fence, and snapshot;
+- package, function, schema, policy, identity, grant, and revocation state;
+- request/idempotency identity and canonical arguments; and
+- the encoded function result against the pinned authoritative return
+  validator.
+
+Only a branded verified input can reach the pure planner. The planner accepts
+no database handle, clock, network service, raw SQL, untrusted physical name,
+or transaction-specific sequence/lock fact. Identical trusted inputs produce
+equivalent deterministic plans and typed preflight errors before SQL opens.
+
+The short commit transaction then:
 
 ```text
-scope_id, session_id, begin_epoch, begin_commit_seq, storage_generation,
-storage_generation_fence, expires_at
+lock scope commit lane and look up authoritative outcome
+  -> recheck session, attempt, generation, epoch, and authority
+  -> validate typed dependencies and constraints
+  -> allocate commit/outbox sequences
+  -> publish row revisions/current rows and derived sidecars
+  -> store result-bearing idempotency outcome
+  -> write commit/change atoms and system outbox
+  -> mark session committed
+  -> commit
 ```
 
-History GC must not advance past the minimum active lease.
+Untrusted user code never runs while this transaction is open.
 
-## Read-Your-Writes Support Matrix
+## Read-Your-Writes Contract
 
-Read-your-writes is a semantic requirement, not a best-effort optimization.
+Read-your-writes is a semantic requirement, not an optimization. After a
+relevant staged write, falling back to Postgres is incorrect because Postgres
+cannot see the private journal.
 
-| Read after a relevant staged write | Initial policy |
+| Read shape after a relevant staged write | Initial replacement policy |
 | --- | --- |
-| `get(id)` for an app row | Supported by exact local overlay |
-| small app query with a proven local predicate/order overlay | May be enabled with conformance tests |
-| index/range query without complete insertion, deletion, ordering, and pagination overlay | Reject |
-| relation query without stable edge-occurrence overlay | Reject |
-| table scan | Reject |
-| Payload lifecycle/nested-field operation | Use Payload adapter lane or reject |
-| Medusa repository/query operation | Use Medusa transaction lane; never generic fallback |
+| App `get(id)` | Exact local overlay |
+| Point insert/patch/replace/delete | Exact deterministic coalesced overlay |
+| One specifically proven indexed query | Enabled only after its overlay and phantom tests pass |
+| Other index/range/relation/scan/pagination shapes | Typed rejection |
+| Payload operation | Payload adapter lane or rejection |
+| Medusa operation | Medusa transaction lane; never generic fallback |
 
-Falling back to Postgres after a relevant local write is incorrect because
-Postgres cannot see the SessionDO journal. Recording a conservative dependency
-can improve conflict detection, but it cannot repair the value already returned
-to user code.
+Each syscall enforces incremental journal, read/write byte, row, scan, syscall,
+and lease limits. Waiting until finish to reject an oversized journal is not
+sufficient.
 
-## Idempotency Contract
+## Idempotency And Recovery Contract
 
-The database uniqueness/lookup key is:
+The authoritative uniqueness key is:
 
 ```text
-scope
-client mutation/idempotency key
+(scope_id, request_key)
 ```
 
-The stored row also carries:
+The outcome also binds identity/access fingerprint, function reference, and
+canonical argument/request hash. Successful result, commit token, and relevant
+log metadata are stored atomically with data, commit/change rows, outbox, and
+committed session state.
 
-```text
-identity/access fingerprint
-function reference
-canonical argument/request hash
-```
+Repeated finish returns the stored outcome. Reusing a request key for another
+identity, function, or request hash fails. After the replay window, large
+result/log payloads may be removed, but a compact committed tombstone remains
+for the scope lifetime; late retries return `CommittedResultExpired` and never
+rerun the mutation.
 
-The successful encoded result, commit token, and relevant log metadata are
-written in the same SQL transaction as the data and commit record. Reusing the
-same key for a different identity, function, or request hash fails. After an
-uncertain network response, the executor reads and replays the stored outcome.
-
-Only the `in_progress` attempt lease expires. Committed request keys are never
-reusable. After the result replay window, clear large result/log payloads but
-retain a compact key + identity/function/hash + commit-token tombstone for the
-scope lifetime; a late retry returns `CommittedResultExpired` and never reruns
-the mutation. Tombstone compaction requires proof that the client request
-namespace is permanently retired.
-
-An index on an optional idempotency string is not sufficient. The database must
-enforce the stable uniqueness boundary.
+Storage-generation cutover imports recoverable legacy outcomes, creates
+permanent tombstones for known commits without replayable results, and rejects
+unknown legacy keys rather than risking double execution. New canonical keys
+use a server-issued namespace; this never makes an old request key reusable.
 
 ## Retry Classes
 
-Do not use one generic retry loop:
+The replacement keeps three classes separate:
 
-1. An OCC conflict means the snapshot is invalid. Discard the journal and
-   rerun deterministic user code from a new snapshot.
-2. A SQL serialization failure or deadlock before a known commit decision may
-   retry the same deterministic `CommitPlan` within a strict bound.
-3. A connection loss with an uncertain commit decision must query the
-   idempotency/session outcome before any retry.
+1. **OCC conflict:** discard the journal and rerun user code at a new exact
+   snapshot.
+2. **Known pre-decision SQL serialization/deadlock:** retry the same immutable
+   `PreparedCommitV1` within a strict bound, including PostgreSQL `40001` and
+   `40P01` where supported.
+3. **Uncertain commit outcome:** look up the authoritative idempotency/session
+   outcome before rerunning anything.
 
-Recognize both PostgreSQL serialization (`40001`) and deadlock (`40P01`) where
-the physical adapter supports them. External side effects never run inside a
-retriable mutation body or final commit.
+External side effects never run inside a retriable mutation body or final
+commit transaction.
 
-## Adapter Boundaries
+## Invariants And Trust Boundaries
 
-### Flarex App Data
+1. **Logical journals carry no physical authority.** They cannot select scope,
+   generation, catalog, SQL, locks, physical rows, freshness atoms, change
+   records, system outbox rows, or actor identity.
+2. **Postgres retains the authoritative anchor and outcome.** SessionDO may
+   store temporary bookkeeping only.
+3. **Every attempt is fenced and sequenced.** Syscall sequence is monotonic;
+   late calls after `finishing` and calls from stale attempts are rejected.
+4. **Canonical bytes and digest bind finish to the observed journal.** Unknown
+   protocol versions and forged fields fail before planning.
+5. **Arguments and results are authoritatively validated.** Dynamic Worker
+   validation is early feedback, not commit authority.
+6. **The planner is pure and deterministic.** It allocates no commit sequence,
+   timestamp, outbox identity, lock fact, or database resource.
+7. **The executor transaction is short.** No user code, service-binding call,
+   cache lookup, or unbounded operation runs inside it.
+8. **All authoritative writers share one commit lane.** Migrations, backfills,
+   repairs, Payload, and Medusa participate or use a formally equivalent
+   fencing protocol; appending metadata afterward is not equivalent.
+9. **Unsupported overlays fail closed.** Conservative dependency recording
+   cannot repair an incorrect value already returned to user code.
+10. **Result, outcome, data, commit/change atoms, and outbox are atomic.** A
+    partial success is not a committed mutation.
+11. **Retry meaning is explicit.** OCC, safe SQL retry, and uncertain outcome
+    never share one generic rerun rule.
+12. **Committed request keys are never reusable.** Expiry applies only to an
+    in-progress lease, not committed idempotency identity.
+13. **Journal cleanup is bounded and privacy aware.** Aborted, expired, and
+    committed temporary values have explicit TTL/cleanup behavior.
+14. **Host placement cannot change semantics.** Postgres-backed and optional
+    SessionDO journal stores conform to the same protocol and outcome rules.
 
-The first compiler implementation is intentionally narrow:
+## Decisions And Rationale
 
-- point CRUD over typed app row JSON;
-- deterministic row revision/current, declared index, edge occurrence, and
-  unique-key derivation;
-- exact snapshot point reads and row dependencies;
-- result-bearing idempotency and atomic commit/outbox.
+### Start with a Postgres-backed journal
 
-Index/range/edge reads are added only with complete overlay and phantom tests.
+The safest route to the replacement protocol is to prove snapshot, OCC,
+planning, finish, outcome, and recovery using the existing authoritative
+database boundary. Starting with SessionDO would combine protocol migration
+with a distributed-state optimization and make failures harder to classify.
 
-### Payload
+### Measure SessionDO immediately after C07
 
-Payload transactions are an adapter contract, not automatically a
-`SessionJournal`. Start with a small scalar CRUD/request-transaction slice over
-reserved logical Payload collections. Add relations, collection/global
-versions and drafts, polymorphic locks/auth, access rules, and hook ordering in
-separate conformance-tested slices.
+After the point-commit path passes PGlite and real-Postgres correctness, the
+hosted path measures service-binding latency, authoritative data-read latency,
+Postgres journal-persistence latency, and finish latency separately. A
+material-improvement threshold is declared before comparison.
 
-### Medusa
+If journal persistence meets that threshold, moving only the temporary journal
+to deterministic per-session DO SQLite becomes `C07A` before derived sidecars.
+Otherwise Postgres journaling may remain permanently. Either outcome preserves
+the Postgres anchor, data reads, OCC, result, idempotency, commit feed, and
+outbox.
 
-Medusa keeps its repository, transaction-manager, module, workflow, link, and
-migration semantics in a trusted Postgres transaction lane. That lane writes
-Flarex change atoms and outbox rows atomically with Medusa state.
+`DocCacheDO` and `QueryCacheDO` are unrelated committed-read optimizations and
+are not part of `C07A`.
 
-There is no general atomic `ctx.db + ctx.commerce` transaction. Commerce
-invariants and atomic extension writes belong behind a Medusa-owned
-facade/workflow. Generic app state connects through stable commerce IDs and
-transactional outbox processing.
+### Keep adapter transaction models separate
 
-## Final Transaction Optimization Order
+The generic compiler initially supports only bounded Flarex app-data
+operations. Payload requires a Payload-owned request/transaction adapter and
+feature conformance. Medusa retains its repositories, transaction manager,
+modules, links, migrations, and workflows, and later participates through a
+narrow trusted scope-commit/change/outbox capability.
 
-Optimization must follow a proven protocol:
+There is no automatic atomic `ctx.db + ctx.commerce` transaction. Commerce
+invariants belong behind Medusa-owned workflows/facades.
 
-1. Bulk persistence helpers.
-2. Typed set-based validation and write CTEs.
-3. Optional versioned database-side commit function callable only by the
-   executor role, with fixed search path and schema-qualified objects.
+### Optimize the final transaction only after conformance
 
-Do not create `select flarexdb_commit(jsonb)` before the input IR, authority
-checks, typed errors, and idempotent recovery have conformance tests.
+Use bulk helpers and typed set-based SQL first. A versioned database-side
+commit function may be considered only after the input IR, authority checks,
+typed errors, and idempotent recovery have conformance tests. Do not start with
+an opaque `flarexdb_commit(jsonb)` escape hatch.
 
-## Convex References
+## Convex Compatibility And Flarex Divergences
 
-- `../../../crates/database/src/committer.rs`
-  - validates transaction reads against writes after the begin snapshot and
-    publishes ordered updates.
-- `../../../crates/database/src/transaction.rs`
-  - transaction-local reads, writes, and read-your-writes behavior.
-- `../../../crates/database/src/reads.rs`
-  - bounded read dependency accounting.
-- `../../../crates/model/src/session_requests/types.rs`
-  - durable session-request outcomes.
-- `../../../crates/application/src/application_function_runner/mod.rs`
-  - checks prior session requests and stores successful results atomically.
+Flarex follows these Convex sources and patterns:
 
-## How Flarex Differs
+- [`../../../crates/database/src/transaction.rs`](../../../crates/database/src/transaction.rs)
+  for transaction-local reads, writes, and read-your-writes;
+- [`../../../crates/database/src/reads.rs`](../../../crates/database/src/reads.rs)
+  for bounded typed dependency accounting;
+- [`../../../crates/database/src/committer.rs`](../../../crates/database/src/committer.rs)
+  for authoritative validation, deterministic derivation, and ordered
+  publication;
+- [`../../../crates/model/src/session_requests/types.rs`](../../../crates/model/src/session_requests/types.rs)
+  for durable request outcomes; and
+- [`../../../crates/application/src/application_function_runner/mod.rs`](../../../crates/application/src/application_function_runner/mod.rs)
+  for prior-outcome lookup and atomic successful-result storage.
 
-Convex keeps its function runner, transaction state, database engine, and
-committer close together. Flarex crosses Dynamic Worker, Durable Object, and
-Postgres boundaries. The Postgres session anchor, attempt fence, digest,
-protocol version, and explicit recovery lookup are therefore required. A DO
-journal is a latency optimization, never an authority transfer.
+The necessary Flarex divergences are:
 
-## Known Limitations And Next Gate
+| Concern | Convex pattern | Flarex divergence |
+| --- | --- | --- |
+| Placement | Function runner, transaction state, database, and committer are close together. | Dynamic Worker, private executor Worker, optional SessionDO, and Postgres are separate failure domains. |
+| Journal authentication | Transaction state is internal to the backend. | Remote journal carriage needs protocol version, session identity, attempt fence, sequence, canonical bytes/reference, and digest. |
+| Session recovery | Backend request state and outcome lookup share one hosted system. | Flarex retains an authoritative Postgres anchor/outcome so DO restart or a lost response cannot duplicate a mutation. |
+| Physical lowering | Convex's integrated backend derives storage writes directly. | Flarex makes the trusted planner/executor split explicit so host adapters and untrusted journals cannot author physical/system facts. |
+| Adapter lanes | Convex app transactions operate on Convex data. | Payload and Medusa retain separate compatibility/transaction contracts instead of entering one universal journal. |
 
-- Current code still uses Postgres invoke-session staging and a wall-clock
-  `beginTs`; this document does not claim the new protocol is implemented.
-- The shared app row/index/edge schema is not yet the current storage path.
-- Exact range OCC and overlays remain unproven.
-- Payload and Medusa adapter conformance remain separate projects.
-- The per-scope commit lane is a safe v1 serialization point but may become a
-  throughput bottleneck; measure it on real Postgres before partitioning it.
+The developer-facing query/mutation mental model remains Convex-like despite
+the explicit distributed protocol.
 
-The next executor design/implementation gate is one end-to-end app point
-mutation using the scope/epoch/commit-sequence token, fenced session anchor,
-logical journal, trusted derivation, atomic result outcome, commit atoms, and
-outbox. After its real-Postgres `C07` gate, the next decision is the hosted C07A
-journal-latency receipt and conditional SessionDO move.
+## Implemented Capabilities
 
-## Verification
+The `legacy_v1` compatibility path currently proves:
 
-Docs-only checkpoint:
+- preparation and begin/finish/abort session APIs;
+- wall-clock snapshot reads and persisted document/table/index dependencies;
+- point CRUD staging, deterministic same-row coalescing, and staged point
+  overlays;
+- compatibility table/index overlays and phantom-oriented OCC checks;
+- validator enforcement for document writes;
+- one persistence transaction covering document/index publication, commit,
+  outbox, and session completion;
+- mutation rerun after commit-time OCC conflicts;
+- query finish with accumulated read sets;
+- stale-session abort and maintenance; and
+- post-commit live-query notification that does not roll back an already
+  committed mutation when notification fails.
 
-```sh
-git diff --check
+The replacement foundation also has branded scope/epoch/commit token types,
+storage-generation/fence primitives, stable catalogs, and ordered-key codec
+work in adjacent domains. Those prerequisites do not mean the new compiler or
+exact-snapshot invoke path is active.
+
+## Known Gaps And Limitations
+
+- `C01` through `C09` remain unchecked in the focused plan.
+- Current invoke sessions use wall-clock `beginTs`, not authoritative
+  `SnapshotToken` reads.
+- The legacy journal persists directly in broad Postgres invoke-session tables;
+  no versioned logical journal/envelope/digest contract exists.
+- No branded verified compiler input, pure `CommitPlannerV1`, immutable
+  `PreparedCommitV1`, or replacement `CommitExecutor` integration exists.
+- Current `commitInvokeSessionWrites` combines planning, OCC, timestamp
+  allocation, physical publication, index maintenance, commit/outbox, and
+  session completion.
+- Current retry coordination reruns whole attempts for compatibility OCC but
+  does not implement the final three-class outcome protocol.
+- The final `(scope_id, request_key)` result-bearing idempotency row,
+  committed-outcome replay, expiry tombstone, and generation-cutover rules are
+  not implemented.
+- Replacement app row revision/current, session/snapshot lease, commit/change,
+  idempotency, and leased-outbox tables remain prerequisites.
+- Exact range/relation/pagination overlays and phantom tests are incomplete.
+- Payload and Medusa adapter conformance remain separate future domains.
+- The scope-local commit lane may become a throughput bottleneck and must be
+  measured on real Postgres before any partitioning optimization.
+- No hosted journal latency threshold or `C07A` decision receipt exists.
+
+## Target Direction
+
+The target point-mutation lifecycle is:
+
+```text
+trusted preparation and exact SnapshotToken
+  -> fenced running session
+  -> bounded logical syscalls and exact supported overlay
+  -> finishing CAS and canonical journal digest
+  -> verified compiler input
+  -> pure deterministic PreparedCommitV1
+  -> short authoritative Postgres OCC/constraint transaction
+  -> atomic result, idempotency outcome, rows/sidecars,
+     commit/change feed, outbox, and committed session
+  -> replayable finish response and post-commit sync wake
 ```
 
-## Superseded Checkpoint
+The first complete outcome is intentionally narrow: one Flarex app point
+mutation through the replacement schema and exact-snapshot OCC path. It does
+not imply Payload parity, Medusa integration, arbitrary scans/ranges, cache
+reads, or legacy retirement.
 
-The original checkpoint, `fc5a78b` Document commit compiler session intent,
-established the useful idea of temporary SessionDO intent plus a short
-Postgres-authoritative final commit. It is superseded only where it used an
-ambiguous `beginTs`, allowed caller-described physical/system batches, treated
-unsupported overlay reads as Postgres fallbacks, and implied one compiler could
-cover Payload and Medusa before adapter parity.
+## Next Correctness Gates
+
+The active repository slice is still schema catalog publication `S03-D2c` in
+roadmap 20. Compiler protocol/types and pure planning may begin according to
+the interleaved foundation order, but production/canary execution waits for
+the required schema and OCC primitives.
+
+The compiler gates are:
+
+1. `C01`: extract narrow journal, catalog, planner-input, executor, and
+   post-commit ports without changing `/invoke/*` behavior.
+2. `C02`: define versioned logical dependencies/writes, `SessionJournalV1`,
+   `CommitEnvelopeV1`, immutable `PreparedCommitV1`, canonical encoding,
+   digest, fences, sequences, limits, and typed rejection.
+3. `C03`: implement point CRUD journaling, deterministic coalescing, exact
+   point overlays, and fail-closed unsupported shapes.
+4. `C04`: build authoritative envelope/anchor verification plus a pure
+   deterministic point-row planner with typed preflight errors.
+5. `C05`: execute one replacement point mutation through the complete atomic
+   OCC/outcome/commit/outbox primitive.
+6. `C06`: add fenced idempotent finish, duplicate/concurrent finish behavior,
+   restart, expiry, and lost-response outcome recovery through stable
+   `/invoke/*` endpoints.
+7. `C07`: close PGlite and real-Postgres concurrency, rollback, serialization,
+   deadlock, uncertain-outcome, and contiguous-sequence gates.
+8. `C07A`: immediately measure journal persistence and move only the temporary
+   journal to SessionDO if the predeclared material-improvement threshold is
+   met; otherwise retain Postgres journaling.
+9. `C08`: lower declared index and unique sidecars after their schema/OCC gates.
+10. `C09`: lower stable edge occurrences after relation identity and semantics
+    are frozen.
+
+Each gate updates this roadmap only when it changes durable status,
+architecture, gaps, direction, or correctness criteria. Commit and verification
+history remains in Git and task reports.
