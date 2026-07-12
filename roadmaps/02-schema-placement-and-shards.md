@@ -1,5 +1,64 @@
 # Schema Placement And Shards
 
+## Keep Optimistic Binding Plans In Deployment Catalog Authority
+
+Previous completed checkpoint: `cd7cec2` Freeze semantic table definition
+contracts.
+
+What changed:
+
+- Planned app table IDs from deployment-owned `fx_control_table` bindings and
+  its deployment-wide numeric high-water mark without introducing a scope or
+  physical-placement field.
+- Revalidated the opaque plan only after locking the owning deployment. Exact
+  replay is accepted; changed mappings/frontier and partial application fail
+  before inserting missing IDs.
+- Reused the ordinary stable-table allocator's package-internal catalog
+  frontier/next-ID policy and added an environment-gated real-Postgres lane for
+  lock-wait visibility and competing plans.
+- Kept plan application internal so no control-plane binding is independently
+  published before the later immutable artifact transaction.
+
+Why it changed:
+
+Schema binding belongs to deployment identity authority, before any scope is
+located. The optimistic boundary avoids holding that deployment lock through
+hashing and avoids inventing a data-plane or Durable Object schema copy.
+
+Convex references inspected:
+
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/database/src/database.rs`
+- `crates/common/src/schemas/json.rs`
+
+How Flarex differs:
+
+- Convex's table mapping and pending schema share one database transaction.
+  Flarex embeds planned IDs in canonical bytes, so it observes optimistically,
+  hashes outside SQL, and must revalidate/co-publish in B2b2.
+
+Known limitations and follow-up:
+
+- No scope/data-plane placement, active pointer, cache, RLS, Payload/Medusa
+  physical strategy, or split-database behavior changed.
+- The binding-only real-Postgres suite is present but skipped locally because
+  `FLAREX_POSTGRES_DATABASE_URL` is unset. B2b2 owns atomic mapping/artifact
+  publication and its combined real-Postgres concurrency proof.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestTableBindings.test.ts test/stableTableCatalog.test.ts test/schemaVersionArtifacts.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestTableBindings.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Keep Versioned Table Definitions In The Deployment Artifact
 
 Previous completed checkpoint: `00e15c7` Require evidence-first design review.

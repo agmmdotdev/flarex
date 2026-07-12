@@ -10,6 +10,7 @@ import {
 export const MAX_CATALOG_SCHEMA_VERSION = 2_147_483_647;
 export const MAX_SCHEMA_MANIFEST_NESTING_DEPTH = 128;
 export const MAX_SCHEMA_MANIFEST_APP_IDENTIFIER_LENGTH = 64;
+export const MAX_SCHEMA_MANIFEST_APP_TABLES = 10_000;
 
 const NonBlankPostgresText = Schema.String.check(
   Schema.makeFilter((value) =>
@@ -67,6 +68,9 @@ export const SchemaManifestAppTableNameSchema =
   );
 export type SchemaManifestAppTableName =
   typeof SchemaManifestAppTableNameSchema.Type;
+export const decodeSchemaManifestAppTableName = Schema.decodeUnknownSync(
+  SchemaManifestAppTableNameSchema,
+);
 
 const StrictManifestStructOptions: {
   readonly parseOptions: {
@@ -100,9 +104,58 @@ export const SchemaManifestAppTableDefinitionV1Schema = Schema.Struct({
 export type SchemaManifestAppTableDefinitionV1 =
   typeof SchemaManifestAppTableDefinitionV1Schema.Type;
 
+export const SchemaManifestAppTableDeclarationV1Schema = Schema.Struct({
+  logicalName: SchemaManifestAppTableNameSchema,
+  definition: SchemaManifestAppDocumentDefinitionV1Schema,
+}).annotate(StrictManifestStructOptions);
+export type SchemaManifestAppTableDeclarationV1 =
+  typeof SchemaManifestAppTableDeclarationV1Schema.Type;
+export type SchemaManifestAppTableDeclarationInputV1 =
+  typeof SchemaManifestAppTableDeclarationV1Schema.Encoded & {
+    readonly tableId?: never;
+    readonly namespace?: never;
+  };
+
+const SchemaManifestAppTableDeclarationsV1Schema = Schema.Array(
+  SchemaManifestAppTableDeclarationV1Schema,
+).check(
+  Schema.isMaxLength(MAX_SCHEMA_MANIFEST_APP_TABLES),
+  Schema.makeFilter((tables) =>
+    validateSchemaManifestDeclarationIdentities(tables)
+  ),
+);
+
+const SchemaManifestAppTableCountSchema = Schema.Int.check(
+  Schema.isBetween({
+    minimum: 0,
+    maximum: MAX_SCHEMA_MANIFEST_APP_TABLES,
+  }),
+);
+
+const decodeSchemaManifestAppTableCount = Schema.decodeUnknownSync(
+  SchemaManifestAppTableCountSchema,
+);
+
+const decodeSchemaManifestAppTableDeclarationsV1Shape =
+  Schema.decodeUnknownSync(
+    SchemaManifestAppTableDeclarationsV1Schema,
+    { onExcessProperty: "error" },
+  );
+
+export function decodeSchemaManifestAppTableDeclarationsV1(
+  value: unknown,
+): ReadonlyArray<SchemaManifestAppTableDeclarationV1> {
+  preflightSchemaManifestAppTableArray(value);
+  const wrapper = decodeSchemaManifestJson({ declarations: value });
+  return decodeSchemaManifestAppTableDeclarationsV1Shape(
+    wrapper.declarations,
+  );
+}
+
 const SchemaManifestAppTableDefinitionsV1Schema = Schema.Array(
   SchemaManifestAppTableDefinitionV1Schema,
 ).check(
+  Schema.isMaxLength(MAX_SCHEMA_MANIFEST_APP_TABLES),
   Schema.makeFilter((tables) => validateSchemaManifestTableOrder(tables)),
 );
 
@@ -122,6 +175,7 @@ const decodeSchemaManifestTableDefinitionsV1Shape = Schema.decodeUnknownSync(
 export function decodeSchemaManifestTableDefinitionsV1(
   value: unknown,
 ): SchemaManifestTableDefinitionsV1 {
+  preflightSchemaManifestTableDefinitions(value);
   return decodeSchemaManifestTableDefinitionsV1Shape(
     decodeSchemaManifestJson(value),
   );
@@ -208,6 +262,22 @@ export function isSchemaManifestJson(
     !Array.isArray(value);
 }
 
+function preflightSchemaManifestTableDefinitions(value: unknown): void {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return;
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(value, "tables");
+  if (descriptor !== undefined && "value" in descriptor) {
+    preflightSchemaManifestAppTableArray(descriptor.value);
+  }
+}
+
+function preflightSchemaManifestAppTableArray(value: unknown): void {
+  if (Array.isArray(value)) {
+    decodeSchemaManifestAppTableCount(value.length);
+  }
+}
+
 function validateSchemaManifestTableOrder(
   tables: ReadonlyArray<{
     readonly tableId: CatalogTableId;
@@ -237,6 +307,19 @@ function validateSchemaManifestTableOrder(
     logicalIdentities.add(logicalIdentity);
   }
 
+  return undefined;
+}
+
+function validateSchemaManifestDeclarationIdentities(
+  tables: ReadonlyArray<SchemaManifestAppTableDeclarationV1>,
+): string | undefined {
+  const logicalNames = new Set<SchemaManifestAppTableName>();
+  for (const table of tables) {
+    if (logicalNames.has(table.logicalName)) {
+      return "Expected unique app table logical-name declarations";
+    }
+    logicalNames.add(table.logicalName);
+  }
   return undefined;
 }
 

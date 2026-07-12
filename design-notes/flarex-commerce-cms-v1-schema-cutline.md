@@ -361,12 +361,14 @@ PostgreSQL `jsonb` is not checksum input. The artifact has no mutable status.
 S03-D owns later validation lifecycle, and the scope's sole active-version
 pointer changes only after required index backfills and validation succeed.
 
-S03-B2a now freezes only the semantic app-document table-definition section.
-S03-B2b must resolve its names through stable `fx_control_table` identities,
-sort by numeric table ID, and persist the B1 artifact. This cutline does not
-imply that the artifact normalizes or activates field, relation, constraint,
-or index definitions, and it does not authorize a second table-definition
-copy.
+S03-B2a freezes only the semantic app-document table-definition section.
+S03-B2b1 now plans stable IDs optimistically from the current
+`fx_control_table` bindings and high-water mark, then revalidates that opaque
+plan under the deployment lock before inserting exact IDs. S03-B2b2 must hash
+the planned section outside SQL and compose plan application with B1 artifact
+insertion in one transaction. This cutline does not authorize standalone ID
+reservation, a second table-definition copy, or field/relation/constraint/index
+activation.
 
 Accepted S03-B2a table-definition section (using conceptual short catalog
 names in this cutline):

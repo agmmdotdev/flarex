@@ -1,9 +1,9 @@
 # FlarexDB Schema And Migration Plan
 
 Status: S01 through S02-C, resolve-only S02-D1, and catalog checkpoints S03-A,
-S03-B1, and S03-B2a complete; hosted-proof H01-H04 and H05-A complete, while
-H05-B and S02-D2 production routing are deferred as core work proceeds to
-S03-B2b
+S03-B1, S03-B2a, and S03-B2b1 complete; hosted-proof H01-H04 and H05-A
+complete, while H05-B and S02-D2 production routing are deferred as core work
+proceeds to S03-B2b2
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -398,6 +398,11 @@ Progress:
   - [ ] S03-B2b — Resolve/allocate stable catalog IDs, verify name bindings,
     assemble the section deterministically, and persist the existing B1
     artifact.
+    - [x] S03-B2b1 — Prepare an opaque deterministic binding plan and add the
+      transaction-only stale-check/exact-ID application primitive.
+    - [ ] S03-B2b2 — Canonicalize the planned section outside SQL, then apply
+      the plan and insert/replay the B1 artifact atomically with bounded stale
+      retries.
 - [ ] S03-C — Add stable index identities, immutable index definitions, and
   per-scope build state.
 - [ ] S03-D — Compile and verify normalized catalog state transactionally and
@@ -415,6 +420,8 @@ Outcome:
   `fx_control_index_build_state`.
 - Compile the manifest transactionally and verify the normalized catalog against
   its checksum; do not independently edit normalized rows.
+- Keep plan application internal until B2b2 composes it with artifact insertion;
+  never publish naked ID reservations as a successful schema operation.
 - Activate a schema only after required index backfill/validation succeeds.
 
 Exit gate:
@@ -683,6 +690,100 @@ corepack pnpm --filter flarex-protocol build
 corepack pnpm --filter @flarex/analysis typecheck
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-dev typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
+#### S03-B2b1 Implementation Checkpoint
+
+Previous completed checkpoint: `cd7cec2` Freeze semantic table definition
+contracts.
+
+What changed:
+
+- Added a strict unbound app-table declaration contract derived from the B2a
+  name/definition schemas. It forbids caller table IDs/namespaces, rejects
+  duplicates and excess fields, and ports Convex's 10,000-user-table ceiling
+  before recursive JSON/element decoding or any catalog planning.
+- Added an internal PostgreSQL/PGlite optimistic binding planner. It validates
+  every declaration, sorts missing names with locale-independent ASCII/UTF-16
+  ordering, observes current app bindings plus the deployment-wide catalog
+  high-water mark, assigns candidate compact IDs, emits an ID-ordered decoded
+  `tableDefinitions` section, and recursively freezes the exposed plan.
+- Centralized deployment-wide catalog high-water reads and checked next-ID
+  allocation in one package-internal helper shared by the ordinary stable-table
+  allocator and schema binding planner so their hashed-ID policy cannot drift.
+- Added an opaque transaction-only apply primitive. It locks the deployment,
+  re-reads exact name bindings, accepts exact replay, rejects changed frontier,
+  changed bindings, or partial prior application with typed stale-plan errors,
+  and inserts only repository-planned IDs. It never commits or hashes.
+- Kept the primitive out of the public persistence facade and package root.
+  B2b2 must compose it with artifact insertion in one outer transaction; this
+  checkpoint adds no standalone successful reservation workflow.
+- Added focused protocol and PGlite proofs for input exclusion, deterministic
+  candidate allocation, existing-ID preservation, numeric final ordering,
+  exact replay, invalid-before-SQL behavior, every typed stale branch,
+  rollback, empty schemas, missing deployment, opaque plan authentication,
+  package-root/facade non-export, and absence of schema-artifact writes.
+- Added an environment-gated real-Postgres suite for concurrent exact replay,
+  competing same-frontier plans, and post-lock visibility when the existing
+  catalog allocator wins first. It is part of `test:postgres`.
+
+Why it changed:
+
+Stable IDs are part of Flarex's canonical manifest bytes, but B1 correctly
+forbids canonicalization and Web Crypto under the deployment lock. A naive
+two-transaction binder would leave committed IDs if artifact persistence
+failed. The optimistic plan lets B2b2 hash outside SQL and then atomically
+revalidate/apply mappings with the immutable artifact, retrying from
+preparation when the observed catalog changed.
+
+Convex sources inspected:
+
+- `crates/application/src/deploy_config.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/database/src/database.rs`
+- `crates/application/src/schema_worker/mod.rs`
+- `crates/common/src/bootstrap_model/schema_metadata.rs`
+- `crates/common/src/schemas/json.rs`
+
+How Flarex differs:
+
+- Convex evaluates schema code before SQL, then creates missing mappings and
+  its Pending name-keyed schema row in one transaction. It does not embed table
+  IDs or hash canonical schema bytes.
+- Flarex plans IDs optimistically because those IDs affect the hash. The final
+  B2b2 transaction must revalidate the opaque plan and co-publish mappings plus
+  artifact, preserving Convex's atomic publication boundary without holding a
+  lock during hashing.
+
+Known limitations and follow-up:
+
+- B2b2 still owns artifact preparation, same-transaction plan application plus
+  artifact insertion/replay, stale-plan retry bounds, and the final public
+  trusted API. The internal apply primitive must not be exposed alone.
+- The real-Postgres binding concurrency suite was added but skipped in this
+  local run because `FLAREX_POSTGRES_DATABASE_URL` is unset and the installed
+  local server requires credentials. B2b2 must extend that lane to prove
+  mapping-plus-artifact atomicity, not repeat the binding-only cases.
+- Catalog lifetime quotas across repeated distinct failed schema attempts need
+  a public-routing policy even with the per-schema 10,000-table cap.
+- Analyzer routing, indexes, relation/constraint validation, activation, OCC,
+  rows, commit compilation, sync, Payload, Medusa, and Cloudflare remain out of
+  scope.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/schema-manifest-table-definitions.test.ts
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestTableBindings.test.ts test/stableTableCatalog.test.ts test/schemaVersionArtifacts.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestTableBindings.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
 corepack pnpm check:effect-boundaries
 git diff --check
 ```

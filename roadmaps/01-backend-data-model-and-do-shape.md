@@ -1,5 +1,66 @@
 # Backend Data Model And Durable Object Shape
 
+## Plan Stable Table Bindings Before Atomic Artifact Publication
+
+Previous completed checkpoint: `cd7cec2` Freeze semantic table definition
+contracts.
+
+What changed:
+
+- Added an internal optimistic planner that turns validated app declarations
+  into stable-ID candidates and one frozen, ID-ordered semantic table section.
+- Added a caller-owned transaction primitive that locks the deployment,
+  revalidates the observed catalog frontier/name bindings, accepts exact
+  replay, rejects stale or partial plans, and inserts only opaque planned IDs.
+- Shared one package-internal high-water/checked next-ID policy with the
+  ordinary stable-table allocator and added real-Postgres contention cases to
+  the environment-gated correctness lane.
+- Added no table, migration, active pointer, per-table definition copy, Durable
+  Object state, or schema artifact row.
+
+Why it changed:
+
+The stable IDs affect canonical manifest bytes, while hashing cannot run under
+the database lock. Optimistic preparation lets the later artifact transaction
+co-publish exact mappings and the artifact without a naked reservation phase.
+
+Convex references inspected:
+
+- `crates/application/src/deploy_config.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/database/src/database.rs`
+
+How Flarex differs:
+
+- Convex creates missing mappings and its Pending name-keyed schema row in one
+  transaction. Flarex must first plan IDs because they are inside its hashed
+  artifact, then revalidate the plan in that same eventual publication tx.
+
+Known limitations and follow-up:
+
+- B2b2 must bind the internal apply primitive to B1 artifact preparation and
+  insertion with bounded stale retries. Until then it remains off the public
+  persistence facade.
+- The binding-only real-Postgres suite is present but skipped locally because
+  `FLAREX_POSTGRES_DATABASE_URL` is unset. B2b2 still owns real-Postgres
+  co-publication concurrency; analyzer routing, indexes, activation, rows,
+  OCC, Payload, and Medusa remain deferred.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestTableBindings.test.ts test/stableTableCatalog.test.ts test/schemaVersionArtifacts.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestTableBindings.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Freeze One Semantic Table-Definition Source
 
 Previous completed checkpoint: `00e15c7` Require evidence-first design review.

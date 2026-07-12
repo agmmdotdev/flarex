@@ -1,5 +1,68 @@
 # Postgres Executor
 
+## Prepare Stable-ID Plans Outside The Locked Publication Transaction
+
+Previous completed checkpoint: `cd7cec2` Freeze semantic table definition
+contracts.
+
+What changed:
+
+- Added a framework-neutral, internal optimistic plan over current stable table
+  bindings and the catalog high-water mark. The plan exposes a recursively
+  frozen semantic section that a later slice can hash outside SQL.
+- Added a short transaction primitive that locks/revalidates and applies exact
+  planned IDs or returns a typed stale-plan failure. It performs no hashing,
+  analyzer execution, host routing, artifact insertion, or commit.
+- Shared the stable catalog's internal high-water/next-ID allocation policy and
+  added environment-gated real-Postgres contention cases for exact replay,
+  competing plans, and post-lock allocator visibility.
+- Kept the Promise/Drizzle repository boundary; the package has no Effect
+  runtime and no new runtime bridge was introduced.
+
+Why it changed:
+
+B1 preparation must remain outside SQL, but stable IDs are not known until the
+catalog is observed. Optimistic revalidation is the narrow seam that lets B2b2
+compose mapping and artifact publication atomically without holding Postgres
+open across Web Crypto.
+
+Convex references inspected:
+
+- `crates/application/src/deploy_config.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/database/src/database.rs`
+- `crates/common/src/bootstrap_model/schema_metadata.rs`
+
+How Flarex differs:
+
+- Convex's schema JSON is name-keyed and can be written with mappings in one
+  transaction directly. Flarex's artifact hash includes stable IDs, so it uses
+  an optimistic plan and stale retry before the equivalent atomic commit.
+
+Known limitations and follow-up:
+
+- B2b2 must create the combined trusted preparation/transaction API and keep
+  the internal apply primitive inaccessible on its own.
+- The real-Postgres binding suite was added but skipped locally because
+  `FLAREX_POSTGRES_DATABASE_URL` is unset; its combined mapping/artifact proof
+  remains a B2b2 exit condition.
+- No Fetch/Nitro/Worker route, Hyperdrive, artifact persistence, OCC, row,
+  compiler, sync, Payload, Medusa, or Cloudflare deployment behavior changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestTableBindings.test.ts test/stableTableCatalog.test.ts test/schemaVersionArtifacts.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestTableBindings.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Freeze Host-Neutral Semantic Table Definitions
 
 Previous completed checkpoint: `00e15c7` Require evidence-first design review.

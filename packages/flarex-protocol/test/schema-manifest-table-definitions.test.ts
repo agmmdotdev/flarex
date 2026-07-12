@@ -3,7 +3,11 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import type { CatalogTableId } from "../src/catalog";
 import {
   canonicalizeSchemaManifestV1,
+  decodeSchemaManifestAppTableDeclarationsV1,
   decodeSchemaManifestTableDefinitionsV1,
+  MAX_SCHEMA_MANIFEST_APP_TABLES,
+  type SchemaManifestAppTableDeclarationInputV1,
+  type SchemaManifestAppTableDeclarationV1,
   type SchemaManifestAppTableDefinitionV1,
   type SchemaManifestAppTableName,
   type SchemaManifestTableDefinitionsV1,
@@ -12,6 +16,15 @@ import type { ObjectValidatorJsonV1 } from "../src/validator-json";
 
 describe("FlarexDB semantic table-definition manifest section", () => {
   it("keeps stable table IDs and logical names nominal", () => {
+    type BoundDeclaration = SchemaManifestAppTableDeclarationV1 & {
+      readonly tableId: CatalogTableId;
+      readonly namespace: "app";
+    };
+    type BoundDeclarationAccepted = BoundDeclaration extends
+      SchemaManifestAppTableDeclarationInputV1
+      ? true
+      : false;
+
     expectTypeOf<SchemaManifestAppTableDefinitionV1["tableId"]>()
       .toEqualTypeOf<CatalogTableId>();
     expectTypeOf<
@@ -21,6 +34,56 @@ describe("FlarexDB semantic table-definition manifest section", () => {
     expectTypeOf<SchemaManifestAppTableName>().toMatchTypeOf<string>();
     expectTypeOf<string>()
       .not.toMatchTypeOf<SchemaManifestAppTableName>();
+    expectTypeOf<BoundDeclarationAccepted>().toEqualTypeOf<false>();
+  });
+
+  it("decodes strict unbound app declarations before catalog planning", () => {
+    const declarations = decodeSchemaManifestAppTableDeclarationsV1([
+      appDeclaration("users"),
+      appDeclaration("products"),
+    ]);
+
+    expectTypeOf(declarations)
+      .toEqualTypeOf<ReadonlyArray<SchemaManifestAppTableDeclarationV1>>();
+    expect(declarations).toEqual([
+      appDeclaration("users"),
+      appDeclaration("products"),
+    ]);
+
+    for (const declaration of [
+      { ...appDeclaration("users"), tableId: 1 },
+      { ...appDeclaration("users"), namespace: "app" },
+      { ...appDeclaration("users"), placement: { kind: "global" } },
+    ]) {
+      expect(() =>
+        decodeSchemaManifestAppTableDeclarationsV1([declaration]),
+      ).toThrow();
+    }
+    expect(() =>
+      decodeSchemaManifestAppTableDeclarationsV1([
+        appDeclaration("users"),
+        appDeclaration("users"),
+      ]),
+    ).toThrow(/unique app table logical-name declarations/);
+  });
+
+  it("caps app tables before recursively decoding their elements", () => {
+    const declarations: unknown[] = Array.from(
+      { length: MAX_SCHEMA_MANIFEST_APP_TABLES + 1 },
+      (_, index) => appDeclaration(`table_${String(index).padStart(5, "0")}`),
+    );
+    declarations[0] = null;
+
+    expect(() =>
+      decodeSchemaManifestAppTableDeclarationsV1(declarations),
+    ).toThrow(/10000/);
+    expect(() =>
+      decodeSchemaManifestTableDefinitionsV1({
+        kind: "tableDefinitions",
+        sectionVersion: 1,
+        tables: declarations,
+      }),
+    ).toThrow(/10000/);
   });
 
   it("decodes an app-document section with stable ordered table bindings", () => {
@@ -324,6 +387,17 @@ function appTable(tableId: number, logicalName: string): AppTableInput {
       documentType: objectDocumentType(),
     },
   };
+}
+
+function appDeclaration(logicalName: string) {
+  return {
+    logicalName,
+    definition: {
+      kind: "appDocument",
+      definitionVersion: 1,
+      documentType: objectDocumentType(),
+    },
+  } satisfies SchemaManifestAppTableDeclarationInputV1;
 }
 
 function objectDocumentType(): AppDocumentTypeInput {

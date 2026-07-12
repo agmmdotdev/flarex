@@ -250,6 +250,35 @@ real compiler contract, and Payload/Medusa variants must be derived from their
 own source schemas rather than being disguised as app document validators.
 Extending the closed section requires an explicit semantic-version change.
 
+S03-B2b uses an optimistic prepare/commit boundary because stable IDs are part
+of the canonical bytes, while canonicalization and Web Crypto must stay outside
+SQL locks:
+
+```text
+validate declarations and cap app tables at 10,000
+  -> read current bindings and catalog high-water mark without a lock
+  -> assign deterministic candidate IDs in ASCII name order
+  -> assemble the ID-ordered semantic section
+  -> canonicalize/hash outside SQL
+  -> lock the deployment and revalidate the opaque binding plan
+  -> insert the exact planned missing IDs and immutable artifact together
+```
+
+Any conflicting binding, partial application, or catalog high-water change
+while every planned missing row remains absent makes the plan stale before
+insertion; the caller rolls back and restarts preparation. A fully exact prior
+application is replayable even if unrelated allocations later advanced the
+frontier. The internal B2b1 apply helper never commits and is not a public
+persistence facade. B2b2 must compose it with artifact insertion in the same
+transaction. A standalone "reserve IDs, then best-effort the artifact" flow
+is not accepted.
+
+Convex evaluates source/schema code before SQL, then creates missing table
+mappings and its Pending schema row in one transaction. Flarex preserves that
+atomic publication invariant through optimistic revalidation because, unlike
+Convex's name-keyed schema JSON, the Flarex canonical artifact embeds stable
+numeric IDs.
+
 An index definition carries its ordered-key codec version and lifecycle:
 
 ```text

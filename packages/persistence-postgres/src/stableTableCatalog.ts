@@ -1,15 +1,25 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
   decodeCatalogTableId,
   decodeCatalogTableNamespace,
-  MAX_CATALOG_TABLE_ID,
   type CatalogTableId,
   type CatalogTableNamespace,
 } from "flarex-protocol/catalog";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { deployments, fxControlTables } from "./schema";
+import {
+  nextStableTableCatalogId,
+  readStableTableCatalogHighWater,
+  StableTableCatalogCorruptionError,
+  StableTableCatalogIdExhaustedError,
+} from "./stableTableCatalogAllocation";
+
+export {
+  StableTableCatalogCorruptionError,
+  StableTableCatalogIdExhaustedError,
+} from "./stableTableCatalogAllocation";
 
 export interface StableTableIdentityName {
   readonly deploymentId: string;
@@ -61,23 +71,6 @@ export class StableTableCatalogDeploymentNotFoundError extends Error {
   }
 }
 
-export class StableTableCatalogIdExhaustedError extends Error {
-  constructor(readonly deploymentId: string) {
-    super(`Stable table identity space is exhausted for deployment: ${deploymentId}`);
-    this.name = "StableTableCatalogIdExhaustedError";
-  }
-}
-
-export class StableTableCatalogCorruptionError extends Error {
-  constructor(
-    readonly deploymentId: string,
-    readonly detail: string,
-  ) {
-    super(`Stable table catalog is corrupt for ${deploymentId}: ${detail}`);
-    this.name = "StableTableCatalogCorruptionError";
-  }
-}
-
 /**
  * Allocate or replay one deployment-scoped logical table identity.
  *
@@ -108,20 +101,11 @@ export async function ensureStableTableIdentityInTransaction(
     return { status: "existing", table: existing };
   }
 
-  const latestRows = await tx
-    .select({ tableId: fxControlTables.tableId })
-    .from(fxControlTables)
-    .where(eq(fxControlTables.deploymentId, name.deploymentId))
-    .orderBy(desc(fxControlTables.tableId))
-    .limit(1);
-  const latestTableId = latestRows[0]?.tableId;
-  if (latestTableId === MAX_CATALOG_TABLE_ID) {
-    throw new StableTableCatalogIdExhaustedError(name.deploymentId);
-  }
-  const tableId = decodeTableId(
+  const latestTableId = await readStableTableCatalogHighWater(
+    tx,
     name.deploymentId,
-    latestTableId === undefined ? 1 : latestTableId + 1,
   );
+  const tableId = nextStableTableCatalogId(name.deploymentId, latestTableId);
   const inserted = await tx
     .insert(fxControlTables)
     .values({ ...name, tableId })
