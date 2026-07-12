@@ -1,8 +1,9 @@
 # FlarexDB Foundation Execution Plans
 
-Status: S01 through S02-C, resolve-only S02-D1, and S03-A through S03-C2 are
-complete. Hosted-proof H01-H04 and H05-A are complete, while H05-B and S02-D2
-production routing are deferred as core work proceeds to S05-A.
+Status: S01 through S02-C, resolve-only S02-D1, S03-A through S03-C2, and the
+interleaved S05-A prerequisite are complete. Hosted-proof H01-H04 and H05-A are
+complete, while H05-B and S02-D2 production routing are deferred as core work
+proceeds to S03-C3.
 
 This folder turns the accepted FlarexDB architecture into small, reviewable,
 commit-sized implementation turns. It is intentionally limited to the
@@ -214,15 +215,16 @@ commit are complete.
    stable-ID plan/revalidation primitive, and S03-B2b2 added the bounded atomic
    mapping-plus-artifact facade plus its real-Postgres correctness proof.
    S03-C1 then froze the new composite app-schema envelope and separated stable
-   logical index identity from the still-deferred physical definition/build
-   identity. S03-C2 now persists the deployment-scoped logical catalog and one
-   opaque table/index optimistic plan without a standalone reservation path.
-   S05-A is next: it freezes the ordered physical spec/codec before S03-C3/C4
-   add immutable physical definitions and fenced build state. Atomic V2
-   publication remains S03-D work.
+   logical index identity from physical definition/build identity. S03-C2
+   persists the deployment-scoped logical catalog and one opaque table/index
+   optimistic plan without a standalone reservation path. Interleaved S05-A
+   has now frozen ordered physical spec/codec v1 and passed focused PGlite and
+   real-Postgres byte-order/composite-B-tree proofs. S03-C3 is next, followed by
+   fenced build-state C4. Atomic V2 publication remains S03-D work.
 4. `S04` migrate active-schema pointer authority while mirroring legacy reads.
-5. `S05` freeze tagged value and ordered-key codecs; its narrow S05-A ordered
-   index prerequisite is interleaved after S03-C2 and before S03-C3.
+5. `S05` freeze tagged value and ordered-key codecs. Its narrow S05-A ordered
+   index prerequisite is complete; S05-B remains later full row-value-codec
+   work.
 6. `O01` add typed OCC contracts and narrow ports.
 7. `O02` issue exact snapshots while retaining legacy `beginTs` only inside the
    legacy adapter.

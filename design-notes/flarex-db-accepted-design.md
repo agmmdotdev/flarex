@@ -190,10 +190,11 @@ physical-type authority.
   recovery path. Avoid overlapping indexes unless query plans prove both are
   necessary. Partial indexes, BRIN, hash partitioning, and scope promotion are
   measured physical options, not unconditional v1 requirements.
-- The ordered-key codec has an enforced maximum encoded size. Equality hashes
-  cannot substitute for ordered bytes in range scans, and oversized compound
-  keys must fail deterministically rather than discover the B-tree tuple limit
-  in production.
+- Ordered-key codec v1 permits at most 2,048 encoded field-tuple bytes. The
+  separate exact 16-byte row identity is not part of that ceiling. Equality
+  hashes cannot substitute for ordered bytes in range scans, and an oversized
+  tuple fails with `OrderedIndexKeyTooLargeError` before SQL rather than
+  discovering the B-tree tuple limit in production.
 
 The migration must preserve a reversible mapping from legacy public IDs to the
 new compact physical representation. Public ID stability is required even when
@@ -233,9 +234,9 @@ entries or a build. A field, kind, predicate, or ordered-key-codec change must
 produce a separate immutable physical definition/build identity so the old
 enabled index and its replacement can coexist. Per-scope build state and app
 index-entry rows key that physical identity, never `logical_index_id` alone.
-The compact representation of the physical identity is deliberately deferred
-until the ordered-key codec contract is frozen; one ID must not serve both
-roles.
+S05-A has frozen ordered-key codec v1 and the separate fixed 16-byte row
+identity representation. C3 still must choose the compact immutable
+`index_definition_id`; one ID must not serve both logical and physical roles.
 
 The `*_definition` names above describe semantic roles, not a requirement for
 one physical catalog table per role. In the accepted v1 table path,
@@ -323,11 +324,13 @@ ordered field lists per table.
 
 Developer index descriptors use Convex's 64-byte ASCII identifier rules and
 reserve `_...`, `by_id`, and `by_creation_time`. V1 accepts at most 64
-developer indexes per table and 15 declared fields per developer index: the
-later physical spec appends `_creationTime`, while `_id` remains the implicit
-final tie-breaker, matching Convex's 16-field effective limit. System field
-paths are forbidden in developer declarations. Field-existence validation
-against the table validator remains trusted compiler work.
+developer indexes per table and 15 declared fields per developer index. S05-A
+lowers those fields and appends trusted `systemCreationTime`; `_id` is the
+implicit final tie-breaker represented by a separate exact 16-byte row
+identity. This preserves Convex's 16-field effective limit without exposing
+either system component in developer declarations. System field paths are
+forbidden in developer declarations. Field-existence validation against the
+table validator remains trusted compiler work.
 
 C1 also caps one app manifest at 10,000 developer index declarations. This is
 an intentional Flarex resource-safety divergence: Convex's portable semantic
@@ -370,6 +373,38 @@ bindings were atomically published. Tables insert before indexes for foreign-key
 order, the caller owns commit/rollback, and neither the plan/apply helper nor an
 allocator is a supported root/facade operation. S03-D must later compose this
 primitive with immutable V2 artifact insertion and fresh-plan stale retry.
+
+S05-A accepts `AppOrderedIndexPhysicalSpecV1` as the replacement app ordered
+index contract. A developer access path contains its declared document paths
+followed by `systemCreationTime`; `by_creation_time` contains only that trusted
+system field; and `by_id` has an empty encoded field tuple and orders directly
+by row identity. The creation time is a positive float64 millisecond value
+below 2^53 supplied by trusted storage, never read from developer JSON.
+
+Ordered-key codec v1 closely ports Convex's portable order: missing, null,
+signed int64, float64 by exact sortable IEEE-754 bits, false, true, binary UTF-8
+string, bytes, array, then object. Missing is valid only as a top-level indexed
+field result. Nested data is canonical, limited to 64 levels, and object field
+names are at most 1,024 non-control ASCII bytes and cannot start with `$`.
+`binaryUtf8` is the only app-index-v1 collation; locale-aware ordering requires
+a later adapter-owned physical spec and codec version.
+
+The persisted total position is `(encoded_key, row_id)`: `encoded_key` is the
+at-most-2,048-byte ordered field tuple and `row_id` is the separate exact
+16-byte tie-breaker. Half-open range bounds apply to encoded field bytes;
+duplicate encoded keys order by the row identity column. Any change to these
+bytes, lowering rules, collation, or ceiling requires a new codec version and
+new immutable physical definition. Legacy unversioned key bytes must be
+rebuilt from authoritative rows, never reinterpreted as v1. This checkpoint is
+not the general persisted row-value codec; S05-B remains open.
+
+Bounds are distinct opaque bytes and may be 2,049 bytes. An exact complete
+tuple uses `key || 0x00` as its exclusive endpoint. A partial tuple uses
+`key || 0x16`: `0x16` is above every v1 top-level value tag and below the
+reserved `0xff` NUL escape. This deliberate Flarex correction prevents a
+partial equality such as `"a"` from admitting `"a\0"` (and the equivalent
+bytes/empty-object cases). Do not use Convex's broad raw prefix increment for
+v1 component equality, `gt`, or `lte` endpoints.
 
 An immutable physical index definition carries its ordered-key codec version.
 Mutable lifecycle belongs only to per-scope build state:

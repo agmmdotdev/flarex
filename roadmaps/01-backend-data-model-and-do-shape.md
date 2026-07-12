@@ -1,5 +1,69 @@
 # Backend Data Model And Durable Object Shape
 
+## Separate Encoded Index Fields From Compact Row Identity
+
+Previous completed checkpoint:
+`8c9b3ba` Define generated relations and managed schema deploys.
+
+Previous completed index-foundation checkpoint:
+`9fe45b5153e1917c6375aff980081cb68acc188a` Persist stable logical index catalog.
+
+What changed:
+
+- Froze replacement index position as `(encoded_key, row_id)`, where the
+  encoded ordered field tuple is at most 2,048 bytes and row identity is a
+  separate exact 16-byte value.
+- Froze physical specs that pin access path, ordered field sources, separate
+  tie-breaker, codec v1, `binaryUtf8`, and the byte ceiling. This does not pick
+  UUIDv7 or any other internal row-ID generator.
+- Added pure protocol proofs plus temporary PGlite and real-Postgres composite
+  B-tree proofs. No production database row or Durable Object shape changed.
+
+Why it changed:
+
+Duplicating the public document ID in encoded bytes and a physical column would
+widen every entry and confuse logical with physical identity. The separate
+compact suffix preserves deterministic order while leaving the eventual ID
+generator and public mapping as explicit later decisions.
+
+Convex references inspected:
+
+- `crates/value/src/document_id.rs`
+- `crates/value/src/id_v6.rs`
+- `crates/value/src/sorting.rs`
+- `crates/common/src/index.rs`
+- `crates/common/src/document.rs`
+- `crates/common/src/bootstrap_model/index/database_index/indexed_fields.rs`
+
+How Flarex differs:
+
+Convex appends its developer ID as an encoded string. Flarex keeps only ordered
+field values in the capped key and uses a separate raw 16-byte row identity in
+the physical total position. Legacy DO/Postgres bytes remain compatibility v0.
+
+Known limitations and follow-up:
+
+- C3/C4 still own immutable physical definition identity/DDL and fenced build
+  state. Entry storage, row storage, compiler wiring, OCC, and activation are
+  absent.
+- Direct `by_id` query endpoints, the internal row-ID generator, durable cursor
+  formats, Payload/Medusa adapters, and legacy rebuilding remain later work.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/ordered-index.test.ts --no-file-parallelism
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/orderedIndexKeyCodec.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/orderedIndexKeyCodec.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Persist Stable Logical Index Identity Without Physical State
 
 Previous completed checkpoint: `3104aa1` Freeze logical index manifest
@@ -43,8 +107,8 @@ How Flarex differs:
 
 Known limitations and follow-up:
 
-- S05-A must freeze ordered physical keys before S03-C3/C4 add definitions and
-  fenced per-scope build state. S03-D later owns atomic V2 artifact publication.
+- S05-A has frozen ordered physical keys. S03-C3/C4 now add definitions and
+  fenced per-scope build state; S03-D later owns atomic V2 artifact publication.
 - No rows, index entries, OCC, backfill, activation, analyzer, Payload/Medusa,
   runtime route, Cloudflare deployment, or legacy cleanup changed.
 
@@ -94,8 +158,8 @@ Convex references inspected:
 How Flarex differs:
 
 - Convex uses a logical table/descriptor pair plus a physical metadata-document
-  ID. Flarex retains a compact logical numeric ID for protocol/compiler use but
-  defers the distinct physical identity until its key codec is frozen.
+  ID. Flarex retains a compact logical numeric ID for protocol/compiler use;
+  with the key codec now frozen, C3 chooses the distinct physical identity.
 - No Durable Object shape changed; DO index tables remain legacy compatibility
   scaffolding, not replacement authority.
 

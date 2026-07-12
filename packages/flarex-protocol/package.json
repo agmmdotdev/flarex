@@ -17,6 +17,7 @@
     "./invoke": "./src/invoke.ts",
     "./json": "./src/json.ts",
     "./live-query": "./src/live-query.ts",
+    "./ordered-index": "./src/ordered-index.ts",
     "./partition": "./src/partition.ts",
     "./registry": "./src/registry.ts",
     "./scheduler": "./src/scheduler.ts",

@@ -439,9 +439,13 @@ Replacement-design correction: stable logical index identity is
 deployment-scoped, while entries and builds need a separate physical definition
 identity. The earlier scope-scoped one-ID sketch could not keep an old enabled
 spec beside a changed backfilling spec. S03-C1 froze the logical manifest
-contract and S03-C2 now implements only `fx_control_index`. The physical
-definition, schema binding, and build-state sketches remain conceptual until
-the ordered-key codec and physical identity representation are accepted.
+contract and S03-C2 implements only `fx_control_index`. S05-A has now accepted
+ordered physical spec v1, codec v1, an at-most-2,048-byte encoded field tuple,
+and the separate exact 16-byte row identity. Physical definition identity/DDL,
+schema binding, and build state remain conceptual C3/C4 work.
+
+The SQL below remains a cutline sketch. C3 must derive its immutable definition
+shape from the accepted S05-A physical spec rather than copy this text as DDL.
 
 Suggested shape:
 
@@ -511,6 +515,10 @@ table = productReviews
 fields = [product, status, createdAt]
 index_definition_id = <physical revision>
 ```
+
+Those example fields are the logical developer declaration. Its physical
+ordered fields additionally end in trusted `systemCreationTime`, while the
+row identity remains a separate 16-byte final tie-breaker.
 
 ### `fx_relation_def`: defer
 
@@ -665,16 +673,20 @@ fx_index_entry_current (
   epoch text not null,
   index_definition_id <compact physical identity> not null,
   table_id int not null,
-  row_id text not null,
-  key_prefix bytea not null,
-  key_suffix bytea,
+  row_id bytea not null check (octet_length(row_id) = 16),
+  encoded_key bytea not null check (octet_length(encoded_key) <= 2048),
   key_sha256 bytea not null,
   key_codec_version integer not null,
-  locale text,
   commit_seq bigint not null,
-  primary key (scope_id, index_definition_id, key_sha256, row_id)
+  primary key (scope_id, index_definition_id, encoded_key, row_id)
 );
 ```
+
+This remains conceptual until the later entry-table slice. App-index v1 uses
+one bounded `encoded_key`, so it has no Convex-style key suffix. It pins
+`binaryUtf8`, so ambient or per-row locale is not part of this physical key;
+locale-aware Payload indexes require a separate future physical spec. The hash
+is optional equality/audit metadata and cannot replace ordered bytes.
 
 ### `fx_index_entry_rev`: keep if OCC/index-range reads are v1
 

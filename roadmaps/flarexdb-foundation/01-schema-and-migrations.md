@@ -1,9 +1,9 @@
 # FlarexDB Schema And Migration Plan
 
-Status: S01 through S02-C, resolve-only S02-D1, and catalog checkpoints S03-A
-through S03-C2 complete. Hosted-proof H01-H04 and H05-A are complete, while
-H05-B and S02-D2 production routing are deferred as core work proceeds to the
-S05-A ordered-index prerequisite.
+Status: S01 through S02-C, resolve-only S02-D1, catalog checkpoints S03-A
+through S03-C2, and the interleaved S05-A ordered-index prerequisite are
+complete. Hosted-proof H01-H04 and H05-A are complete, while H05-B and S02-D2
+production routing are deferred as core work proceeds to S03-C3.
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -410,9 +410,9 @@ Progress:
     logical index identity, and the closed composite app-schema envelope.
   - [x] S03-C2 — Add the deployment-scoped stable logical index catalog and
     opaque table/index optimistic planner without a standalone reservation API.
-  - [ ] S03-C3 — After S05-A, add immutable physical definition/schema-binding
-    DDL and choose a compact definition-generation identity that permits
-    old/new builds to coexist.
+  - [ ] S03-C3 — With S05-A complete, add immutable physical
+    definition/schema-binding DDL and choose a compact definition-generation
+    identity that permits old/new builds to coexist.
   - [ ] S03-C4 — Add fenced per-scope build-state DDL/read contracts; mutation
     and publication remain S03-D work.
 - [ ] S03-D — Compile and verify normalized catalog state transactionally and
@@ -1065,9 +1065,9 @@ Known limitations and follow-up:
 - C2 does not publish a V2 schema artifact and adds no retry coordinator. S03-D
   must later bind this internal plan to canonical full-envelope artifact
   insertion and retry only fresh typed stale attempts.
-- S05-A is now the next checkpoint. It must freeze physical ordered fields,
-  `_creationTime`/implicit `_id` lowering, key codec/version, comparisons, byte
-  bounds, and fixtures before C3 chooses physical definition identity/DDL.
+- S05-A subsequently froze physical ordered fields, trusted `_creationTime`,
+  separate implicit `_id`, key codec/version, comparisons, byte bounds, and
+  fixtures. C3 can now choose physical definition identity/DDL.
 - Physical index definitions, per-scope build state, entries, backfill,
   activation, analyzer/compiler integration, Payload/Medusa compilation,
   Cloudflare routing/deployment, and legacy cleanup remain excluded. S03-C as a
@@ -1111,7 +1111,7 @@ Exit gate:
 
 Progress:
 
-- [ ] S05-A — Freeze the ordered app-index physical spec and key codec first,
+- [x] S05-A — Freeze the ordered app-index physical spec and key codec first,
   including `_creationTime` augmentation, implicit `_id` tie-breaking, byte
   bounds, comparisons, and golden fixtures. S03-C3 depends on this checkpoint.
 - [ ] S05-B — Freeze the full tagged Flarex value codec needed by app rows and
@@ -1123,7 +1123,8 @@ Outcome:
   bigint, bytes, special numeric values, deterministic object ordering, and
   stable hashing.
 - Implement a versioned ordered compound-index key codec with bound encoding,
-  locale handling, and row-ID tie-breaking.
+  an explicit collation policy, and row-ID tie-breaking. S05-A pins
+  `binaryUtf8`; locale-aware indexes remain adapter-specific future work.
 - Store codec versions with rows/index definitions where interpretation depends
   on them.
 
@@ -1134,6 +1135,95 @@ Exit gate:
   booleans, numbers, bigint, bytes, compound values, and special values;
 - changing codec bytes requires a new version and a migration, not a silent
   rewrite.
+
+#### S05-A Implementation Checkpoint
+
+Previous completed repository checkpoint:
+`8c9b3ba` - `Define generated relations and managed schema deploys`.
+
+Previous completed index-foundation checkpoint:
+`9fe45b5153e1917c6375aff980081cb68acc188a` -
+`Persist stable logical index catalog`.
+
+What changed:
+
+- Added the controlled `flarex-protocol/ordered-index` subpath with strict
+  developer, `by_creation_time`, and direct `by_id` physical specs. Developer
+  paths lower to their document fields plus trusted `systemCreationTime`; the
+  final exact 16-byte row identity remains a separate tie-breaker.
+- Added ordered-key codec v1 with immutable branded byte values plus distinct
+  raw-key, canonical-key, bound, and row-ID representations; exact
+  Convex-derived tagged bytes; strict canonical decoding; typed terminal
+  failures; bounded input preflights; and half-open range compilation.
+- Fixed a Convex boundary ambiguity rather than copying it: partial tuple
+  endpoints append reserved byte `0x16`, above every v1 value tag and below the
+  `0xff` NUL escape, while an exact full tuple ends at `key || 0x00`. This keeps
+  `"a"`, bytes ending at `a`, and `{}` distinct from their escaped extensions.
+- Fixed the complete encoded field-tuple ceiling at 2,048 bytes, with a
+  2,049-byte maximum bound and a separate exact 16-byte row identity. Golden
+  tests cover special float bits, int64 widths, strings/NULs, bytes, arrays,
+  objects, malformed encodings, accessor/sparse/cycle rejection, lowering,
+  positions, and bounds.
+- Proved bytewise order and half-open scans in PGlite. A disposable PostgreSQL
+  18.3 composite B-tree on `(scope_id, index_definition_id, encoded_key,
+  row_id)` accepted the exact ceiling and preserved duplicate-key row-ID order.
+
+Why it changed:
+
+C3 cannot assign an immutable physical definition identity until ordered
+fields, creation-time rules, codec bytes, collation, byte ceiling, tie-breaker,
+and endpoints are immutable. Freezing them first prevents one physical ID from
+silently changing interpretation during backfill or activation.
+
+Convex sources inspected:
+
+- `crates/value/src/sorting.rs`
+- `crates/common/src/index.rs`
+- `crates/common/src/bootstrap_model/index/database_index/indexed_fields.rs`
+- `crates/application/src/lib.rs`
+- `crates/common/src/document.rs`
+- `crates/common/src/query.rs`
+- `crates/common/src/interval/key.rs`
+- `crates/common/src/interval/bounds.rs`
+- `crates/database/src/system_tables.rs`
+- `crates/postgres/src/sql.rs`
+
+How Flarex differs:
+
+- Convex appends the developer ID inside its encoded key and can split storage
+  after a 2,500-byte prefix. Flarex rejects complete encoded field tuples above
+  2,048 bytes and orders the separate compact 16-byte row identity afterward.
+- Flarex pins `binaryUtf8`, the ceiling, and the separate tie-breaker in the
+  physical spec. Locale-aware behavior requires another physical spec/version.
+- Flarex's partial tuple sentinel closes the escaped-NUL prefix ambiguity in
+  Convex's broad byte-prefix increment while retaining its portable value
+  ordering and full-tuple `key || 0x00` rule.
+
+Known limitations and follow-up:
+
+- No physical definition identity/DDL, schema binding, build state, index-entry
+  table, hashing, compiler/analyzer wiring, row-value codec, backfill,
+  activation, Payload/Medusa, Cloudflare, or legacy replacement was added.
+- `by_id` uses direct row identity and therefore needs a later row-ID point/range
+  API; `OrderedIndexBoundsV1` is a transient v1 query value, not a durable
+  cursor or read-dependency format. Exact pagination frontiers remain S10 work.
+- The final internal row-ID generator remains open. Legacy unversioned key
+  bytes must be rebuilt from authoritative rows rather than decoded as v1.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/ordered-index.test.ts --no-file-parallelism
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/orderedIndexKeyCodec.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/orderedIndexKeyCodec.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
 
 ### [ ] S06 — Add App Row Revision And Current Storage
 
@@ -1459,8 +1549,10 @@ Known limitations and follow-up:
 - no migration or runtime representation changes in this checkpoint;
 - existing SQL sketches still contain logical `text` declarations and must be
   compiled through the normative type policy rather than copied verbatim;
-- the final app internal-ID generator, encoded-key byte ceiling, partition
-  trigger, and index budget require benchmark-backed follow-up slices;
+- the final app internal-ID generator, production entry-index budget/query
+  plans, and partition trigger require benchmark-backed follow-up slices;
+- S05-A has since fixed the v1 encoded field-tuple ceiling at 2,048 bytes,
+  excluding the separate exact 16-byte row identity;
 - actual DDL must prove reversible legacy-ID mapping and stable public IDs.
 
 Verification:

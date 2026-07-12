@@ -1,5 +1,67 @@
 # Postgres Executor
 
+## Prove Ordered Index Bytes At The Postgres Boundary
+
+Previous completed checkpoint:
+`8c9b3ba` Define generated relations and managed schema deploys.
+
+Previous completed index-foundation checkpoint:
+`9fe45b5153e1917c6375aff980081cb68acc188a` Persist stable logical index catalog.
+
+What changed:
+
+- Added no migration or production repository method. Temporary PGlite and
+  real-Postgres tables exercised the future composite order
+  `(scope_id, index_definition_id, encoded_key, row_id)`.
+- Both lanes proved half-open bytea scans, escaped-prefix exclusion, and
+  duplicate encoded-key ordering by separate row identity.
+- PostgreSQL 18.3 accepted an exact 2,048-byte encoded key in that composite
+  B-tree plus the separately constrained exact 16-byte row identity.
+
+Why it changed:
+
+The fail-closed ceiling must be proven against the representative Postgres
+B-tree shape before C3 embeds it in immutable physical definitions. PGlite
+proves fast semantic parity; real Postgres proves the actual tuple-size and
+byte-order boundary.
+
+Convex references inspected:
+
+- `crates/postgres/src/sql.rs`
+- `crates/common/src/index.rs`
+- `crates/common/src/query.rs`
+- `crates/common/src/interval/key.rs`
+- `crates/value/src/sorting.rs`
+
+How Flarex differs:
+
+Convex stores a 2,500-byte prefix plus suffix/hash support for larger keys.
+Flarex uses a smaller complete 2,048-byte field-tuple ceiling, no suffix for
+app-index v1, and a separate 16-byte row identity. The focused proof table is
+not production DDL or a query-plan claim.
+
+Known limitations and follow-up:
+
+- C3/C4 still own physical definitions and build state. S10 owns entry tables,
+  exact pagination/read-dependency formats, plans, and production range reads.
+- No Worker, Hyperdrive, HTTP/Nitro bridge, Payload/Medusa, analyzer, backfill,
+  activation, or legacy behavior changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/ordered-index.test.ts --no-file-parallelism
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/orderedIndexKeyCodec.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/orderedIndexKeyCodec.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Add The Trusted Logical Index Catalog Boundary
 
 Previous completed checkpoint: `3104aa1` Freeze logical index manifest
@@ -50,9 +112,9 @@ Known limitations and follow-up:
 
 - C2 has no public full-schema persistence method and does not canonicalize or
   insert a V2 artifact. S03-D must compose those operations atomically.
-- S05-A, C3, and C4 still own physical codec/definitions/build state. Analyzer,
-  Payload/Medusa, OCC rows, sync, Cloudflare deployment, and legacy cleanup are
-  excluded.
+- S05-A now owns the frozen physical codec. C3 and C4 still own immutable
+  definitions and build state. Analyzer, Payload/Medusa, OCC rows, sync,
+  Cloudflare deployment, and legacy cleanup are excluded.
 
 Verification:
 

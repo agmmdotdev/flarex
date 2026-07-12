@@ -1,5 +1,74 @@
 # Indexes
 
+## Freeze The Replacement Ordered App-Index Codec
+
+Previous completed checkpoint:
+`8c9b3ba` Define generated relations and managed schema deploys.
+
+Previous completed index-foundation checkpoint:
+`9fe45b5153e1917c6375aff980081cb68acc188a` Persist stable logical index catalog.
+
+What changed:
+
+- Added strict physical lowering for developer indexes and intrinsic
+  `by_creation_time`/direct `by_id` paths without changing the C1 logical
+  manifest. Trusted creation time is encoded after declared fields; the exact
+  16-byte row identity stays separate.
+- Added canonical ordered values with immutable branded byte values, strict
+  byte encoding/decoding, branded raw versus canonical keys, 2,049-byte bound
+  values, `(encodedKey, rowId)` total positions, bounded input preflights,
+  typed terminal errors, and half-open range compilation.
+- Froze the complete encoded field-tuple ceiling at 2,048 bytes, `binaryUtf8`
+  collation, and exact golden vectors. Escaped-prefix regressions prove partial
+  endpoints use `0x16`, while exact full tuples use `key || 0x00`.
+
+Why it changed:
+
+A logical descriptor can survive changed fields, but each physical byte/spec
+generation must remain immutable while old and new builds coexist. C3 therefore
+needs this byte contract before it allocates physical definition identity.
+
+Convex references inspected:
+
+- `crates/value/src/sorting.rs`
+- `crates/common/src/index.rs`
+- `crates/common/src/query.rs`
+- `crates/common/src/interval/key.rs`
+- `crates/common/src/bootstrap_model/index/database_index/indexed_fields.rs`
+- `crates/application/src/lib.rs`
+- `crates/common/src/document.rs`
+- `crates/database/src/system_tables.rs`
+
+How Flarex differs:
+
+- Convex encodes its developer ID into the key and its Postgres storage may
+  split after a 2,500-byte prefix. Flarex fails closed above 2,048 field bytes
+  and orders the separate compact 16-byte row identity afterward.
+- Flarex reserves `0x16` as the partial-component endpoint so escaped NUL or
+  empty-object-field extensions cannot leak into equality/range results.
+
+Known limitations and follow-up:
+
+- No physical definition/build/entry table, query integration, analyzer field
+  extraction, backfill, activation, Payload/Medusa, or legacy rewiring exists.
+- `by_id` needs a separate row-ID point/range API. These bounds are transient
+  query values, not durable cursors or OCC dependency records.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/ordered-index.test.ts --no-file-parallelism
+corepack pnpm --filter flarex-protocol test
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/orderedIndexKeyCodec.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/orderedIndexKeyCodec.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Persist And Plan Stable Logical Index Bindings
 
 Previous completed checkpoint: `3104aa1` Freeze logical index manifest
@@ -42,17 +111,19 @@ How Flarex differs:
 
 - Convex's logical identity is the ordered table/descriptor name and physical
   incarnations are `_index` metadata documents. Flarex maps that logical name
-  to a compact numeric ID but still defers physical identity/codec to C3.
+  to a compact numeric ID; S05-A now freezes its codec, while C3 still chooses
+  physical definition identity/DDL.
 - Convex persists `by_id` and `by_creation_time` metadata automatically.
   Flarex v1 keeps both intrinsic; C2 writes no rows and consumes no logical IDs
-  for them. Developer fields also remain unlowered until S05-A.
+  for them. C2 keeps developer fields logical; S05-A now owns their separate
+  physical lowering.
 
 Known limitations and follow-up:
 
 - No physical definition, schema-definition binding, build state, entry row,
   query planner, backfill, readiness, or activation behavior exists yet.
-- S05-A is next, then S03-C3/C4. Full-envelope canonical publication and stale
-  retry belong to S03-D, not this internal transaction primitive.
+- S05-A is complete; S03-C3/C4 are next. Full-envelope canonical publication
+  and stale retry belong to S03-D, not this internal transaction primitive.
 
 Verification:
 
