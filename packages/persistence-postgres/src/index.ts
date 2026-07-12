@@ -89,6 +89,10 @@ import type {
   RecordLiveQueryDeliveryFailureInput,
   RecordLiveQueryDeliveryFailureResult,
 } from "./liveQueryDeliveries";
+import type {
+  EnsureAppSchemaVersionArtifactV1Input,
+  EnsureAppSchemaVersionArtifactV1Result,
+} from "./appSchemaVersionArtifacts";
 export { sql } from "drizzle-orm";
 
 export interface QueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
@@ -130,6 +134,9 @@ export interface FlarexRuntimePersistence
   updateDeploymentMetadataActivation(
     input: UpdateDeploymentMetadataActivationInput,
   ): Promise<DeploymentMetadataRecord | null>;
+  ensureAppSchemaVersionArtifactV1(
+    input: EnsureAppSchemaVersionArtifactV1Input,
+  ): Promise<EnsureAppSchemaVersionArtifactV1Result>;
   insertScopeMetadata(
     input: InsertScopeMetadataInput,
   ): Promise<ScopeMetadataRecord>;
@@ -265,8 +272,41 @@ export * from "./deployments";
 export * from "./scopeMetadata";
 export * from "./scopeMetadataTypes";
 export * from "./scopeAuthorityResolution";
-export * from "./schemaVersionArtifacts";
-export * from "./stableTableCatalog";
+export {
+  getSchemaVersionArtifactById,
+  getSchemaVersionArtifactByVersion,
+  InvalidSchemaVersionArtifactInputError,
+  SchemaManifestChecksumCollisionError,
+  SchemaVersionArtifactConflictError,
+  SchemaVersionArtifactCorruptionError,
+  SchemaVersionArtifactDeploymentNotFoundError,
+  SchemaVersionArtifactPreparationError,
+  type EnsureSchemaVersionArtifactInput,
+  type EnsureSchemaVersionArtifactResult,
+  type SchemaVersionArtifact,
+  type SchemaVersionArtifactConflict,
+  type SchemaVersionArtifactIdentity,
+} from "./schemaVersionArtifacts";
+export {
+  getStableTableIdentityById,
+  getStableTableIdentityByName,
+  InvalidStableTableIdentityInputError,
+  StableTableCatalogCorruptionError,
+  StableTableCatalogDeploymentNotFoundError,
+  StableTableCatalogIdExhaustedError,
+  type EnsureStableTableIdentityInput,
+  type EnsureStableTableIdentityResult,
+  type StableTableIdentity,
+  type StableTableIdentityName,
+} from "./stableTableCatalog";
+export {
+  AppSchemaVersionArtifactRetryExhaustedError,
+  InvalidAppSchemaVersionArtifactV1InputError,
+  MAX_APP_SCHEMA_VERSION_ARTIFACT_ATTEMPTS,
+  type EnsureAppSchemaVersionArtifactV1Input,
+  type EnsureAppSchemaVersionArtifactV1Result,
+  type InvalidAppSchemaVersionArtifactV1InputIssue,
+} from "./appSchemaVersionArtifacts";
 export {
   ScopeClockCorruptionError,
   type ScopeClockRecord,

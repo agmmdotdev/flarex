@@ -1,10 +1,7 @@
-import { setTimeout as delay } from "node:timers/promises";
-
 import {
   type SchemaManifestAppTableDeclarationInputV1,
   type SchemaManifestTableDefinitionsV1,
 } from "flarex-protocol/schema-manifest";
-import type { PoolClient } from "pg";
 import { describe, expect, it } from "vitest";
 
 import type { PostgresFlarexPersistence } from "../src/postgres";
@@ -19,8 +16,11 @@ import {
   getStableTableIdentityByName,
 } from "../src/stableTableCatalog";
 import {
+  acquirePostgresDeploymentLock,
   postgresUrl,
+  waitForBlockedPostgresDeploymentLocks,
   withTemporaryPostgresPersistence,
+  type HeldPostgresDeploymentLock,
 } from "./postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
@@ -37,13 +37,16 @@ describePostgres("real Postgres schema manifest table bindings", () => {
           tables: [appDeclaration("users"), appDeclaration("products")],
         },
       );
-      const locker = await acquireDeploymentLock(persistence, deploymentId);
+      const lock = await acquirePostgresDeploymentLock(
+        persistence,
+        deploymentId,
+      );
       const applications = [
         apply(persistence, plan),
         apply(persistence, plan),
       ] as const;
 
-      await releaseAfterBlocked(locker, persistence, 2, applications);
+      await releaseAfterBlocked(lock, persistence, 2, applications);
       await expect(Promise.all(applications)).resolves.toEqual([
         plan.section,
         plan.section,
@@ -74,13 +77,16 @@ describePostgres("real Postgres schema manifest table bindings", () => {
           tables: [appDeclaration("products")],
         }),
       ]);
-      const locker = await acquireDeploymentLock(persistence, deploymentId);
+      const lock = await acquirePostgresDeploymentLock(
+        persistence,
+        deploymentId,
+      );
       const applications = [
         apply(persistence, usersPlan),
         apply(persistence, productsPlan),
       ] as const;
 
-      await releaseAfterBlocked(locker, persistence, 2, applications);
+      await releaseAfterBlocked(lock, persistence, 2, applications);
       const outcomes = await Promise.allSettled(applications);
       const fulfilled = outcomes.filter(
         (outcome) => outcome.status === "fulfilled",
@@ -129,7 +135,10 @@ describePostgres("real Postgres schema manifest table bindings", () => {
           tables: [appDeclaration("users"), appDeclaration("products")],
         },
       );
-      const locker = await acquireDeploymentLock(persistence, deploymentId);
+      const lock = await acquirePostgresDeploymentLock(
+        persistence,
+        deploymentId,
+      );
       const allocation = persistence.drizzle.transaction((tx) =>
         ensureStableTableIdentityInTransaction(tx, {
           deploymentId,
@@ -141,18 +150,18 @@ describePostgres("real Postgres schema manifest table bindings", () => {
       let released = false;
       let setupError: unknown;
       try {
-        await waitForBlockedDeploymentLocks(persistence, 1);
+        await waitForBlockedPostgresDeploymentLocks(persistence, lock, 1);
         application = attemptApply(persistence, plan);
-        await waitForBlockedDeploymentLocks(persistence, 2);
-        await locker.query("commit");
+        await waitForBlockedPostgresDeploymentLocks(persistence, lock, 2);
+        await lock.client.query("commit");
         released = true;
       } catch (error) {
         setupError = error;
       } finally {
         if (!released) {
-          await locker.query("rollback").catch(() => undefined);
+          await lock.client.query("rollback").catch(() => undefined);
         }
-        locker.release();
+        lock.client.release();
       }
 
       if (setupError !== undefined) {
@@ -194,32 +203,8 @@ describePostgres("real Postgres schema manifest table bindings", () => {
   }, 30_000);
 });
 
-async function acquireDeploymentLock(
-  persistence: PostgresFlarexPersistence,
-  deploymentId: string,
-): Promise<PoolClient> {
-  const client = await persistence.pool.connect();
-  try {
-    await client.query("begin");
-    await client.query(
-      `
-        select 1
-        from deployments
-        where deployment_id = $1
-        for update
-      `,
-      [deploymentId],
-    );
-    return client;
-  } catch (error) {
-    await client.query("rollback").catch(() => undefined);
-    client.release();
-    throw error;
-  }
-}
-
 async function releaseAfterBlocked(
-  locker: PoolClient,
+  lock: HeldPostgresDeploymentLock,
   persistence: PostgresFlarexPersistence,
   expectedBlocked: number,
   operations: ReadonlyArray<Promise<unknown>>,
@@ -227,44 +212,25 @@ async function releaseAfterBlocked(
   let released = false;
   let setupError: unknown;
   try {
-    await waitForBlockedDeploymentLocks(persistence, expectedBlocked);
-    await locker.query("commit");
+    await waitForBlockedPostgresDeploymentLocks(
+      persistence,
+      lock,
+      expectedBlocked,
+    );
+    await lock.client.query("commit");
     released = true;
   } catch (error) {
     setupError = error;
   } finally {
     if (!released) {
-      await locker.query("rollback").catch(() => undefined);
+      await lock.client.query("rollback").catch(() => undefined);
     }
-    locker.release();
+    lock.client.release();
   }
   if (setupError !== undefined) {
     await Promise.allSettled(operations);
     throw setupError;
   }
-}
-
-async function waitForBlockedDeploymentLocks(
-  persistence: PostgresFlarexPersistence,
-  expectedBlocked: number,
-): Promise<void> {
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    const result = await persistence.query<{ blocked: number }>(
-      `
-        select count(*)::int as blocked
-        from pg_stat_activity
-        where wait_event_type = 'Lock'
-          and query ilike '%from "deployments"%'
-          and query ilike '%for update%'
-      `,
-    );
-    if ((result.rows[0]?.blocked ?? 0) >= expectedBlocked) return;
-    await delay(25);
-  }
-  throw new Error(
-    `Timed out waiting for ${expectedBlocked} blocked deployment locks.`,
-  );
 }
 
 async function insertDeployment(

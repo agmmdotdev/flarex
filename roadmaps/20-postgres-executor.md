@@ -1,5 +1,73 @@
 # Postgres Executor
 
+## Compose Mapping And Artifact Registration Behind One Facade
+
+Previous completed checkpoint: `4ef6f0c` Prepare stable schema table bindings.
+
+What changed:
+
+- Added `ensureAppSchemaVersionArtifactV1` to the host-neutral persistence
+  facade. PGlite, pooled Postgres, and connected-client drivers inject a trusted
+  Drizzle transaction repository without widening the public SQL transaction
+  callback.
+- Built the B1 artifact only from the frozen B2b1 section and retained both
+  child tokens inside one private combined token. Callers cannot swap a valid
+  plan and valid artifact from different schema attempts.
+- Narrowed root exports to remove the B1 write helper and stable-table allocator.
+  Concrete adapter Drizzle/schema access remains a privileged backend escape
+  hatch for migrations/tests, not a supported publication API.
+- Added a three-total-attempt stale-only coordinator. A stale attempt rolls
+  back, then repeats plan preparation, canonical encoding, SHA-256, and the
+  short transaction; terminal errors are not remapped or retried.
+- Consolidated the Postgres lock barrier around the exact blocker backend and
+  its transitive wait queue instead of globally counting matching query text.
+
+Why it changed:
+
+The executor-facing persistence boundary needs one safe registration call, not
+separate mapping and artifact calls whose successful commits could diverge.
+Hashing stays outside SQL while the final cross-table invariant remains atomic.
+
+Convex references inspected:
+
+- `crates/application/src/deploy_config.rs`
+- `crates/model/src/components/config.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/database/src/database.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex retries selected database OCC failures around its whole schema
+  callback. This Flarex slice retries only its typed stale binding plan and
+  keeps SQL failures terminal; immutable registration does not port Convex's
+  Pending-schema overwrite lifecycle.
+
+Known limitations and follow-up:
+
+- No analyzer/compiler caller, HTTP/Nitro/Worker route, Hyperdrive behavior,
+  activation, index build, row/OCC path, Payload, Medusa, sync, or Cloudflare
+  deployment behavior changed.
+- Real-Postgres co-publication, stale-rehash, and conflict-rollback pass against
+  a disposable PostgreSQL 18.3 cluster; all eight focused B1/B2b1/B2b2 tests
+  pass and the cluster is removed after the run.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaVersionArtifacts.test.ts test/schemaManifestTableBindings.test.ts test/schemaVersionArtifacts.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaVersionArtifacts.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter @flarex/executor-worker typecheck
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Prepare Stable-ID Plans Outside The Locked Publication Transaction
 
 Previous completed checkpoint: `cd7cec2` Freeze semantic table definition
@@ -41,11 +109,11 @@ How Flarex differs:
 
 Known limitations and follow-up:
 
-- B2b2 must create the combined trusted preparation/transaction API and keep
-  the internal apply primitive inaccessible on its own.
+- Resolved by the B2b2 checkpoint above: the combined trusted facade now owns
+  preparation/transaction composition while the apply primitive stays hidden.
 - The real-Postgres binding suite was added but skipped locally because
-  `FLAREX_POSTGRES_DATABASE_URL` is unset; its combined mapping/artifact proof
-  remains a B2b2 exit condition.
+  `FLAREX_POSTGRES_DATABASE_URL` is unset; B2b2 added the combined
+  mapping/artifact proof to the same gated lane.
 - No Fetch/Nitro/Worker route, Hyperdrive, artifact persistence, OCC, row,
   compiler, sync, Payload, Medusa, or Cloudflare deployment behavior changed.
 

@@ -1,9 +1,9 @@
 # FlarexDB Schema And Migration Plan
 
-Status: S01 through S02-C, resolve-only S02-D1, and catalog checkpoints S03-A,
-S03-B1, S03-B2a, and S03-B2b1 complete; hosted-proof H01-H04 and H05-A
-complete, while H05-B and S02-D2 production routing are deferred as core work
-proceeds to S03-B2b2
+Status: S01 through S02-C, resolve-only S02-D1, and catalog checkpoints S03-A
+through S03-B2 complete. Hosted-proof H01-H04 and H05-A are complete, while
+H05-B and S02-D2 production routing are deferred as core work proceeds to
+S03-C.
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -391,16 +391,16 @@ Progress:
   behavior.
 - [x] S03-B1 — Persist immutable schema-version artifacts, canonical manifest
   bytes, and SHA-256 checksums without lifecycle or activation behavior.
-- [ ] S03-B2 — Bind stable table identities to immutable versioned table
+- [x] S03-B2 — Bind stable table identities to immutable versioned table
   definitions without a second persisted definition copy.
   - [x] S03-B2a — Freeze the strict, composable app-document table-definition
     section and deterministic ordering/uniqueness rules.
-  - [ ] S03-B2b — Resolve/allocate stable catalog IDs, verify name bindings,
+  - [x] S03-B2b — Resolve/allocate stable catalog IDs, verify name bindings,
     assemble the section deterministically, and persist the existing B1
     artifact.
     - [x] S03-B2b1 — Prepare an opaque deterministic binding plan and add the
       transaction-only stale-check/exact-ID application primitive.
-    - [ ] S03-B2b2 — Canonicalize the planned section outside SQL, then apply
+    - [x] S03-B2b2 — Canonicalize the planned section outside SQL, then apply
       the plan and insert/replay the B1 artifact atomically with bounded stale
       retries.
 - [ ] S03-C — Add stable index identities, immutable index definitions, and
@@ -718,8 +718,8 @@ What changed:
   changed bindings, or partial prior application with typed stale-plan errors,
   and inserts only repository-planned IDs. It never commits or hashes.
 - Kept the primitive out of the public persistence facade and package root.
-  B2b2 must compose it with artifact insertion in one outer transaction; this
-  checkpoint adds no standalone successful reservation workflow.
+  The following B2b2 checkpoint now composes it with artifact insertion in one
+  outer transaction; B2b1 itself added no standalone reservation workflow.
 - Added focused protocol and PGlite proofs for input exclusion, deterministic
   candidate allocation, existing-ID preservation, numeric final ordering,
   exact replay, invalid-before-SQL behavior, every typed stale branch,
@@ -760,13 +760,13 @@ How Flarex differs:
 
 Known limitations and follow-up:
 
-- B2b2 still owns artifact preparation, same-transaction plan application plus
-  artifact insertion/replay, stale-plan retry bounds, and the final public
-  trusted API. The internal apply primitive must not be exposed alone.
+- Resolved by the following B2b2 checkpoint: the final facade now owns artifact
+  preparation, same-transaction plan application plus artifact replay, and
+  bounded stale retries. The internal apply primitive remains hidden.
 - The real-Postgres binding concurrency suite was added but skipped in this
   local run because `FLAREX_POSTGRES_DATABASE_URL` is unset and the installed
-  local server requires credentials. B2b2 must extend that lane to prove
-  mapping-plus-artifact atomicity, not repeat the binding-only cases.
+  local server requires credentials. B2b2 adds mapping-plus-artifact cases to
+  that lane without replacing the binding-only cases.
 - Catalog lifetime quotas across repeated distinct failed schema attempts need
   a public-routing policy even with the per-schema 10,000-table cap.
 - Analyzer routing, indexes, relation/constraint validation, activation, OCC,
@@ -784,6 +784,107 @@ corepack pnpm --filter @flarex/persistence-postgres typecheck
 corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestTableBindings.test.ts test/stableTableCatalog.test.ts test/schemaVersionArtifacts.test.ts --no-file-parallelism
 corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/schemaManifestTableBindings.postgres.test.ts --no-file-parallelism
 corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
+#### S03-B2b2 Implementation Checkpoint
+
+Previous completed checkpoint: `4ef6f0c` Prepare stable schema table bindings.
+
+What changed:
+
+- Added one high-level persistence-facade operation,
+  `ensureAppSchemaVersionArtifactV1`, whose exact input is deployment/schema
+  identity, numeric version, and unbound app-table declarations. Callers cannot
+  provide a manifest section, stable IDs, namespace, canonical bytes, digest,
+  child plan, or prepared artifact.
+- Added one repository-authenticated combined prepared token. Its private state
+  retains the B2b1 binding plan and the B1 artifact prepared only from that
+  plan's frozen, ID-ordered section; the child tokens and transaction helper
+  remain absent from the package root and public facade.
+- Narrowed the package root so the B1 artifact write functions and stable-table
+  transaction allocator are no longer exported. Read/result/error contracts
+  remain available; concrete Drizzle/schema adapter access is a privileged
+  backend escape hatch, not a supported publication path.
+- Composed B2b1 mapping application and B1 artifact insert/exact replay in one
+  short Drizzle transaction. An artifact conflict or later failure rolls back
+  every mapping inserted by that attempt.
+- Added a fixed three-total-attempt coordinator. It catches only
+  `SchemaManifestTableBindingPlanStaleError`; each retry reruns binding
+  preparation plus canonical encoding/SHA-256 before opening another
+  transaction. Exhaustion is typed, while all other failures propagate
+  unchanged after one attempt.
+- Added a dedicated internal Drizzle transaction repository to the runtime
+  driver so PGlite, pooled Postgres, and connected-client adapters can support
+  the coordinator without widening the existing public SQL-only transaction
+  callback.
+- Added focused PGlite proofs for catalog/artifact coherence, declaration-order
+  replay, replay after unrelated frontier movement, conflict rollback and ID
+  reuse, whole-preparation stale retry, bounded exhaustion, terminal-error
+  propagation, exact public API shape, and combined-token authentication.
+- Added environment-gated real-Postgres cases for concurrent exact
+  co-publication, an allocator-first lock race that must shift the planned ID
+  and stored hash on the fresh attempt, and artifact-conflict rollback of a
+  mapping insert. No DDL or migration changed.
+- Reused one shared Postgres deployment-lock harness across B2b1/B2b2. It
+  identifies the exact blocker backend and follows its transitive lock queue,
+  so unrelated parallel database sessions cannot satisfy the test barrier.
+
+Why it changed:
+
+`fx_control_table` and `fx_control_schema_version` have independent keys, so SQL
+constraints alone cannot prove that an artifact's stable IDs match the mapping
+rows committed beside it. Stable IDs also participate in canonical bytes, so a
+stale mapping plan cannot safely retry only its transaction. The coordinator
+makes mapping plus artifact registration one atomic invariant and rebuilds the
+entire prepared value when that invariant races.
+
+Convex sources inspected:
+
+- `crates/application/src/deploy_config.rs`
+- `crates/model/src/components/config.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/database/src/database.rs`
+- `crates/database/src/committer.rs`
+- `crates/common/src/schemas/json.rs`
+
+How Flarex differs:
+
+- Convex reruns a full schema callback through its database OCC helper and
+  creates mappings plus a mutable Pending schema row in one commit. Its schema
+  JSON is name-keyed and excludes stable numeric IDs.
+- Flarex prepares stable-ID-bearing canonical bytes outside SQL, revalidates
+  under a deployment lock, and inserts/replays one immutable artifact. This
+  slice retries only the typed stale binding-plan race; identity/content
+  conflicts, corruption, checksum anomalies, and unknown SQL failures are
+  terminal. Activation and supersession remain later lifecycle work.
+
+Known limitations and follow-up:
+
+- The three new B2b2 cases plus the surrounding B1/B2b1 files pass all eight
+  focused tests against a disposable local PostgreSQL 18.3 cluster. The cluster
+  was stopped and removed after the run.
+- The facade accepts only the closed app-document table section. S03-C owns
+  stable index identities/definitions; Payload and Medusa require their own
+  source-derived namespace contracts instead of entering this app variant.
+- No analyzer/compiler route invokes this facade yet. Activation, lifecycle,
+  indexes, relation/constraint compilation, rows/value codecs, OCC, commit
+  compilation, sync, and Cloudflare hosting remain unchanged.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaVersionArtifacts.test.ts test/schemaManifestTableBindings.test.ts test/schemaVersionArtifacts.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaVersionArtifacts.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm --filter @flarex/freshness typecheck
+corepack pnpm --filter @flarex/executor typecheck
+corepack pnpm --filter flarex-dev typecheck
+corepack pnpm --filter @flarex/executor-worker typecheck
 corepack pnpm check:effect-boundaries
 git diff --check
 ```

@@ -1,5 +1,63 @@
 # Backend Data Model And Durable Object Shape
 
+## Atomically Register App Mappings With Their Immutable Artifact
+
+Previous completed checkpoint: `4ef6f0c` Prepare stable schema table bindings.
+
+What changed:
+
+- Added one persistence-facade method that accepts only schema identity/version
+  and unbound app declarations, then derives stable mappings and the immutable
+  artifact as one authenticated prepared value.
+- Applied missing `fx_control_table` rows and inserted/replayed the matching
+  `fx_control_schema_version` row in one transaction. Later failure rolls both
+  back; exact replay keeps both unchanged.
+- Removed the B1 artifact writer and stable-table transaction allocator from
+  the package root, leaving the combined facade as the supported publication
+  path while retaining read/result/error contracts.
+- Added no table, migration, active pointer, normalized definition copy,
+  Durable Object state, row storage, or index catalog.
+
+Why it changed:
+
+The two control tables have independent SQL keys. The trusted repository must
+therefore enforce the cross-table invariant that every ID/name assertion in the
+artifact is the exact mapping committed beside it.
+
+Convex references inspected:
+
+- `crates/application/src/deploy_config.rs`
+- `crates/model/src/components/config.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex commits mappings with a mutable Pending, name-keyed schema row. Flarex
+  commits mappings with an immutable canonical artifact containing numeric
+  stable IDs, so canonical preparation remains outside the lock.
+
+Known limitations and follow-up:
+
+- S03-C owns stable index identity/definition storage. This facade is app-only;
+  Payload/Medusa adapters, activation, rows, OCC, and Cloudflare are unchanged.
+- Real-Postgres co-publication, stale-rehash, and conflict-rollback pass against
+  a disposable PostgreSQL 18.3 cluster; all eight focused B1/B2b1/B2b2 tests
+  pass and the cluster is removed after the run.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaVersionArtifacts.test.ts test/schemaManifestTableBindings.test.ts test/schemaVersionArtifacts.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaVersionArtifacts.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Plan Stable Table Bindings Before Atomic Artifact Publication
 
 Previous completed checkpoint: `cd7cec2` Freeze semantic table definition
@@ -39,13 +97,12 @@ How Flarex differs:
 
 Known limitations and follow-up:
 
-- B2b2 must bind the internal apply primitive to B1 artifact preparation and
-  insertion with bounded stale retries. Until then it remains off the public
-  persistence facade.
+- Resolved by the B2b2 checkpoint above: the public facade now binds artifact
+  preparation to the internal apply primitive with bounded stale retries.
 - The binding-only real-Postgres suite is present but skipped locally because
-  `FLAREX_POSTGRES_DATABASE_URL` is unset. B2b2 still owns real-Postgres
-  co-publication concurrency; analyzer routing, indexes, activation, rows,
-  OCC, Payload, and Medusa remain deferred.
+  `FLAREX_POSTGRES_DATABASE_URL` is unset. B2b2 added the combined concurrency
+  suite; analyzer routing, indexes, activation, rows, OCC, Payload, and Medusa
+  remain deferred.
 
 Verification:
 

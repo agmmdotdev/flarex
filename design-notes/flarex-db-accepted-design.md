@@ -268,10 +268,25 @@ Any conflicting binding, partial application, or catalog high-water change
 while every planned missing row remains absent makes the plan stale before
 insertion; the caller rolls back and restarts preparation. A fully exact prior
 application is replayable even if unrelated allocations later advanced the
-frontier. The internal B2b1 apply helper never commits and is not a public
-persistence facade. B2b2 must compose it with artifact insertion in the same
-transaction. A standalone "reserve IDs, then best-effort the artifact" flow
-is not accepted.
+frontier. S03-B2b2 now exposes one trusted persistence-facade operation whose
+input is only deployment/schema/version identity plus unbound app declarations.
+It manufactures one repository-authenticated combined token containing the
+B2b1 binding plan and the B1 artifact prepared from that exact frozen section,
+then applies both inside one transaction. Neither child token nor the combined
+transaction helper is public.
+
+The package root exposes the facade plus read/result/error contracts, not the
+B1 artifact writer or stable-table allocator. Concrete backend adapter subpaths
+still expose trusted Drizzle/schema capabilities for migrations, tests, and
+executor composition; those are privileged escape hatches, not supported
+schema-publication APIs, and must never be passed to user code.
+
+The coordinator makes at most three total fresh attempts and retries only a
+typed stale binding plan. Each retry rebuilds stable-ID planning and canonical
+bytes/hash before opening the next transaction. Invalid input, missing
+deployment, ID exhaustion, artifact conflict, checksum collision, corruption,
+and SQL failures remain terminal. A standalone "reserve IDs, then best-effort
+the artifact" flow is not accepted.
 
 Convex evaluates source/schema code before SQL, then creates missing table
 mappings and its Pending schema row in one transaction. Flarex preserves that

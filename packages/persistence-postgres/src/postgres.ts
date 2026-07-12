@@ -149,6 +149,10 @@ export async function createPostgresPersistence(
   const runtime = createFlarexRuntimePersistence({
     drizzle: drizzleDb,
     sql: createPostgresSqlClient(drizzleDb, pool),
+    appSchemaVersionArtifactRepository: {
+      db: drizzleDb,
+      runTransaction: (run) => drizzleDb.transaction(run),
+    },
     async transaction<T>(
       run: (transaction: FlarexRuntimePersistenceTransaction) => Promise<T>,
     ): Promise<T> {

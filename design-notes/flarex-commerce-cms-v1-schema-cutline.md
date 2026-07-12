@@ -364,11 +364,13 @@ pointer changes only after required index backfills and validation succeed.
 S03-B2a freezes only the semantic app-document table-definition section.
 S03-B2b1 now plans stable IDs optimistically from the current
 `fx_control_table` bindings and high-water mark, then revalidates that opaque
-plan under the deployment lock before inserting exact IDs. S03-B2b2 must hash
-the planned section outside SQL and compose plan application with B1 artifact
-insertion in one transaction. This cutline does not authorize standalone ID
-reservation, a second table-definition copy, or field/relation/constraint/index
-activation.
+plan under the deployment lock before inserting exact IDs. S03-B2b2 now hashes
+the exact planned section outside SQL and composes plan application with B1
+artifact insertion in one transaction behind one app-schema persistence API.
+Its private combined token prevents pairing a valid plan with artifact bytes
+from another schema; typed stale races trigger at most three whole-preparation
+attempts. This cutline does not authorize standalone ID reservation, a second
+table-definition copy, or field/relation/constraint/index activation.
 
 Accepted S03-B2a table-definition section (using conceptual short catalog
 names in this cutline):

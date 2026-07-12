@@ -93,6 +93,10 @@ import {
   markLiveQueryDeliveriesDelivered as markLiveQueryDeliveriesDeliveredWithDb,
   recordLiveQueryDeliveryFailure as recordLiveQueryDeliveryFailureWithDb,
 } from "./liveQueryDeliveries";
+import {
+  ensureAppSchemaVersionArtifactV1WithRepository,
+  type AppSchemaVersionArtifactV1Repository,
+} from "./appSchemaVersionArtifacts";
 
 export interface FlarexRuntimePersistenceTransaction {
   readonly drizzle: FlarexMetadataDatabase;
@@ -102,6 +106,7 @@ export interface FlarexRuntimePersistenceTransaction {
 export interface FlarexRuntimePersistenceDriver {
   readonly drizzle: FlarexMetadataDatabase;
   readonly sql: FlarexSqlClient;
+  readonly appSchemaVersionArtifactRepository: AppSchemaVersionArtifactV1Repository;
   transaction<T>(
     run: (transaction: FlarexRuntimePersistenceTransaction) => Promise<T>,
   ): Promise<T>;
@@ -139,6 +144,11 @@ export function createFlarexRuntimePersistence(
       listDeploymentMetadataWithDb(drizzleDb, input),
     updateDeploymentMetadataActivation: (input) =>
       updateDeploymentMetadataActivationWithDb(drizzleDb, input),
+    ensureAppSchemaVersionArtifactV1: (input) =>
+      ensureAppSchemaVersionArtifactV1WithRepository(
+        driver.appSchemaVersionArtifactRepository,
+        input,
+      ),
     insertScopeMetadata: (input) =>
       insertScopeMetadataWithDb(drizzleDb, input),
     getScopeMetadata: (scopeId) => getScopeMetadataWithDb(drizzleDb, scopeId),

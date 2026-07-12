@@ -1,8 +1,8 @@
 # FlarexDB Foundation Execution Plans
 
-Status: S01 through S02-C, resolve-only S02-D1, S03-A, S03-B1, S03-B2a, and
-S03-B2b1 are complete; hosted-proof H01-H04 and H05-A are complete, while H05-B
-and S02-D2 production routing are deferred as core work proceeds to S03-B2b2
+Status: S01 through S02-C, resolve-only S02-D1, and S03-A through S03-B2 are
+complete. Hosted-proof H01-H04 and H05-A are complete, while H05-B and S02-D2
+production routing are deferred as core work proceeds to S03-C.
 
 This folder turns the accepted FlarexDB architecture into small, reviewable,
 commit-sized implementation turns. It is intentionally limited to the
@@ -209,8 +209,9 @@ commit are complete.
    identities and S03-B1 persisted immutable canonical schema-version
    artifacts. S03-B2a froze the strict app-document table-definition section
    without a second persisted copy. S03-B2b1 added an internal optimistic
-   stable-ID plan/revalidation primitive; S03-B2b2 atomic mapping-plus-artifact
-   composition is next.
+   stable-ID plan/revalidation primitive, and S03-B2b2 added the bounded atomic
+   mapping-plus-artifact facade plus its real-Postgres correctness proof.
+   Stable index identity/definition work in S03-C is next.
 4. `S04` migrate active-schema pointer authority while mirroring legacy reads.
 5. `S05` freeze tagged value and ordered-key codecs.
 6. `O01` add typed OCC contracts and narrow ports.

@@ -337,14 +337,18 @@ deterministically ordered `tableDefinitions` manifest section; S03-B2b will
 bind its asserted names to `fx_control_table` and persist only the existing
 schema-version artifact.
 
-Accepted S03-B2b1 refinement: binding is an optimistic plan, not an independent
+Accepted S03-B2b refinement: binding is an optimistic plan, not an independent
 catalog publication. Trusted code validates at most 10,000 app declarations,
 observes existing bindings plus the deployment catalog high-water mark, and
 assigns missing IDs deterministically outside a lock. After the planned section
 is hashed outside SQL, the final transaction locks the deployment, rejects any
 stale observation, inserts the exact planned mappings, and inserts/replays the
-B1 artifact atomically. The B2b1 transaction helper is internal and never
-commits by itself; B2b2 owns that final composition and retry loop.
+B1 artifact atomically. The B2b1 transaction helper remains internal and never
+commits by itself. B2b2 adds one public persistence-facade coordinator, retains
+both prepared child tokens in one private combined token, and performs at most
+three fresh attempts. Only typed stale plans retry; every retry replans and
+rehashes, while conflicts, corruption, invalid input, and SQL errors are
+terminal.
 
 The following column/index/relation/constraint sketches are longer-range
 provenance, not accepted S03-B2a DDL. Their IDs and physical projections remain

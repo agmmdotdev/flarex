@@ -1,5 +1,62 @@
 # Schema Placement And Shards
 
+## Keep App Schema Registration In Deployment Catalog Authority
+
+Previous completed checkpoint: `4ef6f0c` Prepare stable schema table bindings.
+
+What changed:
+
+- Added one deployment-owned facade operation that atomically co-publishes
+  stable app table mappings and their versioned artifact before any scope or
+  physical data-plane placement is involved.
+- Kept the combined token and transaction helper internal. The public input has
+  no scope locator, physical name, canonical bytes, digest, or caller-supplied
+  mapping IDs.
+- Removed the lower-level B1 writer and stable-table allocator from the package
+  root so deployment catalog publication has one supported facade path.
+- Retried at most three fresh preparations only when deployment-catalog
+  revalidation returns the typed stale-plan error.
+
+Why it changed:
+
+Schema identity is deployment authority. Keeping this atomic boundary above
+scope placement prevents a schema artifact from describing IDs that never
+committed, without inventing a per-scope or Durable Object schema copy.
+
+Convex references inspected:
+
+- `crates/application/src/deploy_config.rs`
+- `crates/model/src/components/config.rs`
+- `crates/database/src/bootstrap_model/schema/mod.rs`
+- `crates/database/src/database.rs`
+- `crates/database/src/committer.rs`
+
+How Flarex differs:
+
+- Convex's backend OCC helper reruns name-keyed schema submission. Flarex
+  replans numeric IDs, rehashes, then revalidates under the owning deployment
+  lock before one immutable artifact commit.
+
+Known limitations and follow-up:
+
+- No scope/data-plane placement, RLS, active pointer, cache, Payload/Medusa
+  physical strategy, or split-database behavior changed.
+- Real-Postgres co-publication, stale-rehash, and conflict-rollback pass against
+  a disposable PostgreSQL 18.3 cluster; all eight focused B1/B2b1/B2b2 tests
+  pass and the cluster is removed after the run.
+
+Verification:
+
+```sh
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres test
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaVersionArtifacts.test.ts test/schemaManifestTableBindings.test.ts test/schemaVersionArtifacts.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaVersionArtifacts.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Keep Optimistic Binding Plans In Deployment Catalog Authority
 
 Previous completed checkpoint: `cd7cec2` Freeze semantic table definition
@@ -43,8 +100,8 @@ Known limitations and follow-up:
 - No scope/data-plane placement, active pointer, cache, RLS, Payload/Medusa
   physical strategy, or split-database behavior changed.
 - The binding-only real-Postgres suite is present but skipped locally because
-  `FLAREX_POSTGRES_DATABASE_URL` is unset. B2b2 owns atomic mapping/artifact
-  publication and its combined real-Postgres concurrency proof.
+  `FLAREX_POSTGRES_DATABASE_URL` is unset. The B2b2 checkpoint above now owns
+  atomic mapping/artifact publication and adds its combined concurrency proof.
 
 Verification:
 

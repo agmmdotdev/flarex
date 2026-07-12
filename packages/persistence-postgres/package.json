@@ -19,7 +19,7 @@
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --no-file-parallelism",
-    "test:postgres": "vitest run test/postgres.test.ts test/postgresClient.test.ts test/postgresConcurrency.test.ts test/scopeClock.postgres.test.ts test/scopeAuthorityProvisioning.postgres.test.ts test/scopeAuthorityBootstrap.postgres.test.ts test/scopeAuthorityProvisioningReceipt.postgres.test.ts test/splitScopeAuthorityProvisioning.postgres.test.ts test/stableTableCatalog.postgres.test.ts test/schemaVersionArtifacts.postgres.test.ts test/schemaManifestTableBindings.postgres.test.ts --no-file-parallelism"
+    "test:postgres": "vitest run test/postgres.test.ts test/postgresClient.test.ts test/postgresConcurrency.test.ts test/scopeClock.postgres.test.ts test/scopeAuthorityProvisioning.postgres.test.ts test/scopeAuthorityBootstrap.postgres.test.ts test/scopeAuthorityProvisioningReceipt.postgres.test.ts test/splitScopeAuthorityProvisioning.postgres.test.ts test/stableTableCatalog.postgres.test.ts test/schemaVersionArtifacts.postgres.test.ts test/schemaManifestTableBindings.postgres.test.ts test/appSchemaVersionArtifacts.postgres.test.ts --no-file-parallelism"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.14",

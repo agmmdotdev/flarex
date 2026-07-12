@@ -1,4 +1,6 @@
-import { Client, Pool } from "pg";
+import { setTimeout as delay } from "node:timers/promises";
+
+import { Client, Pool, type PoolClient } from "pg";
 
 import {
   createPostgresClientPersistence,
@@ -12,6 +14,81 @@ import {
 export const postgresUrl = normalizePostgresUrl(
   process.env.FLAREX_POSTGRES_DATABASE_URL,
 );
+
+export interface HeldPostgresDeploymentLock {
+  readonly client: PoolClient;
+  readonly blockerPid: number;
+}
+
+export async function acquirePostgresDeploymentLock(
+  persistence: PostgresFlarexPersistence,
+  deploymentId: string,
+): Promise<HeldPostgresDeploymentLock> {
+  const client = await persistence.pool.connect();
+  try {
+    await client.query("begin");
+    await client.query(
+      `
+        select 1
+        from deployments
+        where deployment_id = $1
+        for update
+      `,
+      [deploymentId],
+    );
+    const pidResult = await client.query<{ pid: number }>(
+      `select pg_backend_pid()::int as pid`,
+    );
+    const blockerPid = pidResult.rows[0]?.pid;
+    if (typeof blockerPid !== "number" || !Number.isInteger(blockerPid)) {
+      throw new Error("Postgres deployment lock returned no backend PID.");
+    }
+    return { client, blockerPid };
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    client.release();
+    throw error;
+  }
+}
+
+export async function waitForBlockedPostgresDeploymentLocks(
+  persistence: PostgresFlarexPersistence,
+  lock: HeldPostgresDeploymentLock,
+  expectedBlocked: number,
+): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const result = await persistence.query<{ blocked: number }>(
+      `
+        with recursive blocked(pid) as (
+          select activity.pid
+          from pg_stat_activity as activity
+          where $1::int = any(pg_blocking_pids(activity.pid))
+
+          union
+
+          select activity.pid
+          from pg_stat_activity as activity
+          join blocked as blocker
+            on blocker.pid = any(pg_blocking_pids(activity.pid))
+        )
+        select count(*)::int as blocked
+        from blocked
+        join pg_stat_activity as activity using (pid)
+        where activity.datname = current_database()
+          and activity.wait_event_type = 'Lock'
+          and activity.query ilike '%deployments%'
+          and activity.query ilike '%for update%'
+      `,
+      [lock.blockerPid],
+    );
+    if ((result.rows[0]?.blocked ?? 0) >= expectedBlocked) return;
+    await delay(25);
+  }
+  throw new Error(
+    `Timed out waiting for ${expectedBlocked} deployment locks blocked by backend ${lock.blockerPid}.`,
+  );
+}
 
 export async function withTemporaryPostgresPersistence(
   fn: (persistence: PostgresFlarexPersistence) => Promise<void>,

@@ -169,6 +169,10 @@ export async function createPGlitePersistence(
   const runtime = createFlarexRuntimePersistence({
     drizzle: drizzleDb,
     sql: createPGliteSqlClient(drizzleDb, db),
+    appSchemaVersionArtifactRepository: {
+      db: drizzleDb,
+      runTransaction: (run) => drizzleDb.transaction(run),
+    },
     transaction: (run) =>
       db.transaction((tx) => {
         // Drizzle narrows its PGlite client to the concrete class even though
