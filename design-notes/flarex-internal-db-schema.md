@@ -475,9 +475,12 @@ fx_control_schema_version_index_binding (
 -- table-owned definition. D1 now compiles canonical developer plus intrinsic
 -- creation-time requirements from the bound full artifact, but writes none of
 -- them. D2a composes one authenticated, process-local, no-write full-envelope
--- preparation. D2b adds the table-owned intrinsic writer; D2c applies and
--- verifies the projection in one control transaction; D2d owns bounded retry,
--- the routed facade, quota, and real-Postgres concurrency proof. D3 owns
+-- preparation. D2b derives per-table identity-only tokens from that state,
+-- reuses D1 canonical evidence, and ensures table-owned intrinsic definitions
+-- through the shared C3 allocator after exact locked table-parent verification.
+-- It adds no intrinsic schema-binding row. D2c applies and verifies the full
+-- projection in one control transaction; D2d owns bounded retry, the routed
+-- facade, quota, and whole-publication concurrency proof. D3 owns
 -- idempotent located build reconciliation, and D4 owns evidence-based
 -- readiness. by_id is direct row-identity access and has no definition/build
 -- row.

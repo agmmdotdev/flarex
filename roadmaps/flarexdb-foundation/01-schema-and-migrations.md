@@ -1,9 +1,9 @@
 # FlarexDB Schema And Migration Plan
 
 Status: S01 through S02-C, resolve-only S02-D1, catalog checkpoints S03-A
-through S03-D2a, and the interleaved S05-A ordered-index prerequisite are
+through S03-D2b, and the interleaved S05-A ordered-index prerequisite are
 complete. Hosted-proof H01-H04 and H05-A are complete, while H05-B and S02-D2
-production routing are deferred as core work proceeds to S03-D2b.
+production routing are deferred as core work proceeds to S03-D2c.
 
 This plan owns the additive physical schema, codecs, repositories, and
 compatibility migration for the first Flarex app-data generation. It does not
@@ -424,15 +424,15 @@ Progress:
     - [x] S03-D2a — Compose one strict unbound C2 binding plan, D1 requirement
       set, and exact full-manifest artifact into a process-local authenticated
       no-write token.
-    - [ ] S03-D2b — Add the trusted table-owned intrinsic
-      `by_creation_time` definition ensure/replay primitive without exposing a
-      standalone allocator or second schema copy.
+    - [x] S03-D2b — Derive identity-only table-owned `by_creation_time` tokens
+      from authenticated D2a evidence and ensure/replay each definition through
+      the shared C3 allocator after exact locked table-parent verification.
     - [ ] S03-D2c — In one caller-owned control transaction, revalidate/apply
       the C2 plan, insert/replay the artifact, persist every required definition
       and schema binding, and exactly verify the projection.
     - [ ] S03-D2d — Add bounded whole-preparation stale retry, the routed V2
       facade, canonical-byte/platform quota, and real-Postgres
-      concurrency/rollback proof.
+      whole-publication concurrency/rollback proof.
   - [ ] S03-D3 — Reconcile required definitions into located per-scope build
     state through a durable idempotent protocol.
   - [ ] S03-D4 — Persist validation evidence and compute readiness from real
@@ -1600,8 +1600,8 @@ How Flarex differs:
 
 Known limitations and follow-up:
 
-- D2b must add the trusted table-owned intrinsic `by_creation_time` definition
-  ensure/replay primitive. D2c owns transaction apply plus exact persisted
+- At the D2a checkpoint, D2b still had to add the trusted table-owned intrinsic
+  `by_creation_time` definition primitive. D2c owns transaction apply plus exact persisted
   projection verification. D2d owns bounded fresh-whole-preparation retry, the
   routed V2 facade, total canonical-byte/platform quota, and focused
   real-Postgres concurrency/rollback proofs.
@@ -1617,6 +1617,106 @@ Verification:
 ```sh
 corepack pnpm --filter @flarex/persistence-postgres typecheck
 corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaCatalogPublicationV2.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
+#### S03-D2b Implementation Checkpoint
+
+Previous completed checkpoint: `478137e` Broaden standing code reviewers.
+
+Previous completed FlarexDB checkpoint: `268cc83` Prepare app schema catalog
+publication.
+
+What changed:
+
+- Added one package-internal derivation from the authenticated D2a token to the
+  complete, table-ID-ordered set of frozen `by_creation_time` child tokens.
+  Each token exposes only deployment/table identity; private state joins the
+  exact C2-bound logical name with D1's already-canonical physical evidence.
+  D2b performs no second lowering, hashing, manifest persistence, or
+  caller-authored physical-spec acceptance.
+- Added one caller-owned-transaction ensure/replay operation per child token.
+  It takes the shared C3 deployment lock, verifies the planned table still has
+  the exact `app` namespace and logical name before any definition lookup or
+  allocation, then returns the exact existing definition or inserts one
+  table-owned generation.
+- Generalized only the private C3 owner/find/insert/prepared-row verification
+  kernel across developer and intrinsic access. Both paths retain one
+  deployment-wide physical-definition high-water allocator, while existing
+  developer schema-binding behavior remains unchanged.
+- Strengthened the existing protocol storage-identity helper with
+  access-discriminated overloads and made developer/intrinsic ensure results
+  preserve their exact owner kind, so mismatched owner/storage pairs and
+  widened intrinsic results are rejected by TypeScript.
+- Exact replay compares owner, codec, SHA-256, canonical bytes, and physical
+  JSON without Web Crypto under the SQL lock. Equal digest plus unequal bytes
+  fails with the intrinsic collision error; missing or reassigned planned table
+  parents fail before allocation. Copied/serialized child tokens fail WeakMap
+  authentication.
+- Focused PGlite proofs cover the complete two-table set, exact replay, no
+  schema-binding/build rows, missing and stale-name parents, corruption, and
+  rollback identity reuse. PostgreSQL 18.3 proves concurrent exact intrinsic
+  replay and reruns the existing C3 concurrency, conflict, rollback, and TOAST
+  regressions.
+
+Why it changed:
+
+Convex automatically creates system indexes with a table, but Flarex C2 plans
+stable table IDs optimistically before the publication lock. Checking only a
+planned numeric ID could attach an intrinsic definition to a different table
+that won that ID concurrently. Retaining the bound logical name in authenticated
+private state and checking it under the shared deployment lock closes that
+stale-plan hole without letting D2b create tables or become a second catalog
+authority.
+
+Convex sources inspected:
+
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/common/src/types/index.rs`
+- `crates/common/src/bootstrap_model/index/database_index/indexed_fields.rs`
+- `crates/common/src/bootstrap_model/index/index_metadata.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/indexing/src/index_registry.rs`
+- `crates/application/src/deploy_config.rs`
+- `crates/model/src/components/config.rs`
+
+How Flarex differs:
+
+- Convex inserts `by_id` and enabled `by_creation_time` metadata atomically when
+  it creates an empty table. Flarex keeps C2 as the only stable-table authority,
+  represents `by_id` directly through row identity, and persists only the
+  immutable table-owned creation-time definition here.
+- D2b does not mark the definition declared, building, enabled, ready, or
+  active. Existing rows and split placement require D3 build reconciliation
+  plus D4 evidence before S04 can activate anything.
+- Convex metadata lives in one transactional document database. Flarex uses a
+  compact deployment-scoped physical ID and exact canonical Postgres evidence,
+  with the located scope build remaining a separate later authority.
+
+Known limitations and follow-up:
+
+- D2b deliberately ensures one token per call. D2c must revalidate/apply C2,
+  consume the complete intrinsic and developer sets, insert/replay the exact
+  artifact, and verify the whole normalized control projection in one
+  caller-owned transaction.
+- D2d still owns fresh-whole-preparation retry, the routed V2 facade, aggregate
+  quota, and whole-publication concurrency/rollback proof. D3 remains the first
+  build-state mutation; D4/S04 retain readiness/activation authority.
+- No DDL/migration, root facade, intrinsic schema-binding row, build state,
+  analyzer/commit-compiler wiring, Payload/Medusa, Cloudflare deployment, or
+  legacy cleanup changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/index-definition.test.ts --no-file-parallelism
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appCreationTimeIndexDefinitions.test.ts test/appIndexDefinitions.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexDefinitions.postgres.test.ts --no-file-parallelism
 corepack pnpm --filter @flarex/persistence-postgres build
 corepack pnpm check:effect-boundaries
 git diff --check

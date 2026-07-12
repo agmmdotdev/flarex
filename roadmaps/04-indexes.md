@@ -1,5 +1,69 @@
 # Indexes
 
+## Persist Authenticated Table-Owned Creation-Time Definitions
+
+Previous completed checkpoint: `478137e` Broaden standing code reviewers.
+
+Previous completed FlarexDB checkpoint: `268cc83` Prepare app schema catalog
+publication.
+
+What changed:
+
+- Derived the complete ordered set of opaque per-table intrinsic tokens from
+  D2a's authenticated C2/D1 state. Canonical creation-time bytes and digest are
+  reused rather than accepted from a caller or recomputed.
+- Added a per-token caller-owned-transaction writer that verifies the exact
+  bound app table under the deployment lock, shares C3's deployment-wide
+  physical-ID allocator, and exactly creates/replays the table-owned definition.
+- Correlated access owner and storage owner in the shared type model and kept
+  intrinsic/developer result discriminants exact.
+- Kept `logical_index_id` null and wrote no schema binding or build row.
+  PGlite covers replay, stale parent identity, collision, and rollback;
+  PostgreSQL 18.3 covers concurrent replay plus existing developer regressions.
+
+Why it changed:
+
+The D1 intrinsic requirement was complete but not persistable. A raw intrinsic
+spec writer would create caller authority, while table-ID-only validation could
+attach a stale planned ID to the wrong table. D2b binds canonical evidence and
+the expected logical name behind repository-authenticated identity.
+
+Convex references inspected:
+
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/common/src/types/index.rs`
+- `crates/common/src/bootstrap_model/index/database_index/indexed_fields.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/indexing/src/index_registry.rs`
+
+How Flarex differs:
+
+Convex creates enabled `by_creation_time` metadata with a new empty table.
+Flarex persists only immutable control definition identity here; D3/D4 retain
+build and readiness authority, and direct row identity still satisfies `by_id`.
+
+Known limitations and follow-up:
+
+- D2c must consume every intrinsic and developer requirement and exactly verify
+  the full control projection. D2b neither loops the set nor publishes the
+  artifact.
+- No entries, backfill, planner, readiness, activation, adapter schema, or
+  Cloudflare behavior changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/index-definition.test.ts --no-file-parallelism
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appCreationTimeIndexDefinitions.test.ts test/appIndexDefinitions.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexDefinitions.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Couple The Complete Index Set To One Publication Attempt
 
 Previous completed checkpoint: `423ba8a` Compile app schema catalog
@@ -40,9 +104,8 @@ reconciles located build rows.
 
 Known limitations and follow-up:
 
-- C3 still writes only developer definition/binding pairs. D2b must add the
-  table-owned `by_creation_time` definition path before D2c can publish the
-  complete set.
+- At the D2a checkpoint, C3 still wrote only developer definition/binding pairs
+  and D2b had not yet added the table-owned `by_creation_time` definition path.
 - No definition allocation, build transition, entry fanout, backfill, query
   planning, readiness, activation, or adapter schema generation changed.
 

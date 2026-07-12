@@ -135,6 +135,21 @@ export function decodeAppPhysicalIndexAccessIdentityV1(
 }
 
 export function appPhysicalIndexAccessStorageIdentityV1(
+  value: AppDeveloperPhysicalIndexAccessIdentityV1,
+): Extract<
+  AppPhysicalIndexAccessStorageIdentityV1,
+  { readonly kind: "developer" }
+>;
+export function appPhysicalIndexAccessStorageIdentityV1(
+  value: AppCreationTimePhysicalIndexAccessIdentityV1,
+): Extract<
+  AppPhysicalIndexAccessStorageIdentityV1,
+  { readonly kind: "by_creation_time" }
+>;
+export function appPhysicalIndexAccessStorageIdentityV1(
+  value: AppPhysicalIndexAccessIdentityV1,
+): AppPhysicalIndexAccessStorageIdentityV1;
+export function appPhysicalIndexAccessStorageIdentityV1(
   value: AppPhysicalIndexAccessIdentityV1,
 ): AppPhysicalIndexAccessStorageIdentityV1 {
   const identity = decodeAppPhysicalIndexAccessIdentityV1(value);

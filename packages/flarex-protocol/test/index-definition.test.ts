@@ -49,24 +49,34 @@ describe("physical index definition protocol", () => {
       >["accessIdentityId"]
     >().toEqualTypeOf<CatalogTableId>();
 
-    expect(
-      appPhysicalIndexAccessStorageIdentityV1({
-        kind: "developer",
-        tableId,
-        logicalIndexId,
-      }),
-    ).toEqual({
+    const developerStorage = appPhysicalIndexAccessStorageIdentityV1({
+      kind: "developer",
+      tableId,
+      logicalIndexId,
+    });
+    const creationTimeStorage = appPhysicalIndexAccessStorageIdentityV1({
+      kind: "by_creation_time",
+      tableId,
+    });
+    expectTypeOf(developerStorage).toEqualTypeOf<
+      Extract<
+        AppPhysicalIndexAccessStorageIdentityV1,
+        { readonly kind: "developer" }
+      >
+    >();
+    expectTypeOf(creationTimeStorage).toEqualTypeOf<
+      Extract<
+        AppPhysicalIndexAccessStorageIdentityV1,
+        { readonly kind: "by_creation_time" }
+      >
+    >();
+    expect(developerStorage).toEqual({
       kind: "developer",
       accessIdentityId: 11,
       tableId: 7,
       logicalIndexId: 11,
     });
-    expect(
-      appPhysicalIndexAccessStorageIdentityV1({
-        kind: "by_creation_time",
-        tableId,
-      }),
-    ).toEqual({
+    expect(creationTimeStorage).toEqual({
       kind: "by_creation_time",
       accessIdentityId: 7,
       tableId: 7,

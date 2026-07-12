@@ -595,13 +595,17 @@ contains no caller-selected physical ID, lifecycle, or readiness state.
 S03-D2 is intentionally smaller than one publication goal. D2a prepares one
 same-process authenticated full-envelope attempt by composing the C2 stable-ID
 plan, D1 requirements, and exact immutable artifact without writing catalog
-rows. D2b adds the missing table-owned intrinsic definition writer; D2c applies
-and exactly verifies the normalized projection in one control-database
-transaction; D2d adds fresh-plan retries, the routed V2 facade, quota, and
-real-Postgres concurrency/rollback proof. The D2a token is neither durable nor
-serializable or cryptographic authority. S03-D3 owns idempotent located
-build-state reconciliation because control and per-scope databases cannot share
-a transaction. S03-D4 may compute readiness only from real later
+rows. D2b derives identity-only per-table child tokens from that authenticated
+state, reuses D1 canonical evidence, verifies the exact C2-bound app table under
+the deployment lock, and ensures one table-owned intrinsic definition through
+the shared physical-ID allocator. It writes no schema binding or build state.
+D2c applies and exactly verifies the normalized projection in one
+control-database transaction; D2d adds fresh-plan retries, the routed V2 facade,
+quota, and whole-publication concurrency/rollback proof. The process-local
+tokens are neither durable nor serializable or cryptographic authority. S03-D3
+owns idempotent located build-state reconciliation because control and
+per-scope databases cannot share a transaction. S03-D4 may compute readiness
+only from real later
 validation/backfill evidence; S04 alone changes the active pointer.
 Migration `0023` also makes the strict spec predicate `IS TRUE`, bounds both the
 logical JSON text size and canonical byte evidence, and exposes canonical

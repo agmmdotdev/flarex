@@ -1,5 +1,61 @@
 # Schema Placement And Shards
 
+## Fence Intrinsic Control Definitions From Stale Planned Table IDs
+
+Previous completed checkpoint: `478137e` Broaden standing code reviewers.
+
+Previous completed FlarexDB checkpoint: `268cc83` Prepare app schema catalog
+publication.
+
+What changed:
+
+- Bound each D2b token to the C2-planned app logical name as well as its compact
+  table ID, while keeping that name private.
+- Under the deployment lock, the writer now rejects an absent parent or any
+  namespace/name reassignment before definition lookup, high-water allocation,
+  or insertion.
+- Wrote only the deployment control definition. Located scope build state and
+  all cross-store work remain untouched.
+
+Why it changed:
+
+Compact IDs are deployment-local but optimistic C2 plans can become stale. A
+concurrent publisher may assign the planned number to another table; the
+database foreign key alone would then validate the wrong semantic parent.
+
+Convex references inspected:
+
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/indexing/src/index_registry.rs`
+
+How Flarex differs:
+
+Convex creates table and system indexes atomically in one database. Flarex
+separates optimistic control planning from located data-plane state, so it must
+recheck semantic table identity explicitly and defer build reconciliation to
+D3.
+
+Known limitations and follow-up:
+
+- D2c must apply the C2 plan and consume all D2b tokens in the same control
+  transaction; D2b alone is not publication completeness or recovery proof.
+- No located database, scope clock, build row, or routing state changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/index-definition.test.ts --no-file-parallelism
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appCreationTimeIndexDefinitions.test.ts test/appIndexDefinitions.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexDefinitions.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Keep D2a Inside Deployment Catalog Authority
 
 Previous completed checkpoint: `423ba8a` Compile app schema catalog

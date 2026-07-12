@@ -7,18 +7,24 @@ import {
   type CatalogIndexDefinitionId,
   type CatalogIndexId,
   type CatalogTableId,
+  type CatalogTableNamespace,
 } from "flarex-protocol/catalog";
 import {
   appIndexPhysicalSpecSha256HexV1FromBytes,
   appIndexPhysicalSpecSha256HexV1ToBytes,
+  appPhysicalIndexAccessStorageIdentityV1,
   canonicalizeAppIndexPhysicalSpecV1,
   canonicalAppIndexPhysicalSpecBytesHexV1FromBytes,
   canonicalAppIndexPhysicalSpecBytesHexV1ToBytes,
   decodeAppIndexPhysicalSpecCodecVersion,
   decodeAppPhysicalIndexAccessIdentityV1,
+  type AppCreationTimePhysicalIndexAccessIdentityV1,
+  type AppDeveloperPhysicalIndexAccessIdentityV1,
   type AppIndexPhysicalSpecCodecVersion,
   type AppIndexPhysicalSpecSha256HexV1,
+  type AppPhysicalIndexAccessKindV1,
   type AppPhysicalIndexAccessIdentityV1,
+  type AppPhysicalIndexAccessStorageIdentityV1,
   type CanonicalAppIndexPhysicalSpecBytesHexV1,
   type CanonicalAppIndexPhysicalSpecV1,
 } from "flarex-protocol/index-definition";
@@ -32,8 +38,13 @@ import {
   decodeSchemaManifestAppDeveloperOrderedIndexSpecV1,
   type CatalogSchemaVersionId,
   type SchemaManifestAppDeveloperOrderedIndexSpecV1,
+  type SchemaManifestAppTableName,
 } from "flarex-protocol/schema-manifest";
 
+import {
+  getPreparedAppSchemaCatalogPublicationV2State,
+  type PreparedAppSchemaCatalogPublicationV2,
+} from "./appSchemaCatalogPublicationV2";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { lockSchemaManifestBindingDeployment } from "./schemaManifestTableBindings";
 import {
@@ -42,7 +53,10 @@ import {
   fxControlSchemaVersionIndexBindings,
   fxControlSchemaVersions,
 } from "./schema";
-import type { StableTableCatalogTransaction } from "./stableTableCatalog";
+import {
+  getStableTableIdentityById,
+  type StableTableCatalogTransaction,
+} from "./stableTableCatalog";
 
 const PREPARE_INPUT_KEYS = Object.freeze([
   "deploymentId",
@@ -76,6 +90,16 @@ export interface PreparedAppDeveloperIndexDefinitionBindingV1 {
   readonly [preparedDefinitionBindingBrand]: true;
 }
 
+const preparedCreationTimeDefinitionBrand: unique symbol = Symbol(
+  "FlarexDB/PreparedAppCreationTimeIndexDefinitionV1",
+);
+
+export interface PreparedAppCreationTimeIndexDefinitionV1 {
+  readonly deploymentId: string;
+  readonly tableId: CatalogTableId;
+  readonly [preparedCreationTimeDefinitionBrand]: true;
+}
+
 export interface AppIndexDefinitionRecord {
   readonly deploymentId: string;
   readonly indexDefinitionId: CatalogIndexDefinitionId;
@@ -86,6 +110,15 @@ export interface AppIndexDefinitionRecord {
   readonly physicalSpecSha256Hex: AppIndexPhysicalSpecSha256HexV1;
   readonly createdAt: Date;
 }
+
+export type AppIndexDefinitionRecordForAccessKindV1<
+  Kind extends AppPhysicalIndexAccessKindV1,
+> = Omit<AppIndexDefinitionRecord, "access"> & {
+  readonly access: Extract<
+    AppPhysicalIndexAccessIdentityV1,
+    { readonly kind: Kind }
+  >;
+};
 
 export interface AppSchemaVersionIndexBindingRecord {
   readonly deploymentId: string;
@@ -99,8 +132,14 @@ export interface AppSchemaVersionIndexBindingRecord {
 export interface EnsureAppDeveloperIndexDefinitionBindingV1Result {
   readonly definitionStatus: "created" | "existing";
   readonly bindingStatus: "created" | "existing";
-  readonly definition: AppIndexDefinitionRecord;
+  readonly definition: AppIndexDefinitionRecordForAccessKindV1<"developer">;
   readonly binding: AppSchemaVersionIndexBindingRecord;
+}
+
+export interface EnsureAppCreationTimeIndexDefinitionV1Result {
+  readonly definitionStatus: "created" | "existing";
+  readonly definition:
+    AppIndexDefinitionRecordForAccessKindV1<"by_creation_time">;
 }
 
 export type InvalidAppIndexDefinitionBindingInputIssue =
@@ -128,6 +167,47 @@ export class InvalidPreparedAppIndexDefinitionBindingError extends Error {
       "App index definition binding was not prepared by this repository instance.",
     );
     this.name = "InvalidPreparedAppIndexDefinitionBindingError";
+  }
+}
+
+export class InvalidPreparedAppCreationTimeIndexDefinitionError extends Error {
+  constructor() {
+    super(
+      "App creation-time index definition was not prepared from an authenticated app-schema publication.",
+    );
+    this.name = "InvalidPreparedAppCreationTimeIndexDefinitionError";
+  }
+}
+
+export type AppCreationTimeIndexDefinitionRequirementIssue =
+  | {
+      readonly reason: "requirementCountMismatch";
+      readonly tableCount: number;
+      readonly requirementCount: number;
+    }
+  | {
+      readonly reason: "requirementTableNotFound";
+      readonly tableId: CatalogTableId;
+    }
+  | {
+      readonly reason: "duplicateRequirementTable";
+      readonly tableId: CatalogTableId;
+    }
+  | {
+      readonly reason: "incompleteRequirementSet";
+      readonly coveredTableCount: number;
+      readonly tableCount: number;
+    };
+
+export class AppCreationTimeIndexDefinitionRequirementError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly issue: AppCreationTimeIndexDefinitionRequirementIssue,
+  ) {
+    super(
+      `Prepared app-schema creation-time requirements are inconsistent for ${deploymentId}: ${creationTimeRequirementIssueMessage(issue)}`,
+    );
+    this.name = "AppCreationTimeIndexDefinitionRequirementError";
   }
 }
 
@@ -205,6 +285,42 @@ export class AppIndexDefinitionChecksumCollisionError extends Error {
   }
 }
 
+export class AppCreationTimeIndexDefinitionChecksumCollisionError
+  extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly tableId: CatalogTableId,
+    readonly existingIndexDefinitionId: CatalogIndexDefinitionId,
+  ) {
+    super(
+      `Physical index definitions have equal SHA-256 but unequal canonical bytes for ${deploymentId}/by_creation_time/${tableId}.`,
+    );
+    this.name = "AppCreationTimeIndexDefinitionChecksumCollisionError";
+  }
+}
+
+export type AppCreationTimeIndexDefinitionParentIssue =
+  | { readonly reason: "tableNotFound" }
+  | {
+      readonly reason: "tableBindingChanged";
+      readonly currentNamespace: CatalogTableNamespace;
+      readonly currentLogicalName: string;
+    };
+
+export class AppCreationTimeIndexDefinitionParentError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly tableId: CatalogTableId,
+    readonly expectedLogicalName: SchemaManifestAppTableName,
+    readonly issue: AppCreationTimeIndexDefinitionParentIssue,
+  ) {
+    super(
+      `App creation-time index definition parent is invalid for ${deploymentId}/${tableId}/${expectedLogicalName}: ${creationTimeParentIssueMessage(issue)}`,
+    );
+    this.name = "AppCreationTimeIndexDefinitionParentError";
+  }
+}
+
 export class AppSchemaVersionIndexBindingConflictError extends Error {
   constructor(
     readonly deploymentId: string,
@@ -220,17 +336,44 @@ export class AppSchemaVersionIndexBindingConflictError extends Error {
   }
 }
 
-interface PreparedDefinitionBindingState {
+interface PreparedPhysicalDefinitionState<
+  Kind extends AppPhysicalIndexAccessKindV1,
+> {
   readonly deploymentId: string;
+  readonly access: Extract<
+    AppPhysicalIndexAccessIdentityV1,
+    { readonly kind: Kind }
+  >;
+  readonly storageIdentity: Extract<
+    AppPhysicalIndexAccessStorageIdentityV1,
+    { readonly kind: Kind }
+  >;
+  readonly canonical: CanonicalAppIndexPhysicalSpecV1;
+}
+
+interface PreparedDefinitionBindingState
+  extends PreparedPhysicalDefinitionState<"developer"> {
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly tableId: CatalogTableId;
   readonly logicalIndexId: CatalogIndexId;
-  readonly canonical: CanonicalAppIndexPhysicalSpecV1;
+  readonly access: AppDeveloperPhysicalIndexAccessIdentityV1;
+}
+
+interface PreparedCreationTimeDefinitionState
+  extends PreparedPhysicalDefinitionState<"by_creation_time"> {
+  readonly tableId: CatalogTableId;
+  readonly expectedLogicalName: SchemaManifestAppTableName;
+  readonly access: AppCreationTimePhysicalIndexAccessIdentityV1;
 }
 
 const preparedDefinitionBindingStates = new WeakMap<
   PreparedAppDeveloperIndexDefinitionBindingV1,
   PreparedDefinitionBindingState
+>();
+
+const preparedCreationTimeDefinitionStates = new WeakMap<
+  PreparedAppCreationTimeIndexDefinitionV1,
+  PreparedCreationTimeDefinitionState
 >();
 
 /**
@@ -265,6 +408,11 @@ export async function prepareAppDeveloperIndexDefinitionBindingV1(
       { cause },
     );
   }
+  const access = Object.freeze({
+    kind: "developer",
+    tableId,
+    logicalIndexId,
+  } satisfies AppDeveloperPhysicalIndexAccessIdentityV1);
   const prepared = Object.freeze({
     deploymentId,
     schemaVersionId,
@@ -272,14 +420,99 @@ export async function prepareAppDeveloperIndexDefinitionBindingV1(
     logicalIndexId,
     [preparedDefinitionBindingBrand]: true,
   } satisfies PreparedAppDeveloperIndexDefinitionBindingV1);
-  preparedDefinitionBindingStates.set(prepared, {
+  preparedDefinitionBindingStates.set(prepared, Object.freeze({
     deploymentId,
     schemaVersionId,
     tableId,
     logicalIndexId,
+    access,
+    storageIdentity: appPhysicalIndexAccessStorageIdentityV1(access),
     canonical,
-  });
+  } satisfies PreparedDefinitionBindingState));
   return prepared;
+}
+
+/**
+ * Derive the complete intrinsic definition-token set from one authenticated
+ * D2a preparation without re-lowering or re-hashing its D1 evidence.
+ *
+ * Tokens are ordered by table ID and expose no logical name, canonical bytes,
+ * digest, physical ID, lifecycle, or readiness authority. D2c later owns
+ * consuming the complete set; D2b only provides the per-table row primitive.
+ */
+export function prepareAppCreationTimeIndexDefinitionsV1(
+  publication: PreparedAppSchemaCatalogPublicationV2,
+): ReadonlyArray<PreparedAppCreationTimeIndexDefinitionV1> {
+  const publicationState =
+    getPreparedAppSchemaCatalogPublicationV2State(publication);
+  const tables = publicationState.logicalBindings.manifest
+    .tableDefinitions.tables;
+  const requirements = publicationState.requirements.creationTimeIndexes;
+  if (tables.length !== requirements.length) {
+    throw new AppCreationTimeIndexDefinitionRequirementError(
+      publication.deploymentId,
+      {
+        reason: "requirementCountMismatch",
+        tableCount: tables.length,
+        requirementCount: requirements.length,
+      },
+    );
+  }
+  const tablesById = new Map(
+    tables.map((table) => [table.tableId, table] as const),
+  );
+  const seenTableIds = new Set<CatalogTableId>();
+  const prepared = requirements.map((requirement) => {
+    const table = tablesById.get(requirement.tableId);
+    if (table === undefined) {
+      throw new AppCreationTimeIndexDefinitionRequirementError(
+        publication.deploymentId,
+        {
+          reason: "requirementTableNotFound",
+          tableId: requirement.tableId,
+        },
+      );
+    }
+    if (seenTableIds.has(requirement.tableId)) {
+      throw new AppCreationTimeIndexDefinitionRequirementError(
+        publication.deploymentId,
+        {
+          reason: "duplicateRequirementTable",
+          tableId: requirement.tableId,
+        },
+      );
+    }
+    seenTableIds.add(requirement.tableId);
+    const access = Object.freeze({
+      kind: "by_creation_time",
+      tableId: requirement.tableId,
+    } satisfies AppCreationTimePhysicalIndexAccessIdentityV1);
+    const token = Object.freeze({
+      deploymentId: publication.deploymentId,
+      tableId: requirement.tableId,
+      [preparedCreationTimeDefinitionBrand]: true,
+    } satisfies PreparedAppCreationTimeIndexDefinitionV1);
+    preparedCreationTimeDefinitionStates.set(token, Object.freeze({
+      deploymentId: publication.deploymentId,
+      tableId: requirement.tableId,
+      expectedLogicalName: table.logicalName,
+      access,
+      storageIdentity: appPhysicalIndexAccessStorageIdentityV1(access),
+      canonical: requirement.canonical,
+    } satisfies PreparedCreationTimeDefinitionState));
+    return token;
+  });
+  if (seenTableIds.size !== tablesById.size) {
+    throw new AppCreationTimeIndexDefinitionRequirementError(
+      publication.deploymentId,
+      {
+        reason: "incompleteRequirementSet",
+        coveredTableCount: seenTableIds.size,
+        tableCount: tablesById.size,
+      },
+    );
+  }
+  return Object.freeze(prepared);
 }
 
 /**
@@ -329,7 +562,8 @@ export async function ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
       definition: existingDefinition,
     } satisfies {
       readonly status: "existing";
-      readonly definition: AppIndexDefinitionRecord;
+      readonly definition:
+        AppIndexDefinitionRecordForAccessKindV1<"developer">;
     });
   const insertedBinding = await insertBinding(
     tx,
@@ -343,6 +577,38 @@ export async function ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
     definition: ensuredDefinition.definition,
     binding: insertedBinding,
   } satisfies EnsureAppDeveloperIndexDefinitionBindingV1Result);
+}
+
+/**
+ * Ensure one table-owned intrinsic definition in a caller-owned transaction.
+ *
+ * The exact bound app table is checked under the deployment lock before any
+ * definition lookup or allocation. This helper never creates a stable table,
+ * schema binding, build row, lifecycle state, or transaction commit.
+ */
+export async function ensureAppCreationTimeIndexDefinitionV1InTransaction(
+  tx: StableTableCatalogTransaction,
+  prepared: PreparedAppCreationTimeIndexDefinitionV1,
+): Promise<EnsureAppCreationTimeIndexDefinitionV1Result> {
+  const state = preparedCreationTimeDefinitionStates.get(prepared);
+  if (state === undefined) {
+    throw new InvalidPreparedAppCreationTimeIndexDefinitionError();
+  }
+
+  await lockSchemaManifestBindingDeployment(tx, state.deploymentId);
+  await verifyCreationTimeTableParent(tx, state);
+  const existingDefinition = await findExistingDefinition(tx, state);
+  if (existingDefinition !== null) {
+    return Object.freeze({
+      definitionStatus: "existing",
+      definition: existingDefinition,
+    } satisfies EnsureAppCreationTimeIndexDefinitionV1Result);
+  }
+  const created = await insertDefinition(tx, state);
+  return Object.freeze({
+    definitionStatus: created.status,
+    definition: created.definition,
+  } satisfies EnsureAppCreationTimeIndexDefinitionV1Result);
 }
 
 export async function getAppIndexDefinitionById(
@@ -516,20 +782,59 @@ async function verifyParents(
   }
 }
 
-async function findExistingDefinition(
+async function verifyCreationTimeTableParent(
   tx: StableTableCatalogTransaction,
-  state: PreparedDefinitionBindingState,
-): Promise<AppIndexDefinitionRecord | null> {
+  state: PreparedCreationTimeDefinitionState,
+): Promise<void> {
+  const current = await getStableTableIdentityById(
+    tx,
+    state.deploymentId,
+    state.tableId,
+  );
+  if (current === null) {
+    throw new AppCreationTimeIndexDefinitionParentError(
+      state.deploymentId,
+      state.tableId,
+      state.expectedLogicalName,
+      { reason: "tableNotFound" },
+    );
+  }
+  if (
+    current.namespace !== "app" ||
+    current.logicalName !== state.expectedLogicalName
+  ) {
+    throw new AppCreationTimeIndexDefinitionParentError(
+      state.deploymentId,
+      state.tableId,
+      state.expectedLogicalName,
+      {
+        reason: "tableBindingChanged",
+        currentNamespace: current.namespace,
+        currentLogicalName: current.logicalName,
+      },
+    );
+  }
+}
+
+async function findExistingDefinition<
+  Kind extends AppPhysicalIndexAccessKindV1,
+>(
+  tx: StableTableCatalogTransaction,
+  state: PreparedPhysicalDefinitionState<Kind>,
+): Promise<AppIndexDefinitionRecordForAccessKindV1<Kind> | null> {
   const existingRows = await tx
     .select()
     .from(fxControlIndexDefinitions)
     .where(
       and(
         eq(fxControlIndexDefinitions.deploymentId, state.deploymentId),
-        eq(fxControlIndexDefinitions.accessKind, "developer"),
+        eq(
+          fxControlIndexDefinitions.accessKind,
+          state.storageIdentity.kind,
+        ),
         eq(
           fxControlIndexDefinitions.accessIdentityId,
-          state.logicalIndexId,
+          state.storageIdentity.accessIdentityId,
         ),
         eq(
           fxControlIndexDefinitions.physicalSpecSha256,
@@ -542,25 +847,17 @@ async function findExistingDefinition(
     .limit(1);
   const existingRow = existingRows[0];
   if (existingRow === undefined) return null;
-  const definition = decodeStoredDefinitionAgainstPrepared(existingRow, state);
-  if (
-    definition.physicalSpecBytesHex !== state.canonical.canonicalBytesHex
-  ) {
-    throw new AppIndexDefinitionChecksumCollisionError(
-      state.deploymentId,
-      state.logicalIndexId,
-      definition.indexDefinitionId,
-    );
-  }
-  return definition;
+  return decodeStoredDefinitionAgainstPrepared(existingRow, state);
 }
 
-async function insertDefinition(
+async function insertDefinition<
+  Kind extends AppPhysicalIndexAccessKindV1,
+>(
   tx: StableTableCatalogTransaction,
-  state: PreparedDefinitionBindingState,
+  state: PreparedPhysicalDefinitionState<Kind>,
 ): Promise<{
   readonly status: "created";
-  readonly definition: AppIndexDefinitionRecord;
+  readonly definition: AppIndexDefinitionRecordForAccessKindV1<Kind>;
 }> {
   const currentHighWater = await readDefinitionHighWater(
     tx,
@@ -575,10 +872,10 @@ async function insertDefinition(
     .values({
       deploymentId: state.deploymentId,
       indexDefinitionId,
-      accessKind: "developer",
-      accessIdentityId: state.logicalIndexId,
-      tableId: state.tableId,
-      logicalIndexId: state.logicalIndexId,
+      accessKind: state.storageIdentity.kind,
+      accessIdentityId: state.storageIdentity.accessIdentityId,
+      tableId: state.storageIdentity.tableId,
+      logicalIndexId: state.storageIdentity.logicalIndexId,
       physicalSpecCodecVersion: state.canonical.codecVersion,
       physicalSpecJson: state.canonical.physicalSpec,
       physicalSpecBytes: canonicalAppIndexPhysicalSpecBytesHexV1ToBytes(
@@ -693,10 +990,12 @@ function nextDefinitionId(
  * held. Root read APIs use the stronger independent re-canonicalization path
  * below because they are outside the publication critical section.
  */
-function decodeStoredDefinitionAgainstPrepared(
+function decodeStoredDefinitionAgainstPrepared<
+  Kind extends AppPhysicalIndexAccessKindV1,
+>(
   row: typeof fxControlIndexDefinitions.$inferSelect,
-  state: PreparedDefinitionBindingState,
-): AppIndexDefinitionRecord {
+  state: PreparedPhysicalDefinitionState<Kind>,
+): AppIndexDefinitionRecordForAccessKindV1<Kind> {
   const deploymentId = decodeStoredDeploymentId(row.deploymentId);
   if (deploymentId !== state.deploymentId) {
     throw new AppIndexDefinitionCatalogCorruptionError(
@@ -716,14 +1015,10 @@ function decodeStoredDefinitionAgainstPrepared(
     tableId,
     row.logicalIndexId,
   );
-  if (
-    access.kind !== "developer" ||
-    access.tableId !== state.tableId ||
-    access.logicalIndexId !== state.logicalIndexId
-  ) {
+  if (!appPhysicalIndexAccessIdentitiesEqual(access, state.access)) {
     throw new AppIndexDefinitionCatalogCorruptionError(
       deploymentId,
-      `definition ${indexDefinitionId} does not match its prepared logical owner`,
+      `definition ${indexDefinitionId} does not match its prepared access owner`,
     );
   }
 
@@ -765,9 +1060,9 @@ function decodeStoredDefinitionAgainstPrepared(
     );
   }
   if (physicalSpecBytesHex !== state.canonical.canonicalBytesHex) {
-    throw new AppIndexDefinitionChecksumCollisionError(
-      deploymentId,
-      state.logicalIndexId,
+    throw checksumCollisionError(
+      state.deploymentId,
+      state.access,
       indexDefinitionId,
     );
   }
@@ -785,13 +1080,13 @@ function decodeStoredDefinitionAgainstPrepared(
   return Object.freeze({
     deploymentId,
     indexDefinitionId,
-    access,
+    access: state.access,
     physicalSpecCodecVersion,
     physicalSpec: state.canonical.physicalSpec,
     physicalSpecBytesHex,
     physicalSpecSha256Hex,
     createdAt,
-  } satisfies AppIndexDefinitionRecord);
+  } satisfies AppIndexDefinitionRecordForAccessKindV1<Kind>);
 }
 
 async function decodeStoredDefinition(
@@ -873,6 +1168,34 @@ async function decodeStoredDefinition(
     physicalSpecSha256Hex,
     createdAt,
   } satisfies AppIndexDefinitionRecord);
+}
+
+function appPhysicalIndexAccessIdentitiesEqual(
+  left: AppPhysicalIndexAccessIdentityV1,
+  right: AppPhysicalIndexAccessIdentityV1,
+): boolean {
+  if (left.kind !== right.kind || left.tableId !== right.tableId) return false;
+  return left.kind === "by_creation_time" ||
+    (right.kind === "developer" &&
+      left.logicalIndexId === right.logicalIndexId);
+}
+
+function checksumCollisionError(
+  deploymentId: string,
+  access: AppPhysicalIndexAccessIdentityV1,
+  indexDefinitionId: CatalogIndexDefinitionId,
+): Error {
+  return access.kind === "developer"
+    ? new AppIndexDefinitionChecksumCollisionError(
+      deploymentId,
+      access.logicalIndexId,
+      indexDefinitionId,
+    )
+    : new AppCreationTimeIndexDefinitionChecksumCollisionError(
+      deploymentId,
+      access.tableId,
+      indexDefinitionId,
+    );
 }
 
 function physicalSpecsEqual(
@@ -1174,5 +1497,31 @@ function parentIssueMessage(issue: AppIndexDefinitionParentIssue): string {
       return "logical index does not exist";
     case "logicalIndexTableMismatch":
       return `logical index belongs to table ${issue.currentTableId}, not ${issue.requestedTableId}`;
+  }
+}
+
+function creationTimeParentIssueMessage(
+  issue: AppCreationTimeIndexDefinitionParentIssue,
+): string {
+  switch (issue.reason) {
+    case "tableNotFound":
+      return "bound app table does not exist";
+    case "tableBindingChanged":
+      return `table now belongs to ${issue.currentNamespace}/${issue.currentLogicalName}`;
+  }
+}
+
+function creationTimeRequirementIssueMessage(
+  issue: AppCreationTimeIndexDefinitionRequirementIssue,
+): string {
+  switch (issue.reason) {
+    case "requirementCountMismatch":
+      return `expected ${issue.tableCount} requirements but found ${issue.requirementCount}`;
+    case "requirementTableNotFound":
+      return `requirement table ${issue.tableId} is missing`;
+    case "duplicateRequirementTable":
+      return `requirement table ${issue.tableId} is duplicated`;
+    case "incompleteRequirementSet":
+      return `requirements cover ${issue.coveredTableCount} of ${issue.tableCount} tables`;
   }
 }

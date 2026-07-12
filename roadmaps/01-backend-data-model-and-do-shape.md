@@ -1,5 +1,64 @@
 # Backend Data Model And Durable Object Shape
 
+## Materialize Intrinsic Access Without A Logical Index Copy
+
+Previous completed checkpoint: `478137e` Broaden standing code reviewers.
+
+Previous completed FlarexDB checkpoint: `268cc83` Prepare app schema catalog
+publication.
+
+What changed:
+
+- Materialized D1 `by_creation_time` requirements as immutable definitions
+  owned by the exact deployment/table identity. No logical index ID or
+  schema-version binding is fabricated.
+- Derived the complete identity-only token set from D2a private state, retaining
+  canonical evidence and expected logical table names only in WeakMaps.
+- Reused the C3 physical-generation allocator and exact evidence decoder; typed
+  parent and checksum failures stop before additional rows are written.
+- Tightened the shared owner-to-storage mapping and result records so the type
+  system preserves the developer versus intrinsic discriminant end to end.
+
+Why it changed:
+
+Intrinsic creation order is a physical access requirement, not developer
+logical schema. Giving it a fake logical binding would be a second schema
+authority; accepting raw physical fields would instead make the caller an
+authority. The authenticated table-owned branch avoids both errors.
+
+Convex references inspected:
+
+- `crates/common/src/types/index.rs`
+- `crates/common/src/bootstrap_model/index/database_index/indexed_fields.rs`
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+
+How Flarex differs:
+
+Convex installs `by_id` and `by_creation_time` with table metadata and can mark
+them enabled for an empty table. Flarex uses direct row identity for `by_id`
+and makes no lifecycle/readiness claim for the creation-time definition.
+
+Known limitations and follow-up:
+
+- D2c owns whole-projection publication/verification. D3/D4/S04 still own
+  located builds, evidence-based readiness, and activation.
+- No app rows, OCC, compiler, Payload/Medusa, Worker, or legacy behavior changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/index-definition.test.ts --no-file-parallelism
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appCreationTimeIndexDefinitions.test.ts test/appIndexDefinitions.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexDefinitions.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Prepare One Authenticated Full App-Schema Attempt
 
 Previous completed checkpoint: `423ba8a` Compile app schema catalog
@@ -42,9 +101,10 @@ authority.
 
 Known limitations and follow-up:
 
-- D2b adds the missing intrinsic-definition writer; D2c applies and verifies
-  the control projection; D2d owns retry, facade/quota, and real-Postgres
-  concurrency gates. D3 alone mutates located build state.
+- At the D2a checkpoint, D2b still owned the missing intrinsic-definition
+  writer. D2c applies and verifies the control projection; D2d owns retry,
+  facade/quota, and whole-publication concurrency gates. D3 alone mutates
+  located build state.
 - No app rows, OCC, commit compilation, Payload/Medusa, analyzer, Cloudflare
   deployment, or legacy behavior changed.
 

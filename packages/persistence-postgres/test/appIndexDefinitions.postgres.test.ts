@@ -16,9 +16,15 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
+  prepareAppSchemaCatalogPublicationV2,
+} from "../src/appSchemaCatalogPublicationV2";
+import {
   AppSchemaVersionIndexBindingConflictError,
+  ensureAppCreationTimeIndexDefinitionV1InTransaction,
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
+  prepareAppCreationTimeIndexDefinitionsV1,
   prepareAppDeveloperIndexDefinitionBindingV1,
+  type PreparedAppCreationTimeIndexDefinitionV1,
   type PreparedAppDeveloperIndexDefinitionBindingV1,
 } from "../src/appIndexDefinitions";
 import type { PostgresFlarexPersistence } from "../src/postgres";
@@ -75,6 +81,59 @@ describePostgres("real Postgres immutable app index definitions", () => {
       await expect(definitionCounts(persistence, deploymentId)).resolves.toEqual({
         definitions: 1,
         bindings: 1,
+      });
+    });
+  }, 30_000);
+
+  it("converges concurrent exact table-owned creation-time replay", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const deploymentId = "deployment_creation_time_pg_replay";
+      await registerAppSchemaVersion(
+        persistence,
+        deploymentId,
+        "schema_creation_time_pg_parent",
+        ["email"],
+      );
+      const publication = await prepareAppSchemaCatalogPublicationV2(
+        persistence.drizzle,
+        {
+          deploymentId,
+          schemaVersionId: CatalogSchemaVersionIdSchema.make(
+            "schema_creation_time_pg_plan",
+          ),
+          version: CatalogSchemaVersionSchema.make(2),
+          tables: [appTable("users")],
+          indexes: [],
+        },
+      );
+      const prepared = prepareAppCreationTimeIndexDefinitionsV1(publication)[0];
+      if (prepared === undefined) {
+        throw new Error("Expected one creation-time definition token.");
+      }
+      const held = await acquirePostgresDeploymentLock(
+        persistence,
+        deploymentId,
+      );
+      const operations = [
+        ensureCreationTimePrepared(persistence, prepared),
+        ensureCreationTimePrepared(persistence, prepared),
+      ] as const;
+
+      await releaseAfterBlocked(held, persistence, 2, operations);
+      const results = await Promise.all(operations);
+      expect(results.map((result) => result.definitionStatus).sort()).toEqual([
+        "created",
+        "existing",
+      ]);
+      expect(results[0].definition.indexDefinitionId).toBe(1);
+      expect(results[1].definition.indexDefinitionId).toBe(1);
+      expect(results[0].definition.access).toEqual({
+        kind: "by_creation_time",
+        tableId: 1,
+      });
+      await expect(definitionCounts(persistence, deploymentId)).resolves.toEqual({
+        definitions: 1,
+        bindings: 0,
       });
     });
   }, 30_000);
@@ -325,6 +384,15 @@ function ensurePrepared(
 ) {
   return persistence.drizzle.transaction((tx) =>
     ensureAppDeveloperIndexDefinitionBindingV1InTransaction(tx, prepared)
+  );
+}
+
+function ensureCreationTimePrepared(
+  persistence: PostgresFlarexPersistence,
+  prepared: PreparedAppCreationTimeIndexDefinitionV1,
+) {
+  return persistence.drizzle.transaction((tx) =>
+    ensureAppCreationTimeIndexDefinitionV1InTransaction(tx, prepared)
   );
 }
 

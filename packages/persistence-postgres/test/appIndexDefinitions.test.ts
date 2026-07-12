@@ -43,6 +43,7 @@ import {
   InvalidAppIndexDefinitionBindingInputError,
   InvalidPreparedAppIndexDefinitionBindingError,
   prepareAppDeveloperIndexDefinitionBindingV1,
+  type EnsureAppDeveloperIndexDefinitionBindingV1Result,
   type PrepareAppDeveloperIndexDefinitionBindingV1Input,
   type PreparedAppDeveloperIndexDefinitionBindingV1,
 } from "../src/appIndexDefinitions";
@@ -99,6 +100,9 @@ describe("immutable app index definitions", () => {
     expectTypeOf<
       AppSchemaVersionIndexBindingRecord["requiredForActivation"]
     >().toEqualTypeOf<true>();
+    expectTypeOf<
+      EnsureAppDeveloperIndexDefinitionBindingV1Result["definition"]["access"]["kind"]
+    >().toEqualTypeOf<"developer">();
     expectTypeOf<FlarexPersistence>()
       .not.toMatchTypeOf<
         Parameters<

@@ -2,7 +2,7 @@
 
 Status: accepted architecture correction; implementation is still incomplete
 
-Last reviewed: 2026-07-11
+Last reviewed: 2026-07-13
 
 This document is the decision record for the proposed unified FlarexDB schema,
 commit compiler, sync engine, Payload adapter, and Medusa integration. It keeps
@@ -503,17 +503,22 @@ one atomic operation:
    authenticates same-process identity. The token is not a durable receipt,
    serializable authority, cryptographic capability, or permission to write;
    preparation performs catalog reads but no catalog writes.
-3. D2b will add the missing trusted table-owned `by_creation_time` definition
-   ensure/replay primitive. It will not persist a second manifest or expose a
-   standalone allocator; the existing C3 writer remains developer-index-only.
+3. D2b derives the complete table-ID-ordered set of identity-only
+   `by_creation_time` child tokens from the authenticated D2a state and reuses
+   D1's canonical evidence without re-lowering or hashing. Its per-token writer
+   locks the deployment, verifies the exact planned app namespace/logical name
+   before any definition lookup or allocation, and ensures/replays one
+   table-owned definition through the shared C3 high-water allocator. It never
+   creates a table, logical index, schema binding, build row, second manifest,
+   standalone allocator, or transaction commit.
 4. D2c will consume one authenticated preparation inside one caller-owned
    control-database transaction, revalidate/apply the C2 plan, insert/replay the
    exact V2 artifact, persist all required physical definitions and schema
    bindings, and exactly verify the normalized projection before commit.
 5. D2d will add the bounded fresh-whole-preparation retry coordinator, routed
    V2 persistence facade, canonical-byte/platform quota, and real-Postgres
-   concurrency/rollback proof. API generation V2 does not mean a second
-   semantic manifest or canonical codec version.
+   whole-publication concurrency/rollback proof. API generation V2 does not
+   mean a second semantic manifest or canonical codec version.
 6. D3 will reconcile required definitions into located build state through a
    durable idempotent protocol. It cannot be part of D2's SQL transaction in
    schema-per-scope or database-per-scope placement.

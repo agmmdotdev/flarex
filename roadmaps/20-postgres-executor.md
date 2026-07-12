@@ -1,5 +1,68 @@
 # Postgres Executor
 
+## Ensure Intrinsic Definitions In The Caller Transaction
+
+Previous completed checkpoint: `478137e` Broaden standing code reviewers.
+
+Previous completed FlarexDB checkpoint: `268cc83` Prepare app schema catalog
+publication.
+
+What changed:
+
+- Added a host-neutral, package-internal D2b writer that consumes only opaque
+  child tokens derived from D2a and never opens or commits its own transaction.
+- Moved developer/intrinsic owner storage through one private C3 definition
+  kernel, deployment lock, high-water allocator, and exact prepared-row checker.
+- Made that kernel generic over the access-kind discriminant so owner and SQL
+  storage identity cannot diverge at compile time.
+- Verified the exact planned app namespace/logical name before definition reads
+  or allocation. PostgreSQL 18.3 proved two blocked Worker-style transactions
+  converge on one intrinsic definition ID; existing C3 lock/rollback tests
+  remain green.
+
+Why it changed:
+
+The future Worker executor needs a short SQL primitive that can participate in
+D2c's larger control transaction without redoing Web Crypto or exposing raw
+canonical evidence. Exact parent verification prevents optimistic C2 IDs from
+being used after another publisher assigns the number differently.
+
+Convex references inspected:
+
+- `crates/database/src/bootstrap_model/table.rs`
+- `crates/database/src/bootstrap_model/index.rs`
+- `crates/indexing/src/index_registry.rs`
+- `crates/application/src/deploy_config.rs`
+- `crates/model/src/components/config.rs`
+
+How Flarex differs:
+
+Convex creates system index metadata in its integrated table-creation
+transaction. Flarex keeps this framework-neutral Postgres operation separate
+until D2c composes it; no Worker, service binding, HTTP, Nitro/Vercel, or
+Hyperdrive adapter participates.
+
+Known limitations and follow-up:
+
+- D2c still owns full control-transaction composition/verification; D2d owns
+  whole-attempt retry, facade/quota, and whole-publication concurrency proof.
+- No host routing, build-state mutation, readiness, adapter generation, or
+  deployment changed.
+
+Verification:
+
+```sh
+corepack pnpm --filter flarex-protocol typecheck
+corepack pnpm --filter flarex-protocol exec vitest run test/index-definition.test.ts --no-file-parallelism
+corepack pnpm --filter flarex-protocol build
+corepack pnpm --filter @flarex/persistence-postgres typecheck
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appCreationTimeIndexDefinitions.test.ts test/appIndexDefinitions.test.ts --no-file-parallelism
+FLAREX_POSTGRES_DATABASE_URL=... corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appIndexDefinitions.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres build
+corepack pnpm check:effect-boundaries
+git diff --check
+```
+
 ## Prepare Full Catalog Publication Outside The Write Transaction
 
 Previous completed checkpoint: `423ba8a` Compile app schema catalog
@@ -43,9 +106,9 @@ not participate in this core slice.
 
 Known limitations and follow-up:
 
-- D2b/D2c still own the intrinsic writer and transactional apply/verification;
-  D2d owns whole-preparation stale retry, the routed facade, quota, and the
-  focused real-Postgres concurrency/rollback lane.
+- At the D2a checkpoint, D2b/D2c still owned the intrinsic writer and
+  transactional apply/verification. D2d owns whole-preparation stale retry,
+  the routed facade, quota, and whole-publication concurrency/rollback lane.
 - No host routing, Worker deployment, definition or binding write, located
   build mutation, readiness, Payload/Medusa, or legacy cleanup changed.
 
