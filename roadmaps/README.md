@@ -1,23 +1,36 @@
 # Flarex Roadmaps
 
-This folder records domain-specific design decisions and implementation notes.
-Keep each file focused. Do not turn one file into the complete project history.
+This folder contains living, domain-specific sources of truth for Flarex's
+architecture, rationale, current status, known gaps, target direction, and next
+correctness gates. Keep each file focused. Use
+[`_domain-template.md`](./_domain-template.md) when creating or compacting a
+domain roadmap.
 
-Every implementation turn must update the relevant domain file with:
+Roadmaps do not replace more precise authorities:
 
-- what changed
-- why it changed
-- Convex source files inspected or used as inspiration
-- how Flarex differs because of runtime, storage, licensing, or deliberate API
-  boundaries
-- known limitations and follow-up work
-- verification commands run
+- code, schemas, and tests own exact implemented behavior;
+- accepted design notes own cross-domain architecture according to the
+  precedence in [`../AGENTS.md`](../AGENTS.md); and
+- Git commits and pull requests own chronological implementation history and
+  verification receipts.
 
-Each domain roadmap owns its own concise implementation checkpoint history,
-including the previous completed checkpoint's commit ID and title. Do not
-create a global chronological implementation log or combine all project
-history into one giant file. After verification, create and report an
-automatic checkpoint commit.
+Update a roadmap when a durable domain fact changes: scope or ownership,
+architecture or invariants, rationale, Convex compatibility, implemented
+capability status, known gaps, target direction, sequencing, or correctness
+gates. A code touch by itself is not a reason to update a roadmap.
+
+Do not add commit IDs, commit messages, per-turn change summaries, reviewer
+receipts, verification command receipts, or chronological checkpoint sections
+to living roadmaps. Existing accumulated checkpoint sections are migration
+inputs to be compacted domain by domain; do not extend them. Older instructions
+inside individual roadmap files to append checkpoint details are superseded by
+this policy.
+
+When roadmap text and implementation differ, investigate before editing either
+one. Decide whether the implementation drifted from accepted design or new
+evidence changed the accepted direction. Fix accidental implementation drift;
+update stale roadmap truth when the direction genuinely changed. Never make a
+roadmap match code merely to legitimize an unreviewed divergence.
 
 For the accepted FlarexDB schema/compiler/sync/Payload/Medusa architecture
 boundary, start with

@@ -130,42 +130,56 @@ Do not invent a new design when Convex already has a portable pattern. Flarex's
 default should be "same developer mental model and same core behavior as
 Convex"; differences should be narrow, named, and recorded in `roadmaps/`.
 
-## Required Per-Turn Record
+## Living Roadmap Maintenance
 
-Every repository-changing turn must update the relevant domain file under
-`roadmaps/`.
+Treat domain roadmaps as living sources of truth for architecture, rationale,
+current domain status, and target direction. They are not implementation logs.
+Code, schemas, and tests remain authoritative for exact implemented behavior;
+accepted design notes remain authoritative for cross-domain decisions under the
+precedence rules above; Git owns chronological implementation history.
 
-Record:
+Update a domain roadmap only when a turn changes or newly clarifies at least
+one of these durable facts:
 
-- what changed
-- why it changed
-- the previous completed checkpoint's commit ID and title
-- Convex source files inspected or used as inspiration, or why none were
-  relevant for a governance-only or mechanical change
-- how the Flarex design differs from Convex
-- known limitations or follow-up work
-- verification commands run
+- domain scope, ownership, or trust boundaries
+- accepted architecture, invariants, or rationale
+- Convex compatibility or a deliberate Flarex divergence
+- implemented capability status
+- known gaps, limitations, or recovery behavior
+- target direction, sequencing, or correctness gates
 
-If a turn touches multiple domains, update multiple roadmap files. If no
-existing domain file fits, create a new focused roadmap file instead of adding
-one giant document.
+A code touch alone does not require a roadmap edit. Do not add commit IDs,
+commit titles, per-commit change summaries, reviewer receipts, verification
+receipts, or chronological checkpoint histories to living roadmaps. Keep
+verification in the current task report and Git commit/PR context. If no
+durable roadmap fact changed, leave the roadmap untouched.
 
-Implementation histories must remain domain-specific. Do not create a global
-chronological implementation log or add all project history to one giant
-roadmap file.
+Until existing roadmaps are compacted, any older domain-local instruction to
+append checkpoint commits, previous commit IDs, per-turn notes, or verification
+receipts is superseded by this section.
 
-Each domain roadmap must keep its own concise implementation checkpoint
-history. A Git commit cannot contain its own final ID because changing the
-roadmap changes the commit ID. Therefore:
+Treat every roadmap claim as a hypothesis to verify against the accepted design
+records, current schemas and code, decisive tests, and the active slice. When
+new evidence or an accepted decision makes roadmap content stale,
+contradictory, or incomplete:
 
-- record the previous completed checkpoint in its relevant domain roadmap
-  during the next repository-changing turn,
-- report the newly created commit ID and title in the final response, and
-- carry that new checkpoint into its relevant domain roadmap on the following
-  repository-changing turn.
+1. determine whether the implementation drifted or the accepted direction
+   genuinely changed;
+2. fix the implementation when it violates the accepted design;
+3. update the roadmap in the same turn when the durable domain truth changed;
+4. remove or clearly mark superseded statements instead of silently combining
+   them with the current design; and
+5. preserve only still-relevant rationale, using Git when historical detail is
+   needed.
 
-Discussion-only and research-only turns that do not change repository files do
-not require an empty roadmap update or commit.
+Do not rewrite a roadmap merely to legitimize accidental code drift. Apply the
+Design Challenge Rule and Replacement Design Authority before promoting a new
+direction. If a turn changes multiple domains' durable truths, update each
+affected roadmap. If no existing file fits, create a focused domain roadmap
+using `roadmaps/_domain-template.md` rather than a global log.
+
+Discussion-only, research-only, mechanical, and behavior-preserving turns do
+not require an empty roadmap update.
 
 ## Automatic Checkpoint Commits
 
