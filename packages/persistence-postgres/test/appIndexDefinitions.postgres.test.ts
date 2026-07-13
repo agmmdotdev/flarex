@@ -16,8 +16,8 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
-  prepareAppSchemaCatalogPublicationV2,
-} from "../src/appSchemaCatalogPublicationV2";
+  prepareAppSchemaPublicationV1,
+} from "../src/appSchemaPublicationPreparation";
 import {
   AppSchemaVersionIndexBindingConflictError,
   ensureAppCreationTimeIndexDefinitionV1InTransaction,
@@ -94,7 +94,7 @@ describePostgres("real Postgres immutable app index definitions", () => {
         "schema_creation_time_pg_parent",
         ["email"],
       );
-      const publication = await prepareAppSchemaCatalogPublicationV2(
+      const publication = await prepareAppSchemaPublicationV1(
         persistence.drizzle,
         {
           deploymentId,

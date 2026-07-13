@@ -102,7 +102,7 @@ Verification:
 
 ```sh
 corepack pnpm --filter @flarex/persistence-postgres typecheck
-corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaCatalogPublicationV2.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaPublicationPreparation.test.ts --no-file-parallelism
 corepack pnpm --filter @flarex/persistence-postgres build
 corepack pnpm check:effect-boundaries
 git diff --check
@@ -269,8 +269,8 @@ Verification:
 ```sh
 corepack pnpm --filter @flarex/persistence-postgres typecheck
 corepack pnpm --filter @flarex/persistence-postgres test
-corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaVersionArtifacts.test.ts test/schemaManifestTableBindings.test.ts test/schemaVersionArtifacts.test.ts --no-file-parallelism
-corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaVersionArtifacts.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appTableDefinitionsArtifacts.test.ts test/schemaManifestTableBindings.test.ts test/schemaVersionArtifacts.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appTableDefinitionsArtifacts.postgres.test.ts --no-file-parallelism
 corepack pnpm --filter @flarex/persistence-postgres build
 corepack pnpm check:effect-boundaries
 git diff --check

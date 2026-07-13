@@ -169,11 +169,11 @@ export async function createPGlitePersistence(
   const runtime = createFlarexRuntimePersistence({
     drizzle: drizzleDb,
     sql: createPGliteSqlClient(drizzleDb, db),
-    appSchemaVersionArtifactRepository: {
+    appTableDefinitionsArtifactRepository: {
       db: drizzleDb,
       runTransaction: (run) => drizzleDb.transaction(run),
     },
-    appSchemaVersionArtifactV2Repository: {
+    appSchemaPublicationRepository: {
       db: drizzleDb,
       runTransaction: (run) => drizzleDb.transaction(run),
     },

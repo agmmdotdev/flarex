@@ -10,8 +10,8 @@ import {
 import { describe, expect, it } from "vitest";
 
 import type {
-  EnsureAppSchemaVersionArtifactV1Input,
-  EnsureAppSchemaVersionArtifactV1Result,
+  EnsureAppTableDefinitionsArtifactV1Input,
+  EnsureAppTableDefinitionsArtifactV1Result,
   EnsureSchemaVersionArtifactInput,
 } from "../src";
 import type { PostgresFlarexPersistence } from "../src/postgres";
@@ -35,7 +35,7 @@ import {
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
-describePostgres("real Postgres app schema version artifact publication", () => {
+describePostgres("real Postgres table-definitions artifact compatibility", () => {
   it("converges concurrent exact mapping and artifact publications", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const deploymentId = "deployment_app_schema_pg_replay";
@@ -227,7 +227,7 @@ describePostgres("real Postgres app schema version artifact publication", () => 
 type PublicationAttempt =
   | {
       readonly status: "fulfilled";
-      readonly result: EnsureAppSchemaVersionArtifactV1Result;
+      readonly result: EnsureAppTableDefinitionsArtifactV1Result;
     }
   | {
       readonly status: "rejected";
@@ -236,12 +236,12 @@ type PublicationAttempt =
 
 async function attemptPublication(
   persistence: PostgresFlarexPersistence,
-  input: EnsureAppSchemaVersionArtifactV1Input,
+  input: EnsureAppTableDefinitionsArtifactV1Input,
 ): Promise<PublicationAttempt> {
   try {
     return {
       status: "fulfilled",
-      result: await persistence.ensureAppSchemaVersionArtifactV1(input),
+      result: await persistence.ensureAppTableDefinitionsArtifactV1(input),
     };
   } catch (error) {
     return { status: "rejected", error };
@@ -292,7 +292,7 @@ function appSchemaInput(
   deploymentId: string,
   schemaVersionId: string,
   logicalNames: ReadonlyArray<string>,
-): EnsureAppSchemaVersionArtifactV1Input {
+): EnsureAppTableDefinitionsArtifactV1Input {
   return {
     deploymentId,
     schemaVersionId: CatalogSchemaVersionIdSchema.make(schemaVersionId),

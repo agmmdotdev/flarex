@@ -27,9 +27,9 @@ import {
 } from "./schemaVersionArtifacts";
 import type { StableTableCatalogTransaction } from "./stableTableCatalog";
 
-export const MAX_APP_SCHEMA_VERSION_ARTIFACT_ATTEMPTS = 3;
+export const MAX_APP_TABLE_DEFINITIONS_ARTIFACT_V1_ATTEMPTS = 3;
 
-export interface EnsureAppSchemaVersionArtifactV1Input
+export interface EnsureAppTableDefinitionsArtifactV1Input
   extends Pick<
       EnsureSchemaVersionArtifactInput,
       "deploymentId" | "schemaVersionId" | "version"
@@ -46,10 +46,10 @@ export interface EnsureAppSchemaVersionArtifactV1Input
   readonly preparedArtifact?: never;
 }
 
-export type EnsureAppSchemaVersionArtifactV1Result =
+export type EnsureAppTableDefinitionsArtifactV1Result =
   EnsureSchemaVersionArtifactResult;
 
-export type InvalidAppSchemaVersionArtifactV1InputIssue =
+export type InvalidAppTableDefinitionsArtifactV1InputIssue =
   | {
       readonly reason: "invalidField";
       readonly field: "deploymentId" | "schemaVersionId" | "version" | "tables";
@@ -59,17 +59,17 @@ export type InvalidAppSchemaVersionArtifactV1InputIssue =
       readonly field: string;
     };
 
-export class InvalidAppSchemaVersionArtifactV1InputError extends Error {
+export class InvalidAppTableDefinitionsArtifactV1InputError extends Error {
   constructor(
-    readonly issue: InvalidAppSchemaVersionArtifactV1InputIssue,
+    readonly issue: InvalidAppTableDefinitionsArtifactV1InputIssue,
     options?: ErrorOptions,
   ) {
     super(invalidInputMessage(issue), options);
-    this.name = "InvalidAppSchemaVersionArtifactV1InputError";
+    this.name = "InvalidAppTableDefinitionsArtifactV1InputError";
   }
 }
 
-export class AppSchemaVersionArtifactRetryExhaustedError extends Error {
+export class AppTableDefinitionsArtifactV1RetryExhaustedError extends Error {
   constructor(
     readonly deploymentId: string,
     readonly attempts: number,
@@ -77,58 +77,58 @@ export class AppSchemaVersionArtifactRetryExhaustedError extends Error {
     options?: ErrorOptions,
   ) {
     super(
-      `App schema version artifact publication remained stale after ${attempts} attempts for ${deploymentId}.`,
+      `App table-definitions artifact remained stale after ${attempts} attempts for ${deploymentId}.`,
       options,
     );
-    this.name = "AppSchemaVersionArtifactRetryExhaustedError";
+    this.name = "AppTableDefinitionsArtifactV1RetryExhaustedError";
   }
 }
 
-const preparedAppSchemaVersionArtifactBrand: unique symbol = Symbol(
-  "FlarexDB/PreparedAppSchemaVersionArtifactV1",
+const preparedAppTableDefinitionsArtifactBrand: unique symbol = Symbol(
+  "FlarexDB/PreparedAppTableDefinitionsArtifactV1",
 );
 
-export interface PreparedAppSchemaVersionArtifactV1 {
+export interface PreparedAppTableDefinitionsArtifactV1 {
   readonly deploymentId: string;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly version: CatalogSchemaVersion;
-  readonly [preparedAppSchemaVersionArtifactBrand]: true;
+  readonly [preparedAppTableDefinitionsArtifactBrand]: true;
 }
 
-export class InvalidPreparedAppSchemaVersionArtifactV1Error extends Error {
+export class InvalidPreparedAppTableDefinitionsArtifactV1Error extends Error {
   constructor() {
     super(
-      "App schema version artifact was not prepared by this repository instance.",
+      "App table-definitions artifact was not prepared by this repository instance.",
     );
-    this.name = "InvalidPreparedAppSchemaVersionArtifactV1Error";
+    this.name = "InvalidPreparedAppTableDefinitionsArtifactV1Error";
   }
 }
 
-export type AppSchemaVersionArtifactV1Transaction =
+export type AppTableDefinitionsArtifactV1Transaction =
   StableTableCatalogTransaction & SchemaVersionArtifactTransaction;
 
-export interface AppSchemaVersionArtifactV1Repository {
+export interface AppTableDefinitionsArtifactV1Repository {
   readonly db: FlarexMetadataDatabase;
   runTransaction<Result>(
-    run: (tx: AppSchemaVersionArtifactV1Transaction) => Promise<Result>,
+    run: (tx: AppTableDefinitionsArtifactV1Transaction) => Promise<Result>,
   ): Promise<Result>;
 }
 
-interface ValidatedEnsureAppSchemaVersionArtifactV1Input {
+interface ValidatedEnsureAppTableDefinitionsArtifactV1Input {
   readonly deploymentId: string;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly version: CatalogSchemaVersion;
   readonly tables: ReadonlyArray<SchemaManifestAppTableDeclarationV1>;
 }
 
-interface PreparedAppSchemaVersionArtifactV1State {
+interface PreparedAppTableDefinitionsArtifactV1State {
   readonly bindings: PreparedSchemaManifestAppTableBindingsV1;
   readonly artifact: PreparedSchemaVersionArtifact;
 }
 
-const preparedAppSchemaVersionArtifactStates = new WeakMap<
-  PreparedAppSchemaVersionArtifactV1,
-  PreparedAppSchemaVersionArtifactV1State
+const preparedAppTableDefinitionsArtifactStates = new WeakMap<
+  PreparedAppTableDefinitionsArtifactV1,
+  PreparedAppTableDefinitionsArtifactV1State
 >();
 
 const allowedInputFields = new Set([
@@ -144,24 +144,24 @@ const allowedInputFields = new Set([
  * The artifact is always derived from the exact frozen B2b1 binding section;
  * callers cannot independently supply either child token or canonical bytes.
  */
-export async function prepareAppSchemaVersionArtifactV1(
+export async function prepareAppTableDefinitionsArtifactV1(
   db: FlarexMetadataDatabase,
-  input: EnsureAppSchemaVersionArtifactV1Input,
-): Promise<PreparedAppSchemaVersionArtifactV1> {
-  return prepareValidatedAppSchemaVersionArtifactV1(
+  input: EnsureAppTableDefinitionsArtifactV1Input,
+): Promise<PreparedAppTableDefinitionsArtifactV1> {
+  return prepareValidatedAppTableDefinitionsArtifactV1(
     db,
     validateAndSnapshotInput(input),
   );
 }
 
 /** Apply mappings and insert/replay their exact artifact in one caller tx. */
-export async function ensurePreparedAppSchemaVersionArtifactV1InTransaction(
-  tx: AppSchemaVersionArtifactV1Transaction,
-  prepared: PreparedAppSchemaVersionArtifactV1,
-): Promise<EnsureAppSchemaVersionArtifactV1Result> {
-  const state = preparedAppSchemaVersionArtifactStates.get(prepared);
+export async function ensurePreparedAppTableDefinitionsArtifactV1InTransaction(
+  tx: AppTableDefinitionsArtifactV1Transaction,
+  prepared: PreparedAppTableDefinitionsArtifactV1,
+): Promise<EnsureAppTableDefinitionsArtifactV1Result> {
+  const state = preparedAppTableDefinitionsArtifactStates.get(prepared);
   if (state === undefined) {
-    throw new InvalidPreparedAppSchemaVersionArtifactV1Error();
+    throw new InvalidPreparedAppTableDefinitionsArtifactV1Error();
   }
 
   await applySchemaManifestAppTableBindingsV1InTransaction(
@@ -172,39 +172,39 @@ export async function ensurePreparedAppSchemaVersionArtifactV1InTransaction(
 }
 
 /**
- * Trusted app-schema registration boundary used by the persistence facade.
+ * Trusted table-only compatibility boundary used by the persistence facade.
  *
  * Each typed stale failure discards both child tokens and reruns binding
  * planning plus canonical artifact preparation. Every other failure is
  * terminal and propagates unchanged.
  */
-export async function ensureAppSchemaVersionArtifactV1WithRepository(
-  repository: AppSchemaVersionArtifactV1Repository,
-  input: EnsureAppSchemaVersionArtifactV1Input,
-): Promise<EnsureAppSchemaVersionArtifactV1Result> {
+export async function ensureAppTableDefinitionsArtifactV1WithRepository(
+  repository: AppTableDefinitionsArtifactV1Repository,
+  input: EnsureAppTableDefinitionsArtifactV1Input,
+): Promise<EnsureAppTableDefinitionsArtifactV1Result> {
   const validated = validateAndSnapshotInput(input);
-  return runAppSchemaVersionArtifactV1Attempts(
+  return runAppTableDefinitionsArtifactV1Attempts(
     validated.deploymentId,
     async () => {
-      const prepared = await prepareValidatedAppSchemaVersionArtifactV1(
+      const prepared = await prepareValidatedAppTableDefinitionsArtifactV1(
         repository.db,
         validated,
       );
       return repository.runTransaction((tx) =>
-        ensurePreparedAppSchemaVersionArtifactV1InTransaction(tx, prepared),
+        ensurePreparedAppTableDefinitionsArtifactV1InTransaction(tx, prepared),
       );
     },
   );
 }
 
 /** Package-internal bounded retry seam; one callback is one full fresh attempt. */
-export async function runAppSchemaVersionArtifactV1Attempts<Result>(
+export async function runAppTableDefinitionsArtifactV1Attempts<Result>(
   deploymentId: string,
   runFreshAttempt: () => Promise<Result>,
 ): Promise<Result> {
   for (
     let attempt = 1;
-    attempt <= MAX_APP_SCHEMA_VERSION_ARTIFACT_ATTEMPTS;
+    attempt <= MAX_APP_TABLE_DEFINITIONS_ARTIFACT_V1_ATTEMPTS;
     attempt += 1
   ) {
     try {
@@ -213,8 +213,8 @@ export async function runAppSchemaVersionArtifactV1Attempts<Result>(
       if (!(error instanceof SchemaManifestTableBindingPlanStaleError)) {
         throw error;
       }
-      if (attempt === MAX_APP_SCHEMA_VERSION_ARTIFACT_ATTEMPTS) {
-        throw new AppSchemaVersionArtifactRetryExhaustedError(
+      if (attempt === MAX_APP_TABLE_DEFINITIONS_ARTIFACT_V1_ATTEMPTS) {
+        throw new AppTableDefinitionsArtifactV1RetryExhaustedError(
           deploymentId,
           attempt,
           error.stale,
@@ -224,13 +224,15 @@ export async function runAppSchemaVersionArtifactV1Attempts<Result>(
     }
   }
 
-  throw new Error("App schema version artifact retry loop exited unexpectedly.");
+  throw new Error(
+    "App table-definitions artifact retry loop exited unexpectedly.",
+  );
 }
 
-async function prepareValidatedAppSchemaVersionArtifactV1(
+async function prepareValidatedAppTableDefinitionsArtifactV1(
   db: FlarexMetadataDatabase,
-  input: ValidatedEnsureAppSchemaVersionArtifactV1Input,
-): Promise<PreparedAppSchemaVersionArtifactV1> {
+  input: ValidatedEnsureAppTableDefinitionsArtifactV1Input,
+): Promise<PreparedAppTableDefinitionsArtifactV1> {
   const bindings = await prepareSchemaManifestAppTableBindingsV1(db, {
     deploymentId: input.deploymentId,
     tables: input.tables,
@@ -245,9 +247,9 @@ async function prepareValidatedAppSchemaVersionArtifactV1(
     deploymentId: input.deploymentId,
     schemaVersionId: input.schemaVersionId,
     version: input.version,
-    [preparedAppSchemaVersionArtifactBrand]: true,
-  } satisfies PreparedAppSchemaVersionArtifactV1);
-  preparedAppSchemaVersionArtifactStates.set(prepared, {
+    [preparedAppTableDefinitionsArtifactBrand]: true,
+  } satisfies PreparedAppTableDefinitionsArtifactV1);
+  preparedAppTableDefinitionsArtifactStates.set(prepared, {
     bindings,
     artifact,
   });
@@ -255,11 +257,11 @@ async function prepareValidatedAppSchemaVersionArtifactV1(
 }
 
 function validateAndSnapshotInput(
-  input: EnsureAppSchemaVersionArtifactV1Input,
-): ValidatedEnsureAppSchemaVersionArtifactV1Input {
+  input: EnsureAppTableDefinitionsArtifactV1Input,
+): ValidatedEnsureAppTableDefinitionsArtifactV1Input {
   for (const key of Reflect.ownKeys(input)) {
     if (typeof key !== "string" || !allowedInputFields.has(key)) {
-      throw new InvalidAppSchemaVersionArtifactV1InputError({
+      throw new InvalidAppTableDefinitionsArtifactV1InputError({
         reason: "unexpectedField",
         field: String(key),
       });
@@ -300,17 +302,17 @@ function validateAndSnapshotInput(
     schemaVersionId,
     version,
     tables,
-  } satisfies ValidatedEnsureAppSchemaVersionArtifactV1Input);
+  } satisfies ValidatedEnsureAppTableDefinitionsArtifactV1Input);
 }
 
 function invalidField(
   field: Extract<
-    InvalidAppSchemaVersionArtifactV1InputIssue,
+    InvalidAppTableDefinitionsArtifactV1InputIssue,
     { readonly reason: "invalidField" }
   >["field"],
   cause?: unknown,
-): InvalidAppSchemaVersionArtifactV1InputError {
-  return new InvalidAppSchemaVersionArtifactV1InputError(
+): InvalidAppTableDefinitionsArtifactV1InputError {
+  return new InvalidAppTableDefinitionsArtifactV1InputError(
     { reason: "invalidField", field },
     cause === undefined ? undefined : { cause },
   );
@@ -325,17 +327,19 @@ function deepFreeze(value: unknown): void {
 }
 
 function invalidInputMessage(
-  issue: InvalidAppSchemaVersionArtifactV1InputIssue,
+  issue: InvalidAppTableDefinitionsArtifactV1InputIssue,
 ): string {
   switch (issue.reason) {
     case "invalidField":
-      return `App schema version artifact ${issue.field} is invalid.`;
+      return `App table-definitions artifact ${issue.field} is invalid.`;
     case "unexpectedField":
-      return `App schema version artifact input field ${issue.field} is not accepted.`;
+      return `App table-definitions artifact input field ${issue.field} is not accepted.`;
   }
   return assertNever(issue);
 }
 
 function assertNever(value: never): never {
-  throw new Error(`Unhandled app schema version artifact case: ${String(value)}`);
+  throw new Error(
+    `Unhandled app table-definitions artifact case: ${String(value)}`,
+  );
 }

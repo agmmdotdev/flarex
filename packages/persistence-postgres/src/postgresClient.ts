@@ -29,11 +29,11 @@ export function createPostgresClientPersistence(
   const runtime = createFlarexRuntimePersistence({
     drizzle: drizzleDb,
     sql: createPostgresSqlClient(drizzleDb, client),
-    appSchemaVersionArtifactRepository: {
+    appTableDefinitionsArtifactRepository: {
       db: drizzleDb,
       runTransaction: (run) => drizzleDb.transaction(run),
     },
-    appSchemaVersionArtifactV2Repository: {
+    appSchemaPublicationRepository: {
       db: drizzleDb,
       runTransaction: (run) => drizzleDb.transaction(run),
     },

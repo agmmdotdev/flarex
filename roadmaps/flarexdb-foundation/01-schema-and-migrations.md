@@ -43,10 +43,11 @@ Use these sources in order:
    - [`../../packages/persistence-postgres/src/stableLogicalIndexCatalog.ts`](../../packages/persistence-postgres/src/stableLogicalIndexCatalog.ts)
    - [`../../packages/persistence-postgres/src/appIndexDefinitions.ts`](../../packages/persistence-postgres/src/appIndexDefinitions.ts)
    - [`../../packages/persistence-postgres/src/indexBuildStates.ts`](../../packages/persistence-postgres/src/indexBuildStates.ts)
-   - [`../../packages/persistence-postgres/src/appSchemaCatalogPublicationV2.ts`](../../packages/persistence-postgres/src/appSchemaCatalogPublicationV2.ts)
-   - [`../../packages/persistence-postgres/src/appSchemaCatalogPublicationV2Policy.ts`](../../packages/persistence-postgres/src/appSchemaCatalogPublicationV2Policy.ts)
-   - [`../../packages/persistence-postgres/src/appSchemaCatalogPublicationV2Transaction.ts`](../../packages/persistence-postgres/src/appSchemaCatalogPublicationV2Transaction.ts)
-   - [`../../packages/persistence-postgres/src/appSchemaVersionArtifactsV2.ts`](../../packages/persistence-postgres/src/appSchemaVersionArtifactsV2.ts)
+   - [`../../packages/persistence-postgres/src/appTableDefinitionsArtifacts.ts`](../../packages/persistence-postgres/src/appTableDefinitionsArtifacts.ts)
+   - [`../../packages/persistence-postgres/src/appSchemaPublicationPreparation.ts`](../../packages/persistence-postgres/src/appSchemaPublicationPreparation.ts)
+   - [`../../packages/persistence-postgres/src/appSchemaPublicationPolicy.ts`](../../packages/persistence-postgres/src/appSchemaPublicationPolicy.ts)
+   - [`../../packages/persistence-postgres/src/appSchemaPublicationTransaction.ts`](../../packages/persistence-postgres/src/appSchemaPublicationTransaction.ts)
+   - [`../../packages/persistence-postgres/src/appSchemaPublication.ts`](../../packages/persistence-postgres/src/appSchemaPublication.ts)
    - [`../../packages/flarex-protocol/src/storage-authority.ts`](../../packages/flarex-protocol/src/storage-authority.ts)
    - [`../../packages/flarex-protocol/src/app-schema-catalog.ts`](../../packages/flarex-protocol/src/app-schema-catalog.ts)
    - [`../../packages/flarex-protocol/src/ordered-index.ts`](../../packages/flarex-protocol/src/ordered-index.ts)
@@ -78,7 +79,7 @@ Convex-first implementation references include:
 | Physical index definitions | Immutable physical definitions, table-owned creation-time definitions, schema-version bindings, and separate physical IDs exist. |
 | Build state | Fenced per-scope index-build state DDL and `absent | current | stale` reads exist; reconciliation/readiness mutation does not. |
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
-| Full catalog publication | D2d exposes the V2 persistence facade over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
+| Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
 | Replacement app data | Row revision/current, session leases, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, backfill, and cutover are not implemented. |
 
 Existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, and
@@ -244,7 +245,7 @@ Progress:
 - [x] `S03-D2b`: identity-only intrinsic token derivation and caller-transaction
   ensure/replay after exact locked table-parent verification.
 - [x] `S03-D2c`: atomic full publication and exact projection verification.
-- [x] `S03-D2d`: bounded whole-preparation retry, routed V2 facade, fixed
+- [x] `S03-D2d`: bounded whole-preparation retry, `publishAppSchemaV1`, fixed
   publication resource limits, and real-Postgres bounded-work/concurrency/
   rollback proof.
 - [ ] `S03-D3`: durable per-scope definition-to-build reconciliation, deferred
@@ -284,14 +285,14 @@ build mutation, readiness claim, or activation.
 
 D2d closes the trusted publication boundary:
 
-1. exposes one routed V2 persistence facade over strict unbound declarations,
+1. exposes `publishAppSchemaV1` over strict unbound declarations,
    without exporting internal tokens or row writers;
 2. snapshots caller input once, makes at most three total attempts, and rebuilds
    database-dependent planning, compilation, canonical bytes, and hashes after
    each typed combined stale-plan outcome;
 3. preserves the protocol ceilings of 10,000 app tables and 10,000 total
-   developer indexes while imposing a current V2 operational ceiling of 256
-   combined table/index definition work items. Count checks precede decode and
+   developer indexes while imposing a current publication operational ceiling
+   of 256 combined table/index definition work items. Count checks precede decode and
    catalog planning;
 4. rejects a guaranteed-over-limit decoded payload before structured cloning
    or catalog reads, then authoritatively checks the exact 16 MiB canonical
@@ -307,10 +308,12 @@ D2d closes the trusted publication boundary:
 The lower operational work ceiling and canonical-byte checks are
 generation/resource-safety limits, not dynamic product-plan or lifetime
 quotas; the larger protocol declaration maxima do not promise that the current
-serial V2 route will accept that much locked work. D2d changes neither V1
-behavior nor semantic manifest/canonical-codec versions. Build-state mutation,
-readiness, active-schema activation, `S03-D3`, `S03-D4`, `S04`, app rows, production
-replacement routing, Payload, Medusa, and Cloudflare deployment remain outside
+serial publication route will accept that much locked work. The separate
+`ensureAppTableDefinitionsArtifactV1` compatibility operation retains its exact
+table-only behavior. D2d changes neither the semantic manifest nor canonical
+codec version. Build-state mutation, readiness, active-schema activation,
+`S03-D3`, `S03-D4`, `S04`, app rows, production replacement routing, Payload,
+Medusa, and Cloudflare deployment remain outside
 this facade. `O01` is the next candidate gate, not an implemented or
 pre-approved OCC slice.
 

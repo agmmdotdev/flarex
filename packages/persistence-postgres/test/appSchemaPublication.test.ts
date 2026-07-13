@@ -10,42 +10,42 @@ import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  getPreparedAppSchemaCatalogPublicationV2State,
-  prepareAppSchemaCatalogPublicationV2,
-} from "../src/appSchemaCatalogPublicationV2";
+  getPreparedAppSchemaPublicationV1State,
+  prepareAppSchemaPublicationV1,
+} from "../src/appSchemaPublicationPreparation";
 import {
-  AppSchemaCatalogPublicationV2QuotaExceededError,
-  enforceAppSchemaCatalogPublicationV2CanonicalByteQuota,
-  enforceAppSchemaCatalogPublicationV2DeclarationQuotas,
-  MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES,
-  MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS,
-  MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEVELOPER_INDEXES,
-  MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_TABLES,
-} from "../src/appSchemaCatalogPublicationV2Policy";
+  AppSchemaPublicationV1QuotaExceededError,
+  enforceAppSchemaPublicationV1CanonicalByteQuota,
+  enforceAppSchemaPublicationV1DeclarationQuotas,
+  MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
+  MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS,
+  MAX_APP_SCHEMA_PUBLICATION_V1_DEVELOPER_INDEXES,
+  MAX_APP_SCHEMA_PUBLICATION_V1_TABLES,
+} from "../src/appSchemaPublicationPolicy";
 import {
-  AppSchemaVersionArtifactV2RetryExhaustedError,
-  ensureAppSchemaVersionArtifactV2WithRepository,
-  MAX_APP_SCHEMA_VERSION_ARTIFACT_V2_ATTEMPTS,
-  runAppSchemaVersionArtifactV2Attempts,
-  type AppSchemaVersionArtifactV2Repository,
-} from "../src/appSchemaVersionArtifactsV2";
+  AppSchemaPublicationV1RetryExhaustedError,
+  publishAppSchemaV1WithRepository,
+  MAX_APP_SCHEMA_PUBLICATION_V1_ATTEMPTS,
+  runAppSchemaPublicationV1Attempts,
+  type AppSchemaPublicationV1Repository,
+} from "../src/appSchemaPublication";
 import { createPGlitePersistence } from "../src/pglite";
 import { SchemaManifestAppSchemaBindingPlanStaleError } from "../src/schemaManifestAppSchemaBindings";
 import { ensureStableTableIdentityInTransaction } from "../src/stableTableCatalog";
 import type { StableTableCatalogTransaction } from "../src/stableTableCatalog";
 
-describe("app-schema version artifact V2 facade", () => {
+describe("app-schema V1 publication facade", () => {
   it("publishes and exactly replays the complete projection", async () => {
     const persistence = await migratedPersistence();
-    const deploymentId = "deployment_catalog_v2_facade_replay";
+    const deploymentId = "deployment_schema_publication_v1_facade_replay";
     await insertDeployment(persistence, deploymentId);
     const input = publicationInput(
       deploymentId,
-      "schema_catalog_v2_facade_replay",
+      "schema_publication_v1_facade_replay",
     );
 
-    const created = await persistence.ensureAppSchemaVersionArtifactV2(input);
-    const replayed = await persistence.ensureAppSchemaVersionArtifactV2(input);
+    const created = await persistence.publishAppSchemaV1(input);
+    const replayed = await persistence.publishAppSchemaV1(input);
 
     expect(created).toEqual(replayed);
     expect(created.manifest).toEqual(created.artifact.manifestJson);
@@ -79,17 +79,17 @@ describe("app-schema version artifact V2 facade", () => {
 
   it("snapshots once, then replans and rehashes every stale attempt", async () => {
     const persistence = await migratedPersistence();
-    const deploymentId = "deployment_catalog_v2_facade_stale";
+    const deploymentId = "deployment_schema_publication_v1_facade_stale";
     await insertDeployment(persistence, deploymentId);
     const input = publicationInput(
       deploymentId,
-      "schema_catalog_v2_facade_stale",
+      "schema_publication_v1_facade_stale",
     );
-    const initial = await prepareAppSchemaCatalogPublicationV2(
+    const initial = await prepareAppSchemaPublicationV1(
       persistence.drizzle,
       input,
     );
-    const initialState = getPreparedAppSchemaCatalogPublicationV2State(initial);
+    const initialState = getPreparedAppSchemaPublicationV1State(initial);
     const initialCanonical = await canonicalizeSchemaManifestV1(
       decodeSchemaManifestJson(initialState.logicalBindings.manifest),
     );
@@ -107,7 +107,7 @@ describe("app-schema version artifact V2 facade", () => {
           const firstTable = input.tables[0];
           const firstIndex = input.indexes[0];
           if (firstTable === undefined || firstIndex === undefined) {
-            throw new Error("Expected mutable V2 facade fixtures.");
+            throw new Error("Expected mutable publication fixtures.");
           }
           replaceOwnDataProperty(firstTable, "logicalName", "mutatedAfterCall");
           replaceOwnDataProperty(firstIndex.fields, 0, "mutatedAfterCall");
@@ -121,10 +121,10 @@ describe("app-schema version artifact V2 facade", () => {
         }
         return persistence.drizzle.transaction(run);
       },
-    } satisfies AppSchemaVersionArtifactV2Repository;
+    } satisfies AppSchemaPublicationV1Repository;
 
     try {
-      const result = await ensureAppSchemaVersionArtifactV2WithRepository(
+      const result = await publishAppSchemaV1WithRepository(
         repository,
         input,
       );
@@ -158,7 +158,7 @@ describe("app-schema version artifact V2 facade", () => {
 
   it("retries only typed combined-stale outcomes and retains the last cause", async () => {
     const staleErrors = Array.from(
-      { length: MAX_APP_SCHEMA_VERSION_ARTIFACT_V2_ATTEMPTS },
+      { length: MAX_APP_SCHEMA_PUBLICATION_V1_ATTEMPTS },
       (_, attempt) =>
         new SchemaManifestAppSchemaBindingPlanStaleError({
           reason: "tableCatalogHighWaterChanged",
@@ -168,8 +168,8 @@ describe("app-schema version artifact V2 facade", () => {
     );
     let attempts = 0;
 
-    const exhausted = await runAppSchemaVersionArtifactV2Attempts(
-      "deployment_catalog_v2_exhausted",
+    const exhausted = await runAppSchemaPublicationV1Attempts(
+      "deployment_schema_publication_v1_exhausted",
       async () => {
         const stale = staleErrors[attempts];
         attempts += 1;
@@ -180,21 +180,21 @@ describe("app-schema version artifact V2 facade", () => {
       },
     ).catch((error: unknown) => error);
 
-    expect(attempts).toBe(MAX_APP_SCHEMA_VERSION_ARTIFACT_V2_ATTEMPTS);
+    expect(attempts).toBe(MAX_APP_SCHEMA_PUBLICATION_V1_ATTEMPTS);
     expect(exhausted).toBeInstanceOf(
-      AppSchemaVersionArtifactV2RetryExhaustedError,
+      AppSchemaPublicationV1RetryExhaustedError,
     );
     expect(exhausted).toMatchObject({
-      deploymentId: "deployment_catalog_v2_exhausted",
-      attempts: MAX_APP_SCHEMA_VERSION_ARTIFACT_V2_ATTEMPTS,
+      deploymentId: "deployment_schema_publication_v1_exhausted",
+      attempts: MAX_APP_SCHEMA_PUBLICATION_V1_ATTEMPTS,
       lastStale: staleErrors.at(-1)?.stale,
       cause: staleErrors.at(-1),
     });
 
-    const terminal = new Error("terminal V2 failure");
+    const terminal = new Error("terminal publication failure");
     let terminalAttempts = 0;
-    const rejected = await runAppSchemaVersionArtifactV2Attempts(
-      "deployment_catalog_v2_terminal",
+    const rejected = await runAppSchemaPublicationV1Attempts(
+      "deployment_schema_publication_v1_terminal",
       async () => {
         terminalAttempts += 1;
         throw terminal;
@@ -206,78 +206,78 @@ describe("app-schema version artifact V2 facade", () => {
 
   it("enforces fixed declaration and canonical-byte quotas at their boundaries", () => {
     expect(() =>
-      enforceAppSchemaCatalogPublicationV2DeclarationQuotas(
+      enforceAppSchemaPublicationV1DeclarationQuotas(
         Array.from({
-          length: MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS,
+          length: MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS,
         }),
         [],
       )
     ).not.toThrow();
     expect(() =>
-      enforceAppSchemaCatalogPublicationV2DeclarationQuotas(
+      enforceAppSchemaPublicationV1DeclarationQuotas(
         Array.from({
           length:
-            MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS + 1,
+            MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS + 1,
         }),
         [],
       )
     ).toThrowError(
-      new AppSchemaCatalogPublicationV2QuotaExceededError({
+      new AppSchemaPublicationV1QuotaExceededError({
         reason: "definitionWorkItemCountExceeded",
         tableCount:
-          MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS + 1,
+          MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS + 1,
         developerIndexCount: 0,
         actualCount:
-          MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS + 1,
+          MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS + 1,
         maximumCount:
-          MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS,
+          MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS,
       }),
     );
     expect(() =>
-      enforceAppSchemaCatalogPublicationV2CanonicalByteQuota(
-        MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES,
+      enforceAppSchemaPublicationV1CanonicalByteQuota(
+        MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
       )
     ).not.toThrow();
     expect(() =>
-      enforceAppSchemaCatalogPublicationV2CanonicalByteQuota(
-        MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES + 1,
+      enforceAppSchemaPublicationV1CanonicalByteQuota(
+        MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES + 1,
       )
     ).toThrowError(
-      new AppSchemaCatalogPublicationV2QuotaExceededError({
+      new AppSchemaPublicationV1QuotaExceededError({
         reason: "canonicalBytesExceeded",
-        actualBytes: MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES + 1,
-        maximumBytes: MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES,
+        actualBytes: MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES + 1,
+        maximumBytes: MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
       }),
     );
     expect(() =>
-      enforceAppSchemaCatalogPublicationV2DeclarationQuotas(
+      enforceAppSchemaPublicationV1DeclarationQuotas(
         Array.from({
-          length: MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_TABLES + 1,
+          length: MAX_APP_SCHEMA_PUBLICATION_V1_TABLES + 1,
         }),
         [],
       )
     ).toThrowError(
-      new AppSchemaCatalogPublicationV2QuotaExceededError({
+      new AppSchemaPublicationV1QuotaExceededError({
         reason: "tableCountExceeded",
-        actualCount: MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_TABLES + 1,
-        maximumCount: MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_TABLES,
+        actualCount: MAX_APP_SCHEMA_PUBLICATION_V1_TABLES + 1,
+        maximumCount: MAX_APP_SCHEMA_PUBLICATION_V1_TABLES,
       }),
     );
     expect(() =>
-      enforceAppSchemaCatalogPublicationV2DeclarationQuotas(
+      enforceAppSchemaPublicationV1DeclarationQuotas(
         [],
         Array.from({
           length:
-            MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEVELOPER_INDEXES + 1,
+            MAX_APP_SCHEMA_PUBLICATION_V1_DEVELOPER_INDEXES + 1,
         }),
       )
     ).toThrowError(
-      new AppSchemaCatalogPublicationV2QuotaExceededError({
+      new AppSchemaPublicationV1QuotaExceededError({
         reason: "developerIndexCountExceeded",
         actualCount:
-          MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEVELOPER_INDEXES + 1,
+          MAX_APP_SCHEMA_PUBLICATION_V1_DEVELOPER_INDEXES + 1,
         maximumCount:
-          MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEVELOPER_INDEXES,
+          MAX_APP_SCHEMA_PUBLICATION_V1_DEVELOPER_INDEXES,
       }),
     );
   });
@@ -296,54 +296,54 @@ describe("app-schema version artifact V2 facade", () => {
         transactionOpened = true;
         throw new Error("A count violation must not open a transaction.");
       },
-    } satisfies AppSchemaVersionArtifactV2Repository;
+    } satisfies AppSchemaPublicationV1Repository;
     const valid = publicationInput(
-      "deployment_catalog_v2_count_quota",
-      "schema_catalog_v2_count_quota",
+      "deployment_schema_publication_v1_count_quota",
+      "schema_publication_v1_count_quota",
     );
 
     await expect(
-      ensureAppSchemaVersionArtifactV2WithRepository(repository, {
+      publishAppSchemaV1WithRepository(repository, {
         ...valid,
         tables: Array.from(
-          { length: MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_TABLES + 1 },
+          { length: MAX_APP_SCHEMA_PUBLICATION_V1_TABLES + 1 },
           () => appTable("users"),
         ),
       }),
     ).rejects.toMatchObject({
-      name: "AppSchemaCatalogPublicationV2QuotaExceededError",
+      name: "AppSchemaPublicationV1QuotaExceededError",
       issue: {
         reason: "tableCountExceeded",
-        actualCount: MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_TABLES + 1,
-        maximumCount: MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_TABLES,
+        actualCount: MAX_APP_SCHEMA_PUBLICATION_V1_TABLES + 1,
+        maximumCount: MAX_APP_SCHEMA_PUBLICATION_V1_TABLES,
       },
     });
     expect(databaseRead).toBe(false);
     expect(transactionOpened).toBe(false);
 
     await expect(
-      ensureAppSchemaVersionArtifactV2WithRepository(repository, {
+      publishAppSchemaV1WithRepository(repository, {
         ...valid,
         tables: Array.from(
           {
             length:
-              MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS + 1,
+              MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS + 1,
           },
           (_, index) => appTable(`table${index}`),
         ),
         indexes: [],
       }),
     ).rejects.toMatchObject({
-      name: "AppSchemaCatalogPublicationV2QuotaExceededError",
+      name: "AppSchemaPublicationV1QuotaExceededError",
       issue: {
         reason: "definitionWorkItemCountExceeded",
         tableCount:
-          MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS + 1,
+          MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS + 1,
         developerIndexCount: 0,
         actualCount:
-          MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS + 1,
+          MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS + 1,
         maximumCount:
-          MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS,
+          MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS,
       },
     });
     expect(databaseRead).toBe(false);
@@ -364,31 +364,31 @@ describe("app-schema version artifact V2 facade", () => {
         transactionOpened = true;
         throw new Error("An early byte violation must not open a transaction.");
       },
-    } satisfies AppSchemaVersionArtifactV2Repository;
+    } satisfies AppSchemaPublicationV1Repository;
     const clone = vi.spyOn(globalThis, "structuredClone");
     const escapedControlLiteral = "\u0001".repeat(
       Math.floor(
-        MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES / 6,
+        MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES / 6,
       ) + 1,
     );
 
     try {
       await expect(
-        ensureAppSchemaVersionArtifactV2WithRepository(repository, {
-          deploymentId: "deployment_catalog_v2_oversized",
+        publishAppSchemaV1WithRepository(repository, {
+          deploymentId: "deployment_schema_publication_v1_oversized",
           schemaVersionId: CatalogSchemaVersionIdSchema.make(
-            "schema_catalog_v2_oversized",
+            "schema_publication_v1_oversized",
           ),
           version: CatalogSchemaVersionSchema.make(1),
           tables: [literalTable("oversized", escapedControlLiteral)],
           indexes: [],
         }),
       ).rejects.toMatchObject({
-        name: "AppSchemaCatalogPublicationV2QuotaExceededError",
+        name: "AppSchemaPublicationV1QuotaExceededError",
         issue: {
           reason: "canonicalByteLowerBoundExceeded",
           maximumBytes:
-            MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES,
+            MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
         },
       });
       expect(clone).not.toHaveBeenCalled();
@@ -401,14 +401,14 @@ describe("app-schema version artifact V2 facade", () => {
 
   it("retains the exact post-preparation byte gate before the transaction", async () => {
     const persistence = await migratedPersistence();
-    const deploymentId = "deployment_catalog_v2_exact_byte_fallback";
+    const deploymentId = "deployment_schema_publication_v1_exact_byte_fallback";
     await insertDeployment(persistence, deploymentId);
-    const baseline = await prepareAppSchemaCatalogPublicationV2(
+    const baseline = await prepareAppSchemaPublicationV1(
       persistence.drizzle,
       {
         deploymentId,
         schemaVersionId: CatalogSchemaVersionIdSchema.make(
-          "schema_catalog_v2_exact_byte_calibration",
+          "schema_publication_v1_exact_byte_calibration",
         ),
         version: CatalogSchemaVersionSchema.make(1),
         tables: [literalTable("exactFallback", "")],
@@ -416,12 +416,12 @@ describe("app-schema version artifact V2 facade", () => {
       },
     );
     const baselineState =
-      getPreparedAppSchemaCatalogPublicationV2State(baseline);
+      getPreparedAppSchemaPublicationV1State(baseline);
     const baselineCanonical = await canonicalizeSchemaManifestV1(
       decodeSchemaManifestJson(baselineState.logicalBindings.manifest),
     );
     const literalLength =
-      MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES -
+      MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES -
       baselineCanonical.canonicalBytes.byteLength +
       1;
     if (literalLength <= 0) {
@@ -431,10 +431,10 @@ describe("app-schema version artifact V2 facade", () => {
 
     try {
       await expect(
-        persistence.ensureAppSchemaVersionArtifactV2({
+        persistence.publishAppSchemaV1({
           deploymentId,
           schemaVersionId: CatalogSchemaVersionIdSchema.make(
-            "schema_catalog_v2_exact_byte_fallback",
+            "schema_publication_v1_exact_byte_fallback",
           ),
           version: CatalogSchemaVersionSchema.make(2),
           tables: [
@@ -443,13 +443,13 @@ describe("app-schema version artifact V2 facade", () => {
           indexes: [],
         }),
       ).rejects.toMatchObject({
-        name: "AppSchemaCatalogPublicationV2QuotaExceededError",
+        name: "AppSchemaPublicationV1QuotaExceededError",
         issue: {
           reason: "canonicalBytesExceeded",
           actualBytes:
-            MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES + 1,
+            MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES + 1,
           maximumBytes:
-            MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES,
+            MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
         },
       });
       expect(transaction).not.toHaveBeenCalled();

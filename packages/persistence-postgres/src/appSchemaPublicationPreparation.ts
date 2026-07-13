@@ -16,10 +16,10 @@ import {
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
-  enforceAppSchemaCatalogPublicationV2CanonicalByteLowerBound,
-  enforceAppSchemaCatalogPublicationV2CanonicalByteQuota,
-  enforceAppSchemaCatalogPublicationV2DeclarationQuotas,
-} from "./appSchemaCatalogPublicationV2Policy";
+  enforceAppSchemaPublicationV1CanonicalByteLowerBound,
+  enforceAppSchemaPublicationV1CanonicalByteQuota,
+  enforceAppSchemaPublicationV1DeclarationQuotas,
+} from "./appSchemaPublicationPolicy";
 import {
   prepareSchemaManifestAppSchemaBindingsV1,
   type PreparedSchemaManifestAppSchemaBindingsV1,
@@ -40,7 +40,7 @@ const PREPARE_INPUT_KEYS = Object.freeze([
   "indexes",
 ]);
 
-export interface PrepareAppSchemaCatalogPublicationV2Input
+export interface PrepareAppSchemaPublicationV1Input
   extends Pick<
       EnsureSchemaVersionArtifactInput,
       "deploymentId" | "schemaVersionId" | "version"
@@ -71,7 +71,7 @@ export interface PrepareAppSchemaCatalogPublicationV2Input
   readonly activeSchemaVersionId?: never;
 }
 
-export type InvalidAppSchemaCatalogPublicationV2InputIssue =
+export type InvalidAppSchemaPublicationV1InputIssue =
   | { readonly reason: "invalidInputShape" }
   | {
       readonly reason: "invalidField";
@@ -83,39 +83,39 @@ export type InvalidAppSchemaCatalogPublicationV2InputIssue =
         | "indexes";
     };
 
-export class InvalidAppSchemaCatalogPublicationV2InputError extends Error {
+export class InvalidAppSchemaPublicationV1InputError extends Error {
   constructor(
-    readonly issue: InvalidAppSchemaCatalogPublicationV2InputIssue,
+    readonly issue: InvalidAppSchemaPublicationV1InputIssue,
     options?: ErrorOptions,
   ) {
     super(invalidInputMessage(issue), options);
-    this.name = "InvalidAppSchemaCatalogPublicationV2InputError";
+    this.name = "InvalidAppSchemaPublicationV1InputError";
   }
 }
 
 const publicationSourceBrand: unique symbol = Symbol(
-  "FlarexDB/AppSchemaCatalogPublicationV2Source",
+  "FlarexDB/AppSchemaPublicationV1Source",
 );
 
 /** Opaque, process-local snapshot reused across every fresh D2d attempt. */
-export interface AppSchemaCatalogPublicationV2Source {
+export interface AppSchemaPublicationV1Source {
   readonly deploymentId: string;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly version: CatalogSchemaVersion;
   readonly [publicationSourceBrand]: true;
 }
 
-export class InvalidAppSchemaCatalogPublicationV2SourceError extends Error {
+export class InvalidAppSchemaPublicationV1SourceError extends Error {
   constructor() {
     super(
-      "App-schema catalog V2 source was not snapshotted by this repository instance.",
+      "App-schema V1 publication source was not snapshotted by this repository instance.",
     );
-    this.name = "InvalidAppSchemaCatalogPublicationV2SourceError";
+    this.name = "InvalidAppSchemaPublicationV1SourceError";
   }
 }
 
 const preparedPublicationBrand: unique symbol = Symbol(
-  "FlarexDB/PreparedAppSchemaCatalogPublicationV2",
+  "FlarexDB/PreparedAppSchemaPublicationV1",
 );
 
 /**
@@ -124,23 +124,23 @@ const preparedPublicationBrand: unique symbol = Symbol(
  * WeakMap membership, not the visible symbol, authenticates this token. It is
  * neither a durable/serializable receipt nor a cryptographic capability.
  */
-export interface PreparedAppSchemaCatalogPublicationV2 {
+export interface PreparedAppSchemaPublicationV1 {
   readonly deploymentId: string;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly version: CatalogSchemaVersion;
   readonly [preparedPublicationBrand]: true;
 }
 
-export class InvalidPreparedAppSchemaCatalogPublicationV2Error extends Error {
+export class InvalidPreparedAppSchemaPublicationV1Error extends Error {
   constructor() {
     super(
       "App-schema catalog publication was not prepared by this repository instance.",
     );
-    this.name = "InvalidPreparedAppSchemaCatalogPublicationV2Error";
+    this.name = "InvalidPreparedAppSchemaPublicationV1Error";
   }
 }
 
-interface ValidatedPrepareAppSchemaCatalogPublicationV2Input {
+interface ValidatedPrepareAppSchemaPublicationV1Input {
   readonly deploymentId: string;
   readonly schemaVersionId: CatalogSchemaVersionId;
   readonly version: CatalogSchemaVersion;
@@ -149,19 +149,19 @@ interface ValidatedPrepareAppSchemaCatalogPublicationV2Input {
 }
 
 const publicationSourceStates = new WeakMap<
-  AppSchemaCatalogPublicationV2Source,
-  ValidatedPrepareAppSchemaCatalogPublicationV2Input
+  AppSchemaPublicationV1Source,
+  ValidatedPrepareAppSchemaPublicationV1Input
 >();
 
-interface PreparedAppSchemaCatalogPublicationV2State {
+interface PreparedAppSchemaPublicationV1State {
   readonly logicalBindings: PreparedSchemaManifestAppSchemaBindingsV1;
   readonly requirements: CompiledAppSchemaCatalogRequirementsV1;
   readonly artifact: PreparedSchemaVersionArtifact;
 }
 
 const preparedPublicationStates = new WeakMap<
-  PreparedAppSchemaCatalogPublicationV2,
-  PreparedAppSchemaCatalogPublicationV2State
+  PreparedAppSchemaPublicationV1,
+  PreparedAppSchemaPublicationV1State
 >();
 
 /**
@@ -171,39 +171,39 @@ const preparedPublicationStates = new WeakMap<
  * transaction must revalidate them and discard this entire token on the typed
  * stale outcome; D2a performs no retries, locks, or transactions itself.
  */
-export async function prepareAppSchemaCatalogPublicationV2(
+export async function prepareAppSchemaPublicationV1(
   db: FlarexMetadataDatabase,
-  input: PrepareAppSchemaCatalogPublicationV2Input,
-): Promise<PreparedAppSchemaCatalogPublicationV2> {
-  return prepareAppSchemaCatalogPublicationV2FromSource(
+  input: PrepareAppSchemaPublicationV1Input,
+): Promise<PreparedAppSchemaPublicationV1> {
+  return prepareAppSchemaPublicationV1FromSource(
     db,
-    snapshotAppSchemaCatalogPublicationV2Input(input),
+    snapshotAppSchemaPublicationV1Input(input),
   );
 }
 
 /** Snapshot and authenticate the public request exactly once before retries. */
-export function snapshotAppSchemaCatalogPublicationV2Input(
-  input: PrepareAppSchemaCatalogPublicationV2Input,
-): AppSchemaCatalogPublicationV2Source {
+export function snapshotAppSchemaPublicationV1Input(
+  input: PrepareAppSchemaPublicationV1Input,
+): AppSchemaPublicationV1Source {
   const validated = validateAndSnapshotInput(input);
   const source = Object.freeze({
     deploymentId: validated.deploymentId,
     schemaVersionId: validated.schemaVersionId,
     version: validated.version,
     [publicationSourceBrand]: true,
-  } satisfies AppSchemaCatalogPublicationV2Source);
+  } satisfies AppSchemaPublicationV1Source);
   publicationSourceStates.set(source, validated);
   return source;
 }
 
 /** Rebuild every database-dependent and canonical fact from one frozen source. */
-export async function prepareAppSchemaCatalogPublicationV2FromSource(
+export async function prepareAppSchemaPublicationV1FromSource(
   db: FlarexMetadataDatabase,
-  source: AppSchemaCatalogPublicationV2Source,
-): Promise<PreparedAppSchemaCatalogPublicationV2> {
+  source: AppSchemaPublicationV1Source,
+): Promise<PreparedAppSchemaPublicationV1> {
   const validated = publicationSourceStates.get(source);
   if (validated === undefined) {
-    throw new InvalidAppSchemaCatalogPublicationV2SourceError();
+    throw new InvalidAppSchemaPublicationV1SourceError();
   }
   const logicalBindings = await prepareSchemaManifestAppSchemaBindingsV1(
     db,
@@ -222,7 +222,7 @@ export async function prepareAppSchemaCatalogPublicationV2FromSource(
     version: validated.version,
     manifest: decodeSchemaManifestJson(logicalBindings.manifest),
   });
-  enforceAppSchemaCatalogPublicationV2CanonicalByteQuota(
+  enforceAppSchemaPublicationV1CanonicalByteQuota(
     getPreparedSchemaVersionArtifactCanonicalByteLength(artifact),
   );
   const prepared = Object.freeze({
@@ -230,35 +230,35 @@ export async function prepareAppSchemaCatalogPublicationV2FromSource(
     schemaVersionId: validated.schemaVersionId,
     version: validated.version,
     [preparedPublicationBrand]: true,
-  } satisfies PreparedAppSchemaCatalogPublicationV2);
+  } satisfies PreparedAppSchemaPublicationV1);
   preparedPublicationStates.set(prepared, Object.freeze({
     logicalBindings,
     requirements,
     artifact,
-  } satisfies PreparedAppSchemaCatalogPublicationV2State));
+  } satisfies PreparedAppSchemaPublicationV1State));
   return prepared;
 }
 
 /** Package-internal authenticated composition seam for D2b/D2c. */
-export function getPreparedAppSchemaCatalogPublicationV2State(
-  prepared: PreparedAppSchemaCatalogPublicationV2,
-): PreparedAppSchemaCatalogPublicationV2State {
+export function getPreparedAppSchemaPublicationV1State(
+  prepared: PreparedAppSchemaPublicationV1,
+): PreparedAppSchemaPublicationV1State {
   const state = preparedPublicationStates.get(prepared);
   if (state === undefined) {
-    throw new InvalidPreparedAppSchemaCatalogPublicationV2Error();
+    throw new InvalidPreparedAppSchemaPublicationV1Error();
   }
   return state;
 }
 
 function validateAndSnapshotInput(
-  input: PrepareAppSchemaCatalogPublicationV2Input,
-): ValidatedPrepareAppSchemaCatalogPublicationV2Input {
+  input: PrepareAppSchemaPublicationV1Input,
+): ValidatedPrepareAppSchemaPublicationV1Input {
   if (!hasExactOwnDataKeys(input, PREPARE_INPUT_KEYS)) {
-    throw new InvalidAppSchemaCatalogPublicationV2InputError({
+    throw new InvalidAppSchemaPublicationV1InputError({
       reason: "invalidInputShape",
     });
   }
-  enforceAppSchemaCatalogPublicationV2DeclarationQuotas(
+  enforceAppSchemaPublicationV1DeclarationQuotas(
     input.tables,
     input.indexes,
   );
@@ -291,7 +291,7 @@ function validateAndSnapshotInput(
   } catch (cause) {
     throw invalidField("indexes", cause);
   }
-  enforceAppSchemaCatalogPublicationV2CanonicalByteLowerBound(
+  enforceAppSchemaPublicationV1CanonicalByteLowerBound(
     decodedTables,
     decodedIndexes,
   );
@@ -307,17 +307,17 @@ function validateAndSnapshotInput(
     version,
     tables,
     indexes,
-  } satisfies ValidatedPrepareAppSchemaCatalogPublicationV2Input);
+  } satisfies ValidatedPrepareAppSchemaPublicationV1Input);
 }
 
 function invalidField(
   field: Extract<
-    InvalidAppSchemaCatalogPublicationV2InputIssue,
+    InvalidAppSchemaPublicationV1InputIssue,
     { readonly reason: "invalidField" }
   >["field"],
   cause?: unknown,
-): InvalidAppSchemaCatalogPublicationV2InputError {
-  return new InvalidAppSchemaCatalogPublicationV2InputError(
+): InvalidAppSchemaPublicationV1InputError {
+  return new InvalidAppSchemaPublicationV1InputError(
     { reason: "invalidField", field },
     cause === undefined ? undefined : { cause },
   );
@@ -360,7 +360,7 @@ function deepFreeze(value: unknown): void {
 }
 
 function invalidInputMessage(
-  issue: InvalidAppSchemaCatalogPublicationV2InputIssue,
+  issue: InvalidAppSchemaPublicationV1InputIssue,
 ): string {
   switch (issue.reason) {
     case "invalidInputShape":

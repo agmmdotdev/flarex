@@ -11,23 +11,23 @@ import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type {
-  EnsureAppSchemaVersionArtifactV1Input,
+  EnsureAppTableDefinitionsArtifactV1Input,
   EnsureSchemaVersionArtifactInput,
   EnsureSchemaVersionArtifactResult,
   FlarexPersistence,
 } from "../src";
 import {
-  AppSchemaVersionArtifactRetryExhaustedError,
-  ensureAppSchemaVersionArtifactV1WithRepository,
-  ensurePreparedAppSchemaVersionArtifactV1InTransaction,
-  InvalidAppSchemaVersionArtifactV1InputError,
-  InvalidPreparedAppSchemaVersionArtifactV1Error,
-  MAX_APP_SCHEMA_VERSION_ARTIFACT_ATTEMPTS,
-  prepareAppSchemaVersionArtifactV1,
-  runAppSchemaVersionArtifactV1Attempts,
-  type AppSchemaVersionArtifactV1Repository,
-  type AppSchemaVersionArtifactV1Transaction,
-} from "../src/appSchemaVersionArtifacts";
+  AppTableDefinitionsArtifactV1RetryExhaustedError,
+  ensureAppTableDefinitionsArtifactV1WithRepository,
+  ensurePreparedAppTableDefinitionsArtifactV1InTransaction,
+  InvalidAppTableDefinitionsArtifactV1InputError,
+  InvalidPreparedAppTableDefinitionsArtifactV1Error,
+  MAX_APP_TABLE_DEFINITIONS_ARTIFACT_V1_ATTEMPTS,
+  prepareAppTableDefinitionsArtifactV1,
+  runAppTableDefinitionsArtifactV1Attempts,
+  type AppTableDefinitionsArtifactV1Repository,
+  type AppTableDefinitionsArtifactV1Transaction,
+} from "../src/appTableDefinitionsArtifacts";
 import { createPGlitePersistence } from "../src/pglite";
 import {
   prepareSchemaManifestAppTableBindingsV1,
@@ -44,48 +44,48 @@ import {
   getStableTableIdentityByName,
 } from "../src/stableTableCatalog";
 
-type PublicInternalPublicationExport = Extract<
+type PublicInternalCompatibilityExport = Extract<
   keyof typeof import("../src"),
-  | "prepareAppSchemaVersionArtifactV1"
-  | "ensurePreparedAppSchemaVersionArtifactV1InTransaction"
-  | "ensureAppSchemaVersionArtifactV1WithRepository"
-  | "runAppSchemaVersionArtifactV1Attempts"
+  | "prepareAppTableDefinitionsArtifactV1"
+  | "ensurePreparedAppTableDefinitionsArtifactV1InTransaction"
+  | "ensureAppTableDefinitionsArtifactV1WithRepository"
+  | "runAppTableDefinitionsArtifactV1Attempts"
   | "prepareSchemaVersionArtifact"
   | "ensureSchemaVersionArtifactInTransaction"
   | "ensureStableTableIdentityInTransaction"
 >;
 
-type PublicPublicationMethod = Extract<
+type PublicCompatibilityMethod = Extract<
   keyof FlarexPersistence,
-  "ensureAppSchemaVersionArtifactV1"
+  "ensureAppTableDefinitionsArtifactV1"
 >;
 
 type CallerComputedManifest = Omit<
-  EnsureAppSchemaVersionArtifactV1Input,
+  EnsureAppTableDefinitionsArtifactV1Input,
   "manifest"
 > & {
   readonly manifest: { readonly caller: true };
 };
 
 type CallerComputedManifestAccepted = CallerComputedManifest extends
-  EnsureAppSchemaVersionArtifactV1Input
+  EnsureAppTableDefinitionsArtifactV1Input
   ? true
   : false;
 
-describe("app schema version artifact publication", () => {
+describe("table-only app definitions artifact compatibility", () => {
   it("keeps one high-level facade and hides every swappable child boundary", () => {
-    expectTypeOf<PublicInternalPublicationExport>().toEqualTypeOf<never>();
-    expectTypeOf<PublicPublicationMethod>()
-      .toEqualTypeOf<"ensureAppSchemaVersionArtifactV1">();
+    expectTypeOf<PublicInternalCompatibilityExport>().toEqualTypeOf<never>();
+    expectTypeOf<PublicCompatibilityMethod>()
+      .toEqualTypeOf<"ensureAppTableDefinitionsArtifactV1">();
     expectTypeOf<CallerComputedManifestAccepted>().toEqualTypeOf<false>();
     expectTypeOf<
       Awaited<
-        ReturnType<FlarexPersistence["ensureAppSchemaVersionArtifactV1"]>
+        ReturnType<FlarexPersistence["ensureAppTableDefinitionsArtifactV1"]>
       >
     >().toEqualTypeOf<EnsureSchemaVersionArtifactResult>();
   });
 
-  it("atomically publishes coherent mappings and replays the exact artifact", async () => {
+  it("atomically ensures coherent mappings and replays the exact artifact", async () => {
     const persistence = await migratedPersistence();
     const deploymentId = "deployment_app_schema_publish";
     await insertDeployment(persistence, deploymentId);
@@ -95,7 +95,7 @@ describe("app schema version artifact publication", () => {
       ["users", "products"],
     );
 
-    const created = await persistence.ensureAppSchemaVersionArtifactV1(input);
+    const created = await persistence.ensureAppTableDefinitionsArtifactV1(input);
     expect(created.status).toBe("created");
     const createdSection = decodeSchemaManifestTableDefinitionsV1(
       created.artifact.manifestJson,
@@ -110,7 +110,7 @@ describe("app schema version artifact publication", () => {
       createdSection,
     );
 
-    const reversed = await persistence.ensureAppSchemaVersionArtifactV1({
+    const reversed = await persistence.ensureAppTableDefinitionsArtifactV1({
       ...input,
       tables: [...input.tables].reverse(),
     });
@@ -128,7 +128,7 @@ describe("app schema version artifact publication", () => {
       logicalName: "payload_internal",
     });
     const replayAfterFrontierAdvance =
-      await persistence.ensureAppSchemaVersionArtifactV1(input);
+      await persistence.ensureAppTableDefinitionsArtifactV1(input);
     expect(replayAfterFrontierAdvance.status).toBe("existing");
     expect(Array.from(replayAfterFrontierAdvance.artifact.manifestSha256))
       .toEqual(Array.from(created.artifact.manifestSha256));
@@ -159,7 +159,7 @@ describe("app schema version artifact publication", () => {
     });
 
     await expect(
-      persistence.ensureAppSchemaVersionArtifactV1({
+      persistence.ensureAppTableDefinitionsArtifactV1({
         deploymentId,
         schemaVersionId,
         version,
@@ -214,7 +214,7 @@ describe("app schema version artifact publication", () => {
       db: persistence.drizzle,
       runTransaction: async <Result>(
         run: (
-          tx: AppSchemaVersionArtifactV1Transaction,
+          tx: AppTableDefinitionsArtifactV1Transaction,
         ) => Promise<Result>,
       ): Promise<Result> => {
         transactionAttempts += 1;
@@ -227,9 +227,9 @@ describe("app schema version artifact publication", () => {
         }
         return baseRepository.runTransaction(run);
       },
-    } satisfies AppSchemaVersionArtifactV1Repository;
+    } satisfies AppTableDefinitionsArtifactV1Repository;
 
-    const result = await ensureAppSchemaVersionArtifactV1WithRepository(
+    const result = await ensureAppTableDefinitionsArtifactV1WithRepository(
       racingRepository,
       input,
     );
@@ -256,7 +256,7 @@ describe("app schema version artifact publication", () => {
     });
     let staleAttempts = 0;
     await expect(
-      runAppSchemaVersionArtifactV1Attempts(
+      runAppTableDefinitionsArtifactV1Attempts(
         "deployment_retry_exhausted",
         async () => {
           staleAttempts += 1;
@@ -264,13 +264,13 @@ describe("app schema version artifact publication", () => {
         },
       ),
     ).rejects.toMatchObject({
-      name: "AppSchemaVersionArtifactRetryExhaustedError",
+      name: "AppTableDefinitionsArtifactV1RetryExhaustedError",
       deploymentId: "deployment_retry_exhausted",
-      attempts: MAX_APP_SCHEMA_VERSION_ARTIFACT_ATTEMPTS,
+      attempts: MAX_APP_TABLE_DEFINITIONS_ARTIFACT_V1_ATTEMPTS,
       lastStale: { reason: "catalogHighWaterChanged" },
       cause: stale,
     });
-    expect(staleAttempts).toBe(MAX_APP_SCHEMA_VERSION_ARTIFACT_ATTEMPTS);
+    expect(staleAttempts).toBe(MAX_APP_TABLE_DEFINITIONS_ARTIFACT_V1_ATTEMPTS);
 
     const terminal = new SchemaVersionArtifactConflictError({
       reason: "artifactMismatch",
@@ -280,7 +280,7 @@ describe("app schema version artifact publication", () => {
     });
     let terminalAttempts = 0;
     await expect(
-      runAppSchemaVersionArtifactV1Attempts(
+      runAppTableDefinitionsArtifactV1Attempts(
         "deployment_terminal",
         async () => {
           terminalAttempts += 1;
@@ -302,11 +302,11 @@ describe("app schema version artifact publication", () => {
     );
 
     await expect(
-      Reflect.apply(prepareAppSchemaVersionArtifactV1, undefined, [
+      Reflect.apply(prepareAppTableDefinitionsArtifactV1, undefined, [
         persistence.drizzle,
         { ...input, manifest: { caller: true } },
       ]),
-    ).rejects.toBeInstanceOf(InvalidAppSchemaVersionArtifactV1InputError);
+    ).rejects.toBeInstanceOf(InvalidAppTableDefinitionsArtifactV1InputError);
 
     const bindingToken = await prepareSchemaManifestAppTableBindingsV1(
       persistence.drizzle,
@@ -331,13 +331,13 @@ describe("app schema version artifact publication", () => {
       await expect(
         persistence.drizzle.transaction((tx) =>
           Reflect.apply(
-            ensurePreparedAppSchemaVersionArtifactV1InTransaction,
+            ensurePreparedAppTableDefinitionsArtifactV1InTransaction,
             undefined,
             [tx, invalidToken],
           ),
         ),
       ).rejects.toBeInstanceOf(
-        InvalidPreparedAppSchemaVersionArtifactV1Error,
+        InvalidPreparedAppTableDefinitionsArtifactV1Error,
       );
     }
     await expect(rowCounts(persistence, deploymentId)).resolves.toEqual({
@@ -369,7 +369,7 @@ function appSchemaInput(
   deploymentId: string,
   schemaVersionId: string,
   logicalNames: ReadonlyArray<string>,
-): EnsureAppSchemaVersionArtifactV1Input {
+): EnsureAppTableDefinitionsArtifactV1Input {
   return {
     deploymentId,
     schemaVersionId: CatalogSchemaVersionIdSchema.make(schemaVersionId),
@@ -481,7 +481,7 @@ async function rowCounts(
 
 function publicationRepository(
   persistence: PGlitePersistence,
-): AppSchemaVersionArtifactV1Repository {
+): AppTableDefinitionsArtifactV1Repository {
   return {
     db: persistence.drizzle,
     runTransaction: (run) => persistence.drizzle.transaction(run),

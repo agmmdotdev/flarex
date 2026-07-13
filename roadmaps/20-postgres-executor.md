@@ -328,7 +328,7 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
   `H05-B` proof passes.
 - `S03-D2c` atomically applies and verifies the complete normalized catalog
   inside a caller-owned transaction. `S03-D2d` now exposes that attempt through
-  the V2 persistence facade, snapshots declarations once, retries only combined
+  `publishAppSchemaV1`, snapshots declarations once, retries only combined
   typed staleness with at most three fresh preparations, preserves the
   protocol's 10,000-table and 10,000-developer-index maxima while limiting the
   current serial path to 256 combined definition work items, rejects guaranteed

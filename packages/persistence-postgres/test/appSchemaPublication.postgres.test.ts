@@ -9,21 +9,21 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
-  MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS,
+  MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS,
 } from "../src";
 import type {
-  EnsureAppSchemaVersionArtifactV2Input,
-  EnsureAppSchemaVersionArtifactV2Result,
+  PublishAppSchemaV1Input,
+  PublishAppSchemaV1Result,
 } from "../src";
 import {
-  getPreparedAppSchemaCatalogPublicationV2State,
-  prepareAppSchemaCatalogPublicationV2,
-  type PreparedAppSchemaCatalogPublicationV2,
-} from "../src/appSchemaCatalogPublicationV2";
+  getPreparedAppSchemaPublicationV1State,
+  prepareAppSchemaPublicationV1,
+  type PreparedAppSchemaPublicationV1,
+} from "../src/appSchemaPublicationPreparation";
 import {
-  AppSchemaCatalogPublicationV2ProjectionError,
-  publishPreparedAppSchemaCatalogV2InTransaction,
-} from "../src/appSchemaCatalogPublicationV2Transaction";
+  AppSchemaPublicationV1ProjectionError,
+  publishPreparedAppSchemaV1InTransaction,
+} from "../src/appSchemaPublicationTransaction";
 import {
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
   prepareAppDeveloperIndexDefinitionBindingV1,
@@ -41,25 +41,25 @@ import {
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
-describePostgres("real Postgres app-schema catalog V2 publication", () => {
-  it("converges concurrent identical routed V2 publications", async () => {
+describePostgres("real Postgres app-schema V1 publication", () => {
+  it("converges concurrent identical app-schema publications", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
-      const deploymentId = "deployment_catalog_v2_pg_concurrent_replay";
+      const deploymentId = "deployment_schema_publication_v1_pg_concurrent_replay";
       await insertDeployment(persistence, deploymentId);
       const input = publicationInput(
         deploymentId,
-        "schema_catalog_v2_pg_concurrent_replay",
+        "schema_publication_v1_pg_concurrent_replay",
       );
 
       const [firstAttempt, secondAttempt] = await queueTwoBehindDeploymentLock(
         persistence,
         deploymentId,
-        () => persistence.ensureAppSchemaVersionArtifactV2(input),
-        () => persistence.ensureAppSchemaVersionArtifactV2(input),
+        () => persistence.publishAppSchemaV1(input),
+        () => persistence.publishAppSchemaV1(input),
       );
       const first = fulfilledResult(firstAttempt);
       const second = fulfilledResult(secondAttempt);
-      const replayed = await persistence.ensureAppSchemaVersionArtifactV2(input);
+      const replayed = await persistence.publishAppSchemaV1(input);
 
       expect(second).toEqual(first);
       expect(replayed).toEqual(first);
@@ -88,16 +88,16 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
 
   it("replans and commits competing publications from the same frontiers", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
-      const deploymentId = "deployment_catalog_v2_pg_competing";
+      const deploymentId = "deployment_schema_publication_v1_pg_competing";
       await insertDeployment(persistence, deploymentId);
       const firstInput = publicationInput(
         deploymentId,
-        "schema_catalog_v2_pg_competing_first",
+        "schema_publication_v1_pg_competing_first",
         { version: 1, tableLogicalName: "users", descriptor: "byEmail" },
       );
       const secondInput = publicationInput(
         deploymentId,
-        "schema_catalog_v2_pg_competing_second",
+        "schema_publication_v1_pg_competing_second",
         { version: 2, tableLogicalName: "posts", descriptor: "byAuthor" },
       );
       const initialSecondHash = await preparedManifestHash(
@@ -108,8 +108,8 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
       const [firstAttempt, secondAttempt] = await queueTwoBehindDeploymentLock(
         persistence,
         deploymentId,
-        () => persistence.ensureAppSchemaVersionArtifactV2(firstInput),
-        () => persistence.ensureAppSchemaVersionArtifactV2(secondInput),
+        () => persistence.publishAppSchemaV1(firstInput),
+        () => persistence.publishAppSchemaV1(secondInput),
       );
       const first = fulfilledResult(firstAttempt);
       const second = fulfilledResult(secondAttempt);
@@ -154,11 +154,11 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
 
   it("replans after an external table-frontier allocation wins", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
-      const deploymentId = "deployment_catalog_v2_pg_table_frontier";
+      const deploymentId = "deployment_schema_publication_v1_pg_table_frontier";
       await insertDeployment(persistence, deploymentId);
       const input = publicationInput(
         deploymentId,
-        "schema_catalog_v2_pg_table_frontier",
+        "schema_publication_v1_pg_table_frontier",
       );
       const initialHash = await preparedManifestHash(persistence, input);
 
@@ -174,7 +174,7 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
                 logicalName: "allocator_winner",
               })
             ),
-          () => persistence.ensureAppSchemaVersionArtifactV2(input),
+          () => persistence.publishAppSchemaV1(input),
         );
       const allocation = fulfilledResult(allocationAttempt);
       const publication = fulfilledResult(publicationAttempt);
@@ -208,23 +208,23 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
 
   it("replans after an index-only frontier race", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
-      const deploymentId = "deployment_catalog_v2_pg_index_frontier";
+      const deploymentId = "deployment_schema_publication_v1_pg_index_frontier";
       await insertDeployment(persistence, deploymentId);
-      await persistence.ensureAppSchemaVersionArtifactV2(
+      await persistence.publishAppSchemaV1(
         publicationInput(
           deploymentId,
-          "schema_catalog_v2_pg_index_frontier_baseline",
+          "schema_publication_v1_pg_index_frontier_baseline",
           { version: 1, indexes: [] },
         ),
       );
       const firstInput = publicationInput(
         deploymentId,
-        "schema_catalog_v2_pg_index_frontier_first",
+        "schema_publication_v1_pg_index_frontier_first",
         { version: 2, descriptor: "byOther" },
       );
       const secondInput = publicationInput(
         deploymentId,
-        "schema_catalog_v2_pg_index_frontier_second",
+        "schema_publication_v1_pg_index_frontier_second",
         { version: 3, descriptor: "byEmail" },
       );
       const initialSecondHash = await preparedManifestHash(
@@ -235,8 +235,8 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
       const [firstAttempt, secondAttempt] = await queueTwoBehindDeploymentLock(
         persistence,
         deploymentId,
-        () => persistence.ensureAppSchemaVersionArtifactV2(firstInput),
-        () => persistence.ensureAppSchemaVersionArtifactV2(secondInput),
+        () => persistence.publishAppSchemaV1(firstInput),
+        () => persistence.publishAppSchemaV1(secondInput),
       );
       const first = fulfilledResult(firstAttempt);
       const second = fulfilledResult(secondAttempt);
@@ -275,8 +275,8 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
 
   it("rolls a stale conflicting loser back without leaking catalog rows", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
-      const deploymentId = "deployment_catalog_v2_pg_conflict";
-      const schemaVersionId = "schema_catalog_v2_pg_conflict";
+      const deploymentId = "deployment_schema_publication_v1_pg_conflict";
+      const schemaVersionId = "schema_publication_v1_pg_conflict";
       await insertDeployment(persistence, deploymentId);
       const winnerInput = publicationInput(deploymentId, schemaVersionId, {
         version: 1,
@@ -292,8 +292,8 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
       const [winnerAttempt, loserAttempt] = await queueTwoBehindDeploymentLock(
         persistence,
         deploymentId,
-        () => persistence.ensureAppSchemaVersionArtifactV2(winnerInput),
-        () => persistence.ensureAppSchemaVersionArtifactV2(loserInput),
+        () => persistence.publishAppSchemaV1(winnerInput),
+        () => persistence.publishAppSchemaV1(loserInput),
       );
       const winner = fulfilledResult(winnerAttempt);
 
@@ -316,10 +316,10 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
         buildStates: 0,
       });
 
-      const recovered = await persistence.ensureAppSchemaVersionArtifactV2({
+      const recovered = await persistence.publishAppSchemaV1({
         ...loserInput,
         schemaVersionId: CatalogSchemaVersionIdSchema.make(
-          "schema_catalog_v2_pg_conflict_recovered",
+          "schema_publication_v1_pg_conflict_recovered",
         ),
         version: CatalogSchemaVersionSchema.make(2),
       });
@@ -340,18 +340,18 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
 
   it("rolls all newly projected rows back on a late projection failure", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
-      const deploymentId = "deployment_catalog_v2_pg_late_projection";
+      const deploymentId = "deployment_schema_publication_v1_pg_late_projection";
       await insertDeployment(persistence, deploymentId);
       const targetInput = publicationInput(
         deploymentId,
-        "schema_catalog_v2_pg_late_projection_target",
+        "schema_publication_v1_pg_late_projection_target",
         { version: 1, descriptor: "byEmail" },
       );
-      const target = await prepareAppSchemaCatalogPublicationV2(
+      const target = await prepareAppSchemaPublicationV1(
         persistence.drizzle,
         targetInput,
       );
-      const targetState = getPreparedAppSchemaCatalogPublicationV2State(target);
+      const targetState = getPreparedAppSchemaPublicationV1State(target);
       await persistence.drizzle.transaction(async (tx) => {
         await applySchemaManifestAppSchemaBindingsV1InTransaction(
           tx,
@@ -360,11 +360,11 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
         await ensureSchemaVersionArtifactInTransaction(tx, targetState.artifact);
       });
 
-      const historical = await prepareAppSchemaCatalogPublicationV2(
+      const historical = await prepareAppSchemaPublicationV1(
         persistence.drizzle,
         publicationInput(
           deploymentId,
-          "schema_catalog_v2_pg_late_projection_history",
+          "schema_publication_v1_pg_late_projection_history",
           {
             version: 2,
             indexes: [
@@ -375,7 +375,7 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
         ),
       );
       const historicalState =
-        getPreparedAppSchemaCatalogPublicationV2State(historical);
+        getPreparedAppSchemaPublicationV1State(historical);
       await persistence.drizzle.transaction((tx) =>
         applySchemaManifestAppSchemaBindingsV1InTransaction(
           tx,
@@ -412,9 +412,9 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
       });
 
       await expect(
-        persistence.ensureAppSchemaVersionArtifactV2(targetInput),
+        persistence.publishAppSchemaV1(targetInput),
       ).rejects.toMatchObject({
-        name: "AppSchemaCatalogPublicationV2ProjectionError",
+        name: "AppSchemaPublicationV1ProjectionError",
         issue: {
           reason: "schemaBindingCountMismatch",
           expectedCount: 1,
@@ -422,8 +422,8 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
         },
       });
       await expect(
-        persistence.ensureAppSchemaVersionArtifactV2(targetInput),
-      ).rejects.toBeInstanceOf(AppSchemaCatalogPublicationV2ProjectionError);
+        persistence.publishAppSchemaV1(targetInput),
+      ).rejects.toBeInstanceOf(AppSchemaPublicationV1ProjectionError);
       await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
         tables: 1,
         indexes: 2,
@@ -433,10 +433,10 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
         buildStates: 0,
       });
 
-      const clean = await persistence.ensureAppSchemaVersionArtifactV2(
+      const clean = await persistence.publishAppSchemaV1(
         publicationInput(
           deploymentId,
-          "schema_catalog_v2_pg_late_projection_clean",
+          "schema_publication_v1_pg_late_projection_clean",
           { version: 2, descriptor: "byEmail" },
         ),
       );
@@ -459,13 +459,13 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
 
   it("publishes and exactly replays the full projection sequentially", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
-      const deploymentId = "deployment_catalog_v2_pg_replay";
+      const deploymentId = "deployment_schema_publication_v1_pg_replay";
       await insertDeployment(persistence, deploymentId);
       const input = publicationInput(
         deploymentId,
-        "schema_catalog_v2_pg_replay",
+        "schema_publication_v1_pg_replay",
       );
-      const prepared = await prepareAppSchemaCatalogPublicationV2(
+      const prepared = await prepareAppSchemaPublicationV1(
         persistence.drizzle,
         input,
       );
@@ -473,7 +473,7 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
       const created = await publishPrepared(persistence, prepared);
       const replayed = await publishPrepared(
         persistence,
-        await prepareAppSchemaCatalogPublicationV2(persistence.drizzle, input),
+        await prepareAppSchemaPublicationV1(persistence.drizzle, input),
       );
 
       expect(created.creationTimeIndexDefinitions.map(
@@ -502,16 +502,16 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
 
   it("rolls the whole projection back with its caller transaction", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
-      const deploymentId = "deployment_catalog_v2_pg_rollback";
+      const deploymentId = "deployment_schema_publication_v1_pg_rollback";
       await insertDeployment(persistence, deploymentId);
-      const prepared = await prepareAppSchemaCatalogPublicationV2(
+      const prepared = await prepareAppSchemaPublicationV1(
         persistence.drizzle,
-        publicationInput(deploymentId, "schema_catalog_v2_pg_rollback"),
+        publicationInput(deploymentId, "schema_publication_v1_pg_rollback"),
       );
 
       await expect(
         persistence.drizzle.transaction(async (tx) => {
-          await publishPreparedAppSchemaCatalogV2InTransaction(tx, prepared);
+          await publishPreparedAppSchemaV1InTransaction(tx, prepared);
           throw new Error("injected real Postgres D2c rollback");
         }),
       ).rejects.toThrow("injected real Postgres D2c rollback");
@@ -530,22 +530,22 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
     });
   }, 30_000);
 
-  it("publishes the current V2 operational work limit within the bounded gate", async () => {
+  it("publishes the current operational work limit within the bounded gate", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
-      const deploymentId = "deployment_catalog_v2_pg_operational_limit";
+      const deploymentId = "deployment_schema_publication_v1_pg_operational_limit";
       await insertDeployment(persistence, deploymentId);
       const input = nearLimitPublicationInput(
         deploymentId,
-        "schema_catalog_v2_pg_operational_limit",
+        "schema_publication_v1_pg_operational_limit",
       );
       const expectedTableCount = Math.floor(
-        MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS / 2,
+        MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS / 2,
       );
       const expectedIndexCount =
-        MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS -
+        MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS -
         expectedTableCount;
 
-      const result = await persistence.ensureAppSchemaVersionArtifactV2(input);
+      const result = await persistence.publishAppSchemaV1(input);
 
       expect(result.manifest.tableDefinitions.tables).toHaveLength(
         expectedTableCount,
@@ -567,7 +567,7 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
         indexes: expectedIndexCount,
         schemaVersions: 1,
         definitions:
-          MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS,
+          MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS,
         schemaBindings: expectedIndexCount,
         buildStates: 0,
       });
@@ -589,7 +589,7 @@ function publicationInput(
   deploymentId: string,
   schemaVersionId: string,
   options: PublicationInputOptions = {},
-): EnsureAppSchemaVersionArtifactV2Input {
+): PublishAppSchemaV1Input {
   const tableLogicalName = options.tableLogicalName ?? "users";
   const indexes = options.indexes ?? [
     { descriptor: options.descriptor ?? "byEmail", field: "email" },
@@ -608,12 +608,12 @@ function publicationInput(
 function nearLimitPublicationInput(
   deploymentId: string,
   schemaVersionId: string,
-): EnsureAppSchemaVersionArtifactV2Input {
+): PublishAppSchemaV1Input {
   const tableCount = Math.floor(
-    MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS / 2,
+    MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS / 2,
   );
   const indexCount =
-    MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS - tableCount;
+    MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS - tableCount;
   const tableNames = Array.from(
     { length: tableCount },
     (_, index) => `table${index.toString().padStart(3, "0")}`,
@@ -748,13 +748,13 @@ async function queueTwoBehindDeploymentLock<First, Second>(
 
 async function preparedManifestHash(
   persistence: PostgresFlarexPersistence,
-  input: EnsureAppSchemaVersionArtifactV2Input,
+  input: PublishAppSchemaV1Input,
 ): Promise<Uint8Array> {
-  const prepared = await prepareAppSchemaCatalogPublicationV2(
+  const prepared = await prepareAppSchemaPublicationV1(
     persistence.drizzle,
     input,
   );
-  const state = getPreparedAppSchemaCatalogPublicationV2State(prepared);
+  const state = getPreparedAppSchemaPublicationV1State(prepared);
   const canonical = await canonicalizeSchemaManifestV1(
     decodeSchemaManifestJson(state.logicalBindings.manifest),
   );
@@ -763,10 +763,10 @@ async function preparedManifestHash(
 
 function publishPrepared(
   persistence: PostgresFlarexPersistence,
-  prepared: PreparedAppSchemaCatalogPublicationV2,
+  prepared: PreparedAppSchemaPublicationV1,
 ) {
   return persistence.drizzle.transaction((tx) =>
-    publishPreparedAppSchemaCatalogV2InTransaction(tx, prepared)
+    publishPreparedAppSchemaV1InTransaction(tx, prepared)
   );
 }
 

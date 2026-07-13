@@ -43,9 +43,9 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 import {
-  getPreparedAppSchemaCatalogPublicationV2State,
-  type PreparedAppSchemaCatalogPublicationV2,
-} from "./appSchemaCatalogPublicationV2";
+  getPreparedAppSchemaPublicationV1State,
+  type PreparedAppSchemaPublicationV1,
+} from "./appSchemaPublicationPreparation";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { lockSchemaManifestBindingDeployment } from "./schemaManifestTableBindings";
 import {
@@ -474,10 +474,10 @@ export async function prepareAppDeveloperIndexDefinitionBindingV1(
  * consuming the complete set; D2b only provides the per-table row primitive.
  */
 export function prepareAppCreationTimeIndexDefinitionsV1(
-  publication: PreparedAppSchemaCatalogPublicationV2,
+  publication: PreparedAppSchemaPublicationV1,
 ): ReadonlyArray<PreparedAppCreationTimeIndexDefinitionV1> {
   const publicationState =
-    getPreparedAppSchemaCatalogPublicationV2State(publication);
+    getPreparedAppSchemaPublicationV1State(publication);
   const tables = publicationState.logicalBindings.manifest
     .tableDefinitions.tables;
   const requirements = publicationState.requirements.creationTimeIndexes;
@@ -557,10 +557,10 @@ export function prepareAppCreationTimeIndexDefinitionsV1(
  * authority even if a future compiler refactor changes one side of the seam.
  */
 export function prepareAppDeveloperIndexDefinitionBindingsV1(
-  publication: PreparedAppSchemaCatalogPublicationV2,
+  publication: PreparedAppSchemaPublicationV1,
 ): ReadonlyArray<PreparedAppDeveloperIndexDefinitionBindingV1> {
   const publicationState =
-    getPreparedAppSchemaCatalogPublicationV2State(publication);
+    getPreparedAppSchemaPublicationV1State(publication);
   const indexes = publicationState.logicalBindings.manifest.indexBindings.indexes;
   const requirements = publicationState.requirements.developerIndexes;
   if (indexes.length !== requirements.length) {

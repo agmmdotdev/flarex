@@ -6,15 +6,15 @@ import {
 } from "flarex-protocol/schema-manifest";
 import type { ValidatorJsonV1 } from "flarex-protocol/validator-json";
 
-export const MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_TABLES =
+export const MAX_APP_SCHEMA_PUBLICATION_V1_TABLES =
   MAX_SCHEMA_MANIFEST_APP_TABLES;
-export const MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEVELOPER_INDEXES =
+export const MAX_APP_SCHEMA_PUBLICATION_V1_DEVELOPER_INDEXES =
   MAX_SCHEMA_MANIFEST_APP_INDEXES;
-export const MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES =
+export const MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES =
   16 * 1024 * 1024;
-export const MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS = 256;
+export const MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS = 256;
 
-export type AppSchemaCatalogPublicationV2QuotaIssue =
+export type AppSchemaPublicationV1QuotaIssue =
   | {
       readonly reason: "tableCountExceeded";
       readonly actualCount: number;
@@ -43,51 +43,51 @@ export type AppSchemaCatalogPublicationV2QuotaIssue =
       readonly maximumBytes: number;
     };
 
-export class AppSchemaCatalogPublicationV2QuotaExceededError extends Error {
-  constructor(readonly issue: AppSchemaCatalogPublicationV2QuotaIssue) {
+export class AppSchemaPublicationV1QuotaExceededError extends Error {
+  constructor(readonly issue: AppSchemaPublicationV1QuotaIssue) {
     super(quotaIssueMessage(issue));
-    this.name = "AppSchemaCatalogPublicationV2QuotaExceededError";
+    this.name = "AppSchemaPublicationV1QuotaExceededError";
   }
 }
 
-/** Enforce fixed V2 declaration limits before catalog planning starts. */
-export function enforceAppSchemaCatalogPublicationV2DeclarationQuotas(
+/** Enforce fixed publication declaration limits before catalog planning. */
+export function enforceAppSchemaPublicationV1DeclarationQuotas(
   tables: unknown,
   indexes: unknown,
 ): void {
   if (
     Array.isArray(tables) &&
-    tables.length > MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_TABLES
+    tables.length > MAX_APP_SCHEMA_PUBLICATION_V1_TABLES
   ) {
-    throw new AppSchemaCatalogPublicationV2QuotaExceededError({
+    throw new AppSchemaPublicationV1QuotaExceededError({
       reason: "tableCountExceeded",
       actualCount: tables.length,
-      maximumCount: MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_TABLES,
+      maximumCount: MAX_APP_SCHEMA_PUBLICATION_V1_TABLES,
     });
   }
   if (
     Array.isArray(indexes) &&
-    indexes.length > MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEVELOPER_INDEXES
+    indexes.length > MAX_APP_SCHEMA_PUBLICATION_V1_DEVELOPER_INDEXES
   ) {
-    throw new AppSchemaCatalogPublicationV2QuotaExceededError({
+    throw new AppSchemaPublicationV1QuotaExceededError({
       reason: "developerIndexCountExceeded",
       actualCount: indexes.length,
-      maximumCount: MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEVELOPER_INDEXES,
+      maximumCount: MAX_APP_SCHEMA_PUBLICATION_V1_DEVELOPER_INDEXES,
     });
   }
   if (Array.isArray(tables) && Array.isArray(indexes)) {
     const definitionWorkItemCount = tables.length + indexes.length;
     if (
       definitionWorkItemCount >
-      MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS
+      MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS
     ) {
-      throw new AppSchemaCatalogPublicationV2QuotaExceededError({
+      throw new AppSchemaPublicationV1QuotaExceededError({
         reason: "definitionWorkItemCountExceeded",
         tableCount: tables.length,
         developerIndexCount: indexes.length,
         actualCount: definitionWorkItemCount,
         maximumCount:
-          MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS,
+          MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS,
       });
     }
   }
@@ -100,7 +100,7 @@ export function enforceAppSchemaCatalogPublicationV2DeclarationQuotas(
  * This is deliberately a lower bound: the authoritative exact canonical-byte
  * check still runs after every fresh preparation.
  */
-export function enforceAppSchemaCatalogPublicationV2CanonicalByteLowerBound(
+export function enforceAppSchemaPublicationV1CanonicalByteLowerBound(
   tables: ReadonlyArray<SchemaManifestAppTableDeclarationV1>,
   indexes: ReadonlyArray<SchemaManifestAppIndexDeclarationV1>,
 ): void {
@@ -109,12 +109,12 @@ export function enforceAppSchemaCatalogPublicationV2CanonicalByteLowerBound(
     lowerBoundBytes += bytes;
     if (
       lowerBoundBytes >
-      MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES
+      MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES
     ) {
-      throw new AppSchemaCatalogPublicationV2QuotaExceededError({
+      throw new AppSchemaPublicationV1QuotaExceededError({
         reason: "canonicalByteLowerBoundExceeded",
         observedLowerBoundBytes: lowerBoundBytes,
-        maximumBytes: MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES,
+        maximumBytes: MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
       });
     }
   };
@@ -136,36 +136,36 @@ export function enforceAppSchemaCatalogPublicationV2CanonicalByteLowerBound(
   }
 }
 
-/** Enforce the fixed V2 byte ceiling after fresh preparation, before writes. */
-export function enforceAppSchemaCatalogPublicationV2CanonicalByteQuota(
+/** Enforce the exact byte ceiling after fresh preparation, before writes. */
+export function enforceAppSchemaPublicationV1CanonicalByteQuota(
   canonicalByteLength: number,
 ): void {
   if (
     canonicalByteLength >
-    MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES
+    MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES
   ) {
-    throw new AppSchemaCatalogPublicationV2QuotaExceededError({
+    throw new AppSchemaPublicationV1QuotaExceededError({
       reason: "canonicalBytesExceeded",
       actualBytes: canonicalByteLength,
-      maximumBytes: MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES,
+      maximumBytes: MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
     });
   }
 }
 
 function quotaIssueMessage(
-  issue: AppSchemaCatalogPublicationV2QuotaIssue,
+  issue: AppSchemaPublicationV1QuotaIssue,
 ): string {
   switch (issue.reason) {
     case "tableCountExceeded":
-      return `App-schema catalog V2 publication contains ${issue.actualCount} app tables; the fixed limit is ${issue.maximumCount}.`;
+      return `App-schema V1 publication contains ${issue.actualCount} app tables; the fixed limit is ${issue.maximumCount}.`;
     case "developerIndexCountExceeded":
-      return `App-schema catalog V2 publication contains ${issue.actualCount} developer indexes; the fixed limit is ${issue.maximumCount}.`;
+      return `App-schema V1 publication contains ${issue.actualCount} developer indexes; the fixed limit is ${issue.maximumCount}.`;
     case "definitionWorkItemCountExceeded":
-      return `App-schema catalog V2 publication requires ${issue.actualCount} serial definition work items (${issue.tableCount} tables plus ${issue.developerIndexCount} developer indexes); the fixed operational limit is ${issue.maximumCount}.`;
+      return `App-schema V1 publication requires ${issue.actualCount} serial definition work items (${issue.tableCount} tables plus ${issue.developerIndexCount} developer indexes); the fixed operational limit is ${issue.maximumCount}.`;
     case "canonicalByteLowerBoundExceeded":
-      return `App-schema catalog V2 declarations already guarantee more than ${issue.maximumBytes} canonical bytes (observed lower bound ${issue.observedLowerBoundBytes}).`;
+      return `App-schema V1 declarations already guarantee more than ${issue.maximumBytes} canonical bytes (observed lower bound ${issue.observedLowerBoundBytes}).`;
     case "canonicalBytesExceeded":
-      return `App-schema catalog V2 canonical manifest is ${issue.actualBytes} bytes; the fixed limit is ${issue.maximumBytes} bytes.`;
+      return `App-schema V1 canonical manifest is ${issue.actualBytes} bytes; the fixed limit is ${issue.maximumBytes} bytes.`;
   }
 }
 

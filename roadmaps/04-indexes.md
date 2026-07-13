@@ -113,7 +113,7 @@ Verification:
 
 ```sh
 corepack pnpm --filter @flarex/persistence-postgres typecheck
-corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaCatalogPublicationV2.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaPublicationPreparation.test.ts --no-file-parallelism
 corepack pnpm --filter @flarex/persistence-postgres build
 corepack pnpm check:effect-boundaries
 git diff --check
@@ -415,8 +415,8 @@ Why it changed:
 
 Logical identity must be durable before full artifact publication, but it must
 remain independent of physical spec generations. The combined plan gives the
-future V2 publisher canonical stable IDs without letting callers reserve them
-or pair an index plan with table IDs from a different attempt.
+full app-schema publisher canonical stable IDs without letting callers reserve
+them or pair an index plan with table IDs from a different attempt.
 
 Convex references inspected:
 

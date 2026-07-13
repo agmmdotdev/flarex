@@ -15,10 +15,10 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import type { PreparedAppCreationTimeIndexDefinitionV1 as RootPreparedAppCreationTimeIndexDefinitionV1 } from "../src";
 import type { FlarexPersistence } from "../src";
 import {
-  getPreparedAppSchemaCatalogPublicationV2State,
-  InvalidPreparedAppSchemaCatalogPublicationV2Error,
-  prepareAppSchemaCatalogPublicationV2,
-} from "../src/appSchemaCatalogPublicationV2";
+  getPreparedAppSchemaPublicationV1State,
+  InvalidPreparedAppSchemaPublicationV1Error,
+  prepareAppSchemaPublicationV1,
+} from "../src/appSchemaPublicationPreparation";
 import {
   AppCreationTimeIndexDefinitionChecksumCollisionError,
   ensureAppCreationTimeIndexDefinitionV1InTransaction,
@@ -153,7 +153,7 @@ describe("table-owned app creation-time index definitions", () => {
         undefined,
         [{ ...fixture.publication }],
       )
-    ).toThrow(InvalidPreparedAppSchemaCatalogPublicationV2Error);
+    ).toThrow(InvalidPreparedAppSchemaPublicationV1Error);
     const forgedToken = { ...requiredToken(fixture.tokens, 0) };
     await expect(
       persistence.drizzle.transaction((tx) =>
@@ -295,7 +295,7 @@ async function prepareFixture(
     deploymentId,
     projectId: `project_${deploymentId}`,
   });
-  const publication = await prepareAppSchemaCatalogPublicationV2(
+  const publication = await prepareAppSchemaPublicationV1(
     persistence.drizzle,
     {
       deploymentId,
@@ -316,10 +316,10 @@ async function prepareFixture(
 async function applyTablePlan(
   persistence: PGlitePersistence,
   publication: Parameters<
-    typeof getPreparedAppSchemaCatalogPublicationV2State
+    typeof getPreparedAppSchemaPublicationV1State
   >[0],
 ): Promise<void> {
-  const state = getPreparedAppSchemaCatalogPublicationV2State(publication);
+  const state = getPreparedAppSchemaPublicationV1State(publication);
   await persistence.drizzle.transaction((tx) =>
     applySchemaManifestAppSchemaBindingsV1InTransaction(
       tx,

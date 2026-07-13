@@ -8,9 +8,9 @@ import type {
 } from "flarex-protocol/schema-manifest";
 
 import {
-  getPreparedAppSchemaCatalogPublicationV2State,
-  type PreparedAppSchemaCatalogPublicationV2,
-} from "./appSchemaCatalogPublicationV2";
+  getPreparedAppSchemaPublicationV1State,
+  type PreparedAppSchemaPublicationV1,
+} from "./appSchemaPublicationPreparation";
 import {
   ensureAppCreationTimeIndexDefinitionV1InTransaction,
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
@@ -29,7 +29,7 @@ import {
 } from "./schemaVersionArtifacts";
 import type { StableTableCatalogTransaction } from "./stableTableCatalog";
 
-export interface AppSchemaCatalogPublicationV2Projection {
+export interface AppSchemaPublicationV1Result {
   readonly manifest: SchemaManifestAppSchemaV1;
   readonly artifact: SchemaVersionArtifact;
   readonly creationTimeIndexDefinitions: ReadonlyArray<
@@ -42,7 +42,7 @@ export interface AppSchemaCatalogPublicationV2Projection {
     ReadonlyArray<AppSchemaVersionIndexBindingRecord>;
 }
 
-export type AppSchemaCatalogPublicationV2ProjectionIssue =
+export type AppSchemaPublicationV1ProjectionIssue =
   | {
       readonly reason: "schemaBindingCountMismatch";
       readonly expectedCount: number;
@@ -57,16 +57,16 @@ export type AppSchemaCatalogPublicationV2ProjectionIssue =
       readonly actualIndexDefinitionId: CatalogIndexDefinitionId;
     };
 
-export class AppSchemaCatalogPublicationV2ProjectionError extends Error {
+export class AppSchemaPublicationV1ProjectionError extends Error {
   constructor(
     readonly deploymentId: string,
     readonly schemaVersionId: CatalogSchemaVersionId,
-    readonly issue: AppSchemaCatalogPublicationV2ProjectionIssue,
+    readonly issue: AppSchemaPublicationV1ProjectionIssue,
   ) {
     super(
-      `App-schema catalog V2 projection is incomplete or contradictory for ${deploymentId}/${schemaVersionId}: ${projectionIssueMessage(issue)}`,
+      `App-schema V1 publication is incomplete or contradictory for ${deploymentId}/${schemaVersionId}: ${projectionIssueMessage(issue)}`,
     );
-    this.name = "AppSchemaCatalogPublicationV2ProjectionError";
+    this.name = "AppSchemaPublicationV1ProjectionError";
   }
 }
 
@@ -79,11 +79,11 @@ export class AppSchemaCatalogPublicationV2ProjectionError extends Error {
  * derived from the authenticated D2a envelope before the first SQL await, and
  * the locked phase performs no canonical encoding or hashing.
  */
-export async function publishPreparedAppSchemaCatalogV2InTransaction(
+export async function publishPreparedAppSchemaV1InTransaction(
   tx: StableTableCatalogTransaction,
-  publication: PreparedAppSchemaCatalogPublicationV2,
-): Promise<AppSchemaCatalogPublicationV2Projection> {
-  const state = getPreparedAppSchemaCatalogPublicationV2State(publication);
+  publication: PreparedAppSchemaPublicationV1,
+): Promise<AppSchemaPublicationV1Result> {
+  const state = getPreparedAppSchemaPublicationV1State(publication);
   const creationTimeTokens =
     prepareAppCreationTimeIndexDefinitionsV1(publication);
   const developerTokens =
@@ -134,16 +134,16 @@ export async function publishPreparedAppSchemaCatalogV2InTransaction(
       developerResults.map((result) => result.definition),
     ),
     schemaVersionIndexBindings,
-  } satisfies AppSchemaCatalogPublicationV2Projection);
+  } satisfies AppSchemaPublicationV1Result);
 }
 
 function verifyExactSchemaVersionBindings(
-  publication: PreparedAppSchemaCatalogPublicationV2,
+  publication: PreparedAppSchemaPublicationV1,
   expected: ReadonlyArray<EnsureAppDeveloperIndexDefinitionBindingV1Result>,
   actual: ReadonlyArray<AppSchemaVersionIndexBindingRecord>,
 ): void {
   if (actual.length !== expected.length) {
-    throw new AppSchemaCatalogPublicationV2ProjectionError(
+    throw new AppSchemaPublicationV1ProjectionError(
       publication.deploymentId,
       publication.schemaVersionId,
       {
@@ -156,7 +156,7 @@ function verifyExactSchemaVersionBindings(
   for (const [position, expectedResult] of expected.entries()) {
     const actualBinding = actual[position];
     if (actualBinding === undefined) {
-      throw new AppSchemaCatalogPublicationV2ProjectionError(
+      throw new AppSchemaPublicationV1ProjectionError(
         publication.deploymentId,
         publication.schemaVersionId,
         {
@@ -170,7 +170,7 @@ function verifyExactSchemaVersionBindings(
       actualBinding.logicalIndexId !== expectedResult.binding.logicalIndexId ||
       actualBinding.indexDefinitionId !== expectedResult.binding.indexDefinitionId
     ) {
-      throw new AppSchemaCatalogPublicationV2ProjectionError(
+      throw new AppSchemaPublicationV1ProjectionError(
         publication.deploymentId,
         publication.schemaVersionId,
         {
@@ -187,7 +187,7 @@ function verifyExactSchemaVersionBindings(
 }
 
 function projectionIssueMessage(
-  issue: AppSchemaCatalogPublicationV2ProjectionIssue,
+  issue: AppSchemaPublicationV1ProjectionIssue,
 ): string {
   switch (issue.reason) {
     case "schemaBindingCountMismatch":

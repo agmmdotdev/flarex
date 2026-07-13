@@ -90,13 +90,13 @@ import type {
   RecordLiveQueryDeliveryFailureResult,
 } from "./liveQueryDeliveries";
 import type {
-  EnsureAppSchemaVersionArtifactV1Input,
-  EnsureAppSchemaVersionArtifactV1Result,
-} from "./appSchemaVersionArtifacts";
+  EnsureAppTableDefinitionsArtifactV1Input,
+  EnsureAppTableDefinitionsArtifactV1Result,
+} from "./appTableDefinitionsArtifacts";
 import type {
-  EnsureAppSchemaVersionArtifactV2Input,
-  EnsureAppSchemaVersionArtifactV2Result,
-} from "./appSchemaVersionArtifactsV2";
+  PublishAppSchemaV1Input,
+  PublishAppSchemaV1Result,
+} from "./appSchemaPublication";
 export { sql } from "drizzle-orm";
 
 export interface QueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
@@ -138,12 +138,14 @@ export interface FlarexRuntimePersistence
   updateDeploymentMetadataActivation(
     input: UpdateDeploymentMetadataActivationInput,
   ): Promise<DeploymentMetadataRecord | null>;
-  ensureAppSchemaVersionArtifactV1(
-    input: EnsureAppSchemaVersionArtifactV1Input,
-  ): Promise<EnsureAppSchemaVersionArtifactV1Result>;
-  ensureAppSchemaVersionArtifactV2(
-    input: EnsureAppSchemaVersionArtifactV2Input,
-  ): Promise<EnsureAppSchemaVersionArtifactV2Result>;
+  /** Compatibility path: persists only the V1 table-definitions artifact. */
+  ensureAppTableDefinitionsArtifactV1(
+    input: EnsureAppTableDefinitionsArtifactV1Input,
+  ): Promise<EnsureAppTableDefinitionsArtifactV1Result>;
+  /** Publishes/replays the full V1 app-schema catalog; does not activate it. */
+  publishAppSchemaV1(
+    input: PublishAppSchemaV1Input,
+  ): Promise<PublishAppSchemaV1Result>;
   insertScopeMetadata(
     input: InsertScopeMetadataInput,
   ): Promise<ScopeMetadataRecord>;
@@ -353,24 +355,24 @@ export {
   type ReadFencedIndexBuildStateInput,
 } from "./indexBuildStates";
 export {
-  AppSchemaVersionArtifactRetryExhaustedError,
-  InvalidAppSchemaVersionArtifactV1InputError,
-  MAX_APP_SCHEMA_VERSION_ARTIFACT_ATTEMPTS,
-  type EnsureAppSchemaVersionArtifactV1Input,
-  type EnsureAppSchemaVersionArtifactV1Result,
-  type InvalidAppSchemaVersionArtifactV1InputIssue,
-} from "./appSchemaVersionArtifacts";
+  AppTableDefinitionsArtifactV1RetryExhaustedError,
+  InvalidAppTableDefinitionsArtifactV1InputError,
+  MAX_APP_TABLE_DEFINITIONS_ARTIFACT_V1_ATTEMPTS,
+  type EnsureAppTableDefinitionsArtifactV1Input,
+  type EnsureAppTableDefinitionsArtifactV1Result,
+  type InvalidAppTableDefinitionsArtifactV1InputIssue,
+} from "./appTableDefinitionsArtifacts";
 export {
-  AppSchemaVersionArtifactV2RetryExhaustedError,
-  MAX_APP_SCHEMA_VERSION_ARTIFACT_V2_ATTEMPTS,
-  type AppSchemaVersionArtifactV2Stale,
-  type EnsureAppSchemaVersionArtifactV2Input,
-  type EnsureAppSchemaVersionArtifactV2Result,
-} from "./appSchemaVersionArtifactsV2";
+  AppSchemaPublicationV1RetryExhaustedError,
+  MAX_APP_SCHEMA_PUBLICATION_V1_ATTEMPTS,
+  type AppSchemaPublicationV1Stale,
+  type PublishAppSchemaV1Input,
+  type PublishAppSchemaV1Result,
+} from "./appSchemaPublication";
 export {
-  InvalidAppSchemaCatalogPublicationV2InputError,
-  type InvalidAppSchemaCatalogPublicationV2InputIssue,
-} from "./appSchemaCatalogPublicationV2";
+  InvalidAppSchemaPublicationV1InputError,
+  type InvalidAppSchemaPublicationV1InputIssue,
+} from "./appSchemaPublicationPreparation";
 export {
   InvalidSchemaManifestAppSchemaBindingInputError,
   type InvalidSchemaManifestAppSchemaBindingInputIssue,
@@ -379,18 +381,18 @@ export {
   SchemaManifestTableBindingCorruptionError,
 } from "./schemaManifestTableBindings";
 export {
-  AppSchemaCatalogPublicationV2ProjectionError,
-  type AppSchemaCatalogPublicationV2Projection,
-  type AppSchemaCatalogPublicationV2ProjectionIssue,
-} from "./appSchemaCatalogPublicationV2Transaction";
+  AppSchemaPublicationV1ProjectionError,
+  type AppSchemaPublicationV1Result,
+  type AppSchemaPublicationV1ProjectionIssue,
+} from "./appSchemaPublicationTransaction";
 export {
-  AppSchemaCatalogPublicationV2QuotaExceededError,
-  MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES,
-  MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS,
-  MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEVELOPER_INDEXES,
-  MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_TABLES,
-  type AppSchemaCatalogPublicationV2QuotaIssue,
-} from "./appSchemaCatalogPublicationV2Policy";
+  AppSchemaPublicationV1QuotaExceededError,
+  MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
+  MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS,
+  MAX_APP_SCHEMA_PUBLICATION_V1_DEVELOPER_INDEXES,
+  MAX_APP_SCHEMA_PUBLICATION_V1_TABLES,
+  type AppSchemaPublicationV1QuotaIssue,
+} from "./appSchemaPublicationPolicy";
 export {
   ScopeClockCorruptionError,
   type ScopeClockRecord,

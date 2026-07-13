@@ -112,7 +112,7 @@ Verification:
 
 ```sh
 corepack pnpm --filter @flarex/persistence-postgres typecheck
-corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaCatalogPublicationV2.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaPublicationPreparation.test.ts --no-file-parallelism
 corepack pnpm --filter @flarex/persistence-postgres build
 corepack pnpm check:effect-boundaries
 git diff --check
@@ -403,7 +403,8 @@ How Flarex differs:
 Known limitations and follow-up:
 
 - S05-A has frozen ordered physical keys. S03-C3/C4 now add definitions and
-  fenced per-scope build state; S03-D later owns atomic V2 artifact publication.
+  fenced per-scope build state; S03-D later owns atomic full app-schema artifact
+  publication.
 - No rows, index entries, OCC, backfill, activation, analyzer, Payload/Medusa,
   runtime route, Cloudflare deployment, or legacy cleanup changed.
 
@@ -528,8 +529,8 @@ Verification:
 ```sh
 corepack pnpm --filter @flarex/persistence-postgres typecheck
 corepack pnpm --filter @flarex/persistence-postgres test
-corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaVersionArtifacts.test.ts test/schemaManifestTableBindings.test.ts test/schemaVersionArtifacts.test.ts --no-file-parallelism
-corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appSchemaVersionArtifacts.postgres.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appTableDefinitionsArtifacts.test.ts test/schemaManifestTableBindings.test.ts test/schemaVersionArtifacts.test.ts --no-file-parallelism
+corepack pnpm --filter @flarex/persistence-postgres exec vitest run test/appTableDefinitionsArtifacts.postgres.test.ts --no-file-parallelism
 corepack pnpm --filter @flarex/persistence-postgres build
 corepack pnpm check:effect-boundaries
 git diff --check

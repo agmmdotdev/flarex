@@ -600,7 +600,7 @@ state, reuses D1 canonical evidence, verifies the exact C2-bound app table under
 the deployment lock, and ensures one table-owned intrinsic definition through
 the shared physical-ID allocator. It writes no schema binding or build state.
 D2c applies and exactly verifies the normalized projection in one
-control-database transaction; D2d adds fresh-plan retries, the routed V2 facade,
+control-database transaction; D2d adds fresh-plan retries, `publishAppSchemaV1`,
 quota, and whole-publication concurrency/rollback proof. The process-local
 tokens are neither durable nor serializable or cryptographic authority. S03-D3
 owns idempotent located build-state reconciliation because control and

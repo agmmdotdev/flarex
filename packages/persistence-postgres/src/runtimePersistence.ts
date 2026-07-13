@@ -94,13 +94,13 @@ import {
   recordLiveQueryDeliveryFailure as recordLiveQueryDeliveryFailureWithDb,
 } from "./liveQueryDeliveries";
 import {
-  ensureAppSchemaVersionArtifactV1WithRepository,
-  type AppSchemaVersionArtifactV1Repository,
-} from "./appSchemaVersionArtifacts";
+  ensureAppTableDefinitionsArtifactV1WithRepository,
+  type AppTableDefinitionsArtifactV1Repository,
+} from "./appTableDefinitionsArtifacts";
 import {
-  ensureAppSchemaVersionArtifactV2WithRepository,
-  type AppSchemaVersionArtifactV2Repository,
-} from "./appSchemaVersionArtifactsV2";
+  publishAppSchemaV1WithRepository,
+  type AppSchemaPublicationV1Repository,
+} from "./appSchemaPublication";
 
 export interface FlarexRuntimePersistenceTransaction {
   readonly drizzle: FlarexMetadataDatabase;
@@ -110,8 +110,8 @@ export interface FlarexRuntimePersistenceTransaction {
 export interface FlarexRuntimePersistenceDriver {
   readonly drizzle: FlarexMetadataDatabase;
   readonly sql: FlarexSqlClient;
-  readonly appSchemaVersionArtifactRepository: AppSchemaVersionArtifactV1Repository;
-  readonly appSchemaVersionArtifactV2Repository: AppSchemaVersionArtifactV2Repository;
+  readonly appTableDefinitionsArtifactRepository: AppTableDefinitionsArtifactV1Repository;
+  readonly appSchemaPublicationRepository: AppSchemaPublicationV1Repository;
   transaction<T>(
     run: (transaction: FlarexRuntimePersistenceTransaction) => Promise<T>,
   ): Promise<T>;
@@ -149,14 +149,14 @@ export function createFlarexRuntimePersistence(
       listDeploymentMetadataWithDb(drizzleDb, input),
     updateDeploymentMetadataActivation: (input) =>
       updateDeploymentMetadataActivationWithDb(drizzleDb, input),
-    ensureAppSchemaVersionArtifactV1: (input) =>
-      ensureAppSchemaVersionArtifactV1WithRepository(
-        driver.appSchemaVersionArtifactRepository,
+    ensureAppTableDefinitionsArtifactV1: (input) =>
+      ensureAppTableDefinitionsArtifactV1WithRepository(
+        driver.appTableDefinitionsArtifactRepository,
         input,
       ),
-    ensureAppSchemaVersionArtifactV2: (input) =>
-      ensureAppSchemaVersionArtifactV2WithRepository(
-        driver.appSchemaVersionArtifactV2Repository,
+    publishAppSchemaV1: (input) =>
+      publishAppSchemaV1WithRepository(
+        driver.appSchemaPublicationRepository,
         input,
       ),
     insertScopeMetadata: (input) =>

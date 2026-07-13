@@ -184,7 +184,7 @@ direction, or correctness criteria change.
 `S03-D2d` closes publication with one input snapshot, typed-stale-only fresh
 retry, protocol declaration maxima plus a lower 256-item operational cap for
 the current serial path, early conservative and exact canonical-byte checks,
-the V2 persistence facade, and focused real-Postgres bounded-work and
+`publishAppSchemaV1`, and focused real-Postgres bounded-work and
 race/rollback proof. Neither gate activates a schema,
 reconciles physical builds, claims readiness, or routes replacement app data.
 The unchecked S03 stream remains open because D3 and D4 are deliberately

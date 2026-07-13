@@ -12,30 +12,30 @@ import {
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 // @ts-expect-error D2a's prepared token must remain absent from the package root.
-import type { PreparedAppSchemaCatalogPublicationV2 as RootPreparedAppSchemaCatalogPublicationV2 } from "../src";
+import type { PreparedAppSchemaPublicationV1 as RootPreparedAppSchemaPublicationV1 } from "../src";
 // @ts-expect-error D2d's authenticated source must remain absent from the package root.
-import type { AppSchemaCatalogPublicationV2Source as RootAppSchemaCatalogPublicationV2Source } from "../src";
+import type { AppSchemaPublicationV1Source as RootAppSchemaPublicationV1Source } from "../src";
 // @ts-expect-error D2d's repository port must remain absent from the package root.
-import type { AppSchemaVersionArtifactV2Repository as RootAppSchemaVersionArtifactV2Repository } from "../src";
+import type { AppSchemaPublicationV1Repository as RootAppSchemaPublicationV1Repository } from "../src";
 import type {
-  AppSchemaCatalogPublicationV2Projection,
-  EnsureAppSchemaVersionArtifactV2Input,
-  EnsureAppSchemaVersionArtifactV2Result,
+  AppSchemaPublicationV1Result,
+  PublishAppSchemaV1Input,
+  PublishAppSchemaV1Result,
   FlarexPersistence,
 } from "../src";
 import {
-  getPreparedAppSchemaCatalogPublicationV2State,
-  InvalidAppSchemaCatalogPublicationV2InputError,
-  InvalidPreparedAppSchemaCatalogPublicationV2Error,
-  prepareAppSchemaCatalogPublicationV2,
-  type PrepareAppSchemaCatalogPublicationV2Input,
-  type PreparedAppSchemaCatalogPublicationV2,
-} from "../src/appSchemaCatalogPublicationV2";
+  getPreparedAppSchemaPublicationV1State,
+  InvalidAppSchemaPublicationV1InputError,
+  InvalidPreparedAppSchemaPublicationV1Error,
+  prepareAppSchemaPublicationV1,
+  type PrepareAppSchemaPublicationV1Input,
+  type PreparedAppSchemaPublicationV1,
+} from "../src/appSchemaPublicationPreparation";
 import {
-  AppSchemaCatalogPublicationV2ProjectionError,
-  publishPreparedAppSchemaCatalogV2InTransaction,
-} from "../src/appSchemaCatalogPublicationV2Transaction";
-import type { PreparedAppSchemaVersionArtifactV1 } from "../src/appSchemaVersionArtifacts";
+  AppSchemaPublicationV1ProjectionError,
+  publishPreparedAppSchemaV1InTransaction,
+} from "../src/appSchemaPublicationTransaction";
+import type { PreparedAppTableDefinitionsArtifactV1 } from "../src/appTableDefinitionsArtifacts";
 import {
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
   prepareAppDeveloperIndexDefinitionBindingV1,
@@ -48,33 +48,39 @@ import {
 } from "../src/schemaVersionArtifacts";
 import { StableTableCatalogDeploymentNotFoundError } from "../src/stableTableCatalog";
 
-type PublicD2aExport = Extract<
+type PublicInternalPublicationExport = Extract<
   keyof typeof import("../src"),
-  | "prepareAppSchemaCatalogPublicationV2"
-  | "getPreparedAppSchemaCatalogPublicationV2State"
-  | "snapshotAppSchemaCatalogPublicationV2Input"
-  | "prepareAppSchemaCatalogPublicationV2FromSource"
-  | "publishPreparedAppSchemaCatalogV2InTransaction"
-  | "ensureAppSchemaVersionArtifactV2WithRepository"
-  | "runAppSchemaVersionArtifactV2Attempts"
-  | "enforceAppSchemaCatalogPublicationV2DeclarationQuotas"
-  | "enforceAppSchemaCatalogPublicationV2CanonicalByteLowerBound"
-  | "enforceAppSchemaCatalogPublicationV2CanonicalByteQuota"
-  | "InvalidAppSchemaCatalogPublicationV2SourceError"
+  | "prepareAppSchemaPublicationV1"
+  | "getPreparedAppSchemaPublicationV1State"
+  | "snapshotAppSchemaPublicationV1Input"
+  | "prepareAppSchemaPublicationV1FromSource"
+  | "publishPreparedAppSchemaV1InTransaction"
+  | "publishAppSchemaV1WithRepository"
+  | "runAppSchemaPublicationV1Attempts"
+  | "enforceAppSchemaPublicationV1DeclarationQuotas"
+  | "enforceAppSchemaPublicationV1CanonicalByteLowerBound"
+  | "enforceAppSchemaPublicationV1CanonicalByteQuota"
+  | "InvalidAppSchemaPublicationV1SourceError"
 >;
 
-type PublicD2Method = Extract<
+type PublicFullPublicationMethod = Extract<
   keyof FlarexPersistence,
-  "ensureAppSchemaVersionArtifactV2"
+  "publishAppSchemaV1"
 >;
 
-type PublicD2InternalMethod = Extract<
+type PublicInternalPersistenceMethod = Extract<
   keyof FlarexPersistence,
-  | "prepareAppSchemaCatalogPublicationV2"
-  | "publishPreparedAppSchemaCatalogV2InTransaction"
+  | "prepareAppSchemaPublicationV1"
+  | "publishPreparedAppSchemaV1InTransaction"
 >;
 
-type PublicV2TerminalErrorExport = Extract<
+type AmbiguousLegacyOperationMethod = Extract<
+  keyof FlarexPersistence,
+  | "ensureAppSchemaVersionArtifactV1"
+  | "ensureAppSchemaVersionArtifactV2"
+>;
+
+type PublicPublicationTerminalErrorExport = Extract<
   keyof typeof import("../src"),
   | "AppCreationTimeIndexDefinitionChecksumCollisionError"
   | "AppCreationTimeIndexDefinitionParentError"
@@ -91,37 +97,38 @@ type PublicV2TerminalErrorExport = Extract<
 >;
 
 type PreparedTokenStringKey = Extract<
-  keyof PreparedAppSchemaCatalogPublicationV2,
+  keyof PreparedAppSchemaPublicationV1,
   string
 >;
 
 type CallerCompiledInput = Omit<
-  PrepareAppSchemaCatalogPublicationV2Input,
+  PrepareAppSchemaPublicationV1Input,
   "compiledRequirements"
 > & {
   readonly compiledRequirements: CompiledAppSchemaCatalogRequirementsV1;
 };
 
 type CallerCompiledInputAccepted = CallerCompiledInput extends
-  PrepareAppSchemaCatalogPublicationV2Input
+  PrepareAppSchemaPublicationV1Input
   ? true
   : false;
 
-type PublicV2Input = Parameters<
-  FlarexPersistence["ensureAppSchemaVersionArtifactV2"]
+type PublicPublicationInput = Parameters<
+  FlarexPersistence["publishAppSchemaV1"]
 >[0];
 
-type PublicV2Result = Awaited<
-  ReturnType<FlarexPersistence["ensureAppSchemaVersionArtifactV2"]>
+type PublicPublicationResult = Awaited<
+  ReturnType<FlarexPersistence["publishAppSchemaV1"]>
 >;
 
-describe("app-schema catalog publication v2 preparation", () => {
+describe("app-schema V1 publication preparation", () => {
   it("keeps the no-write preparation seam package-internal and opaque", () => {
-    expectTypeOf<PublicD2aExport>().toEqualTypeOf<never>();
-    expectTypeOf<PublicD2Method>()
-      .toEqualTypeOf<"ensureAppSchemaVersionArtifactV2">();
-    expectTypeOf<PublicD2InternalMethod>().toEqualTypeOf<never>();
-    expectTypeOf<PublicV2TerminalErrorExport>().toEqualTypeOf<
+    expectTypeOf<PublicInternalPublicationExport>().toEqualTypeOf<never>();
+    expectTypeOf<PublicFullPublicationMethod>()
+      .toEqualTypeOf<"publishAppSchemaV1">();
+    expectTypeOf<PublicInternalPersistenceMethod>().toEqualTypeOf<never>();
+    expectTypeOf<AmbiguousLegacyOperationMethod>().toEqualTypeOf<never>();
+    expectTypeOf<PublicPublicationTerminalErrorExport>().toEqualTypeOf<
       | "AppCreationTimeIndexDefinitionChecksumCollisionError"
       | "AppCreationTimeIndexDefinitionParentError"
       | "AppCreationTimeIndexDefinitionRequirementError"
@@ -139,28 +146,28 @@ describe("app-schema catalog publication v2 preparation", () => {
       "deploymentId" | "schemaVersionId" | "version"
     >();
     expectTypeOf<CallerCompiledInputAccepted>().toEqualTypeOf<false>();
-    expectTypeOf<PublicV2Input>()
-      .toEqualTypeOf<EnsureAppSchemaVersionArtifactV2Input>();
-    expectTypeOf<PublicV2Result>()
-      .toEqualTypeOf<EnsureAppSchemaVersionArtifactV2Result>();
-    expectTypeOf<PublicV2Result>()
-      .toEqualTypeOf<AppSchemaCatalogPublicationV2Projection>();
-    expectTypeOf<PreparedAppSchemaCatalogPublicationV2>()
-      .not.toEqualTypeOf<PreparedAppSchemaVersionArtifactV1>();
+    expectTypeOf<PublicPublicationInput>()
+      .toEqualTypeOf<PublishAppSchemaV1Input>();
+    expectTypeOf<PublicPublicationResult>()
+      .toEqualTypeOf<PublishAppSchemaV1Result>();
+    expectTypeOf<PublicPublicationResult>()
+      .toEqualTypeOf<AppSchemaPublicationV1Result>();
+    expectTypeOf<PreparedAppSchemaPublicationV1>()
+      .not.toEqualTypeOf<PreparedAppTableDefinitionsArtifactV1>();
   });
 
   it("couples one bound plan, D1 result, and full artifact without writes", async () => {
     const persistence = await migratedPersistence();
-    const deploymentId = "deployment_catalog_v2_prepare";
+    const deploymentId = "deployment_schema_publication_v1_prepare";
     await insertDeployment(persistence, deploymentId);
-    const input = publicationInput(deploymentId, "schema_catalog_v2_prepare");
+    const input = publicationInput(deploymentId, "schema_publication_v1_prepare");
     const before = await catalogCounts(persistence, deploymentId);
 
-    const prepared = await prepareAppSchemaCatalogPublicationV2(
+    const prepared = await prepareAppSchemaPublicationV1(
       persistence.drizzle,
       input,
     );
-    const state = getPreparedAppSchemaCatalogPublicationV2State(prepared);
+    const state = getPreparedAppSchemaPublicationV1State(prepared);
 
     expect(Object.keys(prepared).sort()).toEqual([
       "deploymentId",
@@ -169,7 +176,7 @@ describe("app-schema catalog publication v2 preparation", () => {
     ]);
     expect(prepared).toMatchObject({
       deploymentId,
-      schemaVersionId: "schema_catalog_v2_prepare",
+      schemaVersionId: "schema_publication_v1_prepare",
       version: 1,
     });
     expect(state.logicalBindings.manifest.tableDefinitions.tables.map(
@@ -203,7 +210,7 @@ describe("app-schema catalog publication v2 preparation", () => {
     );
     expect(state.artifact).toMatchObject({
       deploymentId,
-      schemaVersionId: "schema_catalog_v2_prepare",
+      schemaVersionId: "schema_publication_v1_prepare",
       version: 1,
     });
     expect(Object.isFrozen(prepared)).toBe(true);
@@ -234,11 +241,11 @@ describe("app-schema catalog publication v2 preparation", () => {
 
   it("rejects copied, spread, serialized, and structural token forgeries", async () => {
     const persistence = await migratedPersistence();
-    const deploymentId = "deployment_catalog_v2_forgery";
+    const deploymentId = "deployment_schema_publication_v1_forgery";
     await insertDeployment(persistence, deploymentId);
-    const prepared = await prepareAppSchemaCatalogPublicationV2(
+    const prepared = await prepareAppSchemaPublicationV1(
       persistence.drizzle,
-      publicationInput(deploymentId, "schema_catalog_v2_forgery"),
+      publicationInput(deploymentId, "schema_publication_v1_forgery"),
     );
     const forgeries: ReadonlyArray<unknown> = [
       { ...prepared },
@@ -253,20 +260,20 @@ describe("app-schema catalog publication v2 preparation", () => {
     for (const forgery of forgeries) {
       expect(() =>
         Reflect.apply(
-          getPreparedAppSchemaCatalogPublicationV2State,
+          getPreparedAppSchemaPublicationV1State,
           undefined,
           [forgery],
         )
-      ).toThrow(InvalidPreparedAppSchemaCatalogPublicationV2Error);
+      ).toThrow(InvalidPreparedAppSchemaPublicationV1Error);
     }
   });
 
   it("snapshots every declaration before the first database await", async () => {
     const persistence = await migratedPersistence();
-    const deploymentId = "deployment_catalog_v2_snapshot";
+    const deploymentId = "deployment_schema_publication_v1_snapshot";
     await insertDeployment(persistence, deploymentId);
-    const input = publicationInput(deploymentId, "schema_catalog_v2_snapshot");
-    const preparation = prepareAppSchemaCatalogPublicationV2(
+    const input = publicationInput(deploymentId, "schema_publication_v1_snapshot");
+    const preparation = prepareAppSchemaPublicationV1(
       persistence.drizzle,
       input,
     );
@@ -279,7 +286,7 @@ describe("app-schema catalog publication v2 preparation", () => {
     replaceOwnDataProperty(firstIndex.fields, 0, "changedAfterCall");
 
     const prepared = await preparation;
-    const state = getPreparedAppSchemaCatalogPublicationV2State(prepared);
+    const state = getPreparedAppSchemaPublicationV1State(prepared);
     expect(state.logicalBindings.manifest.tableDefinitions.tables.map(
       (table) => table.logicalName,
     )).toEqual(["posts", "users"]);
@@ -291,9 +298,9 @@ describe("app-schema catalog publication v2 preparation", () => {
 
   it("rejects every non-exact or caller-authored preparation shape", async () => {
     const persistence = await migratedPersistence();
-    const deploymentId = "deployment_catalog_v2_shape";
+    const deploymentId = "deployment_schema_publication_v1_shape";
     await insertDeployment(persistence, deploymentId);
-    const valid = publicationInput(deploymentId, "schema_catalog_v2_shape");
+    const valid = publicationInput(deploymentId, "schema_publication_v1_shape");
     const { indexes: _indexes, ...missingIndexes } = valid;
     const inherited = Object.create(valid);
     const symbolExtra = { ...valid, [Symbol("extra")]: true };
@@ -324,12 +331,12 @@ describe("app-schema catalog publication v2 preparation", () => {
       accessor,
     ]) {
       await expect(
-        Reflect.apply(prepareAppSchemaCatalogPublicationV2, undefined, [
+        Reflect.apply(prepareAppSchemaPublicationV1, undefined, [
           persistence.drizzle,
           invalid,
         ]),
       ).rejects.toBeInstanceOf(
-        InvalidAppSchemaCatalogPublicationV2InputError,
+        InvalidAppSchemaPublicationV1InputError,
       );
     }
     expect(getterInvoked).toBe(false);
@@ -337,19 +344,19 @@ describe("app-schema catalog publication v2 preparation", () => {
 
   it("propagates D1 semantic failures without writing a partial plan", async () => {
     const persistence = await migratedPersistence();
-    const deploymentId = "deployment_catalog_v2_semantic";
+    const deploymentId = "deployment_schema_publication_v1_semantic";
     await insertDeployment(persistence, deploymentId);
     const before = await catalogCounts(persistence, deploymentId);
     const impossibleField = publicationInput(
       deploymentId,
-      "schema_catalog_v2_impossible",
+      "schema_publication_v1_impossible",
     );
     const firstIndex = impossibleField.indexes[0];
     if (firstIndex === undefined) throw new Error("Expected an index fixture.");
     replaceOwnDataProperty(firstIndex.fields, 0, "missing.path");
 
     await expect(
-      prepareAppSchemaCatalogPublicationV2(
+      prepareAppSchemaPublicationV1(
         persistence.drizzle,
         impossibleField,
       ),
@@ -360,7 +367,7 @@ describe("app-schema catalog publication v2 preparation", () => {
 
     const unknownTarget = publicationInput(
       deploymentId,
-      "schema_catalog_v2_unknown_target",
+      "schema_publication_v1_unknown_target",
     );
     const firstTable = unknownTarget.tables[0];
     if (firstTable === undefined) throw new Error("Expected a table fixture.");
@@ -373,7 +380,7 @@ describe("app-schema catalog publication v2 preparation", () => {
       },
     );
     await expect(
-      prepareAppSchemaCatalogPublicationV2(
+      prepareAppSchemaPublicationV1(
         persistence.drizzle,
         unknownTarget,
       ),
@@ -386,21 +393,21 @@ describe("app-schema catalog publication v2 preparation", () => {
   it("propagates a missing deployment before producing a token", async () => {
     const persistence = await migratedPersistence();
     await expect(
-      prepareAppSchemaCatalogPublicationV2(
+      prepareAppSchemaPublicationV1(
         persistence.drizzle,
-        publicationInput("missing_deployment", "schema_catalog_v2_missing"),
+        publicationInput("missing_deployment", "schema_publication_v1_missing"),
       ),
     ).rejects.toBeInstanceOf(StableTableCatalogDeploymentNotFoundError);
   });
 });
 
-describe("app-schema catalog publication v2 transaction", () => {
+describe("app-schema V1 publication transaction", () => {
   it("publishes and exactly replays the complete normalized projection", async () => {
     const persistence = await migratedPersistence();
-    const deploymentId = "deployment_catalog_v2_publish";
+    const deploymentId = "deployment_schema_publication_v1_publish";
     await insertDeployment(persistence, deploymentId);
-    const input = publicationInput(deploymentId, "schema_catalog_v2_publish");
-    const prepared = await prepareAppSchemaCatalogPublicationV2(
+    const input = publicationInput(deploymentId, "schema_publication_v1_publish");
+    const prepared = await prepareAppSchemaPublicationV1(
       persistence.drizzle,
       input,
     );
@@ -481,7 +488,7 @@ describe("app-schema catalog publication v2 transaction", () => {
     const sameTokenReplay = await publishPrepared(persistence, prepared);
     const freshTokenReplay = await publishPrepared(
       persistence,
-      await prepareAppSchemaCatalogPublicationV2(persistence.drizzle, input),
+      await prepareAppSchemaPublicationV1(persistence.drizzle, input),
     );
     expect(sameTokenReplay.creationTimeIndexDefinitions.map(
       (definition) => definition.indexDefinitionId,
@@ -501,14 +508,14 @@ describe("app-schema catalog publication v2 transaction", () => {
 
   it("publishes intrinsic definitions without fabricating schema bindings", async () => {
     const persistence = await migratedPersistence();
-    const deploymentId = "deployment_catalog_v2_intrinsic_only";
+    const deploymentId = "deployment_schema_publication_v1_intrinsic_only";
     await insertDeployment(persistence, deploymentId);
-    const prepared = await prepareAppSchemaCatalogPublicationV2(
+    const prepared = await prepareAppSchemaPublicationV1(
       persistence.drizzle,
       {
         deploymentId,
         schemaVersionId: CatalogSchemaVersionIdSchema.make(
-          "schema_catalog_v2_intrinsic_only",
+          "schema_publication_v1_intrinsic_only",
         ),
         version: CatalogSchemaVersionSchema.make(1),
         tables: [
@@ -534,16 +541,16 @@ describe("app-schema catalog publication v2 transaction", () => {
 
   it("rolls every projected row back and reuses rolled-back definition IDs", async () => {
     const persistence = await migratedPersistence();
-    const deploymentId = "deployment_catalog_v2_rollback";
+    const deploymentId = "deployment_schema_publication_v1_rollback";
     await insertDeployment(persistence, deploymentId);
-    const prepared = await prepareAppSchemaCatalogPublicationV2(
+    const prepared = await prepareAppSchemaPublicationV1(
       persistence.drizzle,
-      publicationInput(deploymentId, "schema_catalog_v2_rollback"),
+      publicationInput(deploymentId, "schema_publication_v1_rollback"),
     );
 
     await expect(
       persistence.drizzle.transaction(async (tx) => {
-        await publishPreparedAppSchemaCatalogV2InTransaction(tx, prepared);
+        await publishPreparedAppSchemaV1InTransaction(tx, prepared);
         throw new Error("injected D2c rollback");
       }),
     ).rejects.toThrow("injected D2c rollback");
@@ -563,23 +570,23 @@ describe("app-schema catalog publication v2 transaction", () => {
 
   it("rolls stable bindings back when a later artifact conflict fails", async () => {
     const persistence = await migratedPersistence();
-    const deploymentId = "deployment_catalog_v2_late_conflict";
+    const deploymentId = "deployment_schema_publication_v1_late_conflict";
     await insertDeployment(persistence, deploymentId);
-    const target = await prepareAppSchemaCatalogPublicationV2(
+    const target = await prepareAppSchemaPublicationV1(
       persistence.drizzle,
-      publicationInput(deploymentId, "schema_catalog_v2_late_conflict"),
+      publicationInput(deploymentId, "schema_publication_v1_late_conflict"),
     );
-    const conflicting = await prepareAppSchemaCatalogPublicationV2(
+    const conflicting = await prepareAppSchemaPublicationV1(
       persistence.drizzle,
       userPublicationInput(
         deploymentId,
-        "schema_catalog_v2_late_conflict",
+        "schema_publication_v1_late_conflict",
         1,
         [{ descriptor: "byEmail", field: "email" }],
       ),
     );
     const conflictingState =
-      getPreparedAppSchemaCatalogPublicationV2State(conflicting);
+      getPreparedAppSchemaPublicationV1State(conflicting);
     await persistence.drizzle.transaction((tx) =>
       ensureSchemaVersionArtifactInTransaction(tx, conflictingState.artifact)
     );
@@ -599,13 +606,13 @@ describe("app-schema catalog publication v2 transaction", () => {
 
   it("rejects an unexpected schema-version binding as a typed projection mismatch", async () => {
     const persistence = await migratedPersistence();
-    const deploymentId = "deployment_catalog_v2_extra_binding";
+    const deploymentId = "deployment_schema_publication_v1_extra_binding";
     await insertDeployment(persistence, deploymentId);
-    const v1 = await prepareAppSchemaCatalogPublicationV2(
+    const baselinePublication = await prepareAppSchemaPublicationV1(
       persistence.drizzle,
       userPublicationInput(
         deploymentId,
-        "schema_catalog_v2_extra_binding_v1",
+        "schema_publication_v1_extra_binding_baseline",
         1,
         [
           { descriptor: "byEmail", field: "email" },
@@ -613,29 +620,35 @@ describe("app-schema catalog publication v2 transaction", () => {
         ],
       ),
     );
-    const v1Projection = await publishPrepared(persistence, v1);
-    const v2 = await prepareAppSchemaCatalogPublicationV2(
+    const baselineProjection = await publishPrepared(
+      persistence,
+      baselinePublication,
+    );
+    const targetPublication = await prepareAppSchemaPublicationV1(
       persistence.drizzle,
       userPublicationInput(
         deploymentId,
-        "schema_catalog_v2_extra_binding_v2",
+        "schema_publication_v1_extra_binding_target",
         2,
         [{ descriptor: "byEmail", field: "email" }],
       ),
     );
-    const v2State = getPreparedAppSchemaCatalogPublicationV2State(v2);
+    const targetState = getPreparedAppSchemaPublicationV1State(
+      targetPublication,
+    );
     await persistence.drizzle.transaction((tx) =>
-      ensureSchemaVersionArtifactInTransaction(tx, v2State.artifact)
+      ensureSchemaVersionArtifactInTransaction(tx, targetState.artifact)
     );
-    const extraLogicalIndex = v1Projection.manifest.indexBindings.indexes.find(
-      (index) => index.descriptor === "byPhone",
-    );
+    const extraLogicalIndex =
+      baselineProjection.manifest.indexBindings.indexes.find(
+        (index) => index.descriptor === "byPhone",
+      );
     if (extraLogicalIndex === undefined) {
       throw new Error("Expected the baseline byPhone logical index.");
     }
     const extraBinding = await prepareAppDeveloperIndexDefinitionBindingV1({
       deploymentId,
-      schemaVersionId: v2.schemaVersionId,
+      schemaVersionId: targetPublication.schemaVersionId,
       tableId: extraLogicalIndex.tableId,
       logicalIndexId: extraLogicalIndex.logicalIndexId,
       logicalSpec: extraLogicalIndex.spec,
@@ -644,17 +657,19 @@ describe("app-schema catalog publication v2 transaction", () => {
       ensureAppDeveloperIndexDefinitionBindingV1InTransaction(tx, extraBinding)
     );
 
-    await expect(publishPrepared(persistence, v2)).rejects.toMatchObject({
-      name: "AppSchemaCatalogPublicationV2ProjectionError",
+    await expect(
+      publishPrepared(persistence, targetPublication),
+    ).rejects.toMatchObject({
+      name: "AppSchemaPublicationV1ProjectionError",
       issue: {
         reason: "schemaBindingCountMismatch",
         expectedCount: 1,
         actualCount: 2,
       },
     });
-    await expect(publishPrepared(persistence, v2)).rejects.toBeInstanceOf(
-      AppSchemaCatalogPublicationV2ProjectionError,
-    );
+    await expect(
+      publishPrepared(persistence, targetPublication),
+    ).rejects.toBeInstanceOf(AppSchemaPublicationV1ProjectionError);
     await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
       tables: 1,
       indexes: 2,
@@ -667,11 +682,11 @@ describe("app-schema catalog publication v2 transaction", () => {
 
   it("rejects artifact JSON drift even when canonical bytes remain unchanged", async () => {
     const persistence = await migratedPersistence();
-    const deploymentId = "deployment_catalog_v2_artifact_json_drift";
+    const deploymentId = "deployment_schema_publication_v1_artifact_json_drift";
     await insertDeployment(persistence, deploymentId);
-    const prepared = await prepareAppSchemaCatalogPublicationV2(
+    const prepared = await prepareAppSchemaPublicationV1(
       persistence.drizzle,
-      publicationInput(deploymentId, "schema_catalog_v2_artifact_json_drift"),
+      publicationInput(deploymentId, "schema_publication_v1_artifact_json_drift"),
     );
     await publishPrepared(persistence, prepared);
     await persistence.query(
@@ -690,13 +705,13 @@ describe("app-schema catalog publication v2 transaction", () => {
 
   it("authenticates the full publication token before writing", async () => {
     const persistence = await migratedPersistence();
-    const deploymentId = "deployment_catalog_v2_transaction_forgery";
+    const deploymentId = "deployment_schema_publication_v1_transaction_forgery";
     await insertDeployment(persistence, deploymentId);
-    const prepared = await prepareAppSchemaCatalogPublicationV2(
+    const prepared = await prepareAppSchemaPublicationV1(
       persistence.drizzle,
       publicationInput(
         deploymentId,
-        "schema_catalog_v2_transaction_forgery",
+        "schema_publication_v1_transaction_forgery",
       ),
     );
     const forgery = { ...prepared };
@@ -704,13 +719,13 @@ describe("app-schema catalog publication v2 transaction", () => {
     await expect(
       persistence.drizzle.transaction((tx) =>
         Reflect.apply(
-          publishPreparedAppSchemaCatalogV2InTransaction,
+          publishPreparedAppSchemaV1InTransaction,
           undefined,
           [tx, forgery],
         )
       ),
     ).rejects.toBeInstanceOf(
-      InvalidPreparedAppSchemaCatalogPublicationV2Error,
+      InvalidPreparedAppSchemaPublicationV1Error,
     );
     await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
       tables: 0,
@@ -724,11 +739,11 @@ describe("app-schema catalog publication v2 transaction", () => {
 
   it("performs no Web Crypto during the transaction", async () => {
     const persistence = await migratedPersistence();
-    const deploymentId = "deployment_catalog_v2_no_locked_crypto";
+    const deploymentId = "deployment_schema_publication_v1_no_locked_crypto";
     await insertDeployment(persistence, deploymentId);
-    const prepared = await prepareAppSchemaCatalogPublicationV2(
+    const prepared = await prepareAppSchemaPublicationV1(
       persistence.drizzle,
-      publicationInput(deploymentId, "schema_catalog_v2_no_locked_crypto"),
+      publicationInput(deploymentId, "schema_publication_v1_no_locked_crypto"),
     );
     const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(
       new Error("Web Crypto must stay outside the D2c transaction"),
@@ -887,10 +902,10 @@ async function catalogCounts(
 
 async function publishPrepared(
   persistence: PGlitePersistence,
-  prepared: PreparedAppSchemaCatalogPublicationV2,
+  prepared: PreparedAppSchemaPublicationV1,
 ) {
   return persistence.drizzle.transaction((tx) =>
-    publishPreparedAppSchemaCatalogV2InTransaction(tx, prepared)
+    publishPreparedAppSchemaV1InTransaction(tx, prepared)
   );
 }
 
