@@ -232,6 +232,17 @@ export async function prepareSchemaVersionArtifact(
   return prepared;
 }
 
+/** Package-internal authenticated evidence for pre-transaction quota checks. */
+export function getPreparedSchemaVersionArtifactCanonicalByteLength(
+  artifact: PreparedSchemaVersionArtifact,
+): number {
+  const prepared = preparedSchemaVersionArtifactStates.get(artifact);
+  if (prepared === undefined) {
+    throw new InvalidPreparedSchemaVersionArtifactError();
+  }
+  return prepared.canonical.canonicalBytes.byteLength;
+}
+
 /**
  * Persist or replay one immutable schema-version artifact.
  *

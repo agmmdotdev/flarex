@@ -173,6 +173,10 @@ export async function createPGlitePersistence(
       db: drizzleDb,
       runTransaction: (run) => drizzleDb.transaction(run),
     },
+    appSchemaVersionArtifactV2Repository: {
+      db: drizzleDb,
+      runTransaction: (run) => drizzleDb.transaction(run),
+    },
     transaction: (run) =>
       db.transaction((tx) => {
         // Drizzle narrows its PGlite client to the concrete class even though

@@ -33,6 +33,10 @@ export function createPostgresClientPersistence(
       db: drizzleDb,
       runTransaction: (run) => drizzleDb.transaction(run),
     },
+    appSchemaVersionArtifactV2Repository: {
+      db: drizzleDb,
+      runTransaction: (run) => drizzleDb.transaction(run),
+    },
     transaction: (run) => runPostgresTransaction(client, drizzleDb, run),
   });
 

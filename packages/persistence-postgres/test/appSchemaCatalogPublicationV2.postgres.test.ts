@@ -1,25 +1,462 @@
 import {
+  canonicalizeSchemaManifestV1,
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
+  decodeSchemaManifestJson,
   type SchemaManifestAppIndexDeclarationInputV1,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
 import { describe, expect, it } from "vitest";
 
 import {
+  MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS,
+} from "../src";
+import type {
+  EnsureAppSchemaVersionArtifactV2Input,
+  EnsureAppSchemaVersionArtifactV2Result,
+} from "../src";
+import {
+  getPreparedAppSchemaCatalogPublicationV2State,
   prepareAppSchemaCatalogPublicationV2,
   type PreparedAppSchemaCatalogPublicationV2,
 } from "../src/appSchemaCatalogPublicationV2";
-import { publishPreparedAppSchemaCatalogV2InTransaction } from "../src/appSchemaCatalogPublicationV2Transaction";
-import type { PostgresFlarexPersistence } from "../src/postgres";
 import {
+  AppSchemaCatalogPublicationV2ProjectionError,
+  publishPreparedAppSchemaCatalogV2InTransaction,
+} from "../src/appSchemaCatalogPublicationV2Transaction";
+import {
+  ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
+  prepareAppDeveloperIndexDefinitionBindingV1,
+} from "../src/appIndexDefinitions";
+import type { PostgresFlarexPersistence } from "../src/postgres";
+import { applySchemaManifestAppSchemaBindingsV1InTransaction } from "../src/schemaManifestAppSchemaBindings";
+import { ensureSchemaVersionArtifactInTransaction } from "../src/schemaVersionArtifacts";
+import { ensureStableTableIdentityInTransaction } from "../src/stableTableCatalog";
+import {
+  acquirePostgresDeploymentLock,
   postgresUrl,
+  waitForBlockedPostgresDeploymentLocks,
   withTemporaryPostgresPersistence,
 } from "./postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("real Postgres app-schema catalog V2 publication", () => {
+  it("converges concurrent identical routed V2 publications", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const deploymentId = "deployment_catalog_v2_pg_concurrent_replay";
+      await insertDeployment(persistence, deploymentId);
+      const input = publicationInput(
+        deploymentId,
+        "schema_catalog_v2_pg_concurrent_replay",
+      );
+
+      const [firstAttempt, secondAttempt] = await queueTwoBehindDeploymentLock(
+        persistence,
+        deploymentId,
+        () => persistence.ensureAppSchemaVersionArtifactV2(input),
+        () => persistence.ensureAppSchemaVersionArtifactV2(input),
+      );
+      const first = fulfilledResult(firstAttempt);
+      const second = fulfilledResult(secondAttempt);
+      const replayed = await persistence.ensureAppSchemaVersionArtifactV2(input);
+
+      expect(second).toEqual(first);
+      expect(replayed).toEqual(first);
+      expect(first.manifest.tableDefinitions.tables).toMatchObject([
+        { logicalName: "users", tableId: 1 },
+      ]);
+      expect(first.manifest.indexBindings.indexes).toMatchObject([
+        { descriptor: "byEmail", logicalIndexId: 1, tableId: 1 },
+      ]);
+      expect(first.creationTimeIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 1 },
+      ]);
+      expect(first.developerIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 2 },
+      ]);
+      await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+        tables: 1,
+        indexes: 1,
+        schemaVersions: 1,
+        definitions: 2,
+        schemaBindings: 1,
+        buildStates: 0,
+      });
+    });
+  }, 30_000);
+
+  it("replans and commits competing publications from the same frontiers", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const deploymentId = "deployment_catalog_v2_pg_competing";
+      await insertDeployment(persistence, deploymentId);
+      const firstInput = publicationInput(
+        deploymentId,
+        "schema_catalog_v2_pg_competing_first",
+        { version: 1, tableLogicalName: "users", descriptor: "byEmail" },
+      );
+      const secondInput = publicationInput(
+        deploymentId,
+        "schema_catalog_v2_pg_competing_second",
+        { version: 2, tableLogicalName: "posts", descriptor: "byAuthor" },
+      );
+      const initialSecondHash = await preparedManifestHash(
+        persistence,
+        secondInput,
+      );
+
+      const [firstAttempt, secondAttempt] = await queueTwoBehindDeploymentLock(
+        persistence,
+        deploymentId,
+        () => persistence.ensureAppSchemaVersionArtifactV2(firstInput),
+        () => persistence.ensureAppSchemaVersionArtifactV2(secondInput),
+      );
+      const first = fulfilledResult(firstAttempt);
+      const second = fulfilledResult(secondAttempt);
+
+      expect(first.manifest.tableDefinitions.tables).toMatchObject([
+        { logicalName: "users", tableId: 1 },
+      ]);
+      expect(first.manifest.indexBindings.indexes).toMatchObject([
+        { descriptor: "byEmail", logicalIndexId: 1, tableId: 1 },
+      ]);
+      expect(first.creationTimeIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 1 },
+      ]);
+      expect(first.developerIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 2 },
+      ]);
+      expect(second.manifest.tableDefinitions.tables).toMatchObject([
+        { logicalName: "posts", tableId: 2 },
+      ]);
+      expect(second.manifest.indexBindings.indexes).toMatchObject([
+        { descriptor: "byAuthor", logicalIndexId: 2, tableId: 2 },
+      ]);
+      expect(second.creationTimeIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 3 },
+      ]);
+      expect(second.developerIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 4 },
+      ]);
+      expect(Array.from(second.artifact.manifestSha256)).not.toEqual(
+        Array.from(initialSecondHash),
+      );
+      await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+        tables: 2,
+        indexes: 2,
+        schemaVersions: 2,
+        definitions: 4,
+        schemaBindings: 2,
+        buildStates: 0,
+      });
+    });
+  }, 30_000);
+
+  it("replans after an external table-frontier allocation wins", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const deploymentId = "deployment_catalog_v2_pg_table_frontier";
+      await insertDeployment(persistence, deploymentId);
+      const input = publicationInput(
+        deploymentId,
+        "schema_catalog_v2_pg_table_frontier",
+      );
+      const initialHash = await preparedManifestHash(persistence, input);
+
+      const [allocationAttempt, publicationAttempt] =
+        await queueTwoBehindDeploymentLock(
+          persistence,
+          deploymentId,
+          () =>
+            persistence.drizzle.transaction((tx) =>
+              ensureStableTableIdentityInTransaction(tx, {
+                deploymentId,
+                namespace: "payload",
+                logicalName: "allocator_winner",
+              })
+            ),
+          () => persistence.ensureAppSchemaVersionArtifactV2(input),
+        );
+      const allocation = fulfilledResult(allocationAttempt);
+      const publication = fulfilledResult(publicationAttempt);
+
+      expect(allocation.table.tableId).toBe(1);
+      expect(publication.manifest.tableDefinitions.tables).toMatchObject([
+        { logicalName: "users", tableId: 2 },
+      ]);
+      expect(publication.manifest.indexBindings.indexes).toMatchObject([
+        { descriptor: "byEmail", logicalIndexId: 1, tableId: 2 },
+      ]);
+      expect(publication.creationTimeIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 1 },
+      ]);
+      expect(publication.developerIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 2 },
+      ]);
+      expect(Array.from(publication.artifact.manifestSha256)).not.toEqual(
+        Array.from(initialHash),
+      );
+      await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+        tables: 2,
+        indexes: 1,
+        schemaVersions: 1,
+        definitions: 2,
+        schemaBindings: 1,
+        buildStates: 0,
+      });
+    });
+  }, 30_000);
+
+  it("replans after an index-only frontier race", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const deploymentId = "deployment_catalog_v2_pg_index_frontier";
+      await insertDeployment(persistence, deploymentId);
+      await persistence.ensureAppSchemaVersionArtifactV2(
+        publicationInput(
+          deploymentId,
+          "schema_catalog_v2_pg_index_frontier_baseline",
+          { version: 1, indexes: [] },
+        ),
+      );
+      const firstInput = publicationInput(
+        deploymentId,
+        "schema_catalog_v2_pg_index_frontier_first",
+        { version: 2, descriptor: "byOther" },
+      );
+      const secondInput = publicationInput(
+        deploymentId,
+        "schema_catalog_v2_pg_index_frontier_second",
+        { version: 3, descriptor: "byEmail" },
+      );
+      const initialSecondHash = await preparedManifestHash(
+        persistence,
+        secondInput,
+      );
+
+      const [firstAttempt, secondAttempt] = await queueTwoBehindDeploymentLock(
+        persistence,
+        deploymentId,
+        () => persistence.ensureAppSchemaVersionArtifactV2(firstInput),
+        () => persistence.ensureAppSchemaVersionArtifactV2(secondInput),
+      );
+      const first = fulfilledResult(firstAttempt);
+      const second = fulfilledResult(secondAttempt);
+
+      expect(first.manifest.indexBindings.indexes).toMatchObject([
+        { descriptor: "byOther", logicalIndexId: 1, tableId: 1 },
+      ]);
+      expect(second.manifest.indexBindings.indexes).toMatchObject([
+        { descriptor: "byEmail", logicalIndexId: 2, tableId: 1 },
+      ]);
+      expect(first.creationTimeIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 1 },
+      ]);
+      expect(first.developerIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 2 },
+      ]);
+      expect(second.creationTimeIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 1 },
+      ]);
+      expect(second.developerIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 3 },
+      ]);
+      expect(Array.from(second.artifact.manifestSha256)).not.toEqual(
+        Array.from(initialSecondHash),
+      );
+      await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+        tables: 1,
+        indexes: 2,
+        schemaVersions: 3,
+        definitions: 3,
+        schemaBindings: 2,
+        buildStates: 0,
+      });
+    });
+  }, 30_000);
+
+  it("rolls a stale conflicting loser back without leaking catalog rows", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const deploymentId = "deployment_catalog_v2_pg_conflict";
+      const schemaVersionId = "schema_catalog_v2_pg_conflict";
+      await insertDeployment(persistence, deploymentId);
+      const winnerInput = publicationInput(deploymentId, schemaVersionId, {
+        version: 1,
+        tableLogicalName: "users",
+        descriptor: "byEmail",
+      });
+      const loserInput = publicationInput(deploymentId, schemaVersionId, {
+        version: 1,
+        tableLogicalName: "posts",
+        descriptor: "byAuthor",
+      });
+
+      const [winnerAttempt, loserAttempt] = await queueTwoBehindDeploymentLock(
+        persistence,
+        deploymentId,
+        () => persistence.ensureAppSchemaVersionArtifactV2(winnerInput),
+        () => persistence.ensureAppSchemaVersionArtifactV2(loserInput),
+      );
+      const winner = fulfilledResult(winnerAttempt);
+
+      expect(winner.manifest.tableDefinitions.tables).toMatchObject([
+        { logicalName: "users", tableId: 1 },
+      ]);
+      expect(loserAttempt).toMatchObject({
+        status: "rejected",
+        error: {
+          name: "SchemaVersionArtifactConflictError",
+          conflict: { reason: "artifactMismatch" },
+        },
+      });
+      await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+        tables: 1,
+        indexes: 1,
+        schemaVersions: 1,
+        definitions: 2,
+        schemaBindings: 1,
+        buildStates: 0,
+      });
+
+      const recovered = await persistence.ensureAppSchemaVersionArtifactV2({
+        ...loserInput,
+        schemaVersionId: CatalogSchemaVersionIdSchema.make(
+          "schema_catalog_v2_pg_conflict_recovered",
+        ),
+        version: CatalogSchemaVersionSchema.make(2),
+      });
+      expect(recovered.manifest.tableDefinitions.tables).toMatchObject([
+        { logicalName: "posts", tableId: 2 },
+      ]);
+      expect(recovered.manifest.indexBindings.indexes).toMatchObject([
+        { descriptor: "byAuthor", logicalIndexId: 2, tableId: 2 },
+      ]);
+      expect(recovered.creationTimeIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 3 },
+      ]);
+      expect(recovered.developerIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 4 },
+      ]);
+    });
+  }, 30_000);
+
+  it("rolls all newly projected rows back on a late projection failure", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const deploymentId = "deployment_catalog_v2_pg_late_projection";
+      await insertDeployment(persistence, deploymentId);
+      const targetInput = publicationInput(
+        deploymentId,
+        "schema_catalog_v2_pg_late_projection_target",
+        { version: 1, descriptor: "byEmail" },
+      );
+      const target = await prepareAppSchemaCatalogPublicationV2(
+        persistence.drizzle,
+        targetInput,
+      );
+      const targetState = getPreparedAppSchemaCatalogPublicationV2State(target);
+      await persistence.drizzle.transaction(async (tx) => {
+        await applySchemaManifestAppSchemaBindingsV1InTransaction(
+          tx,
+          targetState.logicalBindings,
+        );
+        await ensureSchemaVersionArtifactInTransaction(tx, targetState.artifact);
+      });
+
+      const historical = await prepareAppSchemaCatalogPublicationV2(
+        persistence.drizzle,
+        publicationInput(
+          deploymentId,
+          "schema_catalog_v2_pg_late_projection_history",
+          {
+            version: 2,
+            indexes: [
+              { descriptor: "byEmail", field: "email" },
+              { descriptor: "byPhone", field: "phone" },
+            ],
+          },
+        ),
+      );
+      const historicalState =
+        getPreparedAppSchemaCatalogPublicationV2State(historical);
+      await persistence.drizzle.transaction((tx) =>
+        applySchemaManifestAppSchemaBindingsV1InTransaction(
+          tx,
+          historicalState.logicalBindings,
+        )
+      );
+      const extraIndex =
+        historicalState.logicalBindings.manifest.indexBindings.indexes.find(
+          (index) => index.descriptor === "byPhone",
+        );
+      if (extraIndex === undefined) {
+        throw new Error("Expected the historical byPhone logical index.");
+      }
+      const extraBinding = await prepareAppDeveloperIndexDefinitionBindingV1({
+        deploymentId,
+        schemaVersionId: target.schemaVersionId,
+        tableId: extraIndex.tableId,
+        logicalIndexId: extraIndex.logicalIndexId,
+        logicalSpec: extraIndex.spec,
+      });
+      await persistence.drizzle.transaction((tx) =>
+        ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
+          tx,
+          extraBinding,
+        )
+      );
+      await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+        tables: 1,
+        indexes: 2,
+        schemaVersions: 1,
+        definitions: 1,
+        schemaBindings: 1,
+        buildStates: 0,
+      });
+
+      await expect(
+        persistence.ensureAppSchemaVersionArtifactV2(targetInput),
+      ).rejects.toMatchObject({
+        name: "AppSchemaCatalogPublicationV2ProjectionError",
+        issue: {
+          reason: "schemaBindingCountMismatch",
+          expectedCount: 1,
+          actualCount: 2,
+        },
+      });
+      await expect(
+        persistence.ensureAppSchemaVersionArtifactV2(targetInput),
+      ).rejects.toBeInstanceOf(AppSchemaCatalogPublicationV2ProjectionError);
+      await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+        tables: 1,
+        indexes: 2,
+        schemaVersions: 1,
+        definitions: 1,
+        schemaBindings: 1,
+        buildStates: 0,
+      });
+
+      const clean = await persistence.ensureAppSchemaVersionArtifactV2(
+        publicationInput(
+          deploymentId,
+          "schema_catalog_v2_pg_late_projection_clean",
+          { version: 2, descriptor: "byEmail" },
+        ),
+      );
+      expect(clean.creationTimeIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 2 },
+      ]);
+      expect(clean.developerIndexDefinitions).toMatchObject([
+        { indexDefinitionId: 3 },
+      ]);
+      await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+        tables: 1,
+        indexes: 2,
+        schemaVersions: 2,
+        definitions: 3,
+        schemaBindings: 2,
+        buildStates: 0,
+      });
+    });
+  }, 30_000);
+
   it("publishes and exactly replays the full projection sequentially", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const deploymentId = "deployment_catalog_v2_pg_replay";
@@ -92,15 +529,111 @@ describePostgres("real Postgres app-schema catalog V2 publication", () => {
       expect(committed.developerIndexDefinitions[0]?.indexDefinitionId).toBe(2);
     });
   }, 30_000);
+
+  it("publishes the current V2 operational work limit within the bounded gate", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const deploymentId = "deployment_catalog_v2_pg_operational_limit";
+      await insertDeployment(persistence, deploymentId);
+      const input = nearLimitPublicationInput(
+        deploymentId,
+        "schema_catalog_v2_pg_operational_limit",
+      );
+      const expectedTableCount = Math.floor(
+        MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS / 2,
+      );
+      const expectedIndexCount =
+        MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS -
+        expectedTableCount;
+
+      const result = await persistence.ensureAppSchemaVersionArtifactV2(input);
+
+      expect(result.manifest.tableDefinitions.tables).toHaveLength(
+        expectedTableCount,
+      );
+      expect(result.manifest.indexBindings.indexes).toHaveLength(
+        expectedIndexCount,
+      );
+      expect(result.creationTimeIndexDefinitions).toHaveLength(
+        expectedTableCount,
+      );
+      expect(result.developerIndexDefinitions).toHaveLength(
+        expectedIndexCount,
+      );
+      expect(result.schemaVersionIndexBindings).toHaveLength(
+        expectedIndexCount,
+      );
+      await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+        tables: expectedTableCount,
+        indexes: expectedIndexCount,
+        schemaVersions: 1,
+        definitions:
+          MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS,
+        schemaBindings: expectedIndexCount,
+        buildStates: 0,
+      });
+    });
+  }, 30_000);
 });
 
-function publicationInput(deploymentId: string, schemaVersionId: string) {
+interface PublicationInputOptions {
+  readonly version?: number;
+  readonly tableLogicalName?: string;
+  readonly descriptor?: string;
+  readonly indexes?: ReadonlyArray<{
+    readonly descriptor: string;
+    readonly field: string;
+  }>;
+}
+
+function publicationInput(
+  deploymentId: string,
+  schemaVersionId: string,
+  options: PublicationInputOptions = {},
+): EnsureAppSchemaVersionArtifactV2Input {
+  const tableLogicalName = options.tableLogicalName ?? "users";
+  const indexes = options.indexes ?? [
+    { descriptor: options.descriptor ?? "byEmail", field: "email" },
+  ];
+  return {
+    deploymentId,
+    schemaVersionId: CatalogSchemaVersionIdSchema.make(schemaVersionId),
+    version: CatalogSchemaVersionSchema.make(options.version ?? 1),
+    tables: [appTable(tableLogicalName)],
+    indexes: indexes.map((index) =>
+      appIndex(tableLogicalName, index.descriptor, [index.field])
+    ),
+  };
+}
+
+function nearLimitPublicationInput(
+  deploymentId: string,
+  schemaVersionId: string,
+): EnsureAppSchemaVersionArtifactV2Input {
+  const tableCount = Math.floor(
+    MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS / 2,
+  );
+  const indexCount =
+    MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS - tableCount;
+  const tableNames = Array.from(
+    { length: tableCount },
+    (_, index) => `table${index.toString().padStart(3, "0")}`,
+  );
   return {
     deploymentId,
     schemaVersionId: CatalogSchemaVersionIdSchema.make(schemaVersionId),
     version: CatalogSchemaVersionSchema.make(1),
-    tables: [appTable("users")],
-    indexes: [appIndex("users", "byEmail", ["email"])],
+    tables: tableNames.map(appTable),
+    indexes: Array.from({ length: indexCount }, (_, index) => {
+      const tableLogicalName = tableNames[index % tableNames.length];
+      if (tableLogicalName === undefined) {
+        throw new Error("Expected at least one near-limit table fixture.");
+      }
+      return appIndex(
+        tableLogicalName,
+        `byEmail${index.toString().padStart(3, "0")}`,
+        ["email"],
+      );
+    }),
   };
 }
 
@@ -116,6 +649,10 @@ function appTable(
         type: "object",
         value: {
           email: {
+            fieldType: { type: "string" },
+            optional: false,
+          },
+          phone: {
             fieldType: { type: "string" },
             optional: false,
           },
@@ -141,6 +678,87 @@ async function insertDeployment(
     deploymentId,
     projectId: `project_${deploymentId}`,
   });
+}
+
+type OperationAttempt<Result> =
+  | { readonly status: "fulfilled"; readonly result: Result }
+  | { readonly status: "rejected"; readonly error: unknown };
+
+async function attemptOperation<Result>(
+  run: () => Promise<Result>,
+): Promise<OperationAttempt<Result>> {
+  try {
+    return { status: "fulfilled", result: await run() };
+  } catch (error) {
+    return { status: "rejected", error };
+  }
+}
+
+function fulfilledResult<Result>(
+  attempt: OperationAttempt<Result>,
+): Result {
+  if (attempt.status === "rejected") throw attempt.error;
+  return attempt.result;
+}
+
+async function queueTwoBehindDeploymentLock<First, Second>(
+  persistence: PostgresFlarexPersistence,
+  deploymentId: string,
+  startFirst: () => Promise<First>,
+  startSecond: () => Promise<Second>,
+): Promise<
+  readonly [OperationAttempt<First>, OperationAttempt<Second>]
+> {
+  const lock = await acquirePostgresDeploymentLock(
+    persistence,
+    deploymentId,
+  );
+  let firstAttempt: Promise<OperationAttempt<First>> | undefined;
+  let secondAttempt: Promise<OperationAttempt<Second>> | undefined;
+  let released = false;
+  let setupError: unknown;
+  try {
+    firstAttempt = attemptOperation(startFirst);
+    await waitForBlockedPostgresDeploymentLocks(persistence, lock, 1);
+    secondAttempt = attemptOperation(startSecond);
+    await waitForBlockedPostgresDeploymentLocks(persistence, lock, 2);
+    await lock.client.query("commit");
+    released = true;
+  } catch (error) {
+    setupError = error;
+  } finally {
+    if (!released) {
+      await lock.client.query("rollback").catch(() => undefined);
+    }
+    lock.client.release();
+  }
+
+  if (setupError !== undefined) {
+    const attempts: Array<Promise<unknown>> = [];
+    if (firstAttempt !== undefined) attempts.push(firstAttempt);
+    if (secondAttempt !== undefined) attempts.push(secondAttempt);
+    await Promise.allSettled(attempts);
+    throw setupError;
+  }
+  if (firstAttempt === undefined || secondAttempt === undefined) {
+    throw new Error("Expected two queued Postgres operations.");
+  }
+  return Promise.all([firstAttempt, secondAttempt]);
+}
+
+async function preparedManifestHash(
+  persistence: PostgresFlarexPersistence,
+  input: EnsureAppSchemaVersionArtifactV2Input,
+): Promise<Uint8Array> {
+  const prepared = await prepareAppSchemaCatalogPublicationV2(
+    persistence.drizzle,
+    input,
+  );
+  const state = getPreparedAppSchemaCatalogPublicationV2State(prepared);
+  const canonical = await canonicalizeSchemaManifestV1(
+    decodeSchemaManifestJson(state.logicalBindings.manifest),
+  );
+  return canonical.sha256;
 }
 
 function publishPrepared(

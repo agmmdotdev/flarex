@@ -16,11 +16,17 @@ import {
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
+  enforceAppSchemaCatalogPublicationV2CanonicalByteLowerBound,
+  enforceAppSchemaCatalogPublicationV2CanonicalByteQuota,
+  enforceAppSchemaCatalogPublicationV2DeclarationQuotas,
+} from "./appSchemaCatalogPublicationV2Policy";
+import {
   prepareSchemaManifestAppSchemaBindingsV1,
   type PreparedSchemaManifestAppSchemaBindingsV1,
   type PrepareSchemaManifestAppSchemaBindingsV1Input,
 } from "./schemaManifestAppSchemaBindings";
 import {
+  getPreparedSchemaVersionArtifactCanonicalByteLength,
   prepareSchemaVersionArtifact,
   type EnsureSchemaVersionArtifactInput,
   type PreparedSchemaVersionArtifact,
@@ -87,6 +93,27 @@ export class InvalidAppSchemaCatalogPublicationV2InputError extends Error {
   }
 }
 
+const publicationSourceBrand: unique symbol = Symbol(
+  "FlarexDB/AppSchemaCatalogPublicationV2Source",
+);
+
+/** Opaque, process-local snapshot reused across every fresh D2d attempt. */
+export interface AppSchemaCatalogPublicationV2Source {
+  readonly deploymentId: string;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly version: CatalogSchemaVersion;
+  readonly [publicationSourceBrand]: true;
+}
+
+export class InvalidAppSchemaCatalogPublicationV2SourceError extends Error {
+  constructor() {
+    super(
+      "App-schema catalog V2 source was not snapshotted by this repository instance.",
+    );
+    this.name = "InvalidAppSchemaCatalogPublicationV2SourceError";
+  }
+}
+
 const preparedPublicationBrand: unique symbol = Symbol(
   "FlarexDB/PreparedAppSchemaCatalogPublicationV2",
 );
@@ -121,6 +148,11 @@ interface ValidatedPrepareAppSchemaCatalogPublicationV2Input {
   readonly indexes: ReadonlyArray<SchemaManifestAppIndexDeclarationV1>;
 }
 
+const publicationSourceStates = new WeakMap<
+  AppSchemaCatalogPublicationV2Source,
+  ValidatedPrepareAppSchemaCatalogPublicationV2Input
+>();
+
 interface PreparedAppSchemaCatalogPublicationV2State {
   readonly logicalBindings: PreparedSchemaManifestAppSchemaBindingsV1;
   readonly requirements: CompiledAppSchemaCatalogRequirementsV1;
@@ -143,7 +175,36 @@ export async function prepareAppSchemaCatalogPublicationV2(
   db: FlarexMetadataDatabase,
   input: PrepareAppSchemaCatalogPublicationV2Input,
 ): Promise<PreparedAppSchemaCatalogPublicationV2> {
+  return prepareAppSchemaCatalogPublicationV2FromSource(
+    db,
+    snapshotAppSchemaCatalogPublicationV2Input(input),
+  );
+}
+
+/** Snapshot and authenticate the public request exactly once before retries. */
+export function snapshotAppSchemaCatalogPublicationV2Input(
+  input: PrepareAppSchemaCatalogPublicationV2Input,
+): AppSchemaCatalogPublicationV2Source {
   const validated = validateAndSnapshotInput(input);
+  const source = Object.freeze({
+    deploymentId: validated.deploymentId,
+    schemaVersionId: validated.schemaVersionId,
+    version: validated.version,
+    [publicationSourceBrand]: true,
+  } satisfies AppSchemaCatalogPublicationV2Source);
+  publicationSourceStates.set(source, validated);
+  return source;
+}
+
+/** Rebuild every database-dependent and canonical fact from one frozen source. */
+export async function prepareAppSchemaCatalogPublicationV2FromSource(
+  db: FlarexMetadataDatabase,
+  source: AppSchemaCatalogPublicationV2Source,
+): Promise<PreparedAppSchemaCatalogPublicationV2> {
+  const validated = publicationSourceStates.get(source);
+  if (validated === undefined) {
+    throw new InvalidAppSchemaCatalogPublicationV2SourceError();
+  }
   const logicalBindings = await prepareSchemaManifestAppSchemaBindingsV1(
     db,
     {
@@ -161,6 +222,9 @@ export async function prepareAppSchemaCatalogPublicationV2(
     version: validated.version,
     manifest: decodeSchemaManifestJson(logicalBindings.manifest),
   });
+  enforceAppSchemaCatalogPublicationV2CanonicalByteQuota(
+    getPreparedSchemaVersionArtifactCanonicalByteLength(artifact),
+  );
   const prepared = Object.freeze({
     deploymentId: validated.deploymentId,
     schemaVersionId: validated.schemaVersionId,
@@ -194,6 +258,10 @@ function validateAndSnapshotInput(
       reason: "invalidInputShape",
     });
   }
+  enforceAppSchemaCatalogPublicationV2DeclarationQuotas(
+    input.tables,
+    input.indexes,
+  );
   const deploymentId = input.deploymentId;
   if (typeof deploymentId !== "string" || deploymentId.trim().length === 0) {
     throw invalidField("deploymentId");
@@ -211,24 +279,27 @@ function validateAndSnapshotInput(
   } catch (cause) {
     throw invalidField("version", cause);
   }
-  let tables: ReadonlyArray<SchemaManifestAppTableDeclarationV1>;
+  let decodedTables: ReadonlyArray<SchemaManifestAppTableDeclarationV1>;
   try {
-    tables = structuredClone(
-      decodeSchemaManifestAppTableDeclarationsV1(input.tables),
-    );
-    deepFreeze(tables);
+    decodedTables = decodeSchemaManifestAppTableDeclarationsV1(input.tables);
   } catch (cause) {
     throw invalidField("tables", cause);
   }
-  let indexes: ReadonlyArray<SchemaManifestAppIndexDeclarationV1>;
+  let decodedIndexes: ReadonlyArray<SchemaManifestAppIndexDeclarationV1>;
   try {
-    indexes = structuredClone(
-      decodeSchemaManifestAppIndexDeclarationsV1(input.indexes),
-    );
-    deepFreeze(indexes);
+    decodedIndexes = decodeSchemaManifestAppIndexDeclarationsV1(input.indexes);
   } catch (cause) {
     throw invalidField("indexes", cause);
   }
+  enforceAppSchemaCatalogPublicationV2CanonicalByteLowerBound(
+    decodedTables,
+    decodedIndexes,
+  );
+
+  const tables = structuredClone(decodedTables);
+  const indexes = structuredClone(decodedIndexes);
+  deepFreeze(tables);
+  deepFreeze(indexes);
 
   return Object.freeze({
     deploymentId,

@@ -3,10 +3,11 @@
 ## Status And Scope
 
 Status: `S01`, `S02-A` through `S02-C`, resolve-only `S02-D1`, `S03-A`
-through `S03-D2c`, and the interleaved `S05-A` prerequisite are complete.
+through `S03-D2d`, and the interleaved `S05-A` prerequisite are complete.
 Hosted proof `H01` through `H04` and `H05-A` are complete. `H05-B` and
-production routing `S02-D2` are deferred while the immediate active slice is
-`S03-D2d`.
+production routing `S02-D2` remain deferred. The current next implementation
+gate is `O01` in the OCC and transaction plan and still requires its normal
+design preflight and approval.
 
 This plan owns the additive physical schema, codecs, repositories, stable
 catalog, and compatibility migration for the first Flarex app-data generation.
@@ -43,7 +44,9 @@ Use these sources in order:
    - [`../../packages/persistence-postgres/src/appIndexDefinitions.ts`](../../packages/persistence-postgres/src/appIndexDefinitions.ts)
    - [`../../packages/persistence-postgres/src/indexBuildStates.ts`](../../packages/persistence-postgres/src/indexBuildStates.ts)
    - [`../../packages/persistence-postgres/src/appSchemaCatalogPublicationV2.ts`](../../packages/persistence-postgres/src/appSchemaCatalogPublicationV2.ts)
+   - [`../../packages/persistence-postgres/src/appSchemaCatalogPublicationV2Policy.ts`](../../packages/persistence-postgres/src/appSchemaCatalogPublicationV2Policy.ts)
    - [`../../packages/persistence-postgres/src/appSchemaCatalogPublicationV2Transaction.ts`](../../packages/persistence-postgres/src/appSchemaCatalogPublicationV2Transaction.ts)
+   - [`../../packages/persistence-postgres/src/appSchemaVersionArtifactsV2.ts`](../../packages/persistence-postgres/src/appSchemaVersionArtifactsV2.ts)
    - [`../../packages/flarex-protocol/src/storage-authority.ts`](../../packages/flarex-protocol/src/storage-authority.ts)
    - [`../../packages/flarex-protocol/src/app-schema-catalog.ts`](../../packages/flarex-protocol/src/app-schema-catalog.ts)
    - [`../../packages/flarex-protocol/src/ordered-index.ts`](../../packages/flarex-protocol/src/ordered-index.ts)
@@ -75,7 +78,7 @@ Convex-first implementation references include:
 | Physical index definitions | Immutable physical definitions, table-owned creation-time definitions, schema-version bindings, and separate physical IDs exist. |
 | Build state | Fenced per-scope index-build state DDL and `absent | current | stale` reads exist; reconciliation/readiness mutation does not. |
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
-| Full catalog publication | D2c atomically applies one authenticated full preparation and exactly verifies the artifact, intrinsic/developer definitions, and complete schema-version binding set in a caller-owned transaction. Retry, quota, and the routed facade remain D2d. |
+| Full catalog publication | D2d exposes the V2 persistence facade over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
 | Replacement app data | Row revision/current, session leases, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, backfill, and cutover are not implemented. |
 
 Existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, and
@@ -241,8 +244,9 @@ Progress:
 - [x] `S03-D2b`: identity-only intrinsic token derivation and caller-transaction
   ensure/replay after exact locked table-parent verification.
 - [x] `S03-D2c`: atomic full publication and exact projection verification.
-- [ ] `S03-D2d`: bounded whole-preparation retry, routed V2 facade, quotas, and
-  real-Postgres publication concurrency/rollback proof.
+- [x] `S03-D2d`: bounded whole-preparation retry, routed V2 facade, fixed
+  publication resource limits, and real-Postgres bounded-work/concurrency/
+  rollback proof.
 - [ ] `S03-D3`: durable per-scope definition-to-build reconciliation, deferred
   to Wave 3 after the physical sidecar consumer exists.
 - [ ] `S03-D4`: validation evidence and readiness derived from real backfill,
@@ -269,9 +273,9 @@ Stable catalog rules:
 - Normalized rows are derived projections of the authenticated immutable
   artifact; they are never edited independently.
 
-#### Immediate Active Slice: S03-D2d
+#### Completed Boundary: S03-D2d
 
-D2c now provides one package-internal, caller-transaction-owned atomic attempt.
+D2c provides one package-internal, caller-transaction-owned atomic attempt.
 It authenticates the D2a envelope, revalidates/applies stable bindings,
 inserts/replays the artifact and every required physical definition/binding,
 then verifies exact artifact evidence and the complete schema-version binding
@@ -280,19 +284,35 @@ build mutation, readiness claim, or activation.
 
 D2d closes the trusted publication boundary:
 
-1. expose one routed V2 persistence facade over strict unbound declarations,
+1. exposes one routed V2 persistence facade over strict unbound declarations,
    without exporting internal tokens or row writers;
-2. make at most three fresh whole-preparation attempts and retry only the typed
-   stale-plan outcome;
-3. enforce canonical-byte and platform quotas before opening SQL;
-4. prove concurrent exact replay, competing publication, stale-plan recovery,
+2. snapshots caller input once, makes at most three total attempts, and rebuilds
+   database-dependent planning, compilation, canonical bytes, and hashes after
+   each typed combined stale-plan outcome;
+3. preserves the protocol ceilings of 10,000 app tables and 10,000 total
+   developer indexes while imposing a current V2 operational ceiling of 256
+   combined table/index definition work items. Count checks precede decode and
+   catalog planning;
+4. rejects a guaranteed-over-limit decoded payload before structured cloning
+   or catalog reads, then authoritatively checks the exact 16 MiB canonical
+   manifest ceiling after every fresh preparation and before its write
+   transaction;
+5. proves the 256-item operational boundary, concurrent exact replay,
+   competing publication, separate table- and index-frontier stale recovery,
    and the full rollback matrix on real Postgres; and
-5. preserve terminal typed invalid-input, conflict, collision, corruption,
+6. preserves terminal typed invalid-input, quota, conflict, collision,
+   corruption,
    exhaustion, and SQL failures without retrying them.
 
-Keep build-state mutation, readiness, active-schema activation, app rows,
-replacement app-data routing, Payload, Medusa, and Cloudflare deployment
-outside this facade.
+The lower operational work ceiling and canonical-byte checks are
+generation/resource-safety limits, not dynamic product-plan or lifetime
+quotas; the larger protocol declaration maxima do not promise that the current
+serial V2 route will accept that much locked work. D2d changes neither V1
+behavior nor semantic manifest/canonical-codec versions. Build-state mutation,
+readiness, active-schema activation, `S03-D3`, `S03-D4`, `S04`, app rows, production
+replacement routing, Payload, Medusa, and Cloudflare deployment remain outside
+this facade. `O01` is the next candidate gate, not an implemented or
+pre-approved OCC slice.
 
 Exit gates for the complete S03 stream:
 

@@ -333,12 +333,24 @@ either system component in developer declarations. System field paths are
 forbidden in developer declarations. Field-existence validation against the
 table validator remains trusted compiler work.
 
-C1 also caps one app manifest at 10,000 developer index declarations. This is
-an intentional Flarex resource-safety divergence: Convex's portable semantic
-rule is the 64-per-table limit, while the current generic canonical codec has
-no byte-size ceiling. The count cap keeps the unrouted trusted decoder bounded;
-a routed API still needs an explicit canonical-byte limit and platform quota
-before this provisional aggregate ceiling can be treated as a product limit.
+The manifest declaration protocol retains absolute ceilings of 10,000 app
+tables and 10,000 total developer index declarations. Because D2c currently
+persists catalog definitions through serial SQL while holding the deployment
+lock, the routed V2 facade adds a lower operational ceiling of 256 combined
+definition work items, computed as app table declarations plus developer index
+declarations. Both count layers are checked before decoding or catalog
+planning. The existing 64 indexes per table and 15 declared fields per index
+remain semantic limits.
+
+V2 also has an exact 16 MiB canonical-manifest ceiling. A conservative traversal
+of decoded declarations rejects any guaranteed-over-limit payload before the
+facade clones declarations or reads the catalog; the authoritative exact byte
+check still runs after every fresh preparation and before its write
+transaction. These are fixed generation/resource-safety boundaries, not
+dynamic product-tier entitlements, lifetime quotas, or database DDL
+constraints. Raising the operational work ceiling requires measured evidence
+or a batched/set-based persistence path rather than merely changing the
+protocol maxima.
 
 `by_id` and `by_creation_time` are intrinsic app-table access paths in this
 generation, not developer-owned `indexBindings` entries. `by_id` is satisfied
@@ -346,11 +358,12 @@ by row identity; creation-order storage remains a trusted physical compiler
 responsibility. The semantic manifest version pins those built-ins even though
 they do not consume developer logical index IDs.
 
-`SchemaManifestAppSchemaV1` is a new semantic format, while the existing
+`SchemaManifestAppSchemaV1` is the full-envelope semantic format used by the
+supported `ensureAppSchemaVersionArtifactV2` persistence facade. The existing
 `ensureAppSchemaVersionArtifactV1` remains the exact table-only compatibility
-operation. A later full-schema publication facade must use a new API version;
-the generic canonical JSON codec remains codec v1 because semantic-format and
-canonical-encoding versions are independent.
+operation. API generation V2 introduces neither a second semantic manifest
+version nor a second canonical codec version; semantic-format and
+canonical-encoding versions remain independent.
 
 S03-C2 accepts `fx_control_index` as only the stable deployment-scoped mapping
 from `(table_id, descriptor)` to `logical_index_id`. The descriptor column is
@@ -372,10 +385,11 @@ preparation make the whole plan stale. The global partial rule is intentional:
 a concurrently published table-only mapping is not evidence that its index
 bindings were atomically published. Tables insert before indexes for foreign-key
 order, the caller owns commit/rollback, and neither the plan/apply helper nor an
-allocator is a supported root/facade operation. S03-D2a now composes the plan
-with D1 compilation and immutable V2 artifact preparation in one authenticated
-no-write token; D2c/D2d still own transactional application and fresh-plan
-stale retry.
+allocator is a supported root/facade operation. S03-D2a composes the plan with
+D1 compilation and immutable V2 artifact preparation in one authenticated
+no-write token. D2c owns one internal transactional apply-and-verify attempt;
+D2d owns the persistence facade, input snapshot, fixed limits, and bounded
+fresh-whole-preparation retry.
 
 S05-A accepts `AppOrderedIndexPhysicalSpecV1` as the replacement app ordered
 index contract. A developer access path contains its declared document paths
@@ -519,10 +533,17 @@ one atomic operation:
    canonicalization or hashing under the deployment lock. Exactness covers the
    manifest-projected identities/definitions plus the complete binding set for
    that schema version; unrelated historical catalog rows remain valid.
-5. D2d will add the bounded fresh-whole-preparation retry coordinator, routed
-   V2 persistence facade, canonical-byte/platform quota, and real-Postgres
-   whole-publication concurrency/rollback proof. API generation V2 does not
-   mean a second semantic manifest or canonical codec version.
+5. D2d supplies the V2 persistence facade and snapshots its strict declaration
+   input once. It makes at most three total attempts, rebuilding all
+   database-dependent planning, compilation, canonical bytes, and hashes for
+   each attempt; only the combined typed stale-plan error is retryable. The
+   protocol's 10,000-table and 10,000-developer-index maxima remain intact,
+   while this serial V2 path enforces the lower 256-item operational ceiling.
+   Conservative pre-clone byte rejection and the exact post-preparation 16 MiB
+   check apply at the boundaries above. Focused real-Postgres concurrency,
+   near-operational-limit, and late-failure tests close the whole-publication
+   race, bounded-work, and rollback matrix. API generation V2 does not mean a
+   second semantic manifest or canonical codec version.
 6. D3 will reconcile required definitions into located build state through a
    durable idempotent protocol. It cannot be part of D2's SQL transaction in
    schema-per-scope or database-per-scope placement.

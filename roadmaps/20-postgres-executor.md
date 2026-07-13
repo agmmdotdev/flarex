@@ -300,9 +300,9 @@ The active foundation status is:
 - complete: stable table identities, immutable schema artifacts, strict app
   table definitions, stable logical indexes, ordered index codec v1, immutable
   physical definitions, schema bindings, and fenced build-state reads through
-  `S03-D2c` plus the interleaved `S05-A` prerequisite; and
-- not complete: `S03-D2d` routed publication/retry/quota closure and all
-  replacement app-row/OCC/commit/cutover work after it.
+  `S03-D2d` plus the interleaved `S05-A` prerequisite; and
+- not complete: replacement app-row/OCC/commit/cutover work, per-scope build
+  reconciliation/readiness, and production replacement routing.
 
 ### Hosted Worker proof
 
@@ -326,9 +326,15 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
 - `createFlarexExecutor` still registers only the legacy app-data engine.
 - `S02-D2` production generation routing cannot begin until the live hosted
   `H05-B` proof passes.
-- `S03-D2c` now atomically applies and verifies the complete normalized catalog
-  inside a caller-owned transaction. `S03-D2d` must add bounded fresh retry,
-  quotas, the routed trusted facade, and the full real-Postgres race matrix.
+- `S03-D2c` atomically applies and verifies the complete normalized catalog
+  inside a caller-owned transaction. `S03-D2d` now exposes that attempt through
+  the V2 persistence facade, snapshots declarations once, retries only combined
+  typed staleness with at most three fresh preparations, preserves the
+  protocol's 10,000-table and 10,000-developer-index maxima while limiting the
+  current serial path to 256 combined definition work items, rejects guaranteed
+  oversized decoded input before cloning or catalog reads, enforces the exact
+  16 MiB canonical-manifest ceiling after every fresh preparation, and closes
+  the focused real-Postgres bounded-work/race/rollback matrix.
 - Per-scope index-build reconciliation and readiness remain `S03-D3` and
   `S03-D4`; catalog existence is not activation readiness.
 - Active-schema pointer migration (`S04`) and the full replacement value codec
@@ -380,17 +386,13 @@ capabilities. Neither adapter may receive raw executor persistence.
 
 ## Next Correctness Gates
 
-The immediate active slice is `S03-D2d`:
+The immediate next candidate is `O01` in the focused OCC plan: define typed OCC
+contracts and extract only the narrow internal ports required by later snapshot
+and commit gates. It changes no `/invoke/*` behavior, opens no production
+replacement route, and requires its own evidence-backed preflight and approval.
 
-1. wrap the D2c atomic attempt in a routed trusted V2 facade without exporting
-   its internal preparation or row-writer seams;
-2. retry only typed staleness with at most three fresh whole preparations;
-3. enforce canonical-byte and platform quotas before SQL; and
-4. close concurrent replay, competing publication, stale recovery, and the full
-   rollback matrix on real Postgres.
-
-After `S03-D2d`, follow the interleaved foundation order rather than pulling
-build/readiness work forward:
+Follow the interleaved foundation order rather than pulling build/readiness
+work forward:
 
 1. Wave 1 establishes narrow OCC ports, exact snapshots, the replacement value
    codec, row/session storage, point reads, and pure point planning.

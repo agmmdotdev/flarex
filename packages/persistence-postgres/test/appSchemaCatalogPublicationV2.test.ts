@@ -13,7 +13,16 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 // @ts-expect-error D2a's prepared token must remain absent from the package root.
 import type { PreparedAppSchemaCatalogPublicationV2 as RootPreparedAppSchemaCatalogPublicationV2 } from "../src";
-import type { FlarexPersistence } from "../src";
+// @ts-expect-error D2d's authenticated source must remain absent from the package root.
+import type { AppSchemaCatalogPublicationV2Source as RootAppSchemaCatalogPublicationV2Source } from "../src";
+// @ts-expect-error D2d's repository port must remain absent from the package root.
+import type { AppSchemaVersionArtifactV2Repository as RootAppSchemaVersionArtifactV2Repository } from "../src";
+import type {
+  AppSchemaCatalogPublicationV2Projection,
+  EnsureAppSchemaVersionArtifactV2Input,
+  EnsureAppSchemaVersionArtifactV2Result,
+  FlarexPersistence,
+} from "../src";
 import {
   getPreparedAppSchemaCatalogPublicationV2State,
   InvalidAppSchemaCatalogPublicationV2InputError,
@@ -43,14 +52,42 @@ type PublicD2aExport = Extract<
   keyof typeof import("../src"),
   | "prepareAppSchemaCatalogPublicationV2"
   | "getPreparedAppSchemaCatalogPublicationV2State"
+  | "snapshotAppSchemaCatalogPublicationV2Input"
+  | "prepareAppSchemaCatalogPublicationV2FromSource"
   | "publishPreparedAppSchemaCatalogV2InTransaction"
+  | "ensureAppSchemaVersionArtifactV2WithRepository"
+  | "runAppSchemaVersionArtifactV2Attempts"
+  | "enforceAppSchemaCatalogPublicationV2DeclarationQuotas"
+  | "enforceAppSchemaCatalogPublicationV2CanonicalByteLowerBound"
+  | "enforceAppSchemaCatalogPublicationV2CanonicalByteQuota"
+  | "InvalidAppSchemaCatalogPublicationV2SourceError"
 >;
 
 type PublicD2Method = Extract<
   keyof FlarexPersistence,
+  "ensureAppSchemaVersionArtifactV2"
+>;
+
+type PublicD2InternalMethod = Extract<
+  keyof FlarexPersistence,
   | "prepareAppSchemaCatalogPublicationV2"
-  | "ensureAppSchemaVersionArtifactV2"
   | "publishPreparedAppSchemaCatalogV2InTransaction"
+>;
+
+type PublicV2TerminalErrorExport = Extract<
+  keyof typeof import("../src"),
+  | "AppCreationTimeIndexDefinitionChecksumCollisionError"
+  | "AppCreationTimeIndexDefinitionParentError"
+  | "AppCreationTimeIndexDefinitionRequirementError"
+  | "AppDeveloperIndexDefinitionRequirementError"
+  | "AppIndexDefinitionChecksumCollisionError"
+  | "AppIndexDefinitionIdExhaustedError"
+  | "AppIndexDefinitionParentError"
+  | "AppIndexDefinitionPreparationError"
+  | "AppSchemaVersionIndexBindingConflictError"
+  | "InvalidSchemaManifestAppSchemaBindingInputError"
+  | "SchemaManifestTableBindingCorruptionError"
+  | "StableLogicalIndexCatalogIdExhaustedError"
 >;
 
 type PreparedTokenStringKey = Extract<
@@ -70,14 +107,44 @@ type CallerCompiledInputAccepted = CallerCompiledInput extends
   ? true
   : false;
 
+type PublicV2Input = Parameters<
+  FlarexPersistence["ensureAppSchemaVersionArtifactV2"]
+>[0];
+
+type PublicV2Result = Awaited<
+  ReturnType<FlarexPersistence["ensureAppSchemaVersionArtifactV2"]>
+>;
+
 describe("app-schema catalog publication v2 preparation", () => {
   it("keeps the no-write preparation seam package-internal and opaque", () => {
     expectTypeOf<PublicD2aExport>().toEqualTypeOf<never>();
-    expectTypeOf<PublicD2Method>().toEqualTypeOf<never>();
+    expectTypeOf<PublicD2Method>()
+      .toEqualTypeOf<"ensureAppSchemaVersionArtifactV2">();
+    expectTypeOf<PublicD2InternalMethod>().toEqualTypeOf<never>();
+    expectTypeOf<PublicV2TerminalErrorExport>().toEqualTypeOf<
+      | "AppCreationTimeIndexDefinitionChecksumCollisionError"
+      | "AppCreationTimeIndexDefinitionParentError"
+      | "AppCreationTimeIndexDefinitionRequirementError"
+      | "AppDeveloperIndexDefinitionRequirementError"
+      | "AppIndexDefinitionChecksumCollisionError"
+      | "AppIndexDefinitionIdExhaustedError"
+      | "AppIndexDefinitionParentError"
+      | "AppIndexDefinitionPreparationError"
+      | "AppSchemaVersionIndexBindingConflictError"
+      | "InvalidSchemaManifestAppSchemaBindingInputError"
+      | "SchemaManifestTableBindingCorruptionError"
+      | "StableLogicalIndexCatalogIdExhaustedError"
+    >();
     expectTypeOf<PreparedTokenStringKey>().toEqualTypeOf<
       "deploymentId" | "schemaVersionId" | "version"
     >();
     expectTypeOf<CallerCompiledInputAccepted>().toEqualTypeOf<false>();
+    expectTypeOf<PublicV2Input>()
+      .toEqualTypeOf<EnsureAppSchemaVersionArtifactV2Input>();
+    expectTypeOf<PublicV2Result>()
+      .toEqualTypeOf<EnsureAppSchemaVersionArtifactV2Result>();
+    expectTypeOf<PublicV2Result>()
+      .toEqualTypeOf<AppSchemaCatalogPublicationV2Projection>();
     expectTypeOf<PreparedAppSchemaCatalogPublicationV2>()
       .not.toEqualTypeOf<PreparedAppSchemaVersionArtifactV1>();
   });

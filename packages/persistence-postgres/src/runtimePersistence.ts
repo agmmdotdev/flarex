@@ -97,6 +97,10 @@ import {
   ensureAppSchemaVersionArtifactV1WithRepository,
   type AppSchemaVersionArtifactV1Repository,
 } from "./appSchemaVersionArtifacts";
+import {
+  ensureAppSchemaVersionArtifactV2WithRepository,
+  type AppSchemaVersionArtifactV2Repository,
+} from "./appSchemaVersionArtifactsV2";
 
 export interface FlarexRuntimePersistenceTransaction {
   readonly drizzle: FlarexMetadataDatabase;
@@ -107,6 +111,7 @@ export interface FlarexRuntimePersistenceDriver {
   readonly drizzle: FlarexMetadataDatabase;
   readonly sql: FlarexSqlClient;
   readonly appSchemaVersionArtifactRepository: AppSchemaVersionArtifactV1Repository;
+  readonly appSchemaVersionArtifactV2Repository: AppSchemaVersionArtifactV2Repository;
   transaction<T>(
     run: (transaction: FlarexRuntimePersistenceTransaction) => Promise<T>,
   ): Promise<T>;
@@ -147,6 +152,11 @@ export function createFlarexRuntimePersistence(
     ensureAppSchemaVersionArtifactV1: (input) =>
       ensureAppSchemaVersionArtifactV1WithRepository(
         driver.appSchemaVersionArtifactRepository,
+        input,
+      ),
+    ensureAppSchemaVersionArtifactV2: (input) =>
+      ensureAppSchemaVersionArtifactV2WithRepository(
+        driver.appSchemaVersionArtifactV2Repository,
         input,
       ),
     insertScopeMetadata: (input) =>

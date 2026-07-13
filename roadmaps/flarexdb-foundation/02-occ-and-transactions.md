@@ -1,6 +1,7 @@
 # FlarexDB OCC And Transaction Plan
 
-Status: planned; no turn is implemented
+Status: planned; `O01` is the current next implementation gate; no OCC gate is
+implemented
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,

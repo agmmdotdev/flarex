@@ -2,14 +2,14 @@
 
 ## Status And Scope
 
-Current next gate: `S03-D2d`, bounded whole-preparation retry, routed trusted
-publication facade, canonical quotas, and the full real-Postgres concurrency
-and rollback matrix.
+Current next gate: `O01`, typed OCC contracts and narrow internal ports. It
+requires the normal evidence-backed design preflight and explicit approval
+before implementation.
 
 | Stream | Current status |
 | --- | --- |
-| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2c`, and interleaved `S05-A` complete |
-| OCC/transactions | Planned; `O01` is the first unchecked OCC gate |
+| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, and interleaved `S05-A` complete |
+| OCC/transactions | Planned; `O01` is the current next candidate and no OCC gate is implemented |
 | Commit compiler | Planned; `C01` is the first unchecked compiler gate |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
@@ -177,15 +177,18 @@ direction, or correctness criteria change.
    - Complete: `S02-A`–`S02-C`, `S02-D1`.
    - Deferred/remaining: `H05-B`, `S02-D2`, `S02-E`.
 3. [ ] `S03`: minimal stable catalog.
-   - Complete through `S03-D2c`, including interleaved `S05-A`.
-   - Next: `S03-D2d` closes publication retry/facade/quota and the full
-     real-Postgres concurrency/rollback proof.
+   - Complete through `S03-D2d`, including interleaved `S05-A`.
    - Deferred to their consumers: `S03-D3` in Wave 3 and `S03-D4` in Wave 4.
 
 `S03-D2c` closes the package-internal atomic apply-and-verify boundary.
-`S03-D2d` finishes the already-open publication boundary by adding fresh retry,
-quota, and routed-facade ownership. Neither gate activates a schema, reconciles
-physical builds, claims readiness, or routes replacement app data.
+`S03-D2d` closes publication with one input snapshot, typed-stale-only fresh
+retry, protocol declaration maxima plus a lower 256-item operational cap for
+the current serial path, early conservative and exact canonical-byte checks,
+the V2 persistence facade, and focused real-Postgres bounded-work and
+race/rollback proof. Neither gate activates a schema,
+reconciles physical builds, claims readiness, or routes replacement app data.
+The unchecked S03 stream remains open because D3 and D4 are deliberately
+deferred to their real consumers.
 
 ### Wave 1 — First Row And Point-OCC Slice
 

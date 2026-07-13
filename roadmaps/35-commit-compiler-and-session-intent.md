@@ -463,10 +463,10 @@ reads, or legacy retirement.
 
 ## Next Correctness Gates
 
-The active repository slice is schema catalog publication closure `S03-D2d` in
-roadmap 20. Compiler protocol/types and pure planning may begin according to
-the interleaved foundation order, but production/canary execution waits for
-the required schema and OCC primitives.
+Schema catalog publication closure `S03-D2d` is complete. `O01` is the current
+next candidate in the interleaved foundation order; `C01` remains a later Wave
+1 gate. Production/canary compiler execution still waits for the required
+schema, exact-snapshot OCC, commit, hosted, and migration prerequisites.
 
 The compiler gates are:
 

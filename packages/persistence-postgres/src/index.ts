@@ -93,6 +93,10 @@ import type {
   EnsureAppSchemaVersionArtifactV1Input,
   EnsureAppSchemaVersionArtifactV1Result,
 } from "./appSchemaVersionArtifacts";
+import type {
+  EnsureAppSchemaVersionArtifactV2Input,
+  EnsureAppSchemaVersionArtifactV2Result,
+} from "./appSchemaVersionArtifactsV2";
 export { sql } from "drizzle-orm";
 
 export interface QueryResult<Row extends Record<string, unknown> = Record<string, unknown>> {
@@ -137,6 +141,9 @@ export interface FlarexRuntimePersistence
   ensureAppSchemaVersionArtifactV1(
     input: EnsureAppSchemaVersionArtifactV1Input,
   ): Promise<EnsureAppSchemaVersionArtifactV1Result>;
+  ensureAppSchemaVersionArtifactV2(
+    input: EnsureAppSchemaVersionArtifactV2Input,
+  ): Promise<EnsureAppSchemaVersionArtifactV2Result>;
   insertScopeMetadata(
     input: InsertScopeMetadataInput,
   ): Promise<ScopeMetadataRecord>;
@@ -308,16 +315,30 @@ export {
   type StableLogicalIndexIdentityName,
 } from "./stableLogicalIndexCatalog";
 export {
+  AppCreationTimeIndexDefinitionChecksumCollisionError,
+  AppCreationTimeIndexDefinitionParentError,
+  AppCreationTimeIndexDefinitionRequirementError,
+  AppDeveloperIndexDefinitionRequirementError,
   AppIndexDefinitionCatalogCorruptionError,
+  AppIndexDefinitionChecksumCollisionError,
+  AppIndexDefinitionIdExhaustedError,
+  AppIndexDefinitionParentError,
+  AppIndexDefinitionPreparationError,
+  AppSchemaVersionIndexBindingConflictError,
   getAppIndexDefinitionById,
   getAppSchemaVersionIndexBinding,
   InvalidAppIndexDefinitionBindingInputError,
   listAppIndexDefinitionsForLogicalIndex,
   listAppSchemaVersionIndexBindings,
+  type AppCreationTimeIndexDefinitionParentIssue,
+  type AppCreationTimeIndexDefinitionRequirementIssue,
+  type AppDeveloperIndexDefinitionRequirementIssue,
   type AppIndexDefinitionRecord,
+  type AppIndexDefinitionParentIssue,
   type AppSchemaVersionIndexBindingRecord,
   type InvalidAppIndexDefinitionBindingInputIssue,
 } from "./appIndexDefinitions";
+export { StableLogicalIndexCatalogIdExhaustedError } from "./stableLogicalIndexCatalogAllocation";
 export {
   IndexBuildStateClockNotFoundError,
   IndexBuildStateCorruptionError,
@@ -339,6 +360,37 @@ export {
   type EnsureAppSchemaVersionArtifactV1Result,
   type InvalidAppSchemaVersionArtifactV1InputIssue,
 } from "./appSchemaVersionArtifacts";
+export {
+  AppSchemaVersionArtifactV2RetryExhaustedError,
+  MAX_APP_SCHEMA_VERSION_ARTIFACT_V2_ATTEMPTS,
+  type AppSchemaVersionArtifactV2Stale,
+  type EnsureAppSchemaVersionArtifactV2Input,
+  type EnsureAppSchemaVersionArtifactV2Result,
+} from "./appSchemaVersionArtifactsV2";
+export {
+  InvalidAppSchemaCatalogPublicationV2InputError,
+  type InvalidAppSchemaCatalogPublicationV2InputIssue,
+} from "./appSchemaCatalogPublicationV2";
+export {
+  InvalidSchemaManifestAppSchemaBindingInputError,
+  type InvalidSchemaManifestAppSchemaBindingInputIssue,
+} from "./schemaManifestAppSchemaBindings";
+export {
+  SchemaManifestTableBindingCorruptionError,
+} from "./schemaManifestTableBindings";
+export {
+  AppSchemaCatalogPublicationV2ProjectionError,
+  type AppSchemaCatalogPublicationV2Projection,
+  type AppSchemaCatalogPublicationV2ProjectionIssue,
+} from "./appSchemaCatalogPublicationV2Transaction";
+export {
+  AppSchemaCatalogPublicationV2QuotaExceededError,
+  MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_CANONICAL_BYTES,
+  MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEFINITION_WORK_ITEMS,
+  MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_DEVELOPER_INDEXES,
+  MAX_APP_SCHEMA_CATALOG_PUBLICATION_V2_TABLES,
+  type AppSchemaCatalogPublicationV2QuotaIssue,
+} from "./appSchemaCatalogPublicationV2Policy";
 export {
   ScopeClockCorruptionError,
   type ScopeClockRecord,
