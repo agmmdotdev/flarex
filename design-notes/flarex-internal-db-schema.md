@@ -1186,6 +1186,8 @@ fx_system_scope_clock (
   scope_id text primary key,
   storage_generation text not null, -- legacy_v1, flarexdb_v1
   storage_generation_fence bigint not null default 1,
+  authorization_revocation_epoch bigint not null default 0
+    check (authorization_revocation_epoch >= 0),
   last_commit_seq bigint not null default 0,
   last_outbox_seq bigint not null default 0,
   oldest_available_commit_seq bigint not null default 0,
@@ -1294,8 +1296,9 @@ fx_system_snapshot_lease
 
 The session owns generation and request authority; the lease owns only the
 current attempt's snapshot-retention pin. The lease does not cascade through a
-parent update or delete. O03 must delete, advance, and insert explicitly in one
-transaction, and must enforce that every active session has a current lease.
+parent update or delete. O03-B enforces that every active session has a current
+lease. O08, when the retry consumer exists, must delete the old lease, advance
+the parent fence, and insert the new lease explicitly in one transaction.
 
 Package, artifact, schema, and policy pins may refer to control-plane records
 in another database, so trusted creation verifies them and stores copied pins
@@ -1305,13 +1308,19 @@ revalidation; the identity/policy digest and legacy FNV fingerprint are not
 standalone authorization.
 
 S07 adds no normalized dependency table, syscall sequence, journal digest,
-result/error, committed token, or public idempotency authority. O03 owns atomic
-creation and lifecycle operations; O04 owns point dependencies; C02 owns the
-journal protocol; S09/O07 own durable outcome and idempotency.
+result/error, committed token, or public idempotency authority. S07-A adds the
+scope-wide revocation column and storage primitive; O03-A supplies signed-grant
+semantics; O03-B owns atomic activation and basic exact-fence lease mechanics;
+O04 owns point dependencies; C02 owns the journal protocol; C05 introduces the
+private exact-fence transition to `finishing`; C06 orchestrates it through the
+finish endpoint; C03 rejects late syscalls; O07 deletes the exact lease and
+stores committed state plus durable outcome/idempotency; O08 owns retry
+replacement.
 
-`fx_system_scope_clock` is locked only during the final trusted commit phase.
-Do not hold this row lock while user code, Payload hooks, Medusa workflow steps,
-network calls, or long actions are running.
+`fx_system_scope_clock` is locked only during short trusted authority
+transactions such as revocation-epoch advance, O03-B session activation, and
+the final commit phase. Do not hold this row lock while user code, Payload
+hooks, Medusa workflow steps, network calls, or long actions are running.
 
 ## Idempotency And Client Watermarks
 

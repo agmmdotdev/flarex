@@ -884,8 +884,9 @@ Known limitations:
   `/invoke/*`, remove the legacy session alias, issue a snapshot, or route any
   application read/write.
 - Resolution is intentionally read-only and cannot make the control/target
-  reads one distributed snapshot. O02/O03 must pin the returned authority and
-  O06 must revalidate its epoch/generation fence inside the final transaction.
+  reads one distributed snapshot. O02 selects the authority, O03-B durably
+  binds it only after an in-transaction clock recheck, and O06 must revalidate
+  its epoch/generation fence inside the final transaction.
 - Live Cloudflare/Hyperdrive activation is deferred. H05-B remains required
   before production executor routing is enabled, but is not required for this
   host-neutral resolver or the next additive core schema turns.

@@ -2,7 +2,9 @@
 
 Status: private non-routing `O02` snapshot resolution and S07's physical
 session/snapshot-lease authority are complete; standalone `O01` retired before
-implementation; `O03` and later OCC gates remain planned
+implementation; schema-owned `S07-A` is the next cross-plan prerequisite, then
+the former `O03` is split into planned `O03-A` grant authority and `O03-B`
+atomic session activation before later OCC gates
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -95,7 +97,8 @@ row, commit, outcome, and feed contracts before their consumers and physical
 stores existed. Its immediately necessary seam was folded into `O02`.
 
 Introduce later contracts only at their real owners: row revisions at `S06`,
-session authority at `S07`/`O03`, point dependencies at `O04`, point conflict
+current revocation storage at `S07-A`, grant semantics at `O03-A`, initial
+session authority at `S07`/`O03-B`, point dependencies at `O04`, point conflict
 decisions at `O05`, commit/feed capabilities at `S08`/`O06`, and committed
 outcomes at `S09`/`O07`. A row revision derives from `CommitSeq`; it never owns
 another sequence. The legacy adapter never treats wall-clock `ts` as a
@@ -112,8 +115,9 @@ Outcome:
   scope clock supplies the exact `SnapshotToken { scopeId, epoch, commitSeq }`,
   `storageGeneration`, and `storageGenerationFence` together.
 - Treat the result as an ephemeral selection, not a durable pin or commit
-  authorization. `O03` owns session/package/schema/policy binding and leases;
-  `O06` owns final transactional epoch/generation/fence revalidation.
+  authorization. `S07-A` owns current revocation storage, `O03-A` owns signed-
+  grant semantics, `O03-B` owns initial session/package/schema/policy binding
+  and the current lease, and `O06`/`O07` own final transactional revalidation.
 - Leave legacy `beginTs` and production storage-generation routing unchanged.
 
 Exit gate:
@@ -125,37 +129,117 @@ Exit gate:
 - the resolver and nested token are immutable snapshots of one clock read;
 - no code aliases legacy `ts` to the dense `commitSeq`.
 
-### [ ] O03 — Create And Fence Session Anchors
+### [ ] O03-A — Freeze Transaction-Grant Authority
+
+Prerequisite: the separately preflighted S07-A schema/storage gate is complete.
 
 Outcome:
 
-- Using S07's physical tables, create the authoritative transaction session and
-  its exact-attempt snapshot lease atomically in one short transaction. S07
-  defines relational shape only; O03 owns this production operation and the
-  invariant that every active session has exactly one current lease.
-- Verify trusted package/artifact/function/schema/policy pins and canonical
-  argument/grant evidence before insertion. The grant carries minimized inert
-  claims/capabilities; the identity/policy digest alone never authorizes.
-- Keep request/generation authority on the session and snapshot-retention
-  authority on the lease. A stale attempt may neither renew nor delete the
-  current attempt's lease.
-- Keep one request anchor across OCC attempts. A rerun locks and validates the
-  old state/fence, explicitly deletes the old lease, advances the parent fence,
-  installs the new exact snapshot, and returns the same non-terminal request
-  anchor to `running` atomically. Do not cascade an old snapshot into a new
-  attempt. If the generation fence changed, stop with typed
-  `StorageGenerationChanged`; uncertain outcomes do not rebind.
-- Implement compare-and-set lifecycle, renewal, expiry, and cleanup primitives
-  without moving the logical journal to SessionDO.
+- Define one strict versioned, self-contained signed transaction grant whose
+  domain-separated canonical evidence binds deployment and scope,
+  package/artifact/source/function/schema/policy pins, canonical argument and
+  request identity/evidence, the bounded point-mutation capabilities, minimized
+  inert claims, issue/expiry times, and revocation epoch. Signature verification
+  proves provenance; canonical bytes or their digest alone never authorize.
+- Introduce an internal `VerifiedAuthContext` at the trusted backend boundary.
+  It retains credential expiry and authenticated-provider evidence after JWT/
+  OIDC verification, and applies an explicit claim allowlist before grant
+  issuance. Policy version/capabilities come from separate trusted policy/
+  catalog authority. When the originating credential has an expiry, grant
+  expiry may not exceed it; every grant is also bounded by the configured
+  platform/session lifetime. Do not copy a broad `ExecutionIdentity` or
+  arbitrary custom claims into the grant.
+- Consume S07-A's nonnegative scope-wide current revocation authority. V1
+  deliberately invalidates all outstanding grants for the scope when this
+  counter advances; do not invent a per-policy registry or per-grant
+  persistence lifecycle before either has a real consumer.
+- Keep issuer key custody at a trusted backend/platform boundary and expose
+  only verification/key-resolution capability to the trusted executor. The
+  exact signature algorithm, key rotation, issuance transport, and secret
+  isolation must be selected and challenged in the `O03-A` implementation
+  preflight; no minting secret may enter an artifact or Dynamic Worker.
+- Reuse the completed JWT/JWKS provider platform as upstream authentication.
+  This gate creates transaction authorization, not another auth-provider,
+  dashboard-owner, refresh-token, per-user revocation, or general app-policy
+  platform.
 
 Exit gate:
 
-- stale owner, wrong generation, expired lease, revoked grant, epoch rollover,
-  and terminal-session reopen all fail closed;
-- catching a stale-attempt or injected replacement failure cannot leave an
-  orphan lease, relabel the old snapshot, or mutate the current attempt's
-  lease;
-- history GC can discover the active snapshot floor.
+- canonical golden payload/signature tests are deterministic and reject
+  tampering, unknown versions/keys, wrong scope/function/pins, and forged
+  capability or claim fields;
+- credential/grant expiry boundaries and explicit claim minimization pass;
+- grant replay/identity rules and exact current-epoch validation pass in
+  focused integration tests; and
+- an epoch bump invalidates an earlier otherwise-valid grant, while neither an
+  identity/policy digest nor persisted grant bytes can construct trusted
+  authority.
+
+Non-goals:
+
+- no `/invoke/*` or production-generation routing change;
+- no session row, snapshot lease, point read, journal, OCC, outcome, commit, or
+  cleanup operation; and
+- no opaque per-grant database, grant audit product, role system, or general
+  application authorization language.
+
+### [ ] O03-B — Activate And Fence Session Anchors
+
+Outcome:
+
+- Require a private verified-start capability produced from O03-A authority;
+  callers cannot author physical placement, pins, canonical evidence, expiry,
+  revocation, generation, or snapshot fields.
+- Prepare and verify package/artifact/function/schema/policy pins, canonical
+  arguments, request evidence, and the signed grant outside SQL. Then use one
+  short located-data-plane transaction to lock and recheck the scope clock,
+  generation/fence, epoch, selected snapshot, and authorization revocation
+  epoch before atomically inserting S07's session and exact-attempt lease at
+  fence `1`.
+- Commit the initial externally observable lifecycle as `running` with exactly
+  one current lease. The existing `created` literal is reserved for
+  intra-transaction construction/compatibility and may never be committed as
+  an active parent without its lease.
+- Keep request/generation authority on the session and snapshot-retention
+  authority on the lease. Load and renew only the exact current attempt; use
+  database-authoritative time and never extend a lease beyond the session hard
+  expiry or grant expiry.
+- For renewal, abort, and expiry, follow the shared authority lock order:
+  scope clock, exact session row, then exact current lease. Recheck the current
+  authorization-revocation epoch whenever the operation keeps an attempt
+  active.
+- Define fail-closed exact-fence abort and expiry operations that atomically
+  remove the current lease and retain a terminal anchor. Here, "stale owner"
+  means a trusted operation presenting an old attempt fence; S07 defines no
+  separate owner column or authority.
+- Remain private and non-routing. Do not add lifecycle operations whose first
+  real consumers are later compiler, commit, retry, or retention gates.
+
+Exit gate:
+
+- both rows commit or neither does, including injected failure after every
+  statement;
+- concurrent creation, clock/generation/epoch/revocation races, wrong pins,
+  expired grants, expired leases, and terminal reopen all fail closed;
+- renewal versus abort/expiry is one-winner, and a stale fence cannot renew or
+  delete a newer attempt's lease;
+- database-time expiry edges, exact bigint boundaries, and intended lock order
+  pass on PGlite and focused real Postgres; and
+- legacy sessions, `/invoke/*`, exports, routing, and storage-generation
+  activation remain unchanged.
+
+Deferred ownership after O03-B:
+
+- `C05` introduces the private exact-fence transition to `finishing`; `C06`
+  orchestrates it idempotently through the finish endpoint, and `C03` rejects
+  later syscalls;
+- `O07` atomically deletes the exact current lease and stores `committed` only
+  inside the data/result/outcome/feed/outbox transaction;
+- `O08` introduces the checked delete/fence-advance/new-lease primitive with
+  trusted OCC rerun classification, journal discard, backoff, SQL retry, and
+  uncertain-outcome lookup; and
+- `O11` first introduces the active-floor query and engine-history cleanup
+  consumer. Terminal-anchor retention remains aligned with S09 outcomes.
 
 ### [ ] O04 — Implement Exact-Snapshot Point Reads
 
@@ -198,9 +282,15 @@ Outcome:
 - Add the short trusted transaction primitive that accepts only a typed,
   immutable prepared point plan.
 - Inside one transaction: lock the data-plane scope clock that owns the active
-  generation/fence, recheck session/fence/epoch,
-  validate point dependencies, allocate the sequence, write row revision and
-  current state, write commit/change atoms, advance the clock, and commit.
+  generation/fence, then lock the exact session and current lease. Recheck
+  scope/epoch/generation/fence, attempt fence, lifecycle, snapshot, grant and
+  hard expiry, lease expiry, and current authorization-revocation epoch before
+  validating point dependencies, allocating the sequence, writing row revision
+  and current state, writing commit/change atoms, advancing the clock, and
+  committing.
+- Treat S07's `committing` literal as transaction-local/reserved in V1, not a
+  separately durable state. A conflict or rollback leaves the durable session
+  at `finishing`; a successful O07 publication ends at `committed`.
 - Inject failures at each publication step to prove rollback.
 - Keep this harness private and unreachable from storage-generation routing,
   HTTP, artifacts, or user mutations until O07 adds atomic outcome/idempotency/
@@ -226,7 +316,8 @@ Outcome:
 - Lock/claim `(scope_id, request_key)` and bind it to identity fingerprint,
   function reference, and canonical request hash.
 - Store the successful encoded result, commit token, data, commit/change atoms,
-  outbox rows, and committed session state in the same transaction.
+  outbox rows, exact-current-lease deletion, and committed session state in the
+  same transaction.
 - Retain a compact non-reusable committed tombstone after result payload expiry.
 
 All authoritative writers use one lock order:
@@ -235,10 +326,15 @@ All authoritative writers use one lock order:
 fast committed-outcome lookup outside the transaction
   -> begin transaction
   -> lock data-plane scope clock/generation fence
+  -> lock exact session row and exact current lease
+  -> recheck lifecycle/fence/snapshot/expiry/grant/current revocation epoch
   -> lock or insert idempotency row
   -> compare identity/function/request hash
   -> validate and publish
 ```
+
+O03-B renewal/abort/expiry and O08 retry replacement use the same scope-clock
+then session then lease order whenever they touch those authorities.
 
 Exit gate:
 
@@ -246,15 +342,18 @@ Exit gate:
 - mismatched request-key reuse fails;
 - concurrent duplicates apply once;
 - an uncertain response resolves from the stored outcome;
-- failed or rolled-back attempts do not appear committed.
+- failed or rolled-back attempts do not appear committed; and
+- no committed/terminal session retains an active snapshot lease.
 
 ### [ ] O08 — Separate The Three Retry Coordinators
 
 Outcome:
 
-1. OCC conflict uses the O03 `committing -> retrying -> running` transition,
-   discards the journal, and reruns deterministic user code from a new snapshot
-   under the same request-level generation/fence pin.
+1. A trusted OCC conflict locks and validates the current `finishing` session/
+   fence, enters `retrying`, deletes the old lease, checked-increments the attempt
+   fence, installs the newly resolved exact snapshot lease, returns the same
+   request anchor to `running`, discards the old journal, and reruns
+   deterministic user code under the same request-level generation/fence pin.
 2. PostgreSQL `40001` or `40P01` before a known decision retries the same
    immutable physical plan within a strict bound.
 3. An uncertain connection outcome performs authoritative outcome lookup before
@@ -316,9 +415,12 @@ Exit gate:
 
 Outcome:
 
-- Compute engine-history retention from active snapshot leases plus a safety
-  margin. Consume reconnect floors only after roadmap 21 supplies an accepted
-  reconnect contract and separately preflighted DDL.
+- Introduce the read-only minimum-unexpired-active-snapshot query when this
+  retention consumer first needs it; do not create an earlier standalone floor
+  API in O03-B.
+- Compute engine-history retention from that active snapshot-lease floor plus
+  a safety margin. Consume reconnect floors only after roadmap 21 supplies an
+  accepted reconnect contract and separately preflighted DDL.
 - Persist and advance `oldest_available_commit_seq` only after compaction
   succeeds so restart can reject tokens below the actual retained floor.
 - For every row identity and index-entry membership identity, retain the newest

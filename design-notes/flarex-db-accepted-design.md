@@ -686,14 +686,17 @@ attempt fence reference that current attempt. It does not duplicate storage
 generation, package, schema, policy, grant, or request authority; those remain
 on the session anchor. Plain relational DDL cannot require every active parent
 to have a child lease, so that exactly-one-active-lease invariant belongs to
-O03's atomic repository operation.
+O03-B's atomic activation operation.
 
-O03 owns atomic anchor/lease creation, renewal, replacement, expiry, and stale-
-attempt rejection. Retry replacement explicitly deletes the old lease,
-advances the parent fence, and inserts the new lease in one transaction. The
-foreign key restricts parent updates and deletes while the old lease remains;
-it does not cascade an old snapshot into a new attempt. S07 owns only the
-relational shape and migration proof.
+O03-B owns atomic anchor/lease creation, exact-fence loading and renewal,
+abort/expiry terminalization, active-child enforcement, and stale-attempt
+rejection. It does not predeclare consumer-specific finish, commit, retry, or
+retention APIs. O08 introduces retry replacement when trusted OCC
+classification exists: it explicitly deletes the old lease, advances the
+parent fence, and inserts the new lease in one transaction. The foreign key
+restricts parent updates and deletes while the old lease remains; it does not
+cascade an old snapshot into a new attempt. S07 owns only the relational shape
+and migration proof.
 
 GC initially uses the minimum active snapshot-lease floor plus a safety margin
 for row, index, edge, commit, and sync change-feed history. Payload user-visible
@@ -792,12 +795,42 @@ schema, and policy identifiers are trusted copied pins verified before
 creation; split placement cannot enforce physical foreign keys to control-plane
 rows.
 
+O03-A introduces the missing transaction-grant authority before session
+activation. A trusted backend issuer receives an internal `VerifiedAuthContext`
+that retains upstream credential expiry and authenticated-provider evidence,
+applies an explicit claim allowlist, and produces a strict versioned
+self-contained signed grant. Policy version and capabilities come separately
+from trusted policy/catalog authority; an authentication result cannot select
+its own policy. The grant's domain-separated canonical evidence binds the
+scope, execution pins, canonical argument and request identity/evidence,
+bounded capabilities, minimized claims, issue/expiry times, and revocation
+epoch. When an originating credential has an expiry, grant expiry cannot exceed
+it; every grant also obeys the configured platform/session lifetime. Issuer key
+custody remains outside the artifact/Dynamic Worker; the executor receives
+verification/key-resolution capability only. Exact signing algorithm, envelope,
+replay identity, rotation, and issuance transport must be accepted in O03-A's
+implementation preflight.
+
+The narrow schema prerequisite S07-A first adds one nonnegative scope-wide
+`authorization_revocation_epoch` to the located data-plane scope clock. O03-A
+then consumes that authority: a V1 bump conservatively invalidates every
+outstanding scope grant. Session activation and later renewal/commit compare
+exact equality against the current authority in their short transactions.
+There is no per-grant database or premature per-policy epoch registry; those
+require a proven independent consumer before changing the V1 authority model.
+
 The anchor owns request-level authority. Its current-attempt snapshot token is
 stored only in the constrained snapshot-lease row, avoiding two independent
-snapshot or generation authorities. S07 defines these two physical rows. O03
-owns their atomic lifecycle behavior. C02 owns syscall sequence and journal
-digest. S09/O07 own public idempotency identity, result/error outcome,
-committed token, and lost-result replay.
+snapshot or generation authorities. S07 defines these two physical rows.
+S07-A supplies current revocation storage, O03-A supplies signed-grant
+semantics, and O03-B owns atomic activation plus basic exact-fence lease
+mechanics. C02 owns syscall sequence and journal digest. C05 introduces the
+private exact-fence `running` to `finishing` transition; C06 later orchestrates
+it idempotently through the finish endpoint, while C03 rejects late syscalls.
+O07 atomically deletes the exact current lease and stores committed state with
+public idempotency identity, result/error outcome, committed token, data, feed,
+and outbox. O08 owns retry replacement; O11 first consumes active floors for
+history retention.
 
 SessionDO SQLite may hold the read/write journal, but it is temporary. It must
 not supply physical scope, table names, lock targets, unique-key rows,
@@ -826,34 +859,49 @@ The trusted boundary validates arguments against the pinned authoritative
 argument validator before the attempt runs. It validates the encoded return
 value against the pinned return validator before a mutation can commit. Worker
 validation is useful feedback but is not the authority.
-The short-lived authorization grant pins policy semantics through expiry unless
-its authoritative revocation epoch advances; revocation invalidates the
-attempt. The grant encodes scope, function, allowed operations/capabilities,
-claims needed by policy, policy version, expiry, and revocation epoch.
+The short-lived signed authorization grant pins policy semantics through expiry
+unless its authoritative scope revocation epoch advances; revocation
+invalidates the attempt. The grant encodes scope, function, allowed
+operations/capabilities, claims needed by policy, policy version, expiry, and
+revocation epoch. Persisted grant bytes or their digest remain inert evidence,
+not a bearer capability.
 
 The session lifecycle is explicit and fenced:
 
 ```text
-created -> running -> finishing -> committing -> committed
-             ^                         |
-             |                         | OCC conflict
-             +------ retrying <--------+
-                                       | aborted
-                                       | expired
+atomic activation -> running -> finishing -> committed
+                        ^          |
+                        |          +-- trusted OCC conflict -> retrying --+
+                        +-----------------------------------------------<--+
+
+running or finishing -> aborted | expired
 ```
+
+The S07 `created` and `committing` literals are reserved for intra-transaction
+construction and compatibility. Neither is a durable externally observable
+active state in V1: O03-B commits the new anchor as `running` with its exact
+current lease, while the O06/O07 publication transaction either commits the
+terminal outcome or rolls back to the durable `finishing` state.
 
 Requirements:
 
 - monotonic syscall sequence numbers;
 - one fenced attempt owner;
-- an OCC retry atomically enters `retrying`, increments the attempt fence,
-  replaces the snapshot lease, discards the old journal, and returns the same
-  request anchor to `running` without changing storage generation;
+- O03-B defines initial activation, exact-fence renewal, abort, and expiry;
+- C05 introduces the private exact-fence transition to `finishing`; C06
+  orchestrates it idempotently through the finish endpoint, while C03 rejects
+  subsequent syscalls;
+- O07 deletes the exact current lease and enters `committed` only in the atomic
+  publication/outcome transaction;
+- O08 handles a trusted OCC retry from `finishing` by atomically entering `retrying`,
+  incrementing the attempt fence, replacing the snapshot lease, discarding the
+  old journal, and returning the same request anchor to `running` without
+  changing storage generation;
 - canonical journal digest;
-- rejection of late syscalls after `finishing` begins;
 - idempotent repeated `finish`;
 - committed-outcome lookup after a lost response;
-- bounded journal size, TTL, and sensitive-data cleanup.
+- bounded journal size, TTL, and sensitive-data cleanup at their owning
+  compiler/outcome/retention gates.
 
 The first compiler slice supports Flarex app point CRUD and only the query
 shapes with a complete overlay implementation. After a relevant staged write,

@@ -1,29 +1,86 @@
 # Hosted Project Identity And Auth
 
-## Current FlarexDB Grant-Envelope Boundary
+## Current Transaction-Grant Boundary
 
-S07 now provides physical transaction-session columns for a trusted grant ID,
-checked object JSON, Value Codec V1 canonical bytes, SHA-256, expiry, and
-nonnegative revocation epoch. The canonical grant is where minimized inert
-claims and allowed capabilities are retained for later trusted revalidation;
-the separate identity/access-policy SHA-256 is matching evidence only, and the
-legacy FNV identity fingerprint is not replacement authorization.
+The hosted auth-provider platform is implemented: backend-owned JWT/JWKS
+verification resolves configured bearer credentials into `ExecutionIdentity`
+for HTTP, sync, generated `ctx.auth`, and live-query reruns. Authenticated user
+identity is not transaction or commit authorization.
 
-This is a physical envelope, not an implemented authorization-grant platform.
-Grant semantics, signing/resolution, claims minimization, encryption/retention,
-revocation storage, production creation, and commit-time revalidation remain
-owned by this roadmap and O03. S07 introduces no new public auth behavior.
+The bearer resolver verifies credential expiry and selects a configured
+provider, but its returned `ExecutionIdentity` does not retain credential
+expiry, matched-provider/config evidence, or a policy-minimized claim set.
+O03-A must introduce an internal trusted `VerifiedAuthContext` (or equivalently
+named non-public capability) that preserves only the verified authentication
+facts required for policy evaluation and grant minting. It is never accepted
+as caller JSON from a client, Dynamic Worker, SessionDO, or public executor
+transport.
 
-## Bind Commit Sessions To Trusted Authorization Grants
+S07 provides only physical transaction-session columns for canonical grant
+evidence: grant identity, checked object JSON, Value Codec V1 bytes, SHA-256,
+expiry, and a copied nonnegative revocation epoch. It implements no production
+grant minting, signature verification, key lifecycle, current revocation
+authority, or commit-time revalidation. The separate identity/access-policy
+SHA-256 is matching evidence only, and the legacy FNV identity fingerprint is
+not replacement authorization.
 
-Previous completed checkpoint: `01c11ab` Clarify SessionDO cache read bridge.
+### [ ] O03-A — Freeze Transaction-Grant Authority
 
-What changed:
+Status: planned after the separate S07-A schema prerequisite. No signed
+transaction grant or current revocation authority is implemented yet, and a
+separate evidence-backed O03-A implementation preflight is required before its
+code changes.
 
-- Required every compiler-backed attempt to use a short-lived authoritative
-  Postgres grant containing scope, function, validated canonical arguments,
-  authenticated inert claims/capabilities, policy version, expiry, and
+Accepted direction:
+
+- Define a versioned short-lived signed transaction grant binding trusted
+  scope, mutation function and execution pins, policy version, bounded allowed
+  operations/capabilities, explicitly minimized inert claims, canonical
+  argument/request evidence, expiry, and the current scope authorization-
   revocation epoch.
+- Derive the grant only from authoritative argument validation, trusted
+  package/artifact/function/schema/policy pins, and an internal
+  `VerifiedAuthContext`. `ExecutionIdentity`, its fingerprint, and a grant
+  digest do not authorize an operation by themselves.
+- Consume S07-A's coarse V1 `authorization_revocation_epoch` on the
+  authoritative located data-plane scope clock. Admission, lease renewal, and
+  final commit fail closed unless the copied grant/session value still equals
+  the current scope value. A bump fences every earlier scope grant and attempt;
+  V1 does not claim selective per-user or per-grant revocation.
+- Bound grant expiry by originating credential expiry when present and by the
+  configured grant/session lifetime. Anonymous and explicitly trusted dev/test
+  inputs require separately named provenance and bounded expiry; they never
+  masquerade as verified bearer credentials.
+- Use no opaque per-grant database or premature per-policy epoch registry.
+  S07 stores immutable evidence only; the O03-A preflight must decide whether
+  that evidence includes the signed envelope, signature/key provenance, or a
+  verified canonical projection after admission.
+
+The following mechanics are deliberately unresolved until the O03-A preflight:
+
+- signing algorithm and canonical signed-payload/envelope format;
+- key generation, custody, rotation, overlap, revocation, and verifier lookup;
+- exact trusted issuer/minting API and transport before Dynamic Worker code;
+- grant-ID/replay semantics and anonymous/trusted-dev issuance;
+- trusted increment authority and the control-to-data-plane command path over
+  S07-A's private storage primitive;
+- exact claim allowlist, sensitive-data retention, package exports, and Worker
+  bindings.
+
+O03-B owns session admission after O03-A. C04 verifies authority before
+planning, and O06/O07 revalidate it in the final transaction that records the
+committed outcome. No roadmap may claim production transaction-grant creation,
+signature revalidation, or revocation before those gates pass.
+
+## Accepted Rationale: Bind Sessions To Trusted Transaction Grants
+
+Requirements:
+
+- Required every compiler-backed attempt to use a short-lived signed
+  transaction grant whose verified canonical evidence is copied into the
+  Postgres session anchor and contains scope, function, validated canonical
+  argument and request identity/evidence, authenticated inert claims/
+  capabilities, policy version, expiry, and revocation epoch.
 - Kept identity/access fingerprint for matching and cache keys, but stopped
   treating a fingerprint as enough information to authorize operations.
 - Pinned policy semantics for the short grant lifetime unless its revocation
@@ -31,12 +88,13 @@ What changed:
 - Required trusted argument validation before execution and trusted return
   validation before mutation commit.
 
-Why it changed:
+Rationale:
 
 The SessionDO journal is untrusted transport. A fingerprint cannot evaluate
 claim-based policy, and Worker-only validation cannot protect the authoritative
-commit boundary. The trusted executor needs a resolvable grant and pinned
-validators to prevent scope/function/policy substitution.
+commit boundary. The trusted executor needs a verifiable grant, current
+revocation authority, and pinned validators to prevent scope/function/policy
+substitution.
 
 Convex references:
 
@@ -50,40 +108,24 @@ How Flarex differs:
 - Flarex crosses Dynamic Worker, Durable Object, and Postgres boundaries, so
   authority must be explicit, short-lived, fenced, and revocable.
 
-Known limitations:
+Current gaps:
 
-- The grant schema, signing/resolution mechanism, claims minimization,
-  encryption/retention, and revocation store remain unimplemented.
+- S07-A's current scope revocation storage and O03-A's grant schema,
+  signing/verifier mechanism, claims minimization, trusted increment command,
+  and key/evidence retention remain unimplemented.
 
-Verification:
+The completed lower sections preserve the identity-plumbing design inputs that
+preceded roadmap 33. Current provider authentication is implemented; the
+remaining active concern in this file is the transaction-grant boundary above.
 
-```sh
-git diff --check
-```
+## Completed Identity-Plumbing Baseline
 
-This roadmap tracks the next core implementation stream after the Effect
-runtime-boundary cleanup: introduce a Convex-shaped identity path for hosted
-Flarex without jumping straight into a full auth-provider platform.
-
-## Current Diagnosis
-
-The hosted runtime has a usable execution path, but identity is still not a
-real platform concept:
-
-- `packages/flarex-backend/src/project.ts` resolves `projectId` from
-  `FLAREX_PROJECT_ID` or request bodies, but that is routing metadata, not user
-  identity or project ownership.
-- `@flarex/executor` validates deployment/project mismatches for trusted
-  executor calls and stores user identity on invoke sessions.
-- `packages/flarex-backend/src/artifactRuntime/GeneratedWorkerSource.ts`
-  now emits `ctx.auth.getUserIdentity()` backed by executor session identity.
-- Sync now has Convex-style `Authenticate` messages and identity-version
-  transitions, and durable live-query metadata now stores the subscription
-  identity needed for auth-aware reruns and stale-delivery protection.
-
-The next implementation should make identity a typed execution input that
-flows from public request or sync session to backend execution, trusted executor
-session metadata, generated runtime `ctx.auth`, and live-query state.
+Typed execution identity now flows from backend-owned bearer verification or
+an explicitly trusted dev/test boundary through artifact execution, executor
+sessions, generated `ctx.auth`, sync identity versions, and durable live-query
+reruns. Project/deployment routing metadata remains separate from end-user
+identity, and deploy/admin identity remains a separate authority. This
+completed plumbing is an input to O03-A; it is not itself a transaction grant.
 
 ## Convex References
 
@@ -119,8 +161,9 @@ Flarex cannot copy Convex's integrated backend/auth stack directly:
 - WebSocket sessions live in Cloudflare `ConnectionDO`;
 - deployment metadata lives behind Cloudflare Workers, Durable Objects, R2, and
   service bindings;
-- full JWT provider configuration and JWKS validation would be a product
-  feature, not the first execution capability.
+- JWT/JWKS provider verification is implemented, but Flarex still needs an
+  explicit transaction grant because authenticated identity crosses a split
+  Dynamic Worker/executor/Postgres boundary.
 
 So v1 should copy the execution semantics, not the whole provider platform.
 
@@ -195,9 +238,9 @@ public request / sync Authenticate
   -> generated runtime ctx.auth.getUserIdentity()
 ```
 
-Until real JWT provider validation exists, hosted public clients should only
-get anonymous identity unless an explicitly configured trusted test/platform
-identity mechanism is enabled.
+Hosted public bearer identity is accepted only after the implemented configured
+JWT/JWKS verifier succeeds. The explicit trusted test/platform identity path
+remains separately env-gated and must not masquerade as bearer verification.
 
 ## Implementation Slices
 
@@ -256,28 +299,12 @@ identity mechanism is enabled.
   - Decide whether to implement auth provider validation next or continue with
     scheduler/storage capabilities.
 
-## Turn-By-Turn Protocol
+## Future Maintenance
 
-Every implementation turn in this stream should follow this loop:
-
-1. Read this file and
-   `roadmaps/32-hosted-project-identity-and-auth-goals.md`.
-2. Confirm the next unchecked item.
-3. Inspect the listed Convex references for the specific slice before editing.
-4. Keep the patch scoped to that slice unless validation or reviewers expose a
-   required small fix.
-5. Update both roadmap files with:
-   - completed checkbox;
-   - files changed;
-   - previous completed checkpoint commit when known;
-   - Convex references inspected;
-   - Cloudflare differences;
-   - validation commands.
-6. Run focused validation for the affected packages plus `git diff --check`.
-7. For significant code/test changes, run both standing reviewers:
-   - `typescript-diff-reviewer`
-   - `code-quality-diff-reviewer`
-8. Fix valid findings in the main thread, rerun validation, and commit.
+The completed I-* identity stream must not be restarted from its historical
+checklist. Future identity or transaction-grant work follows the repository
+preflight and living-roadmap rules in `AGENTS.md`; do not append per-turn files,
+validation receipts, reviewer receipts, or commit history here.
 
 ## Validation Matrix By Slice
 
@@ -304,9 +331,9 @@ git diff --check
 Use narrower focused test files during individual turns, then broaden before
 closing the stream.
 
-## Non-Goals For V1
+## Non-Goals For The Transaction-Grant Slice
 
-- Do not implement the full JWT/JWKS provider platform in the first slice.
+- Do not rebuild or fork the completed JWT/JWKS provider platform.
 - Do not add dashboard/team/user management.
 - Do not add admin impersonation or deploy-key acting identities yet.
 - Do not make `ctx.scheduler` or `ctx.storage` look implemented.
@@ -314,7 +341,7 @@ closing the stream.
 - Do not bypass executor project/deployment ownership checks.
 - Do not make identity a global mutable singleton in generated workers.
 
-## Current Checkpoint
+## Historical Identity-Stream Closure
 
 Previous completed checkpoint: `89fb9e4` (`Add auth-aware live query metadata`).
 
@@ -325,8 +352,9 @@ What changed:
   `ctx.auth.getUserIdentity()` exists, identity reaches executor sessions, sync
   auth changes advance identity version, and live-query reruns carry stored
   subscription identity.
-- Confirmed the remaining production gap is backend-owned bearer-token
-  verification, not more trusted identity plumbing.
+- At that checkpoint, the remaining production gap was backend-owned bearer-
+  token verification. Roadmap 33 later completed that platform; O03-A now owns
+  the separate transaction-grant gap.
 - Created `roadmaps/33-auth-provider-platform.md` and
   `roadmaps/34-auth-provider-platform-goals.md` as the next concrete
   turn-by-turn stream.
@@ -335,8 +363,9 @@ Code findings:
 
 - `packages/flarex/src/client.ts` already forwards `Authorization: Bearer ...`
   for HTTP and sends sync `Authenticate` messages from `setAuth(...)`.
-- `packages/flarex-backend/src/auth.ts` only resolves anonymous identity or the
-  explicit trusted dev/test identity headers; it does not validate bearer JWTs.
+- At that checkpoint `packages/flarex-backend/src/auth.ts` only resolved
+  anonymous identity or explicit trusted dev/test headers. Roadmap 33 later
+  added configured bearer JWT verification.
 - `packages/flarex-backend/src/connectionDO.ts` handles `Authenticate` by
   bumping identity version and rerunning queries, but still sets anonymous
   identity.

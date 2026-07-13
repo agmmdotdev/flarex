@@ -8,11 +8,16 @@ for retention. S07 owns their physical schema only: at most one lease exists
 per scope/session, and every lease references the exact current attempt. Plain
 DDL cannot require every active parent to have a child.
 
-O03 owns atomic creation, renewal, explicit delete/advance/insert retry
-replacement, expiry, active-child enforcement, and stale-attempt rejection.
-Journal protocol belongs to C02, committed outcome/idempotency to S09/O07, and
-reconnect retention to roadmap 21. The compatibility `invoke_sessions` model
-remains routed and unchanged.
+S07-A first supplies current scope-revocation storage; O03-A consumes it for
+signed transaction-grant semantics. O03-B then owns atomic activation, exact-
+fence renewal, abort/expiry, active-child enforcement, and stale-attempt
+rejection. C05 introduces the private exact-fence transition to `finishing`,
+C06 orchestrates it idempotently through the finish endpoint, C03 rejects late
+syscalls, O07 atomically deletes the exact lease and stores committed state plus
+outcome/idempotency, O08 owns explicit delete/fence-advance/new-lease retry
+replacement, O11 first consumes active floors, and reconnect retention belongs
+to roadmap 21. The compatibility `invoke_sessions` model remains routed and
+unchanged.
 
 ## Share The Legacy OCC Oracle With The Hosted Proof Lane
 

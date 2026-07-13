@@ -151,9 +151,14 @@ internal request key bounded to 1,024 UTF-8 bytes, request hash, lifecycle,
 One constrained snapshot-lease row stores only the exact current attempt fence,
 `SnapshotToken`, and lease expiry. It is not a second generation or request
 authority, and parent updates/deletes do not cascade through it. S07 defines
-these physical rows; O03 owns atomic creation/replacement and active-child
-invariants. C02 owns journal sequence/digest, while S09/O07 own public
-idempotency and committed outcomes.
+these physical rows; S07-A supplies current revocation storage, O03-A supplies
+signed-grant semantics, and O03-B owns atomic activation plus basic exact-fence
+lease mechanics and active-child invariants. C02 owns journal sequence/digest,
+C05 introduces the private exact-fence transition to `finishing`, C06
+orchestrates it idempotently through the finish endpoint, C03 rejects late
+syscalls, O07 atomically deletes the exact lease and stores committed state plus
+public idempotency/outcomes, O08 owns retry replacement, and O11 first consumes
+active floors.
 
 Temporary journal placement does not change this anchor. It authenticates a
 remote journal and fences stale attempts without making SessionDO transaction
@@ -192,18 +197,25 @@ authoritative data or reuse scope commit/outbox sequences.
 The accepted fenced lifecycle is:
 
 ```text
-created -> running -> finishing -> committing -> committed
-             ^                         |
-             |                         | OCC conflict
-             +------ retrying <--------+
-                                       | aborted
-                                       | expired
+atomic activation -> running -> finishing -> committed
+                        ^          |
+                        |          +-- trusted OCC conflict -> retrying --+
+                        +-----------------------------------------------<--+
+
+running or finishing -> aborted | expired
 ```
 
-An OCC retry keeps the same request anchor and storage generation, increments
-the attempt fence, replaces the snapshot lease, discards the old journal, and
-reruns deterministic user code at a new snapshot. A stale journal or Durable
-Object cannot reopen a terminal session.
+O03-B commits initial activation directly as `running`; S07's `created` literal
+is not a durable active state without a lease. S07's `committing` literal is
+also transaction-local/reserved in V1 rather than a separately durable state.
+C05 introduces the private exact-fence transition to `finishing`; C06
+orchestrates it idempotently through the finish endpoint, and C03 rejects late
+syscalls. O07 deletes the exact current lease and records `committed` only with
+atomic data/outcome publication. O08 keeps the same request anchor and storage
+generation during trusted OCC retry, increments the attempt fence, replaces
+the snapshot lease, discards the old journal, and reruns deterministic user code
+at a new snapshot. A stale journal or Durable Object cannot reopen a terminal
+session.
 
 ### Planner and executor split
 
@@ -478,8 +490,9 @@ reads, or legacy retirement.
 ## Next Correctness Gates
 
 Private O02 snapshot resolution, S05-B value codec, S06 row storage, and S07
-physical session/snapshot-lease DDL are complete. O03 is the next foundation
-candidate and requires its own preflight; C01 remains a later Wave 1 gate.
+physical session/snapshot-lease DDL are complete. S07-A current revocation
+storage is the next foundation candidate and requires its own preflight;
+O03-A grant semantics, O03-B activation, and C01 remain later Wave 1 gates.
 Production/canary compiler execution still waits for the required schema,
 exact-snapshot OCC, commit, hosted, and migration prerequisites.
 

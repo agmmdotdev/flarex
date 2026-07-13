@@ -61,7 +61,8 @@ For current FlarexDB work, read in this order:
 4. The focused foundation plan for the active gate
 5. The relevant active domain authority below
 
-The current foundation next gate is `S06`, owned by
+The current foundation next gate is the unapproved `S07-A` scope-revocation
+schema/storage prerequisite, owned by
 [`flarexdb-foundation/01-schema-and-migrations.md`](./flarexdb-foundation/01-schema-and-migrations.md).
 
 ## Active Domain Authorities
@@ -95,9 +96,14 @@ The current foundation next gate is `S06`, owned by
 
 ## Active Inventories Awaiting Compaction
 
-None currently. Add a file here only when it still mixes durable domain truth
-with chronological implementation history and therefore cannot yet be treated
-as an active authority.
+These files have an active durable boundary but still mix it with chronological
+implementation evidence. Read the named current section, verify against higher
+authorities/current code, and compact the historical tail before promoting the
+whole file to an active domain authority.
+
+| Roadmap | Current durable boundary |
+| --- | --- |
+| [`31-hosted-project-identity-and-auth.md`](./31-hosted-project-identity-and-auth.md) | The top section records planned O03-A signed-grant semantics consuming schema-plan-owned S07-A revocation storage; the completed identity-plumbing tail remains historical inventory. |
 
 ## Compatibility Inventories
 
@@ -125,7 +131,6 @@ Do not extend these files as active design.
 | [`08-projections.md`](./08-projections.md) | PartitionDO-driven global projection proposal is unimplemented and not an active replacement requirement. |
 | [`12-repository-operations.md`](./12-repository-operations.md) | Repository setup history plus old mandatory checkpoint-log governance, superseded by `AGENTS.md` and this index. |
 | [`19-function-routing-and-shard-policy.md`](./19-function-routing-and-shard-policy.md) | Public shard/partition routing policy is legacy prototype behavior. |
-| [`31-hosted-project-identity-and-auth.md`](./31-hosted-project-identity-and-auth.md) | Identity stream completed and handed off to the auth-provider platform record. |
 | [`breif-left-things-to-do-after-effect-ts-migration.md`](./breif-left-things-to-do-after-effect-ts-migration.md) | Point-in-time status snapshot is stale; current status lives in domain authorities and focused plans. |
 
 ## Completed Initiative Records
@@ -144,9 +149,9 @@ contain old “next slice” or append-history instructions.
 | [`28-authoritative-analysis-effect-quality.md`](./28-authoritative-analysis-effect-quality.md) | Authoritative backend analysis quality stream |
 | [`29-authoritative-analysis-effect-quality-goals.md`](./29-authoritative-analysis-effect-quality-goals.md) | Analysis quality goal checklist |
 | [`30-effect-runtime-boundary-cleanup.md`](./30-effect-runtime-boundary-cleanup.md) | Effect runtime-boundary implementation stream; retain the enforcement rule, but the slice checklist is complete pending only historical closeout wording. |
-| [`32-hosted-project-identity-and-auth-goals.md`](./32-hosted-project-identity-and-auth-goals.md) | Hosted identity/auth goal checklist |
-| [`33-auth-provider-platform.md`](./33-auth-provider-platform.md) | Auth-provider platform implementation and final audit record |
-| [`34-auth-provider-platform-goals.md`](./34-auth-provider-platform-goals.md) | Auth-provider platform goal checklist |
+| [`32-hosted-project-identity-and-auth-goals.md`](./32-hosted-project-identity-and-auth-goals.md) | Completed hosted identity/auth goal archive |
+| [`33-auth-provider-platform.md`](./33-auth-provider-platform.md) | Completed auth-provider platform boundary and final audit record |
+| [`34-auth-provider-platform-goals.md`](./34-auth-provider-platform-goals.md) | Completed auth-provider platform goal archive |
 
 ## Compaction Status
 

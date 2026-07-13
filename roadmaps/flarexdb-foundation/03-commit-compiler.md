@@ -130,8 +130,9 @@ Postgres cannot see the private journal.
 Outcome:
 
 - Consume the shared storage split/types from S01, snapshot selection from O02,
-  lifecycle authority from O03, and point dependency/validation contracts from
-  O04/O05. Add only compiler-facing composition adapters such as
+  grant/session activation authority from O03-A/O03-B, and point dependency/
+  validation contracts from O04/O05. Add only compiler-facing composition
+  adapters such as
   `SessionJournalStore`, `CatalogReader`, verified planner-input loading, and
   `PostCommitWake`.
 - Wrap current finish/planning call sites with compatibility composition; do
@@ -178,7 +179,9 @@ Outcome:
 - Journal point `get`, insert, patch, replace, and delete operations.
 - Coalesce same-row writes deterministically and expose exact point
   read-your-writes from the staged final row state.
-- Reject late syscalls after `finishing` starts.
+- Reject syscalls unless the exact current attempt remains `running`; in
+  particular, reject every late syscall after C05's finish transition enters
+  `finishing`.
 - Reject mutation table scans, unproven index/range/relation reads, Payload
   operations, and Medusa operations on the new generation.
 
@@ -227,11 +230,19 @@ Exit gate:
 
 Outcome:
 
+- Introduce the private exact-fence finish transition at its first real
+  consumer: atomically change the exact current `running` attempt to
+  `finishing` while freezing the canonical journal evidence consumed by C04.
+  This is not yet a stable endpoint; C06 later adds idempotent orchestration and
+  lost-outcome recovery.
+- Invoke the already-built C04 verifier/planner against that frozen exact-
+  attempt evidence to obtain `PreparedCommitV1`.
 - Call the complete O06+O07 atomic primitive with `PreparedCommitV1`.
 - Inside the transaction, recheck session/fence/authority/epoch, validate point
   dependencies, allocate the commit sequence, publish row revision/current,
   write successful result/idempotency outcome, commit/change atoms and outbox,
-  mark the session committed, and advance the clock.
+  delete the exact current snapshot lease, mark the session committed, and
+  advance the clock.
 - Keep user code outside the transaction.
 
 Exit gate:
@@ -250,22 +261,29 @@ define a competing retry coordinator.
 
 Outcome:
 
-- Orchestrate the O03-owned fenced lifecycle CAS primitives through the stable
-  endpoint; do not introduce a second state machine in compiler code:
+- Compose the distributed lifecycle owners through the stable endpoint; do not
+  introduce a second state machine in compiler code. C06 idempotently
+  orchestrates C05's exact-fence transition and existing commit/retry/outcome
+  primitives; C03 rejects later syscalls. O07 owns exact-lease deletion plus
+  the atomic `committed` transition, and O08 owns retry replacement:
 
 ```text
-created -> running -> finishing -> committing -> committed
-             ^                         |
-             |                         | OCC conflict
-             +------ retrying <--------+
-                                       | aborted
-                                       | expired
+atomic activation -> running -> finishing -> committed
+                        ^          |
+                        |          +-- trusted OCC conflict -> retrying --+
+                        +-----------------------------------------------<--+
+
+running or finishing -> aborted | expired
 ```
+
+S07's `committing` literal remains transaction-local/reserved in V1; it does
+not introduce a separately durable state or recovery protocol.
 
 - Invoke the C04-owned verified-input/return-validation gate before planning;
   the endpoint adds no weaker alternate finish path.
 - Store successful result, commit token, idempotency outcome, data,
-  commit/change atoms, outbox, and committed session state atomically.
+  commit/change atoms, outbox, exact-current-lease deletion, and committed
+  session state atomically.
 - Make repeated finish replay the authoritative outcome.
 - Resolve uncertain responses by lookup before rerunning anything.
 - Wake post-commit work only after durable commit.

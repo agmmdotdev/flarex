@@ -1,11 +1,11 @@
 # Auth Provider Platform Goals
 
-Active goal continuation:
+Completed goal archive:
 
-Finish hosted auth by turning existing bearer-token SDK surfaces into
-backend-verified execution identity. The implementation must add provider
-configuration, JWT/JWKS validation, sync and HTTP integration, live-query proof,
-and deploy/admin boundaries without trusting client identity JSON.
+This stream finished backend-verified hosted auth through A-9. The detailed
+slice records below are historical evidence, not current architecture or
+implementation instructions. Current provider status lives in roadmap 33;
+roadmap 31/O03-A owns the still-planned transaction-grant boundary.
 
 Source roadmap:
 
@@ -25,7 +25,11 @@ Source roadmap:
 - [x] A-8. Deploy/admin identity boundary.
 - [x] A-9. Final platform audit.
 
-## Completed Slice History
+## Historical Slice Record
+
+Statements inside individual slices describe repository state at that slice's
+time. Use Git for chronology and verify current code/roadmaps before reusing
+them.
 
 ### A-0: Roadmap And Goal Checklist
 

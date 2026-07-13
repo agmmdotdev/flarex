@@ -1,38 +1,32 @@
 # Auth Provider Platform
 
-This roadmap starts the next hosted auth stream after
-`roadmaps/31-hosted-project-identity-and-auth.md`. The identity plumbing is now
-in place, but hosted production still treats bearer tokens as anonymous. This
-stream adds backend-owned auth provider configuration and JWT/JWKS validation so
-`FlarexClient.setAuth(...)` can safely produce a real `ctx.auth` identity.
+This completed roadmap owns backend auth-provider configuration and JWT/JWKS
+verification for hosted end-user identity. `FlarexClient.setAuth(...)` can
+produce a verified `ctx.auth` identity through configured providers. That
+authentication result is not transaction/commit authorization; roadmap 31 and
+O03-A own the still-planned signed transaction-grant boundary.
 
-## Current Diagnosis
+## Current Implemented Boundary
 
-The public and runtime surfaces already exist:
+The implemented platform includes:
 
 - `packages/flarex/src/client.ts` stores a bearer token fetcher, forwards
   `Authorization: Bearer ...` for HTTP invokes, and sends sync `Authenticate`.
-- `packages/flarex-backend/src/connectionDO.ts` tracks identity version and
-  reruns active queries on `Authenticate`.
+- backend-owned configured OIDC/custom-JWT verification for HTTP and sync;
+- `packages/flarex-backend/src/connectionDO.ts` identity-version tracking and
+  authenticated reruns on `Authenticate`;
 - `packages/flarex-backend/src/artifactRuntime/GeneratedWorkerSource.ts`
   exposes `ctx.auth.getUserIdentity()` from executor session identity.
-- Live-query subscription metadata stores the execution identity used for
-  executor reruns.
+- live-query subscription metadata carrying the verified execution identity
+  used for executor reruns; and
+- package-versioned auth configuration plus a separate deploy/admin update
+  boundary.
 
-The production auth platform does not exist yet:
-
-- `packages/flarex-backend/src/auth.ts` only supports anonymous identity and an
-  explicitly env-gated trusted dev/test identity header.
-- `Authorization: Bearer ...` is not parsed or verified by the backend.
-- `ConnectionDO` accepts `Authenticate` messages but currently resets identity
-  to anonymous.
-- `packages/flarex-dev/src/sourcePackage.ts` and
-  `packages/flarex/src/artifacts.ts` do not include an `auth.config` module or
-  auth metadata in source-package identity.
-- `packages/persistence-postgres/src/schema.ts` stores deployments and
-  deployment packages without auth-provider config.
-- Deploy/admin identity for configuring auth providers is not modeled and must
-  not be confused with end-user `ctx.auth`.
+The bearer verifier checks credential expiry and provider configuration, then
+returns `ExecutionIdentity`. It does not retain the credential-expiry/provider
+evidence or minimize claims for a signed transaction grant. That is the
+explicit O03-A follow-up, not unfinished work in this completed provider
+stream.
 
 ## Convex References
 
@@ -132,22 +126,12 @@ JSON or provider configuration.
   - Update this roadmap and `roadmaps/34-auth-provider-platform-goals.md` with
     final limitations and follow-ups.
 
-## Turn-By-Turn Protocol
+## Future Maintenance
 
-Every turn in this stream must:
-
-1. Read this file and `roadmaps/34-auth-provider-platform-goals.md`.
-2. Confirm the next unchecked `A-*` item.
-3. Inspect the specific Convex references for that slice.
-4. Keep the patch scoped to that slice unless validation exposes a required
-   small fix.
-5. Update both roadmap files with the completed checkbox, files changed,
-   Convex references, Cloudflare differences, validation, reviewer result, and
-   commit hash when known.
-6. Run focused validation plus `git diff --check`.
-7. Run both standing reviewers for significant code/test/public-contract
-   changes.
-8. Fix valid findings in the main thread, rerun validation, and commit.
+This stream has no unchecked implementation item. Future durable auth-provider
+changes follow the repository preflight and living-roadmap rules in
+`AGENTS.md`; do not append per-turn files, validation receipts, reviewer
+receipts, or commit history here.
 
 ## Non-Goals
 

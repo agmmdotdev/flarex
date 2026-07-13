@@ -1,13 +1,11 @@
 # Hosted Project Identity And Auth Goals
 
-Active goal:
+Completed goal archive:
 
-Implement Convex-shaped hosted project identity and `ctx.auth` support step by
-step: define shared public/protocol identity contracts, propagate identity
-through backend invoke and trusted executor sessions, make generated runtime
-`ctx.auth.getUserIdentity()` return `UserIdentity | null`, add sync
-`Authenticate` and identity-version behavior, update roadmap checkboxes each
-turn, validate, review significant patches, and commit each completed slice.
+This stream completed the identity-plumbing work through G-9. The slice records
+below are historical evidence, not current implementation instructions.
+Roadmap 33 owns the completed JWT/JWKS provider platform; roadmap 31/O03-A owns
+the still-planned transaction-grant boundary.
 
 Source roadmap:
 
@@ -26,7 +24,10 @@ Source roadmap:
 - [x] G-8. Complete I-7: auth-aware live-query metadata.
 - [x] G-9. Complete I-8: auth provider platform planning checkpoint.
 
-## Current Next Slice
+## Historical Slice Record
+
+Statements below describe repository state at each slice's time. Use Git for
+chronology and verify current code/roadmaps before reusing them.
 
 ### G-1: Start Goal
 

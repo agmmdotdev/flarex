@@ -146,6 +146,16 @@ The Dynamic Worker may call a narrow syscall or invoke transport. It must not
 receive a database client, persistence interface, deployment-control
 capability, arbitrary service binding, or raw storage handle.
 
+The planned O03-A transaction-grant boundary follows the same ownership split:
+host-neutral canonical/wire contracts may live in `flarex-protocol`; upstream
+credential verification and an internal `VerifiedAuthContext` remain
+backend-owned; trusted grant verification and transaction enforcement belong
+in `@flarex/executor`; and revocation-epoch storage/locking plus session atomics
+belong in `@flarex/persistence-postgres`. Worker apps may supply key/binding
+adapters but never own grant semantics or expose issuer secrets to artifact
+code. Exact exports, signing mechanism, and key adapters still require the
+O03-A implementation preflight.
+
 The executor Worker owns Cloudflare request lifecycle and Postgres client
 allocation/cleanup. `@flarex/executor` owns the trusted operation semantics,
 and `@flarex/persistence-postgres` owns transaction/database behavior. This

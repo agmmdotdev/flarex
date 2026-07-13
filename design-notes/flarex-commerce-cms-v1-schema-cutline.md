@@ -1027,9 +1027,14 @@ snapshot lease:
 The lease is a constrained current-attempt projection and does not duplicate
 generation or request authority. S07 defines only the relational contract: at
 most one lease per session, and every lease references the exact current
-attempt. O03 owns the active-session child-existence invariant, atomic
-creation/replacement, lifecycle transitions, expiry, and stale-attempt
-rejection.
+attempt. S07-A first adds one scope-wide authorization-revocation epoch to the
+located scope clock; O03-A consumes it for the signed grant contract. O03-B
+owns the active-session child-existence invariant, atomic creation, exact-fence
+renewal, abort/expiry, and stale-attempt rejection. C05 introduces the private
+exact-fence transition to `finishing`, C06 orchestrates it idempotently through
+the finish endpoint, C03 rejects late syscalls, O07 atomically deletes the
+exact lease and stores committed state, O08 owns retry replacement, and O11
+first consumes active snapshot floors for history retention.
 
 C02 owns syscall sequence and journal digest. S09/O07 own public idempotency,
 result/error, committed token, and uncertain-outcome recovery. Snapshot leases
@@ -1319,19 +1324,21 @@ commerce writes/deletes should go through ctx.commerce / trusted commerce adapte
    key codec.
 5. Add `fx_unique_key` and stable-occurrence `fx_edge_current`.
 6. Add S07's transaction-session and current-attempt snapshot-lease DDL.
-7. Implement O03 atomic session/lease lifecycle, then exact point dependencies
-   and point OCC.
-8. Add commit atoms, result-bearing idempotency, and leased outbox through their
+7. Add S07-A's located scope authorization-revocation epoch.
+8. Implement O03-A signed transaction-grant authority, then O03-B atomic
+   session activation and basic exact-fence lease mechanics.
+9. Add exact point dependencies and point OCC.
+10. Add commit atoms, result-bearing idempotency, and leased outbox through their
    separate S08/S09 and O06/O07 gates.
-9. Prove the narrow point-mutation path on PGlite and real Postgres.
-10. Backfill, verify, dual-read compare, scoped cut over, and preserve rollback.
-11. Freeze reconnect retention in roadmap 21, then add its DDL immediately
+11. Prove the narrow point-mutation path on PGlite and real Postgres.
+12. Backfill, verify, dual-read compare, scoped cut over, and preserve rollback.
+13. Freeze reconnect retention in roadmap 21, then add its DDL immediately
     before O11/replacement sync first consumes it.
-12. Add two-phase live-query activation and per-scope contiguous catch-up while
-   retaining the current Postgres subscription registry.
-13. Add hidden block-type indexes through `fx_index_entry_current` if needed.
-14. Add a scalar Payload adapter over reserved logical collections.
-15. Only then consider normalized catalog tables, `fx_edge_rev`, dedicated
+14. Add two-phase live-query activation and per-scope contiguous catch-up while
+    retaining the current Postgres subscription registry.
+15. Add hidden block-type indexes through `fx_index_entry_current` if needed.
+16. Add a scalar Payload adapter over reserved logical collections.
+17. Only then consider normalized catalog tables, `fx_edge_rev`, dedicated
     Payload physical tables, or cache DOs.
 
 ## Documentation patch recommendation
