@@ -410,6 +410,115 @@ The platform must distinguish retry-safe transport failure from an action that
 may already have completed an external effect; moving execution to another
 provider cannot weaken that rule.
 
+### Verified Convex Node-Action Reference Model
+
+Convex provides the semantic and implementation reference for this boundary.
+Its public developer contract promises a default Convex runtime and an opt-in
+Node.js runtime selected with a file-level `"use node"` directive. It does not
+make AWS part of the developer API. Current Convex Cloud backend source does,
+however, explicitly model AWS Lambda configurations, versions, invocation IDs,
+and Lambda-specific package headroom for Node actions. Self-hosted Convex uses a
+local Node executor process by default and can use a configured remote Node
+executor instead. Flarex should preserve the same separation between portable
+runtime semantics and provider-specific hosting.
+
+Convex deployment and execution currently follow this shape:
+
+```text
+CLI
+  -> classify entry modules by default versus "use node" environment
+  -> bundle default and Node modules in separate esbuild passes
+  -> upload one source package plus separately installable Node dependencies
+
+Convex backend
+  -> detect that the package contains Node modules
+  -> enable the Node-action executor
+  -> store source/dependency packages
+  -> invoke the Node executor with function path, arguments and package refs
+
+Convex Cloud Node executor
+  -> AWS Lambda implementation
+  -> static Lambda version tied to a source package when ready
+  -> dynamic Lambda fallback that downloads packages at invocation time
+
+Self-hosted Node executor
+  -> local Node server over a private socket, or a configured remote executor
+```
+
+The checked-in model is package-oriented rather than one Lambda per exported
+action. A Node invocation carries the requested function path inside the
+executor request. Static Lambda readiness is compared with the active source
+package, while the dynamic Lambda can load packages at invocation time. This is
+an implementation inference from the open source model; Convex does not expose
+Lambda topology as a public compatibility promise.
+
+Most importantly, the Node executor does not receive a database connection.
+The backend constructs an invocation containing:
+
+- the exact function path and validated arguments;
+- short-lived signed source and external-dependency package URLs;
+- environment variables;
+- the original authentication header and derived user identity;
+- the Convex backend callback address;
+- an encrypted, time-limited action callback token scoped to a component;
+- execution, request, scheduling and trace context; and
+- the configured action deadline and deployment metadata.
+
+Inside the Node runtime, the Convex SDK translates action capabilities into
+internal asynchronous syscalls:
+
+```text
+ctx.runQuery(reference, args)
+  -> 1.0/actions/query
+  -> POST {backendAddress}/api/actions/query
+
+ctx.runMutation(reference, args)
+  -> 1.0/actions/mutation
+  -> POST {backendAddress}/api/actions/mutation
+
+ctx.runAction(reference, args)
+  -> 1.0/actions/action
+  -> POST {backendAddress}/api/actions/action
+```
+
+Those callbacks carry the action callback token, original authorization,
+calling-action name, request/execution identity and trace context. Backend
+middleware validates the callback token and its issue time, reconstructs the
+original caller identity as of that issue time, validates the component scope,
+resolves public or internal function references, and invokes the ordinary
+trusted query, mutation or action runner. `internalQuery` and
+`internalMutation` are therefore callable from the authenticated action path
+without becoming public client endpoints.
+
+Every `ctx.runQuery` is a separate read transaction and every
+`ctx.runMutation` is a separate write transaction. The action owns no database
+session, does not receive `ctx.db`, and cannot make several callbacks atomic.
+Authentication propagates, but transaction state does not. An external side
+effect followed by a failed mutation therefore still needs application-level
+idempotency, reconciliation or a durable workflow.
+
+Flarex should closely port this semantic boundary:
+
+1. define a provider-neutral Node-action executor request/response protocol;
+2. bundle `"use node"` entry modules separately from transaction and edge-action
+   modules;
+3. give remote executors content-bound package/artifact references, never raw
+   database or Hyperdrive credentials;
+4. issue a short-lived callback capability bound at minimum to scope/component,
+   deployment, action artifact and deadline, with invocation binding preferred;
+5. preserve verified caller identity and trace context across callbacks;
+6. route callbacks through backend-owned function resolution, visibility,
+   argument/return validation and normal transaction execution;
+7. keep each query/mutation callback an independent transaction; and
+8. provide local and remote executor adapters against the same protocol.
+
+AWS Lambda is now a proven Convex reference and a strong candidate for Flarex's
+first hosted `action-node` adapter. It is not yet an accepted provider choice:
+bundle/payload limits, regions, networking, concurrency, credentials, cold
+starts, observability, deployment readiness, rollback and operating cost still
+need a focused provider preflight. Whichever adapter is selected must remain
+behind the provider-neutral contract above.
+
 ## Automatic Execution-Group Construction
 
 The push pipeline should build execution groups deterministically from exact
@@ -951,12 +1060,36 @@ Checked-in Convex references:
 - `../../../npm-packages/convex/src/bundler/index.ts`
   - entry discovery, environment classification, module bundling, and chunks.
 - `../../../npm-packages/convex/src/cli/lib/config.ts`
-  - separate Convex-isolate and Node build passes.
+  - separate Convex-isolate and Node build passes plus external Node packages.
 - `../../../crates/isolate/src/environment/analyze.rs`
   - backend analysis of registered query/mutation/action exports.
 - `../../../crates/application/src/application_function_runner/mod.rs`
-  - isolate versus Node action routing and action callbacks into independent
-    query/mutation execution.
+  - Node invocation construction, package URLs, identity propagation, callback
+    token issuance and action-result validation.
+- `../../../crates/model/src/aws_lambda_versions/types.rs` and
+  `../../../crates/model/src/aws_lambda_versions/mod.rs`
+  - AWS Lambda configuration/version metadata and static-versus-dynamic package
+    routing.
+- `../../../crates/model/src/source_packages/types.rs`
+  - Lambda-derived zipped and unzipped Node package headroom.
+- `../../../crates/node_executor/src/executor.rs`
+  - provider-neutral Rust Node-executor interface and invocation envelope.
+- `../../../npm-packages/node-executor/src/syscalls.ts`
+  - Node syscall interception and authenticated HTTP callbacks to the backend.
+- `../../../crates/local_backend/src/node_action_callbacks.rs`
+  - protected callback routes, token validation, identity reconstruction and
+    independent query/mutation/action dispatch.
+- `../../../crates/keybroker/src/broker.rs`
+  - encrypted, issued-at and component-scoped action callback tokens.
+- `../../../crates/node_executor/src/local.rs` and
+  `../../../crates/node_executor/src/remote.rs`
+  - self-hosted local-process and remote Node-executor adapters.
+
+Convex primary documentation, verified during the Node-action research:
+
+- [Convex runtimes](https://docs.convex.dev/functions/runtimes)
+- [Convex actions](https://docs.convex.dev/functions/actions)
+- [Convex Ready for Actions](https://stack.convex.dev/ready-for-actions)
 
 Cloudflare primary documentation, verified while this note was prepared:
 

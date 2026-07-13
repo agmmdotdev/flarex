@@ -16,8 +16,9 @@ domain file.
     Worker execution groups; transaction, edge-action, Node-action, and future
     heavy/job capability profiles; provider-neutral action placement; runtime
     projections; same-session remote nested calls; latency-aware colocation;
-    speculative preparation; cross-provider readiness/rollback gates; and
-    oversized-dependency diagnostics. Implementation remains owned by the
+    speculative preparation; the verified Convex AWS Lambda and authenticated
+    action-callback reference model; cross-provider readiness/rollback gates;
+    and oversized-dependency diagnostics. Implementation remains owned by the
     runtime and push roadmaps.
 
 - `flarex-db-accepted-design.md`
