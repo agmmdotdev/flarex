@@ -59,6 +59,8 @@ describe("createPGlitePersistence", () => {
       "document_freshness_versions",
       "documents",
       "freshness_processed_events",
+      "fx_app_row_current",
+      "fx_app_row_rev",
       "fx_control_index",
       "fx_control_index_definition",
       "fx_control_schema_version",
@@ -700,6 +702,92 @@ describe("createPGlitePersistence", () => {
           fence: "7",
           commit_seq: "11",
         },
+      ]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("adds native scope projections and empty app-row storage compatibly", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-app-row-upgrade-"));
+    const previousMigrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const previousJournal = resolve(
+      packageRoot,
+      "test/fixtures/drizzle-through-0024-journal.json",
+    );
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, previousMigrationsFolder, {
+        recursive: true,
+      });
+      await copyFile(
+        previousJournal,
+        resolve(previousMigrationsFolder, "meta/_journal.json"),
+      );
+      const previousPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder: previousMigrationsFolder,
+      });
+      await previousPersistence.migrate();
+      await previousPersistence.query(`
+        insert into fx_system_scope_clock
+          (scope_id, storage_generation, epoch)
+        values
+          (
+            'scope_40000000-0000-0000-0000-000000000001',
+            'flarexdb_v1',
+            'epoch_40000000-0000-0000-0000-000000000002'
+          ),
+          ('scope_before_app_rows', 'legacy_v1', 'epoch-before-app-rows')
+      `);
+      await expect(
+        previousPersistence.query(`select scope_uuid from fx_system_scope_clock`),
+      ).rejects.toThrow();
+      await expect(
+        previousPersistence.query(`select count(*) from fx_app_row_rev`),
+      ).rejects.toThrow();
+
+      const currentPersistence = await createPGlitePersistence({ db });
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      const preserved = await currentPersistence.query<{
+        scope_id: string;
+        scope_uuid: string | null;
+        epoch_uuid: string | null;
+      }>(`
+        select scope_id, scope_uuid::text, epoch_uuid::text
+        from fx_system_scope_clock
+        order by scope_id
+      `);
+      expect(preserved.rows).toEqual([
+        {
+          scope_id: "scope_40000000-0000-0000-0000-000000000001",
+          scope_uuid: "40000000-0000-0000-0000-000000000001",
+          epoch_uuid: "40000000-0000-0000-0000-000000000002",
+        },
+        {
+          scope_id: "scope_before_app_rows",
+          scope_uuid: null,
+          epoch_uuid: null,
+        },
+      ]);
+      const appRows = await currentPersistence.query<{
+        revision_count: string;
+        current_count: string;
+      }>(`
+        select
+          (select count(*)::text from fx_app_row_rev) as revision_count,
+          (select count(*)::text from fx_app_row_current) as current_count
+      `);
+      expect(appRows.rows).toEqual([
+        { revision_count: "0", current_count: "0" },
       ]);
     } finally {
       try {

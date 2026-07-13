@@ -698,29 +698,16 @@ Example page:
 }
 ```
 
-Suggested shape:
+Accepted v1 cutline:
 
-```sql
-fx_row_current (
-  scope_id text not null,
-  epoch text not null,
-  table_id int not null,
-  row_id text not null,
-  commit_seq bigint not null,
-  schema_version bigint not null,
-  value_codec_version integer not null,
-  data_json jsonb not null,
-  data_hash bytea not null,
-  deleted boolean not null default false,
-  created_at timestamptz,
-  updated_at timestamptz,
-  deleted_at timestamptz,
-  status text,
-  primary key (scope_id, table_id, row_id)
-);
+```text
+fx_app_row_current
+  epoch-independent key: native scope UUID + compact table ID + 16-byte row ID
+  payload: exact latest commit-sequence pointer only
+  authority: none beyond its foreign key to fx_app_row_rev
 ```
 
-### `fx_row_rev`: keep, but add retention
+### `fx_row_rev`: keep authoritative history; defer retention mechanics
 
 This stores historical app/CMS row revisions for OCC and sync windows.
 
@@ -729,34 +716,27 @@ It is not Payload user-visible version history.
 Recommendation:
 
 ```text
-keep fx_row_rev
-but define retention / compaction from the beginning
+keep fx_app_row_rev as the sole row-value authority
+S07 adds snapshot/reconnect retention leases
+O11 defines the retained floor and compaction algorithm
 ```
 
-Do not keep infinite internal row history by default.
+S06 does not delete history or claim that a safe compaction floor exists.
 
-Suggested shape:
+Accepted v1 cutline:
 
-```sql
-fx_row_rev (
-  scope_id text not null,
-  epoch text not null,
-  table_id int not null,
-  row_id text not null,
-  commit_seq bigint not null,
-  prev_commit_seq bigint,
-  schema_version bigint not null,
-  value_codec_version integer not null,
-  data_json jsonb not null,
-  data_hash bytea not null,
-  deleted boolean not null default false,
-  created_at timestamptz,
-  updated_at timestamptz,
-  deleted_at timestamptz,
-  status text,
-  primary key (scope_id, table_id, row_id, commit_seq)
-);
+```text
+fx_app_row_rev
+  key: native scope UUID + compact table ID + 16-byte row ID + commit sequence
+  provenance: write epoch, immutable schema version, prior commit sequence
+  live state: trusted _id/_creationTime plus Value Codec V1 JSON, bytes, SHA-256
+  tombstone state: explicit discriminator with no value evidence
 ```
+
+The exact constraints and repository boundary are owned by
+[`../roadmaps/flarexdb-foundation/01-schema-and-migrations.md`](../roadmaps/flarexdb-foundation/01-schema-and-migrations.md)
+under S06. Earlier text-ID, duplicated-current-payload, generic timestamp, and
+status-column sketches are superseded rather than alternate DDL choices.
 
 ### `fx_index_entry_current`: keep
 

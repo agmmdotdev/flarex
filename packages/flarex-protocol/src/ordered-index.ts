@@ -1,6 +1,14 @@
 import { Data, Schema } from "effect";
 
 import {
+  APP_ROW_ID_BYTES_V1,
+  AppRowIdHexV1Schema,
+  appRowIdHexV1FromBytes,
+  appRowIdHexV1ToBytes,
+  decodeAppRowIdHexV1,
+  type AppRowIdHexV1,
+} from "./app-document-id";
+import {
   SchemaManifestAppIndexFieldPathSchema,
   decodeSchemaManifestAppDeveloperOrderedIndexSpecV1,
   decodeSchemaManifestAppIndexFieldPath,
@@ -17,7 +25,7 @@ export const MAX_ORDERED_INDEX_BOUND_BYTES_V1 =
   MAX_ORDERED_INDEX_KEY_BYTES_V1 + 1;
 export const MAX_ORDERED_INDEX_BYTE_VALUE_BYTES_V1 =
   MAX_ORDERED_INDEX_KEY_BYTES_V1 - 2;
-export const ORDERED_INDEX_ROW_ID_BYTES_V1 = 16;
+export const ORDERED_INDEX_ROW_ID_BYTES_V1 = APP_ROW_ID_BYTES_V1;
 export const MAX_APP_ORDERED_INDEX_ENCODED_FIELDS_V1 = 16;
 export const MAX_ORDERED_INDEX_VALUE_DEPTH_V1 = 64;
 export const MAX_ORDERED_INDEX_OBJECT_FIELD_BYTES_V1 = 1_024;
@@ -142,18 +150,9 @@ export const decodeOrderedIndexBoundHexV1 = Schema.decodeUnknownSync(
   OrderedIndexBoundHexV1Schema,
 );
 
-export const OrderedIndexRowIdHexV1Schema = Schema.String.check(
-  Schema.makeFilter((value) =>
-    /^[0-9a-f]{32}$/.test(value)
-      ? undefined
-      : "Expected one canonical 16-byte row identity"
-  ),
-).pipe(Schema.brand("FlarexDB/OrderedIndexRowIdHexV1"));
-export type OrderedIndexRowIdHexV1 =
-  typeof OrderedIndexRowIdHexV1Schema.Type;
-export const decodeOrderedIndexRowIdHexV1 = Schema.decodeUnknownSync(
-  OrderedIndexRowIdHexV1Schema,
-);
+export const OrderedIndexRowIdHexV1Schema = AppRowIdHexV1Schema;
+export type OrderedIndexRowIdHexV1 = AppRowIdHexV1;
+export const decodeOrderedIndexRowIdHexV1 = decodeAppRowIdHexV1;
 
 export const OrderedIndexByteValueHexV1Schema = Schema.String.check(
   Schema.makeFilter((value) => {
@@ -476,13 +475,13 @@ export function orderedIndexRowIdHexV1FromBytes(
       `row identity must contain exactly ${ORDERED_INDEX_ROW_ID_BYTES_V1} bytes`,
     );
   }
-  return decodeOrderedIndexRowIdHexV1(bytesToHex(value));
+  return appRowIdHexV1FromBytes(value);
 }
 
 export function orderedIndexRowIdHexV1ToBytes(
   value: OrderedIndexRowIdHexV1,
 ): Uint8Array {
-  return hexToBytes(decodeOrderedIndexRowIdHexV1(value));
+  return appRowIdHexV1ToBytes(decodeOrderedIndexRowIdHexV1(value));
 }
 
 export function orderedIndexBytesV1FromBytes(

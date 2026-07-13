@@ -159,9 +159,11 @@ catalog identity:
   public/global reference       -> optional separate opaque uuid
 
 Flarex app document identity:
-  developer representation     -> opaque and table-qualified
-  physical representation      -> compact table key + 16-byte internal ID
-  generator                    -> unresolved Convex-port vs measured UUIDv7
+  developer representation     -> v1 positive compact table ID plus canonical
+                                   lowercase UUID; opaque and table-qualified
+  physical representation      -> compact table key + the UUID's exact 16 bytes
+  generator                    -> current v1 compatibility path remains UUIDv4;
+                                   UUIDv7 requires a later measured decision
 
 adapter-owned identity:
   Payload/Medusa IDs            -> compiled from the real adapter schema
@@ -169,10 +171,11 @@ adapter-owned identity:
                                   when required by hot index economics
 ```
 
-UUIDv7 is not the transaction cursor and must not become implicit business
-ordering. If selected for Flarex-generated internal IDs, its time disclosure,
-clock behavior, insertion locality, and divergence from Convex must be recorded
-and benchmarked first. Payload and Medusa are not forced into that choice.
+UUID bytes have no ordering semantics. UUIDv7 is not the transaction cursor and
+must not become implicit business ordering. If selected by a later identity
+contract, its time disclosure, clock behavior, insertion locality, and
+divergence from Convex must be recorded and benchmarked first. Payload and
+Medusa are not forced into that choice.
 
 Index column order follows the actual access path: equality authority prefixes
 first, the range/order column next, and a unique row identity last. Thus stable
@@ -658,58 +661,41 @@ posts: defineTable({
 
 Generated catalog rows describe `posts`, `users`, `categories`, columns,
 relations, indexes, CMS metadata, and write policies. The physical app data goes
-into shared row-history/current tables:
+into shared row-history/current tables. S06 replaces the earlier text-heavy SQL
+sketch with this accepted physical contract:
 
-```sql
-fx_app_row_rev (
-  scope_id text not null,
-  epoch text not null,
-  table_id text not null,
-  row_id text not null,
-  commit_seq bigint not null,
-  prev_commit_seq bigint,
-  schema_version_id text not null,
-  value_codec_version integer not null,
+```text
+fx_app_row_rev
+  key
+    native scope UUID
+    positive compact table ID
+    exact 16-byte row identity
+    positive scope-local commit sequence
+  provenance
+    native write-epoch UUID (not a visibility key)
+    optional prior commit sequence
+    immutable schema-version ID
+    trusted positive finite float64 creation time
+  live evidence
+    Value Codec V1 JSON
+    retained canonical bytes
+    SHA-256
+  tombstone evidence
+    explicit tombstone discriminator
+    SQL NULL value JSON, canonical bytes, and hash
 
-  data_json jsonb not null,
-  data_hash bytea not null,
-
-  created_at timestamptz not null,
-  updated_at timestamptz not null,
-  deleted_at timestamptz,
-  status text,
-  deleted boolean not null default false,
-
-  primary key (scope_id, table_id, row_id, commit_seq)
-)
-
-create index fx_app_row_rev_commit_idx
-  on fx_app_row_rev (scope_id, table_id, commit_seq);
-
-fx_app_row_current (
-  scope_id text not null,
-  epoch text not null,
-  table_id text not null,
-  row_id text not null,
-  commit_seq bigint not null,
-  schema_version_id text not null,
-  value_codec_version integer not null,
-
-  data_json jsonb not null,
-  data_hash bytea not null,
-
-  created_at timestamptz not null,
-  updated_at timestamptz not null,
-  deleted_at timestamptz,
-  status text,
-  deleted boolean not null default false,
-
-  primary key (scope_id, table_id, row_id)
-)
-
-create index fx_app_row_current_updated_idx
-  on fx_app_row_current (scope_id, table_id, updated_at desc, row_id);
+fx_app_row_current
+  key
+    native scope UUID + compact table ID + exact 16-byte row identity
+  payload
+    one commit-sequence pointer with a composite foreign key to fx_app_row_rev
+  authority
+    latest-read optimization only; no duplicated row value
 ```
+
+The revision primary-key B-tree serves backward point history lookup, so S06
+does not add a duplicate latest-revision index. Generic status/timestamp columns
+and updated-time pagination remain unowned and are not part of the row kernel.
 
 `scope_id` is internal deployment/project isolation. Developers should not model
 their own app tenancy by relying on this column. If the deployment uses
@@ -2438,9 +2424,11 @@ These are still implementation choices, not product boundary changes:
 - exact `fx_version` representation on Medusa reserved tables;
 - whether high-volume commit summaries stay JSONB or split into typed summary
   tables;
-- whether the 16-byte Flarex app internal ID ports Convex generation closely or
-  deliberately uses UUIDv7 after Postgres locality benchmarks and a documented
-  compatibility/timestamp-disclosure review.
+- whether a future ID-generation contract retains UUIDv4 or deliberately adopts
+  UUIDv7 after Postgres locality benchmarks and a documented timestamp-
+  disclosure review. Document ID V1's table-qualified UUID mapping and exact
+  16-byte physical projection are already fixed and do not depend on that
+  future generator choice.
 
 Changing those physical choices should not change the public API or ownership
 rules above.

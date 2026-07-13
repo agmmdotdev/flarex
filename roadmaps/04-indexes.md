@@ -1,5 +1,12 @@
 # Indexes
 
+## Current Row Tie-Breaker Identity
+
+S05-A's exact 16-byte row tie-breaker is now the UUID-byte projection frozen by
+Replacement Document ID V1. Index ordering remains raw-byte ordering after the
+encoded field tuple. UUID generation time, version, insertion locality, and the
+public textual form do not create a second ordering contract.
+
 ## Persist Authenticated Table-Owned Creation-Time Definitions
 
 Previous completed checkpoint: `478137e` Broaden standing code reviewers.

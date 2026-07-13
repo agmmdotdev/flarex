@@ -301,14 +301,17 @@ The active foundation status is:
   table definitions, stable logical indexes, ordered index codec v1, immutable
   physical definitions, schema bindings, and fenced build-state reads through
   `S03-D2d` plus the interleaved `S05-A` prerequisite;
-- complete but not yet consumed by replacement rows: host-neutral Flarex Value
-  Codec V1 through `S05-B`, including canonical evidence, ordered lowering, the
-  SDK facade, and PGlite `jsonb` proof;
+- complete and first consumed by non-routing replacement rows: host-neutral
+  Flarex Value Codec V1 through `S05-B`, including canonical evidence, ordered
+  lowering, the SDK facade, and storage verification;
+- complete but internal/non-routing: `S06` native scope/epoch projections,
+  strict replacement Document ID V1, authoritative row revisions, and
+  pointer-only current storage;
 - complete but private/non-routing: `O02` resolves one ephemeral exact app-data
   snapshot plus generation/fence from trusted placement and one located
   data-plane scope-clock read; and
-- not complete: replacement app-row/OCC/commit/cutover work, per-scope build
-  reconciliation/readiness, and production replacement routing.
+- not complete: remaining replacement session/OCC/commit/cutover work,
+  per-scope build reconciliation/readiness, and production replacement routing.
 
 ### Hosted Worker proof
 
@@ -344,10 +347,11 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
 - Per-scope index-build reconciliation and readiness remain `S03-D3` and
   `S03-D4`; catalog existence is not activation readiness.
 - Active-schema pointer migration (`S04`) remains deferred to Wave 4. The
-  completed value codec is not yet wired into a replacement row or route.
-- Replacement row revision/current storage, snapshot leases, exact-snapshot
-  reads, OCC validators, commit/change feed, idempotency outcomes, leased
-  outbox, and the bounded commit compiler are not implemented.
+  completed value codec is wired into internal S06 rows but not a route.
+- Snapshot leases, semantic exact-snapshot reads and dependencies, OCC
+  validators, commit/change feed, idempotency outcomes, leased outbox, and the
+  bounded commit compiler are not implemented. S06's storage-level history
+  lookup and current-pointer CAS do not claim those later semantics.
 - The current broad persistence interface and legacy invoke-session tables are
   compatibility surfaces to narrow behind generation-specific ports.
 - Existing freshness and live-query delivery behavior belongs to the legacy
@@ -392,11 +396,11 @@ capabilities. Neither adapter may receive raw executor persistence.
 
 ## Next Correctness Gates
 
-The immediate next candidate is `S06` in the focused schema plan: define app
-row revision/current storage as the first persisted consumer of completed Value
-Codec V1. It changes no `/invoke/*` behavior, opens no production replacement
-route, and requires its own evidence-backed preflight and approval, including
-the focused real-Postgres row/storage proof.
+The immediate next candidate is `S07` in the focused schema plan: add the
+session and retention-lease DDL needed before authoritative session anchors.
+Completed `S06` remains internal and changes no `/invoke/*` behavior or
+production replacement route. `S07` requires its own evidence-backed preflight
+and approval; S06 completion is not implicit authorization.
 
 Follow the interleaved foundation order rather than pulling build/readiness
 work forward:

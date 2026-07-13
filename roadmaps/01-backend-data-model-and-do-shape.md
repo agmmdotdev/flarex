@@ -1,5 +1,15 @@
 # Backend Data Model And Durable Object Shape
 
+## Current Replacement Row Identity Contract
+
+Replacement Document ID V1 is a positive compact table ID plus one canonical
+lowercase UUID. The UUID's exact 16 bytes are the physical row identity and the
+public ID re-encodes reversibly from `(table_id, row_id)`. Existing arbitrary-
+suffix ID parsing remains a legacy compatibility surface. Current generators
+remain UUIDv4, while UUID version/locality and insertion order carry no storage
+or API ordering semantics; a future measured generator decision does not imply
+Document ID V2.
+
 ## Materialize Intrinsic Access Without A Logical Index Copy
 
 Previous completed checkpoint: `478137e` Broaden standing code reviewers.
@@ -318,8 +328,9 @@ Why it changed:
 
 Duplicating the public document ID in encoded bytes and a physical column would
 widen every entry and confuse logical with physical identity. The separate
-compact suffix preserves deterministic order while leaving the eventual ID
-generator and public mapping as explicit later decisions.
+compact suffix preserves deterministic order. S06 subsequently fixed the public
+V1 mapping to positive table ID plus canonical UUID and the physical projection
+to that UUID's exact bytes; only future generator/locality policy remains open.
 
 Convex references inspected:
 
@@ -341,7 +352,7 @@ Known limitations and follow-up:
 - C3/C4 still own immutable physical definition identity/DDL and fenced build
   state. Entry storage, row storage, compiler wiring, OCC, and activation are
   absent.
-- Direct `by_id` query endpoints, the internal row-ID generator, durable cursor
+- Direct `by_id` query endpoints, future row-ID generator policy, durable cursor
   formats, Payload/Medusa adapters, and legacy rebuilding remain later work.
 
 Verification:

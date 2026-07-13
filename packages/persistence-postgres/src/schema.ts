@@ -4,6 +4,7 @@ import {
   boolean,
   check,
   customType,
+  doublePrecision,
   foreignKey,
   index,
   integer,
@@ -13,7 +14,9 @@ import {
   text,
   timestamp,
   unique,
+  uuid,
 } from "drizzle-orm/pg-core";
+import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { ExecutionIdentity } from "flarex-protocol/auth";
 import type {
   CatalogIndexDefinitionId,
@@ -32,6 +35,7 @@ import type {
   IndexBuildLifecycleV1,
 } from "flarex-protocol/index-build-state";
 import type { AppOrderedIndexPhysicalSpecV1 } from "flarex-protocol/ordered-index";
+import type { Json } from "flarex-protocol/json";
 import type {
   CanonicalSchemaManifestBytes,
   CatalogSchemaVersion,
@@ -45,10 +49,17 @@ import type {
   FlarexDbV1StorageGeneration,
   OutboxSeq,
   ScopeEpoch,
+  ScopeEpochUuidV1,
   ScopeId,
+  ScopeUuidV1,
   StorageGeneration,
   StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
+import type {
+  CanonicalFlarexValueBytesV1,
+  FlarexValueCodecVersion,
+  FlarexValueSha256V1,
+} from "flarex-protocol/value";
 
 import type { ScopeIsolationKind } from "./scopeMetadataTypes";
 
@@ -540,6 +551,15 @@ export const fxSystemScopeClocks = pgTable(
   "fx_system_scope_clock",
   {
     scopeId: text("scope_id").$type<ScopeId>().primaryKey(),
+    scopeUuid: uuid("scope_uuid")
+      .$type<ScopeUuidV1>()
+      .generatedAlwaysAs(sql`
+        case
+          when "scope_id" ~ '^scope_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          then substring("scope_id" from 7)::uuid
+          else null
+        end
+      `),
     storageGeneration: text("storage_generation")
       .$type<StorageGeneration>()
       .notNull(),
@@ -558,11 +578,21 @@ export const fxSystemScopeClocks = pgTable(
       .notNull()
       .default(sql`0`),
     epoch: text("epoch").$type<ScopeEpoch>().notNull(),
+    epochUuid: uuid("epoch_uuid")
+      .$type<ScopeEpochUuidV1>()
+      .generatedAlwaysAs(sql`
+        case
+          when "epoch" ~ '^epoch_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+          then substring("epoch" from 7)::uuid
+          else null
+        end
+      `),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (table) => [
+    unique("fx_system_scope_clock_scope_uuid_unique").on(table.scopeUuid),
     check(
       "fx_system_scope_clock_scope_id_non_empty_check",
       nonBlankText(table.scopeId),
@@ -586,6 +616,138 @@ export const fxSystemScopeClocks = pgTable(
     check(
       "fx_system_scope_clock_epoch_non_empty_check",
       nonBlankText(table.epoch),
+    ),
+  ],
+);
+
+/**
+ * Authoritative replacement app-row history. The current table below stores
+ * only an exact pointer into this history and never duplicates value evidence.
+ */
+export const fxAppRowRevisions = pgTable(
+  "fx_app_row_rev",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    tableId: integer("table_id").$type<CatalogTableId>().notNull(),
+    rowId: bytea("row_id").notNull(),
+    commitSeq: bigint("commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull(),
+    prevCommitSeq: bigint("prev_commit_seq", { mode: "bigint" }).$type<
+      CommitSeq
+    >(),
+    writeEpochUuid: uuid("write_epoch_uuid")
+      .$type<ScopeEpochUuidV1>()
+      .notNull(),
+    schemaVersionId: text("schema_version_id")
+      .$type<CatalogSchemaVersionId>()
+      .notNull(),
+    creationTime: doublePrecision("creation_time")
+      .$type<AppCreationTimeV1>()
+      .notNull(),
+    valueCodecVersion: integer("value_codec_version")
+      .$type<FlarexValueCodecVersion>()
+      .notNull(),
+    isTombstone: boolean("is_tombstone").notNull(),
+    valueJson: jsonb("value_json").$type<Json>(),
+    valueBytes: bytea("value_bytes").$type<CanonicalFlarexValueBytesV1>(),
+    valueSha256: bytea("value_sha256").$type<FlarexValueSha256V1>(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.scopeUuid, table.tableId, table.rowId, table.commitSeq],
+    }),
+    foreignKey({
+      name: "fx_app_row_rev_scope_clock_fk",
+      columns: [table.scopeUuid],
+      foreignColumns: [fxSystemScopeClocks.scopeUuid],
+    }).onDelete("restrict"),
+    check(
+      "fx_app_row_rev_table_id_positive_check",
+      sql`${table.tableId} between 1 and 2147483647`,
+    ),
+    check(
+      "fx_app_row_rev_row_id_length_check",
+      sql`octet_length(${table.rowId}) = 16`,
+    ),
+    check(
+      "fx_app_row_rev_commit_seq_positive_check",
+      sql`${table.commitSeq} >= 1`,
+    ),
+    check(
+      "fx_app_row_rev_prev_commit_seq_check",
+      sql`${table.prevCommitSeq} is null or (${table.prevCommitSeq} >= 1 and ${table.prevCommitSeq} < ${table.commitSeq})`,
+    ),
+    check(
+      "fx_app_row_rev_schema_version_id_non_empty_check",
+      nonBlankText(table.schemaVersionId),
+    ),
+    check(
+      "fx_app_row_rev_creation_time_check",
+      sql`${table.creationTime} > 0 and ${table.creationTime} < 9007199254740992`,
+    ),
+    check(
+      "fx_app_row_rev_value_codec_version_check",
+      sql`${table.valueCodecVersion} = 1`,
+    ),
+    check(
+      "fx_app_row_rev_value_state_check",
+      sql`
+        (
+          ${table.isTombstone}
+          and ${table.valueJson} is null
+          and ${table.valueBytes} is null
+          and ${table.valueSha256} is null
+        )
+        or
+        (
+          not ${table.isTombstone}
+          and ${table.valueJson} is not null
+          and jsonb_typeof(${table.valueJson}) = 'object'
+          and ${table.valueBytes} is not null
+          and octet_length(${table.valueBytes}) > 0
+          and ${table.valueSha256} is not null
+          and octet_length(${table.valueSha256}) = 32
+        )
+      `,
+    ),
+  ],
+);
+
+/** Epoch-independent latest pointer into authoritative app-row history. */
+export const fxAppRowCurrent = pgTable(
+  "fx_app_row_current",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    tableId: integer("table_id").$type<CatalogTableId>().notNull(),
+    rowId: bytea("row_id").notNull(),
+    commitSeq: bigint("commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scopeUuid, table.tableId, table.rowId] }),
+    foreignKey({
+      name: "fx_app_row_current_revision_fk",
+      columns: [table.scopeUuid, table.tableId, table.rowId, table.commitSeq],
+      foreignColumns: [
+        fxAppRowRevisions.scopeUuid,
+        fxAppRowRevisions.tableId,
+        fxAppRowRevisions.rowId,
+        fxAppRowRevisions.commitSeq,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "fx_app_row_current_table_id_positive_check",
+      sql`${table.tableId} between 1 and 2147483647`,
+    ),
+    check(
+      "fx_app_row_current_row_id_length_check",
+      sql`octet_length(${table.rowId}) = 16`,
+    ),
+    check(
+      "fx_app_row_current_commit_seq_positive_check",
+      sql`${table.commitSeq} >= 1`,
     ),
   ],
 );
@@ -1159,6 +1321,8 @@ export const flarexSchema = {
   deployments,
   documentFreshnessVersions,
   documents,
+  fxAppRowCurrent,
+  fxAppRowRevisions,
   fxControlIndexDefinitions,
   freshnessProcessedEvents,
   fxControlIndexes,

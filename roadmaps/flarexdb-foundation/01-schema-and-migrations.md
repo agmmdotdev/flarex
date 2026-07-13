@@ -3,11 +3,11 @@
 ## Status And Scope
 
 Status: `S01`, `S02-A` through `S02-C`, resolve-only `S02-D1`, `S03-A`
-through `S03-D2d`, and interleaved `S05-A`/`S05-B` are complete.
-Hosted proof `H01` through `H04` and `H05-A` are complete. `H05-B` and
-production routing `S02-D2` remain deferred. The current next implementation
-gate is `S06` in this plan and still requires its normal design preflight and
-approval. Private non-routing snapshot resolution `O02` is complete.
+through `S03-D2d`, interleaved `S05-A`/`S05-B`, and `S06` are complete. Hosted
+proof `H01` through `H04` and `H05-A` are complete. `H05-B` and production
+routing `S02-D2` remain deferred. The current next candidate is `S07` and still
+requires its own design preflight and approval. Private non-routing snapshot
+resolution `O02` is complete.
 
 This plan owns the additive physical schema, codecs, repositories, stable
 catalog, and compatibility migration for the first Flarex app-data generation.
@@ -80,9 +80,9 @@ Convex-first implementation references include:
 | Physical index definitions | Immutable physical definitions, table-owned creation-time definitions, schema-version bindings, and separate physical IDs exist. |
 | Build state | Fenced per-scope index-build state DDL and `absent | current | stale` reads exist; reconciliation/readiness mutation does not. |
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
-| Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. The SDK facade and PGlite `jsonb` proof exist; no replacement row or route consumes it yet. |
+| Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. S06 is its first replacement-row consumer; no replacement route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
-| Replacement app data | Row revision/current, session leases, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, backfill, and cutover are not implemented. |
+| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, and pointer-only current storage are implemented but non-routing. Session leases, semantic point reads/OCC, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, backfill, and cutover are not implemented. |
 
 Existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, and
 subscription tables remain the compatibility baseline. The replacement
@@ -102,7 +102,9 @@ These decisions are durable and are not re-opened by each implementation turn:
   cannot select them.
 - Use native Postgres `uuid` for trusted replacement scope/epoch components.
   Branded `scope_<uuid>` and `epoch_<uuid>` strings remain reversible boundary
-  representations.
+  representations. S06 derives stored native projections from canonical text;
+  incompatible legacy values retain null projections and replacement access
+  fails closed instead of inventing another identity.
 - Use `bigint` for revisions and commit/outbox sequences. Encode them as
   strings or branded values at JavaScript/protocol boundaries.
 - Empty scope sequence is `0`. A successful final transaction allocates
@@ -111,9 +113,12 @@ These decisions are durable and are not re-opened by each implementation turn:
 - Use compact numeric hot catalog identities. Preserve additional opaque/global
   identity only where portability requires it; do not repeat wide names through
   every app-side index.
-- Developer document IDs remain opaque and table-qualified while physical rows
-  use compact table identity plus a 16-byte internal identity. The internal-ID
-  generator remains an explicit Convex-port-versus-UUIDv7 gate.
+- Replacement Document ID V1 is `<positive CatalogTableId>:<canonical lowercase
+  UUID>`. The UUID's exact bytes are the physical 16-byte row identity, while
+  the existing permissive SDK parser remains legacy-only. V1 names the first
+  replacement contract, not a successor to a missing public V1. UUID generation,
+  version, locality, and ordering semantics remain separate decisions; current
+  generation remains UUIDv4 and UUID bytes provide no API ordering.
 - Payload and Medusa external identities retain their real schema semantics;
   compact surrogates cannot weaken external uniqueness or round trips.
 - App row JSON is authoritative. Index, edge, unique, change, and outbox rows
@@ -325,7 +330,7 @@ Medusa, and Cloudflare deployment remain outside
 this facade. The standalone `O01` abstraction gate was retired before
 implementation and its necessary scope-authority seam was folded into completed
 `O02`; completed `S05-B` changes no catalog publication or routing behavior.
-`S06` is next and is not pre-approved.
+`S06` is complete. `S07` is next and is not pre-approved.
 
 Exit gates for the complete S03 stream:
 
@@ -403,20 +408,53 @@ Exit gates:
   define ordered-index comparison; and
 - byte changes require a new version and migration.
 
-### [ ] S06 — Add App Row Revision And Current Storage
+### [x] S06 — Add App Row Revision And Current Storage
 
 Outcome:
 
-- Add `fx_app_row_rev` and `fx_app_row_current` with scope/table/row identity,
-  commit provenance, schema/codec version, value, tombstone, and prior revision.
-- Add transaction-bound exact point history/current repositories.
-- Treat current rows only as a latest-read optimization.
+- Add compatibility-safe native UUID projections to
+  `fx_system_scope_clock`. The projections are derived from canonical
+  `scope_<uuid>` / `epoch_<uuid>` boundary IDs; legacy noncanonical text rows
+  remain valid only for legacy paths and never receive invented UUID mappings.
+- Freeze replacement Document ID V1 as a positive compact table ID plus one
+  canonical lowercase UUID. The UUID's exact 16 bytes are the physical row
+  identity. Existing permissive SDK parsing remains a legacy compatibility
+  surface; UUID bytes have no ordering semantics and UUIDv7 generation remains
+  deferred pending an explicit measured decision.
+- Add `fx_app_row_rev` as the only authoritative row-value store. Its key is
+  native scope UUID, positive table ID, exact 16-byte row identity, and positive
+  commit sequence. It retains write-epoch provenance, schema and Value Codec V1
+  evidence, immutable trusted creation time, explicit tombstone state, and the
+  prior commit sequence without making that predecessor a retention-blocking
+  foreign key.
+- Add `fx_app_row_current` as an epoch-independent pointer to one exact revision,
+  protected by a composite foreign key. It does not duplicate document value
+  evidence or become a second value authority.
+- Add only transaction-bound append/current-advance primitives and exact
+  revision reads at or before a caller-supplied commit sequence. Storage reads
+  preserve `missing | live | tombstone`; later point-read code owns dependency
+  recording and any public `null` projection.
+
+Non-goals:
+
+- no commit-sequence allocation, OCC/session validation, idempotency, feeds,
+  routes, indexes, edges, uniqueness, retention, baseline backfill, cutover, or
+  Cloudflare deployment; and
+- no adoption of the legacy timestamp/unchecked-JSON document repository as
+  replacement storage.
 
 Exit gates:
 
-- point/missing/insert/update/delete/tombstone history passes;
-- later revisions never leak into older snapshots; and
-- epoch rollover does not hide untouched rows.
+- fresh and upgrade migrations preserve canonical and noncanonical clock rows,
+  and replacement access fails closed when native projections are unavailable;
+- native scope, positive table/commit, exact row-byte, predecessor, codec/hash,
+  live/tombstone, trusted system-field, and current-pointer invariants pass;
+- point/missing/insert/update/delete/tombstone history passes, later revisions
+  never leak into older snapshots, and scope/table identities remain isolated;
+- epoch rollover does not hide untouched rows and revision/current writes roll
+  back atomically; and
+- PGlite plus focused real-Postgres value round-trip and indexed backward point
+  lookup evidence pass without claiming later OCC or publication behavior.
 
 ### [ ] S07 — Add Session And Retention-Lease DDL
 

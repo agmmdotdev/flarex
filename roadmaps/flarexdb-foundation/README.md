@@ -2,14 +2,15 @@
 
 ## Status And Scope
 
-Current next gate: `S06`, app row revision/current storage. Completed `S05-B`
-freezes the host-neutral Flarex Value Codec V1 but does not pre-approve its
-first storage consumer; `S06` still requires the normal evidence-backed design
-preflight and explicit approval.
+Current next candidate: `S07`, session and retention-lease DDL. `S06` is
+complete as one unsplit gate: it adds native scope/epoch compatibility
+projections, strict replacement Document ID V1, authoritative row revisions,
+and pointer-only current rows without activating a replacement route. `S07`
+still requires its own evidence-backed preflight and explicit approval.
 
 | Stream | Current status |
 | --- | --- |
-| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, and interleaved `S05-A`/`S05-B` complete; `S06` is next |
+| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, and `S06` complete; `S07` is the next unapproved candidate |
 | OCC/transactions | Private non-routing `O02` snapshot resolution complete; standalone `O01` retired before implementation; `O03` and later gates remain planned |
 | Commit compiler | Planned; `C01` is the first unchecked compiler gate |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
@@ -203,7 +204,8 @@ types and ports are introduced by the gates that first consume them.
 2. `S05-B` (complete): tagged Flarex value codec for replacement rows and
    canonical logical protocol values, including the narrow NUL-string `jsonb`
    divergence and the adapter into S05-A ordering.
-3. `S06`: app row revision/current storage.
+3. `S06` (complete): native authority projections, strict replacement Document
+   ID V1, authoritative app-row revisions, and pointer-only current storage.
 4. `S07`: session, snapshot-lease, and reconnect-retention DDL.
 5. `O03`: authoritative fenced session anchors.
 6. `O04`: exact-snapshot point reads including missing-row dependencies.

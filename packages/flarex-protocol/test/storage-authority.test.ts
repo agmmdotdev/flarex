@@ -5,11 +5,16 @@ import {
   FlarexDbV1StorageGenerationSchema,
   LegacyV1StorageGenerationSchema,
   OutboxSeqSchema,
+  InvalidScopeAuthorityUuidProjectionV1Error,
   ScopeEpochSchema,
   ScopeIdSchema,
   SnapshotTokenSchema,
   StorageGenerationFenceSchema,
   StorageGenerationSchema,
+  projectScopeEpochUuidV1,
+  projectScopeIdUuidV1,
+  replacementScopeEpochV1FromUuid,
+  replacementScopeIdV1FromUuid,
 } from "../src/storage-authority";
 import type {
   CommitSeq,
@@ -88,6 +93,40 @@ describe("FlarexDB storage authority contracts", () => {
     for (const value of ["", 1, null, undefined]) {
       expect(() => decodeScopeId(value)).toThrow();
       expect(() => decodeScopeEpoch(value)).toThrow();
+    }
+  });
+
+  it("derives native UUID projections without tightening legacy identities", () => {
+    const scopeUuid = "018f22e2-58cc-7b2a-91d8-f3f3401a0874";
+    const epochUuid = "00000000-0000-0000-0000-000000000000";
+    const scope = projectScopeIdUuidV1(`scope_${scopeUuid}`);
+    const epoch = projectScopeEpochUuidV1(`epoch_${epochUuid}`);
+
+    expect(scope).toEqual({ scopeId: `scope_${scopeUuid}`, scopeUuid });
+    expect(epoch).toEqual({ epoch: `epoch_${epochUuid}`, epochUuid });
+    expect(Object.isFrozen(scope)).toBe(true);
+    expect(Object.isFrozen(epoch)).toBe(true);
+    expect(replacementScopeIdV1FromUuid(scopeUuid)).toBe(`scope_${scopeUuid}`);
+    expect(replacementScopeEpochV1FromUuid(epochUuid)).toBe(
+      `epoch_${epochUuid}`,
+    );
+
+    expect(decodeScopeId("scope-a")).toBe("scope-a");
+    expect(decodeScopeEpoch("epoch-a")).toBe("epoch-a");
+  });
+
+  it("fails closed on unmappable or non-canonical native projections", () => {
+    for (const value of [
+      "scope-a",
+      "scope_018F22E2-58CC-7B2A-91D8-F3F3401A0874",
+      "018f22e2-58cc-7b2a-91d8-f3f3401a0874",
+      "scope_018f22e258cc7b2a91d8f3f3401a0874",
+      1,
+      null,
+    ]) {
+      expect(() => projectScopeIdUuidV1(value)).toThrow(
+        InvalidScopeAuthorityUuidProjectionV1Error,
+      );
     }
   });
 

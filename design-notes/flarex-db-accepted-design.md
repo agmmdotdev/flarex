@@ -166,13 +166,13 @@ physical-type authority.
   foreign key, and secondary index. The shared-database replacement stores the
   trusted scope and epoch components as native `uuid` values and converts at the
   trusted boundary.
-- Keep app document IDs opaque and table-qualified in the developer API. The
-  physical form must contain a compact table identity plus a 16-byte internal
-  identity. UUIDv7 is a candidate internal generator when time-ordered insertion
-  materially improves the measured Postgres workload, but it is not accepted
-  merely because lexical ID order looks convenient. A final choice must compare
-  it with Convex's portable table-number plus 16-byte internal-ID model and name
-  the compatibility, timestamp-disclosure, and ordering differences.
+- Keep app document IDs opaque and table-qualified in the developer API.
+  Replacement Document ID V1 is a positive compact table identity plus one
+  canonical lowercase UUID, whose exact bytes are the physical 16-byte row
+  identity. Current trusted generation remains UUIDv4. The textual/physical
+  codec is generator-neutral: a future measured UUIDv7 choice would not create
+  Document ID V2, and no UUID version or insertion order is an API ordering
+  contract. The permissive existing parser remains legacy-only.
 - Prefer compact numeric physical identities for hot stable catalog keys such
   as table, index, relation, and constraint identities. Public or globally
   portable catalog references may additionally carry opaque UUIDs; those do not
@@ -574,9 +574,11 @@ and additional system targets require their own later source-driven contracts.
 This is a named Flarex v1 divergence from Convex configurations that permit
 tables outside an enforced schema.
 
-Current text `scope_id`/epoch columns are compatibility representations. The
-accepted replacement still requires native UUID components before hot app-data
-keys become final physical authority.
+Current text `scope_id`/epoch columns remain compatibility representations. S06
+additively derives stored native UUID projections for canonical
+`scope_<uuid>`/`epoch_<uuid>` authorities and uses the scope projection in hot
+replacement row keys. Noncanonical legacy values keep null projections;
+replacement access fails closed instead of inventing an unrelated mapping.
 
 A schema version is activatable only when required backfills and validations
 have succeeded. There is one authoritative active schema pointer per scope;
@@ -611,6 +613,26 @@ adapter, golden fixtures, and PGlite `jsonb` evidence are implemented. This
 does not add replacement row DDL, adopt the codec in existing validator or
 endpoint paths, define patch journals, or route replacement data. S06 owns the
 first real row consumer and its focused real-Postgres storage proof.
+
+S06 freezes the replacement row identity without changing the permissive
+legacy SDK facade. Document ID V1 is a positive compact table ID plus one
+canonical lowercase UUID; the UUID's exact 16 bytes are the physical row
+identity and carry no ordering meaning. UUIDv7 generation is not selected by
+this contract. Canonical `scope_<uuid>` / `epoch_<uuid>` boundary values receive
+derived native UUID projections, while legacy noncanonical text authorities
+remain unmapped and cannot access replacement rows.
+
+`fx_app_row_rev` is the sole authoritative row-value history. A live revision
+stores the complete Value Codec V1 document, including storage-verified `_id`
+and immutable positive finite float64 `_creationTime`, plus canonical bytes and
+SHA-256. A tombstone is a distinct revision state whose value JSON, canonical
+bytes, and hash are SQL `NULL`; it is never represented by encoded Flarex null.
+`fx_app_row_current` stores only an epoch-independent pointer protected by a
+foreign key to one exact revision. Epoch on a revision is write provenance, not
+part of row identity or a visibility predicate. S06 supplies storage history
+and caller-transaction primitives only; point-read dependencies, commit
+allocation, OCC validation, publication, and retention remain with their later
+focused gates.
 
 ## App Rows, Indexes, Edges, And Retention
 

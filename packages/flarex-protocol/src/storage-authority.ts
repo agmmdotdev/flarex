@@ -1,4 +1,6 @@
-import { Schema, SchemaTransformation } from "effect";
+import { Data, Schema, SchemaTransformation } from "effect";
+
+import { isCanonicalUuidTextV1 } from "./canonical-uuid";
 
 const CanonicalUnsignedDecimalString = Schema.String.check(
   Schema.isPattern(/^(?:0|[1-9][0-9]*)$/),
@@ -25,6 +27,121 @@ export const ScopeEpochSchema = Schema.NonEmptyString.pipe(
   Schema.brand("FlarexDB/ScopeEpoch"),
 );
 export type ScopeEpoch = typeof ScopeEpochSchema.Type;
+
+export const ReplacementScopeIdV1Schema = ScopeIdSchema.check(
+  Schema.makeFilter((value) =>
+    value.startsWith("scope_") && isCanonicalUuidTextV1(value.slice(6))
+      ? undefined
+      : "Expected scope_<canonical lowercase UUID>",
+  ),
+).pipe(Schema.brand("FlarexDB/ReplacementScopeIdV1"));
+export type ReplacementScopeIdV1 = typeof ReplacementScopeIdV1Schema.Type;
+export const decodeReplacementScopeIdV1 = Schema.decodeUnknownSync(
+  ReplacementScopeIdV1Schema,
+);
+
+export const ReplacementScopeEpochV1Schema = ScopeEpochSchema.check(
+  Schema.makeFilter((value) =>
+    value.startsWith("epoch_") && isCanonicalUuidTextV1(value.slice(6))
+      ? undefined
+      : "Expected epoch_<canonical lowercase UUID>",
+  ),
+).pipe(Schema.brand("FlarexDB/ReplacementScopeEpochV1"));
+export type ReplacementScopeEpochV1 =
+  typeof ReplacementScopeEpochV1Schema.Type;
+export const decodeReplacementScopeEpochV1 = Schema.decodeUnknownSync(
+  ReplacementScopeEpochV1Schema,
+);
+
+export const ScopeUuidV1Schema = Schema.String.check(
+  Schema.makeFilter((value) =>
+    isCanonicalUuidTextV1(value)
+      ? undefined
+      : "Expected one canonical lowercase scope UUID",
+  ),
+).pipe(Schema.brand("FlarexDB/ScopeUuidV1"));
+export type ScopeUuidV1 = typeof ScopeUuidV1Schema.Type;
+export const decodeScopeUuidV1 = Schema.decodeUnknownSync(ScopeUuidV1Schema);
+
+export const ScopeEpochUuidV1Schema = Schema.String.check(
+  Schema.makeFilter((value) =>
+    isCanonicalUuidTextV1(value)
+      ? undefined
+      : "Expected one canonical lowercase scope epoch UUID",
+  ),
+).pipe(Schema.brand("FlarexDB/ScopeEpochUuidV1"));
+export type ScopeEpochUuidV1 = typeof ScopeEpochUuidV1Schema.Type;
+export const decodeScopeEpochUuidV1 = Schema.decodeUnknownSync(
+  ScopeEpochUuidV1Schema,
+);
+
+export interface ScopeIdUuidProjectionV1 {
+  readonly scopeId: ReplacementScopeIdV1;
+  readonly scopeUuid: ScopeUuidV1;
+}
+
+export interface ScopeEpochUuidProjectionV1 {
+  readonly epoch: ReplacementScopeEpochV1;
+  readonly epochUuid: ScopeEpochUuidV1;
+}
+
+export type ScopeAuthorityUuidProjectionV1Issue = {
+  readonly field: "scopeId" | "epoch";
+  readonly reason:
+    | "invalidType"
+    | "invalidPrefix"
+    | "invalidUuid"
+    | "nonCanonical";
+  readonly value: unknown;
+};
+
+export class InvalidScopeAuthorityUuidProjectionV1Error extends Data.TaggedError(
+  "InvalidScopeAuthorityUuidProjectionV1Error",
+)<{
+  readonly issue: ScopeAuthorityUuidProjectionV1Issue;
+}> {}
+
+export function projectScopeIdUuidV1(
+  value: unknown,
+): ScopeIdUuidProjectionV1 {
+  const projected = requirePrefixedCanonicalUuidV1(
+    value,
+    "scopeId",
+    "scope_",
+  );
+  return Object.freeze({
+    scopeId: ReplacementScopeIdV1Schema.make(projected.value),
+    scopeUuid: ScopeUuidV1Schema.make(projected.uuid),
+  } satisfies ScopeIdUuidProjectionV1);
+}
+
+export function projectScopeEpochUuidV1(
+  value: unknown,
+): ScopeEpochUuidProjectionV1 {
+  const projected = requirePrefixedCanonicalUuidV1(
+    value,
+    "epoch",
+    "epoch_",
+  );
+  return Object.freeze({
+    epoch: ReplacementScopeEpochV1Schema.make(projected.value),
+    epochUuid: ScopeEpochUuidV1Schema.make(projected.uuid),
+  } satisfies ScopeEpochUuidProjectionV1);
+}
+
+export function replacementScopeIdV1FromUuid(
+  value: unknown,
+): ReplacementScopeIdV1 {
+  const uuid = requireCanonicalUuidV1(value, "scopeId");
+  return ReplacementScopeIdV1Schema.make(`scope_${uuid}`);
+}
+
+export function replacementScopeEpochV1FromUuid(
+  value: unknown,
+): ReplacementScopeEpochV1 {
+  const uuid = requireCanonicalUuidV1(value, "epoch");
+  return ReplacementScopeEpochV1Schema.make(`epoch_${uuid}`);
+}
 
 export const CommitSeqSchema = CanonicalUnsignedBigIntFromString.pipe(
   Schema.brand("FlarexDB/CommitSeq"),
@@ -73,3 +190,45 @@ export const SnapshotTokenSchema = Schema.Struct({
   parseOptions: { onExcessProperty: "error" },
 }).pipe(Schema.brand("FlarexDB/SnapshotToken"));
 export type SnapshotToken = typeof SnapshotTokenSchema.Type;
+
+function requirePrefixedCanonicalUuidV1(
+  value: unknown,
+  field: "scopeId" | "epoch",
+  prefix: "scope_" | "epoch_",
+): { readonly value: string; readonly uuid: string } {
+  if (typeof value !== "string") {
+    throw new InvalidScopeAuthorityUuidProjectionV1Error({
+      issue: { field, reason: "invalidType", value },
+    });
+  }
+  if (!value.startsWith(prefix)) {
+    throw new InvalidScopeAuthorityUuidProjectionV1Error({
+      issue: { field, reason: "invalidPrefix", value },
+    });
+  }
+  return {
+    value,
+    uuid: requireCanonicalUuidV1(value.slice(prefix.length), field, value),
+  };
+}
+
+function requireCanonicalUuidV1(
+  value: unknown,
+  field: "scopeId" | "epoch",
+  reportedValue: unknown = value,
+): string {
+  if (typeof value !== "string") {
+    throw new InvalidScopeAuthorityUuidProjectionV1Error({
+      issue: { field, reason: "invalidType", value: reportedValue },
+    });
+  }
+  if (isCanonicalUuidTextV1(value)) return value;
+  if (isCanonicalUuidTextV1(value.toLowerCase())) {
+    throw new InvalidScopeAuthorityUuidProjectionV1Error({
+      issue: { field, reason: "nonCanonical", value: reportedValue },
+    });
+  }
+  throw new InvalidScopeAuthorityUuidProjectionV1Error({
+    issue: { field, reason: "invalidUuid", value: reportedValue },
+  });
+}

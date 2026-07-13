@@ -171,12 +171,14 @@ export async function readFencedIndexBuildState(
     .select({
       clock: {
         scopeId: fxSystemScopeClocks.scopeId,
+        scopeUuid: fxSystemScopeClocks.scopeUuid,
         storageGeneration: fxSystemScopeClocks.storageGeneration,
         storageGenerationFence:
           fxSystemScopeClocks.storageGenerationFence,
         lastCommitSeq: fxSystemScopeClocks.lastCommitSeq,
         lastOutboxSeq: fxSystemScopeClocks.lastOutboxSeq,
         epoch: fxSystemScopeClocks.epoch,
+        epochUuid: fxSystemScopeClocks.epochUuid,
         updatedAt: fxSystemScopeClocks.updatedAt,
       },
       buildState: {

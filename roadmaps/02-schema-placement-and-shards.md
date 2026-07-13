@@ -1,5 +1,15 @@
 # Schema Placement And Shards
 
+## Current Native Scope Projection Boundary
+
+Canonical `scope_<uuid>` and `epoch_<uuid>` values remain the reversible
+protocol representation. S06 additively derives native UUID columns from those
+authorities for replacement hot keys. Noncanonical legacy values keep null
+native projections and remain usable only through legacy paths; Flarex never
+allocates an unrelated mapping to make them look replacement-compatible. This
+physical bridge activates no route and does not change shared versus split
+placement authority.
+
 ## Fence Intrinsic Control Definitions From Stale Planned Table IDs
 
 Previous completed checkpoint: `478137e` Broaden standing code reviewers.
@@ -150,8 +160,9 @@ Known limitations and follow-up:
 
 - C4 adds only DDL and a fenced read. S03-D3 must define idempotent cross-store
   reconciliation before any builder can create or transition rows.
-- Text scope/epoch storage remains transitional; native UUID physical components
-  are still required before final hot data-plane DDL.
+- Older text-only scope/epoch storage is transitional. S06 owns the additive
+  generated native projections used by replacement row keys; later hot
+  data-plane families must reuse them rather than define another mapping.
 
 Verification:
 
