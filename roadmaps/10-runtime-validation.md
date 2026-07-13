@@ -390,8 +390,9 @@ Named Flarex divergences:
   compatibility backend, executor, and persistence rather than one Rust value
   engine;
 - internal protocols use Effect Schema plus some manual decoders;
-- current JSON transport cannot carry runtime bigint or ArrayBuffer values even
-  though the SDK validator surface includes bigint and bytes;
+- the active invoke JSON transport has not adopted Value Codec V1 and therefore
+  cannot yet carry runtime bigint or `ArrayBuffer` values even though the SDK
+  validator surface includes bigint and bytes;
 - legacy IDs use a numeric table prefix and compatibility paths resolve table
   mappings differently from replacement catalogs; and
 - Cloudflare service bindings and Worker isolation create additional request,
@@ -416,6 +417,10 @@ Named Flarex divergences:
 - Compatibility backend validation for existing DO invocation/commit paths.
 - Canonical schema/index/storage-authority codecs with bounds, branded types,
   digest checks, and stored corruption detection.
+- Host-neutral Flarex Value Codec V1 with portable bigint, bytes, all float64
+  values, NUL-safe strings, deterministic canonical JSON/UTF-8 evidence,
+  general/app-document profiles, a non-versioned SDK facade, ordered lowering
+  through S05-A, and PGlite `jsonb` proof.
 - Stable mapping for many known executor/domain failures and typed Effect error
   propagation to adapter edges.
 - Tests covering malformed payloads, unauthorized ordering, kind/visibility,
@@ -435,9 +440,11 @@ Named Flarex divergences:
   accepted Postgres/Dynamic Worker path lacks authoritative function argument
   and return validation even though the legacy generated/DO path has it. This
   must be fixed before production activation.
-- Bigint and bytes exist in the SDK validator model, but authoritative JSON
-  transport/backend/persistence validation reports them unsupported. A
-  Convex-compatible value encoding is not complete.
+- Value Codec V1 can represent bigint, bytes, all float64 values, and NUL
+  strings, but existing HTTP, generated-runtime, executor, compatibility
+  backend, validator, and persisted-row paths have not adopted it. Those paths
+  still retain their current JSON restrictions until an approved consumer gate
+  replaces the boundary end to end.
 - Protocol style is mixed: many domains use Effect Schema, while executor HTTP
   and legacy backend paths retain manual record parsers. Error paths and
   strictness are therefore not fully uniform.
@@ -494,9 +501,10 @@ session validation before any syscall can affect authoritative Postgres state.
    arguments before session/user-code start, validate returns before query
    response or mutation commit, and prove invalid returns abort staged writes
    in PGlite and real Postgres lanes.
-2. **Define one versioned value transport.** Port Convex-compatible bigint,
-   bytes, special numeric, ID, and JSON/value encoding semantics with golden
-   cross-runtime tests before enabling those validator types end to end.
+2. **Adopt the completed value transport at explicit trust boundaries.** Wire
+   Value Codec V1 through analyzer/generated-runtime, executor request/result,
+   validator, and persisted-row consumers only in their approved gates; preserve
+   IDs as strings and do not decode tagged objects ad hoc in individual routes.
 3. **Consolidate validator semantics without removing authority checks.** Move
    recursive validator JSON parsing/execution and ID rules into a runtime-neutral
    package usable by SDK, analyzer, generated shell, compatibility backend, and

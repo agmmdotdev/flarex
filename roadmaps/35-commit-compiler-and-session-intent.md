@@ -413,9 +413,10 @@ The `legacy_v1` compatibility path currently proves:
 
 The replacement foundation also has private ephemeral snapshot resolution,
 branded scope/epoch/commit token types, storage-generation/fence primitives,
-stable catalogs, and ordered-key codec work in adjacent domains. Those
-prerequisites do not mean the new compiler, durable session pin, or
-exact-snapshot invoke path is active.
+stable catalogs, ordered-key codec work, and the host-neutral general value
+codec in adjacent domains. Those prerequisites do not define the later
+journal/envelope codec and do not mean the new compiler, durable session pin,
+or exact-snapshot invoke path is active.
 
 ## Known Gaps And Limitations
 
@@ -466,10 +467,11 @@ reads, or legacy retirement.
 
 ## Next Correctness Gates
 
-Private snapshot resolution `O02` is complete after the standalone `O01`
-abstraction gate was retired before implementation. `S05-B` is the current next
-candidate in the interleaved foundation order; `C01` remains a later Wave 1
-gate. Production/canary compiler execution still waits for the required schema,
+Private snapshot resolution `O02` and the adjacent `S05-B` value-codec
+prerequisite are complete after the standalone `O01` abstraction gate was
+retired before implementation. `S06` is the current next candidate in the
+interleaved foundation order; `C01` remains a later Wave 1 gate.
+Production/canary compiler execution still waits for the required schema,
 exact-snapshot OCC, commit, hosted, and migration prerequisites.
 
 The compiler gates are:

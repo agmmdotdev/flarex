@@ -2,13 +2,14 @@
 
 ## Status And Scope
 
-Current next gate: `S05-B`, the tagged Flarex value codec for replacement rows
-and canonical logical protocol values. It requires the normal evidence-backed
-design preflight and explicit approval before implementation.
+Current next gate: `S06`, app row revision/current storage. Completed `S05-B`
+freezes the host-neutral Flarex Value Codec V1 but does not pre-approve its
+first storage consumer; `S06` still requires the normal evidence-backed design
+preflight and explicit approval.
 
 | Stream | Current status |
 | --- | --- |
-| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, and interleaved `S05-A` complete |
+| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, and interleaved `S05-A`/`S05-B` complete; `S06` is next |
 | OCC/transactions | Private non-routing `O02` snapshot resolution complete; standalone `O01` retired before implementation; `O03` and later gates remain planned |
 | Commit compiler | Planned; `C01` is the first unchecked compiler gate |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
@@ -199,8 +200,9 @@ types and ports are introduced by the gates that first consume them.
 1. `O02` (complete): resolve an ephemeral exact app-data snapshot plus its
    generation/fence from one trusted data-plane clock read; legacy `beginTs`
    stays inside the legacy adapter.
-2. `S05-B`: tagged Flarex value codec for replacement rows and canonical
-   logical protocol values.
+2. `S05-B` (complete): tagged Flarex value codec for replacement rows and
+   canonical logical protocol values, including the narrow NUL-string `jsonb`
+   divergence and the adapter into S05-A ordering.
 3. `S06`: app row revision/current storage.
 4. `S07`: session, snapshot-lease, and reconnect-retention DDL.
 5. `O03`: authoritative fenced session anchors.

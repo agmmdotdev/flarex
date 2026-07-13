@@ -1,3 +1,11 @@
+import {
+  flarexValueToJsonV1,
+  jsonToFlarexValueV1,
+  type FlarexValue,
+} from "flarex-protocol/value";
+
+import type { JSONValue } from "./auth";
+
 export type Id<Table extends string> = string & {
   readonly __tableName: Table;
 };
@@ -129,3 +137,13 @@ export {
   validatorToJson,
   ValidationError,
 } from "./validation";
+
+export type Value = FlarexValue;
+
+export function flarexToJson(value: Value): JSONValue {
+  return flarexValueToJsonV1(value, "generalValue");
+}
+
+export function jsonToFlarex(value: JSONValue): Value {
+  return jsonToFlarexValueV1(value, "generalValue");
+}

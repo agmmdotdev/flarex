@@ -367,9 +367,11 @@ Publication names follow the contract they actually expose:
   unbound table and developer-index declarations and atomically returns the
   complete `SchemaManifestAppSchemaV1` projection.
 
-There is no active app-schema publication V2, artifact V2, or canonical codec
-V2. The V1 suffixes identify real, independent contracts: the full semantic
-manifest, its component sections and physical specs, and the canonical codec.
+There is no active app-schema publication V2, app-schema artifact V2, or
+schema-manifest canonical codec V2. The V1 suffixes identify real, independent
+contracts: the full semantic manifest, its component sections and physical
+specs, and the schema-manifest canonical codec. This naming is separate from
+the independently versioned Flarex row-value codec.
 Publication is idempotent catalog persistence/replay; it does not activate the
 schema, claim readiness, or route app data.
 
@@ -421,8 +423,10 @@ at-most-2,048-byte ordered field tuple and `row_id` is the separate exact
 duplicate encoded keys order by the row identity column. Any change to these
 bytes, lowering rules, collation, or ceiling requires a new codec version and
 new immutable physical definition. Legacy unversioned key bytes must be
-rebuilt from authoritative rows, never reinterpreted as v1. This checkpoint is
-not the general persisted row-value codec; S05-B remains open.
+rebuilt from authoritative rows, never reinterpreted as v1. Ordered-key codec
+v1 remains the only byte-order authority; the separately completed S05-B value
+codec lowers validated stored values into this ordering domain when an index
+consumer needs it.
 
 Bounds are distinct opaque bytes and may be 2,049 bytes. An exact complete
 tuple uses `key || 0x00` as its exclusive endpoint. A partial tuple uses
@@ -578,10 +582,35 @@ A schema version is activatable only when required backfills and validations
 have succeeded. There is one authoritative active schema pointer per scope;
 deployment metadata may reference it, but must not create a second authority.
 
-The row value codec must be versioned before `jsonb` is treated as a complete
-Flarex value representation. BigInt, byte arrays, special numeric values, key
-ordering, equality, and hashing need deterministic tagged encodings shared by
-the runtime and Postgres.
+S05-B freezes Flarex Value Codec V1 before `jsonb` is used as a complete Flarex
+value representation. Its logical runtime domain is null, signed int64 bigint,
+all float64 values, booleans, valid-Unicode strings, `ArrayBuffer`, dense arrays,
+and plain objects. IDs remain strings. Missing is not a stored value; null is a
+value; undefined object fields are omitted; and patch deletion remains a later
+journal/compiler operation rather than a value encoding.
+
+The canonical JSON tags are `$integer`, `$float`, and `$bytes`, following the
+portable Convex value representation. Flarex adds one narrow `$string` tag only
+for valid-Unicode strings containing NUL: PostgreSQL/PGlite `jsonb` rejects the
+otherwise valid JSON `\u0000` escape. Other strings remain ordinary JSON
+strings, so this divergence does not create a second general string format.
+Canonical evidence is a versioned UTF-8 JSON envelope, retained canonical
+bytes, and SHA-256; object keys are ASCII-sorted before encoding.
+
+The general-value profile permits at most 32 MiB of Convex-style semantic size
+and 64 container levels. The app-document profile applies to the complete
+logical document, including trusted system fields, and requires an object of at
+most 1 MiB and 16 levels. Both profiles cap arrays at 8,192 items, objects at
+1,024 retained fields, and object names at 1,024 non-control ASCII bytes with
+`$` reserved. Value Codec V1 does not redefine index ordering: its ordered
+adapter must pass through S05-A's canonical ordered-value and 2,048-byte key
+checks.
+
+The shared protocol codec, non-versioned public SDK conversion facade, ordered
+adapter, golden fixtures, and PGlite `jsonb` evidence are implemented. This
+does not add replacement row DDL, adopt the codec in existing validator or
+endpoint paths, define patch journals, or route replacement data. S06 owns the
+first real row consumer and its focused real-Postgres storage proof.
 
 ## App Rows, Indexes, Edges, And Retention
 

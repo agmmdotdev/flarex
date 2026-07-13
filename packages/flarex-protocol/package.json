@@ -26,6 +26,7 @@
     "./scheduler": "./src/scheduler.ts",
     "./schema-manifest": "./src/schema-manifest.ts",
     "./storage-authority": "./src/storage-authority.ts",
+    "./value": "./src/value.ts",
     "./validator-json": "./src/validator-json.ts"
   },
   "scripts": {

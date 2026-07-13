@@ -3,10 +3,10 @@
 ## Status And Scope
 
 Status: `S01`, `S02-A` through `S02-C`, resolve-only `S02-D1`, `S03-A`
-through `S03-D2d`, and the interleaved `S05-A` prerequisite are complete.
+through `S03-D2d`, and interleaved `S05-A`/`S05-B` are complete.
 Hosted proof `H01` through `H04` and `H05-A` are complete. `H05-B` and
 production routing `S02-D2` remain deferred. The current next implementation
-gate is `S05-B` in this plan and still requires its normal design preflight and
+gate is `S06` in this plan and still requires its normal design preflight and
 approval. Private non-routing snapshot resolution `O02` is complete.
 
 This plan owns the additive physical schema, codecs, repositories, stable
@@ -51,6 +51,7 @@ Use these sources in order:
    - [`../../packages/flarex-protocol/src/storage-authority.ts`](../../packages/flarex-protocol/src/storage-authority.ts)
    - [`../../packages/flarex-protocol/src/app-schema-catalog.ts`](../../packages/flarex-protocol/src/app-schema-catalog.ts)
    - [`../../packages/flarex-protocol/src/ordered-index.ts`](../../packages/flarex-protocol/src/ordered-index.ts)
+   - [`../../packages/flarex-protocol/src/value.ts`](../../packages/flarex-protocol/src/value.ts)
 
 Convex-first implementation references include:
 
@@ -79,6 +80,7 @@ Convex-first implementation references include:
 | Physical index definitions | Immutable physical definitions, table-owned creation-time definitions, schema-version bindings, and separate physical IDs exist. |
 | Build state | Fenced per-scope index-build state DDL and `absent | current | stale` reads exist; reconciliation/readiness mutation does not. |
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
+| Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. The SDK facade and PGlite `jsonb` proof exist; no replacement row or route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
 | Replacement app data | Row revision/current, session leases, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, backfill, and cutover are not implemented. |
 
@@ -127,6 +129,12 @@ These decisions are durable and are not re-opened by each implementation turn:
   ceiling excluding the row identity.
 - Canonical hashes use SHA-256 plus retained canonical bytes. Equal hash with
   unequal bytes is a fatal collision, never a second value in one slot.
+- Value Codec V1 is independent of schema-manifest and ordered-key codec
+  versions. `$integer`, `$float`, and `$bytes` preserve the portable Convex
+  representation; `$string` is reserved only for NUL-containing valid-Unicode
+  strings because Postgres `jsonb` rejects raw `\u0000`. Missing is not stored,
+  null is a value, undefined object fields are omitted, and patch deletion is a
+  later journal/compiler concern.
 - Relation IDs are allocated only after `R01` freezes semantic identity and
   `R02` binds the complete immutable definition. Field, constraint, and
   relation-definition projections stay deferred until a proven consumer needs
@@ -316,7 +324,8 @@ codec version. Build-state mutation, readiness, active-schema activation,
 Medusa, and Cloudflare deployment remain outside
 this facade. The standalone `O01` abstraction gate was retired before
 implementation and its necessary scope-authority seam was folded into completed
-`O02`; `S05-B` is next and is not pre-approved.
+`O02`; completed `S05-B` changes no catalog publication or routing behavior.
+`S06` is next and is not pre-approved.
 
 Exit gates for the complete S03 stream:
 
@@ -347,13 +356,13 @@ Exit gates:
 - existing deployments resolve the same schema before/after switch; and
 - new activation is visible to both generations atomically.
 
-### [ ] S05 — Freeze Value And Ordered-Key Codecs
+### [x] S05 — Freeze Value And Ordered-Key Codecs
 
 Progress:
 
 - [x] `S05-A`: ordered app-index spec/key codec, `_creationTime`, implicit
   `_id` tie-breaking, bounds, comparisons, byte limits, and golden fixtures.
-- [ ] `S05-B`: full tagged Flarex value codec for replacement rows and general
+- [x] `S05-B`: full tagged Flarex value codec for replacement rows and general
   key/value interpretation.
 
 Durable S05-A decisions:
@@ -368,16 +377,30 @@ Durable S05-A decisions:
 - unversioned legacy bytes are rebuilt from authoritative rows, not decoded as
   codec v1.
 
-Remaining outcome:
+Durable S05-B decisions:
 
-- versioned tagged values cover JSON-compatible values, bigint, bytes, special
-  numbers, deterministic objects, stable hashing, and explicit missing/null;
-- stored rows/definitions pin every interpretation-relevant codec version.
+- Value Codec V1 covers null, signed int64 bigint, all float64 values, boolean,
+  valid-Unicode string, `ArrayBuffer`, dense arrays, and plain objects; IDs stay
+  strings and missing stays outside the stored value domain.
+- `$integer`, `$float`, and `$bytes` follow the portable Convex tagged JSON
+  representation. Flarex conditionally uses `$string` only for NUL-containing
+  strings so the canonical representation survives Postgres `jsonb`.
+- Canonical evidence is a versioned UTF-8 envelope plus retained bytes and
+  SHA-256. The 32 MiB/64-level general profile and complete-document 1 MiB/
+  16-level profile share 8,192-array and 1,024-object cardinality caps.
+- Undefined object fields are omitted; null is retained; patch deletion is not
+  a value. S05-A remains the sole ordered-key byte, collation, and size
+  authority.
+- The protocol and SDK facade plus PGlite `jsonb` proof are complete. Row DDL,
+  validator/route adoption, patch journals, and production routing are not part
+  of S05-B; S06 owns the first persisted-row and real-Postgres consumer proof.
 
 Exit gates:
 
-- runtime and persistence golden fixtures agree;
-- equality, hashing, and ordering agree across supported values; and
+- runtime, protocol, and persistence fixtures agree on value semantics,
+  canonical bytes, and hashes;
+- shared semantic fixtures lower through S05-A, whose encoded bytes alone
+  define ordered-index comparison; and
 - byte changes require a new version and migration.
 
 ### [ ] S06 — Add App Row Revision And Current Storage

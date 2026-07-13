@@ -7,6 +7,10 @@ import {
   type SchemaManifestAppDeveloperOrderedIndexSpecV1,
   type SchemaManifestAppIndexFieldPath,
 } from "./schema-manifest";
+import {
+  normalizeFlarexValueV1,
+  type CanonicalFlarexRuntimeValueV1,
+} from "./value";
 
 export const MAX_ORDERED_INDEX_KEY_BYTES_V1 = 2_048;
 export const MAX_ORDERED_INDEX_BOUND_BYTES_V1 =
@@ -446,6 +450,21 @@ export function orderedIndexCreationTimeV1(
     });
   }
   return orderedIndexFloat64FromNumberV1(milliseconds);
+}
+
+/**
+ * Lowers one validated Flarex value into S05-A's already-frozen ordering
+ * domain. Missing remains a separate index-path result and is never produced
+ * from an ordinary stored value.
+ */
+export function orderedIndexValueFromFlarexValueV1(
+  value: unknown,
+): OrderedIndexValueV1 {
+  const normalized = normalizeFlarexValueV1(value).value;
+  const ordered = orderedIndexValueFromCanonicalFlarexValueV1(normalized);
+  // Keep S05-A as the sole size, canonical-shape, and byte authority.
+  encodeOrderedIndexComponentsV1([ordered]);
+  return ordered;
 }
 
 export function orderedIndexRowIdHexV1FromBytes(
@@ -1691,6 +1710,56 @@ function readCanonicalArrayElement<T>(
     throw invalidValue(path, `${label} is missing`);
   }
   return value;
+}
+
+function orderedIndexValueFromCanonicalFlarexValueV1(
+  value: CanonicalFlarexRuntimeValueV1,
+): OrderedIndexValueV1 {
+  if (value === null) return ORDERED_INDEX_NULL_V1;
+  if (typeof value === "bigint") {
+    return Object.freeze({ kind: "int64", value });
+  }
+  if (typeof value === "number") {
+    return orderedIndexFloat64FromNumberV1(value);
+  }
+  if (typeof value === "boolean") {
+    return Object.freeze({ kind: "boolean", value });
+  }
+  if (typeof value === "string") {
+    return Object.freeze({ kind: "string", value });
+  }
+  if (value instanceof ArrayBuffer) {
+    return orderedIndexBytesV1FromBytes(new Uint8Array(value));
+  }
+  if (isCanonicalFlarexValueArray(value)) {
+    return Object.freeze({
+      kind: "array",
+      value: Object.freeze(
+        value.map(orderedIndexValueFromCanonicalFlarexValueV1),
+      ),
+    });
+  }
+  const entries: OrderedIndexObjectEntryV1[] = [];
+  for (const field of Object.keys(value).sort(compareAsciiStrings)) {
+    const member = value[field];
+    if (member === undefined) {
+      throw invalidValue(
+        "$value",
+        "normalized Flarex value lost an object property",
+      );
+    }
+    entries.push(Object.freeze({
+      field,
+      value: orderedIndexValueFromCanonicalFlarexValueV1(member),
+    }));
+  }
+  return Object.freeze({ kind: "object", entries: Object.freeze(entries) });
+}
+
+function isCanonicalFlarexValueArray(
+  value: CanonicalFlarexRuntimeValueV1,
+): value is ReadonlyArray<CanonicalFlarexRuntimeValueV1> {
+  return Array.isArray(value);
 }
 
 function compareHexByteStrings(left: string, right: string): number {

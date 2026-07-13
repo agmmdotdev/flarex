@@ -367,8 +367,9 @@ Outcome:
   `appliedThrough` watermark.
 - During the rollback window, every allowed FlarexDB write uses S15's complete
   same-transaction legacy compatibility publisher. If the bridge is stopped or
-  a v2-only write is allowed, rollback becomes a fenced stop-the-world reverse
-  catch-up plus verification, not a flag flip.
+  a replacement-only write without a complete legacy projection is allowed,
+  rollback becomes a fenced stop-the-world reverse catch-up plus verification,
+  not a flag flip.
 - Never serve a shadow mismatch through silent legacy fallback.
 - Until the separate sync plan is implemented, require zero active
   subscriptions/reconnect leases for this canary and keep live subscriptions
@@ -382,8 +383,9 @@ Exit gate:
 - rollback works throughout the declared window;
 - the cutover protocol atomically bumps the data-plane generation fence and
   active generation only after drain/final verification;
-- v2-only operations remain disabled until the rollback promise is explicitly
-  ended or a reverse projection exists.
+- replacement-only operations without a complete legacy projection remain
+  disabled until the rollback promise is explicitly ended or a verified
+  reverse projection exists.
 
 ### [ ] O13 — Retire Legacy OCC
 

@@ -301,6 +301,9 @@ The active foundation status is:
   table definitions, stable logical indexes, ordered index codec v1, immutable
   physical definitions, schema bindings, and fenced build-state reads through
   `S03-D2d` plus the interleaved `S05-A` prerequisite;
+- complete but not yet consumed by replacement rows: host-neutral Flarex Value
+  Codec V1 through `S05-B`, including canonical evidence, ordered lowering, the
+  SDK facade, and PGlite `jsonb` proof;
 - complete but private/non-routing: `O02` resolves one ephemeral exact app-data
   snapshot plus generation/fence from trusted placement and one located
   data-plane scope-clock read; and
@@ -340,8 +343,8 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
   the focused real-Postgres bounded-work/race/rollback matrix.
 - Per-scope index-build reconciliation and readiness remain `S03-D3` and
   `S03-D4`; catalog existence is not activation readiness.
-- Active-schema pointer migration (`S04`) and the full replacement value codec
-  (`S05-B`) are incomplete.
+- Active-schema pointer migration (`S04`) remains deferred to Wave 4. The
+  completed value codec is not yet wired into a replacement row or route.
 - Replacement row revision/current storage, snapshot leases, exact-snapshot
   reads, OCC validators, commit/change feed, idempotency outcomes, leased
   outbox, and the bounded commit compiler are not implemented.
@@ -389,17 +392,18 @@ capabilities. Neither adapter may receive raw executor persistence.
 
 ## Next Correctness Gates
 
-The immediate next candidate is `S05-B` in the focused schema plan: define the
-tagged Flarex value codec for replacement rows and canonical logical protocol
-values. It changes no `/invoke/*` behavior, opens no production replacement
-route, and requires its own evidence-backed preflight and approval.
+The immediate next candidate is `S06` in the focused schema plan: define app
+row revision/current storage as the first persisted consumer of completed Value
+Codec V1. It changes no `/invoke/*` behavior, opens no production replacement
+route, and requires its own evidence-backed preflight and approval, including
+the focused real-Postgres row/storage proof.
 
 Follow the interleaved foundation order rather than pulling build/readiness
 work forward:
 
-1. Wave 1 continues from completed private snapshot resolution into the
-   replacement value codec, just-in-time row/session capabilities, point reads,
-   and pure point planning.
+1. Wave 1 continues from completed private snapshot resolution and value codec
+   into just-in-time row/session capabilities, point reads, and pure point
+   planning.
 2. Wave 2 closes one atomic result-bearing point mutation with idempotency,
    commit feed, and outbox through the real-Postgres `C07` gate.
 3. Immediately after `C07`, apply the predeclared threshold to the conditional
