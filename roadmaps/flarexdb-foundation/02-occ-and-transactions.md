@@ -3,8 +3,10 @@
 Status: private non-routing `O02` snapshot resolution and S07's physical
 session/snapshot-lease authority are complete; standalone `O01` retired before
 implementation; schema-owned `S07-A` scope-revocation storage is complete. The
-former `O03` is split into `O03-A` grant authority, now the next unapproved
-gate, and `O03-B` atomic session activation before later OCC gates
+former `O03` is split into approved `O03-A` grant authority and later `O03-B`
+atomic session activation. Protocol-only `O03-A1` is complete; authority
+integration `O03-A2` is the next unapproved checkpoint and requires its own
+preflight.
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -129,10 +131,14 @@ Exit gate:
 - the resolver and nested token are immutable snapshots of one clock read;
 - no code aliases legacy `ts` to the dense `commitSeq`.
 
-### [ ] O03-A — Freeze Transaction-Grant Authority
+### [ ] O03-A — Establish Transaction-Grant Authority
 
-Status: next unapproved gate. Its S07-A schema/storage prerequisite is complete,
-but a separate evidence-backed O03-A preflight is required before code changes.
+Status: approved parent gate after its evidence-backed preflight. The preflight
+split protocol/evidence freezing from production authority integration because
+the policy source, signer custody, verifier-key distribution, issuer transport,
+and trusted revocation command do not exist yet. `O03-A` remains unchecked until
+both child checkpoints pass; this split does not add a new product capability or
+change the transaction-grant format version.
 
 Outcome:
 
@@ -155,14 +161,91 @@ Outcome:
   counter advances; do not invent a per-policy registry or per-grant
   persistence lifecycle before either has a real consumer.
 - Keep issuer key custody at a trusted backend/platform boundary and expose
-  only verification/key-resolution capability to the trusted executor. The
-  exact signature algorithm, key rotation, issuance transport, and secret
-  isolation must be selected and challenged in the `O03-A` implementation
-  preflight; no minting secret may enter an artifact or Dynamic Worker.
+  only verification/key-resolution capability to the trusted executor. O03-A1
+  fixes the wire algorithm to strict Ed25519 flattened JWS. O03-A2 must still
+  challenge key rotation, issuance transport, and secret isolation; no minting
+  secret may enter an artifact or Dynamic Worker.
 - Reuse the completed JWT/JWKS provider platform as upstream authentication.
   This gate creates transaction authorization, not another auth-provider,
   dashboard-owner, refresh-token, per-user revocation, or general app-policy
   platform.
+
+#### [x] O03-A1 — Freeze Inert Grant Protocol And Evidence
+
+Status: complete as an inert protocol/canonical-evidence checkpoint only. It
+creates no production signing, verification, policy, or revocation authority.
+
+Outcome:
+
+- Add only the explicit `flarex-protocol/transaction-grant` subpath, without a
+  package-root, SDK, server, executor, or Worker-app re-export.
+- Define one strict flattened JWS object containing exactly `protected`,
+  `payload`, and `signature`. Its canonical protected header fixes
+  `alg: "Ed25519"`, `typ: "flarex-transaction-grant+jws"`, and a bounded local
+  key ID. Reject the deprecated polymorphic `EdDSA` name, caller-selected
+  algorithms, unprotected headers, compact/general JWS, detached payloads,
+  `crit`, `b64: false`, unknown fields, padding, and noncanonical Base64url.
+- Encode the signed payload as exact Value Codec V1 canonical bytes. Bind the
+  logical deployment/scope, package/artifact/source/module/function/schema/
+  policy pins, validated-argument hash, internal request key/hash, a signed
+  opaque grant ID, closed point-operation capabilities, explicitly inert auth
+  evidence, issue/expiry times, and S07-A revocation epoch. Do not duplicate
+  the physical scope UUID, full validated arguments, session state, storage
+  fence, snapshot token, or attempt state inside the grant.
+- Limit a complete grant to 64 KiB with smaller field/collection limits. The
+  512-byte protected-header, 48,000-byte canonical-payload, and fixed 64-byte
+  signature limits imply a 64,869-byte maximum canonical envelope before the
+  independent 65,536-byte defense-in-depth check. The grant ID is correlation
+  evidence, not a one-time nonce: exact signed-request
+  replay is a retry until expiry or epoch invalidation, while any changed
+  authority-bearing field is a different request and must fail later trusted
+  verification.
+- Produce only inert canonical evidence compatible with S07's existing grant
+  columns. No unsigned object, canonical bytes, grant digest, identity/policy
+  digest, or decoder result is a verified transaction capability.
+- Keep raw wire schemas explicitly unverified. Only strict inner decoding may
+  assign canonical segment/JWS brands, and authority-bearing identity/policy,
+  validated-argument, and request hashes remain distinct nominal types.
+- Require the complete payload, including nested claim keys and strings, to be
+  encodable by Value Codec V1. Deep-freeze parsed object/array projections and
+  return defensive byte copies so redundant inert evidence cannot diverge
+  after derivation.
+
+Exit gate:
+
+- fixed non-production Ed25519 vectors pin the protected header, payload,
+  signing input, 64-byte signature, full envelope, canonical envelope evidence,
+  and SHA-256;
+- Node and pinned Miniflare/workerd WebCrypto verify the same vector;
+- strict decoding rejects malformed/unsupported JWS shapes, noncanonical
+  encodings, extra or missing fields, invalid pins/times/epochs, unordered or
+  duplicate capabilities, oversized evidence, and artifact/source mismatch;
+- Value Codec payload and full-envelope bytes are independent of object
+  insertion order and project the exact branded S07 evidence fields; and
+- package tests, typecheck, build, and both standing diff reviewers pass.
+
+Non-goals:
+
+- no `VerifiedAuthContext`, production issuer, trusted verifier/key resolver,
+  production key, policy resolver, current-epoch comparison, revocation command,
+  Worker binding, DDL, route, or session activation; and
+- no general JOSE abstraction or new JOSE dependency.
+
+#### [ ] O03-A2 — Integrate Trusted Grant Authority
+
+Status: next unapproved follow-up after completed O03-A1; it requires its own
+evidence-backed preflight and may be narrowed before implementation.
+
+Outcome:
+
+- Add the backend-private verified credential/context projection, explicit
+  claim allowlist, and independently trusted point-operation policy source.
+- Add backend-only issuance/signing custody, executor-only verification and
+  key resolution, rotation/disablement behavior, exact pin/time/epoch checks,
+  and an opaque process-local verified capability.
+- Add the backend-only preparation transport and trusted scope-revocation
+  command over S07-A without exposing minting or revocation authority to an
+  artifact, Dynamic Worker, end-user identity, or existing artifact credential.
 
 Exit gate:
 

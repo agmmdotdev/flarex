@@ -807,9 +807,13 @@ bounded capabilities, minimized claims, issue/expiry times, and revocation
 epoch. When an originating credential has an expiry, grant expiry cannot exceed
 it; every grant also obeys the configured platform/session lifetime. Issuer key
 custody remains outside the artifact/Dynamic Worker; the executor receives
-verification/key-resolution capability only. Exact signing algorithm, envelope,
-replay identity, rotation, and issuance transport must be accepted in O03-A's
-implementation preflight.
+verification/key-resolution capability only. The accepted first O03-A
+checkpoint freezes a strict flattened JWS envelope with fixed `Ed25519`, exact
+canonical protected-header and Value Codec V1 payload bytes, bounded inert
+evidence, and exact-request retry semantics. It creates no verified authority.
+The remaining O03-A checkpoint must separately accept production policy, claim
+minimization, key rotation, issuance transport, verification, epoch comparison,
+and trusted revocation behavior before session activation.
 
 The narrow schema prerequisite S07-A first adds one nonnegative scope-wide
 `authorization_revocation_epoch` to the located data-plane scope clock. O03-A

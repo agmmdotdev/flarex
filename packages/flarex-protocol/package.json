@@ -28,6 +28,7 @@
     "./scheduler": "./src/scheduler.ts",
     "./schema-manifest": "./src/schema-manifest.ts",
     "./storage-authority": "./src/storage-authority.ts",
+    "./transaction-grant": "./src/transaction-grant.ts",
     "./transaction-session": "./src/transaction-session.ts",
     "./value": "./src/value.ts",
     "./validator-json": "./src/validator-json.ts"
@@ -41,6 +42,7 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "miniflare": "catalog:",
     "vitest": "catalog:"
   }
 }

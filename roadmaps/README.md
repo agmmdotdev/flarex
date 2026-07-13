@@ -61,8 +61,9 @@ For current FlarexDB work, read in this order:
 4. The focused foundation plan for the active gate
 5. The relevant active domain authority below
 
-The current foundation next gate is the unapproved `O03-A` signed transaction-
-grant authority, owned by
+Protocol-only `O03-A1` is complete. The current foundation next gate is
+unapproved `O03-A2` trusted transaction-grant authority integration, which
+requires its own evidence-backed preflight before implementation and is owned by
 [`flarexdb-foundation/02-occ-and-transactions.md`](./flarexdb-foundation/02-occ-and-transactions.md)
 with domain rationale in
 [`31-hosted-project-identity-and-auth.md`](./31-hosted-project-identity-and-auth.md).
@@ -105,7 +106,7 @@ whole file to an active domain authority.
 
 | Roadmap | Current durable boundary |
 | --- | --- |
-| [`31-hosted-project-identity-and-auth.md`](./31-hosted-project-identity-and-auth.md) | The top section records planned O03-A signed-grant semantics consuming schema-plan-owned S07-A revocation storage; the completed identity-plumbing tail remains historical inventory. |
+| [`31-hosted-project-identity-and-auth.md`](./31-hosted-project-identity-and-auth.md) | The top section records completed inert O03-A1 grant protocol/evidence and next-unapproved trusted O03-A2 authority consuming schema-plan-owned S07-A revocation storage; the completed identity-plumbing tail remains historical inventory. |
 
 ## Compatibility Inventories
 

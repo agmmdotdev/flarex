@@ -491,8 +491,9 @@ reads, or legacy retirement.
 
 Private O02 snapshot resolution, S05-B value codec, S06 row storage, and S07
 physical session/snapshot-lease DDL are complete. S07-A current revocation
-storage is also complete. O03-A grant semantics are the next unapproved
-foundation gate; O03-B activation and C01 remain later Wave 1 gates.
+storage is also complete. The O03-A parent is approved, protocol-only O03-A1 is
+complete, and trusted O03-A2 is next but remains unapproved; O03-B activation
+and C01 remain later Wave 1 gates.
 Production/canary compiler execution still waits for the required schema,
 exact-snapshot OCC, commit, hosted, and migration prerequisites.
 

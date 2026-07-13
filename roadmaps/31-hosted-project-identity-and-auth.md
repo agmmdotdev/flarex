@@ -25,12 +25,13 @@ and private storage primitives, but no trusted command or operational consumer.
 The separate identity/access-policy SHA-256 is matching evidence only, and the
 legacy FNV identity fingerprint is not replacement authorization.
 
-### [ ] O03-A — Freeze Transaction-Grant Authority
+### [ ] O03-A — Establish Transaction-Grant Authority
 
-Status: next unapproved gate after completed S07-A. No signed transaction grant,
-trusted revocation command, or operational epoch comparison is implemented;
-a separate evidence-backed O03-A implementation preflight is required before
-its code changes.
+Status: approved parent gate after completed S07-A. Its evidence-backed
+preflight split the now-complete inert protocol/evidence checkpoint `O03-A1`
+from unapproved trusted authority integration at `O03-A2`. The parent remains
+unchecked until O03-A2 passes; no trusted revocation command or operational
+epoch comparison exists.
 
 Accepted direction:
 
@@ -53,20 +54,39 @@ Accepted direction:
   inputs require separately named provenance and bounded expiry; they never
   masquerade as verified bearer credentials.
 - Use no opaque per-grant database or premature per-policy epoch registry.
-  S07 stores immutable evidence only; the O03-A preflight must decide whether
-  that evidence includes the signed envelope, signature/key provenance, or a
-  verified canonical projection after admission.
+  S07 stores immutable evidence only. O03-A1 fixes that stored inert evidence
+  as the strict flattened JWS plus its canonical Value Codec envelope; O03-A2
+  still owns verified signer/key provenance and the admitted projection.
 
-The following mechanics are deliberately unresolved until the O03-A preflight:
+The implemented O03-A1 protocol decisions are:
 
-- signing algorithm and canonical signed-payload/envelope format;
-- key generation, custody, rotation, overlap, revocation, and verifier lookup;
-- exact trusted issuer/minting API and transport before Dynamic Worker code;
-- grant-ID/replay semantics and anonymous/trusted-dev issuance;
-- trusted increment authority and the control-to-data-plane command path over
-  S07-A's private storage primitive;
-- exact claim allowlist, sensitive-data retention, package exports, and Worker
-  bindings.
+- one explicit `flarex-protocol/transaction-grant` subpath owns inert wire and
+  canonical evidence contracts without a package-root or SDK re-export;
+- the envelope is the strict three-field flattened JWS subset with fixed
+  `alg: "Ed25519"`, exact `typ`, protected bounded `kid`, Value Codec V1 payload
+  bytes, canonical unpadded Base64url, and no alternative serialization or
+  caller-selected algorithm;
+- the signed payload carries a correlation-only grant ID, complete logical
+  pins/hashes, closed point-operation capabilities, bounded inert auth evidence,
+  issue/expiry times, and the scope epoch, but no physical scope UUID, full
+  arguments, session state, storage fence, snapshot token, or attempt state;
+- exact signed-request replay is a retry until expiry or epoch invalidation,
+  not a global single-use claim; and
+- the full envelope is bounded to 64 KiB and remains inert even after strict
+  decoding or canonical evidence derivation; stricter header/payload/signature
+  caps imply a 64,869-byte maximum canonical envelope before the independent
+  65,536-byte defense-in-depth check.
+- raw wire schemas cannot construct canonical segment/JWS brands; strict
+  derivation deep-freezes object projections, returns defensive byte copies,
+  redacts rejected values, and preserves separate nominal hash types for
+  identity/policy, validated arguments, and request evidence.
+
+O03-A2 still owns key generation/custody/rotation/disablement and verifier
+lookup, the trusted issuer API and transport before Dynamic Worker code,
+anonymous/trusted-dev provenance, the exact claim allowlist and policy source,
+trusted epoch increment authority, production verification, and Worker key/
+binding adapters. It is the next unapproved checkpoint and requires a separate
+preflight after completed O03-A1.
 
 O03-B owns session admission after O03-A. C04 verifies authority before
 planning, and O06/O07 revalidate it in the final transaction that records the
@@ -111,9 +131,11 @@ How Flarex differs:
 
 Current gaps:
 
-- S07-A's current scope revocation storage and O03-A's grant schema,
-  signing/verifier mechanism, claims minimization, trusted increment command,
-  and key/evidence retention remain unimplemented.
+- S07-A current scope-revocation storage and O03-A1's inert grant protocol/
+  evidence contract are complete. O03-A2 remains unapproved; production
+  signing and verification, claims minimization, policy authority, key
+  lifecycle, trusted increment command, and operational evidence retention
+  remain unimplemented.
 
 The completed lower sections preserve the identity-plumbing design inputs that
 preceded roadmap 33. Current provider authentication is implemented; the

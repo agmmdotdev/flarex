@@ -78,7 +78,7 @@ The repository intentionally contains two generations:
 | Generation | Current truth |
 | --- | --- |
 | `legacy_v1` | The working executor path. `createFlarexExecutor` currently installs only `createLegacyV1AppDataEngine`, backed by the existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, subscription, and delivery tables. It remains the compatibility oracle. |
-| `flarexdb_v1` | The accepted replacement. Scope authority, scope clock, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, and physical transaction-session/snapshot-lease authority exist. Current scope-revocation storage, signed transaction-grant semantics, production session activation, exact-snapshot OCC, commit compiler, migration/cutover, and routing remain incomplete. |
+| `flarexdb_v1` | The accepted replacement. Scope authority, scope clock including private current authorization-revocation storage, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, physical transaction-session/snapshot-lease authority, and the inert O03-A1 grant protocol/evidence contract exist. Trusted transaction-grant authority, production session activation, exact-snapshot OCC, commit compiler, migration/cutover, and routing remain incomplete. |
 
 The existence of replacement catalog tables does not mean the replacement data
 path is active. The executor must not route a request into `flarexdb_v1` until
@@ -349,11 +349,12 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
 - Active-schema pointer migration (`S04`) remains deferred to Wave 4. The
   completed value codec is wired into internal S06 rows but not a route.
 - S07's transaction-session and constrained snapshot-lease tables are complete
-  but internal and non-routing. S07-A current revocation storage, O03-A signed-
-  grant semantics, O03-B atomic activation/basic lease mechanics, semantic
-  point dependencies, OCC, commit/change feed, idempotency outcomes, leased
-  outbox, and the bounded commit compiler remain unimplemented. S06/S07 storage
-  and relational proofs do not claim those later semantics.
+  but internal and non-routing. S07-A's private current scope-revocation
+  storage and O03-A1's inert protocol/evidence contract are also complete.
+  O03-A2 trusted grant authority, O03-B atomic activation/basic lease mechanics,
+  semantic point dependencies, OCC, commit/change feed, idempotency outcomes,
+  leased outbox, and the bounded commit compiler remain unimplemented. S06/S07
+  storage and relational proofs do not claim those later semantics.
 - The current broad persistence interface and legacy invoke-session tables are
   compatibility surfaces to narrow behind generation-specific ports.
 - Existing freshness and live-query delivery behavior belongs to the legacy
@@ -399,10 +400,11 @@ capabilities. Neither adapter may receive raw executor persistence.
 ## Next Correctness Gates
 
 S07 is complete as a two-table, non-routing physical authority gate, and S07-A
-now adds its private located scope-revocation storage prerequisite. Neither
+completes its private located scope-revocation storage prerequisite. Neither
 changes reconnect retention, `/invoke/*`, or the production replacement route.
-O03-A signed-grant semantics are the next candidate and require a separate
-preflight; O03-B session activation follows only after O03-A passes.
+The O03-A parent is approved: protocol-only O03-A1 is complete, while trusted
+O03-A2 authority integration is the next unapproved checkpoint and requires its
+own preflight. O03-B session activation follows only after O03-A passes.
 
 Follow the interleaved foundation order rather than pulling build/readiness
 work forward:
