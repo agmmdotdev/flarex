@@ -2,9 +2,9 @@
 
 Status: private non-routing `O02` snapshot resolution and S07's physical
 session/snapshot-lease authority are complete; standalone `O01` retired before
-implementation; schema-owned `S07-A` is the next cross-plan prerequisite, then
-the former `O03` is split into planned `O03-A` grant authority and `O03-B`
-atomic session activation before later OCC gates
+implementation; schema-owned `S07-A` scope-revocation storage is complete. The
+former `O03` is split into `O03-A` grant authority, now the next unapproved
+gate, and `O03-B` atomic session activation before later OCC gates
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -131,7 +131,8 @@ Exit gate:
 
 ### [ ] O03-A — Freeze Transaction-Grant Authority
 
-Prerequisite: the separately preflighted S07-A schema/storage gate is complete.
+Status: next unapproved gate. Its S07-A schema/storage prerequisite is complete,
+but a separate evidence-backed O03-A preflight is required before code changes.
 
 Outcome:
 

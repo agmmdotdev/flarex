@@ -61,9 +61,11 @@ For current FlarexDB work, read in this order:
 4. The focused foundation plan for the active gate
 5. The relevant active domain authority below
 
-The current foundation next gate is the unapproved `S07-A` scope-revocation
-schema/storage prerequisite, owned by
-[`flarexdb-foundation/01-schema-and-migrations.md`](./flarexdb-foundation/01-schema-and-migrations.md).
+The current foundation next gate is the unapproved `O03-A` signed transaction-
+grant authority, owned by
+[`flarexdb-foundation/02-occ-and-transactions.md`](./flarexdb-foundation/02-occ-and-transactions.md)
+with domain rationale in
+[`31-hosted-project-identity-and-auth.md`](./31-hosted-project-identity-and-auth.md).
 
 ## Active Domain Authorities
 

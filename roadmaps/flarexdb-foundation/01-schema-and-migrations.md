@@ -3,12 +3,12 @@
 ## Status And Scope
 
 Status: `S01`, `S02-A` through `S02-C`, resolve-only `S02-D1`, `S03-A`
-through `S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, and `S07` are complete. Hosted
-proof `H01` through `H04` and `H05-A` are complete. `H05-B` and production
-routing `S02-D2` remain deferred. The newly identified narrow `S07-A` schema
-prerequisite is the next unapproved candidate; `O03-A` grant authority and
-`O03-B` session activation follow it, each with its own preflight. Private
-non-routing snapshot resolution `O02` is complete.
+through `S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, and the narrow
+`S07-A` scope-revocation prerequisite are complete. Hosted proof `H01` through
+`H04` and `H05-A` are complete. `H05-B` and production routing `S02-D2` remain
+deferred. `O03-A` grant authority is the next unapproved candidate; `O03-B`
+session activation follows it, with its own preflight. Private non-routing
+snapshot resolution `O02` is complete.
 
 This plan owns the additive physical schema, codecs, repositories, stable
 catalog, and compatibility migration for the first Flarex app-data generation.
@@ -39,6 +39,7 @@ Use these sources in order:
    - [`../../packages/persistence-postgres/src/schema.ts`](../../packages/persistence-postgres/src/schema.ts)
    - [`../../packages/persistence-postgres/drizzle`](../../packages/persistence-postgres/drizzle)
    - [`../../packages/persistence-postgres/src/scopeAuthorityResolution.ts`](../../packages/persistence-postgres/src/scopeAuthorityResolution.ts)
+   - [`../../packages/persistence-postgres/src/scopeClock.ts`](../../packages/persistence-postgres/src/scopeClock.ts)
    - [`../../packages/persistence-postgres/src/stableTableCatalog.ts`](../../packages/persistence-postgres/src/stableTableCatalog.ts)
    - [`../../packages/persistence-postgres/src/schemaVersionArtifacts.ts`](../../packages/persistence-postgres/src/schemaVersionArtifacts.ts)
    - [`../../packages/persistence-postgres/src/stableLogicalIndexCatalog.ts`](../../packages/persistence-postgres/src/stableLogicalIndexCatalog.ts)
@@ -74,7 +75,7 @@ Convex-first implementation references include:
 | --- | --- |
 | Storage generation | `legacy_v1` is the only routed app-data engine. `flarexdb_v1` is defined but unreachable from production execution. |
 | Scope authority | `fx_control_scope`, split provisioning receipts, and `fx_system_scope_clock` exist. Shared/split provisioning, reconciliation, and read-only authority resolution exist; production routing does not. |
-| Scope clock | Epoch, storage generation/fence, last commit sequence, and last outbox sequence are persisted. The planned S07-A scope-wide authorization-revocation epoch is not yet present. No standalone production sequence allocator exists. |
+| Scope clock | Epoch, storage generation/fence, last commit sequence, last outbox sequence, and the scope-wide authorization-revocation epoch are persisted. The revocation value has private typed read and exact checked-increment primitives; no trusted command or grant/session consumer exists yet. No standalone production sequence allocator exists. |
 | Stable table catalog | Deployment-scoped stable table IDs and exact name/ID reads exist. |
 | Schema artifacts | Immutable canonical manifest bytes, SHA-256 checksum, deployment/version ownership, and exact replay/collision checks exist. |
 | Table definitions | Strict app-document definitions live only inside the immutable manifest; no second table-definition projection exists. |
@@ -84,7 +85,7 @@ Convex-first implementation references include:
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
 | Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. S06 is its first replacement-row consumer; no replacement route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
-| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, mutation-session request authority, and constrained current-attempt snapshot leases are implemented but non-routing. Current scope-revocation storage, signed transaction-grant semantics, production session activation, semantic point reads/OCC, reconnect retention, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, backfill, and cutover are not implemented. |
+| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, mutation-session request authority, constrained current-attempt snapshot leases, and current scope-revocation storage are implemented but non-routing. Signed transaction-grant semantics, production session activation, semantic point reads/OCC, reconnect retention, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, backfill, and cutover are not implemented. |
 
 Existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, and
 subscription tables remain the compatibility baseline. The replacement
@@ -354,8 +355,8 @@ Medusa, and Cloudflare deployment remain outside
 this facade. The standalone `O01` abstraction gate was retired before
 implementation and its necessary scope-authority seam was folded into completed
 `O02`; completed `S05-B` changes no catalog publication or routing behavior.
-`S06` and `S07` are complete. `S07-A` is the next unapproved foundation
-candidate; this catalog gate does not authorize it, `O03-A`, or `O03-B`.
+`S06`, `S07`, and `S07-A` are complete. `O03-A` is the next unapproved
+foundation candidate; this catalog gate does not authorize `O03-A` or `O03-B`.
 
 Exit gates for the complete S03 stream:
 
@@ -531,11 +532,11 @@ Exit gates:
   attempts, exact bigint boundaries, and intended lookup plans; and
 - legacy `invoke_sessions`, `/invoke/*`, exports, and routing remain unchanged.
 
-### [ ] S07-A — Add Scope Authorization Revocation Epoch
+### [x] S07-A — Add Scope Authorization Revocation Epoch
 
-Status: newly identified narrow schema prerequisite after completed S07. This
-does not reopen or weaken S07's session/lease proof, and it requires its own
-implementation preflight.
+Status: complete as a private, non-routing schema/repository prerequisite.
+The located scope clock is the sole current authority; no grant, session,
+command, or control-plane surface consumes or mutates it yet.
 
 Outcome:
 

@@ -14,6 +14,10 @@ import {
   type StorageGeneration,
   type StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
+import {
+  MAX_TRANSACTION_AUTHORIZATION_REVOCATION_EPOCH,
+  type TransactionAuthorizationRevocationEpoch,
+} from "flarex-protocol/transaction-session";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
@@ -24,7 +28,10 @@ import {
 import type { FlarexMetadataDatabase } from "../src/deployments";
 import { createPGlitePersistence } from "../src/pglite";
 import {
+  advanceScopeAuthorizationRevocationEpochInTransaction,
   lockScopeClockForUpdateInTransaction,
+  requireScopeAuthorizationRevocationEpochInTransaction,
+  ScopeAuthorizationRevocationEpochExhaustedError,
   ScopeClockNotFoundError,
 } from "../src/scopeClock";
 import { fxSystemScopeClocks } from "../src/schema";
@@ -32,9 +39,12 @@ import { fxSystemScopeClocks } from "../src/schema";
 type ForbiddenScopeClockMethod = Extract<
   keyof FlarexPersistence,
   | "advanceScopeClock"
+  | "advanceScopeAuthorizationRevocationEpoch"
+  | "advanceScopeAuthorizationRevocationEpochInTransaction"
   | "allocateCommitSeq"
   | "lockScopeClock"
   | "nextCommitSeq"
+  | "requireScopeAuthorizationRevocationEpochInTransaction"
   | "setScopeClock"
   | "updateScopeClock"
 >;
@@ -52,9 +62,22 @@ describe("scope clock", () => {
     expectTypeOf<ScopeClockRecord["lastOutboxSeq"]>()
       .toEqualTypeOf<OutboxSeq>();
     expectTypeOf<ForbiddenScopeClockMethod>().toEqualTypeOf<never>();
+    expectTypeOf<
+      Awaited<
+        ReturnType<
+          typeof requireScopeAuthorizationRevocationEpochInTransaction
+        >
+      >
+    >().toEqualTypeOf<TransactionAuthorizationRevocationEpoch>();
     expectTypeOf<FlarexMetadataDatabase>()
       .not.toMatchTypeOf<
         Parameters<typeof lockScopeClockForUpdateInTransaction>[0]
+      >();
+    expectTypeOf<FlarexMetadataDatabase>()
+      .not.toMatchTypeOf<
+        Parameters<
+          typeof advanceScopeAuthorizationRevocationEpochInTransaction
+        >[0]
       >();
   });
 
@@ -211,6 +234,208 @@ describe("scope clock", () => {
         epoch: ScopeEpochSchema.make("epoch-duplicate"),
       }),
     ).rejects.toThrow();
+
+    await expect(
+      persistence.query(
+        `
+          insert into fx_system_scope_clock (
+            scope_id,
+            storage_generation,
+            authorization_revocation_epoch,
+            epoch
+          ) values ($1, 'legacy_v1', -1, $2)
+        `,
+        ["scope_invalid_authorization_epoch", "epoch-a"],
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("reads exact private authorization epochs without widening the public clock", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const defaultScopeId = ScopeIdSchema.make("scope_authorization_default");
+    const maximumScopeId = ScopeIdSchema.make("scope_authorization_maximum");
+    await insertDefaultScopeClock(persistence, {
+      scopeId: defaultScopeId,
+      storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
+      epoch: ScopeEpochSchema.make("epoch-authorization-default"),
+    });
+    await insertDefaultScopeClock(persistence, {
+      scopeId: maximumScopeId,
+      storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
+      epoch: ScopeEpochSchema.make("epoch-authorization-maximum"),
+    });
+    await setScopeAuthorizationEpoch(
+      persistence,
+      maximumScopeId,
+      MAX_TRANSACTION_AUTHORIZATION_REVOCATION_EPOCH,
+    );
+
+    await expect(
+      persistence.drizzle.transaction((tx) =>
+        requireScopeAuthorizationRevocationEpochInTransaction(
+          tx,
+          defaultScopeId,
+        ),
+      ),
+    ).resolves.toBe(0n);
+    await expect(
+      persistence.drizzle.transaction((tx) =>
+        requireScopeAuthorizationRevocationEpochInTransaction(
+          tx,
+          maximumScopeId,
+        ),
+      ),
+    ).resolves.toBe(MAX_TRANSACTION_AUTHORIZATION_REVOCATION_EPOCH);
+    await expect(persistence.getScopeClock(defaultScopeId)).resolves.not.toHaveProperty(
+      "authorizationRevocationEpoch",
+    );
+    await expect(
+      persistence.drizzle.transaction((tx) =>
+        requireScopeAuthorizationRevocationEpochInTransaction(
+          tx,
+          ScopeIdSchema.make("scope_authorization_missing"),
+        ),
+      ),
+    ).rejects.toBeInstanceOf(ScopeClockNotFoundError);
+  });
+
+  it("fails closed on a corrupt persisted authorization epoch", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    await persistence.exec(`
+      alter table fx_system_scope_clock
+        drop constraint fx_system_scope_clock_authorization_revocation_epoch_non_negative_check
+    `);
+    const scopeId = ScopeIdSchema.make("scope_authorization_corrupt");
+    await persistence.query(
+      `
+        insert into fx_system_scope_clock (
+          scope_id,
+          storage_generation,
+          authorization_revocation_epoch,
+          epoch
+        ) values ($1, 'legacy_v1', -1, $2)
+      `,
+      [scopeId, "epoch-authorization-corrupt"],
+    );
+
+    await expect(
+      persistence.drizzle.transaction((tx) =>
+        requireScopeAuthorizationRevocationEpochInTransaction(tx, scopeId),
+      ),
+    ).rejects.toBeInstanceOf(ScopeClockCorruptionError);
+  });
+
+  it("checked-increments only one scope with database time", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const scopeId = ScopeIdSchema.make("scope_authorization_advance");
+    const independentScopeId = ScopeIdSchema.make(
+      "scope_authorization_independent",
+    );
+    const oldUpdatedAt = new Date("2026-01-01T00:00:00.000Z");
+    await insertScopeClockFixture(persistence, {
+      scopeId,
+      storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
+      storageGenerationFence: StorageGenerationFenceSchema.make(1n),
+      lastCommitSeq: CommitSeqSchema.make(0n),
+      lastOutboxSeq: OutboxSeqSchema.make(0n),
+      epoch: ScopeEpochSchema.make("epoch-authorization-advance"),
+      updatedAt: oldUpdatedAt,
+    });
+    await insertDefaultScopeClock(persistence, {
+      scopeId: independentScopeId,
+      storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
+      epoch: ScopeEpochSchema.make("epoch-authorization-independent"),
+    });
+
+    await expect(
+      persistence.drizzle.transaction((tx) =>
+        advanceScopeAuthorizationRevocationEpochInTransaction(tx, scopeId),
+      ),
+    ).resolves.toEqual({ previous: 0n, current: 1n });
+    await expect(
+      persistence.drizzle.transaction((tx) =>
+        requireScopeAuthorizationRevocationEpochInTransaction(tx, scopeId),
+      ),
+    ).resolves.toBe(1n);
+    await expect(
+      persistence.drizzle.transaction((tx) =>
+        requireScopeAuthorizationRevocationEpochInTransaction(
+          tx,
+          independentScopeId,
+        ),
+      ),
+    ).resolves.toBe(0n);
+    const updated = await persistence.getScopeClock(scopeId);
+    expect(updated?.updatedAt.getTime()).toBeGreaterThan(oldUpdatedAt.getTime());
+  });
+
+  it("rolls back increments and rejects signed-bigint exhaustion", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const rollbackScopeId = ScopeIdSchema.make("scope_authorization_rollback");
+    const exhaustedScopeId = ScopeIdSchema.make("scope_authorization_exhausted");
+    const oldUpdatedAt = new Date("2026-01-01T00:00:00.000Z");
+    for (const [scopeId, epoch] of [
+      [rollbackScopeId, "epoch-authorization-rollback"],
+      [exhaustedScopeId, "epoch-authorization-exhausted"],
+    ] as const) {
+      await insertScopeClockFixture(persistence, {
+        scopeId,
+        storageGeneration: LegacyV1StorageGenerationSchema.make("legacy_v1"),
+        storageGenerationFence: StorageGenerationFenceSchema.make(1n),
+        lastCommitSeq: CommitSeqSchema.make(0n),
+        lastOutboxSeq: OutboxSeqSchema.make(0n),
+        epoch: ScopeEpochSchema.make(epoch),
+        updatedAt: oldUpdatedAt,
+      });
+    }
+    await setScopeAuthorizationEpoch(
+      persistence,
+      exhaustedScopeId,
+      MAX_TRANSACTION_AUTHORIZATION_REVOCATION_EPOCH,
+    );
+
+    await expect(
+      persistence.drizzle.transaction(async (tx) => {
+        await advanceScopeAuthorizationRevocationEpochInTransaction(
+          tx,
+          rollbackScopeId,
+        );
+        throw new Error("authorization-epoch-rollback-probe");
+      }),
+    ).rejects.toThrow("authorization-epoch-rollback-probe");
+    await expect(
+      persistence.drizzle.transaction((tx) =>
+        requireScopeAuthorizationRevocationEpochInTransaction(
+          tx,
+          rollbackScopeId,
+        ),
+      ),
+    ).resolves.toBe(0n);
+    await expect(persistence.getScopeClock(rollbackScopeId)).resolves.toMatchObject(
+      { updatedAt: oldUpdatedAt },
+    );
+    await expect(
+      persistence.drizzle.transaction((tx) =>
+        advanceScopeAuthorizationRevocationEpochInTransaction(
+          tx,
+          exhaustedScopeId,
+        ),
+      ),
+    ).rejects.toBeInstanceOf(
+      ScopeAuthorizationRevocationEpochExhaustedError,
+    );
+    await expect(
+      persistence.drizzle.transaction((tx) =>
+        requireScopeAuthorizationRevocationEpochInTransaction(
+          tx,
+          exhaustedScopeId,
+        ),
+      ),
+    ).resolves.toBe(MAX_TRANSACTION_AUTHORIZATION_REVOCATION_EPOCH);
   });
 
   it("fails closed when persisted authority is corrupt", async () => {
@@ -397,5 +622,20 @@ async function insertScopeClockFixture(
       input.epoch,
       input.updatedAt.toISOString(),
     ],
+  );
+}
+
+async function setScopeAuthorizationEpoch(
+  persistence: Pick<FlarexPersistence, "query">,
+  scopeId: ScopeId,
+  value: bigint,
+): Promise<void> {
+  await persistence.query(
+    `
+      update fx_system_scope_clock
+      set authorization_revocation_epoch = $2
+      where scope_id = $1
+    `,
+    [scopeId, value.toString()],
   );
 }

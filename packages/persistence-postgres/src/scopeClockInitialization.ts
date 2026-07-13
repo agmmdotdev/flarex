@@ -6,6 +6,9 @@ import {
   type ScopeEpoch,
   type ScopeId,
 } from "flarex-protocol/storage-authority";
+import {
+  TransactionAuthorizationRevocationEpochSchema,
+} from "flarex-protocol/transaction-session";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { getScopeClock, type ScopeClockRecord } from "./scopeClock";
@@ -26,6 +29,8 @@ const initialStorageGeneration =
 const initialStorageGenerationFence = StorageGenerationFenceSchema.make(1n);
 const initialCommitSeq = CommitSeqSchema.make(0n);
 const initialOutboxSeq = OutboxSeqSchema.make(0n);
+const initialAuthorizationRevocationEpoch =
+  TransactionAuthorizationRevocationEpochSchema.make(0n);
 
 export async function insertInitialScopeClockInTransaction(
   tx: FlarexMetadataDatabase,
@@ -39,6 +44,7 @@ export async function insertInitialScopeClockInTransaction(
       storageGenerationFence: initialStorageGenerationFence,
       lastCommitSeq: initialCommitSeq,
       lastOutboxSeq: initialOutboxSeq,
+      authorizationRevocationEpoch: initialAuthorizationRevocationEpoch,
       epoch: input.initialEpoch,
     })
     .onConflictDoNothing({ target: fxSystemScopeClocks.scopeId })

@@ -601,6 +601,12 @@ export const fxSystemScopeClocks = pgTable(
       .$type<OutboxSeq>()
       .notNull()
       .default(sql`0`),
+    authorizationRevocationEpoch: bigint("authorization_revocation_epoch", {
+      mode: "bigint",
+    })
+      .$type<TransactionAuthorizationRevocationEpoch>()
+      .notNull()
+      .default(sql`0`),
     epoch: text("epoch").$type<ScopeEpoch>().notNull(),
     epochUuid: uuid("epoch_uuid")
       .$type<ScopeEpochUuidV1>()
@@ -638,6 +644,10 @@ export const fxSystemScopeClocks = pgTable(
       sql`${table.lastOutboxSeq} >= 0`,
     ),
     check(
+      "fx_system_scope_clock_authorization_revocation_epoch_non_negative_check",
+      sql`${table.authorizationRevocationEpoch} >= 0`,
+    ),
+    check(
       "fx_system_scope_clock_epoch_non_empty_check",
       nonBlankText(table.epoch),
     ),
@@ -646,7 +656,7 @@ export const fxSystemScopeClocks = pgTable(
 
 /**
  * Located request-level authority for one replacement point-mutation session.
- * O03, not this schema gate, owns creation and fenced lifecycle operations.
+ * O03-B, not this schema gate, owns creation and fenced lifecycle operations.
  */
 export const fxSystemTransactionSessions = pgTable(
   "fx_system_tx_session",

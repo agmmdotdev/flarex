@@ -8,7 +8,7 @@ for retention. S07 owns their physical schema only: at most one lease exists
 per scope/session, and every lease references the exact current attempt. Plain
 DDL cannot require every active parent to have a child.
 
-S07-A first supplies current scope-revocation storage; O03-A consumes it for
+Completed S07-A supplies current scope-revocation storage; O03-A consumes it for
 signed transaction-grant semantics. O03-B then owns atomic activation, exact-
 fence renewal, abort/expiry, active-child enforcement, and stale-attempt
 rejection. C05 introduces the private exact-fence transition to `finishing`,

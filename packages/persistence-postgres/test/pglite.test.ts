@@ -34,6 +34,12 @@ import {
 } from "../src";
 import { deployments } from "../src/schema";
 import { createPGlitePersistence } from "../src/pglite";
+import {
+  insertSessionTestScope,
+  insertTransactionSessionFixture,
+  transactionSessionFixture,
+  transactionSessionIdAt,
+} from "./sessionAuthorityTestSupport";
 
 const anonymousIdentityFingerprint = executionIdentityFingerprint({ kind: "anonymous" });
 
@@ -967,6 +973,187 @@ describe("createPGlitePersistence", () => {
         { table_name: "fx_system_snapshot_lease" },
         { table_name: "fx_system_tx_session" },
       ]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("upgrades completed S07 clocks without changing copied session evidence", async () => {
+    const testRoot = await mkdtemp(
+      resolve(tmpdir(), "flarex-revocation-epoch-upgrade-"),
+    );
+    const previousMigrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const previousJournal = resolve(
+      packageRoot,
+      "test/fixtures/drizzle-through-0026-journal.json",
+    );
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, previousMigrationsFolder, {
+        recursive: true,
+      });
+      await copyFile(
+        previousJournal,
+        resolve(previousMigrationsFolder, "meta/_journal.json"),
+      );
+      const previousPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder: previousMigrationsFolder,
+      });
+      await previousPersistence.migrate();
+      await insertSessionTestScope(previousPersistence);
+      const sessionId = transactionSessionIdAt(27);
+      await insertTransactionSessionFixture(
+        previousPersistence,
+        transactionSessionFixture(sessionId, {
+          authorizationRevocationEpoch: "17",
+        }),
+      );
+      await expect(
+        previousPersistence.query(
+          `select authorization_revocation_epoch from fx_system_scope_clock`,
+        ),
+      ).rejects.toThrow();
+
+      const currentPersistence = await createPGlitePersistence({ db });
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      const preserved = await currentPersistence.query<{
+        clock_epoch: string;
+        session_epoch: string;
+      }>(
+        `
+          select
+            clock.authorization_revocation_epoch::text as clock_epoch,
+            session.authorization_revocation_epoch::text as session_epoch
+          from fx_system_scope_clock as clock
+          join fx_system_tx_session as session
+            on session.scope_uuid = clock.scope_uuid
+          where session.session_id = $1
+        `,
+        [sessionId],
+      );
+      expect(preserved.rows).toEqual([
+        { clock_epoch: "0", session_epoch: "17" },
+      ]);
+
+      await currentPersistence.query(`
+        insert into fx_system_scope_clock
+          (scope_id, storage_generation, epoch)
+        values
+          ('scope_after_revocation_epoch', 'legacy_v1', 'epoch-after-revocation')
+      `);
+      const defaulted = await currentPersistence.query<{ epoch: string }>(`
+        select authorization_revocation_epoch::text as epoch
+        from fx_system_scope_clock
+        where scope_id = 'scope_after_revocation_epoch'
+      `);
+      expect(defaulted.rows).toEqual([{ epoch: "0" }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("rolls back a failed S07-A migration receipt and recovers cleanly", async () => {
+    const testRoot = await mkdtemp(
+      resolve(tmpdir(), "flarex-revocation-epoch-failure-"),
+    );
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const previousJournal = resolve(
+      packageRoot,
+      "test/fixtures/drizzle-through-0026-journal.json",
+    );
+    const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
+    const migrationName = "0027_graceful_silver_fox.sql";
+    const copiedMigration = resolve(migrationsFolder, migrationName);
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyFile(
+        previousJournal,
+        resolve(migrationsFolder, "meta/_journal.json"),
+      );
+      const previousPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await previousPersistence.migrate();
+      await previousPersistence.query(`
+        insert into fx_system_scope_clock
+          (scope_id, storage_generation, epoch)
+        values
+          ('scope_before_revocation_epoch', 'legacy_v1', 'epoch-before-revocation')
+      `);
+      await copyFile(
+        currentJournal,
+        resolve(migrationsFolder, "meta/_journal.json"),
+      );
+
+      const realMigration = await readFile(copiedMigration, "utf8");
+      await writeFile(
+        copiedMigration,
+        `${realMigration}\n--> statement-breakpoint\nselect * from fx_s07a_deliberate_missing_table;\n`,
+        "utf8",
+      );
+      const failingPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await expect(failingPersistence.migrate()).rejects.toThrow();
+
+      const absent = await failingPersistence.query<{ column_name: string }>(`
+        select column_name
+        from information_schema.columns
+        where table_name = 'fx_system_scope_clock'
+          and column_name = 'authorization_revocation_epoch'
+          and table_schema = current_schema()
+      `);
+      expect(absent.rows).toEqual([]);
+      const unchanged = await failingPersistence.query<{ epoch: string }>(`
+        select epoch
+        from fx_system_scope_clock
+        where scope_id = 'scope_before_revocation_epoch'
+      `);
+      expect(unchanged.rows).toEqual([{ epoch: "epoch-before-revocation" }]);
+      const failedReceipts = await failingPersistence.query<{ count: string }>(
+        `select count(*)::text as count from drizzle.__drizzle_migrations`,
+      );
+      expect(failedReceipts.rows).toEqual([{ count: "27" }]);
+
+      await copyFile(
+        resolve(currentMigrationsFolder, migrationName),
+        copiedMigration,
+      );
+      const recoveredPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await expect(recoveredPersistence.migrate()).resolves.toBeUndefined();
+      await expect(recoveredPersistence.migrate()).resolves.toBeUndefined();
+      const recovered = await recoveredPersistence.query<{ epoch: string }>(`
+        select authorization_revocation_epoch::text as epoch
+        from fx_system_scope_clock
+        where scope_id = 'scope_before_revocation_epoch'
+      `);
+      expect(recovered.rows).toEqual([{ epoch: "0" }]);
+      const recoveredReceipts = await recoveredPersistence.query<{
+        count: string;
+      }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
+      expect(recoveredReceipts.rows).toEqual([{ count: "28" }]);
     } finally {
       try {
         await db.close();

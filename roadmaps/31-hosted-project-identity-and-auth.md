@@ -19,17 +19,18 @@ transport.
 S07 provides only physical transaction-session columns for canonical grant
 evidence: grant identity, checked object JSON, Value Codec V1 bytes, SHA-256,
 expiry, and a copied nonnegative revocation epoch. It implements no production
-grant minting, signature verification, key lifecycle, current revocation
-authority, or commit-time revalidation. The separate identity/access-policy
-SHA-256 is matching evidence only, and the legacy FNV identity fingerprint is
-not replacement authorization.
+grant minting, signature verification, key lifecycle, or commit-time
+revalidation. Completed S07-A adds the sole current scope-revocation authority
+and private storage primitives, but no trusted command or operational consumer.
+The separate identity/access-policy SHA-256 is matching evidence only, and the
+legacy FNV identity fingerprint is not replacement authorization.
 
 ### [ ] O03-A — Freeze Transaction-Grant Authority
 
-Status: planned after the separate S07-A schema prerequisite. No signed
-transaction grant or current revocation authority is implemented yet, and a
-separate evidence-backed O03-A implementation preflight is required before its
-code changes.
+Status: next unapproved gate after completed S07-A. No signed transaction grant,
+trusted revocation command, or operational epoch comparison is implemented;
+a separate evidence-backed O03-A implementation preflight is required before
+its code changes.
 
 Accepted direction:
 

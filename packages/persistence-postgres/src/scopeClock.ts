@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
   CommitSeqSchema,
@@ -15,6 +15,11 @@ import {
   type StorageGeneration,
   type StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
+import {
+  MAX_TRANSACTION_AUTHORIZATION_REVOCATION_EPOCH,
+  TransactionAuthorizationRevocationEpochSchema,
+  type TransactionAuthorizationRevocationEpoch,
+} from "flarex-protocol/transaction-session";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { fxSystemScopeClocks } from "./schema";
@@ -46,6 +51,18 @@ export class ScopeClockCorruptionError extends Error {
   }
 }
 
+export class ScopeAuthorizationRevocationEpochExhaustedError extends Error {
+  constructor(readonly scopeId: ScopeId) {
+    super(`Authorization revocation epoch is exhausted for scope: ${scopeId}`);
+    this.name = "ScopeAuthorizationRevocationEpochExhaustedError";
+  }
+}
+
+export interface AdvanceScopeAuthorizationRevocationEpochResult {
+  readonly previous: TransactionAuthorizationRevocationEpoch;
+  readonly current: TransactionAuthorizationRevocationEpoch;
+}
+
 export async function getScopeClock(
   db: FlarexMetadataDatabase,
   scopeId: ScopeId,
@@ -60,14 +77,111 @@ export async function getScopeClock(
 }
 
 /**
- * S02-B-only lock primitive. Callers must already be inside a short trusted
+ * Private S07-A authority read. This module is not a package export; O03-A
+ * owns the future trusted command and consumer-facing capability.
+ */
+export async function requireScopeAuthorizationRevocationEpochInTransaction(
+  db: ScopeClockTransaction,
+  scopeId: ScopeId,
+): Promise<TransactionAuthorizationRevocationEpoch> {
+  const row = await lockScopeAuthorizationRevocationEpochForShareInTransaction(
+    db,
+    scopeId,
+  );
+  return decodeScopeAuthorizationRevocationEpoch(
+    row.scopeId,
+    row.authorizationRevocationEpoch,
+  );
+}
+
+async function lockScopeAuthorizationRevocationEpochForShareInTransaction(
+  db: ScopeClockTransaction,
+  scopeId: ScopeId,
+): Promise<
+  Pick<ScopeClockRow, "scopeId" | "authorizationRevocationEpoch">
+> {
+  const rows = await db
+    .select({
+      scopeId: fxSystemScopeClocks.scopeId,
+      authorizationRevocationEpoch:
+        fxSystemScopeClocks.authorizationRevocationEpoch,
+    })
+    .from(fxSystemScopeClocks)
+    .where(eq(fxSystemScopeClocks.scopeId, scopeId))
+    .limit(1)
+    .for("share");
+  const clock = rows[0];
+  if (clock === undefined) {
+    throw new ScopeClockNotFoundError(scopeId);
+  }
+  return clock;
+}
+
+/**
+ * Advances the current scope authority by exactly one under the caller's
+ * short transaction. Callers cannot select or replace the persisted value.
+ */
+export async function advanceScopeAuthorizationRevocationEpochInTransaction(
+  db: ScopeClockTransaction,
+  scopeId: ScopeId,
+): Promise<AdvanceScopeAuthorizationRevocationEpochResult> {
+  const row = await lockScopeClockRowForUpdateInTransaction(db, scopeId);
+  const previous = decodeScopeAuthorizationRevocationEpoch(
+    row.scopeId,
+    row.authorizationRevocationEpoch,
+  );
+  if (previous === MAX_TRANSACTION_AUTHORIZATION_REVOCATION_EPOCH) {
+    throw new ScopeAuthorizationRevocationEpochExhaustedError(scopeId);
+  }
+  const expectedCurrent = TransactionAuthorizationRevocationEpochSchema.make(
+    previous + 1n,
+  );
+  const updatedRows = await db
+    .update(fxSystemScopeClocks)
+    .set({
+      authorizationRevocationEpoch: expectedCurrent,
+      updatedAt: sql`clock_timestamp()`,
+    })
+    .where(eq(fxSystemScopeClocks.scopeId, scopeId))
+    .returning({
+      authorizationRevocationEpoch:
+        fxSystemScopeClocks.authorizationRevocationEpoch,
+    });
+  const updated = updatedRows[0];
+  if (updated === undefined) {
+    throw new ScopeClockNotFoundError(scopeId);
+  }
+  const current = decodeScopeAuthorizationRevocationEpoch(
+    scopeId,
+    updated.authorizationRevocationEpoch,
+  );
+  if (current !== expectedCurrent) {
+    throw new ScopeClockCorruptionError(
+      scopeId,
+      "authorization revocation epoch increment returned an unexpected value",
+    );
+  }
+  return { previous, current };
+}
+
+/**
+ * Scope-clock lock primitive. Callers must already be inside a short trusted
  * database transaction. This module is intentionally not exported from the
- * package root, and the helper cannot allocate or advance either counter.
+ * package root, and this helper does not mutate any clock authority.
  */
 export async function lockScopeClockForUpdateInTransaction(
   db: ScopeClockTransaction,
   scopeId: ScopeId,
 ): Promise<ScopeClockRecord> {
+  return decodeScopeClockRecord(
+    await lockScopeClockRowForUpdateInTransaction(db, scopeId),
+  );
+}
+
+async function lockScopeClockRowForUpdateInTransaction(
+  db: ScopeClockTransaction,
+  scopeId: ScopeId,
+): Promise<ScopeClockRow> {
   const rows = await db
     .select()
     .from(fxSystemScopeClocks)
@@ -78,7 +192,7 @@ export async function lockScopeClockForUpdateInTransaction(
   if (clock === undefined) {
     throw new ScopeClockNotFoundError(scopeId);
   }
-  return decodeScopeClockRecord(clock);
+  return clock;
 }
 
 type ScopeClockTransaction = FlarexMetadataDatabase & {
@@ -88,7 +202,20 @@ type ScopeClockTransaction = FlarexMetadataDatabase & {
 
 export type ScopeClockRow = typeof fxSystemScopeClocks.$inferSelect;
 
-export function decodeScopeClockRecord(row: ScopeClockRow): ScopeClockRecord {
+type ScopeClockRecordRow = Pick<
+  ScopeClockRow,
+  | "scopeId"
+  | "storageGeneration"
+  | "storageGenerationFence"
+  | "lastCommitSeq"
+  | "lastOutboxSeq"
+  | "epoch"
+  | "updatedAt"
+>;
+
+export function decodeScopeClockRecord(
+  row: ScopeClockRecordRow,
+): ScopeClockRecord {
   if (row.scopeId.trim().length === 0) {
     throw new ScopeClockCorruptionError(row.scopeId, "scope ID is empty");
   }
@@ -137,6 +264,23 @@ export function decodeScopeClockRecord(row: ScopeClockRow): ScopeClockRecord {
     epoch: ScopeEpochSchema.make(row.epoch),
     updatedAt: row.updatedAt,
   } satisfies ScopeClockRecord;
+}
+
+function decodeScopeAuthorizationRevocationEpoch(
+  scopeId: string,
+  value: unknown,
+): TransactionAuthorizationRevocationEpoch {
+  if (
+    typeof value !== "bigint" ||
+    value < 0n ||
+    value > MAX_TRANSACTION_AUTHORIZATION_REVOCATION_EPOCH
+  ) {
+    throw new ScopeClockCorruptionError(
+      scopeId,
+      "authorization revocation epoch is outside the signed-bigint range",
+    );
+  }
+  return TransactionAuthorizationRevocationEpochSchema.make(value);
 }
 
 function decodeStorageGeneration(

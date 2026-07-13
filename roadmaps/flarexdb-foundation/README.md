@@ -2,18 +2,18 @@
 
 ## Status And Scope
 
-`S07` is complete as a non-routing two-table physical authority gate. It adds
-the transaction-session anchor and constrained current-attempt snapshot lease
-without reconnect state or runtime lifecycle operations. Research split the
-former all-in-one `O03` and exposed one smaller schema prerequisite: `S07-A` is
-the next unapproved candidate and adds only current scope-revocation storage.
-`O03-A` then establishes signed-grant semantics that `O03-B` consumes for
-atomic session activation. Each requires its own evidence-backed preflight.
+`S07` is complete as a non-routing two-table physical authority gate, and
+`S07-A` now completes its separate current scope-revocation prerequisite with
+private storage primitives only. Neither gate adds reconnect state, runtime
+lifecycle operations, a trusted revocation command, or grant semantics.
+`O03-A` is the next unapproved candidate and establishes signed-grant semantics
+that `O03-B` consumes for atomic session activation. Each requires its own
+evidence-backed preflight.
 
 | Stream | Current status |
 | --- | --- |
-| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, and `S07` complete; narrow `S07-A` planned next |
-| OCC/transactions | Private non-routing `O02` snapshot resolution complete; standalone `O01` retired before implementation; `O03-A`, `O03-B`, and later gates remain planned after S07-A |
+| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, and narrow `S07-A` complete |
+| OCC/transactions | Private non-routing `O02` snapshot resolution complete; standalone `O01` retired before implementation; `O03-A` is next, followed by `O03-B` and later gates |
 | Commit compiler | Planned; `C01` is the first unchecked compiler gate |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
@@ -210,8 +210,8 @@ types and ports are introduced by the gates that first consume them.
    ID V1, authoritative app-row revisions, and pointer-only current storage.
 4. `S07` (complete): mutation-session request authority and constrained
    current-attempt snapshot-lease DDL only.
-5. `S07-A`: located scope authorization-revocation epoch and narrow private
-   storage primitives only.
+5. `S07-A` (complete): located scope authorization-revocation epoch and narrow
+   private storage primitives only.
 6. `O03-A`: signed transaction-grant authority and minimized verified auth
    context consuming S07-A's current scope epoch.
 7. `O03-B`: private atomic session/lease activation plus exact-fence renewal,

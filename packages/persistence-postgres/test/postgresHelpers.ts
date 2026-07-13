@@ -1,6 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 
-import { Client, Pool, type PoolClient } from "pg";
+import { Client, Pool, type PoolClient, type PoolConfig } from "pg";
 
 import {
   createPostgresClientPersistence,
@@ -18,6 +18,12 @@ export const postgresUrl = normalizePostgresUrl(
 export interface HeldPostgresDeploymentLock {
   readonly client: PoolClient;
   readonly blockerPid: number;
+}
+
+export interface TemporaryPostgresSchemaOptions {
+  readonly connectionString: string;
+  readonly migrationsSchema: string;
+  readonly poolConfig: PoolConfig;
 }
 
 export async function acquirePostgresDeploymentLock(
@@ -135,6 +141,53 @@ export async function withTemporaryPostgresPersistence(
     if (primaryError === undefined && cleanupErrors.length > 0) {
       throw new Error(
         `Failed to clean up temporary Postgres schemas: ${cleanupErrors
+          .map(errorMessage)
+          .join("; ")}`,
+      );
+    }
+  }
+}
+
+export async function withTemporaryPostgresSchema(
+  fn: (options: TemporaryPostgresSchemaOptions) => Promise<void>,
+): Promise<void> {
+  const connectionString = requiredPostgresUrl();
+  const schemaName = temporaryIdentifier("flarex_migration_test");
+  const migrationsSchema = temporaryIdentifier(
+    "flarex_migration_receipts",
+  );
+  const adminPool = new Pool({ connectionString });
+  let primaryError: unknown;
+
+  try {
+    await adminPool.query(`create schema ${quoteIdentifier(schemaName)}`);
+    await adminPool.query(
+      `create schema ${quoteIdentifier(migrationsSchema)}`,
+    );
+    await fn({
+      connectionString,
+      migrationsSchema,
+      poolConfig: { options: `-c search_path=${schemaName}` },
+    });
+  } catch (error) {
+    primaryError = error;
+    throw error;
+  } finally {
+    const cleanupErrors: unknown[] = [];
+    await recordCleanupError(cleanupErrors, () =>
+      adminPool.query(
+        `drop schema if exists ${quoteIdentifier(schemaName)} cascade`,
+      ),
+    );
+    await recordCleanupError(cleanupErrors, () =>
+      adminPool.query(
+        `drop schema if exists ${quoteIdentifier(migrationsSchema)} cascade`,
+      ),
+    );
+    await recordCleanupError(cleanupErrors, () => adminPool.end());
+    if (primaryError === undefined && cleanupErrors.length > 0) {
+      throw new Error(
+        `Failed to clean up temporary Postgres migration schemas: ${cleanupErrors
           .map(errorMessage)
           .join("; ")}`,
       );

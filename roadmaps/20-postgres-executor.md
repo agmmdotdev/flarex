@@ -398,12 +398,11 @@ capabilities. Neither adapter may receive raw executor persistence.
 
 ## Next Correctness Gates
 
-S07 is complete as a two-table, non-routing physical authority gate. It adds no
-reconnect-retention lease and changes no `/invoke/*` behavior or production
-replacement route. The next candidate is S07-A, which must receive its own
-preflight before adding current scope-revocation storage. O03-A signed-grant
-semantics and O03-B session activation follow only after that prerequisite
-passes.
+S07 is complete as a two-table, non-routing physical authority gate, and S07-A
+now adds its private located scope-revocation storage prerequisite. Neither
+changes reconnect retention, `/invoke/*`, or the production replacement route.
+O03-A signed-grant semantics are the next candidate and require a separate
+preflight; O03-B session activation follows only after O03-A passes.
 
 Follow the interleaved foundation order rather than pulling build/readiness
 work forward:
