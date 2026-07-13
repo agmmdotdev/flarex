@@ -402,9 +402,8 @@ and stale non-authoritative caches without changing the Postgres oracle.
    plus a real-Postgres proof at the current 256-item operational boundary,
    concurrent replay, competing publication, separate table/index stale
    recovery, terminal conflict, and late rollback proof. This is a bounded
-   correctness/regression gate, not a hosted-performance SLA. Beginning with
-   O01, apply the same
-   explicit proportional pure/PGlite/real-Postgres boundary to each following
+   correctness/regression gate, not a hosted-performance SLA. Apply the same
+   explicit proportional pure/PGlite/real-Postgres boundary to every applicable
    schema/OCC/compiler gate before marking it complete.
 4. **Close H05-B.** Run the credentialed staging proof, collect control/data/
    trace/source/cleanup evidence, validate the canonical bundle, and retain an

@@ -1,7 +1,7 @@
 # FlarexDB OCC And Transaction Plan
 
-Status: planned; `O01` is the current next implementation gate; no OCC gate is
-implemented
+Status: private non-routing `O02` snapshot resolution complete; standalone
+`O01` retired before implementation; `O03` and later OCC gates remain planned
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -77,58 +77,51 @@ Convex-first implementation references:
 
 ## Typed Dependency Baseline
 
-The first implementation uses discriminated dependencies, not ambiguous
-optional fields:
-
-```text
-RowPresent(scope, table, row, observedRevision)
-RowMissing(scope, table, row)
-IndexRange(scope, index, codecVersion, lower, upper, paginationFrontier)
-EdgeRange(scope, relation, sourceOrTarget, occurrenceRange)
-TableVersion(scope, table, observedVersion)  # conservative temporary fence
-```
-
-Point dependencies are implemented first. Range/edge/table dependencies remain
-typed but unsupported until their turn and tests complete.
+Dependency types are introduced just in time by the gates that can prove their
+semantics. `O04` owns present and missing point dependencies, `O10` owns index
+ranges, and relation gates own edge ranges after stable relation identity is
+accepted. A conservative table-version fence is added only if its consuming
+gate demonstrates that it is necessary. Do not predeclare unsupported variants
+or allocate a second row-version authority beside `CommitSeq`.
 
 ## Turn Checklist
 
-### [ ] O01 — Add Typed OCC Contracts And Narrow Ports
+### O01 — Retired Before Implementation
+
+The standalone contract-and-port extraction gate was premature. It duplicated
+the existing `ScopeClockReader`/trusted authority resolver and guessed session,
+row, commit, outcome, and feed contracts before their consumers and physical
+stores existed. Its immediately necessary seam was folded into `O02`.
+
+Introduce later contracts only at their real owners: row revisions at `S06`,
+session authority at `S07`/`O03`, point dependencies at `O04`, point conflict
+decisions at `O05`, commit/feed capabilities at `S08`/`O06`, and committed
+outcomes at `S09`/`O07`. A row revision derives from `CommitSeq`; it never owns
+another sequence. The legacy adapter never treats wall-clock `ts` as a
+replacement commit sequence.
+
+### [x] O02 — Resolve Current App-Data Snapshots
 
 Outcome:
 
-- Consume S01's branded scope/epoch/sequence/generation/token types; define
-  OCC-owned `RowRevision`, typed dependencies, `OccConflict`, and
-  commit-decision outcomes.
-- Extract narrow internal capabilities such as `ScopeClockStore`,
-  `SnapshotReader`, `SessionAuthorityStore`, `AppCommitStore`,
-  `CommitOutcomeStore`, and `CommitFeedStore`.
-- Consume the shared types and legacy/new storage split owned by S01; O01 owns
-  only OCC dependencies, transaction capabilities, and their legacy adapters.
-
-Exit gate:
-
-- no public `/invoke/*` contract changes;
-- all existing tests still exercise the legacy adapter;
-- the compiler/executor no longer needs one new generation conditional per
-  method on the broad legacy persistence interface.
-
-### [ ] O02 — Issue Exact Snapshots And Pin Generation
-
-Outcome:
-
-- Initialize/read the scope clock and issue the current
-  `(scope, epoch, lastCommitSeq)` token.
-- Resolve storage generation only from trusted scope metadata and pin it with
-  schema/package/policy identity.
-- During coexistence, carry the new token beside legacy `beginTs` only where a
-  compatibility adapter still needs both.
+- Bind one private `AppDataSnapshotResolver` to trusted construction-time
+  authority readers. Request code supplies only an already-authorized
+  deployment identity; no public route or user code receives this capability.
+- Control metadata locates the data plane. One read of the located data-plane
+  scope clock supplies the exact `SnapshotToken { scopeId, epoch, commitSeq }`,
+  `storageGeneration`, and `storageGenerationFence` together.
+- Treat the result as an ephemeral selection, not a durable pin or commit
+  authorization. `O03` owns session/package/schema/policy binding and leases;
+  `O06` owns final transactional epoch/generation/fence revalidation.
+- Leave legacy `beginTs` and production storage-generation routing unchanged.
 
 Exit gate:
 
 - empty scope returns sequence `0`;
 - two scopes have independent tokens;
-- stale generation/epoch tokens fail typed validation;
+- trusted placement/clock failures retain typed fail-closed resolution;
+- exact bigint sequences survive PGlite and real-Postgres resolution;
+- the resolver and nested token are immutable snapshots of one clock read;
 - no code aliases legacy `ts` to the dense `commitSeq`.
 
 ### [ ] O03 — Create And Fence Session Anchors
@@ -450,7 +443,6 @@ corepack pnpm --filter @flarex/executor test:postgres
 ```
 
 Phase checkpoints run both package builds and workspace `typecheck`, `test`,
-and `build`. Significant code turns update
-`roadmaps/03-occ-and-transactions.md` and, when executor/persistence boundaries
-change, `roadmaps/20-postgres-executor.md`; both standing diff reviewers run
-before the automatic checkpoint commit.
+and `build`. Significant code turns update only active roadmaps whose durable
+truth changed; compatibility inventories remain historical evidence. Both
+standing diff reviewers run before the automatic checkpoint commit.

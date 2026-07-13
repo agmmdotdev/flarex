@@ -96,10 +96,12 @@ replacement because it still uses deployment/partition vocabulary, wall-clock
 function, optional idempotency metadata without the final outcome contract,
 and a combined retry coordinator.
 
-The repository already defines the branded `SnapshotToken` protocol type for
-the replacement foundation, but current invoke sessions do not use it as their
-read/commit authority. No `SessionJournalV1`, `CommitEnvelopeV1`,
-`PreparedCommitV1`, or trusted commit planner implementation exists.
+The repository defines the branded `SnapshotToken` protocol type and a private,
+non-routing resolver that captures one ephemeral exact snapshot plus its
+generation/fence from trusted placement and the data-plane scope clock. Current
+invoke sessions do not use that selection as read/commit authority. No durable
+session pin, `SessionJournalV1`, `CommitEnvelopeV1`, `PreparedCommitV1`, or
+trusted commit planner implementation exists.
 
 ### Accepted replacement boundary
 
@@ -409,9 +411,10 @@ The `legacy_v1` compatibility path currently proves:
 - post-commit live-query notification that does not roll back an already
   committed mutation when notification fails.
 
-The replacement foundation also has branded scope/epoch/commit token types,
-storage-generation/fence primitives, stable catalogs, and ordered-key codec
-work in adjacent domains. Those prerequisites do not mean the new compiler or
+The replacement foundation also has private ephemeral snapshot resolution,
+branded scope/epoch/commit token types, storage-generation/fence primitives,
+stable catalogs, and ordered-key codec work in adjacent domains. Those
+prerequisites do not mean the new compiler, durable session pin, or
 exact-snapshot invoke path is active.
 
 ## Known Gaps And Limitations
@@ -463,10 +466,11 @@ reads, or legacy retirement.
 
 ## Next Correctness Gates
 
-Schema catalog publication closure `S03-D2d` is complete. `O01` is the current
-next candidate in the interleaved foundation order; `C01` remains a later Wave
-1 gate. Production/canary compiler execution still waits for the required
-schema, exact-snapshot OCC, commit, hosted, and migration prerequisites.
+Private snapshot resolution `O02` is complete after the standalone `O01`
+abstraction gate was retired before implementation. `S05-B` is the current next
+candidate in the interleaved foundation order; `C01` remains a later Wave 1
+gate. Production/canary compiler execution still waits for the required schema,
+exact-snapshot OCC, commit, hosted, and migration prerequisites.
 
 The compiler gates are:
 

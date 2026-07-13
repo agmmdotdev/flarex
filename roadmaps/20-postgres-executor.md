@@ -300,7 +300,10 @@ The active foundation status is:
 - complete: stable table identities, immutable schema artifacts, strict app
   table definitions, stable logical indexes, ordered index codec v1, immutable
   physical definitions, schema bindings, and fenced build-state reads through
-  `S03-D2d` plus the interleaved `S05-A` prerequisite; and
+  `S03-D2d` plus the interleaved `S05-A` prerequisite;
+- complete but private/non-routing: `O02` resolves one ephemeral exact app-data
+  snapshot plus generation/fence from trusted placement and one located
+  data-plane scope-clock read; and
 - not complete: replacement app-row/OCC/commit/cutover work, per-scope build
   reconciliation/readiness, and production replacement routing.
 
@@ -386,16 +389,17 @@ capabilities. Neither adapter may receive raw executor persistence.
 
 ## Next Correctness Gates
 
-The immediate next candidate is `O01` in the focused OCC plan: define typed OCC
-contracts and extract only the narrow internal ports required by later snapshot
-and commit gates. It changes no `/invoke/*` behavior, opens no production
-replacement route, and requires its own evidence-backed preflight and approval.
+The immediate next candidate is `S05-B` in the focused schema plan: define the
+tagged Flarex value codec for replacement rows and canonical logical protocol
+values. It changes no `/invoke/*` behavior, opens no production replacement
+route, and requires its own evidence-backed preflight and approval.
 
 Follow the interleaved foundation order rather than pulling build/readiness
 work forward:
 
-1. Wave 1 establishes narrow OCC ports, exact snapshots, the replacement value
-   codec, row/session storage, point reads, and pure point planning.
+1. Wave 1 continues from completed private snapshot resolution into the
+   replacement value codec, just-in-time row/session capabilities, point reads,
+   and pure point planning.
 2. Wave 2 closes one atomic result-bearing point mutation with idempotency,
    commit feed, and outbox through the real-Postgres `C07` gate.
 3. Immediately after `C07`, apply the predeclared threshold to the conditional

@@ -2,14 +2,14 @@
 
 ## Status And Scope
 
-Current next gate: `O01`, typed OCC contracts and narrow internal ports. It
-requires the normal evidence-backed design preflight and explicit approval
-before implementation.
+Current next gate: `S05-B`, the tagged Flarex value codec for replacement rows
+and canonical logical protocol values. It requires the normal evidence-backed
+design preflight and explicit approval before implementation.
 
 | Stream | Current status |
 | --- | --- |
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, and interleaved `S05-A` complete |
-| OCC/transactions | Planned; `O01` is the current next candidate and no OCC gate is implemented |
+| OCC/transactions | Private non-routing `O02` snapshot resolution complete; standalone `O01` retired before implementation; `O03` and later gates remain planned |
 | Commit compiler | Planned; `C01` is the first unchecked compiler gate |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
@@ -192,20 +192,24 @@ deferred to their real consumers.
 
 ### Wave 1 — First Row And Point-OCC Slice
 
-1. `O01`: typed OCC contracts and narrow ports.
-2. `O02`: exact snapshot issuance; legacy `beginTs` stays inside the legacy
-   adapter.
-3. `S05-B`: tagged Flarex value codec for replacement rows and canonical
+The former standalone `O01` abstraction gate was retired before implementation.
+Its immediately necessary scope-authority seam was folded into `O02`; later OCC
+types and ports are introduced by the gates that first consume them.
+
+1. `O02` (complete): resolve an ephemeral exact app-data snapshot plus its
+   generation/fence from one trusted data-plane clock read; legacy `beginTs`
+   stays inside the legacy adapter.
+2. `S05-B`: tagged Flarex value codec for replacement rows and canonical
    logical protocol values.
-4. `S06`: app row revision/current storage.
-5. `S07`: session, snapshot-lease, and reconnect-retention DDL.
-6. `O03`: authoritative fenced session anchors.
-7. `O04`: exact-snapshot point reads including missing-row dependencies.
-8. `O05`: pure point-OCC validator.
-9. `C01`: narrow compiler/executor ports without endpoint changes.
-10. `C02`: versioned journal/envelope/plan protocol.
-11. `C03`: point read-your-writes and fail-closed unsupported shapes.
-12. `C04`: pure deterministic point-row planner.
+3. `S06`: app row revision/current storage.
+4. `S07`: session, snapshot-lease, and reconnect-retention DDL.
+5. `O03`: authoritative fenced session anchors.
+6. `O04`: exact-snapshot point reads including missing-row dependencies.
+7. `O05`: pure point-OCC validator.
+8. `C01`: narrow compiler/executor ports without endpoint changes.
+9. `C02`: versioned journal/envelope/plan protocol.
+10. `C03`: point read-your-writes and fail-closed unsupported shapes.
+11. `C04`: pure deterministic point-row planner.
 
 ### Wave 2 — One Atomic App-Data Commit
 

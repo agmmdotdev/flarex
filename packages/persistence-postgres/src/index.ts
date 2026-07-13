@@ -282,6 +282,11 @@ export * from "./scopeMetadata";
 export * from "./scopeMetadataTypes";
 export * from "./scopeAuthorityResolution";
 export {
+  createAppDataSnapshotResolver,
+  type AppDataSnapshotResolver,
+  type ResolvedAppDataSnapshot,
+} from "./appDataSnapshot";
+export {
   getSchemaVersionArtifactById,
   getSchemaVersionArtifactByVersion,
   InvalidSchemaVersionArtifactInputError,

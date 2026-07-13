@@ -128,8 +128,9 @@ Postgres cannot see the private journal.
 
 Outcome:
 
-- Consume the shared storage split/types from S01 and OCC transaction/lifecycle
-  ports from O01/O03. Add only compiler-facing composition adapters such as
+- Consume the shared storage split/types from S01, snapshot selection from O02,
+  lifecycle authority from O03, and point dependency/validation contracts from
+  O04/O05. Add only compiler-facing composition adapters such as
   `SessionJournalStore`, `CatalogReader`, verified planner-input loading, and
   `PostCommitWake`.
 - Wrap current finish/planning call sites with compatibility composition; do

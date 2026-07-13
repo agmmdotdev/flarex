@@ -6,8 +6,8 @@ Status: `S01`, `S02-A` through `S02-C`, resolve-only `S02-D1`, `S03-A`
 through `S03-D2d`, and the interleaved `S05-A` prerequisite are complete.
 Hosted proof `H01` through `H04` and `H05-A` are complete. `H05-B` and
 production routing `S02-D2` remain deferred. The current next implementation
-gate is `O01` in the OCC and transaction plan and still requires its normal
-design preflight and approval.
+gate is `S05-B` in this plan and still requires its normal design preflight and
+approval. Private non-routing snapshot resolution `O02` is complete.
 
 This plan owns the additive physical schema, codecs, repositories, stable
 catalog, and compatibility migration for the first Flarex app-data generation.
@@ -314,8 +314,9 @@ table-only behavior. D2d changes neither the semantic manifest nor canonical
 codec version. Build-state mutation, readiness, active-schema activation,
 `S03-D3`, `S03-D4`, `S04`, app rows, production replacement routing, Payload,
 Medusa, and Cloudflare deployment remain outside
-this facade. `O01` is the next candidate gate, not an implemented or
-pre-approved OCC slice.
+this facade. The standalone `O01` abstraction gate was retired before
+implementation and its necessary scope-authority seam was folded into completed
+`O02`; `S05-B` is next and is not pre-approved.
 
 Exit gates for the complete S03 stream:
 
