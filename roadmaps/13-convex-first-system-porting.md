@@ -89,6 +89,11 @@ ways:
   Worker.
 - The executor uses request-scoped Postgres clients through cache-disabled
   Hyperdrive in hosted production.
+- Convex can retain an active mutation snapshot inside one backend execution.
+  Flarex crosses Dynamic Worker, service-binding, retry, and Postgres
+  lifetimes, so S07 adds a small authoritative transaction-session anchor and
+  constrained current-attempt snapshot lease. This preserves exact-snapshot
+  and fenced-retry semantics while naming the distributed-execution divergence.
 - Cloudflare Durable Objects own WebSockets, coordination, temporary session
   bookkeeping when measurement justifies it, and disposable cache state—not
   authoritative committed data.

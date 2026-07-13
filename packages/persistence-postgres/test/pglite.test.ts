@@ -1,4 +1,11 @@
-import { cp, copyFile, mkdtemp, rm } from "node:fs/promises";
+import {
+  cp,
+  copyFile,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -70,6 +77,8 @@ describe("createPGlitePersistence", () => {
       "fx_control_table",
       "fx_system_index_build_state",
       "fx_system_scope_clock",
+      "fx_system_snapshot_lease",
+      "fx_system_tx_session",
       "indexes",
       "invoke_session_document_reads",
       "invoke_session_document_writes",
@@ -788,6 +797,175 @@ describe("createPGlitePersistence", () => {
       `);
       expect(appRows.rows).toEqual([
         { revision_count: "0", current_count: "0" },
+      ]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("adds empty transaction-session authorities without changing S06 data", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-session-upgrade-"));
+    const previousMigrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const previousJournal = resolve(
+      packageRoot,
+      "test/fixtures/drizzle-through-0025-journal.json",
+    );
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, previousMigrationsFolder, {
+        recursive: true,
+      });
+      await copyFile(
+        previousJournal,
+        resolve(previousMigrationsFolder, "meta/_journal.json"),
+      );
+      const previousPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder: previousMigrationsFolder,
+      });
+      await previousPersistence.migrate();
+      await previousPersistence.query(`
+        insert into fx_system_scope_clock
+          (scope_id, storage_generation, last_commit_seq, epoch)
+        values
+          (
+            'scope_62000000-0000-0000-0000-000000000001',
+            'flarexdb_v1',
+            1,
+            'epoch_62000000-0000-0000-0000-000000000002'
+          ),
+          ('scope_before_sessions', 'legacy_v1', 0, 'epoch-before-sessions')
+      `);
+      await previousPersistence.query(`
+        insert into fx_app_row_rev
+          (scope_uuid, table_id, row_id, commit_seq, write_epoch_uuid,
+           schema_version_id, creation_time, value_codec_version, is_tombstone)
+        values
+          ('62000000-0000-0000-0000-000000000001', 1,
+           decode('62000000000000000000000000000003', 'hex'), 1,
+           '62000000-0000-0000-0000-000000000002', 'schema_before_sessions',
+           1, 1, true)
+      `);
+      await previousPersistence.query(`
+        insert into fx_app_row_current
+          (scope_uuid, table_id, row_id, commit_seq)
+        values
+          ('62000000-0000-0000-0000-000000000001', 1,
+           decode('62000000000000000000000000000003', 'hex'), 1)
+      `);
+      await expect(
+        previousPersistence.query(`select count(*) from fx_system_tx_session`),
+      ).rejects.toThrow();
+
+      const currentPersistence = await createPGlitePersistence({ db });
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      const preserved = await currentPersistence.query<{
+        clocks: string;
+        revisions: string;
+        current_rows: string;
+        sessions: string;
+        leases: string;
+      }>(`
+        select
+          (select count(*)::text from fx_system_scope_clock) as clocks,
+          (select count(*)::text from fx_app_row_rev) as revisions,
+          (select count(*)::text from fx_app_row_current) as current_rows,
+          (select count(*)::text from fx_system_tx_session) as sessions,
+          (select count(*)::text from fx_system_snapshot_lease) as leases
+      `);
+      expect(preserved.rows).toEqual([
+        {
+          clocks: "2",
+          revisions: "1",
+          current_rows: "1",
+          sessions: "0",
+          leases: "0",
+        },
+      ]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("rolls back a failed S07 migration receipt and recovers cleanly", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-session-failure-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const previousJournal = resolve(
+      packageRoot,
+      "test/fixtures/drizzle-through-0025-journal.json",
+    );
+    const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
+    const migrationName = "0026_wooden_white_queen.sql";
+    const copiedMigration = resolve(migrationsFolder, migrationName);
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      await copyFile(
+        previousJournal,
+        resolve(migrationsFolder, "meta/_journal.json"),
+      );
+      const previousPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await previousPersistence.migrate();
+      await copyFile(currentJournal, resolve(migrationsFolder, "meta/_journal.json"));
+
+      const realMigration = await readFile(copiedMigration, "utf8");
+      await writeFile(
+        copiedMigration,
+        `${realMigration}\n--> statement-breakpoint\nselect * from fx_s07_deliberate_missing_table;\n`,
+        "utf8",
+      );
+      const failingPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await expect(failingPersistence.migrate()).rejects.toThrow();
+
+      const absent = await failingPersistence.query<{ table_name: string }>(`
+        select table_name
+        from information_schema.tables
+        where table_name in ('fx_system_tx_session', 'fx_system_snapshot_lease')
+        order by table_name
+      `);
+      expect(absent.rows).toEqual([]);
+      const receipts = await failingPersistence.query<{ count: string }>(
+        `select count(*)::text as count from drizzle.__drizzle_migrations`,
+      );
+      expect(receipts.rows).toEqual([{ count: "26" }]);
+
+      await copyFile(resolve(currentMigrationsFolder, migrationName), copiedMigration);
+      const recoveredPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await expect(recoveredPersistence.migrate()).resolves.toBeUndefined();
+      await expect(recoveredPersistence.migrate()).resolves.toBeUndefined();
+      const recovered = await recoveredPersistence.query<{ table_name: string }>(`
+        select table_name
+        from information_schema.tables
+        where table_name in ('fx_system_tx_session', 'fx_system_snapshot_lease')
+        order by table_name
+      `);
+      expect(recovered.rows).toEqual([
+        { table_name: "fx_system_snapshot_lease" },
+        { table_name: "fx_system_tx_session" },
       ]);
     } finally {
       try {

@@ -4,6 +4,7 @@ import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
   LegacyV1StorageGenerationSchema,
+  MAX_PERSISTED_SIGNED_INT64_V1,
   OutboxSeqSchema,
   InvalidScopeAuthorityUuidProjectionV1Error,
   ScopeEpochSchema,
@@ -131,7 +132,12 @@ describe("FlarexDB storage authority contracts", () => {
   });
 
   it("round-trips canonical counters without number precision loss", () => {
-    for (const value of ["0", "1", "9007199254740993"]) {
+    for (const value of [
+      "0",
+      "1",
+      "9007199254740993",
+      MAX_PERSISTED_SIGNED_INT64_V1.toString(),
+    ]) {
       const commitSeq = decodeCommitSeq(value);
       const outboxSeq = decodeOutboxSeq(value);
 
@@ -154,6 +160,7 @@ describe("FlarexDB storage authority contracts", () => {
       "1e3",
       " 1",
       "1 ",
+      (MAX_PERSISTED_SIGNED_INT64_V1 + 1n).toString(),
     ]) {
       expect(() => decodeCommitSeq(value)).toThrow();
       expect(() => decodeOutboxSeq(value)).toThrow();
@@ -174,13 +181,27 @@ describe("FlarexDB storage authority contracts", () => {
   });
 
   it("round-trips only positive canonical storage-generation fences", () => {
-    for (const value of ["1", "9007199254740993"]) {
+    for (const value of [
+      "1",
+      "9007199254740993",
+      MAX_PERSISTED_SIGNED_INT64_V1.toString(),
+    ]) {
       const fence = decodeStorageGenerationFence(value);
       expect(fence).toBe(BigInt(value));
       expect(encodeStorageGenerationFence(fence)).toBe(value);
     }
 
-    for (const value of [0, 1, "0", "-1", "+1", "01", "1.0", " 1"]) {
+    for (const value of [
+      0,
+      1,
+      "0",
+      "-1",
+      "+1",
+      "01",
+      "1.0",
+      " 1",
+      (MAX_PERSISTED_SIGNED_INT64_V1 + 1n).toString(),
+    ]) {
       expect(() => decodeStorageGenerationFence(value)).toThrow();
     }
     expect(() => StorageGenerationFenceSchema.make(0n)).toThrow();
@@ -232,6 +253,11 @@ describe("FlarexDB storage authority contracts", () => {
       { scopeId: "scope-a", epoch: "", commitSeq: "0" },
       { scopeId: "scope-a", epoch: "epoch-a", commitSeq: 0 },
       { scopeId: "scope-a", epoch: "epoch-a", commitSeq: "-1" },
+      {
+        scopeId: "scope-a",
+        epoch: "epoch-a",
+        commitSeq: (MAX_PERSISTED_SIGNED_INT64_V1 + 1n).toString(),
+      },
       {
         scopeId: "scope-a",
         epoch: "epoch-a",

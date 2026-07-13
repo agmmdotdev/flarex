@@ -99,9 +99,11 @@ and a combined retry coordinator.
 The repository defines the branded `SnapshotToken` protocol type and a private,
 non-routing resolver that captures one ephemeral exact snapshot plus its
 generation/fence from trusted placement and the data-plane scope clock. Current
-invoke sessions do not use that selection as read/commit authority. No durable
-session pin, `SessionJournalV1`, `CommitEnvelopeV1`, `PreparedCommitV1`, or
-trusted commit planner implementation exists.
+invoke sessions do not use that selection as read/commit authority. S07's
+physical transaction-session/snapshot-lease tables exist internally, but no
+production lifecycle operation creates or consumes them. `SessionJournalV1`,
+`CommitEnvelopeV1`, `PreparedCommitV1`, and the trusted commit planner remain
+unimplemented.
 
 ### Accepted replacement boundary
 
@@ -133,23 +135,29 @@ the pinned catalog, policy, codecs, and final row bodies.
 
 ### Authoritative session anchor
 
-Postgres retains a small authoritative anchor containing:
+Postgres stores immutable request authority on one transaction-session anchor:
 
 ```text
-scope and storage generation/fence
-immutable package/artifact and function identity
-identity/access-policy fingerprint and inert authenticated claims
-authorization grant id, expiry, policy version, and revocation epoch
-validated canonical arguments
-schema/catalog version
-SnapshotToken and snapshot lease
-attempt fence and lifecycle state
-request/idempotency identity
+native scope/session identity and immutable flarexdb_v1 generation/fence
+package/dynamic-worker artifact/mutation function/schema/policy pins
+canonical argument JSON, Value Codec V1 bytes, and SHA-256
+cryptographic identity/access-policy SHA-256 for matching only
+canonical grant JSON/bytes/SHA-256 containing minimized inert claims and
+  capabilities, plus grant identity, expiry, and revocation epoch
+internal request key bounded to 1,024 UTF-8 bytes, request hash, lifecycle,
+  current attempt fence, protocol version, hard expiry, and timestamps
 ```
 
-Temporary journal placement does not change this anchor. It is needed to
-authenticate a remote journal, fence stale attempts, look up committed
-outcomes, and prevent SessionDO from becoming transaction authority.
+One constrained snapshot-lease row stores only the exact current attempt fence,
+`SnapshotToken`, and lease expiry. It is not a second generation or request
+authority, and parent updates/deletes do not cascade through it. S07 defines
+these physical rows; O03 owns atomic creation/replacement and active-child
+invariants. C02 owns journal sequence/digest, while S09/O07 own public
+idempotency and committed outcomes.
+
+Temporary journal placement does not change this anchor. It authenticates a
+remote journal and fences stale attempts without making SessionDO transaction
+authority.
 
 ### Snapshot contract
 
@@ -435,8 +443,10 @@ or exact-snapshot invoke path is active.
 - The final `(scope_id, request_key)` result-bearing idempotency row,
   committed-outcome replay, expiry tombstone, and generation-cutover rules are
   not implemented.
-- Replacement app row revision/current, session/snapshot lease, commit/change,
-  idempotency, and leased-outbox tables remain prerequisites.
+- Replacement app-row revision/current and physical transaction-session/
+  snapshot-lease tables exist internally. Production session lifecycle,
+  commit/change, idempotency, leased outbox, and compiler composition remain
+  prerequisites.
 - Exact range/relation/pagination overlays and phantom tests are incomplete.
 - Payload and Medusa adapter conformance remain separate future domains.
 - The scope-local commit lane may become a throughput bottleneck and must be
@@ -467,10 +477,9 @@ reads, or legacy retirement.
 
 ## Next Correctness Gates
 
-Private snapshot resolution `O02` and the adjacent `S05-B` value-codec
-prerequisite are complete after the standalone `O01` abstraction gate was
-retired before implementation. `S06` is the current next candidate in the
-interleaved foundation order; `C01` remains a later Wave 1 gate.
+Private O02 snapshot resolution, S05-B value codec, S06 row storage, and S07
+physical session/snapshot-lease DDL are complete. O03 is the next foundation
+candidate and requires its own preflight; C01 remains a later Wave 1 gate.
 Production/canary compiler execution still waits for the required schema,
 exact-snapshot OCC, commit, hosted, and migration prerequisites.
 

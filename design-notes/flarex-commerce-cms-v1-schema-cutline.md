@@ -1,6 +1,8 @@
 # Flarex Commerce/CMS v1 Schema Cutline
 
-Status: accepted v1 implementation cutline; replacement remains unimplemented
+Status: accepted v1 implementation cutline; the internal S06 row kernel and
+S07 transaction-session authority tables are implemented, while OCC, sidecars,
+migration/cutover, and production routing remain incomplete
 
 Authoritative review:
 
@@ -225,24 +227,34 @@ V1 should keep current edges only.
 
 A separate `fx_edge_rev` table can be deferred. Edge changes can be represented in commit summaries/outbox events while current edges are recomputed from row JSON at write time.
 
-### Runtime/recovery
+### Point-mutation runtime/recovery
 
 ```text
 fx_scope_clock
 fx_commit
 fx_commit_write
-fx_tx_session_anchor
-fx_snapshot_lease
-fx_sync_reconnect_lease
+fx_system_tx_session
+fx_system_snapshot_lease
 fx_outbox
 fx_idempotency
 ```
 
-These are non-negotiable for trusted execution, OCC, exact snapshots,
-result replay, and post-commit recovery. A normalized dependency table is
-optional when the trusted commit planner can validate a bounded typed batch
-directly. A SessionDO journal is an implementation choice, not the authority
-schema.
+These are required for the bounded point-mutation proof. A normalized
+dependency table is optional when the trusted commit planner can validate a
+bounded typed batch directly. A SessionDO journal is an implementation choice,
+not the authority schema.
+
+### Sync-owned retention, added just in time
+
+```text
+fx_sync_reconnect_lease
+```
+
+The reconnect lease remains part of the eventual reconnectable-sync cutline,
+but it is not S07 and is not needed for C07. Roadmap 21 must freeze its
+identity, duration, history budget, renewal, expiry, and reset semantics before
+a separate schema gate introduces it immediately before its first O11/sync
+consumer.
 
 ### Optional v1 if CMS editor requires it
 
@@ -290,11 +302,13 @@ Required:
   fx_scope_clock
   fx_commit
   fx_commit_write
-  fx_tx_session_anchor
-  fx_snapshot_lease
-  fx_sync_reconnect_lease
+  fx_system_tx_session
+  fx_system_snapshot_lease
   fx_outbox
   fx_idempotency
+
+Sync-owned, added just before its first consumer:
+  fx_sync_reconnect_lease
 
 Optional:
   fx_block_index_current
@@ -717,7 +731,8 @@ Recommendation:
 
 ```text
 keep fx_app_row_rev as the sole row-value authority
-S07 adds snapshot/reconnect retention leases
+S07 adds only transaction-session and current-attempt snapshot-lease DDL
+roadmap 21 adds reconnect-retention DDL before its first real consumer
 O11 defines the retained floor and compaction algorithm
 ```
 
@@ -988,38 +1003,37 @@ fx_commit (
 );
 ```
 
-### Authoritative session anchor and snapshot lease: keep
+### Authoritative session anchor and snapshot lease: keep, but separate authority
 
-These are needed for trusted authority, fencing, exact-snapshot retention,
-idempotent finish, and uncertain-result recovery. Active logical read/write
-journals may remain in Postgres for compatibility or move to SessionDO for the
-bounded app compiler; the authority fields remain in Postgres.
-
-Required properties:
+S07 keeps two physical authorities:
 
 ```text
-session status
-scope + storage generation/fence + epoch + begin commit sequence
-package/artifact + function reference
-identity/access-policy fingerprint
-validated canonical arguments + authenticated inert authorization grant
-allowed capabilities + policy revocation epoch
-schema/policy version
-attempt fence + protocol version + syscall sequence + journal digest
-request key + canonical request hash
-result/error + committed epoch/sequence
-TTL/cleanup
+transaction session:
+  native scope/session identity and immutable flarexdb_v1 generation/fence
+  package/dynamic-worker artifact/function/schema/policy pins
+  canonical argument JSON, Value Codec V1 bytes, and SHA-256
+  cryptographic identity/policy SHA-256 for matching only
+  canonical authorization-grant JSON/bytes/SHA-256 containing minimized inert
+    claims/capabilities, plus grant identity, expiry, and revocation epoch
+  internal request key bounded to 1,024 UTF-8 bytes, request hash, lifecycle,
+    current attempt fence, protocol version, hard expiry, and timestamps
+
+snapshot lease:
+  the exact current attempt fence
+  native snapshot epoch and exact commit sequence
+  lease expiry
 ```
 
-Lifecycle is `created -> running -> finishing -> committing -> committed`, with
-an OCC-only `committing -> retrying -> running` transition that increments the
-attempt fence, replaces the snapshot lease, and discards the old journal.
-`aborted` and `expired` remain terminal. Late syscalls are rejected once
-finishing begins for the current attempt.
-Repeated finish and lost responses resolve through the stored authoritative
-outcome. Snapshot leases prevent history GC from passing a live attempt.
-The trusted executor validates arguments against the pinned authoritative
-validator before execution and validates the encoded return before commit.
+The lease is a constrained current-attempt projection and does not duplicate
+generation or request authority. S07 defines only the relational contract: at
+most one lease per session, and every lease references the exact current
+attempt. O03 owns the active-session child-existence invariant, atomic
+creation/replacement, lifecycle transitions, expiry, and stale-attempt
+rejection.
+
+C02 owns syscall sequence and journal digest. S09/O07 own public idempotency,
+result/error, committed token, and uncertain-outcome recovery. Snapshot leases
+prevent engine-history GC from passing a live attempt.
 
 ### `fx_outbox`: keep
 
@@ -1304,15 +1318,20 @@ commerce writes/deletes should go through ctx.commerce / trusted commerce adapte
    with a versioned ordered
    key codec.
 5. Add `fx_unique_key` and stable-occurrence `fx_edge_current`.
-6. Add the fenced session anchor, snapshot lease, typed dependency validation,
-   result-bearing idempotency, commit atoms, and leased outbox.
-7. Prove point CRUD and one indexed query on PGlite and real Postgres.
-8. Backfill, verify, dual-read compare, scoped cut over, and preserve rollback.
-9. Add two-phase live-query activation and per-scope contiguous catch-up while
+6. Add S07's transaction-session and current-attempt snapshot-lease DDL.
+7. Implement O03 atomic session/lease lifecycle, then exact point dependencies
+   and point OCC.
+8. Add commit atoms, result-bearing idempotency, and leased outbox through their
+   separate S08/S09 and O06/O07 gates.
+9. Prove the narrow point-mutation path on PGlite and real Postgres.
+10. Backfill, verify, dual-read compare, scoped cut over, and preserve rollback.
+11. Freeze reconnect retention in roadmap 21, then add its DDL immediately
+    before O11/replacement sync first consumes it.
+12. Add two-phase live-query activation and per-scope contiguous catch-up while
    retaining the current Postgres subscription registry.
-10. Add hidden block-type indexes through `fx_index_entry_current` if needed.
-11. Add a scalar Payload adapter over reserved logical collections.
-12. Only then consider normalized catalog tables, `fx_edge_rev`, dedicated
+13. Add hidden block-type indexes through `fx_index_entry_current` if needed.
+14. Add a scalar Payload adapter over reserved logical collections.
+15. Only then consider normalized catalog tables, `fx_edge_rev`, dedicated
     Payload physical tables, or cache DOs.
 
 ## Documentation patch recommendation

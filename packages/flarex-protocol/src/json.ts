@@ -1,12 +1,14 @@
 import { Schema } from "effect";
 
+export type JsonObject = { readonly [key: string]: Json };
+
 export type Json =
   | null
   | boolean
   | number
   | string
   | ReadonlyArray<Json>
-  | { readonly [key: string]: Json };
+  | JsonObject;
 
 export const Json: Schema.Schema<Json> = Schema.suspend(() =>
   Schema.Union([

@@ -1,7 +1,8 @@
 # FlarexDB OCC And Transaction Plan
 
-Status: private non-routing `O02` snapshot resolution complete; standalone
-`O01` retired before implementation; `O03` and later OCC gates remain planned
+Status: private non-routing `O02` snapshot resolution and S07's physical
+session/snapshot-lease authority are complete; standalone `O01` retired before
+implementation; `O03` and later OCC gates remain planned
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -128,27 +129,32 @@ Exit gate:
 
 Outcome:
 
-- Create authoritative session/grant anchor and snapshot lease atomically.
-- Pin scope, storage generation, snapshot, package/artifact/function,
-  canonical validated arguments, identity/policy fingerprint, authorization
-  grant/revocation epoch, schema version, request identity, attempt fence,
-  expiry, and protocol version.
-- Keep one request anchor across OCC attempts. A rerun advances its attempt
-  fence and snapshot but retains storage generation/fence. An OCC conflict
-  atomically moves `committing -> retrying`, increments the attempt fence,
-  discards the old journal, replaces the snapshot lease, and returns the same
-  non-terminal request anchor to `running`. If the generation fence changed,
-  stop active attempts with typed `StorageGenerationChanged` instead. The same
-  request key can rebind after cutover only when outcome lookup proves no
-  commit and a fenced CAS makes the old anchor terminal; uncertain outcomes do
-  not rebind.
-- Implement compare-and-set lifecycle primitives without moving the logical
-  journal to SessionDO.
+- Using S07's physical tables, create the authoritative transaction session and
+  its exact-attempt snapshot lease atomically in one short transaction. S07
+  defines relational shape only; O03 owns this production operation and the
+  invariant that every active session has exactly one current lease.
+- Verify trusted package/artifact/function/schema/policy pins and canonical
+  argument/grant evidence before insertion. The grant carries minimized inert
+  claims/capabilities; the identity/policy digest alone never authorizes.
+- Keep request/generation authority on the session and snapshot-retention
+  authority on the lease. A stale attempt may neither renew nor delete the
+  current attempt's lease.
+- Keep one request anchor across OCC attempts. A rerun locks and validates the
+  old state/fence, explicitly deletes the old lease, advances the parent fence,
+  installs the new exact snapshot, and returns the same non-terminal request
+  anchor to `running` atomically. Do not cascade an old snapshot into a new
+  attempt. If the generation fence changed, stop with typed
+  `StorageGenerationChanged`; uncertain outcomes do not rebind.
+- Implement compare-and-set lifecycle, renewal, expiry, and cleanup primitives
+  without moving the logical journal to SessionDO.
 
 Exit gate:
 
 - stale owner, wrong generation, expired lease, revoked grant, epoch rollover,
   and terminal-session reopen all fail closed;
+- catching a stale-attempt or injected replacement failure cannot leave an
+  orphan lease, relabel the old snapshot, or mutate the current attempt's
+  lease;
 - history GC can discover the active snapshot floor.
 
 ### [ ] O04 — Implement Exact-Snapshot Point Reads
@@ -310,8 +316,9 @@ Exit gate:
 
 Outcome:
 
-- Compute engine-history retention from active snapshot leases and reconnect
-  leases plus a safety margin.
+- Compute engine-history retention from active snapshot leases plus a safety
+  margin. Consume reconnect floors only after roadmap 21 supplies an accepted
+  reconnect contract and separately preflighted DDL.
 - Persist and advance `oldest_available_commit_seq` only after compaction
   succeeds so restart can reject tokens below the actual retained floor.
 - For every row identity and index-entry membership identity, retain the newest

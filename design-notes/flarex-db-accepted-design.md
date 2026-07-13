@@ -10,7 +10,8 @@ the useful motivation from the longer research notes while correcting the
 parts that were unsafe or internally contradictory.
 
 When another design note conflicts with this document, this document controls.
-The domain roadmaps remain the chronological implementation record.
+Domain roadmaps own durable current status and target direction; Git owns
+chronological implementation history.
 
 ## Verdict
 
@@ -109,7 +110,7 @@ Cloudflare references:
 | Layer | Status | Meaning |
 | --- | --- | --- |
 | Existing `documents`, `indexes`, invoke sessions, Postgres live-query registry, and delivery outbox | Implemented baseline | Preserve while the replacement is built. Do not silently describe it as the final FlarexDB schema. |
-| Typed app row JSON with revision/current, declared index, edge, and unique sidecars | Accepted target | Prove first behind a storage-generation flag. |
+| Typed app row JSON with revision/current, declared index, edge, and unique sidecars | Partially implemented accepted target | S06 implements the internal, non-routing row revision/current kernel. Index, edge, unique, backfill, and routing consumers remain planned behind the storage-generation boundary. |
 | SessionDO journal plus trusted commit compiler | Accepted only for a bounded app-data slice | Prove the Postgres-backed point path through the real-Postgres gate, then immediately measure journal overhead and move the temporary journal when a predeclared material-improvement threshold is met. Broader query overlays must fail closed until implemented. |
 | Payload adapter | Staged target | Start with reserved logical collections and scalar CRUD/transaction conformance; add relations, versions/drafts, globals, auth, locks, and hooks incrementally. |
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
@@ -181,8 +182,14 @@ physical-type authority.
   module IDs are compiled from their actual schema/manifest. Do not coerce them
   all to UUID. If a wide external ID would dominate hot indexes, keep the
   external unique key and add a compact trusted surrogate.
-- Continue using scope-local `bigint` commit and outbox sequences. IDs never
-  replace `commit_seq`, `outbox_seq`, or explicit business ordering.
+- Continue using scope-local signed `bigint` commit and outbox sequences. Every
+  persisted sequence or fence contract, including `CommitSeq`,
+  `StorageGenerationFence`, attempt fences, and revocation epochs, rejects
+  values outside PostgreSQL's signed-int64 domain. Nonnegative counters permit
+  `0..9223372036854775807`; positive fences permit
+  `1..9223372036854775807`. Protocol types must not admit values that the
+  authoritative database cannot store. IDs never replace `commit_seq`,
+  `outbox_seq`, or explicit business ordering.
 - Every ordered pagination index ends in a unique deterministic tie-breaker,
   normally the compact row identity. Queries must use explicit `ORDER BY`; heap
   or UUID insertion order is not an API contract.
@@ -658,42 +665,47 @@ edge_id / occurrence_key = hash(
 Mutable list position is stored for ordering, not used as the occurrence
 identity. Block metadata keys include locale.
 
-Engine revision retention must account for active snapshots and reconnect
-cursors. Keep a minimal authoritative snapshot lease:
+Engine revision retention must account for active mutation snapshots and,
+later, reconnect cursors. These are separate authorities with separate
+consumers.
+
+S07 adds only the current-attempt snapshot lease:
 
 ```text
-scope_id
+scope_uuid
 session_id
-begin_epoch
-begin_commit_seq
-storage_generation
-storage_generation_fence
-expires_at
+attempt_fence
+snapshot_epoch_uuid
+snapshot_commit_seq
+lease_expires_at
 ```
 
-GC uses the minimum active snapshot/reconnect floor plus a safety margin for
-row, index, edge, commit, and sync change-feed history. Payload user-visible
+There is at most one lease per scope/session. Every lease is a constrained
+projection of the session's exact current attempt: its scope, session, and
+attempt fence reference that current attempt. It does not duplicate storage
+generation, package, schema, policy, grant, or request authority; those remain
+on the session anchor. Plain relational DDL cannot require every active parent
+to have a child lease, so that exactly-one-active-lease invariant belongs to
+O03's atomic repository operation.
+
+O03 owns atomic anchor/lease creation, renewal, replacement, expiry, and stale-
+attempt rejection. Retry replacement explicitly deletes the old lease,
+advances the parent fence, and inserts the new lease in one transaction. The
+foreign key restricts parent updates and deletes while the old lease remains;
+it does not cascade an old snapshot into a new attempt. S07 owns only the
+relational shape and migration proof.
+
+GC initially uses the minimum active snapshot-lease floor plus a safety margin
+for row, index, edge, commit, and sync change-feed history. Payload user-visible
 versions are product data and are not deleted by engine-history GC. Outbox
-retention is separate: pending/claimed rows are never GCed, dead letters follow
-explicit operator policy, and delivered rows compact only after required
-consumer progress plus delivery-idempotency retention.
+retention remains separate.
 
-Reconnect retention uses a bounded lease:
-
-```text
-scope_id
-connection_or_session_id
-epoch
-minimum_required_commit_seq
-storage_generation
-storage_generation_fence
-registration_generation
-expires_at
-```
-
-If a reconnect cursor is from another epoch or older than the retained floor,
-the server sends an explicit reset/resnapshot response. It never pretends a
-partial replay is complete.
+Reconnect retention is a later sync-owned contract, not part of S07. Roadmap 21
+must first freeze its identity, duration, history budget, renewal, expiry, and
+reset semantics, then introduce its physical lease immediately before O11
+consumes reconnect floors or replacement sync admits reconnectable sessions.
+A cursor from another epoch or below the retained floor receives an explicit
+reset/resnapshot response; partial replay is never presented as complete.
 
 ## One Snapshot Token
 
@@ -755,22 +767,37 @@ CommitExecutor
   idempotency outcome, commit record, freshness atoms, and outbox
 ```
 
-Postgres retains a small authoritative session/grant anchor containing:
+S07 implements a small located Postgres transaction-session anchor containing:
 
 ```text
-scope
-immutable package/artifact identity
-function reference and kind
-identity/access-policy fingerprint
-validated canonical arguments
-authenticated inert identity claims / allowed capabilities
-authorization grant id and revocation epoch
-schema and policy version
-snapshot token
-expiry
-attempt fence
-request/idempotency identity
+native scope UUID and native UUID session identity
+immutable flarexdb_v1 generation and positive generation fence
+immutable package, dynamic-worker artifact, source hash, execution module,
+  mutation function path/kind, schema version, and policy version
+canonical validated-argument JSON, Value Codec V1 bytes, and SHA-256
+cryptographic identity/access-policy SHA-256 for matching only
+authorization grant identity, canonical grant JSON and Value Codec V1 bytes,
+  SHA-256, expiry, and nonnegative revocation epoch
+nonblank internal request key bounded to 1,024 UTF-8 bytes for its PostgreSQL
+  lookup index, and canonical request SHA-256
+lifecycle, current positive attempt fence, protocol version 1, hard expiry,
+  and creation/update timestamps
 ```
+
+The canonical grant evidence contains the minimized authenticated inert claims
+and allowed capabilities needed for trusted revalidation. The identity/policy
+digest alone never authorizes an operation, and the compatibility FNV identity
+fingerprint is not persisted as replacement authority. Package, artifact,
+schema, and policy identifiers are trusted copied pins verified before
+creation; split placement cannot enforce physical foreign keys to control-plane
+rows.
+
+The anchor owns request-level authority. Its current-attempt snapshot token is
+stored only in the constrained snapshot-lease row, avoiding two independent
+snapshot or generation authorities. S07 defines these two physical rows. O03
+owns their atomic lifecycle behavior. C02 owns syscall sequence and journal
+digest. S09/O07 own public idempotency identity, result/error outcome,
+committed token, and lost-result replay.
 
 SessionDO SQLite may hold the read/write journal, but it is temporary. It must
 not supply physical scope, table names, lock targets, unique-key rows,

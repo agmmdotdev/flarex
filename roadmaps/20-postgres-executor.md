@@ -78,7 +78,7 @@ The repository intentionally contains two generations:
 | Generation | Current truth |
 | --- | --- |
 | `legacy_v1` | The working executor path. `createFlarexExecutor` currently installs only `createLegacyV1AppDataEngine`, backed by the existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, subscription, and delivery tables. It remains the compatibility oracle. |
-| `flarexdb_v1` | The accepted replacement. Scope authority, the scope clock, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced index-build reads, and preparation primitives exist, but replacement app-row storage, exact-snapshot OCC, the commit compiler, and production routing are not yet complete. |
+| `flarexdb_v1` | The accepted replacement. Scope authority, scope clock, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, and physical transaction-session/snapshot-lease authority exist. Production session lifecycle, exact-snapshot OCC, commit compiler, migration/cutover, and routing remain incomplete. |
 
 The existence of replacement catalog tables does not mean the replacement data
 path is active. The executor must not route a request into `flarexdb_v1` until
@@ -348,10 +348,11 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
   `S03-D4`; catalog existence is not activation readiness.
 - Active-schema pointer migration (`S04`) remains deferred to Wave 4. The
   completed value codec is wired into internal S06 rows but not a route.
-- Snapshot leases, semantic exact-snapshot reads and dependencies, OCC
-  validators, commit/change feed, idempotency outcomes, leased outbox, and the
-  bounded commit compiler are not implemented. S06's storage-level history
-  lookup and current-pointer CAS do not claim those later semantics.
+- S07's transaction-session and constrained snapshot-lease tables are complete
+  but internal and non-routing. O03 production lifecycle operations, semantic
+  point dependencies, OCC, commit/change feed, idempotency outcomes, leased
+  outbox, and the bounded commit compiler remain unimplemented. S06/S07
+  storage and relational proofs do not claim those later semantics.
 - The current broad persistence interface and legacy invoke-session tables are
   compatibility surfaces to narrow behind generation-specific ports.
 - Existing freshness and live-query delivery behavior belongs to the legacy
@@ -396,11 +397,10 @@ capabilities. Neither adapter may receive raw executor persistence.
 
 ## Next Correctness Gates
 
-The immediate next candidate is `S07` in the focused schema plan: add the
-session and retention-lease DDL needed before authoritative session anchors.
-Completed `S06` remains internal and changes no `/invoke/*` behavior or
-production replacement route. `S07` requires its own evidence-backed preflight
-and approval; S06 completion is not implicit authorization.
+S07 is complete as a two-table, non-routing physical authority gate. It adds no
+reconnect-retention lease and changes no `/invoke/*` behavior or production
+replacement route. The next candidate is O03, which must receive its own
+preflight before implementing atomic session/lease lifecycle operations.
 
 Follow the interleaved foundation order rather than pulling build/readiness
 work forward:

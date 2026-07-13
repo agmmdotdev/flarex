@@ -28,6 +28,7 @@
     "./scheduler": "./src/scheduler.ts",
     "./schema-manifest": "./src/schema-manifest.ts",
     "./storage-authority": "./src/storage-authority.ts",
+    "./transaction-session": "./src/transaction-session.ts",
     "./value": "./src/value.ts",
     "./validator-json": "./src/validator-json.ts"
   },

@@ -183,13 +183,6 @@
       "when": 1783940519839,
       "tag": "0025_steep_echo",
       "breakpoints": true
-    },
-    {
-      "idx": 26,
-      "version": "7",
-      "when": 1783953386786,
-      "tag": "0026_wooden_white_queen",
-      "breakpoints": true
     }
   ]
 }

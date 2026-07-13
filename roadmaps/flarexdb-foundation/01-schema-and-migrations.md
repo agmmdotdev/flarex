@@ -3,11 +3,11 @@
 ## Status And Scope
 
 Status: `S01`, `S02-A` through `S02-C`, resolve-only `S02-D1`, `S03-A`
-through `S03-D2d`, interleaved `S05-A`/`S05-B`, and `S06` are complete. Hosted
+through `S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, and `S07` are complete. Hosted
 proof `H01` through `H04` and `H05-A` are complete. `H05-B` and production
-routing `S02-D2` remain deferred. The current next candidate is `S07` and still
-requires its own design preflight and approval. Private non-routing snapshot
-resolution `O02` is complete.
+routing `S02-D2` remain deferred. `O03` is the next unapproved candidate and
+requires its own design preflight. Private non-routing snapshot resolution
+`O02` is complete.
 
 This plan owns the additive physical schema, codecs, repositories, stable
 catalog, and compatibility migration for the first Flarex app-data generation.
@@ -49,6 +49,7 @@ Use these sources in order:
    - [`../../packages/persistence-postgres/src/appSchemaPublicationTransaction.ts`](../../packages/persistence-postgres/src/appSchemaPublicationTransaction.ts)
    - [`../../packages/persistence-postgres/src/appSchemaPublication.ts`](../../packages/persistence-postgres/src/appSchemaPublication.ts)
    - [`../../packages/flarex-protocol/src/storage-authority.ts`](../../packages/flarex-protocol/src/storage-authority.ts)
+   - [`../../packages/flarex-protocol/src/transaction-session.ts`](../../packages/flarex-protocol/src/transaction-session.ts)
    - [`../../packages/flarex-protocol/src/app-schema-catalog.ts`](../../packages/flarex-protocol/src/app-schema-catalog.ts)
    - [`../../packages/flarex-protocol/src/ordered-index.ts`](../../packages/flarex-protocol/src/ordered-index.ts)
    - [`../../packages/flarex-protocol/src/value.ts`](../../packages/flarex-protocol/src/value.ts)
@@ -82,7 +83,7 @@ Convex-first implementation references include:
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
 | Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. S06 is its first replacement-row consumer; no replacement route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
-| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, and pointer-only current storage are implemented but non-routing. Session leases, semantic point reads/OCC, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, backfill, and cutover are not implemented. |
+| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, mutation-session request authority, and constrained current-attempt snapshot leases are implemented but non-routing. Production session lifecycle, semantic point reads/OCC, reconnect retention, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, backfill, and cutover are not implemented. |
 
 Existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, and
 subscription tables remain the compatibility baseline. The replacement
@@ -105,8 +106,11 @@ These decisions are durable and are not re-opened by each implementation turn:
   representations. S06 derives stored native projections from canonical text;
   incompatible legacy values retain null projections and replacement access
   fails closed instead of inventing another identity.
-- Use `bigint` for revisions and commit/outbox sequences. Encode them as
-  strings or branded values at JavaScript/protocol boundaries.
+- Use PostgreSQL signed `bigint` for revisions, commit/outbox sequences, and
+  fences. Protocol schemas admit only `0..9223372036854775807` for
+  nonnegative counters and `1..9223372036854775807` for positive fences, using
+  canonical decimal strings at encoded boundaries and branded `bigint`
+  internally.
 - Empty scope sequence is `0`. A successful final transaction allocates
   `last + 1`; rollback consumes nothing. Commit and outbox counters are
   independent and never reset on epoch rollover.
@@ -134,6 +138,20 @@ These decisions are durable and are not re-opened by each implementation turn:
   ceiling excluding the row identity.
 - Canonical hashes use SHA-256 plus retained canonical bytes. Equal hash with
   unequal bytes is a fatal collision, never a second value in one slot.
+- Session request authority and current-attempt snapshot retention are
+  distinct. `fx_system_tx_session` owns immutable request/generation pins; at
+  most one `fx_system_snapshot_lease` per scope/session owns only the exact
+  current attempt fence, snapshot token, and lease expiry. O03 owns the
+  exactly-one-active-lease invariant and atomic lifecycle operations.
+- Session arguments and grants retain checked object JSON, Value Codec V1
+  canonical bytes, and SHA-256. The grant contains minimized inert
+  claims/capabilities. A cryptographic identity/policy digest is matching
+  evidence only; unchecked JSON and the compatibility FNV fingerprint are not
+  authorization authority.
+- Located session rows copy trusted package/artifact/schema/policy pins. They
+  use a native scope UUID foreign key but do not invent impossible
+  cross-database control-plane foreign keys or bind historical snapshot epochs
+  to the mutable current clock.
 - Value Codec V1 is independent of schema-manifest and ordered-key codec
   versions. `$integer`, `$float`, and `$bytes` preserve the portable Convex
   representation; `$string` is reserved only for NUL-containing valid-Unicode
@@ -157,7 +175,9 @@ These decisions are durable and are not re-opened by each implementation turn:
 - a generic row-version abstraction unless adapter integration requires it;
 - Payload-specific physical lifecycle tables;
 - Medusa relational table generation or migrations;
-- sync query/cursor state beyond the minimum reconnect-retention lease;
+- all reconnect-retention and replacement sync query/cursor state; roadmap 21
+  owns a separate just-in-time schema gate after its duration/history budget is
+  accepted;
 - cache actors, search, and read models; and
 - public high-level database or adapter APIs.
 
@@ -330,7 +350,8 @@ Medusa, and Cloudflare deployment remain outside
 this facade. The standalone `O01` abstraction gate was retired before
 implementation and its necessary scope-authority seam was folded into completed
 `O02`; completed `S05-B` changes no catalog publication or routing behavior.
-`S06` is complete. `S07` is next and is not pre-approved.
+`S06` and `S07` are complete. `O03` is the next unapproved foundation
+candidate; this catalog gate does not authorize it.
 
 Exit gates for the complete S03 stream:
 
@@ -456,21 +477,51 @@ Exit gates:
 - PGlite plus focused real-Postgres value round-trip and indexed backward point
   lookup evidence pass without claiming later OCC or publication behavior.
 
-### [ ] S07 — Add Session And Retention-Lease DDL
+### [x] S07 — Add Transaction-Session And Snapshot-Lease DDL
 
 Outcome:
 
-- Add authoritative transaction-session and snapshot-lease rows pinning scope,
-  generation/fence, snapshot, catalog/policy/package, identity, attempt fence,
-  request key, lifecycle, and expiry.
-- Add the minimal reconnect-retention lease required by history GC.
-- Create the anchor and snapshot lease atomically.
+- Add `fx_system_tx_session`, keyed by native scope UUID and native UUID session
+  ID, containing immutable `flarexdb_v1` generation/fence,
+  package/dynamic-worker artifact/mutation function/schema/policy pins,
+  canonical argument and grant evidence, identity/policy digest, internal
+  request identity with a 1,024 UTF-8-byte indexed-key ceiling, lifecycle,
+  current attempt fence, protocol version, hard expiry, and timestamps.
+- Add at most one `fx_system_snapshot_lease` per scope/session containing only
+  the exact attempt fence, native snapshot epoch UUID, exact commit sequence,
+  and lease expiry.
+- Constrain every lease to the session's exact current attempt with restrictive
+  parent update/delete behavior. Do not duplicate generation, package, policy,
+  grant, or request authority on it.
+- Align persisted sequence/fence protocol contracts with PostgreSQL's
+  signed-int64 domain.
+
+Non-goals:
+
+- no reconnect-retention lease or replacement sync state;
+- no production session creation, renewal, transition, retry, expiry, or
+  cleanup repository—O03 owns those operations and the active-child invariant;
+- no journal, syscall sequence, journal digest, dependency, or OCC behavior;
+- no result/error, public idempotency, committed outcome, commit feed, outbox,
+  routing, executor wiring, backfill, or generation activation.
 
 Exit gates:
 
-- fresh apply, current upgrade, replay, and migration failure recovery pass;
-- scope/generation keys and indexes are correct; and
-- no runtime routes to these rows before OCC/compiler composition.
+- fresh apply, upgrade through S06, replay, and deliberate migration-failure
+  recovery pass without a false receipt or partial schema;
+- native scope/session identity, mutation/dynamic-worker pins, artifact/source
+  pairing, lifecycle, expiry, canonical evidence, exact-hash length, bounded
+  request-key bytes, fence, and signed-int64 constraints pass;
+- scope/session/attempt-fence mismatches, duplicate leases, implicit parent
+  fence changes, and parent deletion fail closed;
+- epoch rollover remains possible because historical snapshot epochs do not
+  foreign-key mutable clock values;
+- caller-owned transactions prove anchor/lease creation and explicit
+  delete/advance/insert replacement rollback without claiming O03's production
+  repository;
+- PGlite and real Postgres prove constraints, concurrent conflicting lease
+  attempts, exact bigint boundaries, and intended lookup plans; and
+- legacy `invoke_sessions`, `/invoke/*`, exports, and routing remain unchanged.
 
 ### [ ] S08 — Add Commit And Change-Feed DDL
 

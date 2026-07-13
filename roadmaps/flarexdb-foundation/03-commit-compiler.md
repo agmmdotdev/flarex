@@ -1,6 +1,7 @@
 # FlarexDB Commit Compiler Plan
 
-Status: planned; no turn is implemented
+Status: planned; S06 row storage and S07 physical session/snapshot-lease DDL
+exist, but no compiler turn is implemented
 
 This plan owns the bounded Flarex app-data path from logical session operations
 to a trusted deterministic physical plan and atomic commit. It does not make a

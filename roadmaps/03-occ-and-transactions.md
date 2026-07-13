@@ -1,5 +1,19 @@
 # OCC And Transactions
 
+## Current Replacement Session Authority Boundary
+
+The replacement now has one Postgres transaction-session anchor for immutable
+request/generation authority and one constrained current-attempt snapshot lease
+for retention. S07 owns their physical schema only: at most one lease exists
+per scope/session, and every lease references the exact current attempt. Plain
+DDL cannot require every active parent to have a child.
+
+O03 owns atomic creation, renewal, explicit delete/advance/insert retry
+replacement, expiry, active-child enforcement, and stale-attempt rejection.
+Journal protocol belongs to C02, committed outcome/idempotency to S09/O07, and
+reconnect retention to roadmap 21. The compatibility `invoke_sessions` model
+remains routed and unchanged.
+
 ## Share The Legacy OCC Oracle With The Hosted Proof Lane
 
 Previous completed checkpoint: `e2921b5` (`Prove executor Worker service

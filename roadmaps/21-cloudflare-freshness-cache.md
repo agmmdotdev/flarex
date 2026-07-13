@@ -6,6 +6,12 @@ Status: accepted v1 sync design with an implemented compatibility pipeline;
 the per-scope `DeploymentSyncDO` replacement is not implemented, and cache
 Durable Objects remain deferred optimizations.
 
+Reconnect-retention DDL is not part of FlarexDB foundation S07. Existing
+connection leases remain compatibility mechanics, not the accepted replacement
+retention authority. This roadmap must resolve reconnect identity, duration,
+history budget, renewal, expiry, and reset semantics before requesting a
+separate just-in-time schema gate.
+
 This roadmap owns the durable direction for:
 
 - transporting authoritative Postgres commit/change information into
@@ -476,26 +482,31 @@ After `C07`, the ordered v1 gates are:
 
 1. Freeze typed sync contracts for `SnapshotToken`, canonical query identity,
    dependency keys, provisional/active generations, cursor state, delivery
-   identity, reset/resnapshot, and fenced Postgres checkpoint mirrors.
-2. Fix initial activation through provisional registration and refresh against
+   identity, reset/resnapshot, and fenced Postgres checkpoint mirrors. Freeze
+   reconnect lease identity, duration, history budget, renewal, expiry, and
+   reset behavior in the same design gate.
+2. Immediately before O11 consumes reconnect floors or replacement sync admits
+   reconnectable sessions, add the separately preflighted reconnect-retention
+   DDL and focused PGlite/real-Postgres proof.
+3. Fix initial activation through provisional registration and refresh against
    already processed commits while retaining the Postgres registry.
-3. Add one deterministic `DeploymentSyncDO` per scope with durable SQLite
+4. Add one deterministic `DeploymentSyncDO` per scope with durable SQLite
    cursor, canonical-query, dependency-index, dirty-through, generation,
    result-hash, and continuation state.
-4. Implement duplicate/reverse/gap processing and ordered Postgres catch-up;
+5. Implement duplicate/reverse/gap processing and ordered Postgres catch-up;
    never advance across a missing commit.
-5. Add a durable external lagging-scope sweep whose Postgres checkpoint mirror
+6. Add a durable external lagging-scope sweep whose Postgres checkpoint mirror
    may lag but can never lead the DO cursor.
-6. Add generation-checked, single-flight authoritative reruns and identity/
+7. Add generation-checked, single-flight authoritative reruns and identity/
    package/schema/policy-safe canonical sharing.
-7. Integrate changed/failed result delivery and ordered ConnectionDO
+8. Integrate changed/failed result delivery and ordered ConnectionDO
    transitions without making DeliveryDO the trigger-recovery owner.
-8. Prove real-Postgres mutation-to-WebSocket correctness for activation races,
+9. Prove real-Postgres mutation-to-WebSocket correctness for activation races,
    lost wakes, gaps, concurrent reruns, actor eviction, epoch rollover,
    reconnect floors, and broad dependency fallbacks.
-9. Measure per-scope state, rerun load, and backpressure before deciding whether
+10. Measure per-scope state, rerun load, and backpressure before deciding whether
    coordination buckets are necessary.
-10. Remove the compatibility SchedulerDO and eventually the Postgres registry
+11. Remove the compatibility SchedulerDO and eventually the Postgres registry
     only after the replacement demonstrates recovery parity.
 
 `VersionDO`, `DocCacheDO`, and `QueryCacheDO` are not next gates. They require a

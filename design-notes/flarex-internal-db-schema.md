@@ -1,7 +1,8 @@
 # Flarex Internal Database Schema Direction
 
-Status: accepted logical target with an explicit staged v1 cutline; not the
-currently implemented schema
+Status: accepted logical target and physical-policy inventory with an explicit
+staged v1 cutline; compatibility storage and part of the replacement foundation
+are implemented, while exact current status belongs to the focused roadmaps
 
 Authoritative correction: see
 [`flarex-db-accepted-design.md`](./flarex-db-accepted-design.md). When an older
@@ -43,7 +44,7 @@ unimplemented SessionDO/cache design. Use these statuses:
 | Item | Status |
 | --- | --- |
 | Current `documents`, `indexes`, Postgres invoke sessions, subscriptions, and outbox | Implemented compatibility baseline |
-| Typed app row JSON plus derived index/edge/unique sidecars | Accepted target, introduced behind a storage generation |
+| Typed app row JSON plus derived index/edge/unique sidecars | S06 row revision/current kernel implemented internally; derived sidecars remain accepted planned consumers |
 | Edge revision history | Long-term target; current-only stable occurrence rows are sufficient for the first slice when commit atoms cover invalidation |
 | Dedicated physical Payload lifecycle tables | Deferred until adapter parity or measurement; start with reserved logical collections |
 | Medusa relational tables | Accepted, but generated from DML, links/joiner metadata, migrations, and adapter capabilities; not DML alone |
@@ -1249,113 +1250,68 @@ old-epoch attempt cannot commit.
 An epoch column on a persisted row records the epoch of its last write; readers
 do not hide untouched rows merely because their write epoch is older.
 
-The active read/write journal may live in SessionDO SQLite for supported app
-operations, but Postgres keeps a small authoritative session/grant anchor and
-snapshot lease for authority, fencing, idempotent recovery, and history GC:
+The active read/write journal may later live in SessionDO SQLite, but the
+located Postgres data plane keeps two small S07 authorities. Exact executable
+DDL belongs to migration 0026 and the focused schema roadmap; this inventory
+records ownership rather than providing copy-paste SQL.
+
+```text
+fx_system_tx_session
+  key:
+    native scope UUID
+    native UUID session ID
+  immutable request authority:
+    flarexdb_v1 generation and positive signed-int64 fence
+    package ID, dynamic-worker artifact ID/source hash/execution module
+    mutation function path/kind, schema version, and policy version
+    canonical validated-argument JSON, Value Codec V1 bytes, and SHA-256
+    cryptographic identity/access-policy SHA-256 for matching only
+    authorization grant ID, canonical grant JSON and Value Codec V1 bytes,
+      SHA-256, expiry, and nonnegative signed-int64 revocation epoch
+    nonblank internal request key bounded to 1,024 UTF-8 bytes for its
+      PostgreSQL lookup index, and request SHA-256
+  mutable fenced state:
+    lifecycle
+    current positive signed-int64 attempt fence
+    protocol version 1
+    hard expiry
+    created/updated timestamps
+  relational key:
+    unique (scope UUID, session ID, current attempt fence)
+
+fx_system_snapshot_lease
+  key:
+    at most one row per (scope UUID, session ID)
+  current-attempt projection:
+    attempt fence
+    snapshot epoch UUID
+    nonnegative signed-int64 snapshot commit sequence
+    lease expiry
+  relationship:
+    (scope UUID, session ID, attempt fence) restrictively references the
+    session's exact current attempt
+```
+
+The session owns generation and request authority; the lease owns only the
+current attempt's snapshot-retention pin. The lease does not cascade through a
+parent update or delete. O03 must delete, advance, and insert explicitly in one
+transaction, and must enforce that every active session has a current lease.
+
+Package, artifact, schema, and policy pins may refer to control-plane records
+in another database, so trusted creation verifies them and stores copied pins
+rather than inventing impossible cross-database foreign keys. Canonical grant
+evidence retains the minimized inert claims/capabilities needed for trusted
+revalidation; the identity/policy digest and legacy FNV fingerprint are not
+standalone authorization.
+
+S07 adds no normalized dependency table, syscall sequence, journal digest,
+result/error, committed token, or public idempotency authority. O03 owns atomic
+creation and lifecycle operations; O04 owns point dependencies; C02 owns the
+journal protocol; S09/O07 own durable outcome and idempotency.
 
 `fx_system_scope_clock` is locked only during the final trusted commit phase.
 Do not hold this row lock while user code, Payload hooks, Medusa workflow steps,
 network calls, or long actions are running.
-
-```sql
-fx_system_tx_session (
-  id text not null,
-  scope_id text not null,
-  storage_generation text not null,
-  storage_generation_fence bigint not null,
-  state text not null, -- created, running, finishing, committing, retrying, committed, aborted, expired
-  attempt_fence bigint not null,
-  protocol_version integer not null,
-  package_hash text not null,
-  function_ref text not null,
-  identity_fingerprint text not null,
-  authorization_grant_id text not null,
-  authorization_grant_json jsonb not null,
-  authorization_revocation_epoch bigint not null,
-  validated_args_json jsonb not null,
-  schema_version_id text not null,
-  policy_version text not null,
-  begin_epoch text not null,
-  begin_commit_seq bigint not null,
-  request_key text not null,
-  request_hash text not null,
-  last_syscall_seq bigint not null default 0,
-  journal_digest text,
-  result_json jsonb,
-  error_json jsonb,
-  committed_epoch text,
-  committed_seq bigint,
-  created_at timestamptz not null,
-  updated_at timestamptz not null,
-  expires_at timestamptz not null,
-  primary key (scope_id, id)
-)
-
-fx_system_snapshot_lease (
-  scope_id text not null,
-  session_id text not null,
-  begin_epoch text not null,
-  begin_commit_seq bigint not null,
-  storage_generation text not null,
-  storage_generation_fence bigint not null,
-  expires_at timestamptz not null,
-  primary key (scope_id, session_id)
-)
-
-fx_system_tx_dependency (
-  id text not null,
-  scope_id text not null,
-  tx_session_id text not null,
-  dependency_kind text not null, -- row, relation, index_range, table_version
-  namespace text not null,
-  table_name text not null,
-  row_id text,
-  relation_key text,
-  index_name text,
-  range_start_json jsonb,
-  range_end_json jsonb,
-  observed_version bigint,
-  observed_epoch text,
-  observed_commit_seq bigint,
-  created_at timestamptz not null,
-  primary key (scope_id, id),
-  foreign key (scope_id, tx_session_id)
-    references fx_system_tx_session (scope_id, id)
-)
-
-create index fx_tx_dependency_lookup_idx
-  on fx_system_tx_dependency (scope_id, tx_session_id, dependency_kind, namespace, table_name);
-
-fx_system_row_version (
-  scope_id text not null,
-  epoch text not null,
-  namespace text not null,
-  table_name text not null,
-  row_id text not null,
-  version bigint not null,
-  updated_commit_seq bigint not null,
-  primary key (scope_id, namespace, table_name, row_id)
-)
-```
-
-`authorization_grant_json` is an authenticated inert grant containing scope,
-function, allowed operations/capabilities, required claims, policy version,
-expiry, and revocation epoch. The trusted executor validates arguments before
-creating the anchor and validates the encoded return against the pinned return
-validator before `committing`. Policy semantics stay pinned for the short grant
-lifetime unless the authoritative revocation epoch advances, which invalidates
-the active attempt. Anchor and snapshot lease are created atomically.
-
-Many physical tables also carry `fx_version`. `fx_system_row_version` is useful
-when generic rows, relation edges, Payload system rows, or Medusa reserved
-tables need one common OCC lookup path.
-
-`fx_system_tx_dependency` is optional normalized audit/validation storage. The
-active SessionDO journal must use the same typed dependency model. An opaque
-`index_key` alone cannot validate range inserts, deletes, or key moves; precise
-ranges carry ordered codec version, inclusive/exclusive bounds, and begin
-sequence. Until that exists, adapter queries use conservative table/index
-version fences.
 
 ## Idempotency And Client Watermarks
 
@@ -1518,7 +1474,11 @@ deterministic per-scope `DeploymentSyncDO` becomes the sole hot invalidation
 owner. Do not remove the registry until DO eviction, hibernation, reconnect,
 lease cleanup, initial activation, and lost-wake recovery have parity tests.
 
-Postgres keeps a fenced operational cursor mirror during migration:
+Postgres keeps a fenced operational cursor mirror during migration. The
+following reconnect lease is a future sync-owned proposal, not S07 or accepted
+physical DDL. Roadmap 21 must resolve reconnect identity, duration, history
+budget, renewal, expiry, and reset semantics before fixing its columns and
+constraints:
 
 ```sql
 fx_sync_deployment_cursor (
@@ -1529,9 +1489,9 @@ fx_sync_deployment_cursor (
 )
 
 fx_sync_reconnect_lease (
-  scope_id text not null,
+  scope_uuid uuid not null,
   connection_or_session_id text not null,
-  epoch text not null,
+  epoch_uuid uuid not null,
   minimum_required_commit_seq bigint not null,
   storage_generation text not null,
   storage_generation_fence bigint not null,

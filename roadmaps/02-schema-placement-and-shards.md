@@ -10,6 +10,15 @@ allocates an unrelated mapping to make them look replacement-compatible. This
 physical bridge activates no route and does not change shared versus split
 placement authority.
 
+S07 places transaction sessions and snapshot leases in the located data plane
+beside the scope clock. They use the native scope UUID and a native UUID session
+key. Historical snapshot epochs are values, not foreign keys to the mutable
+current clock epoch. Package, artifact, schema, and policy pins may originate
+in another database; trusted verification and copied canonical evidence replace
+impossible cross-database foreign keys. The lease restrictively references the
+session's exact current attempt and does not cascade through parent fence
+changes or deletion.
+
 ## Fence Intrinsic Control Definitions From Stale Planned Table IDs
 
 Previous completed checkpoint: `478137e` Broaden standing code reviewers.

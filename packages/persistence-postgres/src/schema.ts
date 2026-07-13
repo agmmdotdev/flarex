@@ -35,7 +35,7 @@ import type {
   IndexBuildLifecycleV1,
 } from "flarex-protocol/index-build-state";
 import type { AppOrderedIndexPhysicalSpecV1 } from "flarex-protocol/ordered-index";
-import type { Json } from "flarex-protocol/json";
+import type { Json, JsonObject } from "flarex-protocol/json";
 import type {
   CanonicalSchemaManifestBytes,
   CatalogSchemaVersion,
@@ -55,6 +55,30 @@ import type {
   StorageGeneration,
   StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
+import type {
+  CanonicalTransactionArgumentsBytesV1,
+  CanonicalTransactionAuthorizationGrantBytesV1,
+  TransactionArgumentsSha256V1,
+  TransactionArtifactIdV1,
+  TransactionArtifactRuntimeV1,
+  TransactionAttemptFence,
+  TransactionAuthorizationGrantIdV1,
+  TransactionAuthorizationGrantSha256V1,
+  TransactionAuthorizationRevocationEpoch,
+  TransactionExecutionModuleV1,
+  TransactionFunctionKindV1,
+  TransactionFunctionPathV1,
+  TransactionIdentityAccessPolicySha256V1,
+  TransactionPackageIdV1,
+  TransactionPolicyVersionV1,
+  TransactionRequestKeyV1,
+  TransactionRequestSha256V1,
+  TransactionSessionIdV1,
+  TransactionSessionLifecycleV1,
+  TransactionSessionProtocolVersionV1,
+  TransactionSourcePackageSha256HexV1,
+} from "flarex-protocol/transaction-session";
+import { MAX_TRANSACTION_REQUEST_KEY_UTF8_BYTES_V1 } from "flarex-protocol/transaction-session";
 import type {
   CanonicalFlarexValueBytesV1,
   FlarexValueCodecVersion,
@@ -616,6 +640,315 @@ export const fxSystemScopeClocks = pgTable(
     check(
       "fx_system_scope_clock_epoch_non_empty_check",
       nonBlankText(table.epoch),
+    ),
+  ],
+);
+
+/**
+ * Located request-level authority for one replacement point-mutation session.
+ * O03, not this schema gate, owns creation and fenced lifecycle operations.
+ */
+export const fxSystemTransactionSessions = pgTable(
+  "fx_system_tx_session",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    sessionId: uuid("session_id").$type<TransactionSessionIdV1>().notNull(),
+    storageGeneration: text("storage_generation")
+      .$type<FlarexDbV1StorageGeneration>()
+      .notNull(),
+    storageGenerationFence: bigint("storage_generation_fence", {
+      mode: "bigint",
+    })
+      .$type<StorageGenerationFence>()
+      .notNull(),
+    packageId: text("package_id").$type<TransactionPackageIdV1>().notNull(),
+    artifactRuntime: text("artifact_runtime")
+      .$type<TransactionArtifactRuntimeV1>()
+      .notNull(),
+    artifactId: text("artifact_id")
+      .$type<TransactionArtifactIdV1>()
+      .notNull(),
+    sourcePackageHash: text("source_package_hash")
+      .$type<TransactionSourcePackageSha256HexV1>()
+      .notNull(),
+    executionModule: text("execution_module")
+      .$type<TransactionExecutionModuleV1>()
+      .notNull(),
+    functionPath: text("function_path")
+      .$type<TransactionFunctionPathV1>()
+      .notNull(),
+    functionKind: text("function_kind")
+      .$type<TransactionFunctionKindV1>()
+      .notNull(),
+    schemaVersionId: text("schema_version_id")
+      .$type<CatalogSchemaVersionId>()
+      .notNull(),
+    policyVersion: text("policy_version")
+      .$type<TransactionPolicyVersionV1>()
+      .notNull(),
+    identityAccessPolicySha256: bytea("identity_access_policy_sha256")
+      .$type<TransactionIdentityAccessPolicySha256V1>()
+      .notNull(),
+    validatedArgsJson: jsonb("validated_args_json")
+      .$type<JsonObject>()
+      .notNull(),
+    validatedArgsValueCodecVersion: integer(
+      "validated_args_value_codec_version",
+    )
+      .$type<FlarexValueCodecVersion>()
+      .notNull(),
+    validatedArgsCanonicalBytes: bytea("validated_args_canonical_bytes")
+      .$type<CanonicalTransactionArgumentsBytesV1>()
+      .notNull(),
+    validatedArgsSha256: bytea("validated_args_sha256")
+      .$type<TransactionArgumentsSha256V1>()
+      .notNull(),
+    authorizationGrantId: text("authorization_grant_id")
+      .$type<TransactionAuthorizationGrantIdV1>()
+      .notNull(),
+    authorizationGrantJson: jsonb("authorization_grant_json")
+      .$type<JsonObject>()
+      .notNull(),
+    authorizationGrantValueCodecVersion: integer(
+      "authorization_grant_value_codec_version",
+    )
+      .$type<FlarexValueCodecVersion>()
+      .notNull(),
+    authorizationGrantCanonicalBytes: bytea(
+      "authorization_grant_canonical_bytes",
+    )
+      .$type<CanonicalTransactionAuthorizationGrantBytesV1>()
+      .notNull(),
+    authorizationGrantSha256: bytea("authorization_grant_sha256")
+      .$type<TransactionAuthorizationGrantSha256V1>()
+      .notNull(),
+    authorizationRevocationEpoch: bigint("authorization_revocation_epoch", {
+      mode: "bigint",
+    })
+      .$type<TransactionAuthorizationRevocationEpoch>()
+      .notNull(),
+    authorizationGrantExpiresAt: timestamp(
+      "authorization_grant_expires_at",
+      { withTimezone: true },
+    ).notNull(),
+    requestKey: text("request_key")
+      .$type<TransactionRequestKeyV1>()
+      .notNull(),
+    requestSha256: bytea("request_sha256")
+      .$type<TransactionRequestSha256V1>()
+      .notNull(),
+    lifecycle: text("lifecycle")
+      .$type<TransactionSessionLifecycleV1>()
+      .notNull(),
+    attemptFence: bigint("attempt_fence", { mode: "bigint" })
+      .$type<TransactionAttemptFence>()
+      .notNull(),
+    protocolVersion: integer("protocol_version")
+      .$type<TransactionSessionProtocolVersionV1>()
+      .notNull(),
+    hardExpiresAt: timestamp("hard_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scopeUuid, table.sessionId] }),
+    unique("fx_system_tx_session_current_attempt_unique").on(
+      table.scopeUuid,
+      table.sessionId,
+      table.attemptFence,
+    ),
+    foreignKey({
+      name: "fx_system_tx_session_scope_clock_fk",
+      columns: [table.scopeUuid],
+      foreignColumns: [fxSystemScopeClocks.scopeUuid],
+    })
+      .onUpdate("restrict")
+      .onDelete("restrict"),
+    index("fx_system_tx_session_request_lookup_idx").on(
+      table.scopeUuid,
+      table.requestKey,
+    ),
+    index("fx_system_tx_session_expiry_idx").on(table.hardExpiresAt),
+    check(
+      "fx_system_tx_session_generation_check",
+      sql`${table.storageGeneration} = 'flarexdb_v1'`,
+    ),
+    check(
+      "fx_system_tx_session_generation_fence_check",
+      sql`${table.storageGenerationFence} >= 1`,
+    ),
+    check(
+      "fx_system_tx_session_package_id_check",
+      nonBlankText(table.packageId),
+    ),
+    check(
+      "fx_system_tx_session_artifact_runtime_check",
+      sql`${table.artifactRuntime} = 'dynamic-worker'`,
+    ),
+    check(
+      "fx_system_tx_session_artifact_id_check",
+      sql`${table.artifactId} ~ '^artifact_[0-9a-f]{32}$'`,
+    ),
+    check(
+      "fx_system_tx_session_source_hash_check",
+      sql`${table.sourcePackageHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "fx_system_tx_session_artifact_source_pair_check",
+      sql`${table.artifactId} = 'artifact_' || left(${table.sourcePackageHash}, 32)`,
+    ),
+    check(
+      "fx_system_tx_session_execution_module_check",
+      nonBlankText(table.executionModule),
+    ),
+    check(
+      "fx_system_tx_session_function_path_check",
+      nonBlankText(table.functionPath),
+    ),
+    check(
+      "fx_system_tx_session_function_kind_check",
+      sql`${table.functionKind} = 'mutation'`,
+    ),
+    check(
+      "fx_system_tx_session_schema_version_check",
+      nonBlankText(table.schemaVersionId),
+    ),
+    check(
+      "fx_system_tx_session_policy_version_check",
+      nonBlankText(table.policyVersion),
+    ),
+    check(
+      "fx_system_tx_session_identity_hash_check",
+      sql`octet_length(${table.identityAccessPolicySha256}) = 32`,
+    ),
+    check(
+      "fx_system_tx_session_args_evidence_check",
+      sql`
+        jsonb_typeof(${table.validatedArgsJson}) = 'object'
+        and ${table.validatedArgsValueCodecVersion} = 1
+        and octet_length(${table.validatedArgsCanonicalBytes}) > 0
+        and octet_length(${table.validatedArgsSha256}) = 32
+      `,
+    ),
+    check(
+      "fx_system_tx_session_grant_id_check",
+      nonBlankText(table.authorizationGrantId),
+    ),
+    check(
+      "fx_system_tx_session_grant_evidence_check",
+      sql`
+        jsonb_typeof(${table.authorizationGrantJson}) = 'object'
+        and ${table.authorizationGrantValueCodecVersion} = 1
+        and octet_length(${table.authorizationGrantCanonicalBytes}) > 0
+        and octet_length(${table.authorizationGrantSha256}) = 32
+      `,
+    ),
+    check(
+      "fx_system_tx_session_revocation_epoch_check",
+      sql`${table.authorizationRevocationEpoch} >= 0`,
+    ),
+    check(
+      "fx_system_tx_session_request_key_check",
+      sql`
+        ${nonBlankText(table.requestKey)}
+        and octet_length(${table.requestKey}) <= ${sql.raw(
+          String(MAX_TRANSACTION_REQUEST_KEY_UTF8_BYTES_V1),
+        )}
+      `,
+    ),
+    check(
+      "fx_system_tx_session_request_hash_check",
+      sql`octet_length(${table.requestSha256}) = 32`,
+    ),
+    check(
+      "fx_system_tx_session_lifecycle_check",
+      sql`${table.lifecycle} in ('created', 'running', 'finishing', 'committing', 'retrying', 'committed', 'aborted', 'expired')`,
+    ),
+    check(
+      "fx_system_tx_session_attempt_fence_check",
+      sql`${table.attemptFence} >= 1`,
+    ),
+    check(
+      "fx_system_tx_session_protocol_version_check",
+      sql`${table.protocolVersion} = 1`,
+    ),
+    check(
+      "fx_system_tx_session_expiry_check",
+      sql`
+        isfinite(${table.authorizationGrantExpiresAt})
+        and isfinite(${table.hardExpiresAt})
+        and ${table.authorizationGrantExpiresAt} > ${table.createdAt}
+        and ${table.hardExpiresAt} > ${table.createdAt}
+        and ${table.hardExpiresAt} <= ${table.authorizationGrantExpiresAt}
+      `,
+    ),
+    check(
+      "fx_system_tx_session_timestamp_order_check",
+      sql`
+        isfinite(${table.createdAt})
+        and isfinite(${table.updatedAt})
+        and ${table.updatedAt} >= ${table.createdAt}
+      `,
+    ),
+  ],
+);
+
+/** One retention pin for the exact current attempt of one session. */
+export const fxSystemSnapshotLeases = pgTable(
+  "fx_system_snapshot_lease",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    sessionId: uuid("session_id").$type<TransactionSessionIdV1>().notNull(),
+    attemptFence: bigint("attempt_fence", { mode: "bigint" })
+      .$type<TransactionAttemptFence>()
+      .notNull(),
+    snapshotEpochUuid: uuid("snapshot_epoch_uuid")
+      .$type<ScopeEpochUuidV1>()
+      .notNull(),
+    snapshotCommitSeq: bigint("snapshot_commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull(),
+    leaseExpiresAt: timestamp("lease_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scopeUuid, table.sessionId] }),
+    foreignKey({
+      name: "fx_system_snapshot_lease_current_attempt_fk",
+      columns: [table.scopeUuid, table.sessionId, table.attemptFence],
+      foreignColumns: [
+        fxSystemTransactionSessions.scopeUuid,
+        fxSystemTransactionSessions.sessionId,
+        fxSystemTransactionSessions.attemptFence,
+      ],
+    })
+      .onUpdate("restrict")
+      .onDelete("restrict"),
+    index("fx_system_snapshot_lease_floor_idx").on(
+      table.scopeUuid,
+      table.snapshotEpochUuid,
+      table.snapshotCommitSeq,
+      table.leaseExpiresAt,
+    ),
+    index("fx_system_snapshot_lease_expiry_idx").on(table.leaseExpiresAt),
+    check(
+      "fx_system_snapshot_lease_attempt_fence_check",
+      sql`${table.attemptFence} >= 1`,
+    ),
+    check(
+      "fx_system_snapshot_lease_commit_seq_check",
+      sql`${table.snapshotCommitSeq} >= 0`,
+    ),
+    check(
+      "fx_system_snapshot_lease_expiry_check",
+      sql`isfinite(${table.leaseExpiresAt})`,
     ),
   ],
 );
@@ -1332,7 +1665,9 @@ export const flarexSchema = {
   fxControlScopeProvisioning,
   fxControlScopes,
   fxSystemIndexBuildStates,
+  fxSystemSnapshotLeases,
   fxSystemScopeClocks,
+  fxSystemTransactionSessions,
   indexes,
   invokeSessionDocumentReads,
   invokeSessionTableReads,

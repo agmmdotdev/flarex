@@ -2,15 +2,14 @@
 
 ## Status And Scope
 
-Current next candidate: `S07`, session and retention-lease DDL. `S06` is
-complete as one unsplit gate: it adds native scope/epoch compatibility
-projections, strict replacement Document ID V1, authoritative row revisions,
-and pointer-only current rows without activating a replacement route. `S07`
-still requires its own evidence-backed preflight and explicit approval.
+`S07` is complete as a non-routing two-table physical authority gate. It adds
+the transaction-session anchor and constrained current-attempt snapshot lease
+without reconnect state or runtime lifecycle operations. `O03` is the next
+unapproved candidate and requires its own evidence-backed preflight.
 
 | Stream | Current status |
 | --- | --- |
-| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, and `S06` complete; `S07` is the next unapproved candidate |
+| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, and `S07` complete |
 | OCC/transactions | Private non-routing `O02` snapshot resolution complete; standalone `O01` retired before implementation; `O03` and later gates remain planned |
 | Commit compiler | Planned; `C01` is the first unchecked compiler gate |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
@@ -206,14 +205,19 @@ types and ports are introduced by the gates that first consume them.
    divergence and the adapter into S05-A ordering.
 3. `S06` (complete): native authority projections, strict replacement Document
    ID V1, authoritative app-row revisions, and pointer-only current storage.
-4. `S07`: session, snapshot-lease, and reconnect-retention DDL.
-5. `O03`: authoritative fenced session anchors.
+4. `S07` (complete): mutation-session request authority and constrained
+   current-attempt snapshot-lease DDL only.
+5. `O03`: atomic creation and fenced lifecycle for those two authorities.
 6. `O04`: exact-snapshot point reads including missing-row dependencies.
 7. `O05`: pure point-OCC validator.
 8. `C01`: narrow compiler/executor ports without endpoint changes.
 9. `C02`: versioned journal/envelope/plan protocol.
 10. `C03`: point read-your-writes and fail-closed unsupported shapes.
 11. `C04`: pure deterministic point-row planner.
+
+S07 intentionally excludes reconnect-retention DDL. Roadmap 21 owns that
+contract and must introduce it through a separately preflighted schema gate
+before O11 consumes reconnect floors or replacement sync enables reconnect.
 
 ### Wave 2 — One Atomic App-Data Commit
 
@@ -271,7 +275,9 @@ start Payload feature parity. Their contract is in
    comparison evidence; do not mutate the active pointer.
 4. `S04`: migrate active-schema pointer authority only after readiness is
    evidence-backed.
-5. `O11`: retention floors and explicit out-of-retention behavior.
+5. `O11`: snapshot-retention floors and explicit out-of-retention behavior;
+   consume reconnect floors only after roadmap 21 supplies their accepted
+   contract and DDL.
 6. `S15`: transactional generation routing, same-transaction legacy mirror,
    rollback state, and fences.
 7. `O12`: cut over one isolated canary scope with live subscriptions disabled.
@@ -289,6 +295,8 @@ start Payload feature parity. Their contract is in
   replacement `commitSeq`.
 - Empty scope is sequence `0`; a successful transaction allocates and advances
   `last + 1` atomically; rollback consumes nothing.
+- Persisted sequences and fences share PostgreSQL's signed-int64 ceiling;
+  protocol schemas cannot admit larger values.
 - Epoch is a fence/provenance marker, not a visibility filter. Rollover never
   resets sequences or hides untouched rows.
 - Exactly one storage generation commits authoritatively per scope. Shadow

@@ -1,22 +1,13 @@
-import { Data, Schema, SchemaTransformation } from "effect";
+import { Data, Schema } from "effect";
 
 import { isCanonicalUuidTextV1 } from "./canonical-uuid";
+import {
+  CanonicalNonNegativePostgresBigIntFromString,
+  CanonicalPositivePostgresBigIntFromString,
+  POSTGRES_SIGNED_BIGINT_MAX,
+} from "./postgres-bigint";
 
-const CanonicalUnsignedDecimalString = Schema.String.check(
-  Schema.isPattern(/^(?:0|[1-9][0-9]*)$/),
-);
-
-const NonNegativeBigInt = Schema.BigInt.check(
-  Schema.isGreaterThanOrEqualToBigInt(0n),
-);
-
-const PositiveBigInt = Schema.BigInt.check(
-  Schema.isGreaterThanOrEqualToBigInt(1n),
-);
-
-const CanonicalUnsignedBigIntFromString = CanonicalUnsignedDecimalString.pipe(
-  Schema.decodeTo(NonNegativeBigInt, SchemaTransformation.bigintFromString),
-);
+export const MAX_PERSISTED_SIGNED_INT64_V1 = POSTGRES_SIGNED_BIGINT_MAX;
 
 export const ScopeIdSchema = Schema.NonEmptyString.pipe(
   Schema.brand("FlarexDB/ScopeId"),
@@ -143,22 +134,20 @@ export function replacementScopeEpochV1FromUuid(
   return ReplacementScopeEpochV1Schema.make(`epoch_${uuid}`);
 }
 
-export const CommitSeqSchema = CanonicalUnsignedBigIntFromString.pipe(
-  Schema.brand("FlarexDB/CommitSeq"),
-);
+export const CommitSeqSchema =
+  CanonicalNonNegativePostgresBigIntFromString.pipe(
+    Schema.brand("FlarexDB/CommitSeq"),
+  );
 export type CommitSeq = typeof CommitSeqSchema.Type;
 
-export const OutboxSeqSchema = CanonicalUnsignedBigIntFromString.pipe(
-  Schema.brand("FlarexDB/OutboxSeq"),
-);
+export const OutboxSeqSchema =
+  CanonicalNonNegativePostgresBigIntFromString.pipe(
+    Schema.brand("FlarexDB/OutboxSeq"),
+  );
 export type OutboxSeq = typeof OutboxSeqSchema.Type;
 
-const CanonicalPositiveBigIntFromString = CanonicalUnsignedDecimalString.pipe(
-  Schema.decodeTo(PositiveBigInt, SchemaTransformation.bigintFromString),
-);
-
 export const StorageGenerationFenceSchema =
-  CanonicalPositiveBigIntFromString.pipe(
+  CanonicalPositivePostgresBigIntFromString.pipe(
     Schema.brand("FlarexDB/StorageGenerationFence"),
   );
 export type StorageGenerationFence =

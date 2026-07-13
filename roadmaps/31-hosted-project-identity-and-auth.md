@@ -1,5 +1,19 @@
 # Hosted Project Identity And Auth
 
+## Current FlarexDB Grant-Envelope Boundary
+
+S07 now provides physical transaction-session columns for a trusted grant ID,
+checked object JSON, Value Codec V1 canonical bytes, SHA-256, expiry, and
+nonnegative revocation epoch. The canonical grant is where minimized inert
+claims and allowed capabilities are retained for later trusted revalidation;
+the separate identity/access-policy SHA-256 is matching evidence only, and the
+legacy FNV identity fingerprint is not replacement authorization.
+
+This is a physical envelope, not an implemented authorization-grant platform.
+Grant semantics, signing/resolution, claims minimization, encryption/retention,
+revocation storage, production creation, and commit-time revalidation remain
+owned by this roadmap and O03. S07 introduces no new public auth behavior.
+
 ## Bind Commit Sessions To Trusted Authorization Grants
 
 Previous completed checkpoint: `01c11ab` Clarify SessionDO cache read bridge.

@@ -1,32 +1,23 @@
-import { Schema, SchemaTransformation } from "effect";
+import { Schema } from "effect";
 
 import { OrderedIndexRowIdHexV1Schema } from "./ordered-index";
+import {
+  CanonicalPositivePostgresBigIntFromString,
+  POSTGRES_SIGNED_BIGINT_MAX,
+} from "./postgres-bigint";
 
 const StrictStructOptions = {
   parseOptions: { onExcessProperty: "error" },
 } as const;
 
-const CanonicalUnsignedDecimalString = Schema.String.check(
-  Schema.isPattern(/^(?:0|[1-9][0-9]*)$/),
-);
-export const MAX_INDEX_BUILD_ATTEMPT_FENCE = 9_223_372_036_854_775_807n;
-const PositiveSignedInt64 = Schema.BigInt.check(
-  Schema.makeFilter((value) =>
-    value >= 1n && value <= MAX_INDEX_BUILD_ATTEMPT_FENCE
-      ? undefined
-      : `Expected a positive signed-64-bit build attempt fence no greater than ${MAX_INDEX_BUILD_ATTEMPT_FENCE}`
-  ),
-);
-const CanonicalPositiveBigIntFromString = CanonicalUnsignedDecimalString.pipe(
-  Schema.decodeTo(PositiveSignedInt64, SchemaTransformation.bigintFromString),
-);
+export const MAX_INDEX_BUILD_ATTEMPT_FENCE = POSTGRES_SIGNED_BIGINT_MAX;
 
 /**
  * Monotonic ownership token for one scoped physical-index build attempt.
  * A worker may mutate build progress only while this exact fence still wins.
  */
 export const IndexBuildAttemptFenceSchema =
-  CanonicalPositiveBigIntFromString.pipe(
+  CanonicalPositivePostgresBigIntFromString.pipe(
     Schema.brand("FlarexDB/IndexBuildAttemptFence"),
   );
 export type IndexBuildAttemptFence =
