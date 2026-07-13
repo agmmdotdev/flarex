@@ -13,11 +13,12 @@ domain file.
 
 - `flarex-dynamic-worker-bundle-partitioning.md`
   - Accepted runtime design direction for automatic, size-bounded Dynamic
-    Worker execution groups; transaction/action capability profiles; runtime
+    Worker execution groups; transaction, edge-action, Node-action, and future
+    heavy/job capability profiles; provider-neutral action placement; runtime
     projections; same-session remote nested calls; latency-aware colocation;
-    speculative preparation; readiness gates; and oversized-dependency
-    diagnostics. Implementation remains owned by the runtime and push
-    roadmaps.
+    speculative preparation; cross-provider readiness/rollback gates; and
+    oversized-dependency diagnostics. Implementation remains owned by the
+    runtime and push roadmaps.
 
 - `flarex-db-accepted-design.md`
   - Authoritative review and accepted correction for the unified FlarexDB

@@ -3,11 +3,12 @@
 Status: accepted runtime design direction; not yet implemented
 
 This note defines how Flarex should package query, mutation, workflow-mutation,
-action, and HTTP-action code for managed Cloudflare Dynamic Workers when a
-single execution bundle approaches Cloudflare's Worker-size or startup limits.
-It records the intended developer experience, runtime and transaction
-boundaries, automatic grouping policy, nested-call behavior, readiness gates,
-rejected alternatives, and unresolved implementation questions.
+action, and HTTP-action code across managed Cloudflare Dynamic Workers and
+provider-neutral action executors when one execution bundle approaches its
+runtime's size or startup limits. It records the intended developer experience,
+runtime and transaction boundaries, automatic grouping policy, nested-call
+behavior, readiness gates, rejected alternatives, and unresolved implementation
+questions.
 
 This is an architecture note, not an implementation roadmap. Current runtime
 status and active work remain owned by
@@ -37,9 +38,16 @@ one transaction execution group
   -> workflow mutations
   -> deterministic helper code
 
-one or a small number of action execution groups
-  -> actions and HTTP actions
-  -> external integrations and other effectful dependencies
+one or a small number of edge-action execution groups
+  -> ordinary Worker-compatible actions and HTTP actions
+  -> latency-sensitive integrations
+
+optional Node-action artifacts
+  -> explicitly Node-compatible action modules
+  -> large SDKs or Node APIs outside the Worker profile
+
+optional heavy/job artifacts
+  -> container or workflow execution for binaries, high memory, or long work
 ```
 
 Flarex should create additional transaction groups only when measured bundle
@@ -62,7 +70,9 @@ await ctx.runQuery(api.products.getProduct, args)
 ```
 
 Developers do not name Workers, execution groups, group hashes, or nested-call
-routes.
+routes. They may declare a semantic runtime requirement when their code truly
+requires Node or a future heavy/job environment, but they do not select AWS,
+Cloudflare Containers, regions, or artifact placement in application code.
 
 ## Why This Design Is Needed
 
@@ -153,13 +163,13 @@ loaded into a normal invocation Worker.
 
 ### Runtime Projection
 
-The subset and generated shell materialized for one executable Worker. A
-runtime projection must not indiscriminately copy the entire canonical source
+The subset and generated shell materialized for one executable runtime artifact.
+A runtime projection must not indiscriminately copy the entire canonical source
 package.
 
 ### Runtime Capability Profile
 
-A security and execution-policy class. The initial target profiles are:
+A security and execution-policy class. The accepted target profiles are:
 
 ```text
 transaction
@@ -167,10 +177,22 @@ transaction
   query/mutation/workflow-mutation execution
   executor-backed transaction session capabilities
 
-action
+action-edge
   controlled outbound capability
+  Cloudflare Worker-compatible JavaScript
   no direct database or transaction handle
   ctx.runQuery / ctx.runMutation / ctx.runAction through platform RPC
+
+action-node
+  explicit Node runtime semantics
+  controlled outbound capability
+  no direct database or transaction handle
+  provider-neutral remote executor adapter
+
+action-heavy-job
+  future explicit container/workflow semantics
+  large binaries, higher resource needs, or long-running work
+  no direct database or transaction handle
 
 analysis
   restricted import and metadata extraction
@@ -183,8 +205,15 @@ authority because of its size, name, or neighboring functions.
 
 ### Execution Group
 
-One deterministic Worker-sized code group inside a capability profile. It is an
-internal deployment optimization and routing target.
+One deterministic, runtime-envelope-bounded code group inside a capability
+profile. It is an internal deployment optimization and routing target.
+
+### Provider-Neutral Execution Manifest
+
+The immutable deployment record mapping each function to its semantic runtime
+profile, execution group, exact artifact digest, and platform-owned placement.
+Callers resolve functions through this manifest but cannot choose or override
+its provider placement.
 
 ### Function Metadata
 
@@ -335,6 +364,52 @@ action/ai
 Not every action is large, and not every transaction group is small. The
 bundler must measure rather than assume.
 
+### Action Runtime Tiers And Provider Placement
+
+Actions should be bundled separately from transaction code by default, but
+"separate" does not mean that every action should run on AWS or another remote
+provider. The accepted placement model is:
+
+| Semantic profile | Default platform shape | Intended use |
+| --- | --- | --- |
+| `action-edge` | Cloudflare Dynamic Worker | Ordinary Worker-compatible actions, HTTP actions, and latency-sensitive integrations |
+| `action-node` | Provider-neutral Node executor; AWS Lambda or an equivalent adapter is a candidate | Large Node SDKs, Node built-ins, or dependencies incompatible with the Worker runtime |
+| `action-heavy-job` | Future container/workflow adapter such as Cloudflare Containers or an AWS container service | Large binaries, high memory/filesystem needs, or work whose duration/recovery model does not fit an ordinary action |
+
+`action(...)` remains an edge action by default. Flarex should preserve the
+Convex-compatible file-level `"use node"` signal for action modules that need
+Node semantics. A future heavy/job profile needs an explicit API and failure
+contract; the bundler must not infer that semantic change from bytes alone.
+
+Developers declare runtime semantics, not infrastructure vendors. The active
+platform configuration maps `action-node` and `action-heavy-job` to concrete
+providers. This keeps source portable and lets self-hosted or single-cloud
+installations choose different adapters without changing function references.
+
+An oversized `action-edge` candidate must fail deployment with attribution and
+an actionable diagnostic. Flarex must not silently spill it to Lambda or a
+container because that would silently change region, latency, billing,
+credentials, native architecture, payload limits, observability, retry
+behavior, and rollback requirements.
+
+HTTP actions should remain edge by default because they own latency-sensitive
+ingress behavior. A small HTTP action may validate the request and call an
+explicit Node or heavy action when the expensive work needs another runtime.
+
+Remote action execution is semantically easier than cross-group transactional
+execution: every action callback through `ctx.runQuery` or `ctx.runMutation` is
+an independent platform invocation and transaction. It never joins a database
+session held by the action. The remote action protocol must nevertheless carry
+the exact deployment/action-artifact digest, authenticated execution identity,
+function path, validated arguments, deadline, invocation ID, and retry policy.
+The runner receives narrowly scoped callback capabilities, never raw Postgres,
+Hyperdrive, executor, deployment-admin, or provider credentials.
+
+External side effects make retry and idempotency part of the action contract.
+The platform must distinguish retry-safe transport failure from an action that
+may already have completed an external effect; moving execution to another
+provider cannot weaken that rule.
+
 ## Automatic Execution-Group Construction
 
 The push pipeline should build execution groups deterministically from exact
@@ -359,7 +434,8 @@ candidate inputs.
    package.
 2. Put all transaction functions in one group if it remains comfortably under
    the internal target.
-3. Build action groups by capability and dependency affinity.
+3. Split actions by declared semantic runtime profile, then build groups within
+   each profile by capability and dependency affinity.
 4. If the transaction group exceeds its target, cluster transactional
    functions by source/domain proximity, shared dependencies, and nested-call
    affinity.
@@ -385,8 +461,9 @@ Illustrative internal manifest:
   },
   "reports:generatePdf": {
     kind: "action",
-    profile: "action",
+    profile: "action-node",
     group: "action-documents",
+    artifact: "node-action-documents@sha256:...",
   },
 }
 ```
@@ -399,7 +476,8 @@ resolved through the active artifact manifest.
 ### Group Size Policy
 
 Architecture should define percentage/headroom policy rather than permanently
-embedding today's Cloudflare numbers. A practical initial policy is:
+embedding today's platform numbers. For Dynamic Worker profiles, a practical
+initial policy is:
 
 - target groups substantially below the published hard limit;
 - warn before the target becomes risky;
@@ -412,6 +490,10 @@ With a published 10 MB gzip limit, a provisional 4-6 MB target and a rejection
 threshold below the platform maximum are reasonable starting points. Exact
 values must be validated against real Worker Loader behavior and remain
 configurable platform policy rather than developer API.
+
+Node and heavy/job adapters need their own declared compressed, uncompressed,
+asset, startup, memory, payload, and duration envelopes. A larger provider limit
+does not remove the need for headroom or candidate-readiness validation.
 
 ## Nested Transactional Calls
 
@@ -629,19 +711,25 @@ Size and materialization are candidate-readiness properties.
 Before activation, the backend-controlled push flow must:
 
 1. validate source-package and analysis identity;
-2. construct the exact runtime projections and immutable group manifest;
+2. construct the exact runtime projections and immutable provider-neutral
+   execution manifest;
 3. calculate raw and compressed size metrics;
 4. reject groups outside platform policy;
-5. cold-materialize every candidate group through a hosted-equivalent Worker
-   Loader lane;
-6. validate startup, group hash, runtime profile, and internal routes;
-7. retain diagnostics and per-group measurements; and
-8. activate the source package, group manifest, and execution identity
+5. cold-materialize every transaction and edge-action group through a
+   hosted-equivalent Worker Loader lane;
+6. deploy or register every Node/heavy action artifact through its configured
+   provider adapter and verify provider readiness;
+7. validate startup, group/artifact hash, runtime profile, callback authority,
+   and internal routes;
+8. retain diagnostics and per-group/per-provider measurements; and
+9. activate the source package, provider-neutral execution manifest, and
+   execution identity
    atomically only after every required group is ready.
 
 Any failure leaves the previous active deployment executable. Rollback selects
-the previous immutable source package and its exact previous group manifest; it
-does not recompute groups from current heuristics.
+the previous immutable source package and its exact previous provider-neutral
+execution manifest, including matching remote action artifacts; it does not
+recompute groups or provider placement from current heuristics.
 
 At invocation time, a missing group, hash mismatch, capability mismatch, load
 failure, or malformed nested response fails closed. The outer invocation owns
@@ -696,6 +784,10 @@ an already activated immutable artifact.
 9. Runtime projection cannot overwrite Flarex-reserved shell/module paths.
 10. Size pressure cannot justify weakening validator, identity, capability, or
     finalization checks.
+11. Runtime-provider placement comes only from the active immutable manifest.
+    A caller cannot choose a provider, region, artifact, or semantic profile.
+12. Remote action runners receive callback capabilities, not raw database or
+    platform-control authority.
 
 ## Rejected Alternatives
 
@@ -744,6 +836,21 @@ pressure, and still cannot guarantee isolate reuse.
 Chunks included in the Worker definition still count toward Worker size. Truly
 external code/capabilities require an explicitly supported platform boundary.
 
+### Run Every Action On A Large Remote Runtime
+
+This removes one bundle limit but imposes cross-cloud or container cold-start
+latency, cost, regional, credential, and operability overhead on small actions
+and HTTP ingress. Edge actions remain the default; Node and heavy placement is
+explicitly selected by semantic need.
+
+### Silently Spill Oversized Actions To Another Provider
+
+Bundle size is not enough evidence to change runtime semantics. Automatic
+provider spill would make deployment success depend on hidden changes to
+latency, native compatibility, retries, credentials, and billing. Deployment
+must fail with a clear diagnostic until the developer explicitly declares the
+required runtime profile.
+
 ## Expected Common Case
 
 After accidental source-package duplication is removed, most applications are
@@ -756,11 +863,15 @@ transaction/default
   -> workflow mutations
   -> deterministic helpers
 
-action/integrations
-  -> ordinary third-party integrations
+action-edge/integrations
+  -> ordinary Worker-compatible third-party integrations
+  -> HTTP actions
 
-optional action/heavy-domain groups
-  -> document, image, AI, or other large dependencies
+optional action-node/domain groups
+  -> Node-only or large SDK dependencies
+
+optional action-heavy-job artifacts
+  -> large binaries, high resource needs, or long-running work
 ```
 
 Most transactional nested calls remain local. Multi-group transaction execution
@@ -779,12 +890,16 @@ The complete target requires:
 - immutable execution-group manifest and protocol types;
 - deterministic automatic grouping;
 - function-to-group routing in the artifact runtime;
-- transaction and action runtime profiles;
+- transaction, edge-action, Node-action, and future heavy/job runtime profiles;
+- provider-neutral action-executor adapters and immutable artifact placement;
+- authenticated, least-authority action callback protocol;
+- explicit action retry/idempotency behavior across provider boundaries;
 - remote nested-only invocation with opaque session capabilities;
 - one-owner finish/abort and cancellation semantics;
 - cross-group concurrency tests;
-- hosted Worker Loader cold-materialization readiness;
-- rollback using the previous immutable group manifest;
+- hosted Worker Loader cold-materialization readiness plus configured remote
+  action-provider readiness;
+- rollback using the previous immutable provider-neutral execution manifest;
 - latency/cold-start/cross-group observability; and
 - focused real-Cloudflare conformance tests near and beyond platform limits.
 
@@ -797,24 +912,27 @@ before implementation:
    for a multi-module `WorkerCode` object?
 2. What target, warning, and rejection budgets provide enough headroom for the
    generated shell, compression variance, startup, and future runtime changes?
-3. Should ordinary isolate actions and outbound/Node-compatible actions use one
-   action profile or separate profiles?
-4. How should mixed transaction/action source modules be projected without
+3. Which provider adapter should Flarex implement first for `action-node`, and
+   what bundle, payload, region, concurrency, and timeout envelope does it
+   advertise without leaking vendor choice into user code?
+4. What explicit API and recovery contract should introduce
+   `action-heavy-job`, rather than overloading ordinary action semantics?
+5. How should mixed transaction/action source modules be projected without
    unsafe top-level duplication or unnecessary dependency contamination?
-5. What exact signed/opaque capability permits nested group execution while
+6. What exact signed/opaque capability permits nested group execution while
    preventing finalization or arbitrary session reuse?
-6. How are concurrent nested calls ordered and cancelled across groups?
-7. Can useful direct function-reference edges be extracted without making
+7. How are concurrent nested calls ordered and cancelled across groups?
+8. Can useful direct function-reference edges be extracted without making
    correctness depend on a static call graph?
-8. Should previous-deployment telemetry influence only diagnostics or also the
+9. Should previous-deployment telemetry influence only diagnostics or also the
    next deterministic grouping result?
-9. Does a dedicated `prepare` RPC materially reduce cold latency in real
+10. Does a dedicated `prepare` RPC materially reduce cold latency in real
    Cloudflare locations given that isolate reuse is not guaranteed?
-10. When is selective replication of a small internal function safer and
+11. When is selective replication of a small internal function safer and
     cheaper than cross-group dispatch?
-11. What action dependencies should become platform-owned capability services
+12. What action dependencies should become platform-owned capability services
     instead of repeatedly bundled application code?
-12. How should local Miniflare simulate group loading, eviction, remote nested
+13. How should local Miniflare simulate group loading, eviction, remote nested
     calls, and readiness without claiming hosted-cache equivalence?
 
 ## Primary References
@@ -846,3 +964,12 @@ Cloudflare primary documentation, verified while this note was prepared:
 - [Dynamic Workers API reference](https://developers.cloudflare.com/dynamic-workers/api-reference/)
 - [Dynamic Workers getting started](https://developers.cloudflare.com/dynamic-workers/getting-started/)
 - [Dynamic Workers pricing](https://developers.cloudflare.com/dynamic-workers/pricing/)
+- [Cloudflare Containers overview](https://developers.cloudflare.com/containers/)
+- [Cloudflare Containers limits](https://developers.cloudflare.com/containers/platform-details/limits/)
+- [Cloudflare Containers architecture and lifecycle](https://developers.cloudflare.com/containers/platform-details/architecture/)
+
+AWS primary documentation, verified while the action-runtime decision was
+prepared:
+
+- [AWS Lambda quotas](https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html)
+- [Deploy Node.js Lambda functions with zip archives](https://docs.aws.amazon.com/lambda/latest/dg/nodejs-package.html)
