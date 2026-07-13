@@ -300,8 +300,8 @@ The active foundation status is:
 - complete: stable table identities, immutable schema artifacts, strict app
   table definitions, stable logical indexes, ordered index codec v1, immutable
   physical definitions, schema bindings, and fenced build-state reads through
-  `S03-D2b` plus the interleaved `S05-A` prerequisite; and
-- not complete: atomic full control publication beginning at `S03-D2c` and all
+  `S03-D2c` plus the interleaved `S05-A` prerequisite; and
+- not complete: `S03-D2d` routed publication/retry/quota closure and all
   replacement app-row/OCC/commit/cutover work after it.
 
 ### Hosted Worker proof
@@ -326,8 +326,9 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
 - `createFlarexExecutor` still registers only the legacy app-data engine.
 - `S02-D2` production generation routing cannot begin until the live hosted
   `H05-B` proof passes.
-- `S03-D2c` and `S03-D2d` must atomically publish, verify, retry, and expose the
-  complete normalized catalog through one trusted facade.
+- `S03-D2c` now atomically applies and verifies the complete normalized catalog
+  inside a caller-owned transaction. `S03-D2d` must add bounded fresh retry,
+  quotas, the routed trusted facade, and the full real-Postgres race matrix.
 - Per-scope index-build reconciliation and readiness remain `S03-D3` and
   `S03-D4`; catalog existence is not activation readiness.
 - Active-schema pointer migration (`S04`) and the full replacement value codec
@@ -379,34 +380,30 @@ capabilities. Neither adapter may receive raw executor persistence.
 
 ## Next Correctness Gates
 
-The immediate active slice is `S03-D2c`:
+The immediate active slice is `S03-D2d`:
 
-1. In one caller-owned control transaction, revalidate and apply the stable
-   table/logical-index plan.
-2. Insert or exactly replay the immutable full schema artifact.
-3. Persist every required developer and intrinsic physical index definition
-   and schema-version binding.
-4. Verify that the normalized projection exactly matches the authenticated
-   artifact before commit.
-5. Keep activation, build rows, readiness, app data, host routing, Payload, and
-   Medusa outside this transaction.
+1. wrap the D2c atomic attempt in a routed trusted V2 facade without exporting
+   its internal preparation or row-writer seams;
+2. retry only typed staleness with at most three fresh whole preparations;
+3. enforce canonical-byte and platform quotas before SQL; and
+4. close concurrent replay, competing publication, stale recovery, and the full
+   rollback matrix on real Postgres.
 
-After `S03-D2c`, the ordered gates are:
+After `S03-D2d`, follow the interleaved foundation order rather than pulling
+build/readiness work forward:
 
-1. `S03-D2d`: bounded whole-preparation retry, routed trusted facade, canonical
-   quotas, and real-Postgres concurrency/rollback proof.
-2. `S03-D3` and `S03-D4`: durable per-scope build reconciliation, validation,
-   and readiness derived from real backfill evidence.
-3. `S04`, `S05-B`, `O01`, and `O02`: active-schema authority, full value codec,
-   narrow OCC ports, and exact snapshot issuance.
-4. Wave 1: replacement row/session storage and point-read OCC.
-5. Wave 2: one atomic result-bearing point mutation with idempotency, commit
-   feed, and outbox, closed by the real-Postgres `C07` gate.
-6. Immediately after `C07`, measure whether moving only the temporary logical
-   journal to SessionDO meets a predeclared material-improvement threshold.
-7. Complete `H05-B` before `S02-D2` activates the hosted replacement route.
-8. Add derived sidecars, backfill, shadow comparison, scoped cutover, rollback,
-   and finally legacy retirement after sync compatibility closes.
+1. Wave 1 establishes narrow OCC ports, exact snapshots, the replacement value
+   codec, row/session storage, point reads, and pure point planning.
+2. Wave 2 closes one atomic result-bearing point mutation with idempotency,
+   commit feed, and outbox through the real-Postgres `C07` gate.
+3. Immediately after `C07`, apply the predeclared threshold to the conditional
+   SessionDO logical-journal decision.
+4. Wave 3 adds derived sidecars and only then runs `S03-D3` per-scope physical
+   build reconciliation.
+5. Wave 4 owns baseline import, shadow comparison, real backfill evidence,
+   `S03-D4` readiness, and `S04` active-schema authority.
+6. Complete `H05-B` before `S02-D2` activates the hosted replacement route,
+   then retain scoped rollback until sync/cutover gates permit legacy retirement.
 
 Each gate must update this roadmap only when it changes durable status,
 architecture, gaps, or direction. Its commit and verification history remains

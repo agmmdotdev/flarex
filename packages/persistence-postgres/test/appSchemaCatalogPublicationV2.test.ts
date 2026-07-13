@@ -9,7 +9,7 @@ import {
   type SchemaManifestAppIndexDeclarationInputV1,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 // @ts-expect-error D2a's prepared token must remain absent from the package root.
 import type { PreparedAppSchemaCatalogPublicationV2 as RootPreparedAppSchemaCatalogPublicationV2 } from "../src";
@@ -22,21 +22,35 @@ import {
   type PrepareAppSchemaCatalogPublicationV2Input,
   type PreparedAppSchemaCatalogPublicationV2,
 } from "../src/appSchemaCatalogPublicationV2";
+import {
+  AppSchemaCatalogPublicationV2ProjectionError,
+  publishPreparedAppSchemaCatalogV2InTransaction,
+} from "../src/appSchemaCatalogPublicationV2Transaction";
 import type { PreparedAppSchemaVersionArtifactV1 } from "../src/appSchemaVersionArtifacts";
+import {
+  ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
+  prepareAppDeveloperIndexDefinitionBindingV1,
+} from "../src/appIndexDefinitions";
 import { createPGlitePersistence } from "../src/pglite";
-import { ensureSchemaVersionArtifactInTransaction } from "../src/schemaVersionArtifacts";
+import {
+  ensureSchemaVersionArtifactInTransaction,
+  SchemaVersionArtifactConflictError,
+  SchemaVersionArtifactCorruptionError,
+} from "../src/schemaVersionArtifacts";
 import { StableTableCatalogDeploymentNotFoundError } from "../src/stableTableCatalog";
 
 type PublicD2aExport = Extract<
   keyof typeof import("../src"),
   | "prepareAppSchemaCatalogPublicationV2"
   | "getPreparedAppSchemaCatalogPublicationV2State"
+  | "publishPreparedAppSchemaCatalogV2InTransaction"
 >;
 
 type PublicD2Method = Extract<
   keyof FlarexPersistence,
   | "prepareAppSchemaCatalogPublicationV2"
   | "ensureAppSchemaVersionArtifactV2"
+  | "publishPreparedAppSchemaCatalogV2InTransaction"
 >;
 
 type PreparedTokenStringKey = Extract<
@@ -313,6 +327,358 @@ describe("app-schema catalog publication v2 preparation", () => {
   });
 });
 
+describe("app-schema catalog publication v2 transaction", () => {
+  it("publishes and exactly replays the complete normalized projection", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_catalog_v2_publish";
+    await insertDeployment(persistence, deploymentId);
+    const input = publicationInput(deploymentId, "schema_catalog_v2_publish");
+    const prepared = await prepareAppSchemaCatalogPublicationV2(
+      persistence.drizzle,
+      input,
+    );
+
+    const created = await publishPrepared(persistence, prepared);
+    expect(created.manifest).toEqual(created.artifact.manifestJson);
+    expect(created.creationTimeIndexDefinitions.map((definition) => ({
+      indexDefinitionId: definition.indexDefinitionId,
+      access: definition.access,
+    }))).toEqual([
+      { indexDefinitionId: 1, access: { kind: "by_creation_time", tableId: 1 } },
+      { indexDefinitionId: 2, access: { kind: "by_creation_time", tableId: 2 } },
+    ]);
+    expect(created.developerIndexDefinitions.map((definition) => ({
+      indexDefinitionId: definition.indexDefinitionId,
+      access: definition.access,
+    }))).toEqual([
+      {
+        indexDefinitionId: 3,
+        access: { kind: "developer", tableId: 1, logicalIndexId: 1 },
+      },
+      {
+        indexDefinitionId: 4,
+        access: { kind: "developer", tableId: 2, logicalIndexId: 2 },
+      },
+    ]);
+    expect(created.schemaVersionIndexBindings.map((binding) => ({
+      logicalIndexId: binding.logicalIndexId,
+      indexDefinitionId: binding.indexDefinitionId,
+      requiredForActivation: binding.requiredForActivation,
+    }))).toEqual([
+      { logicalIndexId: 1, indexDefinitionId: 3, requiredForActivation: true },
+      { logicalIndexId: 2, indexDefinitionId: 4, requiredForActivation: true },
+    ]);
+    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+      tables: 2,
+      indexes: 2,
+      schemaVersions: 1,
+      definitions: 4,
+      schemaBindings: 2,
+      buildStates: 0,
+    });
+    await expect(
+      physicalProjection(persistence, deploymentId),
+    ).resolves.toEqual({
+      definitions: [
+        {
+          index_definition_id: 1,
+          access_kind: "by_creation_time",
+          table_id: 1,
+          logical_index_id: null,
+        },
+        {
+          index_definition_id: 2,
+          access_kind: "by_creation_time",
+          table_id: 2,
+          logical_index_id: null,
+        },
+        {
+          index_definition_id: 3,
+          access_kind: "developer",
+          table_id: 1,
+          logical_index_id: 1,
+        },
+        {
+          index_definition_id: 4,
+          access_kind: "developer",
+          table_id: 2,
+          logical_index_id: 2,
+        },
+      ],
+      bindings: [
+        { logical_index_id: 1, index_definition_id: 3 },
+        { logical_index_id: 2, index_definition_id: 4 },
+      ],
+    });
+
+    const sameTokenReplay = await publishPrepared(persistence, prepared);
+    const freshTokenReplay = await publishPrepared(
+      persistence,
+      await prepareAppSchemaCatalogPublicationV2(persistence.drizzle, input),
+    );
+    expect(sameTokenReplay.creationTimeIndexDefinitions.map(
+      (definition) => definition.indexDefinitionId,
+    )).toEqual([1, 2]);
+    expect(freshTokenReplay.developerIndexDefinitions.map(
+      (definition) => definition.indexDefinitionId,
+    )).toEqual([3, 4]);
+    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+      tables: 2,
+      indexes: 2,
+      schemaVersions: 1,
+      definitions: 4,
+      schemaBindings: 2,
+      buildStates: 0,
+    });
+  });
+
+  it("publishes intrinsic definitions without fabricating schema bindings", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_catalog_v2_intrinsic_only";
+    await insertDeployment(persistence, deploymentId);
+    const prepared = await prepareAppSchemaCatalogPublicationV2(
+      persistence.drizzle,
+      {
+        deploymentId,
+        schemaVersionId: CatalogSchemaVersionIdSchema.make(
+          "schema_catalog_v2_intrinsic_only",
+        ),
+        version: CatalogSchemaVersionSchema.make(1),
+        tables: [
+          appTable("users", { email: appField({ type: "string" }) }),
+        ],
+        indexes: [],
+      },
+    );
+
+    const projection = await publishPrepared(persistence, prepared);
+    expect(projection.creationTimeIndexDefinitions).toHaveLength(1);
+    expect(projection.developerIndexDefinitions).toEqual([]);
+    expect(projection.schemaVersionIndexBindings).toEqual([]);
+    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+      tables: 1,
+      indexes: 0,
+      schemaVersions: 1,
+      definitions: 1,
+      schemaBindings: 0,
+      buildStates: 0,
+    });
+  });
+
+  it("rolls every projected row back and reuses rolled-back definition IDs", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_catalog_v2_rollback";
+    await insertDeployment(persistence, deploymentId);
+    const prepared = await prepareAppSchemaCatalogPublicationV2(
+      persistence.drizzle,
+      publicationInput(deploymentId, "schema_catalog_v2_rollback"),
+    );
+
+    await expect(
+      persistence.drizzle.transaction(async (tx) => {
+        await publishPreparedAppSchemaCatalogV2InTransaction(tx, prepared);
+        throw new Error("injected D2c rollback");
+      }),
+    ).rejects.toThrow("injected D2c rollback");
+    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+      tables: 0,
+      indexes: 0,
+      schemaVersions: 0,
+      definitions: 0,
+      schemaBindings: 0,
+      buildStates: 0,
+    });
+
+    const committed = await publishPrepared(persistence, prepared);
+    expect(committed.creationTimeIndexDefinitions[0]?.indexDefinitionId).toBe(1);
+    expect(committed.developerIndexDefinitions[0]?.indexDefinitionId).toBe(3);
+  });
+
+  it("rolls stable bindings back when a later artifact conflict fails", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_catalog_v2_late_conflict";
+    await insertDeployment(persistence, deploymentId);
+    const target = await prepareAppSchemaCatalogPublicationV2(
+      persistence.drizzle,
+      publicationInput(deploymentId, "schema_catalog_v2_late_conflict"),
+    );
+    const conflicting = await prepareAppSchemaCatalogPublicationV2(
+      persistence.drizzle,
+      userPublicationInput(
+        deploymentId,
+        "schema_catalog_v2_late_conflict",
+        1,
+        [{ descriptor: "byEmail", field: "email" }],
+      ),
+    );
+    const conflictingState =
+      getPreparedAppSchemaCatalogPublicationV2State(conflicting);
+    await persistence.drizzle.transaction((tx) =>
+      ensureSchemaVersionArtifactInTransaction(tx, conflictingState.artifact)
+    );
+
+    await expect(publishPrepared(persistence, target)).rejects.toBeInstanceOf(
+      SchemaVersionArtifactConflictError,
+    );
+    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+      tables: 0,
+      indexes: 0,
+      schemaVersions: 1,
+      definitions: 0,
+      schemaBindings: 0,
+      buildStates: 0,
+    });
+  });
+
+  it("rejects an unexpected schema-version binding as a typed projection mismatch", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_catalog_v2_extra_binding";
+    await insertDeployment(persistence, deploymentId);
+    const v1 = await prepareAppSchemaCatalogPublicationV2(
+      persistence.drizzle,
+      userPublicationInput(
+        deploymentId,
+        "schema_catalog_v2_extra_binding_v1",
+        1,
+        [
+          { descriptor: "byEmail", field: "email" },
+          { descriptor: "byPhone", field: "phone" },
+        ],
+      ),
+    );
+    const v1Projection = await publishPrepared(persistence, v1);
+    const v2 = await prepareAppSchemaCatalogPublicationV2(
+      persistence.drizzle,
+      userPublicationInput(
+        deploymentId,
+        "schema_catalog_v2_extra_binding_v2",
+        2,
+        [{ descriptor: "byEmail", field: "email" }],
+      ),
+    );
+    const v2State = getPreparedAppSchemaCatalogPublicationV2State(v2);
+    await persistence.drizzle.transaction((tx) =>
+      ensureSchemaVersionArtifactInTransaction(tx, v2State.artifact)
+    );
+    const extraLogicalIndex = v1Projection.manifest.indexBindings.indexes.find(
+      (index) => index.descriptor === "byPhone",
+    );
+    if (extraLogicalIndex === undefined) {
+      throw new Error("Expected the baseline byPhone logical index.");
+    }
+    const extraBinding = await prepareAppDeveloperIndexDefinitionBindingV1({
+      deploymentId,
+      schemaVersionId: v2.schemaVersionId,
+      tableId: extraLogicalIndex.tableId,
+      logicalIndexId: extraLogicalIndex.logicalIndexId,
+      logicalSpec: extraLogicalIndex.spec,
+    });
+    await persistence.drizzle.transaction((tx) =>
+      ensureAppDeveloperIndexDefinitionBindingV1InTransaction(tx, extraBinding)
+    );
+
+    await expect(publishPrepared(persistence, v2)).rejects.toMatchObject({
+      name: "AppSchemaCatalogPublicationV2ProjectionError",
+      issue: {
+        reason: "schemaBindingCountMismatch",
+        expectedCount: 1,
+        actualCount: 2,
+      },
+    });
+    await expect(publishPrepared(persistence, v2)).rejects.toBeInstanceOf(
+      AppSchemaCatalogPublicationV2ProjectionError,
+    );
+    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+      tables: 1,
+      indexes: 2,
+      schemaVersions: 2,
+      definitions: 3,
+      schemaBindings: 3,
+      buildStates: 0,
+    });
+  });
+
+  it("rejects artifact JSON drift even when canonical bytes remain unchanged", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_catalog_v2_artifact_json_drift";
+    await insertDeployment(persistence, deploymentId);
+    const prepared = await prepareAppSchemaCatalogPublicationV2(
+      persistence.drizzle,
+      publicationInput(deploymentId, "schema_catalog_v2_artifact_json_drift"),
+    );
+    await publishPrepared(persistence, prepared);
+    await persistence.query(
+      `
+        update fx_control_schema_version
+        set manifest_json = '{"tampered": true}'::jsonb
+        where deployment_id = $1 and schema_version_id = $2
+      `,
+      [deploymentId, prepared.schemaVersionId],
+    );
+
+    await expect(publishPrepared(persistence, prepared)).rejects.toBeInstanceOf(
+      SchemaVersionArtifactCorruptionError,
+    );
+  });
+
+  it("authenticates the full publication token before writing", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_catalog_v2_transaction_forgery";
+    await insertDeployment(persistence, deploymentId);
+    const prepared = await prepareAppSchemaCatalogPublicationV2(
+      persistence.drizzle,
+      publicationInput(
+        deploymentId,
+        "schema_catalog_v2_transaction_forgery",
+      ),
+    );
+    const forgery = { ...prepared };
+
+    await expect(
+      persistence.drizzle.transaction((tx) =>
+        Reflect.apply(
+          publishPreparedAppSchemaCatalogV2InTransaction,
+          undefined,
+          [tx, forgery],
+        )
+      ),
+    ).rejects.toBeInstanceOf(
+      InvalidPreparedAppSchemaCatalogPublicationV2Error,
+    );
+    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+      tables: 0,
+      indexes: 0,
+      schemaVersions: 0,
+      definitions: 0,
+      schemaBindings: 0,
+      buildStates: 0,
+    });
+  });
+
+  it("performs no Web Crypto during the transaction", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_catalog_v2_no_locked_crypto";
+    await insertDeployment(persistence, deploymentId);
+    const prepared = await prepareAppSchemaCatalogPublicationV2(
+      persistence.drizzle,
+      publicationInput(deploymentId, "schema_catalog_v2_no_locked_crypto"),
+    );
+    const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(
+      new Error("Web Crypto must stay outside the D2c transaction"),
+    );
+    try {
+      await expect(publishPrepared(persistence, prepared)).resolves.toMatchObject({
+        artifact: { schemaVersionId: prepared.schemaVersionId },
+      });
+      await expect(publishPrepared(persistence, prepared)).resolves.toMatchObject({
+        artifact: { schemaVersionId: prepared.schemaVersionId },
+      });
+    } finally {
+      digest.mockRestore();
+    }
+  });
+});
+
 type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
 
 async function migratedPersistence(): Promise<PGlitePersistence> {
@@ -331,11 +697,15 @@ async function insertDeployment(
   });
 }
 
-function publicationInput(deploymentId: string, schemaVersionId: string) {
+function publicationInput(
+  deploymentId: string,
+  schemaVersionId: string,
+  version = 1,
+) {
   return {
     deploymentId,
     schemaVersionId: CatalogSchemaVersionIdSchema.make(schemaVersionId),
-    version: CatalogSchemaVersionSchema.make(1),
+    version: CatalogSchemaVersionSchema.make(version),
     tables: [
       appTable("users", {
         email: appField({ type: "string" }),
@@ -348,6 +718,31 @@ function publicationInput(deploymentId: string, schemaVersionId: string) {
       appIndex("users", "byEmail", ["email"]),
       appIndex("posts", "byAuthor", ["authorId"]),
     ],
+  };
+}
+
+function userPublicationInput(
+  deploymentId: string,
+  schemaVersionId: string,
+  version: number,
+  indexes: ReadonlyArray<{
+    readonly descriptor: string;
+    readonly field: "email" | "phone";
+  }>,
+) {
+  return {
+    deploymentId,
+    schemaVersionId: CatalogSchemaVersionIdSchema.make(schemaVersionId),
+    version: CatalogSchemaVersionSchema.make(version),
+    tables: [
+      appTable("users", {
+        email: appField({ type: "string" }),
+        phone: appField({ type: "string" }),
+      }),
+    ],
+    indexes: indexes.map((index) =>
+      appIndex("users", index.descriptor, [index.field])
+    ),
   };
 }
 
@@ -420,6 +815,62 @@ async function catalogCounts(
     definitions: row.definitions,
     schemaBindings: row.schema_bindings,
     buildStates: row.build_states,
+  };
+}
+
+async function publishPrepared(
+  persistence: PGlitePersistence,
+  prepared: PreparedAppSchemaCatalogPublicationV2,
+) {
+  return persistence.drizzle.transaction((tx) =>
+    publishPreparedAppSchemaCatalogV2InTransaction(tx, prepared)
+  );
+}
+
+async function physicalProjection(
+  persistence: PGlitePersistence,
+  deploymentId: string,
+): Promise<{
+  readonly definitions: ReadonlyArray<{
+    readonly index_definition_id: number;
+    readonly access_kind: string;
+    readonly table_id: number;
+    readonly logical_index_id: number | null;
+  }>;
+  readonly bindings: ReadonlyArray<{
+    readonly logical_index_id: number;
+    readonly index_definition_id: number;
+  }>;
+}> {
+  const definitions = await persistence.query<{
+    index_definition_id: number;
+    access_kind: string;
+    table_id: number;
+    logical_index_id: number | null;
+  }>(
+    `
+      select index_definition_id, access_kind, table_id, logical_index_id
+      from fx_control_index_definition
+      where deployment_id = $1
+      order by index_definition_id
+    `,
+    [deploymentId],
+  );
+  const bindings = await persistence.query<{
+    logical_index_id: number;
+    index_definition_id: number;
+  }>(
+    `
+      select logical_index_id, index_definition_id
+      from fx_control_schema_version_index_binding
+      where deployment_id = $1
+      order by logical_index_id
+    `,
+    [deploymentId],
+  );
+  return {
+    definitions: definitions.rows,
+    bindings: bindings.rows,
   };
 }
 

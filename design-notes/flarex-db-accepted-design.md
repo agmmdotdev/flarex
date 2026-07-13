@@ -511,10 +511,14 @@ one atomic operation:
    table-owned definition through the shared C3 high-water allocator. It never
    creates a table, logical index, schema binding, build row, second manifest,
    standalone allocator, or transaction commit.
-4. D2c will consume one authenticated preparation inside one caller-owned
-   control-database transaction, revalidate/apply the C2 plan, insert/replay the
-   exact V2 artifact, persist all required physical definitions and schema
-   bindings, and exactly verify the normalized projection before commit.
+4. D2c consumes one authenticated preparation inside one caller-owned
+   control-database transaction, revalidates/applies the C2 plan, inserts or
+   replays the exact V2 artifact, persists all required physical definitions and
+   schema bindings, and exactly verifies the normalized projection before
+   returning. The internal attempt owns no commit or retry and performs no
+   canonicalization or hashing under the deployment lock. Exactness covers the
+   manifest-projected identities/definitions plus the complete binding set for
+   that schema version; unrelated historical catalog rows remain valid.
 5. D2d will add the bounded fresh-whole-preparation retry coordinator, routed
    V2 persistence facade, canonical-byte/platform quota, and real-Postgres
    whole-publication concurrency/rollback proof. API generation V2 does not
@@ -527,9 +531,9 @@ one atomic operation:
    slices, and S04 alone mutates the active-schema pointer.
 
 D1 output is ephemeral derived evidence. It contains no source-manifest copy,
-definition ID, lifecycle, cursor, fence, receipt, or readiness state, and a
-future publisher must compile its own authenticated manifest rather than accept
-caller-authored compiled evidence. App-schema v1 treats its table list as the
+definition ID, lifecycle, cursor, fence, receipt, or readiness state, and the
+trusted publication path compiles its own authenticated manifest rather than
+accepting caller-authored compiled evidence. App-schema v1 treats its table list as the
 closed app ID-target set plus the existing Convex-compatible `_storage`
 intrinsic. Arbitrary undeclared/reserved targets fail closed; Payload, Medusa,
 and additional system targets require their own later source-driven contracts.

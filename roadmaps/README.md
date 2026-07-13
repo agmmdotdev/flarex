@@ -61,7 +61,7 @@ For current FlarexDB work, read in this order:
 4. The focused foundation plan for the active gate
 5. The relevant active domain authority below
 
-The current foundation next gate is `S03-D2c`, owned by
+The current foundation next gate is `S03-D2d`, owned by
 [`flarexdb-foundation/01-schema-and-migrations.md`](./flarexdb-foundation/01-schema-and-migrations.md).
 
 ## Active Domain Authorities

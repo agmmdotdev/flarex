@@ -2,12 +2,13 @@
 
 ## Status And Scope
 
-Current next gate: `S03-D2c`, atomic full control-catalog publication and exact
-projection verification.
+Current next gate: `S03-D2d`, bounded whole-preparation retry, routed trusted
+publication facade, canonical quotas, and the full real-Postgres concurrency
+and rollback matrix.
 
 | Stream | Current status |
 | --- | --- |
-| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2b`, and interleaved `S05-A` complete |
+| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2c`, and interleaved `S05-A` complete |
 | OCC/transactions | Planned; `O01` is the first unchecked OCC gate |
 | Commit compiler | Planned; `C01` is the first unchecked compiler gate |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
@@ -176,15 +177,15 @@ direction, or correctness criteria change.
    - Complete: `S02-A`–`S02-C`, `S02-D1`.
    - Deferred/remaining: `H05-B`, `S02-D2`, `S02-E`.
 3. [ ] `S03`: minimal stable catalog.
-   - Complete through `S03-D2b`, including interleaved `S05-A`.
-   - Next: `S03-D2c`.
-   - Then: `S03-D2d` closes publication retry/facade/quota and real-Postgres
-     proof.
+   - Complete through `S03-D2c`, including interleaved `S05-A`.
+   - Next: `S03-D2d` closes publication retry/facade/quota and the full
+     real-Postgres concurrency/rollback proof.
    - Deferred to their consumers: `S03-D3` in Wave 3 and `S03-D4` in Wave 4.
 
-`S03-D2c` and `S03-D2d` finish the already-open catalog publication boundary.
-They do not activate a schema, reconcile physical builds, claim readiness, or
-route replacement app data.
+`S03-D2c` closes the package-internal atomic apply-and-verify boundary.
+`S03-D2d` finishes the already-open publication boundary by adding fresh retry,
+quota, and routed-facade ownership. Neither gate activates a schema, reconciles
+physical builds, claims readiness, or routes replacement app data.
 
 ### Wave 1 — First Row And Point-OCC Slice
 

@@ -274,44 +274,40 @@ export async function ensureSchemaVersionArtifactInTransaction(
     return insertSchemaVersionArtifact(tx, prepared, prepared.canonical);
   }
 
-  const byId = byIdRow === null
-    ? null
-    : decodeStoredSchemaVersionArtifactRow(byIdRow);
-  const byVersion = byVersionRow === null
-    ? null
-    : sameArtifactRow(byIdRow, byVersionRow) && byId !== null
-      ? byId
-      : decodeStoredSchemaVersionArtifactRow(byVersionRow);
-
-  if (byId !== null && byId.version !== prepared.version) {
-    throw new SchemaVersionArtifactConflictError({
-      reason: "schemaVersionIdReused",
-      deploymentId: prepared.deploymentId,
-      schemaVersionId: prepared.schemaVersionId,
-      requestedVersion: prepared.version,
-      existingVersion: byId.version,
-    });
-  }
-  if (
-    byVersion !== null &&
-    byVersion.schemaVersionId !== prepared.schemaVersionId
-  ) {
-    throw new SchemaVersionArtifactConflictError({
-      reason: "versionReused",
-      deploymentId: prepared.deploymentId,
-      version: prepared.version,
-      requestedSchemaVersionId: prepared.schemaVersionId,
-      existingSchemaVersionId: byVersion.schemaVersionId,
-    });
-  }
-  if (byId === null || byVersion === null || byId !== byVersion) {
-    throw new SchemaVersionArtifactCorruptionError(
-      prepared.deploymentId,
-      "ID and version lookups did not resolve the same artifact",
-    );
-  }
-  const existing = requireExactArtifactReplay(byId, prepared);
+  const existing = requireExactPreparedArtifactRows(
+    byIdRow,
+    byVersionRow,
+    prepared,
+  );
   return { status: "existing", artifact: existing };
+}
+
+/**
+ * Read back one prepared artifact using only its already-canonical evidence.
+ *
+ * D2c calls this after the owning deployment row has been locked and the
+ * artifact has been ensured in the same transaction. This verifier performs
+ * no canonical encoding, hashing, analyzer work, user-code work, or writes.
+ */
+export async function verifyPreparedSchemaVersionArtifactInTransaction(
+  tx: SchemaVersionArtifactTransaction,
+  artifact: PreparedSchemaVersionArtifact,
+): Promise<SchemaVersionArtifact> {
+  const prepared = preparedSchemaVersionArtifactStates.get(artifact);
+  if (prepared === undefined) {
+    throw new InvalidPreparedSchemaVersionArtifactError();
+  }
+  const byIdRow = await selectSchemaVersionArtifactById(
+    tx,
+    prepared.deploymentId,
+    prepared.schemaVersionId,
+  );
+  const byVersionRow = await selectSchemaVersionArtifactByVersion(
+    tx,
+    prepared.deploymentId,
+    prepared.version,
+  );
+  return requireExactPreparedArtifactRows(byIdRow, byVersionRow, prepared);
 }
 
 /** Full JSON/byte/digest integrity read; keep it outside locked write phases. */
@@ -591,6 +587,50 @@ function sameArtifactRow(
     left.version === right.version;
 }
 
+function requireExactPreparedArtifactRows(
+  byIdRow: SchemaVersionArtifactRow | null,
+  byVersionRow: SchemaVersionArtifactRow | null,
+  prepared: PreparedSchemaVersionArtifactState,
+): SchemaVersionArtifact {
+  const byId = byIdRow === null
+    ? null
+    : decodeStoredSchemaVersionArtifactRow(byIdRow);
+  const byVersion = byVersionRow === null
+    ? null
+    : sameArtifactRow(byIdRow, byVersionRow) && byId !== null
+      ? byId
+      : decodeStoredSchemaVersionArtifactRow(byVersionRow);
+
+  if (byId !== null && byId.version !== prepared.version) {
+    throw new SchemaVersionArtifactConflictError({
+      reason: "schemaVersionIdReused",
+      deploymentId: prepared.deploymentId,
+      schemaVersionId: prepared.schemaVersionId,
+      requestedVersion: prepared.version,
+      existingVersion: byId.version,
+    });
+  }
+  if (
+    byVersion !== null &&
+    byVersion.schemaVersionId !== prepared.schemaVersionId
+  ) {
+    throw new SchemaVersionArtifactConflictError({
+      reason: "versionReused",
+      deploymentId: prepared.deploymentId,
+      version: prepared.version,
+      requestedSchemaVersionId: prepared.schemaVersionId,
+      existingSchemaVersionId: byVersion.schemaVersionId,
+    });
+  }
+  if (byId === null || byVersion === null || byId !== byVersion) {
+    throw new SchemaVersionArtifactCorruptionError(
+      prepared.deploymentId,
+      "ID and version lookups did not resolve the same artifact",
+    );
+  }
+  return requireExactArtifactReplay(byId, prepared);
+}
+
 function requireExactArtifactReplay(
   existing: StoredSchemaVersionArtifact,
   requested: PreparedSchemaVersionArtifactState,
@@ -608,6 +648,17 @@ function requireExactArtifactReplay(
       throw new SchemaVersionArtifactCorruptionError(
         existing.deploymentId,
         "stored manifest SHA-256 does not match equal canonical bytes",
+      );
+    }
+    if (
+      !jsonValuesEqual(
+        existing.manifestJson,
+        requested.canonical.manifestJson,
+      )
+    ) {
+      throw new SchemaVersionArtifactCorruptionError(
+        existing.deploymentId,
+        "stored manifest JSON does not match equal canonical bytes",
       );
     }
     return artifactFromCanonical(
@@ -649,6 +700,32 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
     if (left[index] !== right[index]) return false;
   }
   return true;
+}
+
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right)) return false;
+    if (left.length !== right.length) return false;
+    return left.every((value, index) =>
+      jsonValuesEqual(value, right[index])
+    );
+  }
+  if (!isJsonObject(left) || !isJsonObject(right)) return false;
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (const [index, key] of leftKeys.entries()) {
+    if (key !== rightKeys[index] || !Object.hasOwn(right, key)) return false;
+    if (!jsonValuesEqual(left[key], right[key])) return false;
+  }
+  return true;
+}
+
+function isJsonObject(
+  value: unknown,
+): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isValidDate(value: unknown): value is Date {

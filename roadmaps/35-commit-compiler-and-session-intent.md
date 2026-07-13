@@ -463,7 +463,7 @@ reads, or legacy retirement.
 
 ## Next Correctness Gates
 
-The active repository slice is still schema catalog publication `S03-D2c` in
+The active repository slice is schema catalog publication closure `S03-D2d` in
 roadmap 20. Compiler protocol/types and pure planning may begin according to
 the interleaved foundation order, but production/canary execution waits for
 the required schema and OCC primitives.

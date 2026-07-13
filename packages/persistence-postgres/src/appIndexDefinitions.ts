@@ -38,6 +38,7 @@ import {
   decodeSchemaManifestAppDeveloperOrderedIndexSpecV1,
   type CatalogSchemaVersionId,
   type SchemaManifestAppDeveloperOrderedIndexSpecV1,
+  type SchemaManifestAppIndexDescriptor,
   type SchemaManifestAppTableName,
 } from "flarex-protocol/schema-manifest";
 
@@ -208,6 +209,46 @@ export class AppCreationTimeIndexDefinitionRequirementError extends Error {
       `Prepared app-schema creation-time requirements are inconsistent for ${deploymentId}: ${creationTimeRequirementIssueMessage(issue)}`,
     );
     this.name = "AppCreationTimeIndexDefinitionRequirementError";
+  }
+}
+
+export type AppDeveloperIndexDefinitionRequirementIssue =
+  | {
+      readonly reason: "requirementCountMismatch";
+      readonly indexCount: number;
+      readonly requirementCount: number;
+    }
+  | {
+      readonly reason: "requirementLogicalIndexNotFound";
+      readonly logicalIndexId: CatalogIndexId;
+    }
+  | {
+      readonly reason: "requirementIdentityMismatch";
+      readonly logicalIndexId: CatalogIndexId;
+      readonly requirementTableId: CatalogTableId;
+      readonly currentTableId: CatalogTableId;
+      readonly requirementDescriptor: SchemaManifestAppIndexDescriptor;
+      readonly currentDescriptor: SchemaManifestAppIndexDescriptor;
+    }
+  | {
+      readonly reason: "duplicateRequirementLogicalIndex";
+      readonly logicalIndexId: CatalogIndexId;
+    }
+  | {
+      readonly reason: "incompleteRequirementSet";
+      readonly coveredIndexCount: number;
+      readonly indexCount: number;
+    };
+
+export class AppDeveloperIndexDefinitionRequirementError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly issue: AppDeveloperIndexDefinitionRequirementIssue,
+  ) {
+    super(
+      `Prepared app-schema developer-index requirements are inconsistent for ${deploymentId}: ${developerRequirementIssueMessage(issue)}`,
+    );
+    this.name = "AppDeveloperIndexDefinitionRequirementError";
   }
 }
 
@@ -413,14 +454,7 @@ export async function prepareAppDeveloperIndexDefinitionBindingV1(
     tableId,
     logicalIndexId,
   } satisfies AppDeveloperPhysicalIndexAccessIdentityV1);
-  const prepared = Object.freeze({
-    deploymentId,
-    schemaVersionId,
-    tableId,
-    logicalIndexId,
-    [preparedDefinitionBindingBrand]: true,
-  } satisfies PreparedAppDeveloperIndexDefinitionBindingV1);
-  preparedDefinitionBindingStates.set(prepared, Object.freeze({
+  return registerPreparedDeveloperIndexDefinitionBinding({
     deploymentId,
     schemaVersionId,
     tableId,
@@ -428,8 +462,7 @@ export async function prepareAppDeveloperIndexDefinitionBindingV1(
     access,
     storageIdentity: appPhysicalIndexAccessStorageIdentityV1(access),
     canonical,
-  } satisfies PreparedDefinitionBindingState));
-  return prepared;
+  });
 }
 
 /**
@@ -513,6 +546,115 @@ export function prepareAppCreationTimeIndexDefinitionsV1(
     );
   }
   return Object.freeze(prepared);
+}
+
+/**
+ * Derive the complete developer definition/binding token set from one
+ * authenticated D2a preparation without re-lowering or re-hashing D1 output.
+ *
+ * Tokens are ordered by logical index ID. The defensive identity checks keep
+ * an internally inconsistent requirement set from becoming persistence
+ * authority even if a future compiler refactor changes one side of the seam.
+ */
+export function prepareAppDeveloperIndexDefinitionBindingsV1(
+  publication: PreparedAppSchemaCatalogPublicationV2,
+): ReadonlyArray<PreparedAppDeveloperIndexDefinitionBindingV1> {
+  const publicationState =
+    getPreparedAppSchemaCatalogPublicationV2State(publication);
+  const indexes = publicationState.logicalBindings.manifest.indexBindings.indexes;
+  const requirements = publicationState.requirements.developerIndexes;
+  if (indexes.length !== requirements.length) {
+    throw new AppDeveloperIndexDefinitionRequirementError(
+      publication.deploymentId,
+      {
+        reason: "requirementCountMismatch",
+        indexCount: indexes.length,
+        requirementCount: requirements.length,
+      },
+    );
+  }
+
+  const indexesById = new Map(
+    indexes.map((index) => [index.logicalIndexId, index] as const),
+  );
+  const seenLogicalIndexIds = new Set<CatalogIndexId>();
+  const prepared = requirements.map((requirement) => {
+    const index = indexesById.get(requirement.logicalIndexId);
+    if (index === undefined) {
+      throw new AppDeveloperIndexDefinitionRequirementError(
+        publication.deploymentId,
+        {
+          reason: "requirementLogicalIndexNotFound",
+          logicalIndexId: requirement.logicalIndexId,
+        },
+      );
+    }
+    if (
+      index.tableId !== requirement.tableId ||
+      index.descriptor !== requirement.descriptor
+    ) {
+      throw new AppDeveloperIndexDefinitionRequirementError(
+        publication.deploymentId,
+        {
+          reason: "requirementIdentityMismatch",
+          logicalIndexId: requirement.logicalIndexId,
+          requirementTableId: requirement.tableId,
+          currentTableId: index.tableId,
+          requirementDescriptor: requirement.descriptor,
+          currentDescriptor: index.descriptor,
+        },
+      );
+    }
+    if (seenLogicalIndexIds.has(requirement.logicalIndexId)) {
+      throw new AppDeveloperIndexDefinitionRequirementError(
+        publication.deploymentId,
+        {
+          reason: "duplicateRequirementLogicalIndex",
+          logicalIndexId: requirement.logicalIndexId,
+        },
+      );
+    }
+    seenLogicalIndexIds.add(requirement.logicalIndexId);
+    const access = Object.freeze({
+      kind: "developer",
+      tableId: requirement.tableId,
+      logicalIndexId: requirement.logicalIndexId,
+    } satisfies AppDeveloperPhysicalIndexAccessIdentityV1);
+    return registerPreparedDeveloperIndexDefinitionBinding({
+      deploymentId: publication.deploymentId,
+      schemaVersionId: publication.schemaVersionId,
+      tableId: requirement.tableId,
+      logicalIndexId: requirement.logicalIndexId,
+      access,
+      storageIdentity: appPhysicalIndexAccessStorageIdentityV1(access),
+      canonical: requirement.canonical,
+    });
+  });
+  if (seenLogicalIndexIds.size !== indexesById.size) {
+    throw new AppDeveloperIndexDefinitionRequirementError(
+      publication.deploymentId,
+      {
+        reason: "incompleteRequirementSet",
+        coveredIndexCount: seenLogicalIndexIds.size,
+        indexCount: indexesById.size,
+      },
+    );
+  }
+  return Object.freeze(prepared);
+}
+
+function registerPreparedDeveloperIndexDefinitionBinding(
+  state: PreparedDefinitionBindingState,
+): PreparedAppDeveloperIndexDefinitionBindingV1 {
+  const prepared = Object.freeze({
+    deploymentId: state.deploymentId,
+    schemaVersionId: state.schemaVersionId,
+    tableId: state.tableId,
+    logicalIndexId: state.logicalIndexId,
+    [preparedDefinitionBindingBrand]: true,
+  } satisfies PreparedAppDeveloperIndexDefinitionBindingV1);
+  preparedDefinitionBindingStates.set(prepared, Object.freeze(state));
+  return prepared;
 }
 
 /**
@@ -1523,5 +1665,22 @@ function creationTimeRequirementIssueMessage(
       return `requirement table ${issue.tableId} is duplicated`;
     case "incompleteRequirementSet":
       return `requirements cover ${issue.coveredTableCount} of ${issue.tableCount} tables`;
+  }
+}
+
+function developerRequirementIssueMessage(
+  issue: AppDeveloperIndexDefinitionRequirementIssue,
+): string {
+  switch (issue.reason) {
+    case "requirementCountMismatch":
+      return `expected ${issue.indexCount} requirements but found ${issue.requirementCount}`;
+    case "requirementLogicalIndexNotFound":
+      return `logical index ${issue.logicalIndexId} is missing`;
+    case "requirementIdentityMismatch":
+      return `logical index ${issue.logicalIndexId} is ${issue.currentTableId}/${issue.currentDescriptor}, not ${issue.requirementTableId}/${issue.requirementDescriptor}`;
+    case "duplicateRequirementLogicalIndex":
+      return `logical index ${issue.logicalIndexId} is duplicated`;
+    case "incompleteRequirementSet":
+      return `requirements cover ${issue.coveredIndexCount} of ${issue.indexCount} logical indexes`;
   }
 }

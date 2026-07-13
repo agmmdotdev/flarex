@@ -397,10 +397,11 @@ and stale non-authoritative caches without changing the Postgres oracle.
 2. **Define aggregate commands without overclaiming.** Separate fast,
    integration, real-Postgres, H04, and H05 commands; make the default and
    release gate explicit. Do not silently add external mutation to `pnpm test`.
-3. **Bind active foundation work to invariant tests.** For `S03-D2c` and each
-   following schema/OCC/compiler gate, name the pure/PGlite/real-Postgres tests
-   and require exact atomicity, rollback, concurrency, replay, and projection
-   assertions before marking the plan complete.
+3. **Bind active foundation work to invariant tests.** D2c is closed by focused
+   PGlite atomicity/replay/projection coverage plus sequential and rollback
+   proof on real Postgres. `S03-D2d` owns the remaining whole-publication race
+   matrix. Apply the same explicit pure/PGlite/real-Postgres boundary to each
+   following schema/OCC/compiler gate before marking it complete.
 4. **Close H05-B.** Run the credentialed staging proof, collect control/data/
    trace/source/cleanup evidence, validate the canonical bundle, and retain an
    attributable receipt without committing secrets or mutable staging state.
