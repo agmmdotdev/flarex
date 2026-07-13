@@ -459,47 +459,6 @@ Named Flarex divergences:
 - the browser/React client is a bounded subset without actions, full reconnect,
   optimistic updates, or Next.js helpers.
 
-## Current Checkpoint Record
-
-This checkpoint replaces the accumulated chronological SDK/CLI notes with the
-living domain contract above and repairs packaging proofs that drifted from the
-current manifests.
-
-- **What changed:** compacted this roadmap around current package roles,
-  generated authority, CLI behavior, packaging evidence, accepted decisions,
-  limitations, and next gates; promoted it in the roadmap index; expanded the
-  pack graph to cover `flarex-protocol` and `@flarex/analysis`; aligned backend
-  fixture expectations with its exported lifecycle fixture; linked the declared
-  `effect` dependency into the offline consumer; and scoped longer timeouts only
-  to the pack tests that need them.
-- **Why:** Git already owns commit chronology. The roadmap should explain what
-  the SDK/CLI domain means now, why its boundaries exist, what evidence supports
-  them, and where it is going. The integration changes make the stated tarball
-  and fresh-consumer evidence match the actual package graph.
-- **Previous completed domain checkpoint:** `bcdca9a Add test SDK reset helper`.
-- **Convex sources inspected:** none were required for this governance and
-  packaging-alignment checkpoint. No new developer API or runtime behavior was
-  designed; the rewrite preserves previously recorded Convex provenance and
-  separates it from current Flarex divergences.
-- **Flarex difference from Convex:** unchanged by this checkpoint. Flarex still
-  uses source-only local packages, a Flarex-owned two-phase deploy flow, managed
-  Cloudflare execution, and a trusted Postgres executor rather than Convex's
-  published SDK/CLI and hosted control plane.
-- **Known limitations/follow-up:** the gaps and correctness gates below remain
-  open. The full `flarex-dev` unit suite was attempted in bounded fresh
-  processes during this checkpoint but did not complete before the local
-  timeout; no assertion failure was observed, and the directly changed pack
-  boundary passed its complete focused lane.
-- **Verification:** `git diff --check`; `corepack pnpm --filter flarex test`
-  (10 files, 64 tests); `corepack pnpm --filter flarex typecheck`;
-  `corepack pnpm --filter flarex-dev typecheck`; `corepack pnpm --filter
-  flarex-test typecheck`; `corepack pnpm check:effect-boundaries`; and
-  `corepack pnpm exec vitest run --config integration/vitest.config.ts
-  integration/cli-pack.integration.test.ts
-  integration/internal-packages-pack.integration.test.ts
-  integration/fresh-consumer-pack.integration.test.ts --maxWorkers=1`
-  (3 files, 12 tests).
-
 ## Implemented Capabilities
 
 - Public SDK values, schema, registration, validator exports, function

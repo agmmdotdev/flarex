@@ -74,6 +74,7 @@ The current foundation next gate is `S03-D2c`, owned by
 | [`11-testing-and-simulation-strategy.md`](./11-testing-and-simulation-strategy.md) | Evidence lanes, proportional validation, real-Postgres/Cloudflare proof boundaries, cleanup/receipts, and deterministic simulation direction. |
 | [`13-convex-first-system-porting.md`](./13-convex-first-system-porting.md) | Cross-system rule: inspect/port Convex first and document narrow Flarex divergences. |
 | [`14-local-dev-server.md`](./14-local-dev-server.md) | Local runtime composition, Vite lifecycle, reload cutover, persistence, cleanup, and legacy/Postgres mode selection. |
+| [`15-test-sdk.md`](./15-test-sdk.md) | Public real-runtime test harness, typed invocation helpers, client/WebSocket bridge, lifecycle/reset, and trusted test-authority limits. |
 | [`16-package-boundaries.md`](./16-package-boundaries.md) | Workspace package ownership, dependency direction, public/internal surfaces, host composition, and boundary enforcement. |
 | [`17-deployment-analysis-and-push.md`](./17-deployment-analysis-and-push.md) | Source-package analysis authority, candidate push lifecycle, final codegen, artifact validation, and activation gates. |
 | [`20-postgres-executor.md`](./20-postgres-executor.md) | Trusted Postgres executor, hosted Worker, storage generations, and replacement data authority. |
@@ -100,7 +101,6 @@ active authorities above.
 
 | Roadmap | Current use |
 | --- | --- |
-| [`15-test-sdk.md`](./15-test-sdk.md) | Test SDK, packed consumer, transport, and generated-app harness inventory. |
 | [`18-react-client-hooks.md`](./18-react-client-hooks.md) | React client implementation history; early partition-routing sections are legacy and require compaction. |
 
 ## Compatibility Inventories
@@ -157,8 +157,7 @@ contain old “next slice” or append-history instructions.
 Do not compact files merely by size. Prioritize files that future work must
 read or whose stale authority creates real design risk:
 
-1. `15-test-sdk.md`
-2. `18-react-client-hooks.md`
+1. `18-react-client-hooks.md`
 
 For each compaction:
 

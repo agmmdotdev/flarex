@@ -418,25 +418,3 @@ and stale non-authoritative caches without changing the Postgres oracle.
 8. **Operationalize the matrix.** Add CI/scheduled/release ownership, database
    version coverage, timing/flake telemetry, retained failing seeds, and a
    concise invariant-to-lane index.
-
-## Current Checkpoint Record
-
-- **What changed:** replaced accumulated test checkpoint narration with the
-  lane matrix, proof vocabulary, selection rules, current evidence, gaps, and
-  corrected simulation direction above; promoted this file in the roadmap
-  index.
-- **Why:** Git owns test chronology. This roadmap must prevent evidence from
-  being overstated and explain which boundary each lane can actually close.
-- **Previous completed domain checkpoint:** `dcf64dc Prepare hosted executor
-  activation proof`.
-- **Convex sources inspected:** the runtime, transaction, committer, runner,
-  and sync references retained above inform the portable testing seams. No
-  proprietary simulator behavior is assumed.
-- **Flarex difference from Convex:** Flarex needs explicit PGlite/Postgres and
-  local/hosted Cloudflare adapter lanes around its trusted Postgres kernel.
-- **Known limitations/follow-up:** the current skip-green Postgres scripts,
-  absent aggregate matrix/CI, incomplete H05 proof, and nonexistent simulator
-  remain open.
-- **Verification:** repository-relative Markdown links, current package scripts
-  and skip conditions, roadmap classification, and `git diff --check` were
-  checked. No runtime behavior changed in this docs-only checkpoint.

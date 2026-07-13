@@ -1,742 +1,397 @@
 # Test SDK
 
-## Test SDK Reset Helper
-
-Previous completed test-SDK checkpoint: `d94ef92` Cover packed test SDK
-Postgres subscriptions.
-
-What changed:
-
-- Added `reset(): Promise<void>` to the public `FlarexTest` harness.
-- `reset()` disposes the current dev runtime, clears a configured test
-  persistence directory when `persistDir` is a string, and creates a fresh dev
-  runtime with the same options.
-- `flarex-test` now reuses `resolveFlarexDevPersistDir(...)` from `flarex-dev`
-  instead of duplicating the dev runtime's persistence path convention.
-- Reset deletion now goes through `resolveResettableFlarexDevPersistDir(...)`,
-  which rejects paths outside the app `.flarex/` directory before recursive
-  cleanup.
-- The resettable path is validated during `flarexTest(...)` setup, before any
-  runtime is disposed, so invalid reset paths fail without leaving a disposed
-  harness behind.
-- `reset()`, `reload()`, and `dispose()` now share a harness lifecycle queue so
-  concurrent lifecycle calls do not leak duplicate runtimes.
-- The harness now tracks active, disposed, and lifecycle-failed states so reset
-  failures after runtime teardown produce an explicit test-harness error on
-  later use, while dispose only becomes idempotent after cleanup succeeds.
-- Updated the example invoke E2E to verify committed data disappears after
-  `t.reset()`.
-- Updated the packed fresh-consumer scripts to prove installed `flarex-test`
-  can reset both the legacy/default runtime and the Postgres/PGlite executor
-  runtime, including a string `persistDir` Postgres lane.
-
-Why it changed:
-
-Convex-style app tests need a compact harness that can isolate test cases
-without manually constructing runtimes or deleting backend state. The recent
-packed consumer gates proved query, mutation, and subscriptions; reset is the
-next practical test helper to make those checks reusable in larger suites.
-
-Convex references inspected:
-
-- Convex testing helper ergonomics recorded in this roadmap:
-  `convex-test` exposes harness-level helpers instead of making each app test
-  manually rebuild backend state.
-- `npm-packages/convex/package.json`
-  - installed package exports define the consumer-facing test contract.
-
-Flarex differences:
-
-- Convex's mock/test runtime owns in-memory backend state directly. Flarex
-  resets by recreating the local Miniflare/dev runtime so Durable Objects,
-  generated app Workers, and the Postgres/PGlite executor lane are reset
-  together.
-- Existing clients created before reset are not migrated; tests should create
-  new clients after `reset()`.
-- `flarex-test` keeps its default `persistDir: false`, while explicit string
-  persistence follows the shared `flarex-dev` resolver.
-- Explicit string persistence must be under the app `.flarex/` directory to be
-  resettable. This is stricter than raw dev runtime persistence because reset
-  performs deletion.
-
-Known limitations:
-
-- `withIdentity(...)`, `run(fn)`, and seed helpers remain future work.
-- `reset()` is a local test harness operation, not a production deployment
-  cleanup API.
-- Concurrent lifecycle calls are serialized, but database operations issued
-  while reset or dispose is in progress are still test-author responsibility.
-- The resettable path guard is unit-tested in `flarex-dev`, and the packed
-  Postgres consumer exercises valid string `persistDir` cleanup. Broader
-  persistence lifecycle tests remain future work.
-- Path guard tests include relative unsafe paths plus absolute paths both
-  outside and inside `root/.flarex/`.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev test -- dev.test.ts
-corepack pnpm --filter flarex-dev build
-corepack pnpm --filter flarex-test typecheck
-corepack pnpm --filter flarex-test build
-corepack pnpm --dir apps/example exec vitest run flarex/invoke-e2e.test.ts --hookTimeout=60000 --testTimeout=60000
-corepack pnpm --filter @flarex/example typecheck
-corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
-corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
-git diff --check
-```
-
-## Packed Consumer Postgres Test SDK Subscription
-
-Previous completed test-SDK checkpoint: `9b0486f` Cover packed test SDK
-Postgres invoke flow.
-
-What changed:
-
-- Extended `packed-flarex-postgres-test.ts` to create a public
-  `FlarexClient` from `flarexTest({ executorTransport: "postgres" }).client()`.
-- The packed Postgres script now subscribes to `api.messages.list`, waits for
-  the initial Postgres-backed query result, runs `client.mutation(api.messages.send, ...)`,
-  and waits for the live-query update delivered through the Postgres executor
-  delivery path.
-- Extracted a shared generated `packed-live-query-helpers.ts` helper so both
-  legacy and Postgres packed scripts use the same order-insensitive message-set
-  predicate, timeout behavior, cleanup, and async subscription error handling.
-
-Why it changed:
-
-The previous checkpoint proved direct Postgres query/mutation/read-after-write
-from a clean installed consumer. Convex-style app tests also depend on the
-client subscription surface, so the packed test SDK must prove that the
-Postgres transport can drive live query delivery through the public harness.
-
-Convex references inspected:
-
-- `npm-packages/convex/src/browser/sync/client.ts`
-  - Convex's browser client owns live query subscription updates.
-- Convex testing helper ergonomics recorded in this roadmap remain the API
-  inspiration: generated function references plus a compact app-test harness.
-
-Flarex differences:
-
-- Flarex's Postgres local lane uses PGlite plus the trusted executor and
-  Cloudflare-shaped sync bridge. Convex's test surface talks to one Convex
-  backend runtime.
-- The transport selector remains Flarex-specific during migration from the
-  legacy Durable Object prototype.
-
-Known limitations:
-
-- This covers packed Postgres live-query delivery in the local PGlite lane, not
-  real Postgres network latency or production WebSocket hosting.
-- Identity helper, reset helper, seed helper, and built-artifact package
-  validation remain future work.
-- The shared helper is generated only inside this packed-consumer fixture. A
-  future SDK helper may expose a first-class live-query assertion API.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-test typecheck
-corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
-corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
-git diff --check
-```
-
-## Packed Consumer Postgres Test SDK Invoke
-
-Previous completed test-SDK checkpoint: `d133982` Cover packed test SDK live
-query flow.
-
-What changed:
-
-- Added `packed-flarex-postgres-test.ts` to the fresh packed-consumer fixture.
-- The installed `flarex-test` package is now exercised with
-  `flarexTest({ executorTransport: "postgres", deploymentId: "packed-postgres" })`.
-- The packed script uses generated `api.messages.list` and `api.messages.send`
-  references, verifies the initial query is empty, runs a mutation, and then
-  verifies a follow-up query observes the committed Postgres/PGlite document.
-
-Why it changed:
-
-The test SDK package boundary already proved direct invoke and live-query
-behavior on the default local runtime. The forward architecture is the trusted
-Postgres executor, so a clean installed consumer also needs to prove that the
-public harness can select and run the Postgres transport without repo-local
-imports.
-
-Convex references inspected:
-
-- Convex testing helper ergonomics recorded in this roadmap remain the API
-  inspiration: app tests should call generated function references through a
-  compact harness.
-- `npm-packages/convex/package.json`
-  - installed package exports define the consumer-facing test contract.
-
-Flarex differences:
-
-- Flarex exposes `executorTransport: "postgres"` during migration because the
-  local runtime still has both legacy and Postgres execution paths. Convex's
-  test helper targets a unified Convex backend/test runtime.
-- This packed consumer uses PGlite through the local Postgres executor path,
-  not a real Postgres server.
-
-Known limitations:
-
-- This proves direct Postgres query/mutation/read-after-write from a packed
-  consumer, not Postgres live-query delivery from a packed consumer.
-- Identity helper, reset helper, and built-artifact package validation remain
-  future work.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-test typecheck
-corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
-corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
-git diff --check
-```
-
-## Packed Consumer Test SDK Subscription
-
-Previous completed test-SDK checkpoint: `a738186` Cover packed test SDK
-mutation flow.
-
-What changed:
-
-- Extended the packed fresh-consumer runtime script to create a public
-  `FlarexClient` through `flarexTest().client()`.
-- The script now subscribes to `api.messages.list` with `client.onUpdate(...)`,
-  waits for the initial live query result, runs `client.mutation(api.messages.send, ...)`,
-  and waits for the live query update.
-- The live update wait uses semantic message-set predicates instead of exact
-  callback counts, fails immediately on async subscription errors, and verifies
-  the new message appears with the expected `userId` and body.
-
-Why it changed:
-
-The packed test SDK already proved direct query and mutation invocation. A
-Convex-style app test harness also needs the client/live-query surface, because
-frontend tests depend on subscription updates after mutations.
-
-Convex references inspected:
-
-- `npm-packages/convex/src/browser/sync/client.ts`
-  - Convex's browser client drives live query updates over the sync protocol.
-- Convex testing helper ergonomics recorded in this roadmap remain the API
-  inspiration: tests should use a compact harness and generated references.
-
-Flarex differences:
-
-- Flarex uses the test SDK's Miniflare-backed WebSocket constructor and local
-  dev runtime. Convex's sync client talks to Convex's backend sync service.
-
-Known limitations:
-
-- This covers the legacy/local dev sync path from a packed consumer, not the
-  Postgres executor delivery path.
-- Identity helper, reset helper, and Postgres-transport packed test SDK gates
-  remain future work.
-- The typecheck is still a Vite/Bundler-style source-package check until Flarex
-  publishes built artifacts.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-test typecheck
-corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
-corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
-git diff --check
-```
-
-## Packed Consumer Test SDK Mutation
-
-Previous completed test-SDK checkpoint: `5cb7dee` Run packed test SDK against
-generated app.
-
-What changed:
-
-- Extended the packed fresh-consumer temp app with a public
-  `messages.send` mutation.
-- The packed `packed-flarex-test.ts` script now:
-  - confirms the initial generated query result is empty,
-  - invokes `api.messages.send` through `flarexTest().mutation(...)`,
-  - verifies the returned message id shape,
-  - queries `api.messages.list` again and verifies the persisted document is
-    visible with the returned `_id`, expected `userId`, and expected body.
-
-Why it changed:
-
-The previous checkpoint proved that the installed `flarex-test` package can
-boot a generated app and run a query. The test SDK also needs package-boundary
-coverage for mutation/write sessions because Convex-style test harnesses are
-used to validate application mutations, not only reads.
-
-Convex references inspected:
-
-- Convex testing helper ergonomics recorded in this roadmap remain the API
-  inspiration: app tests should invoke generated function references through a
-  compact harness.
-- `npm-packages/convex/package.json`
-  - installed SDK exports define the consumer-facing test contract.
-
-Flarex differences:
-
-- Flarex's packed consumer harness runs through local Miniflare/dev runtime and
-  the current Flarex backend simulation. Convex's equivalent helper path runs
-  against Convex's backend/test runtime.
-
-Known limitations:
-
-- This covers a single-partition mutation followed by a query. Subscription was
-  added in the next checkpoint; identity helper, reset helper, and
-  Postgres-transport packed test SDK gates remain future work.
-- The typecheck is still a Vite/Bundler-style source-package check until Flarex
-  publishes built artifacts.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-test typecheck
-corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
-corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
-git diff --check
-```
-
-## Packed Consumer Test SDK Invocation
-
-Previous completed test-SDK checkpoint: `44878a0` Add packed consumer smokes
-for test and Nitro packages.
-
-What changed:
-
-- Extended the fresh-consumer packed install fixture with a
-  `packed-flarex-test.ts` script.
-- After packed `flarex-dev` generates `_generated/api`, the temp consumer now
-  runs `flarexTest()` from the installed `flarex-test` tarball.
-- The script invokes `api.messages.list` through the test SDK and asserts the
-  generated app returns an empty list, then disposes the runtime.
-- The packed script uses the public `encodeFlarexId` helper instead of casting
-  a string to a branded ID.
-- The script derives the numeric `users` table id from generated
-  `deploymentSchema` before calling `encodeFlarexId`, avoiding a duplicated
-  analyzer table-id convention.
-- The table name is typed with generated `TableNames`, so the branded ID type
-  and generated metadata lookup stay aligned in the packed consumer script.
-- The temp consumer manifest declares `tsx` directly because the packed test
-  SDK smoke runs through `pnpm exec tsx`.
-
-Why it changed:
-
-The previous checkpoint proved install, import, and runtime resolution for the
-test SDK, but it did not prove the packed `flarex-test` factory could actually
-boot a generated Flarex app from a clean consumer install. This closes that
-package-consumer gap without adding a second test framework inside the temp
-app.
-
-Convex references inspected:
-
-- Convex testing helper ergonomics recorded in this roadmap remain the API
-  inspiration: app tests should call a compact harness rather than manually
-  wiring the backend.
-- `npm-packages/convex/package.json`
-  - installed package exports define the consumer-facing test contract.
-
-Flarex differences:
-
-- Flarex's packed consumer harness runs against the local Miniflare/dev runtime
-  path. Convex's test helpers target Convex's own backend/test environment.
-
-Known limitations:
-
-- The packed test SDK invocation covers a read-only query with no writes.
-  Mutation and subscription invocation from packed `flarex-test` remain future
-  consumer gates.
-- Identity helpers, reset helpers, and richer test harness APIs remain future
-  work.
-- The typecheck is still a Vite/Bundler-style source-package check until Flarex
-  publishes built artifacts.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-test typecheck
-corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/packabilityHelpers.ts
-corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
-git diff --check
-```
-
-## Test SDK Fresh-Consumer Smoke
-
-Previous completed test-SDK checkpoint: `fad789f` Add test SDK and Nitro
-package boundaries.
-
-What changed:
-
-- Added `flarex-test` to the packed fresh-consumer install fixture.
-- The fixture now overrides transitive `flarex-test` dependencies to the packed
-  local tarballs, including `flarex-dev`.
-- The temp consumer imports the primary `flarexTest` factory,
-  `FlarexTestInvocationError`, and the `FlarexTest` public type from the
-  installed tarball.
-- The fixture runs both consumer `tsc` and runtime `tsx` smokes after codegen.
-
-Why it changed:
-
-`flarex-test` is an app-test package. It must resolve from a clean consumer
-install, not only from the workspace package graph.
-
-Convex references inspected:
-
-- Convex testing helper ergonomics recorded in this roadmap remain the API
-  inspiration.
-- `npm-packages/convex/package.json`
-  - installable package boundaries are part of the public testing contract.
-
-Flarex differences:
-
-- Flarex's test SDK wraps the local dev runtime and Miniflare path. Convex's
-  test package targets Convex's own backend/test harness.
-
-Known limitations:
-
-- The packed-consumer smoke imports the test SDK but does not yet run
-  `flarexTest(...)` against the generated packed fixture.
-- Identity helpers, reset helpers, and richer test harness APIs remain future
-  work.
-- The typecheck is still a Vite/Bundler-style source-package check until Flarex
-  publishes built artifacts.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-test typecheck
-corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/fresh-consumer-pack.integration.test.ts integration/internal-packages-pack.integration.test.ts integration/packabilityHelpers.ts
-corepack pnpm exec vitest run --config integration/vitest.config.ts integration/internal-packages-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
-corepack pnpm exec vitest run --config integration/vitest.config.ts integration/fresh-consumer-pack.integration.test.ts --testTimeout=240000 --hookTimeout=240000
-git diff --check
-```
-
-## Test SDK Tarball Boundary
-
-Previous completed test-SDK checkpoint: `339e671` Add packed consumer
-generated typecheck gate.
-
-What changed:
-
-- Added `files: ["src"]` to `packages/flarex-test/package.json`.
-- Added `flarex-test` to `integration/internal-packages-pack.integration.test.ts`.
-
-Why it changed:
-
-The test SDK is meant to be consumed by app tests, so its packed artifact should
-only expose the public helper source and package metadata. Repo-local type tests
-and `tsconfig.json` should not be part of the install surface.
-
-Convex references inspected:
-
-- `npm-packages/convex/package.json`
-  - installable package contents are explicit package-boundary metadata.
-- Convex testing helper ergonomics remain the API inspiration recorded below.
-
-Flarex differences:
-
-- `flarex-test` runs through the local Flarex runtime and Miniflare path rather
-  than Convex's hosted backend test harness.
-
-Known limitations:
-
-- This does not yet run `flarex-test` from a packed consumer fixture.
-- `flarex-test` still lacks `run(fn)`, `withIdentity(...)`, and reset helpers.
-
-Verification:
-
-```sh
-corepack pnpm exec tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 --types node,vitest --allowImportingTsExtensions integration/internal-packages-pack.integration.test.ts integration/packabilityHelpers.ts
-corepack pnpm exec vitest run --config integration/vitest.config.ts integration/internal-packages-pack.integration.test.ts --testTimeout=120000 --hookTimeout=120000
-git diff --check
-```
-
-## Postgres Executor Runtime Option
-
-Previous completed test-SDK checkpoint: `d76c97c` Add reviewer subagent
-configs.
-
-What changed:
-
-- Added `executorTransport?: "legacy" | "postgres"` to `flarexTest(...)`.
-- The option forwards to `createFlarexDevRuntime(...)`, letting integration
-  tests choose the legacy backend path or the Postgres/PGlite executor path.
-- Updated the example sync E2E to use this option for the public-client
-  Postgres delivery scenario.
-
-Why it changed:
-
-The test SDK already ran the same Miniflare runtime as the Vite dev path, but
-it always used the default legacy transport. The current architecture needs
-tests to opt into the Postgres executor path without constructing dev-runtime
-internals by hand.
-
-Convex references inspected:
-
-- `npm-packages/convex/src/browser/sync/client.ts`
-  - client subscriptions receive backend query transitions.
-- Convex testing docs / `convex-test` API shape
-  - tests use a compact harness API instead of directly wiring the backend.
-
-Flarex differences:
-
-- Convex test helpers can mock a unified Convex backend. Flarex exposes a
-  transport option because the local runtime has two meaningful execution
-  paths during migration: legacy DO execution and Postgres-authoritative
-  execution.
-
-Known limitations:
-
-- The option is transport-level only. It does not expose lower-level executor
-  hooks, seeded persistence, or real Postgres configuration yet.
-- `flarex-test` still lacks `run(fn)`, `withIdentity(...)`, and reset helpers.
-
-Verification:
-
-```sh
-corepack pnpm --filter @flarex/example test -- sync-e2e.test.ts
-```
-
-## Decision
-
-Flarex needs a dedicated test SDK, but it should not fork `convex-test` as the
-primary execution engine.
-
-Instead, Flarex should copy the developer ergonomics of `convex-test` while
-running tests through the same real Flarex local runtime used by the Vite
-plugin:
-
-```txt
-flarex-test
-  -> generated app Worker Miniflare
-  -> FLAREX_BACKEND service binding
-  -> backend Worker/DO Miniflare
-```
-
-This keeps test behavior close to production-critical Cloudflare behavior:
-Durable Objects, execution sessions, schema/function metadata, syscalls, and
-OCC all stay in the tested path.
-
-## Proposed API
-
-Convex-style test entrypoint:
+## Status And Scope
+
+**Status:** Active domain authority with an implemented asynchronous
+`flarexTest()` harness backed by the real local Miniflare runtime. Typed query,
+mutation, raw invocation, client/WebSocket, fetch, reload, reset, and disposal
+are implemented. The exposed `action()` method is not executable end to end,
+the default execution mode is still legacy, and identity/scheduler/trusted
+test-transaction helpers are absent.
+
+This roadmap owns:
+
+- the public `flarex-test` harness API and TypeScript contract;
+- harness lifecycle, reset, disposal, and failure-state behavior;
+- mapping generated function references into local runtime calls;
+- the browser-shaped WebSocket adapter and `FlarexClient` construction;
+- test-harness execution-mode selection during replacement migration; and
+- the boundary between ergonomic helpers and privileged test authority.
+
+It does not own:
+
+- local runtime composition or persistence implementation, covered by
+  [`14-local-dev-server.md`](./14-local-dev-server.md);
+- repository-wide evidence lanes, covered by
+  [`11-testing-and-simulation-strategy.md`](./11-testing-and-simulation-strategy.md);
+- SDK client/sync semantics or package distribution, covered by
+  [`09-sdk-and-cli-fork.md`](./09-sdk-and-cli-fork.md);
+- trusted executor, transaction, OCC, or storage-generation behavior, covered
+  by [`20-postgres-executor.md`](./20-postgres-executor.md) and the
+  [FlarexDB foundation](./flarexdb-foundation/README.md);
+- sync freshness/delivery semantics, covered by
+  [`21-cloudflare-freshness-cache.md`](./21-cloudflare-freshness-cache.md); or
+- action and scheduler runtime implementation, which must exist in their owning
+  domains before the test SDK can claim them.
+
+The test SDK is a convenience boundary over production domain paths. It must
+not become a second backend, transaction engine, sync implementation, or raw
+database escape hatch.
+
+## Current Sources Of Truth
+
+Use these authorities in order when they disagree:
+
+1. [`../AGENTS.md`](../AGENTS.md) for Postgres authority, Convex-first design,
+   least authority, and roadmap precedence;
+2. accepted design and active domain roadmaps for the semantics exercised by
+   the harness;
+3. this roadmap for public test-harness behavior and direction;
+4. current source and decisive consumer tests for exact implementation; and
+5. older checkpoint text and Git only as provenance.
+
+Current implementation anchors are:
+
+- [`packages/flarex-test/src/index.ts`](../packages/flarex-test/src/index.ts)
+  for the complete public harness implementation;
+- [`packages/flarex-test/package.json`](../packages/flarex-test/package.json)
+  for its source-only package/export boundary;
+- [`packages/flarex-dev/src/dev.ts`](../packages/flarex-dev/src/dev.ts) for the
+  real local runtime the harness owns and recreates;
+- [`packages/flarex/src/client.ts`](../packages/flarex/src/client.ts) and
+  [`packages/flarex/src/sync/baseClient.ts`](../packages/flarex/src/sync/baseClient.ts)
+  for client and WebSocket contracts;
+- [`apps/example/flarex/invoke-e2e.test.ts`](../apps/example/flarex/invoke-e2e.test.ts)
+  for generated-reference invocation, raw results, validation, reset, and
+  lifecycle serialization;
+- [`apps/example/flarex/sync-e2e.test.ts`](../apps/example/flarex/sync-e2e.test.ts)
+  for legacy and Postgres live-query behavior through the public client; and
+- [`integration/fresh-consumer-pack.integration.test.ts`](../integration/fresh-consumer-pack.integration.test.ts)
+  for installed-tarball query, mutation, invoke, reset, and legacy/Postgres
+  subscription evidence.
+
+The `flarex-test` package currently has no package-local test files; its test
+script uses `--passWithNoTests`. Consumer and integration tests are therefore
+the decisive runtime evidence today.
+
+## Current Architecture
+
+### Harness Construction
+
+`flarexTest(options)` is asynchronous because it creates the same generated,
+backend, artifact, and optional executor runtimes used by local development.
+
+Supported options are a narrow subset of `FlarexDevRuntimeOptions`:
 
 ```ts
-import { flarexTest } from "flarex-test";
-import { api } from "../flarex/_generated/api";
-
-const t = await flarexTest();
-
-await t.mutation(api.lessons.complete, {
-  userId: "2:u1",
-  lessonId: "intro",
-});
-
-const lessons = await t.query(api.lessons.list, {
-  userId: "2:u1",
-});
-
-await t.dispose();
+type FlarexTestOptions = {
+  root?: string;
+  appDir?: string;
+  generatedDir?: string;
+  deploymentId?: string;
+  executorTransport?: "legacy" | "postgres";
+  persistDir?: string | false;
+};
 ```
 
-Expected first methods:
+The harness defaults `root` to `process.cwd()` and forces `persistDir: false`
+unless the caller supplies an explicit path. It forwards no raw persistence,
+executor, backend, Miniflare, token, clock, ID, or service-binding handles.
 
-- `query(reference, args, options?)`
-- `mutation(reference, args, options?)`
-- `action(reference, args, options?)`
-- `run(fn)`
-- `fetch(path, init?)`
-- `withIdentity(identity)`
-- `reset()`
-- `dispose()`
+Omitting `executorTransport` inherits the local runtime's current `legacy`
+default. `postgres` selects the PGlite-backed trusted executor path. This
+option is a temporary migration seam, not permission for tests to define two
+different application semantics.
 
-Flarex-specific options must include partition routing until generated helpers
-can infer it safely:
+### Public API
 
-```ts
-await t.mutation(api.lessons.complete, args, {
-  partitionKey: "user:2:u1",
-});
+The implemented surface is:
+
+| Member | Current behavior |
+| --- | --- |
+| `query(reference, args, options?)` | Invokes a typed query through `/__flarex_dev/invoke` and returns its `value` |
+| `mutation(reference, args, options?)` | Invokes a typed mutation through the same backend-owned artifact path |
+| `action(reference, args, options?)` | Present in types and forwards like an invoke, but actions are not implemented end to end |
+| `invokeRaw(reference, args, options?)` | Returns the local invoke envelope including optional value/read set/commit timestamp/writes |
+| `client()` | Creates a new public `FlarexClient` using the harness WebSocket constructor |
+| `webSocketConstructor` | Browser-shaped constructor backed by programmatic Miniflare WebSocket upgrade responses |
+| `fetch(path, init?)` | Prefixes non-dev paths with `/__flarex_dev` and dispatches through the runtime |
+| `reload()` | Serializes a local runtime reload with lifecycle operations |
+| `reset()` | Disposes, safely removes explicit test persistence when configured, and creates a fresh runtime |
+| `dispose()` | Serializes shutdown and is idempotent after successful disposal |
+
+Invocation options currently support `partitionKey` and `idempotencyKey`.
+Generated function metadata can infer partition keys through
+`resolvePartitionKey`; an explicit mismatch is rejected by the runtime rather
+than trusted by the harness.
+
+`invokeRaw` is intentionally an integration/debugging API. Its `readSet`,
+`writes`, and other envelope fields are `unknown` or optional because the
+public function return type does not own executor-internal receipt shapes.
+
+### Invocation And Error Boundary
+
+The harness derives the function path from the generated reference, resolves
+the partition key, serializes arguments and optional idempotency key, and sends
+a JSON request to the dev invoke route:
+
+```text
+typed generated reference
+  -> flarex-test invoke request
+  -> local backend active deployment
+  -> active source-package artifact
+  -> generated managed runtime
+  -> restricted executor/session protocol
+  -> legacy compatibility or PGlite/Postgres authority
 ```
 
-## Convex References
+Non-success responses become `FlarexTestInvocationError` with the HTTP status
+and decoded response body. Successful envelopes are currently trusted through
+a TypeScript assertion after JSON parsing; there is no runtime decoder for the
+test result envelope.
 
-- `convex-test` package
-  - Public package description: JS mock of the Convex backend for testing
-    Convex functions.
-  - `convexTest(schema?, modules?)` returns a `t` object with `query`,
-    `mutation`, `action`, `run`, `fetch`, identity helpers, and scheduled
-    function helpers.
-- Convex docs: testing overview
-  - Convex documents two automated testing lanes: `convex-test` pure JS tests
-    and testing against a real local backend.
+Static query/mutation/action signatures restrict normal calls to matching
+reference kinds, but `invokeRaw` accepts any function reference. Runtime
+metadata and validators remain authoritative for kind, visibility, arguments,
+returns, partition policy, and execution support.
 
-## Cloudflare Difference
+### Client And WebSocket Bridge
 
-`convex-test` is a pure TypeScript mock backend. That is useful for fast unit
-tests in Convex, but it would hide the most important Flarex behavior:
+`client()` creates a normal `FlarexClient` pointed at
+`http://flarex.test/__flarex_dev`. Its injected WebSocket constructor converts
+`ws:`/`wss:` to an HTTP request carrying `Upgrade: websocket`, obtains the
+Miniflare `101` response, accepts the returned socket, and maps open/message/
+error/close events into the browser-shaped interface expected by the SDK.
 
-- Durable Object routing and persistence
-- backend execution sessions
-- service-binding syscalls
-- partition-local OCC
-- generated Worker validation and metadata deployment
+This proves the programmatic backend sync path. It does not traverse Vite's
+Node HTTP upgrade handling or a real browser/network stack.
 
-So Flarex should not start by forking `convex-test` internals. It should fork
-or mimic its public API shape, then back that API with Flarex's real Miniflare
-runtime core.
+Each `client()` call creates an independently owned client. The harness does
+not track or close those clients during `reset()` or `dispose()`; callers must
+unsubscribe and call `client.close()` themselves.
 
-Later, Flarex may add a pure JS mock layer for very fast unit tests, but that
-must be secondary to the real-runtime test SDK.
+### Lifecycle State Machine
 
-## Follow-Up Work
+Lifecycle-changing operations share one promise chain:
 
-1. Add `run(fn)` and `withIdentity(identity)` helpers.
-2. Add scheduler helpers after scheduler semantics exist.
-3. Add reset/seed APIs that clear local DO persistence between tests.
-4. Add first-party tests inside `packages/flarex-test` instead of relying only
-   on the example app integration test.
-5. Add Vite dev-server browser WebSocket coverage after middleware upgrade
-   handling exists.
+```text
+active
+  -> reload -> active or last-good runtime
+  -> reset -> dispose old -> clear explicit persistence -> create new -> active
+  -> dispose -> disposed
 
-## Implementation Update
-
-Added the first `packages/flarex-test` package.
-
-Implemented:
-
-- `flarexTest(options)`
-- `query(reference, args, { partitionKey })`
-- `mutation(reference, args, { partitionKey })`
-- `action(reference, args, { partitionKey })`
-- `invokeRaw(reference, args, { partitionKey })`
-- `fetch(path, init)`
-- `reload()`
-- `dispose()`
-
-`flarex-test` reuses `createFlarexDevRuntime` from `flarex-dev`, so tests run
-through the generated app Worker and real `flarex-backend` Durable Object
-runtime. By default it uses in-memory Durable Object persistence, not the
-application's `.flarex/dev` directory.
-
-Migrated `apps/example/flarex/invoke-e2e.test.ts` from a hand-written
-Miniflare/backend harness to `flarex-test`. The test still uses `invokeRaw` for
-backend envelope assertions (`committedTs`, `writes`, `readSet`) and raw
-`fetch` for malformed-ID validation.
-
-Convex reference:
-
-- `convex-test`
-  - Public API shape: `convexTest`, `query`, `mutation`, `action`, `run`,
-    `fetch`, identity helpers, scheduler helpers.
-
-Cloudflare difference:
-
-- `convex-test` is a pure JS mock backend. `flarex-test` starts from a real
-  Miniflare-backed Worker/DO runtime because Cloudflare routing, service
-  bindings, execution sessions, and OCC are core Flarex semantics.
-
-## Sync Client Test Update
-
-Previous completed checkpoint: `be78189` Add Convex-style sync client slice.
-
-`flarex-test` now exposes a WebSocket-capable public client for real app tests:
-
-```ts
-const client = t.client();
-
-const unsubscribe = client.onUpdate(
-  api.lessons.list,
-  { userId },
-  value => {
-    // live query result
-  },
-  error => {
-    // query failure
-  },
-  { partitionKey },
-);
+reset failure -> failed -> dispose may still clean remaining runtime
 ```
 
-The implementation creates a browser-like `WebSocketConstructor` backed by the
-same `createFlarexDevRuntime` Miniflare stack used for `query`, `mutation`, and
-`invokeRaw`. It connects to:
+Calls after disposal fail, except repeated `dispose()` which succeeds. A reset
+failure marks the harness unusable and preserves the original cause. Concurrent
+reset/dispose/reload requests are ordered by the lifecycle chain instead of
+racing runtime ownership.
 
-```txt
-ws://flarex.test/__flarex_dev/sync
+With default in-memory persistence, reset gets isolation by disposing and
+recreating the complete runtime. With an explicit persistent path, deletion is
+allowed only through the local runtime's safe reset-path policy beneath the
+application's `.flarex/` directory.
+
+## Invariants And Trust Boundaries
+
+1. **The harness reuses the real runtime.** Query, mutation, sync, validation,
+   artifact, executor, and persistence semantics cannot be reimplemented in
+   `flarex-test`.
+2. **Postgres/PGlite is the forward authority.** Legacy mode is labeled
+   compatibility evidence and must not define new test SDK behavior.
+3. **Generated references are the normal API.** Function paths, arguments,
+   return types, visibility, and partition inference follow the SDK/codegen
+   contracts rather than untyped string helpers.
+4. **Runtime validation remains authoritative.** TypeScript convenience cannot
+   bypass deployed metadata, validators, identity, visibility, or executor
+   checks.
+5. **No raw storage handles.** Test code cannot receive PGlite, Postgres,
+   Drizzle, Durable Object storage, executor persistence, or transaction
+   handles from the public harness.
+6. **Privileged helpers need an explicit trusted boundary.** A future
+   Convex-style `run(fn)` must use an executor-owned test transaction/context,
+   not direct persistence access or a parallel in-memory database.
+7. **Lifecycle operations are serialized.** Reset, reload, and disposal cannot
+   concurrently own or delete the same runtime resources.
+8. **Reset is scope-safe.** Filesystem deletion is disabled by default and,
+   when explicit, is constrained beneath the app's `.flarex/` directory.
+9. **Resource ownership is explicit.** The harness owns its runtime; clients,
+   subscriptions, and sockets must either be caller-owned or tracked and
+   disposed by a future harness contract, never leaked ambiguously.
+10. **Unsupported capabilities fail honestly.** A typed method cannot imply
+    action, scheduler, identity, storage, or hosted behavior that the current
+    runtime cannot execute.
+11. **Test-only identity cannot weaken hosted auth.** Identity helpers must
+    enter through an explicit trusted dev/test resolver and remain unavailable
+    on public hosted routes without the matching capability.
+12. **Installed consumers matter.** Workspace typechecks and example tests do
+    not replace tarball/fresh-consumer evidence for this published package.
+
+## Decisions And Rationale
+
+### Copy Convex Ergonomics, Not Its Mock Engine
+
+Convex's `convex-test` offers a compact typed harness with query, mutation,
+action, fetch, identity, controlled data access, and scheduler helpers. That is
+the right developer mental model.
+
+Flarex should not make a pure JavaScript mock its primary test engine. A mock
+would hide the platform boundaries most likely to drift: source-package
+analysis, managed Worker execution, service-binding syscalls, backend-owned
+sessions, Postgres authority, and Cloudflare-shaped sync. Fast pure/model tests
+still belong below the harness as described by roadmap 11.
+
+### Keep The Harness Thin
+
+`flarex-test` delegates runtime construction to `flarex-dev` and client behavior
+to `flarex`. This makes the package an ergonomic owner/lifecycle adapter rather
+than a semantic implementation. New helpers should continue to route through
+owned domain interfaces.
+
+### Prefer Fresh Runtime Isolation Before Snapshot Tricks
+
+Disposing and recreating the local runtime is slower than clearing a mock map,
+but it exercises real startup, push, schema, artifact, executor, and sync
+boundaries. Snapshot/restore or seeded fixtures should be added only through a
+versioned executor-owned test facility with clear schema/generation semantics.
+
+### Do Not Port `run(fn)` As Raw Database Access
+
+Convex's mock can safely provide a mock database context directly. Flarex's
+accepted architecture forbids exposing database authority to user code. The
+portable API goal is controlled test setup/inspection, not the mock's physical
+implementation. A future helper must create a trusted test-only executor
+transaction with the same validation, scope, generation, and commit rules.
+
+## Convex Compatibility And Flarex Divergences
+
+Portable Convex references include:
+
+- [`../../../npm-packages/docs/docs/testing/convex-test.mdx`](../../../npm-packages/docs/docs/testing/convex-test.mdx)
+  for `convexTest`, typed function calls, `run`, inline helpers, fetch,
+  scheduling, and `withIdentity` ergonomics;
+- [`../../../npm-packages/convex/src/browser/sync/client_node_test_helpers.ts`](../../../npm-packages/convex/src/browser/sync/client_node_test_helpers.ts)
+  for injecting a browser-shaped WebSocket into Node tests; and
+- [`../../../npm-packages/convex/custom-vitest-environment.ts`](../../../npm-packages/convex/custom-vitest-environment.ts)
+  for test-environment integration around the client surface.
+
+Named Flarex divergences are:
+
+- `flarexTest()` is asynchronous and starts real local runtime components;
+- Miniflare Workers, service bindings, artifacts, sync actors, and PGlite are
+  exercised instead of one pure JavaScript mock backend;
+- the replacement migration currently exposes explicit legacy/Postgres mode
+  selection;
+- WebSockets are bridged directly to the programmatic Miniflare runtime rather
+  than a standalone Node `ws` server;
+- safe reset recreates runtime state instead of clearing a mock database; and
+- direct data/scheduler/identity helpers remain unavailable until their trusted
+  runtime boundaries exist.
+
+These differences justify adapter behavior, not weaker validation, transaction,
+identity, or generated-reference semantics.
+
+## Implemented Capabilities
+
+- Source-only `flarex-test` package with one public export and only `flarex`
+  plus `flarex-dev` runtime dependencies.
+- Asynchronous real-runtime construction with in-memory isolation by default.
+- Typed generated-reference query and mutation helpers.
+- Raw invoke envelopes, typed invocation errors, partition inference/override,
+  and idempotency-key forwarding.
+- Raw dev/runtime fetch for HTTP and negative integration cases.
+- Browser-shaped WebSocket constructor and ordinary `FlarexClient` creation.
+- Legacy and opt-in PGlite/Postgres live-query subscriptions through generated
+  APIs, including mutation-response then query-transition ordering.
+- Serialized reload, full reset/recreation, failed-state protection, and
+  idempotent successful disposal.
+- Safe explicit persistence deletion beneath `.flarex/`.
+- Example-app evidence for validation, partition mismatch, reset, lifecycle,
+  invoke receipt, and sync behavior.
+- Packed fresh-consumer evidence for installation, runtime import, query,
+  mutation, invoke, reset, and legacy/Postgres subscription behavior.
+
+## Known Gaps And Limitations
+
+- `action()` is exposed as if supported but the managed runtime does not execute
+  actions end to end. This is misleading public surface area.
+- The harness defaults to legacy Durable Object execution instead of the
+  accepted PGlite/Postgres path.
+- There are no `withIdentity`, bearer-auth, trusted test identity, role/claim,
+  or anonymous/authenticated variant helpers.
+- There is no safe `run`, inline query/mutation/action, seed, fixture, snapshot,
+  or authoritative state-inspection API.
+- Scheduler controls, fake time, pending-job inspection, and finish-in-progress/
+  finish-all helpers are absent because scheduler semantics are incomplete.
+- `client()` resources are not tracked by the harness. Reset/dispose can leave
+  caller-forgotten clients, subscriptions, or sockets alive against an old
+  runtime.
+- Successful raw invoke envelopes are asserted rather than decoded at runtime;
+  malformed success payloads can be trusted until consumer code fails later.
+- `FlarexTestRawResult` exposes loosely typed internal receipt fields without a
+  stable protocol-owned receipt contract.
+- The harness cannot inject deterministic clock/IDs, persistence fixtures,
+  executor hooks, failure points, or a real-Postgres adapter.
+- Generated-output typecheck policy is not exposed through `FlarexTestOptions`.
+- `fetch()` is intentionally broad and can reach dev inspection/compatibility
+  routes; there is no narrower typed HTTP-action surface because HTTP actions
+  are not implemented.
+- Reset always reconstructs the full runtime and source push. There is no cheap
+  per-test transaction rollback or schema-versioned snapshot restore.
+- Package-local tests are absent; `flarex-test test` succeeds with no tests, so
+  lifecycle and public API regressions depend on example/integration consumers.
+- The WebSocket bridge does not exercise Vite's HTTP upgrade path, browser
+  implementations, reconnect/network loss, auth refresh, or hosted delivery.
+- Source packages ship TypeScript rather than compiled JS/declarations; registry
+  publication, semver compatibility, and version-skew behavior remain unproven.
+- Legacy partition routing remains visible in options during migration; it is
+  not accepted long-term physical authority.
+
+## Target Direction
+
+The target remains a compact Convex-shaped harness over the accepted Flarex
+runtime:
+
+```text
+generated API reference + test identity/fixture intent
+  -> flarex-test ergonomic/lifecycle boundary
+  -> backend-controlled active source package and analysis
+  -> managed Miniflare user-code artifact
+  -> trusted PGlite executor transaction
+  -> backend-owned WebSocket sync and observable result
 ```
 
-which the dev runtime forwards to the active backend deployment sync route.
+The ordinary path should default to Postgres semantics, isolate each test
+without leaking resources, and make unsupported capabilities absent from the
+type surface. Faster model/pure tests and slower real-Postgres/hosted proofs are
+separate evidence lanes, not alternate test SDK semantics.
 
-Added `apps/example/flarex/sync-e2e.test.ts`, proving the public generated API
-path end to end:
+## Next Correctness Gates
 
-```txt
-api.lessons.list
-  -> FlarexClient.onUpdate
-  -> /__flarex_dev/sync
-  -> backend /deployments/:deploymentId/sync
-  -> ConnectionDO
-  -> active execution artifact
-  -> PartitionDO/OCC
-  -> Transition.QueryUpdated back to the SDK callback
-```
-
-The test subscribes to `api.lessons.list`, observes the initial empty result,
-executes `api.lessons.complete` through sync mutation transport, and observes
-the live query refresh with the completed lesson.
-
-Convex reference:
-
-- `npm-packages/convex/src/browser/sync/client_node_test_helpers.ts`
-  - Convex tests the client with a Node `ws` WebSocket bridge.
-- `npm-packages/convex/custom-vitest-environment.ts`
-  - Convex injects a Node WebSocket implementation for browser-shaped tests.
-
-Cloudflare difference:
-
-- The Flarex helper is backed by Miniflare and real Durable Objects rather than
-  a standalone in-memory WebSocket server, because DO routing and execution
-  artifacts are part of the behavior under test.
-
-Verification:
-
-```sh
-corepack pnpm --filter flarex-test typecheck
-corepack pnpm --filter flarex-test test
-corepack pnpm --filter flarex-test build
-corepack pnpm --filter @flarex/example test
-corepack pnpm --filter @flarex/example typecheck
-corepack pnpm --filter @flarex/example build
-```
-
-## Verification
-
-Research checked:
-
-```sh
-npm pack convex-test
-```
-
-Validation commands run:
-
-```sh
-corepack pnpm --filter flarex-backend test
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm typecheck
-corepack pnpm test
-corepack pnpm build
-corepack pnpm --filter @flarex/example test
-```
-
-The previous `apps/example` Vitest close-timeout warning is fixed. The root
-cause was Vitest loading the example's Vite config and Flarex Vite plugin for
-tests. Added `apps/example/vitest.config.ts` so tests do not load the app dev
-plugin unless they are actually running Vite dev.
+1. **Make the public surface truthful.** Remove or explicitly experimentalize
+   `action()` until actions execute end to end; add runtime decoding for success
+   envelopes and negative tests for kind/visibility/malformed responses.
+2. **Default to the forward runtime.** Make PGlite/Postgres the ordinary harness
+   path after local cutover gates pass, keep legacy behind explicit opt-in, and
+   prove both cannot silently diverge in generated-reference semantics.
+3. **Create package-local contract tests.** Cover option forwarding, query/
+   mutation/raw errors, lifecycle ordering, reset failure, disposal, safe paths,
+   client ownership, and unsupported operations directly in `flarex-test`.
+4. **Own client resources.** Track clients/sockets created by the harness or
+   return an explicit child-resource scope; close them deterministically before
+   reset and disposal and prove no stale client can target a replaced runtime.
+5. **Add identity ergonomics through a trusted seam.** Implement Convex-shaped
+   identity variants only through the backend's explicit dev/test identity
+   resolver and test anonymous, valid, malformed, expired, and unauthorized
+   cases without weakening hosted auth.
+6. **Design controlled setup/inspection.** Add a trusted executor-owned test
+   transaction/fixture API before any `run(fn)`, seed, or snapshot helper. It
+   must pin scope/generation, preserve validators and commit invariants, and
+   expose no physical database handle.
+7. **Add scheduling only after runtime semantics exist.** Then port controlled
+   time, in-progress/all scheduled function helpers, retry/failure inspection,
+   and recursive scheduling tests against the real scheduler boundary.
+8. **Expand consumer evidence deliberately.** Add compiled/registry package,
+   version skew, browser WebSocket/reconnect, and real-Postgres harness lanes as
+   those product boundaries become supported.

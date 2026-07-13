@@ -431,24 +431,3 @@ service bindings.
 8. **Improve developer operability.** Add a standalone long-running dev host,
    structured diagnostics/log streaming, clear remediation for failed pushes,
    and machine-readable health/reload state only after correctness gates 1-5.
-
-## Current Checkpoint Record
-
-- **What changed:** replaced accumulated local-dev checkpoint narration with
-  the living composition, lifecycle, invariants, current gaps, and ordered
-  correctness gates above; promoted this file in the roadmap index.
-- **Why:** Git owns chronology. This roadmap must explain what local dev owns
-  today without duplicating analysis, runtime, executor, sync, or SDK authority.
-- **Previous completed domain checkpoint:** `a4c290f Fence executor deployment
-  creation`.
-- **Convex sources inspected:** the portable local-dev, codegen, push, backend,
-  and sync sources named in the compatibility section were retained from the
-  verified checkpoint evidence; no new behavior was designed in this docs-only
-  compaction.
-- **Flarex difference from Convex:** unchanged. Flarex composes Cloudflare-shaped
-  runtimes and a PGlite executor instead of starting one native backend binary.
-- **Known limitations/follow-up:** the gaps and gates above remain open; no code
-  behavior changed in this checkpoint.
-- **Verification:** repository-relative Markdown links, `git diff --check`, and
-  roadmap index classification were checked. No runtime command was required
-  for a docs-only rewrite grounded in current source and decisive tests.
