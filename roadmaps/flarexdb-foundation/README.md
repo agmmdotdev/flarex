@@ -149,8 +149,23 @@ Fixed cross-adapter rules:
 
 ## Master Execution Order
 
-One checked focused-plan item is the default implementation scope. Complete it
-only after proportional tests, required reviewer passes, and its automatic
+This order is the current dependency hypothesis, not an instruction to execute
+the next identifier blindly. Before each meaningful gate, follow the
+implementation-step preflight in [`../../AGENTS.md`](../../AGENTS.md): verify
+the repository and primary references, explain what/why/where and the proof
+boundary to the user, challenge the order and scope, and wait for explicit
+approval. If the gate is no longer the smallest correctness-preserving route to
+the nearest end-to-end milestone, update this order after agreement first.
+
+Create a new subgate only when a distinct trust, transaction, recovery,
+migration, compatibility, or evidence boundary requires an independently
+reviewable result. Every new subgate must name the existing outcome it refines
+and whether it changes milestone order. Implementation detail, file count, or
+commit size alone does not justify extending the plan. Work that does not block
+the nearest vertical proof should be deferred to its real consumer.
+
+One approved focused-plan item is the default implementation scope. Complete
+it only after proportional tests, required reviewer passes, and its automatic
 commit. Update living roadmaps only when durable status, architecture, gaps,
 direction, or correctness criteria change.
 
@@ -163,25 +178,30 @@ direction, or correctness criteria change.
 3. [ ] `S03`: minimal stable catalog.
    - Complete through `S03-D2b`, including interleaved `S05-A`.
    - Next: `S03-D2c`.
-   - Then: `S03-D2d`, `S03-D3`, `S03-D4`.
-4. [ ] `S04`: migrate active-schema pointer authority.
-5. [ ] `S05`: complete tagged value/ordered-key codecs; `S05-A` is complete,
-   `S05-B` remains.
-6. [ ] `O01`: typed OCC contracts and narrow ports.
-7. [ ] `O02`: exact snapshot issuance; legacy `beginTs` stays inside the
-   legacy adapter.
+   - Then: `S03-D2d` closes publication retry/facade/quota and real-Postgres
+     proof.
+   - Deferred to their consumers: `S03-D3` in Wave 3 and `S03-D4` in Wave 4.
+
+`S03-D2c` and `S03-D2d` finish the already-open catalog publication boundary.
+They do not activate a schema, reconcile physical builds, claim readiness, or
+route replacement app data.
 
 ### Wave 1 — First Row And Point-OCC Slice
 
-1. `S06`: app row revision/current storage.
-2. `S07`: session, snapshot-lease, and reconnect-retention DDL.
-3. `O03`: authoritative fenced session anchors.
-4. `O04`: exact-snapshot point reads including missing-row dependencies.
-5. `O05`: pure point-OCC validator.
-6. `C01`: narrow compiler/executor ports without endpoint changes.
-7. `C02`: versioned journal/envelope/plan protocol.
-8. `C03`: point read-your-writes and fail-closed unsupported shapes.
-9. `C04`: pure deterministic point-row planner.
+1. `O01`: typed OCC contracts and narrow ports.
+2. `O02`: exact snapshot issuance; legacy `beginTs` stays inside the legacy
+   adapter.
+3. `S05-B`: tagged Flarex value codec for replacement rows and canonical
+   logical protocol values.
+4. `S06`: app row revision/current storage.
+5. `S07`: session, snapshot-lease, and reconnect-retention DDL.
+6. `O03`: authoritative fenced session anchors.
+7. `O04`: exact-snapshot point reads including missing-row dependencies.
+8. `O05`: pure point-OCC validator.
+9. `C01`: narrow compiler/executor ports without endpoint changes.
+10. `C02`: versioned journal/envelope/plan protocol.
+11. `C03`: point read-your-writes and fail-closed unsupported shapes.
+12. `C04`: pure deterministic point-row planner.
 
 ### Wave 2 — One Atomic App-Data Commit
 
@@ -190,13 +210,14 @@ direction, or correctness criteria change.
 3. `O06`: private non-routable scope-local commit transaction harness.
 4. `O07`: atomic result, outcome, data, commit/change atoms, and outbox.
 5. `C05`: one point mutation through the complete primitive.
-6. `C06`: idempotent finish and lost-outcome recovery through `/invoke/*`.
-7. `O08`: separate OCC reruns, safe SQL retries, and uncertain-outcome lookup.
+6. `O08`: separate OCC reruns, safe SQL retries, and uncertain-outcome lookup.
+7. `C06`: idempotent finish and lost-outcome recovery through `/invoke/*`.
 8. `C07`: PGlite plus real-Postgres correctness gate.
 
-`C07` is the first end-to-end replacement milestone. Payload, Medusa,
-SessionDO journal movement, sync replacement, and committed-data caches do not
-start before it is green.
+`C07` is the first end-to-end replacement milestone, but it proves only a
+private test-generation point-mutation kernel. It does not authorize canary or
+production generation routing. Payload, Medusa, SessionDO journal movement,
+sync replacement, and committed-data caches do not start before it is green.
 
 ### Post-Wave-2 — Conditional Session Journal Decision
 
@@ -216,13 +237,15 @@ outbox remain in Postgres. This decision is unrelated to `DocCacheDO` or
 
 1. `S10`: index revision/current and exact ordered bounds.
 2. `S11`: unique-key storage and collision verification.
-3. `R01`: relation identity and semantics.
-4. `R02`: stable relation IDs and immutable manifest definitions.
-5. `S12`: stable current edge occurrences; edge history remains deferred.
-6. `C08`: lower index and unique sidecars from final rows.
-7. `C09`: lower stable edge occurrences.
-8. `O09`: multi-row atomicity and unique conflicts.
-9. `O10`: one exact indexed dependency and phantom-conflict proof.
+3. `S03-D3`: reconcile required physical definitions into per-scope build
+   state now that their storage consumer exists.
+4. `R01`: relation identity and semantics.
+5. `R02`: stable relation IDs and immutable manifest definitions.
+6. `S12`: stable current edge occurrences; edge history remains deferred.
+7. `C08`: lower index and unique sidecars from final rows.
+8. `C09`: lower stable edge occurrences.
+9. `O09`: multi-row atomicity and unique conflicts.
+10. `O10`: one exact indexed dependency and phantom-conflict proof.
 
 `R01`/`R02` are just-in-time prerequisites for `S12`/`C09`, not permission to
 start Payload feature parity. Their contract is in
@@ -232,11 +255,15 @@ start Payload feature parity. Their contract is in
 
 1. `S13`: unsealed current-state baseline import and migration state.
 2. `S14`: normalized shadow comparison at one fenced watermark.
-3. `O11`: retention floors and explicit out-of-retention behavior.
-4. `S15`: transactional generation routing, same-transaction legacy mirror,
+3. `S03-D4`: derive validation/readiness from the real baseline/backfill and
+   comparison evidence; do not mutate the active pointer.
+4. `S04`: migrate active-schema pointer authority only after readiness is
+   evidence-backed.
+5. `O11`: retention floors and explicit out-of-retention behavior.
+6. `S15`: transactional generation routing, same-transaction legacy mirror,
    rollback state, and fences.
-5. `O12`: cut over one isolated canary scope with live subscriptions disabled.
-6. `O13`: retire legacy storage/OCC only after separate sync/reconnect gates.
+7. `O12`: cut over one isolated canary scope with live subscriptions disabled.
+8. `O13`: retire legacy storage/OCC only after separate sync/reconnect gates.
 
 `C07A` is not a cutover prerequisite when its predeclared threshold is not met.
 

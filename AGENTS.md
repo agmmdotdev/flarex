@@ -71,6 +71,48 @@ not manufacture objections or block mechanical work with a ritual critique. If
 the proposal survives review, say why. Once a decision is accepted, record it
 durably and proceed until new evidence invalidates it.
 
+## Implementation Step Preflight
+
+Before starting any roadmap implementation gate or other meaningful
+behavior-changing slice, stop and discuss that step with the user. A roadmap
+number is a current planning hypothesis, not sufficient authorization or proof
+that the step is still correctly ordered.
+
+Research the step before presenting it. Read the accepted design, the relevant
+domain roadmap and focused plan, current definitions/schema/code/tests, related
+completed and deferred gates, and the checked-in Convex source or other primary
+reference that governs the behavior. Consider the whole repository and the
+nearest end-to-end milestone, not only the file named by the next checkbox.
+
+The preflight must explain in plain language:
+
+1. **What** the step will deliver, its affected boundaries, and explicit
+   non-goals.
+2. **Why** it should happen now, which dependencies it closes, and how it moves
+   the system toward the nearest end-to-end proof.
+3. **Where** the decision and execution order are owned in markdown, and which
+   current code, definitions, tests, and Convex references provide evidence.
+4. **What was challenged:** contradictions, stale assumptions, missing
+   failure/recovery behavior, ordering problems, alternatives, and any smaller
+   correctness-preserving slice.
+5. **How completion will be proven:** focused tests, required real-Postgres or
+   Cloudflare lanes, compatibility checks, and the exact exit criteria.
+
+Do not begin implementation until the user explicitly approves the step after
+this preflight. A generic `go`, `continue`, or prior approval authorizes only
+the already-discussed step; it does not automatically authorize the next
+roadmap gate. If research shows that the planned step is premature, duplicated,
+over-broad, or ordered incorrectly, recommend the correction and update the
+owning plan after agreement before implementing it.
+
+This preflight is required once per meaningful implementation gate, not before
+every shell command, formatting action, validation rerun, or small test-fix
+loop inside an approved unchanged slice. Pause for a new preflight if evidence
+materially changes the approved scope, architecture, trust boundary, or
+execution order. Discussion-only, research-only, docs-only, and mechanical
+turns do not need a ceremonial self-preflight unless they propose a subsequent
+implementation gate.
+
 ## Replacement Design Authority
 
 Flarex is in an intentional replacement migration. Do not confuse the currently

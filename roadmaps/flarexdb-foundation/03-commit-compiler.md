@@ -242,6 +242,10 @@ Exit gate:
 
 ### [ ] C06 — Add Idempotent Finish And Lost-Outcome Recovery
 
+Prerequisite: `O08` has separated OCC reruns, bounded SQL-plan retries, and
+uncertain-outcome lookup. This endpoint composes those policies; it does not
+define a competing retry coordinator.
+
 Outcome:
 
 - Orchestrate the O03-owned fenced lifecycle CAS primitives through the stable
@@ -289,8 +293,10 @@ Required cases:
 Exit gate:
 
 - both PGlite and real-Postgres suites pass;
-- the new compiler is eligible for a test/canary generation but is not yet a
-  general Payload, Medusa, range-query, or sync engine.
+- the new compiler is eligible only for a private test generation. Canary and
+  production routing remain blocked on baseline import/comparison, readiness,
+  active-schema authority, generation routing, and their rollback gates;
+- it is not yet a general Payload, Medusa, range-query, or sync engine.
 
 ### [ ] C07A — Measure And Conditionally Move The Proven Journal To SessionDO
 

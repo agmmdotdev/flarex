@@ -242,9 +242,11 @@ Progress:
 - [ ] `S03-D2c`: atomic full publication and exact projection verification.
 - [ ] `S03-D2d`: bounded whole-preparation retry, routed V2 facade, quotas, and
   real-Postgres publication concurrency/rollback proof.
-- [ ] `S03-D3`: durable per-scope definition-to-build reconciliation.
-- [ ] `S03-D4`: validation evidence and readiness derived from real backfill;
-  no active-pointer mutation.
+- [ ] `S03-D3`: durable per-scope definition-to-build reconciliation, deferred
+  to Wave 3 after the physical sidecar consumer exists.
+- [ ] `S03-D4`: validation evidence and readiness derived from real backfill,
+  deferred to Wave 4 after baseline import and shadow comparison; no
+  active-pointer mutation.
 
 Stable catalog rules:
 
@@ -292,6 +294,9 @@ Exit gates for the complete S03 stream:
 - no speculative field/relation/constraint catalog has become authority.
 
 ### [ ] S04 — Migrate Active Schema Pointer Authority
+
+Scheduling: Wave 4 after `S03-D4` has derived evidence-backed readiness. This
+gate does not block the private test-generation point kernel or `C07`.
 
 Outcome:
 
