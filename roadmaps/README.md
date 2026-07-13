@@ -77,6 +77,7 @@ The current foundation next gate is `S03-D2c`, owned by
 | [`15-test-sdk.md`](./15-test-sdk.md) | Public real-runtime test harness, typed invocation helpers, client/WebSocket bridge, lifecycle/reset, and trusted test-authority limits. |
 | [`16-package-boundaries.md`](./16-package-boundaries.md) | Workspace package ownership, dependency direction, public/internal surfaces, host composition, and boundary enforcement. |
 | [`17-deployment-analysis-and-push.md`](./17-deployment-analysis-and-push.md) | Source-package analysis authority, candidate push lifecycle, final codegen, artifact validation, and activation gates. |
+| [`18-react-client-hooks.md`](./18-react-client-hooks.md) | React provider/hooks, query state and subscription lifecycle, mutation ergonomics, routing boundaries, and parity gates. |
 | [`20-postgres-executor.md`](./20-postgres-executor.md) | Trusted Postgres executor, hosted Worker, storage generations, and replacement data authority. |
 | [`21-cloudflare-freshness-cache.md`](./21-cloudflare-freshness-cache.md) | Postgres-authoritative sync, per-scope coordination, recovery, delivery boundaries, and deferred caches. |
 | [`35-commit-compiler-and-session-intent.md`](./35-commit-compiler-and-session-intent.md) | Logical session journal, trusted planner/executor split, exact snapshots, idempotency, and conditional SessionDO journaling. |
@@ -94,14 +95,9 @@ The current foundation next gate is `S03-D2c`, owned by
 
 ## Active Inventories Awaiting Compaction
 
-These domains still matter, but their files mix durable decisions with
-checkpoint history. Until compacted, use them as evidence indexes and verify
-claims against current code, tests, `AGENTS.md`, accepted design, and the
-active authorities above.
-
-| Roadmap | Current use |
-| --- | --- |
-| [`18-react-client-hooks.md`](./18-react-client-hooks.md) | React client implementation history; early partition-routing sections are legacy and require compaction. |
+None currently. Add a file here only when it still mixes durable domain truth
+with chronological implementation history and therefore cannot yet be treated
+as an active authority.
 
 ## Compatibility Inventories
 
@@ -152,18 +148,9 @@ contain old “next slice” or append-history instructions.
 | [`33-auth-provider-platform.md`](./33-auth-provider-platform.md) | Auth-provider platform implementation and final audit record |
 | [`34-auth-provider-platform-goals.md`](./34-auth-provider-platform-goals.md) | Auth-provider platform goal checklist |
 
-## Compaction Order
+## Compaction Status
 
-Do not compact files merely by size. Prioritize files that future work must
-read or whose stale authority creates real design risk:
-
-1. `18-react-client-hooks.md`
-
-For each compaction:
-
-- inspect accepted design and current code/tests first;
-- preserve durable decisions, invariants, implemented capabilities, gaps, and
-  next correctness gates;
-- remove chronological checkpoint narration and resolved limitations;
-- mark legacy/compatibility behavior explicitly; and
-- keep the change domain-scoped and separately committed.
+The current active-inventory queue is complete. Future compaction should still
+be driven by authority risk rather than file size: inspect accepted design and
+current evidence, preserve only durable decisions and open gates, remove
+chronological narration, and separately commit each domain-scoped rewrite.
