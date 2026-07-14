@@ -384,7 +384,7 @@ teardown are complete.
 
 - Active goal: build and validate the isolated production runtime-topology
   probe through separately approved gates.
-- Current gate: `P00`.
-- Next gate requiring preflight and approval: `P01`.
+- Current gate: `P01` preflight presented; explicit approval pending.
+- Next implementation gate: `P01`.
 - Goal completion condition: production evidence and analysis are recorded and
   the approved cleanup/retention action is verified.
