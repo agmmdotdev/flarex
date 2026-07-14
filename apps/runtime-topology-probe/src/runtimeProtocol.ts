@@ -16,6 +16,7 @@ import {
   ProbeDurationMsSchema,
   ProbeEdgeColoSchema,
   ProbeProtocolVersionV1Schema,
+  probeStartupRelationshipIssueV1,
   ProbeRunRequestV1Schema,
   ProbeSampleIdentityV1Schema,
   ProbeSampleOutcomeV1Schema,
@@ -155,7 +156,9 @@ export function completeProbeGatewaySampleV1(
     parentSpanId: null,
     name: "external_request",
     durationMs: ProbeDurationMsSchema.make(externalDurationMs),
-    outcome: { kind: "ok" },
+    outcome: gatewaySample.outcome.kind === "ok"
+      ? { kind: "ok" }
+      : { kind: "error", error: gatewaySample.outcome.error },
   });
   return ProbeSampleResultV1Schema.make({
     protocolVersion: gatewaySample.protocolVersion,
@@ -179,6 +182,12 @@ function gatewaySampleRelationshipIssue(
     sample.dimensions,
   );
   if (dimensionIssue !== undefined) return dimensionIssue;
+  const startupIssue = probeStartupRelationshipIssueV1(
+    sample.scenario,
+    sample.startup,
+    sample.outcome,
+  );
+  if (startupIssue !== undefined) return startupIssue;
   if (
     sample.sampleId !== probeSampleId(
       sample.runId,
@@ -217,6 +226,14 @@ function gatewaySampleRelationshipIssue(
       return hasFacetStartupObservations(sample.startup)
         ? facetRelationshipIssue(sample)
         : `${sample.scenario} requires consistent Worker Loader and facet callback observations`;
+    case "commit_wake":
+      return hasNoStartupCallbacks(sample.startup)
+        ? commitWakeRelationshipIssue(sample)
+        : "commit_wake cannot report Dynamic Worker callbacks";
+    case "full_invoke":
+      return hasFacetStartupObservations(sample.startup)
+        ? fullInvokeRelationshipIssue(sample)
+        : "full_invoke requires consistent Worker Loader and facet callback observations";
     default:
       return "this gateway sample version does not support the selected scenario";
   }
@@ -321,6 +338,91 @@ function facetRelationshipIssue(
       span.outcome.kind !== "ok"
     ) {
       return `${sample.scenario} returned an invalid nested span tree`;
+    }
+  }
+  return undefined;
+}
+
+function commitWakeRelationshipIssue(
+  sample: typeof ProbeGatewaySampleV1Shape.Type,
+): string | undefined {
+  return p05SpanTreeIssue(sample, [
+    ["mock_sync_wake_rtt", 1, 0],
+    ["sync_cursor_io", 2, 1],
+  ]);
+}
+
+function fullInvokeRelationshipIssue(
+  sample: typeof ProbeGatewaySampleV1Shape.Type,
+): string | undefined {
+  return p05SpanTreeIssue(sample, [
+    ["gateway_session_rtt", 1, 0],
+    ["session_facet_rtt", 2, 1],
+    ["facet_mock_read_rtt", 3, 2],
+    ["facet_journal_io", 4, 2],
+    ["session_mock_finish_rtt", 5, 1],
+    ["mock_sync_wake_rtt", 6, 5],
+    ["sync_cursor_io", 7, 6],
+  ]);
+}
+
+function p05SpanTreeIssue(
+  sample: typeof ProbeGatewaySampleV1Shape.Type,
+  expected: ReadonlyArray<
+    readonly [
+      name: ProbeTraceSpanV1["name"],
+      spanOrdinal: number,
+      parentOrdinal: number,
+    ]
+  >,
+): string | undefined {
+  if (
+    sample.outcome.kind === "ok" &&
+    sample.spans.length !== expected.length
+  ) {
+    return `${sample.scenario} must return every completed nested round trip`;
+  }
+  if (sample.spans.length > expected.length) {
+    return `${sample.scenario} returned more spans than its topology permits`;
+  }
+  for (const [index, span] of sample.spans.entries()) {
+    const expectedSpan = expected[index];
+    if (expectedSpan === undefined) {
+      return `${sample.scenario} returned an unexpected nested span`;
+    }
+    const [name, spanOrdinal, parentOrdinal] = expectedSpan;
+    if (
+      span.name !== name ||
+      span.spanId !== probeSpanId(ordinal(spanOrdinal)) ||
+      span.parentSpanId !== probeSpanId(ordinal(parentOrdinal))
+    ) {
+      return `${sample.scenario} returned an invalid nested span tree`;
+    }
+  }
+  if (sample.outcome.kind === "ok") {
+    return sample.spans.every(span => span.outcome.kind === "ok")
+      ? undefined
+      : `successful ${sample.scenario} requires successful nested spans`;
+  }
+  if (sample.spans.length === 0) {
+    const firstExpected = expected[0]?.[0];
+    return sample.outcome.error.stage === "request" ||
+        sample.outcome.error.stage === firstExpected
+      ? undefined
+      : `failed ${sample.scenario} without spans cannot claim an unobserved deep stage`;
+  }
+  const lastIndex = sample.spans.length - 1;
+  for (const [index, span] of sample.spans.entries()) {
+    if (index === lastIndex) {
+      if (
+        span.outcome.kind !== "error" ||
+        !sameError(span.outcome.error, sample.outcome.error) ||
+        span.name !== sample.outcome.error.stage
+      ) {
+        return `failed ${sample.scenario} requires a matching terminal failed span`;
+      }
+    } else if (span.outcome.kind !== "ok") {
+      return `failed ${sample.scenario} requires a successful span prefix`;
     }
   }
   return undefined;

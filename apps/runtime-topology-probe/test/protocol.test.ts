@@ -9,6 +9,7 @@ import {
   PROBE_PROTOCOL_VERSION_V1,
 } from "../src/protocol";
 import { validSample } from "./fixtures";
+import { runEffectTestSync } from "./effectTest";
 
 const runId = Effect.runSync(decodeProbeRunIdEffect("run_a"));
 
@@ -151,6 +152,41 @@ describe("runtime topology probe protocol", () => {
         ),
       ).boundary,
     ).toBe("sample-result-v1");
+  });
+
+  it("rejects successful or partially known unobserved callback cohorts", () => {
+    const sample = validSample("full_invoke");
+    const successFailure = runEffectTestSync(
+      Effect.flip(
+        decodeProbeSampleResultV1Effect({
+          ...sample,
+          startup: {
+            workerLoader: "callback-unobserved",
+            facet: "callback-unobserved",
+          },
+        }),
+      ),
+    );
+    const error = {
+      code: "runtime_failure",
+      retryable: false,
+      stage: "gateway_session_rtt",
+    } as const;
+    const mixedFailure = runEffectTestSync(
+      Effect.flip(
+        decodeProbeSampleResultV1Effect({
+          ...sample,
+          outcome: { kind: "error", error },
+          startup: {
+            workerLoader: "callback-unobserved",
+            facet: "callback-not-run",
+          },
+        }),
+      ),
+    );
+
+    expect(successFailure.boundary).toBe("sample-result-v1");
+    expect(mixedFailure.boundary).toBe("sample-result-v1");
   });
 
   it.each([

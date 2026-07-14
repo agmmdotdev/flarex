@@ -7,9 +7,10 @@ and teardown requirements live in [`PLAN.md`](./PLAN.md).
 
 ## Current Slice
 
-`P04` adds the SessionDO-supervised Dynamic Worker facet and its synthetic
-temporary journal without introducing mock commit or sync behavior. The
-current app owns:
+`P05` is complete. It adds the private mock-commit and separate sync-actor
+communication path without introducing a real executor, transaction, or sync
+engine. The next approved slice is the optional `P06` sync-to-runtime rerun
+loop. The current app owns:
 
 - a bearer-protected per-sample gateway with bounded streaming JSON reads;
 - `edge_echo` and gateway-to-`ProbeSessionDO` round-trip samples;
@@ -35,7 +36,20 @@ current app owns:
   SHA-256 logical seal; and
 - internal-only lifecycle controls proving warm reuse, abort-preserved facet
   storage, explicit delete/reset, restart rehydration, fresh-attempt isolation,
-  and deletion of ordinary measurement facets before their response returns.
+  and deletion of ordinary measurement facets before their response returns;
+- a separate private mock Worker with restricted `MockReadEntrypoint` and
+  `MockFinishEntrypoint` service-binding contracts;
+- a separate private sync Worker that exclusively owns one deterministic,
+  SQLite-backed `ProbeSyncDO` per synthetic scope;
+- applied, duplicate, gap, and stale wake classification with exact cursor
+  preservation/advance rules, reset, scope fencing, and restart persistence;
+- a fixed `invoke-v1` Dynamic Worker facet that receives only `MOCK_READ`,
+  keeps outbound networking disabled, writes and seals its temporary journal,
+  and returns to the SessionDO before mock finish;
+- `commit_wake` and `full_invoke` traces across mock read, facet journal,
+  SessionDO-to-mock finish, mock-to-sync wake, and sync cursor I/O; and
+- strict decoding of enumerable RPC wire fields while excluding Cloudflare's
+  transport-owned `Symbol.dispose` marker from application protocol fields.
 
 This slice is local and dry-run-only. Production remains blocked until `P07`
 adds server-owned run registration, atomic sample claims, aggregate budgets,
@@ -50,6 +64,8 @@ subtracts absolute timestamps created by different isolates.
 corepack pnpm --filter @flarex/runtime-topology-probe typecheck
 corepack pnpm --filter @flarex/runtime-topology-probe test
 corepack pnpm --filter @flarex/runtime-topology-probe test:local
+corepack pnpm --filter @flarex/runtime-topology-probe deploy:sync:dry-run
+corepack pnpm --filter @flarex/runtime-topology-probe deploy:mock:dry-run
 corepack pnpm --filter @flarex/runtime-topology-probe deploy:gateway:dry-run
 ```
 
@@ -57,16 +73,23 @@ corepack pnpm --filter @flarex/runtime-topology-probe deploy:gateway:dry-run
 
 - `src/identity.ts` validates and derives synthetic-only identities.
 - `src/protocol.ts` owns strict wire schemas and typed decode failures.
+- `src/commitProtocol.ts` owns synthetic mock-read, mock-finish, sync-wake,
+  cursor, and receipt contracts.
 - `src/runtimeProtocol.ts` owns per-sample gateway fragments and collector
   completion.
 - `src/dynamicProtocol.ts` owns the direct Worker wire contract and fixed
   capability-free source package.
 - `src/facetProtocol.ts` owns the strict facet/session wire contracts, logical
   journal seal, and fixed capability-free facet source package.
+- `src/invokeProtocol.ts` owns the `invoke-v1` facet contract, logical journal
+  seal, and fixed source package with only the mock-read capability.
 - `src/gateway.ts` owns the protected public boundary and local hop timing.
 - `src/sessionDO.ts` owns supervisor routing, facet lifecycle, cleanup tracking,
   and isolated SQLite Durable Object control state. It never opens facet journal
   storage.
+- `src/mockCommitWorker.ts` owns the only synthetic finish-to-sync wake path.
+- `src/probeSyncDO.ts` and `src/syncWorker.ts` own the isolated synthetic cursor
+  actor and its private deployable Worker.
 - `src/trace.ts` validates completeness, parentage, cycles, and outcome
   agreement for each scenario.
 - `src/statistics.ts` computes exact summaries without dropping failures.

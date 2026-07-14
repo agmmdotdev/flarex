@@ -7,6 +7,7 @@ import {
   probeAttemptId,
   probeCodeId,
   probeSampleId,
+  probeScopeId,
   probeSessionId,
   type ProbeSessionId,
 } from "../src/identity";
@@ -15,6 +16,20 @@ import {
   ProbeFacetLifecycleRequestV1Schema,
   type ProbeFacetLifecycleOperation,
 } from "../src/facetProtocol";
+import {
+  decodeProbeMockFinishResponseV1Effect,
+  decodeProbeSyncControlResponseV1Effect,
+  decodeProbeSyncWakeReceiptV1Effect,
+  probeSyntheticCommitSeq,
+  ProbeMockFinishRequestV1Schema,
+  ProbeSyncControlRequestV1Schema,
+  ProbeSyncWakeRequestV1Schema,
+} from "../src/commitProtocol";
+import { copyCloudflareRpcRecord } from "../src/effectBoundary";
+import {
+  probeInvokeWorkerCode,
+  PROBE_INVOKE_WORKER_MAIN_MODULE,
+} from "../src/invokeProtocol";
 import { PROBE_PUBLIC_BODY_MAX_BYTES, PROBE_SAMPLE_ROUTE } from "../src/gateway";
 import {
   completeProbeGatewaySampleV1,
@@ -34,6 +49,7 @@ import {
   removeRuntimeProbePersistPath,
   type RuntimeProbeHarness,
 } from "./runtimeHarness";
+import { runEffectTest, runEffectTestSync } from "./effectTest";
 
 describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
   let harness: RuntimeProbeHarness;
@@ -557,12 +573,342 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect(crossRun.status).toBe(400);
   });
 
-  it("rejects scenarios that are valid in P01 but outside P04", async () => {
+  it("rejects scenarios that are valid in P01 but outside P05", async () => {
     const response = await dispatch(
       harness,
-      validSampleRequest("full_invoke", "p04_future"),
+      validSampleRequest("sync_rerun", "p05_future"),
     );
     expect(response.status).toBe(422);
+  });
+
+  it("measures the full session, facet, mock-read, journal, finish, and sync path", async () => {
+    const request = validSampleRequest("full_invoke", "p05_full_invoke", {
+      journalEntries: 2,
+      payloadBytes: 16,
+      repetitions: 2,
+      sessionMode: "reuse-session",
+    });
+    const first = await measuredDispatch(harness, request);
+    const second = await measuredDispatch(harness, {
+      ...request,
+      sampleOrdinal: 1,
+    });
+    const firstSample = completeProbeGatewaySampleV1(
+      first.fragment,
+      first.durationMs,
+    );
+    const secondSample = completeProbeGatewaySampleV1(
+      second.fragment,
+      second.durationMs,
+    );
+
+    expect(first.fragment.identity.codeId).toBe(
+      "rtp-code-invoke-v1-stable",
+    );
+    expect(first.fragment.identity.sessionId).toBe(
+      second.fragment.identity.sessionId,
+    );
+    expect(first.fragment.identity.attemptId).not.toBe(
+      second.fragment.identity.attemptId,
+    );
+    expect(first.fragment.startup).toEqual({
+      workerLoader: "callback-ran",
+      facet: "callback-ran",
+    });
+    expect(second.fragment.startup).toEqual({
+      workerLoader: "callback-not-run",
+      facet: "callback-ran",
+    });
+    expect(firstSample.spans.map(span => span.name)).toEqual([
+      "external_request",
+      "gateway_session_rtt",
+      "session_facet_rtt",
+      "facet_mock_read_rtt",
+      "facet_journal_io",
+      "session_mock_finish_rtt",
+      "mock_sync_wake_rtt",
+      "sync_cursor_io",
+    ]);
+    expect(validateProbeTraceV1(firstSample)).toEqual({ ok: true });
+    expect(validateProbeTraceV1(secondSample)).toEqual({ ok: true });
+    expect(await syncCursor(harness, "p05_full_invoke", "read")).toBe(2);
+
+    const resetFacet = await facetLifecycle(
+      harness,
+      "p05_full_invoke",
+      1,
+      "read",
+    );
+    expect(resetFacet.value).toBe(0);
+    await facetLifecycle(harness, "p05_full_invoke", 1, "delete");
+  });
+
+  it("uses distinct invoke-v1 code identities for bounded new-code samples", async () => {
+    const request = validSampleRequest("full_invoke", "p05_invoke_new_code", {
+      codeMode: "new-code",
+      repetitions: 2,
+    });
+    const first = await measuredDispatch(harness, request);
+    const second = await measuredDispatch(harness, {
+      ...request,
+      sampleOrdinal: 1,
+    });
+
+    expect(first.fragment.identity.codeId).toBe(
+      "rtp-code-invoke-v1-p05_invoke_new_code-0",
+    );
+    expect(second.fragment.identity.codeId).toBe(
+      "rtp-code-invoke-v1-p05_invoke_new_code-1",
+    );
+    expect(first.fragment.startup.workerLoader).toBe("callback-ran");
+    expect(second.fragment.startup.workerLoader).toBe("callback-ran");
+    expect(await syncCursor(harness, "p05_invoke_new_code", "read")).toBe(2);
+  });
+
+  it("accepts duplicate public commit wakes without advancing the sync cursor", async () => {
+    const request = validSampleRequest("commit_wake", "p05_commit_wake");
+    const first = await measuredDispatch(harness, request);
+    const duplicate = await measuredDispatch(harness, request);
+    const firstSample = completeProbeGatewaySampleV1(
+      first.fragment,
+      first.durationMs,
+    );
+
+    expect(firstSample.spans.map(span => span.name)).toEqual([
+      "external_request",
+      "mock_sync_wake_rtt",
+      "sync_cursor_io",
+    ]);
+    expect(validateProbeTraceV1(firstSample)).toEqual({ ok: true });
+    expect(duplicate.fragment.outcome).toEqual({ kind: "ok" });
+    expect(await syncCursor(harness, "p05_commit_wake", "read")).toBe(1);
+  });
+
+  it("records an out-of-order commit wake as a failed measured sample", async () => {
+    const measured = await measuredDispatch(
+      harness,
+      {
+        ...validSampleRequest("commit_wake", "p05_commit_gap", {
+          repetitions: 3,
+        }),
+        sampleOrdinal: 2,
+      },
+    );
+    const sample = completeProbeGatewaySampleV1(
+      measured.fragment,
+      measured.durationMs,
+    );
+
+    expect(measured.fragment.outcome).toEqual({
+      kind: "error",
+      error: {
+        code: "runtime_failure",
+        retryable: false,
+        stage: "sync_cursor_io",
+      },
+    });
+    expect(measured.fragment.spans.map(span => span.name)).toEqual([
+      "mock_sync_wake_rtt",
+      "sync_cursor_io",
+    ]);
+    expect(measured.fragment.spans.at(-1)?.outcome.kind).toBe("error");
+    expect(validateProbeTraceV1(sample)).toEqual({ ok: true });
+    expect(await syncCursor(harness, "p05_commit_gap", "read")).toBe(0);
+  });
+
+  it("preserves every observed full-invoke span when the sync cursor rejects", async () => {
+    const measured = await measuredDispatch(
+      harness,
+      {
+        ...validSampleRequest("full_invoke", "p05_invoke_gap", {
+          repetitions: 3,
+        }),
+        sampleOrdinal: 2,
+      },
+    );
+    const sample = completeProbeGatewaySampleV1(
+      measured.fragment,
+      measured.durationMs,
+    );
+
+    expect(measured.fragment.outcome.kind).toBe("error");
+    expect(measured.fragment.startup.workerLoader).not.toBe(
+      "callback-unobserved",
+    );
+    expect(measured.fragment.startup.facet).not.toBe("callback-unobserved");
+    expect(measured.fragment.spans.map(span => span.name)).toEqual([
+      "gateway_session_rtt",
+      "session_facet_rtt",
+      "facet_mock_read_rtt",
+      "facet_journal_io",
+      "session_mock_finish_rtt",
+      "mock_sync_wake_rtt",
+      "sync_cursor_io",
+    ]);
+    expect(
+      measured.fragment.spans.slice(0, -1).every(
+        span => span.outcome.kind === "ok",
+      ),
+    ).toBe(true);
+    expect(measured.fragment.spans.at(-1)?.outcome.kind).toBe("error");
+    expect(measured.fragment.outcome).toEqual({
+      kind: "error",
+      error: {
+        code: "runtime_failure",
+        retryable: false,
+        stage: "sync_cursor_io",
+      },
+    });
+    expect(validateProbeTraceV1(sample)).toEqual({ ok: true });
+    expect(await syncCursor(harness, "p05_invoke_gap", "read")).toBe(0);
+  });
+
+  it("classifies applied, duplicate, gap, and stale synthetic wakes", async () => {
+    const runId = "p05_cursor_order";
+    expect((await directSyncWake(harness, runId, 0)).disposition).toBe(
+      "applied",
+    );
+    expect((await directSyncWake(harness, runId, 0)).disposition).toBe(
+      "duplicate",
+    );
+    const gap = await directSyncWake(harness, runId, 2);
+    expect(gap.disposition).toBe("gap");
+    expect(gap.cursor).toBe(1);
+    expect((await directSyncWake(harness, runId, 1)).disposition).toBe(
+      "applied",
+    );
+    const stale = await directSyncWake(harness, runId, 0);
+    expect(stale.disposition).toBe("stale");
+    expect(stale.cursor).toBe(2);
+    expect(await syncCursor(harness, runId, "read")).toBe(2);
+    expect(await syncCursor(harness, runId, "reset")).toBe(0);
+    expect(await syncCursor(harness, runId, "read")).toBe(0);
+    expect(await syncCursor(harness, "p05_cursor_isolated", "read")).toBe(0);
+  });
+
+  it("rejects a wake routed to a different deterministic scope object", async () => {
+    const bindings = await harness.mockBindings();
+    const request = syncWakeRequest("p05_scope_guard", 0);
+    const wrongScope = runEffectTestSync(
+      decodeProbeRunIdEffect("p05_scope_guard_other"),
+    );
+
+    await expect(
+      bindings.PROBE_SYNC.getByName(probeScopeId(wrongScope)).wake(request),
+    ).rejects.toBeDefined();
+    expect(await syncCursor(harness, "p05_scope_guard", "read")).toBe(0);
+  });
+
+  it("rehydrates the per-scope sync cursor after a Miniflare restart", async () => {
+    const firstHarness = await createRuntimeProbeHarness({
+      removePersistPathOnDispose: false,
+    });
+    const persistPath = firstHarness.persistPath;
+    let firstDisposed = false;
+    try {
+      expect(
+        (await directSyncWake(firstHarness, "p05_sync_restart", 0))
+          .disposition,
+      ).toBe("applied");
+      await firstHarness.dispose();
+      firstDisposed = true;
+
+      const restarted = await createRuntimeProbeHarness({ persistPath });
+      try {
+        expect(await syncCursor(restarted, "p05_sync_restart", "read"))
+          .toBe(1);
+        expect(
+          (await directSyncWake(restarted, "p05_sync_restart", 0))
+            .disposition,
+        ).toBe("duplicate");
+        expect(await syncCursor(restarted, "p05_sync_restart", "reset"))
+          .toBe(0);
+      } finally {
+        await restarted.dispose();
+      }
+    } finally {
+      if (!firstDisposed) await firstHarness.dispose();
+      await removeRuntimeProbePersistPath(persistPath);
+    }
+  });
+
+  it("routes mock finish through the external ProbeSyncDO binding", async () => {
+    const bindings = await harness.bindings();
+    const mockFinish = bindings.MOCK_FINISH;
+    if (mockFinish === undefined) throw new Error("MOCK_FINISH is missing");
+    const runId = runEffectTestSync(
+      decodeProbeRunIdEffect("p05_finish_rpc"),
+    );
+    const sampleOrdinal = runEffectTestSync(decodeProbeOrdinalEffect(0));
+    const request = ProbeMockFinishRequestV1Schema.make({
+      protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+      runId,
+      sampleId: probeSampleId(runId, sampleOrdinal),
+      sampleOrdinal,
+      scopeId: probeScopeId(runId),
+      scenario: "commit_wake",
+      commitSeq: probeSyntheticCommitSeq(sampleOrdinal),
+    });
+    const rawReceipt = await mockFinish.finish(request);
+    const receipt = await runEffectTest(
+      decodeProbeMockFinishResponseV1Effect(
+        copyCloudflareRpcRecord(rawReceipt),
+      ),
+    );
+
+    expect(receipt.request).toEqual(request);
+    expect(receipt.sync.disposition).toBe("applied");
+    expect(receipt.sync.cursor).toBe(1);
+  });
+
+  it("keeps the sync wake capability only on the private mock boundary", async () => {
+    const gatewayBindings = await harness.bindings();
+    const mockBindings = await harness.mockBindings();
+    const mockRead = gatewayBindings.MOCK_READ;
+    if (mockRead === undefined) throw new Error("MOCK_READ is missing");
+    const workerCode = probeInvokeWorkerCode(mockRead);
+    const source = workerCode.modules[PROBE_INVOKE_WORKER_MAIN_MODULE];
+
+    expect("PROBE_SYNC" in gatewayBindings).toBe(false);
+    expect(mockBindings.PROBE_SYNC).toBeDefined();
+    expect(Object.keys(workerCode.env ?? {})).toEqual(["MOCK_READ"]);
+    expect(workerCode.globalOutbound).toBeNull();
+    expect(typeof source).toBe("string");
+    expect(source).not.toContain("MOCK_FINISH");
+    expect(source).not.toContain("PROBE_SYNC");
+  });
+
+  it("records missing private mock capabilities without dropping samples", async () => {
+    const noMockHarness = await createRuntimeProbeHarness({
+      mockFinish: false,
+      mockRead: false,
+    });
+    try {
+      const wake = await measuredDispatch(
+        noMockHarness,
+        validSampleRequest("commit_wake", "p05_no_mock_wake"),
+      );
+      const invoke = await measuredDispatch(
+        noMockHarness,
+        validSampleRequest("full_invoke", "p05_no_mock_invoke"),
+      );
+      const edge = await dispatch(
+        noMockHarness,
+        validSampleRequest("edge_echo", "p05_no_mock_edge"),
+      );
+
+      expect(wake.fragment.outcome.kind).toBe("error");
+      expect(wake.fragment.spans).toEqual([]);
+      expect(invoke.fragment.outcome.kind).toBe("error");
+      expect(invoke.fragment.spans).toEqual([]);
+      expect(invoke.fragment.startup).toEqual({
+        workerLoader: "callback-not-run",
+        facet: "callback-not-run",
+      });
+      expect(edge.status).toBe(200);
+    } finally {
+      await noMockHarness.dispose();
+    }
   });
 });
 
@@ -571,8 +917,10 @@ type SupportedScenario =
   | "edge_echo"
   | "facet_echo"
   | "facet_journal"
+  | "commit_wake"
   | "full_invoke"
-  | "session_echo";
+  | "session_echo"
+  | "sync_rerun";
 
 interface SampleOverrides {
   readonly codeMode?: "new-code" | "stable";
@@ -649,7 +997,7 @@ async function measuredDispatch(
   const durationMs = Math.max(0, performance.now() - startedAt);
   expect(response.status).toBe(200);
   const value: unknown = JSON.parse(raw);
-  const fragment = await Effect.runPromise(
+  const fragment = await runEffectTest(
     decodeProbeGatewaySampleV1Effect(value),
   );
   return { durationMs, fragment, raw };
@@ -674,6 +1022,68 @@ async function controlValue(
   );
   expect(decoded.sessionId).toBe(sessionId);
   return decoded.value;
+}
+
+async function directSyncWake(
+  harness: RuntimeProbeHarness,
+  runIdValue: string,
+  sampleOrdinalValue: number,
+) {
+  const bindings = await harness.mockBindings();
+  const request = syncWakeRequest(runIdValue, sampleOrdinalValue);
+  const scopeId = request.scopeId;
+  const rawReceipt = await bindings.PROBE_SYNC.getByName(scopeId).wake(
+    request,
+  );
+  return await runEffectTest(
+    decodeProbeSyncWakeReceiptV1Effect(
+      copyCloudflareRpcRecord(rawReceipt),
+    ),
+  );
+}
+
+function syncWakeRequest(
+  runIdValue: string,
+  sampleOrdinalValue: number,
+) {
+  const runId = runEffectTestSync(decodeProbeRunIdEffect(runIdValue));
+  const sampleOrdinal = runEffectTestSync(
+    decodeProbeOrdinalEffect(sampleOrdinalValue),
+  );
+  return ProbeSyncWakeRequestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    runId,
+    sampleId: probeSampleId(runId, sampleOrdinal),
+    sampleOrdinal,
+    scopeId: probeScopeId(runId),
+    scenario: "commit_wake",
+    commitSeq: probeSyntheticCommitSeq(sampleOrdinal),
+  });
+}
+
+async function syncCursor(
+  harness: RuntimeProbeHarness,
+  runIdValue: string,
+  operation: "read" | "reset",
+): Promise<number> {
+  const bindings = await harness.mockBindings();
+  const runId = runEffectTestSync(decodeProbeRunIdEffect(runIdValue));
+  const scopeId = probeScopeId(runId);
+  const request = ProbeSyncControlRequestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    runId,
+    scopeId,
+    operation,
+  });
+  const rawResponse = await bindings.PROBE_SYNC.getByName(scopeId).control(
+    request,
+  );
+  const response = await runEffectTest(
+    decodeProbeSyncControlResponseV1Effect(
+      copyCloudflareRpcRecord(rawResponse),
+    ),
+  );
+  return response.cursor;
 }
 
 async function facetLifecycle(

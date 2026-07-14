@@ -196,6 +196,7 @@ export const ProbeCallbackObservationSchema = Schema.Literals([
   "not-applicable",
   "callback-ran",
   "callback-not-run",
+  "callback-unobserved",
 ]);
 export type ProbeCallbackObservation =
   typeof ProbeCallbackObservationSchema.Type;
@@ -413,7 +414,11 @@ function sampleRelationshipIssue(
   if (!sameSampleIdentity(sample.identity, expectedIdentity)) {
     return "identity must match the run, scenario, dimensions, and sample ordinal";
   }
-  return startupRelationshipIssue(sample.scenario, sample.startup);
+  return probeStartupRelationshipIssueV1(
+    sample.scenario,
+    sample.startup,
+    sample.outcome,
+  );
 }
 
 function sameSampleIdentity(
@@ -428,9 +433,10 @@ function sameSampleIdentity(
     left.codeId === right.codeId;
 }
 
-function startupRelationshipIssue(
+export function probeStartupRelationshipIssueV1(
   scenario: ProbeScenario,
   startup: ProbeStartupObservationsV1,
+  outcome: ProbeSampleOutcomeV1,
 ): string | undefined {
   switch (scenario) {
     case "edge_echo":
@@ -441,10 +447,16 @@ function startupRelationshipIssue(
         ? undefined
         : `${scenario} cannot report Dynamic Worker startup callbacks`;
     case "dynamic_direct_echo":
-      return startup.workerLoader !== "not-applicable" &&
-          startup.facet === "not-applicable"
-        ? undefined
-        : "dynamic_direct_echo requires only a Worker Loader callback observation";
+      if (startup.facet !== "not-applicable") {
+        return "dynamic_direct_echo requires only a Worker Loader callback observation";
+      }
+      if (startup.workerLoader === "not-applicable") {
+        return "dynamic_direct_echo requires a Worker Loader callback observation";
+      }
+      return outcome.kind === "ok" &&
+          startup.workerLoader === "callback-unobserved"
+        ? "successful dynamic_direct_echo cannot leave its callback unobserved"
+        : undefined;
     case "facet_echo":
     case "facet_journal":
     case "full_invoke":
@@ -454,6 +466,17 @@ function startupRelationshipIssue(
         startup.facet === "not-applicable"
       ) {
         return `${scenario} requires Worker Loader and facet callback observations`;
+      }
+      const workerUnobserved =
+        startup.workerLoader === "callback-unobserved";
+      const facetUnobserved = startup.facet === "callback-unobserved";
+      if (workerUnobserved || facetUnobserved) {
+        if (outcome.kind === "ok") {
+          return `${scenario} cannot leave successful callbacks unobserved`;
+        }
+        return workerUnobserved && facetUnobserved
+          ? undefined
+          : `${scenario} must leave both callback observations unobserved when the nested response is unavailable`;
       }
       return startup.facet === "callback-not-run" &&
           startup.workerLoader === "callback-ran"

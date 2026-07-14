@@ -18,6 +18,7 @@ import {
   ProbeDurationMsSchema,
   ProbeTraceSpanV1Schema,
 } from "../src/protocol";
+import { runEffectTestSync } from "./effectTest";
 
 const runId = Effect.runSync(decodeProbeRunIdEffect("p02_protocol"));
 const sampleOrdinal = Effect.runSync(decodeProbeOrdinalEffect(1));
@@ -122,10 +123,169 @@ describe("P02 gateway runtime protocol", () => {
     expect(sample.identity.codeId).toBe("rtp-code-direct-v1-stable");
     expect(validateProbeTraceV1(sample)).toEqual({ ok: true });
   });
+
+  it("keeps zero-span and cursor-prefix commit failures as measured samples", () => {
+    const run = runEffectTestSync(
+      decodeProbeRunRequestV1Effect(runRequest("commit_wake")),
+    );
+    const transportError = {
+      code: "runtime_failure",
+      retryable: true,
+      stage: "mock_sync_wake_rtt",
+    } as const;
+    const transportFragment = gatewaySampleFromRun(run, sampleOrdinal, {
+      edgeColo: null,
+      outcome: { kind: "error", error: transportError },
+      spans: [],
+    });
+    const transportSample = completeProbeGatewaySampleV1(
+      transportFragment,
+      2,
+    );
+
+    expect(transportSample.spans).toHaveLength(1);
+    expect(transportSample.spans[0]?.outcome).toEqual({
+      kind: "error",
+      error: transportError,
+    });
+    expect(validateProbeTraceV1(transportSample)).toEqual({
+      ok: false,
+      issue: "missing_or_extra_span",
+      spanName: null,
+    });
+
+    const cursorError = {
+      code: "runtime_failure",
+      retryable: false,
+      stage: "sync_cursor_io",
+    } as const;
+    const cursorFragment = gatewaySampleFromRun(run, sampleOrdinal, {
+      edgeColo: null,
+      outcome: { kind: "error", error: cursorError },
+      spans: [
+        span("mock_sync_wake_rtt", 1, 0, { kind: "ok" }),
+        span("sync_cursor_io", 2, 1, {
+          kind: "error",
+          error: cursorError,
+        }),
+      ],
+    });
+    const cursorSample = completeProbeGatewaySampleV1(cursorFragment, 3);
+
+    expect(validateProbeTraceV1(cursorSample)).toEqual({ ok: true });
+  });
+
+  it("accepts a failed full-invoke prefix only with unobserved callbacks", () => {
+    const run = runEffectTestSync(
+      decodeProbeRunRequestV1Effect(runRequest("full_invoke")),
+    );
+    const error = {
+      code: "runtime_failure",
+      retryable: false,
+      stage: "gateway_session_rtt",
+    } as const;
+    const fragment = gatewaySampleFromRun(run, sampleOrdinal, {
+      edgeColo: null,
+      outcome: { kind: "error", error },
+      spans: [
+        span("gateway_session_rtt", 1, 0, {
+          kind: "error",
+          error,
+        }),
+      ],
+      startup: {
+        workerLoader: "callback-unobserved",
+        facet: "callback-unobserved",
+      },
+    });
+    const sample = completeProbeGatewaySampleV1(fragment, 3);
+
+    expect(validateProbeTraceV1(sample)).toEqual({
+      ok: false,
+      issue: "missing_or_extra_span",
+      spanName: null,
+    });
+
+    const failure = runEffectTestSync(
+      Effect.flip(
+        decodeProbeGatewaySampleV1Effect({
+          ...fragment,
+          outcome: { kind: "ok" },
+          spans: [span("gateway_session_rtt", 1, 0, { kind: "ok" })],
+        }),
+      ),
+    );
+    expect(failure.boundary).toBe("gateway-sample-v1");
+  });
+
+  it("rejects a failed terminal span whose name disagrees with its stage", () => {
+    const run = runEffectTestSync(
+      decodeProbeRunRequestV1Effect(runRequest("commit_wake")),
+    );
+    const validError = {
+      code: "runtime_failure",
+      retryable: false,
+      stage: "sync_cursor_io",
+    } as const;
+    const valid = gatewaySampleFromRun(run, sampleOrdinal, {
+      edgeColo: null,
+      outcome: { kind: "error", error: validError },
+      spans: [
+        span("mock_sync_wake_rtt", 1, 0, { kind: "ok" }),
+        span("sync_cursor_io", 2, 1, {
+          kind: "error",
+          error: validError,
+        }),
+      ],
+    });
+    const wrongError = {
+      ...validError,
+      stage: "mock_sync_wake_rtt",
+    } as const;
+    const failure = runEffectTestSync(
+      Effect.flip(
+        decodeProbeGatewaySampleV1Effect({
+          ...valid,
+          outcome: { kind: "error", error: wrongError },
+          spans: [
+            valid.spans[0],
+            {
+              ...valid.spans[1],
+              outcome: { kind: "error", error: wrongError },
+            },
+          ],
+        }),
+      ),
+    );
+
+    expect(failure.boundary).toBe("gateway-sample-v1");
+  });
 });
 
+function span(
+  name: typeof ProbeTraceSpanV1Schema.Type["name"],
+  spanOrdinal: number,
+  parentOrdinal: number,
+  outcome: typeof ProbeTraceSpanV1Schema.Type["outcome"],
+) {
+  return ProbeTraceSpanV1Schema.make({
+    spanId: probeSpanId(runEffectTestSync(decodeProbeOrdinalEffect(spanOrdinal))),
+    parentSpanId: probeSpanId(
+      runEffectTestSync(decodeProbeOrdinalEffect(parentOrdinal)),
+    ),
+    name,
+    durationMs: ProbeDurationMsSchema.make(1),
+    outcome,
+  });
+}
+
 function runRequest(
-  scenario: "dynamic_direct_echo" | "edge_echo" | "session_echo" = "session_echo",
+  scenario:
+    | "commit_wake"
+    | "dynamic_direct_echo"
+    | "edge_echo"
+    | "full_invoke"
+    | "session_echo" = "session_echo",
 ) {
   return {
     protocolVersion: 1,

@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "flarex-runtime-topology-probe-mock",
+  "main": "src/mockCommitWorker.ts",
+  "compatibility_date": "2026-06-14",
+  "workers_dev": false,
+  "preview_urls": false,
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PROBE_SYNC",
+        "class_name": "ProbeSyncDO",
+        "script_name": "flarex-runtime-topology-probe-sync"
+      }
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true
+    }
+  }
+}

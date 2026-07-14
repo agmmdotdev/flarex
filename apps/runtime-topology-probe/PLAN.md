@@ -1,7 +1,7 @@
 # Runtime Topology Probe Turn Plan
 
-Status: experimental evidence plan; `P00` complete and `P01` through `P11`
-approved for ordered execution.
+Status: experimental evidence plan; `P00` through `P05` complete and `P06`
+through `P11` approved for ordered execution.
 
 This file owns a bounded production probe for measuring Cloudflare runtime
 communication. It is local to `apps/runtime-topology-probe`; it is not an
@@ -95,6 +95,7 @@ Service bindings and Dynamic Worker identifiers affect both the topology and
 the experiment budget:
 
 - <https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/>
+- <https://developers.cloudflare.com/workers/runtime-apis/rpc/lifecycle/>
 - <https://developers.cloudflare.com/dynamic-workers/pricing/>
 
 These external assumptions must be rechecked immediately before the production
@@ -290,7 +291,7 @@ bundle/dry-run.
 
 ### P05 - Add The Private Mock Commit And ProbeSyncDO Wake
 
-Status: in progress and approved.
+Status: complete.
 
 Deliver:
 
@@ -303,8 +304,8 @@ Deliver:
 - `commit_wake` and `full_invoke` scenarios;
 - enforcement that only the mock commit boundary originates wake calls.
 
-Non-goals: Postgres, OCC, commit compilation, durable outbox recovery, gaps,
-canonical queries, or real sync behavior.
+Non-goals: Postgres, OCC, commit compilation, durable outbox recovery, gap
+recovery/backfill, canonical queries, or real sync behavior.
 
 Proof: contract tests across all three Workers, duplicate/out-of-order
 synthetic wake tests, local integration smoke, and gateway/mock/sync deployment
@@ -312,7 +313,7 @@ dry-runs.
 
 ### P06 - Add The Optional Sync-To-Runtime Rerun Loop
 
-Status: approved; pending.
+Status: in progress and approved.
 
 Deliver:
 
@@ -342,6 +343,9 @@ Deliver:
 - server-owned immutable run registration, atomic sample claims, duplicate and
   excess-sample rejection, aggregate request/code budgets, and observed
   concurrency labels;
+- rejection of retry/duplicate wake receipts from ordinary latency aggregates,
+  unless their disposition is retained as a separate explicitly labeled
+  cohort;
 - bounded concurrency and payload matrix;
 - machine-readable evidence artifact with secrets and payloads excluded;
 - facet deletion, DO storage purge, partial-run handling, and idempotent
@@ -425,7 +429,7 @@ teardown are complete.
 
 - Active goal: build and validate the isolated production runtime-topology
   probe through separately approved gates.
-- Current gate: `P05` implementation.
-- Next gate after proof and checkpoint: `P06`.
+- Current gate: `P06` implementation.
+- Next gate after proof and checkpoint: `P07`.
 - Goal completion condition: production evidence and analysis are recorded and
   the approved cleanup/retention action is verified.

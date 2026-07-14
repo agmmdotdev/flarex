@@ -1,6 +1,15 @@
 import { DurableObject } from "cloudflare:workers";
 
-import { protocolValueOrNull } from "./effectBoundary";
+import {
+  copyCloudflareRpcRecord,
+  protocolValueOrNull,
+} from "./effectBoundary";
+import {
+  decodeProbeMockFinishResponseV1OrNull,
+  ProbeMockFinishRequestV1Schema,
+  type ProbeMockFinishRequestV1,
+  type ProbeMockFinishResponseV1,
+} from "./commitProtocol";
 import {
   decodeProbeFacetInvokeRequestV1Effect,
   decodeProbeFacetLifecycleRequestV1Effect,
@@ -18,6 +27,21 @@ import {
 } from "./facetProtocol";
 import { ProbeSessionIdSchema, type ProbeSessionId } from "./identity";
 import { noStoreJson, readBoundedJson } from "./http";
+import {
+  decodeProbeInvokeFacetRequestV1OrNull,
+  decodeProbeInvokeFacetWorkerResponseV1OrNull,
+  probeInvokeJournalSealDigest,
+  probeInvokeWorkerCode,
+  PROBE_INVOKE_FACET_CLASS_NAME,
+  ProbeFullInvokeSessionFailureV1Schema,
+  ProbeFullInvokeSessionResponseV1Schema,
+  type ProbeInvokeFacetRequestV1,
+  type ProbeInvokeFacetWorkerResponseV1,
+} from "./invokeProtocol";
+import type {
+  MockFinishEntrypoint,
+  MockReadEntrypoint,
+} from "./mockCommitWorker";
 import {
   PROBE_LIMITS_V1,
   PROBE_PROTOCOL_VERSION_V1,
@@ -39,6 +63,7 @@ const sessionRoutes = {
   echo: "/v1/echo",
   facet: "/v1/facet",
   facetLifecycle: "/v1/facet-lifecycle",
+  fullInvoke: "/v1/full-invoke",
   controlIncrement: "/v1/control/increment",
   controlRead: "/v1/control/read",
   controlReset: "/v1/control/reset",
@@ -46,6 +71,15 @@ const sessionRoutes = {
 
 export interface ProbeSessionEnv {
   readonly LOADER?: WorkerLoader;
+  readonly MOCK_FINISH?: Service<typeof MockFinishEntrypoint>;
+  readonly MOCK_READ?: Service<typeof MockReadEntrypoint>;
+}
+
+interface TrackedFacetIdentity {
+  readonly attemptId: string;
+  readonly codeId: string;
+  readonly runId: string;
+  readonly sampleId: string;
 }
 
 interface FacetCallbackObservations {
@@ -83,6 +117,9 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     }
     if (pathname === sessionRoutes.facetLifecycle) {
       return await this.facetLifecycle(request, sessionId);
+    }
+    if (pathname === sessionRoutes.fullInvoke) {
+      return await this.fullInvoke(request, sessionId);
     }
     if (pathname === sessionRoutes.controlRead) {
       return this.control(request, sessionId, "read");
@@ -218,6 +255,170 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         sealDigest: decoded.sealDigest,
         workerLoaderCallbackRan: observations.workerLoaderCallbackRan,
         facetStartupCallbackRan: observations.facetStartupCallbackRan,
+      }),
+    );
+  }
+
+  private async fullInvoke(
+    request: Request,
+    sessionId: ProbeSessionId,
+  ): Promise<Response> {
+    const body = await readInternalPost(request);
+    if (body instanceof Response) return body;
+    const decoded = decodeFullInvokeRequest(body);
+    if (decoded === null) return internalError("invalid_request", 400);
+    if (decoded.sessionId !== sessionId) {
+      return internalError("session_identity_mismatch", 409);
+    }
+    const loader = this.env.LOADER;
+    const mockRead = this.env.MOCK_READ;
+    const mockFinish = this.env.MOCK_FINISH;
+    if (loader === undefined || mockRead === undefined || mockFinish === undefined) {
+      return internalError("invoke_capability_unavailable", 500);
+    }
+    const tracking = await this.trackFacet(decoded);
+    if (tracking === "identity-conflict") {
+      return internalError("facet_identity_conflict", 409);
+    }
+    if (tracking === "storage-failure") {
+      return internalError("facet_tracking_failed", 500);
+    }
+
+    let invocation:
+      | { readonly kind: "response"; readonly response: Response }
+      | { readonly kind: "defect"; readonly cause: unknown };
+    try {
+      invocation = {
+        kind: "response",
+        response: await this.executeFullInvoke(
+          loader,
+          mockRead,
+          mockFinish,
+          decoded,
+        ),
+      };
+    } catch (cause) {
+      invocation = { kind: "defect", cause };
+    }
+    if (!(await this.deleteTrackedFacet(decoded.attemptId))) {
+      return internalError("facet_cleanup_failed", 500);
+    }
+    if (invocation.kind === "defect") throw invocation.cause;
+    return invocation.response;
+  }
+
+  private async executeFullInvoke(
+    loader: WorkerLoader,
+    mockRead: Service<typeof MockReadEntrypoint>,
+    mockFinish: Service<typeof MockFinishEntrypoint>,
+    request: ProbeInvokeFacetRequestV1,
+  ): Promise<Response> {
+    const observations: FacetCallbackObservations = {
+      facetStartupCallbackRan: false,
+      workerLoaderCallbackRan: false,
+    };
+    const facetStartedAt = performance.now();
+    let facetResponse: Response;
+    try {
+      const facet = this.ctx.facets.get(request.attemptId, () => {
+        observations.facetStartupCallbackRan = true;
+        const worker = loader.get(request.codeId, () => {
+          observations.workerLoaderCallbackRan = true;
+          return probeInvokeWorkerCode(mockRead);
+        });
+        return {
+          id: request.attemptId,
+          class: worker.getDurableObjectClass(PROBE_INVOKE_FACET_CLASS_NAME),
+        };
+      });
+      facetResponse = await facet.fetch(
+        new Request("https://probe-facet.internal/v1/full-invoke", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+        }),
+      );
+    } catch {
+      return internalError("facet_transport_failure", 502);
+    }
+    if (!facetResponse.ok) {
+      return internalError("facet_response_failure", 502);
+    }
+    const facetBody = await readBoundedJson(
+      facetResponse,
+      MAX_INTERNAL_RESPONSE_BYTES,
+    );
+    const facetReceipt = facetBody.ok
+      ? decodeFullInvokeWorkerResponse(facetBody.value)
+      : null;
+    if (
+      facetReceipt === null ||
+      !(await sameFullInvokeFacetReceipt(facetReceipt, request))
+    ) {
+      return internalError("facet_receipt_mismatch", 502);
+    }
+    const facetDurationMs = elapsedSince(facetStartedAt);
+
+    const finishRequest = ProbeMockFinishRequestV1Schema.make({
+      protocolVersion: request.protocolVersion,
+      runId: request.runId,
+      sampleId: request.sampleId,
+      sampleOrdinal: request.sampleOrdinal,
+      scopeId: request.scopeId,
+      scenario: request.scenario,
+      commitSeq: request.commitSeq,
+      sessionId: request.sessionId,
+      sessionMode: request.sessionMode,
+      attemptId: request.attemptId,
+      codeMode: request.codeMode,
+      codeId: request.codeId,
+      journalEntries: request.journalEntries,
+      sealDigest: facetReceipt.sealDigest,
+    });
+    const finishStartedAt = performance.now();
+    let finish: ProbeMockFinishResponseV1 | null;
+    try {
+      const rawFinish = await mockFinish.finish(finishRequest);
+      finish = decodeMockFinishResponse(
+        copyCloudflareRpcRecord(rawFinish),
+      );
+    } catch {
+      return internalError("mock_finish_transport_failure", 502);
+    }
+    if (finish === null || !sameMockFinishReceipt(finish, finishRequest)) {
+      return internalError("mock_finish_receipt_mismatch", 502);
+    }
+    const sessionMockFinishDurationMs = elapsedSince(finishStartedAt);
+    const observation = {
+      facet: facetReceipt,
+      facetDurationMs: ProbeDurationMsSchema.make(facetDurationMs),
+      workerLoaderCallbackRan: observations.workerLoaderCallbackRan,
+      facetStartupCallbackRan: observations.facetStartupCallbackRan,
+      sessionMockFinishDurationMs: ProbeDurationMsSchema.make(
+        sessionMockFinishDurationMs,
+      ),
+      finish,
+    } as const;
+    if (
+      finish.sync.disposition !== "applied" &&
+      finish.sync.disposition !== "duplicate"
+    ) {
+      return noStoreJson(
+        ProbeFullInvokeSessionFailureV1Schema.make({
+          ...observation,
+          error: {
+            code: "runtime_failure",
+            retryable: false,
+            stage: "sync_cursor_io",
+          },
+        }),
+        409,
+      );
+    }
+
+    return noStoreJson(
+      ProbeFullInvokeSessionResponseV1Schema.make({
+        ...observation,
       }),
     );
   }
@@ -358,7 +559,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
   }
 
   private async trackFacet(
-    request: ProbeFacetInvokeRequestV1 | ProbeFacetLifecycleRequestV1,
+    request: TrackedFacetIdentity,
   ): Promise<TrackFacetResult> {
     try {
       const outcome = this.ctx.storage.transactionSync(() => {
@@ -542,6 +743,24 @@ async function decodeFacetLifecycleWorkerResponse(
   );
 }
 
+function decodeFullInvokeRequest(
+  value: unknown,
+): ProbeInvokeFacetRequestV1 | null {
+  return decodeProbeInvokeFacetRequestV1OrNull(value);
+}
+
+function decodeFullInvokeWorkerResponse(
+  value: unknown,
+): ProbeInvokeFacetWorkerResponseV1 | null {
+  return decodeProbeInvokeFacetWorkerResponseV1OrNull(value);
+}
+
+function decodeMockFinishResponse(
+  value: unknown,
+): ProbeMockFinishResponseV1 | null {
+  return decodeProbeMockFinishResponseV1OrNull(value);
+}
+
 async function sameFacetReceipt(
   response: ProbeFacetWorkerResponseV1,
   request: ProbeFacetInvokeRequestV1,
@@ -559,6 +778,51 @@ async function sameFacetReceipt(
     response.journalEntries === request.journalEntries &&
     response.payloadBytes === request.payload.length &&
     response.sealDigest === await probeFacetJournalSealDigest(request);
+}
+
+async function sameFullInvokeFacetReceipt(
+  response: ProbeInvokeFacetWorkerResponseV1,
+  request: ProbeInvokeFacetRequestV1,
+): Promise<boolean> {
+  return response.protocolVersion === request.protocolVersion &&
+    response.runId === request.runId &&
+    response.sampleId === request.sampleId &&
+    response.sampleOrdinal === request.sampleOrdinal &&
+    response.scopeId === request.scopeId &&
+    response.scenario === request.scenario &&
+    response.commitSeq === request.commitSeq &&
+    response.sessionId === request.sessionId &&
+    response.sessionMode === request.sessionMode &&
+    response.attemptId === request.attemptId &&
+    response.codeMode === request.codeMode &&
+    response.codeId === request.codeId &&
+    response.journalEntries === request.journalEntries &&
+    response.payloadBytes === request.payload.length &&
+    response.syntheticRevision === request.commitSeq - 1 &&
+    response.sealDigest === await probeInvokeJournalSealDigest(request);
+}
+
+function sameMockFinishReceipt(
+  response: ProbeMockFinishResponseV1,
+  request: ProbeMockFinishRequestV1,
+): boolean {
+  const receipt = response.request;
+  if (receipt.scenario !== "full_invoke" || request.scenario !== "full_invoke") {
+    return false;
+  }
+  return receipt.protocolVersion === request.protocolVersion &&
+    receipt.runId === request.runId &&
+    receipt.sampleId === request.sampleId &&
+    receipt.sampleOrdinal === request.sampleOrdinal &&
+    receipt.scopeId === request.scopeId &&
+    receipt.commitSeq === request.commitSeq &&
+    receipt.sessionId === request.sessionId &&
+    receipt.sessionMode === request.sessionMode &&
+    receipt.attemptId === request.attemptId &&
+    receipt.codeMode === request.codeMode &&
+    receipt.codeId === request.codeId &&
+    receipt.journalEntries === request.journalEntries &&
+    receipt.sealDigest === request.sealDigest;
 }
 
 function initializeSessionStorage(sql: SqlStorage): void {

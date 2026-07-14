@@ -1,5 +1,5 @@
 {
-  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "flarex-runtime-topology-probe-gateway",
   "main": "src/gatewayWorker.ts",
   "compatibility_date": "2026-06-14",
@@ -8,6 +8,18 @@
   "worker_loaders": [
     {
       "binding": "LOADER"
+    }
+  ],
+  "services": [
+    {
+      "binding": "MOCK_READ",
+      "service": "flarex-runtime-topology-probe-mock",
+      "entrypoint": "MockReadEntrypoint"
+    },
+    {
+      "binding": "MOCK_FINISH",
+      "service": "flarex-runtime-topology-probe-mock",
+      "entrypoint": "MockFinishEntrypoint"
     }
   ],
   "durable_objects": {

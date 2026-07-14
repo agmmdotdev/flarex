@@ -13,11 +13,31 @@ const targets = {
     ),
     outdir: "dist/gateway",
   },
+  mock: {
+    bundleUrl: new URL("../dist/mock/mockCommitWorker.js", import.meta.url),
+    config: "wrangler.mock.jsonc",
+    metafile: "dist/mock/bundle-meta.json",
+    metafileUrl: new URL(
+      "../dist/mock/bundle-meta.json",
+      import.meta.url,
+    ),
+    outdir: "dist/mock",
+  },
+  sync: {
+    bundleUrl: new URL("../dist/sync/syncWorker.js", import.meta.url),
+    config: "wrangler.sync.jsonc",
+    metafile: "dist/sync/bundle-meta.json",
+    metafileUrl: new URL(
+      "../dist/sync/bundle-meta.json",
+      import.meta.url,
+    ),
+    outdir: "dist/sync",
+  },
 } as const;
 
 const targetName = process.argv[2] ?? "gateway";
 if (!isDryRunTarget(targetName)) {
-  console.error("Usage: runWranglerDryRun.ts gateway");
+  console.error("Usage: runWranglerDryRun.ts gateway|mock|sync");
   process.exit(1);
 }
 const target = targets[targetName];
