@@ -263,7 +263,7 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
 
 `C07` is the first end-to-end replacement milestone, but it proves only a
 private test-generation point-mutation kernel. It does not authorize canary or
-production generation routing. Payload, Medusa, SessionDO journal movement,
+production generation routing. Payload, Medusa, facet-backed journal movement,
 sync replacement, and committed-data caches do not start before it is green.
 
 ### Post-Wave-2 — Conditional Session Journal Decision
@@ -273,12 +273,24 @@ read, Postgres journal persistence, and finish latency separately. Declare the
 material-improvement threshold before collecting comparisons.
 
 - If journal persistence meets the threshold, `C07A` moves only temporary,
-  fenced logical journal state to per-session DO SQLite before Wave 3.
+  fenced logical journal state to one server-issued per-session supervisor and
+  one isolated dynamic facet per attempt before Wave 3. The supervisor obtains
+  the sealed journal/result envelope through the facet API; it cannot read the
+  facet SQLite database directly. Select this path only if it beats the
+  Postgres-backed path and a custom-binding-only control that retains Postgres
+  journaling.
 - Otherwise retain Postgres journaling and continue.
 
 Actual reads, session anchor, OCC, outcome, committed data, commit feed, and
 outbox remain in Postgres. This decision is unrelated to `DocCacheDO` or
 `QueryCacheDO`.
+
+The facet candidate does not store the authoritative code package. It loads the
+exact content-addressed artifact pinned by trusted session/deployment authority.
+It also does not make JavaScript execution resumable: a mid-handler failure
+discards the old attempt/facet and reruns deterministic code with a new fence
+and exact snapshot. `C07A` must compare this shape with a smaller session-scoped
+Dynamic Worker binding baseline before selecting it.
 
 ### Wave 3 — Derived App-Data Sidecars
 

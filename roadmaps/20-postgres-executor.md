@@ -139,6 +139,21 @@ Postgres/PGlite transaction adapters own `BEGIN`, `COMMIT`, and rollback. The
 executor must never hold a database transaction open while waiting for
 untrusted developer code or a remote execution artifact.
 
+If the post-`C07` measurement gate selects facet-backed journaling, the host
+adapter may place each top-level invocation in one server-issued per-session
+supervisor Durable Object and create one dynamically loaded facet for each
+attempt fence. The facet records only bounded logical journal/overlay state in
+its isolated SQLite. After the handler completes, the supervisor obtains a
+sealed journal/result envelope through facet RPC and forwards it to the same
+trusted executor finish boundary. It cannot directly read the facet database.
+
+This placement does not change executor semantics. The executor rechecks the
+Postgres anchor, attempt fence, exact snapshot, grant, catalog, and digest, then
+compiles logical intent into authoritative physical writes. It never treats a
+facet database or returned journal as committed data. A facet crash cannot
+resume the JavaScript call stack; trusted retry creates a new attempt/facet,
+while lost-response recovery consults the authoritative Postgres outcome.
+
 ### Replacement control foundation
 
 The implemented `flarexdb_v1` control foundation currently includes:
@@ -222,6 +237,11 @@ query cache.
 `/invoke/abort` are already shared by the current hosts. Replacing Fetch with
 Workers RPC may be evaluated later, but transport replacement is independent
 of FlarexDB correctness and cannot delay the storage/OCC kernel.
+
+The conditional facet path does not contradict this rule. Facet RPC is an
+internal supervisor-to-child mechanism for retrieving a sealed envelope; the
+private executor `/invoke/*` compatibility boundary remains stable until a
+separate transport change is accepted.
 
 ### Use a strangler migration
 
@@ -419,7 +439,7 @@ work forward:
 2. Wave 2 closes one atomic result-bearing point mutation with idempotency,
    commit feed, and outbox through the real-Postgres `C07` gate.
 3. Immediately after `C07`, apply the predeclared threshold to the conditional
-   SessionDO logical-journal decision.
+   facet-backed session-journal decision.
 4. Wave 3 adds derived sidecars and only then runs `S03-D3` per-scope physical
    build reconciliation.
 5. Wave 4 owns baseline import, shadow comparison, real backfill evidence,

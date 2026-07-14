@@ -11,8 +11,9 @@ transactions, and does not promise unsupported query overlays.
 The first executable outcome is one point app mutation through the new schema
 and OCC lane. Immediately after its real-Postgres correctness gate, measure the
 hosted journal round trips. If they cross a predeclared material-improvement
-threshold, moving the proven journal into SessionDO is the next checkpoint,
-before derived sidecars; it is not the starting point and is not unconditional.
+threshold, moving the proven journal into a per-session supervisor/per-attempt
+facet is the next checkpoint before derived sidecars; it is not the starting
+point and is not unconditional.
 
 The hosted production composition is a dedicated private Cloudflare executor
 Worker backed by cache-disabled Hyperdrive. The compiler and executor ports
@@ -318,7 +319,7 @@ Exit gate:
   active-schema authority, generation routing, and their rollback gates;
 - it is not yet a general Payload, Medusa, range-query, or sync engine.
 
-### [ ] C07A — Measure And Conditionally Move The Proven Journal To SessionDO
+### [ ] C07A — Measure And Conditionally Move The Journal To A Session Facet
 
 Prerequisite:
 
@@ -331,16 +332,28 @@ Decision gate:
   separately measure service-binding latency, authoritative Postgres data-read
   latency, Postgres journal persistence, and finish latency.
 - Declare the material-improvement threshold before comparing the
-  Postgres-backed and SessionDO journal paths.
-- If journal persistence meets the threshold, complete the SessionDO move as
-  the next checkpoint before C08/C09. Otherwise retain Postgres journaling,
-  record the receipt, and continue to C08.
+  Postgres-backed, session-scoped Dynamic Worker binding, and facet-backed
+  journal paths.
+- If journal persistence meets the threshold, evaluate the facet path as the
+  next checkpoint before C08/C09. Select it only when it beats both the
+  Postgres-backed path and a custom-binding-only control that retains Postgres
+  journaling. Otherwise retain Postgres journaling, record the receipt, and
+  continue to C08.
 
 Outcome when the threshold is met:
 
-- Implement `SessionJournalStore` over deterministic per-session Durable Object
-  SQLite for temporary syscall sequence, logical read dependencies, and staged
-  logical writes only.
+- Implement `SessionJournalStore` with one deterministic server-issued
+  supervisor Durable Object per top-level session and one dynamic facet per
+  attempt fence. The facet's isolated SQLite stores temporary syscall sequence,
+  logical read dependencies, staged logical writes, and sealed result evidence
+  only.
+- Keep authoritative source packages in the existing content-addressed artifact
+  store. The supervisor loads the exact artifact pinned by the Postgres session
+  anchor and does not create a second package/deployment authority.
+- Have the generated facet shell seal canonical journal/result bytes, digest,
+  final syscall sequence, session identity, and attempt fence. The supervisor
+  retrieves the envelope through facet RPC or `fetch`; it cannot read facet
+  SQLite directly.
 - Keep actual data reads on trusted executor syscalls backed by authoritative
   Postgres. The move removes journal-persistence database round trips; it does
   not remove the syscall/service-binding hop or the authoritative data read.
@@ -348,6 +361,9 @@ Outcome when the threshold is met:
   idempotency, OCC, commit feed, and outbox unchanged.
 - Use protocol version, fence, monotonic syscall sequence, digest, TTL, size
   limits, and restart cleanup.
+- Use a fresh facet identity for every OCC attempt. Abort/delete on commit,
+  abort, expiry, or retry; mid-handler crashes rerun a new fenced attempt rather
+  than pretending to resume JavaScript execution.
 - Keep a configuration switch back to the proven journal implementation.
 
 Exit gate:
@@ -355,7 +371,10 @@ Exit gate:
 - the hosted latency receipt and predeclared threshold are recorded whether or
   not the move is selected;
 - when selected, DO restart/eviction, duplicate syscall, late syscall, digest
-  mismatch, finish replay, expiry, and lost-response cases pass;
+  mismatch, sealed-envelope replay, fresh-facet OCC retry, terminal cleanup,
+  expiry, mid-handler crash, and lost-response cases pass;
+- no test depends on a reentrant facet callback into a supervisor that is
+  awaiting the same facet invocation;
 - moving the journal reduces round trips but transfers no committed authority;
 - `DocCacheDO` and `QueryCacheDO` remain separate and are not part of mutation
   correctness.

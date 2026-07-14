@@ -2,7 +2,7 @@
 
 Status: accepted architecture correction; implementation is still incomplete
 
-Last reviewed: 2026-07-13
+Last reviewed: 2026-07-14
 
 This document is the decision record for the proposed unified FlarexDB schema,
 commit compiler, sync engine, Payload adapter, and Medusa integration. It keeps
@@ -72,6 +72,27 @@ Fetch is an internal capability call, not a public executor URL. Workers RPC
 may replace that transport later only as an independent compatibility change;
 it is not a FlarexDB correctness prerequisite.
 
+Cloudflare Durable Object facets are the accepted conditional placement for a
+measured `C07A` journal move, not a replacement for the first Postgres-backed
+proof. When the predeclared journal threshold is met, the hosted variant is:
+
+```text
+artifact-runtime Worker
+  -> one server-issued supervisor Durable Object per query/mutation session
+  -> one dynamically loaded InvocationFacet per attempt fence
+  -> restricted executor syscall capability for exact Postgres reads
+  -> sealed logical journal/result returned to the supervisor through facet RPC
+  -> private trusted executor finish
+  -> authoritative Postgres commit and outcome
+```
+
+The execution artifact remains the exact content-addressed package selected by
+trusted deployment/session authority and loaded from the existing artifact
+store. Supervisor or facet SQLite must not become a second code-package or
+deployment authority. A scope-wide or deployment-wide execution actor is also
+rejected: session actors use a server-issued per-session identity so unrelated
+queries and mutations do not share one serialized execution lane.
+
 The trusted executor core and commit compiler remain framework-neutral and are
 called in-process by the executor Worker adapter. The Worker persistence
 adapter uses a request-scoped `pg.Client` through a cache-disabled Hyperdrive
@@ -103,7 +124,12 @@ Cloudflare references:
   for transaction pooling and the lack of write-driven query-cache
   invalidation;
 - [Workers service bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/)
-  for private Worker-to-Worker Fetch and RPC boundaries.
+  for private Worker-to-Worker Fetch and RPC boundaries;
+- [Dynamic Worker bindings](https://developers.cloudflare.com/dynamic-workers/usage/bindings/)
+  for passing restricted custom capabilities into loaded code; and
+- [Durable Object facets](https://developers.cloudflare.com/dynamic-workers/usage/durable-object-facets/)
+  for supervisor-owned dynamic classes, isolated facet SQLite, lifecycle, and
+  facet `fetch`/RPC calls.
 
 ## Document And Implementation Status
 
@@ -111,7 +137,7 @@ Cloudflare references:
 | --- | --- | --- |
 | Existing `documents`, `indexes`, invoke sessions, Postgres live-query registry, and delivery outbox | Implemented baseline | Preserve while the replacement is built. Do not silently describe it as the final FlarexDB schema. |
 | Typed app row JSON with revision/current, declared index, edge, and unique sidecars | Partially implemented accepted target | S06 implements the internal, non-routing row revision/current kernel. Index, edge, unique, backfill, and routing consumers remain planned behind the storage-generation boundary. |
-| SessionDO journal plus trusted commit compiler | Accepted only for a bounded app-data slice | Prove the Postgres-backed point path through the real-Postgres gate, then immediately measure journal overhead and move the temporary journal when a predeclared material-improvement threshold is met. Broader query overlays must fail closed until implemented. |
+| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | Prove the Postgres-backed point path through the real-Postgres gate, then immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
 | Payload adapter | Staged target | Start with reserved logical collections and scalar CRUD/transaction conformance; add relations, versions/drafts, globals, auth, locks, and hooks incrementally. |
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
 | DeploymentSyncDO | Accepted v1 coordination target | One deterministic instance per scope, durable SQLite cursor/query/dependency state, Postgres catch-up. |
@@ -857,6 +883,27 @@ freshness atoms, system outbox rows, actor identity, or schema authority. The
 trusted planner derives those from logical writes, the session anchor, the
 pinned catalog, and adapter rules.
 
+When `C07A` selects the facet-backed path, the dynamically loaded facet owns
+that temporary journal in its isolated SQLite database. The supervisor cannot
+open or query the facet database directly. After the handler finishes, it asks
+the exact current facet through RPC or `fetch` for a bounded sealed envelope
+containing canonical journal bytes, result bytes, final syscall sequence,
+digest, session identity, and attempt fence. The supervisor forwards that
+envelope to the trusted executor. The executor does not copy the journal into
+Postgres as authoritative data: it revalidates the Postgres anchor and lowers
+the logical operations into physical rows, dependencies, commit/change atoms,
+idempotency outcome, and outbox work.
+
+Each attempt uses a distinct facet identity bound to the current positive
+attempt fence. Commit, abort, expiry, or trusted OCC replacement aborts and
+deletes that facet; delayed cleanup cannot reopen a terminal Postgres session.
+Facet persistence can preserve a sealed envelope across hibernation, but it
+cannot preserve or resume a JavaScript call stack. A crash during handler
+execution discards the partial journal, advances the trusted attempt fence,
+issues a new exact snapshot, creates a fresh facet, and reruns deterministic
+user code. A lost finish response is resolved from the authoritative Postgres
+outcome before any rerun.
+
 This journal records syscall sequence, logical read dependencies, and supported
 staged logical writes. It does not store the application rows being queried.
 Actual data reads still cross the restricted syscall boundary to the trusted
@@ -868,11 +915,14 @@ Sequence the optimization from evidence: first close the replacement point
 mutation's PGlite and real-Postgres correctness gates, then immediately measure
 the hosted path with service binding, authoritative data read, journal
 persistence, and finish latency separated. Declare the material-improvement
-threshold before comparison. If journal persistence meets it, the SessionDO
-move is the next checkpoint before derived index/edge sidecars. Otherwise the
-Postgres-backed journal may remain permanently. This decision is independent of
-later `DocCacheDO` and `QueryCacheDO` work, which mirrors committed values or
-results and requires a gap-free freshness protocol.
+threshold before comparison. If journal persistence meets it, the facet-backed
+session move is the next checkpoint before derived index/edge sidecars. Its
+proof must compare a custom-binding-only control that retains Postgres
+journaling with the supervisor/facet path rather than assuming facets improve
+communication by themselves. Otherwise the Postgres-backed journal may remain
+permanently. This decision is independent of later `DocCacheDO` and
+`QueryCacheDO` work, which mirrors committed values or results and requires a
+gap-free freshness protocol.
 
 The trusted boundary validates arguments against the pinned authoritative
 argument validator before the attempt runs. It validates the encoded return

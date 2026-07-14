@@ -111,6 +111,33 @@ The accepted hosted configuration uses:
 The deployable wrapper fails closed when its runtime capability token, Worker
 Loader, executor binding, or configured executor transport is invalid/missing.
 
+### Conditional Facet-Backed Invocation Sessions
+
+The currently implemented hosted path above remains the first-host baseline.
+If the post-`C07` journal measurement gate selects Durable Object placement,
+the accepted refinement is one server-issued supervisor Durable Object per
+top-level query or mutation and one dynamically loaded invocation facet per
+attempt fence. Exact class names remain implementation details. It is not one
+actor per scope or deployment.
+
+The supervisor loads the same exact content-addressed source package selected
+by trusted deployment/session authority. R2 and the active execution artifact
+reference remain code authority; neither supervisor nor facet SQLite stores an
+independent authoritative package copy. The generated facet shell receives
+only a session-scoped executor syscall capability, keeps bounded logical
+dependencies/writes and the read-your-writes overlay in its isolated SQLite,
+and exposes a platform-owned method that returns a sealed journal/result
+envelope after handler completion.
+
+Cloudflare isolates supervisor and facet SQLite. The supervisor therefore
+cannot read the journal database directly; it obtains the envelope only by
+calling the exact current facet through RPC or `fetch`. It then forwards the
+envelope to trusted executor finish. A facet crash during handler execution is
+not resumable: the attempt is fenced, its partial journal is discarded, and a
+fresh facet reruns deterministic code at a new exact snapshot. Hibernated
+sealed state may be read again for finish replay, while authoritative
+lost-response recovery still comes from Postgres.
+
 ### Local Invocation Flow
 
 ```text
@@ -265,6 +292,12 @@ roadmap 17.
 15. **Legacy execution is compatibility only.** ExecutionDO/PartitionDO and the
     `legacy` transport cannot become the target authority because their code is
     already integrated.
+16. **Facet placement remains per session and per attempt.** A session actor
+    cannot serialize an entire scope, and a retry cannot reuse the prior
+    attempt's facet identity or private state.
+17. **Facet storage is journal storage, not code or commit authority.** The
+    content-addressed artifact store remains authoritative for code, and the
+    trusted executor/Postgres remain authoritative for outcomes and commits.
 
 ## Decisions And Rationale
 
@@ -401,6 +434,12 @@ metadata validation, session atomicity, or least-authority contexts.
   churn needs measurement and deliberate reclamation/GC.
 - R2 source-package garbage collection for abandoned, superseded, or unreferenced
   artifacts is not implemented as a proven hosted policy.
+- The conditional facet-backed invocation path is not implemented or measured.
+  A prototype must compare a narrow session-scoped Dynamic Worker binding with
+  the supervisor/facet path, prove exact artifact and attempt pinning, avoid a
+  reentrant callback from a facet into its currently awaiting supervisor, and
+  cover hibernation, eviction, cleanup, retries, and lost responses before
+  `C07A` may select it.
 - Runtime errors are normalized for protocol safety, but hosted source-map stack
   remapping, structured logs, CPU/subrequest accounting, and operational
   correlation remain incomplete.
@@ -416,7 +455,8 @@ active Postgres-backed deployment/package generation
   -> exact executionArtifactRef
   -> authenticated artifact-runtime Worker
   -> verified R2 source package
-  -> identity/version-keyed Dynamic Worker
+  -> identity/version-keyed Dynamic Worker baseline
+     or measured per-session supervisor + per-attempt facet
   -> mandatory authenticated internal invoke
   -> egress-denied developer runtime
   -> private authenticated executor binding

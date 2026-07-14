@@ -16,7 +16,7 @@ This roadmap owns the durable direction for:
 - result-bearing idempotency and distinct retry classes;
 - the narrow Flarex app-data compiler boundary; and
 - the evidence gate for optionally moving temporary journal persistence from
-  Postgres to SessionDO SQLite.
+  Postgres to facet-backed per-session Durable Object SQLite.
 
 This roadmap does not own:
 
@@ -163,6 +163,38 @@ active floors.
 Temporary journal placement does not change this anchor. It authenticates a
 remote journal and fences stale attempts without making SessionDO transaction
 authority.
+
+### Conditional facet-backed journal placement
+
+If `C07A` selects Durable Object placement, use one server-issued supervisor
+Durable Object per top-level query/mutation session and one dynamically loaded
+facet per positive attempt fence. Do not use one execution actor per scope or
+deployment. The exact content-addressed artifact remains pinned by the
+authoritative Postgres session anchor and loaded from the existing artifact
+store; supervisor or facet SQLite is not a second code authority.
+
+The generated facet shell records the bounded logical journal and supported
+read-your-writes overlay in its isolated SQLite while actual snapshot reads
+still cross the restricted executor syscall capability. On handler completion,
+the facet seals canonical journal bytes, canonical result bytes, final syscall
+sequence, digest, session identity, and attempt fence. Because Cloudflare
+isolates parent and facet storage, the supervisor retrieves that envelope only
+through an RPC or `fetch` call on the exact facet stub; it cannot query the
+child database directly. The supervisor then forwards the envelope to trusted
+executor finish.
+
+The executor treats the returned journal as logical intent, not a transaction
+or authoritative row set. It reloads and validates the Postgres anchor and
+lowers the verified operations into physical revisions/current rows, derived
+sidecars, result-bearing idempotency outcome, commit/change feed, and outbox.
+Commit/abort/expiry deletes the attempt facet. OCC retry advances the trusted
+attempt fence, discards and deletes the old facet, issues a new exact snapshot,
+and creates a fresh facet before rerunning deterministic user code.
+
+Facet SQLite can preserve a sealed envelope across hibernation, but it cannot
+resume an interrupted JavaScript call stack. Mid-handler failure reruns a new
+attempt; uncertain finish outcome first consults Postgres. Cleanup is bounded
+and idempotent, and an abandoned facet can never reopen a terminal session.
 
 ### Snapshot contract
 
@@ -339,7 +371,13 @@ commit transaction.
 13. **Journal cleanup is bounded and privacy aware.** Aborted, expired, and
     committed temporary values have explicit TTL/cleanup behavior.
 14. **Host placement cannot change semantics.** Postgres-backed and optional
-    SessionDO journal stores conform to the same protocol and outcome rules.
+    facet-backed session journal stores conform to the same protocol and
+    outcome rules.
+15. **Facet storage is isolated and non-authoritative.** A supervisor retrieves
+    a sealed envelope through the exact attempt facet API; it never reads facet
+    SQLite directly or treats it as committed state.
+16. **Attempts do not share facets.** Every retry uses a new attempt-fenced
+    facet, and terminal Postgres state wins over delayed facet work or cleanup.
 
 ## Decisions And Rationale
 
@@ -350,7 +388,7 @@ planning, finish, outcome, and recovery using the existing authoritative
 database boundary. Starting with SessionDO would combine protocol migration
 with a distributed-state optimization and make failures harder to classify.
 
-### Measure SessionDO immediately after C07
+### Measure journal placement immediately after C07
 
 After the point-commit path passes PGlite and real-Postgres correctness, the
 hosted path measures service-binding latency, authoritative data-read latency,
@@ -359,6 +397,9 @@ material-improvement threshold is declared before comparison.
 
 If journal persistence meets that threshold, moving only the temporary journal
 to deterministic per-session DO SQLite becomes `C07A` before derived sidecars.
+The accepted candidate uses a per-session supervisor and per-attempt dynamic
+facet, but the measurement must compare it with a custom-binding-only control
+that retains Postgres journaling rather than assuming facets improve transport.
 Otherwise Postgres journaling may remain permanently. Either outcome preserves
 the Postgres anchor, data reads, OCC, result, idempotency, commit feed, and
 outbox.
@@ -404,7 +445,7 @@ The necessary Flarex divergences are:
 
 | Concern | Convex pattern | Flarex divergence |
 | --- | --- | --- |
-| Placement | Function runner, transaction state, database, and committer are close together. | Dynamic Worker, private executor Worker, optional SessionDO, and Postgres are separate failure domains. |
+| Placement | Function runner, transaction state, database, and committer are close together. | Dynamic Worker, private executor Worker, optional per-session supervisor/per-attempt facet, and Postgres are separate failure domains. |
 | Journal authentication | Transaction state is internal to the backend. | Remote journal carriage needs protocol version, session identity, attempt fence, sequence, canonical bytes/reference, and digest. |
 | Session recovery | Backend request state and outcome lookup share one hosted system. | Flarex retains an authoritative Postgres anchor/outcome so DO restart or a lost response cannot duplicate a mutation. |
 | Physical lowering | Convex's integrated backend derives storage writes directly. | Flarex makes the trusted planner/executor split explicit so host adapters and untrusted journals cannot author physical/system facts. |
@@ -517,8 +558,9 @@ The compiler gates are:
 7. `C07`: close PGlite and real-Postgres concurrency, rollback, serialization,
    deadlock, uncertain-outcome, and contiguous-sequence gates.
 8. `C07A`: immediately measure journal persistence and move only the temporary
-   journal to SessionDO if the predeclared material-improvement threshold is
-   met; otherwise retain Postgres journaling.
+   journal to a per-session supervisor/per-attempt facet if that path beats the
+   Postgres-backed and custom-binding-only control baselines by the predeclared
+   material-improvement threshold; otherwise retain Postgres journaling.
 9. `C08`: lower declared index and unique sidecars after their schema/OCC gates.
 10. `C09`: lower stable edge occurrences after relation identity and semantics
     are frozen.
