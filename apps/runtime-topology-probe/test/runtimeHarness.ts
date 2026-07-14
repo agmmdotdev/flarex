@@ -93,6 +93,10 @@ export async function createRuntimeProbeHarness(
               }),
         },
         durableObjects: {
+          PROBE_RUNS: {
+            className: "ProbeRunDO",
+            useSQLite: true,
+          },
           PROBE_SESSIONS: {
             className: "ProbeSessionDO",
             useSQLite: true,

@@ -32,6 +32,10 @@
       {
         "name": "PROBE_SESSIONS",
         "class_name": "ProbeSessionDO"
+      },
+      {
+        "name": "PROBE_RUNS",
+        "class_name": "ProbeRunDO"
       }
     ]
   },
@@ -39,6 +43,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["ProbeSessionDO"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["ProbeRunDO"]
     }
   ],
   "observability": {

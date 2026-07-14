@@ -7,12 +7,21 @@ and teardown requirements live in [`PLAN.md`](./PLAN.md).
 
 ## Current Slice
 
-`P06` is complete. It adds the optional sync-to-runtime rerun communication
-loop without introducing a real executor, transaction, or sync engine. `P07`
-is the next gate, but remains pending its own preflight and approval. The
-current app owns:
+`P07A` is complete locally. It wraps the existing P02-P06 communication shapes
+in durable per-cell run coordination without introducing a real executor,
+transaction, or sync engine. `P07B` remains a separately approved future gate.
+The current app owns:
 
-- a bearer-protected per-sample gateway with bounded streaming JSON reads;
+- bearer-protected run creation, run status, and compact per-sample commands
+  with bounded streaming JSON reads;
+- one SQLite `ProbeRunDO` per immutable scenario/dimension cell, with atomic
+  claims, opaque-token finalization fencing, exact retry idempotency, durable
+  partial state, and per-cell request/payload/journal/unique-code budgets;
+- server-derived warmup phase and synthetic payload, plus separate configured
+  concurrency and maximum outstanding claim-lifetime observations;
+- controlled sample metadata that keeps scenario-window duration outside the
+  topology spans, declares the external request control-plane-inclusive, and
+  separates warmup and duplicate-wake samples from eligible cohorts;
 - `edge_echo` and gateway-to-`ProbeSessionDO` round-trip samples;
 - a SQLite-backed `ProbeSessionDO` with untimed state controls for persistence,
   isolation, restart, and reset proofs;
@@ -61,11 +70,13 @@ current app owns:
 - cursor-preservation, same-identity normal cleanup replay, new-code isolation,
   missing-capability failure, and one-way binding-graph proofs in Miniflare.
 
-This slice is local and dry-run-only. Production remains blocked until `P07`
-adds server-owned run registration, atomic sample claims, aggregate budgets,
-observed concurrency enforcement, and idempotent purge. Normal cleanup is
-tested, but abrupt isolate termination can still leave tracked facet state;
-P06 makes no crash-durable cleanup claim.
+This slice is local and dry-run-only. Production remains blocked until `P07B`
+adds cross-run matrix/account budgeting, abandoned-claim reconciliation,
+machine-readable evidence export, and resumable idempotent purge. A RunDO owns
+only one run/cell and therefore cannot cap unlimited distinct run IDs. Normal
+facet cleanup is tested, but abrupt isolate termination can still leave tracked
+facet state; P07A deliberately leaves a lost in-flight sample visibly claimed
+instead of pretending its JavaScript call stack can resume.
 
 All durations are caller-local monotonic round trips. The protocol never
 subtracts absolute timestamps created by different isolates.
@@ -88,7 +99,9 @@ corepack pnpm --filter @flarex/runtime-topology-probe deploy:gateway:dry-run
 - `src/commitProtocol.ts` owns synthetic mock-read, mock-finish, sync-wake,
   cursor, and receipt contracts.
 - `src/runtimeProtocol.ts` owns per-sample gateway fragments and collector
-  completion.
+  completion plus control metadata kept outside topology spans.
+- `src/runProtocol.ts` owns strict run registration, claim, finalize, status,
+  budget, disposition, and controlled-sample contracts.
 - `src/dynamicProtocol.ts` owns the direct Worker wire contract and fixed
   capability-free source package.
 - `src/facetProtocol.ts` owns the strict facet/session wire contracts, logical
@@ -108,9 +121,12 @@ corepack pnpm --filter @flarex/runtime-topology-probe deploy:gateway:dry-run
 - `src/sessionDO.ts` owns supervisor routing, facet lifecycle, cleanup tracking,
   and isolated SQLite Durable Object control state. It never opens facet journal
   storage.
+- `src/probeRunDO.ts` owns one non-production SQLite run/cell coordinator and
+  never executes a probe scenario itself.
 - `src/mockCommitWorker.ts` owns the only synthetic finish-to-sync wake path.
 - `src/probeSyncDO.ts` and `src/syncWorker.ts` own the isolated synthetic cursor
   actor and its private deployable Worker.
 - `src/trace.ts` validates completeness, parentage, cycles, and outcome
   agreement for each scenario.
-- `src/statistics.ts` computes exact summaries without dropping failures.
+- `src/statistics.ts` computes exact disposition-aware summaries without
+  dropping eligible failures or mixing warmups/duplicate wakes into them.

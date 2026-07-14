@@ -5,6 +5,7 @@ import {
 } from "./runtimeRerunEntrypoint";
 
 export { ProbeSessionDO } from "./sessionDO";
+export { ProbeRunDO } from "./probeRunDO";
 export { ProbeRuntimeRerunEntrypoint } from "./runtimeRerunEntrypoint";
 
 const gateway = createProbeGatewayWorker();

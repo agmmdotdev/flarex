@@ -10,12 +10,19 @@ import {
 import {
   decodeProbeSampleResultV1Effect,
   probeSampleIdentityV1,
+  ProbeDurationMsSchema,
   PROBE_PROTOCOL_VERSION_V1,
   type ProbeSampleResultV1,
   type ProbeScenario,
   type ProbeSpanName,
 } from "../src/protocol";
 import { PROBE_SCENARIO_TOPOLOGY } from "../src/trace";
+import {
+  ProbeSampleControlV1Schema,
+  type ProbeControlledSampleResultV1,
+  type ProbeMeasurementDisposition,
+  type ProbeSyncWakeObservationV1,
+} from "../src/runtimeProtocol";
 
 const runId = Effect.runSync(decodeProbeRunIdEffect("test_run"));
 
@@ -72,6 +79,37 @@ export function validSample(
     ...overrides,
   };
   return Effect.runSync(decodeProbeSampleResultV1Effect(raw));
+}
+
+export function controlledSample(
+  sample: ProbeSampleResultV1,
+  overrides: {
+    readonly phase?: "measurement" | "warmup";
+    readonly measurementDisposition?: ProbeMeasurementDisposition;
+    readonly observedOutstandingClaims?: number;
+    readonly syncWake?: ProbeSyncWakeObservationV1;
+  } = {},
+): ProbeControlledSampleResultV1 {
+  const phase = overrides.phase ?? "measurement";
+  const syncWake = overrides.syncWake ??
+    (sample.scenario === "commit_wake" || sample.scenario === "full_invoke"
+      ? { kind: "observed", disposition: "applied" } as const
+      : { kind: "not-applicable" } as const);
+  const measurementDisposition = overrides.measurementDisposition ??
+    (phase === "warmup" ? "excluded-warmup" : "eligible");
+  return {
+    sample,
+    control: ProbeSampleControlV1Schema.make({
+      phase,
+      terminalState: sample.outcome.kind === "ok" ? "completed" : "failed",
+      measurementDisposition,
+      configuredConcurrency: sample.dimensions.concurrency,
+      observedOutstandingClaims: overrides.observedOutstandingClaims ?? 1,
+      scenarioWindowDurationMs: ProbeDurationMsSchema.make(1),
+      syncWake,
+      externalRequestIncludesControlPlane: true,
+    }),
+  };
 }
 
 function startupForScenario(scenario: ProbeScenario) {

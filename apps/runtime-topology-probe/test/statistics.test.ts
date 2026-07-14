@@ -11,7 +11,7 @@ import {
   summarizeProbeMeasurements,
   summarizeProbeSamples,
 } from "../src/statistics";
-import { validSample } from "./fixtures";
+import { controlledSample, validSample } from "./fixtures";
 
 const duration = (value: number) => ProbeDurationMsSchema.make(value);
 
@@ -80,7 +80,11 @@ describe("runtime topology probe statistics", () => {
       }),
     );
 
-    const summaries = summarizeProbeSamples([success, incomplete, failed]);
+    const summaries = summarizeProbeSamples([
+      controlledSample(success),
+      controlledSample(incomplete),
+      controlledSample(failed),
+    ]);
     const edgeSummary = summaries.find(
       summary => summary.cohort.scenario === "edge_echo",
     );
@@ -109,7 +113,10 @@ describe("runtime topology probe statistics", () => {
         payloadBytes: 128,
       },
     });
-    const summaries = summarizeProbeSamples([first, second]);
+    const summaries = summarizeProbeSamples([
+      controlledSample(first),
+      controlledSample(second),
+    ]);
 
     expect(summaries).toHaveLength(16);
     expect(
@@ -121,5 +128,33 @@ describe("runtime topology probe statistics", () => {
     expect(
       new Set(summaries.map(summary => summary.cohort.payloadBytes)),
     ).toEqual(new Set([0, 128]));
+  });
+
+  it("keeps duplicate wakes out of eligible latency cohorts", () => {
+    const sample = validSample("commit_wake");
+    const summaries = summarizeProbeSamples([
+      controlledSample(sample),
+      controlledSample(sample, {
+        measurementDisposition: "excluded-duplicate-wake",
+        syncWake: { kind: "observed", disposition: "duplicate" },
+      }),
+    ]);
+    const eligible = summaries.filter(
+      summary => summary.cohort.measurementDisposition === "eligible",
+    );
+    const duplicate = summaries.filter(
+      summary =>
+        summary.cohort.measurementDisposition === "excluded-duplicate-wake",
+    );
+
+    expect(eligible).toHaveLength(3);
+    expect(duplicate).toHaveLength(3);
+    expect(eligible.every(summary => summary.latency.count === 1)).toBe(true);
+    expect(duplicate.every(summary => summary.latency.count === 1)).toBe(true);
+    expect(eligible[0]?.cohort).toMatchObject({
+      configuredConcurrency: 1,
+      observedOutstandingClaims: 1,
+      phase: "measurement",
+    });
   });
 });

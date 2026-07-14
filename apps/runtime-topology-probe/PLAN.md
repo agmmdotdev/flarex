@@ -1,7 +1,7 @@
 # Runtime Topology Probe Turn Plan
 
-Status: experimental evidence plan; `P00` through `P06` complete. `P07`
-through `P11` remain pending their gate-specific preflight and approval.
+Status: experimental evidence plan; `P00` through `P07A` complete locally.
+`P07B` through `P11` remain pending their gate-specific preflight and approval.
 
 This file owns a bounded production probe for measuring Cloudflare runtime
 communication. It is local to `apps/runtime-topology-probe`; it is not an
@@ -178,10 +178,10 @@ version before the production matrix is registered.
   service bindings.
 - Bound repetitions, concurrency, payload bytes, journal entries, facets per
   session, and unique Dynamic Worker code IDs at the server boundary.
-- Gates `P02` through `P06` are local and dry-run-only. Production deployment
-  remains blocked until `P07` freezes a server-owned run record, atomically
-  claims its sample ordinals, enforces its total budget, and records observed
-  orchestration concurrency instead of trusting caller-declared cohort labels.
+- Gates `P02` through `P07A` are local and dry-run-only. Production deployment
+  remains blocked until `P07B` adds bounded cross-run orchestration, evidence
+  export, reconciliation, and resumable purge. `P07A` enforces budgets only for
+  one immutable run/cell; it is not an account-wide run-ID creation limit.
 - Set `globalOutbound: null` for loaded code. Pass only the narrow mock syscall
   capability required by the selected scenario.
 - A facet must never call back into the same supervisor while that supervisor
@@ -363,35 +363,75 @@ synthetic identity and observing a new facet-startup callback. It does not
 prove crash-durable cleanup: an isolate termination between facet creation and
 deletion could leave tracked state. Nor does P06 atomically claim its
 deterministic sample/session/attempt identity. Those limitations keep this a
-latency-topology experiment; `P07` must add sample claims, budgets, and
-idempotent purge before any production run.
+latency-topology experiment. `P07A` adds sample claims and per-cell budgets;
+`P07B` must still add reconciliation and idempotent purge before production.
 
 If Cloudflare's forwarded RPC capability cannot cross the complete local or
 hosted call chain, record that unsupported result directly. Do not substitute
 gateway polling because it would measure the opposite communication direction.
 
-### P07 - Harden Lifecycle, Cleanup, And Evidence Collection
+### P07A - Add Per-Cell Run Control And Measurement Integrity
+
+Status: complete locally; not deployed.
+
+Delivered:
+
+- one gateway-owned SQLite `ProbeRunDO` per immutable run ID, where a run is
+  exactly one scenario/dimension matrix cell;
+- authenticated create/status/sample routes and a compact public sample command
+  containing only protocol version, run ID, and sample ordinal;
+- server-loaded registration plus derived warmup phase, synthetic payload,
+  identities, and per-cell request/payload/journal/unique-code budgets;
+- atomic claim/finalize transitions, opaque claim-token fencing, exact
+  idempotent finalization, duplicate/excess rejection, and no claim reopening;
+- durable claimed/completed/failed sample state and raw controlled fragments;
+- maximum outstanding claim-lifetime observations per sample and per run,
+  kept separate from configured concurrency and explicitly not described as
+  exact simultaneous scenario CPU or I/O;
+- a gateway-local scenario-window duration outside the existing topology spans;
+  caller-measured `external_request` explicitly includes authentication,
+  parsing, claim, scenario execution, finalization, and response transfer;
+- explicit eligible, warmup-excluded, and duplicate-wake-excluded dispositions,
+  with applied/duplicate/gap/stale sync observations retained; and
+- sequential ordinal claims for `commit_wake` and `full_invoke`, whose synthetic
+  cursor protocol cannot safely classify reordered completion as ordinary
+  latency evidence.
+
+A crash after claim never makes JavaScript resumable and never reopens the
+ordinal. Status leaves that sample visibly claimed until the later
+reconciliation gate. A RunDO caps only its own cell; unlimited distinct run IDs
+remain a cross-run production-budget risk.
+
+Non-goals: purge, abandoned-run reconciliation, a local matrix runner,
+machine-readable evidence export, deployment, Postgres, OCC, executor logic,
+or production sync semantics.
+
+Proof: strict protocol tests; same-ordinal races; aggregate-budget accounting;
+claim-token and idempotent-finalize tests; observed-concurrency tests; restart
+persistence with an abandoned claim; public auth/registration/status tests;
+duplicate-wake cohort separation; P02-P06 regression tests; typecheck; local
+Miniflare; and all deployment dry-runs.
+
+### P07B - Add Reconciliation, Purge, Runner, And Evidence Export
 
 Status: pending preflight and approval.
 
 Deliver:
 
-- authenticated run/status/purge endpoints;
-- server-owned immutable run registration, atomic sample claims, duplicate and
-  excess-sample rejection, aggregate request/code budgets, and observed
-  concurrency labels;
-- rejection of retry/duplicate wake receipts from ordinary latency aggregates,
-  unless their disposition is retained as a separate explicitly labeled
-  cohort;
-- bounded concurrency and payload matrix;
-- machine-readable evidence artifact with secrets and payloads excluded;
-- facet deletion, DO storage purge, partial-run handling, and idempotent
-  teardown;
-- warm/new-session/new-attempt/bounded-new-code modes and explicit caveats for
-  hibernation/cold-start hints.
+- bounded local orchestration for the frozen cross-run scenario/dimension
+  matrix and its account-wide request/unique-code budget;
+- partial-run inspection and explicit abandoned-claim reconciliation without
+  pretending to resume a lost JavaScript call stack;
+- resumable, idempotent facet and Durable Object storage purge;
+- machine-readable raw evidence and derived summary artifacts with secrets,
+  claim tokens, and payloads excluded;
+- external-duration completion through the controlled collector contract; and
+- the final local matrix/cleanup rehearsal required before production preflight.
 
-Proof: limit abuse tests, cleanup/retry tests, full local matrix, typecheck,
-tests, and deploy dry-runs.
+Non-goals: deployment, Postgres, OCC, executor logic, or real sync behavior.
+
+Proof: reconciliation and retry tests, interrupted/resumed purge tests, full
+local matrix, schema-valid export, typecheck, tests, and deployment dry-runs.
 
 ### P08 - Production Deployment Preflight
 
@@ -466,8 +506,8 @@ teardown are complete.
 
 - Active goal: build and validate the isolated production runtime-topology
   probe through separately approved gates.
-- Current gate: `P07` research/preflight; implementation has not begun.
-- Next action: agree the smallest safe `P07` slice and obtain explicit
-  approval before implementation.
+- Current gate: `P07A` is complete locally; production remains blocked.
+- Next action: present the separate `P07B` preflight before implementing purge,
+  reconciliation, matrix orchestration, or evidence export.
 - Goal completion condition: production evidence and analysis are recorded and
   the approved cleanup/retention action is verified.

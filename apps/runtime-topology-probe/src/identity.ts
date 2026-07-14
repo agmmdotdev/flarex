@@ -14,6 +14,18 @@ export const ProbeRunIdSchema = Schema.String.check(
 ).pipe(Schema.brand("Flarex/RuntimeTopologyProbeRunIdV1"));
 export type ProbeRunId = typeof ProbeRunIdSchema.Type;
 
+export const ProbeRunActorIdSchema = Schema.String.check(
+  Schema.isPattern(/^rtp-run-[a-z0-9][a-z0-9_-]{0,39}$/),
+).pipe(Schema.brand("Flarex/RuntimeTopologyProbeRunActorIdV1"));
+export type ProbeRunActorId = typeof ProbeRunActorIdSchema.Type;
+
+export const ProbeClaimTokenSchema = Schema.String.check(
+  Schema.isPattern(
+    /^rtp-claim-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  ),
+).pipe(Schema.brand("Flarex/RuntimeTopologyProbeClaimTokenV1"));
+export type ProbeClaimToken = typeof ProbeClaimTokenSchema.Type;
+
 export const ProbeOrdinalSchema = Schema.Int.check(
   boundedOrdinalFilter,
 ).pipe(Schema.brand("Flarex/RuntimeTopologyProbeOrdinalV1"));
@@ -103,6 +115,14 @@ export const decodeProbeOrdinalEffect = Effect.fn(
 
 export function probeScopeId(runId: ProbeRunId): ProbeScopeId {
   return ProbeScopeIdSchema.make(`rtp-scope-${runId}`);
+}
+
+export function probeRunActorId(runId: ProbeRunId): ProbeRunActorId {
+  return ProbeRunActorIdSchema.make(`rtp-run-${runId}`);
+}
+
+export function newProbeClaimToken(): ProbeClaimToken {
+  return ProbeClaimTokenSchema.make(`rtp-claim-${crypto.randomUUID()}`);
 }
 
 export function probeSampleId(

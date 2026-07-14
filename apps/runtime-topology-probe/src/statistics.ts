@@ -1,11 +1,14 @@
 import type {
   ProbeCallbackObservation,
   ProbeDurationMs,
-  ProbeSampleResultV1,
   ProbeScenario,
   ProbeSessionMode,
   ProbeSpanName,
 } from "./protocol";
+import type {
+  ProbeControlledSampleResultV1,
+  ProbeMeasurementDisposition,
+} from "./runtimeProtocol";
 import {
   PROBE_SCENARIO_TOPOLOGY,
   validateProbeTraceV1,
@@ -40,7 +43,10 @@ export interface ProbeCohortKeyV1 {
   readonly spanName: ProbeSpanName;
   readonly codeMode: ProbeCodeMode;
   readonly sessionMode: ProbeSessionMode;
-  readonly concurrency: number;
+  readonly configuredConcurrency: number;
+  readonly observedOutstandingClaims: number;
+  readonly phase: ProbeControlledSampleResultV1["control"]["phase"];
+  readonly measurementDisposition: ProbeMeasurementDisposition;
   readonly journalEntries: number;
   readonly payloadBytes: number;
   readonly edgeColo: string | null;
@@ -83,7 +89,7 @@ export function summarizeProbeMeasurements(
 }
 
 export function summarizeProbeSamples(
-  samples: readonly ProbeSampleResultV1[],
+  samples: readonly ProbeControlledSampleResultV1[],
 ): readonly ProbeHopLatencySummaryV1[] {
   const cohorts = new Map<
     string,
@@ -92,10 +98,11 @@ export function summarizeProbeSamples(
       readonly measurements: ProbeMeasurement[];
     }
   >();
-  for (const sample of samples) {
+  for (const controlled of samples) {
+    const sample = controlled.sample;
     const traceValid = validateProbeTraceV1(sample).ok;
     for (const [spanName] of PROBE_SCENARIO_TOPOLOGY[sample.scenario]) {
-      const cohort = cohortKey(sample, spanName);
+      const cohort = cohortKey(controlled, spanName);
       const serialized = serializeCohortKey(cohort);
       const existing = cohorts.get(serialized);
       const bucket = existing ?? { cohort, measurements: [] };
@@ -116,7 +123,7 @@ export function summarizeProbeSamples(
 }
 
 function spanMeasurement(
-  sample: ProbeSampleResultV1,
+  sample: ProbeControlledSampleResultV1["sample"],
   spanName: ProbeSpanName,
 ): ProbeMeasurement {
   const span = sample.spans.find(candidate => candidate.name === spanName);
@@ -126,15 +133,20 @@ function spanMeasurement(
 }
 
 function cohortKey(
-  sample: ProbeSampleResultV1,
+  controlled: ProbeControlledSampleResultV1,
   spanName: ProbeSpanName,
 ): ProbeCohortKeyV1 {
+  const sample = controlled.sample;
   return {
     scenario: sample.scenario,
     spanName,
     codeMode: sample.dimensions.codeMode,
     sessionMode: sample.dimensions.sessionMode,
-    concurrency: sample.dimensions.concurrency,
+    configuredConcurrency: controlled.control.configuredConcurrency,
+    observedOutstandingClaims:
+      controlled.control.observedOutstandingClaims,
+    phase: controlled.control.phase,
+    measurementDisposition: controlled.control.measurementDisposition,
     journalEntries: sample.dimensions.journalEntries,
     payloadBytes: sample.dimensions.payloadBytes,
     edgeColo: sample.edgeColo,
@@ -149,7 +161,10 @@ function serializeCohortKey(cohort: ProbeCohortKeyV1): string {
     cohort.spanName,
     cohort.codeMode,
     cohort.sessionMode,
-    cohort.concurrency,
+    cohort.configuredConcurrency,
+    cohort.observedOutstandingClaims,
+    cohort.phase,
+    cohort.measurementDisposition,
     cohort.journalEntries,
     cohort.payloadBytes,
     cohort.edgeColo,

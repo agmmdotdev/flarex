@@ -54,6 +54,12 @@ export const ProbeScenarioSchema = Schema.Literals([
 ]);
 export type ProbeScenario = typeof ProbeScenarioSchema.Type;
 
+export const ProbeSamplePhaseSchema = Schema.Literals([
+  "warmup",
+  "measurement",
+]);
+export type ProbeSamplePhase = typeof ProbeSamplePhaseSchema.Type;
+
 export const ProbeSessionModeSchema = Schema.Literals([
   "reuse-session",
   "new-session",
@@ -164,6 +170,9 @@ export const ProbeRunRequestV1Schema = ProbeRunRequestV1Shape.check(
       request.dimensions,
     );
     if (dimensionIssue !== undefined) return dimensionIssue;
+    if (request.dimensions.concurrency > request.repetitions) {
+      return "concurrency cannot exceed measured repetitions";
+    }
     if (request.dimensions.codeMode !== "new-code") return undefined;
     if (request.warmupRepetitions !== 0) {
       return "new-code mode does not allow warmup repetitions";
@@ -534,6 +543,12 @@ export function probeDimensionRelationshipIssueV1(
   }
   if (scenario === "sync_rerun" && dimensions.sessionMode !== "new-session") {
     return "sync_rerun requires a fresh session";
+  }
+  if (
+    (scenario === "commit_wake" || scenario === "full_invoke") &&
+    dimensions.concurrency !== 1
+  ) {
+    return `${scenario} requires concurrency 1 because synthetic sync commits must finish in ordinal order`;
   }
 
   const usesJournal =

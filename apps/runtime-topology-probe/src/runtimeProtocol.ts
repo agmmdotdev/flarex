@@ -1,5 +1,8 @@
 import { Data, Effect, Schema } from "effect";
 
+import { ProbeSyncDispositionSchema } from "./commitProtocol";
+import { strictSchemaValueOrNullDecoder } from "./effectBoundary";
+
 import {
   probeSampleId,
   probeSpanId,
@@ -12,6 +15,7 @@ import {
 import {
   probeSampleIdentityV1,
   probeDimensionRelationshipIssueV1,
+  PROBE_LIMITS_V1,
   ProbeDimensionsV1Schema,
   ProbeDurationMsSchema,
   ProbeEdgeColoSchema,
@@ -21,12 +25,14 @@ import {
   ProbeSampleIdentityV1Schema,
   ProbeSampleOutcomeV1Schema,
   ProbeSampleResultV1Schema,
+  ProbeSamplePhaseSchema,
   ProbeScenarioSchema,
   ProbeStartupObservationsV1Schema,
   ProbeTraceSpanV1Schema,
   type ProbeNormalizedErrorV1,
   type ProbeRunRequestV1,
   type ProbeSampleOutcomeV1,
+  type ProbeSamplePhase,
   type ProbeSampleResultV1,
   type ProbeStartupObservationsV1,
   type ProbeTraceSpanV1,
@@ -40,12 +46,6 @@ const StrictParseOptions = { onExcessProperty: "error" } as const;
 const SyntheticPayloadSchema = Schema.String.check(
   Schema.isPattern(/^x*$/),
 );
-
-export const ProbeSamplePhaseSchema = Schema.Literals([
-  "warmup",
-  "measurement",
-]);
-export type ProbeSamplePhase = typeof ProbeSamplePhaseSchema.Type;
 
 const ProbeGatewaySampleRequestV1Shape = Schema.Struct({
   run: ProbeRunRequestV1Schema,
@@ -96,10 +96,98 @@ export const ProbeGatewaySampleV1Schema = ProbeGatewaySampleV1Shape.check(
 );
 export type ProbeGatewaySampleV1 = typeof ProbeGatewaySampleV1Schema.Type;
 
+export const ProbeMeasurementDispositionSchema = Schema.Literals([
+  "eligible",
+  "excluded-warmup",
+  "excluded-duplicate-wake",
+]);
+export type ProbeMeasurementDisposition =
+  typeof ProbeMeasurementDispositionSchema.Type;
+
+export const ProbeSyncWakeObservationV1Schema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("not-applicable") }).annotate(
+    StrictStructOptions,
+  ),
+  Schema.Struct({ kind: Schema.Literal("unobserved") }).annotate(
+    StrictStructOptions,
+  ),
+  Schema.Struct({
+    kind: Schema.Literal("observed"),
+    disposition: ProbeSyncDispositionSchema,
+  }).annotate(StrictStructOptions),
+]);
+export type ProbeSyncWakeObservationV1 =
+  typeof ProbeSyncWakeObservationV1Schema.Type;
+export const decodeProbeSyncWakeObservationV1OrNull =
+  strictSchemaValueOrNullDecoder(ProbeSyncWakeObservationV1Schema);
+
+const ObservedOutstandingClaimsSchema = Schema.Int.check(
+  Schema.makeFilter((value: number) =>
+    value >= 1 && value <= PROBE_LIMITS_V1.maxConcurrency
+      ? undefined
+      : `observedOutstandingClaims must be an integer from 1 through ${PROBE_LIMITS_V1.maxConcurrency}`
+  ),
+);
+const ConfiguredConcurrencySchema = Schema.Int.check(
+  Schema.makeFilter((value: number) =>
+    value >= 1 && value <= PROBE_LIMITS_V1.maxConcurrency
+      ? undefined
+      : `configuredConcurrency must be an integer from 1 through ${PROBE_LIMITS_V1.maxConcurrency}`
+  ),
+);
+
+const ProbeSampleControlV1Shape = Schema.Struct({
+  phase: ProbeSamplePhaseSchema,
+  terminalState: Schema.Literals(["completed", "failed"]),
+  measurementDisposition: ProbeMeasurementDispositionSchema,
+  configuredConcurrency: ConfiguredConcurrencySchema,
+  observedOutstandingClaims: ObservedOutstandingClaimsSchema,
+  scenarioWindowDurationMs: ProbeDurationMsSchema,
+  syncWake: ProbeSyncWakeObservationV1Schema,
+  externalRequestIncludesControlPlane: Schema.Literal(true),
+}).annotate(StrictStructOptions);
+
+export const ProbeSampleControlV1Schema = ProbeSampleControlV1Shape.check(
+  Schema.makeFilter(control => sampleControlRelationshipIssue(control)),
+);
+export type ProbeSampleControlV1 = typeof ProbeSampleControlV1Schema.Type;
+
+const ProbeControlledGatewaySampleV1Shape = Schema.Struct({
+  fragment: ProbeGatewaySampleV1Schema,
+  control: ProbeSampleControlV1Schema,
+}).annotate(StrictStructOptions);
+
+export const ProbeControlledGatewaySampleV1Schema =
+  ProbeControlledGatewaySampleV1Shape.check(
+    Schema.makeFilter(value =>
+      controlledSampleRelationshipIssue(value.fragment, value.control)
+    ),
+  );
+export type ProbeControlledGatewaySampleV1 =
+  typeof ProbeControlledGatewaySampleV1Schema.Type;
+
+const ProbeControlledSampleResultV1Shape = Schema.Struct({
+  sample: ProbeSampleResultV1Schema,
+  control: ProbeSampleControlV1Schema,
+}).annotate(StrictStructOptions);
+
+export const ProbeControlledSampleResultV1Schema =
+  ProbeControlledSampleResultV1Shape.check(
+    Schema.makeFilter(value =>
+      controlledSampleRelationshipIssue(value.sample, value.control)
+    ),
+  );
+export type ProbeControlledSampleResultV1 =
+  typeof ProbeControlledSampleResultV1Schema.Type;
+
 export class ProbeRuntimeProtocolValidationError extends Data.TaggedError(
   "ProbeRuntimeProtocolValidationError",
 )<{
-  readonly boundary: "gateway-sample-request-v1" | "gateway-sample-v1";
+  readonly boundary:
+    | "gateway-sample-request-v1"
+    | "gateway-sample-v1"
+    | "controlled-gateway-sample-v1"
+    | "controlled-sample-result-v1";
   readonly cause: unknown;
 }> {}
 
@@ -109,6 +197,14 @@ const decodeUnknownGatewaySampleRequest = Schema.decodeUnknownEffect(
 );
 const decodeUnknownGatewaySample = Schema.decodeUnknownEffect(
   ProbeGatewaySampleV1Schema,
+  StrictParseOptions,
+);
+const decodeUnknownControlledGatewaySample = Schema.decodeUnknownEffect(
+  ProbeControlledGatewaySampleV1Schema,
+  StrictParseOptions,
+);
+const decodeUnknownControlledSampleResult = Schema.decodeUnknownEffect(
+  ProbeControlledSampleResultV1Schema,
   StrictParseOptions,
 );
 
@@ -138,6 +234,32 @@ export const decodeProbeGatewaySampleV1Effect = Effect.fn(
     ),
   ));
 
+export const decodeProbeControlledGatewaySampleV1Effect = Effect.fn(
+  "RuntimeTopologyProbe.decodeControlledGatewaySampleV1",
+)((value: unknown) =>
+  decodeUnknownControlledGatewaySample(value).pipe(
+    Effect.mapError(
+      cause =>
+        new ProbeRuntimeProtocolValidationError({
+          boundary: "controlled-gateway-sample-v1",
+          cause,
+        }),
+    ),
+  ));
+
+export const decodeProbeControlledSampleResultV1Effect = Effect.fn(
+  "RuntimeTopologyProbe.decodeControlledSampleResultV1",
+)((value: unknown) =>
+  decodeUnknownControlledSampleResult(value).pipe(
+    Effect.mapError(
+      cause =>
+        new ProbeRuntimeProtocolValidationError({
+          boundary: "controlled-sample-result-v1",
+          cause,
+        }),
+    ),
+  ));
+
 export function completeProbeGatewaySampleV1(
   gatewaySample: ProbeGatewaySampleV1,
   externalDurationMs: number,
@@ -163,6 +285,105 @@ export function completeProbeGatewaySampleV1(
     outcome: gatewaySample.outcome,
     spans: [externalSpan, ...gatewaySample.spans],
   });
+}
+
+export function completeControlledProbeGatewaySampleV1(
+  gatewaySample: ProbeControlledGatewaySampleV1,
+  externalDurationMs: number,
+): ProbeControlledSampleResultV1 {
+  return ProbeControlledSampleResultV1Schema.make({
+    sample: completeProbeGatewaySampleV1(
+      gatewaySample.fragment,
+      externalDurationMs,
+    ),
+    control: gatewaySample.control,
+  });
+}
+
+export function controlledProbeGatewaySampleV1(
+  fragment: ProbeGatewaySampleV1,
+  control: ProbeSampleControlV1,
+): ProbeControlledGatewaySampleV1 {
+  return ProbeControlledGatewaySampleV1Schema.make({ fragment, control });
+}
+
+export function probeSyncWakeRelationshipIssueV1(
+  sample: Pick<ProbeGatewaySampleV1, "scenario" | "outcome">,
+  syncWake: ProbeSyncWakeObservationV1,
+): string | undefined {
+  const wakeScenario =
+    sample.scenario === "commit_wake" || sample.scenario === "full_invoke";
+  if (!wakeScenario) {
+    return syncWake.kind === "not-applicable"
+      ? undefined
+      : `${sample.scenario} cannot report a sync wake observation`;
+  }
+  if (syncWake.kind === "not-applicable") {
+    return `${sample.scenario} must report an observed or unobserved sync wake`;
+  }
+  if (sample.outcome.kind === "ok") {
+    return syncWake.kind === "observed" &&
+        (syncWake.disposition === "applied" ||
+          syncWake.disposition === "duplicate")
+      ? undefined
+      : `successful ${sample.scenario} requires an applied or duplicate wake`;
+  }
+  if (syncWake.kind === "unobserved") {
+    const preReceiptStage = sample.scenario === "commit_wake"
+      ? "mock_sync_wake_rtt"
+      : "gateway_session_rtt";
+    return sample.outcome.error.stage === "request" ||
+        sample.outcome.error.stage === preReceiptStage
+      ? undefined
+      : `unobserved ${sample.scenario} wakes require a pre-receipt failure`;
+  }
+  if (
+    (syncWake.disposition === "gap" || syncWake.disposition === "stale") &&
+    sample.outcome.error.stage === "sync_cursor_io"
+  ) {
+    return undefined;
+  }
+  return `failed ${sample.scenario} wake evidence must identify a gap or stale sync-cursor failure`;
+}
+
+function sampleControlRelationshipIssue(
+  control: typeof ProbeSampleControlV1Shape.Type,
+): string | undefined {
+  if (control.observedOutstandingClaims > control.configuredConcurrency) {
+    return "observed outstanding claims cannot exceed configured concurrency";
+  }
+  if (control.phase === "warmup") {
+    return control.measurementDisposition === "excluded-warmup"
+      ? undefined
+      : "warmup samples must be excluded from measurement aggregates";
+  }
+  if (
+    control.syncWake.kind === "observed" &&
+    control.syncWake.disposition === "duplicate"
+  ) {
+    return control.measurementDisposition === "excluded-duplicate-wake"
+      ? undefined
+      : "measured duplicate wakes must use the duplicate-wake disposition";
+  }
+  return control.measurementDisposition === "eligible"
+    ? undefined
+    : "ordinary measured samples must be aggregate eligible";
+}
+
+function controlledSampleRelationshipIssue(
+  sample: ProbeGatewaySampleV1 | ProbeSampleResultV1,
+  control: ProbeSampleControlV1,
+): string | undefined {
+  if (control.configuredConcurrency !== sample.dimensions.concurrency) {
+    return "configuredConcurrency must match the registered sample dimensions";
+  }
+  if (
+    control.terminalState !==
+      (sample.outcome.kind === "ok" ? "completed" : "failed")
+  ) {
+    return "terminalState must match the sample outcome";
+  }
+  return probeSyncWakeRelationshipIssueV1(sample, control.syncWake);
 }
 
 function gatewaySampleRelationshipIssue(
@@ -200,9 +421,10 @@ function gatewaySampleRelationshipIssue(
     case "edge_echo":
       return hasNoStartupCallbacks(sample.startup) &&
           sample.spans.length === 0 &&
-          sample.outcome.kind === "ok"
+          (sample.outcome.kind === "ok" ||
+            sample.outcome.error.stage === "request")
         ? undefined
-        : "edge_echo must return one successful rootless gateway sample";
+        : "edge_echo must return one rootless gateway sample";
     case "session_echo":
       return hasNoStartupCallbacks(sample.startup)
         ? sessionEchoRelationshipIssue(sample)
@@ -307,9 +529,6 @@ function hasFacetStartupObservations(
 function facetRelationshipIssue(
   sample: typeof ProbeGatewaySampleV1Shape.Type,
 ): string | undefined {
-  if (sample.outcome.kind !== "ok") {
-    return `${sample.scenario} gateway fragments require a fully observed successful call`;
-  }
   const expected = sample.scenario === "facet_journal"
     ? [
         ["gateway_session_rtt", 1, 0],
@@ -320,6 +539,9 @@ function facetRelationshipIssue(
         ["gateway_session_rtt", 1, 0],
         ["session_facet_rtt", 2, 1],
       ] as const;
+  if (sample.outcome.kind !== "ok") {
+    return nestedSpanTreeIssue(sample, expected);
+  }
   if (sample.spans.length !== expected.length) {
     return `${sample.scenario} must return every completed nested round trip`;
   }

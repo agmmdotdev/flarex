@@ -25,7 +25,10 @@ import {
 import {
   probeSampleId,
   probeSpanId,
+  probeRunActorId,
+  decodeProbeRunIdEffect,
   ProbeOrdinalSchema,
+  type ProbeRunId,
 } from "./identity";
 import {
   decodeProbeFullInvokeSessionFailureV1OrNull,
@@ -50,7 +53,7 @@ import {
 } from "./http";
 import {
   probeSampleIdentityV1,
-  PROBE_LIMITS_V1,
+  decodeProbeRunRequestV1Effect,
   PROBE_PROTOCOL_VERSION_V1,
   ProbeDurationMsSchema,
   ProbeTraceSpanV1Schema,
@@ -60,11 +63,30 @@ import {
   type ProbeTraceSpanV1,
 } from "./protocol";
 import {
-  decodeProbeGatewaySampleRequestV1Effect,
   gatewaySampleFromRun,
+  ProbeGatewaySampleRequestV1Schema,
   type ProbeGatewaySampleV1,
   type ProbeGatewaySampleRequestV1,
+  type ProbeSyncWakeObservationV1,
 } from "./runtimeProtocol";
+import type { ProbeRunDO } from "./probeRunDO";
+import {
+  decodeProbePublicSampleRequestV1Effect,
+  decodeProbeRunRegistrationReceiptV1OrNull,
+  decodeProbeRunStatusReceiptV1OrNull,
+  decodeProbeSampleClaimReceiptV1OrNull,
+  decodeProbeSampleFinalizeReceiptV1OrNull,
+  canonicalProbeRunRequestV1,
+  ProbeRunStatusRequestV1Schema,
+  ProbeSampleFinalizeRequestV1Schema,
+  type ProbePublicSampleRequestV1,
+  type ProbeRunRegistrationReceiptV1,
+  type ProbeRunStatusReceiptV1,
+  type ProbeRunStateErrorV1,
+  type ProbeSampleClaimReceiptV1,
+  type ProbeSampleFinalizeRequestV1,
+  type ProbeSampleFinalizeReceiptV1,
+} from "./runProtocol";
 import {
   decodeProbeSessionEchoResponseV1Effect,
   ProbeSessionEchoRequestV1Schema,
@@ -81,6 +103,7 @@ import {
 import type { ProbeRuntimeRerunCapability } from "./runtimeRerunEntrypoint";
 
 export interface ProbeGatewayEnv extends ProbeSessionEnv {
+  readonly PROBE_RUNS: DurableObjectNamespace<ProbeRunDO>;
   readonly PROBE_SESSIONS: DurableObjectNamespace<ProbeSessionDO>;
   readonly LOADER?: WorkerLoader;
   readonly MOCK_FINISH?: Service<typeof MockFinishEntrypoint>;
@@ -102,8 +125,9 @@ export type ProbeRuntimeRerunCapabilityFactory = (
 ) => ProbeRuntimeRerunCapability;
 
 export const PROBE_SAMPLE_ROUTE = "/v1/samples";
-export const PROBE_PUBLIC_BODY_MAX_BYTES =
-  PROBE_LIMITS_V1.maxPayloadBytes + 8_192;
+export const PROBE_RUN_ROUTE = "/v1/runs";
+export const PROBE_PUBLIC_BODY_MAX_BYTES = 8_192;
+const PROBE_SAMPLE_BODY_MAX_BYTES = 1_024;
 const PROBE_INTERNAL_RESPONSE_MAX_BYTES = 8_192;
 
 export type ProbeRuntimeFailureSource =
@@ -123,166 +147,365 @@ export function createProbeGatewayWorker(): ProbeGatewayWorker {
       }
 
       const pathname = new URL(request.url).pathname;
-      if (pathname !== PROBE_SAMPLE_ROUTE) {
-        return gatewayError("invalid_request", 404);
+      if (pathname === PROBE_RUN_ROUTE) {
+        return await registerProbeRun(request, env);
       }
-      if (request.method !== "POST") {
-        return gatewayError("invalid_request", 405);
+      const statusRunId = await runIdFromStatusPath(pathname);
+      if (statusRunId !== null) {
+        return await readProbeRunStatus(request, env, statusRunId);
       }
-      if (!isJsonContentType(request.headers.get("content-type"))) {
-        return gatewayError("invalid_request", 415);
-      }
-
-      const body = await readBoundedJson(
-        request,
-        PROBE_PUBLIC_BODY_MAX_BYTES,
-      );
-      if (!body.ok) {
-        return gatewayError(
-          body.reason === "body_too_large"
-            ? "limit_exceeded"
-            : "invalid_request",
-          body.reason === "body_too_large" ? 413 : 400,
+      if (pathname === PROBE_SAMPLE_ROUTE) {
+        return await executeClaimedSample(
+          request,
+          env,
+          createRuntimeRerunCapability,
         );
       }
-      const sampleRequest = await decodeSampleRequest(body.value);
-      if (sampleRequest === null) {
-        return gatewayError("invalid_request", 400);
-      }
-      if (
-        sampleRequest.run.scenario !== "edge_echo" &&
-        sampleRequest.run.scenario !== "session_echo" &&
-        sampleRequest.run.scenario !== "dynamic_direct_echo" &&
-        sampleRequest.run.scenario !== "facet_echo" &&
-        sampleRequest.run.scenario !== "facet_journal" &&
-        sampleRequest.run.scenario !== "commit_wake" &&
-        sampleRequest.run.scenario !== "full_invoke" &&
-        sampleRequest.run.scenario !== "sync_rerun"
-      ) {
-        return gatewayError("unsupported_scenario", 422);
-      }
-      const edgeColo = requestColo(request);
-      switch (sampleRequest.run.scenario) {
-        case "edge_echo":
-          return noStoreJson(
-            gatewaySampleFromRun(
-              sampleRequest.run,
-              sampleRequest.sampleOrdinal,
-              {
-                edgeColo,
-                outcome: { kind: "ok" },
-                spans: [],
-              },
-            ),
-          );
-        case "session_echo":
-          return noStoreJson(
-            await executeSessionEcho(env, sampleRequest, edgeColo),
-          );
-        case "dynamic_direct_echo":
-          if (env.LOADER === undefined) {
-            return gatewayError("runtime_failure", 500);
-          }
-          return noStoreJson(
+      return gatewayError("invalid_request", 404);
+    },
+  };
+}
+
+interface ProbeScenarioExecution {
+  readonly fragment: ProbeGatewaySampleV1;
+  readonly syncWake: ProbeSyncWakeObservationV1;
+}
+
+async function registerProbeRun(
+  request: Request,
+  env: ProbeGatewayEnv,
+): Promise<Response> {
+  if (request.method !== "POST") {
+    return gatewayError("invalid_request", 405);
+  }
+  if (!isJsonContentType(request.headers.get("content-type"))) {
+    return gatewayError("invalid_request", 415);
+  }
+  const body = await readBoundedJson(request, PROBE_PUBLIC_BODY_MAX_BYTES);
+  if (!body.ok) return publicBodyError(body.reason);
+  const run = await protocolValueOrNull(
+    decodeProbeRunRequestV1Effect(body.value),
+  );
+  if (run === null) return gatewayError("invalid_request", 400);
+  let rawReceipt: unknown;
+  try {
+    rawReceipt = await env.PROBE_RUNS.getByName(probeRunActorId(run.runId))
+      .register(run);
+  } catch {
+    return gatewayError("runtime_failure", 502);
+  }
+  const receipt = decodeProbeRunRegistrationReceiptV1OrNull(
+    copyCloudflareRpcRecord(rawReceipt),
+  );
+  if (receipt === null) return gatewayError("runtime_failure", 502);
+  if (receipt.kind === "rejected") {
+    return noStoreJson(receipt, runStateHttpStatus(receipt.error));
+  }
+  if (!probeRegisteredRunReceiptMatchesRequest(receipt, run)) {
+    return gatewayError("runtime_failure", 502);
+  }
+  return noStoreJson(receipt, receipt.created ? 201 : 200);
+}
+
+async function readProbeRunStatus(
+  request: Request,
+  env: ProbeGatewayEnv,
+  runId: ProbeRunId,
+): Promise<Response> {
+  if (request.method !== "GET") {
+    return gatewayError("invalid_request", 405);
+  }
+  const statusRequest = ProbeRunStatusRequestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    runId,
+  });
+  let rawReceipt: unknown;
+  try {
+    rawReceipt = await env.PROBE_RUNS.getByName(probeRunActorId(runId))
+      .status(statusRequest);
+  } catch {
+    return gatewayError("runtime_failure", 502);
+  }
+  const receipt = decodeProbeRunStatusReceiptV1OrNull(
+    copyCloudflareRpcRecord(rawReceipt),
+  );
+  if (receipt === null) return gatewayError("runtime_failure", 502);
+  if (
+    receipt.kind === "found" &&
+    !probeRunStatusReceiptMatchesRequest(receipt, statusRequest)
+  ) {
+    return gatewayError("runtime_failure", 502);
+  }
+  return noStoreJson(receipt, receipt.kind === "found" ? 200 : 404);
+}
+
+async function executeClaimedSample(
+  request: Request,
+  env: ProbeGatewayEnv,
+  createRuntimeRerunCapability: ProbeRuntimeRerunCapabilityFactory | undefined,
+): Promise<Response> {
+  if (request.method !== "POST") {
+    return gatewayError("invalid_request", 405);
+  }
+  if (!isJsonContentType(request.headers.get("content-type"))) {
+    return gatewayError("invalid_request", 415);
+  }
+  const body = await readBoundedJson(request, PROBE_SAMPLE_BODY_MAX_BYTES);
+  if (!body.ok) return publicBodyError(body.reason);
+  const publicRequest = await protocolValueOrNull(
+    decodeProbePublicSampleRequestV1Effect(body.value),
+  );
+  if (publicRequest === null) return gatewayError("invalid_request", 400);
+  const runStub = env.PROBE_RUNS.getByName(
+    probeRunActorId(publicRequest.runId),
+  );
+  let rawClaim: unknown;
+  try {
+    rawClaim = await runStub.claim(publicRequest);
+  } catch {
+    return gatewayError("runtime_failure", 502);
+  }
+  const claim = decodeProbeSampleClaimReceiptV1OrNull(
+    copyCloudflareRpcRecord(rawClaim),
+  );
+  if (claim === null) return gatewayError("runtime_failure", 502);
+  if (claim.kind === "rejected") {
+    return noStoreJson(claim, runStateHttpStatus(claim.error));
+  }
+  if (!probeSampleClaimReceiptMatchesRequest(claim, publicRequest)) {
+    return gatewayError("runtime_failure", 502);
+  }
+  const sampleRequest = ProbeGatewaySampleRequestV1Schema.make({
+    run: claim.run,
+    sampleOrdinal: claim.sampleOrdinal,
+    phase: claim.phase,
+    payload: "x".repeat(claim.run.dimensions.payloadBytes),
+  });
+  const edgeColo = requestColo(request);
+  const scenarioStartedAt = performance.now();
+  let execution: ProbeScenarioExecution;
+  try {
+    execution = await executeRegisteredScenario(
+      env,
+      sampleRequest,
+      edgeColo,
+      createRuntimeRerunCapability,
+    );
+  } catch {
+    execution = failedScenarioExecution(sampleRequest, edgeColo);
+  }
+  const scenarioWindowDurationMs = elapsedSince(scenarioStartedAt);
+  const finalizeRequest = ProbeSampleFinalizeRequestV1Schema.make({
+    protocolVersion: publicRequest.protocolVersion,
+    runId: publicRequest.runId,
+    sampleOrdinal: publicRequest.sampleOrdinal,
+    claimToken: claim.claimToken,
+    fragment: execution.fragment,
+    scenarioWindowDurationMs: ProbeDurationMsSchema.make(
+      scenarioWindowDurationMs,
+    ),
+    syncWake: execution.syncWake,
+  });
+  let rawFinalization: unknown;
+  try {
+    rawFinalization = await runStub.finalize(finalizeRequest);
+  } catch {
+    return gatewayError("runtime_failure", 502);
+  }
+  const finalization = decodeProbeSampleFinalizeReceiptV1OrNull(
+    copyCloudflareRpcRecord(rawFinalization),
+  );
+  if (finalization === null) return gatewayError("runtime_failure", 502);
+  if (finalization.kind === "rejected") {
+    return noStoreJson(
+      finalization,
+      runStateHttpStatus(finalization.error),
+    );
+  }
+  if (
+    !probeSampleFinalizeReceiptMatchesRequest(
+      finalization,
+      finalizeRequest,
+      claim,
+    )
+  ) {
+    return gatewayError("runtime_failure", 502);
+  }
+  return noStoreJson(finalization.sample);
+}
+
+async function executeRegisteredScenario(
+  env: ProbeGatewayEnv,
+  sampleRequest: ProbeGatewaySampleRequestV1,
+  edgeColo: string | null,
+  createRuntimeRerunCapability: ProbeRuntimeRerunCapabilityFactory | undefined,
+): Promise<ProbeScenarioExecution> {
+  switch (sampleRequest.run.scenario) {
+    case "edge_echo":
+      return ordinaryExecution(
+        gatewaySampleFromRun(
+          sampleRequest.run,
+          sampleRequest.sampleOrdinal,
+          { edgeColo, outcome: { kind: "ok" }, spans: [] },
+        ),
+      );
+    case "session_echo":
+      return ordinaryExecution(
+        await executeSessionEcho(env, sampleRequest, edgeColo),
+      );
+    case "dynamic_direct_echo":
+      return env.LOADER === undefined
+        ? failedScenarioExecution(sampleRequest, edgeColo)
+        : ordinaryExecution(
             await executeDynamicDirectEcho(
               env.LOADER,
               sampleRequest,
               edgeColo,
             ),
           );
-        case "facet_echo":
-        case "facet_journal": {
-          if (env.LOADER === undefined) {
-            return gatewayError("runtime_failure", 500);
-          }
-          const result = await executeFacetScenario(
-            env,
-            sampleRequest,
-            edgeColo,
-          );
-          return result instanceof Response ? result : noStoreJson(result);
-        }
-        case "commit_wake": {
-          if (env.MOCK_FINISH === undefined) {
-            return noStoreJson(
-              failedNestedSample(
-                sampleRequest,
-                edgeColo,
-                runtimeError("request", false),
-              ),
-            );
-          }
-          const result = await executeCommitWake(
+    case "facet_echo":
+    case "facet_journal": {
+      if (env.LOADER === undefined) {
+        return failedScenarioExecution(sampleRequest, edgeColo);
+      }
+      return ordinaryExecution(
+        await executeFacetScenario(env, sampleRequest, edgeColo),
+      );
+    }
+    case "commit_wake":
+      return env.MOCK_FINISH === undefined
+        ? failedScenarioExecution(sampleRequest, edgeColo)
+        : await executeCommitWake(
             env.MOCK_FINISH,
             sampleRequest,
             edgeColo,
           );
-          return result instanceof Response ? result : noStoreJson(result);
-        }
-        case "full_invoke": {
-          if (
-            env.LOADER === undefined ||
-            env.MOCK_READ === undefined ||
-            env.MOCK_FINISH === undefined
-          ) {
-            return noStoreJson(
-              failedNestedSample(
-                sampleRequest,
-                edgeColo,
-                runtimeError("request", false),
-                [],
-                {
-                  workerLoader: "callback-not-run",
-                  facet: "callback-not-run",
-                },
-              ),
-            );
-          }
-          const result = await executeFullInvokeScenario(
-            env,
-            sampleRequest,
-            edgeColo,
-          );
-          return result instanceof Response ? result : noStoreJson(result);
-        }
-        case "sync_rerun": {
-          if (
-            env.LOADER === undefined ||
-            env.MOCK_RERUN === undefined ||
-            createRuntimeRerunCapability === undefined
-          ) {
-            return noStoreJson(
-              failedNestedSample(
-                sampleRequest,
-                edgeColo,
-                runtimeError("request", false),
-                [],
-                {
-                  workerLoader: "callback-not-run",
-                  facet: "callback-not-run",
-                },
-              ),
-            );
-          }
-          return noStoreJson(
-            await executeSyncRerunScenario(
-              env.MOCK_RERUN,
-              createRuntimeRerunCapability,
-              sampleRequest,
-              edgeColo,
-            ),
-          );
-        }
+    case "full_invoke":
+      if (
+        env.LOADER === undefined ||
+        env.MOCK_READ === undefined ||
+        env.MOCK_FINISH === undefined
+      ) {
+        return failedScenarioExecution(sampleRequest, edgeColo);
       }
-    },
+      return await executeFullInvokeScenario(env, sampleRequest, edgeColo);
+    case "sync_rerun":
+      if (
+        env.LOADER === undefined ||
+        env.MOCK_RERUN === undefined ||
+        createRuntimeRerunCapability === undefined
+      ) {
+        return failedScenarioExecution(sampleRequest, edgeColo);
+      }
+      return ordinaryExecution(
+        await executeSyncRerunScenario(
+          env.MOCK_RERUN,
+          createRuntimeRerunCapability,
+          sampleRequest,
+          edgeColo,
+        ),
+      );
+  }
+}
+
+function ordinaryExecution(
+  fragment: ProbeGatewaySampleV1,
+): ProbeScenarioExecution {
+  return { fragment, syncWake: { kind: "not-applicable" } };
+}
+
+function failedScenarioExecution(
+  sampleRequest: ProbeGatewaySampleRequestV1,
+  edgeColo: string | null,
+): ProbeScenarioExecution {
+  const error = runtimeError("request", false);
+  const scenario = sampleRequest.run.scenario;
+  if (scenario === "dynamic_direct_echo") {
+    return {
+      fragment: failedNestedSample(
+        sampleRequest,
+        edgeColo,
+        runtimeError("gateway_dynamic_rtt", false),
+        [dynamicSpan(0, { kind: "error", error: runtimeError("gateway_dynamic_rtt", false) })],
+        { workerLoader: "callback-not-run", facet: "not-applicable" },
+      ),
+      syncWake: { kind: "not-applicable" },
+    };
+  }
+  if (scenario === "session_echo") {
+    return {
+      fragment: failedNestedSample(
+        sampleRequest,
+        edgeColo,
+        runtimeError("gateway_session_rtt", false),
+        [sessionSpan(0, { kind: "error", error: runtimeError("gateway_session_rtt", false) })],
+      ),
+      syncWake: { kind: "not-applicable" },
+    };
+  }
+  const startup =
+    scenario === "facet_echo" ||
+      scenario === "facet_journal" ||
+      scenario === "full_invoke" ||
+      scenario === "sync_rerun"
+      ? { workerLoader: "callback-not-run", facet: "callback-not-run" } as const
+      : undefined;
+  return {
+    fragment: failedNestedSample(
+      sampleRequest,
+      edgeColo,
+      error,
+      [],
+      startup,
+    ),
+    syncWake: scenario === "commit_wake" || scenario === "full_invoke"
+      ? { kind: "unobserved" }
+      : { kind: "not-applicable" },
   };
+}
+
+async function runIdFromStatusPath(pathname: string): Promise<ProbeRunId | null> {
+  const prefix = `${PROBE_RUN_ROUTE}/`;
+  if (!pathname.startsWith(prefix)) return null;
+  const segment = pathname.slice(prefix.length);
+  if (segment.length === 0 || segment.includes("/")) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+  return await protocolValueOrNull(decodeProbeRunIdEffect(decoded));
+}
+
+function publicBodyError(
+  reason: "body_too_large" | "invalid_body",
+): Response {
+  return gatewayError(
+    reason === "body_too_large" ? "limit_exceeded" : "invalid_request",
+    reason === "body_too_large" ? 413 : 400,
+  );
+}
+
+function runStateHttpStatus(error: ProbeRunStateErrorV1): number {
+  if (error.code === "concurrency-limit") {
+    return 429;
+  }
+  if (error.code === "run-not-registered") return 404;
+  if (
+    error.code === "sample-out-of-range" ||
+    error.code.endsWith("budget-exhausted")
+  ) {
+    return 422;
+  }
+  return 409;
 }
 
 async function executeFacetScenario(
   env: ProbeGatewayEnv,
   sampleRequest: ProbeGatewaySampleRequestV1,
   edgeColo: string | null,
-): Promise<ProbeGatewaySampleV1 | Response> {
+): Promise<ProbeGatewaySampleV1> {
   const scenario = sampleRequest.run.scenario;
   if (scenario !== "facet_echo" && scenario !== "facet_journal") {
     throw new Error("executeFacetScenario received a non-facet scenario");
@@ -325,9 +548,35 @@ async function executeFacetScenario(
       }),
     );
   } catch {
-    return gatewayError("runtime_failure", 502);
+    const error = runtimeError(
+      "gateway_session_rtt",
+      probeRuntimeFailureRetryable({ kind: "transport" }),
+    );
+    return failedNestedSample(
+      sampleRequest,
+      edgeColo,
+      error,
+      [sessionSpan(elapsedSince(startedAt), { kind: "error", error })],
+      unobservedFacetStartup(),
+    );
   }
-  if (!response.ok) return gatewayError("runtime_failure", 502);
+  const sessionDurationMs = elapsedSince(startedAt);
+  if (!response.ok) {
+    const error = runtimeError(
+      "gateway_session_rtt",
+      probeRuntimeFailureRetryable({
+        kind: "response-status",
+        status: response.status,
+      }),
+    );
+    return failedNestedSample(
+      sampleRequest,
+      edgeColo,
+      error,
+      [sessionSpan(sessionDurationMs, { kind: "error", error })],
+      unobservedFacetStartup(),
+    );
+  }
   const body = await readBoundedJson(
     response,
     PROBE_INTERNAL_RESPONSE_MAX_BYTES,
@@ -337,9 +586,18 @@ async function executeFacetScenario(
     decoded === null ||
     !(await sameFacetSessionReceipt(decoded, internalRequest))
   ) {
-    return gatewayError("runtime_failure", 502);
+    const error = runtimeError(
+      "gateway_session_rtt",
+      probeRuntimeFailureRetryable({ kind: "invalid-receipt" }),
+    );
+    return failedNestedSample(
+      sampleRequest,
+      edgeColo,
+      error,
+      [sessionSpan(sessionDurationMs, { kind: "error", error })],
+      unobservedFacetStartup(),
+    );
   }
-  const sessionDurationMs = elapsedSince(startedAt);
 
   const spans: ProbeTraceSpanV1[] = [
     sessionSpan(sessionDurationMs, { kind: "ok" }),
@@ -370,11 +628,159 @@ async function executeFacetScenario(
   );
 }
 
+export function probeRegisteredRunReceiptMatchesRequest(
+  receipt: Extract<
+    ProbeRunRegistrationReceiptV1,
+    { readonly kind: "registered" }
+  >,
+  request: ProbeRunRequestV1,
+): boolean {
+  return receipt.protocolVersion === request.protocolVersion &&
+    receipt.status.protocolVersion === request.protocolVersion &&
+    canonicalProbeRunRequestV1(receipt.status.run) ===
+      canonicalProbeRunRequestV1(request);
+}
+
+export function probeRunStatusReceiptMatchesRequest(
+  receipt: Extract<ProbeRunStatusReceiptV1, { readonly kind: "found" }>,
+  request: typeof ProbeRunStatusRequestV1Schema.Type,
+): boolean {
+  return receipt.protocolVersion === request.protocolVersion &&
+    receipt.status.protocolVersion === request.protocolVersion &&
+    receipt.status.run.protocolVersion === request.protocolVersion &&
+    receipt.status.run.runId === request.runId;
+}
+
+export function probeSampleClaimReceiptMatchesRequest(
+  receipt: Extract<ProbeSampleClaimReceiptV1, { readonly kind: "claimed" }>,
+  request: ProbePublicSampleRequestV1,
+): boolean {
+  const expectedPhase = receipt.sampleOrdinal < receipt.run.warmupRepetitions
+    ? "warmup"
+    : "measurement";
+  return receipt.protocolVersion === request.protocolVersion &&
+    receipt.run.protocolVersion === request.protocolVersion &&
+    receipt.run.runId === request.runId &&
+    receipt.sampleOrdinal === request.sampleOrdinal &&
+    receipt.sampleOrdinal <
+      receipt.run.warmupRepetitions + receipt.run.repetitions &&
+    receipt.phase === expectedPhase &&
+    receipt.observedOutstandingClaims <= receipt.run.dimensions.concurrency;
+}
+
+export function probeSampleFinalizeReceiptMatchesRequest(
+  receipt: Extract<ProbeSampleFinalizeReceiptV1, { readonly kind: "finalized" }>,
+  request: ProbeSampleFinalizeRequestV1,
+  claim: Extract<ProbeSampleClaimReceiptV1, { readonly kind: "claimed" }>,
+): boolean {
+  const { fragment, control } = receipt.sample;
+  return receipt.protocolVersion === request.protocolVersion &&
+    request.protocolVersion === claim.run.protocolVersion &&
+    request.runId === claim.run.runId &&
+    request.sampleOrdinal === claim.sampleOrdinal &&
+    request.claimToken === claim.claimToken &&
+    request.fragment.scenario === claim.run.scenario &&
+    sameRunDimensions(request.fragment.dimensions, claim.run.dimensions) &&
+    sameProbeGatewaySample(fragment, request.fragment) &&
+    control.phase === claim.phase &&
+    control.terminalState ===
+      (request.fragment.outcome.kind === "ok" ? "completed" : "failed") &&
+    control.measurementDisposition === expectedMeasurementDisposition(
+      claim.phase,
+      request.syncWake,
+    ) &&
+    control.configuredConcurrency === claim.run.dimensions.concurrency &&
+    control.observedOutstandingClaims >= claim.observedOutstandingClaims &&
+    control.observedOutstandingClaims <= claim.run.dimensions.concurrency &&
+    control.scenarioWindowDurationMs === request.scenarioWindowDurationMs &&
+    sameSyncWakeObservation(control.syncWake, request.syncWake);
+}
+
+type ProbeComparableOutcome =
+  | { readonly kind: "ok" }
+  | { readonly kind: "error"; readonly error: ProbeNormalizedErrorV1 };
+
+function sameProbeGatewaySample(
+  left: ProbeGatewaySampleV1,
+  right: ProbeGatewaySampleV1,
+): boolean {
+  return left.protocolVersion === right.protocolVersion &&
+    left.runId === right.runId &&
+    left.sampleId === right.sampleId &&
+    left.scenario === right.scenario &&
+    sameRunDimensions(left.dimensions, right.dimensions) &&
+    left.identity.kind === right.identity.kind &&
+    left.identity.sampleOrdinal === right.identity.sampleOrdinal &&
+    left.identity.scopeId === right.identity.scopeId &&
+    left.identity.sessionId === right.identity.sessionId &&
+    left.identity.attemptId === right.identity.attemptId &&
+    left.identity.codeId === right.identity.codeId &&
+    left.startup.workerLoader === right.startup.workerLoader &&
+    left.startup.facet === right.startup.facet &&
+    left.edgeColo === right.edgeColo &&
+    sameProbeOutcome(left.outcome, right.outcome) &&
+    left.spans.length === right.spans.length &&
+    left.spans.every((span, index) => {
+      const other = right.spans[index];
+      return other !== undefined &&
+        span.spanId === other.spanId &&
+        span.parentSpanId === other.parentSpanId &&
+        span.name === other.name &&
+        span.durationMs === other.durationMs &&
+        sameProbeOutcome(span.outcome, other.outcome);
+    });
+}
+
+function sameProbeOutcome(
+  left: ProbeComparableOutcome,
+  right: ProbeComparableOutcome,
+): boolean {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "ok" || right.kind === "ok") return true;
+  return left.error.code === right.error.code &&
+    left.error.retryable === right.error.retryable &&
+    left.error.stage === right.error.stage;
+}
+
+function sameSyncWakeObservation(
+  left: ProbeSyncWakeObservationV1,
+  right: ProbeSyncWakeObservationV1,
+): boolean {
+  if (left.kind !== right.kind) return false;
+  if (left.kind !== "observed" || right.kind !== "observed") return true;
+  return left.disposition === right.disposition;
+}
+
+function expectedMeasurementDisposition(
+  phase: Extract<
+    ProbeSampleClaimReceiptV1,
+    { readonly kind: "claimed" }
+  >["phase"],
+  syncWake: ProbeSyncWakeObservationV1,
+) {
+  if (phase === "warmup") return "excluded-warmup" as const;
+  return syncWake.kind === "observed" &&
+      syncWake.disposition === "duplicate"
+    ? "excluded-duplicate-wake" as const
+    : "eligible" as const;
+}
+
+function sameRunDimensions(
+  left: ProbeRunRequestV1["dimensions"],
+  right: ProbeRunRequestV1["dimensions"],
+): boolean {
+  return left.codeMode === right.codeMode &&
+    left.concurrency === right.concurrency &&
+    left.journalEntries === right.journalEntries &&
+    left.payloadBytes === right.payloadBytes &&
+    left.sessionMode === right.sessionMode;
+}
+
 async function executeCommitWake(
   mockFinish: Service<typeof MockFinishEntrypoint>,
   sampleRequest: ProbeGatewaySampleRequestV1,
   edgeColo: string | null,
-): Promise<ProbeGatewaySampleV1 | Response> {
+): Promise<ProbeScenarioExecution> {
   if (sampleRequest.run.scenario !== "commit_wake") {
     throw new Error("executeCommitWake received a non-wake scenario");
   }
@@ -406,58 +812,76 @@ async function executeCommitWake(
       copyCloudflareRpcRecord(rawFinish),
     );
   } catch {
-    return failedNestedSample(
-      sampleRequest,
-      edgeColo,
-      runtimeError("mock_sync_wake_rtt", true),
-    );
+    return {
+      fragment: failedNestedSample(
+        sampleRequest,
+        edgeColo,
+        runtimeError("mock_sync_wake_rtt", true),
+      ),
+      syncWake: { kind: "unobserved" },
+    };
   }
   if (finish === null || !sameMockFinishReceipt(finish, finishRequest)) {
-    return failedNestedSample(
-      sampleRequest,
-      edgeColo,
-      runtimeError("mock_sync_wake_rtt", false),
-    );
+    return {
+      fragment: failedNestedSample(
+        sampleRequest,
+        edgeColo,
+        runtimeError("mock_sync_wake_rtt", false),
+      ),
+      syncWake: { kind: "unobserved" },
+    };
   }
   if (
     finish.sync.disposition !== "applied" &&
     finish.sync.disposition !== "duplicate"
   ) {
     const error = runtimeError("sync_cursor_io", false);
-    return failedNestedSample(
-      sampleRequest,
-      edgeColo,
-      error,
-      [
-        mockSyncWakeSpan(finish.mockSyncWakeDurationMs, 1, 0),
-        syncCursorSpan(
-          finish.sync.cursorDurationMs,
-          2,
-          1,
-          { kind: "error", error },
-        ),
-      ],
-    );
+    return {
+      fragment: failedNestedSample(
+        sampleRequest,
+        edgeColo,
+        error,
+        [
+          mockSyncWakeSpan(finish.mockSyncWakeDurationMs, 1, 0),
+          syncCursorSpan(
+            finish.sync.cursorDurationMs,
+            2,
+            1,
+            { kind: "error", error },
+          ),
+        ],
+      ),
+      syncWake: {
+        kind: "observed",
+        disposition: finish.sync.disposition,
+      },
+    };
   }
-  return gatewaySampleFromRun(
-    sampleRequest.run,
-    sampleRequest.sampleOrdinal,
-    {
-      edgeColo,
-      outcome: { kind: "ok" },
-      spans: [
-        mockSyncWakeSpan(finish.mockSyncWakeDurationMs, 1, 0),
-        syncCursorSpan(finish.sync.cursorDurationMs, 2, 1),
-      ],
+  return {
+    fragment: gatewaySampleFromRun(
+      sampleRequest.run,
+      sampleRequest.sampleOrdinal,
+      {
+        edgeColo,
+        outcome: { kind: "ok" },
+        spans: [
+          mockSyncWakeSpan(finish.mockSyncWakeDurationMs, 1, 0),
+          syncCursorSpan(finish.sync.cursorDurationMs, 2, 1),
+        ],
+      },
+    ),
+    syncWake: {
+      kind: "observed",
+      disposition: finish.sync.disposition,
     },
-  );
+  };
 }
 
 async function executeFullInvokeScenario(
   env: ProbeGatewayEnv,
   sampleRequest: ProbeGatewaySampleRequestV1,
   edgeColo: string | null,
-): Promise<ProbeGatewaySampleV1 | Response> {
+): Promise<ProbeScenarioExecution> {
   if (sampleRequest.run.scenario !== "full_invoke") {
     throw new Error("executeFullInvokeScenario received a non-invoke scenario");
   }
@@ -502,13 +926,16 @@ async function executeFullInvokeScenario(
     );
   } catch {
     const error = runtimeError("gateway_session_rtt", true);
-    return failedNestedSample(
-      sampleRequest,
-      edgeColo,
-      error,
-      [sessionSpan(elapsedSince(startedAt), { kind: "error", error })],
-      unobservedFacetStartup(),
-    );
+    return {
+      fragment: failedNestedSample(
+        sampleRequest,
+        edgeColo,
+        error,
+        [sessionSpan(elapsedSince(startedAt), { kind: "error", error })],
+        unobservedFacetStartup(),
+      ),
+      syncWake: { kind: "unobserved" },
+    };
   }
   const sessionDurationMs = elapsedSince(startedAt);
   const body = await readBoundedJson(
@@ -523,20 +950,26 @@ async function executeFullInvokeScenario(
       failure !== null &&
       await sameFullInvokeSessionReceipt(failure, internalRequest)
     ) {
-      return gatewaySampleFromRun(
-        sampleRequest.run,
-        sampleRequest.sampleOrdinal,
-        {
-          edgeColo,
-          outcome: { kind: "error", error: failure.error },
-          spans: fullInvokeSpans(
-            failure,
-            sessionDurationMs,
-            { kind: "error", error: failure.error },
-          ),
-          startup: fullInvokeStartup(failure),
+      return {
+        fragment: gatewaySampleFromRun(
+          sampleRequest.run,
+          sampleRequest.sampleOrdinal,
+          {
+            edgeColo,
+            outcome: { kind: "error", error: failure.error },
+            spans: fullInvokeSpans(
+              failure,
+              sessionDurationMs,
+              { kind: "error", error: failure.error },
+            ),
+            startup: fullInvokeStartup(failure),
+          },
+        ),
+        syncWake: {
+          kind: "observed",
+          disposition: failure.finish.sync.disposition,
         },
-      );
+      };
     }
     const error = runtimeError(
       "gateway_session_rtt",
@@ -545,13 +978,16 @@ async function executeFullInvokeScenario(
         status: response.status,
       }),
     );
-    return failedNestedSample(
-      sampleRequest,
-      edgeColo,
-      error,
-      [sessionSpan(elapsedSince(startedAt), { kind: "error", error })],
-      unobservedFacetStartup(),
-    );
+    return {
+      fragment: failedNestedSample(
+        sampleRequest,
+        edgeColo,
+        error,
+        [sessionSpan(elapsedSince(startedAt), { kind: "error", error })],
+        unobservedFacetStartup(),
+      ),
+      syncWake: { kind: "unobserved" },
+    };
   }
   const decoded = body.ok
     ? decodeFullInvokeSessionResponse(body.value)
@@ -561,24 +997,33 @@ async function executeFullInvokeScenario(
     !(await sameFullInvokeSessionReceipt(decoded, internalRequest))
   ) {
     const error = runtimeError("gateway_session_rtt", false);
-    return failedNestedSample(
-      sampleRequest,
-      edgeColo,
-      error,
-      [sessionSpan(elapsedSince(startedAt), { kind: "error", error })],
-      unobservedFacetStartup(),
-    );
+    return {
+      fragment: failedNestedSample(
+        sampleRequest,
+        edgeColo,
+        error,
+        [sessionSpan(elapsedSince(startedAt), { kind: "error", error })],
+        unobservedFacetStartup(),
+      ),
+      syncWake: { kind: "unobserved" },
+    };
   }
-  return gatewaySampleFromRun(
-    sampleRequest.run,
-    sampleRequest.sampleOrdinal,
-    {
-      edgeColo,
-      outcome: { kind: "ok" },
-      spans: fullInvokeSpans(decoded, sessionDurationMs),
-      startup: fullInvokeStartup(decoded),
+  return {
+    fragment: gatewaySampleFromRun(
+      sampleRequest.run,
+      sampleRequest.sampleOrdinal,
+      {
+        edgeColo,
+        outcome: { kind: "ok" },
+        spans: fullInvokeSpans(decoded, sessionDurationMs),
+        startup: fullInvokeStartup(decoded),
+      },
+    ),
+    syncWake: {
+      kind: "observed",
+      disposition: decoded.finish.sync.disposition,
     },
-  );
+  };
 }
 
 async function executeSyncRerunScenario(
@@ -1063,14 +1508,6 @@ function sessionSpan(
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome,
   });
-}
-
-async function decodeSampleRequest(
-  value: unknown,
-): Promise<ProbeGatewaySampleRequestV1 | null> {
-  return await protocolValueOrNull(
-    decodeProbeGatewaySampleRequestV1Effect(value),
-  );
 }
 
 async function decodeSessionResponse(

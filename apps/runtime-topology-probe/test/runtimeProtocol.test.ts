@@ -4,8 +4,11 @@ import { describe, expect, it } from "vitest";
 import {
   decodeProbeGatewaySampleRequestV1Effect,
   decodeProbeGatewaySampleV1Effect,
+  completeControlledProbeGatewaySampleV1,
   completeProbeGatewaySampleV1,
+  controlledProbeGatewaySampleV1,
   gatewaySampleFromRun,
+  ProbeSampleControlV1Schema,
 } from "../src/runtimeProtocol";
 import { validateProbeTraceV1 } from "../src/trace";
 import {
@@ -71,6 +74,39 @@ describe("P02 gateway runtime protocol", () => {
 
     expect(sample.spans.map(span => span.name)).toEqual(["external_request"]);
     expect(validateProbeTraceV1(sample)).toEqual({ ok: true });
+  });
+
+  it("carries control-plane-inclusive measurement metadata outside trace spans", () => {
+    const run = Effect.runSync(
+      decodeProbeRunRequestV1Effect(runRequest("edge_echo")),
+    );
+    const fragment = gatewaySampleFromRun(run, sampleOrdinal, {
+      edgeColo: null,
+      outcome: { kind: "ok" },
+      spans: [],
+    });
+    const controlled = controlledProbeGatewaySampleV1(
+      fragment,
+      ProbeSampleControlV1Schema.make({
+        phase: "measurement",
+        terminalState: "completed",
+        measurementDisposition: "eligible",
+        configuredConcurrency: 1,
+        observedOutstandingClaims: 1,
+        scenarioWindowDurationMs: ProbeDurationMsSchema.make(0.5),
+        syncWake: { kind: "not-applicable" },
+        externalRequestIncludesControlPlane: true,
+      }),
+    );
+    const completed = completeControlledProbeGatewaySampleV1(controlled, 2);
+
+    expect(completed.sample.spans.map(span => span.name)).toEqual([
+      "external_request",
+    ]);
+    expect(completed.control).toMatchObject({
+      scenarioWindowDurationMs: 0.5,
+      externalRequestIncludesControlPlane: true,
+    });
   });
 
   it("completes a session fragment into the exact P01 trace", () => {

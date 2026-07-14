@@ -9,6 +9,7 @@ export * from "./invokeProtocol";
 export * from "./protocol";
 export * from "./rerunGuards";
 export * from "./rerunProtocol";
+export * from "./runProtocol";
 export * from "./runtimeProtocol";
 export * from "./sessionProtocol";
 export * from "./statistics";

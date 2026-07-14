@@ -34,11 +34,16 @@ import {
   probeRerunWorkerCode,
   PROBE_RERUN_WORKER_MAIN_MODULE,
 } from "../src/rerunProtocol";
-import { PROBE_PUBLIC_BODY_MAX_BYTES, PROBE_SAMPLE_ROUTE } from "../src/gateway";
+import {
+  PROBE_PUBLIC_BODY_MAX_BYTES,
+  PROBE_RUN_ROUTE,
+  PROBE_SAMPLE_ROUTE,
+} from "../src/gateway";
 import {
   completeProbeGatewaySampleV1,
-  decodeProbeGatewaySampleV1Effect,
+  decodeProbeControlledGatewaySampleV1Effect,
   type ProbeGatewaySampleV1,
+  type ProbeSampleControlV1,
 } from "../src/runtimeProtocol";
 import {
   decodeProbeSessionControlResponseV1Effect,
@@ -85,6 +90,86 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect(absent.status).toBe(401);
     expect(wrong.status).toBe(401);
     expect(absent.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("authenticates immutable run registration and status without exposing claim tokens", async () => {
+    const fixture = validSampleRequest("edge_echo", "p07a_public_run", {
+      repetitions: 2,
+    });
+    const unauthorized = await dispatchRun(harness, fixture.run, undefined);
+    const created = await dispatchRun(
+      harness,
+      fixture.run,
+      PROBE_TEST_AUTHORIZATION,
+    );
+    const repeated = await dispatchRun(
+      harness,
+      fixture.run,
+      PROBE_TEST_AUTHORIZATION,
+    );
+    const conflict = await dispatchRun(
+      harness,
+      {
+        ...fixture.run,
+        dimensions: { ...fixture.run.dimensions, payloadBytes: 1 },
+      },
+      PROBE_TEST_AUTHORIZATION,
+    );
+    const sample = await dispatchSampleBody(
+      harness,
+      {
+        protocolVersion: 1,
+        runId: fixture.run.runId,
+        sampleOrdinal: 0,
+      },
+      PROBE_TEST_AUTHORIZATION,
+    );
+    const status = await harness.mf.dispatchFetch(
+      `https://probe.test${PROBE_RUN_ROUTE}/${fixture.run.runId}`,
+      { headers: { authorization: PROBE_TEST_AUTHORIZATION } },
+    );
+    const statusText = await status.text();
+
+    expect(unauthorized.status).toBe(401);
+    expect(created.status).toBe(201);
+    expect(repeated.status).toBe(200);
+    expect(conflict.status).toBe(409);
+    expect(sample.status).toBe(200);
+    expect(status.status).toBe(200);
+    expect(status.headers.get("cache-control")).toBe("no-store");
+    expect(statusText).not.toContain("rtp-claim-");
+    expect(statusText).not.toContain("claimToken");
+  });
+
+  it("rejects caller-owned run, phase, and payload fields on the sample route", async () => {
+    const legacy = validSampleRequest("edge_echo", "p07a_legacy_body");
+    const response = await dispatchSampleBody(
+      harness,
+      legacy,
+      PROBE_TEST_AUTHORIZATION,
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("derives warmup phase and payload from the registered run", async () => {
+    const request = validSampleRequest("edge_echo", "p07a_derived", {
+      payloadBytes: 8,
+      repetitions: 2,
+      warmupRepetitions: 1,
+    });
+    const measured = await measuredDispatch(harness, request);
+
+    expect(measured.control).toMatchObject({
+      phase: "warmup",
+      terminalState: "completed",
+      measurementDisposition: "excluded-warmup",
+      configuredConcurrency: 1,
+      observedOutstandingClaims: 1,
+      externalRequestIncludesControlPlane: true,
+    });
+    expect(measured.fragment.dimensions.payloadBytes).toBe(8);
+    expect(measured.raw).not.toContain("xxxxxxxx");
+    expect(measured.raw).not.toContain("rtp-claim-");
   });
 
   it("rejects wrong routes, methods, media types, excess fields, and limits", async () => {
@@ -485,7 +570,7 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
       workerLoader: false,
     });
     try {
-      const dynamic = await dispatch(
+      const dynamic = await measuredDispatch(
         noLoaderHarness,
         validSampleRequest("dynamic_direct_echo", "p03_no_loader"),
       );
@@ -493,8 +578,20 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
         noLoaderHarness,
         validSampleRequest("edge_echo", "p03_no_loader_edge"),
       );
-      expect(dynamic.status).toBe(500);
+      const status = await noLoaderHarness.mf.dispatchFetch(
+        `https://probe.test${PROBE_RUN_ROUTE}/p03_no_loader`,
+        { headers: { authorization: PROBE_TEST_AUTHORIZATION } },
+      );
+      expect(dynamic.fragment.outcome.kind).toBe("error");
+      expect(dynamic.control.terminalState).toBe("failed");
       expect(edge.status).toBe(200);
+      expect(await status.json()).toMatchObject({
+        kind: "found",
+        status: {
+          counters: { failed: 1, outstanding: 0 },
+          samples: [{ state: "failed", sampleOrdinal: 0 }],
+        },
+      });
     } finally {
       await noLoaderHarness.dispose();
     }
@@ -580,11 +677,15 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
   it("forwards one-shot sync reruns into fresh facets without moving the cursor", async () => {
     const request = validSampleRequest("sync_rerun", "p06_rerun_stable", {
       payloadBytes: 16,
+      repetitions: 2,
     });
     expect(await syncCursor(harness, "p06_rerun_stable", "read")).toBe(0);
 
     const first = await measuredDispatch(harness, request);
-    const repeated = await measuredDispatch(harness, request);
+    const repeated = await measuredDispatch(harness, {
+      ...request,
+      sampleOrdinal: 1,
+    });
     const sample = completeProbeGatewaySampleV1(
       first.fragment,
       first.durationMs,
@@ -725,13 +826,13 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect(await syncCursor(harness, "p05_invoke_new_code", "read")).toBe(2);
   });
 
-  it("accepts duplicate public commit wakes without advancing the sync cursor", async () => {
+  it("retains duplicate sync wakes as an excluded measurement disposition", async () => {
     const request = validSampleRequest("commit_wake", "p05_commit_wake");
-    const first = await measuredDispatch(harness, request);
+    await directSyncWake(harness, "p05_commit_wake", 0);
     const duplicate = await measuredDispatch(harness, request);
     const firstSample = completeProbeGatewaySampleV1(
-      first.fragment,
-      first.durationMs,
+      duplicate.fragment,
+      duplicate.durationMs,
     );
 
     expect(firstSample.spans.map(span => span.name)).toEqual([
@@ -741,11 +842,18 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     ]);
     expect(validateProbeTraceV1(firstSample)).toEqual({ ok: true });
     expect(duplicate.fragment.outcome).toEqual({ kind: "ok" });
+    expect(duplicate.control.syncWake).toEqual({
+      kind: "observed",
+      disposition: "duplicate",
+    });
+    expect(duplicate.control.measurementDisposition).toBe(
+      "excluded-duplicate-wake",
+    );
     expect(await syncCursor(harness, "p05_commit_wake", "read")).toBe(1);
   });
 
-  it("records an out-of-order commit wake as a failed measured sample", async () => {
-    const measured = await measuredDispatch(
+  it("rejects out-of-order commit wake claims before topology execution", async () => {
+    const response = await dispatch(
       harness,
       {
         ...validSampleRequest("commit_wake", "p05_commit_gap", {
@@ -754,30 +862,16 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
         sampleOrdinal: 2,
       },
     );
-    const sample = completeProbeGatewaySampleV1(
-      measured.fragment,
-      measured.durationMs,
-    );
-
-    expect(measured.fragment.outcome).toEqual({
-      kind: "error",
-      error: {
-        code: "runtime_failure",
-        retryable: false,
-        stage: "sync_cursor_io",
-      },
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      kind: "rejected",
+      error: { code: "sample-order-blocked", retryable: false },
     });
-    expect(measured.fragment.spans.map(span => span.name)).toEqual([
-      "mock_sync_wake_rtt",
-      "sync_cursor_io",
-    ]);
-    expect(measured.fragment.spans.at(-1)?.outcome.kind).toBe("error");
-    expect(validateProbeTraceV1(sample)).toEqual({ ok: true });
     expect(await syncCursor(harness, "p05_commit_gap", "read")).toBe(0);
   });
 
-  it("preserves every observed full-invoke span when the sync cursor rejects", async () => {
-    const measured = await measuredDispatch(
+  it("rejects out-of-order full-invoke claims before facet execution", async () => {
+    const response = await dispatch(
       harness,
       {
         ...validSampleRequest("full_invoke", "p05_invoke_gap", {
@@ -786,40 +880,11 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
         sampleOrdinal: 2,
       },
     );
-    const sample = completeProbeGatewaySampleV1(
-      measured.fragment,
-      measured.durationMs,
-    );
-
-    expect(measured.fragment.outcome.kind).toBe("error");
-    expect(measured.fragment.startup.workerLoader).not.toBe(
-      "callback-unobserved",
-    );
-    expect(measured.fragment.startup.facet).not.toBe("callback-unobserved");
-    expect(measured.fragment.spans.map(span => span.name)).toEqual([
-      "gateway_session_rtt",
-      "session_facet_rtt",
-      "facet_mock_read_rtt",
-      "facet_journal_io",
-      "session_mock_finish_rtt",
-      "mock_sync_wake_rtt",
-      "sync_cursor_io",
-    ]);
-    expect(
-      measured.fragment.spans.slice(0, -1).every(
-        span => span.outcome.kind === "ok",
-      ),
-    ).toBe(true);
-    expect(measured.fragment.spans.at(-1)?.outcome.kind).toBe("error");
-    expect(measured.fragment.outcome).toEqual({
-      kind: "error",
-      error: {
-        code: "runtime_failure",
-        retryable: false,
-        stage: "sync_cursor_io",
-      },
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      kind: "rejected",
+      error: { code: "sample-order-blocked", retryable: false },
     });
-    expect(validateProbeTraceV1(sample)).toEqual({ ok: true });
     expect(await syncCursor(harness, "p05_invoke_gap", "read")).toBe(0);
   });
 
@@ -1017,9 +1082,11 @@ type SupportedScenario =
 
 interface SampleOverrides {
   readonly codeMode?: "new-code" | "stable";
+  readonly concurrency?: number;
   readonly payloadBytes?: number;
   readonly journalEntries?: number;
   readonly repetitions?: number;
+  readonly warmupRepetitions?: number;
   readonly sessionMode?: "new-session" | "reuse-session";
 }
 
@@ -1035,10 +1102,10 @@ function validSampleRequest(
       runId,
       scenario,
       repetitions: overrides.repetitions ?? 1,
-      warmupRepetitions: 0,
+      warmupRepetitions: overrides.warmupRepetitions ?? 0,
       dimensions: {
         codeMode: overrides.codeMode ?? "stable",
-        concurrency: 1,
+        concurrency: overrides.concurrency ?? 1,
         journalEntries: overrides.journalEntries ?? 0,
         payloadBytes,
         sessionMode: overrides.sessionMode ?? "new-session",
@@ -1063,6 +1130,16 @@ async function dispatch(
   const authorization = options.authorized === false
     ? undefined
     : options.authorization ?? PROBE_TEST_AUTHORIZATION;
+  const prepared = await prepareSampleBody(harness, body, authorization);
+  if (prepared.kind === "response") return prepared.response;
+  return await dispatchSampleBody(harness, prepared.body, authorization);
+}
+
+async function dispatchSampleBody(
+  harness: RuntimeProbeHarness,
+  body: unknown,
+  authorization: string | undefined,
+) {
   return await harness.mf.dispatchFetch(
     `https://probe.test${PROBE_SAMPLE_ROUTE}`,
     {
@@ -1076,24 +1153,112 @@ async function dispatch(
   );
 }
 
+async function dispatchRun(
+  harness: RuntimeProbeHarness,
+  body: unknown,
+  authorization: string | undefined,
+) {
+  return await harness.mf.dispatchFetch(
+    `https://probe.test${PROBE_RUN_ROUTE}`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(authorization === undefined ? {} : { authorization }),
+      },
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+type HarnessResponse = Awaited<
+  ReturnType<RuntimeProbeHarness["mf"]["dispatchFetch"]>
+>;
+
+type PreparedSampleBody =
+  | { readonly kind: "body"; readonly body: unknown }
+  | { readonly kind: "response"; readonly response: HarnessResponse };
+
+async function prepareSampleBody(
+  harness: RuntimeProbeHarness,
+  body: unknown,
+  authorization: string | undefined,
+): Promise<PreparedSampleBody> {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return { kind: "body", body };
+  }
+  const run: unknown = Reflect.get(body, "run");
+  if (run === undefined) return { kind: "body", body };
+  const registration = await harness.mf.dispatchFetch(
+    `https://probe.test${PROBE_RUN_ROUTE}`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(authorization === undefined ? {} : { authorization }),
+      },
+      body: JSON.stringify(run),
+    },
+  );
+  if (registration.status !== 200 && registration.status !== 201) {
+    return { kind: "response", response: registration };
+  }
+  const commandFields = Object.fromEntries(
+    Object.entries(body).filter(([key]) =>
+      key !== "run" && key !== "phase" && key !== "payload"
+    ),
+  );
+  return {
+    kind: "body",
+    body: {
+      protocolVersion: typeof run === "object" && run !== null
+        ? Reflect.get(run, "protocolVersion")
+        : undefined,
+      runId: typeof run === "object" && run !== null
+        ? Reflect.get(run, "runId")
+        : undefined,
+      ...commandFields,
+    },
+  };
+}
+
 async function measuredDispatch(
   harness: RuntimeProbeHarness,
   body: unknown,
 ): Promise<{
   readonly durationMs: number;
   readonly fragment: ProbeGatewaySampleV1;
+  readonly control: ProbeSampleControlV1;
   readonly raw: string;
 }> {
+  const prepared = await prepareSampleBody(
+    harness,
+    body,
+    PROBE_TEST_AUTHORIZATION,
+  );
+  if (prepared.kind === "response") {
+    expect(prepared.response.status).toBe(200);
+    throw new Error("probe run registration did not succeed");
+  }
   const startedAt = performance.now();
-  const response = await dispatch(harness, body);
+  const response = await dispatchSampleBody(
+    harness,
+    prepared.body,
+    PROBE_TEST_AUTHORIZATION,
+  );
   const raw = await response.text();
   const durationMs = Math.max(0, performance.now() - startedAt);
   expect(response.status).toBe(200);
   const value: unknown = JSON.parse(raw);
-  const fragment = await runEffectTest(
-    decodeProbeGatewaySampleV1Effect(value),
+  const controlled = await runEffectTest(
+    decodeProbeControlledGatewaySampleV1Effect(value),
   );
-  return { durationMs, fragment, raw };
+  return {
+    durationMs,
+    fragment: controlled.fragment,
+    control: controlled.control,
+    raw,
+  };
 }
 
 async function controlValue(
