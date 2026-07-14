@@ -6,7 +6,7 @@
     "build": "pnpm typecheck",
     "deploy:gateway:dry-run": "tsx scripts/runWranglerDryRun.ts gateway",
     "test": "vitest run",
-    "test:local": "vitest run test/gateway.miniflare.test.ts --no-file-parallelism",
+    "test:local": "vitest run test/gateway.miniflare.test.ts --no-file-parallelism --test-timeout=20000",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

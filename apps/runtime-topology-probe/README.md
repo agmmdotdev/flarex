@@ -7,8 +7,9 @@ and teardown requirements live in [`PLAN.md`](./PLAN.md).
 
 ## Current Slice
 
-`P03` adds the direct Dynamic Worker control without introducing facets, mock
-commit, or sync behavior. The current app owns:
+`P04` adds the SessionDO-supervised Dynamic Worker facet and its synthetic
+temporary journal without introducing mock commit or sync behavior. The
+current app owns:
 
 - a bearer-protected per-sample gateway with bounded streaming JSON reads;
 - `edge_echo` and gateway-to-`ProbeSessionDO` round-trip samples;
@@ -24,7 +25,17 @@ commit, or sync behavior. The current app owns:
 - stable and bounded new-code modes whose IDs include the `direct-v1` source
   profile; and
 - `dynamic_direct_echo` fragments that separately record Worker Loader code
-  callback execution and gateway-to-Dynamic-Worker round-trip latency.
+  callback execution and gateway-to-Dynamic-Worker round-trip latency;
+- one platform-owned `ProbeInvocationFacet` per exact attempt, loaded from the
+  SessionDO with no injected environment capability or outbound network;
+- `facet_echo` and `facet_journal` traces that preserve caller-local nesting
+  across gateway-to-session, session-to-facet, and facet-local SQLite work;
+- a bounded synthetic journal that stores the actual payload in ordered rows,
+  synchronizes storage, reads every row back, and returns a host-recomputed
+  SHA-256 logical seal; and
+- internal-only lifecycle controls proving warm reuse, abort-preserved facet
+  storage, explicit delete/reset, restart rehydration, fresh-attempt isolation,
+  and deletion of ordinary measurement facets before their response returns.
 
 This slice is local and dry-run-only. Production remains blocked until `P07`
 adds server-owned run registration, atomic sample claims, aggregate budgets,
@@ -50,8 +61,12 @@ corepack pnpm --filter @flarex/runtime-topology-probe deploy:gateway:dry-run
   completion.
 - `src/dynamicProtocol.ts` owns the direct Worker wire contract and fixed
   capability-free source package.
+- `src/facetProtocol.ts` owns the strict facet/session wire contracts, logical
+  journal seal, and fixed capability-free facet source package.
 - `src/gateway.ts` owns the protected public boundary and local hop timing.
-- `src/sessionDO.ts` owns the isolated SQLite Durable Object control state.
+- `src/sessionDO.ts` owns supervisor routing, facet lifecycle, cleanup tracking,
+  and isolated SQLite Durable Object control state. It never opens facet journal
+  storage.
 - `src/trace.ts` validates completeness, parentage, cycles, and outcome
   agreement for each scenario.
 - `src/statistics.ts` computes exact summaries without dropping failures.

@@ -1,5 +1,6 @@
 export * from "./effectBoundary";
 export * from "./dynamicProtocol";
+export * from "./facetProtocol";
 export * from "./gateway";
 export * from "./http";
 export * from "./identity";

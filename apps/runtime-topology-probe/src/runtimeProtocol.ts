@@ -212,6 +212,11 @@ function gatewaySampleRelationshipIssue(
           sample.startup.facet === "not-applicable"
         ? dynamicDirectRelationshipIssue(sample)
         : "dynamic_direct_echo requires only a Worker Loader callback observation";
+    case "facet_echo":
+    case "facet_journal":
+      return hasFacetStartupObservations(sample.startup)
+        ? facetRelationshipIssue(sample)
+        : `${sample.scenario} requires consistent Worker Loader and facet callback observations`;
     default:
       return "this gateway sample version does not support the selected scenario";
   }
@@ -270,6 +275,55 @@ function dynamicDirectRelationshipIssue(
       sameError(span.outcome.error, sample.outcome.error)
     ? undefined
     : "failed dynamic_direct_echo requires one matching failed span";
+}
+
+function hasFacetStartupObservations(
+  startup: ProbeStartupObservationsV1,
+): boolean {
+  if (
+    startup.workerLoader === "not-applicable" ||
+    startup.facet === "not-applicable"
+  ) {
+    return false;
+  }
+  return !(
+    startup.workerLoader === "callback-ran" &&
+    startup.facet === "callback-not-run"
+  );
+}
+
+function facetRelationshipIssue(
+  sample: typeof ProbeGatewaySampleV1Shape.Type,
+): string | undefined {
+  if (sample.outcome.kind !== "ok") {
+    return `${sample.scenario} gateway fragments require a fully observed successful call`;
+  }
+  const expected = sample.scenario === "facet_journal"
+    ? [
+        ["gateway_session_rtt", 1, 0],
+        ["session_facet_rtt", 2, 1],
+        ["facet_journal_io", 3, 2],
+      ] as const
+    : [
+        ["gateway_session_rtt", 1, 0],
+        ["session_facet_rtt", 2, 1],
+      ] as const;
+  if (sample.spans.length !== expected.length) {
+    return `${sample.scenario} must return every completed nested round trip`;
+  }
+  for (const [index, [name, spanOrdinal, parentOrdinal]] of expected.entries()) {
+    const span = sample.spans[index];
+    if (
+      span === undefined ||
+      span.name !== name ||
+      span.spanId !== probeSpanId(ordinal(spanOrdinal)) ||
+      span.parentSpanId !== probeSpanId(ordinal(parentOrdinal)) ||
+      span.outcome.kind !== "ok"
+    ) {
+      return `${sample.scenario} returned an invalid nested span tree`;
+    }
+  }
+  return undefined;
 }
 
 function sameGatewayIdentity(

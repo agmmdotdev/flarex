@@ -4,10 +4,17 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   decodeProbeOrdinalEffect,
   decodeProbeRunIdEffect,
+  probeAttemptId,
+  probeCodeId,
   probeSampleId,
   probeSessionId,
   type ProbeSessionId,
 } from "../src/identity";
+import {
+  decodeProbeFacetLifecycleSessionResponseV1Effect,
+  ProbeFacetLifecycleRequestV1Schema,
+  type ProbeFacetLifecycleOperation,
+} from "../src/facetProtocol";
 import { PROBE_PUBLIC_BODY_MAX_BYTES, PROBE_SAMPLE_ROUTE } from "../src/gateway";
 import {
   completeProbeGatewaySampleV1,
@@ -235,6 +242,224 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect(overBudget.status).toBe(400);
   });
 
+  it("measures distinct attempt facets and stable-code callback cohorts", async () => {
+    const request = validSampleRequest("facet_echo", "p04_facet", {
+      payloadBytes: 8,
+      repetitions: 2,
+      sessionMode: "reuse-session",
+    });
+    const first = await measuredDispatch(harness, request);
+    const second = await measuredDispatch(harness, {
+      ...request,
+      sampleOrdinal: 1,
+    });
+    const firstSample = completeProbeGatewaySampleV1(
+      first.fragment,
+      first.durationMs,
+    );
+    const secondSample = completeProbeGatewaySampleV1(
+      second.fragment,
+      second.durationMs,
+    );
+
+    expect(first.fragment.identity.sessionId).toBe(
+      second.fragment.identity.sessionId,
+    );
+    expect(first.fragment.identity.attemptId).not.toBe(
+      second.fragment.identity.attemptId,
+    );
+    expect(first.fragment.startup).toEqual({
+      workerLoader: "callback-ran",
+      facet: "callback-ran",
+    });
+    expect(second.fragment.startup).toEqual({
+      workerLoader: "callback-not-run",
+      facet: "callback-ran",
+    });
+    expect(firstSample.spans.map(span => span.name)).toEqual([
+      "external_request",
+      "gateway_session_rtt",
+      "session_facet_rtt",
+    ]);
+    expect(validateProbeTraceV1(firstSample)).toEqual({ ok: true });
+    expect(validateProbeTraceV1(secondSample)).toEqual({ ok: true });
+  });
+
+  it("writes, synchronizes, seals, and read-verifies bounded facet journals", async () => {
+    const ordinary = await measuredDispatch(
+      harness,
+      validSampleRequest("facet_journal", "p04_journal", {
+        journalEntries: 3,
+        payloadBytes: 32,
+      }),
+    );
+    const maxEntries = await measuredDispatch(
+      harness,
+      validSampleRequest("facet_journal", "p04_max_entries", {
+        journalEntries: 256,
+        payloadBytes: 1,
+      }),
+    );
+    const maxPayload = await measuredDispatch(
+      harness,
+      validSampleRequest("facet_journal", "p04_max_payload", {
+        journalEntries: 1,
+        payloadBytes: 65_536,
+      }),
+    );
+    const sample = completeProbeGatewaySampleV1(
+      ordinary.fragment,
+      ordinary.durationMs,
+    );
+
+    expect(sample.spans.map(span => span.name)).toEqual([
+      "external_request",
+      "gateway_session_rtt",
+      "session_facet_rtt",
+      "facet_journal_io",
+    ]);
+    expect(validateProbeTraceV1(sample)).toEqual({ ok: true });
+    expect(ordinary.raw).not.toContain("x".repeat(32));
+    expect(maxEntries.fragment.outcome).toEqual({ kind: "ok" });
+    expect(maxPayload.fragment.outcome).toEqual({ kind: "ok" });
+  });
+
+  it("rejects journal limits before starting the attempt facet", async () => {
+    const runId = "p04_prestart_limit";
+    const invalid = validSampleRequest("facet_journal", runId, {
+      codeMode: "new-code",
+      journalEntries: 257,
+    });
+    const rejected = await dispatch(harness, invalid);
+    const accepted = await measuredDispatch(harness, {
+      ...invalid,
+      run: {
+        ...invalid.run,
+        dimensions: { ...invalid.run.dimensions, journalEntries: 1 },
+      },
+    });
+
+    expect(rejected.status).toBe(400);
+    expect(accepted.fragment.startup).toEqual({
+      workerLoader: "callback-ran",
+      facet: "callback-ran",
+    });
+  });
+
+  it("deletes ordinary measurement facets before the response returns", async () => {
+    const runId = "p04_measure_delete";
+    const measured = await measuredDispatch(
+      harness,
+      validSampleRequest("facet_echo", runId),
+    );
+    const read = await facetLifecycle(
+      harness,
+      runId,
+      0,
+      "read",
+      "new-session",
+    );
+    expect(measured.fragment.identity.attemptId).toBe(read.attemptId);
+    expect(read.value).toBe(0);
+    expect(read.facetStartupCallbackRan).toBe(true);
+    await facetLifecycle(harness, runId, 0, "delete", "new-session");
+  });
+
+  it("preserves facet storage across abort and removes it on delete", async () => {
+    const runId = "p04_lifecycle";
+    const appended = await facetLifecycle(harness, runId, 0, "append");
+    const warmRead = await facetLifecycle(harness, runId, 0, "read");
+    const aborted = await facetLifecycle(harness, runId, 0, "abort");
+    const resumedRead = await facetLifecycle(harness, runId, 0, "read");
+    const deleted = await facetLifecycle(harness, runId, 0, "delete");
+    const resetRead = await facetLifecycle(harness, runId, 0, "read");
+    const freshAttempt = await facetLifecycle(harness, runId, 1, "read");
+
+    expect(appended.value).toBe(1);
+    expect(warmRead.value).toBe(1);
+    expect(warmRead.facetStartupCallbackRan).toBe(false);
+    expect(aborted.value).toBeNull();
+    expect(aborted.facetStartupCallbackRan).toBe(false);
+    expect(resumedRead.value).toBe(1);
+    expect(resumedRead.facetStartupCallbackRan).toBe(true);
+    expect(deleted.value).toBeNull();
+    expect(resetRead.value).toBe(0);
+    expect(resetRead.facetStartupCallbackRan).toBe(true);
+    expect(freshAttempt.sessionId).toBe(resetRead.sessionId);
+    expect(freshAttempt.attemptId).not.toBe(resetRead.attemptId);
+    expect(freshAttempt.value).toBe(0);
+
+    await facetLifecycle(harness, runId, 0, "delete");
+    await facetLifecycle(harness, runId, 1, "delete");
+  });
+
+  it("rejects code identity changes for live and destructive facet controls", async () => {
+    const runId = "p04_code_swap";
+    expect((await facetLifecycle(harness, runId, 0, "append")).value).toBe(1);
+    const conflict = await dispatchFacetLifecycle(
+      harness,
+      runId,
+      0,
+      "read",
+      "reuse-session",
+      "new-code",
+    );
+    const abortConflict = await dispatchFacetLifecycle(
+      harness,
+      runId,
+      0,
+      "abort",
+      "reuse-session",
+      "new-code",
+    );
+    const deleteConflict = await dispatchFacetLifecycle(
+      harness,
+      runId,
+      0,
+      "delete",
+      "reuse-session",
+      "new-code",
+    );
+    expect(conflict.status).toBe(409);
+    expect(abortConflict.status).toBe(409);
+    expect(deleteConflict.status).toBe(409);
+    expect((await facetLifecycle(harness, runId, 0, "read")).value).toBe(1);
+    await facetLifecycle(harness, runId, 0, "delete");
+  });
+
+  it("rehydrates a retained facet after a Miniflare restart", async () => {
+    const firstHarness = await createRuntimeProbeHarness({
+      removePersistPathOnDispose: false,
+    });
+    const persistPath = firstHarness.persistPath;
+    let firstDisposed = false;
+    try {
+      expect(
+        (await facetLifecycle(firstHarness, "p04_restart", 0, "append")).value,
+      ).toBe(1);
+      await firstHarness.dispose();
+      firstDisposed = true;
+
+      const restarted = await createRuntimeProbeHarness({ persistPath });
+      try {
+        const read = await facetLifecycle(
+          restarted,
+          "p04_restart",
+          0,
+          "read",
+        );
+        expect(read.value).toBe(1);
+        expect(read.facetStartupCallbackRan).toBe(true);
+        await facetLifecycle(restarted, "p04_restart", 0, "delete");
+      } finally {
+        await restarted.dispose();
+      }
+    } finally {
+      if (!firstDisposed) await firstHarness.dispose();
+      await removeRuntimeProbePersistPath(persistPath);
+    }
+  });
+
   it("fails closed for Dynamic Worker scenarios without a Loader binding", async () => {
     const noLoaderHarness = await createRuntimeProbeHarness({
       workerLoader: false,
@@ -332,10 +557,10 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect(crossRun.status).toBe(400);
   });
 
-  it("rejects scenarios that are valid in P01 but outside P03", async () => {
+  it("rejects scenarios that are valid in P01 but outside P04", async () => {
     const response = await dispatch(
       harness,
-      validSampleRequest("facet_echo", "p03_future"),
+      validSampleRequest("full_invoke", "p04_future"),
     );
     expect(response.status).toBe(422);
   });
@@ -345,11 +570,14 @@ type SupportedScenario =
   | "dynamic_direct_echo"
   | "edge_echo"
   | "facet_echo"
+  | "facet_journal"
+  | "full_invoke"
   | "session_echo";
 
 interface SampleOverrides {
   readonly codeMode?: "new-code" | "stable";
   readonly payloadBytes?: number;
+  readonly journalEntries?: number;
   readonly repetitions?: number;
   readonly sessionMode?: "new-session" | "reuse-session";
 }
@@ -370,7 +598,7 @@ function validSampleRequest(
       dimensions: {
         codeMode: overrides.codeMode ?? "stable",
         concurrency: 1,
-        journalEntries: 0,
+        journalEntries: overrides.journalEntries ?? 0,
         payloadBytes,
         sessionMode: overrides.sessionMode ?? "new-session",
       },
@@ -446,6 +674,76 @@ async function controlValue(
   );
   expect(decoded.sessionId).toBe(sessionId);
   return decoded.value;
+}
+
+async function facetLifecycle(
+  harness: RuntimeProbeHarness,
+  runIdValue: string,
+  sampleOrdinalValue: number,
+  operation: ProbeFacetLifecycleOperation,
+  sessionMode: "new-session" | "reuse-session" = "reuse-session",
+) {
+  const response = await dispatchFacetLifecycle(
+    harness,
+    runIdValue,
+    sampleOrdinalValue,
+    operation,
+    sessionMode,
+    "stable",
+  );
+  expect(response.status).toBe(200);
+  const value: unknown = await response.json();
+  return await Effect.runPromise(
+    decodeProbeFacetLifecycleSessionResponseV1Effect(value),
+  );
+}
+
+async function dispatchFacetLifecycle(
+  harness: RuntimeProbeHarness,
+  runIdValue: string,
+  sampleOrdinalValue: number,
+  operation: ProbeFacetLifecycleOperation,
+  sessionMode: "new-session" | "reuse-session",
+  codeMode: "new-code" | "stable",
+): Promise<Response> {
+  const bindings = await harness.bindings();
+  const runId = Effect.runSync(decodeProbeRunIdEffect(runIdValue));
+  const sampleOrdinal = Effect.runSync(
+    decodeProbeOrdinalEffect(sampleOrdinalValue),
+  );
+  const sessionOrdinal = sessionMode === "reuse-session"
+    ? Effect.runSync(decodeProbeOrdinalEffect(0))
+    : sampleOrdinal;
+  const sessionId = probeSessionId(runId, sessionOrdinal);
+  const body = ProbeFacetLifecycleRequestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    runId,
+    sampleId: probeSampleId(runId, sampleOrdinal),
+    sampleOrdinal,
+    scenario: "facet_echo",
+    sessionId,
+    sessionMode,
+    attemptId: probeAttemptId(runId, sessionOrdinal, sampleOrdinal),
+    codeMode,
+    codeId: codeMode === "stable"
+      ? probeCodeId({ mode: "stable", profile: "facet" })
+      : probeCodeId({
+          mode: "new-code",
+          profile: "facet",
+          runId,
+          version: sampleOrdinal,
+        }),
+    journalEntries: 0,
+    operation,
+  });
+  return await bindings.PROBE_SESSIONS.getByName(sessionId).fetch(
+    "https://probe-session.internal/v1/facet-lifecycle",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 function derivedSessionId(runIdValue: string, ordinalValue: number) {

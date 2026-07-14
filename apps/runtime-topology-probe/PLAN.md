@@ -269,7 +269,7 @@ Proof: focused loader/identity/limit tests plus local smoke and bundle/dry-run.
 
 ### P04 - Add The Session Facet And Temporary Journal
 
-Status: in progress and approved.
+Status: complete.
 
 Deliver:
 
@@ -290,7 +290,7 @@ bundle/dry-run.
 
 ### P05 - Add The Private Mock Commit And ProbeSyncDO Wake
 
-Status: approved; pending.
+Status: in progress and approved.
 
 Deliver:
 
@@ -425,7 +425,7 @@ teardown are complete.
 
 - Active goal: build and validate the isolated production runtime-topology
   probe through separately approved gates.
-- Current gate: `P04` implementation.
-- Next gate after proof and checkpoint: `P05`.
+- Current gate: `P05` implementation.
+- Next gate after proof and checkpoint: `P06`.
 - Goal completion condition: production evidence and analysis are recorded and
   the approved cleanup/retention action is verified.
