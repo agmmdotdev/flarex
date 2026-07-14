@@ -22,7 +22,12 @@ Scope:
 - Read untracked files directly because ordinary Git diffs omit them.
 - Inspect neighboring code, package exports, helpers, tests, accepted design
   notes, roadmaps, and Convex references only as needed to evaluate the diff.
-- Do not turn the checkpoint into a broad audit of unrelated committed code.
+- For Effect code, inspect the changed lines plus the nearest enclosing
+  operation, service/Layer, runtime boundary, and directly connected flow. A
+  concrete pre-existing problem is in scope when the diff calls, extends,
+  copies, or materially relies on it.
+- Do not turn the checkpoint into a broad audit of unrelated committed code or
+  an unrestricted package migration.
 
 Authority and context:
 - Read `AGENTS.md` and apply its accepted-design authority, Convex-first rule,
@@ -110,12 +115,34 @@ Effect-specific checks when applicable:
 - Domain and integration failures are tagged and mapped once at their source,
   then recovered by intent. Rejecting foreign promises use typed Effect
   constructors; retries are bounded, transient-only, and safe to repeat.
+- Keep normal failures in `E`. Use `Option` only for intentional absence,
+  `Result` only when recoverable success/failure is deliberately data, and
+  `Exit` only when a runtime, lifecycle, diagnostic, or test boundary needs the
+  full Cause. This Effect v4 workspace uses `Result` rather than v3 `Either`.
+  Preserve protocol-owned `null` and `{ ok }` representations at public, wire,
+  and persistence boundaries.
+- Use `Effect.match` for pure handlers and `Effect.matchEffect` for effectful
+  handlers. Use exhaustive `Match` / `Option.match` / `Result.match` /
+  `Exit.match` or an exhaustive `switch` / `never` assertion where cases are
+  data, while retaining simple guard clauses for simple predicates. Flag nested
+  tag checks or defaults that hide future union variants.
+- Use `pipe` for clear linear composition. Prefer `Effect.gen` when several
+  dependent binds, loops, or branches are clearer imperatively; `map` /
+  `flatMap` pipelines remain valid. Flag nested or ceremonial composition only
+  when it obscures control flow, failure, or lifecycle.
 - Effect runners and manual runtimes remain explicit, lifecycle-owned adapter
   bridges. Domain pipelines compose Effects instead of nesting runners.
 - Services and Layers are narrow, module-owned, and lifecycle-safe. Resource
   acquisition has matching release, fibers remain structured/scoped, Layer
   construction closes implementation dependencies, and global layers do not
-  capture per-request or per-object state.
+  capture per-request or per-object state. In installed beta.90,
+  `Layer.effect` owns scoped construction; do not propose the nonexistent
+  `Layer.scoped` API.
+- Ordinary outbound HTTP in Effect-native services should use an injected
+  `HttpClient.HttpClient` with explicit status, Schema decoding, timeout, and
+  bounded retry policy. A raw Cloudflare service-binding or Durable Object
+  `Fetcher.fetch` is acceptable behind one narrow typed platform adapter; do
+  not confuse it with scattered global `fetch` in domain code.
 - Effect-native domain/service code reads current time through `Clock` or
   `DateTime.now`; direct platform time belongs only in a deliberate host adapter
   or pure parsing/formatting code that is not reading the current clock.
@@ -139,10 +166,15 @@ Finding standard:
   defects from optional improvements.
 - Do not recommend abstraction without demonstrated duplication, mixed
   responsibility, drift, or testability pressure.
-- A concrete shared Effect guide violation introduced by the diff is reportable
-  as P3 even when its immediate impact is maintainability, diagnostics,
-  operability, or testability. Do not suppress it as a generic preference.
+- A concrete, actionable shared Effect guide violation introduced by the diff
+  or pre-existing in its materially connected flow must be reported, normally
+  as P3 when its immediate impact is maintainability, diagnostics, operability,
+  or testability. Label the latter `Touched-flow debt (pre-existing)`, explain
+  how the change relies on it, and recommend the smallest bounded correction.
   Higher severity still requires the normal systems-impact evidence.
+- If correcting touched-flow debt would change a public contract, trust or
+  transaction boundary, or materially expand the approved slice, report it as
+  an adjacent follow-up instead of demanding an unapproved broad rewrite.
 - If there are no findings, say so directly.
 
 Validation:
@@ -157,8 +189,9 @@ Final response:
 2. Optional non-blocking observations only when they materially help the main
    thread.
 3. When Effect is in scope, an `Effect coverage:` line counting the changed
-   functions, services/Layers, schemas, runtime edges, and Effect tests actually
-   inspected, including any accepted exceptions.
+   and directly connected touched-flow functions, services/Layers, schemas,
+   runtime edges, and Effect tests actually inspected, including any accepted
+   exceptions.
 4. Validation commands run and results.
 5. Explicitly state: `No files were modified by this reviewer.`
 """

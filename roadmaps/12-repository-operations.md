@@ -28,6 +28,10 @@ correctness and the quality of TypeScript/Effect implementation.
   both reviewers must read `.codex/agents/effect-review-guide.md`, apply its
   examples and exceptions, and report the Effect constructs they actually
   inspected.
+- Effect review includes the smallest connected operation, service/Layer,
+  runtime boundary, and direct call path. Concrete pre-existing debt may be
+  reported when the diff materially exercises or relies on it, but reviewers
+  do not roam unrelated files or turn checkpoints into package-wide migrations.
 
 ## Standing Reviewer Responsibilities
 
@@ -41,11 +45,13 @@ transaction boundaries, reliability, lifecycle and concurrency, performance,
 operability, maintainability, test quality, and idiomatic Effect composition.
 
 Both reviewers remain risk-adaptive. Effect-specific checks add to rather than
-replace their broader responsibilities. An explicit Effect guide violation in
-new code may be reported as a low-severity concrete defect even before it
-causes a runtime failure; higher severity still requires evidence of real
-correctness, security, data-loss, compatibility, reliability, or operational
-impact.
+replace their broader responsibilities. An explicit Effect guide violation
+introduced by the diff or pre-existing in its materially touched flow must be
+reported when it is concrete and actionable, normally as a low-severity defect
+when it has not yet caused a runtime failure. Pre-existing findings are labeled
+touched-flow debt and must explain the connection to the change. Higher
+severity still requires evidence of real correctness, security, data-loss,
+compatibility, reliability, or operational impact.
 
 ## Effect Review Boundary
 
@@ -63,6 +69,20 @@ current Effect v4 source and application evidence:
   `Effect.gen`;
 - concise pipelines and lifecycle-owned host bridges are judged by their real
   boundary rather than a syntax-only rule;
+- Effect v4 `Result`, not v3 `Either`, carries recoverable failure as data;
+  `Option` is for intentional absence, while `Exit` is reserved for complete
+  Cause-aware outcomes at lifecycle, runtime, diagnostic, and test boundaries;
+- simple Boolean guards remain ordinary TypeScript, while tagged and structural
+  unions use exhaustive Match patterns or exhaustive `switch` / `never` checks
+  when a hidden fallback would make future variants unsafe;
+- `Effect.match` is for pure branches and `Effect.matchEffect` for effectful
+  branches; `pipe` supports clear linear composition and `Effect.gen` is
+  preferred when several dependent binds, loops, or branches are clearer
+  imperatively;
+- ordinary outbound HTTP in Effect-native services uses an injected Effect
+  `HttpClient` with explicit status, decoding, timeout, and retry policy;
+  Cloudflare service-binding and Durable Object `fetch` calls remain narrow
+  platform adapters rather than being mechanically treated as Internet HTTP;
 - typed error provenance, exact `A`/`E`/`R`, Layer closure, Scope and structured
   concurrency, runtime placement, Schema compiler placement, observability,
   and Effect-native tests are part of the review, not optional extras.
@@ -97,5 +117,7 @@ that cache is absent.
   Cloudflare-host, or real-Postgres validation when a future slice crosses
   those boundaries.
 - The repository still contains legacy wrapper-style Effect functions and
-  manual runtime bridges. They should be corrected in approved, bounded slices
-  rather than silently used as precedent or swept into unrelated changes.
+  manual runtime bridges, raw-fetch/JavaScript error subsystems, and
+  non-exhaustive conditional flows. They should be corrected incrementally
+  when a change materially touches them and the correction fits the approved
+  slice, rather than silently used as precedent or swept into unrelated work.

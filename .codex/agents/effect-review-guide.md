@@ -7,16 +7,21 @@ Schema, Config, Context service, Layer, Scope, Fiber, runtime bridge, or
 Effect-based test.
 
 This guide is not a request to migrate unrelated legacy code. Review the
-changed diff, report newly introduced or materially exposed problems, and use
-nearby debt only as evidence. Existing inconsistency is not an exception for
-new code.
+changed lines plus the smallest semantically connected operation, service,
+Layer, runtime boundary, and direct call path needed to understand them. A
+concrete, actionable pre-existing guide violation must be reported when the
+diff calls, extends, copies, or materially relies on it; label it
+`touched-flow debt` and propose a bounded improvement. Do not roam through
+unrelated files or turn a checkpoint into a package-wide migration. Existing
+inconsistency is not an exception for new code.
 
 ## Authority And Evidence
 
 Apply these sources in order:
 
 1. Flarex's accepted behavior, public contracts, trust boundaries, and the
-   Effect version actually installed in this workspace.
+   exports, types, and source of the Effect version actually installed in this
+   workspace.
 2. The optional local Effect reference at
    `opensrc/repos/github.com/effect-TS/effect-smol/LLMS.md`, its `.patterns/`
    documents when present, and representative Effect source for API details.
@@ -98,6 +103,15 @@ Apply these checks:
 - `Effect.gen` remains correct for a one-off Effect value, Layer construction,
   an Effect test body, or inline orchestration inside an already named
   operation.
+- Use a concise `pipe` for a short linear transformation, recovery, timeout,
+  retry, or observability chain; `map` / `flatMap` pipelines remain idiomatic
+  for dependent work when they stay clear. Prefer `Effect.gen` when several
+  dependent binds, loops, branches, or sequential capabilities are easier to
+  read imperatively.
+- Do not wrap one clear combinator in a generator, split one logical pipeline
+  across repeated one-step `.pipe(...)` calls, or nest pipelines until the
+  success and failure flow becomes harder to see. Pattern matching belongs at
+  the branch; `pipe` is not a substitute for exhaustive control flow.
 - A short ordinary function returning a clear combinator pipeline can remain
   ordinary, especially when it preserves a framework signature or already
   applies a stable `Effect.withSpan`. Do not replace clarity with generator
@@ -110,10 +124,10 @@ export function canonicalizePolicy(policy: GrantPolicy): Uint8Array {
 }
 ```
 
-An explicit violation of the wrapper rule is reportable as a P3 maintainability
-and diagnostics defect. Raise severity only when it also erases a failure or
-requirement type, breaks tracing relied on operationally, or causes a real
-correctness/lifecycle problem.
+An explicit violation of the wrapper rule within the review scope must be
+reported as a P3 maintainability and diagnostics defect. Raise severity only
+when it also erases a failure or requirement type, breaks tracing relied on
+operationally, or causes a real correctness/lifecycle problem.
 
 ## Success, Failure, And Requirements
 
@@ -151,6 +165,102 @@ Check encoded versus decoded Schema types, optionality, and tagged union
 exhaustiveness. An unsafe assertion that hides an `A`, `E`, or `R` disagreement
 is a contract defect, not a style issue.
 
+## Choose Effect, Option, Result, Or Exit
+
+Effect v4 beta.90 in this workspace exports `Result`, not `Either`. Older Effect
+v3 examples that use `Either` or `Effect.either` map conceptually to `Result`
+and `Effect.result` here. Do not propose an `Either` import until the installed
+version changes.
+
+| Need | Representation | Review guardrail |
+| --- | --- | --- |
+| Async work, cancellation, typed failure, or injected capabilities | `Effect.Effect<A, E, R>` | Keep expected failures in `E` during normal domain composition |
+| Composable internal absence with no failure reason | `Option<A>` | Preserve intentional `null`/optional wire and Convex-facing contracts at their boundary |
+| Pure recoverable success/failure that is deliberately data | `Result<A, E>` | Preserve accepted `{ ok }` wire/protocol contracts; do not invent parallel internal outcome types |
+| Complete runtime outcome including defects and interruption | `Exit<A, E>` | Use at runtime, lifecycle, supervision, diagnostics, and test boundaries, not routine domain branching |
+
+Apply these conversions deliberately:
+
+- `Effect.result` turns only the typed failure channel into `Result.Failure`;
+  defects and interruptions still fail the Effect. Use `Result.match` when both
+  branches are intentionally plain data.
+- `Effect.option` turns every typed failure into `Option.none` and therefore
+  erases its reason; defects and interruptions still fail. Use it only when
+  every typed failure truly means ignorable absence. When only
+  `NoSuchElementError` means absence, prefer `Effect.catchNoSuchElement` so
+  other failures remain visible.
+- `Effect.exit` captures the full `Cause`. Inspect it with `Exit.match` when a
+  host adapter, fiber owner, cleanup path, test, or diagnostic boundary must
+  distinguish typed failure, defect, and interruption.
+- Use `Option.fromNullishOr` at a nullable boundary when internal composition
+  benefits from `Option`. Do not force `Option` into public or persisted shapes
+  whose specified representation is `null` or an omitted field.
+- Do not convert an Effect to `Result` or `Option`, immediately branch with
+  nested `if` statements, and then rebuild Effects. Keep the failure in `E` and
+  use `Effect.catchTag` / `Effect.catchTags` or `Effect.matchEffect` unless
+  treating the outcome as data is the actual contract.
+- Do not replace an accepted public, wire, or persisted `{ ok }` union merely
+  for library uniformity. Convert at an internal boundary only when composition
+  benefits and convert back at the protocol owner.
+
+## Matching And Conditional Flow
+
+Use the smallest construct that makes the cases explicit:
+
+- An ordinary guard clause, `if`, or ternary is correct for one simple pure
+  predicate. Effect style does not mean replacing every Boolean with a
+  combinator.
+- Use `Match.typeTags` or `Match.valueTags` for a `_tag` discriminated union
+  when every variant must be handled. Use `Match.type` with `Match.when` /
+  `Match.tag` / `Match.tags` and finish with `Match.exhaustive` for more
+  structural cases. A native exhaustive `switch` with a `never` assertion is
+  also valid.
+  A final default branch that silently treats every future variant as the last
+  known case is not exhaustive.
+- Use `Option.match`, `Result.match`, and `Exit.match` when folding those data
+  types. Their discriminants are public, so one direct local guard is valid;
+  avoid scattering repeated `_tag` / `isSome` / `isFailure` checks throughout
+  a flow when one exhaustive fold is clearer.
+- Use `Effect.match` when both handlers return plain values and
+  `Effect.matchEffect` when a handler performs Effect work. Wrapping both
+  branches in `Effect.succeed` only to use `matchEffect` is needless ceremony.
+- Use `Effect.matchCause` / `Effect.matchCauseEffect` only when the full Cause is
+  intentionally part of boundary handling. Normal typed recovery belongs in
+  `Effect.catchTag` / `Effect.catchTags` and must not accidentally normalize
+  defects.
+- `Effect.when` accepts an effectful Boolean and returns an `Option` so the
+  skipped case is explicit. Use a plain guard when the condition is already a
+  pure Boolean and no optional result is needed.
+
+For example, an internal route dispatcher should make new variants a compile
+error:
+
+```ts
+import { Match } from "effect"
+
+type InternalRoute =
+  | { readonly _tag: "Deployment"; readonly request: Request }
+  | { readonly _tag: "Registry"; readonly request: Request }
+
+const dispatch = Match.typeTags<InternalRoute>()({
+  Deployment: ({ request }) => handleDeployment(request),
+  Registry: ({ request }) => handleRegistry(request),
+})
+```
+
+Prefer that shape over chained tag checks with an implicit final fallback. For
+Effect success/failure, fold directly instead of manufacturing an internal
+intermediate `{ ok: boolean }` value:
+
+```ts
+const response = operation.pipe(
+  Effect.match({
+    onFailure: toFailureResponse,
+    onSuccess: toSuccessResponse,
+  }),
+)
+```
+
 ## Typed Errors And Foreign Effects
 
 Classify failures before reviewing recovery:
@@ -182,7 +292,10 @@ export const signGrant = Effect.fn("GrantSigner.sign")((bytes: Uint8Array) =>
 - Use `Effect.try` / `Effect.tryPromise` for operations that can throw or reject.
   `Effect.promise` is only valid when rejection is impossible or intentionally
   a defect.
-- Do not put JavaScript `try/catch` around yielded Effects.
+- Do not put JavaScript `try/catch` around yielded Effects or wrap an entire
+  Promise-based domain workflow in one `Effect.tryPromise`. Keep JavaScript
+  `try/catch` inside a pure compatibility helper or the narrow foreign call it
+  actually guards, then map the failure once at the Effect boundary.
 - Emit or translate the error at its source, then propagate it. Repeated
   downstream `mapError` wrapping destroys provenance.
 - Prefer tag-specific recovery. A broad catch is appropriate only at a boundary
@@ -207,9 +320,14 @@ export const signGrant = Effect.fn("GrantSigner.sign")((bytes: Uint8Array) =>
 - Compose and provide Layers at application, host, or test boundaries. Repeated
   `provideService` inside domain operations often hides lifecycle and
   requirement mistakes.
-- Use `Layer.scoped`, `Effect.acquireRelease`, or the matching scoped primitive
-  whenever acquisition owns cleanup. A `Scope` requirement hidden inside
-  `Layer.effect` is a defect.
+- In beta.90, `Layer.effect` and `Layer.effectContext` run construction in the
+  Layer's Scope and remove the `Scope` requirement. There is no
+  `Layer.scoped` export. Use `Effect.acquireRelease` or the matching scoped
+  primitive inside Layer construction whenever acquisition owns cleanup.
+- Use `Layer.succeed` for an already-created, lifecycle-free value and
+  `Layer.effect` for effectful or scoped construction. Compose dependencies
+  with Layers and provide the finished graph at an application or test
+  boundary rather than repeatedly providing services inside domain methods.
 - Use structured concurrency. Owned fibers should be scoped, supervised, or
   explicitly joined/interrupted; do not let background work escape a request,
   Worker, Durable Object, or test lifecycle accidentally.
@@ -222,6 +340,77 @@ export const signGrant = Effect.fn("GrantSigner.sign")((bytes: Uint8Array) =>
 - Use Effect scheduling and interruption primitives when cancellation or
   deterministic testing matters. Other platform APIs can be wrapped once in an
   explicit host adapter.
+
+## HTTP And Foreign Capabilities
+
+For ordinary outbound HTTP inside Effect-native services, prefer the installed
+`effect/unstable/http` service:
+
+Flag an Effect veneer that keeps a second JavaScript error system inside it:
+
+```ts
+const load = Effect.tryPromise({
+  try: async () => {
+    try {
+      const response = await fetch(url)
+      if (!response.ok) throw new Error("HTTP " + response.status)
+      return await response.json()
+    } catch (cause) {
+      console.error("request failed", cause)
+      throw cause
+    }
+  },
+  catch: (cause) => new UpstreamError({ cause }),
+}).pipe(Effect.catch(() => Effect.succeed(undefined)))
+```
+
+That shape duplicates catching and logging, treats status and decoding as
+untyped exceptions, and finally erases the failure. Prefer one typed boundary:
+
+```ts
+import { Effect, Schema } from "effect"
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientResponse,
+} from "effect/unstable/http"
+
+const Policy = Schema.Struct({ id: Schema.String })
+
+export const loadPolicy = Effect.fn("PolicyClient.load")(function* (
+  url: string,
+) {
+  const client = (yield* HttpClient.HttpClient).pipe(
+    HttpClient.filterStatusOk,
+  )
+  const response = yield* client.get(url)
+  return yield* HttpClientResponse.schemaBodyJson(Policy)(response)
+})
+
+export const HttpLive = FetchHttpClient.layer
+```
+
+Review the whole HTTP contract, not only the transport call:
+
+- Inject `HttpClient.HttpClient` into the service and provide
+  `FetchHttpClient.layer` at the host composition boundary. This keeps tests,
+  tracing, interruption, and transport substitution under Layer ownership.
+- Build requests with `HttpClientRequest`, make accepted status codes explicit,
+  and decode bodies with `HttpClientResponse` Schema helpers. Raw
+  `response.json() as Type` is not runtime validation.
+- Apply timeouts and bounded retry policy at the integration boundary. Retry
+  only transient failures and requests that are safe to repeat; never add
+  generic retries to non-idempotent writes without an idempotency contract.
+- Flag domain/service code that combines raw global `fetch`, nested JavaScript
+  `try/catch`, manual `response.ok` checks, unchecked JSON, and repeated error
+  wrapping when the touched flow can use the Effect HTTP service.
+- Do not mechanically replace Cloudflare Durable Object or service-binding
+  `Fetcher.fetch` calls. They are platform capability calls, not necessarily
+  ordinary Internet HTTP. Wrap them once behind a narrow injected adapter with
+  typed errors, cancellation, status/decoding policy, and lifecycle ownership.
+- `Effect.tryPromise` remains correct at a real foreign Promise boundary. The
+  problem is scattering adapters or using one giant wrapper as an Effect veneer
+  over a nested Promise/throw/catch subsystem.
 
 ## Runtime Boundaries
 
@@ -331,6 +520,7 @@ The TypeScript reviewer owns:
 The code-quality reviewer owns:
 
 - the `fn` / `fnUntraced` / `gen` / pipeline choice;
+- Match, conditional, `Option` / `Result` / `Exit`, and HTTP composition choice;
 - meaningful tracing and boundary-safe structured logging;
 - at-source error mapping, recovery, retry, and redaction;
 - resource Scope, cancellation, structured concurrency, and Layer lifecycle;
@@ -342,7 +532,8 @@ test-quality review.
 
 ## Coverage And Finding Calibration
 
-When Effect is in scope, the final review must include one compact line such as:
+When Effect is in scope, the final review must include one compact line covering
+both changed constructs and directly connected touched-flow constructs, such as:
 
 ```text
 Effect coverage: 3 functions, 1 service/Layer, 2 schemas, 1 runtime edge, 4 tests; one fnUntraced exception inspected.
@@ -353,10 +544,21 @@ boundary constraint. "Existing local style" is not enough.
 
 - P0-P2 still require their normal correctness, security, data-loss,
   compatibility, reliability, or bounded-impact evidence.
-- P3 may be used for an explicit guide violation introduced by the diff, such
-  as a reusable `function -> Effect.gen` wrapper, repeated manual test runtime,
-  or stable Schema compiler rebuilt per call, even before it becomes a runtime
-  bug.
+- Report at least P3 for an explicit guide violation introduced by the diff or
+  pre-existing in the materially touched flow, such as a reusable
+  `function -> Effect.gen` wrapper, nested runtime, non-exhaustive tagged
+  dispatch, raw-`fetch` error subsystem, repeated manual test runtime, or stable
+  Schema compiler rebuilt per call, even before it becomes a runtime bug.
+- Mark a pre-existing finding as `Touched-flow debt (pre-existing)` and explain
+  exactly how the diff exercises, extends, copies, or relies on it. Recommend
+  the smallest behavior-preserving same-slice correction. If that correction
+  changes a public contract, trust/transaction boundary, or materially expands
+  the approved slice, report it as an adjacent follow-up instead of silently
+  demanding a broad rewrite.
+- The main thread should fix bounded touched-flow debt in the current
+  checkpoint when tests can preserve behavior and the approved scope does not
+  change. Otherwise it must triage the finding explicitly; a reviewer must not
+  suppress it merely because the problematic line predates the diff.
 - Do not report pure functions, standalone Effect values, tiny inline
   compositions, dynamic-schema compilation at its stable factory boundary, or
   a documented and lifecycle-safe host runner.
@@ -369,9 +571,13 @@ Use these as focused evidence rather than scanning whole repositories:
 - `opensrc/repos/github.com/effect-TS/effect-smol/ai-docs/src/01_effect/01_basics/02_effect-fn.ts`
 - `opensrc/repos/github.com/effect-TS/effect-smol/ai-docs/src/01_effect/02_services/01_service.ts`
 - `opensrc/repos/github.com/effect-TS/effect-smol/ai-docs/src/01_effect/04_resources/10_acquire-release.ts`
+- `opensrc/repos/github.com/effect-TS/effect-smol/ai-docs/src/50_http-client/10_basics.ts`
+- `opensrc/repos/github.com/effect-TS/effect-smol/migration/v3-to-v4.md`
 - `opensrc/repos/github.com/effect-TS/effect-smol/ai-docs/src/09_testing/10_effect-tests.ts`
 - `opensrc/repos/github.com/pingdotgg/t3code/docs/operations/effect-fn-checklist.md`
 - `opensrc/repos/github.com/pingdotgg/t3code/docs/operations/observability.md`
+- `opensrc/repos/github.com/pingdotgg/t3code/apps/server/src/vcs/VcsProcess.ts`
+- `opensrc/repos/github.com/pingdotgg/t3code/infra/relay/src/agentActivity/ApnsClient.ts`
 - `opensrc/repos/github.com/pingdotgg/t3code/tsconfig.base.json`
 - `opensrc/repos/github.com/pingdotgg/t3code/oxlint-plugin-t3code/rules/no-inline-schema-compile.ts`
 - `opensrc/repos/github.com/pingdotgg/t3code/oxlint-plugin-t3code/rules/no-manual-effect-runtime-in-tests.ts`

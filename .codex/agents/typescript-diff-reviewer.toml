@@ -22,7 +22,12 @@ Scope:
 - Read untracked files directly because ordinary Git diffs omit them.
 - Inspect neighboring implementations, exports, tests, accepted design notes,
   roadmaps, and existing types only as needed to evaluate the changed diff.
-- Do not turn the checkpoint into a broad audit of unrelated committed code.
+- For Effect code, inspect the changed lines plus the nearest enclosing
+  operation, service/Layer, runtime boundary, and directly connected flow. A
+  concrete pre-existing problem is in scope when the diff calls, extends,
+  copies, or materially relies on it.
+- Do not turn the checkpoint into a broad audit of unrelated committed code or
+  an unrestricted package migration.
 
 Authority and guidance:
 - Read `AGENTS.md` and follow its design-authority and Convex-first rules for
@@ -79,6 +84,18 @@ Effect-specific checks when applicable:
   an exported, generic, or service boundary needs explicit stabilization; do
   not erase failures or requirements with assertions, global `Error`, or
   `unknown`.
+- Verify that the representation matches the contract: `Option` for intentional
+  composable absence, `Result` for recoverable success/failure deliberately
+  retained as data, and `Exit` only where the full Cause is required. This
+  Effect v4 workspace uses `Result` rather than v3 `Either`. Conversions through
+  `Effect.option`, `Effect.result`, or `Effect.exit` must not erase information
+  the caller needs. Preserve protocol-owned `null` and `{ ok }` representations
+  at public, wire, and persistence boundaries.
+- Tagged unions and outcome types are handled exhaustively. Prefer
+  `Match.typeTags` / `Match.valueTags`, `Option.match`, `Result.match`, or
+  `Exit.match` when they make a missing variant a type error; an exhaustive
+  `switch` with a `never` assertion is also valid. Do not require Match for one
+  simple Boolean guard.
 - Service interfaces, `Effect.fn` implementations, Context identities, Layer
   dependencies, runtime decoders, wire schemas, and tests must agree. Service
   methods must not leak implementation-only requirements after construction.
@@ -92,8 +109,14 @@ Effect-specific checks when applicable:
   when encoding is part of the contract.
 - Effect runners and manual runtimes stay at real adapter/test boundaries;
   Effect code composes with `yield*` or combinators rather than nested runners.
+- Ordinary outbound HTTP in Effect-native services uses an injected
+  `HttpClient.HttpClient` when practical, with explicit status and Schema
+  decoding contracts. Cloudflare service-binding and Durable Object
+  `Fetcher.fetch` calls may remain behind a narrow typed platform adapter.
 - Service and Layer types do not capture request-, Worker-, or Durable
-  Object-scoped state in unsafe global singletons.
+  Object-scoped state in unsafe global singletons. In installed beta.90,
+  `Layer.effect` owns scoped construction; do not propose the nonexistent
+  `Layer.scoped` API.
 - Effect Schema does not silently replace Flarex `ValidatorJson` semantics.
 
 Finding standard:
@@ -108,10 +131,16 @@ Finding standard:
 - Distinguish blocking correctness or compatibility defects from optional
   improvements. Avoid extraction advice without demonstrated duplication or
   drift risk.
-- A concrete shared Effect guide violation introduced by the diff is reportable
-  as P3 even when its immediate impact is maintainability, diagnostics, or
-  testability. Do not suppress it as a generic style preference. Higher
-  severity still requires the normal correctness or compatibility evidence.
+- A concrete, actionable shared Effect guide violation introduced by the diff
+  or pre-existing in its materially connected flow must be reported, normally
+  as P3 when its immediate impact is maintainability, diagnostics, or
+  testability. Label the latter `Touched-flow debt (pre-existing)`, explain how
+  the change relies on it, and recommend the smallest bounded correction.
+  Higher severity still requires the normal correctness or compatibility
+  evidence.
+- If correcting touched-flow debt would change a public contract, trust or
+  transaction boundary, or materially expand the approved slice, report it as
+  an adjacent follow-up instead of demanding an unapproved broad rewrite.
 - If there are no findings, say so directly.
 
 Validation:
@@ -126,8 +155,9 @@ Final response:
 2. Optional non-blocking observations only when they materially help the main
    thread.
 3. When Effect is in scope, an `Effect coverage:` line counting the changed
-   functions, services/Layers, schemas, runtime edges, and Effect tests actually
-   inspected, including any accepted exceptions.
+   and directly connected touched-flow functions, services/Layers, schemas,
+   runtime edges, and Effect tests actually inspected, including any accepted
+   exceptions.
 4. Validation commands run and results.
 5. Explicitly state: `No files were modified by this reviewer.`
 """

@@ -36,12 +36,22 @@ as the source of truth for reviewer scope, read-only boundaries, TypeScript
 skill usage, validation expectations, and response format.
 
 When a diff touches Effect code, both standing reviewers must read and apply
-`.codex/agents/effect-review-guide.md`. That guide distinguishes reusable
-Effect-producing functions, which normally use `Effect.fn`, from pure
-TypeScript functions, standalone Effect values, concise pipelines, and
-unnamed or deliberately untraced internal helpers. Reviewers must report their
-actual Effect coverage and may raise a concrete guide violation even when its
-first impact is maintainability, diagnostics, operability, or testability.
+`.codex/agents/effect-review-guide.md`. That guide owns the workspace rules for
+`Effect.fn` / `Effect.gen` / pipeline choice, typed failures, Match and
+conditional flow, `Option` / `Result` / `Exit`, HTTP clients, services and
+Layers, Scope, concurrency, runtime boundaries, Schema, observability, and
+Effect tests. Reviewers must report their actual Effect coverage.
+
+Effect review includes the smallest semantically connected operation, service
+or Layer, runtime boundary, and direct call path around the changed code. A
+reviewer must report a concrete, actionable pre-existing guide violation when
+the diff calls, extends, copies, or materially relies on it, even if the
+offending line itself did not change. Label it as touched-flow debt, recommend
+the smallest bounded improvement, and normally treat style-only debt as P3. Do
+not use this rule for an unrelated file or package-wide audit. The main thread
+should fix bounded touched-flow debt in the approved slice when behavior can be
+preserved and validation is available; broader contract, trust, transaction,
+or architecture changes require their own preflight.
 
 The main thread owns all writes and all Git operations. The main thread must
 triage reviewer findings, apply useful fixes itself, rerun validation, then
