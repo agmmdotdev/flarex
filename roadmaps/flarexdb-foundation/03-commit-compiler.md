@@ -315,8 +315,9 @@ Exit gate:
 
 - both PGlite and real-Postgres suites pass;
 - the new compiler is eligible only for a private test generation. Canary and
-  production routing remain blocked on baseline import/comparison, readiness,
-  active-schema authority, generation routing, and their rollback gates;
+  hosted routing remain blocked on target-native readiness, active-schema
+  authority, generation routing, target-only caller/sync proof, and hosted
+  gates. Legacy import/comparison/rollback is conditional on shipped evidence;
 - it is not yet a general Payload, Medusa, range-query, or sync engine.
 
 ### [ ] C07A — Measure And Conditionally Move The Journal To A Session Facet

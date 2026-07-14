@@ -44,14 +44,15 @@ Before promoting a design, compare it with:
 - current Convex behavior and source;
 - current Flarex schemas, code, and decisive tests;
 - the active slice boundary; and
-- known migration and rollback requirements.
+- proven shipped-state migration, recovery, and rollback obligations.
 
 Call out concrete contradictions, duplicate authorities, unsafe trust or
 transaction boundaries, missing failure/recovery behavior, stale assumptions,
 premature abstractions, and smaller correctness-preserving alternatives. Do
 not manufacture objections after a proposal survives the evidence.
 
-Current code is compatibility evidence, not automatic future authority.
+Current code is implementation and prototype-regression evidence, not automatic
+future authority.
 Historical filenames containing `DO`, `partition`, or `shard` do not promote
 their architecture over the accepted Postgres-authoritative replacement.
 
@@ -97,8 +98,10 @@ ways:
 - Cloudflare Durable Objects own WebSockets, coordination, temporary session
   bookkeeping when measurement justifies it, and disposable cache state—not
   authoritative committed data.
-- Control/data placement and storage-generation migration require explicit
-  scope locators, fences, backfill, comparison, cutover, and rollback.
+- Control/data placement and target activation require explicit scope locators
+  and fences. Backfill, comparison, cutover, and runtime rollback are added only
+  when shipped-state evidence proves a migration obligation; the current
+  unshipped prototypes use clean replacement.
 
 These differences require explicit adapters and recovery protocols. They do
 not justify changing ordinary developer APIs away from Convex without a

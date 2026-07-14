@@ -27,7 +27,7 @@ evidence-backed preflight.
 This folder converts the accepted FlarexDB architecture into small,
 reviewable implementation gates for:
 
-- additive physical schema and compatibility migration;
+- target physical schema, activation, and evidence-triggered migration;
 - exact-snapshot OCC and transaction semantics; and
 - the bounded Flarex app-data commit compiler.
 
@@ -38,8 +38,8 @@ prevent a second row authority or ambiguous edge identity.
 
 ## Foundation Decision
 
-Build one correctness kernel beside the legacy storage generation and prove it
-through a vertical app-data slice:
+Build one correctness kernel beside the prototype paths while it is incomplete,
+then make it the only runtime through a vertical app-data proof:
 
 ```text
 trusted scope + storage generation
@@ -50,7 +50,8 @@ trusted scope + storage generation
   -> pure point-write planning
   -> one atomic result-bearing commit
   -> derived index/unique/edge sidecars
-  -> backfill, compare, scoped cutover, rollback
+  -> target-native readiness and internal-caller switch
+  -> prototype authority removal
 ```
 
 Schema, OCC, and compiler work are deliberately interleaved. Completing a
@@ -58,9 +59,13 @@ large physical schema without exercising snapshot and commit semantics would
 freeze unproven abstractions.
 
 The legacy `documents`, `indexes`, invoke-session staging, commit/outbox,
-freshness, and subscription paths remain the compatibility oracle until scoped
-retirement gates pass. This is a strangler migration, not an in-place rewrite
-and not a second product repository.
+freshness, subscription, and PartitionDO paths are bounded prototype-regression
+evidence until equivalent target tests and runtime paths exist. They were not
+shipped, so they create no default backfill, dual-operation, or rollback
+obligation. New features must land only on the accepted target. Keep prototype
+paths merely long enough
+to switch internal callers safely, then remove them in the same gate or an
+explicit immediately following retirement gate.
 
 ## Authority And References
 
@@ -81,7 +86,7 @@ Use these sources in order:
 6. Current code/tests prove implementation status but do not override accepted
    replacement design.
 
-The most important compatibility evidence is:
+The most important implementation and prototype-regression evidence is:
 
 - [`../../packages/persistence-postgres/src/schema.ts`](../../packages/persistence-postgres/src/schema.ts)
   for current legacy plus additive foundation tables;
@@ -90,7 +95,7 @@ The most important compatibility evidence is:
 - [`../../packages/executor/src/sessions.ts`](../../packages/executor/src/sessions.ts)
   for wall-clock `beginTs` sessions; and
 - [`../../packages/executor/src/types.ts`](../../packages/executor/src/types.ts)
-  for the broad compatibility persistence surface.
+  for the broad prototype persistence surface.
 
 ## Hosted Execution Gate
 
@@ -147,13 +152,15 @@ Fixed cross-adapter rules:
 - trusted control metadata locates the data plane; the data-plane scope clock
   supplies current generation/fence;
 - one request anchor pins generation/fence across OCC attempts;
-- a request may rebind generations only after authoritative outcome lookup and
-  a fenced terminal transition prove no commit is in flight;
+- an active request never crosses generations. Cross-generation rebind exists
+  only if shipped request continuity is later proven and a separately
+  preflighted authoritative outcome/terminal-fence protocol permits it;
 - callers cannot author physical tables, locks, sequences, index/unique/edge
   rows, change atoms, or system outbox rows;
 - `(scope_id, request_key)` idempotency is generation independent;
-- cutover seals the legacy request namespace and imports recoverable outcomes
-  or permanent tombstones; unknown legacy keys reject;
+- clean target requests start in the target namespace. Legacy namespace sealing,
+  outcome import, tombstones, and unknown-key rejection apply only if shipped
+  legacy request keys are discovered;
 - all authoritative writers share the scope-local commit lane;
 - there is no automatic atomic `ctx.db + ctx.commerce` transaction; and
 - no raw database/transaction handle reaches Dynamic Worker code.
@@ -180,7 +187,7 @@ it only after proportional tests, required reviewer passes, and its automatic
 commit. Update living roadmaps only when durable status, architecture, gaps,
 direction, or correctness criteria change.
 
-### Wave 0 — Compatibility Seam And Immutable Foundations
+### Wave 0 — Prototype Isolation And Immutable Foundations
 
 1. [x] `S01`: freeze legacy behavior behind a named generation boundary.
 2. [ ] `S02`: trusted scope location and scope clock.
@@ -312,47 +319,56 @@ Dynamic Worker binding baseline before selecting it.
 start Payload feature parity. Their contract is in
 [`04-payload-relational-contract.md`](./04-payload-relational-contract.md).
 
-### Wave 4 — Compatibility Migration And Scoped Authority
+### Wave 4 — Target Activation And Prototype Retirement
 
-1. `S13`: unsealed current-state baseline import and migration state.
-2. `S14`: normalized shadow comparison at one fenced watermark.
-3. `S03-D4`: derive validation/readiness from the real baseline/backfill and
-   comparison evidence; do not mutate the active pointer.
-4. `S04`: migrate active-schema pointer authority only after readiness is
-   evidence-backed.
-5. `O11`: snapshot-retention floors and explicit out-of-retention behavior;
+1. `S03-D4`: derive target-native validation/readiness from real target rows,
+   indexes, uniqueness, edges, and adapter evidence; do not mutate the active
+   pointer.
+2. `S04`: install the target active-schema authority only after readiness is
+   evidence-backed. Do not mirror a prototype pointer unless shipped evidence
+   requires it.
+3. `O11`: snapshot-retention floors and explicit out-of-retention behavior;
    consume reconnect floors only after roadmap 21 supplies their accepted
    contract and DDL.
-6. `S15`: transactional generation routing, same-transaction legacy mirror,
-   rollback state, and fences.
-7. `O12`: cut over one isolated canary scope with live subscriptions disabled.
-8. `O13`: retire legacy storage/OCC only after separate sync/reconnect gates.
+4. Complete a server-provisioned private target-scope route plus Worker,
+   Hyperdrive, and real-Postgres proof without changing public/default routing.
+5. Use `S02-D2` to activate `flarexdb_v1` for clean scopes through the trusted
+   generation fence; fail closed rather than falling back to a prototype.
+6. Switch backend, executor, local, test, and sync callers/defaults, then prove
+   target-only sync/reconnect/reset recovery.
+7. Use `O13` to remove prototype storage, OCC, routes, bindings, defaults,
+   schema, and pre-release migration-history layers.
 
-`C07A` is not a cutover prerequisite when its predeclared threshold is not met.
+Former `S13` baseline import, `S14` shadow comparison, `S15` dual-generation
+routing/rollback, and `O12` live canary drain are a dormant conditional branch,
+not active execution gates. Reintroduce only the smallest necessary subset if a
+shipped-state inventory proves durable data, live traffic, issued identifiers,
+request keys/cursors, or a supported external consumer.
+
+`C07A` is not an activation or retirement prerequisite when its predeclared
+threshold is not met.
 
 ## Cross-Plan Invariants
 
-- Add replacement tables/modules; do not rename or drop legacy tables during
-  proof.
+- Add replacement tables/modules while the vertical proof is incomplete. After
+  callers switch, remove prototype tables/modules rather than preserving them as
+  a permanent legacy bridge.
 - Keep host transport separate from trusted storage generation. No header or
   client input chooses generation.
-- Preserve legacy MVCC `ts` only for compatibility. Never reinterpret it as
-  replacement `commitSeq`.
+- Preserve legacy MVCC `ts` only as regression evidence unless durable shipped
+  rows are discovered. Never reinterpret it as replacement `commitSeq`.
 - Empty scope is sequence `0`; a successful transaction allocates and advances
   `last + 1` atomically; rollback consumes nothing.
 - Persisted sequences and fences share PostgreSQL's signed-int64 ceiling;
   protocol schemas cannot admit larger values.
 - Epoch is a fence/provenance marker, not a visibility filter. Rollover never
   resets sequences or hides untouched rows.
-- Exactly one storage generation commits authoritatively per scope. Shadow
-  storage observes/compares only.
-- During rollback compatibility, both representations are written in the same
-  Postgres transaction. Ending that mirror requires reverse catch-up before
-  rollback can remain credible.
+- Exactly one storage generation commits authoritatively per scope. The current
+  clean replacement does not introduce shadow authority or dual writes.
 - Unsupported read-your-writes shapes fail closed; Postgres cannot see a
   private staged journal.
-- Before sync replacement, cutover is limited to isolated canary scopes with
-  live subscriptions/reconnect disabled.
+- Before prototype sync removal, target sync/reconnect/reset recovery must pass
+  without relying on imported legacy registrations.
 - PGlite is the fast lane. Real Postgres is mandatory for locks, isolation,
   concurrency, serialization/deadlock, constraints, outbox claims, migrations,
   and production query plans.

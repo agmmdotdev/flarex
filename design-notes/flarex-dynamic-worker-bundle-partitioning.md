@@ -107,7 +107,7 @@ transaction code can never exceed a Worker limit.
 
 ## Current Flarex Baseline
 
-The current implementation is a compatibility baseline, not the target
+The current implementation is an unshipped prototype baseline, not the target
 described in this note.
 
 [`../packages/flarex-dev/src/sourcePackage.ts`](../packages/flarex-dev/src/sourcePackage.ts)

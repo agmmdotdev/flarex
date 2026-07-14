@@ -3,10 +3,11 @@
 ## Status And Scope
 
 **Status:** Active domain authority with an implemented programmatic Miniflare
-runtime, Vite integration, a legacy Durable Object compatibility mode, and an
-opt-in PGlite/Postgres executor mode. The accepted destination is the
-Postgres-authoritative mode; browser WebSocket proxying and atomic reload
-cutover remain incomplete.
+runtime, Vite integration, a legacy Durable Object prototype mode, and an
+opt-in PGlite/Postgres executor mode that still runs the initial `legacy_v1`
+Postgres engine. The accepted `flarexdb_v1` local composition is not yet
+selectable; browser WebSocket proxying and atomic reload activation remain
+incomplete.
 
 This roadmap owns:
 
@@ -15,7 +16,8 @@ This roadmap owns:
 - startup, reload serialization, file watching, health, inspection, cleanup,
   and local persistence behavior;
 - the Vite `/__flarex_dev/*` middleware boundary;
-- selection between legacy compatibility and forward Postgres execution; and
+- temporary selection between the two executable prototype paths while the
+  accepted FlarexDB composition and their removal are completed; and
 - local-only diagnostics and lifecycle guarantees across those components.
 
 It does not own:
@@ -106,8 +108,9 @@ Execution is selectable:
 
 | Mode | Current status | Authoritative app writes | Intended use |
 | --- | --- | --- | --- |
-| `legacy` | Default compatibility baseline | Legacy backend Durable Object path | Preserve prototype examples and regression coverage only |
-| `postgres` | Opt-in forward path | Trusted executor over PGlite | Local development and fast correctness evidence for the accepted architecture |
+| `legacy` | Default prototype baseline | Legacy backend Durable Object path | Preserve examples and regression coverage only until target callers replace it |
+| `postgres` | Opt-in initial Postgres prototype | Trusted executor over PGlite, currently registering only `legacy_v1` | Host, protocol, PGlite, and regression evidence; not accepted app-data semantics |
+| `flarexdb_v1` | Not yet selectable | Accepted FlarexDB executor/storage target | Future ordinary local path after its vertical correctness gates pass |
 
 The Postgres mode additionally creates `createLocalPGliteExecutorHttpRuntime`:
 
@@ -221,8 +224,10 @@ failure directly or several through `AggregateError`.
 
 ## Invariants And Trust Boundaries
 
-1. **Postgres/PGlite is the forward local write authority.** Legacy Durable
-   Object storage is compatibility scaffolding, not the target architecture.
+1. **Accepted FlarexDB over Postgres/PGlite is the forward local write
+   authority.** The current `postgres` selector proves useful host and database
+   seams but still runs `legacy_v1`; Durable Object storage and that initial
+   Postgres engine are prototype scaffolding, not the target architecture.
 2. **Developer code never receives storage authority.** It receives only the
    restricted generated context and executor syscall surface.
 3. **Source is pushed to a backend boundary.** Final codegen consumes the
@@ -267,12 +272,14 @@ artifact runtime, executor Fetch protocol, PGlite persistence, and sync actors.
 This catches contract drift that an in-memory fake would hide and lets
 `flarex-test` exercise the same composition.
 
-### Keep Legacy Mode Only As A Named Compatibility Path
+### Treat Legacy Mode As A Removable Prototype Path
 
-The legacy Durable Object path remains useful for regression coverage while
-replacement gates are incomplete. It must not influence new schema, OCC,
-freshness, or transaction design, and it should cease being the default after
-the Postgres local path passes the declared cutover gates.
+The legacy Durable Object path remains useful only for bounded regression
+coverage while replacement gates are incomplete. It must not influence new
+schema, OCC, freshness, or transaction design, receive new features, or become
+a supported persistence mode. Once the accepted FlarexDB local path passes its
+target-only gates, switch the default and remove the legacy option, bindings,
+routes, and state rather than retaining a permanent opt-in.
 
 ### Use Vite As The Current Host, Not The Domain Contract
 
@@ -314,8 +321,8 @@ Named Flarex divergences are:
   Vite HTTP middleware cannot transparently stand in for a Worker upgrade.
 - PGlite is the fast local adapter for the accepted Postgres authority, while
   real Postgres remains a separate correctness lane.
-- The current local backend still contains legacy Durable Object actors and a
-  generated app Worker for compatibility during replacement migration.
+- The current local backend still contains unshipped Durable Object prototype
+  actors and a generated app Worker while the replacement is incomplete.
 
 ## Implemented Capabilities
 
@@ -364,8 +371,8 @@ Named Flarex divergences are:
   crashes can leave partial state. There is no startup recovery/validation or
   user-facing reset command in the local host.
 - Local PGlite uses one fixed shared-database locator. Split topology, storage
-  generation selection, backfill/compare/cutover, and rollback are foundation
-  responsibilities and are not locally selectable.
+  generation activation and any evidence-triggered migration/recovery are
+  foundation responsibilities and are not locally selectable.
 - PGlite and Miniflare do not prove real-Postgres isolation/locks/query plans or
   hosted Worker/Hyperdrive lifecycle.
 - Post-commit sync trigger notification is best effort; durable retry and
@@ -407,10 +414,10 @@ service bindings.
    compensating protocol across executor registration/activation, backend push
    finish, generated output, and app swap. Prove every injected failure retains
    one consistent previous generation and abandons or cleans the candidate.
-2. **Promote Postgres mode into Vite.** Expose the forward local composition,
-   make it the default after compatibility tests pass, and require an explicit
-   legacy opt-in. Prove ordinary Vite invoke and sync avoid authoritative
-   PartitionDO writes.
+2. **Promote the accepted FlarexDB mode into Vite.** Expose the forward local
+   composition, make it the default after target semantic tests pass, and then
+   remove the legacy option/fallback. Prove ordinary Vite invoke and sync avoid
+   authoritative PartitionDO writes without relying on dual execution.
 3. **Wire browser WebSocket upgrades.** Bridge the Vite HTTP server upgrade to
    the backend-owned `/sync` route and prove a browser-style client receives an
    initial indexed query, mutation response, and later transition.
@@ -422,8 +429,9 @@ service bindings.
    no Miniflare, artifact, PGlite, timer, or filesystem handles leak.
 6. **Align replacement-generation gates.** Register and activate only exact
    immutable schema/package generations that passed foundation readiness and
-   scope-authority provisioning; keep rollback selection until the declared
-   migration gates pass.
+   scope-authority provisioning. Keep a bounded source/deployment activation
+   rollback while proving the checkpoint; do not add a legacy data mirror unless
+   a shipped local-persistence contract is explicitly recorded.
 7. **Add parity evidence without widening authority.** Compare the local
    Postgres mode with focused real-Postgres and hosted Worker lanes for the same
    invoke, failure, identity, and sync cases. Keep platform provisioning outside

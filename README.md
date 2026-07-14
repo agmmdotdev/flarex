@@ -1,8 +1,9 @@
 # Flarex
 
 Flarex is a Convex-inspired application backend for the Cloudflare runtime.
-This workspace contains the architecture documents and the first executable
-prototype.
+This workspace contains the accepted replacement design, its active roadmaps,
+and executable prototypes that are being replaced by the first intended
+shippable FlarexDB architecture.
 
 Future implementation work should follow [AGENTS.md](./AGENTS.md). Domain
 decisions and implementation records live in [roadmaps/](./roadmaps/), split by
@@ -13,8 +14,8 @@ feature area with Convex references and Cloudflare differences.
 - `packages/flarex`: schema validators, Convex-style function authoring
   APIs, and a minimal application client for calling generated references.
 - `packages/flarex-dev`: Vite plugin, local dev runtime, and code generator.
-- `packages/flarex-backend`: backend Worker runtime and Durable Object
-  database model.
+- `packages/flarex-backend`: backend Worker runtime, Cloudflare coordination,
+  and removable Durable Object app-data prototype code.
 - `packages/flarex-test`: Convex-style test SDK backed by the real local
   Flarex Worker/Durable Object runtime.
 - `apps/backend`: thin Wrangler deployable wrapper around `flarex-backend`.
@@ -38,19 +39,19 @@ point at either a hosted Flarex deployment URL or the local dev URL exposed by
 the plugin. The Flarex platform/backend itself remains the Wrangler deployment
 target.
 
-This is intentionally the first vertical slice. Developers write ordinary
-TypeScript modules under `flarex/`; they do not write Worker entrypoints or
-Wrangler configuration. The hosted platform will bundle those modules into an
-internal Flarex-managed execution artifact for dynamic execution. Authoritative
-backend analysis, reactive query invalidation, schema migrations, projections,
-and cross-partition workflow mutations are not implemented yet.
+Developers write ordinary TypeScript modules under `flarex/`; they do not write
+Worker entrypoints or Wrangler configuration. The hosted platform bundles those
+modules into an internal Flarex-managed execution artifact for dynamic
+execution.
 
-`packages/flarex-backend` is now the first standalone server runtime. It
-defines
-`RegistryDO`, `DeploymentDO`, `PartitionDO`, `ConnectionDO`, and `SchedulerDO`.
-The partition object is the authoritative shard: it owns document history,
-current documents, index entries, write log, idempotency keys, and conservative
-OCC validation for document/table/index read sets.
+The repository currently contains two unshipped app-data prototypes: the older
+`PartitionDO`/Durable Object SQLite path and the initial Postgres `legacy_v1`
+path. Neither is the accepted future authority. The accepted target is
+`flarexdb_v1`: trusted execution through a private executor Worker with
+Postgres as the only authoritative committed app-data store. Durable Objects
+own explicitly non-authoritative coordination, connection, and freshness state.
+The target foundation is only partially implemented, so current runnable
+behavior must not be mistaken for the finished architecture.
 
 ## Run The Prototype
 
@@ -74,40 +75,51 @@ function registry.
 
 ## Architecture
 
-The old executor-only spike has been removed. The current primary design uses
-Dynamic Workers for isolated user code, partition Durable Objects with SQLite
-for authoritative atomic mutations, declarative projections for global live
-views, and Cloudflare Workflows for durable cross-partition operations.
+The accepted target topology is:
+
+```text
+client
+  -> public backend Worker
+  -> Flarex-managed Dynamic Worker execution artifact
+  -> private trusted executor Worker
+  -> cache-disabled Hyperdrive
+  -> authoritative Postgres / FlarexDB
+  -> canonical commit feed
+  -> non-authoritative DeploymentSyncDO / ConnectionDO coordination
+```
+
+Postgres owns committed app data, exact snapshots, OCC validation, durable
+outcomes, and the canonical commit/change feed. Cloudflare hosts sandboxed user
+execution, service bindings, WebSockets, and rebuildable coordination or cache
+state. User code receives a restricted logical syscall API, never raw database
+or storage handles.
 
 Start with [CLOUDFLARE_CONVEX_RUNTIME.md](./CLOUDFLARE_CONVEX_RUNTIME.md).
-Detailed domain docs live under [docs/](./docs/).
+The accepted architecture is owned by
+[the FlarexDB design](./design-notes/flarex-db-accepted-design.md), and active
+execution order is owned by
+[the FlarexDB foundation roadmap](./roadmaps/flarexdb-foundation/README.md).
+The files under [docs/](./docs/) are retained as a historical first-design
+archive, not as current design authority.
 
 ### Current Scope
 
-- define the Cloudflare runtime and database architecture
-- preserve Convex-like query, mutation, action, and subscription semantics
-- prevent user functions from receiving raw database or Durable Object bindings
-- preserve normal loops, maps, and `Promise.all` inside mutations
-- provide atomic authoritative mutations inside one partition
-- provide type-level and runtime cross-partition protection
-- provide automatic projection maintenance
-- provide automatic one-step-per-partition Workflow planning
+- preserve the Convex developer mental model and portable core semantics
+- keep Postgres as the only authoritative committed app-data store
+- isolate untrusted functions behind a restricted syscall boundary
+- provide exact-snapshot reads, explicit dependencies, OCC, versioned writes,
+  idempotent outcomes, and ordered commit/change information
+- use Cloudflare Durable Objects only for deterministic coordination,
+  WebSockets, and explicitly non-authoritative freshness/cache state
+- document every necessary Flarex divergence from Convex
 
 ### Next Work
 
-1. Port Convex-style function registration metadata, validator exporters,
-   source bundling, authoritative analysis, and the `start_push` /
-   `finish_push` lifecycle from
-   [roadmaps/17-deployment-analysis-and-push.md](./roadmaps/17-deployment-analysis-and-push.md).
-2. Replace the local direct metadata deployment shortcut with the shared
-   candidate push and activation state machine.
-3. Move active function execution behind the Flarex-managed dynamic execution
-   artifact and restricted syscall boundary.
-4. Finalize the partition model in
-   [09-partitioned-data-model.md](./docs/09-partitioned-data-model.md).
-5. Finalize generated APIs and safety rules in
-   [10-developer-api-and-type-safety.md](./docs/10-developer-api-and-type-safety.md).
-6. Add projections from
-   [11-projections-and-consistency.md](./docs/11-projections-and-consistency.md).
-7. Add cross-partition orchestration from
-   [12-cross-partition-workflow-mutations.md](./docs/12-cross-partition-workflow-mutations.md).
+Do not infer the next implementation gate from this overview. Research and
+preflight the next unchecked gate in
+[the FlarexDB foundation roadmap](./roadmaps/flarexdb-foundation/README.md), then
+obtain explicit user approval. The durable sequence is to complete one vertical
+`flarexdb_v1` snapshot/OCC/commit proof, build the target sync path, activate it
+for clean scopes, switch internal callers, and remove both unshipped prototype
+app-data architectures. Backfill, dual operation, and rollback machinery are
+added only if a shipped-state inventory proves a real migration obligation.

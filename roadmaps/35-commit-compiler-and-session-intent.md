@@ -2,8 +2,8 @@
 
 ## Status And Scope
 
-Status: accepted bounded design with an implemented `legacy_v1` compatibility
-path; the replacement commit compiler is planned and no `C01` through `C09`
+Status: accepted bounded design with an implemented `legacy_v1` prototype path;
+the replacement commit compiler is planned and no `C01` through `C09`
 slice is complete.
 
 This roadmap owns the durable direction for:
@@ -20,7 +20,8 @@ This roadmap owns the durable direction for:
 
 This roadmap does not own:
 
-- physical schema/catalog construction and storage-generation cutover;
+- physical schema/catalog construction, target activation, prototype
+  retirement, or conditional shipped-state migration;
 - the low-level OCC transaction primitives;
 - live-query activation, commit-feed catch-up, or cache coordination;
 - Payload database parity or Medusa transaction semantics; or
@@ -35,8 +36,8 @@ historical checkpoint record previously accumulated here.
 Use these sources in order:
 
 1. [`../design-notes/flarex-db-accepted-design.md`](../design-notes/flarex-db-accepted-design.md)
-   owns the accepted snapshot, compiler trust, idempotency, retry, adapter, and
-   migration boundaries.
+   owns the accepted snapshot, compiler trust, idempotency, retry, adapter,
+   replacement, and conditional migration boundaries.
 2. [`flarexdb-foundation/README.md`](./flarexdb-foundation/README.md) owns the
    interleaved schema/OCC/compiler execution order.
 3. [`flarexdb-foundation/03-commit-compiler.md`](./flarexdb-foundation/03-commit-compiler.md)
@@ -48,7 +49,7 @@ Use these sources in order:
    generations, the hosted Worker, and production routing.
 6. [`21-cloudflare-freshness-cache.md`](./21-cloudflare-freshness-cache.md) owns
    the distinct live-query freshness rule and deferred committed-read caches.
-7. Current code and decisive tests prove compatibility behavior:
+7. Current code and decisive tests prove implemented prototype behavior:
    - [`packages/executor/src/sessions.ts`](../packages/executor/src/sessions.ts)
    - [`packages/executor/src/retry.ts`](../packages/executor/src/retry.ts)
    - [`packages/persistence-postgres/src/commits.ts`](../packages/persistence-postgres/src/commits.ts)
@@ -85,7 +86,7 @@ prepare invoke metadata
   -> trigger post-commit live-query work
 ```
 
-The compatibility path supports inserts, patches, replaces, deletes, point
+The prototype path supports inserts, patches, replaces, deletes, point
 reads, table scans, index reads, staged-write coalescing, point/table/index
 overlays, OCC conflicts, mutation reruns, abort, stale-session cleanup, commit
 rows, outbox rows, and post-commit notification.
@@ -320,10 +321,11 @@ result/log payloads may be removed, but a compact committed tombstone remains
 for the scope lifetime; late retries return `CommittedResultExpired` and never
 rerun the mutation.
 
-Storage-generation cutover imports recoverable legacy outcomes, creates
-permanent tombstones for known commits without replayable results, and rejects
-unknown legacy keys rather than risking double execution. New canonical keys
-use a server-issued namespace; this never makes an old request key reusable.
+If shipped legacy request keys are discovered, their storage-generation cutover
+imports recoverable outcomes, creates permanent tombstones for known commits
+without replayable results, and rejects unknown keys rather than risking double
+execution. Under the current clean replacement, target canonical keys start in
+a server-issued namespace and no prototype outcome import is required.
 
 ## Retry Classes
 
@@ -384,9 +386,11 @@ commit transaction.
 ### Start with a Postgres-backed journal
 
 The safest route to the replacement protocol is to prove snapshot, OCC,
-planning, finish, outcome, and recovery using the existing authoritative
-database boundary. Starting with SessionDO would combine protocol migration
-with a distributed-state optimization and make failures harder to classify.
+planning, finish, outcome, and recovery through the accepted host-neutral
+Postgres package boundary and target FlarexDB storage contracts. Reusing a
+package seam does not authorize reusing the prototype schema/session semantics.
+Starting with SessionDO would combine protocol replacement with a distributed-
+state optimization and make failures harder to classify.
 
 ### Measure journal placement immediately after C07
 
@@ -456,13 +460,13 @@ the explicit distributed protocol.
 
 ## Implemented Capabilities
 
-The `legacy_v1` compatibility path currently proves:
+The `legacy_v1` prototype path currently proves:
 
 - preparation and begin/finish/abort session APIs;
 - wall-clock snapshot reads and persisted document/table/index dependencies;
 - point CRUD staging, deterministic same-row coalescing, and staged point
   overlays;
-- compatibility table/index overlays and phantom-oriented OCC checks;
+- prototype table/index overlays and phantom-oriented OCC checks;
 - validator enforcement for document writes;
 - one persistence transaction covering document/index publication, commit,
   outbox, and session completion;
@@ -491,11 +495,11 @@ or exact-snapshot invoke path is active.
 - Current `commitInvokeSessionWrites` combines planning, OCC, timestamp
   allocation, physical publication, index maintenance, commit/outbox, and
   session completion.
-- Current retry coordination reruns whole attempts for compatibility OCC but
+- Current retry coordination reruns whole attempts for prototype OCC but
   does not implement the final three-class outcome protocol.
 - The final `(scope_id, request_key)` result-bearing idempotency row,
-  committed-outcome replay, expiry tombstone, and generation-cutover rules are
-  not implemented.
+  committed-outcome replay, expiry tombstone, and target-generation activation
+  rules are not implemented. Legacy outcome import remains conditional.
 - Replacement app-row revision/current and physical transaction-session/
   snapshot-lease tables exist internally. Production session lifecycle,
   commit/change, idempotency, leased outbox, and compiler composition remain
@@ -536,8 +540,9 @@ storage is also complete. The O03-A parent is approved; protocol-only O03-A1,
 auth-provenance O03-A2a, and host-neutral grant authority O03-A2b are complete.
 O03-A2 remains incomplete, with O03-A2c next and separately preflight-gated;
 O03-B activation and C01 remain later Wave 1 gates.
-Production/canary compiler execution still waits for the required schema,
-exact-snapshot OCC, commit, hosted, and migration prerequisites.
+Hosted compiler execution still waits for the required schema, exact-snapshot
+OCC, commit, target activation, target-only caller/recovery, and hosted
+prerequisites. Shipped-state migration prerequisites are conditional.
 
 The compiler gates are:
 

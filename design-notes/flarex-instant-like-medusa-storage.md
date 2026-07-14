@@ -240,8 +240,10 @@ store as the authoritative storage for every field.
 Accepted v1 details live in
 [`postgres-authoritative-sync.md`](./postgres-authoritative-sync.md). In
 particular, the scope's DeploymentSyncDO persists a contiguous cursor and query
-dependency state in SQLite; the current Postgres subscription registry remains
-during migration; `VersionDO`, `DocCacheDO`, and `QueryCacheDO` are deferred.
+dependency state in SQLite. The current Postgres subscription registry is an
+unshipped prototype to remove after target callers and recovery pass; it does
+not require dual registration. `VersionDO`, `DocCacheDO`, and `QueryCacheDO` are
+deferred.
 
 The current sync direction is Convex-like server query reactivity with selected
 Lunora protocol ideas, not a mandatory client-side database.
@@ -3047,12 +3049,16 @@ The direction is worth researching further, but only under these constraints:
 - One exact `(scope_id, epoch, commit_seq)` token defines transaction snapshots.
 - One deterministic DeploymentSyncDO per scope persists a contiguous cursor,
   canonical queries, dependencies, and rerun generations in SQLite.
-- The current Postgres subscription registry remains during migration;
-  direct wake is a hint and durable lag detection/catch-up owns recovery.
+- The current Postgres subscription registry is unshipped prototype evidence,
+  not a target migration authority. `DeploymentSyncDO` owns target canonical
+  queries, dependencies, generations, and contiguous catch-up; direct wake is a
+  hint and durable lag detection owns recovery.
 - VersionDO, DocCacheDO, and QueryCacheDO remain deferred measured
   optimizations.
-- Replacement storage ships behind a generation flag with backfill,
-  verification, dual-read comparison, scoped cutover, and rollback.
+- Replacement storage activates behind a trusted generation fence after
+  target-native verification. The default is clean prototype retirement;
+  backfill, dual-read comparison, scoped cutover, and runtime rollback are added
+  only if concrete shipped-state evidence proves an obligation.
 
 ## Current Challenge Verdict
 

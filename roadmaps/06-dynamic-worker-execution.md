@@ -289,9 +289,10 @@ roadmap 17.
     derivation.
 14. **Malformed responses fail closed.** Runtime, Dynamic Worker, and executor
     success bodies pass protocol decoders before use.
-15. **Legacy execution is compatibility only.** ExecutionDO/PartitionDO and the
-    `legacy` transport cannot become the target authority because their code is
-    already integrated.
+15. **Legacy execution is removable prototype code.** ExecutionDO/PartitionDO
+    and the `legacy` transport cannot become the target authority because their
+    code is already integrated. Port intended semantics, move callers, and then
+    delete the path; do not add features or treat it as a shipped contract.
 16. **Facet placement remains per session and per attempt.** A session actor
     cannot serialize an entire scope, and a retry cannot reuse the prior
     attempt's facet identity or private state.
@@ -369,8 +370,9 @@ Named Flarex divergences:
 - `workflowMutation` exists in registration metadata but is not executable by
   the current artifact invoke route;
 - hosted outbound networking is disabled with `globalOutbound: null`; and
-- current compatibility routes can use legacy ExecutionDO/PartitionDO transport
-  while the accepted production target is the private Postgres executor Worker.
+- current prototype routes can use legacy ExecutionDO/PartitionDO transport
+  while the accepted production target is the private Postgres executor Worker;
+  those routes are removal inputs, not a long-term compatibility promise.
 
 These are adapter/runtime differences, not permission to weaken function
 metadata validation, session atomicity, or least-authority contexts.
@@ -420,7 +422,7 @@ metadata validation, session atomicity, or least-authority contexts.
   implemented.
 - Hosted code accepts an absent executor transport and then uses the legacy
   default. Wrangler config chooses `postgres`, but production should fail closed
-  against accidental legacy fallback after compatibility migration.
+  against accidental legacy fallback before target activation.
 - Queries and mutations are executable; actions and `workflowMutation` are not.
   `ctx.runAction`, cross-artifact nested calls, and separately hosted action
   environments are absent.
@@ -443,8 +445,9 @@ metadata validation, session atomicity, or least-authority contexts.
 - Runtime errors are normalized for protocol safety, but hosted source-map stack
   remapping, structured logs, CPU/subrequest accounting, and operational
   correlation remain incomplete.
-- Legacy partition keys and transport fields remain in compatibility request
-  shapes; they are migration inputs, not accepted public routing authority.
+- Legacy partition keys and transport fields remain in prototype request
+  shapes; preserve only still-intended developer semantics, then remove their
+  physical routing role. They are not accepted public routing authority.
 
 ## Target Direction
 
@@ -465,8 +468,10 @@ active Postgres-backed deployment/package generation
 
 Local Miniflare should remain a fast conformance adapter for the same source,
 context, syscall, identity, retry, and response contracts. Legacy
-ExecutionDO/PartitionDO execution must remain available only through the
-compatibility path until replacement comparison and rollback gates pass.
+ExecutionDO/PartitionDO execution may remain only until the accepted target,
+local/test callers, and target-only recovery pass their declared gates. Then
+remove its routes, bindings, and storage without comparison/rollback machinery
+unless shipped-state evidence appears.
 
 ## Next Correctness Gates
 
@@ -477,10 +482,11 @@ compatibility path until replacement comparison and rollback gates pass.
 2. **Require the production Postgres capability set.** Reject missing/legacy
    hosted transport, missing internal Dynamic Worker token, missing executor
    token, or unversioned rotation configuration in the production profile while
-   preserving explicit local/compatibility modes.
+   preserving explicit local prototype modes only until their callers move.
 3. **Connect production generation routing.** Resolve the accepted active
-   storage generation/fence and package artifact before invocation; retain
-   scoped fallback and rollback until comparison gates pass.
+   storage generation/fence and package artifact before invocation; fail closed
+   rather than falling back to a prototype engine. Use bounded source/deployment
+   activation rollback, not a dual-storage comparison gate.
 4. **Provide the hosted analysis runtime.** Reuse the managed source-package
    isolate boundary with analysis-specific globals, no executor binding, bounded
    diagnostics/time, and separate cold-isolate determinism proof.

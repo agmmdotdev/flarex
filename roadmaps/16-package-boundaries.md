@@ -115,7 +115,7 @@ must not be copied into production Worker cores.
 | `@flarex/executor` | Framework-neutral trusted executor semantics, invocation sessions, deployment authority, retries, maintenance, and outbox coordination | May use persistence/freshness and shared contracts; must not own Cloudflare, Nitro, HTTP-server, or connection lifecycle |
 | `@flarex/executor-http` | Private Web-standard Fetch routing, request decoding, responses, and backend delivery callbacks | Adapts HTTP to executor capabilities; must not duplicate transaction or business semantics |
 | `@flarex/executor-nitro` | Optional Nitro/Vercel compatibility adapter | Wraps the Fetch adapter and must remain replaceable; it is not the hosted production authority |
-| `flarex-backend` | Backend-only platform runtime, public backend routing, Durable Object coordination, artifact services, and authoritative analysis composition | No client SDK or app-facing generation APIs; legacy DO storage code is compatibility scaffolding, not replacement authority |
+| `flarex-backend` | Backend-only platform runtime, public backend routing, Durable Object coordination, artifact services, and authoritative analysis composition | No client SDK or app-facing generation APIs; legacy DO app-data storage is removable prototype scaffolding, not replacement authority |
 | `flarex-dev` | CLI, Vite integration, source packaging, codegen, push, local Miniflare/runtime materialization, and local executor composition | Local/dev-only composition root; Node and Miniflare capabilities must not enter deployable Worker bundles |
 | `flarex-test` | Developer test SDK and harness built on the local runtime | Test-only; must exercise shared runtime behavior rather than define a second production backend |
 | `@flarex/backend` (`apps/backend`) | Thin deployable public backend Worker wrapper | Re-exports/composes `flarex-backend`; no independent domain logic |
@@ -196,8 +196,8 @@ change that trust rule.
    backend-only. Client APIs, codegen, and Vite behavior belong to `flarex`,
    `flarex-dev`, and `flarex-test`.
 6. **Postgres is authoritative.** Legacy Durable Object app-data paths in
-   `flarex-backend` are compatibility inputs. Their package location does not
-   promote them to the accepted target.
+   `flarex-backend` are prototype/regression inputs. Their package location does
+   not promote them to the accepted target or create a migration obligation.
 7. **Transactions stay below hosts.** Database transaction helpers own
    `BEGIN`, `COMMIT`, and rollback. No host holds a transaction open while
    untrusted developer code executes.
@@ -326,12 +326,12 @@ semantics.
   provide partial enforcement, but a forbidden dependency could otherwise be
   introduced accidentally.
 - `flarex-backend` still contains legacy Durable Object storage and routing
-  code alongside forward platform coordination. Replacement must preserve the
-  compatibility path while preventing legacy ownership from leaking into new
-  Postgres work.
+  code alongside forward platform coordination. Replacement must prevent that
+  ownership from leaking into new Postgres work, port intended semantics, move
+  callers, and delete the prototype path after target-only proof.
 - `@flarex/persistence-postgres` exports both broad compatibility surfaces and
   narrower runtime-specific entrypoints. Further narrowing should follow real
-  caller migrations, not speculative API churn.
+  internal caller migrations; broad prototype surfaces are not permanent APIs.
 - `flarex-dev` is intentionally broad and therefore a high-risk leak point.
   New deployable imports require bundle proof that Node, Miniflare, CLI, and
   local database composition remain excluded.
@@ -350,12 +350,13 @@ executor/persistence core, explicit host adapters, and thin deployable apps.
 Move behavior only when its authority is clear; do not create packages merely
 to reduce file size or hide a cyclic design.
 
-The replacement migration should progressively shrink the authoritative role
-of legacy Durable Object app-data code without deleting compatibility before
-backfill, comparison, cutover, rollback, and hosted correctness gates pass.
-Local development and tests should continue exercising the same core contracts
-as production while keeping their privileged composition outside Worker
-bundles.
+The replacement should progressively shrink and then remove the authoritative
+role of legacy Durable Object and initial-Postgres app-data code after target
+parity, internal-caller migration, and hosted correctness gates pass. Backfill,
+comparison, cutover, and runtime rollback are conditional on shipped evidence,
+not package existence. Local development and tests should exercise the same
+accepted core contracts as production while keeping privileged composition
+outside Worker bundles.
 
 ## Next Correctness Gates
 
@@ -374,7 +375,9 @@ bundles.
    runtime bundle gates must fail when local tooling, Node collectors,
    compatibility routers, migration composition, or raw database authority
    enters a narrower Worker graph.
-5. **Retire compatibility surfaces only by evidence.** Inventory remaining
-   HTTP, Nitro, legacy app-data, and broad persistence callers; remove a surface
-   only after its replacement path passes the declared package, bundle,
-   real-Postgres, and hosted gates.
+5. **Retire surfaces according to their real obligation.** Inventory remaining
+   HTTP/Nitro consumers separately from legacy app-data and broad persistence
+   callers. Host adapters remain until caller and host-parity evidence permits
+   removal. Unshipped app-data prototypes remain only until target package,
+   bundle, real-Postgres, recovery, and internal-caller gates pass; they do not
+   wait for an artificial data migration.

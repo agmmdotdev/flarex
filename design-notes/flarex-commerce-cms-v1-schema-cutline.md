@@ -2,7 +2,8 @@
 
 Status: accepted v1 implementation cutline; the internal S06 row kernel and
 S07 transaction-session authority tables are implemented, while OCC, sidecars,
-migration/cutover, and production routing remain incomplete
+target activation, prototype retirement, and hosted routing remain incomplete;
+shipped-state migration remains conditional
 
 Authoritative review:
 
@@ -32,7 +33,8 @@ scope clock + commit/change atoms
 authoritative fenced session/grant anchor + snapshot lease
 result-bearing idempotency
 leased transactional outbox
-existing Postgres subscription registry during sync migration
+conservative fenced Postgres sync-checkpoint mirror for external sweep
+DeploymentSyncDO-owned canonical query/dependency/generation coordination
 ```
 
 SessionDO may later hold a bounded logical app journal, but the v1 schema does
@@ -60,9 +62,13 @@ change. Records and cursors that interpret a token still carry epoch.
 Engine revision retention is bounded by active snapshot leases and reconnect
 cursors. Payload user-visible versions are excluded from engine-history GC.
 
-The current `documents`/`indexes`/invoke-session/subscription/outbox schema is
-the compatibility baseline. Introduce this cutline behind a generation flag,
-then backfill, verify, dual-read compare, cut over by scope, and retain rollback.
+The current `documents`/`indexes`/invoke-session/subscription/outbox schema is an
+unshipped prototype behavior baseline, not a production migration obligation.
+Introduce this cutline behind a trusted activation fence, prove it vertically,
+switch internal callers, and remove the prototype path. Backfill, shadow
+comparison, scoped cutover, and runtime rollback are required only if the
+shipped-state declaration later records data, traffic, or an external contract
+that needs them.
 
 ## Verdict
 
@@ -382,7 +388,8 @@ canonical UTF-8 encoding and `manifest_sha256` stores its raw 32-byte digest;
 PostgreSQL `jsonb` is not checksum input. The artifact has no mutable status.
 D4 owns later validation evidence/readiness, kept separate from the immutable
 artifact, and the scope's sole active-version pointer changes only through S04
-after required index backfills and validation succeed.
+after required target-native index population/build and validation succeed.
+Legacy-data backfill remains conditional on shipped-state evidence.
 
 S03-B2a freezes only the semantic app-document table-definition section.
 S03-B2b1 now plans stable IDs optimistically from the current
@@ -1331,11 +1338,14 @@ commerce writes/deletes should go through ctx.commerce / trusted commerce adapte
 10. Add commit atoms, result-bearing idempotency, and leased outbox through their
    separate S08/S09 and O06/O07 gates.
 11. Prove the narrow point-mutation path on PGlite and real Postgres.
-12. Backfill, verify, dual-read compare, scoped cut over, and preserve rollback.
+12. Bootstrap clean target state, verify target invariants, switch internal
+    callers, and remove prototype storage. Use an evidence-triggered migration
+    plan instead only if shipped legacy obligations are discovered.
 13. Freeze reconnect retention in roadmap 21, then add its DDL immediately
     before O11/replacement sync first consumes it.
-14. Add two-phase live-query activation and per-scope contiguous catch-up while
-    retaining the current Postgres subscription registry.
+14. Add two-phase live-query activation and per-scope contiguous catch-up with
+    DeploymentSyncDO as the target coordination owner; use the current Postgres
+    subscription registry as regression evidence, not a required dual owner.
 15. Add hidden block-type indexes through `fx_index_entry_current` if needed.
 16. Add a scalar Payload adapter over reserved logical collections.
 17. Only then consider normalized catalog tables, `fx_edge_rev`, dedicated

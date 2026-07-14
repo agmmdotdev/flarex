@@ -38,7 +38,8 @@ Use these sources in order when they disagree:
 3. this roadmap for cross-system validation placement and invariants;
 4. protocol schemas, validator implementations, route decoders, domain errors,
    persistence codecs, and tests for exact current behavior; and
-5. older checkpoint sections only as provenance or compatibility evidence.
+5. older checkpoint sections only as provenance or prototype-regression
+   evidence.
 
 Primary implementation anchors:
 
@@ -53,7 +54,7 @@ Primary implementation anchors:
   authoritative-analysis shape and validator parsing;
 - [`packages/flarex-backend/src/validation.ts`](../packages/flarex-backend/src/validation.ts)
   and [`deployment/Validation.ts`](../packages/flarex-backend/src/deployment/Validation.ts)
-  for compatibility-backend validation;
+  for prototype-backend validation;
 - [`packages/executor-http/src/requestDecoders.ts`](../packages/executor-http/src/requestDecoders.ts),
   [`responses.ts`](../packages/executor-http/src/responses.ts), and
   [`errors.ts`](../packages/executor-http/src/errors.ts) for the private Fetch
@@ -221,8 +222,8 @@ nested-call rules, authorization, and executor responses, but it does not
 execute analyzed argument or return validators. It currently expects the
 executor start/finish boundary to own that authority, and the forward executor
 has not yet implemented it. Therefore local generated validation is useful
-feedback and compatibility evidence, not proof that the accepted hosted path is
-safe.
+feedback and prototype-regression evidence, not proof that the accepted hosted
+path is safe.
 
 ### 7. Session, Syscall, And Commit Validation
 

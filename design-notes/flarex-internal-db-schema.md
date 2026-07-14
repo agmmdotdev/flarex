@@ -1,7 +1,7 @@
 # Flarex Internal Database Schema Direction
 
 Status: accepted logical target and physical-policy inventory with an explicit
-staged v1 cutline; compatibility storage and part of the replacement foundation
+staged v1 cutline; prototype storage and part of the replacement foundation
 are implemented, while exact current status belongs to the focused roadmaps
 
 Authoritative correction: see
@@ -43,13 +43,13 @@ unimplemented SessionDO/cache design. Use these statuses:
 
 | Item | Status |
 | --- | --- |
-| Current `documents`, `indexes`, Postgres invoke sessions, subscriptions, and outbox | Implemented compatibility baseline |
+| Current `documents`, `indexes`, Postgres invoke sessions, subscriptions, and outbox | Implemented unshipped prototype baseline; regression evidence only |
 | Typed app row JSON plus derived index/edge/unique sidecars | S06 row revision/current kernel implemented internally; derived sidecars remain accepted planned consumers |
 | Edge revision history | Long-term target; current-only stable occurrence rows are sufficient for the first slice when commit atoms cover invalidation |
 | Dedicated physical Payload lifecycle tables | Deferred until adapter parity or measurement; start with reserved logical collections |
 | Medusa relational tables | Accepted, but generated from DML, links/joiner metadata, migrations, and adapter capabilities; not DML alone |
 | Generic SessionDO for Payload/Medusa | Rejected as a v1 assumption |
-| Per-scope DeploymentSyncDO plus Postgres commit feed/registry | Accepted v1 sync migration |
+| Per-scope DeploymentSyncDO plus Postgres commit feed and fenced cursor mirror | Accepted v1 target; the prototype Postgres query registry is not a required dual owner |
 | VersionDO, DocCacheDO, QueryCacheDO | Deferred optimization |
 
 Additional invariants:
@@ -67,8 +67,10 @@ Additional invariants:
 - A generic `ctx.db + ctx.commerce` atomic transaction is not supported.
   Commerce-affecting atomic behavior belongs behind a Medusa-owned
   facade/workflow and trusted transaction lane.
-- The replacement schema uses flag, backfill, verification, dual-read
-  comparison, scoped cutover, and rollback rather than an in-place rewrite.
+- The current unshipped prototypes use clean replacement: trusted activation
+  fence, target-native validation, internal-caller switch, and prototype
+  removal. Backfill, comparison, scoped cutover, and runtime rollback are
+  conditional on proven shipped data, traffic, or external contracts.
 
 ## Canonical Storage Rule
 
@@ -1184,7 +1186,7 @@ projection database is the normal sync source.
 ```sql
 fx_system_scope_clock (
   scope_id text primary key,
-  storage_generation text not null, -- legacy_v1, flarexdb_v1
+  storage_generation text not null, -- accepted target: flarexdb_v1
   storage_generation_fence bigint not null default 1,
   authorization_revocation_epoch bigint not null default 0
     check (authorization_revocation_epoch >= 0),
@@ -1477,13 +1479,14 @@ direct wake fails or DO was evicted
 
 ## Live Sync Durable Tables
 
-The current implementation has a durable Postgres live-query registry and
-connection leases. Keep those as the compatibility/recovery baseline while a
-deterministic per-scope `DeploymentSyncDO` becomes the sole hot invalidation
-owner. Do not remove the registry until DO eviction, hibernation, reconnect,
-lease cleanup, initial activation, and lost-wake recovery have parity tests.
+The current implementation has an unshipped Postgres live-query registry and
+connection leases. Treat them as regression/removal inputs while a deterministic
+per-scope `DeploymentSyncDO` becomes the target query/dependency/rerun owner.
+Remove the prototype registry after target-only hibernation, reconnect,
+state-loss reset, lease cleanup, initial activation, lost-wake recovery, and
+caller-migration tests pass; do not dual-register by default.
 
-Postgres keeps a fenced operational cursor mirror during migration. The
+Postgres keeps a fenced operational cursor mirror for the external sweep. The
 following reconnect lease is a future sync-owned proposal, not S07 or accepted
 physical DDL. Roadmap 21 must resolve reconnect identity, duration, history
 budget, renewal, expiry, and reset semantics before fixing its columns and
@@ -1975,10 +1978,11 @@ Changed for Flarex:
 - Durable Objects are not the authoritative app database in this design.
   `DeploymentSyncDO` is a hot coordination/cache/rerun actor. FlarexDB remains
   authoritative.
-- During migration, the current Postgres subscription registry and connection
-  leases remain the durable recovery baseline. DeploymentSyncDO SQLite owns
-  the hot query/dependency/rerun state. A later design may remove the registry
-  only after eviction, hibernation, reconnect, and lost-wake parity.
+- The current Postgres subscription registry and connection leases are
+  unshipped prototype evidence. DeploymentSyncDO SQLite owns target query,
+  dependency, generation, and rerun coordination. Remove the prototype registry
+  after target-only hibernation, reconnect, state-loss reset, and lost-wake
+  parity; no live dual-registry migration is required.
 
 Schema pieces from this lineage:
 

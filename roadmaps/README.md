@@ -47,7 +47,7 @@ roadmap merely to legitimize an unreviewed divergence.
 | Focused execution plan | Use for ordered gates and exit criteria. A checked item is status, not a request to append history. |
 | Accepted deferred contract | Preserve its decisions as prerequisites, but do not start implementation before the owning execution gate. |
 | Active inventory — compaction pending | Useful current behavior and migration evidence, but verify every claim against code and higher authorities. Compact before treating it as durable domain truth. |
-| Compatibility inventory | Use to preserve legacy behavior, tests, and migration inputs. It does not define the replacement target. |
+| Prototype or compatibility inventory | Use as regression and provenance evidence. Port only still-intended semantics; migration inputs exist only when a shipped obligation is proven. It does not define the replacement target. |
 | Legacy or superseded | Do not extend or implement from it. Use only for provenance and regression/migration context. |
 | Completed initiative record | Historical closeout and proof context. It is not an active backlog or architecture authority. |
 
@@ -94,8 +94,8 @@ with domain rationale in
 | Plan | Classification | Purpose |
 | --- | --- | --- |
 | [`flarexdb-foundation/README.md`](./flarexdb-foundation/README.md) | Focused execution index | Master status, wave order, hosted gate, and cross-plan invariants. |
-| [`flarexdb-foundation/01-schema-and-migrations.md`](./flarexdb-foundation/01-schema-and-migrations.md) | Active focused execution plan | Additive schema/catalog, codecs, app storage, migration, shadow comparison, cutover, and rollback. |
-| [`flarexdb-foundation/02-occ-and-transactions.md`](./flarexdb-foundation/02-occ-and-transactions.md) | Active focused execution plan | Exact snapshots, OCC dependencies, atomic commit lane, retry classes, retention, and canary cutover. |
+| [`flarexdb-foundation/01-schema-and-migrations.md`](./flarexdb-foundation/01-schema-and-migrations.md) | Active focused execution plan | Target schema/catalog, codecs, app storage, readiness, activation, prototype retirement, and conditional shipped-state migration. |
+| [`flarexdb-foundation/02-occ-and-transactions.md`](./flarexdb-foundation/02-occ-and-transactions.md) | Active focused execution plan | Exact snapshots, OCC dependencies, atomic commit lane, retry classes, retention, clean prototype retirement, and conditional live migration. |
 | [`flarexdb-foundation/03-commit-compiler.md`](./flarexdb-foundation/03-commit-compiler.md) | Active focused execution plan | `C01`–`C09` compiler implementation gates and conditional `C07A`. |
 | [`flarexdb-foundation/04-payload-relational-contract.md`](./flarexdb-foundation/04-payload-relational-contract.md) | Accepted deferred contract | Relation semantics and stable occurrence identity required before `R01`/`R02`/`S12`/`C09`. |
 | [`flarexdb-foundation/05-managed-schema-deployment.md`](./flarexdb-foundation/05-managed-schema-deployment.md) | Accepted deferred contract | Migrationless developer experience and managed schema safety classes; implementation remains deferred. |
@@ -111,11 +111,12 @@ whole file to an active domain authority.
 | --- | --- |
 | [`31-hosted-project-identity-and-auth.md`](./31-hosted-project-identity-and-auth.md) | The top section records completed inert O03-A1 evidence, completed backend-private O03-A2a auth provenance, completed host-neutral O03-A2b grant authority, and next-unapproved A2c consumption of schema-plan-owned S07-A revocation storage plus production adapters; O03-A2/O03-A remain incomplete and the completed identity-plumbing tail remains historical inventory. |
 
-## Compatibility Inventories
+## Prototype And Compatibility Inventories
 
-These files preserve implemented legacy behavior and regression/migration
-evidence. Replacement architecture lives in the active authorities and
-foundation plans.
+These files preserve implemented prototype behavior, regression evidence, and
+conditional migration inputs if a shipped obligation is ever discovered. Their
+existence does not create a compatibility requirement. Replacement architecture
+lives in the active authorities and foundation plans.
 
 | Roadmap | Replacement authority |
 | --- | --- |

@@ -2,12 +2,12 @@
 
 ## Status And Scope
 
-Status: accepted v1 sync design with an implemented compatibility pipeline;
+Status: accepted v1 sync design with an implemented prototype pipeline;
 the per-scope `DeploymentSyncDO` replacement is not implemented, and cache
 Durable Objects remain deferred optimizations.
 
 Reconnect-retention DDL is not part of FlarexDB foundation S07. Existing
-connection leases remain compatibility mechanics, not the accepted replacement
+connection leases remain prototype mechanics, not the accepted replacement
 retention authority. This roadmap must resolve reconnect identity, duration,
 history budget, renewal, expiry, and reset semantics before requesting a
 separate just-in-time schema gate.
@@ -21,8 +21,8 @@ This roadmap owns the durable direction for:
   result-hash suppression;
 - initial subscription activation, contiguous cursor processing, gap catch-up,
   lost-wake recovery, reconnect, and ordered publication;
-- the compatibility Postgres subscription/connection/delivery registry during
-  migration; and
+- disposition and removal of the prototype Postgres subscription/connection/
+  delivery registry as target coordination becomes complete; and
 - the conditions under which `VersionDO`, `DocCacheDO`, or `QueryCacheDO` may
   eventually be introduced.
 
@@ -53,7 +53,7 @@ Use these sources in order:
 4. [`35-commit-compiler-and-session-intent.md`](./35-commit-compiler-and-session-intent.md)
    owns mutation/session reads and the rule that unsupported staged overlays
    fail closed.
-5. Current code and decisive tests prove the compatibility behavior:
+5. Current code and decisive tests prove implemented prototype behavior:
    - [`packages/freshness/src/index.ts`](../packages/freshness/src/index.ts)
    - [`packages/executor/src/liveQueries.ts`](../packages/executor/src/liveQueries.ts)
    - [`packages/executor/src/liveQueryDeliveries.ts`](../packages/executor/src/liveQueryDeliveries.ts)
@@ -76,9 +76,9 @@ accepted target when it conflicts with this roadmap or the design notes above.
 
 ## Current Architecture
 
-### Implemented compatibility pipeline
+### Implemented prototype pipeline
 
-The working Postgres-executor compatibility lane is approximately:
+The working initial-Postgres prototype lane is approximately:
 
 ```text
 legacy mutation commit
@@ -92,8 +92,8 @@ legacy mutation commit
 ```
 
 The implementation also retains the older PartitionDO subscription fallback
-when the Postgres executor binding is absent. That fallback is prototype
-compatibility behavior, not the forward authority.
+when the Postgres executor binding is absent. That fallback is unshipped
+prototype behavior, not the forward authority or a migration obligation.
 
 Postgres currently persists:
 
@@ -118,7 +118,7 @@ The Cloudflare backend currently provides:
 - one compatibility `SchedulerDO` name for rerun, delivery reconciliation,
   dead-letter, and connection-cleanup work.
 
-These are useful migration assets, but the timestamp/deployment mirror and
+These are useful regression assets, but the timestamp/deployment mirror and
 singleton scheduler are not the accepted scope-local commit-feed design.
 
 ### Accepted v1 topology
@@ -131,7 +131,7 @@ authoritative Postgres per scope
   epoch + scope-lifetime monotonic commit_seq
   canonical commit/change feed
   transactional wake/outbox evidence
-  durable compatibility subscription registry
+  conservative fenced sync-checkpoint mirror for external sweep
         |
         v
 deterministic DeploymentSyncDO: deployment-sync:{scopeId}
@@ -189,11 +189,9 @@ The accepted activation order is:
    query generation at the current contiguous cursor.
 2. The trusted executor runs the query at a known Postgres snapshot and returns
    the result, result hash, dependency set, and token.
-3. During migration, the same provisional generation and its
-   package/policy/identity inputs are durably recorded in Postgres.
-4. `DeploymentSyncDO` installs the dependencies and refreshes them against all
+3. `DeploymentSyncDO` installs the dependencies and refreshes them against all
    commits through its current cursor.
-5. It activates and publishes only if no relevant commit invalidated that
+4. It activates and publishes only if no relevant commit invalidated that
    generation; otherwise it reruns before publication.
 
 The current `ConnectionDO` executes a query before durable registration, so
@@ -291,13 +289,16 @@ SQLite keeps cursors and query/dependency state durable across eviction. A hot
 scope may eventually need coordination buckets, but bucketing before measuring
 load would introduce query ownership and cursor-handoff problems prematurely.
 
-### Retain the Postgres registry during migration
+### Build the target without a dual subscription registry
 
-The implemented subscription registry and connection leases are the current
-durable recovery baseline. `DeploymentSyncDO` may rebuild from them while its
-SQLite ownership is proven. Removing the registry before eviction, reconnect,
-lease, and lost-wake parity would create two incomplete authorities rather than
-one safe migration.
+The implemented Postgres subscription registry and connection leases are
+prototype regression evidence. They were not shipped and must not force target
+dual registration. `DeploymentSyncDO` SQLite owns canonical query, dependency,
+generation, and contiguous-cursor coordination; Postgres owns the commit feed
+and a conservative fenced cursor mirror for the external sweep. Hibernation and
+restart retain DO storage. Explicit actor-state loss must fail closed into a
+reset/resubscribe path rather than silently rebuilding ambiguous authority from
+the prototype registry.
 
 ### Keep DeliveryDO downstream
 
@@ -341,7 +342,7 @@ Convex query model or weakening subscription-token semantics.
 
 ## Implemented Capabilities
 
-### Postgres compatibility state
+### Initial Postgres prototype state
 
 The current schema and persistence layer implement:
 
@@ -354,7 +355,7 @@ The current schema and persistence layer implement:
 - delivery rows with claims, lease expiry, attempt/failure metadata,
   acknowledgement, and dead-letter state.
 
-### Executor compatibility behavior
+### Prototype executor behavior
 
 The executor implements:
 
@@ -368,7 +369,7 @@ The executor implements:
   primitives; and
 - outbox delivery batches with idempotent freshness projection.
 
-### Cloudflare compatibility behavior
+### Prototype Cloudflare behavior
 
 The backend implements:
 
@@ -381,9 +382,9 @@ The backend implements:
   indexed/paginated queries, multi-connection fanout, changed results, failures,
   and reconnect candidates.
 
-These capabilities prove migration components, not the final scope-local sync
-protocol. No `DeploymentSyncDO`, `VersionDO`, `DocCacheDO`, or `QueryCacheDO`
-implementation exists.
+These capabilities preserve useful regression cases and reusable delivery
+mechanics, not the final scope-local sync protocol. No `DeploymentSyncDO`,
+`VersionDO`, `DocCacheDO`, or `QueryCacheDO` implementation exists.
 
 ## Known Gaps And Limitations
 
@@ -462,21 +463,24 @@ lost wake / DO eviction / Worker crash
   -> durable sweep finds Postgres latest commit ahead of mirrored cursor
   -> deterministic DeploymentSyncDO wakes
   -> contiguous Postgres interval catch-up
-  -> registry/query-state rebuild or validation
+  -> durable query-state validation, or explicit reset if state is unavailable
   -> dirty reruns
   -> delivery and ordered client publication
 ```
 
-The Postgres registry remains until DeploymentSyncDO passes eviction,
-hibernation, reconnect, lease cleanup, and lost-wake parity. Only after the
-authoritative loop is correct and measured may cache layers enter the design.
+Remove the Postgres prototype registry after DeploymentSyncDO passes
+hibernation, restart, reconnect, state-loss reset, lease cleanup, and lost-wake
+proof with all callers switched. No live dual-registry migration is required.
+Only after the authoritative loop is correct and measured may cache layers
+enter the design.
 
 ## Next Correctness Gates
 
 The sync replacement does not begin before roadmap 20's Wave 2 `C07` gate
 proves one atomic replacement commit with the canonical commit/change feed,
-idempotency outcome, and transactional outbox. Compatibility bug fixes may
-continue, but they must not create a second forward sync architecture.
+idempotency outcome, and transactional outbox. Prototype fixes should be limited
+to what is needed to preserve regression evidence or unblock caller migration;
+they must not create a second forward sync architecture.
 
 After `C07`, the ordered v1 gates are:
 
@@ -485,29 +489,30 @@ After `C07`, the ordered v1 gates are:
    identity, reset/resnapshot, and fenced Postgres checkpoint mirrors. Freeze
    reconnect lease identity, duration, history budget, renewal, expiry, and
    reset behavior in the same design gate.
-2. Immediately before O11 consumes reconnect floors or replacement sync admits
-   reconnectable sessions, add the separately preflighted reconnect-retention
-   DDL and focused PGlite/real-Postgres proof.
-3. Fix initial activation through provisional registration and refresh against
-   already processed commits while retaining the Postgres registry.
-4. Add one deterministic `DeploymentSyncDO` per scope with durable SQLite
+2. Add one deterministic `DeploymentSyncDO` per scope with durable SQLite
    cursor, canonical-query, dependency-index, dirty-through, generation,
    result-hash, and continuation state.
-5. Implement duplicate/reverse/gap processing and ordered Postgres catch-up;
+3. Implement duplicate/reverse/gap processing and ordered Postgres catch-up;
    never advance across a missing commit.
-6. Add a durable external lagging-scope sweep whose Postgres checkpoint mirror
+4. Fix initial activation through provisional DeploymentSyncDO registration and
+   refresh against already processed commits without dual-registering the
+   prototype Postgres registry.
+5. Add a durable external lagging-scope sweep whose Postgres checkpoint mirror
    may lag but can never lead the DO cursor.
-7. Add generation-checked, single-flight authoritative reruns and identity/
+6. Add generation-checked, single-flight authoritative reruns and identity/
    package/schema/policy-safe canonical sharing.
-8. Integrate changed/failed result delivery and ordered ConnectionDO
+7. Integrate changed/failed result delivery and ordered ConnectionDO
    transitions without making DeliveryDO the trigger-recovery owner.
+8. Immediately before O11 consumes reconnect floors or replacement sync admits
+   reconnectable sessions, add the separately preflighted reconnect-retention
+   DDL and focused PGlite/real-Postgres proof.
 9. Prove real-Postgres mutation-to-WebSocket correctness for activation races,
    lost wakes, gaps, concurrent reruns, actor eviction, epoch rollover,
    reconnect floors, and broad dependency fallbacks.
 10. Measure per-scope state, rerun load, and backpressure before deciding whether
    coordination buckets are necessary.
-11. Remove the compatibility SchedulerDO and eventually the Postgres registry
-    only after the replacement demonstrates recovery parity.
+11. Remove the prototype SchedulerDO and Postgres registry after target-only
+    recovery parity and internal-caller migration are proven.
 
 `VersionDO`, `DocCacheDO`, and `QueryCacheDO` are not next gates. They require a
 separate measured need and their own gap-free correctness proofs after v1 sync

@@ -102,7 +102,9 @@ The preflight must explain in plain language:
    current code, definitions, tests, and Convex references provide evidence.
 4. **What was challenged:** contradictions, stale assumptions, missing
    failure/recovery behavior, ordering problems, alternatives, and any smaller
-   correctness-preserving slice.
+   correctness-preserving slice. If legacy code is touched, classify each
+   affected path as `keep`, `port`, `rewrite`, `delete`, or `temporary bridge`,
+   and identify the evidence for any compatibility obligation.
 5. **How completion will be proven:** focused tests, required real-Postgres or
    Cloudflare lanes, compatibility checks, and the exact exit criteria.
 
@@ -123,7 +125,7 @@ implementation gate.
 
 ## Replacement Design Authority
 
-Flarex is in an intentional replacement migration. Do not confuse the currently
+Flarex is in an intentional replacement effort. Do not confuse the currently
 implemented prototype or historical roadmap checkpoints with the accepted
 future architecture, and do not preserve an old design merely because code for
 it already exists. Agents are authorized and expected to make substantial
@@ -143,10 +145,11 @@ Use these sources in this order when deciding the future design:
 5. `design-notes/flarex-internal-db-schema.md` as a long-form proposal,
    physical-policy inventory, provenance record, and unresolved-risk list.
    Its unrefined DDL sketches are not accepted merely because they are written.
-6. Current code and older roadmap checkpoints only for compatibility inventory,
-   migration inputs, regression tests, and provenance.
+6. Current code and older roadmap checkpoints only for implementation evidence,
+   regression tests, provenance, and compatibility inputs when a shipped
+   obligation is actually recorded.
 
-Read status labels literally. `Implemented compatibility baseline` is not the
+Read status labels literally. `Implemented prototype baseline` is not the
 same as `accepted target`; deferred designs are not active requirements. If an
 older note or implementation conflicts with the accepted replacement design,
 follow the accepted design and update or explicitly mark the stale statement as
@@ -154,11 +157,31 @@ superseded. A newer timestamp alone does not promote a proposal to accepted
 authority. Never silently combine legacy Durable Object storage assumptions
 with the Postgres-authoritative replacement.
 
-The replacement remains compatibility-first: introduce a storage generation,
-backfill, verify invariants, compare reads, cut over by scope, and retain a
-rollback switch until the declared correctness gates pass. "Do not be afraid to
-change the old design" does not authorize deleting the compatibility path
-before those gates pass.
+Compatibility protection is evidence-triggered, not code-triggered. Before
+requiring a backfill, shadow or dual read/write path, legacy identifier mapping,
+scoped cutover, tombstone import, or runtime rollback switch, the owning design
+record must identify the shipped obligation: durable authoritative data,
+externally issued identifiers/request keys/cursors, live traffic, or a supported
+published contract. Existing code, local fixtures, and regression tests do not
+by themselves create that obligation.
+
+When no shipped obligation exists, prefer a clean replacement: preserve and
+port still-intended semantics and tests, switch internal callers, and remove the
+superseded schema, runtime path, adapter, and compatibility code. Use source or
+deployment rollback while a checkpoint is being proven rather than constructing
+an artificial dual-storage migration. Before the first supported release,
+rebaseline migration history so a fresh install creates only the target schema;
+do not leave a permanent create-legacy-then-drop-legacy chain without a proven
+upgrade obligation. Do not add new features to a legacy path.
+
+When durable data exists without a live-traffic requirement, use the smallest
+safe one-time migration with backup, invariant verification, and recovery proof;
+dual operation is not automatic. When live traffic or an external contract does
+exist, retain only the compatibility mechanisms justified by that evidence and
+name their retirement gate. Every temporary bridge must record its current
+consumer, reason, and deletion condition. If evidence of a previously unknown
+shipped obligation appears, pause destructive work and update the owning design
+and roadmap before continuing.
 
 ## Convex-First System Rule
 
@@ -274,7 +297,9 @@ using them.
    The older Durable Object shard implementation is prototype/legacy
    scaffolding. New storage, OCC, and authoritative invalidation work should
    follow the FlarexDB foundation plans and `roadmaps/20-postgres-executor.md`.
-   SDK and client work remains in its own domain roadmaps.
+   Existing Postgres-backed code is not automatically the accepted target; it
+   must conform to the accepted FlarexDB schema, session, OCC, commit, and sync
+   boundaries. SDK and client work remains in its own domain roadmaps.
 
 3. Keep runtime hosts as adapters, not the executor core. The hosted production
    target is a dedicated private Cloudflare Worker reached through service
@@ -286,6 +311,8 @@ using them.
    Do not retire either compatibility path until the Worker/Hyperdrive host
    passes its declared bundle and real-Postgres correctness gates. Hosted
    activation gates do not block host-neutral schema, OCC, or compiler work.
+   This host-adapter parity rule does not require preserving a legacy app-data
+   engine or Durable Object authoritative fallback.
 
 4. Use PGlite for local and fast test lanes, but keep real Postgres as the
    required correctness lane for isolation, locks, migrations, outbox behavior,
@@ -304,8 +331,8 @@ using them.
 7. Make writes versioned.
    Store revision history with scope-local `commit_seq` and `prev_commit_seq`,
    and keep current rows only as an optimization. Do not lose tombstone
-   information. Legacy timestamps are migration inputs, not replacement commit
-   authority.
+   information. When durable legacy rows are proven to exist, their timestamps
+   may be migration inputs; they are never replacement commit authority.
 
 8. Preserve idempotency.
    Mutation identifiers/idempotency keys are part of backend semantics so

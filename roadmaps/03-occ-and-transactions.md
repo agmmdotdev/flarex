@@ -16,8 +16,8 @@ C06 orchestrates it idempotently through the finish endpoint, C03 rejects late
 syscalls, O07 atomically deletes the exact lease and stores committed state plus
 outcome/idempotency, O08 owns explicit delete/fence-advance/new-lease retry
 replacement, O11 first consumes active floors, and reconnect retention belongs
-to roadmap 21. The compatibility `invoke_sessions` model remains routed and
-unchanged.
+to roadmap 21. The prototype `invoke_sessions` model remains routed today but
+is a regression/removal input, not a supported migration obligation.
 
 ## Share The Legacy OCC Oracle With The Hosted Proof Lane
 
@@ -41,8 +41,8 @@ What changed:
 Why it changed:
 
 The hosted activation gate must compare the deployed Worker to the existing
-compatibility oracle exactly. A shared scenario prevents the local and hosted
-proofs from silently drifting before the FlarexDB OCC redesign starts.
+prototype regression oracle exactly. A shared scenario prevents the local and
+hosted proofs from silently drifting before the FlarexDB OCC redesign starts.
 
 Convex references inspected:
 
@@ -97,7 +97,7 @@ What changed:
 
 Why it changed:
 
-The current transaction engine is the compatibility oracle for the redesign,
+The current transaction engine is a prototype regression oracle for the redesign,
 but its stale-conflict behavior had not been proven through the production
 Worker boundary. H04 validates that oracle before S02-D changes generation
 routing; it does not reinterpret this behavior as the future OCC design.

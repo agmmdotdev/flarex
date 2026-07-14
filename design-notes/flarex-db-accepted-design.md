@@ -133,10 +133,37 @@ Cloudflare references:
 
 ## Document And Implementation Status
 
+### Design Lineage And Shipped State
+
+Three design iterations coexist in the repository, but they are not three
+public storage versions:
+
+| Design iteration | Repository form | Authority status |
+| --- | --- | --- |
+| Durable Object prototype | `PartitionDO` with authoritative Durable Object SQLite state and partition-local OCC | Unshipped prototype. Preserve only still-intended behavior as target tests; do not extend or migrate this architecture by default. |
+| Initial Postgres prototype | `legacy_v1`, the current routed executor using the existing document/index/session/commit/outbox families | Unshipped intermediate implementation. It is evidence about behavior, not the accepted physical or transaction design. |
+| Accepted FlarexDB design | `flarexdb_v1` | The only forward app-data architecture. `v1` means the first intended shippable FlarexDB storage contract, not the first internal design attempt. |
+
+No implemented Cloudflare D1 app-data engine or `D1Database` binding was found.
+The first prototype's authoritative SQLite is Durable Object storage. Historical
+D1 proposals remain provenance only, and gate labels such as `S03-D1` do not
+refer to Cloudflare D1.
+
+Owner-declared shipped state, last confirmed 2026-07-14: neither prototype was
+deployed as a supported production Flarex app-data service, and no durable
+customer app data, live traffic, or supported external compatibility obligation
+is known or recorded for either prototype. Repository inspection also finds
+only internal/local consumers for these paths. Checked-in fixtures and
+ephemeral test/generated development state are resettable. A named persistent
+developer environment must still be inventoried before destructive cleanup. If
+contrary deployment, data, issued-identifier, request-key, cursor, or consumer
+evidence appears, that affected scope must be reclassified before destructive
+work continues.
+
 | Layer | Status | Meaning |
 | --- | --- | --- |
-| Existing `documents`, `indexes`, invoke sessions, Postgres live-query registry, and delivery outbox | Implemented baseline | Preserve while the replacement is built. Do not silently describe it as the final FlarexDB schema. |
-| Typed app row JSON with revision/current, declared index, edge, and unique sidecars | Partially implemented accepted target | S06 implements the internal, non-routing row revision/current kernel. Index, edge, unique, backfill, and routing consumers remain planned behind the storage-generation boundary. |
+| Existing `documents`, `indexes`, invoke sessions, Postgres live-query registry, and delivery outbox | Implemented prototype baseline | Keep only as bounded internal behavior evidence until equivalent target paths and tests exist. Do not extend it or treat it as a shipped migration obligation. |
+| Typed app row JSON with revision/current, declared index, edge, and unique sidecars | Partially implemented accepted target | S06 implements the internal, non-routing row revision/current kernel. Index, edge, and unique sidecars plus target-native index population/build and routing consumers remain planned behind the storage-generation boundary. |
 | SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | Prove the Postgres-backed point path through the real-Postgres gate, then immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
 | Payload adapter | Staged target | Start with reserved logical collections and scalar CRUD/transaction conformance; add relations, versions/drafts, globals, auth, locks, and hooks incrementally. |
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
@@ -144,16 +171,18 @@ Cloudflare references:
 | VersionDO, DocCacheDO, QueryCacheDO | Deferred optimization | Add only after measurement and a gap-free freshness protocol. |
 | Generic atomic `ctx.db + ctx.commerce` | Rejected | Commerce-affecting atomic behavior belongs behind a Medusa-owned facade/workflow. Cross-boundary follow-up uses IDs and the transactional outbox. |
 
-Replacement storage must use an explicit compatibility migration:
+Replacement strategy is selected from shipped-state evidence:
 
-```text
-new generation behind a flag
-  -> backfill
-  -> verify invariants
-  -> dual-read comparison
-  -> scoped cutover
-  -> rollback switch retained until confidence is established
-```
+| Proven obligation | Required strategy |
+| --- | --- |
+| No durable data, live traffic, issued durable identifiers/request keys/cursors, or supported external contract | Clean replacement: prove the target vertically, switch internal callers and fixtures, then delete superseded runtime and storage paths. Source/deployment rollback is sufficient while the checkpoint is being proven. |
+| Durable data exists, but an offline migration is acceptable | Back up, perform the smallest one-time conversion, verify invariants and recovery, then activate the target. Dual operation is not automatic. |
+| Live traffic must remain available | Add only the necessary backfill/shadowing, comparison, scoped cutover, and rollback mechanisms, each with an explicit retirement gate. |
+| Only external identifiers, request keys, cursors, or API contracts were issued | Preserve or map that boundary contract without automatically retaining the old storage engine. |
+
+Under the current owner-declared state, the clean-replacement row governs the
+two prototypes. A generation fence remains useful for trusted activation and
+rollback of a deployment checkpoint; it does not imply a legacy data migration.
 
 ## Authority And Scope
 
@@ -185,8 +214,9 @@ per-project schema or database until a safe compiled shared strategy is proven.
 ## Physical Identifier And Index Scalability Policy
 
 This policy applies to the replacement FlarexDB schema. Existing prefixed-text
-identifiers and legacy Durable Object keys are migration inputs, not the future
-physical-type authority.
+identifiers and legacy Durable Object keys are not the future physical-type
+authority. They become migration inputs only if durable shipped values are
+actually discovered.
 
 - Keep branded public identifiers at API and protocol boundaries, but do not
   repeat strings such as `scope_<uuid>` through every hot Postgres primary key,
@@ -229,9 +259,9 @@ physical-type authority.
   tuple fails with `OrderedIndexKeyTooLargeError` before SQL rather than
   discovering the B-tree tuple limit in production.
 
-The migration must preserve a reversible mapping from legacy public IDs to the
-new compact physical representation. Public ID stability is required even when
-the underlying storage type changes.
+If a supported legacy public ID was actually issued, its migration must preserve
+a reversible mapping to the new compact physical representation. Otherwise the
+target starts directly with Document ID V1 and no artificial legacy mapping.
 
 Postgres references for this policy:
 
@@ -455,9 +485,10 @@ at-most-2,048-byte ordered field tuple and `row_id` is the separate exact
 16-byte tie-breaker. Half-open range bounds apply to encoded field bytes;
 duplicate encoded keys order by the row identity column. Any change to these
 bytes, lowering rules, collation, or ceiling requires a new codec version and
-new immutable physical definition. Legacy unversioned key bytes must be
-rebuilt from authoritative rows, never reinterpreted as v1. Ordered-key codec
-v1 remains the only byte-order authority; the separately completed S05-B value
+new immutable physical definition. If durable legacy rows are discovered,
+unversioned key bytes must be rebuilt from those authoritative rows, never
+reinterpreted as v1. Ordered-key codec v1 remains the only byte-order authority;
+the separately completed S05-B value
 codec lowers validated stored values into this ordering domain when an index
 consumer needs it.
 
@@ -594,8 +625,9 @@ one atomic operation:
    durable idempotent protocol. It cannot be part of D2's SQL transaction in
    schema-per-scope or database-per-scope placement.
 7. D4 will own validation evidence and readiness computation. It cannot claim
-   real backfill readiness before the later authoritative entry/backfill
-   slices, and S04 alone mutates the active-schema pointer.
+   target-native population/build readiness before the later authoritative
+   entry and sidecar slices. Legacy backfill evidence is conditional, and S04
+   alone mutates the active-schema pointer.
 
 D1 output is ephemeral derived evidence. It contains no source-manifest copy,
 definition ID, lifecycle, cursor, fence, receipt, or readiness state, and the
@@ -607,14 +639,16 @@ and additional system targets require their own later source-driven contracts.
 This is a named Flarex v1 divergence from Convex configurations that permit
 tables outside an enforced schema.
 
-Current text `scope_id`/epoch columns remain compatibility representations. S06
-additively derives stored native UUID projections for canonical
+Current text `scope_id`/epoch columns are prototype boundary representations.
+S06 derives stored native UUID projections for canonical
 `scope_<uuid>`/`epoch_<uuid>` authorities and uses the scope projection in hot
-replacement row keys. Noncanonical legacy values keep null projections;
-replacement access fails closed instead of inventing an unrelated mapping.
+replacement row keys. Noncanonical prototype values keep null projections;
+replacement access fails closed instead of inventing an unrelated mapping. A
+one-time compatibility projection is needed only for proven durable rows.
 
-A schema version is activatable only when required backfills and validations
-have succeeded. There is one authoritative active schema pointer per scope;
+A schema version is activatable only when its required target-native population,
+any evidence-triggered backfill, and validation have succeeded. There is one
+authoritative active schema pointer per scope;
 deployment metadata may reference it, but must not create a second authority.
 
 S05-B freezes Flarex Value Codec V1 before `jsonb` is used as a complete Flarex
@@ -1015,13 +1049,14 @@ and commit token for the scope lifetime. A late retry then returns
 compaction may remove tombstones only when it can prove the client request
 namespace is permanently retired.
 
-Storage-generation cutover fences request namespaces. Recoverable legacy
-committed keys are imported with their outcomes; committed keys without a
-recoverable result become permanent `LegacyCommittedOutcomeUnavailable`
-tombstones. An unnamespaced/legacy key that was already GCed or cannot be
-proven returns `LegacyOutcomeUnknown` and is never executed after cutover. New
-requests use a server-issued namespace prefix inside the canonical
-`request_key`; this does not make any old canonical key reusable.
+If shipped legacy request keys are discovered, storage-generation cutover must
+fence their namespace. Recoverable committed keys are imported with outcomes;
+committed keys without a recoverable result become permanent
+`LegacyCommittedOutcomeUnavailable` tombstones. An unnamespaced legacy key that
+was already GCed or cannot be proven returns `LegacyOutcomeUnknown` and is never
+executed after cutover. Under the current clean-replacement declaration there
+is no legacy request-key import; target requests start with a server-issued
+namespace inside the canonical `request_key`.
 
 Keep three retry classes separate:
 
@@ -1094,7 +1129,7 @@ Postgres per scope
   epoch + scope-monotonic commit_seq
   canonical commit/change feed
   authoritative data and history
-  durable active subscription registry during migration
+  conservative fenced sync-checkpoint mirror for external sweep
 
 DeploymentSyncDO per scope
   durable SQLite appliedThrough cursor
@@ -1153,14 +1188,10 @@ Initial subscription uses two-phase activation:
 
 1. Register a provisional canonical query and cursor in DeploymentSyncDO.
 2. Execute at a known snapshot.
-3. During migration, durably upsert the same provisional generation,
-   epoch/package/policy/identity, refined dependency token, and result hash in
-   the Postgres registry.
-4. Install/refine the DeploymentSyncDO dependency set.
-5. Replay/refresh through the current contiguous cursor.
-6. Mark the generation active and publish only if the token remains valid;
-   otherwise rerun. Removal is idempotent and deactivates the Postgres registry
-   before the DO forgets its final durable registration.
+3. Install/refine the DeploymentSyncDO dependency set.
+4. Replay/refresh through the current contiguous cursor.
+5. Mark the generation active and publish only if the token remains valid;
+   otherwise rerun. Removal is idempotent in the same coordination authority.
 
 This closes the execute-before-register missed-commit race.
 
@@ -1176,13 +1207,14 @@ canonical arguments
 identity/access-policy fingerprint
 ```
 
-The Postgres live-query registry remains the durable baseline while
-DeploymentSyncDO SQLite is introduced. Remove it only after eviction,
-hibernation, reconnect, and replay parity tests prove another recovery owner.
-DeploymentSyncDO SQLite is the hot actor cursor authority. A fenced Postgres
+The legacy Postgres live-query registry is a behavioral test input, not a
+required target migration layer. DeploymentSyncDO SQLite owns the target
+canonical-query, dependency, and cursor coordination state. A fenced Postgres
 cursor is a conservative operational mirror updated only after the DO commits
 its local cursor; it may lag but must never lead. The external sweep reads the
-mirror, so lag produces harmless duplicate wakes.
+mirror, so lag produces harmless duplicate wakes. Hibernation, reconnect,
+replay, and explicit state-loss/reset tests must pass before the legacy registry
+is removed; the proof does not require dual registration in a running product.
 
 `VersionDO`, `DocCacheDO`, and `QueryCacheDO` are later measured optimizations.
 They are not part of the v1 correctness proof.
@@ -1199,7 +1231,7 @@ snapshot and commit semantics.
 1. Introduce one scope/epoch/commit-sequence token in the existing executor.
 2. Add stable catalog identities plus immutable versioned definitions.
 3. Build app row revision/current, index revision/current, edge occurrence, and
-   unique-key storage behind a generation flag.
+   unique-key storage behind a trusted activation fence.
 4. Prove point CRUD, exact-snapshot OCC, result-bearing idempotency, and atomic
    commit/outbox on PGlite and real Postgres.
 5. Prove one indexed live query with two-phase activation and lost-wake

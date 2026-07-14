@@ -1,88 +1,90 @@
-# Cloudflare Convex Runtime Vision
+# Cloudflare Convex Runtime Direction
 
-This directory describes a Cloudflare-native application platform that preserves
-the strongest parts of Convex's developer experience while adapting transaction
-semantics to Cloudflare's distributed runtime.
+Status: accepted `flarexdb_v1` target. The repository also contains two
+unshipped prototype architectures that are replacement inputs and regression
+evidence, not future design authority.
 
-The target is not a new client API. The target is a backend that existing
-Convex-style generated code and clients can talk to with minimal or no changes:
+Flarex preserves Convex's developer mental model and portable core behavior
+while adapting runtime placement to Cloudflare. The target is not a generic
+CRUD API and not a new partition-oriented developer model. Developers write
+ordinary TypeScript modules and use Convex-style generated APIs; Flarex owns the
+managed execution artifact, trusted transaction boundary, and deployment
+topology.
 
-- `defineSchema`, `defineTable`, validators, and generated server/client files
-- `query`, `mutation`, `action`, `httpAction`, and internal variants
-- HTTP endpoints such as `/query`, `/mutation`, `/action`, `/query_batch`
-- WebSocket sync endpoints such as `/sync` and `/{client_version}/sync`
-- sync protocol behavior: query set updates, transitions, mutation responses,
-  action responses, auth changes, reconnect behavior
-- atomic deterministic mutations inside one declared data partition
-- durable cross-partition workflow mutations
-- live reactive queries
-- side-effect separation
+## Accepted Runtime And Data Topology
 
-The backend internals are different because Cloudflare is different:
-
-```txt
-Existing Convex client APIs
-  -> Cloudflare Worker gateway
-  -> WebSocket/session Durable Objects
-  -> Cloudflare Application API implementation
-  -> Dynamic Worker user-code runtime
-  -> trusted ctx syscall coordinator
-  -> partition Durable Objects with SQLite
-  -> projections and cross-partition Cloudflare Workflows
+```text
+existing Flarex / Convex-style client APIs
+  -> public Cloudflare backend Worker
+  -> Flarex-managed Dynamic Worker user-code runtime
+  -> restricted logical syscall boundary
+  -> private trusted executor Worker
+  -> cache-disabled Hyperdrive connection transport
+  -> authoritative Postgres / FlarexDB
+       exact snapshots, OCC, revision history, outcomes, commit/change feed
+  -> deterministic Cloudflare coordination
+       DeploymentSyncDO, ConnectionDO, delivery workers, optional caches
 ```
 
-## Current Primary Direction
+Postgres is the only authoritative committed app-data store. Cloudflare owns
+sandboxed execution, service bindings, WebSockets, and explicitly
+non-authoritative coordination or cache state. Durable Object SQLite may keep
+rebuildable cursors, query/dependency indexes, connection state, and bounded
+continuations; it does not own the only copy of committed app data.
 
-The current primary design is the partitioned Durable Object model:
+The trusted executor pins execution to a
+`SnapshotToken { scopeId, epoch, commitSeq }`, records explicit read
+dependencies, stages logical writes, validates OCC in a short database
+transaction, publishes versioned rows and tombstones, preserves idempotent
+outcomes, and emits ordered commit/change information. Untrusted user code
+never receives SQL, Postgres, Hyperdrive, Drizzle, or raw Durable Object
+bindings.
 
-- authoritative data is colocated into explicit transaction partitions
-- one partition Durable Object provides atomic SQLite transactions
-- `mutation` is always atomic and restricted to one partition
-- `workflowMutation` allows cross-partition work through one automatically
-  generated Cloudflare Workflow
-- workflow operations are grouped into one atomic step per affected partition
-- `defineProjection` maintains reactive derived read models across partitions
-- projections are readable by queries but forbidden in authoritative mutations
-- generated types catch common cross-partition mistakes before runtime
+## Design Lineage
 
-The earlier Postgres/global-OCC design remains documented as an alternative for
-full Convex transaction compatibility. It is not the current primary
-Cloudflare-native implementation direction.
+| Iteration | Role now | Shipped state |
+| --- | --- | --- |
+| `PartitionDO` with Durable Object SQLite | First app-data prototype; retain only useful intended semantics and regression tests while replacing its physical/runtime authority. | Not shipped. |
+| Initial Postgres `legacy_v1` | Second prototype; useful evidence for syscalls, persistence, host adapters, and failure cases, but its wall-clock transaction model and broad schema are not the target. | Not shipped. |
+| Postgres-authoritative `flarexdb_v1` | Accepted first intended shippable storage generation and runtime direction. | Partially implemented; not active. |
 
-## Domain Documents
+No implemented Cloudflare D1 app-data path was found. Historical roadmap labels
+such as `D1` are gate identifiers, not evidence of a third authoritative store.
 
-- [Compatibility Goals](./docs/01-compatibility-goals.md)
-- [HTTP And Sync Protocol](./docs/02-http-and-sync-protocol.md)
-- [Dynamic Worker Runtime](./docs/03-dynamic-worker-runtime.md)
-- [Transaction And OCC Engine](./docs/04-transaction-and-occ-engine.md)
-- [Postgres Storage Model](./docs/05-postgres-storage-model.md)
-- [Subscriptions And Sync Engine](./docs/06-subscriptions-and-sync-engine.md)
-- [Actions, Scheduling, Auth, And Storage](./docs/07-actions-scheduling-auth-storage.md)
-- [Implementation Roadmap](./docs/08-implementation-roadmap.md)
-- [Partitioned Data Model](./docs/09-partitioned-data-model.md)
-- [Developer API And Type Safety](./docs/10-developer-api-and-type-safety.md)
-- [Projections And Consistency](./docs/11-projections-and-consistency.md)
-- [Cross-Partition Workflow Mutations](./docs/12-cross-partition-workflow-mutations.md)
-- [Application Examples](./docs/13-application-examples.md)
+Because neither prototype was shipped, the default is a clean internal
+replacement: build the target behind a trusted generation fence, port the
+still-intended semantics and tests, activate clean scopes, switch internal
+callers, and remove prototype routes, bindings, tables, and pre-release
+migration-history layers. Backfill, dual reads/writes, comparison, canaries, or
+runtime rollback are introduced only when concrete shipped-state evidence proves
+an obligation.
 
-## Non Goals
+## Developer Compatibility Direction
 
-- Do not use one Durable Object per document as the default source of truth.
-- Do not silently turn `mutation` into a non-atomic workflow.
-- Do not expose Postgres connections to user code.
-- Do not expose projections as authoritative mutation data.
-- Do not fork the npm client or generated TypeScript APIs until a real
-  incompatibility forces it.
+Flarex inspects Convex first for schema and validators, function registration,
+generated APIs, query/mutation/action behavior, explicit read dependencies,
+OCC, sync and subscriptions, scheduling, analysis, deployment, local dev,
+codegen, and testing. It ports portable behavior closely and records each
+necessary Cloudflare or Postgres divergence. Cloudflare placement differences
+must not weaken the Convex transaction mental model or leak internal partition
+concepts into ordinary application code.
 
-## Current Design Principle
+## Sources Of Truth
 
-Preserve the public contract first. Rebuild the internals behind the same
-contract:
+Use these records in order:
 
-```txt
-same client DX
-same sync protocol shape
-same query/mutation/action model
-atomic mutations inside one partition
-explicit durable workflows across partitions
-```
+1. [Accepted FlarexDB design](./design-notes/flarex-db-accepted-design.md) for
+   architecture, trust boundaries, and replacement rules.
+2. [Commerce/CMS v1 schema cutline](./design-notes/flarex-commerce-cms-v1-schema-cutline.md)
+   for the minimal logical inventory and explicit deferrals.
+3. [FlarexDB foundation roadmap](./roadmaps/flarexdb-foundation/README.md) for
+   active implementation order and proof gates.
+4. [Postgres executor roadmap](./roadmaps/20-postgres-executor.md) and
+   [sync/freshness roadmap](./roadmaps/21-cloudflare-freshness-cache.md) for
+   durable domain direction.
+5. Current code, schemas, and tests for exact implemented behavior and
+   regression evidence.
+
+The files under [docs/](./docs/) describe the first prototype-era architecture.
+They are retained for provenance and must not be treated as active target design
+or implementation order.

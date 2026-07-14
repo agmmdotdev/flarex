@@ -12,8 +12,9 @@ while `O03-A2` remains incomplete with `O03-A2c` next and separately preflight-
 gated. `O03-B` activation follows the completed parent with its own preflight.
 Private non-routing snapshot resolution `O02` is complete.
 
-This plan owns the additive physical schema, codecs, repositories, stable
-catalog, and compatibility migration for the first Flarex app-data generation.
+This plan owns the target physical schema, codecs, repositories, stable catalog,
+activation, prototype-schema retirement, and any evidence-triggered migration
+for the first shippable Flarex app-data generation.
 It does not own OCC behavior, commit compilation, Payload parity, Medusa table
 generation, live-sync coordination, or chronological implementation history.
 
@@ -75,7 +76,7 @@ Convex-first implementation references include:
 
 | Area | Current truth |
 | --- | --- |
-| Storage generation | `legacy_v1` is the only routed app-data engine. `flarexdb_v1` is defined but unreachable from production execution. |
+| Storage generation | `legacy_v1` is the only wired Postgres app-data engine, while PartitionDO remains a separate authoritative fallback. Both are unshipped prototypes. `flarexdb_v1` is the accepted first shippable contract but remains unreachable from runtime execution. |
 | Scope authority | `fx_control_scope`, split provisioning receipts, and `fx_system_scope_clock` exist. Shared/split provisioning, reconciliation, and read-only authority resolution exist; production routing does not. |
 | Scope clock | Epoch, storage generation/fence, last commit sequence, last outbox sequence, and the scope-wide authorization-revocation epoch are persisted. The revocation value has private typed read and exact checked-increment primitives; no trusted command or grant/session consumer exists yet. No standalone production sequence allocator exists. |
 | Stable table catalog | Deployment-scoped stable table IDs and exact name/ID reads exist. |
@@ -87,11 +88,12 @@ Convex-first implementation references include:
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
 | Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. S06 is its first replacement-row consumer; no replacement route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
-| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, mutation-session request authority, constrained current-attempt snapshot leases, and current scope-revocation storage are implemented but non-routing. Signed transaction-grant semantics, production session activation, semantic point reads/OCC, reconnect retention, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, backfill, and cutover are not implemented. |
+| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, mutation-session request authority, constrained current-attempt snapshot leases, and current scope-revocation storage are implemented but non-routing. Signed transaction-grant integration, session activation, semantic point reads/OCC, reconnect retention, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, target-native readiness, routing, and prototype retirement are not implemented. |
 
 Existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, and
-subscription tables remain the compatibility baseline. The replacement
-control catalog does not make replacement app storage active.
+subscription tables remain an internal prototype behavior baseline. They are
+not a shipped migration obligation. The replacement control catalog does not
+make replacement app storage active.
 
 ## Fixed Schema Decisions
 
@@ -169,9 +171,10 @@ These decisions are durable and are not re-opened by each implementation turn:
   `R02` binds the complete immutable definition. Field, constraint, and
   relation-definition projections stay deferred until a proven consumer needs
   them.
-- Migrations are additive throughout the proof. Legacy tables are not renamed,
-  reinterpreted as replacement tables, or dropped before cutover/rollback
-  gates pass.
+- Schema work is additive while the target proof is incomplete. Legacy tables
+  are never reinterpreted as replacement tables. After equivalent target paths,
+  tests, internal callers, and recovery are proven, remove those prototype
+  tables without inventing a data-migration ceremony.
 
 ## Explicitly Deferred
 
@@ -238,7 +241,9 @@ Durable provisioning rules:
   the target clock, then publishes `ready` by exact monotonic CAS.
 - Control transactions never span target database I/O.
 - Initial clock is explicit `legacy_v1`, fence `1`, commit/outbox `0`, and one
-  opaque epoch. Existing advanced clocks are never reset.
+  opaque epoch. This describes current prototype bootstrap only; target
+  activation must bootstrap clean scopes directly on `flarexdb_v1`. Existing
+  advanced clocks are never reset.
 - Missing/inconsistent scope, clock, locator, or split receipt fails closed;
   it never implies legacy authority.
 - Bootstrap parity uses relational anti-joins through a captured frontier, not
@@ -290,9 +295,10 @@ Progress:
   rollback proof.
 - [ ] `S03-D3`: durable per-scope definition-to-build reconciliation, deferred
   to Wave 3 after the physical sidecar consumer exists.
-- [ ] `S03-D4`: validation evidence and readiness derived from real backfill,
-  deferred to Wave 4 after baseline import and shadow comparison; no
-  active-pointer mutation.
+- [ ] `S03-D4`: validation evidence and readiness derived from real target rows,
+  physical builds, and adapter evidence, deferred to Wave 4 after their
+  consumers exist; no active-pointer mutation. Legacy backfill/comparison
+  evidence is conditional on a changed shipped-state declaration.
 
 Stable catalog rules:
 
@@ -368,28 +374,31 @@ Exit gates for the complete S03 stream:
 - old/new physical definitions and builds coexist safely;
 - cross-deployment parents/bindings fail closed;
 - exact replay is idempotent and conflicting replay is typed;
-- readiness follows real validation/backfill evidence; and
+- readiness follows real target validation and any required target-native
+  population evidence; and
 - no speculative field/relation/constraint catalog has become authority.
 
-### [ ] S04 — Migrate Active Schema Pointer Authority
+### [ ] S04 — Establish Active Schema Pointer Authority
 
 Scheduling: Wave 4 after `S03-D4` has derived evidence-backed readiness. This
 gate does not block the private test-generation point kernel or `C07`.
 
 Outcome:
 
-- Backfill `fx_control_scope.active_schema_version_id` from the legacy active
-  pointer and verify value parity.
-- Route activation through one transaction that writes the new authority and
-  legacy compatibility mirror.
-- Switch readers to the scope pointer, reject independent legacy mutation, and
-  retain the mirror until legacy readers retire.
+- For clean target scopes, initialize
+  `fx_control_scope.active_schema_version_id` directly from the authenticated,
+  readiness-approved target schema.
+- Route activation through one transaction that writes the sole target
+  authority; no prototype mirror is created by default.
+- Switch target readers to the scope pointer and reject any independent
+  prototype mutation. If durable shipped pointers are later discovered, add a
+  separately preflighted one-time mapping or live mirror only for those scopes.
 
 Exit gates:
 
-- injected failure cannot leave pointers divergent;
-- existing deployments resolve the same schema before/after switch; and
-- new activation is visible to both generations atomically.
+- injected failure cannot expose a partially active schema;
+- clean scopes resolve exactly the readiness-approved target schema; and
+- no prototype pointer or reader is required for target activation.
 
 ### [x] S05 — Freeze Value And Ordered-Key Codecs
 
@@ -687,74 +696,28 @@ Exit gates:
 - locale/path/nested changes and stale cleanup pass; and
 - no nullable relation ID or edge-history table is introduced.
 
-### [ ] S13 — Add Resumable Current-State Baseline Import
+### Conditional Shipped-State Migration Branch
 
-Outcome:
+Status: dormant and outside the active execution order. The former `S13`
+baseline import, `S14` shadow comparison, and `S15` dual-generation
+routing/rollback gates must not be implemented under the current owner-declared
+unshipped state.
 
-- Add migration state separate from storage authority: source/target,
-  phase, watermarks, cursor, lease fence, counts/hashes, validation, rollback,
-  and errors.
-- Import only final current row/tombstone state under an immutable legacy
-  manifest/codec; do not invent historical schema or snapshot support.
-- Derive indexes, unique keys, and edges from final rows and the pinned import
-  manifest rather than copying legacy physical bytes.
-- Build an unreadable, unsealed baseline at reserved replacement commit `1` in
-  bounded idempotent batches and mirror ordered legacy changes through a final
-  watermark without emitting canonical commits or external-effect outbox rows.
-- Import every provable committed legacy request outcome. Preserve results
-  where possible; otherwise write permanent unavailable tombstones. Unknown or
-  GCed legacy keys become reject-only after cutover.
+If new evidence changes that state, preflight only the smallest applicable
+branch:
 
-Exit gates:
+- durable data without live traffic: backup, one-time current-state conversion,
+  invariant verification, and recovery proof;
+- live traffic: bounded import/backfill, fenced comparison, one commit authority,
+  scoped cutover, and an explicit rollback-retirement gate; or
+- issued identifiers/request keys/cursors only: preserve or map those boundary
+  contracts without retaining the old storage engine.
 
-- crash/restart and repeat import converge;
-- unsealed baseline rows cannot be served;
-- contradictory keys, unmapped scopes, corrupt encoding, or untracked
-  revisions block validation; and
-- legacy timestamps never become replacement commit sequences.
-
-### [ ] S14 — Add Verification And Shadow Comparison
-
-Outcome:
-
-- At one fenced legacy watermark, verify row/tombstone counts, revision/current
-  consistency, catalog IDs, indexes, unique claims, edges, and normalized
-  visible values against the reserved baseline.
-- Persist reproducible mismatch evidence.
-- Keep legacy authoritative; shadow reads never silently serve fallback data.
-
-Exit gates:
-
-- injected corruption is detected;
-- comparisons cannot mix watermarks or generations; and
-- clean reports reproduce on PGlite and real Postgres.
-
-### [ ] S15 — Finalize Generation Routing And Rollback State
-
-Outcome:
-
-- Add transactional generation/fence transition, migration phase, validation
-  watermark, rollback window, and irreversible-boundary repositories.
-- During rollback compatibility, publish the complete legacy projection in the
-  same SQL transaction as each replacement commit while suppressing duplicate
-  external effects.
-- Make both generations consult one scope-wide authoritative idempotency
-  outcome before execution.
-- Drain/fence old attempts, seal the legacy request namespace, and permit
-  generation rebind only after outcome lookup proves no commit and the old
-  anchor is terminal.
-- Seal baseline commit `1`, set commit/floor state, and flip generation/fence in
-  one transaction without external-effect outbox rows.
-- Leave canary behavior to O12 and legacy retirement to O13 after sync gates.
-
-Exit gates:
-
-- transition/drain/rollback state passes PGlite and real-Postgres concurrency;
-- legacy/replacement visible state and commit mapping agree;
-- result replay, tombstone, mismatch, and uncertain-outcome behavior works
-  across rollback;
-- stale fences cannot flip authority; and
-- no legacy migration/table is dropped or rewritten.
+Any activated migration branch must record affected scopes/environments,
+immutable source interpretation, request-outcome treatment, failure recovery,
+and deletion conditions. Legacy timestamps never become replacement commit
+sequences, and legacy physical key bytes are never reinterpreted as target
+codec bytes.
 
 ## Adapter-Facing Schema Contract
 

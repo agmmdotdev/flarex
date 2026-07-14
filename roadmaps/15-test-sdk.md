@@ -15,7 +15,8 @@ This roadmap owns:
 - harness lifecycle, reset, disposal, and failure-state behavior;
 - mapping generated function references into local runtime calls;
 - the browser-shaped WebSocket adapter and `FlarexClient` construction;
-- test-harness execution-mode selection during replacement migration; and
+- temporary test-harness execution-mode selection while replacement callers
+  are moved, plus removal of the prototype mode; and
 - the boundary between ergonomic helpers and privileged test authority.
 
 It does not own:
@@ -99,9 +100,11 @@ unless the caller supplies an explicit path. It forwards no raw persistence,
 executor, backend, Miniflare, token, clock, ID, or service-binding handles.
 
 Omitting `executorTransport` inherits the local runtime's current `legacy`
-default. `postgres` selects the PGlite-backed trusted executor path. This
-option is a temporary migration seam, not permission for tests to define two
-different application semantics.
+default. `postgres` selects the PGlite-backed trusted executor host, but that
+host currently registers only the initial `legacy_v1` app-data engine; it does
+not select `flarexdb_v1`. This option is a temporary internal replacement seam,
+not a supported data-compatibility contract and not permission for tests to
+define two different application semantics.
 
 ### Public API
 
@@ -142,7 +145,7 @@ typed generated reference
   -> active source-package artifact
   -> generated managed runtime
   -> restricted executor/session protocol
-  -> legacy compatibility or PGlite/Postgres authority
+  -> legacy prototype or initial PGlite/Postgres prototype authority
 ```
 
 Non-success responses become `FlarexTestInvocationError` with the HTTP status
@@ -198,8 +201,9 @@ application's `.flarex/` directory.
 1. **The harness reuses the real runtime.** Query, mutation, sync, validation,
    artifact, executor, and persistence semantics cannot be reimplemented in
    `flarex-test`.
-2. **Postgres/PGlite is the forward authority.** Legacy mode is labeled
-   compatibility evidence and must not define new test SDK behavior.
+2. **Accepted FlarexDB semantics are the forward authority.** Legacy mode and
+   the initial Postgres engine are prototype evidence. Neither may define new
+   test SDK behavior merely because it is currently executable.
 3. **Generated references are the normal API.** Function paths, arguments,
    return types, visibility, and partition inference follow the SDK/codegen
    contracts rather than untyped string helpers.
@@ -281,8 +285,8 @@ Named Flarex divergences are:
 - `flarexTest()` is asynchronous and starts real local runtime components;
 - Miniflare Workers, service bindings, artifacts, sync actors, and PGlite are
   exercised instead of one pure JavaScript mock backend;
-- the replacement migration currently exposes explicit legacy/Postgres mode
-  selection;
+- the replacement effort currently exposes explicit legacy/Postgres prototype
+  mode selection;
 - WebSockets are bridged directly to the programmatic Miniflare runtime rather
   than a standalone Node `ws` server;
 - safe reset recreates runtime state instead of clearing a mock database; and
@@ -345,8 +349,9 @@ identity, or generated-reference semantics.
   implementations, reconnect/network loss, auth refresh, or hosted delivery.
 - Source packages ship TypeScript rather than compiled JS/declarations; registry
   publication, semver compatibility, and version-skew behavior remain unproven.
-- Legacy partition routing remains visible in options during migration; it is
-  not accepted long-term physical authority.
+- Legacy partition routing remains visible in options while target callers are
+  incomplete; it is not a supported persistence contract and must be removed
+  after target-only harness proof.
 
 ## Target Direction
 
@@ -362,7 +367,8 @@ generated API reference + test identity/fixture intent
   -> backend-owned WebSocket sync and observable result
 ```
 
-The ordinary path should default to Postgres semantics, isolate each test
+The ordinary path should default to accepted FlarexDB semantics over PGlite,
+isolate each test
 without leaking resources, and make unsupported capabilities absent from the
 type surface. Faster model/pure tests and slower real-Postgres/hosted proofs are
 separate evidence lanes, not alternate test SDK semantics.
@@ -372,9 +378,10 @@ separate evidence lanes, not alternate test SDK semantics.
 1. **Make the public surface truthful.** Remove or explicitly experimentalize
    `action()` until actions execute end to end; add runtime decoding for success
    envelopes and negative tests for kind/visibility/malformed responses.
-2. **Default to the forward runtime.** Make PGlite/Postgres the ordinary harness
-   path after local cutover gates pass, keep legacy behind explicit opt-in, and
-   prove both cannot silently diverge in generated-reference semantics.
+2. **Default to the accepted runtime and remove the prototype selector.** Make
+   the FlarexDB PGlite/Postgres composition the ordinary harness path after
+   target-only local gates pass, port intended generated-reference semantics,
+   and delete legacy mode rather than retaining an explicit opt-in.
 3. **Create package-local contract tests.** Cover option forwarding, query/
    mutation/raw errors, lifecycle ordering, reset failure, disposal, safe paths,
    client ownership, and unsupported operations directly in `flarex-test`.

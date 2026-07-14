@@ -35,8 +35,8 @@ Postgres owns:
 - authoritative rows and revision history;
 - the scope epoch and commit sequence;
 - canonical commit/change atoms;
-- transactional outbox and recovery feed;
-- the implemented durable active-subscription registry during migration.
+- transactional outbox and recovery feed; and
+- a conservative fenced DeploymentSyncDO cursor mirror for the external sweep.
 
 Cloudflare owns:
 
@@ -164,26 +164,26 @@ scope, epoch, minimum required commit sequence, generation, and expiry. Commit
 history retention respects the minimum live lease. Epoch mismatch or a cursor
 below the retained floor produces an explicit reset/resnapshot response.
 
-### Durable Postgres registry during migration
+### One target query-state owner
 
 The current implementation relies on Postgres live-query subscription and
-connection-lease rows. Keep this as the durable baseline while
-DeploymentSyncDO SQLite is introduced.
-
-During migration:
+connection-lease rows, but that unshipped prototype does not require a live
+dual-registry migration. The target authority split is:
 
 ```text
-Postgres registry
-  durable compatibility/recovery authority
+Postgres
+  authoritative commit feed + conservative fenced cursor mirror
 
 DeploymentSyncDO SQLite
-  hot query/dependency/rerun owner
+  canonical query/dependency/generation/rerun coordination owner
 ```
 
-Do not run two independent invalidation authorities. The DO can rebuild from
-the Postgres registry and authoritative reruns. Remove the registry only after
-eviction, hibernation, reconnect, lease cleanup, and lost-wake tests prove a
-different durable owner.
+Do not run two independent query-state authorities. Hibernation and restart
+retain DO storage. If required query state is explicitly lost, fail closed into
+reset/resubscribe and rebuild from authoritative Postgres query execution rather
+than treating the prototype registry as a second owner. Remove that registry
+after target-only hibernation, reconnect, state-loss reset, lease cleanup, and
+lost-wake tests pass.
 
 ## Canonical Query Identity
 
@@ -217,19 +217,16 @@ activation:
    registration with the current contiguous cursor.
 2. The trusted query executor runs at a known Postgres snapshot and returns
    result, result hash, dependency set, and snapshot token.
-3. During migration, the executor durably upserts the same provisional
-   generation, epoch/package/policy/identity, dependency token, and result hash
-   in the Postgres subscription registry.
-4. DeploymentSyncDO installs/refines the dependency set for that provisional
+3. DeploymentSyncDO installs/refines the dependency set for that provisional
    generation.
-5. It refreshes the token against every commit through the current contiguous
+4. It refreshes the token against every commit through the current contiguous
    cursor.
-6. If no relevant change invalidated the result, it marks the registry/DO
-   generation active and publishes it. Otherwise it reruns before publication.
+5. If no relevant change invalidated the result, it marks the DO generation
+   active and publishes it. Otherwise it reruns before publication.
 
-Removal is idempotent and deactivates the Postgres registry before the DO
-forgets its final durable registration. This makes the registry a real recovery
-authority rather than an eventually written shadow.
+Removal is idempotent in the same DeploymentSyncDO coordination authority. The
+Postgres cursor mirror remains conservative operational evidence, not a query
+registry or independent activation authority.
 
 This follows the Convex idea that a query token is refreshed against already
 processed writes before the subscription is accepted.
@@ -319,7 +316,7 @@ Opaque strings are insufficient for precise range overlap. Bounds must carry
 codec version, inclusivity, and ordered key bytes.
 
 Maintain a dependency-to-query inverted index in DeploymentSyncDO SQLite. The
-current `all active subscriptions x all dependencies` scan is compatibility
+current `all active subscriptions x all dependencies` scan is prototype
 behavior, not the target scaling model.
 
 ## Cache Layers Are Deferred
@@ -347,7 +344,7 @@ rebuilt from Postgres.
 
 ## Implemented P0 Problems To Fix Before Claiming V1 Safety
 
-The current code remains a compatibility baseline and has known P0 gaps:
+The current code remains an unshipped prototype baseline and has known P0 gaps:
 
 - `packages/flarex-backend/src/connectionDO.ts` executes a query before its
   durable registration, exposing a missed-commit activation race.
@@ -375,14 +372,16 @@ Phase 1, correctness:
 4. Persist cursor, query definitions, dependency index, and generations in DO
    SQLite.
 5. Add durable lagging-scope sweep and ordered Postgres catch-up.
-6. Keep Postgres registry as migration/recovery baseline.
+6. Prove target-only hibernation, reconnect, state-loss reset, and lost-wake
+   recovery without dual-registering the prototype Postgres registry.
 7. Execute live-query reruns through authoritative no-cache Postgres reads.
 
 Phase 2, scaling:
 
 1. Canonical query deduplication and inverted dependency indexes.
 2. Bounded rerun continuations, backpressure, and per-scope load tests.
-3. Remove Postgres registry only after recovery parity.
+3. Remove the prototype Postgres registry after recovery parity and caller
+   migration.
 
 Phase 3, measured caches:
 

@@ -2,7 +2,7 @@
 
 ## Status And Scope
 
-Status: active replacement domain with an implemented compatibility baseline
+Status: active replacement domain with an implemented prototype baseline
 and a partially implemented `flarexdb_v1` foundation.
 
 This roadmap owns the durable direction for:
@@ -34,7 +34,8 @@ Use these sources in order:
 
 1. [`../design-notes/flarex-db-accepted-design.md`](../design-notes/flarex-db-accepted-design.md)
    owns the accepted Postgres authority, hosted topology, trust boundaries,
-   storage-generation migration, snapshot, and commit rules.
+   storage-generation activation, conditional migration, snapshot, and commit
+   rules.
 2. [`../design-notes/flarex-commerce-cms-v1-schema-cutline.md`](../design-notes/flarex-commerce-cms-v1-schema-cutline.md)
    owns the minimum v1 inventory and explicit deferrals, not verbatim physical
    DDL.
@@ -71,18 +72,19 @@ Adjacent domain authorities are:
 
 ## Current Architecture
 
-### Two storage generations coexist
+### Three design iterations coexist in code
 
-The repository intentionally contains two generations:
+The repository contains two internal prototype paths plus the accepted target:
 
-| Generation | Current truth |
+| Design iteration | Current truth |
 | --- | --- |
-| `legacy_v1` | The working executor path. `createFlarexExecutor` currently installs only `createLegacyV1AppDataEngine`, backed by the existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, subscription, and delivery tables. It remains the compatibility oracle. |
-| `flarexdb_v1` | The accepted replacement. Scope authority, scope clock including private current authorization-revocation storage, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, physical transaction-session/snapshot-lease authority, and the inert O03-A1 grant protocol/evidence contract exist. Trusted transaction-grant authority, production session activation, exact-snapshot OCC, commit compiler, migration/cutover, and routing remain incomplete. |
+| Durable Object prototype | `PartitionDO` remains bound and reachable as an internal/public fallback, with authoritative Durable Object SQLite document/index/OCC state. It is unshipped legacy architecture, not a target storage generation. |
+| Initial Postgres prototype (`legacy_v1`) | `createFlarexExecutor` currently installs only `createLegacyV1AppDataEngine`, backed by the existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, subscription, and delivery tables. It supplies bounded prototype-regression evidence, not target authority or a supported migration obligation. |
+| Accepted FlarexDB target (`flarexdb_v1`) | Scope authority, scope clock including private current authorization-revocation storage, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, physical transaction-session/snapshot-lease authority, and the transaction-grant foundation exist. Production session activation, exact-snapshot OCC, commit compiler, target activation, and routing remain incomplete. `v1` means the first intended shippable FlarexDB contract, not the first design attempt. |
 
 The existence of replacement catalog tables does not mean the replacement data
 path is active. The executor must not route a request into `flarexdb_v1` until
-the declared generation, hosted, OCC, and migration gates pass.
+the declared generation, hosted, OCC, and activation gates pass.
 
 ### Hosted topology
 
@@ -205,9 +207,11 @@ concepts; none may silently become a competing schema authority.
     validation/publication phase opens the short authoritative transaction.
 12. **Host adapters remain thin.** Worker, Fetch, Nitro, PGlite, and Node
     adapters cannot own business semantics that diverge from the executor core.
-13. **Compatibility is removed only through proof.** Backfill, invariant
-    verification, shadow comparison, scoped cutover, and a retained rollback
-    switch precede legacy retirement.
+13. **Legacy retirement is evidence-driven.** Under the recorded unshipped
+    state, target parity, internal-caller migration, and target-only recovery
+    proof precede prototype deletion. Backfill, shadow comparison, dual writes,
+    scoped cutover, and runtime rollback are added only for a proven shipped
+    obligation.
 14. **Commerce authority stays separate.** Generic Flarex app-data writes do
     not create an automatic atomic `ctx.db + ctx.commerce` transaction; Medusa
     owns commerce-affecting workflows and transaction semantics.
@@ -243,13 +247,15 @@ internal supervisor-to-child mechanism for retrieving a sealed envelope; the
 private executor `/invoke/*` compatibility boundary remains stable until a
 separate transport change is accepted.
 
-### Use a strangler migration
+### Use a clean replacement unless shipped evidence requires migration
 
-The legacy executor proves useful behavior and supplies the compatibility
-oracle. The replacement therefore grows additively behind a storage-generation
-fence, rather than renaming legacy tables or declaring partially built control
-metadata production-ready. This preserves rollback and makes equivalence
-measurable.
+The legacy executor proves useful behavior, but neither prototype is a shipped
+product state. Build the replacement additively behind a trusted activation
+fence while it is incomplete, extract still-intended semantics into target
+tests, switch internal callers, and then delete the prototype engines and
+tables. Source/deployment rollback protects implementation checkpoints. Do not
+construct data backfill, dual-read/write, or reverse-catch-up machinery unless
+the shipped-state declaration changes with concrete evidence.
 
 ### Use PGlite for speed and real Postgres for database semantics
 
@@ -282,7 +288,7 @@ The necessary Flarex divergences are narrow:
 | Runtime placement | Backend and database authority are closely integrated. | Untrusted code runs in a Dynamic Worker and crosses a private service binding to a separate trusted executor Worker. |
 | Database authority | Convex owns its integrated storage engine and commit path. | Flarex uses Postgres transactions, a scope clock, explicit storage generations, and Hyperdrive only as transport/pooling. |
 | Host lifecycle | No Cloudflare request-scoped `pg.Client` boundary is needed. | Flarex creates and closes a Worker-safe client for each executor request. |
-| Migration | Convex does not need to replace Flarex's DO prototype. | Flarex retains `legacy_v1`, adds `flarexdb_v1`, compares them, and cuts over by scope with rollback. |
+| Replacement | Convex does not need to replace Flarex's internal prototypes. | Flarex cleanly replaces the unshipped DO and `legacy_v1` paths with `flarexdb_v1`; data comparison/cutover/rollback is conditional on shipped evidence. |
 | Public placement API | Normal Convex app tables do not require caller-authored shard placement. | Flarex removes prototype partition concepts from the target developer model while keeping internal scope authority. |
 | Commerce | Convex app transactions own Convex documents. | Medusa remains a separate trusted relational transaction lane; Flarex provides commit/outbox participation rather than pretending both models are one transaction API. |
 
@@ -293,7 +299,7 @@ transaction semantics.
 
 ## Implemented Capabilities
 
-### Compatibility executor
+### Initial Postgres prototype executor
 
 The current `legacy_v1` path implements:
 
@@ -306,14 +312,14 @@ The current `legacy_v1` path implements:
   rerun, delivery, claim/ack, failure, and dead-letter primitives; and
 - PGlite and real-Postgres persistence adapters plus HTTP and Nitro adapters.
 
-These capabilities are compatibility evidence, not proof that their legacy
-schema or wall-clock transaction model is the accepted replacement.
+These capabilities are prototype regression evidence, not proof that their
+legacy schema or wall-clock transaction model is the accepted replacement.
 
 ### Replacement foundation
 
 The active foundation status is:
 
-- complete: `S01` compatibility generation seam;
+- complete: `S01` prototype isolation and storage-generation seam;
 - complete: `S02-A` through `S02-C` trusted scope location, scope clock,
   shared/split provisioning, reconciliation, and readiness projection;
 - complete but non-routing: resolve-only `S02-D1`;
@@ -330,7 +336,7 @@ The active foundation status is:
 - complete but private/non-routing: `O02` resolves one ephemeral exact app-data
   snapshot plus generation/fence from trusted placement and one located
   data-plane scope-clock read; and
-- not complete: remaining replacement session/OCC/commit/cutover work,
+- not complete: remaining replacement session/OCC/commit/activation work,
   per-scope build reconciliation/readiness, and production replacement routing.
 
 ### Hosted Worker proof
@@ -366,7 +372,7 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
   the focused real-Postgres bounded-work/race/rollback matrix.
 - Per-scope index-build reconciliation and readiness remain `S03-D3` and
   `S03-D4`; catalog existence is not activation readiness.
-- Active-schema pointer migration (`S04`) remains deferred to Wave 4. The
+- Active-schema pointer authority (`S04`) remains deferred to Wave 4. The
   completed value codec is wired into internal S06 rows but not a route.
 - S07's transaction-session and constrained snapshot-lease tables are complete
   but internal and non-routing. S07-A's private current scope-revocation
@@ -379,9 +385,9 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
   and the bounded commit compiler remain unimplemented. S06/S07 storage and
   relational proofs do not claim those later semantics.
 - The current broad persistence interface and legacy invoke-session tables are
-  compatibility surfaces to narrow behind generation-specific ports.
+  prototype surfaces to narrow behind target-specific ports and then remove.
 - Existing freshness and live-query delivery behavior belongs to the legacy
-  compatibility path. The accepted Postgres-authoritative sync replacement is
+  prototype path. The accepted Postgres-authoritative sync replacement is
   tracked in roadmap 21.
 - Nitro/Vercel remains available but has not been retired; retaining it does
   not make it the production target.
@@ -405,15 +411,20 @@ authenticated scope and immutable execution anchor
   -> post-commit sync/freshness consumers
 ```
 
-The migration order remains:
+The clean-replacement order is:
 
 1. finish the immutable control catalog and authority primitives;
 2. prove one exact-snapshot point-read and point-mutation vertical slice;
 3. add derived index, uniqueness, and stable-edge sidecars;
-4. backfill and shadow-compare one isolated scope;
-5. pass hosted Worker/Hyperdrive and real-Postgres correctness gates;
-6. cut over by scope while retaining rollback; and
-7. retire legacy storage/OCC only after the separate sync/reconnect gates pass.
+4. pass target-native readiness, hosted Worker/Hyperdrive, and real-Postgres
+   correctness gates;
+5. activate `flarexdb_v1` for clean scopes behind the trusted routing fence;
+6. switch local, test, backend, executor, and sync callers to the target; and
+7. remove prototype storage/OCC/fallbacks after target-only sync, reconnect,
+   reset, and recovery gates pass.
+
+If a shipped obligation is later discovered, replace only the affected portion
+of this order with a separately preflighted one-time or live migration plan.
 
 Payload may later use trusted app-row/catalog primitives through a
 Payload-owned adapter. Medusa uses its own repositories and transaction
@@ -443,10 +454,12 @@ work forward:
    facet-backed session-journal decision.
 4. Wave 3 adds derived sidecars and only then runs `S03-D3` per-scope physical
    build reconciliation.
-5. Wave 4 owns baseline import, shadow comparison, real backfill evidence,
-   `S03-D4` readiness, and `S04` active-schema authority.
+5. Wave 4 owns target-native validation, `S03-D4` readiness, `S04`
+   active-schema authority, and explicit legacy disposition. Baseline import,
+   shadow comparison, and dual operation remain dormant conditional work.
 6. Complete `H05-B` before `S02-D2` activates the hosted replacement route,
-   then retain scoped rollback until sync/cutover gates permit legacy retirement.
+   then migrate internal callers and remove legacy authority after target-only
+   sync/reconnect proof.
 
 Each gate must update this roadmap only when it changes durable status,
 architecture, gaps, or direction. Its commit and verification history remains

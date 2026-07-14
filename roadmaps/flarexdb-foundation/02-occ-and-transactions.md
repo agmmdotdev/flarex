@@ -11,7 +11,8 @@ next and separately preflight-gated.
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
-retention floors, and generation cutover safety.
+retention floors, target generation activation fencing, prototype OCC
+retirement, and conditional live-migration safety.
 
 It consumes physical tables from
 [01-schema-and-migrations.md](./01-schema-and-migrations.md) and supplies the
@@ -582,9 +583,10 @@ Outcome:
 3. An uncertain connection outcome performs authoritative outcome lookup before
    any retry.
 
-After a generation fence change, the same request identity may start on the new
-generation only through S15's no-commit/terminal-anchor rebind CAS. It never
-silently crosses during an active OCC retry.
+No request silently crosses a generation fence during an active OCC retry. The
+current clean-replacement path has no legacy request-rebind obligation. If
+shipped request identities are later discovered, their no-commit/terminal-
+anchor rebind rule requires a separately preflighted migration capability.
 
 Every SQL-plan retry opens a new transaction, reacquires the scope clock,
 rechecks session/generation/epoch/idempotency, and derives tentative commit/
@@ -668,76 +670,49 @@ Exit gate:
 - pending/claimed outbox rows are never collected;
 - epoch rollover does not hide or delete untouched data.
 
-### [ ] O12 — Drain And Cut Over One Isolated Canary Scope
+### Conditional Live Migration Branch
 
-State model:
+Status: dormant. The former `O12` canary drain/cutover protocol is not an active
+gate because neither prototype has a recorded shipped scope, active customer
+session, or reconnect population. Do not build drain, shadow authority,
+same-transaction legacy publication, reverse catch-up, or runtime rollback for
+internal fixtures.
 
-```text
-legacy_authoritative
-  -> legacy_authoritative_flarexdb_shadow
-  -> flarexdb_authoritative_rollback_window
-  -> flarexdb_authoritative
-```
+If live shipped state is later proven, a new preflight must define the exact
+affected scopes, final legacy watermark, request-outcome handling, subscription
+reset/rebind behavior, one-commit-authority rule, rollback promise, and
+retirement condition. That conditional branch must never let an active OCC
+attempt cross a generation fence or serve silent legacy fallback.
 
-Outcome:
+### [ ] O13 — Retire Prototype OCC And Runtime Authority
 
-- Backfill and compare at explicit watermarks from the schema plan.
-- Enter a fenced `draining` phase, block new legacy starts, wait for or
-  expire/abort old attempts, catch up to a final legacy watermark, and verify
-  again before authority changes.
-- Resolve every drained request through the generation-independent outcome
-  store. Only proved-uncommitted terminal requests become eligible for S15's
-  same-key rebind after the flip; uncertain requests remain blocked.
-- Require S13's historical outcome/tombstone import and S15's same-transaction
-  legacy outcome bridge to be complete. Seal the implicit legacy request
-  namespace; an unknown/GCed legacy key returns `LegacyOutcomeUnknown` and is
-  never rebound or executed.
-- Keep the request-level generation/fence pin across OCC reruns. A stale pin
-  fails instead of crossing engines.
-- Allow only one commit authority. Shadow publication is either part of the
-  authoritative SQL transaction or an ordered mirror with a verified
-  `appliedThrough` watermark.
-- During the rollback window, every allowed FlarexDB write uses S15's complete
-  same-transaction legacy compatibility publisher. If the bridge is stopped or
-  a replacement-only write without a complete legacy projection is allowed,
-  rollback becomes a fenced stop-the-world reverse catch-up plus verification,
-  not a flag flip.
-- Never serve a shadow mismatch through silent legacy fallback.
-- Until the separate sync plan is implemented, require zero active
-  subscriptions/reconnect leases for this canary and keep live subscriptions
-  disabled. A later production cutover must generation-fence registrations and
-  force reset/resnapshot at the authority flip.
-
-Exit gate:
-
-- one isolated canary scope passes read/write/outcome comparison;
-- generation fences prevent mixed reads and writes;
-- rollback works throughout the declared window;
-- the cutover protocol atomically bumps the data-plane generation fence and
-  active generation only after drain/final verification;
-- replacement-only operations without a complete legacy projection remain
-  disabled until the rollback promise is explicitly ended or a verified
-  reverse projection exists.
-
-### [ ] O13 — Retire Legacy OCC
-
-This turn is not part of the low-level foundation completion and cannot run
-until the separate sync migration provides generation-aware registration,
-reconnect, commit-feed catch-up, reset/resnapshot, and eviction/recovery proof.
+This gate follows the target point-commit proof, target generation routing, and
+target-only sync/reconnect/reset recovery. It is a clean internal replacement,
+not a customer-data cutover. It may use bounded sub-checkpoints, but each
+temporary bridge must name its remaining caller and immediate deletion gate.
 
 Retirement gate:
 
-- no legacy-authoritative scope remains;
-- no active legacy session, lease, or reconnect cursor remains;
-- backfill/invariant/shadow reports are clean;
-- the rollback window is formally closed;
-- PGlite, real Postgres, executor, private Worker Fetch adapter,
-  artifact-runtime, and sync integration gates pass; optional Nitro/Vercel
-  compatibility is validated separately while it remains supported;
-- equivalent legacy tests have been ported;
-- only then remove legacy document/index OCC and Postgres invoke staging.
-
-PartitionDO/ExecutionDO cleanup remains a separate bridge-retirement change.
+- the owner-declared no-shipped-obligation state is still current, or any newly
+  discovered obligation has been handled by its separate migration branch;
+- local, test, backend, executor, artifact-runtime, and sync callers route only
+  through accepted FlarexDB authority;
+- no prototype session, lease, reconnect cursor, public partition route,
+  Wrangler binding, or fallback remains reachable;
+- still-intended semantics have target-owned tests; tests that assert only the
+  obsolete architecture are removed;
+- PGlite, real Postgres, private Worker Fetch, artifact-runtime, local/test, and
+  sync integration gates pass without a legacy engine; and
+- remove PartitionDO/ExecutionDO app-data authority, legacy document/index OCC,
+  the `legacy_v1` invoke-session/read/write staging families, prototype tables,
+  generation defaults, and prototype-only fallbacks rather than leaving an
+  indefinite compatibility layer. The accepted target Postgres journal remains
+  when `C07A` does not select facet placement; HTTP/Nitro host-adapter retirement
+  remains a separate caller/parity decision; and
+- the pre-release migration history is rebaselined so a fresh database creates
+  only target schema. Development databases reset or use an explicitly bounded
+  internal upgrade lane; do not preserve a permanent create-prototype-then-drop-
+  prototype chain without a newly proven shipped schema obligation.
 
 ## Future Adapter Participation
 

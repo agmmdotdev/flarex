@@ -432,8 +432,9 @@ CLI/dev source package
 The analyzer, artifact runtime, and executor may be separate Workers, but the
 source-package identity and authority chain must remain continuous. Replacement
 schema activation should move to the accepted Postgres control/data model with
-compatibility comparison and rollback, rather than extending DeploymentDO as a
-second long-term schema authority.
+target-native readiness and trusted generation fencing, rather than extending
+DeploymentDO as a second long-term schema authority. Prototype data comparison
+or rollback machinery is conditional on concrete shipped-state evidence.
 
 ## Next Correctness Gates
 
