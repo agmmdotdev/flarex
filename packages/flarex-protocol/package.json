@@ -24,6 +24,7 @@
     "./live-query": "./src/live-query.ts",
     "./ordered-index": "./src/ordered-index.ts",
     "./partition": "./src/partition.ts",
+    "./point-mutation-start": "./src/point-mutation-start.ts",
     "./registry": "./src/registry.ts",
     "./scheduler": "./src/scheduler.ts",
     "./schema-manifest": "./src/schema-manifest.ts",
@@ -31,7 +32,8 @@
     "./transaction-grant": "./src/transaction-grant.ts",
     "./transaction-session": "./src/transaction-session.ts",
     "./value": "./src/value.ts",
-    "./validator-json": "./src/validator-json.ts"
+    "./validator-json": "./src/validator-json.ts",
+    "./validator-engine": "./src/validator-engine.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

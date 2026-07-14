@@ -425,7 +425,8 @@ CLI/dev source package
   -> validated candidate metadata + deterministic artifact
   -> final codegen and developer validation
   -> FlarexDB schema/index preparation and readiness
-  -> atomic active schema/package/artifact publication
+  -> atomic active package/artifact/source/function-validator/schema snapshot
+     plus activation revision/fence publication
   -> invocation through active metadata and private executor
 ```
 
@@ -449,10 +450,15 @@ or rollback machinery is conditional on concrete shipped-state evidence.
    `/push/start-analyzed` without breaking local/test parity.
 3. **Join push candidates to FlarexDB schema artifacts.** Convert validated
    analyzer schema output into the immutable canonical schema-manifest path;
-   reject any mismatch before readiness work begins.
+   freeze the target package/artifact/source/function metadata representation;
+   and reject any mismatch before readiness work begins. The A2c immutable
+   seeded adapter is contract/test evidence only, never a production store.
 4. **Add readiness-aware finish.** Require the exact scope/generation/fence,
    schema artifact, physical index definitions, build validation, and rollback
-   state declared by the foundation before publishing the active version.
+   state declared by the foundation before publishing one coherent active
+   package/artifact/source/function-validator/schema snapshot with an
+   activation revision or fence. Coordinate this contract with S03-D4/S04;
+   `active_schema_version_id` alone is not package/function authority.
 5. **Prove race and rollback behavior on real Postgres.** Concurrent pushes,
    failed validation, superseded candidates, missing artifacts, and interrupted
    activation must preserve the previous executable deployment and a usable

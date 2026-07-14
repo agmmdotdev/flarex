@@ -6,12 +6,12 @@ Status: `S01`, `S02-A` through `S02-C`, resolve-only `S02-D1`, `S03-A`
 through `S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, and the narrow
 `S07-A` scope-revocation prerequisite are complete. Hosted proof `H01` through
 `H04` and `H05-A` are complete. `H05-B` and production routing `S02-D2` remain
-deferred. The `O03-A` parent is approved: protocol-only `O03-A1`, auth-
-provenance `O03-A2a`, and host-neutral grant authority `O03-A2b` are complete,
-as is O03-A2c's first located current-epoch admission boundary. `O03-A2`
-remains incomplete; A2c's target-preparation, revocation, and Worker-adapter
-children remain separately preflight-gated. `O03-B` activation follows the
-completed parent with its own preflight.
+deferred. The `O03-A` parent is complete: protocol-only `O03-A1`, auth-
+provenance `O03-A2a`, host-neutral grant authority `O03-A2b`, and corrected
+two-boundary `O03-A2c` are complete. `O03-A2` and `O03-A` are therefore
+complete. `O03-B` activation follows with its own preflight; checked revocation
+and hosted Worker/key adapters are deferred to their first real consumers and
+do not affect schema-gate ordering.
 Private non-routing snapshot resolution `O02` is complete.
 
 This plan owns the target physical schema, codecs, repositories, stable catalog,
@@ -366,10 +366,10 @@ this facade. The standalone `O01` abstraction gate was retired before
 implementation and its necessary scope-authority seam was folded into completed
 `O02`; completed `S05-B` changes no catalog publication or routing behavior.
 `S06`, `S07`, `S07-A`, protocol-only `O03-A1`, auth-provenance `O03-A2a`,
-host-neutral grant authority `O03-A2b`, and A2c's located current-epoch
-admission are complete. A2c's remaining children stay separately preflight-
-gated within incomplete `O03-A2`. This catalog gate does not authorize those
-children or `O03-B`.
+host-neutral grant authority `O03-A2b`, and A2c's located current-epoch plus
+two-sided preparation boundaries are complete. This catalog gate does not
+authorize `O03-B`, production metadata binding, checked revocation, or hosted
+adapters.
 
 Exit gates for the complete S03 stream:
 
@@ -388,6 +388,9 @@ gate does not block the private test-generation point kernel or `C07`, but it
 does own the production activation source that the checked preparation kernel
 must consume before production prepared-start authority can exist.
 
+S04 is only the schema-pointer owner. It does not by itself install package,
+artifact, source, or function-validator authority.
+
 Outcome:
 
 - For clean target scopes, initialize
@@ -398,6 +401,11 @@ Outcome:
 - Switch target readers to the scope pointer and reject any independent
   prototype mutation. If durable shipped pointers are later discovered, add a
   separately preflighted one-time mapping or live mirror only for those scopes.
+- Join this schema pointer to roadmap 17's atomic package/artifact/source/
+  function-validator projection and S03-D4 readiness through one coherent
+  activation revision or fence before production preparation. That physical
+  representation and any DDL require their own preflight; A2c's immutable
+  seeded test adapter adds none.
 
 Exit gates:
 

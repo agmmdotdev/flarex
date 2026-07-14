@@ -63,11 +63,11 @@ For current FlarexDB work, read in this order:
 
 Protocol-only `O03-A1`, verified-authentication-provenance `O03-A2a`, and the
 host-neutral policy, issuance/signing, verification, and key-lifecycle kernel
-at `O03-A2b` are complete. `O03-A2` remains an accepted three-checkpoint
-transaction-grant authority-integration sequence. O03-A2c's first located
-current-epoch admission boundary is complete; its target-preparation,
-revocation, and Worker/key children remain separately preflight-gated, while
-`O03-A2` and `O03-A` remain incomplete. The sequence is owned by
+at `O03-A2b` are complete. The three-checkpoint `O03-A2` sequence and parent
+`O03-A` are complete: corrected O03-A2c closes located current-epoch admission
+and schema-neutral two-sided point-mutation preparation. Operational revocation
+and hosted Worker/key adapters are deferred to their first consumers. The
+sequence is owned by
 [`flarexdb-foundation/02-occ-and-transactions.md`](./flarexdb-foundation/02-occ-and-transactions.md)
 with domain rationale in
 [`31-hosted-project-identity-and-auth.md`](./31-hosted-project-identity-and-auth.md).
@@ -110,7 +110,7 @@ whole file to an active domain authority.
 
 | Roadmap | Current durable boundary |
 | --- | --- |
-| [`31-hosted-project-identity-and-auth.md`](./31-hosted-project-identity-and-auth.md) | The top section records completed inert O03-A1 evidence, completed backend-private O03-A2a auth provenance, completed host-neutral O03-A2b grant authority, and completed A2c located current-epoch admission; A2c target preparation/revocation/Worker adapters remain separately preflight-gated, O03-A2/O03-A remain incomplete, and the identity-plumbing tail remains historical inventory. |
+| [`31-hosted-project-identity-and-auth.md`](./31-hosted-project-identity-and-auth.md) | The top section records completed O03-A grant authority, including A2c's located-epoch and two-sided preparation boundaries; operational revocation/hosted adapters remain deferred, and the identity-plumbing tail remains historical inventory. |
 
 ## Prototype And Compatibility Inventories
 

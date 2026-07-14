@@ -154,16 +154,17 @@ credential verification and process-local `VerifiedAuthContext` authenticity
 capability are backend-owned and are never persisted or transported.
 Completed O03-A2b keeps issuance/signing and policy authority backend-private
 and exposes trusted grant verification only through the
-`@flarex/executor/transaction-grant` leaf. O03-A2c's completed first boundary
-adds a second executor-owned opaque capability after a high-level
-`@flarex/persistence-postgres` resolver locates and reads S07-A's current epoch;
-the raw read/increment primitives remain private. Target-native preparation,
-backend-only preparation/revocation transport, and Worker key/binding adapters
-remain separate A2c preflight gates. The preparation kernel may use seeded
-target metadata in private tests before S04, but its production adapter must
-consume S04's sole active-metadata chain. O03-B remains the owner of session
-atomics. Worker apps never own grant semantics or expose issuer secrets to
-artifact code.
+`@flarex/executor/transaction-grant` leaf. Corrected O03-A2c adds independent
+backend- and executor-owned opaque preparation capabilities plus the located
+current-epoch check; signature/pin/epoch admission returns the final executor-
+owned capability for O03-B. Core preparation handles stay in backend/executor,
+while backend-only transport, checked revocation, and Worker key/binding wiring
+move to their later operational/hosted consumers. The schema-neutral kernel may
+use immutable seeded metadata in private tests, but its production adapter must
+consume roadmap 17 plus S03-D4/S04's coherent active package/artifact/source/
+function-validator/schema snapshot and activation fence. O03-B remains the
+owner of session atomics. Worker apps never own grant semantics or expose
+issuer secrets to artifact code.
 
 The executor Worker owns Cloudflare request lifecycle and Postgres client
 allocation/cleanup. `@flarex/executor` owns the trusted operation semantics,

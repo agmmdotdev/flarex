@@ -12,30 +12,22 @@ import {
   type TransactionGrantKeyIdV1,
   type TransactionGrantPayloadV1,
 } from "flarex-protocol/transaction-grant";
+import type {
+  PointMutationGrantLogicalPinsV1,
+  PreparedPointMutationStartEvidenceV1,
+} from "flarex-protocol/point-mutation-start";
 import type { ScopeId } from "flarex-protocol/storage-authority";
+
+import {
+  InvalidExecutorPreparedPointMutationStartV1Error,
+  inspectExecutorPreparedPointMutationStartV1,
+  type ExecutorPreparedPointMutationStartV1,
+} from "./pointMutationStartPreparation";
 
 const MAX_ECMASCRIPT_DATE_EPOCH_MILLISECONDS = 8_640_000_000_000_000;
 
-export type ExpectedTransactionGrantLogicalPinsV1 = Readonly<
-  Pick<
-    TransactionGrantPayloadV1,
-    | "deploymentId"
-    | "scopeId"
-    | "packageId"
-    | "artifactRuntime"
-    | "artifactId"
-    | "sourcePackageHash"
-    | "executionModule"
-    | "functionPath"
-    | "functionKind"
-    | "schemaVersionId"
-    | "validatedArgsValueCodecVersion"
-    | "validatedArgsSha256"
-    | "requestKey"
-    | "requestSha256"
-    | "authorizationRevocationEpoch"
-  >
->;
+export type ExpectedTransactionGrantLogicalPinsV1 =
+  PointMutationGrantLogicalPinsV1;
 
 export interface TransactionGrantVerificationClockV1 {
   readonly now: () => Date;
@@ -163,6 +155,7 @@ export type ExpectedTransactionGrantLogicalPinFieldV1 =
 
 export type TransactionGrantVerificationV1Issue =
   | { readonly reason: "malformedEvidence" }
+  | { readonly reason: "invalidPreparedStart" }
   | { readonly reason: "unknownKey" }
   | { readonly reason: "disabledKey" }
   | { readonly reason: "unissuableKey" }
@@ -214,6 +207,10 @@ export interface VerifiedTransactionGrantInspectionV1 {
 const verifiedTransactionGrantInspectionByHandle = new WeakMap<
   object,
   VerifiedTransactionGrantInspectionV1
+>();
+const expectedStartByVerifiedTransactionGrantHandle = new WeakMap<
+  object,
+  ExecutorPreparedPointMutationStartV1
 >();
 
 export interface CurrentScopeAuthorizationEpochV1 {
@@ -369,6 +366,88 @@ export function inspectCurrentEpochVerifiedTransactionGrantV1(
   return inspection;
 }
 
+const admittedPointMutationStartBrand: unique symbol = Symbol(
+  "FlarexExecutor/AdmittedPointMutationStartV1",
+);
+
+/** Final private O03-A capability and the only prepared input accepted by O03-B. */
+export interface AdmittedPointMutationStartV1 {
+  readonly [admittedPointMutationStartBrand]: true;
+}
+
+export interface AdmittedPointMutationStartInspectionV1 {
+  readonly preparedStart: PreparedPointMutationStartEvidenceV1;
+  readonly verifiedGrant: VerifiedTransactionGrantInspectionV1;
+  readonly currentAuthority: CurrentScopeAuthorizationEpochV1;
+}
+
+const admittedPointMutationStartInspectionByHandle = new WeakMap<
+  object,
+  AdmittedPointMutationStartInspectionV1
+>();
+
+export class InvalidAdmittedPointMutationStartV1Error extends Error {
+  readonly name = "InvalidAdmittedPointMutationStartV1Error";
+
+  constructor() {
+    super("Value is not a process-local admitted point-mutation start.");
+  }
+}
+
+export interface PointMutationStartAdmissionV1 {
+  readonly admit: (
+    verifiedGrant: VerifiedTransactionGrantV1,
+  ) => Promise<AdmittedPointMutationStartV1>;
+}
+
+export function createPointMutationStartAdmissionV1(
+  resolver: CurrentScopeAuthorizationEpochResolverV1,
+): PointMutationStartAdmissionV1 {
+  const currentEpochAdmission =
+    createCurrentEpochTransactionGrantAdmissionV1(resolver);
+  return Object.freeze({
+    admit: async (
+      verifiedGrant: VerifiedTransactionGrantV1,
+    ): Promise<AdmittedPointMutationStartV1> => {
+      const expectedStart =
+        expectedStartByVerifiedTransactionGrantHandle.get(verifiedGrant);
+      if (expectedStart === undefined) {
+        throw verificationFailure("invalidPreparedStart");
+      }
+      const currentEpochGrant = await currentEpochAdmission.admit(
+        verifiedGrant,
+      );
+      const currentEpochInspection =
+        inspectCurrentEpochVerifiedTransactionGrantV1(currentEpochGrant);
+      const inspection = Object.freeze({
+        preparedStart: inspectExecutorPreparedPointMutationStartV1(
+          expectedStart,
+        ),
+        verifiedGrant: currentEpochInspection.verifiedGrant,
+        currentAuthority: currentEpochInspection.currentAuthority,
+      } satisfies AdmittedPointMutationStartInspectionV1);
+      const handle = Object.freeze({
+        [admittedPointMutationStartBrand]: true as const,
+      });
+      admittedPointMutationStartInspectionByHandle.set(handle, inspection);
+      return handle;
+    },
+  });
+}
+
+export function inspectAdmittedPointMutationStartV1(
+  value: unknown,
+): AdmittedPointMutationStartInspectionV1 {
+  if (typeof value !== "object" || value === null) {
+    throw new InvalidAdmittedPointMutationStartV1Error();
+  }
+  const inspection = admittedPointMutationStartInspectionByHandle.get(value);
+  if (inspection === undefined) {
+    throw new InvalidAdmittedPointMutationStartV1Error();
+  }
+  return inspection;
+}
+
 export interface TransactionGrantVerifierV1Config {
   readonly clock: TransactionGrantVerificationClockV1;
   readonly verificationKeyNamespace:
@@ -379,7 +458,7 @@ export interface TransactionGrantVerifierV1Config {
 
 export interface VerifyTransactionGrantV1Input {
   readonly jws: unknown;
-  readonly expectedPins: ExpectedTransactionGrantLogicalPinsV1;
+  readonly expectedStart: ExecutorPreparedPointMutationStartV1;
 }
 
 export interface TransactionGrantVerifierV1 {
@@ -458,7 +537,19 @@ export function createTransactionGrantVerifierV1(
     verify: async (
       input: VerifyTransactionGrantV1Input,
     ): Promise<VerifiedTransactionGrantV1> => {
-      const expectedPins = copyExpectedPins(input.expectedPins);
+      const expectedStart = input.expectedStart;
+      let preparedStart: PreparedPointMutationStartEvidenceV1;
+      try {
+        preparedStart = inspectExecutorPreparedPointMutationStartV1(
+          expectedStart,
+        );
+      } catch (cause) {
+        if (cause instanceof InvalidExecutorPreparedPointMutationStartV1Error) {
+          throw verificationFailure("invalidPreparedStart");
+        }
+        throw cause;
+      }
+      const expectedPins = preparedStart.logicalPins;
       if (expectedPins.deploymentId !== keyNamespace.deploymentId) {
         throw pinMismatch("deploymentId");
       }
@@ -541,6 +632,10 @@ export function createTransactionGrantVerifierV1(
         [verifiedTransactionGrantBrand]: true as const,
       });
       verifiedTransactionGrantInspectionByHandle.set(handle, inspection);
+      expectedStartByVerifiedTransactionGrantHandle.set(
+        handle,
+        expectedStart,
+      );
       return handle;
     },
   });
@@ -710,28 +805,6 @@ function sameCapabilities(
 ): boolean {
   return actual.length === expected.length &&
     actual.every((capability, index) => capability === expected[index]);
-}
-
-function copyExpectedPins(
-  pins: ExpectedTransactionGrantLogicalPinsV1,
-): ExpectedTransactionGrantLogicalPinsV1 {
-  return Object.freeze({
-    deploymentId: pins.deploymentId,
-    scopeId: pins.scopeId,
-    packageId: pins.packageId,
-    artifactRuntime: pins.artifactRuntime,
-    artifactId: pins.artifactId,
-    sourcePackageHash: pins.sourcePackageHash,
-    executionModule: pins.executionModule,
-    functionPath: pins.functionPath,
-    functionKind: pins.functionKind,
-    schemaVersionId: pins.schemaVersionId,
-    validatedArgsValueCodecVersion: pins.validatedArgsValueCodecVersion,
-    validatedArgsSha256: pins.validatedArgsSha256,
-    requestKey: pins.requestKey,
-    requestSha256: pins.requestSha256,
-    authorizationRevocationEpoch: pins.authorizationRevocationEpoch,
-  });
 }
 
 function compareExpectedPins(

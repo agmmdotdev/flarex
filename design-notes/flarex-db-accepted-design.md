@@ -902,23 +902,41 @@ signing capability rather than private bytes and never accepts caller-selected
 policy, capabilities, digest, time, grant ID, or key ID. The executor selects an
 independent deployment key namespace, verifies the exact `kid` and Ed25519
 signature, checks time/policy/logical pins, and returns only a process-local
-opaque capability. O03-A2c remains the third checkpoint but has four distinct
-private proof boundaries. It first consumes an A2b-verified grant, independently
-resolves its located scope authority, compares the sole current revocation epoch,
-and returns a second preliminary process-local capability; O03-B must still
-recheck inside activation. It then owns target-native argument/pin preparation,
-the trusted checked revocation command, and backend-only Worker/key adapters.
-Before S03-D4/S04 installs the sole active package/schema/function chain, the
-preparation kernel is test-generation-only and must fail closed without seeded
-target metadata; it may not bridge DeploymentDO, legacy `prepareInvoke`, numeric
-schema authority, or partition routing. The request digest is over a
-domain-separated Value Codec V1 envelope containing deployment, mutation
-function/kind, validated-argument digest, and server-namespaced request key.
-Revocation accepts an expected current epoch so an uncertain-response retry
-cannot silently double-bump. The artifact-visible executor credential cannot
-authorize preparation or revocation. O03-B remains blocked until all private
-A2c boundaries pass, and production preparation remains blocked until S04 binds
-the kernel to the sole active-metadata authority.
+opaque capability.
+
+O03-A2c completes exactly two private boundaries before O03-B: the already
+implemented located-current-revocation-epoch admission and schema-neutral,
+two-sided point-mutation preparation. The backend and executor each perform an
+independent trusted metadata and scope-epoch read. Each validates deployment,
+scope, package, artifact/source identity, schema, exact function path, mutation
+kind, public visibility, arguments, and the server-prepared request key before
+returning its own unforgeable process-local handle. No caller may supply
+structural prepared facts. Signature and exact-pin verification retain the
+executor-prepared handle, and a fresh current-epoch read produces the final
+opaque prepared-start capability consumed by O03-B; O03-B still rechecks epoch
+and located storage generation/fence inside activation.
+
+The A2c preparation implementation is deliberately schema-neutral and
+test-generation-only. Its private tests use immutable setup-seeded metadata
+adapters, persist nothing, add no DDL or active pointer, and fail closed for
+absent, inactive, or corrupt metadata. It may not bridge DeploymentDO, legacy
+`prepareInvoke`, numeric prototype schema authority, or partition routing.
+`validatedArgsSha256` is SHA-256 over Value Codec V1 canonical validated
+arguments. `requestSha256` is SHA-256 over the Value Codec V1 canonical value
+`{ format: "flarex.point-mutation-request", version: 1, deploymentId,
+functionPath, functionKind: "mutation", validatedArgsSha256, requestKey }`.
+Auth, policy, revocation epoch, time, and signing-key data remain separate grant
+pins.
+
+Production preparation is a later adapter owned jointly by roadmap 17 and
+S03-D4/S04. It must read one coherent active package, artifact/source,
+function-validator, and schema snapshot with an activation revision or fence;
+S04's `active_schema_version_id` is schema authority only and is not by itself a
+package/function authority. The physical representation and any DDL require a
+fresh preflight. The checked revocation command moves to its first operational
+or admin consumer, and backend Worker/key/binding adapters move to their first
+hosted-production consumer. Those gates do not block O03-B, O04/O05, or the
+private C01-C07 proof.
 
 The narrow schema prerequisite S07-A first adds one nonnegative scope-wide
 `authorization_revocation_epoch` to the located data-plane scope clock. O03-A

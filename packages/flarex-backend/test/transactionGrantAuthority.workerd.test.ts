@@ -4,23 +4,20 @@ import { Effect } from "effect";
 import { Miniflare } from "miniflare";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
-import { ReplacementScopeIdV1Schema } from "flarex-protocol/storage-authority";
+import {
+  ReplacementScopeIdV1Schema,
+  type ReplacementScopeIdV1,
+} from "flarex-protocol/storage-authority";
 import {
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
   TransactionGrantDeploymentIdV1Schema,
   TransactionGrantKeyIdV1Schema,
 } from "flarex-protocol/transaction-grant";
 import {
-  TransactionArgumentsSha256V1Schema,
   TransactionAuthorizationGrantIdV1Schema,
   TransactionAuthorizationRevocationEpochSchema,
-  TransactionExecutionModuleV1Schema,
   TransactionFunctionPathV1Schema,
-  TransactionPackageIdV1Schema,
   TransactionRequestKeyV1Schema,
-  TransactionRequestSha256V1Schema,
-  TransactionSourcePackageSha256HexV1Schema,
 } from "flarex-protocol/transaction-session";
 import { build, type Plugin } from "vite";
 import { describe, expect, it } from "vitest";
@@ -28,8 +25,11 @@ import { describe, expect, it } from "vitest";
 import {
   TransactionGrantIssuerSourceV1Error,
   makePointMutationTransactionGrantIssuerV1,
-  type HostPreparedPointMutationGrantFactsV1,
 } from "../src/transactionGrantIssuer";
+import {
+  createServerPreparedTransactionRequestKeyV1,
+  makeIssuerPointMutationGrantPreparationV1,
+} from "../src/pointMutationGrantPreparation";
 import type { ResolvedBearerAuthentication } from "../src/authJwt";
 
 const TEST_PRIVATE_KEY_PKCS8_BASE64 =
@@ -44,8 +44,30 @@ const KEY_ID = TransactionGrantKeyIdV1Schema.make("grant-key-a2b-current");
 describe("transaction-grant authority in workerd", () => {
   it("runs the actual executor verifier leaf in both compatibility modes", async () => {
     const privateKey = await importPrivateKey();
-    const facts = preparedFacts();
-    const issuer = await Effect.runPromise(
+    const scopeId = ReplacementScopeIdV1Schema.make(
+      "scope_018f22e2-58cc-7b2a-91d8-f3f3401a0874",
+    );
+    const targetMetadata = targetMetadataFixture(scopeId);
+    const currentScopeAuthority = {
+      deploymentId: DEPLOYMENT_ID,
+      scopeId,
+      authorizationRevocationEpoch:
+        TransactionAuthorizationRevocationEpochSchema.make(7n),
+    };
+    const preparation = makeIssuerPointMutationGrantPreparationV1({
+      loadActiveTargetMetadata: () => Effect.succeed(targetMetadata),
+      loadCurrentScopeAuthority: () =>
+        Effect.succeed(currentScopeAuthority),
+    });
+    const preparedStart = await runTestEffect(preparation.prepare({
+      deploymentId: DEPLOYMENT_ID,
+      functionPath: TransactionFunctionPathV1Schema.make("orders:create"),
+      args: { orderId: "order_workerd" },
+      requestKey: createServerPreparedTransactionRequestKeyV1(
+        TransactionRequestKeyV1Schema.make("request_a2c_workerd"),
+      ),
+    }));
+    const issuer = await runTestEffect(
       makePointMutationTransactionGrantIssuerV1({
         maximumGrantLifetimeMilliseconds: 60_000,
         runtime: {
@@ -84,9 +106,9 @@ describe("transaction-grant authority in workerd", () => {
       kind: "anonymous",
       executionIdentity: { kind: "anonymous" },
     };
-    const evidence = await Effect.runPromise(issuer.issue({
+    const evidence = await runTestEffect(issuer.issue({
       authentication,
-      facts,
+      preparedStart,
     }));
     const workerSource = await bundleAuthorityWorker();
 
@@ -119,24 +141,19 @@ describe("transaction-grant authority in workerd", () => {
               now: NOW.toISOString(),
               maximumGrantLifetimeMilliseconds: 60_000,
               maximumFutureIssuedAtSkewMilliseconds: 0,
-              expectedPins: {
-                deploymentId: evidence.payload.deploymentId,
-                scopeId: evidence.payload.scopeId,
-                packageId: evidence.payload.packageId,
-                artifactRuntime: evidence.payload.artifactRuntime,
-                artifactId: evidence.payload.artifactId,
-                sourcePackageHash: evidence.payload.sourcePackageHash,
-                executionModule: evidence.payload.executionModule,
-                functionPath: evidence.payload.functionPath,
-                functionKind: evidence.payload.functionKind,
-                schemaVersionId: evidence.payload.schemaVersionId,
-                validatedArgsValueCodecVersion:
-                  evidence.payload.validatedArgsValueCodecVersion,
-                validatedArgsSha256: evidence.payload.validatedArgsSha256,
-                requestKey: evidence.payload.requestKey,
-                requestSha256: evidence.payload.requestSha256,
-                authorizationRevocationEpoch:
-                  evidence.payload.authorizationRevocationEpoch.toString(),
+              // Deliberately conflicting request data: executor authority is
+              // frozen in Worker setup and must not be caller-selectable.
+              targetMetadata: { format: "caller-authored" },
+              currentScopeAuthority: {
+                deploymentId: "deployment_caller_authored",
+                scopeId: "scope_118f22e2-58cc-7b2a-91d8-f3f3401a0874",
+                authorizationRevocationEpoch: "999",
+              },
+              candidate: {
+                deploymentId: DEPLOYMENT_ID,
+                functionPath: "orders:create",
+                args: { orderId: "order_workerd" },
+                requestKey: "request_a2c_workerd",
               },
             }),
           },
@@ -190,6 +207,7 @@ function workspacePackageResolution(): Plugin {
     resolveId(id) {
       if (
         id === "@flarex/executor/transaction-grant" ||
+        id === "@flarex/executor/point-mutation-start" ||
         id === "flarex-protocol" ||
         id.startsWith("flarex-protocol/")
       ) {
@@ -200,30 +218,49 @@ function workspacePackageResolution(): Plugin {
   };
 }
 
-function preparedFacts(): HostPreparedPointMutationGrantFactsV1 {
+function targetMetadataFixture(
+  scopeId: ReplacementScopeIdV1,
+) {
   return {
+    format: "flarex.point-mutation-target-metadata",
+    version: 1,
     deploymentId: DEPLOYMENT_ID,
-    scopeId: ReplacementScopeIdV1Schema.make(
-      "scope_018f22e2-58cc-7b2a-91d8-f3f3401a0874",
-    ),
-    packageId: TransactionPackageIdV1Schema.make("package_a2b"),
-    sourcePackageHash: TransactionSourcePackageSha256HexV1Schema.make(
-      "a".repeat(64),
-    ),
-    executionModule: TransactionExecutionModuleV1Schema.make(
-      "flarex/orders.ts",
-    ),
-    functionPath: TransactionFunctionPathV1Schema.make("orders:create"),
-    schemaVersionId: CatalogSchemaVersionIdSchema.make("schema_a2b"),
-    validatedArgsSha256: TransactionArgumentsSha256V1Schema.make(
-      new Uint8Array(32).fill(0xbb),
-    ),
-    requestKey: TransactionRequestKeyV1Schema.make("request_a2b"),
-    requestSha256: TransactionRequestSha256V1Schema.make(
-      new Uint8Array(32).fill(0xcc),
-    ),
-    authorizationRevocationEpoch:
-      TransactionAuthorizationRevocationEpochSchema.make(7n),
+    scopeId,
+    packageId: "package_a2b",
+    artifactRuntime: "dynamic-worker",
+    artifactId: `artifact_${"a".repeat(32)}`,
+    sourcePackageHash: "a".repeat(64),
+    schemaVersionId: "schema_a2b",
+    functions: [{
+      path: "orders:create",
+      executionModule: "flarex/orders.ts",
+      kind: "mutation",
+      visibility: "public",
+      argsValidator: {
+        type: "object",
+        value: {
+          orderId: {
+            fieldType: { type: "string" },
+            optional: false,
+          },
+        },
+      },
+      returnsValidator: null,
+    }],
+    schemaManifest: {
+      kind: "appSchema",
+      manifestVersion: 1,
+      tableDefinitions: {
+        kind: "tableDefinitions",
+        sectionVersion: 1,
+        tables: [],
+      },
+      indexBindings: {
+        kind: "indexBindings",
+        sectionVersion: 1,
+        indexes: [],
+      },
+    },
   };
 }
 
@@ -235,6 +272,10 @@ async function importPrivateKey(): Promise<CryptoKey> {
     false,
     ["sign"],
   );
+}
+
+function runTestEffect<A, E>(effect: Effect.Effect<A, E, never>): Promise<A> {
+  return Effect.runPromise(effect);
 }
 
 function decodeBase64(value: string): Uint8Array {

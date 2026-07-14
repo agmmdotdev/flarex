@@ -6,8 +6,6 @@ import {
   type CustomJwtAuthProvider,
   type OidcAuthProvider,
 } from "flarex-protocol/auth";
-import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
-import type { ReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import {
   TRANSACTION_GRANT_JWS_ALGORITHM_V1,
   TRANSACTION_GRANT_JWS_TYPE_V1,
@@ -22,8 +20,6 @@ import {
   createTransactionGrantSigningInputV1,
   deriveInertTransactionGrantEvidenceV1,
   encodeTransactionGrantEd25519SignatureV1,
-  transactionGrantRequestSha256HexV1FromBytes,
-  transactionGrantValidatedArgsSha256HexV1FromBytes,
   type InertTransactionGrantEvidenceV1,
   type TransactionGrantDeploymentIdV1,
   type TransactionGrantInertAuthV1,
@@ -31,19 +27,8 @@ import {
   type TransactionGrantSigningInputBytesV1,
 } from "flarex-protocol/transaction-grant";
 import {
-  TransactionArgumentsSha256V1Schema,
-  TransactionRequestSha256V1Schema,
-  type TransactionArgumentsSha256V1,
   type TransactionAuthorizationGrantIdV1,
-  type TransactionAuthorizationRevocationEpoch,
-  type TransactionExecutionModuleV1,
-  type TransactionFunctionPathV1,
-  type TransactionPackageIdV1,
-  type TransactionRequestKeyV1,
-  type TransactionRequestSha256V1,
-  type TransactionSourcePackageSha256HexV1,
 } from "flarex-protocol/transaction-session";
-import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
 
 import {
   InvalidVerifiedAuthContextError,
@@ -54,28 +39,13 @@ import {
   type VerifiedAuthContext,
   type VerifiedAuthProviderEvidence,
 } from "./authJwt";
+import {
+  InvalidIssuerPreparedPointMutationStartV1Error,
+  inspectIssuerPreparedPointMutationStartV1,
+  type IssuerPreparedPointMutationStartV1,
+} from "./pointMutationGrantPreparation";
 
 const MAX_ECMASCRIPT_DATE_EPOCH_MILLISECONDS = 8_640_000_000_000_000;
-
-/*
- * These facts are deliberately structural until A2c supplies their
- * authoritative preparation source. Hash bytes are copied on entry so an
- * asynchronous caller cannot mutate the signed request after issuance starts.
- */
-export interface HostPreparedPointMutationGrantFactsV1 {
-  readonly deploymentId: TransactionGrantDeploymentIdV1;
-  readonly scopeId: ReplacementScopeIdV1;
-  readonly packageId: TransactionPackageIdV1;
-  readonly sourcePackageHash: TransactionSourcePackageSha256HexV1;
-  readonly executionModule: TransactionExecutionModuleV1;
-  readonly functionPath: TransactionFunctionPathV1;
-  readonly schemaVersionId: CatalogSchemaVersionId;
-  readonly validatedArgsSha256: TransactionArgumentsSha256V1;
-  readonly requestKey: TransactionRequestKeyV1;
-  readonly requestSha256: TransactionRequestSha256V1;
-  readonly authorizationRevocationEpoch:
-    TransactionAuthorizationRevocationEpoch;
-}
 
 export type TransactionGrantSigningKeyStateV1 =
   | "activeSigner"
@@ -143,7 +113,6 @@ export class TransactionGrantIssuerConfigurationV1Error extends Data.TaggedError
 
 export type TransactionGrantIssuanceV1Issue =
   | "unsupportedAuthentication"
-  | "invalidPreparedFacts"
   | "invalidClockReading"
   | "timestampOutOfRange"
   | "credentialExpired"
@@ -187,7 +156,7 @@ export interface TransactionGrantIssuerRuntimeV1 {
 
 export interface IssuePointMutationTransactionGrantV1Input {
   readonly authentication: ResolvedBearerAuthentication;
-  readonly facts: HostPreparedPointMutationGrantFactsV1;
+  readonly preparedStart: IssuerPreparedPointMutationStartV1;
 }
 
 export type IssuePointMutationTransactionGrantV1Error =
@@ -196,6 +165,7 @@ export type IssuePointMutationTransactionGrantV1Error =
   | TransactionGrantAuthProjectionError
   | TransactionGrantIdentityAccessPolicyV1Error
   | TransactionGrantProtocolV1Error
+  | InvalidIssuerPreparedPointMutationStartV1Error
   | TransactionGrantIssuerSourceV1Error
   | TransactionGrantIssuanceV1Error;
 
@@ -231,9 +201,22 @@ export function makePointMutationTransactionGrantIssuerV1(
     input.maximumGrantLifetimeMilliseconds;
   const runtime = input.runtime;
 
-  const issue: PointMutationTransactionGrantIssuerV1["issue"] = request =>
-    Effect.gen(function* () {
-      const facts = yield* snapshotPreparedFacts(request.facts);
+  const issue = Effect.fn("TransactionGrantIssuer.issue")(function* (
+    request: IssuePointMutationTransactionGrantV1Input,
+  ): Effect.fn.Return<
+    InertTransactionGrantEvidenceV1,
+    IssuePointMutationTransactionGrantV1Error
+  > {
+      const preparedStart = yield* Effect.try({
+        try: () => inspectIssuerPreparedPointMutationStartV1(
+          request.preparedStart,
+        ),
+        catch: (cause) =>
+          cause instanceof InvalidIssuerPreparedPointMutationStartV1Error
+            ? cause
+            : new InvalidIssuerPreparedPointMutationStartV1Error(),
+      });
+      const facts = preparedStart.logicalPins;
       const authenticationInput = yield* snapshotAuthentication(
         request.authentication,
       );
@@ -307,24 +290,20 @@ export function makePointMutationTransactionGrantIssuerV1(
           deploymentId: facts.deploymentId,
           scopeId: facts.scopeId,
           packageId: facts.packageId,
-          artifactRuntime: "dynamic-worker",
-          artifactId: `artifact_${facts.sourcePackageHash.slice(0, 32)}`,
+          artifactRuntime: facts.artifactRuntime,
+          artifactId: facts.artifactId,
           sourcePackageHash: facts.sourcePackageHash,
           executionModule: facts.executionModule,
           functionPath: facts.functionPath,
-          functionKind: "mutation",
+          functionKind: facts.functionKind,
           schemaVersionId: facts.schemaVersionId,
           policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
           identityAccessPolicySha256: policyEvidence.sha256Hex,
-          validatedArgsValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
-          validatedArgsSha256:
-            transactionGrantValidatedArgsSha256HexV1FromBytes(
-              facts.validatedArgsSha256,
-            ),
+          validatedArgsValueCodecVersion:
+            facts.validatedArgsValueCodecVersion,
+          validatedArgsSha256: facts.validatedArgsSha256,
           requestKey: facts.requestKey,
-          requestSha256: transactionGrantRequestSha256HexV1FromBytes(
-            facts.requestSha256,
-          ),
+          requestSha256: facts.requestSha256,
           capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
           auth: authentication.auth,
           issuedAt,
@@ -398,43 +377,14 @@ function snapshotAuthentication(
   );
 }
 
-function snapshotPreparedFacts(
-  facts: HostPreparedPointMutationGrantFactsV1,
-): Effect.Effect<
-  HostPreparedPointMutationGrantFactsV1,
-  TransactionGrantIssuanceV1Error
-> {
-  return Effect.try({
-    try: () => Object.freeze({
-      deploymentId: facts.deploymentId,
-      scopeId: facts.scopeId,
-      packageId: facts.packageId,
-      sourcePackageHash: facts.sourcePackageHash,
-      executionModule: facts.executionModule,
-      functionPath: facts.functionPath,
-      schemaVersionId: facts.schemaVersionId,
-      validatedArgsSha256: TransactionArgumentsSha256V1Schema.make(
-        new Uint8Array(facts.validatedArgsSha256),
-      ),
-      requestKey: facts.requestKey,
-      requestSha256: TransactionRequestSha256V1Schema.make(
-        new Uint8Array(facts.requestSha256),
-      ),
-      authorizationRevocationEpoch: facts.authorizationRevocationEpoch,
-    }),
-    catch: () =>
-      new TransactionGrantIssuanceV1Error({
-        issue: "invalidPreparedFacts",
-      }),
-  });
-}
-
-function resolveGrantAuthentication(
+const resolveGrantAuthentication = Effect.fn(
+  "TransactionGrantIssuer.resolveAuthentication",
+)(function* (
   runtime: TransactionGrantIssuerRuntimeV1,
   deploymentId: TransactionGrantDeploymentIdV1,
   authentication: SnapshotGrantAuthenticationV1,
   nowEpochMilliseconds: number,
-): Effect.Effect<
+): Effect.fn.Return<
   ResolvedGrantAuthenticationV1,
   | AuthProtocolValidationError
   | InvalidVerifiedAuthContextError
@@ -443,77 +393,75 @@ function resolveGrantAuthentication(
   | TransactionGrantIssuanceV1Error
 > {
   if (authentication.kind === "anonymous") {
-    return Effect.succeed(Object.freeze({
+    return Object.freeze({
       auth: ANONYMOUS_GRANT_AUTH_V1,
-    }));
+    });
   }
 
-  return Effect.gen(function* () {
-    const evidence = yield* Effect.try({
-      try: () => inspectVerifiedAuthContext(authentication.verifiedAuthContext),
-      catch: cause =>
-        cause instanceof InvalidVerifiedAuthContextError
-          ? cause
-          : new InvalidVerifiedAuthContextError({
-              message: "Verified auth context is not process-local evidence.",
-            }),
-    });
-    const credentialExpiresAtEpochMilliseconds = Math.floor(
-      evidence.credentialExpiresAtEpochSeconds * 1_000,
-    );
-    if (
-      !isValidEpochMilliseconds(credentialExpiresAtEpochMilliseconds) ||
-      credentialExpiresAtEpochMilliseconds <= nowEpochMilliseconds
-    ) {
-      return yield* Effect.fail(
-        new TransactionGrantIssuanceV1Error({
-          issue: "credentialExpired",
-        }),
-      );
-    }
-
-    const currentConfigInput = yield* runtime.loadCurrentAuthConfig(
-      deploymentId,
-    );
-    if (currentConfigInput === null) {
-      return yield* Effect.fail(
-        new TransactionGrantIssuanceV1Error({
-          issue: "authConfigMissing",
-        }),
-      );
-    }
-    const currentConfig = yield* decodeAuthConfigEffect(currentConfigInput);
-    if (!currentConfig.providers.some(provider =>
-      sameProviderConfiguration(provider, evidence.matchedProvider)
-    )) {
-      return yield* Effect.fail(
-        new TransactionGrantIssuanceV1Error({
-          issue: "authProviderInactive",
-        }),
-      );
-    }
-
-    const auth = yield* Effect.try({
-      try: () => transactionGrantAuthFromVerifiedAuthContextV1(
-        authentication.verifiedAuthContext,
-      ),
-      catch: cause =>
-        cause instanceof TransactionGrantAuthProjectionError
-          ? cause
-          : cause instanceof InvalidVerifiedAuthContextError
-            ? cause
-            : new TransactionGrantAuthProjectionError({
-                message:
-                  "Verified authentication cannot be projected into grant auth.",
-                cause,
-              }),
-    });
-    return Object.freeze({
-      auth,
-      credentialExpiresAtEpochMilliseconds,
-    });
+  const evidence = yield* Effect.try({
+    try: () => inspectVerifiedAuthContext(authentication.verifiedAuthContext),
+    catch: cause =>
+      cause instanceof InvalidVerifiedAuthContextError
+        ? cause
+        : new InvalidVerifiedAuthContextError({
+            message: "Verified auth context is not process-local evidence.",
+          }),
   });
-}
+  const credentialExpiresAtEpochMilliseconds = Math.floor(
+    evidence.credentialExpiresAtEpochSeconds * 1_000,
+  );
+  if (
+    !isValidEpochMilliseconds(credentialExpiresAtEpochMilliseconds) ||
+    credentialExpiresAtEpochMilliseconds <= nowEpochMilliseconds
+  ) {
+    return yield* Effect.fail(
+      new TransactionGrantIssuanceV1Error({
+        issue: "credentialExpired",
+      }),
+    );
+  }
+
+  const currentConfigInput = yield* runtime.loadCurrentAuthConfig(
+    deploymentId,
+  );
+  if (currentConfigInput === null) {
+    return yield* Effect.fail(
+      new TransactionGrantIssuanceV1Error({
+        issue: "authConfigMissing",
+      }),
+    );
+  }
+  const currentConfig = yield* decodeAuthConfigEffect(currentConfigInput);
+  if (!currentConfig.providers.some(provider =>
+    sameProviderConfiguration(provider, evidence.matchedProvider)
+  )) {
+    return yield* Effect.fail(
+      new TransactionGrantIssuanceV1Error({
+        issue: "authProviderInactive",
+      }),
+    );
+  }
+
+  const auth = yield* Effect.try({
+    try: () => transactionGrantAuthFromVerifiedAuthContextV1(
+      authentication.verifiedAuthContext,
+    ),
+    catch: cause =>
+      cause instanceof TransactionGrantAuthProjectionError
+        ? cause
+        : cause instanceof InvalidVerifiedAuthContextError
+          ? cause
+          : new TransactionGrantAuthProjectionError({
+              message:
+                "Verified authentication cannot be projected into grant auth.",
+              cause,
+            }),
+  });
+  return Object.freeze({
+    auth,
+    credentialExpiresAtEpochMilliseconds,
+  });
+});
 
 function sameProviderConfiguration(
   current: AuthProvider,

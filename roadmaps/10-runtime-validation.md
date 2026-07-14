@@ -197,10 +197,15 @@ package and rejects:
 - caller partition keys that disagree with analyzed arguments/schema; and
 - invalid create-root scope requests.
 
-It currently preserves analyzed `args` and `returns` fields as opaque metadata;
-the forward executor does not yet structurally decode or execute those
-validators during prepare/finish. That is a production-blocking gap, not an
-implicit trust in the generated runtime.
+The legacy production `prepareInvoke` path still preserves analyzed `args` and
+`returns` fields as opaque metadata and is not replacement authority. O03-A2c
+now supplies a separate private, schema-neutral preparation kernel that
+strictly decodes current `ValidatorJsonV1`, validates object-shaped mutation
+arguments including table-aware IDs, canonicalizes them through Value Codec
+V1, and derives opaque grant pins independently on issuer and executor sides.
+Its immutable seeded metadata adapter is test-generation-only. Production
+active-metadata binding and authoritative return validation remain blocking
+gaps; this does not legitimize the legacy path.
 
 The executor derives execution scope from stored active metadata rather than
 accepting storage generation, physical placement, or raw scope authority from
@@ -432,15 +437,17 @@ Named Flarex divergences:
 
 ## Known Gaps And Limitations
 
-- Validator execution is duplicated across `flarex`, generated runtime source,
-  `flarex-backend`, and `@flarex/persistence-postgres`. Parity is tested but
-  semantic drift remains possible.
-- The forward `@flarex/executor` path parses active function `args` and
-  `returns` as opaque values and does not execute them during prepare/finish.
-  The shared HostKit runtime also does not validate them. Consequently the
-  accepted Postgres/Dynamic Worker path lacks authoritative function argument
-  and return validation even though the legacy generated/DO path has it. This
-  must be fixed before production activation.
+- Validator execution remains duplicated across SDK, generated runtime source,
+  compatibility backend, and `@flarex/persistence-postgres`. O03-A2c introduces
+  the first runtime-neutral `flarex-protocol/validator-engine` consumer, using
+  `Result`-based failures so union probing cannot swallow defects, but it does
+  not yet migrate every legacy evaluator.
+- The private A2c point-mutation path now performs authoritative argument
+  validation against its independently read metadata projection. Production
+  remains blocked on the roadmap-17 plus S03-D4/S04 coherent active-metadata
+  adapter, and neither the forward finish path nor HostKit yet performs
+  authoritative return validation. SDK/generated/commit-wide consolidation is
+  still incomplete.
 - Value Codec V1 can represent bigint, bytes, all float64 values, and NUL
   strings, but existing HTTP, generated-runtime, executor, compatibility
   backend, validator, and persisted-row paths have not adopted it. Those paths
@@ -497,19 +504,20 @@ session validation before any syscall can affect authoritative Postgres state.
 
 ## Next Correctness Gates
 
-1. **Enforce active function validators on the forward path.** Structurally
-   decode analyzed `args`/`returns` when the active package is loaded, validate
-   arguments before session/user-code start, validate returns before query
-   response or mutation commit, and prove invalid returns abort staged writes
-   in PGlite and real Postgres lanes.
+1. **Bind preparation and enforce return validators on the production forward
+   path.** Bind the completed private argument kernel to one coherent active
+   package/artifact/source/function-validator/schema snapshot, validate returns
+   before query response or mutation commit, and prove invalid returns abort
+   staged writes in PGlite and real Postgres lanes.
 2. **Adopt the completed value transport at explicit trust boundaries.** Wire
    Value Codec V1 through analyzer/generated-runtime, executor request/result,
    validator, and persisted-row consumers only in their approved gates; preserve
    IDs as strings and do not decode tagged objects ad hoc in individual routes.
-3. **Consolidate validator semantics without removing authority checks.** Move
-   recursive validator JSON parsing/execution and ID rules into a runtime-neutral
-   package usable by SDK, analyzer, generated shell, compatibility backend, and
-   persistence; retain validation at every boundary.
+3. **Complete validator-engine adoption without removing authority checks.**
+   Migrate SDK, analyzer, generated shell, compatibility backend, and target
+   persistence consumers to the existing runtime-neutral engine while retaining
+   validation at every boundary. Preserve the named bigint-literal and record-
+   metadata divergences until their wider protocol contracts are preflighted.
 4. **Sanitize and version error responses.** Give expected domain failures
    stable codes/details, map unexpected defects to opaque 500 responses, attach
    correlation IDs, and log typed internal context without secrets or raw user

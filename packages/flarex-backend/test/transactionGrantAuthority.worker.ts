@@ -1,38 +1,103 @@
 import {
+  createPointMutationStartAdmissionV1,
   createTransactionGrantVerificationKeyNamespaceV1,
   createTransactionGrantVerifierV1,
+  inspectAdmittedPointMutationStartV1,
   inspectVerifiedTransactionGrantV1,
 } from "@flarex/executor/transaction-grant";
-import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
+import {
+  createExecutorPointMutationStartPreparationV1,
+} from "@flarex/executor/point-mutation-start";
 import { ReplacementScopeIdV1Schema } from "flarex-protocol/storage-authority";
 import {
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
   TransactionGrantDeploymentIdV1Schema,
   TransactionGrantKeyIdV1Schema,
-  TransactionGrantRequestSha256HexV1Schema,
-  TransactionGrantValidatedArgsSha256HexV1Schema,
 } from "flarex-protocol/transaction-grant";
 import {
-  TransactionArtifactIdV1Schema,
   TransactionAuthorizationRevocationEpochSchema,
-  TransactionExecutionModuleV1Schema,
   TransactionFunctionPathV1Schema,
-  TransactionPackageIdV1Schema,
   TransactionRequestKeyV1Schema,
-  TransactionSourcePackageSha256HexV1Schema,
 } from "flarex-protocol/transaction-session";
-import { FlarexValueCodecVersionSchema } from "flarex-protocol/value";
 
 const TEST_PUBLIC_KEY_SPKI_BASE64 =
   "MCowBQYDK2VwAyEAno+3aYSLpdF45q6y9wrLdVOEWJLjvbGTDmfTVRqLEZ8=";
+const TEST_DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
+  "deployment_a2b",
+);
+const TEST_SCOPE_ID = ReplacementScopeIdV1Schema.make(
+  "scope_018f22e2-58cc-7b2a-91d8-f3f3401a0874",
+);
+const TEST_AUTHORIZATION_REVOCATION_EPOCH =
+  TransactionAuthorizationRevocationEpochSchema.make(7n);
+const TEST_TARGET_METADATA = deepFreezeProjection({
+  format: "flarex.point-mutation-target-metadata",
+  version: 1,
+  deploymentId: TEST_DEPLOYMENT_ID,
+  scopeId: TEST_SCOPE_ID,
+  packageId: "package_a2b",
+  artifactRuntime: "dynamic-worker",
+  artifactId: `artifact_${"a".repeat(32)}`,
+  sourcePackageHash: "a".repeat(64),
+  schemaVersionId: "schema_a2b",
+  functions: [{
+    path: "orders:create",
+    executionModule: "flarex/orders.ts",
+    kind: "mutation",
+    visibility: "public",
+    argsValidator: {
+      type: "object",
+      value: {
+        orderId: {
+          fieldType: { type: "string" },
+          optional: false,
+        },
+      },
+    },
+    returnsValidator: null,
+  }],
+  schemaManifest: {
+    kind: "appSchema",
+    manifestVersion: 1,
+    tableDefinitions: {
+      kind: "tableDefinitions",
+      sectionVersion: 1,
+      tables: [],
+    },
+    indexBindings: {
+      kind: "indexBindings",
+      sectionVersion: 1,
+      indexes: [],
+    },
+  },
+});
+const TEST_CURRENT_SCOPE_AUTHORITY = Object.freeze({
+  deploymentId: TEST_DEPLOYMENT_ID,
+  scopeId: TEST_SCOPE_ID,
+  authorizationRevocationEpoch: TEST_AUTHORIZATION_REVOCATION_EPOCH,
+});
 
 export default {
   async fetch(request: Request): Promise<Response> {
     const body = requiredRecord(await request.json());
-    const pins = requiredRecord(body.expectedPins);
+    const candidate = requiredRecord(body.candidate);
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
-      requiredString(pins.deploymentId),
+      requiredString(candidate.deploymentId),
     );
+    const preparation = createExecutorPointMutationStartPreparationV1({
+      loadActiveTargetMetadata: async () => TEST_TARGET_METADATA,
+      loadCurrentScopeAuthority: async () => TEST_CURRENT_SCOPE_AUTHORITY,
+    });
+    const expectedStart = await preparation.prepare({
+      deploymentId,
+      functionPath: TransactionFunctionPathV1Schema.make(
+        requiredString(candidate.functionPath),
+      ),
+      args: candidate.args,
+      requestKey: TransactionRequestKeyV1Schema.make(
+        requiredString(candidate.requestKey),
+      ),
+    });
     const publicKey = await importPublicKey();
     const keyNamespace = createTransactionGrantVerificationKeyNamespaceV1({
       deploymentId,
@@ -61,55 +126,15 @@ export default {
         body.maximumFutureIssuedAtSkewMilliseconds,
       ),
     });
-    requireLiteral(pins.artifactRuntime, "dynamic-worker");
-    requireLiteral(pins.functionKind, "mutation");
-    requireLiteral(pins.validatedArgsValueCodecVersion, 1);
     const verified = await verifier.verify({
       jws: body.jws,
-      expectedPins: {
-        deploymentId,
-        scopeId: ReplacementScopeIdV1Schema.make(
-          requiredString(pins.scopeId),
-        ),
-        packageId: TransactionPackageIdV1Schema.make(
-          requiredString(pins.packageId),
-        ),
-        artifactRuntime: "dynamic-worker",
-        artifactId: TransactionArtifactIdV1Schema.make(
-          requiredString(pins.artifactId),
-        ),
-        sourcePackageHash: TransactionSourcePackageSha256HexV1Schema.make(
-          requiredString(pins.sourcePackageHash),
-        ),
-        executionModule: TransactionExecutionModuleV1Schema.make(
-          requiredString(pins.executionModule),
-        ),
-        functionPath: TransactionFunctionPathV1Schema.make(
-          requiredString(pins.functionPath),
-        ),
-        functionKind: "mutation",
-        schemaVersionId: CatalogSchemaVersionIdSchema.make(
-          requiredString(pins.schemaVersionId),
-        ),
-        validatedArgsValueCodecVersion:
-          FlarexValueCodecVersionSchema.make(1),
-        validatedArgsSha256:
-          TransactionGrantValidatedArgsSha256HexV1Schema.make(
-            requiredString(pins.validatedArgsSha256),
-          ),
-        requestKey: TransactionRequestKeyV1Schema.make(
-          requiredString(pins.requestKey),
-        ),
-        requestSha256: TransactionGrantRequestSha256HexV1Schema.make(
-          requiredString(pins.requestSha256),
-        ),
-        authorizationRevocationEpoch:
-          TransactionAuthorizationRevocationEpochSchema.make(
-            BigInt(requiredString(pins.authorizationRevocationEpoch)),
-          ),
-      },
+      expectedStart,
     });
+    const admitted = await createPointMutationStartAdmissionV1({
+      resolveCurrent: async () => TEST_CURRENT_SCOPE_AUTHORITY,
+    }).admit(verified);
     const inspection = inspectVerifiedTransactionGrantV1(verified);
+    inspectAdmittedPointMutationStartV1(admitted);
     return Response.json({
       grantId: inspection.evidence.payload.grantId,
       keyId: inspection.verificationKeyId,
@@ -165,4 +190,16 @@ function copyToArrayBuffer(bytesValue: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytesValue.byteLength);
   copy.set(bytesValue);
   return copy.buffer;
+}
+
+function deepFreezeProjection<T>(value: T): T {
+  if (value === null || typeof value !== "object") return value;
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor !== undefined && "value" in descriptor) {
+      deepFreezeProjection(descriptor.value);
+    }
+  }
+  Object.freeze(value);
+  return value;
 }

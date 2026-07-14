@@ -12,16 +12,16 @@ import {
   createPostgresLocatedScopeAuthorizationEpochTarget,
   createPostgresSharedScopeAuthorityProvisioner,
 } from "@flarex/persistence-postgres/postgres";
-import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
-import { ReplacementScopeIdV1Schema } from "flarex-protocol/storage-authority";
+import {
+  ReplacementScopeIdV1Schema,
+  type ReplacementScopeIdV1,
+} from "flarex-protocol/storage-authority";
 import {
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
   TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
   TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
   TransactionGrantDeploymentIdV1Schema,
   TransactionGrantKeyIdV1Schema,
-  TransactionGrantRequestSha256HexV1Schema,
-  TransactionGrantValidatedArgsSha256HexV1Schema,
   canonicalizeTransactionGrantIdentityAccessPolicyV1,
   canonicalizeTransactionGrantPayloadV1,
   canonicalizeTransactionGrantProtectedHeaderV1,
@@ -32,20 +32,14 @@ import {
   type TransactionGrantInertAuthV1,
   type TransactionGrantJwsV1,
   type TransactionGrantKeyIdV1,
-  type TransactionGrantPayloadV1,
 } from "flarex-protocol/transaction-grant";
 import {
-  TransactionArtifactIdV1Schema,
-  TransactionArgumentsSha256V1Schema,
   TransactionAuthorizationRevocationEpochSchema,
-  TransactionExecutionModuleV1Schema,
   TransactionFunctionPathV1Schema,
-  TransactionPackageIdV1Schema,
   TransactionRequestKeyV1Schema,
-  TransactionRequestSha256V1Schema,
-  TransactionSourcePackageSha256HexV1Schema,
+  type TransactionAuthorizationRevocationEpoch,
+  type TransactionRequestKeyV1,
 } from "flarex-protocol/transaction-session";
-import { FlarexValueCodecVersionSchema } from "flarex-protocol/value";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -53,20 +47,27 @@ import {
 } from "../../persistence-postgres/src/scopeClock";
 import {
   CurrentEpochTransactionGrantAdmissionV1Error,
+  InvalidAdmittedPointMutationStartV1Error,
   InvalidCurrentEpochVerifiedTransactionGrantV1Error,
   InvalidVerifiedTransactionGrantV1Error,
   TransactionGrantAuthorityConfigurationV1Error,
   TransactionGrantVerificationV1Error,
   createCurrentEpochTransactionGrantAdmissionV1,
+  createPointMutationStartAdmissionV1,
   createTransactionGrantVerificationKeyNamespaceV1,
   createTransactionGrantVerifierV1,
+  inspectAdmittedPointMutationStartV1,
   inspectCurrentEpochVerifiedTransactionGrantV1,
   inspectVerifiedTransactionGrantV1,
   type ActiveTransactionGrantVerificationKeyV1,
-  type ExpectedTransactionGrantLogicalPinsV1,
   type TransactionGrantVerificationKeyV1,
   type TransactionGrantVerifierV1,
 } from "../src/transactionGrant";
+import {
+  createExecutorPointMutationStartPreparationV1,
+  inspectExecutorPreparedPointMutationStartV1,
+  type ExecutorPreparedPointMutationStartV1,
+} from "../src/pointMutationStartPreparation";
 import {
   postgresUrl,
   withTemporaryPostgresExecutorPersistence,
@@ -84,6 +85,9 @@ const ISSUED_AT_MILLISECONDS = new Date(
 const DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
   "deployment_a2b",
 );
+const BASE_SCOPE_ID = ReplacementScopeIdV1Schema.make(
+  "scope_018f22e2-58cc-7b2a-91d8-f3f3401a0874",
+);
 const OTHER_DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
   "deployment_other",
 );
@@ -100,15 +104,14 @@ describe("transaction-grant verifier", () => {
   it("returns only opaque process-local authority and preserves exact replay", async () => {
     const fixture = await signedFixture();
     const verifier = await verifierFixture();
-    const expectedPins = expectedPinsFromPayload(fixture.evidence.payload);
 
     const first = await verifier.verify({
       jws: fixture.jws,
-      expectedPins,
+      expectedStart: fixture.preparedStart,
     });
     const second = await verifier.verify({
       jws: fixture.jws,
-      expectedPins,
+      expectedStart: fixture.preparedStart,
     });
     const inspection = inspectVerifiedTransactionGrantV1(first);
 
@@ -132,12 +135,72 @@ describe("transaction-grant verifier", () => {
       .toThrow(InvalidVerifiedTransactionGrantV1Error);
   });
 
+  it("retains the inspected prepared start while signature verification awaits", async () => {
+    const fixture = await signedFixture();
+    const replacementStart = await preparedStartFixture({
+      scopeId: BASE_SCOPE_ID,
+      authorizationRevocationEpoch:
+        TransactionAuthorizationRevocationEpochSchema.make(7n),
+      orderId: "order_replacement",
+      requestKey: TransactionRequestKeyV1Schema.make("request_replacement"),
+    });
+    let releaseSignature: (() => void) | undefined;
+    const signatureGate = new Promise<void>((resolve) => {
+      releaseSignature = resolve;
+    });
+    let notifySignatureStarted: (() => void) | undefined;
+    const signatureStarted = new Promise<void>((resolve) => {
+      notifySignatureStarted = resolve;
+    });
+    const baseKey = await activeVerificationKey();
+    const verifier = await verifierFixture({
+      keys: [{
+        ...baseKey,
+        verify: async (signingInput, signature) => {
+          notifySignatureStarted?.();
+          await signatureGate;
+          return baseKey.verify(signingInput, signature);
+        },
+      }],
+    });
+    const input = {
+      jws: fixture.jws,
+      expectedStart: fixture.preparedStart,
+    };
+    const pending = verifier.verify(input);
+
+    await signatureStarted;
+    input.expectedStart = replacementStart;
+    releaseSignature?.();
+    const verified = await pending;
+    const admitted = await createPointMutationStartAdmissionV1({
+      resolveCurrent: async () => ({
+        deploymentId: DEPLOYMENT_ID,
+        scopeId: fixture.evidence.payload.scopeId,
+        authorizationRevocationEpoch:
+          fixture.evidence.payload.authorizationRevocationEpoch,
+      }),
+    }).admit(verified);
+    const admittedInspection = inspectAdmittedPointMutationStartV1(admitted);
+
+    expect(admittedInspection.preparedStart.logicalPins).toEqual(
+      inspectExecutorPreparedPointMutationStartV1(
+        fixture.preparedStart,
+      ).logicalPins,
+    );
+    expect(admittedInspection.preparedStart.logicalPins).not.toEqual(
+      inspectExecutorPreparedPointMutationStartV1(replacementStart).logicalPins,
+    );
+  });
+
   it("uses one exact key lookup and rejects malformed, unknown, tampered, and wrong-key evidence", async () => {
     const fixture = await signedFixture();
-    const expectedPins = expectedPinsFromPayload(fixture.evidence.payload);
     const verifier = await verifierFixture();
 
-    await expect(verifier.verify({ jws: {}, expectedPins }))
+    await expect(verifier.verify({
+      jws: {},
+      expectedStart: fixture.preparedStart,
+    }))
       .rejects.toMatchObject({
         issue: { reason: "malformedEvidence" },
       });
@@ -145,9 +208,7 @@ describe("transaction-grant verifier", () => {
     const unknownKeyFixture = await signedFixture({ kid: NEW_KEY_ID });
     await expect(verifier.verify({
       jws: unknownKeyFixture.jws,
-      expectedPins: expectedPinsFromPayload(
-        unknownKeyFixture.evidence.payload,
-      ),
+      expectedStart: unknownKeyFixture.preparedStart,
     })).rejects.toMatchObject({ issue: { reason: "unknownKey" } });
 
     await expect(verifier.verify({
@@ -155,7 +216,7 @@ describe("transaction-grant verifier", () => {
         ...fixture.jws,
         signature: flipBase64UrlCharacter(fixture.jws.signature),
       },
-      expectedPins,
+      expectedStart: fixture.preparedStart,
     })).rejects.toMatchObject({ issue: { reason: "signatureInvalid" } });
 
     const wrongMaterialVerifier = await verifierFixture({
@@ -166,20 +227,19 @@ describe("transaction-grant verifier", () => {
     });
     await expect(wrongMaterialVerifier.verify({
       jws: fixture.jws,
-      expectedPins,
+      expectedStart: fixture.preparedStart,
     })).rejects.toMatchObject({ issue: { reason: "signatureInvalid" } });
   });
 
   it("enforces time, fixed policy, digest, empty claims, and explicit limits", async () => {
     const valid = await signedFixture();
-    const validPins = expectedPinsFromPayload(valid.evidence.payload);
 
     const atExpiryVerifier = await verifierFixture({
       now: new Date("2026-07-14T10:01:00.000Z"),
     });
     await expect(atExpiryVerifier.verify({
       jws: valid.jws,
-      expectedPins: validPins,
+      expectedStart: valid.preparedStart,
     })).rejects.toMatchObject({ issue: { reason: "expired" } });
 
     const future = await signedFixture({
@@ -190,11 +250,11 @@ describe("transaction-grant verifier", () => {
     });
     await expect((await verifierFixture()).verify({
       jws: future.jws,
-      expectedPins: expectedPinsFromPayload(future.evidence.payload),
+      expectedStart: future.preparedStart,
     })).rejects.toMatchObject({ issue: { reason: "issuedInFuture" } });
     await expect((await verifierFixture({ futureSkewMilliseconds: 1 })).verify({
       jws: future.jws,
-      expectedPins: expectedPinsFromPayload(future.evidence.payload),
+      expectedStart: future.preparedStart,
     })).resolves.toBeDefined();
 
     const overlong = await signedFixture({
@@ -204,7 +264,7 @@ describe("transaction-grant verifier", () => {
     });
     await expect((await verifierFixture()).verify({
       jws: overlong.jws,
-      expectedPins: expectedPinsFromPayload(overlong.evidence.payload),
+      expectedStart: overlong.preparedStart,
     })).rejects.toMatchObject({ issue: { reason: "lifetimeExceeded" } });
 
     const policyCases: ReadonlyArray<{
@@ -243,7 +303,7 @@ describe("transaction-grant verifier", () => {
       });
       await expect((await verifierFixture()).verify({
         jws: fixture.jws,
-        expectedPins: expectedPinsFromPayload(fixture.evidence.payload),
+        expectedStart: fixture.preparedStart,
       })).rejects.toMatchObject({
         issue: { reason: policyCase.reason },
       });
@@ -264,55 +324,59 @@ describe("transaction-grant verifier", () => {
     }
   });
 
-  it("compares every independently prepared logical pin including inert epoch binding", async () => {
-    const fixture = await signedFixture();
-    const pins = expectedPinsFromPayload(fixture.evidence.payload);
+  it("compares independently prepared logical pins including inert epoch binding", async () => {
     const verifier = await verifierFixture();
     const mismatches: ReadonlyArray<{
-      readonly field: keyof ExpectedTransactionGrantLogicalPinsV1;
-      readonly pins: ExpectedTransactionGrantLogicalPinsV1;
+      readonly field:
+        | "deploymentId"
+        | "scopeId"
+        | "packageId"
+        | "artifactId"
+        | "executionModule"
+        | "functionPath"
+        | "schemaVersionId"
+        | "validatedArgsSha256"
+        | "requestKey"
+        | "requestSha256"
+        | "authorizationRevocationEpoch";
+      readonly overrides: Readonly<Record<string, unknown>>;
     }> = [
-      { field: "deploymentId", pins: { ...pins, deploymentId: OTHER_DEPLOYMENT_ID } },
+      { field: "deploymentId", overrides: { deploymentId: OTHER_DEPLOYMENT_ID } },
       {
         field: "scopeId",
-        pins: {
-          ...pins,
+        overrides: {
           scopeId: ReplacementScopeIdV1Schema.make(
             "scope_118f22e2-58cc-7b2a-91d8-f3f3401a0874",
           ),
         },
       },
-      { field: "packageId", pins: { ...pins, packageId: TransactionPackageIdV1Schema.make("package_other") } },
-      { field: "artifactRuntime", pins: { ...pins, artifactRuntime: "dynamic-worker" } },
-      { field: "artifactId", pins: { ...pins, artifactId: TransactionArtifactIdV1Schema.make(`artifact_${"f".repeat(32)}`) } },
-      { field: "sourcePackageHash", pins: { ...pins, sourcePackageHash: TransactionSourcePackageSha256HexV1Schema.make("f".repeat(64)) } },
-      { field: "executionModule", pins: { ...pins, executionModule: TransactionExecutionModuleV1Schema.make("flarex/other.ts") } },
-      { field: "functionPath", pins: { ...pins, functionPath: TransactionFunctionPathV1Schema.make("orders:other") } },
-      { field: "functionKind", pins: { ...pins, functionKind: "mutation" } },
-      { field: "schemaVersionId", pins: { ...pins, schemaVersionId: CatalogSchemaVersionIdSchema.make("schema_other") } },
-      { field: "validatedArgsValueCodecVersion", pins: { ...pins, validatedArgsValueCodecVersion: FlarexValueCodecVersionSchema.make(1) } },
-      { field: "validatedArgsSha256", pins: { ...pins, validatedArgsSha256: TransactionGrantValidatedArgsSha256HexV1Schema.make("e".repeat(64)) } },
-      { field: "requestKey", pins: { ...pins, requestKey: TransactionRequestKeyV1Schema.make("request_other") } },
-      { field: "requestSha256", pins: { ...pins, requestSha256: TransactionGrantRequestSha256HexV1Schema.make("d".repeat(64)) } },
+      { field: "packageId", overrides: { packageId: "package_other" } },
+      {
+        field: "artifactId",
+        overrides: {
+          artifactId: `artifact_${"f".repeat(32)}`,
+          sourcePackageHash: "f".repeat(64),
+        },
+      },
+      { field: "executionModule", overrides: { executionModule: "flarex/other.ts" } },
+      { field: "functionPath", overrides: { functionPath: "orders:other" } },
+      { field: "schemaVersionId", overrides: { schemaVersionId: "schema_other" } },
+      { field: "validatedArgsSha256", overrides: { validatedArgsSha256: "e".repeat(64) } },
+      { field: "requestKey", overrides: { requestKey: "request_other" } },
+      { field: "requestSha256", overrides: { requestSha256: "d".repeat(64) } },
       {
         field: "authorizationRevocationEpoch",
-        pins: {
-          ...pins,
-          authorizationRevocationEpoch:
-            TransactionAuthorizationRevocationEpochSchema.make(8n),
-        },
+        overrides: { authorizationRevocationEpoch: "8" },
       },
     ];
 
     for (const mismatch of mismatches) {
-      if (
-        mismatch.pins[mismatch.field] === pins[mismatch.field]
-      ) {
-        continue;
-      }
+      const fixture = await signedFixture({
+        payloadOverrides: mismatch.overrides,
+      });
       await expect(verifier.verify({
         jws: fixture.jws,
-        expectedPins: mismatch.pins,
+        expectedStart: fixture.preparedStart,
       })).rejects.toMatchObject({
         issue: { reason: "pinMismatch", field: mismatch.field },
       });
@@ -346,7 +410,7 @@ describe("transaction-grant verifier", () => {
     });
     await expect(overlapVerifier.verify({
       jws: oldFixture.jws,
-      expectedPins: expectedPinsFromPayload(oldFixture.evidence.payload),
+      expectedStart: oldFixture.preparedStart,
     })).resolves.toBeDefined();
 
     const postCutoverOld = await signedFixture({
@@ -357,9 +421,7 @@ describe("transaction-grant verifier", () => {
     });
     await expect(overlapVerifier.verify({
       jws: postCutoverOld.jws,
-      expectedPins: expectedPinsFromPayload(
-        postCutoverOld.evidence.payload,
-      ),
+      expectedStart: postCutoverOld.preparedStart,
     })).rejects.toMatchObject({ issue: { reason: "keyWindowMismatch" } });
 
     const disabledVerifier = await verifierFixture({
@@ -371,7 +433,7 @@ describe("transaction-grant verifier", () => {
     });
     await expect(disabledVerifier.verify({
       jws: oldFixture.jws,
-      expectedPins: expectedPinsFromPayload(oldFixture.evidence.payload),
+      expectedStart: oldFixture.preparedStart,
     })).rejects.toMatchObject({ issue: { reason: "disabledKey" } });
 
     const prepublishedVerifier = await verifierFixture({
@@ -385,7 +447,7 @@ describe("transaction-grant verifier", () => {
     });
     await expect(prepublishedVerifier.verify({
       jws: oldFixture.jws,
-      expectedPins: expectedPinsFromPayload(oldFixture.evidence.payload),
+      expectedStart: oldFixture.preparedStart,
     })).rejects.toMatchObject({ issue: { reason: "unissuableKey" } });
 
     const preactivationNew = await signedFixture({
@@ -394,9 +456,7 @@ describe("transaction-grant verifier", () => {
     });
     await expect(overlapVerifier.verify({
       jws: preactivationNew.jws,
-      expectedPins: expectedPinsFromPayload(
-        preactivationNew.evidence.payload,
-      ),
+      expectedStart: preactivationNew.preparedStart,
     })).rejects.toMatchObject({ issue: { reason: "keyWindowMismatch" } });
 
     const shortRetentionVerifier = await verifierFixture({
@@ -408,7 +468,7 @@ describe("transaction-grant verifier", () => {
     });
     await expect(shortRetentionVerifier.verify({
       jws: oldFixture.jws,
-      expectedPins: expectedPinsFromPayload(oldFixture.evidence.payload),
+      expectedStart: oldFixture.preparedStart,
     })).rejects.toMatchObject({ issue: { reason: "keyRetentionExpired" } });
   });
 
@@ -434,11 +494,48 @@ describe("transaction-grant verifier", () => {
 });
 
 describe("current-epoch transaction-grant admission", () => {
+  it("produces the final opaque prepared-start capability without handle mixing", async () => {
+    const fixture = await signedFixture();
+    const verified = await (await verifierFixture()).verify({
+      jws: fixture.jws,
+      expectedStart: fixture.preparedStart,
+    });
+    const admission = createPointMutationStartAdmissionV1({
+      resolveCurrent: async () => ({
+        deploymentId: DEPLOYMENT_ID,
+        scopeId: fixture.evidence.payload.scopeId,
+        authorizationRevocationEpoch:
+          fixture.evidence.payload.authorizationRevocationEpoch,
+      }),
+    });
+
+    const admitted = await admission.admit(verified);
+    const inspection = inspectAdmittedPointMutationStartV1(admitted);
+    expect(JSON.stringify(admitted)).toBe("{}");
+    expect(Object.isFrozen(admitted)).toBe(true);
+    expect(inspection.preparedStart.logicalPins.requestSha256).toBe(
+      fixture.evidence.payload.requestSha256,
+    );
+    expect(inspection.verifiedGrant).toBe(
+      inspectVerifiedTransactionGrantV1(verified),
+    );
+    for (const forged of [
+      fixture.preparedStart,
+      verified,
+      JSON.parse(JSON.stringify(admitted)),
+      { ...admitted },
+      Object.create(admitted),
+    ]) {
+      expect(() => inspectAdmittedPointMutationStartV1(forged))
+        .toThrow(InvalidAdmittedPointMutationStartV1Error);
+    }
+  });
+
   it("adds a second opaque capability from independently located authority", async () => {
     const fixture = await signedFixture();
     const verifiedGrant = await (await verifierFixture()).verify({
       jws: fixture.jws,
-      expectedPins: expectedPinsFromPayload(fixture.evidence.payload),
+      expectedStart: fixture.preparedStart,
     });
     const resolvedDeployments: string[] = [];
     const admission = createCurrentEpochTransactionGrantAdmissionV1({
@@ -488,7 +585,7 @@ describe("current-epoch transaction-grant admission", () => {
     const payload = fixture.evidence.payload;
     const verifiedGrant = await (await verifierFixture()).verify({
       jws: fixture.jws,
-      expectedPins: expectedPinsFromPayload(payload),
+      expectedStart: fixture.preparedStart,
     });
     const cases = [
       {
@@ -538,7 +635,7 @@ describe("current-epoch transaction-grant admission", () => {
     const oldFixture = await signedFixture();
     const oldGrant = await (await verifierFixture()).verify({
       jws: oldFixture.jws,
-      expectedPins: expectedPinsFromPayload(oldFixture.evidence.payload),
+      expectedStart: oldFixture.preparedStart,
     });
     let currentEpoch = oldFixture.evidence.payload.authorizationRevocationEpoch;
     const admission = createCurrentEpochTransactionGrantAdmissionV1({
@@ -557,10 +654,11 @@ describe("current-epoch transaction-grant admission", () => {
 
     const newFixture = await signedFixture({
       payloadOverrides: { authorizationRevocationEpoch: "8" },
+      preparedEpoch: TransactionAuthorizationRevocationEpochSchema.make(8n),
     });
     const newGrant = await (await verifierFixture()).verify({
       jws: newFixture.jws,
-      expectedPins: expectedPinsFromPayload(newFixture.evidence.payload),
+      expectedStart: newFixture.preparedStart,
     });
     await expect(admission.admit(newGrant)).resolves.toBeDefined();
   });
@@ -607,6 +705,8 @@ describe("current-epoch transaction-grant admission", () => {
         }),
     });
     const oldFixture = await signedFixture({
+      preparedScopeId: LOCATED_ADMISSION_SCOPE_ID,
+      preparedEpoch: TransactionAuthorizationRevocationEpochSchema.make(0n),
       payloadOverrides: {
         scopeId: LOCATED_ADMISSION_SCOPE_ID,
         authorizationRevocationEpoch: "0",
@@ -614,7 +714,7 @@ describe("current-epoch transaction-grant admission", () => {
     });
     const oldGrant = await (await verifierFixture()).verify({
       jws: oldFixture.jws,
-      expectedPins: expectedPinsFromPayload(oldFixture.evidence.payload),
+      expectedStart: oldFixture.preparedStart,
     });
 
     expect(provisioned.scope.scopeId).toBe(
@@ -632,6 +732,8 @@ describe("current-epoch transaction-grant admission", () => {
     });
 
     const newFixture = await signedFixture({
+      preparedScopeId: LOCATED_ADMISSION_SCOPE_ID,
+      preparedEpoch: TransactionAuthorizationRevocationEpochSchema.make(1n),
       payloadOverrides: {
         scopeId: LOCATED_ADMISSION_SCOPE_ID,
         authorizationRevocationEpoch: "1",
@@ -639,7 +741,7 @@ describe("current-epoch transaction-grant admission", () => {
     });
     const newGrant = await (await verifierFixture()).verify({
       jws: newFixture.jws,
-      expectedPins: expectedPinsFromPayload(newFixture.evidence.payload),
+      expectedStart: newFixture.preparedStart,
     });
     await expect(admission.admit(newGrant)).resolves.toBeDefined();
   });
@@ -686,6 +788,9 @@ describePostgres(
               }),
           });
           const oldFixture = await signedFixture({
+            preparedScopeId: LOCATED_ADMISSION_SCOPE_ID,
+            preparedEpoch:
+              TransactionAuthorizationRevocationEpochSchema.make(0n),
             payloadOverrides: {
               scopeId: LOCATED_ADMISSION_SCOPE_ID,
               authorizationRevocationEpoch: "0",
@@ -693,9 +798,7 @@ describePostgres(
           });
           const oldGrant = await (await verifierFixture()).verify({
             jws: oldFixture.jws,
-            expectedPins: expectedPinsFromPayload(
-              oldFixture.evidence.payload,
-            ),
+            expectedStart: oldFixture.preparedStart,
           });
 
           expect(provisioned.scope.scopeId).toBe(
@@ -713,6 +816,9 @@ describePostgres(
           });
 
           const newFixture = await signedFixture({
+            preparedScopeId: LOCATED_ADMISSION_SCOPE_ID,
+            preparedEpoch:
+              TransactionAuthorizationRevocationEpochSchema.make(1n),
             payloadOverrides: {
               scopeId: LOCATED_ADMISSION_SCOPE_ID,
               authorizationRevocationEpoch: "1",
@@ -720,9 +826,7 @@ describePostgres(
           });
           const newGrant = await (await verifierFixture()).verify({
             jws: newFixture.jws,
-            expectedPins: expectedPinsFromPayload(
-              newFixture.evidence.payload,
-            ),
+            expectedStart: newFixture.preparedStart,
           });
           await expect(admission.admit(newGrant)).resolves.toBeDefined();
         },
@@ -736,11 +840,23 @@ async function signedFixture(
     readonly kid?: TransactionGrantKeyIdV1;
     readonly privateKey?: CryptoKey;
     readonly payloadOverrides?: Readonly<Record<string, unknown>>;
+    readonly preparedScopeId?: ReplacementScopeIdV1;
+    readonly preparedEpoch?: TransactionAuthorizationRevocationEpoch;
   } = {},
 ): Promise<{
   readonly jws: TransactionGrantJwsV1;
   readonly evidence: InertTransactionGrantEvidenceV1;
+  readonly preparedStart: ExecutorPreparedPointMutationStartV1;
 }> {
+  const preparedStart = await preparedStartFixture({
+    scopeId: options.preparedScopeId ?? BASE_SCOPE_ID,
+    authorizationRevocationEpoch:
+      options.preparedEpoch ??
+      TransactionAuthorizationRevocationEpochSchema.make(7n),
+  });
+  const pins = inspectExecutorPreparedPointMutationStartV1(
+    preparedStart,
+  ).logicalPins;
   const auth = { kind: "anonymous" } satisfies TransactionGrantInertAuthV1;
   const policy = await canonicalizeTransactionGrantIdentityAccessPolicyV1({
     policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
@@ -751,27 +867,28 @@ async function signedFixture(
     format: "flarex.transaction-grant",
     version: 1,
     grantId: "grant_018f22e2-58cc-7b2a-91d8-f3f3401a0874",
-    deploymentId: DEPLOYMENT_ID,
-    scopeId: "scope_018f22e2-58cc-7b2a-91d8-f3f3401a0874",
-    packageId: "package_a2b",
-    artifactRuntime: "dynamic-worker",
-    artifactId: `artifact_${"a".repeat(32)}`,
-    sourcePackageHash: "a".repeat(64),
-    executionModule: "flarex/orders.ts",
-    functionPath: "orders:create",
-    functionKind: "mutation",
-    schemaVersionId: "schema_a2b",
+    deploymentId: pins.deploymentId,
+    scopeId: pins.scopeId,
+    packageId: pins.packageId,
+    artifactRuntime: pins.artifactRuntime,
+    artifactId: pins.artifactId,
+    sourcePackageHash: pins.sourcePackageHash,
+    executionModule: pins.executionModule,
+    functionPath: pins.functionPath,
+    functionKind: pins.functionKind,
+    schemaVersionId: pins.schemaVersionId,
     policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
     identityAccessPolicySha256: policy.sha256Hex,
-    validatedArgsValueCodecVersion: 1,
-    validatedArgsSha256: "b".repeat(64),
-    requestKey: "request_a2b",
-    requestSha256: "c".repeat(64),
+    validatedArgsValueCodecVersion: pins.validatedArgsValueCodecVersion,
+    validatedArgsSha256: pins.validatedArgsSha256,
+    requestKey: pins.requestKey,
+    requestSha256: pins.requestSha256,
     capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
     auth,
     issuedAt: "2026-07-14T10:00:00.000Z",
     expiresAt: "2026-07-14T10:01:00.000Z",
-    authorizationRevocationEpoch: "7",
+    authorizationRevocationEpoch:
+      pins.authorizationRevocationEpoch.toString(),
     ...options.payloadOverrides,
   });
   const header = canonicalizeTransactionGrantProtectedHeaderV1({
@@ -793,7 +910,71 @@ async function signedFixture(
     payload: payload.base64url,
     signature: encodeTransactionGrantEd25519SignatureV1(signatureBytes),
   });
-  return { jws: evidence.jws, evidence };
+  return { jws: evidence.jws, evidence, preparedStart };
+}
+
+async function preparedStartFixture(input: {
+  readonly scopeId: ReplacementScopeIdV1;
+  readonly authorizationRevocationEpoch:
+    TransactionAuthorizationRevocationEpoch;
+  readonly orderId?: string;
+  readonly requestKey?: TransactionRequestKeyV1;
+}): Promise<ExecutorPreparedPointMutationStartV1> {
+  const preparation = createExecutorPointMutationStartPreparationV1({
+    loadActiveTargetMetadata: async () => ({
+      format: "flarex.point-mutation-target-metadata",
+      version: 1,
+      deploymentId: DEPLOYMENT_ID,
+      scopeId: input.scopeId,
+      packageId: "package_a2b",
+      artifactRuntime: "dynamic-worker",
+      artifactId: `artifact_${"a".repeat(32)}`,
+      sourcePackageHash: "a".repeat(64),
+      schemaVersionId: "schema_a2b",
+      functions: [{
+        path: "orders:create",
+        executionModule: "flarex/orders.ts",
+        kind: "mutation",
+        visibility: "public",
+        argsValidator: {
+          type: "object",
+          value: {
+            orderId: {
+              fieldType: { type: "string" },
+              optional: false,
+            },
+          },
+        },
+        returnsValidator: null,
+      }],
+      schemaManifest: {
+        kind: "appSchema",
+        manifestVersion: 1,
+        tableDefinitions: {
+          kind: "tableDefinitions",
+          sectionVersion: 1,
+          tables: [],
+        },
+        indexBindings: {
+          kind: "indexBindings",
+          sectionVersion: 1,
+          indexes: [],
+        },
+      },
+    }),
+    loadCurrentScopeAuthority: async () => ({
+      deploymentId: DEPLOYMENT_ID,
+      scopeId: input.scopeId,
+      authorizationRevocationEpoch: input.authorizationRevocationEpoch,
+    }),
+  });
+  return preparation.prepare({
+    deploymentId: DEPLOYMENT_ID,
+    functionPath: TransactionFunctionPathV1Schema.make("orders:create"),
+    args: { orderId: input.orderId ?? "order_a2b" },
+    requestKey:
+      input.requestKey ?? TransactionRequestKeyV1Schema.make("request_a2b"),
+  });
 }
 
 async function verifierFixture(
@@ -880,28 +1061,6 @@ function signatureVerifier(
     copyToArrayBuffer(signature),
     copyToArrayBuffer(signingInput),
   );
-}
-
-function expectedPinsFromPayload(
-  payload: TransactionGrantPayloadV1,
-): ExpectedTransactionGrantLogicalPinsV1 {
-  return {
-    deploymentId: payload.deploymentId,
-    scopeId: payload.scopeId,
-    packageId: payload.packageId,
-    artifactRuntime: payload.artifactRuntime,
-    artifactId: payload.artifactId,
-    sourcePackageHash: payload.sourcePackageHash,
-    executionModule: payload.executionModule,
-    functionPath: payload.functionPath,
-    functionKind: payload.functionKind,
-    schemaVersionId: payload.schemaVersionId,
-    validatedArgsValueCodecVersion: payload.validatedArgsValueCodecVersion,
-    validatedArgsSha256: payload.validatedArgsSha256,
-    requestKey: payload.requestKey,
-    requestSha256: payload.requestSha256,
-    authorizationRevocationEpoch: payload.authorizationRevocationEpoch,
-  };
 }
 
 async function importPrivateKey(): Promise<CryptoKey> {

@@ -1,6 +1,5 @@
 import { Effect } from "effect";
 import type { AuthConfig } from "flarex-protocol/auth";
-import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
 import { ReplacementScopeIdV1Schema } from "flarex-protocol/storage-authority";
 import {
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
@@ -11,15 +10,10 @@ import {
   canonicalizeTransactionGrantIdentityAccessPolicyV1,
 } from "flarex-protocol/transaction-grant";
 import {
-  TransactionArgumentsSha256V1Schema,
   TransactionAuthorizationGrantIdV1Schema,
   TransactionAuthorizationRevocationEpochSchema,
-  TransactionExecutionModuleV1Schema,
   TransactionFunctionPathV1Schema,
-  TransactionPackageIdV1Schema,
   TransactionRequestKeyV1Schema,
-  TransactionRequestSha256V1Schema,
-  TransactionSourcePackageSha256HexV1Schema,
 } from "flarex-protocol/transaction-session";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
@@ -29,11 +23,16 @@ import {
   TransactionGrantIssuerSourceV1Error,
   makePointMutationTransactionGrantIssuerV1,
   type ActiveTransactionGrantSigningKeyV1,
-  type HostPreparedPointMutationGrantFactsV1,
   type PointMutationTransactionGrantIssuerV1,
   type TransactionGrantIssuerRuntimeV1,
   type TransactionGrantSigningKeyV1,
 } from "../src/transactionGrantIssuer";
+import {
+  createServerPreparedTransactionRequestKeyV1,
+  inspectIssuerPreparedPointMutationStartV1,
+  makeIssuerPointMutationGrantPreparationV1,
+  type IssuerPreparedPointMutationStartV1,
+} from "../src/pointMutationGrantPreparation";
 import {
   verifyBearerTokenToAuthenticationEffect,
   type ResolvedBearerAuthentication,
@@ -62,9 +61,10 @@ describe("point-mutation transaction-grant issuer", () => {
       currentAuthConfig: null,
     });
 
-    const evidence = await Effect.runPromise(issuer.issue({
+    const preparedStart = await preparedStartFixture();
+    const evidence = await runTestEffect(issuer.issue({
       authentication: anonymousAuthentication(),
-      facts: preparedFacts(),
+      preparedStart,
     }));
 
     expect(getSigningCalls()).toBe(1);
@@ -92,8 +92,13 @@ describe("point-mutation transaction-grant issuer", () => {
     expect(evidence.payload.identityAccessPolicySha256).toBe(
       policy.sha256Hex,
     );
-    expect(evidence.payload.validatedArgsSha256).toBe("b".repeat(64));
-    expect(evidence.payload.requestSha256).toBe("c".repeat(64));
+    const prepared = inspectIssuerPreparedPointMutationStartV1(preparedStart);
+    expect(evidence.payload.validatedArgsSha256).toBe(
+      prepared.logicalPins.validatedArgsSha256,
+    );
+    expect(evidence.payload.requestSha256).toBe(
+      prepared.logicalPins.requestSha256,
+    );
   });
 
   it("rechecks exact provider membership at any current array index and caps expiry", async () => {
@@ -113,9 +118,9 @@ describe("point-mutation transaction-grant issuer", () => {
       maximumGrantLifetimeMilliseconds: 120_000,
     });
 
-    const evidence = await Effect.runPromise(issuer.issue({
+    const evidence = await runTestEffect(issuer.issue({
       authentication: verified.authentication,
-      facts: preparedFacts(),
+      preparedStart: await preparedStartFixture(),
     }));
 
     expect(evidence.payload.expiresAt).toBe(
@@ -147,9 +152,9 @@ describe("point-mutation transaction-grant issuer", () => {
         authentication: verified.authentication,
         currentAuthConfig,
       });
-      await expect(Effect.runPromise(issuer.issue({
+      await expect(runTestEffect(issuer.issue({
         authentication: verified.authentication,
-        facts: preparedFacts(),
+        preparedStart: await preparedStartFixture(),
       }))).rejects.toMatchObject({
         _tag: "TransactionGrantIssuanceV1Error",
         issue: "authProviderInactive",
@@ -163,9 +168,9 @@ describe("point-mutation transaction-grant issuer", () => {
       authentication: expired.authentication,
       currentAuthConfig: { providers: [expired.matchedProvider] },
     });
-    await expect(Effect.runPromise(issuer.issue({
+    await expect(runTestEffect(issuer.issue({
       authentication: expired.authentication,
-      facts: preparedFacts(),
+      preparedStart: await preparedStartFixture(),
     }))).rejects.toMatchObject({
       _tag: "TransactionGrantIssuanceV1Error",
       issue: "credentialExpired",
@@ -197,9 +202,9 @@ describe("point-mutation transaction-grant issuer", () => {
         currentAuthConfig: null,
         keys: invalidCase.keys,
       });
-      await expect(Effect.runPromise(issuer.issue({
+      await expect(runTestEffect(issuer.issue({
         authentication: anonymousAuthentication(),
-        facts: preparedFacts(),
+        preparedStart: await preparedStartFixture(),
       }))).rejects.toMatchObject({
         _tag: "TransactionGrantIssuanceV1Error",
         issue: invalidCase.issue,
@@ -216,9 +221,9 @@ describe("point-mutation transaction-grant issuer", () => {
           NOW_MILLISECONDS + 29_000,
       }],
     });
-    const evidence = await Effect.runPromise(issuer.issue({
+    const evidence = await runTestEffect(issuer.issue({
       authentication: anonymousAuthentication(),
-      facts: preparedFacts(),
+      preparedStart: await preparedStartFixture(),
     }));
     expect(evidence.payload.expiresAt).toBe(
       "2026-07-14T10:00:29.000Z",
@@ -227,7 +232,7 @@ describe("point-mutation transaction-grant issuer", () => {
 
   it("requires explicit valid lifetime configuration and exposes no caller authority fields", async () => {
     for (const maximumGrantLifetimeMilliseconds of [0, -1, 1.5, NaN]) {
-      await expect(Effect.runPromise(
+      await expect(runTestEffect(
         makePointMutationTransactionGrantIssuerV1({
           maximumGrantLifetimeMilliseconds,
           runtime: await issuerRuntime({
@@ -238,17 +243,17 @@ describe("point-mutation transaction-grant issuer", () => {
       )).rejects.toBeInstanceOf(TransactionGrantIssuerConfigurationV1Error);
     }
 
-    expectTypeOf<HostPreparedPointMutationGrantFactsV1>()
+    expectTypeOf<IssuerPreparedPointMutationStartV1>()
       .not.toHaveProperty("policyVersion");
-    expectTypeOf<HostPreparedPointMutationGrantFactsV1>()
+    expectTypeOf<IssuerPreparedPointMutationStartV1>()
       .not.toHaveProperty("capabilities");
-    expectTypeOf<HostPreparedPointMutationGrantFactsV1>()
+    expectTypeOf<IssuerPreparedPointMutationStartV1>()
       .not.toHaveProperty("identityAccessPolicySha256");
-    expectTypeOf<HostPreparedPointMutationGrantFactsV1>()
+    expectTypeOf<IssuerPreparedPointMutationStartV1>()
       .not.toHaveProperty("grantId");
-    expectTypeOf<HostPreparedPointMutationGrantFactsV1>()
+    expectTypeOf<IssuerPreparedPointMutationStartV1>()
       .not.toHaveProperty("issuedAt");
-    expectTypeOf<HostPreparedPointMutationGrantFactsV1>()
+    expectTypeOf<IssuerPreparedPointMutationStartV1>()
       .not.toHaveProperty("kid");
   });
 });
@@ -270,7 +275,7 @@ async function issuerFixture(input: {
     currentAuthConfig: input.currentAuthConfig,
     keys: input.keys ?? [baseKey],
   });
-  const issuer = await Effect.runPromise(
+  const issuer = await runTestEffect(
     makePointMutationTransactionGrantIssuerV1({
       maximumGrantLifetimeMilliseconds:
         input.maximumGrantLifetimeMilliseconds ?? 120_000,
@@ -322,29 +327,69 @@ async function activeSigningKey(
   };
 }
 
-function preparedFacts(): HostPreparedPointMutationGrantFactsV1 {
-  return {
+async function preparedStartFixture(): Promise<
+  IssuerPreparedPointMutationStartV1
+> {
+  const scopeId = ReplacementScopeIdV1Schema.make(
+    "scope_018f22e2-58cc-7b2a-91d8-f3f3401a0874",
+  );
+  const preparation = makeIssuerPointMutationGrantPreparationV1({
+    loadActiveTargetMetadata: () => Effect.succeed({
+      format: "flarex.point-mutation-target-metadata",
+      version: 1,
+      deploymentId: DEPLOYMENT_ID,
+      scopeId,
+      packageId: "package_a2b",
+      artifactRuntime: "dynamic-worker",
+      artifactId: `artifact_${"a".repeat(32)}`,
+      sourcePackageHash: "a".repeat(64),
+      schemaVersionId: "schema_a2b",
+      functions: [{
+        path: "orders:create",
+        executionModule: "flarex/orders.ts",
+        kind: "mutation",
+        visibility: "public",
+        argsValidator: {
+          type: "object",
+          value: {
+            orderId: {
+              fieldType: { type: "string" },
+              optional: false,
+            },
+          },
+        },
+        returnsValidator: null,
+      }],
+      schemaManifest: {
+        kind: "appSchema",
+        manifestVersion: 1,
+        tableDefinitions: {
+          kind: "tableDefinitions",
+          sectionVersion: 1,
+          tables: [],
+        },
+        indexBindings: {
+          kind: "indexBindings",
+          sectionVersion: 1,
+          indexes: [],
+        },
+      },
+    }),
+    loadCurrentScopeAuthority: () => Effect.succeed({
+      deploymentId: DEPLOYMENT_ID,
+      scopeId,
+      authorizationRevocationEpoch:
+        TransactionAuthorizationRevocationEpochSchema.make(7n),
+    }),
+  });
+  return runTestEffect(preparation.prepare({
     deploymentId: DEPLOYMENT_ID,
-    scopeId: ReplacementScopeIdV1Schema.make(
-      "scope_018f22e2-58cc-7b2a-91d8-f3f3401a0874",
-    ),
-    packageId: TransactionPackageIdV1Schema.make("package_a2b"),
-    sourcePackageHash: TransactionSourcePackageSha256HexV1Schema.make(
-      "a".repeat(64),
-    ),
-    executionModule: TransactionExecutionModuleV1Schema.make(
-      "flarex/orders.ts",
-    ),
     functionPath: TransactionFunctionPathV1Schema.make("orders:create"),
-    schemaVersionId: CatalogSchemaVersionIdSchema.make("schema_a2b"),
-    validatedArgsSha256: TransactionArgumentsSha256V1Schema.make(
-      bytes(0xbb),
+    args: { orderId: "order_a2b" },
+    requestKey: createServerPreparedTransactionRequestKeyV1(
+      TransactionRequestKeyV1Schema.make("request_a2b"),
     ),
-    requestKey: TransactionRequestKeyV1Schema.make("request_a2b"),
-    requestSha256: TransactionRequestSha256V1Schema.make(bytes(0xcc)),
-    authorizationRevocationEpoch:
-      TransactionAuthorizationRevocationEpochSchema.make(7n),
-  };
+  }));
 }
 
 function anonymousAuthentication(): ResolvedBearerAuthentication {
@@ -395,7 +440,7 @@ async function verifiedAuthenticationFixture(
       team: "billing",
     },
   });
-  const authentication = await Effect.runPromise(
+  const authentication = await runTestEffect(
     verifyBearerTokenToAuthenticationEffect({
       token,
       authConfig,
@@ -415,12 +460,12 @@ async function importPrivateKey(): Promise<CryptoKey> {
   );
 }
 
-function decodeBase64(value: string): Uint8Array {
-  return Uint8Array.from(atob(value), character => character.charCodeAt(0));
+function runTestEffect<A, E>(effect: Effect.Effect<A, E, never>): Promise<A> {
+  return Effect.runPromise(effect);
 }
 
-function bytes(value: number): Uint8Array {
-  return new Uint8Array(32).fill(value);
+function decodeBase64(value: string): Uint8Array {
+  return Uint8Array.from(atob(value), character => character.charCodeAt(0));
 }
 
 function copyToArrayBuffer(bytesValue: Uint8Array): ArrayBuffer {
