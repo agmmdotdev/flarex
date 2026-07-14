@@ -63,6 +63,12 @@ export const TRANSACTION_GRANT_VERSION_V1 = 1;
 export const TRANSACTION_GRANT_JWS_ALGORITHM_V1 = "Ed25519";
 export const TRANSACTION_GRANT_JWS_TYPE_V1 =
   "flarex-transaction-grant+jws";
+export const TRANSACTION_GRANT_KEY_PURPOSE_V1 = "transaction-grant-v1";
+export const TRANSACTION_GRANT_IDENTITY_ACCESS_POLICY_FORMAT_V1 =
+  "flarex.identity-access-policy";
+export const TRANSACTION_GRANT_IDENTITY_ACCESS_POLICY_VERSION_V1 = 1;
+export const TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1 =
+  TransactionPolicyVersionV1Schema.make("policy_point_mutation_v1");
 export const MAX_TRANSACTION_GRANT_CANONICAL_BYTES_V1 = 65_536;
 export const MAX_TRANSACTION_GRANT_PAYLOAD_CANONICAL_BYTES_V1 = 48_000;
 export const MAX_TRANSACTION_GRANT_PROTECTED_HEADER_BYTES_V1 = 512;
@@ -280,13 +286,13 @@ export const TransactionGrantInertAuthV1Schema = Schema.Union([
 export type TransactionGrantInertAuthV1 =
   typeof TransactionGrantInertAuthV1Schema.Type;
 
-export const TRANSACTION_GRANT_CAPABILITIES_V1 = [
+export const TRANSACTION_GRANT_CAPABILITIES_V1 = Object.freeze([
   "db:get",
   "db:insert",
   "db:patch",
   "db:replace",
   "db:delete",
-] as const;
+] as const);
 
 export const TransactionGrantCapabilityV1Schema = Schema.Literals(
   TRANSACTION_GRANT_CAPABILITIES_V1,
@@ -312,6 +318,95 @@ export const TransactionGrantCapabilitiesV1Schema = Schema.Array(
 );
 export type TransactionGrantCapabilitiesV1 =
   typeof TransactionGrantCapabilitiesV1Schema.Type;
+
+export const TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1 = Object.freeze(
+  TransactionGrantCapabilitiesV1Schema.make([
+    "db:get",
+    "db:insert",
+    "db:patch",
+    "db:replace",
+    "db:delete",
+  ]),
+);
+
+const TransactionGrantIdentityAccessPolicyV1Schema = Schema.Struct({
+  format: Schema.Literal(
+    TRANSACTION_GRANT_IDENTITY_ACCESS_POLICY_FORMAT_V1,
+  ),
+  version: Schema.Literal(
+    TRANSACTION_GRANT_IDENTITY_ACCESS_POLICY_VERSION_V1,
+  ),
+  policyVersion: BoundedTransactionPolicyVersionV1Schema,
+  auth: TransactionGrantInertAuthV1Schema,
+  capabilities: TransactionGrantCapabilitiesV1Schema,
+}).annotate(StrictStructOptions);
+
+export type TransactionGrantIdentityAccessPolicyV1 =
+  typeof TransactionGrantIdentityAccessPolicyV1Schema.Type;
+
+export interface TransactionGrantIdentityAccessPolicyInputV1 {
+  readonly policyVersion: TransactionGrantIdentityAccessPolicyV1["policyVersion"];
+  readonly auth: TransactionGrantInertAuthV1;
+  readonly capabilities: TransactionGrantCapabilitiesV1;
+}
+
+export interface CanonicalTransactionGrantIdentityAccessPolicyV1 {
+  readonly policy: TransactionGrantIdentityAccessPolicyV1;
+  readonly canonicalBytes: Uint8Array;
+  readonly sha256Hex: TransactionGrantIdentityAccessPolicySha256HexV1;
+}
+
+export class TransactionGrantIdentityAccessPolicyV1Error extends Data.TaggedError(
+  "TransactionGrantIdentityAccessPolicyV1Error",
+)<{
+  readonly issue: "invalidSchema" | "canonicalizationFailed";
+}> {}
+
+/**
+ * Domain-separated matching evidence only. The digest never creates execution
+ * authority; the issuer and verifier each derive it from independently trusted
+ * inputs and the signed payload respectively.
+ */
+export async function canonicalizeTransactionGrantIdentityAccessPolicyV1(
+  input: TransactionGrantIdentityAccessPolicyInputV1,
+): Promise<CanonicalTransactionGrantIdentityAccessPolicyV1> {
+  let policy: TransactionGrantIdentityAccessPolicyV1;
+  try {
+    policy = Schema.decodeUnknownSync(
+      TransactionGrantIdentityAccessPolicyV1Schema,
+      StrictParseOptions,
+    )({
+      format: TRANSACTION_GRANT_IDENTITY_ACCESS_POLICY_FORMAT_V1,
+      version: TRANSACTION_GRANT_IDENTITY_ACCESS_POLICY_VERSION_V1,
+      policyVersion: input.policyVersion,
+      auth: input.auth,
+      capabilities: input.capabilities,
+    });
+  } catch {
+    throw new TransactionGrantIdentityAccessPolicyV1Error({
+      issue: "invalidSchema",
+    });
+  }
+
+  try {
+    const canonical = await canonicalizeFlarexValueV1(policy);
+    const stableCanonicalBytes = new Uint8Array(canonical.canonicalBytes);
+    const immutablePolicy = deepFreezeTransactionGrantProjection(policy);
+    return Object.freeze({
+      policy: immutablePolicy,
+      get canonicalBytes(): Uint8Array {
+        return new Uint8Array(stableCanonicalBytes);
+      },
+      sha256Hex: TransactionGrantIdentityAccessPolicySha256HexV1Schema.make(
+        encodeLowercaseHex(canonical.sha256),
+      ),
+    } satisfies CanonicalTransactionGrantIdentityAccessPolicyV1);
+  } catch {
+    throw new TransactionGrantIdentityAccessPolicyV1Error({
+      issue: "canonicalizationFailed",
+    });
+  }
+}
 
 const TransactionGrantPayloadStructureV1Schema = Schema.Struct({
   format: Schema.Literal(TRANSACTION_GRANT_FORMAT_V1),

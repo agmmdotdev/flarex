@@ -5,9 +5,9 @@ session/snapshot-lease authority are complete; standalone `O01` retired before
 implementation; schema-owned `S07-A` scope-revocation storage is complete. The
 former `O03` is split into approved `O03-A` grant authority and later `O03-B`
 atomic session activation. Protocol-only `O03-A1` is complete. `O03-A2` is an
-accepted three-checkpoint authority-integration sequence: `O03-A2a` is complete,
-`O03-A2b` is next but remains unapproved, and `O03-A2c` remains later and
-separately preflight-gated.
+accepted three-checkpoint authority-integration sequence: `O03-A2a` and
+host-neutral authority checkpoint `O03-A2b` are complete, while `O03-A2c` is
+next and separately preflight-gated.
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -292,9 +292,9 @@ Non-goals:
 - no storage of the process-local context in ConnectionDO state, subscription
   rows, artifact payloads, or executor persistence.
 
-##### [ ] O03-A2b — Establish Host-Neutral Grant Authority
+##### [x] O03-A2b — Establish Host-Neutral Grant Authority
 
-Status: next unapproved checkpoint; implementation requires its own preflight.
+Status: complete as the host-neutral, non-routing grant-authority kernel.
 
 Outcome:
 
@@ -306,9 +306,74 @@ Outcome:
 - Prove tamper, key, time, pin, policy, capability, claim, and inert-evidence
   boundaries without adding production transport or session activation.
 
+Accepted V1 authority contract:
+
+- The only accepted policy is `policy_point_mutation_v1`. It permits anonymous
+  and verified-bearer mutation execution with the exact canonical capability
+  set `db:get`, `db:insert`, `db:patch`, `db:replace`, and `db:delete`, keeps
+  verified-bearer custom claims empty, and rejects `trustedDev`. This is not a
+  role, team, tenant, or general application-authorization system.
+- Identity/access-policy matching evidence is the SHA-256 of the Value Codec V1
+  canonical value `{ format: "flarex.identity-access-policy", version: 1,
+  policyVersion, auth, capabilities }`. The backend derives it and the executor
+  recomputes it; an `ExecutionIdentity`, caller-supplied digest, or persisted
+  inert grant cannot stand in for verified authority.
+- The backend-private issuer accepts only A2a authentication provenance plus
+  internal future-preparation pins. It independently applies the code-owned
+  current V1 policy and reloads current active provider configuration, current
+  time, and one immutable signing-key snapshot, then derives policy,
+  capabilities, digest, grant ID, timestamps, expiry, and key ID. A provider's
+  recorded array index is
+  diagnostic only: the same semantic provider configuration may move within
+  the current array, while removal or changed configuration blocks new grants.
+- Grant lifetime is explicit configuration with no inherited five-minute
+  fixture default. Expiry is the earliest of the configured maximum lifetime,
+  exact originating credential expiry, and any signing-key verification
+  retention deadline. Credential expiry must be strictly after issuance, and
+  expiry has no grace period.
+- A keyring has exactly one active signer, may retain older verification-only
+  keys through their outstanding grant lifetime, rejects disabled, unknown,
+  wrong-purpose, duplicate-ID, or out-of-window keys, and never lets a caller
+  select `kid`. Key IDs are immutable and must not be reused; a replacement
+  public verification capability is published before new signing begins.
+  Backend code receives a signing capability rather than private key bytes;
+  executor code receives only verification/key-resolution capability.
+- Executor verification strictly derives the A1 inert envelope, resolves the
+  exact `kid` from an independently selected deployment key namespace, verifies
+  Ed25519, enforces explicit future-skew and maximum-lifetime configuration,
+  recomputes and enforces the fixed policy, compares every independently
+  expected logical pin, and only then returns a process-local WeakMap-backed
+  opaque capability. The signed revocation epoch remains inert evidence here;
+  A2c owns its authoritative source and exact current-epoch comparison.
+- Exact signed-grant replay remains the accepted retry model until expiry,
+  key disablement, or A2c epoch invalidation. A2b adds no replay database.
+
+Exit gate:
+
+- deterministic digest and signing tests cover anonymous and verified-bearer
+  issuance, provider removal/change/reordering, exact credential and configured
+  lifetime boundaries, key rotation/disablement, and caller non-selection of
+  policy, capabilities, digest, time, grant ID, and key ID;
+- verification rejects malformed or tampered envelopes, bad signatures,
+  unknown/disabled/wrong-purpose/out-of-window keys, future/expired/overlong
+  grants, wrong logical pins, policy/capability/digest drift, `trustedDev`, and
+  nonempty verified-bearer claims;
+- structural brands, copied symbols, serialized handles, inert evidence, and a
+  bare signature result cannot construct the executor capability; and
+- focused Node tests and a real workerd/Miniflare execution of the authority
+  kernel pass without production bindings, routes, or persistence changes.
+
+Non-goals:
+
+- no authoritative preparation source, current epoch lookup/comparison,
+  revocation command, private transport, Cloudflare binding/key adapter, or
+  cross-Worker propagation; those remain O03-A2c;
+- no session activation or later OCC work; and
+- no production key material or hidden time defaults.
+
 ##### [ ] O03-A2c — Integrate Trusted Preparation And Revocation
 
-Status: accepted later boundary; implementation requires its own preflight.
+Status: accepted next boundary; implementation requires its own preflight.
 
 Outcome:
 

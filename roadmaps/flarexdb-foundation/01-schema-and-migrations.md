@@ -6,9 +6,9 @@ Status: `S01`, `S02-A` through `S02-C`, resolve-only `S02-D1`, `S03-A`
 through `S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, and the narrow
 `S07-A` scope-revocation prerequisite are complete. Hosted proof `H01` through
 `H04` and `H05-A` are complete. `H05-B` and production routing `S02-D2` remain
-deferred. The `O03-A` parent is approved: protocol-only `O03-A1` and auth-
-provenance `O03-A2a` are complete, while `O03-A2` remains incomplete with
-`O03-A2b` next but unapproved and `O03-A2c` later and separately preflight-
+deferred. The `O03-A` parent is approved: protocol-only `O03-A1`, auth-
+provenance `O03-A2a`, and host-neutral grant authority `O03-A2b` are complete,
+while `O03-A2` remains incomplete with `O03-A2c` next and separately preflight-
 gated. `O03-B` activation follows the completed parent with its own preflight.
 Private non-routing snapshot resolution `O02` is complete.
 
@@ -357,10 +357,10 @@ Medusa, and Cloudflare deployment remain outside
 this facade. The standalone `O01` abstraction gate was retired before
 implementation and its necessary scope-authority seam was folded into completed
 `O02`; completed `S05-B` changes no catalog publication or routing behavior.
-`S06`, `S07`, `S07-A`, protocol-only `O03-A1`, and auth-provenance `O03-A2a`
-are complete. `O03-A2b` is next but unapproved within the incomplete
-three-checkpoint `O03-A2`; later A2c remains separately preflight-gated. This
-catalog gate does not authorize `O03-A2` or `O03-B`.
+`S06`, `S07`, `S07-A`, protocol-only `O03-A1`, auth-provenance `O03-A2a`, and
+host-neutral grant authority `O03-A2b` are complete. `O03-A2c` is next but
+remains separately preflight-gated within the incomplete three-checkpoint
+`O03-A2`. This catalog gate does not authorize `O03-A2c` or `O03-B`.
 
 Exit gates for the complete S03 stream:
 

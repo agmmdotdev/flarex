@@ -31,9 +31,10 @@ legacy FNV identity fingerprint is not replacement authorization.
 Status: approved parent gate after completed S07-A. Its evidence-backed
 preflight split the now-complete inert protocol/evidence checkpoint `O03-A1`
 from an accepted three-checkpoint authority-integration sequence at `O03-A2`.
-`O03-A2a` is complete; `O03-A2b` is next but remains unapproved, and `O03-A2c`
-remains later and separately preflight-gated. O03-A2 and the parent remain
-unchecked; no trusted revocation command or operational epoch comparison exists.
+`O03-A2a` and the host-neutral authority checkpoint `O03-A2b` are complete;
+`O03-A2c` is next and remains separately preflight-gated. O03-A2 and the parent
+remain unchecked; no trusted revocation command or operational epoch comparison
+exists.
 
 Accepted direction:
 
@@ -88,11 +89,11 @@ format, storage generation, or product version. Completed O03-A2a owns
 backend-private bearer/anonymous provenance, preserves the existing broad
 `ExecutionIdentity` compatibility projection, and fixes the initial grant-facing
 custom-claim allowlist as empty. The trusted-dev identity path remains
-compatibility-only and cannot mint grants. O03-A2b later owns host-neutral
-policy, issuance/signing, verification, and key lifecycle. O03-A2c later owns
+compatibility-only and cannot mint grants. Completed O03-A2b owns host-neutral
+policy, issuance/signing, verification, and key lifecycle. O03-A2c next owns
 authoritative argument/pin/epoch preparation, distinct backend-only preparation
 and revocation transport, exact epoch comparison, and Worker key/binding
-adapters. A2b and A2c each require their own preflight.
+adapters. A2c still requires its own preflight.
 
 A2b issuance must recheck current time, current active provider/config
 membership, and trusted policy instead of treating the A2a handle as durable
@@ -145,11 +146,11 @@ How Flarex differs:
 Current gaps:
 
 - S07-A current scope-revocation storage, O03-A1's inert grant protocol/evidence
-  contract, and O03-A2a's backend-private auth provenance are complete. O03-A2b
-  is next but unapproved within the incomplete O03-A2 sequence. Production
-  signing and verification, policy authority, key lifecycle, trusted increment
-  command, and operational evidence retention remain for separately
-  preflight-gated O03-A2b/O03-A2c.
+  contract, O03-A2a's backend-private auth provenance, and O03-A2b's
+  host-neutral policy, issuance/signing, verification, and key-lifecycle kernel
+  are complete. Production preparation and current-epoch authority, the trusted
+  increment command, private transport, operational evidence retention, and
+  Worker key/binding adapters remain for separately preflight-gated O03-A2c.
 - ConnectionDO and live-query persistence intentionally continue to retain only
   `ExecutionIdentity`, not the process-local A2a handle. Later request-bound
   integration must bind grant authority per mutation and solve expiry/restart

@@ -9,16 +9,17 @@ lifecycle operations, a trusted revocation command, or grant semantics.
 The `O03-A` parent is approved and remains incomplete. Its `O03-A1` checkpoint
 is complete only as the inert grant protocol/evidence contract. `O03-A2` is an
 accepted three-checkpoint authority-integration sequence: `O03-A2a` is complete
-as the backend-private verified-authentication-provenance boundary; `O03-A2b`
-is next but remains unapproved, and `O03-A2c` remains later and separately
-preflight-gated. `O03-A2` and `O03-A` remain incomplete. `O03-B` consumes only
+as the backend-private verified-authentication-provenance boundary and
+`O03-A2b` is complete as the host-neutral grant-authority kernel. `O03-A2c` is
+next and remains separately preflight-gated. `O03-A2` and `O03-A` remain
+incomplete. `O03-B` consumes only
 the completed parent for atomic session activation and requires its own
 evidence-backed preflight.
 
 | Stream | Current status |
 | --- | --- |
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, and narrow `S07-A` complete |
-| OCC/transactions | Private non-routing `O02` snapshot resolution, protocol-only `O03-A1`, and verified-auth-provenance `O03-A2a` complete; standalone `O01` retired before implementation; `O03-A2b` is next but unapproved, then separately preflight-gated `O03-A2c` and `O03-B`; `O03-A2`/`O03-A` remain incomplete |
+| OCC/transactions | Private non-routing `O02` snapshot resolution, protocol-only `O03-A1`, verified-auth-provenance `O03-A2a`, and host-neutral grant authority `O03-A2b` complete; standalone `O01` retired before implementation; `O03-A2c` is next but separately preflight-gated, then `O03-B`; `O03-A2`/`O03-A` remain incomplete |
 | Commit compiler | Planned; `C01` is the first unchecked compiler gate |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
@@ -221,9 +222,10 @@ types and ports are introduced by the gates that first consume them.
    canonical S07 evidence only.
 7. `O03-A2a` (complete): backend-private verified-authentication
    provenance and an empty initial grant-facing custom-claim allowlist.
-8. `O03-A2b` (next, unapproved): host-neutral policy, issuance/signing,
-   verification, and key-lifecycle authority after its own preflight.
-9. `O03-A2c` (later, unapproved): authoritative preparation, exact epoch and
+8. `O03-A2b` (complete): host-neutral policy,
+   issuance/signing, verification, and key-lifecycle authority under its
+   accepted preflight boundary.
+9. `O03-A2c` (next, unapproved): authoritative preparation, exact epoch and
    revocation integration, private transport, and Worker adapters after its own
    preflight.
 10. `O03-B`: private atomic session/lease activation plus exact-fence renewal,

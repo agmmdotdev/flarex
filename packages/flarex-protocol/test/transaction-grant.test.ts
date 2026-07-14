@@ -14,10 +14,13 @@ import {
   MAX_TRANSACTION_GRANT_PROTECTED_HEADER_BYTES_V1,
   MAX_TRANSACTION_GRANT_TEXT_UTF8_BYTES_V1,
   TRANSACTION_GRANT_ED25519_SIGNATURE_BYTES_V1,
+  TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+  TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
   TransactionGrantIdentityAccessPolicySha256HexV1Schema,
   TransactionGrantProtocolV1Error,
   TransactionGrantRequestSha256HexV1Schema,
   TransactionGrantValidatedArgsSha256HexV1Schema,
+  canonicalizeTransactionGrantIdentityAccessPolicyV1,
   canonicalizeTransactionGrantPayloadV1,
   canonicalizeTransactionGrantProtectedHeaderV1,
   createTransactionGrantSigningInputV1,
@@ -115,6 +118,56 @@ export default {
 `;
 
 describe("transaction-grant protocol", () => {
+  it("pins domain-separated point-mutation policy evidence", async () => {
+    const anonymous = await canonicalizeTransactionGrantIdentityAccessPolicyV1({
+      capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+      auth: { kind: "anonymous" },
+      policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+    });
+    const reorderedInput =
+      await canonicalizeTransactionGrantIdentityAccessPolicyV1({
+        policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+        auth: { kind: "anonymous" },
+        capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+      });
+    const bearer = await canonicalizeTransactionGrantIdentityAccessPolicyV1({
+      policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+      auth: {
+        kind: "verifiedBearer",
+        issuer: "https://identity.example.test",
+        subject: "user_a2b",
+        claims: {},
+      },
+      capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+    });
+
+    expect(anonymous.sha256Hex).toBe(
+      "613ed554d05f8b07b6b1e848a35bd99ce11eed130745baf7b0f3d082dbbdf913",
+    );
+    expect(anonymous.canonicalBytes).toHaveLength(255);
+    expect(new TextDecoder().decode(anonymous.canonicalBytes)).toBe(
+      '{"format":"flarex-value","value":{"auth":{"kind":"anonymous"},"capabilities":["db:get","db:insert","db:patch","db:replace","db:delete"],"format":"flarex.identity-access-policy","policyVersion":"policy_point_mutation_v1","version":1},"valueCodecVersion":1}',
+    );
+    expect(reorderedInput.sha256Hex).toBe(anonymous.sha256Hex);
+    expect(reorderedInput.canonicalBytes).toEqual(anonymous.canonicalBytes);
+    expect(bearer.sha256Hex).not.toBe(anonymous.sha256Hex);
+    expect(anonymous.policy).toEqual({
+      format: "flarex.identity-access-policy",
+      version: 1,
+      policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+      auth: { kind: "anonymous" },
+      capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+    });
+    expect(Object.isFrozen(anonymous.policy)).toBe(true);
+    expect(Object.isFrozen(anonymous.policy.capabilities)).toBe(true);
+    const detachedBytes = anonymous.canonicalBytes;
+    detachedBytes.fill(0);
+    expect(anonymous.sha256Hex).toBe(
+      "613ed554d05f8b07b6b1e848a35bd99ce11eed130745baf7b0f3d082dbbdf913",
+    );
+    expect(anonymous.canonicalBytes[0]).not.toBe(0);
+  });
+
   it("pins deterministic Ed25519 JWS and S07 evidence golden values", async () => {
     const fixture = await signedFixture();
 

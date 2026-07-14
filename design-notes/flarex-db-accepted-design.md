@@ -850,11 +850,29 @@ The A2a handle proves historical bearer verification only. Issuance must recheck
 current time, active provider/config membership, and trusted policy; the handle
 contains no scope, policy, capability, signing, or transaction authority.
 O03-A2b then owns host-neutral trusted point-policy, issuance/signing,
-verification, and key rotation/disablement. O03-A2c owns authoritative argument/
-pin/epoch preparation, backend-only preparation and revocation transport, exact
-epoch comparison, and Worker key/binding adapters. The artifact-visible executor
-credential cannot authorize preparation or revocation. O03-B remains blocked
-until all three checkpoints pass.
+verification, and key rotation/disablement. Its initial accepted policy is
+exactly `policy_point_mutation_v1`: anonymous and verified-bearer auth, empty
+custom claims, and canonical `db:get`, `db:insert`, `db:patch`, `db:replace`,
+and `db:delete` capabilities; trusted-dev identity cannot mint or verify as
+grant authority. The identity/access-policy digest is SHA-256 over the Value
+Codec V1 canonical value `{ format: "flarex.identity-access-policy", version:
+1, policyVersion, auth, capabilities }`, independently derived by the issuer and
+recomputed by the verifier. Lifetime and future-skew limits are explicit
+immutable configuration, exact credential expiry caps grant expiry, and neither
+the A1 five-minute fixture nor JWT verification leeway is a grant default.
+
+The host-neutral keyring has exactly one active signer plus optional
+verification-only overlap, immediate disabled-key rejection, immutable
+non-reused key IDs, and issue/verification windows. The backend receives a
+signing capability rather than private bytes and never accepts caller-selected
+policy, capabilities, digest, time, grant ID, or key ID. The executor selects an
+independent deployment key namespace, verifies the exact `kid` and Ed25519
+signature, checks time/policy/logical pins, and returns only a process-local
+opaque capability. O03-A2c owns authoritative argument/pin/epoch preparation,
+backend-only preparation and revocation transport, exact current-epoch
+comparison, cross-Worker propagation, and Worker key/binding adapters. The
+artifact-visible executor credential cannot authorize preparation or
+revocation. O03-B remains blocked until all three checkpoints pass.
 
 The narrow schema prerequisite S07-A first adds one nonnegative scope-wide
 `authorization_revocation_epoch` to the located data-plane scope clock. O03-A
