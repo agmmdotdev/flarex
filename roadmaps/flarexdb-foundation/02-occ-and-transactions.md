@@ -4,9 +4,10 @@ Status: private non-routing `O02` snapshot resolution and S07's physical
 session/snapshot-lease authority are complete; standalone `O01` retired before
 implementation; schema-owned `S07-A` scope-revocation storage is complete. The
 former `O03` is split into approved `O03-A` grant authority and later `O03-B`
-atomic session activation. Protocol-only `O03-A1` is complete; authority
-integration `O03-A2` is the next unapproved checkpoint and requires its own
-preflight.
+atomic session activation. Protocol-only `O03-A1` is complete. `O03-A2` is an
+accepted three-checkpoint authority-integration sequence: `O03-A2a` is complete,
+`O03-A2b` is next but remains unapproved, and `O03-A2c` remains later and
+separately preflight-gated.
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -137,7 +138,7 @@ Status: approved parent gate after its evidence-backed preflight. The preflight
 split protocol/evidence freezing from production authority integration because
 the policy source, signer custody, verifier-key distribution, issuer transport,
 and trusted revocation command do not exist yet. `O03-A` remains unchecked until
-both child checkpoints pass; this split does not add a new product capability or
+all child checkpoints pass; this split does not add a new product capability or
 change the transaction-grant format version.
 
 Outcome:
@@ -233,21 +234,94 @@ Non-goals:
 
 #### [ ] O03-A2 — Integrate Trusted Grant Authority
 
-Status: next unapproved follow-up after completed O03-A1; it requires its own
-evidence-backed preflight and may be narrowed before implementation.
+Status: accepted three-checkpoint integration sequence. These labels refine
+review and execution order only; they do not change transaction-grant V1, the
+storage generation, or a product version. O03-A2 remains incomplete until all
+three checkpoints pass.
+
+##### [x] O03-A2a — Preserve Verified Authentication Provenance
+
+Status: complete as the backend-private verified-authentication-provenance
+checkpoint. It creates no grant signing, verification, policy, epoch, transport,
+or transaction authority.
 
 Outcome:
 
-- Add the backend-private verified credential/context projection, explicit
-  claim allowlist, and independently trusted point-operation policy source.
-- Add backend-only issuance/signing custody, executor-only verification and
-  key resolution, rotation/disablement behavior, exact pin/time/epoch checks,
-  and an opaque process-local verified capability.
-- Add the backend-only preparation transport and trusted scope-revocation
-  command over S07-A without exposing minting or revocation authority to an
-  artifact, Dynamic Worker, end-user identity, or existing artifact credential.
+- Add a backend-private `VerifiedAuthContext` that is produced only by trusted
+  authentication resolution and is never accepted from protocol JSON, a client,
+  an artifact, a Dynamic Worker, or an executor request.
+- Make the context a process-local authenticity capability backed by runtime
+  registry membership, not a transportable TypeScript/Schema brand. It proves
+  historical bearer verification only and contains no scope, policy, operation,
+  signing, or transaction authority.
+- Retain verified bearer issuer, subject, exact credential expiry, and matched
+  provider/config evidence while deriving the existing `ExecutionIdentity`
+  compatibility projection separately.
+- Preserve current `ExecutionIdentity` and generated `ctx.auth` behavior,
+  including existing custom claims. For transaction-grant authority, the
+  initial custom-claim allowlist is empty: issuer and subject remain explicit
+  inert bearer evidence and the grant-facing `claims` object is empty.
+- Represent anonymous provenance separately. Keep the env-gated trusted-dev
+  identity path compatibility-only until a separately named principal and
+  bounded expiry are accepted; it cannot mint a grant in this checkpoint.
+- Validate the minimized issuer/subject/empty-claims projection against the
+  existing transaction-grant V1 inert-auth schema. A credential whose claims
+  remain valid for `ExecutionIdentity` but violate the narrower grant evidence
+  bounds must keep its compatibility identity while failing typed projection.
 
 Exit gate:
+
+- successful bearer verification retains exact expiry and matched-provider
+  evidence;
+- invalid, expired, wrong-provider, wrong-audience, and tampered credentials
+  continue to fail closed;
+- unknown JSON and public protocol inputs cannot construct the private verified
+  context;
+- grant-facing projection contains no unapproved custom claims;
+- copied private brands, inherited handles, and mutated compatibility identities
+  cannot forge or alter the process-local evidence;
+- existing `ExecutionIdentity` and `ctx.auth` compatibility projections remain
+  unchanged; and
+- focused backend tests, typecheck, build, and both standing reviewers pass.
+
+Non-goals:
+
+- no policy selection, grant signing or verification, key lifecycle, epoch
+  lookup, revocation command, Worker binding, route, session, or persistence
+  change; and
+- no storage of the process-local context in ConnectionDO state, subscription
+  rows, artifact payloads, or executor persistence.
+
+##### [ ] O03-A2b — Establish Host-Neutral Grant Authority
+
+Status: next unapproved checkpoint; implementation requires its own preflight.
+
+Outcome:
+
+- Add the independently trusted point-operation policy source, backend-side
+  issuance/signing contract, executor-side opaque verification capability, and
+  key rotation/disablement semantics.
+- Before issuance, recheck current time, current active provider/config
+  membership, and trusted policy; the A2a handle alone authorizes nothing.
+- Prove tamper, key, time, pin, policy, capability, claim, and inert-evidence
+  boundaries without adding production transport or session activation.
+
+##### [ ] O03-A2c — Integrate Trusted Preparation And Revocation
+
+Status: accepted later boundary; implementation requires its own preflight.
+
+Outcome:
+
+- Add authoritative argument/pin/policy/epoch preparation, a distinct
+  backend-only transport capability, exact current-epoch verification, the
+  trusted S07-A revocation command, and Worker key/binding adapters.
+- Never reuse an artifact-visible executor credential for preparation or
+  revocation authority.
+- Prove an epoch bump invalidates an otherwise-valid earlier grant while
+  leaving `/invoke/*`, production-generation routing, and session activation
+  unchanged.
+
+Parent exit gate:
 
 - canonical golden payload/signature tests are deterministic and reject
   tampering, unknown versions/keys, wrong scope/function/pins, and forged
@@ -259,7 +333,7 @@ Exit gate:
   identity/policy digest nor persisted grant bytes can construct trusted
   authority.
 
-Non-goals:
+Parent non-goals:
 
 - no `/invoke/*` or production-generation routing change;
 - no session row, snapshot lease, point read, journal, OCC, outcome, commit, or

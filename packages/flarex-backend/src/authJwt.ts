@@ -1,4 +1,4 @@
-import { Data, Effect } from "effect";
+import { Data, Effect, Schema } from "effect";
 import type {
   AuthConfig,
   AuthProvider,
@@ -9,6 +9,10 @@ import type {
   UserIdentity,
 } from "flarex-protocol/auth";
 import { isJson, type Json } from "flarex-protocol/json";
+import {
+  TransactionGrantInertAuthV1Schema,
+  type TransactionGrantInertAuthV1,
+} from "flarex-protocol/transaction-grant";
 import { HttpError } from "./http";
 import { ANONYMOUS_EXECUTION_IDENTITY } from "./auth";
 
@@ -43,6 +47,78 @@ export interface VerifyBearerTokenInput {
   readonly now?: Date;
 }
 
+const verifiedAuthContextBrand: unique symbol = Symbol(
+  "FlarexBackend/VerifiedAuthContext",
+);
+
+/**
+ * Process-local evidence that trusted bearer verification succeeded.
+ *
+ * The private symbol prevents structural construction in TypeScript, while
+ * WeakMap membership below is the runtime authenticity check. This handle
+ * proves historical bearer verification only: later issuance must recheck the
+ * current time, active provider configuration, and trusted policy. It is not a
+ * protocol value and must not be serialized or persisted.
+ */
+export interface VerifiedAuthContext {
+  readonly [verifiedAuthContextBrand]: true;
+}
+
+export type VerifiedAuthProviderEvidence =
+  | {
+      readonly type: "oidc";
+      readonly providerIndex: number;
+      readonly configuration: OidcAuthProvider;
+    }
+  | {
+      readonly type: "customJwt";
+      readonly providerIndex: number;
+      readonly configuration: CustomJwtAuthProvider;
+    };
+
+export interface VerifiedAuthContextEvidence {
+  readonly issuer: string;
+  readonly subject: string;
+  readonly credentialExpiresAtEpochSeconds: number;
+  readonly matchedProvider: VerifiedAuthProviderEvidence;
+}
+
+type AnonymousExecutionIdentity = Extract<
+  ExecutionIdentity,
+  { readonly kind: "anonymous" }
+>;
+
+type UserExecutionIdentity = Extract<
+  ExecutionIdentity,
+  { readonly kind: "user" }
+>;
+
+export type ResolvedBearerAuthentication =
+  | {
+      readonly kind: "anonymous";
+      readonly executionIdentity: AnonymousExecutionIdentity;
+    }
+  | VerifiedBearerAuthentication;
+
+export interface VerifiedBearerAuthentication {
+  readonly kind: "verifiedBearer";
+  readonly executionIdentity: UserExecutionIdentity;
+  readonly verifiedAuthContext: VerifiedAuthContext;
+}
+
+export class InvalidVerifiedAuthContextError extends Data.TaggedError(
+  "InvalidVerifiedAuthContextError",
+)<{
+  readonly message: string;
+}> {}
+
+export class TransactionGrantAuthProjectionError extends Data.TaggedError(
+  "TransactionGrantAuthProjectionError",
+)<{
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
+
 interface ParsedJwt {
   readonly header: JwtHeader;
   readonly payload: JwtPayload;
@@ -68,6 +144,7 @@ type VerifiedProvider =
   | {
       readonly type: "oidc";
       readonly provider: OidcAuthProvider;
+      readonly evidence: Extract<VerifiedAuthProviderEvidence, { readonly type: "oidc" }>;
       readonly issuer: string;
       readonly jwksUri: string;
       readonly algorithms: ReadonlyArray<CustomJwtAlgorithm>;
@@ -75,6 +152,7 @@ type VerifiedProvider =
   | {
       readonly type: "customJwt";
       readonly provider: CustomJwtAuthProvider;
+      readonly evidence: Extract<VerifiedAuthProviderEvidence, { readonly type: "customJwt" }>;
       readonly issuer: string;
       readonly jwksUri: string;
       readonly algorithms: ReadonlyArray<CustomJwtAlgorithm>;
@@ -89,20 +167,38 @@ type StoredJsonWebKey = JsonWebKey & {
   readonly alg?: string;
 };
 
-export const resolveBearerExecutionIdentityEffect = Effect.fn(
-  "JwtAuth.resolveBearerExecutionIdentity",
+const verifiedAuthContextEvidenceByHandle = new WeakMap<
+  object,
+  VerifiedAuthContextEvidence
+>();
+
+const EMPTY_TRANSACTION_GRANT_CLAIMS_V1: Readonly<Record<string, Json>> =
+  Object.freeze({});
+
+const ANONYMOUS_TRANSACTION_GRANT_AUTH_V1 = Object.freeze({
+  kind: "anonymous",
+}) satisfies TransactionGrantInertAuthV1;
+
+const decodeTransactionGrantInertAuthV1 = Schema.decodeUnknownSync(
+  TransactionGrantInertAuthV1Schema,
+);
+
+export const resolveBearerAuthenticationEffect = Effect.fn(
+  "JwtAuth.resolveBearerAuthentication",
 )(function* (
   input: ResolveBearerExecutionIdentityInput,
-): Effect.fn.Return<ExecutionIdentity, JwtAuthError> {
+): Effect.fn.Return<ResolvedBearerAuthentication, JwtAuthError> {
   const token = yield* bearerTokenFromAuthorizationEffect(input.authorization);
-  if (token === null) return ANONYMOUS_EXECUTION_IDENTITY;
+  if (token === null) {
+    return anonymousBearerAuthentication();
+  }
   if (input.authConfig === null || input.authConfig.providers.length === 0) {
     return yield* failJwtAuth(
       "noProvider",
       "Bearer token was provided but no auth providers are configured.",
     );
   }
-  return yield* verifyBearerTokenEffect({
+  return yield* verifyBearerTokenToAuthenticationEffect({
     token,
     authConfig: input.authConfig,
     ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
@@ -110,13 +206,22 @@ export const resolveBearerExecutionIdentityEffect = Effect.fn(
   });
 });
 
-export const verifyBearerTokenEffect = Effect.fn(
-  "JwtAuth.verifyBearerToken",
+export const resolveBearerExecutionIdentityEffect = Effect.fn(
+  "JwtAuth.resolveBearerExecutionIdentity",
+)(function* (
+  input: ResolveBearerExecutionIdentityInput,
+): Effect.fn.Return<ExecutionIdentity, JwtAuthError> {
+  const authentication = yield* resolveBearerAuthenticationEffect(input);
+  return authentication.executionIdentity;
+});
+
+export const verifyBearerTokenToAuthenticationEffect = Effect.fn(
+  "JwtAuth.verifyBearerTokenToAuthentication",
 )(function* (
   input: VerifyBearerTokenInput,
-): Effect.fn.Return<ExecutionIdentity, JwtAuthError> {
+): Effect.fn.Return<VerifiedBearerAuthentication, JwtAuthError> {
   return yield* Effect.tryPromise({
-    try: () => verifyBearerToken(input),
+    try: () => verifyBearerTokenToAuthentication(input),
     catch: cause =>
       cause instanceof JwtAuthError
         ? cause
@@ -126,6 +231,15 @@ export const verifyBearerTokenEffect = Effect.fn(
             cause,
           }),
   });
+});
+
+export const verifyBearerTokenEffect = Effect.fn(
+  "JwtAuth.verifyBearerToken",
+)(function* (
+  input: VerifyBearerTokenInput,
+): Effect.fn.Return<ExecutionIdentity, JwtAuthError> {
+  const authentication = yield* verifyBearerTokenToAuthenticationEffect(input);
+  return authentication.executionIdentity;
 });
 
 export const bearerTokenFromAuthorizationEffect = Effect.fn(
@@ -153,13 +267,74 @@ export function jwtAuthErrorToHttpError(error: JwtAuthError): HttpError {
   return new HttpError(401, "Authentication failed.");
 }
 
-async function verifyBearerToken(input: VerifyBearerTokenInput): Promise<ExecutionIdentity> {
+export function inspectVerifiedAuthContext(
+  value: unknown,
+): VerifiedAuthContextEvidence {
+  if (typeof value !== "object" || value === null) {
+    throw invalidVerifiedAuthContext();
+  }
+  const evidence = verifiedAuthContextEvidenceByHandle.get(value);
+  if (evidence === undefined) {
+    throw invalidVerifiedAuthContext();
+  }
+  return evidence;
+}
+
+export function transactionGrantAuthFromVerifiedAuthContextV1(
+  context: unknown,
+): TransactionGrantInertAuthV1 {
+  const evidence = inspectVerifiedAuthContext(context);
+  const candidate = Object.freeze({
+    kind: "verifiedBearer",
+    issuer: evidence.issuer,
+    subject: evidence.subject,
+    claims: EMPTY_TRANSACTION_GRANT_CLAIMS_V1,
+  }) satisfies TransactionGrantInertAuthV1;
+  try {
+    decodeTransactionGrantInertAuthV1(candidate);
+  } catch (cause) {
+    throw new TransactionGrantAuthProjectionError({
+      message:
+        "Verified bearer evidence is not valid transaction-grant V1 inert auth.",
+      cause,
+    });
+  }
+  return candidate;
+}
+
+export function transactionGrantAuthFromBearerAuthenticationV1(
+  authentication: ResolvedBearerAuthentication,
+): TransactionGrantInertAuthV1 {
+  return authentication.kind === "anonymous"
+    ? ANONYMOUS_TRANSACTION_GRANT_AUTH_V1
+    : transactionGrantAuthFromVerifiedAuthContextV1(
+        authentication.verifiedAuthContext,
+      );
+}
+
+async function verifyBearerTokenToAuthentication(
+  input: VerifyBearerTokenInput,
+): Promise<VerifiedBearerAuthentication> {
   const parsed = parseJwt(input.token);
   const provider = selectProvider(input.authConfig.providers, parsed.payload);
   const jwks = await loadProviderJwks(provider, input.fetch ?? fetch);
   await verifyJwtSignature(parsed, provider.algorithms, jwks);
   validateJwtClaims(parsed.payload, provider, input.now ?? new Date());
-  return { kind: "user", user: userIdentityFromJwtPayload(parsed.payload) };
+  const executionIdentity: UserExecutionIdentity = {
+    kind: "user",
+    user: userIdentityFromJwtPayload(parsed.payload),
+  };
+  const verifiedAuthContext = createVerifiedAuthContext({
+    issuer: parsed.payload.issuer,
+    subject: parsed.payload.subject,
+    credentialExpiresAtEpochSeconds: parsed.payload.expiresAt,
+    matchedProvider: provider.evidence,
+  });
+  return {
+    kind: "verifiedBearer",
+    executionIdentity,
+    verifiedAuthContext,
+  };
 }
 
 function parseJwt(token: string): ParsedJwt {
@@ -262,30 +437,44 @@ function selectProvider(
   providers: ReadonlyArray<AuthProvider>,
   payload: JwtPayload,
 ): VerifiedProvider {
-  const provider = providers.find(candidate => providerMatchesPayload(candidate, payload));
-  if (provider === undefined) {
-    throw new JwtAuthError({
-      reason: "noProvider",
-      message:
-        "No auth provider matches the JWT issuer and audience claims.",
+  for (const [providerIndex, configuredProvider] of providers.entries()) {
+    if (!providerMatchesPayload(configuredProvider, payload)) continue;
+    if (isCustomJwtProvider(configuredProvider)) {
+      const provider = freezeCustomJwtProvider(configuredProvider);
+      const evidence = Object.freeze({
+        type: "customJwt" as const,
+        providerIndex,
+        configuration: provider,
+      });
+      return {
+        type: "customJwt",
+        provider,
+        evidence,
+        issuer: provider.issuer,
+        jwksUri: provider.jwks,
+        algorithms: [provider.algorithm],
+      };
+    }
+    const provider = freezeOidcProvider(configuredProvider);
+    const evidence = Object.freeze({
+      type: "oidc" as const,
+      providerIndex,
+      configuration: provider,
     });
-  }
-  if (isCustomJwtProvider(provider)) {
     return {
-      type: "customJwt",
+      type: "oidc",
       provider,
-      issuer: provider.issuer,
-      jwksUri: provider.jwks,
-      algorithms: [provider.algorithm],
+      evidence,
+      issuer: provider.domain,
+      jwksUri: "",
+      algorithms: ["RS256", "ES256"],
     };
   }
-  return {
-    type: "oidc",
-    provider,
-    issuer: provider.domain,
-    jwksUri: "",
-    algorithms: ["RS256", "ES256"],
-  };
+  throw new JwtAuthError({
+    reason: "noProvider",
+    message:
+      "No auth provider matches the JWT issuer and audience claims.",
+  });
 }
 
 function providerMatchesPayload(provider: AuthProvider, payload: JwtPayload): boolean {
@@ -672,6 +861,70 @@ function arrayBufferFromBytes(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
   return copy.buffer;
+}
+
+function createVerifiedAuthContext(
+  input: VerifiedAuthContextEvidence,
+): VerifiedAuthContext {
+  const evidence = Object.freeze({
+    issuer: input.issuer,
+    subject: input.subject,
+    credentialExpiresAtEpochSeconds: input.credentialExpiresAtEpochSeconds,
+    matchedProvider: input.matchedProvider,
+  }) satisfies VerifiedAuthContextEvidence;
+  const context: VerifiedAuthContext = {
+    [verifiedAuthContextBrand]: true,
+  };
+  Object.defineProperty(context, verifiedAuthContextBrand, {
+    value: true,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  verifiedAuthContextEvidenceByHandle.set(context, evidence);
+  return Object.freeze(context);
+}
+
+function anonymousBearerAuthentication(): Extract<
+  ResolvedBearerAuthentication,
+  { readonly kind: "anonymous" }
+> {
+  const executionIdentity = ANONYMOUS_EXECUTION_IDENTITY;
+  if (executionIdentity.kind !== "anonymous") {
+    throw new Error("Anonymous execution identity invariant failed.");
+  }
+  return {
+    kind: "anonymous",
+    executionIdentity,
+  };
+}
+
+function invalidVerifiedAuthContext(): InvalidVerifiedAuthContextError {
+  return new InvalidVerifiedAuthContextError({
+    message:
+      "Verified auth context must be a live process-local handle created by trusted bearer verification.",
+  });
+}
+
+function freezeOidcProvider(provider: OidcAuthProvider): OidcAuthProvider {
+  return Object.freeze({
+    domain: provider.domain,
+    applicationID: provider.applicationID,
+  });
+}
+
+function freezeCustomJwtProvider(
+  provider: CustomJwtAuthProvider,
+): CustomJwtAuthProvider {
+  return Object.freeze({
+    type: "customJwt",
+    issuer: provider.issuer,
+    jwks: provider.jwks,
+    algorithm: provider.algorithm,
+    ...(provider.applicationID === undefined
+      ? {}
+      : { applicationID: provider.applicationID }),
+  });
 }
 
 function failJwtAuth(

@@ -1,13 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
-import type { AuthConfig } from "flarex-protocol/auth";
+import type { AuthConfig, CustomJwtAuthProvider } from "flarex-protocol/auth";
 
 import {
+  InvalidVerifiedAuthContextError,
   JwtAuthError,
+  TransactionGrantAuthProjectionError,
+  inspectVerifiedAuthContext,
   jwtAuthErrorToHttpError,
+  resolveBearerAuthenticationEffect,
   resolveBearerExecutionIdentityEffect,
+  transactionGrantAuthFromBearerAuthenticationV1,
+  transactionGrantAuthFromVerifiedAuthContextV1,
   verifyBearerTokenEffect,
+  verifyBearerTokenToAuthenticationEffect,
   type JwtAuthFetch,
+  type VerifiedAuthContext,
+  type VerifiedBearerAuthentication,
 } from "../src/authJwt";
 
 const now = new Date("2026-07-04T00:00:00.000Z");
@@ -15,6 +24,23 @@ const nowSeconds = Math.floor(now.getTime() / 1000);
 
 describe("JWT auth resolver", () => {
   it("returns anonymous identity when no authorization header is present", async () => {
+    const authentication = await Effect.runPromise(
+      resolveBearerAuthenticationEffect({
+        authorization: null,
+        authConfig: null,
+        now,
+      }),
+    );
+
+    expect(authentication).toEqual({
+      kind: "anonymous",
+      executionIdentity: { kind: "anonymous" },
+    });
+    expect(transactionGrantAuthFromBearerAuthenticationV1(authentication)).toEqual({
+      kind: "anonymous",
+    });
+    expect("verifiedAuthContext" in authentication).toBe(false);
+
     await expect(
       Effect.runPromise(resolveBearerExecutionIdentityEffect({
         authorization: null,
@@ -22,6 +48,155 @@ describe("JWT auth resolver", () => {
         now,
       })),
     ).resolves.toEqual({ kind: "anonymous" });
+  });
+
+  it("retains immutable verified provider provenance while minimizing grant claims", async () => {
+    const { authentication, expiresAt } =
+      await verifiedCustomAuthenticationFixture("user_provenance");
+
+    expect(authentication.executionIdentity).toEqual({
+      kind: "user",
+      user: {
+        tokenIdentifier: "https://issuer.example.com|user_provenance",
+        subject: "user_provenance",
+        issuer: "https://issuer.example.com",
+        email: "private@example.com",
+        role: "admin",
+      },
+    });
+    const evidence = inspectVerifiedAuthContext(
+      authentication.verifiedAuthContext,
+    );
+    expect(evidence).toEqual({
+      issuer: "https://issuer.example.com",
+      subject: "user_provenance",
+      credentialExpiresAtEpochSeconds: expiresAt,
+      matchedProvider: {
+        type: "customJwt",
+        providerIndex: 1,
+        configuration: {
+          type: "customJwt",
+          issuer: "https://issuer.example.com",
+          jwks: "https://issuer.example.com/jwks.json",
+          algorithm: "RS256",
+          applicationID: "flarex-app",
+        },
+      },
+    });
+    expect(Object.isFrozen(authentication.verifiedAuthContext)).toBe(true);
+    expect(Object.isFrozen(evidence)).toBe(true);
+    expect(Object.isFrozen(evidence.matchedProvider)).toBe(true);
+    expect(Object.isFrozen(evidence.matchedProvider.configuration)).toBe(true);
+
+    const grantAuth = transactionGrantAuthFromBearerAuthenticationV1(
+      authentication,
+    );
+    expect(grantAuth).toEqual({
+      kind: "verifiedBearer",
+      issuer: "https://issuer.example.com",
+      subject: "user_provenance",
+      claims: {},
+    });
+    expect(Object.isFrozen(grantAuth)).toBe(true);
+    if (grantAuth.kind === "verifiedBearer") {
+      expect(Object.isFrozen(grantAuth.claims)).toBe(true);
+    }
+
+    if (authentication.executionIdentity.kind !== "user") {
+      throw new Error("Expected the compatibility user identity.");
+    }
+    expect(Reflect.set(authentication.executionIdentity.user, "role", "operator")).toBe(
+      true,
+    );
+    expect(
+      Reflect.set(
+        authentication.executionIdentity.user,
+        "issuer",
+        "https://forged.example.com",
+      ),
+    ).toBe(true);
+    expect(
+      inspectVerifiedAuthContext(authentication.verifiedAuthContext),
+    ).toEqual(evidence);
+    expect(
+      transactionGrantAuthFromVerifiedAuthContextV1(
+        authentication.verifiedAuthContext,
+      ),
+    ).toEqual(grantAuth);
+  });
+
+  it("rejects structural, copied-brand, serialized, and trusted-dev forgeries", async () => {
+    const { authentication } =
+      await verifiedCustomAuthenticationFixture("user_forgeries");
+    expect(JSON.stringify(authentication.verifiedAuthContext)).toBe("{}");
+    const jsonRoundTrip: unknown = JSON.parse(
+      JSON.stringify(authentication.verifiedAuthContext),
+    );
+    const structuredCloneContext = structuredClone(
+      authentication.verifiedAuthContext,
+    );
+    const spreadContext = { ...authentication.verifiedAuthContext };
+    const copiedSymbolContext: Record<PropertyKey, unknown> = {};
+    for (const key of Reflect.ownKeys(authentication.verifiedAuthContext)) {
+      const descriptor = Object.getOwnPropertyDescriptor(
+        authentication.verifiedAuthContext,
+        key,
+      );
+      if (descriptor !== undefined) {
+        Object.defineProperty(copiedSymbolContext, key, descriptor);
+      }
+    }
+    const inheritedContext: unknown = Object.create(
+      authentication.verifiedAuthContext,
+    );
+    // @ts-expect-error The private symbol makes structural construction invalid.
+    const structurallyForgedContext: VerifiedAuthContext = {};
+    const mismatchedAuthentication: VerifiedBearerAuthentication = {
+      kind: "verifiedBearer",
+      // @ts-expect-error Verified bearer authentication requires a user identity.
+      executionIdentity: { kind: "anonymous" },
+      verifiedAuthContext: authentication.verifiedAuthContext,
+    };
+    void mismatchedAuthentication;
+    const trustedDevIdentity: unknown = {
+      kind: "user",
+      user: {
+        tokenIdentifier: "trusted-dev|admin",
+        subject: "admin",
+        issuer: "trusted-dev",
+      },
+    };
+    for (const forged of [
+      jsonRoundTrip,
+      structuredCloneContext,
+      spreadContext,
+      copiedSymbolContext,
+      inheritedContext,
+      structurallyForgedContext,
+      trustedDevIdentity,
+    ]) {
+      expect(() => inspectVerifiedAuthContext(forged)).toThrow(
+        InvalidVerifiedAuthContextError,
+      );
+    }
+    expect(() =>
+      transactionGrantAuthFromVerifiedAuthContextV1(trustedDevIdentity)
+    ).toThrow(InvalidVerifiedAuthContextError);
+  });
+
+  it("rejects grant-incompatible evidence without narrowing compatibility identity", async () => {
+    const { authentication } = await verifiedCustomAuthenticationFixture(
+      "user\u0000not-grant-safe",
+    );
+    expect(authentication.executionIdentity).toMatchObject({
+      kind: "user",
+      user: { subject: "user\u0000not-grant-safe" },
+    });
+    expect(() =>
+      transactionGrantAuthFromVerifiedAuthContextV1(
+        authentication.verifiedAuthContext,
+      )
+    ).toThrow(TransactionGrantAuthProjectionError);
   });
 
   it("rejects malformed explicit authorization headers", async () => {
@@ -106,8 +281,8 @@ describe("JWT auth resolver", () => {
       },
     });
 
-    await expect(
-      Effect.runPromise(verifyBearerTokenEffect({
+    const authentication = await Effect.runPromise(
+      verifyBearerTokenToAuthenticationEffect({
         token,
         authConfig: {
           providers: [
@@ -125,8 +300,9 @@ describe("JWT auth resolver", () => {
           "https://oidc.example.com/jwks.json": { keys: [keys.jwk] },
         }),
         now,
-      })),
-    ).resolves.toMatchObject({
+      }),
+    );
+    expect(authentication.executionIdentity).toMatchObject({
       kind: "user",
       user: {
         tokenIdentifier: "https://oidc.example.com/|user_oidc",
@@ -134,6 +310,29 @@ describe("JWT auth resolver", () => {
         issuer: "https://oidc.example.com/",
         preferredUsername: "ada",
       },
+    });
+    expect(inspectVerifiedAuthContext(authentication.verifiedAuthContext)).toEqual({
+      issuer: "https://oidc.example.com/",
+      subject: "user_oidc",
+      credentialExpiresAtEpochSeconds: nowSeconds + 60,
+      matchedProvider: {
+        type: "oidc",
+        providerIndex: 0,
+        configuration: {
+          domain: "https://oidc.example.com",
+          applicationID: "oidc-app",
+        },
+      },
+    });
+    expect(
+      transactionGrantAuthFromVerifiedAuthContextV1(
+        authentication.verifiedAuthContext,
+      ),
+    ).toEqual({
+      kind: "verifiedBearer",
+      issuer: "https://oidc.example.com/",
+      subject: "user_oidc",
+      claims: {},
     });
   });
 
@@ -419,6 +618,66 @@ describe("JWT auth resolver", () => {
     expect(httpError.message).toBe("Authentication failed.");
   });
 });
+
+async function verifiedCustomAuthenticationFixture(
+  subject: string,
+): Promise<{
+  readonly authentication: VerifiedBearerAuthentication;
+  readonly expiresAt: number;
+}> {
+  const keys = await createRsaSigningKeys("verified-context-rs");
+  const expiresAt = nowSeconds + 37;
+  const provider = {
+    type: "customJwt",
+    issuer: "https://issuer.example.com",
+    jwks: "https://issuer.example.com/jwks.json",
+    algorithm: "RS256",
+    applicationID: "flarex-app",
+  } satisfies CustomJwtAuthProvider;
+  const authConfig: AuthConfig = {
+    providers: [
+      {
+        domain: "https://other.example.com",
+        applicationID: "other-app",
+      },
+      provider,
+    ],
+  };
+  const token = await signJwt({
+    algorithm: "RS256",
+    privateKey: keys.privateKey,
+    kid: keys.jwk.kid,
+    payload: {
+      iss: "https://issuer.example.com",
+      sub: subject,
+      aud: "flarex-app",
+      exp: expiresAt,
+      email: "private@example.com",
+      role: "admin",
+    },
+  });
+  const fetcher: JwtAuthFetch = async (url) => {
+    if (url !== "https://issuer.example.com/jwks.json") {
+      return Response.json({ error: "not found" }, { status: 404 });
+    }
+    provider.issuer = "https://mutated.example.com";
+    provider.jwks = "https://mutated.example.com/jwks.json";
+    provider.applicationID = "mutated-app";
+    return Response.json({ keys: [keys.jwk] });
+  };
+  const authentication = await Effect.runPromise(
+    resolveBearerAuthenticationEffect({
+      authorization: `Bearer ${token}`,
+      authConfig,
+      fetch: fetcher,
+      now,
+    }),
+  );
+  if (authentication.kind !== "verifiedBearer") {
+    throw new Error("Expected verified bearer authentication.");
+  }
+  return { authentication, expiresAt };
+}
 
 function customJwtConfig(issuer: string, jwks: string): AuthConfig {
   return {

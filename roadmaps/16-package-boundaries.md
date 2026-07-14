@@ -149,14 +149,16 @@ capability, arbitrary service binding, or raw storage handle.
 The O03-A transaction-grant boundary follows the same ownership split. O03-A1
 places only strict inert Ed25519 flattened-JWS wire/canonical-evidence contracts
 behind the explicit `flarex-protocol/transaction-grant` subpath; it is not a
-package-root, SDK, server, executor, or Worker-app re-export. Upstream credential
-verification and the future internal `VerifiedAuthContext` remain backend-owned;
+package-root, SDK, server, executor, or Worker-app re-export. O03-A2a's upstream
+credential verification and process-local `VerifiedAuthContext` authenticity
+capability are backend-owned and are never persisted or transported.
+O03-A2b later gives backend-owned issuance/signing and policy authority while
 trusted grant verification and transaction enforcement belong in
-`@flarex/executor`; and revocation-epoch storage/locking plus session atomics
-belong in `@flarex/persistence-postgres`. Worker apps may supply key/binding
-adapters but never own grant semantics or expose issuer secrets to artifact
-code. Production signing, verification, key adapters, policy authority, and
-revocation transport remain O03-A2 decisions requiring their own preflight.
+`@flarex/executor`. O03-A2c later consumes S07-A revocation-epoch storage and
+locking primitives in `@flarex/persistence-postgres`, with backend-only
+preparation/revocation transport and Worker key/binding adapters. O03-B remains
+the owner of session atomics. Worker apps never own grant semantics or expose
+issuer secrets to artifact code. A2b and A2c each require their own preflight.
 
 The executor Worker owns Cloudflare request lifecycle and Postgres client
 allocation/cleanup. `@flarex/executor` owns the trusted operation semantics,

@@ -811,9 +811,24 @@ verification/key-resolution capability only. The accepted first O03-A
 checkpoint freezes a strict flattened JWS envelope with fixed `Ed25519`, exact
 canonical protected-header and Value Codec V1 payload bytes, bounded inert
 evidence, and exact-request retry semantics. It creates no verified authority.
-The remaining O03-A checkpoint must separately accept production policy, claim
-minimization, key rotation, issuance transport, verification, epoch comparison,
-and trusted revocation behavior before session activation.
+Authority integration is an accepted three-checkpoint sequence without changing
+the transaction-grant V1 format, storage generation, or product version. O03-A2a
+first preserves backend-private verified-authentication provenance: verified
+bearer context retains issuer, subject, credential expiry, and matched-provider/
+config evidence; anonymous provenance remains distinct; the initial grant-facing
+custom-claim allowlist is empty; and `ExecutionIdentity`/`ctx.auth` remains the
+compatibility projection. The trusted dev/test identity path remains
+compatibility-only until separately named principal and bounded-expiry semantics
+are accepted; it cannot masquerade as verified bearer authority or mint a grant.
+The A2a handle proves historical bearer verification only. Issuance must recheck
+current time, active provider/config membership, and trusted policy; the handle
+contains no scope, policy, capability, signing, or transaction authority.
+O03-A2b then owns host-neutral trusted point-policy, issuance/signing,
+verification, and key rotation/disablement. O03-A2c owns authoritative argument/
+pin/epoch preparation, backend-only preparation and revocation transport, exact
+epoch comparison, and Worker key/binding adapters. The artifact-visible executor
+credential cannot authorize preparation or revocation. O03-B remains blocked
+until all three checkpoints pass.
 
 The narrow schema prerequisite S07-A first adds one nonnegative scope-wide
 `authorization_revocation_epoch` to the located data-plane scope clock. O03-A

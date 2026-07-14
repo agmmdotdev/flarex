@@ -350,11 +350,13 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
   completed value codec is wired into internal S06 rows but not a route.
 - S07's transaction-session and constrained snapshot-lease tables are complete
   but internal and non-routing. S07-A's private current scope-revocation
-  storage and O03-A1's inert protocol/evidence contract are also complete.
-  O03-A2 trusted grant authority, O03-B atomic activation/basic lease mechanics,
-  semantic point dependencies, OCC, commit/change feed, idempotency outcomes,
-  leased outbox, and the bounded commit compiler remain unimplemented. S06/S07
-  storage and relational proofs do not claim those later semantics.
+  storage, O03-A1's inert protocol/evidence contract, and O03-A2a's private auth
+  provenance are also complete. O03-A2 is an incomplete three-checkpoint
+  sequence with O03-A2b next but unapproved. The remaining O03-A2b/O03-A2c grant
+  authority, O03-B atomic activation/basic lease mechanics, semantic point
+  dependencies, OCC, commit/change feed, idempotency outcomes, leased outbox,
+  and the bounded commit compiler remain unimplemented. S06/S07 storage and
+  relational proofs do not claim those later semantics.
 - The current broad persistence interface and legacy invoke-session tables are
   compatibility surfaces to narrow behind generation-specific ports.
 - Existing freshness and live-query delivery behavior belongs to the legacy
@@ -402,9 +404,11 @@ capabilities. Neither adapter may receive raw executor persistence.
 S07 is complete as a two-table, non-routing physical authority gate, and S07-A
 completes its private located scope-revocation storage prerequisite. Neither
 changes reconnect retention, `/invoke/*`, or the production replacement route.
-The O03-A parent is approved: protocol-only O03-A1 is complete, while trusted
-O03-A2 authority integration is the next unapproved checkpoint and requires its
-own preflight. O03-B session activation follows only after O03-A passes.
+The O03-A parent is approved: protocol-only O03-A1 and auth-provenance O03-A2a
+are complete, while O03-A2 remains an incomplete three-checkpoint authority-
+integration sequence. O03-A2b is next but unapproved; O03-A2c remains later and
+separately preflight-gated. O03-B session activation follows only after O03-A
+passes.
 
 Follow the interleaved foundation order rather than pulling build/readiness
 work forward:

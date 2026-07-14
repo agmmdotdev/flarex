@@ -7,14 +7,15 @@ verification resolves configured bearer credentials into `ExecutionIdentity`
 for HTTP, sync, generated `ctx.auth`, and live-query reruns. Authenticated user
 identity is not transaction or commit authorization.
 
-The bearer resolver verifies credential expiry and selects a configured
-provider, but its returned `ExecutionIdentity` does not retain credential
-expiry, matched-provider/config evidence, or a policy-minimized claim set.
-O03-A must introduce an internal trusted `VerifiedAuthContext` (or equivalently
-named non-public capability) that preserves only the verified authentication
-facts required for policy evaluation and grant minting. It is never accepted
-as caller JSON from a client, Dynamic Worker, SessionDO, or public executor
-transport.
+The compatibility bearer resolver still returns only `ExecutionIdentity`, so
+HTTP, sync, generated `ctx.auth`, and arbitrary custom-claim behavior remain
+unchanged. Completed checkpoint O03-A2a adds a parallel backend-private
+`VerifiedAuthContext` result that retains the exact credential expiry and a
+frozen selected-provider/config snapshot with the verified issuer and subject.
+Its process-local registry membership cannot be restored from JSON, a copied
+brand, a client, Dynamic Worker, SessionDO, public executor transport, or a
+trusted-dev identity. The handle proves historical bearer verification only;
+it contains no scope, policy, capability, signing, or transaction authority.
 
 S07 provides only physical transaction-session columns for canonical grant
 evidence: grant identity, checked object JSON, Value Codec V1 bytes, SHA-256,
@@ -29,9 +30,10 @@ legacy FNV identity fingerprint is not replacement authorization.
 
 Status: approved parent gate after completed S07-A. Its evidence-backed
 preflight split the now-complete inert protocol/evidence checkpoint `O03-A1`
-from unapproved trusted authority integration at `O03-A2`. The parent remains
-unchecked until O03-A2 passes; no trusted revocation command or operational
-epoch comparison exists.
+from an accepted three-checkpoint authority-integration sequence at `O03-A2`.
+`O03-A2a` is complete; `O03-A2b` is next but remains unapproved, and `O03-A2c`
+remains later and separately preflight-gated. O03-A2 and the parent remain
+unchecked; no trusted revocation command or operational epoch comparison exists.
 
 Accepted direction:
 
@@ -81,12 +83,23 @@ The implemented O03-A1 protocol decisions are:
   redacts rejected values, and preserves separate nominal hash types for
   identity/policy, validated arguments, and request evidence.
 
-O03-A2 still owns key generation/custody/rotation/disablement and verifier
-lookup, the trusted issuer API and transport before Dynamic Worker code,
-anonymous/trusted-dev provenance, the exact claim allowlist and policy source,
-trusted epoch increment authority, production verification, and Worker key/
-binding adapters. It is the next unapproved checkpoint and requires a separate
-preflight after completed O03-A1.
+O03-A2 is an accepted three-checkpoint sequence without changing the grant V1
+format, storage generation, or product version. Completed O03-A2a owns
+backend-private bearer/anonymous provenance, preserves the existing broad
+`ExecutionIdentity` compatibility projection, and fixes the initial grant-facing
+custom-claim allowlist as empty. The trusted-dev identity path remains
+compatibility-only and cannot mint grants. O03-A2b later owns host-neutral
+policy, issuance/signing, verification, and key lifecycle. O03-A2c later owns
+authoritative argument/pin/epoch preparation, distinct backend-only preparation
+and revocation transport, exact epoch comparison, and Worker key/binding
+adapters. A2b and A2c each require their own preflight.
+
+A2b issuance must recheck current time, current active provider/config
+membership, and trusted policy instead of treating the A2a handle as durable
+authorization. A2a's minimized grant-facing projection contains only issuer,
+subject, and an empty custom-claims object, and is checked against the existing
+V1 inert-auth bounds. Grant-incompatible issuer/subject text fails typed
+projection without changing the existing `ExecutionIdentity` result.
 
 O03-B owns session admission after O03-A. C04 verifies authority before
 planning, and O06/O07 revalidate it in the final transaction that records the
@@ -131,11 +144,16 @@ How Flarex differs:
 
 Current gaps:
 
-- S07-A current scope-revocation storage and O03-A1's inert grant protocol/
-  evidence contract are complete. O03-A2 remains unapproved; production
-  signing and verification, claims minimization, policy authority, key
-  lifecycle, trusted increment command, and operational evidence retention
-  remain unimplemented.
+- S07-A current scope-revocation storage, O03-A1's inert grant protocol/evidence
+  contract, and O03-A2a's backend-private auth provenance are complete. O03-A2b
+  is next but unapproved within the incomplete O03-A2 sequence. Production
+  signing and verification, policy authority, key lifecycle, trusted increment
+  command, and operational evidence retention remain for separately
+  preflight-gated O03-A2b/O03-A2c.
+- ConnectionDO and live-query persistence intentionally continue to retain only
+  `ExecutionIdentity`, not the process-local A2a handle. Later request-bound
+  integration must bind grant authority per mutation and solve expiry/restart
+  behavior; A2a does not persist or restore authentication authority.
 
 The completed lower sections preserve the identity-plumbing design inputs that
 preceded roadmap 33. Current provider authentication is implemented; the
@@ -419,16 +437,6 @@ Convex references inspected:
 - `crates/model/src/auth/types.rs`
 - `crates/model/src/auth/mod.rs`
 - `crates/application/src/api.rs`
-
-Known limitations after this stream:
-
-- WebSocket `Authenticate` advances identity version and reruns queries, but
-  bearer tokens are still anonymous until `roadmaps/33-auth-provider-platform.md`
-  is implemented.
-- `setAuth(...)` currently sends tokens before the backend has provider config,
-  validation, JWKS cache, or token-expiry semantics.
-- There is still no deploy/admin identity model for updating auth provider
-  config. That must remain separate from end-user `ctx.auth` identity.
 
 Verification:
 

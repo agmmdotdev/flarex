@@ -22,11 +22,17 @@ The implemented platform includes:
 - package-versioned auth configuration plus a separate deploy/admin update
   boundary.
 
-The bearer verifier checks credential expiry and provider configuration, then
-returns `ExecutionIdentity`. It does not retain the credential-expiry/provider
-evidence or minimize claims for a signed transaction grant. That is the
-explicit O03-A follow-up, not unfinished work in this completed provider
-stream.
+The compatibility bearer resolver checks credential expiry and provider
+configuration, then still returns the existing `ExecutionIdentity`. O03-A2a's
+parallel backend-private result retains exact credential expiry and a frozen
+selected-provider/config snapshot while projecting only issuer, subject, and an
+empty custom-claims object toward inert transaction-grant evidence. It is
+process-local historical verification evidence, not transaction authority.
+The verifier resolves OIDC discovery and JWKS metadata through injected fetch on
+every verification; no JWKS cache or stale-key fallback is currently
+implemented. Conservative cache and refresh behavior remains deferred
+reliability/performance hardening and must never make stale invalid keys
+authoritative.
 
 ## Convex References
 
@@ -95,8 +101,9 @@ JSON or provider configuration.
     issuer, audience, algorithm, `kid`, `exp`, `nbf`, and time-based claims.
   - Validate OIDC discovery/JWKS and custom JWT JWKS.
   - Map verified claims into `UserIdentity`.
-  - Cache JWKS conservatively without making stale invalid keys authoritative
-    forever.
+  - Resolve discovery and JWKS live for each verification. Conservative caching
+    is not implemented; any future cache must fail closed and must not retain
+    stale invalid keys as authority.
   - Return typed auth errors and fail closed.
 - [x] A-5. Sync `Authenticate` integration.
   - Validate the token in `ConnectionDO` through the same backend resolver.
