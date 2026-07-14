@@ -135,7 +135,7 @@ Do not extend these files as active design.
 | [`02-schema-placement-and-shards.md`](./02-schema-placement-and-shards.md) | Durable Object shard/storage assumptions are superseded by Postgres `scope_id` authority. |
 | [`07-cross-shard-workflows.md`](./07-cross-shard-workflows.md) | Proposed PartitionDO coordinator model is superseded; no accepted generic cross-shard transaction API exists. |
 | [`08-projections.md`](./08-projections.md) | PartitionDO-driven global projection proposal is unimplemented and not an active replacement requirement. |
-| [`12-repository-operations.md`](./12-repository-operations.md) | Repository setup history plus old mandatory checkpoint-log governance, superseded by `AGENTS.md` and this index. |
+| [`12-repository-operations.md`](./12-repository-operations.md) | Current repository workflow, standing reviewer ownership, and shared Effect-review boundary; `AGENTS.md` remains the workflow authority and Git owns chronological history. |
 | [`19-function-routing-and-shard-policy.md`](./19-function-routing-and-shard-policy.md) | Public shard/partition routing policy is legacy prototype behavior. |
 | [`breif-left-things-to-do-after-effect-ts-migration.md`](./breif-left-things-to-do-after-effect-ts-migration.md) | Point-in-time status snapshot is stale; current status lives in domain authorities and focused plans. |
 

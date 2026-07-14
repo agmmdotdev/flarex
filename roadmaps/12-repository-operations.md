@@ -2,143 +2,100 @@
 
 ## Goal
 
-Flarex should be able to move as an independent project instead of remaining
-only an untracked folder inside the Convex checkout.
+Flarex should operate as an independent project with durable, evidence-backed
+agent rules, scoped checkpoints, and reviewers that evaluate both systems
+correctness and the quality of TypeScript/Effect implementation.
 
-## Current Update
+## Current Durable State
 
-Initialized the plan for `custom/cloudflare-executor` to become its own Git
-repository. The repository keeps the prototype source, package metadata,
-roadmaps, and lockfile together while ignoring local dependency installs,
-Wrangler output, and generated example artifacts through the local
-`.gitignore`.
+- `custom/cloudflare-executor` is its own Git repository with
+  `https://github.com/agmmdotdev/flarex.git` as `origin`. The parent Convex
+  checkout ignores it, while remaining available as the primary Convex behavior
+  reference.
+- `AGENTS.md` owns durable workspace workflow: design challenge, implementation
+  preflight, design precedence, living-roadmap maintenance, reviewer cadence,
+  proportional validation, and automatic scoped commits.
+- Git owns chronological implementation history. Domain roadmaps own current
+  architecture, rationale, status, gaps, direction, and correctness gates; they
+  do not duplicate commit logs or verification receipts.
+- The main thread owns all writes and Git operations. Reviewer subagents are
+  read-only and review only the current changed checkpoint.
+- Significant code changes use two standing reviewers:
+  `typescript-diff-reviewer` and `code-quality-diff-reviewer`. Docs-only,
+  formatting-only, generated refresh, and minor mechanical changes do not
+  require them.
+- Reviewer behavior is defined in `.codex/agents/`. When Effect is in scope,
+  both reviewers must read `.codex/agents/effect-review-guide.md`, apply its
+  examples and exceptions, and report the Effect constructs they actually
+  inspected.
 
-Added `custom/cloudflare-executor/` to the parent Convex checkout's
-`.gitignore` so the nested Flarex repository can remain independent until it is
-moved to its own top-level location or remote.
+## Standing Reviewer Responsibilities
 
-Added repository-wide checkpoint discipline:
+The TypeScript reviewer owns static/runtime contract agreement, public API
+compatibility, exact success/failure/requirement channels, Schema and encoded
+shape agreement, service and Layer dependency types, tagged errors, type
+soundness, and reuse of stable repo-owned types.
 
-- every repository-changing turn updates its relevant domain roadmap,
-- every domain roadmap owns its concise completed-checkpoint summaries with
-  commit IDs and titles,
-- verified repository-changing turns are committed automatically, and
-- the newest commit is recorded in its relevant domain roadmap on the following
-  repository-changing turn because a commit cannot contain its own stable ID.
+The code-quality reviewer owns behavioral and data correctness, trust and
+transaction boundaries, reliability, lifecycle and concurrency, performance,
+operability, maintainability, test quality, and idiomatic Effect composition.
 
-Removed the global implementation ledger introduced by checkpoint
-`64eb2f9 Require documented automatic checkpoints`. A single chronological
-ledger would eventually become a giant project-history document and duplicate
-the focused domain records. The automatic commit rule remains, but checkpoint
-history now stays with the domain it explains.
+Both reviewers remain risk-adaptive. Effect-specific checks add to rather than
+replace their broader responsibilities. An explicit Effect guide violation in
+new code may be reported as a low-severity concrete defect even before it
+causes a runtime failure; higher severity still requires evidence of real
+correctness, security, data-loss, compatibility, reliability, or operational
+impact.
 
-Reworked the two standing reviewer prompts after the Effect migration completed.
-`typescript-diff-reviewer` and `code-quality-diff-reviewer` are now
-Effect-aware reviewers for ordinary core implementation work as well as Effect
-service/schema/runtime changes. Removed the migration-only reviewer prompt so
-reviewer routing no longer depends on a special migration exception.
+## Effect Review Boundary
 
-Broadened the two standing reviewers without weakening their read-only,
-uncommitted-diff boundary. The TypeScript reviewer now prioritizes API and wire
-compatibility, runtime/static contract agreement, type soundness, and precise
-error channels while treating the global TypeScript skill as contextual
-guidance rather than an unconditional style mandate. The code-quality reviewer
-now evaluates behavioral correctness, data and concurrency safety, trust
-boundaries, recovery and lifecycle behavior, performance, operability,
-maintainability, and test validity through path-sensitive review lenses.
+The shared Effect guide records the durable distinctions established from the
+current Effect v4 source and application evidence:
 
-## Why This Shape
+- observable Effect-producing operations and service-method implementations
+  normally use named `Effect.fn`;
+- reusable internal Effect functions may use unnamed `Effect.fn` for a stack
+  boundary without an implicit span;
+- demonstrated hot-path or deliberately zero-instrumentation Effect functions
+  may use `Effect.fnUntraced`;
+- pure functions remain ordinary TypeScript;
+- standalone Effect values and one-off inline composition may use
+  `Effect.gen`;
+- concise pipelines and lifecycle-owned host bridges are judged by their real
+  boundary rather than a syntax-only rule;
+- typed error provenance, exact `A`/`E`/`R`, Layer closure, Scope and structured
+  concurrency, runtime placement, Schema compiler placement, observability,
+  and Effect-native tests are part of the review, not optional extras.
 
-The Flarex work is now a separate Cloudflare-native backend and SDK prototype.
-Keeping it in its own repository makes future commits, branches, and remotes
-independent from the upstream Convex backend checkout while still allowing the
-Convex source tree to remain nearby for reference.
+Existing inconsistent code is migration input, not authority for new changes.
+Reviewers do not turn a checkpoint review into an unrelated repository-wide
+Effect migration.
 
-## Convex References
+## Authority And Reference Sources
 
-- The parent `convex-backend` checkout remains the reference source for
-  Convex-inspired APIs and backend behavior.
-- No new Convex source files were required for this repository-operations
-  change.
-- This checkpoint policy is a Flarex repository workflow rule rather than a
-  port of Convex runtime behavior.
+- `AGENTS.md` is the workspace workflow authority.
+- `.codex/agents/*.toml` is the source of truth for each reviewer.
+- `.codex/agents/effect-review-guide.md` is the shared Effect review decision
+  guide and contains checked-in examples.
+- `opensrc/repos/github.com/effect-TS/effect-smol` is the preferred local API
+  and library-pattern reference when available.
+- `opensrc/repos/github.com/pingdotgg/t3code` provides curated application
+  examples, diagnostics, and lint patterns; it is evidence rather than a
+  uniformly correct authority.
+- The parent `convex-backend` checkout remains the source reference for
+  Convex-inspired behavior.
 
-## Cloudflare Differences
-
-- The local repo includes Wrangler and Miniflare project files because Flarex
-  targets Cloudflare Workers and Durable Objects directly.
-- Generated Worker artifacts remain ignored because they are recreated by the
-  Flarex generator and example scripts.
+The local `opensrc/` cache is optional and may be refreshed for deeper research.
+The checked-in shared guide keeps the reviewer decision rules available when
+that cache is absent.
 
 ## Known Limitations
 
-- No remote origin is configured yet.
-- The parent Convex repository now ignores `custom/cloudflare-executor/`.
-- A domain roadmap's implementation history intentionally trails its newest
-  commit by one repository-changing turn because Git commit IDs are
-  content-derived.
-- The standing reviewers rely on the ignored local `opensrc/` cache for
-  optional Effect reference material. If that cache is missing on a future
-  machine, they continue from checked-in repository context; refresh
-  `effect-TS/effect-smol` only when deeper Effect reference work is needed.
-- Risk-adaptive prompts improve checkpoint breadth but do not replace focused
-  specialist review or the required real-Postgres correctness lane when a
-  future slice crosses those boundaries.
-
-## Implementation Checkpoints
-
-### `6096ad8` Initial Flarex Cloudflare executor prototype
-
-Created the standalone Flarex prototype repository with its initial backend,
-SDK, tests, example app, and domain roadmaps.
-
-### `ea02381` Document parent ignore rule
-
-Recorded the parent Convex repository ignore rule that keeps the nested Flarex
-repository independent.
-
-### `64eb2f9` Require documented automatic checkpoints
-
-Added automatic verified checkpoint commits and initially introduced a global
-implementation ledger. The automatic commit rule remains, while this turn
-corrects checkpoint recording to stay domain-specific.
-
-### `fe8ec44` Keep implementation history domain specific
-
-Cleaned up the global chronological implementation log, leaving implementation checkpoint history domain-specific in their respective roadmaps.
-
-### `3d0a85b` Wire hosted runtime core bindings
-
-Started the post-migration core implementation lane by wiring hosted backend
-bindings and adding the first hosted-shaped runtime integration proof.
-
-### `bcc012d` Align reviewers with Effect runtime codebase
-
-Reworked `.codex/agents/typescript-diff-reviewer.toml` and
-`.codex/agents/code-quality-diff-reviewer.toml` to include the Effect quality
-bar from the migration-only reviewer, removed
-the migration-only reviewer file, and updated `AGENTS.md` so all significant
-code changes use the two standing Effect-aware reviewers.
-
-### Pending checkpoint
-
-Expanded the standing reviewers from a narrow type/reuse and
-maintainability/Effect split into complementary API-contract and systems-quality
-reviews. Preserved read-only diff scope and main-thread ownership while adding
-evidence-first severity, risk-adaptive package lenses, and explicit coverage of
-compatibility, transactions, concurrency, security, recovery, performance,
-operability, and test validity.
-
-## Verification
-
-```sh
-git status --short
-git log --oneline -8
-git diff --check
-git -C C:\Users\Admin\Documents\github\convex-backend status --short -- .gitignore custom/cloudflare-executor
-Test-Path .codex/agents/*effect*quality*checker*.toml
-rg -n "legacy reviewers|Effect-TS migration changes" AGENTS.md .codex effect-ts-migration-draft -g "*.md" -g "*.toml"
-& 'C:\Users\Admin\AppData\Local\Programs\Python\Python312\python.exe' -c "import pathlib,tomllib; files=list(pathlib.Path('.codex/agents').glob('*.toml')); [tomllib.loads(p.read_text(encoding='utf-8')) for p in files]; print('parsed',len(files),'TOML agent files')"
-git diff --check -- .codex/agents AGENTS.md roadmaps/12-repository-operations.md
-git diff -- .codex/agents AGENTS.md roadmaps/12-repository-operations.md
-```
+- Source snapshots can lag their upstream repositories; version-specific APIs
+  must be checked against the Effect version installed by Flarex.
+- Standing reviewers do not replace focused security, database, migration,
+  Cloudflare-host, or real-Postgres validation when a future slice crosses
+  those boundaries.
+- The repository still contains legacy wrapper-style Effect functions and
+  manual runtime bridges. They should be corrected in approved, bounded slices
+  rather than silently used as precedent or swept into unrelated changes.

@@ -35,6 +35,14 @@ Reviewer subagent behavior is defined in `.codex/agents/`. Treat those files
 as the source of truth for reviewer scope, read-only boundaries, TypeScript
 skill usage, validation expectations, and response format.
 
+When a diff touches Effect code, both standing reviewers must read and apply
+`.codex/agents/effect-review-guide.md`. That guide distinguishes reusable
+Effect-producing functions, which normally use `Effect.fn`, from pure
+TypeScript functions, standalone Effect values, concise pipelines, and
+unnamed or deliberately untraced internal helpers. Reviewers must report their
+actual Effect coverage and may raise a concrete guide violation even when its
+first impact is maintainability, diagnostics, operability, or testability.
+
 The main thread owns all writes and all Git operations. The main thread must
 triage reviewer findings, apply useful fixes itself, rerun validation, then
 commit. If the diff changes after reviewers are spawned, the previous reviews
