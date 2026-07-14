@@ -3,14 +3,15 @@
 Status: private non-routing `O02` snapshot resolution and S07's physical
 session/snapshot-lease authority are complete; standalone `O01` retired before
 implementation; schema-owned `S07-A` scope-revocation storage is complete. The
-former `O03` is split into approved `O03-A` grant authority and later `O03-B`
-atomic session activation. Protocol-only `O03-A1` is complete. `O03-A2` is an
+former `O03` is split into complete `O03-A` grant authority and active `O03-B`
+session authority. Protocol-only `O03-A1` is complete. `O03-A2` is an
 accepted three-checkpoint authority-integration sequence: `O03-A2a` and
 host-neutral authority checkpoint `O03-A2b` are complete. `O03-A2c` is complete
 as exactly two private boundaries: located-current-epoch admission and
 schema-neutral two-sided point-mutation preparation. Operational revocation and
-hosted Worker/key adapters are deferred to their first real consumers and do
-not block `O03-B` or the private C01-C07 proof.
+hosted Worker/key adapters are deferred to their first real consumers. O03-B1
+atomic activation is complete; neither deferred adapter blocks O03-B2 or the
+private C01-C07 proof.
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -495,32 +496,76 @@ Parent non-goals:
 - no opaque per-grant database, grant audit product, role system, general
   application authorization language, or prototype compatibility bridge.
 
-### [ ] O03-B — Activate And Fence Session Anchors
+### [ ] O03-B — Establish Active Session Authority
+
+O03-B is split into two reviewable checkpoints without changing the master
+order. `O03-B1` establishes one active request anchor atomically; `O03-B2`
+adds the exact-fence lifecycle operations needed before `O04` may consume the
+anchor.
+
+#### [x] O03-B1 — Atomically Activate One Point-Mutation Anchor
+
+Status: complete as a private, non-routing atomic activation and exact active-
+anchor replay checkpoint. O03-B2 remains the next implementation gate.
 
 Outcome:
 
 - Require only the final private prepared-start capability produced from
   independent issuer/executor preparation, grant verification, and current-
-  epoch admission. Callers cannot author physical placement, pins, canonical
-  evidence, expiry, revocation, generation, or snapshot fields.
+  epoch admission. Callers cannot author physical placement, session identity,
+  pins, canonical evidence, expiry, revocation, generation, or snapshot fields.
 - Prepare and verify package/artifact/function/schema/policy pins, canonical
-  arguments, request evidence, and the signed grant outside SQL. Then use one
-  short located-data-plane transaction to lock and recheck the scope clock,
-  generation/fence, epoch, selected snapshot, and authorization revocation
-  epoch before atomically inserting S07's session and exact-attempt lease at
-  fence `1`.
-- Commit the initial externally observable lifecycle as `running` with exactly
-  one current lease. The existing `created` literal is reserved for
-  intra-transaction construction/compatibility and may never be committed as
-  an active parent without its lease.
-- Keep request/generation authority on the session and snapshot-retention
-  authority on the lease. Load and renew only the exact current attempt; use
-  database-authoritative time and never extend a lease beyond the session hard
-  expiry or grant expiry.
-- For renewal, abort, and expiry, follow the shared authority lock order:
-  scope clock, exact session row, then exact current lease. Recheck the current
-  authorization-revocation epoch whenever the operation keeps an attempt
-  active.
+  arguments, request evidence, and the signed grant outside SQL. Generate a
+  canonical native UUID session identity inside the trusted executor boundary.
+- Use one short located-data-plane transaction to lock and recheck the scope
+  clock, generation/fence, epoch, selected snapshot, and authorization
+  revocation epoch. Capture one database timestamp after the authority lock.
+- For a new request, atomically insert S07's session directly as `running` at
+  fence `1` plus exactly one matching snapshot lease. Set session hard expiry
+  to the already platform-bounded verified-grant expiry and set initial lease
+  expiry to `min(databaseNow + configuredLeaseDuration, hardExpiry)`. The
+  derived lease must be strictly live; there is no hidden duration default.
+- Treat one exact matching `running` anchor under the same
+  `(scope_uuid, request_key)` lock as activation replay: return its unchanged
+  identity, fence, snapshot, evidence, and timestamps without extending its
+  lease. This is active-anchor recovery, not committed-result replay. Changed
+  evidence, multiple matches, stale authority, a missing/mismatched/expired
+  lease, or a non-`running` anchor fails closed and never creates another
+  anchor. The invariant is logical under the scope-clock lock; S07's lookup
+  index is not promoted to a database uniqueness claim.
+- Return only a private process-local activated-session capability. Remain
+  non-routing and do not add point reads, finish/commit/retry/retention
+  operations, a legacy adapter, or a broad persistence-facade method.
+
+Exit gate:
+
+- a structural, serialized, spread, or foreign prepared-start value causes no
+  SQL, and session identity is generated and validated only inside trusted
+  construction;
+- both rows commit or neither does, including injected failure after every
+  mutating statement;
+- concurrent exact activation returns one unchanged anchor, changed-evidence
+  competition has one winner, and duplicate request anchors fail as corruption;
+- clock/generation/fence/epoch/revocation and preliminary-snapshot races, wrong
+  pins, expired grants, expired leases, terminal reopen, invalid generated IDs,
+  and exact bigint boundaries fail closed;
+- one post-lock database timestamp controls created/updated/lease-expiry edges;
+  PGlite covers deterministic behavior and focused real Postgres proves
+  locking, concurrency, independent-scope progress, and rollback; and
+- no DDL, legacy session, `/invoke/*`, root export, route, or storage-generation
+  activation changes.
+
+#### [ ] O03-B2 — Load And Fence Active Attempts
+
+Outcome:
+
+- Define the private exact-attempt capability consumed by later point reads.
+  Load and renew only the exact current attempt while keeping request/generation
+  authority on the session and snapshot-retention authority on the lease.
+- For load, renewal, abort, and expiry, follow the shared authority lock order:
+  scope clock, exact session row, then exact current lease. Use database time,
+  reject epoch rollover and stale generation/fence/revocation authority, and
+  never extend a lease beyond session hard expiry or grant expiry.
 - Define fail-closed exact-fence abort and expiry operations that atomically
   remove the current lease and retain a terminal anchor. Here, "stale owner"
   means a trusted operation presenting an old attempt fence; S07 defines no
@@ -530,14 +575,13 @@ Outcome:
 
 Exit gate:
 
-- both rows commit or neither does, including injected failure after every
-  statement;
-- concurrent creation, clock/generation/epoch/revocation races, wrong pins,
-  expired grants, expired leases, and terminal reopen all fail closed;
+- exact load rejects a missing, expired, terminal, corrupt, or stale attempt;
 - renewal versus abort/expiry is one-winner, and a stale fence cannot renew or
   delete a newer attempt's lease;
-- database-time expiry edges, exact bigint boundaries, and intended lock order
-  pass on PGlite and focused real Postgres; and
+- repeated terminal observation never reopens authority;
+- database-time expiry edges, exact bigint boundaries, active-child
+  enforcement, and intended lock order pass on PGlite and focused real
+  Postgres; and
 - legacy sessions, `/invoke/*`, exports, routing, and storage-generation
   activation remain unchanged.
 

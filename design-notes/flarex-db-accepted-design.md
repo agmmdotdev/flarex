@@ -750,8 +750,11 @@ O03-B's atomic activation operation.
 
 O03-B owns atomic anchor/lease creation, exact-fence loading and renewal,
 abort/expiry terminalization, active-child enforcement, and stale-attempt
-rejection. It does not predeclare consumer-specific finish, commit, retry, or
-retention APIs. O08 introduces retry replacement when trusted OCC
+rejection. It is implemented as two checkpoints without changing that
+authority: O03-B1 creates or exactly replays one active request anchor, and
+O03-B2 adds exact-fence load, renewal, abort, and expiry. It does not predeclare
+consumer-specific finish, commit, retry, or retention APIs. O08 introduces
+retry replacement when trusted OCC
 classification exists: it explicitly deletes the old lease, advances the
 parent fence, and inserts the new lease in one transaction. The foreign key
 restricts parent updates and deletes while the old lease remains; it does not
@@ -950,8 +953,23 @@ The anchor owns request-level authority. Its current-attempt snapshot token is
 stored only in the constrained snapshot-lease row, avoiding two independent
 snapshot or generation authorities. S07 defines these two physical rows.
 S07-A supplies current revocation storage, O03-A supplies signed-grant
-semantics, and O03-B owns atomic activation plus basic exact-fence lease
-mechanics. C02 owns syscall sequence and journal digest. C05 introduces the
+semantics, O03-B1 owns atomic activation/exact active-anchor replay, and O03-B2
+owns basic exact-fence lease mechanics.
+
+O03-B1 generates a canonical native UUID session identity inside the trusted
+executor boundary. Under the scope-clock lock, no matching request creates one
+`running` fence-1 anchor and lease; one byte-exact matching live `running`
+anchor returns unchanged, including its stored snapshot and timestamps.
+Changed evidence, multiple matches, stale authority, a missing or expired
+lease, or a non-`running` anchor fails closed. This is a logical
+one-anchor-per-request invariant under the authoritative lock, not a physical
+uniqueness claim and not O07 committed-result replay. V1 session hard expiry is
+the already platform-bounded verified-grant expiry. Initial lease expiry is
+`min(databaseNow + configuredLeaseDuration, hardExpiry)` using one post-lock
+database timestamp and must be strictly in the future; exact replay never
+extends it.
+
+C02 owns syscall sequence and journal digest. C05 introduces the
 private exact-fence `running` to `finishing` transition; C06 later orchestrates
 it idempotently through the finish endpoint, while C03 rejects late syscalls.
 O07 atomically deletes the exact current lease and stores committed state with
@@ -1030,7 +1048,7 @@ running or finishing -> aborted | expired
 
 The S07 `created` and `committing` literals are reserved for intra-transaction
 construction and compatibility. Neither is a durable externally observable
-active state in V1: O03-B commits the new anchor as `running` with its exact
+active state in V1: O03-B1 commits the new anchor as `running` with its exact
 current lease, while the O06/O07 publication transaction either commits the
 terminal outcome or rolls back to the durable `finishing` state.
 
@@ -1038,7 +1056,8 @@ Requirements:
 
 - monotonic syscall sequence numbers;
 - one fenced attempt owner;
-- O03-B defines initial activation, exact-fence renewal, abort, and expiry;
+- O03-B1 defines initial activation and exact active-anchor replay; O03-B2
+  defines exact-fence load, renewal, abort, and expiry;
 - C05 introduces the private exact-fence transition to `finishing`; C06
   orchestrates it idempotently through the finish endpoint, while C03 rejects
   subsequent syscalls;

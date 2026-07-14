@@ -5,9 +5,13 @@ import {
 } from "@flarex/persistence-postgres";
 import {
   createPGliteLocatedScopeAuthorizationEpochTarget,
+  createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
 } from "@flarex/persistence-postgres/pglite";
+import {
+  createPointMutationSessionActivationPersistenceV1,
+} from "@flarex/persistence-postgres/transaction-session-activation";
 import {
   createPostgresLocatedScopeAuthorizationEpochTarget,
   createPostgresSharedScopeAuthorityProvisioner,
@@ -40,7 +44,7 @@ import {
   type TransactionAuthorizationRevocationEpoch,
   type TransactionRequestKeyV1,
 } from "flarex-protocol/transaction-session";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   advanceScopeAuthorizationRevocationEpochInTransaction,
@@ -68,6 +72,12 @@ import {
   inspectExecutorPreparedPointMutationStartV1,
   type ExecutorPreparedPointMutationStartV1,
 } from "../src/pointMutationStartPreparation";
+import {
+  InvalidActivatedPointMutationSessionV1Error,
+  createPointMutationSessionActivationV1,
+  inspectActivatedPointMutationSessionV1,
+  type PointMutationSessionActivationV1,
+} from "../src/pointMutationSessionActivation";
 import {
   postgresUrl,
   withTemporaryPostgresExecutorPersistence,
@@ -99,6 +109,11 @@ const LOCATED_ADMISSION_SCOPE_ID = ReplacementScopeIdV1Schema.make(
   `scope_${LOCATED_ADMISSION_SCOPE_UUID}`,
 );
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+
+type RootSessionActivationExport = Extract<
+  keyof typeof import("../src"),
+  "createPointMutationSessionActivationV1"
+>;
 
 describe("transaction-grant verifier", () => {
   it("returns only opaque process-local authority and preserves exact replay", async () => {
@@ -745,6 +760,171 @@ describe("current-epoch transaction-grant admission", () => {
     });
     await expect(admission.admit(newGrant)).resolves.toBeDefined();
   });
+
+  it("activates only the final admitted handle and returns private session authority", async () => {
+    expectTypeOf<RootSessionActivationExport>().toEqualTypeOf<never>();
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const physicalLocator = Object.freeze({
+      kind: "shared_database",
+      databaseKey: "executor-session-activation-pglite",
+      schemaName: "public",
+    } as const);
+    const provisioned = await createPGliteSharedScopeAuthorityProvisioner(
+      persistence,
+      {
+        physicalLocator,
+        randomUuid: uuidSequence(
+          LOCATED_ADMISSION_SCOPE_UUID,
+          "60000000-0000-4000-8000-000000000021",
+        ),
+      },
+    ).ensure({
+      deploymentId: DEPLOYMENT_ID,
+      projectId: "project_session_activation_pglite",
+    });
+    await persistence.query(
+      `
+        update fx_system_scope_clock
+        set storage_generation = 'flarexdb_v1'
+        where scope_id = $1
+      `,
+      [provisioned.scope.scopeId],
+    );
+    const fixture = await signedFixture({
+      preparedScopeId: LOCATED_ADMISSION_SCOPE_ID,
+      preparedEpoch: TransactionAuthorizationRevocationEpochSchema.make(0n),
+      payloadOverrides: {
+        scopeId: LOCATED_ADMISSION_SCOPE_ID,
+        authorizationRevocationEpoch: "0",
+        issuedAt: "2099-01-01T00:00:00.000Z",
+        expiresAt: "2099-01-01T00:01:00.000Z",
+      },
+    });
+    const verifier = await verifierFixture({
+      now: new Date("2099-01-01T00:00:30.000Z"),
+    });
+    const verifiedGrant = await verifier.verify({
+      jws: fixture.jws,
+      expectedStart: fixture.preparedStart,
+    });
+    const admission = createPointMutationStartAdmissionV1({
+      resolveCurrent: (deploymentId) =>
+        resolveCurrentScopeAuthorizationEpoch(deploymentId, {
+          scopeMetadata: persistence,
+          provisioningReceipts: {
+            getScopeAuthorityProvisioningReceipt: async () => {
+              throw new Error(
+                "Shared scope resolution must not read provisioning receipts.",
+              );
+            },
+          },
+          scopeEpochTargets: {
+            resolve: async (resolvedLocator) =>
+              createPGliteLocatedScopeAuthorizationEpochTarget(
+                persistence,
+                resolvedLocator,
+              ),
+          },
+        }),
+    });
+    const admitted = await admission.admit(verifiedGrant);
+    const sessionPersistence =
+      createPointMutationSessionActivationPersistenceV1(
+        {
+          scopeMetadata: persistence,
+          provisioningReceipts: {
+            getScopeAuthorityProvisioningReceipt: async () => {
+              throw new Error(
+                "Shared scope resolution must not read provisioning receipts.",
+              );
+            },
+          },
+          scopeSessionTargets: {
+            resolve: async (resolvedLocator) =>
+              createPGliteLocatedPointMutationSessionActivationTargetV1(
+                persistence,
+                resolvedLocator,
+              ),
+          },
+        },
+        {
+          leaseDurationMilliseconds: 15_000,
+          randomUuid: uuidSequence(
+            "60000000-0000-4000-8000-000000000022",
+            "60000000-0000-4000-8000-000000000023",
+          ),
+        },
+      );
+    let persistenceCalls = 0;
+    const activation = createPointMutationSessionActivationV1({
+      activate: async (input) => {
+        persistenceCalls += 1;
+        return sessionPersistence.activate(input);
+      },
+    });
+
+    for (const invalid of [
+      JSON.parse(JSON.stringify(admitted)),
+      { ...admitted },
+      Object.create(admitted),
+      fixture.preparedStart,
+    ]) {
+      await expect(activateUnknown(activation, invalid)).rejects.toBeInstanceOf(
+        InvalidAdmittedPointMutationStartV1Error,
+      );
+    }
+    expect(persistenceCalls).toBe(0);
+
+    const activated = await activation.activate(admitted);
+    const created = inspectActivatedPointMutationSessionV1(activated);
+    const replayedHandle = await activation.activate(admitted);
+    const replayed = inspectActivatedPointMutationSessionV1(replayedHandle);
+
+    expect(persistenceCalls).toBe(2);
+    expect(JSON.stringify(activated)).toBe("{}");
+    expect(Object.isFrozen(activated)).toBe(true);
+    expect(created.status).toBe("created");
+    expect(replayed.status).toBe("replayed");
+    expect(replayed.anchor).toEqual(created.anchor);
+    expect(created.anchor.snapshotToken).toMatchObject({
+      scopeId: LOCATED_ADMISSION_SCOPE_ID,
+      commitSeq: 0n,
+    });
+    expect(() => inspectActivatedPointMutationSessionV1({ ...activated }))
+      .toThrow(InvalidActivatedPointMutationSessionV1Error);
+    expect(() => inspectActivatedPointMutationSessionV1(
+      JSON.parse(JSON.stringify(activated)),
+    )).toThrow(InvalidActivatedPointMutationSessionV1Error);
+
+    const stored = await persistence.query<{
+      package_id: string;
+      policy_version: string;
+      identity_hash: string;
+      args_hash: string;
+      grant_id: string;
+      request_hash: string;
+    }>(
+      `
+        select package_id, policy_version,
+               encode(identity_access_policy_sha256, 'hex') as identity_hash,
+               encode(validated_args_sha256, 'hex') as args_hash,
+               authorization_grant_id as grant_id,
+               encode(request_sha256, 'hex') as request_hash
+        from fx_system_tx_session
+        where session_id = $1
+      `,
+      [created.anchor.sessionId],
+    );
+    expect(stored.rows).toEqual([{
+      package_id: fixture.evidence.payload.packageId,
+      policy_version: fixture.evidence.payload.policyVersion,
+      identity_hash: fixture.evidence.payload.identityAccessPolicySha256,
+      args_hash: fixture.evidence.payload.validatedArgsSha256,
+      grant_id: fixture.evidence.authorizationGrantId,
+      request_hash: fixture.evidence.payload.requestSha256,
+    }]);
+  });
 });
 
 describePostgres(
@@ -996,6 +1176,14 @@ async function verifierFixture(
             options.futureSkewMilliseconds,
         }),
   });
+}
+
+async function activateUnknown(
+  activation: PointMutationSessionActivationV1,
+  value: unknown,
+): Promise<unknown> {
+  // @ts-expect-error This deliberately exercises the runtime opaque boundary.
+  return activation.activate(value);
 }
 
 function createVerifier(input: {

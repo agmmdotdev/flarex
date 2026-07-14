@@ -49,7 +49,11 @@ Use these sources in order:
    generations, the hosted Worker, and production routing.
 6. [`21-cloudflare-freshness-cache.md`](./21-cloudflare-freshness-cache.md) owns
    the distinct live-query freshness rule and deferred committed-read caches.
-7. Current code and decisive tests prove implemented prototype behavior:
+7. Current code and decisive tests prove exact implemented behavior. The active
+   replacement session-start boundary is:
+   - [`packages/executor/src/pointMutationSessionActivation.ts`](../packages/executor/src/pointMutationSessionActivation.ts)
+   - [`packages/persistence-postgres/src/transactionSessionActivation.ts`](../packages/persistence-postgres/src/transactionSessionActivation.ts)
+   The older prototype behavior remains visible in:
    - [`packages/executor/src/sessions.ts`](../packages/executor/src/sessions.ts)
    - [`packages/executor/src/retry.ts`](../packages/executor/src/retry.ts)
    - [`packages/persistence-postgres/src/commits.ts`](../packages/persistence-postgres/src/commits.ts)
@@ -153,8 +157,9 @@ One constrained snapshot-lease row stores only the exact current attempt fence,
 `SnapshotToken`, and lease expiry. It is not a second generation or request
 authority, and parent updates/deletes do not cascade through it. S07 defines
 these physical rows; S07-A supplies current revocation storage, O03-A supplies
-signed-grant semantics, and O03-B owns atomic activation plus basic exact-fence
-lease mechanics and active-child invariants. C02 owns journal sequence/digest,
+signed-grant semantics, O03-B1 owns atomic activation/exact active-anchor
+replay, and O03-B2 owns basic exact-fence lease mechanics and active-child
+invariants. C02 owns journal sequence/digest,
 C05 introduces the private exact-fence transition to `finishing`, C06
 orchestrates it idempotently through the finish endpoint, C03 rejects late
 syscalls, O07 atomically deletes the exact lease and stores committed state plus
@@ -238,8 +243,10 @@ atomic activation -> running -> finishing -> committed
 running or finishing -> aborted | expired
 ```
 
-O03-B commits initial activation directly as `running`; S07's `created` literal
-is not a durable active state without a lease. S07's `committing` literal is
+O03-B1 commits initial activation directly as `running` and exactly replays only
+the same live request anchor; O03-B2 adds exact-fence load, renewal, abort, and
+expiry. S07's `created` literal is not a durable active state without a lease.
+S07's `committing` literal is
 also transaction-local/reserved in V1 rather than a separately durable state.
 C05 introduces the private exact-fence transition to `finishing`; C06
 orchestrates it idempotently through the finish endpoint, and C03 rejects late
@@ -540,8 +547,11 @@ storage is also complete. The O03-A parent, protocol-only O03-A1,
 auth-provenance O03-A2a, and host-neutral grant authority O03-A2b are complete.
 Corrected O03-A2c's located current-epoch and two-sided point-mutation
 preparation boundaries are also complete, so O03-A2 and O03-A are complete.
-O03-B activation then C01 are the next Wave 1 gates. Operational revocation and
-hosted Worker/key adapters are deferred and do not block the private C07 proof.
+O03-B1 activation is complete. O03-B2 exact-fence lifecycle mechanics are next,
+followed by O04 exact-snapshot point reads and O05 pure OCC validation before
+C01.
+Operational revocation and hosted Worker/key adapters are deferred and do not
+block the private C07 proof.
 Hosted compiler execution still waits for the required schema, exact-snapshot
 OCC, commit, target activation, target-only caller/recovery, and hosted
 prerequisites. Shipped-state migration prerequisites are conditional.

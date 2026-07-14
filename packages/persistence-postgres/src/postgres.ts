@@ -22,6 +22,10 @@ import {
 import {
   createLocatedScopeAuthorizationEpochTarget,
 } from "./scopeAuthorizationEpochAuthority";
+import {
+  createLocatedPointMutationSessionActivationTargetV1,
+  type LocatedPointMutationSessionActivationTargetOptionsV1,
+} from "./transactionSessionActivation";
 import type { LocatedScopeClockReader } from "./scopeAuthorityResolution";
 import type {
   ScopePhysicalLocator,
@@ -92,6 +96,18 @@ export function createPostgresLocatedScopeAuthorizationEpochTarget(
   return createLocatedScopeAuthorizationEpochTarget(
     persistence.drizzle,
     physicalLocator,
+  );
+}
+
+export function createPostgresLocatedPointMutationSessionActivationTargetV1(
+  persistence: Pick<PostgresFlarexPersistence, "drizzle">,
+  physicalLocator: ScopePhysicalLocator,
+  options: LocatedPointMutationSessionActivationTargetOptionsV1 = {},
+): LocatedScopeClockReader {
+  return createLocatedPointMutationSessionActivationTargetV1(
+    persistence.drizzle,
+    physicalLocator,
+    options,
   );
 }
 

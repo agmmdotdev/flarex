@@ -1,0 +1,1015 @@
+import { and, asc, eq, sql } from "drizzle-orm";
+
+import { isJson, type Json, type JsonObject } from "flarex-protocol/json";
+import {
+  CommitSeqSchema,
+  FlarexDbV1StorageGenerationSchema,
+  SnapshotTokenSchema,
+  StorageGenerationFenceSchema,
+  decodeReplacementScopeEpochV1,
+  decodeReplacementScopeIdV1,
+  decodeScopeEpochUuidV1,
+  decodeScopeUuidV1,
+  projectScopeEpochUuidV1,
+  projectScopeIdUuidV1,
+  replacementScopeEpochV1FromUuid,
+  type CommitSeq,
+  type FlarexDbV1StorageGeneration,
+  type ReplacementScopeIdV1,
+  type ScopeEpoch,
+  type ScopeEpochUuidV1,
+  type ScopeId,
+  type ScopeUuidV1,
+  type SnapshotToken,
+  type StorageGenerationFence,
+} from "flarex-protocol/storage-authority";
+import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction-grant";
+import {
+  TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
+  CanonicalTransactionArgumentsBytesV1Schema,
+  CanonicalTransactionAuthorizationGrantBytesV1Schema,
+  TransactionAttemptFenceSchema,
+  TransactionArgumentsSha256V1Schema,
+  TransactionAuthorizationGrantSha256V1Schema,
+  TransactionAuthorizationRevocationEpochSchema,
+  TransactionIdentityAccessPolicySha256V1Schema,
+  TransactionRequestSha256V1Schema,
+  TransactionSessionIdV1Schema,
+  type TransactionAttemptFence,
+  type TransactionAuthorizationRevocationEpoch,
+  type TransactionSessionLifecycleV1,
+  type TransactionRequestKeyV1,
+  type TransactionSessionIdV1,
+} from "flarex-protocol/transaction-session";
+
+import type { FlarexMetadataDatabase } from "./deployments";
+import {
+  getScopeClock,
+  decodeScopeClockRecord,
+  ScopeClockNotFoundError,
+  type ScopeClockRecord,
+} from "./scopeClock";
+import {
+  resolveLocatedTrustedScopeAuthority,
+  type LocatedScopeClockReader,
+  type ScopeClockTargetReaderResolver,
+  type ScopeMetadataReader,
+  type ScopeProvisioningReceiptReader,
+  type TrustedScopeAuthority,
+} from "./scopeAuthorityResolution";
+import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
+import {
+  fxSystemScopeClocks,
+  fxSystemSnapshotLeases,
+  fxSystemTransactionSessions,
+} from "./schema";
+
+const UUID_V4_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+const INITIAL_ATTEMPT_FENCE = TransactionAttemptFenceSchema.make(1n);
+
+export interface PointMutationSessionActivationResolutionPortsV1 {
+  readonly scopeMetadata: ScopeMetadataReader;
+  readonly provisioningReceipts: ScopeProvisioningReceiptReader;
+  readonly scopeSessionTargets: ScopeClockTargetReaderResolver;
+}
+
+export interface PointMutationSessionActivationPersistenceOptionsV1 {
+  readonly leaseDurationMilliseconds: number;
+  readonly randomUuid?: () => string;
+}
+
+type TransactionSessionInsert =
+  typeof fxSystemTransactionSessions.$inferInsert;
+
+export type PreparedPointMutationSessionEvidenceV1 = Readonly<
+  Pick<
+    TransactionSessionInsert,
+    | "packageId"
+    | "artifactRuntime"
+    | "artifactId"
+    | "sourcePackageHash"
+    | "executionModule"
+    | "functionPath"
+    | "functionKind"
+    | "schemaVersionId"
+    | "policyVersion"
+    | "identityAccessPolicySha256"
+    | "validatedArgsJson"
+    | "validatedArgsValueCodecVersion"
+    | "validatedArgsCanonicalBytes"
+    | "validatedArgsSha256"
+    | "authorizationGrantId"
+    | "authorizationGrantJson"
+    | "authorizationGrantValueCodecVersion"
+    | "authorizationGrantCanonicalBytes"
+    | "authorizationGrantSha256"
+    | "authorizationRevocationEpoch"
+    | "authorizationGrantExpiresAt"
+    | "requestKey"
+    | "requestSha256"
+  >
+>;
+
+export interface PreparedPointMutationSessionActivationV1 {
+  readonly deploymentId: TransactionGrantDeploymentIdV1;
+  readonly scopeId: ReplacementScopeIdV1;
+  readonly evidence: PreparedPointMutationSessionEvidenceV1;
+}
+
+export interface PointMutationSessionAnchorV1 {
+  readonly deploymentId: TransactionGrantDeploymentIdV1;
+  readonly scopeId: ReplacementScopeIdV1;
+  readonly sessionId: TransactionSessionIdV1;
+  readonly requestKey: TransactionRequestKeyV1;
+  readonly storageGeneration: FlarexDbV1StorageGeneration;
+  readonly storageGenerationFence: StorageGenerationFence;
+  readonly attemptFence: TransactionAttemptFence;
+  readonly snapshotToken: SnapshotToken;
+  readonly hardExpiresAt: string;
+  readonly leaseExpiresAt: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export type PointMutationSessionActivationResultV1 =
+  | {
+      readonly status: "created";
+      readonly anchor: PointMutationSessionAnchorV1;
+    }
+  | {
+      readonly status: "replayed";
+      readonly anchor: PointMutationSessionAnchorV1;
+    };
+
+export interface PointMutationSessionActivationPersistenceV1 {
+  readonly activate: (
+    input: PreparedPointMutationSessionActivationV1,
+  ) => Promise<PointMutationSessionActivationResultV1>;
+}
+
+export type PointMutationSessionActivationConfigurationIssueV1 =
+  | { readonly reason: "invalidLeaseDuration" }
+  | { readonly reason: "invalidGeneratedSessionId"; readonly value: string }
+  | { readonly reason: "sessionIdGenerationFailed"; readonly cause: unknown };
+
+export class PointMutationSessionActivationConfigurationV1Error extends Error {
+  readonly name = "PointMutationSessionActivationConfigurationV1Error";
+
+  constructor(
+    readonly issue: PointMutationSessionActivationConfigurationIssueV1,
+  ) {
+    super(`Point-mutation session activation configuration failed: ${issue.reason}.`);
+  }
+}
+
+export type PointMutationSessionActivationIssueV1 =
+  | { readonly reason: "scopeMismatch" }
+  | { readonly reason: "unsupportedStorageGeneration" }
+  | { readonly reason: "storageGenerationChanged" }
+  | { readonly reason: "storageGenerationFenceChanged" }
+  | { readonly reason: "scopeEpochChanged" }
+  | { readonly reason: "snapshotCommitSeqChanged" }
+  | { readonly reason: "authorizationRevocationEpochChanged" }
+  | { readonly reason: "invalidPreparedEvidence" }
+  | { readonly reason: "authorizationGrantExpired" }
+  | { readonly reason: "requestKeyConflict" }
+  | {
+      readonly reason: "terminalRequest";
+      readonly lifecycle: Exclude<TransactionSessionLifecycleV1, "running">;
+    }
+  | { readonly reason: "activeAttemptExpired" }
+  | { readonly reason: "sessionIdCollision" };
+
+export class PointMutationSessionActivationV1Error extends Error {
+  readonly name = "PointMutationSessionActivationV1Error";
+
+  constructor(readonly issue: PointMutationSessionActivationIssueV1) {
+    super(`Point-mutation session activation failed: ${issue.reason}.`);
+  }
+}
+
+export type PointMutationSessionAuthorityCorruptionIssueV1 =
+  | "scopeClockNativeProjectionInvalid"
+  | "databaseClockInvalid"
+  | "duplicateRequestAnchors"
+  | "sessionRecordInvalid"
+  | "snapshotLeaseMissing"
+  | "snapshotLeaseInvalid"
+  | "snapshotAheadOfScopeClock";
+
+export class PointMutationSessionAuthorityCorruptionV1Error extends Error {
+  readonly name = "PointMutationSessionAuthorityCorruptionV1Error";
+
+  constructor(
+    readonly scopeId: ScopeId,
+    readonly issue: PointMutationSessionAuthorityCorruptionIssueV1,
+    options?: ErrorOptions,
+  ) {
+    super(`Point-mutation session authority is corrupt for ${scopeId}: ${issue}.`, options);
+  }
+}
+
+export class PointMutationSessionActivationTargetV1Error extends Error {
+  readonly name = "PointMutationSessionActivationTargetV1Error";
+
+  constructor(readonly scopeId: ScopeId) {
+    super(`Located scope target cannot activate point-mutation sessions: ${scopeId}.`);
+  }
+}
+
+export type PointMutationSessionActivationWriteStepV1 =
+  | "sessionInserted"
+  | "leaseInserted";
+
+export interface LocatedPointMutationSessionActivationTargetOptionsV1 {
+  /** Construction-bound instrumentation used by focused rollback proofs. */
+  readonly afterWrite?: (
+    step: PointMutationSessionActivationWriteStepV1,
+  ) => void | Promise<void>;
+}
+
+interface LocatedPointMutationSessionActivationTargetV1
+  extends LocatedScopeClockReader {
+  readonly activatePreparedPointMutationSession: (
+    input: LocatedPointMutationSessionActivationInputV1,
+  ) => Promise<PointMutationSessionActivationResultV1>;
+}
+
+interface LocatedPointMutationSessionActivationInputV1 {
+  readonly prepared: PreparedPointMutationSessionActivationV1;
+  readonly preliminaryAuthority: TrustedScopeAuthority;
+  readonly candidateSessionId: TransactionSessionIdV1;
+  readonly leaseDurationMilliseconds: number;
+}
+
+interface LockedPointMutationSessionClockV1 {
+  readonly record: ScopeClockRecord;
+  readonly scopeUuid: ScopeUuidV1;
+  readonly epochUuid: ScopeEpochUuidV1;
+  readonly authorizationRevocationEpoch:
+    TransactionAuthorizationRevocationEpoch;
+}
+
+export function createPointMutationSessionActivationPersistenceV1(
+  ports: PointMutationSessionActivationResolutionPortsV1,
+  options: PointMutationSessionActivationPersistenceOptionsV1,
+): PointMutationSessionActivationPersistenceV1 {
+  const leaseDurationMilliseconds = requireLeaseDuration(
+    options.leaseDurationMilliseconds,
+  );
+  const randomUuid = options.randomUuid ?? (() => crypto.randomUUID());
+
+  return Object.freeze({
+    activate: async (
+      input: PreparedPointMutationSessionActivationV1,
+    ): Promise<PointMutationSessionActivationResultV1> => {
+      const prepared = capturePreparedActivation(input);
+      const candidateSessionId = generateSessionId(randomUuid);
+      const located = await resolveLocatedTrustedScopeAuthority(
+        prepared.deploymentId,
+        {
+          scopeMetadata: ports.scopeMetadata,
+          provisioningReceipts: ports.provisioningReceipts,
+          scopeClockTargets: ports.scopeSessionTargets,
+        },
+      );
+      if (located.authority.scopeId !== prepared.scopeId) {
+        throw activationError({ reason: "scopeMismatch" });
+      }
+      const target = requireActivationTarget(
+        located.target,
+        prepared.scopeId,
+      );
+      return target.activatePreparedPointMutationSession({
+        prepared,
+        preliminaryAuthority: located.authority,
+        candidateSessionId,
+        leaseDurationMilliseconds,
+      });
+    },
+  });
+}
+
+export function createLocatedPointMutationSessionActivationTargetV1(
+  db: FlarexMetadataDatabase,
+  physicalLocator: ScopePhysicalLocator,
+  options: LocatedPointMutationSessionActivationTargetOptionsV1 = {},
+): LocatedScopeClockReader {
+  const capturedLocator = capturePhysicalLocator(physicalLocator);
+  const afterWrite = options.afterWrite;
+  const target = Object.freeze({
+    physicalLocator: capturedLocator,
+    getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
+    activatePreparedPointMutationSession: (
+      input: LocatedPointMutationSessionActivationInputV1,
+    ) => db.transaction((tx) => activateInTransaction(tx, input, afterWrite)),
+  } satisfies LocatedPointMutationSessionActivationTargetV1);
+  return target;
+}
+
+async function activateInTransaction(
+  tx: FlarexMetadataDatabase,
+  input: LocatedPointMutationSessionActivationInputV1,
+  afterWrite:
+    | LocatedPointMutationSessionActivationTargetOptionsV1["afterWrite"]
+    | undefined,
+): Promise<PointMutationSessionActivationResultV1> {
+  const clock = await lockActivationClock(tx, input.prepared.scopeId);
+  requireStableAuthority(clock, input);
+  const databaseNow = await readDatabaseNow(tx, input.prepared.scopeId);
+  const matchingSessions = await tx
+    .select()
+    .from(fxSystemTransactionSessions)
+    .where(and(
+      eq(fxSystemTransactionSessions.scopeUuid, clock.scopeUuid),
+      eq(
+        fxSystemTransactionSessions.requestKey,
+        input.prepared.evidence.requestKey,
+      ),
+    ))
+    .orderBy(asc(fxSystemTransactionSessions.sessionId))
+    .limit(2)
+    .for("update");
+
+  if (matchingSessions.length > 1) {
+    throw corruptionError(
+      input.prepared.scopeId,
+      "duplicateRequestAnchors",
+    );
+  }
+  const existing = matchingSessions[0];
+  if (existing !== undefined) {
+    return replayExistingSession(
+      tx,
+      input.prepared,
+      clock,
+      databaseNow,
+      existing,
+    );
+  }
+
+  if (
+    clock.record.lastCommitSeq !==
+    input.preliminaryAuthority.lastCommitSeq
+  ) {
+    throw activationError({ reason: "snapshotCommitSeqChanged" });
+  }
+  return createSession(
+    tx,
+    input,
+    clock,
+    databaseNow,
+    afterWrite,
+  );
+}
+
+async function createSession(
+  tx: FlarexMetadataDatabase,
+  input: LocatedPointMutationSessionActivationInputV1,
+  clock: LockedPointMutationSessionClockV1,
+  databaseNow: Date,
+  afterWrite:
+    | LocatedPointMutationSessionActivationTargetOptionsV1["afterWrite"]
+    | undefined,
+): Promise<PointMutationSessionActivationResultV1> {
+  const evidence = input.prepared.evidence;
+  const hardExpiresAt = cloneValidDate(evidence.authorizationGrantExpiresAt);
+  const leaseExpiresAt = deriveInitialLeaseExpiry(
+    databaseNow,
+    hardExpiresAt,
+    input.leaseDurationMilliseconds,
+  );
+  const inserted = await tx
+    .insert(fxSystemTransactionSessions)
+    .values({
+      scopeUuid: clock.scopeUuid,
+      sessionId: input.candidateSessionId,
+      storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+      storageGenerationFence: clock.record.storageGenerationFence,
+      ...evidence,
+      lifecycle: "running",
+      attemptFence: INITIAL_ATTEMPT_FENCE,
+      protocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
+      hardExpiresAt,
+      createdAt: databaseNow,
+      updatedAt: databaseNow,
+    })
+    .onConflictDoNothing({
+      target: [
+        fxSystemTransactionSessions.scopeUuid,
+        fxSystemTransactionSessions.sessionId,
+      ],
+    })
+    .returning({ sessionId: fxSystemTransactionSessions.sessionId });
+  if (inserted[0] === undefined) {
+    throw activationError({ reason: "sessionIdCollision" });
+  }
+  await afterWrite?.("sessionInserted");
+
+  await tx.insert(fxSystemSnapshotLeases).values({
+    scopeUuid: clock.scopeUuid,
+    sessionId: input.candidateSessionId,
+    attemptFence: INITIAL_ATTEMPT_FENCE,
+    snapshotEpochUuid: clock.epochUuid,
+    snapshotCommitSeq: clock.record.lastCommitSeq,
+    leaseExpiresAt,
+  });
+  await afterWrite?.("leaseInserted");
+
+  return activationResult("created", {
+    deploymentId: input.prepared.deploymentId,
+    scopeId: input.prepared.scopeId,
+    sessionId: input.candidateSessionId,
+    requestKey: evidence.requestKey,
+    storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+    storageGenerationFence: clock.record.storageGenerationFence,
+    attemptFence: INITIAL_ATTEMPT_FENCE,
+    snapshotToken: SnapshotTokenSchema.make({
+      scopeId: input.prepared.scopeId,
+      epoch: clock.record.epoch,
+      commitSeq: clock.record.lastCommitSeq,
+    }),
+    hardExpiresAt: hardExpiresAt.toISOString(),
+    leaseExpiresAt: leaseExpiresAt.toISOString(),
+    createdAt: databaseNow.toISOString(),
+    updatedAt: databaseNow.toISOString(),
+  });
+}
+
+async function replayExistingSession(
+  tx: FlarexMetadataDatabase,
+  prepared: PreparedPointMutationSessionActivationV1,
+  clock: LockedPointMutationSessionClockV1,
+  databaseNow: Date,
+  session: typeof fxSystemTransactionSessions.$inferSelect,
+): Promise<PointMutationSessionActivationResultV1> {
+  if (!sessionEvidenceMatches(session, prepared.evidence)) {
+    throw activationError({ reason: "requestKeyConflict" });
+  }
+  if (session.lifecycle !== "running") {
+    throw activationError({
+      reason: "terminalRequest",
+      lifecycle: session.lifecycle,
+    });
+  }
+  if (session.storageGeneration !== "flarexdb_v1") {
+    throw activationError({ reason: "unsupportedStorageGeneration" });
+  }
+  if (
+    session.storageGenerationFence !== clock.record.storageGenerationFence
+  ) {
+    throw activationError({ reason: "storageGenerationFenceChanged" });
+  }
+  if (
+    session.authorizationRevocationEpoch !==
+    clock.authorizationRevocationEpoch
+  ) {
+    throw activationError({ reason: "authorizationRevocationEpochChanged" });
+  }
+  if (
+    !isValidDate(session.authorizationGrantExpiresAt) ||
+    !isValidDate(session.hardExpiresAt) ||
+    !isValidDate(session.createdAt) ||
+    !isValidDate(session.updatedAt)
+  ) {
+    throw corruptionError(prepared.scopeId, "sessionRecordInvalid");
+  }
+  if (
+    session.authorizationGrantExpiresAt.getTime() <= databaseNow.getTime() ||
+    session.hardExpiresAt.getTime() <= databaseNow.getTime()
+  ) {
+    throw activationError({ reason: "activeAttemptExpired" });
+  }
+  if (
+    session.hardExpiresAt.getTime() !==
+    session.authorizationGrantExpiresAt.getTime()
+  ) {
+    throw corruptionError(prepared.scopeId, "sessionRecordInvalid");
+  }
+
+  let sessionId: TransactionSessionIdV1;
+  let attemptFence: TransactionAttemptFence;
+  try {
+    sessionId = TransactionSessionIdV1Schema.make(session.sessionId);
+    attemptFence = TransactionAttemptFenceSchema.make(session.attemptFence);
+  } catch (cause) {
+    throw corruptionError(
+      prepared.scopeId,
+      "sessionRecordInvalid",
+      cause,
+    );
+  }
+  if (session.protocolVersion !== TRANSACTION_SESSION_PROTOCOL_VERSION_V1) {
+    throw corruptionError(prepared.scopeId, "sessionRecordInvalid");
+  }
+
+  const leases = await tx
+    .select()
+    .from(fxSystemSnapshotLeases)
+    .where(and(
+      eq(fxSystemSnapshotLeases.scopeUuid, clock.scopeUuid),
+      eq(fxSystemSnapshotLeases.sessionId, sessionId),
+    ))
+    .limit(2)
+    .for("update");
+  const lease = leases[0];
+  if (lease === undefined || leases.length !== 1) {
+    throw corruptionError(prepared.scopeId, "snapshotLeaseMissing");
+  }
+  if (lease.attemptFence !== attemptFence) {
+    throw corruptionError(prepared.scopeId, "snapshotLeaseInvalid");
+  }
+  if (!isValidDate(lease.leaseExpiresAt)) {
+    throw corruptionError(prepared.scopeId, "snapshotLeaseInvalid");
+  }
+  if (lease.leaseExpiresAt.getTime() > session.hardExpiresAt.getTime()) {
+    throw corruptionError(prepared.scopeId, "snapshotLeaseInvalid");
+  }
+  let snapshotEpoch: ScopeEpoch;
+  let snapshotCommitSeq: CommitSeq;
+  try {
+    snapshotEpoch = replacementScopeEpochV1FromUuid(lease.snapshotEpochUuid);
+    snapshotCommitSeq = CommitSeqSchema.make(lease.snapshotCommitSeq);
+  } catch (cause) {
+    throw corruptionError(
+      prepared.scopeId,
+      "snapshotLeaseInvalid",
+      cause,
+    );
+  }
+  if (snapshotEpoch !== clock.record.epoch) {
+    throw activationError({ reason: "scopeEpochChanged" });
+  }
+  if (snapshotCommitSeq > clock.record.lastCommitSeq) {
+    throw corruptionError(prepared.scopeId, "snapshotAheadOfScopeClock");
+  }
+  if (lease.leaseExpiresAt.getTime() <= databaseNow.getTime()) {
+    throw activationError({ reason: "activeAttemptExpired" });
+  }
+
+  return activationResult("replayed", {
+    deploymentId: prepared.deploymentId,
+    scopeId: prepared.scopeId,
+    sessionId,
+    requestKey: session.requestKey,
+    storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+    storageGenerationFence: session.storageGenerationFence,
+    attemptFence,
+    snapshotToken: SnapshotTokenSchema.make({
+      scopeId: prepared.scopeId,
+      epoch: snapshotEpoch,
+      commitSeq: snapshotCommitSeq,
+    }),
+    hardExpiresAt: session.hardExpiresAt.toISOString(),
+    leaseExpiresAt: lease.leaseExpiresAt.toISOString(),
+    createdAt: session.createdAt.toISOString(),
+    updatedAt: session.updatedAt.toISOString(),
+  });
+}
+
+async function lockActivationClock(
+  tx: FlarexMetadataDatabase,
+  scopeId: ReplacementScopeIdV1,
+): Promise<LockedPointMutationSessionClockV1> {
+  const rows = await tx
+    .select()
+    .from(fxSystemScopeClocks)
+    .where(eq(fxSystemScopeClocks.scopeId, scopeId))
+    .limit(1)
+    .for("update");
+  const row = rows[0];
+  if (row === undefined) throw new ScopeClockNotFoundError(scopeId);
+  const record = decodeScopeClockRecord(row);
+  try {
+    const scopeProjection = projectScopeIdUuidV1(record.scopeId);
+    const epochProjection = projectScopeEpochUuidV1(record.epoch);
+    const scopeUuid = decodeScopeUuidV1(row.scopeUuid);
+    const epochUuid = decodeScopeEpochUuidV1(row.epochUuid);
+    if (
+      scopeUuid !== scopeProjection.scopeUuid ||
+      epochUuid !== epochProjection.epochUuid
+    ) {
+      throw new Error("Native scope-clock projection mismatch.");
+    }
+    return Object.freeze({
+      record,
+      scopeUuid,
+      epochUuid,
+      authorizationRevocationEpoch:
+        TransactionAuthorizationRevocationEpochSchema.make(
+          row.authorizationRevocationEpoch,
+        ),
+    });
+  } catch (cause) {
+    throw corruptionError(
+      scopeId,
+      "scopeClockNativeProjectionInvalid",
+      cause,
+    );
+  }
+}
+
+function requireStableAuthority(
+  clock: LockedPointMutationSessionClockV1,
+  input: LocatedPointMutationSessionActivationInputV1,
+): void {
+  const preliminary = input.preliminaryAuthority;
+  if (
+    clock.record.scopeId !== input.prepared.scopeId ||
+    preliminary.scopeId !== input.prepared.scopeId
+  ) {
+    throw activationError({ reason: "scopeMismatch" });
+  }
+  if (
+    clock.record.storageGeneration !== "flarexdb_v1" ||
+    preliminary.storageGeneration !== "flarexdb_v1"
+  ) {
+    throw activationError({ reason: "unsupportedStorageGeneration" });
+  }
+  if (clock.record.storageGeneration !== preliminary.storageGeneration) {
+    throw activationError({ reason: "storageGenerationChanged" });
+  }
+  if (
+    clock.record.storageGenerationFence !==
+    preliminary.storageGenerationFence
+  ) {
+    throw activationError({ reason: "storageGenerationFenceChanged" });
+  }
+  if (clock.record.epoch !== preliminary.epoch) {
+    throw activationError({ reason: "scopeEpochChanged" });
+  }
+  if (
+    clock.authorizationRevocationEpoch !==
+    input.prepared.evidence.authorizationRevocationEpoch
+  ) {
+    throw activationError({
+      reason: "authorizationRevocationEpochChanged",
+    });
+  }
+}
+
+async function readDatabaseNow(
+  tx: FlarexMetadataDatabase,
+  scopeId: ScopeId,
+): Promise<Date> {
+  const rows = await tx
+    .select({
+      databaseNowEpochMilliseconds: sql<string>`
+        floor(extract(epoch from clock_timestamp()) * 1000)::bigint::text
+      `,
+    })
+    .from(fxSystemScopeClocks)
+    .where(eq(fxSystemScopeClocks.scopeId, scopeId))
+    .limit(1);
+  const epochMillisecondsText = rows[0]?.databaseNowEpochMilliseconds;
+  if (typeof epochMillisecondsText !== "string") {
+    throw corruptionError(scopeId, "databaseClockInvalid");
+  }
+  const epochMilliseconds = Number(epochMillisecondsText);
+  const databaseNow = new Date(epochMilliseconds);
+  if (!Number.isSafeInteger(epochMilliseconds) || !isValidDate(databaseNow)) {
+    throw corruptionError(scopeId, "databaseClockInvalid");
+  }
+  return databaseNow;
+}
+
+function deriveInitialLeaseExpiry(
+  databaseNow: Date,
+  hardExpiresAt: Date,
+  leaseDurationMilliseconds: number,
+): Date {
+  const databaseNowMilliseconds = databaseNow.getTime();
+  const hardExpiryMilliseconds = hardExpiresAt.getTime();
+  const remainingMilliseconds =
+    hardExpiryMilliseconds - databaseNowMilliseconds;
+  if (remainingMilliseconds <= 0) {
+    throw activationError({ reason: "authorizationGrantExpired" });
+  }
+  const leaseExpiresAt = new Date(
+    databaseNowMilliseconds +
+      Math.min(leaseDurationMilliseconds, remainingMilliseconds),
+  );
+  if (leaseExpiresAt.getTime() <= databaseNowMilliseconds) {
+    throw activationError({ reason: "authorizationGrantExpired" });
+  }
+  return leaseExpiresAt;
+}
+
+function sessionEvidenceMatches(
+  session: typeof fxSystemTransactionSessions.$inferSelect,
+  expected: PreparedPointMutationSessionEvidenceV1,
+): boolean {
+  return (
+    session.packageId === expected.packageId &&
+    session.artifactRuntime === expected.artifactRuntime &&
+    session.artifactId === expected.artifactId &&
+    session.sourcePackageHash === expected.sourcePackageHash &&
+    session.executionModule === expected.executionModule &&
+    session.functionPath === expected.functionPath &&
+    session.functionKind === expected.functionKind &&
+    session.schemaVersionId === expected.schemaVersionId &&
+    session.policyVersion === expected.policyVersion &&
+    bytesEqual(
+      session.identityAccessPolicySha256,
+      expected.identityAccessPolicySha256,
+    ) &&
+    jsonEqual(session.validatedArgsJson, expected.validatedArgsJson) &&
+    session.validatedArgsValueCodecVersion ===
+      expected.validatedArgsValueCodecVersion &&
+    bytesEqual(
+      session.validatedArgsCanonicalBytes,
+      expected.validatedArgsCanonicalBytes,
+    ) &&
+    bytesEqual(session.validatedArgsSha256, expected.validatedArgsSha256) &&
+    session.authorizationGrantId === expected.authorizationGrantId &&
+    jsonEqual(
+      session.authorizationGrantJson,
+      expected.authorizationGrantJson,
+    ) &&
+    session.authorizationGrantValueCodecVersion ===
+      expected.authorizationGrantValueCodecVersion &&
+    bytesEqual(
+      session.authorizationGrantCanonicalBytes,
+      expected.authorizationGrantCanonicalBytes,
+    ) &&
+    bytesEqual(
+      session.authorizationGrantSha256,
+      expected.authorizationGrantSha256,
+    ) &&
+    session.authorizationRevocationEpoch ===
+      expected.authorizationRevocationEpoch &&
+    session.authorizationGrantExpiresAt.getTime() ===
+      expected.authorizationGrantExpiresAt.getTime() &&
+    session.requestKey === expected.requestKey &&
+    bytesEqual(session.requestSha256, expected.requestSha256)
+  );
+}
+
+function capturePreparedActivation(
+  input: PreparedPointMutationSessionActivationV1,
+): PreparedPointMutationSessionActivationV1 {
+  const evidence = input.evidence;
+  if (
+    !isJson(evidence.validatedArgsJson) ||
+    !isJsonObject(evidence.validatedArgsJson) ||
+    !isJson(evidence.authorizationGrantJson) ||
+    !isJsonObject(evidence.authorizationGrantJson)
+  ) {
+    throw activationError({ reason: "invalidPreparedEvidence" });
+  }
+  return Object.freeze({
+    deploymentId: input.deploymentId,
+    scopeId: decodeReplacementScopeIdV1(input.scopeId),
+    evidence: Object.freeze({
+      packageId: evidence.packageId,
+      artifactRuntime: evidence.artifactRuntime,
+      artifactId: evidence.artifactId,
+      sourcePackageHash: evidence.sourcePackageHash,
+      executionModule: evidence.executionModule,
+      functionPath: evidence.functionPath,
+      functionKind: evidence.functionKind,
+      schemaVersionId: evidence.schemaVersionId,
+      policyVersion: evidence.policyVersion,
+      identityAccessPolicySha256:
+        TransactionIdentityAccessPolicySha256V1Schema.make(
+          new Uint8Array(evidence.identityAccessPolicySha256),
+        ),
+      validatedArgsJson: cloneJsonObject(evidence.validatedArgsJson),
+      validatedArgsValueCodecVersion:
+        evidence.validatedArgsValueCodecVersion,
+      validatedArgsCanonicalBytes:
+        CanonicalTransactionArgumentsBytesV1Schema.make(
+          new Uint8Array(evidence.validatedArgsCanonicalBytes),
+        ),
+      validatedArgsSha256: TransactionArgumentsSha256V1Schema.make(
+        new Uint8Array(evidence.validatedArgsSha256),
+      ),
+      authorizationGrantId: evidence.authorizationGrantId,
+      authorizationGrantJson: cloneJsonObject(
+        evidence.authorizationGrantJson,
+      ),
+      authorizationGrantValueCodecVersion:
+        evidence.authorizationGrantValueCodecVersion,
+      authorizationGrantCanonicalBytes:
+        CanonicalTransactionAuthorizationGrantBytesV1Schema.make(
+          new Uint8Array(evidence.authorizationGrantCanonicalBytes),
+        ),
+      authorizationGrantSha256:
+        TransactionAuthorizationGrantSha256V1Schema.make(
+          new Uint8Array(evidence.authorizationGrantSha256),
+        ),
+      authorizationRevocationEpoch:
+        TransactionAuthorizationRevocationEpochSchema.make(
+          evidence.authorizationRevocationEpoch,
+        ),
+      authorizationGrantExpiresAt: cloneValidDate(
+        evidence.authorizationGrantExpiresAt,
+      ),
+      requestKey: evidence.requestKey,
+      requestSha256: TransactionRequestSha256V1Schema.make(
+        new Uint8Array(evidence.requestSha256),
+      ),
+    }),
+  });
+}
+
+function requireActivationTarget(
+  target: LocatedScopeClockReader,
+  scopeId: ScopeId,
+): LocatedPointMutationSessionActivationTargetV1 {
+  if (!isActivationTarget(target)) {
+    throw new PointMutationSessionActivationTargetV1Error(scopeId);
+  }
+  return target;
+}
+
+function isActivationTarget(
+  target: LocatedScopeClockReader,
+): target is LocatedPointMutationSessionActivationTargetV1 {
+  return typeof Reflect.get(target, "activatePreparedPointMutationSession") ===
+    "function";
+}
+
+function requireLeaseDuration(value: number): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new PointMutationSessionActivationConfigurationV1Error({
+      reason: "invalidLeaseDuration",
+    });
+  }
+  return value;
+}
+
+function generateSessionId(randomUuid: () => string): TransactionSessionIdV1 {
+  let value: string;
+  try {
+    value = randomUuid();
+  } catch (cause) {
+    throw new PointMutationSessionActivationConfigurationV1Error({
+      reason: "sessionIdGenerationFailed",
+      cause,
+    });
+  }
+  if (!UUID_V4_PATTERN.test(value)) {
+    throw new PointMutationSessionActivationConfigurationV1Error({
+      reason: "invalidGeneratedSessionId",
+      value,
+    });
+  }
+  return TransactionSessionIdV1Schema.make(value);
+}
+
+function activationResult(
+  status: PointMutationSessionActivationResultV1["status"],
+  anchor: PointMutationSessionAnchorV1,
+): PointMutationSessionActivationResultV1 {
+  const capturedAnchor = Object.freeze({
+    ...anchor,
+    snapshotToken: Object.freeze(
+      SnapshotTokenSchema.make({
+        scopeId: anchor.snapshotToken.scopeId,
+        epoch: anchor.snapshotToken.epoch,
+        commitSeq: anchor.snapshotToken.commitSeq,
+      }),
+    ),
+  } satisfies PointMutationSessionAnchorV1);
+  switch (status) {
+    case "created":
+      return Object.freeze({
+        status: "created",
+        anchor: capturedAnchor,
+      } satisfies PointMutationSessionActivationResultV1);
+    case "replayed":
+      return Object.freeze({
+        status: "replayed",
+        anchor: capturedAnchor,
+      } satisfies PointMutationSessionActivationResultV1);
+  }
+}
+
+function activationError(
+  issue: PointMutationSessionActivationIssueV1,
+): PointMutationSessionActivationV1Error {
+  return new PointMutationSessionActivationV1Error(issue);
+}
+
+function corruptionError(
+  scopeId: ScopeId,
+  issue: PointMutationSessionAuthorityCorruptionIssueV1,
+  cause?: unknown,
+): PointMutationSessionAuthorityCorruptionV1Error {
+  return new PointMutationSessionAuthorityCorruptionV1Error(
+    scopeId,
+    issue,
+    cause === undefined ? undefined : { cause },
+  );
+}
+
+function cloneValidDate(value: Date): Date {
+  if (!(value instanceof Date)) {
+    throw new PointMutationSessionActivationV1Error({
+      reason: "invalidPreparedEvidence",
+    });
+  }
+  const cloned = new Date(value.getTime());
+  if (!isValidDate(cloned)) {
+    throw new PointMutationSessionActivationV1Error({
+      reason: "invalidPreparedEvidence",
+    });
+  }
+  return cloned;
+}
+
+function isValidDate(value: Date): boolean {
+  return Number.isFinite(value.getTime());
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function cloneJsonObject(value: JsonObject): JsonObject {
+  const result: Record<string, Json> = {};
+  for (const key of Object.keys(value)) {
+    const child = value[key];
+    if (child === undefined) {
+      throw new Error(`Missing JSON object value for key ${key}.`);
+    }
+    Object.defineProperty(result, key, {
+      configurable: false,
+      enumerable: true,
+      value: cloneJson(child),
+      writable: false,
+    });
+  }
+  return Object.freeze(result);
+}
+
+function cloneJson(value: Json): Json {
+  if (isJsonArray(value)) {
+    return Object.freeze(value.map(cloneJson));
+  }
+  if (isJsonObject(value)) {
+    return cloneJsonObject(value);
+  }
+  return value;
+}
+
+function jsonEqual(left: Json, right: Json): boolean {
+  if (Object.is(left, right)) return true;
+  if (isJsonArray(left)) {
+    if (!isJsonArray(right) || left.length !== right.length) return false;
+    return left.every((value, index) => {
+      const rightValue = right[index];
+      return rightValue !== undefined && jsonEqual(value, rightValue);
+    });
+  }
+  if (!isJsonObject(left) || !isJsonObject(right)) {
+    return false;
+  }
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  if (
+    leftKeys.length !== rightKeys.length ||
+    leftKeys.some((key, index) => key !== rightKeys[index])
+  ) {
+    return false;
+  }
+  return leftKeys.every((key) => {
+    const leftValue = left[key];
+    const rightValue = right[key];
+    return (
+      leftValue !== undefined &&
+      rightValue !== undefined &&
+      jsonEqual(leftValue, rightValue)
+    );
+  });
+}
+
+function isJsonArray(value: Json): value is ReadonlyArray<Json> {
+  return Array.isArray(value);
+}
+
+function isJsonObject(value: Json): value is JsonObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function capturePhysicalLocator(
+  physicalLocator: ScopePhysicalLocator,
+): ScopePhysicalLocator {
+  switch (physicalLocator.kind) {
+    case "shared_database":
+    case "schema_per_scope":
+    case "database_per_scope":
+      return Object.freeze({
+        kind: physicalLocator.kind,
+        databaseKey: physicalLocator.databaseKey,
+        schemaName: physicalLocator.schemaName,
+      });
+  }
+}

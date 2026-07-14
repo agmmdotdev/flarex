@@ -11,14 +11,15 @@ contract and three-checkpoint `O03-A2` integration are complete. Corrected
 `O03-A2c` has exactly two blocking boundaries: located current-epoch admission
 and schema-neutral two-sided point-mutation preparation. Both pass. Checked
 revocation and hosted Worker/key adapters are deferred nonblocking gates for
-their first real consumers. `O03-B` consumes only the final opaque prepared-
-start capability for atomic session activation and requires its own evidence-
-backed preflight.
+their first real consumers. The accepted `O03-B1`/`O03-B2` split consumes only
+the final opaque prepared-start capability. B1's atomic activation and exact
+active-anchor replay are complete; B2's exact-fence load, renewal, abort, and
+expiry are next before O04.
 
 | Stream | Current status |
 | --- | --- |
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, and narrow `S07-A` complete |
-| OCC/transactions | Private non-routing `O02` snapshot resolution and all of `O03-A` are complete, including A2c's located-epoch and two-sided preparation boundaries; standalone `O01` retired before implementation; `O03-B` is next, while operational revocation and hosted adapters remain deferred nonblockers |
+| OCC/transactions | Private non-routing `O02`, all of `O03-A`, and `O03-B1` atomic activation/exact active-anchor replay are complete; standalone `O01` retired before implementation; `O03-B2` exact-fence lifecycle mechanics are next, while operational revocation and hosted adapters remain deferred nonblockers |
 | Commit compiler | Planned; `C01` is the first unchecked compiler gate |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
@@ -236,16 +237,19 @@ types and ports are introduced by the gates that first consume them.
    to a roadmap-17 plus S03-D4/S04 coherent active-metadata snapshot/fence.
    Checked revocation and private Worker/key adapters move to their first real
    operational and hosted-production consumers.
-10. `O03-B`: private atomic session/lease activation plus exact-fence renewal,
-   abort, and expiry mechanics.
-11. `O04`: exact-snapshot point reads including missing-row dependencies.
-12. `O05`: pure point-OCC validator.
-13. `C01`: narrow compiler/executor ports without endpoint changes.
-14. `C02`: versioned journal/envelope/plan protocol.
-15. `C03`: point read-your-writes and fail-closed unsupported shapes.
-16. `C04`: pure deterministic point-row planner.
+10. `O03-B1` (complete): private atomic session/lease activation plus exact active-anchor
+    replay.
+11. `O03-B2` (next): private exact-fence load, renewal, abort, and expiry mechanics.
+12. `O04`: exact-snapshot point reads including missing-row dependencies.
+13. `O05`: pure point-OCC validator.
+14. `C01`: narrow compiler/executor ports without endpoint changes.
+15. `C02`: versioned journal/envelope/plan protocol.
+16. `C03`: point read-your-writes and fail-closed unsupported shapes.
+17. `C04`: pure deterministic point-row planner.
 
-`O03-B` defines the active-session/current-lease invariant but does not guess
+`O03-B1` establishes atomic activation and exact active-anchor replay; `O03-B2`
+closes the basic exact-fence load/renew/abort/expiry mechanics. Together they
+define the active-session/current-lease invariant without guessing
 consumer-specific lifecycle APIs. `C05`, the first private commit consumer,
 introduces the exact-fence transition to `finishing`; C06 orchestrates it
 idempotently through the finish endpoint, and C03 rejects later syscalls. `O07`
