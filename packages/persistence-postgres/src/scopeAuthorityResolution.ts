@@ -30,16 +30,20 @@ export interface LocatedScopeClockReader extends ScopeClockReader {
   readonly physicalLocator: ScopePhysicalLocator;
 }
 
-export interface ScopeClockTargetReaderResolver {
+export interface ScopeClockTargetReaderResolver<
+  Target extends LocatedScopeClockReader = LocatedScopeClockReader,
+> {
   resolve(
     physicalLocator: ScopePhysicalLocator,
-  ): Promise<LocatedScopeClockReader>;
+  ): Promise<Target>;
 }
 
-export interface TrustedScopeAuthorityResolutionPorts {
+export interface TrustedScopeAuthorityResolutionPorts<
+  Target extends LocatedScopeClockReader = LocatedScopeClockReader,
+> {
   readonly scopeMetadata: ScopeMetadataReader;
   readonly provisioningReceipts: ScopeProvisioningReceiptReader;
-  readonly scopeClockTargets: ScopeClockTargetReaderResolver;
+  readonly scopeClockTargets: ScopeClockTargetReaderResolver<Target>;
 }
 
 export interface TrustedScopeAuthority {
@@ -52,6 +56,13 @@ export interface TrustedScopeAuthority {
   readonly epoch: ScopeClockRecord["epoch"];
   readonly lastCommitSeq: ScopeClockRecord["lastCommitSeq"];
   readonly lastOutboxSeq: ScopeClockRecord["lastOutboxSeq"];
+}
+
+export interface LocatedTrustedScopeAuthority<
+  Target extends LocatedScopeClockReader = LocatedScopeClockReader,
+> {
+  readonly authority: TrustedScopeAuthority;
+  readonly target: Target;
 }
 
 export type InvalidScopeClockTargetReason =
@@ -159,6 +170,23 @@ export async function resolveTrustedScopeAuthority(
   deploymentId: string,
   ports: TrustedScopeAuthorityResolutionPorts,
 ): Promise<TrustedScopeAuthority> {
+  return (
+    await resolveLocatedTrustedScopeAuthority(deploymentId, ports)
+  ).authority;
+}
+
+/**
+ * Resolves the same trusted authority while retaining the exact validated
+ * target instance selected by the placement resolver. Consumers with a richer
+ * target capability can therefore perform a second authority read without
+ * resolving or guessing the physical target again.
+ */
+export async function resolveLocatedTrustedScopeAuthority<
+  Target extends LocatedScopeClockReader,
+>(
+  deploymentId: string,
+  ports: TrustedScopeAuthorityResolutionPorts<Target>,
+): Promise<LocatedTrustedScopeAuthority<Target>> {
   const scope =
     await ports.scopeMetadata.getScopeMetadataByDeploymentId(deploymentId);
   if (scope === null) {
@@ -191,11 +219,13 @@ export async function resolveTrustedScopeAuthority(
   }
 }
 
-async function resolveSplitScopeAuthority(
+async function resolveSplitScopeAuthority<
+  Target extends LocatedScopeClockReader,
+>(
   intent: ScopeAuthorityIntent,
   expectedLocator: SplitScopePhysicalLocator,
-  ports: TrustedScopeAuthorityResolutionPorts,
-): Promise<TrustedScopeAuthority> {
+  ports: TrustedScopeAuthorityResolutionPorts<Target>,
+): Promise<LocatedTrustedScopeAuthority<Target>> {
   const receipt =
     await ports.provisioningReceipts.getScopeAuthorityProvisioningReceipt(
       intent.scopeId,
@@ -233,12 +263,14 @@ async function resolveSplitScopeAuthority(
   return resolveScopeAuthorityAtTarget(intent, expectedLocator, ports);
 }
 
-async function resolveScopeAuthorityAtTarget(
+async function resolveScopeAuthorityAtTarget<
+  Target extends LocatedScopeClockReader,
+>(
   intent: ScopeAuthorityIntent,
   expectedLocator: ScopePhysicalLocator,
-  ports: TrustedScopeAuthorityResolutionPorts,
-): Promise<TrustedScopeAuthority> {
-  let unresolvedTarget: unknown;
+  ports: TrustedScopeAuthorityResolutionPorts<Target>,
+): Promise<LocatedTrustedScopeAuthority<Target>> {
+  let unresolvedTarget: Target;
   try {
     unresolvedTarget = await ports.scopeClockTargets.resolve(expectedLocator);
   } catch (resolutionCause) {
@@ -268,11 +300,14 @@ async function resolveScopeAuthorityAtTarget(
     });
   }
 
-  return trustedAuthority(
-    intent,
-    expectedLocator,
-    await target.getCurrentClock(intent.scopeId),
-  );
+  return Object.freeze({
+    authority: trustedAuthority(
+      intent,
+      expectedLocator,
+      await target.getCurrentClock(intent.scopeId),
+    ),
+    target,
+  }) satisfies LocatedTrustedScopeAuthority<Target>;
 }
 
 function trustedAuthority(
@@ -334,10 +369,10 @@ function captureScopeAuthorityIntent(
   }) satisfies ScopeAuthorityIntent;
 }
 
-function requireScopeClockTarget(
-  value: unknown,
+function requireScopeClockTarget<Target extends LocatedScopeClockReader>(
+  value: Target,
   scopeId: ScopeId,
-): UnknownLocatedScopeClockReader {
+): Target {
   if (!isUnknownRecord(value)) {
     throw resolutionError({
       reason: "scopeClockTargetInvalid",

@@ -6,8 +6,10 @@ implementation; schema-owned `S07-A` scope-revocation storage is complete. The
 former `O03` is split into approved `O03-A` grant authority and later `O03-B`
 atomic session activation. Protocol-only `O03-A1` is complete. `O03-A2` is an
 accepted three-checkpoint authority-integration sequence: `O03-A2a` and
-host-neutral authority checkpoint `O03-A2b` are complete, while `O03-A2c` is
-next and separately preflight-gated.
+host-neutral authority checkpoint `O03-A2b` are complete. `O03-A2c` remains
+the third checkpoint, but its approved refinement separates located-epoch
+admission, target-native preparation, revocation, and Worker adapters. Located-
+epoch admission is complete; the remaining children require separate preflights.
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -136,11 +138,11 @@ Exit gate:
 ### [ ] O03-A — Establish Transaction-Grant Authority
 
 Status: approved parent gate after its evidence-backed preflight. The preflight
-split protocol/evidence freezing from production authority integration because
-the policy source, signer custody, verifier-key distribution, issuer transport,
-and trusted revocation command do not exist yet. `O03-A` remains unchecked until
-all child checkpoints pass; this split does not add a new product capability or
-change the transaction-grant format version.
+split protocol/evidence freezing from private authority integration because
+each trust, transaction, transport, and recovery boundary needs independent
+proof. `O03-A` remains unchecked until all child checkpoints pass; this split
+does not add a new product capability or change the transaction-grant format
+version.
 
 Outcome:
 
@@ -164,9 +166,9 @@ Outcome:
   persistence lifecycle before either has a real consumer.
 - Keep issuer key custody at a trusted backend/platform boundary and expose
   only verification/key-resolution capability to the trusted executor. O03-A1
-  fixes the wire algorithm to strict Ed25519 flattened JWS. O03-A2 must still
-  challenge key rotation, issuance transport, and secret isolation; no minting
-  secret may enter an artifact or Dynamic Worker.
+  fixes the wire algorithm to strict Ed25519 flattened JWS and O03-A2b freezes
+  host-neutral key rotation/disablement. O03-A2c still owns Worker secret and
+  binding adapters; no minting secret may enter an artifact or Dynamic Worker.
 - Reuse the completed JWT/JWKS provider platform as upstream authentication.
   This gate creates transaction authorization, not another auth-provider,
   dashboard-owner, refresh-token, per-user revocation, or general app-policy
@@ -372,40 +374,108 @@ Non-goals:
 - no session activation or later OCC work; and
 - no production key material or hidden time defaults.
 
-##### [ ] O03-A2c — Integrate Trusted Preparation And Revocation
+##### [ ] O03-A2c — Complete Private Grant-Admission Authority
 
-Status: accepted next boundary; implementation requires its own preflight.
+Status: approved roadmap refinement. This remains the third O03-A2 checkpoint,
+not a new product or grant version. It is incomplete until its four descriptive
+children pass. **Admit Grants Against The Located Current Epoch** is complete;
+every later child requires its own research-and-challenge preflight.
+
+###### [x] Admit Grants Against The Located Current Epoch
 
 Outcome:
 
-- Add authoritative argument/pin/policy/epoch preparation, a distinct
-  backend-only transport capability, exact current-epoch verification, the
-  trusted S07-A revocation command, and Worker key/binding adapters.
-- Never reuse an artifact-visible executor credential for preparation or
-  revocation authority.
-- Prove an epoch bump invalidates an otherwise-valid earlier grant while
-  leaving `/invoke/*`, production-generation routing, and session activation
-  unchanged.
+- Consume only an opaque grant already verified by O03-A2b. Resolve current
+  scope placement from its verified logical deployment through trusted located
+  authority; never select a physical target from grant JSON or a caller-authored
+  scope.
+- Read S07-A's sole current scope-wide authorization-revocation epoch, require
+  exact equality with the signed grant, and return a second process-local opaque
+  capability. Equality is established only at that read's linearization point:
+  the capability is preliminary, and O03-B must recheck inside its short
+  activation transaction.
+
+Exit gate:
+
+- a current grant passes, while an otherwise-valid old grant fails after the
+  existing private S07-A test primitive advances the epoch;
+- wrong scope, missing/corrupt authority, scope isolation, and exact bigint
+  values fail closed through typed errors on PGlite and focused real Postgres;
+- serialized, spread, prototype-derived, structural, and crypto-only handles
+  cannot construct the epoch-admitted capability; and
+- the tests state the read-versus-bump race explicitly and do not claim durable
+  execution authority before O03-B.
+
+Non-goals:
+
+- no grant minting, function/schema/argument preparation, revocation command,
+  Worker binding, `/invoke/*`, session/OCC, routing, or legacy-path change.
+
+###### [ ] Prepare Target Point-Mutation Starts
+
+Outcome:
+
+- Port Convex-style checked function path, mutation kind, visibility, validator,
+  and canonical-argument preparation. Derive grant facts from authoritative
+  target metadata rather than accepting structural prepared facts.
+- Before S03-D4/S04 installs the sole target active package/schema/function
+  chain, this may run only as a private test-generation kernel against target
+  tables seeded by setup and must fail closed without target active metadata.
+  Production prepared-start authority remains deferred to that activation gate.
+- `validatedArgsSha256` hashes canonical validated arguments.
+  `requestSha256` hashes a domain-separated Value Codec V1 envelope containing
+  deployment, mutation function/kind, validated-argument hash, and the
+  server-namespaced request key. Auth, policy, epoch, time, and key data remain
+  separate pins.
+
+Non-goals:
+
+- do not call or extend legacy `prepareInvoke`, DeploymentDO active metadata,
+  numeric prototype schema authority, partition/shard routing, or a temporary
+  dual-authority bridge.
+
+###### [ ] Advance Scope-Wide Grant Revocation
+
+Outcome:
+
+- Add a private command that accepts trusted located scope authority plus
+  `expectedCurrentEpoch`, advances S07-A exactly once in a short transaction,
+  and returns previous/current values. A stale expectation fails instead of
+  double-bumping after an uncertain-response retry.
+- Prove scope isolation, concurrent one-winner behavior, rollback, exhaustion,
+  and old/current-grant behavior on PGlite and real Postgres.
+
+Non-goals:
+
+- no per-user, per-policy, or per-grant registry and no premature active-session
+  enforcement.
+
+###### [ ] Install Private Worker And Key Adapters
+
+Outcome:
+
+- Add a distinct backend-only Worker binding/entrypoint for preparation and
+  revocation. Never reuse the artifact-visible executor credential. Keep signer
+  private material in a backend secret and give the executor verifier capability
+  only.
+- Prove authentication before body/database allocation, malformed boundary
+  handling, key rotation/disablement, stale-isolate refresh, cleanup, and
+  Dynamic Worker denial without changing `/invoke/*` or production routing.
 
 Parent exit gate:
 
-- canonical golden payload/signature tests are deterministic and reject
-  tampering, unknown versions/keys, wrong scope/function/pins, and forged
-  capability or claim fields;
-- credential/grant expiry boundaries and explicit claim minimization pass;
-- grant replay/identity rules and exact current-epoch validation pass in
-  focused integration tests; and
-- an epoch bump invalidates an earlier otherwise-valid grant, while neither an
-  identity/policy digest nor persisted grant bytes can construct trusted
-  authority.
+- all four private children pass without changing the transaction-grant V1
+  format, storage generation, or product version; and
+- production prepared-start binding remains explicitly owned by S03-D4/S04
+  until the sole target active-metadata chain exists.
 
 Parent non-goals:
 
 - no `/invoke/*` or production-generation routing change;
 - no session row, snapshot lease, point read, journal, OCC, outcome, commit, or
   cleanup operation; and
-- no opaque per-grant database, grant audit product, role system, or general
-  application authorization language.
+- no opaque per-grant database, grant audit product, role system, general
+  application authorization language, or prototype compatibility bridge.
 
 ### [ ] O03-B — Activate And Fence Session Anchors
 

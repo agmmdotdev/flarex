@@ -23,16 +23,28 @@ import {
 import {
   MAX_TRANSACTION_AUTHORIZATION_REVOCATION_EPOCH,
 } from "flarex-protocol/transaction-session";
+import {
+  TransactionGrantDeploymentIdV1Schema,
+} from "flarex-protocol/transaction-grant";
 import { describe, expect, it } from "vitest";
 
-import type { FlarexPersistence } from "../src";
-import { createPostgresPersistence } from "../src/postgres";
+import {
+  resolveCurrentScopeAuthorizationEpoch,
+  type FlarexPersistence,
+} from "../src";
+import {
+  createPostgresLocatedScopeAuthorizationEpochTarget,
+  createPostgresPersistence,
+} from "../src/postgres";
 import {
   advanceScopeAuthorizationRevocationEpochInTransaction,
   lockScopeClockForUpdateInTransaction,
   requireScopeAuthorizationRevocationEpochInTransaction,
   ScopeAuthorizationRevocationEpochExhaustedError,
 } from "../src/scopeClock";
+import type {
+  SharedDatabaseScopePhysicalLocator,
+} from "../src/scopeMetadataTypes";
 import { fxSystemScopeClocks } from "../src/schema";
 import {
   postgresUrl,
@@ -179,6 +191,65 @@ describePostgres("real Postgres scope clock locking", () => {
           requireScopeAuthorizationRevocationEpochInTransaction(tx, scopeId),
         ),
       ).resolves.toBe(2n);
+    });
+  });
+
+  it("admits against the epoch read from the independently located Postgres target", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
+        "deployment_epoch_pg",
+      );
+      const scopeId = ScopeIdSchema.make(
+        "scope_50000000-0000-4000-8000-000000000001",
+      );
+      const physicalLocator = Object.freeze({
+        kind: "shared_database",
+        databaseKey: "scope-epoch-postgres",
+        schemaName: "public",
+      }) satisfies SharedDatabaseScopePhysicalLocator;
+      await persistence.insertDeploymentMetadata({
+        deploymentId,
+        projectId: "project_epoch_pg",
+      });
+      await persistence.insertScopeMetadata({
+        scopeId,
+        deploymentId,
+        physicalLocator,
+      });
+      await insertScopeClock(
+        persistence,
+        scopeId,
+        "epoch_50000000-0000-4000-8000-000000000002",
+      );
+      const ports = {
+        scopeMetadata: persistence,
+        provisioningReceipts: {
+          getScopeAuthorityProvisioningReceipt: async () => {
+            throw new Error("Shared scope resolution must not read receipts.");
+          },
+        },
+        scopeEpochTargets: {
+          resolve: async () =>
+            createPostgresLocatedScopeAuthorizationEpochTarget(
+              persistence,
+              physicalLocator,
+            ),
+        },
+      };
+
+      await expect(
+        resolveCurrentScopeAuthorizationEpoch(deploymentId, ports),
+      ).resolves.toMatchObject({
+        deploymentId,
+        scopeId,
+        authorizationRevocationEpoch: 0n,
+      });
+      await persistence.drizzle.transaction((tx) =>
+        advanceScopeAuthorizationRevocationEpochInTransaction(tx, scopeId),
+      );
+      await expect(
+        resolveCurrentScopeAuthorizationEpoch(deploymentId, ports),
+      ).resolves.toMatchObject({ authorizationRevocationEpoch: 1n });
     });
   });
 

@@ -12,6 +12,7 @@ import {
   type TransactionGrantKeyIdV1,
   type TransactionGrantPayloadV1,
 } from "flarex-protocol/transaction-grant";
+import type { ScopeId } from "flarex-protocol/storage-authority";
 
 const MAX_ECMASCRIPT_DATE_EPOCH_MILLISECONDS = 8_640_000_000_000_000;
 
@@ -214,6 +215,159 @@ const verifiedTransactionGrantInspectionByHandle = new WeakMap<
   object,
   VerifiedTransactionGrantInspectionV1
 >();
+
+export interface CurrentScopeAuthorizationEpochV1 {
+  readonly deploymentId: TransactionGrantDeploymentIdV1;
+  readonly scopeId: ScopeId;
+  readonly authorizationRevocationEpoch:
+    TransactionGrantPayloadV1["authorizationRevocationEpoch"];
+}
+
+export interface CurrentScopeAuthorizationEpochResolverV1 {
+  readonly resolveCurrent: (
+    deploymentId: TransactionGrantDeploymentIdV1,
+  ) => Promise<CurrentScopeAuthorizationEpochV1>;
+}
+
+export type CurrentEpochTransactionGrantAdmissionV1Issue =
+  | {
+      readonly reason: "locatedDeploymentMismatch";
+      readonly expected: TransactionGrantDeploymentIdV1;
+      readonly actual: TransactionGrantDeploymentIdV1;
+    }
+  | {
+      readonly reason: "locatedScopeMismatch";
+      readonly expected: TransactionGrantPayloadV1["scopeId"];
+      readonly actual: ScopeId;
+    }
+  | {
+      readonly reason: "authorizationRevocationEpochMismatch";
+      readonly expected:
+        TransactionGrantPayloadV1["authorizationRevocationEpoch"];
+      readonly actual:
+        TransactionGrantPayloadV1["authorizationRevocationEpoch"];
+    };
+
+export class CurrentEpochTransactionGrantAdmissionV1Error extends Error {
+  readonly name = "CurrentEpochTransactionGrantAdmissionV1Error";
+
+  constructor(readonly issue: CurrentEpochTransactionGrantAdmissionV1Issue) {
+    super(`Current-epoch transaction-grant admission failed: ${issue.reason}.`);
+  }
+}
+
+export class InvalidCurrentEpochVerifiedTransactionGrantV1Error extends Error {
+  readonly name = "InvalidCurrentEpochVerifiedTransactionGrantV1Error";
+
+  constructor() {
+    super("Value is not a process-local current-epoch transaction grant.");
+  }
+}
+
+const currentEpochVerifiedTransactionGrantBrand: unique symbol = Symbol(
+  "FlarexExecutor/CurrentEpochVerifiedTransactionGrantV1",
+);
+
+export interface CurrentEpochVerifiedTransactionGrantV1 {
+  readonly [currentEpochVerifiedTransactionGrantBrand]: true;
+}
+
+export interface CurrentEpochVerifiedTransactionGrantInspectionV1 {
+  readonly verifiedGrant: VerifiedTransactionGrantInspectionV1;
+  readonly currentAuthority: CurrentScopeAuthorizationEpochV1;
+}
+
+const currentEpochVerifiedTransactionGrantInspectionByHandle = new WeakMap<
+  object,
+  CurrentEpochVerifiedTransactionGrantInspectionV1
+>();
+
+export interface CurrentEpochTransactionGrantAdmissionV1 {
+  readonly admit: (
+    verifiedGrant: VerifiedTransactionGrantV1,
+  ) => Promise<CurrentEpochVerifiedTransactionGrantV1>;
+}
+
+/**
+ * Adds one located current-epoch check to an already A2b-verified grant. The
+ * returned capability is preliminary: O03-B must recheck the epoch inside its
+ * short session-activation transaction before creating durable authority.
+ */
+export function createCurrentEpochTransactionGrantAdmissionV1(
+  resolver: CurrentScopeAuthorizationEpochResolverV1,
+): CurrentEpochTransactionGrantAdmissionV1 {
+  const resolveCurrent = resolver.resolveCurrent;
+
+  return Object.freeze({
+    admit: async (
+      verifiedGrant: VerifiedTransactionGrantV1,
+    ): Promise<CurrentEpochVerifiedTransactionGrantV1> => {
+      const verifiedGrantInspection =
+        inspectVerifiedTransactionGrantV1(verifiedGrant);
+      const payload = verifiedGrantInspection.evidence.payload;
+      const unresolvedCurrentAuthority =
+        await resolveCurrent(payload.deploymentId);
+      const currentAuthority = Object.freeze({
+        deploymentId: unresolvedCurrentAuthority.deploymentId,
+        scopeId: unresolvedCurrentAuthority.scopeId,
+        authorizationRevocationEpoch:
+          unresolvedCurrentAuthority.authorizationRevocationEpoch,
+      }) satisfies CurrentScopeAuthorizationEpochV1;
+
+      if (currentAuthority.deploymentId !== payload.deploymentId) {
+        throw currentEpochAdmissionFailure({
+          reason: "locatedDeploymentMismatch",
+          expected: payload.deploymentId,
+          actual: currentAuthority.deploymentId,
+        });
+      }
+      if (currentAuthority.scopeId !== payload.scopeId) {
+        throw currentEpochAdmissionFailure({
+          reason: "locatedScopeMismatch",
+          expected: payload.scopeId,
+          actual: currentAuthority.scopeId,
+        });
+      }
+      if (
+        currentAuthority.authorizationRevocationEpoch !==
+          payload.authorizationRevocationEpoch
+      ) {
+        throw currentEpochAdmissionFailure({
+          reason: "authorizationRevocationEpochMismatch",
+          expected: payload.authorizationRevocationEpoch,
+          actual: currentAuthority.authorizationRevocationEpoch,
+        });
+      }
+
+      const inspection = Object.freeze({
+        verifiedGrant: verifiedGrantInspection,
+        currentAuthority,
+      }) satisfies CurrentEpochVerifiedTransactionGrantInspectionV1;
+      const handle = Object.freeze({
+        [currentEpochVerifiedTransactionGrantBrand]: true as const,
+      });
+      currentEpochVerifiedTransactionGrantInspectionByHandle.set(
+        handle,
+        inspection,
+      );
+      return handle;
+    },
+  });
+}
+
+export function inspectCurrentEpochVerifiedTransactionGrantV1(
+  value: unknown,
+): CurrentEpochVerifiedTransactionGrantInspectionV1 {
+  if (typeof value !== "object" || value === null) {
+    throw new InvalidCurrentEpochVerifiedTransactionGrantV1Error();
+  }
+  const inspection =
+    currentEpochVerifiedTransactionGrantInspectionByHandle.get(value);
+  if (inspection === undefined) {
+    throw new InvalidCurrentEpochVerifiedTransactionGrantV1Error();
+  }
+  return inspection;
+}
 
 export interface TransactionGrantVerifierV1Config {
   readonly clock: TransactionGrantVerificationClockV1;
@@ -604,6 +758,12 @@ function compareExpectedPins(
   for (const field of fields) {
     if (payload[field] !== expected[field]) throw pinMismatch(field);
   }
+}
+
+function currentEpochAdmissionFailure(
+  issue: CurrentEpochTransactionGrantAdmissionV1Issue,
+): CurrentEpochTransactionGrantAdmissionV1Error {
+  return new CurrentEpochTransactionGrantAdmissionV1Error(issue);
 }
 
 function verificationFailure(

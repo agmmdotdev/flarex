@@ -280,7 +280,26 @@ export * from "./deploymentPackages";
 export * from "./deployments";
 export * from "./scopeMetadata";
 export * from "./scopeMetadataTypes";
-export * from "./scopeAuthorityResolution";
+export {
+  TrustedScopeAuthorityResolutionError,
+  resolveTrustedScopeAuthority,
+  type InvalidScopeClockTargetReason,
+  type LocatedScopeClockReader,
+  type ScopeClockReader,
+  type ScopeClockTargetReaderResolver,
+  type ScopeMetadataReader,
+  type ScopeProvisioningReceiptReader,
+  type TrustedScopeAuthority,
+  type TrustedScopeAuthorityResolutionFailure,
+  type TrustedScopeAuthorityResolutionPorts,
+} from "./scopeAuthorityResolution";
+export {
+  CurrentScopeAuthorizationEpochResolutionError,
+  resolveCurrentScopeAuthorizationEpoch,
+  type CurrentScopeAuthorizationEpoch,
+  type CurrentScopeAuthorizationEpochResolutionFailure,
+  type CurrentScopeAuthorizationEpochResolutionPorts,
+} from "./scopeAuthorizationEpochAuthority";
 export {
   createAppDataSnapshotResolver,
   type AppDataSnapshotResolver,

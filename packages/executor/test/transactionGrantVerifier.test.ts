@@ -1,5 +1,17 @@
 /// <reference types="node" />
 
+import {
+  resolveCurrentScopeAuthorizationEpoch,
+} from "@flarex/persistence-postgres";
+import {
+  createPGliteLocatedScopeAuthorizationEpochTarget,
+  createPGlitePersistence,
+  createPGliteSharedScopeAuthorityProvisioner,
+} from "@flarex/persistence-postgres/pglite";
+import {
+  createPostgresLocatedScopeAuthorizationEpochTarget,
+  createPostgresSharedScopeAuthorityProvisioner,
+} from "@flarex/persistence-postgres/postgres";
 import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
 import { ReplacementScopeIdV1Schema } from "flarex-protocol/storage-authority";
 import {
@@ -37,17 +49,28 @@ import { FlarexValueCodecVersionSchema } from "flarex-protocol/value";
 import { describe, expect, it } from "vitest";
 
 import {
+  advanceScopeAuthorizationRevocationEpochInTransaction,
+} from "../../persistence-postgres/src/scopeClock";
+import {
+  CurrentEpochTransactionGrantAdmissionV1Error,
+  InvalidCurrentEpochVerifiedTransactionGrantV1Error,
   InvalidVerifiedTransactionGrantV1Error,
   TransactionGrantAuthorityConfigurationV1Error,
   TransactionGrantVerificationV1Error,
+  createCurrentEpochTransactionGrantAdmissionV1,
   createTransactionGrantVerificationKeyNamespaceV1,
   createTransactionGrantVerifierV1,
+  inspectCurrentEpochVerifiedTransactionGrantV1,
   inspectVerifiedTransactionGrantV1,
   type ActiveTransactionGrantVerificationKeyV1,
   type ExpectedTransactionGrantLogicalPinsV1,
   type TransactionGrantVerificationKeyV1,
   type TransactionGrantVerifierV1,
 } from "../src/transactionGrant";
+import {
+  postgresUrl,
+  withTemporaryPostgresExecutorPersistence,
+} from "./postgresHelpers";
 
 const TEST_PRIVATE_KEY_PKCS8_BASE64 =
   "MC4CAQAwBQYDK2VwBCIEICpBSuNq0N9DHmrl/kDt7u4bsHa9Um6KjyBQ98WSfc+J";
@@ -66,6 +89,12 @@ const OTHER_DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
 );
 const KEY_ID = TransactionGrantKeyIdV1Schema.make("grant-key-a2b-current");
 const NEW_KEY_ID = TransactionGrantKeyIdV1Schema.make("grant-key-a2b-new");
+const LOCATED_ADMISSION_SCOPE_UUID =
+  "418f22e2-58cc-4b2a-91d8-f3f3401a0874";
+const LOCATED_ADMISSION_SCOPE_ID = ReplacementScopeIdV1Schema.make(
+  `scope_${LOCATED_ADMISSION_SCOPE_UUID}`,
+);
+const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describe("transaction-grant verifier", () => {
   it("returns only opaque process-local authority and preserves exact replay", async () => {
@@ -404,6 +433,304 @@ describe("transaction-grant verifier", () => {
   });
 });
 
+describe("current-epoch transaction-grant admission", () => {
+  it("adds a second opaque capability from independently located authority", async () => {
+    const fixture = await signedFixture();
+    const verifiedGrant = await (await verifierFixture()).verify({
+      jws: fixture.jws,
+      expectedPins: expectedPinsFromPayload(fixture.evidence.payload),
+    });
+    const resolvedDeployments: string[] = [];
+    const admission = createCurrentEpochTransactionGrantAdmissionV1({
+      resolveCurrent: async (deploymentId) => {
+        resolvedDeployments.push(deploymentId);
+        return {
+          deploymentId,
+          scopeId: fixture.evidence.payload.scopeId,
+          authorizationRevocationEpoch:
+            fixture.evidence.payload.authorizationRevocationEpoch,
+        };
+      },
+    });
+
+    const admittedGrant = await admission.admit(verifiedGrant);
+    const inspection =
+      inspectCurrentEpochVerifiedTransactionGrantV1(admittedGrant);
+
+    expect(resolvedDeployments).toEqual([DEPLOYMENT_ID]);
+    expect(admittedGrant).not.toBe(verifiedGrant);
+    expect(Object.isFrozen(admittedGrant)).toBe(true);
+    expect(JSON.stringify(admittedGrant)).toBe("{}");
+    expect(inspection.verifiedGrant)
+      .toBe(inspectVerifiedTransactionGrantV1(verifiedGrant));
+    expect(inspection.currentAuthority).toEqual({
+      deploymentId: DEPLOYMENT_ID,
+      scopeId: fixture.evidence.payload.scopeId,
+      authorizationRevocationEpoch: 7n,
+    });
+    expect(Object.isFrozen(inspection)).toBe(true);
+    expect(Object.isFrozen(inspection.currentAuthority)).toBe(true);
+
+    for (const forged of [
+      verifiedGrant,
+      JSON.parse(JSON.stringify(admittedGrant)),
+      { ...admittedGrant },
+      Object.create(admittedGrant),
+      true,
+    ]) {
+      expect(() => inspectCurrentEpochVerifiedTransactionGrantV1(forged))
+        .toThrow(InvalidCurrentEpochVerifiedTransactionGrantV1Error);
+    }
+  });
+
+  it("fails closed on independently located deployment, scope, or epoch drift", async () => {
+    const fixture = await signedFixture();
+    const payload = fixture.evidence.payload;
+    const verifiedGrant = await (await verifierFixture()).verify({
+      jws: fixture.jws,
+      expectedPins: expectedPinsFromPayload(payload),
+    });
+    const cases = [
+      {
+        reason: "locatedDeploymentMismatch",
+        authority: {
+          deploymentId: OTHER_DEPLOYMENT_ID,
+          scopeId: payload.scopeId,
+          authorizationRevocationEpoch: payload.authorizationRevocationEpoch,
+        },
+      },
+      {
+        reason: "locatedScopeMismatch",
+        authority: {
+          deploymentId: payload.deploymentId,
+          scopeId: ReplacementScopeIdV1Schema.make(
+            "scope_118f22e2-58cc-7b2a-91d8-f3f3401a0874",
+          ),
+          authorizationRevocationEpoch: payload.authorizationRevocationEpoch,
+        },
+      },
+      {
+        reason: "authorizationRevocationEpochMismatch",
+        authority: {
+          deploymentId: payload.deploymentId,
+          scopeId: payload.scopeId,
+          authorizationRevocationEpoch:
+            TransactionAuthorizationRevocationEpochSchema.make(8n),
+        },
+      },
+    ] as const;
+
+    for (const admissionCase of cases) {
+      const admission = createCurrentEpochTransactionGrantAdmissionV1({
+        resolveCurrent: async () => admissionCase.authority,
+      });
+      const rejectedAdmission = admission.admit(verifiedGrant);
+      await expect(rejectedAdmission).rejects.toMatchObject({
+        issue: { reason: admissionCase.reason },
+      });
+      await expect(rejectedAdmission).rejects.toBeInstanceOf(
+        CurrentEpochTransactionGrantAdmissionV1Error,
+      );
+    }
+  });
+
+  it("rejects an old grant after a completed epoch bump and accepts a new one", async () => {
+    const oldFixture = await signedFixture();
+    const oldGrant = await (await verifierFixture()).verify({
+      jws: oldFixture.jws,
+      expectedPins: expectedPinsFromPayload(oldFixture.evidence.payload),
+    });
+    let currentEpoch = oldFixture.evidence.payload.authorizationRevocationEpoch;
+    const admission = createCurrentEpochTransactionGrantAdmissionV1({
+      resolveCurrent: async (deploymentId) => ({
+        deploymentId,
+        scopeId: oldFixture.evidence.payload.scopeId,
+        authorizationRevocationEpoch: currentEpoch,
+      }),
+    });
+
+    await expect(admission.admit(oldGrant)).resolves.toBeDefined();
+    currentEpoch = TransactionAuthorizationRevocationEpochSchema.make(8n);
+    await expect(admission.admit(oldGrant)).rejects.toMatchObject({
+      issue: { reason: "authorizationRevocationEpochMismatch" },
+    });
+
+    const newFixture = await signedFixture({
+      payloadOverrides: { authorizationRevocationEpoch: "8" },
+    });
+    const newGrant = await (await verifierFixture()).verify({
+      jws: newFixture.jws,
+      expectedPins: expectedPinsFromPayload(newFixture.evidence.payload),
+    });
+    await expect(admission.admit(newGrant)).resolves.toBeDefined();
+  });
+
+  it("composes signed admission with the located PGlite epoch authority", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const physicalLocator = Object.freeze({
+      kind: "shared_database",
+      databaseKey: "executor-grant-admission-pglite",
+      schemaName: "public",
+    } as const);
+    const provisioned = await createPGliteSharedScopeAuthorityProvisioner(
+      persistence,
+      {
+        physicalLocator,
+        randomUuid: uuidSequence(
+          LOCATED_ADMISSION_SCOPE_UUID,
+          "60000000-0000-4000-8000-000000000001",
+        ),
+      },
+    ).ensure({
+      deploymentId: DEPLOYMENT_ID,
+      projectId: "project_grant_admission_pglite",
+    });
+    const admission = createCurrentEpochTransactionGrantAdmissionV1({
+      resolveCurrent: (deploymentId) =>
+        resolveCurrentScopeAuthorizationEpoch(deploymentId, {
+          scopeMetadata: persistence,
+          provisioningReceipts: {
+            getScopeAuthorityProvisioningReceipt: async () => {
+              throw new Error(
+                "Shared scope resolution must not read provisioning receipts.",
+              );
+            },
+          },
+          scopeEpochTargets: {
+            resolve: async (resolvedLocator) =>
+              createPGliteLocatedScopeAuthorizationEpochTarget(
+                persistence,
+                resolvedLocator,
+              ),
+          },
+        }),
+    });
+    const oldFixture = await signedFixture({
+      payloadOverrides: {
+        scopeId: LOCATED_ADMISSION_SCOPE_ID,
+        authorizationRevocationEpoch: "0",
+      },
+    });
+    const oldGrant = await (await verifierFixture()).verify({
+      jws: oldFixture.jws,
+      expectedPins: expectedPinsFromPayload(oldFixture.evidence.payload),
+    });
+
+    expect(provisioned.scope.scopeId).toBe(
+      oldFixture.evidence.payload.scopeId,
+    );
+    await expect(admission.admit(oldGrant)).resolves.toBeDefined();
+    await persistence.drizzle.transaction((tx) =>
+      advanceScopeAuthorizationRevocationEpochInTransaction(
+        tx,
+        provisioned.scope.scopeId,
+      ),
+    );
+    await expect(admission.admit(oldGrant)).rejects.toMatchObject({
+      issue: { reason: "authorizationRevocationEpochMismatch" },
+    });
+
+    const newFixture = await signedFixture({
+      payloadOverrides: {
+        scopeId: LOCATED_ADMISSION_SCOPE_ID,
+        authorizationRevocationEpoch: "1",
+      },
+    });
+    const newGrant = await (await verifierFixture()).verify({
+      jws: newFixture.jws,
+      expectedPins: expectedPinsFromPayload(newFixture.evidence.payload),
+    });
+    await expect(admission.admit(newGrant)).resolves.toBeDefined();
+  });
+});
+
+describePostgres(
+  "current-epoch transaction-grant admission on real Postgres",
+  () => {
+    it("rejects a signed old grant after the located S07-A epoch advances", async () => {
+      await withTemporaryPostgresExecutorPersistence(
+        async (persistence, _executorPersistence, physicalLocator) => {
+          const provisioned =
+            await createPostgresSharedScopeAuthorityProvisioner(
+              persistence,
+              {
+                physicalLocator,
+                randomUuid: uuidSequence(
+                  LOCATED_ADMISSION_SCOPE_UUID,
+                  "60000000-0000-4000-8000-000000000011",
+                ),
+              },
+            ).ensure({
+              deploymentId: DEPLOYMENT_ID,
+              projectId: "project_grant_admission_postgres",
+            });
+          const admission = createCurrentEpochTransactionGrantAdmissionV1({
+            resolveCurrent: (deploymentId) =>
+              resolveCurrentScopeAuthorizationEpoch(deploymentId, {
+                scopeMetadata: persistence,
+                provisioningReceipts: {
+                  getScopeAuthorityProvisioningReceipt: async () => {
+                    throw new Error(
+                      "Shared scope resolution must not read provisioning receipts.",
+                    );
+                  },
+                },
+                scopeEpochTargets: {
+                  resolve: async (resolvedLocator) =>
+                    createPostgresLocatedScopeAuthorizationEpochTarget(
+                      persistence,
+                      resolvedLocator,
+                    ),
+                },
+              }),
+          });
+          const oldFixture = await signedFixture({
+            payloadOverrides: {
+              scopeId: LOCATED_ADMISSION_SCOPE_ID,
+              authorizationRevocationEpoch: "0",
+            },
+          });
+          const oldGrant = await (await verifierFixture()).verify({
+            jws: oldFixture.jws,
+            expectedPins: expectedPinsFromPayload(
+              oldFixture.evidence.payload,
+            ),
+          });
+
+          expect(provisioned.scope.scopeId).toBe(
+            oldFixture.evidence.payload.scopeId,
+          );
+          await expect(admission.admit(oldGrant)).resolves.toBeDefined();
+          await persistence.drizzle.transaction((tx) =>
+            advanceScopeAuthorizationRevocationEpochInTransaction(
+              tx,
+              provisioned.scope.scopeId,
+            ),
+          );
+          await expect(admission.admit(oldGrant)).rejects.toMatchObject({
+            issue: { reason: "authorizationRevocationEpochMismatch" },
+          });
+
+          const newFixture = await signedFixture({
+            payloadOverrides: {
+              scopeId: LOCATED_ADMISSION_SCOPE_ID,
+              authorizationRevocationEpoch: "1",
+            },
+          });
+          const newGrant = await (await verifierFixture()).verify({
+            jws: newFixture.jws,
+            expectedPins: expectedPinsFromPayload(
+              newFixture.evidence.payload,
+            ),
+          });
+          await expect(admission.admit(newGrant)).resolves.toBeDefined();
+        },
+      );
+    });
+  },
+);
+
 async function signedFixture(
   options: {
     readonly kid?: TransactionGrantKeyIdV1;
@@ -619,4 +946,16 @@ function flipBase64UrlCharacter(value: string): string {
   const first = value[0];
   if (first === undefined) throw new Error("Expected a nonempty signature.");
   return `${first === "A" ? "B" : "A"}${value.slice(1)}`;
+}
+
+function uuidSequence(...values: readonly string[]): () => string {
+  let index = 0;
+  return () => {
+    const value = values[index];
+    index += 1;
+    if (value === undefined) {
+      throw new Error("UUID test sequence exhausted.");
+    }
+    return value;
+  };
 }

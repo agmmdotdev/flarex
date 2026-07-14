@@ -902,11 +902,23 @@ signing capability rather than private bytes and never accepts caller-selected
 policy, capabilities, digest, time, grant ID, or key ID. The executor selects an
 independent deployment key namespace, verifies the exact `kid` and Ed25519
 signature, checks time/policy/logical pins, and returns only a process-local
-opaque capability. O03-A2c owns authoritative argument/pin/epoch preparation,
-backend-only preparation and revocation transport, exact current-epoch
-comparison, cross-Worker propagation, and Worker key/binding adapters. The
-artifact-visible executor credential cannot authorize preparation or
-revocation. O03-B remains blocked until all three checkpoints pass.
+opaque capability. O03-A2c remains the third checkpoint but has four distinct
+private proof boundaries. It first consumes an A2b-verified grant, independently
+resolves its located scope authority, compares the sole current revocation epoch,
+and returns a second preliminary process-local capability; O03-B must still
+recheck inside activation. It then owns target-native argument/pin preparation,
+the trusted checked revocation command, and backend-only Worker/key adapters.
+Before S03-D4/S04 installs the sole active package/schema/function chain, the
+preparation kernel is test-generation-only and must fail closed without seeded
+target metadata; it may not bridge DeploymentDO, legacy `prepareInvoke`, numeric
+schema authority, or partition routing. The request digest is over a
+domain-separated Value Codec V1 envelope containing deployment, mutation
+function/kind, validated-argument digest, and server-namespaced request key.
+Revocation accepts an expected current epoch so an uncertain-response retry
+cannot silently double-bump. The artifact-visible executor credential cannot
+authorize preparation or revocation. O03-B remains blocked until all private
+A2c boundaries pass, and production preparation remains blocked until S04 binds
+the kernel to the sole active-metadata authority.
 
 The narrow schema prerequisite S07-A first adds one nonnegative scope-wide
 `authorization_revocation_epoch` to the located data-plane scope clock. O03-A

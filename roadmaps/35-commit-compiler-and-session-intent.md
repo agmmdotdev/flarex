@@ -538,8 +538,10 @@ Private O02 snapshot resolution, S05-B value codec, S06 row storage, and S07
 physical session/snapshot-lease DDL are complete. S07-A current revocation
 storage is also complete. The O03-A parent is approved; protocol-only O03-A1,
 auth-provenance O03-A2a, and host-neutral grant authority O03-A2b are complete.
-O03-A2 remains incomplete, with O03-A2c next and separately preflight-gated;
-O03-B activation and C01 remain later Wave 1 gates.
+O03-A2c's first located current-epoch admission boundary is also complete.
+O03-A2 remains incomplete: A2c target preparation, revocation, and Worker/key
+children are separately preflight-gated; O03-B activation and C01 remain later
+Wave 1 gates.
 Hosted compiler execution still waits for the required schema, exact-snapshot
 OCC, commit, target activation, target-only caller/recovery, and hosted
 prerequisites. Shipped-state migration prerequisites are conditional.

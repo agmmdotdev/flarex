@@ -10,16 +10,18 @@ The `O03-A` parent is approved and remains incomplete. Its `O03-A1` checkpoint
 is complete only as the inert grant protocol/evidence contract. `O03-A2` is an
 accepted three-checkpoint authority-integration sequence: `O03-A2a` is complete
 as the backend-private verified-authentication-provenance boundary and
-`O03-A2b` is complete as the host-neutral grant-authority kernel. `O03-A2c` is
-next and remains separately preflight-gated. `O03-A2` and `O03-A` remain
-incomplete. `O03-B` consumes only
+`O03-A2b` is complete as the host-neutral grant-authority kernel. `O03-A2c`
+remains the third checkpoint but is now an approved four-boundary refinement;
+located current-epoch admission is complete. Target-native preparation,
+trusted revocation, and Worker/key adapters retain separate preflight gates.
+`O03-A2` and `O03-A` remain incomplete. `O03-B` consumes only
 the completed parent for atomic session activation and requires its own
 evidence-backed preflight.
 
 | Stream | Current status |
 | --- | --- |
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, and narrow `S07-A` complete |
-| OCC/transactions | Private non-routing `O02` snapshot resolution, protocol-only `O03-A1`, verified-auth-provenance `O03-A2a`, and host-neutral grant authority `O03-A2b` complete; standalone `O01` retired before implementation; `O03-A2c` is next but separately preflight-gated, then `O03-B`; `O03-A2`/`O03-A` remain incomplete |
+| OCC/transactions | Private non-routing `O02` snapshot resolution, protocol-only `O03-A1`, verified-auth-provenance `O03-A2a`, host-neutral grant authority `O03-A2b`, and the first `O03-A2c` located current-epoch admission boundary are complete; standalone `O01` retired before implementation; A2c's preparation/revocation/Worker boundaries retain separate preflights, then `O03-B`; `O03-A2`/`O03-A` remain incomplete |
 | Commit compiler | Planned; `C01` is the first unchecked compiler gate |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
@@ -232,9 +234,10 @@ types and ports are introduced by the gates that first consume them.
 8. `O03-A2b` (complete): host-neutral policy,
    issuance/signing, verification, and key-lifecycle authority under its
    accepted preflight boundary.
-9. `O03-A2c` (next, unapproved): authoritative preparation, exact epoch and
-   revocation integration, private transport, and Worker adapters after its own
-   preflight.
+9. `O03-A2c` (approved refinement, incomplete): located current-epoch admission
+   of an already A2b-verified grant is complete. Under separate preflights, add
+   the target-native preparation kernel, checked revocation command, and private
+   Worker/key adapters. Production preparation stays deferred to S03-D4/S04.
 10. `O03-B`: private atomic session/lease activation plus exact-fence renewal,
    abort, and expiry mechanics.
 11. `O04`: exact-snapshot point reads including missing-row dependencies.
@@ -327,16 +330,19 @@ start Payload feature parity. Their contract is in
 2. `S04`: install the target active-schema authority only after readiness is
    evidence-backed. Do not mirror a prototype pointer unless shipped evidence
    requires it.
-3. `O11`: snapshot-retention floors and explicit out-of-retention behavior;
+3. Bind O03-A2c's checked preparation kernel to this sole target active package/
+   schema/function chain. Never fall back to DeploymentDO, legacy
+   `prepareInvoke`, numeric schema metadata, or partition routing.
+4. `O11`: snapshot-retention floors and explicit out-of-retention behavior;
    consume reconnect floors only after roadmap 21 supplies their accepted
    contract and DDL.
-4. Complete a server-provisioned private target-scope route plus Worker,
+5. Complete a server-provisioned private target-scope route plus Worker,
    Hyperdrive, and real-Postgres proof without changing public/default routing.
-5. Use `S02-D2` to activate `flarexdb_v1` for clean scopes through the trusted
+6. Use `S02-D2` to activate `flarexdb_v1` for clean scopes through the trusted
    generation fence; fail closed rather than falling back to a prototype.
-6. Switch backend, executor, local, test, and sync callers/defaults, then prove
+7. Switch backend, executor, local, test, and sync callers/defaults, then prove
    target-only sync/reconnect/reset recovery.
-7. Use `O13` to remove prototype storage, OCC, routes, bindings, defaults,
+8. Use `O13` to remove prototype storage, OCC, routes, bindings, defaults,
    schema, and pre-release migration-history layers.
 
 Former `S13` baseline import, `S14` shadow comparison, `S15` dual-generation

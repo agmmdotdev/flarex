@@ -28,7 +28,14 @@ import {
   createLocatedSplitScopeClockTarget,
   type LocatedSplitScopeClockTarget,
 } from "./splitScopeClockTarget";
-import type { SplitScopePhysicalLocator } from "./scopeMetadataTypes";
+import {
+  createLocatedScopeAuthorizationEpochTarget,
+} from "./scopeAuthorizationEpochAuthority";
+import type { LocatedScopeClockReader } from "./scopeAuthorityResolution";
+import type {
+  ScopePhysicalLocator,
+  SplitScopePhysicalLocator,
+} from "./scopeMetadataTypes";
 import {
   createFlarexRuntimePersistence,
   rowsFromDriver,
@@ -97,6 +104,16 @@ export function createPGliteLocatedSplitScopeClockTarget(
   physicalLocator: SplitScopePhysicalLocator,
 ): LocatedSplitScopeClockTarget {
   return createLocatedSplitScopeClockTarget(
+    persistence.drizzle,
+    physicalLocator,
+  );
+}
+
+export function createPGliteLocatedScopeAuthorizationEpochTarget(
+  persistence: Pick<PGliteFlarexPersistence, "drizzle">,
+  physicalLocator: ScopePhysicalLocator,
+): LocatedScopeClockReader {
+  return createLocatedScopeAuthorizationEpochTarget(
     persistence.drizzle,
     physicalLocator,
   );

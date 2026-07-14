@@ -19,7 +19,14 @@ import {
   createLocatedSplitScopeClockTarget,
   type LocatedSplitScopeClockTarget,
 } from "./splitScopeClockTarget";
-import type { SplitScopePhysicalLocator } from "./scopeMetadataTypes";
+import {
+  createLocatedScopeAuthorizationEpochTarget,
+} from "./scopeAuthorizationEpochAuthority";
+import type { LocatedScopeClockReader } from "./scopeAuthorityResolution";
+import type {
+  ScopePhysicalLocator,
+  SplitScopePhysicalLocator,
+} from "./scopeMetadataTypes";
 import { createFlarexRuntimePersistence } from "./runtimePersistence";
 import type { FlarexRuntimePersistenceTransaction } from "./runtimePersistence";
 import {
@@ -73,6 +80,16 @@ export function createPostgresLocatedSplitScopeClockTarget(
   physicalLocator: SplitScopePhysicalLocator,
 ): LocatedSplitScopeClockTarget {
   return createLocatedSplitScopeClockTarget(
+    persistence.drizzle,
+    physicalLocator,
+  );
+}
+
+export function createPostgresLocatedScopeAuthorizationEpochTarget(
+  persistence: Pick<PostgresFlarexPersistence, "drizzle">,
+  physicalLocator: ScopePhysicalLocator,
+): LocatedScopeClockReader {
+  return createLocatedScopeAuthorizationEpochTarget(
     persistence.drizzle,
     physicalLocator,
   );

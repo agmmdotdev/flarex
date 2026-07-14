@@ -8,8 +8,10 @@ through `S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, and the narrow
 `H04` and `H05-A` are complete. `H05-B` and production routing `S02-D2` remain
 deferred. The `O03-A` parent is approved: protocol-only `O03-A1`, auth-
 provenance `O03-A2a`, and host-neutral grant authority `O03-A2b` are complete,
-while `O03-A2` remains incomplete with `O03-A2c` next and separately preflight-
-gated. `O03-B` activation follows the completed parent with its own preflight.
+as is O03-A2c's first located current-epoch admission boundary. `O03-A2`
+remains incomplete; A2c's target-preparation, revocation, and Worker-adapter
+children remain separately preflight-gated. `O03-B` activation follows the
+completed parent with its own preflight.
 Private non-routing snapshot resolution `O02` is complete.
 
 This plan owns the target physical schema, codecs, repositories, stable catalog,
@@ -78,7 +80,7 @@ Convex-first implementation references include:
 | --- | --- |
 | Storage generation | `legacy_v1` is the only wired Postgres app-data engine, while PartitionDO remains a separate authoritative fallback. Both are unshipped prototypes. `flarexdb_v1` is the accepted first shippable contract but remains unreachable from runtime execution. |
 | Scope authority | `fx_control_scope`, split provisioning receipts, and `fx_system_scope_clock` exist. Shared/split provisioning, reconciliation, and read-only authority resolution exist; production routing does not. |
-| Scope clock | Epoch, storage generation/fence, last commit sequence, last outbox sequence, and the scope-wide authorization-revocation epoch are persisted. The revocation value has private typed read and exact checked-increment primitives; no trusted command or grant/session consumer exists yet. No standalone production sequence allocator exists. |
+| Scope clock | Epoch, storage generation/fence, last commit sequence, last outbox sequence, and the scope-wide authorization-revocation epoch are persisted. O03-A2c now consumes a high-level located read for preliminary grant admission; the exact checked-increment remains a private test primitive, and no trusted revocation command or session/runtime consumer exists yet. No standalone production sequence allocator exists. |
 | Stable table catalog | Deployment-scoped stable table IDs and exact name/ID reads exist. |
 | Schema artifacts | Immutable canonical manifest bytes, SHA-256 checksum, deployment/version ownership, and exact replay/collision checks exist. |
 | Table definitions | Strict app-document definitions live only inside the immutable manifest; no second table-definition projection exists. |
@@ -363,10 +365,11 @@ Medusa, and Cloudflare deployment remain outside
 this facade. The standalone `O01` abstraction gate was retired before
 implementation and its necessary scope-authority seam was folded into completed
 `O02`; completed `S05-B` changes no catalog publication or routing behavior.
-`S06`, `S07`, `S07-A`, protocol-only `O03-A1`, auth-provenance `O03-A2a`, and
-host-neutral grant authority `O03-A2b` are complete. `O03-A2c` is next but
-remains separately preflight-gated within the incomplete three-checkpoint
-`O03-A2`. This catalog gate does not authorize `O03-A2c` or `O03-B`.
+`S06`, `S07`, `S07-A`, protocol-only `O03-A1`, auth-provenance `O03-A2a`,
+host-neutral grant authority `O03-A2b`, and A2c's located current-epoch
+admission are complete. A2c's remaining children stay separately preflight-
+gated within incomplete `O03-A2`. This catalog gate does not authorize those
+children or `O03-B`.
 
 Exit gates for the complete S03 stream:
 
@@ -381,7 +384,9 @@ Exit gates for the complete S03 stream:
 ### [ ] S04 — Establish Active Schema Pointer Authority
 
 Scheduling: Wave 4 after `S03-D4` has derived evidence-backed readiness. This
-gate does not block the private test-generation point kernel or `C07`.
+gate does not block the private test-generation point kernel or `C07`, but it
+does own the production activation source that the checked preparation kernel
+must consume before production prepared-start authority can exist.
 
 Outcome:
 
@@ -548,8 +553,9 @@ Exit gates:
 ### [x] S07-A — Add Scope Authorization Revocation Epoch
 
 Status: complete as a private, non-routing schema/repository prerequisite.
-The located scope clock is the sole current authority; no grant, session,
-command, or control-plane surface consumes or mutates it yet.
+The located scope clock is the sole current authority. O03-A2c now has a
+private preliminary grant-admission consumer; no trusted revocation command,
+session/runtime consumer, or control-plane mutation surface exists yet.
 
 Outcome:
 

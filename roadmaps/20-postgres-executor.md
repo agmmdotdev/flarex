@@ -378,9 +378,12 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
   but internal and non-routing. S07-A's private current scope-revocation
   storage, O03-A1's inert protocol/evidence contract, O03-A2a's private auth
   provenance, and O03-A2b's host-neutral grant-authority kernel are also
-  complete. O03-A2 is an incomplete three-checkpoint sequence with O03-A2c
-  next but unapproved. The remaining O03-A2c production integration, O03-B
-  atomic activation/basic lease mechanics, semantic point
+  complete. O03-A2c's first private boundary now admits an A2b-verified grant
+  only after independently locating and comparing the current scope epoch.
+  O03-A2 remains incomplete: target-native preparation, checked revocation,
+  and Worker/key adapters retain separate preflights, while production
+  preparation remains deferred to S03-D4/S04. O03-B atomic activation/basic
+  lease mechanics, semantic point
   dependencies, OCC, commit/change feed, idempotency outcomes, leased outbox,
   and the bounded commit compiler remain unimplemented. S06/S07 storage and
   relational proofs do not claim those later semantics.
@@ -437,10 +440,11 @@ S07 is complete as a two-table, non-routing physical authority gate, and S07-A
 completes its private located scope-revocation storage prerequisite. Neither
 changes reconnect retention, `/invoke/*`, or the production replacement route.
 The O03-A parent is approved: protocol-only O03-A1, auth-provenance O03-A2a,
-and host-neutral grant authority O03-A2b are complete, while O03-A2 remains an
-incomplete three-checkpoint authority-integration sequence. O03-A2c is next but
-remains separately preflight-gated. O03-B session activation follows only after
-O03-A passes.
+host-neutral grant authority O03-A2b, and A2c's located current-epoch admission
+are complete, while O03-A2 remains an incomplete three-checkpoint authority-
+integration sequence. A2c's target preparation, revocation, and Worker/key
+children remain separately preflight-gated. O03-B session activation follows
+only after O03-A passes.
 
 Follow the interleaved foundation order rather than pulling build/readiness
 work forward:
@@ -455,8 +459,11 @@ work forward:
 4. Wave 3 adds derived sidecars and only then runs `S03-D3` per-scope physical
    build reconciliation.
 5. Wave 4 owns target-native validation, `S03-D4` readiness, `S04`
-   active-schema authority, and explicit legacy disposition. Baseline import,
-   shadow comparison, and dual operation remain dormant conditional work.
+   active-schema authority, the production binding for A2c's checked
+   preparation kernel, and explicit legacy disposition. That binding must not
+   fall back to DeploymentDO, legacy `prepareInvoke`, numeric schema metadata,
+   or partition routing. Baseline import, shadow comparison, and dual operation
+   remain dormant conditional work.
 6. Complete `H05-B` before `S02-D2` activates the hosted replacement route,
    then migrate internal callers and remove legacy authority after target-only
    sync/reconnect proof.

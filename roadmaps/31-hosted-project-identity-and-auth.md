@@ -32,9 +32,9 @@ Status: approved parent gate after completed S07-A. Its evidence-backed
 preflight split the now-complete inert protocol/evidence checkpoint `O03-A1`
 from an accepted three-checkpoint authority-integration sequence at `O03-A2`.
 `O03-A2a` and the host-neutral authority checkpoint `O03-A2b` are complete;
-`O03-A2c` is next and remains separately preflight-gated. O03-A2 and the parent
-remain unchecked; no trusted revocation command or operational epoch comparison
-exists.
+O03-A2c's first located current-epoch admission boundary is complete. O03-A2
+and the parent remain unchecked; target-native preparation, the trusted
+revocation command, and Worker/key adapters retain separate A2c preflights.
 
 Accepted direction:
 
@@ -90,10 +90,13 @@ backend-private bearer/anonymous provenance, preserves the existing broad
 `ExecutionIdentity` compatibility projection, and fixes the initial grant-facing
 custom-claim allowlist as empty. The trusted-dev identity path remains
 compatibility-only and cannot mint grants. Completed O03-A2b owns host-neutral
-policy, issuance/signing, verification, and key lifecycle. O03-A2c next owns
-authoritative argument/pin/epoch preparation, distinct backend-only preparation
-and revocation transport, exact epoch comparison, and Worker key/binding
-adapters. A2c still requires its own preflight.
+policy, issuance/signing, verification, and key lifecycle. O03-A2c owns
+four private proof boundaries. Located current-epoch comparison is complete and
+returns a second preliminary process-local capability from an A2b-verified
+grant. Target-native argument/pin preparation, checked revocation, and Worker
+key/binding adapters remain separately preflight-gated. Before S04, preparation
+is a private test-generation kernel only; production preparation may not bridge
+the prototype active-metadata path.
 
 A2b issuance must recheck current time, current active provider/config
 membership, and trusted policy instead of treating the A2a handle as durable
@@ -104,8 +107,10 @@ projection without changing the existing `ExecutionIdentity` result.
 
 O03-B owns session admission after O03-A. C04 verifies authority before
 planning, and O06/O07 revalidate it in the final transaction that records the
-committed outcome. No roadmap may claim production transaction-grant creation,
-signature revalidation, or revocation before those gates pass.
+committed outcome. A2b signature verification and A2c preliminary epoch
+admission are private authority kernels, not production request admission.
+Production prepared starts still require S04's sole active-metadata chain plus
+O03-B's transactional recheck; operational revocation waits for its A2c child.
 
 ## Accepted Rationale: Bind Sessions To Trusted Transaction Grants
 
@@ -148,9 +153,11 @@ Current gaps:
 - S07-A current scope-revocation storage, O03-A1's inert grant protocol/evidence
   contract, O03-A2a's backend-private auth provenance, and O03-A2b's
   host-neutral policy, issuance/signing, verification, and key-lifecycle kernel
-  are complete. Production preparation and current-epoch authority, the trusted
-  increment command, private transport, operational evidence retention, and
-  Worker key/binding adapters remain for separately preflight-gated O03-A2c.
+  are complete. A2c's private located current-epoch comparison is also complete.
+  Target-native preparation, the trusted checked increment command, private
+  transport, operational evidence retention, and Worker key/binding adapters
+  remain separately preflight-gated. Production preparation additionally waits
+  for S03-D4/S04 active-metadata authority.
 - ConnectionDO and live-query persistence intentionally continue to retain only
   `ExecutionIdentity`, not the process-local A2a handle. Later request-bound
   integration must bind grant authority per mutation and solve expiry/restart
