@@ -20,6 +20,11 @@
       "binding": "MOCK_FINISH",
       "service": "flarex-runtime-topology-probe-mock",
       "entrypoint": "MockFinishEntrypoint"
+    },
+    {
+      "binding": "MOCK_RERUN",
+      "service": "flarex-runtime-topology-probe-mock",
+      "entrypoint": "MockRerunEntrypoint"
     }
   ],
   "durable_objects": {

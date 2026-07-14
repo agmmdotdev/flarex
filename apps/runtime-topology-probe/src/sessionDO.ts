@@ -53,6 +53,15 @@ import {
   ProbeSessionEchoResponseV1Schema,
   type ProbeSessionEchoRequestV1,
 } from "./sessionProtocol";
+import {
+  decodeProbeRerunFacetResponseV1OrNull,
+  decodeProbeRuntimeRerunRequestV1OrNull,
+  probeRerunWorkerCode,
+  PROBE_RERUN_FACET_CLASS_NAME,
+  ProbeRerunSessionResponseV1Schema,
+  type ProbeRerunFacetResponseV1,
+  type ProbeRuntimeRerunRequestV1,
+} from "./rerunProtocol";
 
 const INTERNAL_BODY_OVERHEAD_BYTES = 8_192;
 const MAX_INTERNAL_BODY_BYTES =
@@ -64,6 +73,7 @@ const sessionRoutes = {
   facet: "/v1/facet",
   facetLifecycle: "/v1/facet-lifecycle",
   fullInvoke: "/v1/full-invoke",
+  rerun: "/v1/rerun",
   controlIncrement: "/v1/control/increment",
   controlRead: "/v1/control/read",
   controlReset: "/v1/control/reset",
@@ -120,6 +130,9 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     }
     if (pathname === sessionRoutes.fullInvoke) {
       return await this.fullInvoke(request, sessionId);
+    }
+    if (pathname === sessionRoutes.rerun) {
+      return await this.rerun(request, sessionId);
     }
     if (pathname === sessionRoutes.controlRead) {
       return this.control(request, sessionId, "read");
@@ -419,6 +432,103 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     return noStoreJson(
       ProbeFullInvokeSessionResponseV1Schema.make({
         ...observation,
+      }),
+    );
+  }
+
+  private async rerun(
+    request: Request,
+    sessionId: ProbeSessionId,
+  ): Promise<Response> {
+    const body = await readInternalPost(request);
+    if (body instanceof Response) return body;
+    const decoded = decodeProbeRuntimeRerunRequestV1OrNull(body);
+    if (decoded === null) return internalError("invalid_request", 400);
+    if (decoded.sessionId !== sessionId) {
+      return internalError("session_identity_mismatch", 409);
+    }
+    const loader = this.env.LOADER;
+    if (loader === undefined) return internalError("loader_unavailable", 500);
+    const tracking = await this.trackFacet(decoded);
+    if (tracking === "identity-conflict") {
+      return internalError("facet_identity_conflict", 409);
+    }
+    if (tracking === "storage-failure") {
+      return internalError("facet_tracking_failed", 500);
+    }
+
+    let invocation:
+      | { readonly kind: "response"; readonly response: Response }
+      | { readonly kind: "defect"; readonly cause: unknown };
+    try {
+      invocation = {
+        kind: "response",
+        response: await this.executeRerun(loader, decoded),
+      };
+    } catch (cause) {
+      invocation = { kind: "defect", cause };
+    }
+    if (!(await this.deleteTrackedFacet(decoded.attemptId))) {
+      return internalError("facet_cleanup_failed", 500);
+    }
+    if (invocation.kind === "defect") throw invocation.cause;
+    return invocation.response;
+  }
+
+  private async executeRerun(
+    loader: WorkerLoader,
+    request: ProbeRuntimeRerunRequestV1,
+  ): Promise<Response> {
+    const observations: FacetCallbackObservations = {
+      facetStartupCallbackRan: false,
+      workerLoaderCallbackRan: false,
+    };
+    const startedAt = performance.now();
+    let facetResponse: Response;
+    try {
+      const facet = this.ctx.facets.get(request.attemptId, () => {
+        observations.facetStartupCallbackRan = true;
+        const worker = loader.get(request.codeId, () => {
+          observations.workerLoaderCallbackRan = true;
+          return probeRerunWorkerCode();
+        });
+        return {
+          id: request.attemptId,
+          class: worker.getDurableObjectClass(PROBE_RERUN_FACET_CLASS_NAME),
+        };
+      });
+      facetResponse = await facet.fetch(
+        new Request("https://probe-facet.internal/v1/rerun", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+        }),
+      );
+    } catch {
+      return internalError("facet_transport_failure", 502);
+    }
+    if (!facetResponse.ok) {
+      return internalError("facet_response_failure", 502);
+    }
+    const body = await readBoundedJson(
+      facetResponse,
+      MAX_INTERNAL_RESPONSE_BYTES,
+    );
+    const facetReceipt = body.ok
+      ? decodeProbeRerunFacetResponseV1OrNull(body.value)
+      : null;
+    if (
+      facetReceipt === null ||
+      !sameRerunFacetReceipt(facetReceipt, request)
+    ) {
+      return internalError("facet_receipt_mismatch", 502);
+    }
+    return noStoreJson(
+      ProbeRerunSessionResponseV1Schema.make({
+        facet: facetReceipt,
+        facetDurationMs: ProbeDurationMsSchema.make(elapsedSince(startedAt)),
+        workerLoaderCallbackRan: observations.workerLoaderCallbackRan,
+        facetStartupCallbackRan: observations.facetStartupCallbackRan,
       }),
     );
   }
@@ -759,6 +869,25 @@ function decodeMockFinishResponse(
   value: unknown,
 ): ProbeMockFinishResponseV1 | null {
   return decodeProbeMockFinishResponseV1OrNull(value);
+}
+
+function sameRerunFacetReceipt(
+  response: ProbeRerunFacetResponseV1,
+  request: ProbeRuntimeRerunRequestV1,
+): boolean {
+  return response.protocolVersion === request.protocolVersion &&
+    response.runId === request.runId &&
+    response.sampleId === request.sampleId &&
+    response.sampleOrdinal === request.sampleOrdinal &&
+    response.scopeId === request.scopeId &&
+    response.scenario === request.scenario &&
+    response.sessionId === request.sessionId &&
+    response.sessionMode === request.sessionMode &&
+    response.attemptId === request.attemptId &&
+    response.codeMode === request.codeMode &&
+    response.codeId === request.codeId &&
+    response.reentryDepth === request.reentryDepth &&
+    response.payloadBytes === request.payload.length;
 }
 
 async function sameFacetReceipt(

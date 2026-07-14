@@ -11,10 +11,22 @@ import {
   type ProbeSyncWakeReceiptV1,
   type ProbeSyntheticCursor,
 } from "./commitProtocol";
+import { copyCloudflareRpcRecord } from "./effectBoundary";
 import { ProbeDurationMsSchema } from "./protocol";
+import {
+  decodeProbeRuntimeRerunResponseV1OrNull,
+  decodeProbeSyncRerunRequestV1OrNull,
+  ProbeSyncRerunReceiptV1Schema,
+  type ProbeRuntimeRerunResponseV1,
+  type ProbeSyncRerunReceiptV1,
+  type ProbeSyncRerunRequestV1,
+} from "./rerunProtocol";
+import { ProbeRerunConcurrencyFence } from "./rerunGuards";
+import type { ProbeRuntimeRerunCapability } from "./runtimeRerunEntrypoint";
 
 export class ProbeSyncDO extends DurableObject<Record<string, never>> {
   private readonly sql = this.ctx.storage.sql;
+  private readonly rerunFence = new ProbeRerunConcurrencyFence();
 
   constructor(ctx: DurableObjectState, env: Record<string, never>) {
     super(ctx, env);
@@ -98,11 +110,74 @@ export class ProbeSyncDO extends DurableObject<Record<string, never>> {
     });
   }
 
+  async rerun(
+    value: unknown,
+    runtime: ProbeRuntimeRerunCapability,
+  ): Promise<ProbeSyncRerunReceiptV1> {
+    const request = decodeProbeSyncRerunRequestV1OrNull(value);
+    if (request === null) throw new Error("invalid synthetic sync rerun");
+    this.assertScopeIdentity(request.scopeId);
+    if (typeof runtime?.invoke !== "function") {
+      throw new Error("runtime rerun capability unavailable");
+    }
+
+    return await this.rerunFence.run(request.sampleId, async () => {
+      const cursorBefore = readCursor(this.sql);
+      const startedAt = performance.now();
+      const rawResponse = await runtime.invoke();
+      const response = decodeProbeRuntimeRerunResponseV1OrNull(
+        copyCloudflareRpcRecord(rawResponse),
+      );
+      if (
+        response === null ||
+        !sameRuntimeRerunResponse(response, request)
+      ) {
+        throw new Error("invalid synthetic runtime rerun response");
+      }
+      const syncRuntimeRerunDurationMs = elapsedSince(startedAt);
+      const cursorAfter = readCursor(this.sql);
+      if (cursorAfter !== cursorBefore) {
+        throw new Error("synthetic sync cursor changed during rerun");
+      }
+      return ProbeSyncRerunReceiptV1Schema.make({
+        runtime: response,
+        syncRuntimeRerunDurationMs: ProbeDurationMsSchema.make(
+          syncRuntimeRerunDurationMs,
+        ),
+        cursorBefore,
+        cursorAfter,
+        capabilityCallCount: 1,
+        terminalAck: true,
+      });
+    });
+  }
+
   private assertScopeIdentity(scopeId: string): void {
     if (this.ctx.id.name !== scopeId) {
       throw new Error("synthetic sync scope identity mismatch");
     }
   }
+}
+
+function sameRuntimeRerunResponse(
+  response: ProbeRuntimeRerunResponseV1,
+  request: ProbeSyncRerunRequestV1,
+): boolean {
+  const facet = response.session.facet;
+  return response.terminalAck === true &&
+    facet.protocolVersion === request.protocolVersion &&
+    facet.runId === request.runId &&
+    facet.sampleId === request.sampleId &&
+    facet.sampleOrdinal === request.sampleOrdinal &&
+    facet.scopeId === request.scopeId &&
+    facet.scenario === request.scenario &&
+    facet.sessionId === request.sessionId &&
+    facet.sessionMode === request.sessionMode &&
+    facet.attemptId === request.attemptId &&
+    facet.codeMode === request.codeMode &&
+    facet.codeId === request.codeId &&
+    facet.reentryDepth === request.reentryDepth + 1 &&
+    facet.payloadBytes === request.payload.length;
 }
 
 function classifyWake(

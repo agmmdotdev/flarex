@@ -114,38 +114,29 @@ const decodeUnknownGatewaySample = Schema.decodeUnknownEffect(
 
 export const decodeProbeGatewaySampleRequestV1Effect = Effect.fn(
   "RuntimeTopologyProbe.decodeGatewaySampleRequestV1",
-)(function* (
-  value: unknown,
-): Effect.fn.Return<
-  ProbeGatewaySampleRequestV1,
-  ProbeRuntimeProtocolValidationError
-> {
-  return yield* decodeUnknownGatewaySampleRequest(value).pipe(
+)((value: unknown) =>
+  decodeUnknownGatewaySampleRequest(value).pipe(
     Effect.mapError(
       cause =>
         new ProbeRuntimeProtocolValidationError({
           boundary: "gateway-sample-request-v1",
           cause,
-        }),
+      }),
     ),
-  );
-});
+  ));
 
 export const decodeProbeGatewaySampleV1Effect = Effect.fn(
   "RuntimeTopologyProbe.decodeGatewaySampleV1",
-)(function* (
-  value: unknown,
-): Effect.fn.Return<ProbeGatewaySampleV1, ProbeRuntimeProtocolValidationError> {
-  return yield* decodeUnknownGatewaySample(value).pipe(
+)((value: unknown) =>
+  decodeUnknownGatewaySample(value).pipe(
     Effect.mapError(
       cause =>
         new ProbeRuntimeProtocolValidationError({
           boundary: "gateway-sample-v1",
           cause,
-        }),
+      }),
     ),
-  );
-});
+  ));
 
 export function completeProbeGatewaySampleV1(
   gatewaySample: ProbeGatewaySampleV1,
@@ -234,6 +225,10 @@ function gatewaySampleRelationshipIssue(
       return hasFacetStartupObservations(sample.startup)
         ? fullInvokeRelationshipIssue(sample)
         : "full_invoke requires consistent Worker Loader and facet callback observations";
+    case "sync_rerun":
+      return hasFacetStartupObservations(sample.startup)
+        ? syncRerunRelationshipIssue(sample)
+        : "sync_rerun requires consistent Worker Loader and facet callback observations";
     default:
       return "this gateway sample version does not support the selected scenario";
   }
@@ -346,7 +341,7 @@ function facetRelationshipIssue(
 function commitWakeRelationshipIssue(
   sample: typeof ProbeGatewaySampleV1Shape.Type,
 ): string | undefined {
-  return p05SpanTreeIssue(sample, [
+  return nestedSpanTreeIssue(sample, [
     ["mock_sync_wake_rtt", 1, 0],
     ["sync_cursor_io", 2, 1],
   ]);
@@ -355,7 +350,7 @@ function commitWakeRelationshipIssue(
 function fullInvokeRelationshipIssue(
   sample: typeof ProbeGatewaySampleV1Shape.Type,
 ): string | undefined {
-  return p05SpanTreeIssue(sample, [
+  return nestedSpanTreeIssue(sample, [
     ["gateway_session_rtt", 1, 0],
     ["session_facet_rtt", 2, 1],
     ["facet_mock_read_rtt", 3, 2],
@@ -366,7 +361,17 @@ function fullInvokeRelationshipIssue(
   ]);
 }
 
-function p05SpanTreeIssue(
+function syncRerunRelationshipIssue(
+  sample: typeof ProbeGatewaySampleV1Shape.Type,
+): string | undefined {
+  return nestedSpanTreeIssue(sample, [
+    ["sync_runtime_rerun_rtt", 1, 0],
+    ["gateway_session_rtt", 2, 1],
+    ["session_facet_rtt", 3, 2],
+  ]);
+}
+
+function nestedSpanTreeIssue(
   sample: typeof ProbeGatewaySampleV1Shape.Type,
   expected: ReadonlyArray<
     readonly [

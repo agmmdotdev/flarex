@@ -7,6 +7,8 @@ export * from "./http";
 export * from "./identity";
 export * from "./invokeProtocol";
 export * from "./protocol";
+export * from "./rerunGuards";
+export * from "./rerunProtocol";
 export * from "./runtimeProtocol";
 export * from "./sessionProtocol";
 export * from "./statistics";

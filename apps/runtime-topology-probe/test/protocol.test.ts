@@ -241,6 +241,23 @@ describe("runtime topology probe protocol", () => {
         },
       },
     ],
+    [
+      "sync rerun session reuse",
+      {
+        protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+        runId,
+        scenario: "sync_rerun",
+        repetitions: 1,
+        warmupRepetitions: 0,
+        dimensions: {
+          codeMode: "stable",
+          concurrency: 1,
+          journalEntries: 0,
+          payloadBytes: 0,
+          sessionMode: "reuse-session",
+        },
+      },
+    ],
   ])("rejects non-applicable dimensions for %s", (_, request) => {
     const failure = Effect.runSync(
       Effect.flip(decodeProbeRunRequestV1Effect(request)),

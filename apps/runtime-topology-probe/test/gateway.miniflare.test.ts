@@ -30,6 +30,10 @@ import {
   probeInvokeWorkerCode,
   PROBE_INVOKE_WORKER_MAIN_MODULE,
 } from "../src/invokeProtocol";
+import {
+  probeRerunWorkerCode,
+  PROBE_RERUN_WORKER_MAIN_MODULE,
+} from "../src/rerunProtocol";
 import { PROBE_PUBLIC_BODY_MAX_BYTES, PROBE_SAMPLE_ROUTE } from "../src/gateway";
 import {
   completeProbeGatewaySampleV1,
@@ -573,12 +577,68 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect(crossRun.status).toBe(400);
   });
 
-  it("rejects scenarios that are valid in P01 but outside P05", async () => {
-    const response = await dispatch(
-      harness,
-      validSampleRequest("sync_rerun", "p05_future"),
+  it("forwards one-shot sync reruns into fresh facets without moving the cursor", async () => {
+    const request = validSampleRequest("sync_rerun", "p06_rerun_stable", {
+      payloadBytes: 16,
+    });
+    expect(await syncCursor(harness, "p06_rerun_stable", "read")).toBe(0);
+
+    const first = await measuredDispatch(harness, request);
+    const repeated = await measuredDispatch(harness, request);
+    const sample = completeProbeGatewaySampleV1(
+      first.fragment,
+      first.durationMs,
     );
-    expect(response.status).toBe(422);
+
+    expect(first.fragment.identity).toMatchObject({
+      codeId: "rtp-code-rerun-v1-stable",
+      sessionId: "rtp-session-p06_rerun_stable-0",
+      attemptId: "rtp-attempt-p06_rerun_stable-0-0",
+    });
+    expect(first.fragment.startup).toEqual({
+      workerLoader: "callback-ran",
+      facet: "callback-ran",
+    });
+    expect(repeated.fragment.startup).toEqual({
+      workerLoader: "callback-not-run",
+      facet: "callback-ran",
+    });
+    expect(sample.spans.map(span => span.name)).toEqual([
+      "external_request",
+      "sync_runtime_rerun_rtt",
+      "gateway_session_rtt",
+      "session_facet_rtt",
+    ]);
+    expect(validateProbeTraceV1(sample)).toEqual({ ok: true });
+    expect(first.raw).not.toContain("terminalAck");
+    expect(first.raw).not.toContain("capabilityCallCount");
+    expect(await syncCursor(harness, "p06_rerun_stable", "read")).toBe(0);
+  });
+
+  it("uses fresh sessions and distinct rerun-v1 identities for new code", async () => {
+    const request = validSampleRequest("sync_rerun", "p06_rerun_new_code", {
+      codeMode: "new-code",
+      repetitions: 2,
+    });
+    const first = await measuredDispatch(harness, request);
+    const second = await measuredDispatch(harness, {
+      ...request,
+      sampleOrdinal: 1,
+    });
+
+    expect(first.fragment.identity).toMatchObject({
+      codeId: "rtp-code-rerun-v1-p06_rerun_new_code-0",
+      sessionId: "rtp-session-p06_rerun_new_code-0",
+      attemptId: "rtp-attempt-p06_rerun_new_code-0-0",
+    });
+    expect(second.fragment.identity).toMatchObject({
+      codeId: "rtp-code-rerun-v1-p06_rerun_new_code-1",
+      sessionId: "rtp-session-p06_rerun_new_code-1",
+      attemptId: "rtp-attempt-p06_rerun_new_code-1-1",
+    });
+    expect(first.fragment.startup.workerLoader).toBe("callback-ran");
+    expect(second.fragment.startup.workerLoader).toBe("callback-ran");
+    expect(await syncCursor(harness, "p06_rerun_new_code", "read")).toBe(0);
   });
 
   it("measures the full session, facet, mock-read, journal, finish, and sync path", async () => {
@@ -861,27 +921,43 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect(receipt.sync.cursor).toBe(1);
   });
 
-  it("keeps the sync wake capability only on the private mock boundary", async () => {
+  it("keeps the permanent binding graph one-way and facets capability-free", async () => {
     const gatewayBindings = await harness.bindings();
     const mockBindings = await harness.mockBindings();
+    const syncBindings = await harness.syncBindings();
     const mockRead = gatewayBindings.MOCK_READ;
     if (mockRead === undefined) throw new Error("MOCK_READ is missing");
     const workerCode = probeInvokeWorkerCode(mockRead);
     const source = workerCode.modules[PROBE_INVOKE_WORKER_MAIN_MODULE];
+    const rerunCode = probeRerunWorkerCode();
+    const rerunSource = rerunCode.modules[PROBE_RERUN_WORKER_MAIN_MODULE];
 
     expect("PROBE_SYNC" in gatewayBindings).toBe(false);
+    expect(gatewayBindings.MOCK_RERUN).toBeDefined();
     expect(mockBindings.PROBE_SYNC).toBeDefined();
+    expect(Object.keys(mockBindings).sort()).toEqual(["PROBE_SYNC"]);
+    expect(Object.keys(syncBindings).sort()).toEqual(["PROBE_SYNC"]);
+    expect("PROBE_SESSIONS" in mockBindings).toBe(false);
+    expect("MOCK_RERUN" in mockBindings).toBe(false);
+    expect("PROBE_SESSIONS" in syncBindings).toBe(false);
+    expect("MOCK_RERUN" in syncBindings).toBe(false);
     expect(Object.keys(workerCode.env ?? {})).toEqual(["MOCK_READ"]);
     expect(workerCode.globalOutbound).toBeNull();
     expect(typeof source).toBe("string");
     expect(source).not.toContain("MOCK_FINISH");
     expect(source).not.toContain("PROBE_SYNC");
+    expect(rerunCode.env).toEqual({});
+    expect(rerunCode.globalOutbound).toBeNull();
+    expect(typeof rerunSource).toBe("string");
+    expect(rerunSource).not.toContain("MOCK_RERUN");
+    expect(rerunSource).not.toContain("PROBE_SYNC");
   });
 
   it("records missing private mock capabilities without dropping samples", async () => {
     const noMockHarness = await createRuntimeProbeHarness({
       mockFinish: false,
       mockRead: false,
+      mockRerun: false,
     });
     try {
       const wake = await measuredDispatch(
@@ -891,6 +967,10 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
       const invoke = await measuredDispatch(
         noMockHarness,
         validSampleRequest("full_invoke", "p05_no_mock_invoke"),
+      );
+      const rerun = await measuredDispatch(
+        noMockHarness,
+        validSampleRequest("sync_rerun", "p06_no_mock_rerun"),
       );
       const edge = await dispatch(
         noMockHarness,
@@ -902,6 +982,19 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
       expect(invoke.fragment.outcome.kind).toBe("error");
       expect(invoke.fragment.spans).toEqual([]);
       expect(invoke.fragment.startup).toEqual({
+        workerLoader: "callback-not-run",
+        facet: "callback-not-run",
+      });
+      expect(rerun.fragment.outcome).toEqual({
+        kind: "error",
+        error: {
+          code: "runtime_failure",
+          retryable: false,
+          stage: "request",
+        },
+      });
+      expect(rerun.fragment.spans).toEqual([]);
+      expect(rerun.fragment.startup).toEqual({
         workerLoader: "callback-not-run",
         facet: "callback-not-run",
       });

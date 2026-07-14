@@ -1,7 +1,7 @@
 # Runtime Topology Probe Turn Plan
 
-Status: experimental evidence plan; `P00` through `P05` complete and `P06`
-through `P11` approved for ordered execution.
+Status: experimental evidence plan; `P00` through `P06` complete. `P07`
+through `P11` remain pending their gate-specific preflight and approval.
 
 This file owns a bounded production probe for measuring Cloudflare runtime
 communication. It is local to `apps/runtime-topology-probe`; it is not an
@@ -95,8 +95,17 @@ Service bindings and Dynamic Worker identifiers affect both the topology and
 the experiment budget:
 
 - <https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/>
+- <https://developers.cloudflare.com/workers/runtime-apis/context/>
+- <https://developers.cloudflare.com/workers/runtime-apis/rpc/>
 - <https://developers.cloudflare.com/workers/runtime-apis/rpc/lifecycle/>
+- <https://developers.cloudflare.com/workers/configuration/compatibility-flags/>
 - <https://developers.cloudflare.com/dynamic-workers/pricing/>
+
+At the currently pinned `2026-06-14` compatibility date, `ctx.exports` is
+available without an explicit compatibility flag. The installed runtime
+rejects `enable_ctx_exports` because that behavior has been the default since
+`2025-11-17`. This is an experiment input, not a permanent platform
+assumption, and must be reverified at `P08`.
 
 These external assumptions must be rechecked immediately before the production
 deployment gate.
@@ -189,11 +198,9 @@ version before the production matrix is registered.
 
 ## Turn-By-Turn Gates
 
-A turn implements only the current ordered gate. The app-local `AGENTS.md`
-records the user's approval for the complete isolated experiment: the main
-thread still performs the repository-grounded preflight and challenge for each
-behavior-changing gate, but does not pause for repeated approval while scope
-and external targets remain inside this plan.
+A turn implements only the current ordered gate. Repository agent rules own
+the required preflight, review, validation, approval, and commit cadence. A
+completed gate does not authorize implementation of the next gate.
 
 ### P00 - Create The Experiment Record And Root
 
@@ -313,7 +320,7 @@ dry-runs.
 
 ### P06 - Add The Optional Sync-To-Runtime Rerun Loop
 
-Status: in progress and approved.
+Status: complete.
 
 Deliver:
 
@@ -329,13 +336,43 @@ WebSockets, or `ConnectionDO`.
 
 Proof: focused no-cycle/no-reentry tests and local end-to-end smoke.
 
+Implemented communication shape:
+
+```text
+gateway
+  -> MockRerunEntrypoint
+  -> ProbeSyncDO
+  -> per-call forwarded one-shot RpcTarget
+  -> gateway-local ProbeRuntimeRerunEntrypoint via ctx.exports
+  -> fresh ProbeSessionDO path
+  -> rerun-v1 attempt facet
+  -> terminal return value to ProbeSyncDO
+```
+
+The permanent deployed graph remains `gateway -> mock -> sync`; there is no
+sync-to-gateway service binding. The forwarded target pins the depth-1 runtime
+request, exposes only `invoke()`, rejects concurrent or repeated use, is
+awaited exactly once, and is neither retained nor persisted. The terminal
+acknowledgement is the return value from that call and cannot originate a
+second wake. The rerun facet has no bindings, outbound networking, or
+subrequests, and the synthetic sync cursor is observed before and after but is
+not mutated.
+
+Local integration proves normal-path facet deletion by replaying the same
+synthetic identity and observing a new facet-startup callback. It does not
+prove crash-durable cleanup: an isolate termination between facet creation and
+deletion could leave tracked state. Nor does P06 atomically claim its
+deterministic sample/session/attempt identity. Those limitations keep this a
+latency-topology experiment; `P07` must add sample claims, budgets, and
+idempotent purge before any production run.
+
 If Cloudflare's forwarded RPC capability cannot cross the complete local or
 hosted call chain, record that unsupported result directly. Do not substitute
 gateway polling because it would measure the opposite communication direction.
 
 ### P07 - Harden Lifecycle, Cleanup, And Evidence Collection
 
-Status: approved; pending.
+Status: pending preflight and approval.
 
 Deliver:
 
@@ -358,7 +395,7 @@ tests, and deploy dry-runs.
 
 ### P08 - Production Deployment Preflight
 
-Status: approved; pending.
+Status: pending.
 
 This is a discussion/evidence gate before external state changes.
 
@@ -377,7 +414,7 @@ scope would expand.
 
 ### P09 - Deploy And Smoke The Isolated Probe
 
-Status: approved; pending.
+Status: pending.
 
 Deliver:
 
@@ -392,7 +429,7 @@ Proof: a small production smoke receipt and a successful cleanup rehearsal.
 
 ### P10 - Collect Production Latency Evidence
 
-Status: approved; pending.
+Status: pending.
 
 Deliver:
 
@@ -407,7 +444,7 @@ budget and no secret or tenant data.
 
 ### P11 - Analyze, Record Conclusions, And Teardown
 
-Status: approved; pending.
+Status: pending.
 
 Deliver:
 
@@ -429,7 +466,8 @@ teardown are complete.
 
 - Active goal: build and validate the isolated production runtime-topology
   probe through separately approved gates.
-- Current gate: `P06` implementation.
-- Next gate after proof and checkpoint: `P07`.
+- Current gate: `P07` research/preflight; implementation has not begun.
+- Next action: agree the smallest safe `P07` slice and obtain explicit
+  approval before implementation.
 - Goal completion condition: production evidence and analysis are recorded and
   the approved cleanup/retention action is verified.

@@ -1,5 +1,24 @@
 import { createProbeGatewayWorker, type ProbeGatewayEnv } from "./gateway";
+import {
+  OneShotProbeRuntimeRerunCapability,
+  ProbeRuntimeRerunEntrypoint,
+} from "./runtimeRerunEntrypoint";
 
 export { ProbeSessionDO } from "./sessionDO";
+export { ProbeRuntimeRerunEntrypoint } from "./runtimeRerunEntrypoint";
 
-export default createProbeGatewayWorker() satisfies ExportedHandler<ProbeGatewayEnv>;
+const gateway = createProbeGatewayWorker();
+
+export default {
+  fetch(request, env, ctx) {
+    return gateway.fetch(
+      request,
+      env,
+      runtimeRequest =>
+        new OneShotProbeRuntimeRerunCapability(
+          ctx.exports.ProbeRuntimeRerunEntrypoint,
+          runtimeRequest,
+        ),
+    );
+  },
+} satisfies ExportedHandler<ProbeGatewayEnv>;

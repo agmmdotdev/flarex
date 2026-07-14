@@ -38,13 +38,13 @@ describe("runtime topology probe identities", () => {
     expect(probeSpanId(one)).toBe("rtp-span-1");
   });
 
-  it("keeps direct, facet, and privileged invocation code identities distinct", () => {
-    expect(probeCodeId({ mode: "stable", profile: "direct" })).not.toBe(
-      probeCodeId({ mode: "stable", profile: "facet" }),
+  it("keeps every execution profile code identity distinct", () => {
+    const profiles = ["direct", "facet", "invoke", "rerun"] as const;
+    const identities = profiles.map(
+      profile => probeCodeId({ mode: "stable", profile }),
     );
-    expect(probeCodeId({ mode: "stable", profile: "facet" })).not.toBe(
-      probeCodeId({ mode: "stable", profile: "invoke" }),
-    );
+
+    expect(new Set(identities).size).toBe(identities.length);
   });
 
   it.each(["", "UPPER", "-leading", "contains space", "a".repeat(41)])(

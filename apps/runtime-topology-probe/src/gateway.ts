@@ -40,6 +40,7 @@ import {
 import type {
   MockFinishEntrypoint,
   MockReadEntrypoint,
+  MockRerunEntrypoint,
 } from "./mockCommitWorker";
 import {
   hasExactBearerCapability,
@@ -70,18 +71,35 @@ import {
   type ProbeSessionEchoResponseV1,
 } from "./sessionProtocol";
 import type { ProbeSessionDO, ProbeSessionEnv } from "./sessionDO";
+import {
+  decodeProbeSyncRerunReceiptV1OrNull,
+  ProbeRuntimeRerunRequestV1Schema,
+  ProbeSyncRerunRequestV1Schema,
+  type ProbeSyncRerunReceiptV1,
+  type ProbeSyncRerunRequestV1,
+} from "./rerunProtocol";
+import type { ProbeRuntimeRerunCapability } from "./runtimeRerunEntrypoint";
 
 export interface ProbeGatewayEnv extends ProbeSessionEnv {
   readonly PROBE_SESSIONS: DurableObjectNamespace<ProbeSessionDO>;
   readonly LOADER?: WorkerLoader;
   readonly MOCK_FINISH?: Service<typeof MockFinishEntrypoint>;
   readonly MOCK_READ?: Service<typeof MockReadEntrypoint>;
+  readonly MOCK_RERUN?: Service<typeof MockRerunEntrypoint>;
   readonly RUNTIME_TOPOLOGY_PROBE_TOKEN?: string;
 }
 
 export interface ProbeGatewayWorker {
-  fetch(request: Request, env: ProbeGatewayEnv): Promise<Response>;
+  fetch(
+    request: Request,
+    env: ProbeGatewayEnv,
+    createRuntimeRerunCapability?: ProbeRuntimeRerunCapabilityFactory,
+  ): Promise<Response>;
 }
+
+export type ProbeRuntimeRerunCapabilityFactory = (
+  request: typeof ProbeRuntimeRerunRequestV1Schema.Type,
+) => ProbeRuntimeRerunCapability;
 
 export const PROBE_SAMPLE_ROUTE = "/v1/samples";
 export const PROBE_PUBLIC_BODY_MAX_BYTES =
@@ -95,7 +113,7 @@ export type ProbeRuntimeFailureSource =
 
 export function createProbeGatewayWorker(): ProbeGatewayWorker {
   return {
-    async fetch(request, env) {
+    async fetch(request, env, createRuntimeRerunCapability) {
       const token = env.RUNTIME_TOPOLOGY_PROBE_TOKEN;
       if (!isConfiguredSecret(token)) {
         return gatewayError("runtime_failure", 500);
@@ -138,7 +156,8 @@ export function createProbeGatewayWorker(): ProbeGatewayWorker {
         sampleRequest.run.scenario !== "facet_echo" &&
         sampleRequest.run.scenario !== "facet_journal" &&
         sampleRequest.run.scenario !== "commit_wake" &&
-        sampleRequest.run.scenario !== "full_invoke"
+        sampleRequest.run.scenario !== "full_invoke" &&
+        sampleRequest.run.scenario !== "sync_rerun"
       ) {
         return gatewayError("unsupported_scenario", 422);
       }
@@ -186,7 +205,7 @@ export function createProbeGatewayWorker(): ProbeGatewayWorker {
         case "commit_wake": {
           if (env.MOCK_FINISH === undefined) {
             return noStoreJson(
-              failedP05Sample(
+              failedNestedSample(
                 sampleRequest,
                 edgeColo,
                 runtimeError("request", false),
@@ -207,7 +226,7 @@ export function createProbeGatewayWorker(): ProbeGatewayWorker {
             env.MOCK_FINISH === undefined
           ) {
             return noStoreJson(
-              failedP05Sample(
+              failedNestedSample(
                 sampleRequest,
                 edgeColo,
                 runtimeError("request", false),
@@ -225,6 +244,34 @@ export function createProbeGatewayWorker(): ProbeGatewayWorker {
             edgeColo,
           );
           return result instanceof Response ? result : noStoreJson(result);
+        }
+        case "sync_rerun": {
+          if (
+            env.LOADER === undefined ||
+            env.MOCK_RERUN === undefined ||
+            createRuntimeRerunCapability === undefined
+          ) {
+            return noStoreJson(
+              failedNestedSample(
+                sampleRequest,
+                edgeColo,
+                runtimeError("request", false),
+                [],
+                {
+                  workerLoader: "callback-not-run",
+                  facet: "callback-not-run",
+                },
+              ),
+            );
+          }
+          return noStoreJson(
+            await executeSyncRerunScenario(
+              env.MOCK_RERUN,
+              createRuntimeRerunCapability,
+              sampleRequest,
+              edgeColo,
+            ),
+          );
         }
       }
     },
@@ -359,14 +406,14 @@ async function executeCommitWake(
       copyCloudflareRpcRecord(rawFinish),
     );
   } catch {
-    return failedP05Sample(
+    return failedNestedSample(
       sampleRequest,
       edgeColo,
       runtimeError("mock_sync_wake_rtt", true),
     );
   }
   if (finish === null || !sameMockFinishReceipt(finish, finishRequest)) {
-    return failedP05Sample(
+    return failedNestedSample(
       sampleRequest,
       edgeColo,
       runtimeError("mock_sync_wake_rtt", false),
@@ -377,7 +424,7 @@ async function executeCommitWake(
     finish.sync.disposition !== "duplicate"
   ) {
     const error = runtimeError("sync_cursor_io", false);
-    return failedP05Sample(
+    return failedNestedSample(
       sampleRequest,
       edgeColo,
       error,
@@ -455,7 +502,7 @@ async function executeFullInvokeScenario(
     );
   } catch {
     const error = runtimeError("gateway_session_rtt", true);
-    return failedP05Sample(
+    return failedNestedSample(
       sampleRequest,
       edgeColo,
       error,
@@ -498,7 +545,7 @@ async function executeFullInvokeScenario(
         status: response.status,
       }),
     );
-    return failedP05Sample(
+    return failedNestedSample(
       sampleRequest,
       edgeColo,
       error,
@@ -514,7 +561,7 @@ async function executeFullInvokeScenario(
     !(await sameFullInvokeSessionReceipt(decoded, internalRequest))
   ) {
     const error = runtimeError("gateway_session_rtt", false);
-    return failedP05Sample(
+    return failedNestedSample(
       sampleRequest,
       edgeColo,
       error,
@@ -530,6 +577,96 @@ async function executeFullInvokeScenario(
       outcome: { kind: "ok" },
       spans: fullInvokeSpans(decoded, sessionDurationMs),
       startup: fullInvokeStartup(decoded),
+    },
+  );
+}
+
+async function executeSyncRerunScenario(
+  mockRerun: Service<typeof MockRerunEntrypoint>,
+  createRuntimeRerunCapability: ProbeRuntimeRerunCapabilityFactory,
+  sampleRequest: ProbeGatewaySampleRequestV1,
+  edgeColo: string | null,
+): Promise<ProbeGatewaySampleV1> {
+  if (sampleRequest.run.scenario !== "sync_rerun") {
+    throw new Error("executeSyncRerunScenario received a different scenario");
+  }
+  const identity = probeSampleIdentityV1(
+    sampleRequest.run.runId,
+    sampleRequest.run.scenario,
+    sampleRequest.run.dimensions,
+    sampleRequest.sampleOrdinal,
+  );
+  if (identity.kind !== "facet-session") {
+    throw new Error("sync_rerun did not derive a facet-session identity");
+  }
+  const rerunRequest = ProbeSyncRerunRequestV1Schema.make({
+    protocolVersion: sampleRequest.run.protocolVersion,
+    runId: sampleRequest.run.runId,
+    sampleId: probeSampleId(
+      sampleRequest.run.runId,
+      sampleRequest.sampleOrdinal,
+    ),
+    sampleOrdinal: sampleRequest.sampleOrdinal,
+    scopeId: identity.scopeId,
+    scenario: "sync_rerun",
+    sessionId: identity.sessionId,
+    sessionMode: "new-session",
+    attemptId: identity.attemptId,
+    codeMode: sampleRequest.run.dimensions.codeMode,
+    codeId: identity.codeId,
+    reentryDepth: 0,
+    payload: sampleRequest.payload,
+  });
+  const runtimeRequest = ProbeRuntimeRerunRequestV1Schema.make({
+    ...rerunRequest,
+    reentryDepth: 1,
+  });
+  let receipt: ProbeSyncRerunReceiptV1 | null;
+  try {
+    const capability = createRuntimeRerunCapability(runtimeRequest);
+    const rawReceipt = await mockRerun.rerun(rerunRequest, capability);
+    receipt = decodeProbeSyncRerunReceiptV1OrNull(
+      copyCloudflareRpcRecord(rawReceipt),
+    );
+  } catch {
+    return failedNestedSample(
+      sampleRequest,
+      edgeColo,
+      runtimeError("sync_runtime_rerun_rtt", true),
+      [],
+      unobservedFacetStartup(),
+    );
+  }
+  if (receipt === null || !sameSyncRerunReceipt(receipt, rerunRequest)) {
+    return failedNestedSample(
+      sampleRequest,
+      edgeColo,
+      runtimeError("sync_runtime_rerun_rtt", false),
+      [],
+      unobservedFacetStartup(),
+    );
+  }
+  const runtime = receipt.runtime;
+  const session = runtime.session;
+  return gatewaySampleFromRun(
+    sampleRequest.run,
+    sampleRequest.sampleOrdinal,
+    {
+      edgeColo,
+      outcome: { kind: "ok" },
+      spans: [
+        syncRuntimeRerunSpan(receipt.syncRuntimeRerunDurationMs),
+        rerunSessionSpan(runtime.runtimeSessionDurationMs),
+        rerunFacetSpan(session.facetDurationMs),
+      ],
+      startup: {
+        workerLoader: session.workerLoaderCallbackRan
+          ? "callback-ran"
+          : "callback-not-run",
+        facet: session.facetStartupCallbackRan
+          ? "callback-ran"
+          : "callback-not-run",
+      },
     },
   );
 }
@@ -878,6 +1015,36 @@ function fullInvokeStartup(
   };
 }
 
+function syncRuntimeRerunSpan(durationMs: number): ProbeTraceSpanV1 {
+  return ProbeTraceSpanV1Schema.make({
+    spanId: probeSpanId(ProbeOrdinalSchema.make(1)),
+    parentSpanId: probeSpanId(ProbeOrdinalSchema.make(0)),
+    name: "sync_runtime_rerun_rtt",
+    durationMs: ProbeDurationMsSchema.make(durationMs),
+    outcome: { kind: "ok" },
+  });
+}
+
+function rerunSessionSpan(durationMs: number): ProbeTraceSpanV1 {
+  return ProbeTraceSpanV1Schema.make({
+    spanId: probeSpanId(ProbeOrdinalSchema.make(2)),
+    parentSpanId: probeSpanId(ProbeOrdinalSchema.make(1)),
+    name: "gateway_session_rtt",
+    durationMs: ProbeDurationMsSchema.make(durationMs),
+    outcome: { kind: "ok" },
+  });
+}
+
+function rerunFacetSpan(durationMs: number): ProbeTraceSpanV1 {
+  return ProbeTraceSpanV1Schema.make({
+    spanId: probeSpanId(ProbeOrdinalSchema.make(3)),
+    parentSpanId: probeSpanId(ProbeOrdinalSchema.make(2)),
+    name: "session_facet_rtt",
+    durationMs: ProbeDurationMsSchema.make(durationMs),
+    outcome: { kind: "ok" },
+  });
+}
+
 function dynamicStartup(loaderCallbackRan: boolean) {
   return {
     workerLoader: loaderCallbackRan ? "callback-ran" : "callback-not-run",
@@ -1022,6 +1189,29 @@ function sameMockFinishReceipt(
     receipt.sealDigest === request.sealDigest;
 }
 
+function sameSyncRerunReceipt(
+  receipt: ProbeSyncRerunReceiptV1,
+  request: ProbeSyncRerunRequestV1,
+): boolean {
+  const facet = receipt.runtime.session.facet;
+  return receipt.terminalAck === true &&
+    receipt.capabilityCallCount === 1 &&
+    receipt.cursorBefore === receipt.cursorAfter &&
+    facet.protocolVersion === request.protocolVersion &&
+    facet.runId === request.runId &&
+    facet.sampleId === request.sampleId &&
+    facet.sampleOrdinal === request.sampleOrdinal &&
+    facet.scopeId === request.scopeId &&
+    facet.scenario === request.scenario &&
+    facet.sessionId === request.sessionId &&
+    facet.sessionMode === request.sessionMode &&
+    facet.attemptId === request.attemptId &&
+    facet.codeMode === request.codeMode &&
+    facet.codeId === request.codeId &&
+    facet.reentryDepth === request.reentryDepth + 1 &&
+    facet.payloadBytes === request.payload.length;
+}
+
 async function sameFullInvokeSessionReceipt(
   response: ProbeFullInvokeSessionObservationV1,
   request: ProbeInvokeFacetRequestV1,
@@ -1079,7 +1269,7 @@ function isJsonContentType(value: string | null): boolean {
     value.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
 }
 
-function failedP05Sample(
+function failedNestedSample(
   sampleRequest: ProbeGatewaySampleRequestV1,
   edgeColo: string | null,
   error: ProbeNormalizedErrorV1,

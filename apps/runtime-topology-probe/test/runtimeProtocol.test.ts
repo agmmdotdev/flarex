@@ -218,6 +218,76 @@ describe("P02 gateway runtime protocol", () => {
     expect(failure.boundary).toBe("gateway-sample-v1");
   });
 
+  it("completes the exact sync-to-runtime rerun trace and callback cohort", () => {
+    const run = runEffectTestSync(
+      decodeProbeRunRequestV1Effect(runRequest("sync_rerun")),
+    );
+    const fragment = gatewaySampleFromRun(run, sampleOrdinal, {
+      edgeColo: null,
+      outcome: { kind: "ok" },
+      spans: [
+        span("sync_runtime_rerun_rtt", 1, 0, { kind: "ok" }),
+        span("gateway_session_rtt", 2, 1, { kind: "ok" }),
+        span("session_facet_rtt", 3, 2, { kind: "ok" }),
+      ],
+      startup: {
+        workerLoader: "callback-ran",
+        facet: "callback-ran",
+      },
+    });
+    const sample = completeProbeGatewaySampleV1(fragment, 3);
+
+    expect(fragment.identity.codeId).toBe("rtp-code-rerun-v1-stable");
+    expect(sample.spans.map(current => current.name)).toEqual([
+      "external_request",
+      "sync_runtime_rerun_rtt",
+      "gateway_session_rtt",
+      "session_facet_rtt",
+    ]);
+    expect(validateProbeTraceV1(sample)).toEqual({ ok: true });
+
+    const staleFacetFailure = runEffectTestSync(
+      Effect.flip(
+        decodeProbeGatewaySampleV1Effect({
+          ...fragment,
+          startup: {
+            workerLoader: "callback-not-run",
+            facet: "callback-not-run",
+          },
+        }),
+      ),
+    );
+    expect(staleFacetFailure.boundary).toBe("gateway-sample-v1");
+  });
+
+  it("keeps an unavailable sync rerun callback as a measured failure", () => {
+    const run = runEffectTestSync(
+      decodeProbeRunRequestV1Effect(runRequest("sync_rerun")),
+    );
+    const error = {
+      code: "runtime_failure",
+      retryable: true,
+      stage: "sync_runtime_rerun_rtt",
+    } as const;
+    const fragment = gatewaySampleFromRun(run, sampleOrdinal, {
+      edgeColo: null,
+      outcome: { kind: "error", error },
+      spans: [],
+      startup: {
+        workerLoader: "callback-unobserved",
+        facet: "callback-unobserved",
+      },
+    });
+    const sample = completeProbeGatewaySampleV1(fragment, 3);
+
+    expect(sample.spans).toHaveLength(1);
+    expect(validateProbeTraceV1(sample)).toEqual({
+      ok: false,
+      issue: "missing_or_extra_span",
+      spanName: null,
+    });
+  });
+
   it("rejects a failed terminal span whose name disagrees with its stage", () => {
     const run = runEffectTestSync(
       decodeProbeRunRequestV1Effect(runRequest("commit_wake")),
@@ -285,6 +355,7 @@ function runRequest(
     | "dynamic_direct_echo"
     | "edge_echo"
     | "full_invoke"
+    | "sync_rerun"
     | "session_echo" = "session_echo",
 ) {
   return {

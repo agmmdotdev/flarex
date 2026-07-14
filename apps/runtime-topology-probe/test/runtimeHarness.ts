@@ -19,6 +19,7 @@ export interface RuntimeProbeHarness {
   readonly persistPath: string;
   bindings(): Promise<ProbeGatewayEnv>;
   mockBindings(): Promise<ProbeMockCommitEnv>;
+  syncBindings(): Promise<Record<string, unknown>>;
   dispose(): Promise<void>;
 }
 
@@ -27,6 +28,7 @@ export interface RuntimeProbeHarnessOptions {
   readonly removePersistPathOnDispose?: boolean;
   readonly mockFinish?: boolean;
   readonly mockRead?: boolean;
+  readonly mockRerun?: boolean;
   readonly token?: string | false;
   readonly workerLoader?: boolean;
 }
@@ -79,6 +81,14 @@ export async function createRuntimeProbeHarness(
                 MOCK_FINISH: {
                   name: PROBE_MOCK_WORKER_NAME,
                   entrypoint: "MockFinishEntrypoint",
+                },
+              }),
+          ...(options.mockRerun === false
+            ? {}
+            : {
+                MOCK_RERUN: {
+                  name: PROBE_MOCK_WORKER_NAME,
+                  entrypoint: "MockRerunEntrypoint",
                 },
               }),
         },
@@ -134,6 +144,8 @@ export async function createRuntimeProbeHarness(
       await mf.getBindings<ProbeGatewayEnv>(PROBE_GATEWAY_WORKER_NAME),
     mockBindings: async () =>
       await mf.getBindings<ProbeMockCommitEnv>(PROBE_MOCK_WORKER_NAME),
+    syncBindings: async () =>
+      await mf.getBindings<Record<string, unknown>>(PROBE_SYNC_WORKER_NAME),
     dispose: async () => {
       await mf.dispose();
       if (removePersistPathOnDispose) {

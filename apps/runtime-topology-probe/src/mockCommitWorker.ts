@@ -14,6 +14,13 @@ import {
 import { copyCloudflareRpcRecord } from "./effectBoundary";
 import { ProbeDurationMsSchema } from "./protocol";
 import type { ProbeSyncDO } from "./probeSyncDO";
+import {
+  decodeProbeSyncRerunReceiptV1OrNull,
+  decodeProbeSyncRerunRequestV1OrNull,
+  type ProbeSyncRerunReceiptV1,
+  type ProbeSyncRerunRequestV1,
+} from "./rerunProtocol";
+import type { ProbeRuntimeRerunCapability } from "./runtimeRerunEntrypoint";
 
 export interface ProbeMockCommitEnv {
   readonly PROBE_SYNC: DurableObjectNamespace<ProbeSyncDO>;
@@ -75,6 +82,28 @@ export class MockFinishEntrypoint extends WorkerEntrypoint<ProbeMockCommitEnv> {
   }
 }
 
+export class MockRerunEntrypoint extends WorkerEntrypoint<ProbeMockCommitEnv> {
+  async rerun(
+    value: unknown,
+    runtime: ProbeRuntimeRerunCapability,
+  ): Promise<ProbeSyncRerunReceiptV1> {
+    const request = decodeProbeSyncRerunRequestV1OrNull(value);
+    if (request === null) throw new Error("invalid synthetic mock rerun");
+    if (typeof runtime?.invoke !== "function") {
+      throw new Error("runtime rerun capability unavailable");
+    }
+    const sync = this.env.PROBE_SYNC.getByName(request.scopeId);
+    const rawReceipt = await sync.rerun(request, runtime);
+    const receipt = decodeProbeSyncRerunReceiptV1OrNull(
+      copyCloudflareRpcRecord(rawReceipt),
+    );
+    if (receipt === null || !sameRerunReceipt(receipt, request)) {
+      throw new Error("invalid synthetic sync rerun receipt");
+    }
+    return receipt;
+  }
+}
+
 export default {
   fetch(): Response {
     return new Response("Not Found", {
@@ -87,4 +116,26 @@ export default {
 function elapsedSince(startedAt: number): number {
   const duration = performance.now() - startedAt;
   return Number.isFinite(duration) && duration > 0 ? duration : 0;
+}
+
+function sameRerunReceipt(
+  receipt: ProbeSyncRerunReceiptV1,
+  request: ProbeSyncRerunRequestV1,
+): boolean {
+  const facet = receipt.runtime.session.facet;
+  return receipt.terminalAck === true &&
+    receipt.capabilityCallCount === 1 &&
+    facet.protocolVersion === request.protocolVersion &&
+    facet.runId === request.runId &&
+    facet.sampleId === request.sampleId &&
+    facet.sampleOrdinal === request.sampleOrdinal &&
+    facet.scopeId === request.scopeId &&
+    facet.scenario === request.scenario &&
+    facet.sessionId === request.sessionId &&
+    facet.sessionMode === request.sessionMode &&
+    facet.attemptId === request.attemptId &&
+    facet.codeMode === request.codeMode &&
+    facet.codeId === request.codeId &&
+    facet.reentryDepth === request.reentryDepth + 1 &&
+    facet.payloadBytes === request.payload.length;
 }

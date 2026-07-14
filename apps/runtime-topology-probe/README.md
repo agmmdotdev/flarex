@@ -7,10 +7,10 @@ and teardown requirements live in [`PLAN.md`](./PLAN.md).
 
 ## Current Slice
 
-`P05` is complete. It adds the private mock-commit and separate sync-actor
-communication path without introducing a real executor, transaction, or sync
-engine. The next approved slice is the optional `P06` sync-to-runtime rerun
-loop. The current app owns:
+`P06` is complete. It adds the optional sync-to-runtime rerun communication
+loop without introducing a real executor, transaction, or sync engine. `P07`
+is the next gate, but remains pending its own preflight and approval. The
+current app owns:
 
 - a bearer-protected per-sample gateway with bounded streaming JSON reads;
 - `edge_echo` and gateway-to-`ProbeSessionDO` round-trip samples;
@@ -49,11 +49,23 @@ loop. The current app owns:
 - `commit_wake` and `full_invoke` traces across mock read, facet journal,
   SessionDO-to-mock finish, mock-to-sync wake, and sync cursor I/O; and
 - strict decoding of enumerable RPC wire fields while excluding Cloudflare's
-  transport-owned `Symbol.dispose` marker from application protocol fields.
+  transport-owned `Symbol.dispose` marker from application protocol fields;
+- a private `MockRerunEntrypoint` that forwards a per-call, one-shot `RpcTarget`
+  through `ProbeSyncDO`, with no permanent reverse service binding;
+- a gateway-local `ProbeRuntimeRerunEntrypoint` reached through `ctx.exports`
+  that opens the depth-1 runtime path into a fresh SessionDO attempt facet;
+- a capability-free `rerun-v1` facet with outbound networking and subrequests
+  disabled, strict terminal receipts, and no second sync wake;
+- an exact `external -> sync rerun -> session -> facet` trace whose successful
+  receipt requires proof that the fresh facet startup callback ran; and
+- cursor-preservation, same-identity normal cleanup replay, new-code isolation,
+  missing-capability failure, and one-way binding-graph proofs in Miniflare.
 
 This slice is local and dry-run-only. Production remains blocked until `P07`
 adds server-owned run registration, atomic sample claims, aggregate budgets,
-and observed concurrency enforcement.
+observed concurrency enforcement, and idempotent purge. Normal cleanup is
+tested, but abrupt isolate termination can still leave tracked facet state;
+P06 makes no crash-durable cleanup claim.
 
 All durations are caller-local monotonic round trips. The protocol never
 subtracts absolute timestamps created by different isolates.
@@ -83,7 +95,16 @@ corepack pnpm --filter @flarex/runtime-topology-probe deploy:gateway:dry-run
   journal seal, and fixed capability-free facet source package.
 - `src/invokeProtocol.ts` owns the `invoke-v1` facet contract, logical journal
   seal, and fixed source package with only the mock-read capability.
+- `src/rerunProtocol.ts` owns depth-0 sync requests, depth-1 runtime requests,
+  terminal receipts, and the capability-free `rerun-v1` facet source.
+- `src/rerunGuards.ts` owns deterministic one-shot and same-sample concurrency
+  fences used at the two forwarded-call boundaries.
+- `src/runtimeRerunEntrypoint.ts` owns the private runtime callback and its
+  one-shot forwarded RPC target.
 - `src/gateway.ts` owns the protected public boundary and local hop timing.
+- `src/gatewayWorker.ts` is the Workers-only adapter that creates the target
+  from `ctx.exports`; the host-neutral gateway core does not import
+  `cloudflare:workers`.
 - `src/sessionDO.ts` owns supervisor routing, facet lifecycle, cleanup tracking,
   and isolated SQLite Durable Object control state. It never opens facet journal
   storage.

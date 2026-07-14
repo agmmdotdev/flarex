@@ -352,7 +352,6 @@ export function probeSampleIdentityV1(
         ),
       };
     case "full_invoke":
-    case "sync_rerun":
       return {
         kind: "facet-session",
         sampleOrdinal,
@@ -365,6 +364,24 @@ export function probeSampleIdentityV1(
         ),
         codeId: codeIdForScenario(
           "invoke",
+          runId,
+          dimensions,
+          sampleOrdinal,
+        ),
+      };
+    case "sync_rerun":
+      return {
+        kind: "facet-session",
+        sampleOrdinal,
+        scopeId,
+        sessionId,
+        attemptId: probeAttemptId(
+          runId,
+          sessionOrdinal,
+          sampleOrdinal,
+        ),
+        codeId: codeIdForScenario(
+          "rerun",
           runId,
           dimensions,
           sampleOrdinal,
@@ -478,6 +495,13 @@ export function probeStartupRelationshipIssueV1(
           ? undefined
           : `${scenario} must leave both callback observations unobserved when the nested response is unavailable`;
       }
+      if (
+        scenario === "sync_rerun" &&
+        outcome.kind === "ok" &&
+        startup.facet !== "callback-ran"
+      ) {
+        return "successful sync_rerun must start its fresh attempt facet";
+      }
       return startup.facet === "callback-not-run" &&
           startup.workerLoader === "callback-ran"
         ? "a Worker Loader callback cannot run when the enclosing facet startup callback did not run"
@@ -508,6 +532,9 @@ export function probeDimensionRelationshipIssueV1(
   if (!usesSession && dimensions.sessionMode !== "new-session") {
     return `${scenario} requires canonical new-session mode because it does not invoke a SessionDO`;
   }
+  if (scenario === "sync_rerun" && dimensions.sessionMode !== "new-session") {
+    return "sync_rerun requires a fresh session";
+  }
 
   const usesJournal =
     scenario === "facet_journal" || scenario === "full_invoke";
@@ -534,32 +561,26 @@ const decodeUnknownProbeSampleResultV1 = Schema.decodeUnknownEffect(
 
 export const decodeProbeRunRequestV1Effect = Effect.fn(
   "RuntimeTopologyProbe.decodeRunRequestV1",
-)(function* (
-  value: unknown,
-): Effect.fn.Return<ProbeRunRequestV1, ProbeProtocolValidationError> {
-  return yield* decodeUnknownProbeRunRequestV1(value).pipe(
+)((value: unknown) =>
+  decodeUnknownProbeRunRequestV1(value).pipe(
     Effect.mapError(
       cause =>
         new ProbeProtocolValidationError({
           boundary: "run-request-v1",
           cause,
-        }),
+      }),
     ),
-  );
-});
+  ));
 
 export const decodeProbeSampleResultV1Effect = Effect.fn(
   "RuntimeTopologyProbe.decodeSampleResultV1",
-)(function* (
-  value: unknown,
-): Effect.fn.Return<ProbeSampleResultV1, ProbeProtocolValidationError> {
-  return yield* decodeUnknownProbeSampleResultV1(value).pipe(
+)((value: unknown) =>
+  decodeUnknownProbeSampleResultV1(value).pipe(
     Effect.mapError(
       cause =>
         new ProbeProtocolValidationError({
           boundary: "sample-result-v1",
           cause,
-        }),
+      }),
     ),
-  );
-});
+  ));
