@@ -158,8 +158,9 @@ One constrained snapshot-lease row stores only the exact current attempt fence,
 authority, and parent updates/deletes do not cascade through it. S07 defines
 these physical rows; S07-A supplies current revocation storage, O03-A supplies
 signed-grant semantics, O03-B1 owns atomic activation/exact active-anchor
-replay, and O03-B2 owns basic exact-fence lease mechanics and active-child
-invariants. C02 owns journal sequence/digest,
+replay, O03-B2a owns restart-safe exact-attempt reload, and O03-B2b owns
+mutating exact-fence lease mechanics and active-child invariants. C02 owns
+journal sequence/digest,
 C05 introduces the private exact-fence transition to `finishing`, C06
 orchestrates it idempotently through the finish endpoint, C03 rejects late
 syscalls, O07 atomically deletes the exact lease and stores committed state plus
@@ -244,7 +245,8 @@ running or finishing -> aborted | expired
 ```
 
 O03-B1 commits initial activation directly as `running` and exactly replays only
-the same live request anchor; O03-B2 adds exact-fence load, renewal, abort, and
+the same live request anchor. O03-B2a reloads one exact active attempt after
+fresh placement and database revalidation; O03-B2b adds renewal, abort, and
 expiry. S07's `created` literal is not a durable active state without a lease.
 S07's `committing` literal is
 also transaction-local/reserved in V1 rather than a separately durable state.
@@ -547,9 +549,9 @@ storage is also complete. The O03-A parent, protocol-only O03-A1,
 auth-provenance O03-A2a, and host-neutral grant authority O03-A2b are complete.
 Corrected O03-A2c's located current-epoch and two-sided point-mutation
 preparation boundaries are also complete, so O03-A2 and O03-A are complete.
-O03-B1 activation is complete. O03-B2 exact-fence lifecycle mechanics are next,
-followed by O04 exact-snapshot point reads and O05 pure OCC validation before
-C01.
+O03-B1 activation and O03-B2a restart-safe exact-attempt reload are complete.
+O03-B2b renewal/abort/expiry mechanics are next, followed by O04 exact-snapshot
+point reads and O05 pure OCC validation before C01.
 Operational revocation and hosted Worker/key adapters are deferred and do not
 block the private C07 proof.
 Hosted compiler execution still waits for the required schema, exact-snapshot

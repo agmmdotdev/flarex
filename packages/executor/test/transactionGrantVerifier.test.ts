@@ -11,6 +11,7 @@ import {
 } from "@flarex/persistence-postgres/pglite";
 import {
   createPointMutationSessionActivationPersistenceV1,
+  createPointMutationSessionAttemptLoadPersistenceV1,
 } from "@flarex/persistence-postgres/transaction-session-activation";
 import {
   createPostgresLocatedScopeAuthorizationEpochTarget,
@@ -74,8 +75,12 @@ import {
 } from "../src/pointMutationStartPreparation";
 import {
   InvalidActivatedPointMutationSessionV1Error,
+  InvalidLoadedPointMutationSessionAttemptV1Error,
   createPointMutationSessionActivationV1,
+  createPointMutationSessionAttemptLoadingV1,
   inspectActivatedPointMutationSessionV1,
+  inspectLoadedPointMutationSessionAttemptV1,
+  pointMutationSessionAttemptSelectorV1FromActivated,
   type PointMutationSessionActivationV1,
 } from "../src/pointMutationSessionActivation";
 import {
@@ -113,6 +118,11 @@ const describePostgres = postgresUrl === null ? describe.skip : describe;
 type RootSessionActivationExport = Extract<
   keyof typeof import("../src"),
   "createPointMutationSessionActivationV1"
+>;
+
+type RootSessionAttemptLoadingExport = Extract<
+  keyof typeof import("../src"),
+  "createPointMutationSessionAttemptLoadingV1"
 >;
 
 describe("transaction-grant verifier", () => {
@@ -829,25 +839,26 @@ describe("current-epoch transaction-grant admission", () => {
         }),
     });
     const admitted = await admission.admit(verifiedGrant);
+    const sessionResolutionPorts = {
+      scopeMetadata: persistence,
+      provisioningReceipts: {
+        getScopeAuthorityProvisioningReceipt: async () => {
+          throw new Error(
+            "Shared scope resolution must not read provisioning receipts.",
+          );
+        },
+      },
+      scopeSessionTargets: {
+        resolve: async (resolvedLocator: typeof physicalLocator) =>
+          createPGliteLocatedPointMutationSessionActivationTargetV1(
+            persistence,
+            resolvedLocator,
+          ),
+      },
+    };
     const sessionPersistence =
       createPointMutationSessionActivationPersistenceV1(
-        {
-          scopeMetadata: persistence,
-          provisioningReceipts: {
-            getScopeAuthorityProvisioningReceipt: async () => {
-              throw new Error(
-                "Shared scope resolution must not read provisioning receipts.",
-              );
-            },
-          },
-          scopeSessionTargets: {
-            resolve: async (resolvedLocator) =>
-              createPGliteLocatedPointMutationSessionActivationTargetV1(
-                persistence,
-                resolvedLocator,
-              ),
-          },
-        },
+        sessionResolutionPorts,
         {
           leaseDurationMilliseconds: 15_000,
           randomUuid: uuidSequence(
@@ -855,6 +866,10 @@ describe("current-epoch transaction-grant admission", () => {
             "60000000-0000-4000-8000-000000000023",
           ),
         },
+      );
+    const attemptLoadPersistence =
+      createPointMutationSessionAttemptLoadPersistenceV1(
+        sessionResolutionPorts,
       );
     let persistenceCalls = 0;
     const activation = createPointMutationSessionActivationV1({
@@ -880,7 +895,16 @@ describe("current-epoch transaction-grant admission", () => {
     const created = inspectActivatedPointMutationSessionV1(activated);
     const replayedHandle = await activation.activate(admitted);
     const replayed = inspectActivatedPointMutationSessionV1(replayedHandle);
+    const serializedSelector = JSON.stringify(
+      pointMutationSessionAttemptSelectorV1FromActivated(activated),
+    );
+    const restartedLoading = createPointMutationSessionAttemptLoadingV1(
+      attemptLoadPersistence,
+    );
+    const loaded = await restartedLoading.load(JSON.parse(serializedSelector));
+    const loadedInspection = inspectLoadedPointMutationSessionAttemptV1(loaded);
 
+    expectTypeOf<RootSessionAttemptLoadingExport>().toEqualTypeOf<never>();
     expect(persistenceCalls).toBe(2);
     expect(JSON.stringify(activated)).toBe("{}");
     expect(Object.isFrozen(activated)).toBe(true);
@@ -891,6 +915,18 @@ describe("current-epoch transaction-grant admission", () => {
       scopeId: LOCATED_ADMISSION_SCOPE_ID,
       commitSeq: 0n,
     });
+    expect(JSON.stringify(loaded)).toBe("{}");
+    expect(loadedInspection).toEqual({
+      selector: {
+        deploymentId: created.anchor.deploymentId,
+        scopeId: created.anchor.scopeId,
+        sessionId: created.anchor.sessionId,
+        attemptFence: created.anchor.attemptFence,
+      },
+      snapshotToken: created.anchor.snapshotToken,
+    });
+    expect(() => inspectLoadedPointMutationSessionAttemptV1({ ...loaded }))
+      .toThrow(InvalidLoadedPointMutationSessionAttemptV1Error);
     expect(() => inspectActivatedPointMutationSessionV1({ ...activated }))
       .toThrow(InvalidActivatedPointMutationSessionV1Error);
     expect(() => inspectActivatedPointMutationSessionV1(

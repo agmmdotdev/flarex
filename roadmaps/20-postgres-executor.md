@@ -82,7 +82,7 @@ The repository contains two internal prototype paths plus the accepted target:
 | --- | --- |
 | Durable Object prototype | `PartitionDO` remains bound and reachable as an internal/public fallback, with authoritative Durable Object SQLite document/index/OCC state. It is unshipped legacy architecture, not a target storage generation. |
 | Initial Postgres prototype (`legacy_v1`) | `createFlarexExecutor` currently installs only `createLegacyV1AppDataEngine`, backed by the existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, subscription, and delivery tables. It supplies bounded prototype-regression evidence, not target authority or a supported migration obligation. |
-| Accepted FlarexDB target (`flarexdb_v1`) | Scope authority, scope clock including private current authorization-revocation storage, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, physical transaction-session/snapshot-lease authority, the transaction-grant foundation, and private point-mutation session activation with exact active-anchor replay exist. Exact-fence lifecycle mechanics, exact-snapshot OCC, commit compiler, target activation, and routing remain incomplete. `v1` means the first intended shippable FlarexDB contract, not the first design attempt. |
+| Accepted FlarexDB target (`flarexdb_v1`) | Scope authority, scope clock including private current authorization-revocation storage, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, physical transaction-session/snapshot-lease authority, the transaction-grant foundation, private point-mutation session activation with exact active-anchor replay, and restart-safe exact-attempt reload exist. Mutating exact-fence lifecycle mechanics, exact-snapshot OCC, commit compiler, target activation, and routing remain incomplete. `v1` means the first intended shippable FlarexDB contract, not the first design attempt. |
 
 The existence of replacement catalog tables does not mean the replacement data
 path is active. The executor must not route a request into `flarexdb_v1` until
@@ -385,8 +385,8 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
   epoch on both issuer and executor sides. O03-A2 and O03-A are complete.
   Checked revocation and Worker/key adapters are deferred nonblockers, while
   production preparation remains deferred to roadmap 17 plus S03-D4/S04.
-  O03-B1 atomic activation/exact active-anchor replay is complete. O03-B2 basic
-  exact-fence lease mechanics, semantic point
+  O03-B1 atomic activation/exact active-anchor replay and O03-B2a restart-safe
+  exact-attempt reload are complete. O03-B2b mutating lease mechanics, semantic point
   dependencies, OCC, commit/change feed, idempotency outcomes, leased outbox,
   and the bounded commit compiler remain unimplemented. S06/S07 storage and
   relational proofs do not claim those later semantics.
@@ -445,8 +445,9 @@ changes reconnect retention, `/invoke/*`, or the production replacement route.
 The O03-A parent is complete: protocol-only O03-A1, auth-provenance O03-A2a,
 host-neutral grant authority O03-A2b, and A2c's located current-epoch plus
 two-sided preparation boundaries all pass. O03-B1 atomic activation/exact
-active-anchor replay also passes. O03-B2 exact-fence lifecycle mechanics are
-next; operational revocation and hosted Worker/key adapters do not block them.
+active-anchor replay and O03-B2a restart-safe exact-attempt reload also pass.
+O03-B2b renewal/abort/expiry mechanics are next; operational revocation and
+hosted Worker/key adapters do not block them.
 
 Follow the interleaved foundation order rather than pulling build/readiness
 work forward:

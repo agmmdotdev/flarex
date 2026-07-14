@@ -1,11 +1,24 @@
 import type {
   PointMutationSessionActivationPersistenceV1,
   PointMutationSessionActivationResultV1,
+  PointMutationSessionAttemptLoadPersistenceV1,
+  PointMutationSessionAttemptLoadResultV1,
+  PointMutationSessionAttemptSelectorV1,
   PreparedPointMutationSessionActivationV1,
 } from "@flarex/persistence-postgres/transaction-session-activation";
 import {
+  TransactionGrantDeploymentIdV1Schema,
   transactionGrantIdentityAccessPolicySha256BytesV1FromHex,
 } from "flarex-protocol/transaction-grant";
+import {
+  SnapshotTokenSchema,
+  decodeReplacementScopeIdV1,
+  type SnapshotToken,
+} from "flarex-protocol/storage-authority";
+import {
+  TransactionSessionIdV1Schema,
+  decodeTransactionAttemptFence,
+} from "flarex-protocol/transaction-session";
 
 import {
   inspectAdmittedPointMutationStartV1,
@@ -29,6 +42,33 @@ const activatedSessionInspectionByHandle = new WeakMap<
   ActivatedPointMutationSessionInspectionV1
 >();
 
+const loadedPointMutationSessionAttemptBrand: unique symbol = Symbol(
+  "FlarexExecutor/LoadedPointMutationSessionAttemptV1",
+);
+
+/** Private B2a capability. WeakMap membership, not structure, is proof. */
+export interface LoadedPointMutationSessionAttemptV1 {
+  readonly [loadedPointMutationSessionAttemptBrand]: true;
+}
+
+export interface PointMutationSessionAttemptSelectorWireV1 {
+  readonly deploymentId: string;
+  readonly scopeId: string;
+  readonly sessionId: string;
+  readonly attemptFence: string;
+}
+
+export interface LoadedPointMutationSessionAttemptInspectionV1 {
+  readonly selector: PointMutationSessionAttemptSelectorV1;
+  /** Snapshot observed during load; consumers must revalidate current liveness. */
+  readonly snapshotToken: SnapshotToken;
+}
+
+const loadedAttemptInspectionByHandle = new WeakMap<
+  object,
+  LoadedPointMutationSessionAttemptInspectionV1
+>();
+
 export class InvalidActivatedPointMutationSessionV1Error extends Error {
   readonly name = "InvalidActivatedPointMutationSessionV1Error";
 
@@ -37,10 +77,46 @@ export class InvalidActivatedPointMutationSessionV1Error extends Error {
   }
 }
 
+export type PointMutationSessionAttemptSelectorIssueV1 =
+  | { readonly reason: "notPlainObject" }
+  | { readonly reason: "unexpectedFields" }
+  | { readonly reason: "invalidFieldShape"; readonly field: string }
+  | { readonly reason: "invalidFieldValue"; readonly cause: unknown };
+
+export class InvalidPointMutationSessionAttemptSelectorV1Error extends Error {
+  readonly name = "InvalidPointMutationSessionAttemptSelectorV1Error";
+
+  constructor(readonly issue: PointMutationSessionAttemptSelectorIssueV1) {
+    super(`Point-mutation attempt selector is invalid: ${issue.reason}.`);
+  }
+}
+
+export class InvalidLoadedPointMutationSessionAttemptV1Error extends Error {
+  readonly name = "InvalidLoadedPointMutationSessionAttemptV1Error";
+
+  constructor() {
+    super("Value is not a process-local loaded point-mutation attempt.");
+  }
+}
+
+export class PointMutationSessionAttemptLoadContractV1Error extends Error {
+  readonly name = "PointMutationSessionAttemptLoadContractV1Error";
+
+  constructor() {
+    super("Attempt-load persistence returned authority outside its selector.");
+  }
+}
+
 export interface PointMutationSessionActivationV1 {
   readonly activate: (
     admittedStart: AdmittedPointMutationStartV1,
   ) => Promise<ActivatedPointMutationSessionV1>;
+}
+
+export interface PointMutationSessionAttemptLoadingV1 {
+  readonly load: (
+    selector: unknown,
+  ) => Promise<LoadedPointMutationSessionAttemptV1>;
 }
 
 export function createPointMutationSessionActivationV1(
@@ -62,6 +138,25 @@ export function createPointMutationSessionActivationV1(
   });
 }
 
+export function createPointMutationSessionAttemptLoadingV1(
+  persistence: PointMutationSessionAttemptLoadPersistenceV1,
+): PointMutationSessionAttemptLoadingV1 {
+  return Object.freeze({
+    load: async (
+      input: unknown,
+    ): Promise<LoadedPointMutationSessionAttemptV1> => {
+      const selector = decodePointMutationSessionAttemptSelectorV1(input);
+      const result = await persistence.load(selector);
+      const inspection = captureLoadedAttemptInspection(selector, result);
+      const handle = Object.freeze({
+        [loadedPointMutationSessionAttemptBrand]: true as const,
+      });
+      loadedAttemptInspectionByHandle.set(handle, inspection);
+      return handle;
+    },
+  });
+}
+
 export function inspectActivatedPointMutationSessionV1(
   value: unknown,
 ): ActivatedPointMutationSessionInspectionV1 {
@@ -73,6 +168,135 @@ export function inspectActivatedPointMutationSessionV1(
     throw new InvalidActivatedPointMutationSessionV1Error();
   }
   return inspection;
+}
+
+export function pointMutationSessionAttemptSelectorV1FromActivated(
+  activated: ActivatedPointMutationSessionV1,
+): PointMutationSessionAttemptSelectorWireV1 {
+  const anchor = inspectActivatedPointMutationSessionV1(activated).anchor;
+  return Object.freeze({
+    deploymentId: anchor.deploymentId,
+    scopeId: anchor.scopeId,
+    sessionId: anchor.sessionId,
+    attemptFence: anchor.attemptFence.toString(),
+  });
+}
+
+export function inspectLoadedPointMutationSessionAttemptV1(
+  value: unknown,
+): LoadedPointMutationSessionAttemptInspectionV1 {
+  if (typeof value !== "object" || value === null) {
+    throw new InvalidLoadedPointMutationSessionAttemptV1Error();
+  }
+  const inspection = loadedAttemptInspectionByHandle.get(value);
+  if (inspection === undefined) {
+    throw new InvalidLoadedPointMutationSessionAttemptV1Error();
+  }
+  return inspection;
+}
+
+function decodePointMutationSessionAttemptSelectorV1(
+  input: unknown,
+): PointMutationSessionAttemptSelectorV1 {
+  if (!isPlainRecord(input)) {
+    throw new InvalidPointMutationSessionAttemptSelectorV1Error({
+      reason: "notPlainObject",
+    });
+  }
+  const expectedKeys = new Set<string>([
+    "attemptFence",
+    "deploymentId",
+    "scopeId",
+    "sessionId",
+  ]);
+  const actualKeys = Reflect.ownKeys(input);
+  if (
+    actualKeys.length !== expectedKeys.size ||
+    actualKeys.some((key) =>
+      typeof key !== "string" || !expectedKeys.has(key))
+  ) {
+    throw new InvalidPointMutationSessionAttemptSelectorV1Error({
+      reason: "unexpectedFields",
+    });
+  }
+  const deploymentId = readSelectorString(input, "deploymentId");
+  const scopeId = readSelectorString(input, "scopeId");
+  const sessionId = readSelectorString(input, "sessionId");
+  const attemptFenceText = readSelectorString(input, "attemptFence");
+  try {
+    return Object.freeze({
+      deploymentId: TransactionGrantDeploymentIdV1Schema.make(deploymentId),
+      scopeId: decodeReplacementScopeIdV1(scopeId),
+      sessionId: TransactionSessionIdV1Schema.make(sessionId),
+      attemptFence: decodeTransactionAttemptFence(attemptFenceText),
+    });
+  } catch (cause) {
+    throw new InvalidPointMutationSessionAttemptSelectorV1Error({
+      reason: "invalidFieldValue",
+      cause,
+    });
+  }
+}
+
+function isPlainRecord(
+  value: unknown,
+): value is Readonly<Record<string, unknown>> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function readSelectorString(
+  input: Readonly<Record<string, unknown>>,
+  field: string,
+): string {
+  const descriptor = Object.getOwnPropertyDescriptor(input, field);
+  if (
+    descriptor === undefined ||
+    descriptor.enumerable !== true ||
+    !("value" in descriptor)
+  ) {
+    throw new InvalidPointMutationSessionAttemptSelectorV1Error({
+      reason: "invalidFieldShape",
+      field,
+    });
+  }
+  if (typeof descriptor.value !== "string") {
+    throw new InvalidPointMutationSessionAttemptSelectorV1Error({
+      reason: "invalidFieldShape",
+      field,
+    });
+  }
+  return descriptor.value;
+}
+
+function captureLoadedAttemptInspection(
+  selector: PointMutationSessionAttemptSelectorV1,
+  result: PointMutationSessionAttemptLoadResultV1,
+): LoadedPointMutationSessionAttemptInspectionV1 {
+  const anchor = result.anchor;
+  if (
+    result.status !== "loaded" ||
+    anchor.deploymentId !== selector.deploymentId ||
+    anchor.scopeId !== selector.scopeId ||
+    anchor.sessionId !== selector.sessionId ||
+    anchor.attemptFence !== selector.attemptFence ||
+    anchor.snapshotToken.scopeId !== selector.scopeId
+  ) {
+    throw new PointMutationSessionAttemptLoadContractV1Error();
+  }
+  return Object.freeze({
+    selector,
+    snapshotToken: Object.freeze(
+      SnapshotTokenSchema.make({
+        scopeId: anchor.snapshotToken.scopeId,
+        epoch: anchor.snapshotToken.epoch,
+        commitSeq: anchor.snapshotToken.commitSeq,
+      }),
+    ),
+  });
 }
 
 function preparePersistenceActivation(

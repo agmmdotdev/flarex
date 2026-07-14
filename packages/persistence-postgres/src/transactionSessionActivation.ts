@@ -23,7 +23,10 @@ import {
   type SnapshotToken,
   type StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
-import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction-grant";
+import {
+  TransactionGrantDeploymentIdV1Schema,
+  type TransactionGrantDeploymentIdV1,
+} from "flarex-protocol/transaction-grant";
 import {
   TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
   CanonicalTransactionArgumentsBytesV1Schema,
@@ -69,11 +72,14 @@ const UUID_V4_PATTERN =
 
 const INITIAL_ATTEMPT_FENCE = TransactionAttemptFenceSchema.make(1n);
 
-export interface PointMutationSessionActivationResolutionPortsV1 {
+export interface PointMutationSessionAuthorityResolutionPortsV1 {
   readonly scopeMetadata: ScopeMetadataReader;
   readonly provisioningReceipts: ScopeProvisioningReceiptReader;
   readonly scopeSessionTargets: ScopeClockTargetReaderResolver;
 }
+
+export type PointMutationSessionActivationResolutionPortsV1 =
+  PointMutationSessionAuthorityResolutionPortsV1;
 
 export interface PointMutationSessionActivationPersistenceOptionsV1 {
   readonly leaseDurationMilliseconds: number;
@@ -118,6 +124,13 @@ export interface PreparedPointMutationSessionActivationV1 {
   readonly evidence: PreparedPointMutationSessionEvidenceV1;
 }
 
+export interface PointMutationSessionAttemptSelectorV1 {
+  readonly deploymentId: TransactionGrantDeploymentIdV1;
+  readonly scopeId: ReplacementScopeIdV1;
+  readonly sessionId: TransactionSessionIdV1;
+  readonly attemptFence: TransactionAttemptFence;
+}
+
 export interface PointMutationSessionAnchorV1 {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
   readonly scopeId: ReplacementScopeIdV1;
@@ -143,10 +156,21 @@ export type PointMutationSessionActivationResultV1 =
       readonly anchor: PointMutationSessionAnchorV1;
     };
 
+export interface PointMutationSessionAttemptLoadResultV1 {
+  readonly status: "loaded";
+  readonly anchor: PointMutationSessionAnchorV1;
+}
+
 export interface PointMutationSessionActivationPersistenceV1 {
   readonly activate: (
     input: PreparedPointMutationSessionActivationV1,
   ) => Promise<PointMutationSessionActivationResultV1>;
+}
+
+export interface PointMutationSessionAttemptLoadPersistenceV1 {
+  readonly load: (
+    selector: PointMutationSessionAttemptSelectorV1,
+  ) => Promise<PointMutationSessionAttemptLoadResultV1>;
 }
 
 export type PointMutationSessionActivationConfigurationIssueV1 =
@@ -190,6 +214,30 @@ export class PointMutationSessionActivationV1Error extends Error {
   }
 }
 
+export type PointMutationSessionAttemptLoadIssueV1 =
+  | { readonly reason: "invalidSelector"; readonly cause: unknown }
+  | { readonly reason: "selectorScopeMismatch" }
+  | { readonly reason: "sessionMissing" }
+  | { readonly reason: "staleAttemptFence" }
+  | {
+      readonly reason: "attemptNotRunning";
+      readonly lifecycle: Exclude<TransactionSessionLifecycleV1, "running">;
+    }
+  | { readonly reason: "unsupportedStorageGeneration" }
+  | { readonly reason: "storageGenerationChanged" }
+  | { readonly reason: "storageGenerationFenceChanged" }
+  | { readonly reason: "scopeEpochChanged" }
+  | { readonly reason: "authorizationRevocationEpochChanged" }
+  | { readonly reason: "activeAttemptExpired" };
+
+export class PointMutationSessionAttemptLoadV1Error extends Error {
+  readonly name = "PointMutationSessionAttemptLoadV1Error";
+
+  constructor(readonly issue: PointMutationSessionAttemptLoadIssueV1) {
+    super(`Point-mutation session attempt load failed: ${issue.reason}.`);
+  }
+}
+
 export type PointMutationSessionAuthorityCorruptionIssueV1 =
   | "scopeClockNativeProjectionInvalid"
   | "databaseClockInvalid"
@@ -219,14 +267,31 @@ export class PointMutationSessionActivationTargetV1Error extends Error {
   }
 }
 
+export class PointMutationSessionAttemptLoadTargetV1Error extends Error {
+  readonly name = "PointMutationSessionAttemptLoadTargetV1Error";
+
+  constructor(readonly scopeId: ScopeId) {
+    super(`Located scope target cannot load point-mutation attempts: ${scopeId}.`);
+  }
+}
+
 export type PointMutationSessionActivationWriteStepV1 =
   | "sessionInserted"
   | "leaseInserted";
+
+export type PointMutationSessionAttemptLoadLockStepV1 =
+  | "clockLocked"
+  | "sessionLocked"
+  | "leaseLocked";
 
 export interface LocatedPointMutationSessionActivationTargetOptionsV1 {
   /** Construction-bound instrumentation used by focused rollback proofs. */
   readonly afterWrite?: (
     step: PointMutationSessionActivationWriteStepV1,
+  ) => void | Promise<void>;
+  /** Construction-bound instrumentation used by focused lock-order proofs. */
+  readonly afterLoadLock?: (
+    step: PointMutationSessionAttemptLoadLockStepV1,
   ) => void | Promise<void>;
 }
 
@@ -237,11 +302,27 @@ interface LocatedPointMutationSessionActivationTargetV1
   ) => Promise<PointMutationSessionActivationResultV1>;
 }
 
+interface LocatedPointMutationSessionAttemptLoadTargetV1
+  extends LocatedScopeClockReader {
+  readonly loadExactPointMutationSessionAttempt: (
+    input: LocatedPointMutationSessionAttemptLoadInputV1,
+  ) => Promise<PointMutationSessionAttemptLoadResultV1>;
+}
+
+interface LocatedPointMutationSessionTargetV1
+  extends LocatedPointMutationSessionActivationTargetV1,
+    LocatedPointMutationSessionAttemptLoadTargetV1 {}
+
 interface LocatedPointMutationSessionActivationInputV1 {
   readonly prepared: PreparedPointMutationSessionActivationV1;
   readonly preliminaryAuthority: TrustedScopeAuthority;
   readonly candidateSessionId: TransactionSessionIdV1;
   readonly leaseDurationMilliseconds: number;
+}
+
+interface LocatedPointMutationSessionAttemptLoadInputV1 {
+  readonly selector: PointMutationSessionAttemptSelectorV1;
+  readonly preliminaryAuthority: TrustedScopeAuthority;
 }
 
 interface LockedPointMutationSessionClockV1 {
@@ -292,6 +373,37 @@ export function createPointMutationSessionActivationPersistenceV1(
   });
 }
 
+export function createPointMutationSessionAttemptLoadPersistenceV1(
+  ports: PointMutationSessionAuthorityResolutionPortsV1,
+): PointMutationSessionAttemptLoadPersistenceV1 {
+  return Object.freeze({
+    load: async (
+      input: PointMutationSessionAttemptSelectorV1,
+    ): Promise<PointMutationSessionAttemptLoadResultV1> => {
+      const selector = captureAttemptSelector(input);
+      const located = await resolveLocatedTrustedScopeAuthority(
+        selector.deploymentId,
+        {
+          scopeMetadata: ports.scopeMetadata,
+          provisioningReceipts: ports.provisioningReceipts,
+          scopeClockTargets: ports.scopeSessionTargets,
+        },
+      );
+      if (located.authority.scopeId !== selector.scopeId) {
+        throw attemptLoadError({ reason: "selectorScopeMismatch" });
+      }
+      const target = requireAttemptLoadTarget(
+        located.target,
+        selector.scopeId,
+      );
+      return target.loadExactPointMutationSessionAttempt({
+        selector,
+        preliminaryAuthority: located.authority,
+      });
+    },
+  });
+}
+
 export function createLocatedPointMutationSessionActivationTargetV1(
   db: FlarexMetadataDatabase,
   physicalLocator: ScopePhysicalLocator,
@@ -299,13 +411,18 @@ export function createLocatedPointMutationSessionActivationTargetV1(
 ): LocatedScopeClockReader {
   const capturedLocator = capturePhysicalLocator(physicalLocator);
   const afterWrite = options.afterWrite;
+  const afterLoadLock = options.afterLoadLock;
   const target = Object.freeze({
     physicalLocator: capturedLocator,
     getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
     activatePreparedPointMutationSession: (
       input: LocatedPointMutationSessionActivationInputV1,
     ) => db.transaction((tx) => activateInTransaction(tx, input, afterWrite)),
-  } satisfies LocatedPointMutationSessionActivationTargetV1);
+    loadExactPointMutationSessionAttempt: (
+      input: LocatedPointMutationSessionAttemptLoadInputV1,
+    ) => db.transaction((tx) =>
+      loadAttemptInTransaction(tx, input, afterLoadLock)),
+  } satisfies LocatedPointMutationSessionTargetV1);
   return target;
 }
 
@@ -316,9 +433,11 @@ async function activateInTransaction(
     | LocatedPointMutationSessionActivationTargetOptionsV1["afterWrite"]
     | undefined,
 ): Promise<PointMutationSessionActivationResultV1> {
-  const clock = await lockActivationClock(tx, input.prepared.scopeId);
+  const clock = await lockPointMutationSessionClock(
+    tx,
+    input.prepared.scopeId,
+  );
   requireStableAuthority(clock, input);
-  const databaseNow = await readDatabaseNow(tx, input.prepared.scopeId);
   const matchingSessions = await tx
     .select()
     .from(fxSystemTransactionSessions)
@@ -345,7 +464,6 @@ async function activateInTransaction(
       tx,
       input.prepared,
       clock,
-      databaseNow,
       existing,
     );
   }
@@ -356,6 +474,7 @@ async function activateInTransaction(
   ) {
     throw activationError({ reason: "snapshotCommitSeqChanged" });
   }
+  const databaseNow = await readDatabaseNow(tx, input.prepared.scopeId);
   return createSession(
     tx,
     input,
@@ -442,31 +561,124 @@ async function replayExistingSession(
   tx: FlarexMetadataDatabase,
   prepared: PreparedPointMutationSessionActivationV1,
   clock: LockedPointMutationSessionClockV1,
-  databaseNow: Date,
   session: typeof fxSystemTransactionSessions.$inferSelect,
 ): Promise<PointMutationSessionActivationResultV1> {
   if (!sessionEvidenceMatches(session, prepared.evidence)) {
     throw activationError({ reason: "requestKeyConflict" });
   }
+  const anchor = await loadLockedRunningAttemptAnchor(
+    tx,
+    {
+      deploymentId: prepared.deploymentId,
+      scopeId: prepared.scopeId,
+      failures: activationAttemptFailures,
+      afterLeaseLock: undefined,
+    },
+    clock,
+    session,
+  );
+  return activationResult("replayed", anchor);
+}
+
+async function loadAttemptInTransaction(
+  tx: FlarexMetadataDatabase,
+  input: LocatedPointMutationSessionAttemptLoadInputV1,
+  afterLoadLock:
+    | LocatedPointMutationSessionActivationTargetOptionsV1["afterLoadLock"]
+    | undefined,
+): Promise<PointMutationSessionAttemptLoadResultV1> {
+  const selector = input.selector;
+  const clock = await lockPointMutationSessionClock(tx, selector.scopeId);
+  await afterLoadLock?.("clockLocked");
+  requireStableAttemptLoadAuthority(clock, input);
+
+  const sessions = await tx
+    .select()
+    .from(fxSystemTransactionSessions)
+    .where(and(
+      eq(fxSystemTransactionSessions.scopeUuid, clock.scopeUuid),
+      eq(fxSystemTransactionSessions.sessionId, selector.sessionId),
+    ))
+    .limit(2)
+    .for("update");
+  const session = sessions[0];
+  if (session === undefined) {
+    throw attemptLoadError({ reason: "sessionMissing" });
+  }
+  if (sessions.length !== 1) {
+    throw corruptionError(selector.scopeId, "sessionRecordInvalid");
+  }
+  await afterLoadLock?.("sessionLocked");
+
+  let persistedAttemptFence: TransactionAttemptFence;
+  try {
+    persistedAttemptFence = TransactionAttemptFenceSchema.make(
+      session.attemptFence,
+    );
+  } catch (cause) {
+    throw corruptionError(selector.scopeId, "sessionRecordInvalid", cause);
+  }
+  if (persistedAttemptFence !== selector.attemptFence) {
+    throw attemptLoadError({ reason: "staleAttemptFence" });
+  }
+
+  const anchor = await loadLockedRunningAttemptAnchor(
+    tx,
+    {
+      deploymentId: selector.deploymentId,
+      scopeId: selector.scopeId,
+      failures: attemptLoadFailures,
+      afterLeaseLock: afterLoadLock,
+    },
+    clock,
+    session,
+  );
+  return attemptLoadResult(anchor);
+}
+
+interface PointMutationSessionAttemptFailureFactoryV1 {
+  readonly terminal: (
+    lifecycle: Exclude<TransactionSessionLifecycleV1, "running">,
+  ) => Error;
+  readonly unsupportedStorageGeneration: () => Error;
+  readonly storageGenerationFenceChanged: () => Error;
+  readonly authorizationRevocationEpochChanged: () => Error;
+  readonly scopeEpochChanged: () => Error;
+  readonly activeAttemptExpired: () => Error;
+}
+
+interface LockedPointMutationSessionAttemptLoadV1 {
+  readonly deploymentId: TransactionGrantDeploymentIdV1;
+  readonly scopeId: ReplacementScopeIdV1;
+  readonly failures: PointMutationSessionAttemptFailureFactoryV1;
+  readonly afterLeaseLock:
+    | ((step: PointMutationSessionAttemptLoadLockStepV1) =>
+        void | Promise<void>)
+    | undefined;
+}
+
+async function loadLockedRunningAttemptAnchor(
+  tx: FlarexMetadataDatabase,
+  input: LockedPointMutationSessionAttemptLoadV1,
+  clock: LockedPointMutationSessionClockV1,
+  session: typeof fxSystemTransactionSessions.$inferSelect,
+): Promise<PointMutationSessionAnchorV1> {
   if (session.lifecycle !== "running") {
-    throw activationError({
-      reason: "terminalRequest",
-      lifecycle: session.lifecycle,
-    });
+    throw input.failures.terminal(session.lifecycle);
   }
   if (session.storageGeneration !== "flarexdb_v1") {
-    throw activationError({ reason: "unsupportedStorageGeneration" });
+    throw input.failures.unsupportedStorageGeneration();
   }
   if (
     session.storageGenerationFence !== clock.record.storageGenerationFence
   ) {
-    throw activationError({ reason: "storageGenerationFenceChanged" });
+    throw input.failures.storageGenerationFenceChanged();
   }
   if (
     session.authorizationRevocationEpoch !==
     clock.authorizationRevocationEpoch
   ) {
-    throw activationError({ reason: "authorizationRevocationEpochChanged" });
+    throw input.failures.authorizationRevocationEpochChanged();
   }
   if (
     !isValidDate(session.authorizationGrantExpiresAt) ||
@@ -474,35 +686,33 @@ async function replayExistingSession(
     !isValidDate(session.createdAt) ||
     !isValidDate(session.updatedAt)
   ) {
-    throw corruptionError(prepared.scopeId, "sessionRecordInvalid");
-  }
-  if (
-    session.authorizationGrantExpiresAt.getTime() <= databaseNow.getTime() ||
-    session.hardExpiresAt.getTime() <= databaseNow.getTime()
-  ) {
-    throw activationError({ reason: "activeAttemptExpired" });
+    throw corruptionError(input.scopeId, "sessionRecordInvalid");
   }
   if (
     session.hardExpiresAt.getTime() !==
     session.authorizationGrantExpiresAt.getTime()
   ) {
-    throw corruptionError(prepared.scopeId, "sessionRecordInvalid");
+    throw corruptionError(input.scopeId, "sessionRecordInvalid");
   }
 
   let sessionId: TransactionSessionIdV1;
   let attemptFence: TransactionAttemptFence;
+  let storageGenerationFence: StorageGenerationFence;
   try {
     sessionId = TransactionSessionIdV1Schema.make(session.sessionId);
     attemptFence = TransactionAttemptFenceSchema.make(session.attemptFence);
+    storageGenerationFence = StorageGenerationFenceSchema.make(
+      session.storageGenerationFence,
+    );
   } catch (cause) {
     throw corruptionError(
-      prepared.scopeId,
+      input.scopeId,
       "sessionRecordInvalid",
       cause,
     );
   }
   if (session.protocolVersion !== TRANSACTION_SESSION_PROTOCOL_VERSION_V1) {
-    throw corruptionError(prepared.scopeId, "sessionRecordInvalid");
+    throw corruptionError(input.scopeId, "sessionRecordInvalid");
   }
 
   const leases = await tx
@@ -516,16 +726,17 @@ async function replayExistingSession(
     .for("update");
   const lease = leases[0];
   if (lease === undefined || leases.length !== 1) {
-    throw corruptionError(prepared.scopeId, "snapshotLeaseMissing");
+    throw corruptionError(input.scopeId, "snapshotLeaseMissing");
   }
+  await input.afterLeaseLock?.("leaseLocked");
   if (lease.attemptFence !== attemptFence) {
-    throw corruptionError(prepared.scopeId, "snapshotLeaseInvalid");
+    throw corruptionError(input.scopeId, "snapshotLeaseInvalid");
   }
   if (!isValidDate(lease.leaseExpiresAt)) {
-    throw corruptionError(prepared.scopeId, "snapshotLeaseInvalid");
+    throw corruptionError(input.scopeId, "snapshotLeaseInvalid");
   }
   if (lease.leaseExpiresAt.getTime() > session.hardExpiresAt.getTime()) {
-    throw corruptionError(prepared.scopeId, "snapshotLeaseInvalid");
+    throw corruptionError(input.scopeId, "snapshotLeaseInvalid");
   }
   let snapshotEpoch: ScopeEpoch;
   let snapshotCommitSeq: CommitSeq;
@@ -534,31 +745,37 @@ async function replayExistingSession(
     snapshotCommitSeq = CommitSeqSchema.make(lease.snapshotCommitSeq);
   } catch (cause) {
     throw corruptionError(
-      prepared.scopeId,
+      input.scopeId,
       "snapshotLeaseInvalid",
       cause,
     );
   }
   if (snapshotEpoch !== clock.record.epoch) {
-    throw activationError({ reason: "scopeEpochChanged" });
+    throw input.failures.scopeEpochChanged();
   }
   if (snapshotCommitSeq > clock.record.lastCommitSeq) {
-    throw corruptionError(prepared.scopeId, "snapshotAheadOfScopeClock");
-  }
-  if (lease.leaseExpiresAt.getTime() <= databaseNow.getTime()) {
-    throw activationError({ reason: "activeAttemptExpired" });
+    throw corruptionError(input.scopeId, "snapshotAheadOfScopeClock");
   }
 
-  return activationResult("replayed", {
-    deploymentId: prepared.deploymentId,
-    scopeId: prepared.scopeId,
+  const databaseNow = await readDatabaseNow(tx, input.scopeId);
+  if (
+    session.authorizationGrantExpiresAt.getTime() <= databaseNow.getTime() ||
+    session.hardExpiresAt.getTime() <= databaseNow.getTime() ||
+    lease.leaseExpiresAt.getTime() <= databaseNow.getTime()
+  ) {
+    throw input.failures.activeAttemptExpired();
+  }
+
+  return Object.freeze({
+    deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
     sessionId,
     requestKey: session.requestKey,
     storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-    storageGenerationFence: session.storageGenerationFence,
+    storageGenerationFence,
     attemptFence,
     snapshotToken: SnapshotTokenSchema.make({
-      scopeId: prepared.scopeId,
+      scopeId: input.scopeId,
       epoch: snapshotEpoch,
       commitSeq: snapshotCommitSeq,
     }),
@@ -566,10 +783,38 @@ async function replayExistingSession(
     leaseExpiresAt: lease.leaseExpiresAt.toISOString(),
     createdAt: session.createdAt.toISOString(),
     updatedAt: session.updatedAt.toISOString(),
-  });
+  } satisfies PointMutationSessionAnchorV1);
 }
 
-async function lockActivationClock(
+const activationAttemptFailures = Object.freeze({
+  terminal: (lifecycle: Exclude<TransactionSessionLifecycleV1, "running">) =>
+    activationError({ reason: "terminalRequest", lifecycle }),
+  unsupportedStorageGeneration: () =>
+    activationError({ reason: "unsupportedStorageGeneration" }),
+  storageGenerationFenceChanged: () =>
+    activationError({ reason: "storageGenerationFenceChanged" }),
+  authorizationRevocationEpochChanged: () =>
+    activationError({ reason: "authorizationRevocationEpochChanged" }),
+  scopeEpochChanged: () => activationError({ reason: "scopeEpochChanged" }),
+  activeAttemptExpired: () =>
+    activationError({ reason: "activeAttemptExpired" }),
+} satisfies PointMutationSessionAttemptFailureFactoryV1);
+
+const attemptLoadFailures = Object.freeze({
+  terminal: (lifecycle: Exclude<TransactionSessionLifecycleV1, "running">) =>
+    attemptLoadError({ reason: "attemptNotRunning", lifecycle }),
+  unsupportedStorageGeneration: () =>
+    attemptLoadError({ reason: "unsupportedStorageGeneration" }),
+  storageGenerationFenceChanged: () =>
+    attemptLoadError({ reason: "storageGenerationFenceChanged" }),
+  authorizationRevocationEpochChanged: () =>
+    attemptLoadError({ reason: "authorizationRevocationEpochChanged" }),
+  scopeEpochChanged: () => attemptLoadError({ reason: "scopeEpochChanged" }),
+  activeAttemptExpired: () =>
+    attemptLoadError({ reason: "activeAttemptExpired" }),
+} satisfies PointMutationSessionAttemptFailureFactoryV1);
+
+async function lockPointMutationSessionClock(
   tx: FlarexMetadataDatabase,
   scopeId: ReplacementScopeIdV1,
 ): Promise<LockedPointMutationSessionClockV1> {
@@ -647,6 +892,39 @@ function requireStableAuthority(
     throw activationError({
       reason: "authorizationRevocationEpochChanged",
     });
+  }
+}
+
+function requireStableAttemptLoadAuthority(
+  clock: LockedPointMutationSessionClockV1,
+  input: LocatedPointMutationSessionAttemptLoadInputV1,
+): void {
+  const selector = input.selector;
+  const preliminary = input.preliminaryAuthority;
+  if (
+    clock.record.scopeId !== selector.scopeId ||
+    preliminary.scopeId !== selector.scopeId ||
+    preliminary.deploymentId !== selector.deploymentId
+  ) {
+    throw attemptLoadError({ reason: "selectorScopeMismatch" });
+  }
+  if (
+    clock.record.storageGeneration !== "flarexdb_v1" ||
+    preliminary.storageGeneration !== "flarexdb_v1"
+  ) {
+    throw attemptLoadError({ reason: "unsupportedStorageGeneration" });
+  }
+  if (clock.record.storageGeneration !== preliminary.storageGeneration) {
+    throw attemptLoadError({ reason: "storageGenerationChanged" });
+  }
+  if (
+    clock.record.storageGenerationFence !==
+    preliminary.storageGenerationFence
+  ) {
+    throw attemptLoadError({ reason: "storageGenerationFenceChanged" });
+  }
+  if (clock.record.epoch !== preliminary.epoch) {
+    throw attemptLoadError({ reason: "scopeEpochChanged" });
   }
 }
 
@@ -815,6 +1093,23 @@ function capturePreparedActivation(
   });
 }
 
+function captureAttemptSelector(
+  input: PointMutationSessionAttemptSelectorV1,
+): PointMutationSessionAttemptSelectorV1 {
+  try {
+    return Object.freeze({
+      deploymentId: TransactionGrantDeploymentIdV1Schema.make(
+        input.deploymentId,
+      ),
+      scopeId: decodeReplacementScopeIdV1(input.scopeId),
+      sessionId: TransactionSessionIdV1Schema.make(input.sessionId),
+      attemptFence: TransactionAttemptFenceSchema.make(input.attemptFence),
+    });
+  } catch (cause) {
+    throw attemptLoadError({ reason: "invalidSelector", cause });
+  }
+}
+
 function requireActivationTarget(
   target: LocatedScopeClockReader,
   scopeId: ScopeId,
@@ -825,10 +1120,27 @@ function requireActivationTarget(
   return target;
 }
 
+function requireAttemptLoadTarget(
+  target: LocatedScopeClockReader,
+  scopeId: ScopeId,
+): LocatedPointMutationSessionAttemptLoadTargetV1 {
+  if (!isAttemptLoadTarget(target)) {
+    throw new PointMutationSessionAttemptLoadTargetV1Error(scopeId);
+  }
+  return target;
+}
+
 function isActivationTarget(
   target: LocatedScopeClockReader,
 ): target is LocatedPointMutationSessionActivationTargetV1 {
   return typeof Reflect.get(target, "activatePreparedPointMutationSession") ===
+    "function";
+}
+
+function isAttemptLoadTarget(
+  target: LocatedScopeClockReader,
+): target is LocatedPointMutationSessionAttemptLoadTargetV1 {
+  return typeof Reflect.get(target, "loadExactPointMutationSessionAttempt") ===
     "function";
 }
 
@@ -888,10 +1200,40 @@ function activationResult(
   }
 }
 
+function attemptLoadResult(
+  anchor: PointMutationSessionAnchorV1,
+): PointMutationSessionAttemptLoadResultV1 {
+  return Object.freeze({
+    status: "loaded",
+    anchor: captureSessionAnchor(anchor),
+  });
+}
+
+function captureSessionAnchor(
+  anchor: PointMutationSessionAnchorV1,
+): PointMutationSessionAnchorV1 {
+  return Object.freeze({
+    ...anchor,
+    snapshotToken: Object.freeze(
+      SnapshotTokenSchema.make({
+        scopeId: anchor.snapshotToken.scopeId,
+        epoch: anchor.snapshotToken.epoch,
+        commitSeq: anchor.snapshotToken.commitSeq,
+      }),
+    ),
+  } satisfies PointMutationSessionAnchorV1);
+}
+
 function activationError(
   issue: PointMutationSessionActivationIssueV1,
 ): PointMutationSessionActivationV1Error {
   return new PointMutationSessionActivationV1Error(issue);
+}
+
+function attemptLoadError(
+  issue: PointMutationSessionAttemptLoadIssueV1,
+): PointMutationSessionAttemptLoadV1Error {
+  return new PointMutationSessionAttemptLoadV1Error(issue);
 }
 
 function corruptionError(
