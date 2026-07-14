@@ -4,13 +4,22 @@
   "type": "module",
   "scripts": {
     "build": "pnpm typecheck",
+    "deploy:gateway:dry-run": "tsx scripts/runWranglerDryRun.ts gateway",
     "test": "vitest run",
+    "test:local": "vitest run test/gateway.miniflare.test.ts --no-file-parallelism",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "effect": "catalog:"
   },
   "devDependencies": {
-    "vitest": "catalog:"
+    "@cloudflare/workers-types": "catalog:",
+    "@types/node": "catalog:",
+    "miniflare": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
   }
 }

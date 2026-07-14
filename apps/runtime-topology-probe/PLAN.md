@@ -162,6 +162,10 @@ creation and billing.
   service bindings.
 - Bound repetitions, concurrency, payload bytes, journal entries, facets per
   session, and unique Dynamic Worker code IDs at the server boundary.
+- Gates `P02` through `P06` are local and dry-run-only. Production deployment
+  remains blocked until `P07` freezes a server-owned run record, atomically
+  claims its sample ordinals, enforces its total budget, and records observed
+  orchestration concurrency instead of trusting caller-declared cohort labels.
 - Set `globalOutbound: null` for loaded code. Pass only the narrow mock syscall
   capability required by the selected scenario.
 - A facet must never call back into the same supervisor while that supervisor
@@ -224,11 +228,12 @@ Proof: package typecheck and focused unit tests.
 
 ### P02 - Add The Protected Gateway And SessionDO Echo
 
-Status: in progress and approved.
+Status: complete.
 
 Deliver:
 
-- token-protected probe endpoint with server-side run limits;
+- token-protected probe endpoint with server-side per-request shape and byte
+  limits;
 - SQLite-backed `ProbeSessionDO` and `edge_echo`/`session_echo` scenarios;
 - local Miniflare coverage for authorization, identity isolation, limits,
   repeated samples, storage reset, and trace completeness;
@@ -242,7 +247,7 @@ Wrangler/workerd processes stopped afterward.
 
 ### P03 - Add The Direct Dynamic Worker Control
 
-Status: approved; pending.
+Status: in progress and approved.
 
 Deliver:
 
@@ -251,7 +256,8 @@ Deliver:
 - `dynamic_direct_echo` with egress disabled and no privileged bindings;
 - trace evidence distinguishing loader callback execution from ordinary calls.
 
-Non-goals: facets, SQLite journaling, mock commit, or sync.
+Non-goals: facets, SQLite journaling, mock commit, sync, authoritative run
+registration, aggregate budget enforcement, or external deployment.
 
 Proof: focused loader/identity/limit tests plus local smoke and bundle/dry-run.
 
@@ -327,6 +333,9 @@ Status: approved; pending.
 Deliver:
 
 - authenticated run/status/purge endpoints;
+- server-owned immutable run registration, atomic sample claims, duplicate and
+  excess-sample rejection, aggregate request/code budgets, and observed
+  concurrency labels;
 - bounded concurrency and payload matrix;
 - machine-readable evidence artifact with secrets and payloads excluded;
 - facet deletion, DO storage purge, partial-run handling, and idempotent
@@ -410,7 +419,7 @@ teardown are complete.
 
 - Active goal: build and validate the isolated production runtime-topology
   probe through separately approved gates.
-- Current gate: `P02` implementation.
-- Next gate after proof and checkpoint: `P03`.
+- Current gate: `P03` implementation.
+- Next gate after proof and checkpoint: `P04`.
 - Goal completion condition: production evidence and analysis are recorded and
   the approved cleanup/retention action is verified.

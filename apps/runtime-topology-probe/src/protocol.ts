@@ -158,7 +158,7 @@ const ProbeRunRequestV1Shape = Schema.Struct({
 
 export const ProbeRunRequestV1Schema = ProbeRunRequestV1Shape.check(
   Schema.makeFilter(request => {
-    const dimensionIssue = dimensionRelationshipIssue(
+    const dimensionIssue = probeDimensionRelationshipIssueV1(
       request.scenario,
       request.dimensions,
     );
@@ -224,7 +224,7 @@ export const ProbeSampleOutcomeV1Schema = Schema.Union([
 ]);
 export type ProbeSampleOutcomeV1 = typeof ProbeSampleOutcomeV1Schema.Type;
 
-const EdgeColoSchema = Schema.String.check(
+export const ProbeEdgeColoSchema = Schema.String.check(
   Schema.isPattern(/^[A-Z0-9]{3,8}$/),
 );
 
@@ -274,7 +274,7 @@ const ProbeSampleResultV1Shape = Schema.Struct({
   dimensions: ProbeDimensionsV1Schema,
   identity: ProbeSampleIdentityV1Schema,
   startup: ProbeStartupObservationsV1Schema,
-  edgeColo: Schema.Union([EdgeColoSchema, Schema.Null]),
+  edgeColo: Schema.Union([ProbeEdgeColoSchema, Schema.Null]),
   outcome: ProbeSampleOutcomeV1Schema,
   spans: Schema.Array(ProbeTraceSpanV1Schema),
 }).annotate(StrictStructOptions);
@@ -351,7 +351,7 @@ export function probeSampleIdentityV1(
 function sampleRelationshipIssue(
   sample: typeof ProbeSampleResultV1Shape.Type,
 ): string | undefined {
-  const dimensionIssue = dimensionRelationshipIssue(
+  const dimensionIssue = probeDimensionRelationshipIssueV1(
     sample.scenario,
     sample.dimensions,
   );
@@ -422,7 +422,7 @@ function startupRelationshipIssue(
   }
 }
 
-function dimensionRelationshipIssue(
+export function probeDimensionRelationshipIssueV1(
   scenario: ProbeScenario,
   dimensions: ProbeDimensionsV1,
 ): string | undefined {
