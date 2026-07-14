@@ -1090,6 +1090,42 @@ ConnectionDO
   ordered transitions
 ```
 
+### Conditional Future Facet-To-Sync Flow
+
+The following is a future composition diagram only. It does not describe the
+current implemented runtime and does not change the foundation execution order.
+The facet-backed session path remains conditional `C07A` work after the
+Postgres-backed `C01` through `C07` proof, and the per-scope `DeploymentSyncDO`
+replacement remains separately unimplemented. Neither is the immediate next
+foundation gate.
+
+If both future paths are selected and proven, the joined flow is:
+
+```text
+artifact-runtime Worker
+  -> per-session supervisor Durable Object
+  -> per-attempt dynamic invocation facet
+  -> sealed logical journal/result envelope
+  -> trusted executor verification, planning, OCC, and commit
+  -> one authoritative Postgres transaction
+       data/revisions + result/idempotency outcome
+       commit/change feed + transactional wake/outbox evidence
+  -> executor-host post-commit dispatcher sends a best-effort direct wake
+  -> deterministic DeploymentSyncDO for the committed scope
+  -> contiguous Postgres commit-feed catch-up
+  -> affected canonical queries rerun through the active artifact runtime
+  -> changed results delivered through ConnectionDO
+```
+
+The artifact-runtime Worker, session supervisor, and facet never originate an
+authoritative "committed" notification. They cannot know that the Postgres
+transaction committed merely because user code returned or a finish request
+was sent. The trusted executor transaction records the canonical commit/change
+and durable wake/outbox evidence atomically; only its post-commit host boundary
+may send the low-latency direct wake. Conversely, the sync engine may later use
+the active artifact runtime to rerun invalidated queries. Losing that direct
+wake is safe because the durable sweep and contiguous Postgres feed recover it.
+
 Direct wake is a latency hint. A queue, cron, or executor-side durable sweep
 must wake every scope whose sync cursor trails the latest committed sequence.
 The DeploymentSyncDO advances only through a contiguous feed. Receiving commit
