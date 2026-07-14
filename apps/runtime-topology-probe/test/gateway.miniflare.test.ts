@@ -171,6 +171,90 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect(await controlValue(harness, sessionId, "read")).toBe(0);
   });
 
+  it("measures stable direct Dynamic Worker calls as a distinct callback cohort", async () => {
+    const request = validSampleRequest("dynamic_direct_echo", "p03_stable", {
+      payloadBytes: 8,
+      repetitions: 2,
+    });
+    const first = await measuredDispatch(harness, request);
+    const second = await measuredDispatch(harness, {
+      ...request,
+      sampleOrdinal: 1,
+    });
+    const firstSample = completeProbeGatewaySampleV1(
+      first.fragment,
+      first.durationMs,
+    );
+    const secondSample = completeProbeGatewaySampleV1(
+      second.fragment,
+      second.durationMs,
+    );
+
+    expect(first.fragment.identity.codeId).toBe("rtp-code-direct-v1-stable");
+    expect(second.fragment.identity.codeId).toBe("rtp-code-direct-v1-stable");
+    expect(first.fragment.startup.workerLoader).toBe("callback-ran");
+    expect(second.fragment.startup.workerLoader).toBe("callback-not-run");
+    expect(firstSample.spans.map(span => span.name)).toEqual([
+      "external_request",
+      "gateway_dynamic_rtt",
+    ]);
+    expect(validateProbeTraceV1(firstSample)).toEqual({ ok: true });
+    expect(validateProbeTraceV1(secondSample)).toEqual({ ok: true });
+    expect(first.raw).not.toContain("xxxxxxxx");
+  });
+
+  it("uses bounded distinct Worker Loader IDs for new-code samples", async () => {
+    const request = validSampleRequest("dynamic_direct_echo", "p03_new_code", {
+      codeMode: "new-code",
+      repetitions: 2,
+    });
+    const first = await measuredDispatch(harness, request);
+    const second = await measuredDispatch(harness, {
+      ...request,
+      sampleOrdinal: 1,
+    });
+    const overBudget = await dispatch(
+      harness,
+      validSampleRequest("dynamic_direct_echo", "p03_over_budget", {
+        codeMode: "new-code",
+        repetitions: 17,
+      }),
+    );
+
+    expect(first.fragment.identity.codeId).toBe(
+      "rtp-code-direct-v1-p03_new_code-0",
+    );
+    expect(second.fragment.identity.codeId).toBe(
+      "rtp-code-direct-v1-p03_new_code-1",
+    );
+    expect(first.fragment.identity.codeId).not.toBe(
+      second.fragment.identity.codeId,
+    );
+    expect(first.fragment.startup.workerLoader).toBe("callback-ran");
+    expect(second.fragment.startup.workerLoader).toBe("callback-ran");
+    expect(overBudget.status).toBe(400);
+  });
+
+  it("fails closed for Dynamic Worker scenarios without a Loader binding", async () => {
+    const noLoaderHarness = await createRuntimeProbeHarness({
+      workerLoader: false,
+    });
+    try {
+      const dynamic = await dispatch(
+        noLoaderHarness,
+        validSampleRequest("dynamic_direct_echo", "p03_no_loader"),
+      );
+      const edge = await dispatch(
+        noLoaderHarness,
+        validSampleRequest("edge_echo", "p03_no_loader_edge"),
+      );
+      expect(dynamic.status).toBe(500);
+      expect(edge.status).toBe(200);
+    } finally {
+      await noLoaderHarness.dispose();
+    }
+  });
+
   it("isolates SQLite control state by deterministic session identity and resets it", async () => {
     const firstSession = derivedSessionId("p02_isolation", 0);
     const secondSession = derivedSessionId("p02_isolation", 1);
@@ -248,10 +332,10 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect(crossRun.status).toBe(400);
   });
 
-  it("rejects scenarios that are valid in P01 but outside P02", async () => {
+  it("rejects scenarios that are valid in P01 but outside P03", async () => {
     const response = await dispatch(
       harness,
-      validSampleRequest("dynamic_direct_echo", "p02_future"),
+      validSampleRequest("facet_echo", "p03_future"),
     );
     expect(response.status).toBe(422);
   });
@@ -260,9 +344,11 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
 type SupportedScenario =
   | "dynamic_direct_echo"
   | "edge_echo"
+  | "facet_echo"
   | "session_echo";
 
 interface SampleOverrides {
+  readonly codeMode?: "new-code" | "stable";
   readonly payloadBytes?: number;
   readonly repetitions?: number;
   readonly sessionMode?: "new-session" | "reuse-session";
@@ -282,7 +368,7 @@ function validSampleRequest(
       repetitions: overrides.repetitions ?? 1,
       warmupRepetitions: 0,
       dimensions: {
-        codeMode: "stable",
+        codeMode: overrides.codeMode ?? "stable",
         concurrency: 1,
         journalEntries: 0,
         payloadBytes,

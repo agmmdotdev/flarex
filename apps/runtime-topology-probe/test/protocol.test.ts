@@ -99,7 +99,7 @@ describe("runtime topology probe protocol", () => {
       ...sample,
       identity: {
         ...sample.identity,
-        codeId: "rtp-code-run_b-0",
+        codeId: "rtp-code-invoke-v1-run_b-0",
       },
     };
     const wrongAttempt = {

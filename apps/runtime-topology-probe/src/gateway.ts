@@ -1,5 +1,11 @@
 import { protocolValueOrNull } from "./effectBoundary";
 import {
+  decodeProbeDirectEchoResponseV1Effect,
+  probeDirectWorkerCode,
+  ProbeDirectEchoRequestV1Schema,
+  type ProbeDirectEchoResponseV1,
+} from "./dynamicProtocol";
+import {
   probeSampleId,
   probeSpanId,
   ProbeOrdinalSchema,
@@ -34,6 +40,7 @@ import type { ProbeSessionDO } from "./sessionDO";
 
 export interface ProbeGatewayEnv {
   readonly PROBE_SESSIONS: DurableObjectNamespace<ProbeSessionDO>;
+  readonly LOADER?: WorkerLoader;
   readonly RUNTIME_TOPOLOGY_PROBE_TOKEN?: string;
 }
 
@@ -46,7 +53,7 @@ export const PROBE_PUBLIC_BODY_MAX_BYTES =
   PROBE_LIMITS_V1.maxPayloadBytes + 8_192;
 const PROBE_INTERNAL_RESPONSE_MAX_BYTES = 8_192;
 
-export type ProbeSessionFailureSource =
+export type ProbeRuntimeFailureSource =
   | { readonly kind: "transport" }
   | { readonly kind: "response-status"; readonly status: number }
   | { readonly kind: "invalid-receipt" };
@@ -91,11 +98,11 @@ export function createProbeGatewayWorker(): ProbeGatewayWorker {
       }
       if (
         sampleRequest.run.scenario !== "edge_echo" &&
-        sampleRequest.run.scenario !== "session_echo"
+        sampleRequest.run.scenario !== "session_echo" &&
+        sampleRequest.run.scenario !== "dynamic_direct_echo"
       ) {
         return gatewayError("unsupported_scenario", 422);
       }
-
       const edgeColo = requestColo(request);
       switch (sampleRequest.run.scenario) {
         case "edge_echo":
@@ -113,6 +120,17 @@ export function createProbeGatewayWorker(): ProbeGatewayWorker {
         case "session_echo":
           return noStoreJson(
             await executeSessionEcho(env, sampleRequest, edgeColo),
+          );
+        case "dynamic_direct_echo":
+          if (env.LOADER === undefined) {
+            return gatewayError("runtime_failure", 500);
+          }
+          return noStoreJson(
+            await executeDynamicDirectEcho(
+              env.LOADER,
+              sampleRequest,
+              edgeColo,
+            ),
           );
       }
     },
@@ -164,7 +182,7 @@ async function executeSessionEcho(
       sampleRequest.sampleOrdinal,
       edgeColo,
       elapsedSince(startedAt),
-      probeSessionFailureRetryable({ kind: "transport" }),
+      probeRuntimeFailureRetryable({ kind: "transport" }),
     );
   }
   if (!response.ok) {
@@ -173,7 +191,7 @@ async function executeSessionEcho(
       sampleRequest.sampleOrdinal,
       edgeColo,
       elapsedSince(startedAt),
-      probeSessionFailureRetryable({
+      probeRuntimeFailureRetryable({
         kind: "response-status",
         status: response.status,
       }),
@@ -196,7 +214,7 @@ async function executeSessionEcho(
       sampleRequest.sampleOrdinal,
       edgeColo,
       durationMs,
-      probeSessionFailureRetryable({ kind: "invalid-receipt" }),
+      probeRuntimeFailureRetryable({ kind: "invalid-receipt" }),
     );
   }
 
@@ -230,6 +248,143 @@ function failedSessionSample(
   });
 }
 
+async function executeDynamicDirectEcho(
+  loader: WorkerLoader,
+  sampleRequest: ProbeGatewaySampleRequestV1,
+  edgeColo: string | null,
+) {
+  const identity = probeSampleIdentityV1(
+    sampleRequest.run.runId,
+    sampleRequest.run.scenario,
+    sampleRequest.run.dimensions,
+    sampleRequest.sampleOrdinal,
+  );
+  if (identity.kind !== "dynamic-direct") {
+    throw new Error("dynamic_direct_echo did not derive a direct code identity");
+  }
+  const internalRequest = ProbeDirectEchoRequestV1Schema.make({
+    protocolVersion: sampleRequest.run.protocolVersion,
+    runId: sampleRequest.run.runId,
+    sampleId: probeSampleId(
+      sampleRequest.run.runId,
+      sampleRequest.sampleOrdinal,
+    ),
+    sampleOrdinal: sampleRequest.sampleOrdinal,
+    codeMode: sampleRequest.run.dimensions.codeMode,
+    codeId: identity.codeId,
+    payload: sampleRequest.payload,
+  });
+
+  let loaderCallbackRan = false;
+  const startedAt = performance.now();
+  let response: Response;
+  try {
+    const worker = loader.get(identity.codeId, () => {
+      loaderCallbackRan = true;
+      return probeDirectWorkerCode();
+    });
+    response = await worker.getEntrypoint().fetch(
+      new Request("https://probe-dynamic.internal/v1/direct-echo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(internalRequest),
+      }),
+    );
+  } catch {
+    return failedDynamicSample(
+      sampleRequest.run,
+      sampleRequest.sampleOrdinal,
+      edgeColo,
+      elapsedSince(startedAt),
+      loaderCallbackRan,
+      probeRuntimeFailureRetryable({ kind: "transport" }),
+    );
+  }
+  if (!response.ok) {
+    return failedDynamicSample(
+      sampleRequest.run,
+      sampleRequest.sampleOrdinal,
+      edgeColo,
+      elapsedSince(startedAt),
+      loaderCallbackRan,
+      probeRuntimeFailureRetryable({
+        kind: "response-status",
+        status: response.status,
+      }),
+    );
+  }
+  const body = await readBoundedJson(
+    response,
+    PROBE_INTERNAL_RESPONSE_MAX_BYTES,
+  );
+  const decoded = body.ok
+    ? await decodeDirectResponse(body.value)
+    : null;
+  const durationMs = elapsedSince(startedAt);
+  if (decoded === null || !sameDirectReceipt(decoded, internalRequest)) {
+    return failedDynamicSample(
+      sampleRequest.run,
+      sampleRequest.sampleOrdinal,
+      edgeColo,
+      durationMs,
+      loaderCallbackRan,
+      probeRuntimeFailureRetryable({ kind: "invalid-receipt" }),
+    );
+  }
+
+  return gatewaySampleFromRun(
+    sampleRequest.run,
+    sampleRequest.sampleOrdinal,
+    {
+      edgeColo,
+      outcome: { kind: "ok" },
+      spans: [dynamicSpan(durationMs, { kind: "ok" })],
+      startup: dynamicStartup(loaderCallbackRan),
+    },
+  );
+}
+
+function failedDynamicSample(
+  run: ProbeRunRequestV1,
+  sampleOrdinal: ProbeGatewaySampleRequestV1["sampleOrdinal"],
+  edgeColo: string | null,
+  durationMs: number,
+  loaderCallbackRan: boolean,
+  retryable: boolean,
+) {
+  const error: ProbeNormalizedErrorV1 = {
+    code: "runtime_failure",
+    retryable,
+    stage: "gateway_dynamic_rtt",
+  };
+  return gatewaySampleFromRun(run, sampleOrdinal, {
+    edgeColo,
+    outcome: { kind: "error", error },
+    spans: [dynamicSpan(durationMs, { kind: "error", error })],
+    startup: dynamicStartup(loaderCallbackRan),
+  });
+}
+
+function dynamicSpan(
+  durationMs: number,
+  outcome: ProbeTraceSpanV1["outcome"],
+): ProbeTraceSpanV1 {
+  return ProbeTraceSpanV1Schema.make({
+    spanId: probeSpanId(ProbeOrdinalSchema.make(1)),
+    parentSpanId: probeSpanId(ProbeOrdinalSchema.make(0)),
+    name: "gateway_dynamic_rtt",
+    durationMs: ProbeDurationMsSchema.make(durationMs),
+    outcome,
+  });
+}
+
+function dynamicStartup(loaderCallbackRan: boolean) {
+  return {
+    workerLoader: loaderCallbackRan ? "callback-ran" : "callback-not-run",
+    facet: "not-applicable",
+  } as const;
+}
+
 function sessionSpan(
   durationMs: number,
   outcome: ProbeTraceSpanV1["outcome"],
@@ -259,6 +414,14 @@ async function decodeSessionResponse(
   );
 }
 
+async function decodeDirectResponse(
+  value: unknown,
+): Promise<ProbeDirectEchoResponseV1 | null> {
+  return await protocolValueOrNull(
+    decodeProbeDirectEchoResponseV1Effect(value),
+  );
+}
+
 function sameSessionReceipt(
   response: ProbeSessionEchoResponseV1,
   request: typeof ProbeSessionEchoRequestV1Schema.Type,
@@ -269,6 +432,19 @@ function sameSessionReceipt(
     response.sampleOrdinal === request.sampleOrdinal &&
     response.sessionId === request.sessionId &&
     response.sessionMode === request.sessionMode &&
+    response.payloadBytes === request.payload.length;
+}
+
+function sameDirectReceipt(
+  response: ProbeDirectEchoResponseV1,
+  request: typeof ProbeDirectEchoRequestV1Schema.Type,
+): boolean {
+  return response.protocolVersion === request.protocolVersion &&
+    response.runId === request.runId &&
+    response.sampleId === request.sampleId &&
+    response.sampleOrdinal === request.sampleOrdinal &&
+    response.codeMode === request.codeMode &&
+    response.codeId === request.codeId &&
     response.payloadBytes === request.payload.length;
 }
 
@@ -307,8 +483,8 @@ function gatewayError(
   );
 }
 
-export function probeSessionFailureRetryable(
-  source: ProbeSessionFailureSource,
+export function probeRuntimeFailureRetryable(
+  source: ProbeRuntimeFailureSource,
 ): boolean {
   switch (source.kind) {
     case "transport":

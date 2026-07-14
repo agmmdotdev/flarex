@@ -44,7 +44,7 @@ export type ProbeAttemptId = typeof ProbeAttemptIdSchema.Type;
 
 export const ProbeCodeIdSchema = Schema.String.check(
   Schema.isPattern(
-    /^rtp-code-(?:stable-v1|[a-z0-9][a-z0-9_-]{0,39}-[0-9]{1,6})$/,
+    /^rtp-code-(?:direct|facet|invoke)-v1-(?:stable|[a-z0-9][a-z0-9_-]{0,39}-[0-9]{1,6})$/,
   ),
 ).pipe(Schema.brand("Flarex/RuntimeTopologyProbeCodeIdV1"));
 export type ProbeCodeId = typeof ProbeCodeIdSchema.Type;
@@ -56,6 +56,13 @@ export type ProbeSpanId = typeof ProbeSpanIdSchema.Type;
 
 export const ProbeCodeModeSchema = Schema.Literals(["stable", "new-code"]);
 export type ProbeCodeMode = typeof ProbeCodeModeSchema.Type;
+
+export const ProbeCodeProfileSchema = Schema.Literals([
+  "direct",
+  "facet",
+  "invoke",
+]);
+export type ProbeCodeProfile = typeof ProbeCodeProfileSchema.Type;
 
 export class ProbeIdentityValidationError extends Data.TaggedError(
   "ProbeIdentityValidationError",
@@ -122,9 +129,10 @@ export function probeAttemptId(
 }
 
 export type ProbeCodeIdentityInput =
-  | { readonly mode: "stable" }
+  | { readonly mode: "stable"; readonly profile: ProbeCodeProfile }
   | {
       readonly mode: "new-code";
+      readonly profile: ProbeCodeProfile;
       readonly runId: ProbeRunId;
       readonly version: ProbeOrdinal;
     };
@@ -132,10 +140,12 @@ export type ProbeCodeIdentityInput =
 export function probeCodeId(input: ProbeCodeIdentityInput): ProbeCodeId {
   switch (input.mode) {
     case "stable":
-      return ProbeCodeIdSchema.make("rtp-code-stable-v1");
+      return ProbeCodeIdSchema.make(
+        `rtp-code-${input.profile}-v1-stable`,
+      );
     case "new-code":
       return ProbeCodeIdSchema.make(
-        `rtp-code-${input.runId}-${input.version}`,
+        `rtp-code-${input.profile}-v1-${input.runId}-${input.version}`,
       );
   }
 }

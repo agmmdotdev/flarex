@@ -7,8 +7,8 @@ and teardown requirements live in [`PLAN.md`](./PLAN.md).
 
 ## Current Slice
 
-`P02` adds the first locally executable topology without introducing Dynamic
-Workers, facets, mock commit, or sync behavior. It owns:
+`P03` adds the direct Dynamic Worker control without introducing facets, mock
+commit, or sync behavior. The current app owns:
 
 - a bearer-protected per-sample gateway with bounded streaming JSON reads;
 - `edge_echo` and gateway-to-`ProbeSessionDO` round-trip samples;
@@ -17,9 +17,14 @@ Workers, facets, mock commit, or sync behavior. It owns:
 - gateway trace fragments that deliberately omit the external root span;
 - a collector helper that adds the true caller-measured external round trip;
 - an in-memory Vite/Miniflare harness that executes the actual Worker bundle;
-  and
 - an isolated Wrangler gateway configuration with its first SQLite Durable
-  Object migration.
+  Object migration;
+- fixed platform-owned direct Worker source loaded through Worker Loader with
+  outbound networking disabled and no injected capabilities;
+- stable and bounded new-code modes whose IDs include the `direct-v1` source
+  profile; and
+- `dynamic_direct_echo` fragments that separately record Worker Loader code
+  callback execution and gateway-to-Dynamic-Worker round-trip latency.
 
 This slice is local and dry-run-only. Production remains blocked until `P07`
 adds server-owned run registration, atomic sample claims, aggregate budgets,
@@ -43,6 +48,8 @@ corepack pnpm --filter @flarex/runtime-topology-probe deploy:gateway:dry-run
 - `src/protocol.ts` owns strict wire schemas and typed decode failures.
 - `src/runtimeProtocol.ts` owns per-sample gateway fragments and collector
   completion.
+- `src/dynamicProtocol.ts` owns the direct Worker wire contract and fixed
+  capability-free source package.
 - `src/gateway.ts` owns the protected public boundary and local hop timing.
 - `src/sessionDO.ts` owns the isolated SQLite Durable Object control state.
 - `src/trace.ts` validates completeness, parentage, cycles, and outcome

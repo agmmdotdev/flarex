@@ -24,11 +24,27 @@ describe("runtime topology probe identities", () => {
     expect(probeAttemptId(runId, one, zero)).toBe(
       "rtp-attempt-run_a-1-0",
     );
-    expect(probeCodeId({ mode: "stable" })).toBe("rtp-code-stable-v1");
-    expect(probeCodeId({ mode: "new-code", runId, version: one })).toBe(
-      "rtp-code-run_a-1",
+    expect(probeCodeId({ mode: "stable", profile: "direct" })).toBe(
+      "rtp-code-direct-v1-stable",
+    );
+    expect(probeCodeId({
+      mode: "new-code",
+      profile: "facet",
+      runId,
+      version: one,
+    })).toBe(
+      "rtp-code-facet-v1-run_a-1",
     );
     expect(probeSpanId(one)).toBe("rtp-span-1");
+  });
+
+  it("keeps direct, facet, and privileged invocation code identities distinct", () => {
+    expect(probeCodeId({ mode: "stable", profile: "direct" })).not.toBe(
+      probeCodeId({ mode: "stable", profile: "facet" }),
+    );
+    expect(probeCodeId({ mode: "stable", profile: "facet" })).not.toBe(
+      probeCodeId({ mode: "stable", profile: "invoke" }),
+    );
   });
 
   it.each(["", "UPPER", "-leading", "contains space", "a".repeat(41)])(

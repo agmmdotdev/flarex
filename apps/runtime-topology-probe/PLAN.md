@@ -154,6 +154,12 @@ samples use a stable Worker Loader ID. New-code samples use a small bounded set
 of unique IDs because changing an ID or code version changes Dynamic Worker
 creation and billing.
 
+Every Dynamic Worker ID includes a runtime profile and source/configuration
+version. Direct, facet-only, and privileged mock-invoke Workers must never
+reuse an ID because their source and injected capabilities differ. A source,
+compatibility date, limit, or binding-contract change requires a new profile
+version before the production matrix is registered.
+
 ## Safety And Operability Rules
 
 - Use dedicated probe Worker names, Durable Object namespaces, secrets, and
@@ -247,7 +253,7 @@ Wrangler/workerd processes stopped afterward.
 
 ### P03 - Add The Direct Dynamic Worker Control
 
-Status: in progress and approved.
+Status: complete.
 
 Deliver:
 
@@ -263,7 +269,7 @@ Proof: focused loader/identity/limit tests plus local smoke and bundle/dry-run.
 
 ### P04 - Add The Session Facet And Temporary Journal
 
-Status: approved; pending.
+Status: in progress and approved.
 
 Deliver:
 
@@ -419,7 +425,7 @@ teardown are complete.
 
 - Active goal: build and validate the isolated production runtime-topology
   probe through separately approved gates.
-- Current gate: `P03` implementation.
-- Next gate after proof and checkpoint: `P04`.
+- Current gate: `P04` implementation.
+- Next gate after proof and checkpoint: `P05`.
 - Goal completion condition: production evidence and analysis are recorded and
   the approved cleanup/retention action is verified.

@@ -27,6 +27,7 @@ import {
   type ProbeRunRequestV1,
   type ProbeSampleOutcomeV1,
   type ProbeSampleResultV1,
+  type ProbeStartupObservationsV1,
   type ProbeTraceSpanV1,
 } from "./protocol";
 
@@ -195,23 +196,32 @@ function gatewaySampleRelationshipIssue(
   if (!sameGatewayIdentity(sample.identity, expectedIdentity)) {
     return "identity must match the run, scenario, dimensions, and sample ordinal";
   }
-  if (
-    sample.startup.workerLoader !== "not-applicable" ||
-    sample.startup.facet !== "not-applicable"
-  ) {
-    return "P02 gateway samples cannot report Dynamic Worker callbacks";
-  }
   switch (sample.scenario) {
     case "edge_echo":
-      return sample.spans.length === 0 &&
+      return hasNoStartupCallbacks(sample.startup) &&
+          sample.spans.length === 0 &&
           sample.outcome.kind === "ok"
         ? undefined
         : "edge_echo must return one successful rootless gateway sample";
     case "session_echo":
-      return sessionEchoRelationshipIssue(sample);
+      return hasNoStartupCallbacks(sample.startup)
+        ? sessionEchoRelationshipIssue(sample)
+        : "session_echo cannot report Dynamic Worker callbacks";
+    case "dynamic_direct_echo":
+      return sample.startup.workerLoader !== "not-applicable" &&
+          sample.startup.facet === "not-applicable"
+        ? dynamicDirectRelationshipIssue(sample)
+        : "dynamic_direct_echo requires only a Worker Loader callback observation";
     default:
-      return "this gateway sample version supports only edge_echo and session_echo";
+      return "this gateway sample version does not support the selected scenario";
   }
+}
+
+function hasNoStartupCallbacks(
+  startup: ProbeStartupObservationsV1,
+): boolean {
+  return startup.workerLoader === "not-applicable" &&
+    startup.facet === "not-applicable";
 }
 
 function sessionEchoRelationshipIssue(
@@ -236,6 +246,30 @@ function sessionEchoRelationshipIssue(
       sameError(span.outcome.error, sample.outcome.error)
     ? undefined
     : "failed session_echo requires one matching failed span";
+}
+
+function dynamicDirectRelationshipIssue(
+  sample: typeof ProbeGatewaySampleV1Shape.Type,
+): string | undefined {
+  const [span] = sample.spans;
+  if (
+    sample.spans.length !== 1 ||
+    span === undefined ||
+    span.spanId !== probeSpanId(ordinal(1)) ||
+    span.parentSpanId !== probeSpanId(PROBE_ORDINAL_ZERO) ||
+    span.name !== "gateway_dynamic_rtt"
+  ) {
+    return "dynamic_direct_echo must return exactly its gateway-to-worker round trip";
+  }
+  if (sample.outcome.kind === "ok") {
+    return span.outcome.kind === "ok"
+      ? undefined
+      : "successful dynamic_direct_echo requires a successful span";
+  }
+  return span.outcome.kind === "error" &&
+      sameError(span.outcome.error, sample.outcome.error)
+    ? undefined
+    : "failed dynamic_direct_echo requires one matching failed span";
 }
 
 function sameGatewayIdentity(
@@ -270,6 +304,7 @@ export function gatewaySampleFromRun(
     readonly edgeColo: string | null;
     readonly outcome: ProbeSampleOutcomeV1;
     readonly spans: ReadonlyArray<ProbeTraceSpanV1>;
+    readonly startup?: ProbeStartupObservationsV1;
   },
 ): ProbeGatewaySampleV1 {
   return ProbeGatewaySampleV1Schema.make({
@@ -284,7 +319,7 @@ export function gatewaySampleFromRun(
       run.dimensions,
       sampleOrdinal,
     ),
-    startup: {
+    startup: input.startup ?? {
       workerLoader: "not-applicable",
       facet: "not-applicable",
     },

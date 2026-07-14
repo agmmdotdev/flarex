@@ -7,6 +7,7 @@ import {
   probeScopeId,
   probeSessionId,
   ProbeCodeModeSchema,
+  type ProbeCodeProfile,
   ProbeCodeIdSchema,
   ProbeAttemptIdSchema,
   ProbeOrdinalSchema,
@@ -296,10 +297,6 @@ export function probeSampleIdentityV1(
       ? PROBE_ORDINAL_ZERO
       : sampleOrdinal;
   const sessionId = probeSessionId(runId, sessionOrdinal);
-  const codeId = dimensions.codeMode === "stable"
-    ? probeCodeId({ mode: "stable" })
-    : probeCodeId({ mode: "new-code", runId, version: sampleOrdinal });
-
   switch (scenario) {
     case "edge_echo":
     case "commit_wake":
@@ -327,10 +324,32 @@ export function probeSampleIdentityV1(
         scopeId,
         sessionId: null,
         attemptId: null,
-        codeId,
+        codeId: codeIdForScenario(
+          "direct",
+          runId,
+          dimensions,
+          sampleOrdinal,
+        ),
       };
     case "facet_echo":
     case "facet_journal":
+      return {
+        kind: "facet-session",
+        sampleOrdinal,
+        scopeId,
+        sessionId,
+        attemptId: probeAttemptId(
+          runId,
+          sessionOrdinal,
+          sampleOrdinal,
+        ),
+        codeId: codeIdForScenario(
+          "facet",
+          runId,
+          dimensions,
+          sampleOrdinal,
+        ),
+      };
     case "full_invoke":
     case "sync_rerun":
       return {
@@ -343,9 +362,30 @@ export function probeSampleIdentityV1(
           sessionOrdinal,
           sampleOrdinal,
         ),
-        codeId,
+        codeId: codeIdForScenario(
+          "invoke",
+          runId,
+          dimensions,
+          sampleOrdinal,
+        ),
       };
   }
+}
+
+function codeIdForScenario(
+  profile: ProbeCodeProfile,
+  runId: ProbeRunRequestV1["runId"],
+  dimensions: ProbeDimensionsV1,
+  sampleOrdinal: ProbeOrdinal,
+) {
+  return dimensions.codeMode === "stable"
+    ? probeCodeId({ mode: "stable", profile })
+    : probeCodeId({
+        mode: "new-code",
+        profile,
+        runId,
+        version: sampleOrdinal,
+      });
 }
 
 function sampleRelationshipIssue(

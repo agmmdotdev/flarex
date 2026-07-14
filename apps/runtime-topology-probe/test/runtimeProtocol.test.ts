@@ -95,9 +95,38 @@ describe("P02 gateway runtime protocol", () => {
     ]);
     expect(validateProbeTraceV1(sample)).toEqual({ ok: true });
   });
+
+  it("completes a direct Dynamic Worker fragment and callback cohort", () => {
+    const run = Effect.runSync(
+      decodeProbeRunRequestV1Effect(runRequest("dynamic_direct_echo")),
+    );
+    const fragment = gatewaySampleFromRun(run, sampleOrdinal, {
+      edgeColo: null,
+      outcome: { kind: "ok" },
+      spans: [
+        ProbeTraceSpanV1Schema.make({
+          spanId: probeSpanId(Effect.runSync(decodeProbeOrdinalEffect(1))),
+          parentSpanId: probeSpanId(Effect.runSync(decodeProbeOrdinalEffect(0))),
+          name: "gateway_dynamic_rtt",
+          durationMs: ProbeDurationMsSchema.make(1),
+          outcome: { kind: "ok" },
+        }),
+      ],
+      startup: {
+        workerLoader: "callback-ran",
+        facet: "not-applicable",
+      },
+    });
+    const sample = completeProbeGatewaySampleV1(fragment, 2);
+
+    expect(sample.identity.codeId).toBe("rtp-code-direct-v1-stable");
+    expect(validateProbeTraceV1(sample)).toEqual({ ok: true });
+  });
 });
 
-function runRequest(scenario: "edge_echo" | "session_echo" = "session_echo") {
+function runRequest(
+  scenario: "dynamic_direct_echo" | "edge_echo" | "session_echo" = "session_echo",
+) {
   return {
     protocolVersion: 1,
     runId,

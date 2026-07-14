@@ -22,6 +22,7 @@ export interface RuntimeProbeHarnessOptions {
   readonly persistPath?: string;
   readonly removePersistPathOnDispose?: boolean;
   readonly token?: string | false;
+  readonly workerLoader?: boolean;
 }
 
 let gatewayBundlePromise: Promise<string> | undefined;
@@ -52,6 +53,9 @@ export async function createRuntimeProbeHarness(
           },
         ],
         bindings,
+        ...(options.workerLoader === false
+          ? {}
+          : { workerLoaders: { LOADER: {} } }),
         durableObjects: {
           PROBE_SESSIONS: {
             className: "ProbeSessionDO",
