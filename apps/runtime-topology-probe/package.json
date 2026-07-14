@@ -1,0 +1,16 @@
+{
+  "name": "@flarex/runtime-topology-probe",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm typecheck",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  }
+}

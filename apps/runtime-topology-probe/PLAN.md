@@ -1,7 +1,7 @@
 # Runtime Topology Probe Turn Plan
 
-Status: experimental evidence plan; `P00` preparation complete, implementation
-not yet approved.
+Status: experimental evidence plan; `P00` complete and `P01` through `P11`
+approved for ordered execution.
 
 This file owns a bounded production probe for measuring Cloudflare runtime
 communication. It is local to `apps/runtime-topology-probe`; it is not an
@@ -21,6 +21,7 @@ protected probe gateway Worker
   -> sealed mock journal/result returned to ProbeSessionDO
   -> private mock-finish call to MockCommitWorker
   -> mock post-commit wake from MockCommitWorker
+  -> separately deployed private ProbeSync Worker
   -> one deterministic ProbeSyncDO per synthetic scope
   -> optional sync-triggered rerun through a fresh probe session/facet
 ```
@@ -36,6 +37,7 @@ adds in production. It does not test Flarex transaction correctness.
 - a SQLite-backed `ProbeSessionDO` supervisor;
 - a Worker Loader binding and a dynamically loaded Durable Object facet;
 - a separate private `MockCommitWorker` reached through a service binding;
+- a separate private ProbeSync Worker that owns only `ProbeSyncDO`;
 - a SQLite-backed `ProbeSyncDO` that models only the communication shape of
   the accepted future `DeploymentSyncDO`;
 - direct Dynamic Worker and SessionDO-only controls so facet overhead can be
@@ -125,6 +127,12 @@ The harness must not subtract absolute timestamps produced by different
 isolates to claim one-way latency. Nested responses return locally measured
 durations in a versioned trace tree.
 
+Production Worker clocks advance only around I/O. Runtime spans therefore
+measure awaited Durable Object, facet, service-binding, or storage-sync round
+trips; they do not claim CPU-only serialization or digest time. The external
+collector owns complete client wall-clock latency. Facet journal timing includes
+an explicit storage synchronization boundary.
+
 Each sample records at least:
 
 - run ID, sample ID, scenario ID, protocol version, and outcome;
@@ -158,6 +166,9 @@ creation and billing.
   capability required by the selected scenario.
 - A facet must never call back into the same supervisor while that supervisor
   awaits the facet. The optional rerun creates a fresh session/attempt path.
+- Keep the deployed dependency graph acyclic: gateway -> mock commit -> sync.
+  A sync-triggered rerun uses a per-call forwarded capability and never a
+  permanent sync-to-gateway service binding.
 - Use a distinct facet identity per attempt. Delete the facet after the sample
   unless a named lifecycle scenario requires preserved storage.
 - Provide explicit purge/teardown operations for synthetic DO state and retain
@@ -167,10 +178,11 @@ creation and billing.
 
 ## Turn-By-Turn Gates
 
-A turn implements only its approved gate. Before every behavior-changing gate,
-the main thread presents the repository-grounded preflight required by
-`AGENTS.md` and waits for explicit approval. Approval of one gate does not
-authorize the next gate.
+A turn implements only the current ordered gate. The app-local `AGENTS.md`
+records the user's approval for the complete isolated experiment: the main
+thread still performs the repository-grounded preflight and challenge for each
+behavior-changing gate, but does not pause for repeated approval while scope
+and external targets remain inside this plan.
 
 ### P00 - Create The Experiment Record And Root
 
@@ -194,7 +206,7 @@ Exit: present the P01 preflight. Do not create deployable code in P00.
 
 ### P01 - Scaffold The Offline Package And Freeze Protocol V1
 
-Status: pending and not approved.
+Status: complete.
 
 Deliver:
 
@@ -212,7 +224,7 @@ Proof: package typecheck and focused unit tests.
 
 ### P02 - Add The Protected Gateway And SessionDO Echo
 
-Status: pending and not approved.
+Status: in progress and approved.
 
 Deliver:
 
@@ -230,7 +242,7 @@ Wrangler/workerd processes stopped afterward.
 
 ### P03 - Add The Direct Dynamic Worker Control
 
-Status: pending and not approved.
+Status: approved; pending.
 
 Deliver:
 
@@ -245,7 +257,7 @@ Proof: focused loader/identity/limit tests plus local smoke and bundle/dry-run.
 
 ### P04 - Add The Session Facet And Temporary Journal
 
-Status: pending and not approved.
+Status: approved; pending.
 
 Deliver:
 
@@ -266,11 +278,12 @@ bundle/dry-run.
 
 ### P05 - Add The Private Mock Commit And ProbeSyncDO Wake
 
-Status: pending and not approved.
+Status: approved; pending.
 
 Deliver:
 
 - separately deployable private `MockCommitWorker` service-binding target;
+- separately deployable private ProbeSync Worker owning `ProbeSyncDO`;
 - restricted mock-read and mock-finish calls with deterministic synthetic
   commit summaries;
 - deterministic per-synthetic-scope `ProbeSyncDO` with a tiny SQLite cursor and
@@ -281,16 +294,19 @@ Deliver:
 Non-goals: Postgres, OCC, commit compilation, durable outbox recovery, gaps,
 canonical queries, or real sync behavior.
 
-Proof: contract tests across both Workers, duplicate/out-of-order synthetic
-wake tests, local integration smoke, and both deployment dry-runs.
+Proof: contract tests across all three Workers, duplicate/out-of-order
+synthetic wake tests, local integration smoke, and gateway/mock/sync deployment
+dry-runs.
 
 ### P06 - Add The Optional Sync-To-Runtime Rerun Loop
 
-Status: pending and not approved.
+Status: approved; pending.
 
 Deliver:
 
 - `sync_rerun` through a private runtime entrypoint and a fresh session/attempt;
+- a per-call forwarded rerun capability rather than a permanent reverse
+  service binding;
 - complete sync-to-runtime-to-sync trace correlation;
 - bounded recursion/reentry protection and a terminal acknowledgement that
   performs no second commit wake.
@@ -300,9 +316,13 @@ WebSockets, or `ConnectionDO`.
 
 Proof: focused no-cycle/no-reentry tests and local end-to-end smoke.
 
+If Cloudflare's forwarded RPC capability cannot cross the complete local or
+hosted call chain, record that unsupported result directly. Do not substitute
+gateway polling because it would measure the opposite communication direction.
+
 ### P07 - Harden Lifecycle, Cleanup, And Evidence Collection
 
-Status: pending and not approved.
+Status: approved; pending.
 
 Deliver:
 
@@ -319,7 +339,7 @@ tests, and deploy dry-runs.
 
 ### P08 - Production Deployment Preflight
 
-Status: pending and not approved.
+Status: approved; pending.
 
 This is a discussion/evidence gate before external state changes.
 
@@ -332,15 +352,18 @@ Deliver:
 - freeze success criteria and the evidence destination;
 - prove no binding points at production Flarex resources.
 
-Exit: obtain explicit approval for the named deployment and bounded run.
+Exit: verify the existing approval still covers the named isolated deployment
+and bounded run. Pause only if the account or resource target is ambiguous or
+scope would expand.
 
 ### P09 - Deploy And Smoke The Isolated Probe
 
-Status: pending and not approved.
+Status: approved; pending.
 
 Deliver:
 
-- deploy the private mock target first and the protected gateway second;
+- deploy the private sync target first, the private mock target second, and the
+  protected gateway last;
 - verify authentication failure/success, every scenario once, trace
   completeness, observability, limits, and purge behavior;
 - stop immediately on incorrect routing, unbounded creation, or unexpected
@@ -350,7 +373,7 @@ Proof: a small production smoke receipt and a successful cleanup rehearsal.
 
 ### P10 - Collect Production Latency Evidence
 
-Status: pending and not approved.
+Status: approved; pending.
 
 Deliver:
 
@@ -365,7 +388,7 @@ budget and no secret or tenant data.
 
 ### P11 - Analyze, Record Conclusions, And Teardown
 
-Status: pending and not approved.
+Status: approved; pending.
 
 Deliver:
 
@@ -376,6 +399,9 @@ Deliver:
   selecting the architecture prematurely;
 - delete or intentionally retain the isolated deployment according to the P08
   approval, and verify cleanup.
+- when deleting the experiment, purge known facets/objects, apply the required
+  Durable Object deleted-class migrations, then delete gateway, mock, and sync
+  scripts in dependency order and verify absence.
 
 Exit: close the experiment goal only after evidence, conclusions, and requested
 teardown are complete.
@@ -384,7 +410,7 @@ teardown are complete.
 
 - Active goal: build and validate the isolated production runtime-topology
   probe through separately approved gates.
-- Current gate: `P01` preflight presented; explicit approval pending.
-- Next implementation gate: `P01`.
+- Current gate: `P02` implementation.
+- Next gate after proof and checkpoint: `P03`.
 - Goal completion condition: production evidence and analysis are recorded and
   the approved cleanup/retention action is verified.
