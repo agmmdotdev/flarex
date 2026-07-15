@@ -1035,10 +1035,13 @@ The lease is a constrained current-attempt projection and does not duplicate
 generation or request authority. S07 defines only the relational contract: at
 most one lease per session, and every lease references the exact current
 attempt. S07-A first adds one scope-wide authorization-revocation epoch to the
-located scope clock; O03-A consumes it for the signed grant contract. O03-B
-owns the active-session child-existence invariant, atomic creation, exact-fence
-renewal, abort/expiry, and stale-attempt rejection. C05 introduces the private
-exact-fence transition to `finishing`, C06 orchestrates it idempotently through
+located scope clock; O03-A consumes it for the signed grant contract. The
+required O03-B core owns the active-session child-existence invariant, atomic
+creation, exact-fence loading, abort/expiry, and stale-attempt rejection.
+O03-B2b2 renewal is conditional on a proven long-running-attempt consumer and
+does not block exact-snapshot reads or the private C07 proof. C05 introduces
+the private exact-fence transition to `finishing`, C06 orchestrates it
+idempotently through
 the finish endpoint, C03 rejects late syscalls, O07 atomically deletes the
 exact lease and stores committed state, O08 owns retry replacement, and O11
 first consumes active snapshot floors for history retention.

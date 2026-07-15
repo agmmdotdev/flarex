@@ -748,14 +748,12 @@ on the session anchor. Plain relational DDL cannot require every active parent
 to have a child lease, so that exactly-one-active-lease invariant belongs to
 O03-B's atomic activation operation.
 
-O03-B owns atomic anchor/lease creation, exact-fence loading and renewal,
-abort/expiry terminalization, active-child enforcement, and stale-attempt
-rejection. It is divided into reviewable checkpoints without changing that
-authority: O03-B1 creates or exactly replays one active request anchor, O03-B2a
-reloads one exact active attempt across trusted-process boundaries, O03-B2b1
-adds exact abort/expiry terminalization with first-terminal-wins observation,
-and O03-B2b2 adds renewal plus renewal-versus-terminalization race proof. A
-live abort records `aborted`; once database time reaches the earliest lease,
+O03-B owns atomic anchor/lease creation, exact-fence loading, abort/expiry
+terminalization, active-child enforcement, and stale-attempt rejection. Its
+required pre-consumer core is divided into O03-B1 atomic activation/exact
+active-anchor replay, O03-B2a restart-safe exact-attempt reload, and O03-B2b1
+exact abort/expiry terminalization with first-terminal-wins observation. A live
+abort records `aborted`; once database time reaches the earliest lease,
 hard, or grant expiry, abort and expiry canonically record `expired`. Restart-
 safe expiry uses the strict inert exact-attempt selector because live-only B2a
 loading correctly refuses expired authority. O03-B does not predeclare
@@ -766,6 +764,18 @@ parent fence, and inserts the new lease in one transaction. The foreign key
 restricts parent updates and deletes while the old lease remains; it does not
 cascade an old snapshot into a new attempt. S07 owns only the relational shape
 and migration proof.
+
+The previously ordered O03-B2b2 renewal gate is a conditional operational
+extension, not an O04/O05 or private C01-C07 prerequisite. Convex bounds one
+execution attempt and starts retries with a fresh transaction/snapshot rather
+than renewing the old attempt. Flarex may still require renewal because its
+execution and Postgres-retention owners are separated, but the first real
+runtime or retention consumer must prove that a bounded attempt can outlive its
+initial lease before that divergence is implemented. That preflight must freeze
+the maximum attempt deadline, initial lease relationship, renewal owner and
+signal, cadence, jitter/failure and restart allowance, and GC safety margin. If
+the initial lease can cover the bounded attempt plus safety margin, O03-B2b2 is
+retired without implementation.
 
 GC initially uses the minimum active snapshot-lease floor plus a safety margin
 for row, index, edge, commit, and sync change-feed history. Payload user-visible
@@ -950,8 +960,9 @@ private C01-C07 proof.
 The narrow schema prerequisite S07-A first adds one nonnegative scope-wide
 `authorization_revocation_epoch` to the located data-plane scope clock. O03-A
 then consumes that authority: a V1 bump conservatively invalidates every
-outstanding scope grant. Session activation and later renewal/commit compare
-exact equality against the current authority in their short transactions.
+outstanding scope grant. Session activation and commit compare exact equality
+against the current authority in their short transactions; any later consumer-
+approved renewal must do the same.
 There is no per-grant database or premature per-policy epoch registry; those
 require a proven independent consumer before changing the V1 authority model.
 
@@ -960,8 +971,8 @@ stored only in the constrained snapshot-lease row, avoiding two independent
 snapshot or generation authorities. S07 defines these two physical rows.
 S07-A supplies current revocation storage, O03-A supplies signed-grant
 semantics, O03-B1 owns atomic activation/exact active-anchor replay, O03-B2a
-owns restart-safe exact-attempt reload, and O03-B2b owns basic mutating exact-
-fence lease mechanics.
+owns restart-safe exact-attempt reload, and O03-B2b1 owns exact-fence
+abort/expiry terminalization and active-child enforcement.
 
 O03-B1 generates a canonical native UUID session identity inside the trusted
 executor boundary. Under the scope-clock lock, no matching request creates one
@@ -1073,8 +1084,9 @@ Requirements:
 - monotonic syscall sequence numbers;
 - one fenced attempt owner;
 - O03-B1 defines initial activation and exact active-anchor replay; O03-B2a
-  defines restart-safe exact-fence load; O03-B2b defines renewal, abort, and
-  expiry;
+  defines restart-safe exact-fence load; O03-B2b1 defines abort and expiry;
+  O03-B2b2 renewal remains conditional on a proven long-running-attempt
+  consumer and is not a prerequisite for bounded private execution;
 - C05 introduces the private exact-fence transition to `finishing`; C06
   orchestrates it idempotently through the finish endpoint, while C03 rejects
   subsequent syscalls;

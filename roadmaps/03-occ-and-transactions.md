@@ -8,10 +8,13 @@ for retention. S07 owns their physical schema only: at most one lease exists
 per scope/session, and every lease references the exact current attempt. Plain
 DDL cannot require every active parent to have a child.
 
-Completed S07-A supplies current scope-revocation storage; O03-A consumes it for
-signed transaction-grant semantics. O03-B then owns atomic activation, exact-
-fence renewal, abort/expiry, active-child enforcement, and stale-attempt
-rejection. C05 introduces the private exact-fence transition to `finishing`,
+Completed S07-A supplies current scope-revocation storage; completed O03-A
+consumes it for signed transaction-grant semantics. The required O03-B core now
+owns atomic activation/replay, restart-safe exact-attempt reload, abort/expiry,
+active-child enforcement, and stale-attempt rejection. O03-B2b2 renewal is a
+conditional operational extension for the first proven long-running-attempt
+consumer and does not block O04 or the private C07 proof. C05 introduces the
+private exact-fence transition to `finishing`,
 C06 orchestrates it idempotently through the finish endpoint, C03 rejects late
 syscalls, O07 atomically deletes the exact lease and stores committed state plus
 outcome/idempotency, O08 owns explicit delete/fence-advance/new-lease retry

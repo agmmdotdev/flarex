@@ -11,9 +11,10 @@ as exactly two private boundaries: located-current-epoch admission and
 schema-neutral two-sided point-mutation preparation. Operational revocation and
 hosted Worker/key adapters are deferred to their first real consumers. O03-B1
 activation, O03-B2a restart-safe reload, and O03-B2b1 exact abort/expiry
-terminalization are complete. The O03-B2b parent remains active and incomplete;
-O03-B2b2 renewal/race proof is next before O04. Neither deferred adapter blocks
-O03-B2b or the private C01-C07 proof.
+terminalization complete the required O03-B authority core. O04 exact-snapshot
+point reads are next. O03-B2b2 renewal/race proof is a conditional operational
+extension that requires a proven long-running-attempt consumer; it does not
+block O04/O05 or the private C01-C07 proof.
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -498,19 +499,18 @@ Parent non-goals:
 - no opaque per-grant database, grant audit product, role system, general
   application authorization language, or prototype compatibility bridge.
 
-### [ ] O03-B — Establish Active Session Authority
+### [x] O03-B — Establish Active Session Authority
 
-O03-B is split into reviewable checkpoints without changing the master order.
-`O03-B1` establishes one active request anchor atomically; `O03-B2a` reloads
-one exact active attempt across trusted-process boundaries; and the `O03-B2b`
-parent is completed by `O03-B2b1` exact terminalization followed by
-`O03-B2b2` renewal and renewal-versus-terminalization proof. Both B2b children
-must complete before `O04` may consume the anchor.
+Status: required pre-consumer authority core complete. `O03-B1` establishes one
+active request anchor atomically, `O03-B2a` reloads one exact active attempt
+across trusted-process boundaries, and `O03-B2b1` supplies exact abort/expiry
+terminalization. O03-B2b2 is retained as a conditional operational extension;
+it is not an O04 prerequisite.
 
 #### [x] O03-B1 — Atomically Activate One Point-Mutation Anchor
 
 Status: complete as a private, non-routing atomic activation and exact active-
-anchor replay checkpoint. O03-B2b2 is now the next implementation gate.
+anchor replay checkpoint. O04 is now the next implementation gate.
 
 Outcome:
 
@@ -564,7 +564,7 @@ Exit gate:
 Status: complete as a private, non-routing, read-only exact-attempt reload. The
 JSON-safe selector is inert lookup identity; every load freshly resolves
 placement, validates under `clock -> session -> lease` locks, and mints a new
-process-local capability. O03-B2b2 is the next implementation gate.
+process-local capability. O04 is the next implementation gate.
 
 Outcome:
 
@@ -598,19 +598,17 @@ Exit gate:
   focused real Postgres proves lock order, concurrent-load behavior, post-lock
   database-time expiry, and independent-scope progress.
 
-#### [ ] O03-B2b — Renew And Terminalize Exact Attempts
+#### [x] O03-B2b — Terminalize Exact Attempts
 
-Status: parent gate split into two independently reviewable checkpoints.
-`O03-B2b1` establishes exact abort/expiry terminalization and terminal
-observation. `O03-B2b2` then adds renewal and closes the cross-operation race
-proof. The parent remains incomplete until both children pass.
+Status: required pre-consumer terminalization gate complete through O03-B2b1.
+The formerly ordered B2b2 renewal step is now a conditional operational
+extension and does not determine this parent's completion.
 
 ##### [x] O03-B2b1 — Terminalize One Exact Attempt
 
 Status: complete as a private, non-routing exact abort/expiry terminalization
-boundary with idempotent first-terminal-state observation. O03-B2b2 renewal and
-cross-operation race proof is the next implementation gate; the B2b parent
-remains incomplete.
+boundary with idempotent first-terminal-state observation. This closes the
+required O03-B authority core; O04 is the next implementation gate.
 
 Outcome:
 
@@ -653,23 +651,38 @@ Exit gate:
 - renewal, legacy sessions, `/invoke/*`, exports, routing, finish/commit/retry,
   retention, and storage-generation activation remain unchanged.
 
-##### [ ] O03-B2b2 — Renew One Exact Attempt
+##### [ ] O03-B2b2 — Conditionally Renew Long-Running Attempts
 
-Status: next implementation gate.
+Status: deferred, conditional operational extension outside the current master
+order. Re-preflight immediately before the first runtime or retention consumer
+that proves a bounded attempt must outlive its initial lease. If the initial
+lease can cover the maximum attempt deadline plus safety margin, retire this
+gate without implementation.
 
-Outcome:
+Required preflight before activation:
 
-- Renew only a genuine exact current `running` or `finishing` attempt. Keep
-  request/generation authority on the session and snapshot-retention authority
-  on the lease; never change the selector fence or snapshot token.
-- Use the shared fresh-resolution and `clock -> session -> lease -> database
-  time` boundary. A trusted server duration derives
-  `min(databaseNow + duration, hardExpiry, grantExpiry)`; renewal never
-  shortens the existing lease, never revives expired or terminal authority, and
-  reports an unchanged hard-cap result explicitly.
-- Reject epoch rollover and stale generation/fence/revocation authority. The
-  heartbeat cadence and first operational caller remain deferred to their own
-  host preflight.
+- Identify the concrete runtime owner and signal, maximum bounded attempt
+  deadline, relationship between that deadline and the initial lease, cadence,
+  jitter/failure and restart allowance, and engine-history GC safety margin.
+- Explain why a longer initial lease plus bounded attempt termination is not
+  sufficient. Convex starts retries with a fresh transaction/snapshot and has
+  no renewable attempt lease, so this is an explicit Flarex runtime/retention
+  divergence rather than a portable Convex primitive.
+
+Guardrails if activated:
+
+- Consume only a genuine process-local loaded-attempt capability and revalidate
+  the exact current `running` or `finishing` attempt. Keep request/generation
+  authority on the session and snapshot-retention authority on the lease;
+  never change the selector fence or snapshot token.
+- Use shared fresh resolution and `clock -> session -> lease -> database time`.
+  A construction-bound trusted duration may extend but never shorten the lease,
+  and renewal never revives expired or terminal authority.
+- Distinguish an actual extension, an unchanged already-covered deadline, and
+  an unchanged hard-cap deadline. Database-time renewal is monotonic and retry-
+  safe but is not strict replay idempotency because a later retry may extend
+  again.
+- Reject epoch rollover and stale generation/fence/revocation authority.
 
 Exit gate:
 
@@ -682,7 +695,7 @@ Exit gate:
   PGlite and focused real Postgres without adding a route or compatibility
   bridge.
 
-Deferred ownership after O03-B:
+Deferred ownership after the required O03-B core:
 
 - `C05` introduces the private exact-fence transition to `finishing`; `C06`
   orchestrates it idempotently through the finish endpoint, and `C03` rejects
@@ -787,8 +800,9 @@ fast committed-outcome lookup outside the transaction
   -> validate and publish
 ```
 
-O03-B renewal/abort/expiry and O08 retry replacement use the same scope-clock
-then session then lease order whenever they touch those authorities.
+Any future O03-B2b2 renewal, O03-B2b1 abort/expiry, and O08 retry replacement
+use the same scope-clock then session then lease order whenever they touch those
+authorities.
 
 Exit gate:
 

@@ -158,9 +158,10 @@ One constrained snapshot-lease row stores only the exact current attempt fence,
 authority, and parent updates/deletes do not cascade through it. S07 defines
 these physical rows; S07-A supplies current revocation storage, O03-A supplies
 signed-grant semantics, O03-B1 owns atomic activation/exact active-anchor
-replay, O03-B2a owns restart-safe exact-attempt reload, and O03-B2b owns
-mutating exact-fence lease mechanics and active-child invariants. C02 owns
-journal sequence/digest,
+replay, O03-B2a owns restart-safe exact-attempt reload, and O03-B2b1 owns
+exact abort/expiry terminalization and active-child invariants. Conditional
+O03-B2b2 renewal belongs to its first proven long-running-attempt consumer. C02
+owns journal sequence/digest,
 C05 introduces the private exact-fence transition to `finishing`, C06
 orchestrates it idempotently through the finish endpoint, C03 rejects late
 syscalls, O07 atomically deletes the exact lease and stores committed state plus
@@ -247,8 +248,9 @@ running or finishing -> aborted | expired
 O03-B1 commits initial activation directly as `running` and exactly replays only
 the same live request anchor. O03-B2a reloads one exact active attempt after
 fresh placement and database revalidation; O03-B2b1 adds exact abort/expiry
-terminalization, and O03-B2b2 adds renewal. S07's `created` literal is not a
-durable active state without a lease.
+terminalization and closes the required pre-consumer session-authority core.
+O03-B2b2 renewal is conditional on a proven long-running-attempt consumer.
+S07's `created` literal is not a durable active state without a lease.
 S07's `committing` literal is
 also transaction-local/reserved in V1 rather than a separately durable state.
 C05 introduces the private exact-fence transition to `finishing`; C06
@@ -488,10 +490,10 @@ The `legacy_v1` prototype path currently proves:
 
 The replacement foundation also has private ephemeral snapshot resolution,
 branded scope/epoch/commit token types, storage-generation/fence primitives,
-stable catalogs, ordered-key codec work, and the host-neutral general value
-codec in adjacent domains. Those prerequisites do not define the later
-journal/envelope codec and do not mean the new compiler, durable session pin,
-or exact-snapshot invoke path is active.
+stable catalogs, ordered-key codec work, the host-neutral general value codec,
+and a private durable session anchor/current-attempt lease. Those prerequisites
+do not define the later journal/envelope codec and do not mean the new compiler,
+production-routed session path, or exact-snapshot invoke path is active.
 
 ## Known Gaps And Limitations
 
@@ -551,9 +553,11 @@ auth-provenance O03-A2a, and host-neutral grant authority O03-A2b are complete.
 Corrected O03-A2c's located current-epoch and two-sided point-mutation
 preparation boundaries are also complete, so O03-A2 and O03-A are complete.
 O03-B1 activation and O03-B2a restart-safe exact-attempt reload are complete.
-O03-B2b1 exact abort/expiry terminalization is also complete. O03-B2b2 renewal
-and renewal-versus-terminalization race proof is next, followed by O04 exact-
-snapshot point reads and O05 pure OCC validation before C01.
+O03-B2b1 exact abort/expiry terminalization is also complete and closes the
+required session-authority core. O04 exact-snapshot point reads are next,
+followed by O05 pure OCC validation before C01. O03-B2b2 renewal and renewal-
+versus-terminalization race proof are deferred until a real runtime or
+retention consumer proves that a bounded attempt must outlive its initial lease.
 Operational revocation and hosted Worker/key adapters are deferred and do not
 block the private C07 proof.
 Hosted compiler execution still waits for the required schema, exact-snapshot

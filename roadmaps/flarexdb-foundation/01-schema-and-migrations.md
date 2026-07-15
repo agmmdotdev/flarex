@@ -9,9 +9,10 @@ through `S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, and the narrow
 deferred. The `O03-A` parent is complete: protocol-only `O03-A1`, auth-
 provenance `O03-A2a`, host-neutral grant authority `O03-A2b`, and corrected
 two-boundary `O03-A2c` are complete. `O03-A2` and `O03-A` are therefore
-complete. `O03-B` activation follows with its own preflight; checked revocation
-and hosted Worker/key adapters are deferred to their first real consumers and
-do not affect schema-gate ordering.
+complete. The required `O03-B` authority core through activation, reload, and
+exact abort/expiry terminalization is also complete; conditional renewal,
+checked revocation, and hosted Worker/key adapters are deferred to their first
+real consumers and do not affect schema-gate ordering.
 Private non-routing snapshot resolution `O02` is complete.
 
 This plan owns the target physical schema, codecs, repositories, stable catalog,
@@ -90,7 +91,7 @@ Convex-first implementation references include:
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
 | Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. S06 is its first replacement-row consumer; no replacement route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
-| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, mutation-session request authority, constrained current-attempt snapshot leases, and current scope-revocation storage are implemented but non-routing. Signed transaction-grant integration, session activation, semantic point reads/OCC, reconnect retention, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, target-native readiness, routing, and prototype retirement are not implemented. |
+| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, and the required non-routing mutation-session authority core are implemented. Semantic point reads/OCC, conditional long-running-attempt renewal, reconnect retention, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, target-native readiness, routing, and prototype retirement are not implemented. |
 
 Existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, and
 subscription tables remain an internal prototype behavior baseline. They are
@@ -533,8 +534,9 @@ Non-goals:
 - no current scope revocation authority—S07-A owns that schema/storage
   prerequisite; no signed transaction-grant semantics—O03-A owns that later
   consumer;
-- no production session activation, renewal, abort, or expiry—O03-B owns those
-  operations and the active-child invariant; finish/commit/retry/retention stay
+- no production session activation, abort, or expiry—the required O03-B core
+  owns those operations and the active-child invariant; conditional renewal
+  remains deferred to O03-B2b2; finish/commit/retry/retention stay
   with their later consumers;
 - no journal, syscall sequence, journal digest, dependency, or OCC behavior;
 - no result/error, public idempotency, committed outcome, commit feed, outbox,
