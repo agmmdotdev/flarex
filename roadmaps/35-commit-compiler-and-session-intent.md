@@ -246,8 +246,9 @@ running or finishing -> aborted | expired
 
 O03-B1 commits initial activation directly as `running` and exactly replays only
 the same live request anchor. O03-B2a reloads one exact active attempt after
-fresh placement and database revalidation; O03-B2b adds renewal, abort, and
-expiry. S07's `created` literal is not a durable active state without a lease.
+fresh placement and database revalidation; O03-B2b1 adds exact abort/expiry
+terminalization, and O03-B2b2 adds renewal. S07's `created` literal is not a
+durable active state without a lease.
 S07's `committing` literal is
 also transaction-local/reserved in V1 rather than a separately durable state.
 C05 introduces the private exact-fence transition to `finishing`; C06
@@ -550,8 +551,9 @@ auth-provenance O03-A2a, and host-neutral grant authority O03-A2b are complete.
 Corrected O03-A2c's located current-epoch and two-sided point-mutation
 preparation boundaries are also complete, so O03-A2 and O03-A are complete.
 O03-B1 activation and O03-B2a restart-safe exact-attempt reload are complete.
-O03-B2b renewal/abort/expiry mechanics are next, followed by O04 exact-snapshot
-point reads and O05 pure OCC validation before C01.
+O03-B2b1 exact abort/expiry terminalization is also complete. O03-B2b2 renewal
+and renewal-versus-terminalization race proof is next, followed by O04 exact-
+snapshot point reads and O05 pure OCC validation before C01.
 Operational revocation and hosted Worker/key adapters are deferred and do not
 block the private C07 proof.
 Hosted compiler execution still waits for the required schema, exact-snapshot

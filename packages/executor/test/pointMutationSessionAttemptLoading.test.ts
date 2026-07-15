@@ -2,6 +2,9 @@ import type {
   PointMutationSessionAnchorV1,
   PointMutationSessionAttemptLoadResultV1,
   PointMutationSessionAttemptSelectorV1,
+  PointMutationSessionAttemptTerminalizationResultV1,
+  PointMutationSessionTerminalLifecycleV1,
+  PointMutationSessionTerminalizedLifecycleV1,
 } from "@flarex/persistence-postgres/transaction-session-activation";
 import {
   CommitSeqSchema,
@@ -23,7 +26,9 @@ import {
   InvalidLoadedPointMutationSessionAttemptV1Error,
   InvalidPointMutationSessionAttemptSelectorV1Error,
   PointMutationSessionAttemptLoadContractV1Error,
+  PointMutationSessionAttemptTerminalizationContractV1Error,
   createPointMutationSessionAttemptLoadingV1,
+  createPointMutationSessionAttemptTerminalizationV1,
   inspectLoadedPointMutationSessionAttemptV1,
   type PointMutationSessionAttemptSelectorWireV1,
 } from "../src/pointMutationSessionActivation";
@@ -50,6 +55,11 @@ const SELECTOR = Object.freeze({
 type RootAttemptLoadingExport = Extract<
   keyof typeof import("../src"),
   "createPointMutationSessionAttemptLoadingV1"
+>;
+
+type RootAttemptTerminalizationExport = Extract<
+  keyof typeof import("../src"),
+  "createPointMutationSessionAttemptTerminalizationV1"
 >;
 
 describe("O03-B2a point-mutation attempt loading", () => {
@@ -180,6 +190,194 @@ describe("O03-B2a point-mutation attempt loading", () => {
   });
 });
 
+describe("O03-B2b1 point-mutation attempt terminalization", () => {
+  it("keeps terminalization private and requires a genuine loaded capability for abort", async () => {
+    expectTypeOf<RootAttemptTerminalizationExport>().toEqualTypeOf<never>();
+    const loaded = await createPointMutationSessionAttemptLoadingV1({
+      load: async (selector) => loadResult(selector),
+    }).load(SELECTOR);
+    let abortCalls = 0;
+    const terminalization = createPointMutationSessionAttemptTerminalizationV1({
+      abort: async (input) => {
+        abortCalls += 1;
+        expect(input.selector).toEqual({
+          ...SELECTOR,
+          attemptFence: MAX_ATTEMPT_FENCE,
+        });
+        expect(input.expectedSnapshotToken).toEqual(
+          anchor(input.selector).snapshotToken,
+        );
+        return terminalizationResult(
+          input.selector,
+          "terminalized",
+          "aborted",
+        );
+      },
+      expire: async (selector) =>
+        terminalizationResult(selector, "terminalized", "expired"),
+    });
+
+    await expect(terminalization.abort(loaded)).resolves.toMatchObject({
+      status: "terminalized",
+      terminal: { lifecycle: "aborted" },
+    });
+
+    for (const invalid of [
+      { ...loaded },
+      JSON.parse(JSON.stringify(loaded)),
+      Object.create(loaded),
+      SELECTOR,
+    ]) {
+      await expect(
+        Promise.resolve(Reflect.apply(
+          terminalization.abort,
+          terminalization,
+          [invalid],
+        )),
+      ).rejects.toBeInstanceOf(InvalidLoadedPointMutationSessionAttemptV1Error);
+    }
+    expect(abortCalls).toBe(1);
+  });
+
+  it("expires through the strict restart-safe selector decoder", async () => {
+    const observedSelectors: PointMutationSessionAttemptSelectorV1[] = [];
+    const terminalization = createPointMutationSessionAttemptTerminalizationV1({
+      abort: async (input) =>
+        terminalizationResult(input.selector, "terminalized", "aborted"),
+      expire: async (selector) => {
+        observedSelectors.push(selector);
+        return terminalizationResult(selector, "terminalized", "expired");
+      },
+    });
+
+    const restarted = createPointMutationSessionAttemptTerminalizationV1({
+      abort: async (input) =>
+        terminalizationResult(input.selector, "terminalized", "aborted"),
+      expire: async (selector) => {
+        observedSelectors.push(selector);
+        return terminalizationResult(selector, "observed", "expired");
+      },
+    });
+    await expect(
+      restarted.expire(JSON.parse(JSON.stringify(SELECTOR))),
+    ).resolves.toMatchObject({
+      status: "observed",
+      terminal: { lifecycle: "expired" },
+    });
+    await expect(terminalization.expire({
+      ...SELECTOR,
+      snapshotToken: { commitSeq: "19" },
+    })).rejects.toBeInstanceOf(
+      InvalidPointMutationSessionAttemptSelectorV1Error,
+    );
+    await expect(terminalization.expire({
+      ...SELECTOR,
+      attemptFence: "01",
+    })).rejects.toBeInstanceOf(
+      InvalidPointMutationSessionAttemptSelectorV1Error,
+    );
+    expect(observedSelectors).toHaveLength(1);
+  });
+
+  it("rejects persistence terminal observations outside the exact selector contract", async () => {
+    const mismatchedSessionId = TransactionSessionIdV1Schema.make(
+      "70000000-0000-4000-8000-000000000099",
+    );
+    const invalidResults: readonly PointMutationSessionAttemptTerminalizationResultV1[] = [
+      {
+        ...terminalizationResult(typedSelector(), "observed", "aborted"),
+        terminal: {
+          ...terminalizationResult(
+            typedSelector(),
+            "observed",
+            "aborted",
+          ).terminal,
+          sessionId: mismatchedSessionId,
+        },
+      },
+      {
+        ...terminalizationResult(
+          typedSelector(),
+          "observed",
+          "expired",
+        ),
+        terminal: {
+          ...terminalizationResult(
+            typedSelector(),
+            "observed",
+            "expired",
+          ).terminal,
+          terminalizedAt: "not-an-iso-timestamp",
+        },
+      },
+    ];
+
+    for (const result of invalidResults) {
+      const terminalization = createPointMutationSessionAttemptTerminalizationV1({
+        abort: async () => result,
+        expire: async () => result,
+      });
+      await expect(terminalization.expire(SELECTOR)).rejects.toBeInstanceOf(
+        PointMutationSessionAttemptTerminalizationContractV1Error,
+      );
+    }
+  });
+
+  it("rejects impossible and accessor-backed persistence results without executing getters", async () => {
+    const committedObservation = terminalizationResult(
+      typedSelector(),
+      "observed",
+      "committed",
+    );
+    let getterCalls = 0;
+    const accessorResult: Record<string, unknown> = {
+      status: "observed",
+    };
+    Object.defineProperty(accessorResult, "terminal", {
+      enumerable: true,
+      get: () => {
+        getterCalls += 1;
+        throw new Error("terminal getter must not run");
+      },
+    });
+    const invalidResults = [
+      {
+        result: {
+          ...committedObservation,
+          status: "terminalized",
+        },
+        reason: "invalidStatusOrLifecycle",
+      },
+      {
+        result: {
+          ...committedObservation,
+          status: "unknown",
+        },
+        reason: "invalidStatusOrLifecycle",
+      },
+      {
+        result: accessorResult,
+        reason: "invalidStatusOrLifecycle",
+      },
+    ] as const;
+
+    for (const invalid of invalidResults) {
+      const terminalization = Reflect.apply(
+        createPointMutationSessionAttemptTerminalizationV1,
+        undefined,
+        [{
+          abort: async () => invalid.result,
+          expire: async () => invalid.result,
+        }],
+      );
+      await expect(terminalization.expire(SELECTOR)).rejects.toMatchObject({
+        issue: { reason: invalid.reason },
+      } satisfies Partial<PointMutationSessionAttemptTerminalizationContractV1Error>);
+    }
+    expect(getterCalls).toBe(0);
+  });
+});
+
 function loadResult(
   selector: PointMutationSessionAttemptSelectorV1,
 ): PointMutationSessionAttemptLoadResultV1 {
@@ -210,4 +408,60 @@ function anchor(
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z",
   });
+}
+
+function typedSelector(): PointMutationSessionAttemptSelectorV1 {
+  return Object.freeze({
+    deploymentId: DEPLOYMENT_ID,
+    scopeId: SCOPE_ID,
+    sessionId: SESSION_ID,
+    attemptFence: MAX_ATTEMPT_FENCE,
+  });
+}
+
+function terminalizationResult(
+  selector: PointMutationSessionAttemptSelectorV1,
+  status: "terminalized",
+  lifecycle: PointMutationSessionTerminalizedLifecycleV1,
+): Extract<
+  PointMutationSessionAttemptTerminalizationResultV1,
+  { readonly status: "terminalized" }
+>;
+function terminalizationResult(
+  selector: PointMutationSessionAttemptSelectorV1,
+  status: "observed",
+  lifecycle: PointMutationSessionTerminalLifecycleV1,
+): Extract<
+  PointMutationSessionAttemptTerminalizationResultV1,
+  { readonly status: "observed" }
+>;
+function terminalizationResult(
+  selector: PointMutationSessionAttemptSelectorV1,
+  status: PointMutationSessionAttemptTerminalizationResultV1["status"],
+  lifecycle: PointMutationSessionTerminalLifecycleV1,
+): PointMutationSessionAttemptTerminalizationResultV1 {
+  switch (status) {
+    case "terminalized": {
+      if (lifecycle === "committed") {
+        throw new Error("Committed is not a B2b1 terminalization result.");
+      }
+      return Object.freeze({
+        status: "terminalized",
+        terminal: Object.freeze({
+          ...selector,
+          lifecycle,
+          terminalizedAt: "2026-07-15T01:00:00.000Z",
+        }),
+      });
+    }
+    case "observed":
+      return Object.freeze({
+        status: "observed",
+        terminal: Object.freeze({
+          ...selector,
+          lifecycle,
+          terminalizedAt: "2026-07-15T01:00:00.000Z",
+        }),
+      });
+  }
 }

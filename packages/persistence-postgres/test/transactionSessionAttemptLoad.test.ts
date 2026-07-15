@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import {
   ReplacementScopeIdV1Schema,
   decodeReplacementScopeIdV1,
@@ -18,10 +19,16 @@ import {
 import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
+  fxSystemSnapshotLeases,
+  fxSystemTransactionSessions,
+} from "../src/schema";
+import {
   PointMutationSessionAttemptLoadV1Error,
+  PointMutationSessionAttemptTerminalizationV1Error,
   PointMutationSessionAuthorityCorruptionV1Error,
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
+  createPointMutationSessionAttemptTerminalizationPersistenceV1,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
   type PointMutationSessionActivationResolutionPortsV1,
   type PointMutationSessionAnchorV1,
@@ -43,6 +50,11 @@ type RootAttemptLoadExport = Extract<
   "createPointMutationSessionAttemptLoadPersistenceV1"
 >;
 
+type RootAttemptTerminalizationExport = Extract<
+  keyof typeof import("../src"),
+  "createPointMutationSessionAttemptTerminalizationPersistenceV1"
+>;
+
 interface AttemptLoadContext {
   readonly deploymentId: ReturnType<
     typeof TransactionGrantDeploymentIdV1Schema.make
@@ -54,13 +66,13 @@ interface AttemptRowState extends Record<string, unknown> {
   readonly lifecycle: string;
   readonly attempt_fence: string;
   readonly session_updated_at: string;
-  readonly lease_attempt_fence: string;
-  readonly snapshot_epoch_uuid: string;
-  readonly snapshot_commit_seq: string;
-  readonly lease_expires_at: string;
+  readonly lease_attempt_fence: string | null;
+  readonly snapshot_epoch_uuid: string | null;
+  readonly snapshot_commit_seq: string | null;
+  readonly lease_expires_at: string | null;
 }
 
-describe("O03-B2a exact point-mutation attempt load", () => {
+describe("O03-B exact point-mutation attempt authority", () => {
   let persistence: PGliteFlarexPersistence;
   let uuidCounter = 1;
 
@@ -105,6 +117,14 @@ describe("O03-B2a exact point-mutation attempt load", () => {
       context.deploymentId,
       context.scopeId,
     ));
+  }
+
+  function terminalizationPersistence(
+    options: LocatedPointMutationSessionActivationTargetOptionsV1 = {},
+  ) {
+    return createPointMutationSessionAttemptTerminalizationPersistenceV1(
+      resolutionPorts(persistence, options),
+    );
   }
 
   it("keeps exact reload private, read-only, freshly resolved, and lock ordered", async () => {
@@ -280,6 +300,346 @@ describe("O03-B2a exact point-mutation attempt load", () => {
         issue: "snapshotAheadOfScopeClock",
       } satisfies Partial<PointMutationSessionAuthorityCorruptionV1Error>);
   });
+
+  it("atomically aborts an exact attempt and observes its first terminal state", async () => {
+    expectTypeOf<RootAttemptTerminalizationExport>().toEqualTypeOf<never>();
+    const context = await provisionContext("terminal_abort");
+    const anchor = (await activate(context)).anchor;
+    const selector = selectorFromAnchor(anchor);
+    const events: string[] = [];
+    const terminalization = terminalizationPersistence({
+      afterTerminalizationEvent: (event) => {
+        events.push(`${event.phase}:${event.step}`);
+      },
+    });
+
+    const aborted = await terminalization.abort({
+      selector,
+      expectedSnapshotToken: anchor.snapshotToken,
+    });
+    const firstTerminalizedAt = aborted.terminal.terminalizedAt;
+
+    expect(aborted).toMatchObject({
+      status: "terminalized",
+      terminal: {
+        ...selector,
+        lifecycle: "aborted",
+      },
+    });
+    expect(Object.isFrozen(aborted)).toBe(true);
+    expect(Object.isFrozen(aborted.terminal)).toBe(true);
+    expect(events).toEqual([
+      "lock:clockLocked",
+      "lock:sessionLocked",
+      "lock:leaseLocked",
+      "write:leaseDeleted",
+      "write:sessionTerminalized",
+    ]);
+    const stored = await rowState(persistence, context.scopeId);
+    expect(stored).toMatchObject({
+      lifecycle: "aborted",
+      attempt_fence: "1",
+      lease_attempt_fence: null,
+      snapshot_epoch_uuid: null,
+      snapshot_commit_seq: null,
+      lease_expires_at: null,
+    });
+    expect(Date.parse(stored.session_updated_at)).toBe(
+      Date.parse(firstTerminalizedAt),
+    );
+
+    events.length = 0;
+    const repeatedAbort = await terminalization.abort({
+      selector,
+      expectedSnapshotToken: anchor.snapshotToken,
+    });
+    const repeatedExpiry = await terminalization.expire(selector);
+    expect(repeatedAbort).toEqual({
+      status: "observed",
+      terminal: aborted.terminal,
+    });
+    expect(repeatedExpiry).toEqual(repeatedAbort);
+    expect(events).toEqual([
+      "lock:clockLocked",
+      "lock:sessionLocked",
+      "lock:clockLocked",
+      "lock:sessionLocked",
+    ]);
+    expect(await rowState(persistence, context.scopeId)).toEqual(stored);
+
+    const finishing = await provisionContext("terminal_finishing");
+    const finishingAnchor = (await activate(finishing)).anchor;
+    await persistence.query(
+      `update fx_system_tx_session set lifecycle = 'finishing' where session_id = $1`,
+      [finishingAnchor.sessionId],
+    );
+    await expect(terminalization.abort({
+      selector: selectorFromAnchor(finishingAnchor),
+      expectedSnapshotToken: finishingAnchor.snapshotToken,
+    })).resolves.toMatchObject({
+      status: "terminalized",
+      terminal: { lifecycle: "aborted" },
+    });
+
+    const committed = await provisionContext("terminal_committed");
+    const committedAnchor = (await activate(committed)).anchor;
+    await persistence.query(
+      `delete from fx_system_snapshot_lease where session_id = $1`,
+      [committedAnchor.sessionId],
+    );
+    await persistence.query(
+      `update fx_system_tx_session set lifecycle = 'committed' where session_id = $1`,
+      [committedAnchor.sessionId],
+    );
+    await expect(
+      terminalization.expire(selectorFromAnchor(committedAnchor)),
+    ).resolves.toMatchObject({
+      status: "observed",
+      terminal: { lifecycle: "committed" },
+    });
+  });
+
+  it("uses post-lock database time to distinguish live abort from expiry", async () => {
+    const live = await provisionContext("terminal_live_expiry");
+    const liveAnchor = (await activate(live)).anchor;
+    const liveSelector = selectorFromAnchor(liveAnchor);
+    const terminalization = terminalizationPersistence();
+    const before = await rowState(persistence, live.scopeId);
+
+    await expect(terminalization.expire(liveSelector)).rejects.toMatchObject({
+      issue: { reason: "attemptStillLive" },
+    });
+    expect(await rowState(persistence, live.scopeId)).toEqual(before);
+
+    await persistence.query(
+      `update fx_system_snapshot_lease
+       set lease_expires_at = '2000-01-01T00:00:00.000Z'
+       where session_id = $1`,
+      [liveAnchor.sessionId],
+    );
+    await expect(terminalization.expire(liveSelector)).resolves.toMatchObject({
+      status: "terminalized",
+      terminal: { lifecycle: "expired" },
+    });
+
+    const lateAbort = await provisionContext("terminal_late_abort");
+    const lateAbortAnchor = (await activate(lateAbort)).anchor;
+    await persistence.query(
+      `update fx_system_snapshot_lease
+       set lease_expires_at = '2000-01-01T00:00:00.000Z'
+       where session_id = $1`,
+      [lateAbortAnchor.sessionId],
+    );
+    await expect(terminalization.abort({
+      selector: selectorFromAnchor(lateAbortAnchor),
+      expectedSnapshotToken: lateAbortAnchor.snapshotToken,
+    })).resolves.toMatchObject({
+      status: "terminalized",
+      terminal: { lifecycle: "expired" },
+    });
+  });
+
+  it("fails closed on invalid lifecycle, active-child, snapshot, fence, and authority state", async () => {
+    const terminalization = terminalizationPersistence();
+
+    const missingLease = await provisionContext("terminal_missing_lease");
+    const missingLeaseAnchor = (await activate(missingLease)).anchor;
+    await persistence.query(
+      `delete from fx_system_snapshot_lease where session_id = $1`,
+      [missingLeaseAnchor.sessionId],
+    );
+    await expect(terminalization.expire(selectorFromAnchor(missingLeaseAnchor)))
+      .rejects.toMatchObject({
+        issue: "snapshotLeaseMissing",
+      } satisfies Partial<PointMutationSessionAuthorityCorruptionV1Error>);
+
+    const terminalLease = await provisionContext("terminal_lease_present");
+    const terminalLeaseAnchor = (await activate(terminalLease)).anchor;
+    await persistence.query(
+      `update fx_system_tx_session set lifecycle = 'aborted' where session_id = $1`,
+      [terminalLeaseAnchor.sessionId],
+    );
+    await expect(terminalization.expire(selectorFromAnchor(terminalLeaseAnchor)))
+      .rejects.toMatchObject({
+        issue: "terminalSnapshotLeasePresent",
+      } satisfies Partial<PointMutationSessionAuthorityCorruptionV1Error>);
+
+    for (const lifecycle of ["created", "committing", "retrying"] as const) {
+      const transitional = await provisionContext(
+        `terminal_transitional_${lifecycle}`,
+      );
+      const transitionalAnchor = (await activate(transitional)).anchor;
+      await persistence.query(
+        `update fx_system_tx_session set lifecycle = $2 where session_id = $1`,
+        [transitionalAnchor.sessionId, lifecycle],
+      );
+      await expect(
+        terminalization.expire(selectorFromAnchor(transitionalAnchor)),
+      ).rejects.toMatchObject({
+        issue: { reason: "attemptNotTerminalizable", lifecycle },
+      } satisfies Partial<PointMutationSessionAttemptTerminalizationV1Error>);
+    }
+
+    const changedSnapshot = await provisionContext("terminal_snapshot_changed");
+    const changedSnapshotAnchor = (await activate(changedSnapshot)).anchor;
+    await persistence.query(
+      `update fx_system_snapshot_lease set snapshot_commit_seq = 1
+       where session_id = $1`,
+      [changedSnapshotAnchor.sessionId],
+    );
+    await setFlarexActivationClock(persistence, changedSnapshot.scopeId, {
+      lastCommitSeq: 1n,
+    });
+    await expect(terminalization.abort({
+      selector: selectorFromAnchor(changedSnapshotAnchor),
+      expectedSnapshotToken: changedSnapshotAnchor.snapshotToken,
+    })).rejects.toMatchObject({
+      issue: "attemptSnapshotChanged",
+    } satisfies Partial<PointMutationSessionAuthorityCorruptionV1Error>);
+
+    const stale = await provisionContext("terminal_stale_fence");
+    const staleAnchor = (await activate(stale)).anchor;
+    const staleLeases = await persistence.drizzle
+      .select()
+      .from(fxSystemSnapshotLeases)
+      .where(eq(fxSystemSnapshotLeases.sessionId, staleAnchor.sessionId));
+    const staleLease = staleLeases[0];
+    if (staleLease === undefined) {
+      throw new Error("Stale-fence fixture is missing its active lease.");
+    }
+    const newerFence = TransactionAttemptFenceSchema.make(2n);
+    await persistence.drizzle.transaction(async (tx) => {
+      await tx
+        .delete(fxSystemSnapshotLeases)
+        .where(eq(fxSystemSnapshotLeases.sessionId, staleAnchor.sessionId));
+      await tx
+        .update(fxSystemTransactionSessions)
+        .set({ attemptFence: newerFence })
+        .where(eq(fxSystemTransactionSessions.sessionId, staleAnchor.sessionId));
+      await tx.insert(fxSystemSnapshotLeases).values({
+        ...staleLease,
+        attemptFence: newerFence,
+      });
+    });
+    await expect(
+      terminalization.expire(selectorFromAnchor(staleAnchor)),
+    ).rejects.toMatchObject({
+      issue: { reason: "staleAttemptFence" },
+    } satisfies Partial<PointMutationSessionAttemptTerminalizationV1Error>);
+    expect(await rowState(persistence, stale.scopeId)).toMatchObject({
+      attempt_fence: "2",
+      lease_attempt_fence: "2",
+    });
+
+    const drift = await provisionContext("terminal_authority_drift");
+    const driftAnchor = (await activate(drift)).anchor;
+    await persistence.query(
+      `update fx_system_scope_clock
+       set authorization_revocation_epoch = authorization_revocation_epoch + 1
+       where scope_id = $1`,
+      [drift.scopeId],
+    );
+    await expect(terminalization.expire(selectorFromAnchor(driftAnchor)))
+      .rejects.toMatchObject({
+        issue: { reason: "authorizationRevocationEpochChanged" },
+      } satisfies Partial<PointMutationSessionAttemptTerminalizationV1Error>);
+    expect((await rowState(persistence, drift.scopeId)).lease_attempt_fence)
+      .toBe("1");
+
+    const generationDrift = await provisionContext(
+      "terminal_generation_fence_drift",
+    );
+    const generationDriftAnchor = (await activate(generationDrift)).anchor;
+    await persistence.query(
+      `update fx_system_scope_clock
+       set storage_generation_fence = storage_generation_fence + 1
+       where scope_id = $1`,
+      [generationDrift.scopeId],
+    );
+    await expect(
+      terminalization.expire(selectorFromAnchor(generationDriftAnchor)),
+    ).rejects.toMatchObject({
+      issue: { reason: "storageGenerationFenceChanged" },
+    } satisfies Partial<PointMutationSessionAttemptTerminalizationV1Error>);
+    expect(
+      (await rowState(persistence, generationDrift.scopeId)).lease_attempt_fence,
+    ).toBe("1");
+  });
+
+  it("preserves the maximum signed-int64 fence through exact terminalization", async () => {
+    const context = await provisionContext("terminal_max_fence");
+    const anchor = (await activate(context)).anchor;
+    const sessions = await persistence.drizzle
+      .select()
+      .from(fxSystemTransactionSessions)
+      .where(eq(fxSystemTransactionSessions.sessionId, anchor.sessionId));
+    const leases = await persistence.drizzle
+      .select()
+      .from(fxSystemSnapshotLeases)
+      .where(eq(fxSystemSnapshotLeases.sessionId, anchor.sessionId));
+    const session = sessions[0];
+    const lease = leases[0];
+    if (session === undefined || lease === undefined) {
+      throw new Error("Maximum-fence fixture is missing its active attempt.");
+    }
+    const maximumFence = TransactionAttemptFenceSchema.make(
+      9_223_372_036_854_775_807n,
+    );
+    await persistence.drizzle.transaction(async (tx) => {
+      await tx
+        .delete(fxSystemSnapshotLeases)
+        .where(eq(fxSystemSnapshotLeases.sessionId, anchor.sessionId));
+      await tx
+        .update(fxSystemTransactionSessions)
+        .set({ attemptFence: maximumFence })
+        .where(eq(fxSystemTransactionSessions.sessionId, anchor.sessionId));
+      await tx.insert(fxSystemSnapshotLeases).values({
+        ...lease,
+        attemptFence: maximumFence,
+      });
+    });
+    const selector = Object.freeze({
+      ...selectorFromAnchor(anchor),
+      attemptFence: maximumFence,
+    });
+
+    const result = await terminalizationPersistence().abort({
+      selector,
+      expectedSnapshotToken: anchor.snapshotToken,
+    });
+
+    expect(result.terminal.attemptFence).toBe(maximumFence);
+    expect(result.terminal.lifecycle).toBe("aborted");
+    expect(await rowState(persistence, context.scopeId)).toMatchObject({
+      lifecycle: "aborted",
+      attempt_fence: maximumFence.toString(),
+      lease_attempt_fence: null,
+    });
+  });
+
+  it("rolls back the exact lease and terminal anchor after either write", async () => {
+    for (const failureStep of [
+      "leaseDeleted",
+      "sessionTerminalized",
+    ] as const) {
+      const context = await provisionContext(`terminal_rollback_${failureStep}`);
+      const anchor = (await activate(context)).anchor;
+      const before = await rowState(persistence, context.scopeId);
+      const terminalization = terminalizationPersistence({
+        afterTerminalizationEvent: (event) => {
+          if (event.phase === "write" && event.step === failureStep) {
+            throw new Error(`fail:${failureStep}`);
+          }
+        },
+      });
+
+      await expect(terminalization.abort({
+        selector: selectorFromAnchor(anchor),
+        expectedSnapshotToken: anchor.snapshotToken,
+      })).rejects.toThrow(`fail:${failureStep}`);
+      expect(await rowState(persistence, context.scopeId)).toEqual(before);
+    }
+  });
 });
 
 function selectorFromAnchor(
@@ -332,7 +692,7 @@ async function rowState(
              l.snapshot_commit_seq::text as snapshot_commit_seq,
              l.lease_expires_at::text as lease_expires_at
       from fx_system_tx_session s
-      join fx_system_snapshot_lease l
+      left join fx_system_snapshot_lease l
         on l.scope_uuid = s.scope_uuid
        and l.session_id = s.session_id
       join fx_system_scope_clock c

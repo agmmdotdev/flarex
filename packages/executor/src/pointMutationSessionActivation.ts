@@ -4,6 +4,9 @@ import type {
   PointMutationSessionAttemptLoadPersistenceV1,
   PointMutationSessionAttemptLoadResultV1,
   PointMutationSessionAttemptSelectorV1,
+  PointMutationSessionAttemptTerminalizationPersistenceV1,
+  PointMutationSessionAttemptTerminalizationResultV1,
+  PointMutationSessionTerminalLifecycleV1,
   PreparedPointMutationSessionActivationV1,
 } from "@flarex/persistence-postgres/transaction-session-activation";
 import {
@@ -107,6 +110,25 @@ export class PointMutationSessionAttemptLoadContractV1Error extends Error {
   }
 }
 
+export type PointMutationSessionAttemptTerminalizationContractIssueV1 =
+  | { readonly reason: "selectorMismatch" }
+  | { readonly reason: "invalidStatusOrLifecycle" }
+  | { readonly reason: "invalidTerminalTimestamp" };
+
+export class PointMutationSessionAttemptTerminalizationContractV1Error
+  extends Error {
+  readonly name =
+    "PointMutationSessionAttemptTerminalizationContractV1Error";
+
+  constructor(
+    readonly issue: PointMutationSessionAttemptTerminalizationContractIssueV1,
+  ) {
+    super(
+      `Attempt-terminalization persistence violated its contract: ${issue.reason}.`,
+    );
+  }
+}
+
 export interface PointMutationSessionActivationV1 {
   readonly activate: (
     admittedStart: AdmittedPointMutationStartV1,
@@ -117,6 +139,15 @@ export interface PointMutationSessionAttemptLoadingV1 {
   readonly load: (
     selector: unknown,
   ) => Promise<LoadedPointMutationSessionAttemptV1>;
+}
+
+export interface PointMutationSessionAttemptTerminalizationV1 {
+  readonly abort: (
+    attempt: LoadedPointMutationSessionAttemptV1,
+  ) => Promise<PointMutationSessionAttemptTerminalizationResultV1>;
+  readonly expire: (
+    selector: unknown,
+  ) => Promise<PointMutationSessionAttemptTerminalizationResultV1>;
 }
 
 export function createPointMutationSessionActivationV1(
@@ -153,6 +184,33 @@ export function createPointMutationSessionAttemptLoadingV1(
       });
       loadedAttemptInspectionByHandle.set(handle, inspection);
       return handle;
+    },
+  });
+}
+
+export function createPointMutationSessionAttemptTerminalizationV1(
+  persistence: PointMutationSessionAttemptTerminalizationPersistenceV1,
+): PointMutationSessionAttemptTerminalizationV1 {
+  return Object.freeze({
+    abort: async (
+      attempt: LoadedPointMutationSessionAttemptV1,
+    ): Promise<PointMutationSessionAttemptTerminalizationResultV1> => {
+      const inspection = inspectLoadedPointMutationSessionAttemptV1(attempt);
+      const result = await persistence.abort({
+        selector: inspection.selector,
+        expectedSnapshotToken: inspection.snapshotToken,
+      });
+      return captureAttemptTerminalizationResult(
+        inspection.selector,
+        result,
+      );
+    },
+    expire: async (
+      input: unknown,
+    ): Promise<PointMutationSessionAttemptTerminalizationResultV1> => {
+      const selector = decodePointMutationSessionAttemptSelectorV1(input);
+      const result = await persistence.expire(selector);
+      return captureAttemptTerminalizationResult(selector, result);
     },
   });
 }
@@ -296,6 +354,133 @@ function captureLoadedAttemptInspection(
         commitSeq: anchor.snapshotToken.commitSeq,
       }),
     ),
+  });
+}
+
+function captureAttemptTerminalizationResult(
+  selector: PointMutationSessionAttemptSelectorV1,
+  result: unknown,
+): PointMutationSessionAttemptTerminalizationResultV1 {
+  if (!isPlainRecord(result)) {
+    throw terminalizationContractError("invalidStatusOrLifecycle");
+  }
+  const status = readTerminalizationDataProperty(
+    result,
+    "status",
+    "invalidStatusOrLifecycle",
+  );
+  const terminalValue = readTerminalizationDataProperty(
+    result,
+    "terminal",
+    "invalidStatusOrLifecycle",
+  );
+  if (!isPlainRecord(terminalValue)) {
+    throw terminalizationContractError("invalidStatusOrLifecycle");
+  }
+  if (
+    readTerminalizationDataProperty(
+      terminalValue,
+      "deploymentId",
+      "selectorMismatch",
+    ) !== selector.deploymentId ||
+    readTerminalizationDataProperty(
+      terminalValue,
+      "scopeId",
+      "selectorMismatch",
+    ) !== selector.scopeId ||
+    readTerminalizationDataProperty(
+      terminalValue,
+      "sessionId",
+      "selectorMismatch",
+    ) !== selector.sessionId ||
+    readTerminalizationDataProperty(
+      terminalValue,
+      "attemptFence",
+      "selectorMismatch",
+    ) !== selector.attemptFence
+  ) {
+    throw terminalizationContractError("selectorMismatch");
+  }
+  const lifecycle = readTerminalizationDataProperty(
+    terminalValue,
+    "lifecycle",
+    "invalidStatusOrLifecycle",
+  );
+  if (
+    !isPointMutationSessionTerminalLifecycle(lifecycle) ||
+    (status !== "terminalized" && status !== "observed")
+  ) {
+    throw terminalizationContractError("invalidStatusOrLifecycle");
+  }
+  const terminalizedAt = readTerminalizationDataProperty(
+    terminalValue,
+    "terminalizedAt",
+    "invalidTerminalTimestamp",
+  );
+  if (
+    typeof terminalizedAt !== "string" ||
+    !isCanonicalIsoTimestamp(terminalizedAt)
+  ) {
+    throw terminalizationContractError("invalidTerminalTimestamp");
+  }
+  switch (status) {
+    case "terminalized": {
+      if (lifecycle === "committed") {
+        throw terminalizationContractError("invalidStatusOrLifecycle");
+      }
+      return Object.freeze({
+        status: "terminalized",
+        terminal: Object.freeze({
+          ...selector,
+          lifecycle,
+          terminalizedAt,
+        }),
+      });
+    }
+    case "observed":
+      return Object.freeze({
+        status: "observed",
+        terminal: Object.freeze({
+          ...selector,
+          lifecycle,
+          terminalizedAt,
+        }),
+      });
+  }
+}
+
+function readTerminalizationDataProperty(
+  input: Readonly<Record<string, unknown>>,
+  field: string,
+  invalidReason: PointMutationSessionAttemptTerminalizationContractIssueV1["reason"],
+): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(input, field);
+  if (
+    descriptor === undefined ||
+    descriptor.enumerable !== true ||
+    !("value" in descriptor)
+  ) {
+    throw terminalizationContractError(invalidReason);
+  }
+  return descriptor.value;
+}
+
+function isPointMutationSessionTerminalLifecycle(
+  value: unknown,
+): value is PointMutationSessionTerminalLifecycleV1 {
+  return value === "committed" || value === "aborted" || value === "expired";
+}
+
+function isCanonicalIsoTimestamp(value: string): boolean {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
+}
+
+function terminalizationContractError(
+  reason: PointMutationSessionAttemptTerminalizationContractIssueV1["reason"],
+): PointMutationSessionAttemptTerminalizationContractV1Error {
+  return new PointMutationSessionAttemptTerminalizationContractV1Error({
+    reason,
   });
 }
 

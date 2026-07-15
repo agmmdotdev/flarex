@@ -88,6 +88,9 @@ export interface PointMutationSessionActivationPersistenceOptionsV1 {
 
 type TransactionSessionInsert =
   typeof fxSystemTransactionSessions.$inferInsert;
+type TransactionSessionRow =
+  typeof fxSystemTransactionSessions.$inferSelect;
+type SnapshotLeaseRow = typeof fxSystemSnapshotLeases.$inferSelect;
 
 export type PreparedPointMutationSessionEvidenceV1 = Readonly<
   Pick<
@@ -161,6 +164,46 @@ export interface PointMutationSessionAttemptLoadResultV1 {
   readonly anchor: PointMutationSessionAnchorV1;
 }
 
+export type PointMutationSessionActiveLifecycleV1 = Extract<
+  TransactionSessionLifecycleV1,
+  "running" | "finishing"
+>;
+
+export type PointMutationSessionTerminalLifecycleV1 = Extract<
+  TransactionSessionLifecycleV1,
+  "committed" | "aborted" | "expired"
+>;
+
+export type PointMutationSessionTerminalizedLifecycleV1 = Extract<
+  PointMutationSessionTerminalLifecycleV1,
+  "aborted" | "expired"
+>;
+
+export interface PointMutationSessionTerminalObservationV1<
+  Lifecycle extends PointMutationSessionTerminalLifecycleV1 =
+    PointMutationSessionTerminalLifecycleV1,
+> extends PointMutationSessionAttemptSelectorV1 {
+  readonly lifecycle: Lifecycle;
+  readonly terminalizedAt: string;
+}
+
+export type PointMutationSessionAttemptTerminalizationResultV1 =
+  | {
+      readonly status: "terminalized";
+      readonly terminal: PointMutationSessionTerminalObservationV1<
+        PointMutationSessionTerminalizedLifecycleV1
+      >;
+    }
+  | {
+      readonly status: "observed";
+      readonly terminal: PointMutationSessionTerminalObservationV1;
+    };
+
+export interface PointMutationSessionAttemptAbortInputV1 {
+  readonly selector: PointMutationSessionAttemptSelectorV1;
+  readonly expectedSnapshotToken: SnapshotToken;
+}
+
 export interface PointMutationSessionActivationPersistenceV1 {
   readonly activate: (
     input: PreparedPointMutationSessionActivationV1,
@@ -171,6 +214,15 @@ export interface PointMutationSessionAttemptLoadPersistenceV1 {
   readonly load: (
     selector: PointMutationSessionAttemptSelectorV1,
   ) => Promise<PointMutationSessionAttemptLoadResultV1>;
+}
+
+export interface PointMutationSessionAttemptTerminalizationPersistenceV1 {
+  readonly abort: (
+    input: PointMutationSessionAttemptAbortInputV1,
+  ) => Promise<PointMutationSessionAttemptTerminalizationResultV1>;
+  readonly expire: (
+    selector: PointMutationSessionAttemptSelectorV1,
+  ) => Promise<PointMutationSessionAttemptTerminalizationResultV1>;
 }
 
 export type PointMutationSessionActivationConfigurationIssueV1 =
@@ -238,6 +290,40 @@ export class PointMutationSessionAttemptLoadV1Error extends Error {
   }
 }
 
+export type PointMutationSessionAttemptTerminalizationIssueV1 =
+  | { readonly reason: "invalidSelector"; readonly cause: unknown }
+  | { readonly reason: "invalidAbortSnapshot"; readonly cause: unknown }
+  | { readonly reason: "selectorScopeMismatch" }
+  | { readonly reason: "sessionMissing" }
+  | { readonly reason: "staleAttemptFence" }
+  | {
+      readonly reason: "attemptNotTerminalizable";
+      readonly lifecycle: Exclude<
+        TransactionSessionLifecycleV1,
+        PointMutationSessionActiveLifecycleV1 |
+          PointMutationSessionTerminalLifecycleV1
+      >;
+    }
+  | { readonly reason: "unsupportedStorageGeneration" }
+  | { readonly reason: "storageGenerationChanged" }
+  | { readonly reason: "storageGenerationFenceChanged" }
+  | { readonly reason: "scopeEpochChanged" }
+  | { readonly reason: "authorizationRevocationEpochChanged" }
+  | {
+      readonly reason: "attemptStillLive";
+      readonly effectiveExpiresAt: string;
+    };
+
+export class PointMutationSessionAttemptTerminalizationV1Error extends Error {
+  readonly name = "PointMutationSessionAttemptTerminalizationV1Error";
+
+  constructor(
+    readonly issue: PointMutationSessionAttemptTerminalizationIssueV1,
+  ) {
+    super(`Point-mutation attempt terminalization failed: ${issue.reason}.`);
+  }
+}
+
 export type PointMutationSessionAuthorityCorruptionIssueV1 =
   | "scopeClockNativeProjectionInvalid"
   | "databaseClockInvalid"
@@ -245,7 +331,10 @@ export type PointMutationSessionAuthorityCorruptionIssueV1 =
   | "sessionRecordInvalid"
   | "snapshotLeaseMissing"
   | "snapshotLeaseInvalid"
-  | "snapshotAheadOfScopeClock";
+  | "snapshotAheadOfScopeClock"
+  | "terminalSnapshotLeasePresent"
+  | "attemptSnapshotChanged"
+  | "terminalizationWriteMismatch";
 
 export class PointMutationSessionAuthorityCorruptionV1Error extends Error {
   readonly name = "PointMutationSessionAuthorityCorruptionV1Error";
@@ -275,6 +364,17 @@ export class PointMutationSessionAttemptLoadTargetV1Error extends Error {
   }
 }
 
+export class PointMutationSessionAttemptTerminalizationTargetV1Error
+  extends Error {
+  readonly name = "PointMutationSessionAttemptTerminalizationTargetV1Error";
+
+  constructor(readonly scopeId: ScopeId) {
+    super(
+      `Located scope target cannot terminalize point-mutation attempts: ${scopeId}.`,
+    );
+  }
+}
+
 export type PointMutationSessionActivationWriteStepV1 =
   | "sessionInserted"
   | "leaseInserted";
@@ -284,6 +384,22 @@ export type PointMutationSessionAttemptLoadLockStepV1 =
   | "sessionLocked"
   | "leaseLocked";
 
+export type PointMutationSessionAttemptTerminalizationOperationV1 =
+  | "abort"
+  | "expire";
+
+export type PointMutationSessionAttemptTerminalizationEventV1 =
+  | {
+      readonly phase: "lock";
+      readonly operation: PointMutationSessionAttemptTerminalizationOperationV1;
+      readonly step: PointMutationSessionAttemptLoadLockStepV1;
+    }
+  | {
+      readonly phase: "write";
+      readonly operation: PointMutationSessionAttemptTerminalizationOperationV1;
+      readonly step: "leaseDeleted" | "sessionTerminalized";
+    };
+
 export interface LocatedPointMutationSessionActivationTargetOptionsV1 {
   /** Construction-bound instrumentation used by focused rollback proofs. */
   readonly afterWrite?: (
@@ -292,6 +408,10 @@ export interface LocatedPointMutationSessionActivationTargetOptionsV1 {
   /** Construction-bound instrumentation used by focused lock-order proofs. */
   readonly afterLoadLock?: (
     step: PointMutationSessionAttemptLoadLockStepV1,
+  ) => void | Promise<void>;
+  /** Construction-bound instrumentation used by focused B2b1 proofs. */
+  readonly afterTerminalizationEvent?: (
+    event: PointMutationSessionAttemptTerminalizationEventV1,
   ) => void | Promise<void>;
 }
 
@@ -309,9 +429,17 @@ interface LocatedPointMutationSessionAttemptLoadTargetV1
   ) => Promise<PointMutationSessionAttemptLoadResultV1>;
 }
 
+interface LocatedPointMutationSessionAttemptTerminalizationTargetV1
+  extends LocatedScopeClockReader {
+  readonly terminalizeExactPointMutationSessionAttempt: (
+    input: LocatedPointMutationSessionAttemptTerminalizationInputV1,
+  ) => Promise<PointMutationSessionAttemptTerminalizationResultV1>;
+}
+
 interface LocatedPointMutationSessionTargetV1
   extends LocatedPointMutationSessionActivationTargetV1,
-    LocatedPointMutationSessionAttemptLoadTargetV1 {}
+    LocatedPointMutationSessionAttemptLoadTargetV1,
+    LocatedPointMutationSessionAttemptTerminalizationTargetV1 {}
 
 interface LocatedPointMutationSessionActivationInputV1 {
   readonly prepared: PreparedPointMutationSessionActivationV1;
@@ -324,6 +452,22 @@ interface LocatedPointMutationSessionAttemptLoadInputV1 {
   readonly selector: PointMutationSessionAttemptSelectorV1;
   readonly preliminaryAuthority: TrustedScopeAuthority;
 }
+
+type PreparedPointMutationSessionAttemptTerminalizationInputV1 =
+  | {
+      readonly operation: "abort";
+      readonly selector: PointMutationSessionAttemptSelectorV1;
+      readonly expectedSnapshotToken: SnapshotToken;
+    }
+  | {
+      readonly operation: "expire";
+      readonly selector: PointMutationSessionAttemptSelectorV1;
+    };
+
+type LocatedPointMutationSessionAttemptTerminalizationInputV1 =
+  PreparedPointMutationSessionAttemptTerminalizationInputV1 & {
+    readonly preliminaryAuthority: TrustedScopeAuthority;
+  };
 
 interface LockedPointMutationSessionClockV1 {
   readonly record: ScopeClockRecord;
@@ -404,6 +548,56 @@ export function createPointMutationSessionAttemptLoadPersistenceV1(
   });
 }
 
+export function createPointMutationSessionAttemptTerminalizationPersistenceV1(
+  ports: PointMutationSessionAuthorityResolutionPortsV1,
+): PointMutationSessionAttemptTerminalizationPersistenceV1 {
+  const terminalize = async (
+    input: PreparedPointMutationSessionAttemptTerminalizationInputV1,
+  ): Promise<PointMutationSessionAttemptTerminalizationResultV1> => {
+    const located = await resolveLocatedTrustedScopeAuthority(
+      input.selector.deploymentId,
+      {
+        scopeMetadata: ports.scopeMetadata,
+        provisioningReceipts: ports.provisioningReceipts,
+        scopeClockTargets: ports.scopeSessionTargets,
+      },
+    );
+    if (located.authority.scopeId !== input.selector.scopeId) {
+      throw attemptTerminalizationError({ reason: "selectorScopeMismatch" });
+    }
+    const target = requireAttemptTerminalizationTarget(
+      located.target,
+      input.selector.scopeId,
+    );
+    return target.terminalizeExactPointMutationSessionAttempt({
+      ...input,
+      preliminaryAuthority: located.authority,
+    });
+  };
+
+  return Object.freeze({
+    abort: async (
+      input: PointMutationSessionAttemptAbortInputV1,
+    ): Promise<PointMutationSessionAttemptTerminalizationResultV1> => {
+      const captured = captureAttemptAbortInput(input);
+      return terminalize({
+        operation: "abort",
+        selector: captured.selector,
+        expectedSnapshotToken: captured.expectedSnapshotToken,
+      });
+    },
+    expire: async (
+      input: PointMutationSessionAttemptSelectorV1,
+    ): Promise<PointMutationSessionAttemptTerminalizationResultV1> => {
+      const selector = captureTerminalizationAttemptSelector(input);
+      return terminalize({
+        operation: "expire",
+        selector,
+      });
+    },
+  });
+}
+
 export function createLocatedPointMutationSessionActivationTargetV1(
   db: FlarexMetadataDatabase,
   physicalLocator: ScopePhysicalLocator,
@@ -412,6 +606,7 @@ export function createLocatedPointMutationSessionActivationTargetV1(
   const capturedLocator = capturePhysicalLocator(physicalLocator);
   const afterWrite = options.afterWrite;
   const afterLoadLock = options.afterLoadLock;
+  const afterTerminalizationEvent = options.afterTerminalizationEvent;
   const target = Object.freeze({
     physicalLocator: capturedLocator,
     getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
@@ -422,6 +617,14 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       input: LocatedPointMutationSessionAttemptLoadInputV1,
     ) => db.transaction((tx) =>
       loadAttemptInTransaction(tx, input, afterLoadLock)),
+    terminalizeExactPointMutationSessionAttempt: (
+      input: LocatedPointMutationSessionAttemptTerminalizationInputV1,
+    ) => db.transaction((tx) =>
+      terminalizeAttemptInTransaction(
+        tx,
+        input,
+        afterTerminalizationEvent,
+      )),
   } satisfies LocatedPointMutationSessionTargetV1);
   return target;
 }
@@ -591,36 +794,13 @@ async function loadAttemptInTransaction(
   const clock = await lockPointMutationSessionClock(tx, selector.scopeId);
   await afterLoadLock?.("clockLocked");
   requireStableAttemptLoadAuthority(clock, input);
-
-  const sessions = await tx
-    .select()
-    .from(fxSystemTransactionSessions)
-    .where(and(
-      eq(fxSystemTransactionSessions.scopeUuid, clock.scopeUuid),
-      eq(fxSystemTransactionSessions.sessionId, selector.sessionId),
-    ))
-    .limit(2)
-    .for("update");
-  const session = sessions[0];
-  if (session === undefined) {
-    throw attemptLoadError({ reason: "sessionMissing" });
-  }
-  if (sessions.length !== 1) {
-    throw corruptionError(selector.scopeId, "sessionRecordInvalid");
-  }
-  await afterLoadLock?.("sessionLocked");
-
-  let persistedAttemptFence: TransactionAttemptFence;
-  try {
-    persistedAttemptFence = TransactionAttemptFenceSchema.make(
-      session.attemptFence,
-    );
-  } catch (cause) {
-    throw corruptionError(selector.scopeId, "sessionRecordInvalid", cause);
-  }
-  if (persistedAttemptFence !== selector.attemptFence) {
-    throw attemptLoadError({ reason: "staleAttemptFence" });
-  }
+  const session = await lockExactPointMutationSession(
+    tx,
+    selector,
+    clock,
+    attemptLoadExactSessionFailures,
+    afterLoadLock,
+  );
 
   const anchor = await loadLockedRunningAttemptAnchor(
     tx,
@@ -636,15 +816,66 @@ async function loadAttemptInTransaction(
   return attemptLoadResult(anchor);
 }
 
-interface PointMutationSessionAttemptFailureFactoryV1 {
-  readonly terminal: (
-    lifecycle: Exclude<TransactionSessionLifecycleV1, "running">,
-  ) => Error;
+interface PointMutationSessionAttemptAuthorityFailureFactoryV1 {
   readonly unsupportedStorageGeneration: () => Error;
   readonly storageGenerationFenceChanged: () => Error;
   readonly authorizationRevocationEpochChanged: () => Error;
   readonly scopeEpochChanged: () => Error;
+}
+
+interface PointMutationSessionAttemptFailureFactoryV1
+  extends PointMutationSessionAttemptAuthorityFailureFactoryV1 {
+  readonly terminal: (
+    lifecycle: Exclude<TransactionSessionLifecycleV1, "running">,
+  ) => Error;
   readonly activeAttemptExpired: () => Error;
+}
+
+interface PointMutationSessionExactSessionFailureFactoryV1 {
+  readonly sessionMissing: () => Error;
+  readonly staleAttemptFence: () => Error;
+}
+
+async function lockExactPointMutationSession(
+  tx: FlarexMetadataDatabase,
+  selector: PointMutationSessionAttemptSelectorV1,
+  clock: LockedPointMutationSessionClockV1,
+  failures: PointMutationSessionExactSessionFailureFactoryV1,
+  afterSessionLock:
+    | ((step: PointMutationSessionAttemptLoadLockStepV1) =>
+        void | Promise<void>)
+    | undefined,
+): Promise<TransactionSessionRow> {
+  const sessions = await tx
+    .select()
+    .from(fxSystemTransactionSessions)
+    .where(and(
+      eq(fxSystemTransactionSessions.scopeUuid, clock.scopeUuid),
+      eq(fxSystemTransactionSessions.sessionId, selector.sessionId),
+    ))
+    .limit(2)
+    .for("update");
+  const session = sessions[0];
+  if (session === undefined) {
+    throw failures.sessionMissing();
+  }
+  if (sessions.length !== 1) {
+    throw corruptionError(selector.scopeId, "sessionRecordInvalid");
+  }
+  await afterSessionLock?.("sessionLocked");
+
+  let persistedAttemptFence: TransactionAttemptFence;
+  try {
+    persistedAttemptFence = TransactionAttemptFenceSchema.make(
+      session.attemptFence,
+    );
+  } catch (cause) {
+    throw corruptionError(selector.scopeId, "sessionRecordInvalid", cause);
+  }
+  if (persistedAttemptFence !== selector.attemptFence) {
+    throw failures.staleAttemptFence();
+  }
+  return session;
 }
 
 interface LockedPointMutationSessionAttemptLoadV1 {
@@ -661,11 +892,80 @@ async function loadLockedRunningAttemptAnchor(
   tx: FlarexMetadataDatabase,
   input: LockedPointMutationSessionAttemptLoadV1,
   clock: LockedPointMutationSessionClockV1,
-  session: typeof fxSystemTransactionSessions.$inferSelect,
+  session: TransactionSessionRow,
 ): Promise<PointMutationSessionAnchorV1> {
+  const locked = await lockPointMutationSessionAttemptStructure(
+    tx,
+    input,
+    clock,
+    session,
+  );
   if (session.lifecycle !== "running") {
     throw input.failures.terminal(session.lifecycle);
   }
+  if (locked.leaseState === "absent") {
+    throw corruptionError(input.scopeId, "snapshotLeaseMissing");
+  }
+
+  const databaseNow = await readDatabaseNow(tx, input.scopeId);
+  if (
+    session.authorizationGrantExpiresAt.getTime() <= databaseNow.getTime() ||
+    session.hardExpiresAt.getTime() <= databaseNow.getTime() ||
+    locked.lease.leaseExpiresAt.getTime() <= databaseNow.getTime()
+  ) {
+    throw input.failures.activeAttemptExpired();
+  }
+
+  return Object.freeze({
+    deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
+    sessionId: locked.sessionId,
+    requestKey: session.requestKey,
+    storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+    storageGenerationFence: locked.storageGenerationFence,
+    attemptFence: locked.attemptFence,
+    snapshotToken: SnapshotTokenSchema.make({
+      scopeId: input.scopeId,
+      epoch: locked.snapshotEpoch,
+      commitSeq: locked.snapshotCommitSeq,
+    }),
+    hardExpiresAt: session.hardExpiresAt.toISOString(),
+    leaseExpiresAt: locked.lease.leaseExpiresAt.toISOString(),
+    createdAt: session.createdAt.toISOString(),
+    updatedAt: session.updatedAt.toISOString(),
+  } satisfies PointMutationSessionAnchorV1);
+}
+
+interface LockedPointMutationSessionAttemptStructureBaseV1 {
+  readonly sessionId: TransactionSessionIdV1;
+  readonly attemptFence: TransactionAttemptFence;
+  readonly storageGenerationFence: StorageGenerationFence;
+}
+
+type LockedPointMutationSessionAttemptStructureV1 =
+  | (LockedPointMutationSessionAttemptStructureBaseV1 & {
+      readonly leaseState: "absent";
+    })
+  | (LockedPointMutationSessionAttemptStructureBaseV1 & {
+      readonly leaseState: "present";
+      readonly lease: SnapshotLeaseRow;
+      readonly snapshotEpoch: ScopeEpoch;
+      readonly snapshotCommitSeq: CommitSeq;
+    });
+
+async function lockPointMutationSessionAttemptStructure(
+  tx: FlarexMetadataDatabase,
+  input: {
+    readonly scopeId: ReplacementScopeIdV1;
+    readonly failures: PointMutationSessionAttemptAuthorityFailureFactoryV1;
+    readonly afterLeaseLock:
+      | ((step: PointMutationSessionAttemptLoadLockStepV1) =>
+          void | Promise<void>)
+      | undefined;
+  },
+  clock: LockedPointMutationSessionClockV1,
+  session: TransactionSessionRow,
+): Promise<LockedPointMutationSessionAttemptStructureV1> {
   if (session.storageGeneration !== "flarexdb_v1") {
     throw input.failures.unsupportedStorageGeneration();
   }
@@ -684,13 +984,9 @@ async function loadLockedRunningAttemptAnchor(
     !isValidDate(session.authorizationGrantExpiresAt) ||
     !isValidDate(session.hardExpiresAt) ||
     !isValidDate(session.createdAt) ||
-    !isValidDate(session.updatedAt)
-  ) {
-    throw corruptionError(input.scopeId, "sessionRecordInvalid");
-  }
-  if (
+    !isValidDate(session.updatedAt) ||
     session.hardExpiresAt.getTime() !==
-    session.authorizationGrantExpiresAt.getTime()
+      session.authorizationGrantExpiresAt.getTime()
   ) {
     throw corruptionError(input.scopeId, "sessionRecordInvalid");
   }
@@ -724,20 +1020,27 @@ async function loadLockedRunningAttemptAnchor(
     ))
     .limit(2)
     .for("update");
+  if (leases.length > 1) {
+    throw corruptionError(input.scopeId, "snapshotLeaseInvalid");
+  }
   const lease = leases[0];
-  if (lease === undefined || leases.length !== 1) {
-    throw corruptionError(input.scopeId, "snapshotLeaseMissing");
+  if (lease === undefined) {
+    return Object.freeze({
+      leaseState: "absent",
+      sessionId,
+      attemptFence,
+      storageGenerationFence,
+    } satisfies LockedPointMutationSessionAttemptStructureV1);
   }
   await input.afterLeaseLock?.("leaseLocked");
-  if (lease.attemptFence !== attemptFence) {
+  if (
+    lease.attemptFence !== attemptFence ||
+    !isValidDate(lease.leaseExpiresAt) ||
+    lease.leaseExpiresAt.getTime() > session.hardExpiresAt.getTime()
+  ) {
     throw corruptionError(input.scopeId, "snapshotLeaseInvalid");
   }
-  if (!isValidDate(lease.leaseExpiresAt)) {
-    throw corruptionError(input.scopeId, "snapshotLeaseInvalid");
-  }
-  if (lease.leaseExpiresAt.getTime() > session.hardExpiresAt.getTime()) {
-    throw corruptionError(input.scopeId, "snapshotLeaseInvalid");
-  }
+
   let snapshotEpoch: ScopeEpoch;
   let snapshotCommitSeq: CommitSeq;
   try {
@@ -757,33 +1060,189 @@ async function loadLockedRunningAttemptAnchor(
     throw corruptionError(input.scopeId, "snapshotAheadOfScopeClock");
   }
 
-  const databaseNow = await readDatabaseNow(tx, input.scopeId);
-  if (
-    session.authorizationGrantExpiresAt.getTime() <= databaseNow.getTime() ||
-    session.hardExpiresAt.getTime() <= databaseNow.getTime() ||
-    lease.leaseExpiresAt.getTime() <= databaseNow.getTime()
-  ) {
-    throw input.failures.activeAttemptExpired();
+  return Object.freeze({
+    leaseState: "present",
+    sessionId,
+    attemptFence,
+    storageGenerationFence,
+    lease,
+    snapshotEpoch,
+    snapshotCommitSeq,
+  } satisfies LockedPointMutationSessionAttemptStructureV1);
+}
+
+async function terminalizeAttemptInTransaction(
+  tx: FlarexMetadataDatabase,
+  input: LocatedPointMutationSessionAttemptTerminalizationInputV1,
+  afterEvent:
+    | LocatedPointMutationSessionActivationTargetOptionsV1[
+        "afterTerminalizationEvent"
+      ]
+    | undefined,
+): Promise<PointMutationSessionAttemptTerminalizationResultV1> {
+  const selector = input.selector;
+  const emitLock = async (
+    step: PointMutationSessionAttemptLoadLockStepV1,
+  ): Promise<void> => {
+    await afterEvent?.(Object.freeze({
+      phase: "lock",
+      operation: input.operation,
+      step,
+    } satisfies PointMutationSessionAttemptTerminalizationEventV1));
+  };
+  const emitWrite = async (
+    step: Extract<
+      PointMutationSessionAttemptTerminalizationEventV1,
+      { readonly phase: "write" }
+    >["step"],
+  ): Promise<void> => {
+    await afterEvent?.(Object.freeze({
+      phase: "write",
+      operation: input.operation,
+      step,
+    } satisfies PointMutationSessionAttemptTerminalizationEventV1));
+  };
+
+  const clock = await lockPointMutationSessionClock(tx, selector.scopeId);
+  await emitLock("clockLocked");
+  requireStableAttemptTerminalizationAuthority(clock, input);
+  const session = await lockExactPointMutationSession(
+    tx,
+    selector,
+    clock,
+    attemptTerminalizationExactSessionFailures,
+    emitLock,
+  );
+  const locked = await lockPointMutationSessionAttemptStructure(
+    tx,
+    {
+      scopeId: selector.scopeId,
+      failures: attemptTerminalizationAuthorityFailures,
+      afterLeaseLock: emitLock,
+    },
+    clock,
+    session,
+  );
+  const databaseNow = await readDatabaseNow(tx, selector.scopeId);
+
+  switch (session.lifecycle) {
+    case "committed":
+    case "aborted":
+    case "expired": {
+      if (locked.leaseState === "present") {
+        throw corruptionError(
+          selector.scopeId,
+          "terminalSnapshotLeasePresent",
+        );
+      }
+      return attemptTerminalizationResult(
+        "observed",
+        selector,
+        session.lifecycle,
+        session.updatedAt,
+      );
+    }
+    case "created":
+    case "committing":
+    case "retrying":
+      throw attemptTerminalizationError({
+        reason: "attemptNotTerminalizable",
+        lifecycle: session.lifecycle,
+      });
+    case "running":
+    case "finishing":
+      break;
+    default: {
+      const unexpectedLifecycle: never = session.lifecycle;
+      throw corruptionError(
+        selector.scopeId,
+        "sessionRecordInvalid",
+        unexpectedLifecycle,
+      );
+    }
   }
 
-  return Object.freeze({
-    deploymentId: input.deploymentId,
-    scopeId: input.scopeId,
-    sessionId,
-    requestKey: session.requestKey,
-    storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-    storageGenerationFence,
-    attemptFence,
-    snapshotToken: SnapshotTokenSchema.make({
-      scopeId: input.scopeId,
-      epoch: snapshotEpoch,
-      commitSeq: snapshotCommitSeq,
-    }),
-    hardExpiresAt: session.hardExpiresAt.toISOString(),
-    leaseExpiresAt: lease.leaseExpiresAt.toISOString(),
-    createdAt: session.createdAt.toISOString(),
-    updatedAt: session.updatedAt.toISOString(),
-  } satisfies PointMutationSessionAnchorV1);
+  if (locked.leaseState === "absent") {
+    throw corruptionError(selector.scopeId, "snapshotLeaseMissing");
+  }
+  if (
+    input.operation === "abort" &&
+    (
+      input.expectedSnapshotToken.scopeId !== selector.scopeId ||
+      input.expectedSnapshotToken.epoch !== locked.snapshotEpoch ||
+      input.expectedSnapshotToken.commitSeq !== locked.snapshotCommitSeq
+    )
+  ) {
+    throw corruptionError(selector.scopeId, "attemptSnapshotChanged");
+  }
+
+  const effectiveExpiryMilliseconds = Math.min(
+    locked.lease.leaseExpiresAt.getTime(),
+    session.hardExpiresAt.getTime(),
+    session.authorizationGrantExpiresAt.getTime(),
+  );
+  const effectiveExpiresAt = new Date(effectiveExpiryMilliseconds);
+  if (!isValidDate(effectiveExpiresAt)) {
+    throw corruptionError(selector.scopeId, "snapshotLeaseInvalid");
+  }
+  const isExpired = effectiveExpiryMilliseconds <= databaseNow.getTime();
+  if (input.operation === "expire" && !isExpired) {
+    throw attemptTerminalizationError({
+      reason: "attemptStillLive",
+      effectiveExpiresAt: effectiveExpiresAt.toISOString(),
+    });
+  }
+  const lifecycle = isExpired ? "expired" : "aborted";
+
+  const deleted = await tx
+    .delete(fxSystemSnapshotLeases)
+    .where(and(
+      eq(fxSystemSnapshotLeases.scopeUuid, clock.scopeUuid),
+      eq(fxSystemSnapshotLeases.sessionId, locked.sessionId),
+      eq(fxSystemSnapshotLeases.attemptFence, locked.attemptFence),
+    ))
+    .returning({ attemptFence: fxSystemSnapshotLeases.attemptFence });
+  if (
+    deleted.length !== 1 ||
+    deleted[0]?.attemptFence !== locked.attemptFence
+  ) {
+    throw corruptionError(selector.scopeId, "terminalizationWriteMismatch");
+  }
+  await emitWrite("leaseDeleted");
+
+  const updated = await tx
+    .update(fxSystemTransactionSessions)
+    .set({
+      lifecycle,
+      updatedAt: databaseNow,
+    })
+    .where(and(
+      eq(fxSystemTransactionSessions.scopeUuid, clock.scopeUuid),
+      eq(fxSystemTransactionSessions.sessionId, locked.sessionId),
+      eq(fxSystemTransactionSessions.attemptFence, locked.attemptFence),
+      eq(fxSystemTransactionSessions.lifecycle, session.lifecycle),
+    ))
+    .returning({
+      lifecycle: fxSystemTransactionSessions.lifecycle,
+      updatedAt: fxSystemTransactionSessions.updatedAt,
+    });
+  const terminal = updated[0];
+  if (
+    updated.length !== 1 ||
+    terminal === undefined ||
+    terminal.lifecycle !== lifecycle ||
+    !isValidDate(terminal.updatedAt)
+  ) {
+    throw corruptionError(selector.scopeId, "terminalizationWriteMismatch");
+  }
+  await emitWrite("sessionTerminalized");
+
+  return attemptTerminalizationResult(
+    "terminalized",
+    selector,
+    lifecycle,
+    terminal.updatedAt,
+  );
 }
 
 const activationAttemptFailures = Object.freeze({
@@ -813,6 +1272,56 @@ const attemptLoadFailures = Object.freeze({
   activeAttemptExpired: () =>
     attemptLoadError({ reason: "activeAttemptExpired" }),
 } satisfies PointMutationSessionAttemptFailureFactoryV1);
+
+const attemptLoadExactSessionFailures = Object.freeze({
+  sessionMissing: () => attemptLoadError({ reason: "sessionMissing" }),
+  staleAttemptFence: () => attemptLoadError({ reason: "staleAttemptFence" }),
+} satisfies PointMutationSessionExactSessionFailureFactoryV1);
+
+const attemptLoadStableAuthorityFailures = Object.freeze({
+  selectorScopeMismatch: () =>
+    attemptLoadError({ reason: "selectorScopeMismatch" }),
+  unsupportedStorageGeneration: () =>
+    attemptLoadError({ reason: "unsupportedStorageGeneration" }),
+  storageGenerationChanged: () =>
+    attemptLoadError({ reason: "storageGenerationChanged" }),
+  storageGenerationFenceChanged: () =>
+    attemptLoadError({ reason: "storageGenerationFenceChanged" }),
+  scopeEpochChanged: () => attemptLoadError({ reason: "scopeEpochChanged" }),
+} satisfies PointMutationSessionStableAuthorityFailureFactoryV1);
+
+const attemptTerminalizationAuthorityFailures = Object.freeze({
+  unsupportedStorageGeneration: () =>
+    attemptTerminalizationError({ reason: "unsupportedStorageGeneration" }),
+  storageGenerationFenceChanged: () =>
+    attemptTerminalizationError({ reason: "storageGenerationFenceChanged" }),
+  authorizationRevocationEpochChanged: () =>
+    attemptTerminalizationError({
+      reason: "authorizationRevocationEpochChanged",
+    }),
+  scopeEpochChanged: () =>
+    attemptTerminalizationError({ reason: "scopeEpochChanged" }),
+} satisfies PointMutationSessionAttemptAuthorityFailureFactoryV1);
+
+const attemptTerminalizationExactSessionFailures = Object.freeze({
+  sessionMissing: () =>
+    attemptTerminalizationError({ reason: "sessionMissing" }),
+  staleAttemptFence: () =>
+    attemptTerminalizationError({ reason: "staleAttemptFence" }),
+} satisfies PointMutationSessionExactSessionFailureFactoryV1);
+
+const attemptTerminalizationStableAuthorityFailures = Object.freeze({
+  selectorScopeMismatch: () =>
+    attemptTerminalizationError({ reason: "selectorScopeMismatch" }),
+  unsupportedStorageGeneration: () =>
+    attemptTerminalizationError({ reason: "unsupportedStorageGeneration" }),
+  storageGenerationChanged: () =>
+    attemptTerminalizationError({ reason: "storageGenerationChanged" }),
+  storageGenerationFenceChanged: () =>
+    attemptTerminalizationError({ reason: "storageGenerationFenceChanged" }),
+  scopeEpochChanged: () =>
+    attemptTerminalizationError({ reason: "scopeEpochChanged" }),
+} satisfies PointMutationSessionStableAuthorityFailureFactoryV1);
 
 async function lockPointMutationSessionClock(
   tx: FlarexMetadataDatabase,
@@ -899,6 +1408,40 @@ function requireStableAttemptLoadAuthority(
   clock: LockedPointMutationSessionClockV1,
   input: LocatedPointMutationSessionAttemptLoadInputV1,
 ): void {
+  requireStablePointMutationSessionAttemptAuthority(
+    clock,
+    input,
+    attemptLoadStableAuthorityFailures,
+  );
+}
+
+function requireStableAttemptTerminalizationAuthority(
+  clock: LockedPointMutationSessionClockV1,
+  input: LocatedPointMutationSessionAttemptTerminalizationInputV1,
+): void {
+  requireStablePointMutationSessionAttemptAuthority(
+    clock,
+    input,
+    attemptTerminalizationStableAuthorityFailures,
+  );
+}
+
+interface PointMutationSessionStableAuthorityFailureFactoryV1 {
+  readonly selectorScopeMismatch: () => Error;
+  readonly unsupportedStorageGeneration: () => Error;
+  readonly storageGenerationChanged: () => Error;
+  readonly storageGenerationFenceChanged: () => Error;
+  readonly scopeEpochChanged: () => Error;
+}
+
+function requireStablePointMutationSessionAttemptAuthority(
+  clock: LockedPointMutationSessionClockV1,
+  input: {
+    readonly selector: PointMutationSessionAttemptSelectorV1;
+    readonly preliminaryAuthority: TrustedScopeAuthority;
+  },
+  failures: PointMutationSessionStableAuthorityFailureFactoryV1,
+): void {
   const selector = input.selector;
   const preliminary = input.preliminaryAuthority;
   if (
@@ -906,25 +1449,25 @@ function requireStableAttemptLoadAuthority(
     preliminary.scopeId !== selector.scopeId ||
     preliminary.deploymentId !== selector.deploymentId
   ) {
-    throw attemptLoadError({ reason: "selectorScopeMismatch" });
+    throw failures.selectorScopeMismatch();
   }
   if (
     clock.record.storageGeneration !== "flarexdb_v1" ||
     preliminary.storageGeneration !== "flarexdb_v1"
   ) {
-    throw attemptLoadError({ reason: "unsupportedStorageGeneration" });
+    throw failures.unsupportedStorageGeneration();
   }
   if (clock.record.storageGeneration !== preliminary.storageGeneration) {
-    throw attemptLoadError({ reason: "storageGenerationChanged" });
+    throw failures.storageGenerationChanged();
   }
   if (
     clock.record.storageGenerationFence !==
     preliminary.storageGenerationFence
   ) {
-    throw attemptLoadError({ reason: "storageGenerationFenceChanged" });
+    throw failures.storageGenerationFenceChanged();
   }
   if (clock.record.epoch !== preliminary.epoch) {
-    throw attemptLoadError({ reason: "scopeEpochChanged" });
+    throw failures.scopeEpochChanged();
   }
 }
 
@@ -1097,17 +1640,60 @@ function captureAttemptSelector(
   input: PointMutationSessionAttemptSelectorV1,
 ): PointMutationSessionAttemptSelectorV1 {
   try {
-    return Object.freeze({
-      deploymentId: TransactionGrantDeploymentIdV1Schema.make(
-        input.deploymentId,
-      ),
-      scopeId: decodeReplacementScopeIdV1(input.scopeId),
-      sessionId: TransactionSessionIdV1Schema.make(input.sessionId),
-      attemptFence: TransactionAttemptFenceSchema.make(input.attemptFence),
-    });
+    return decodeAttemptSelector(input);
   } catch (cause) {
     throw attemptLoadError({ reason: "invalidSelector", cause });
   }
+}
+
+function captureTerminalizationAttemptSelector(
+  input: PointMutationSessionAttemptSelectorV1,
+): PointMutationSessionAttemptSelectorV1 {
+  try {
+    return decodeAttemptSelector(input);
+  } catch (cause) {
+    throw attemptTerminalizationError({ reason: "invalidSelector", cause });
+  }
+}
+
+function captureAttemptAbortInput(
+  input: PointMutationSessionAttemptAbortInputV1,
+): PointMutationSessionAttemptAbortInputV1 {
+  const selector = captureTerminalizationAttemptSelector(input.selector);
+  try {
+    const expectedSnapshotToken = Object.freeze(
+      SnapshotTokenSchema.make({
+        scopeId: input.expectedSnapshotToken.scopeId,
+        epoch: input.expectedSnapshotToken.epoch,
+        commitSeq: input.expectedSnapshotToken.commitSeq,
+      }),
+    );
+    if (expectedSnapshotToken.scopeId !== selector.scopeId) {
+      throw new Error("Abort snapshot scope does not match its selector.");
+    }
+    return Object.freeze({
+      selector,
+      expectedSnapshotToken,
+    });
+  } catch (cause) {
+    throw attemptTerminalizationError({
+      reason: "invalidAbortSnapshot",
+      cause,
+    });
+  }
+}
+
+function decodeAttemptSelector(
+  input: PointMutationSessionAttemptSelectorV1,
+): PointMutationSessionAttemptSelectorV1 {
+  return Object.freeze({
+    deploymentId: TransactionGrantDeploymentIdV1Schema.make(
+      input.deploymentId,
+    ),
+    scopeId: decodeReplacementScopeIdV1(input.scopeId),
+    sessionId: TransactionSessionIdV1Schema.make(input.sessionId),
+    attemptFence: TransactionAttemptFenceSchema.make(input.attemptFence),
+  });
 }
 
 function requireActivationTarget(
@@ -1130,6 +1716,18 @@ function requireAttemptLoadTarget(
   return target;
 }
 
+function requireAttemptTerminalizationTarget(
+  target: LocatedScopeClockReader,
+  scopeId: ScopeId,
+): LocatedPointMutationSessionAttemptTerminalizationTargetV1 {
+  if (!isAttemptTerminalizationTarget(target)) {
+    throw new PointMutationSessionAttemptTerminalizationTargetV1Error(
+      scopeId,
+    );
+  }
+  return target;
+}
+
 function isActivationTarget(
   target: LocatedScopeClockReader,
 ): target is LocatedPointMutationSessionActivationTargetV1 {
@@ -1142,6 +1740,15 @@ function isAttemptLoadTarget(
 ): target is LocatedPointMutationSessionAttemptLoadTargetV1 {
   return typeof Reflect.get(target, "loadExactPointMutationSessionAttempt") ===
     "function";
+}
+
+function isAttemptTerminalizationTarget(
+  target: LocatedScopeClockReader,
+): target is LocatedPointMutationSessionAttemptTerminalizationTargetV1 {
+  return typeof Reflect.get(
+    target,
+    "terminalizeExactPointMutationSessionAttempt",
+  ) === "function";
 }
 
 function requireLeaseDuration(value: number): number {
@@ -1209,6 +1816,55 @@ function attemptLoadResult(
   });
 }
 
+function attemptTerminalizationResult(
+  status: PointMutationSessionAttemptTerminalizationResultV1["status"],
+  selector: PointMutationSessionAttemptSelectorV1,
+  lifecycle: PointMutationSessionTerminalLifecycleV1,
+  terminalizedAt: Date,
+): PointMutationSessionAttemptTerminalizationResultV1 {
+  switch (status) {
+    case "terminalized": {
+      if (lifecycle === "committed") {
+        throw corruptionError(selector.scopeId, "sessionRecordInvalid");
+      }
+      return Object.freeze({
+        status: "terminalized",
+        terminal: createTerminalObservation(
+          selector,
+          lifecycle,
+          terminalizedAt,
+        ),
+      });
+    }
+    case "observed":
+      return Object.freeze({
+        status: "observed",
+        terminal: createTerminalObservation(
+          selector,
+          lifecycle,
+          terminalizedAt,
+        ),
+      });
+  }
+}
+
+function createTerminalObservation<
+  Lifecycle extends PointMutationSessionTerminalLifecycleV1,
+>(
+  selector: PointMutationSessionAttemptSelectorV1,
+  lifecycle: Lifecycle,
+  terminalizedAt: Date,
+): PointMutationSessionTerminalObservationV1<Lifecycle> {
+  return Object.freeze({
+    ...selector,
+    lifecycle,
+    terminalizedAt: cloneValidTerminalDate(
+      terminalizedAt,
+      selector.scopeId,
+    ).toISOString(),
+  });
+}
+
 function captureSessionAnchor(
   anchor: PointMutationSessionAnchorV1,
 ): PointMutationSessionAnchorV1 {
@@ -1236,6 +1892,12 @@ function attemptLoadError(
   return new PointMutationSessionAttemptLoadV1Error(issue);
 }
 
+function attemptTerminalizationError(
+  issue: PointMutationSessionAttemptTerminalizationIssueV1,
+): PointMutationSessionAttemptTerminalizationV1Error {
+  return new PointMutationSessionAttemptTerminalizationV1Error(issue);
+}
+
 function corruptionError(
   scopeId: ScopeId,
   issue: PointMutationSessionAuthorityCorruptionIssueV1,
@@ -1259,6 +1921,17 @@ function cloneValidDate(value: Date): Date {
     throw new PointMutationSessionActivationV1Error({
       reason: "invalidPreparedEvidence",
     });
+  }
+  return cloned;
+}
+
+function cloneValidTerminalDate(value: Date, scopeId: ScopeId): Date {
+  if (!(value instanceof Date)) {
+    throw corruptionError(scopeId, "sessionRecordInvalid");
+  }
+  const cloned = new Date(value.getTime());
+  if (!isValidDate(cloned)) {
+    throw corruptionError(scopeId, "sessionRecordInvalid");
   }
   return cloned;
 }

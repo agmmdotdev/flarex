@@ -17,6 +17,7 @@ import {
   PointMutationSessionAttemptLoadV1Error,
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
+  createPointMutationSessionAttemptTerminalizationPersistenceV1,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
   type PointMutationSessionActivationResolutionPortsV1,
   type PointMutationSessionActivationResultV1,
@@ -421,6 +422,215 @@ describePostgres("real Postgres O03-B session authority", () => {
         } satisfies Partial<PointMutationSessionAttemptLoadV1Error>);
     });
   });
+
+  it("serializes concurrent exact abort and expiry into one terminal transition", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const ids = uuidFactory();
+      const context = await provisionContext(
+        persistence,
+        "attempt_terminal_race",
+        sharedLocator("attempt-terminal-race"),
+        ids,
+      );
+      const anchor = (await createActivationPersistence(
+        persistence,
+        ids,
+      ).activate(pointMutationSessionActivationFixture(
+        context.deploymentId,
+        context.scopeId,
+      ))).anchor;
+      await persistence.query(
+        `update fx_system_snapshot_lease
+         set lease_expires_at = '2000-01-01T00:00:00.000Z'
+         where session_id = $1`,
+        [anchor.sessionId],
+      );
+      const events: string[] = [];
+      const terminalization = createTerminalizationPersistence(persistence, {
+        afterTerminalizationEvent: (event) => {
+          events.push(`${event.operation}:${event.phase}:${event.step}`);
+        },
+      });
+      const selector = selectorFromAnchor(anchor);
+
+      const results = await Promise.all([
+        terminalization.abort({
+          selector,
+          expectedSnapshotToken: anchor.snapshotToken,
+        }),
+        terminalization.expire(selector),
+      ]);
+
+      expect(results.map((result) => result.status).sort()).toEqual([
+        "observed",
+        "terminalized",
+      ]);
+      expect(results.map((result) => result.terminal.lifecycle))
+        .toEqual(["expired", "expired"]);
+      expect(events.filter((event) => event.endsWith(":clockLocked")))
+        .toHaveLength(2);
+      expect(events.filter((event) => event.endsWith(":sessionLocked")))
+        .toHaveLength(2);
+      expect(events.filter((event) => event.endsWith(":leaseLocked")))
+        .toHaveLength(1);
+      expect(events.filter((event) => event.includes(":write:")))
+        .toHaveLength(2);
+      await expect(rowCounts(persistence, context.scopeId)).resolves.toEqual({
+        sessions: 1,
+        leases: 0,
+      });
+    });
+  });
+
+  it("reads database time after the exact lease lock when expiry crosses its edge", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const ids = uuidFactory();
+      const context = await provisionContext(
+        persistence,
+        "attempt_terminal_expiry",
+        sharedLocator("attempt-terminal-expiry"),
+        ids,
+      );
+      const anchor = (await createActivationPersistence(
+        persistence,
+        ids,
+      ).activate(pointMutationSessionActivationFixture(
+        context.deploymentId,
+        context.scopeId,
+      ))).anchor;
+      await persistence.query(
+        `update fx_system_snapshot_lease
+         set lease_expires_at = clock_timestamp() + interval '2 seconds'
+         where session_id = $1`,
+        [anchor.sessionId],
+      );
+      const events: string[] = [];
+      const terminalization = createTerminalizationPersistence(persistence, {
+        afterTerminalizationEvent: async (event) => {
+          events.push(`${event.phase}:${event.step}`);
+          if (event.phase === "lock" && event.step === "leaseLocked") {
+            await delay(2_200);
+          }
+        },
+      });
+
+      await expect(
+        terminalization.expire(selectorFromAnchor(anchor)),
+      ).resolves.toMatchObject({
+        status: "terminalized",
+        terminal: { lifecycle: "expired" },
+      });
+      expect(events).toEqual([
+        "lock:clockLocked",
+        "lock:sessionLocked",
+        "lock:leaseLocked",
+        "write:leaseDeleted",
+        "write:sessionTerminalized",
+      ]);
+    });
+  });
+
+  it("allows an independent scope to terminalize while another attempt is paused", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const ids = uuidFactory();
+      const contextA = await provisionContext(
+        persistence,
+        "attempt_terminal_independent_a",
+        sharedLocator("attempt-terminal-independent-a"),
+        ids,
+      );
+      const contextB = await provisionContext(
+        persistence,
+        "attempt_terminal_independent_b",
+        sharedLocator("attempt-terminal-independent-b"),
+        ids,
+      );
+      const activation = createActivationPersistence(persistence, ids);
+      const anchorA = (await activation.activate(
+        pointMutationSessionActivationFixture(
+          contextA.deploymentId,
+          contextA.scopeId,
+        ),
+      )).anchor;
+      const anchorB = (await activation.activate(
+        pointMutationSessionActivationFixture(
+          contextB.deploymentId,
+          contextB.scopeId,
+        ),
+      )).anchor;
+      const entered = deferred<void>();
+      const release = deferred<void>();
+      const terminalizationA = createTerminalizationPersistence(persistence, {
+        afterTerminalizationEvent: async (event) => {
+          if (event.phase !== "lock" || event.step !== "sessionLocked") return;
+          entered.resolve();
+          await release.promise;
+        },
+      });
+      const terminalizationB = createTerminalizationPersistence(persistence);
+      const pendingA = terminalizationA.abort({
+        selector: selectorFromAnchor(anchorA),
+        expectedSnapshotToken: anchorA.snapshotToken,
+      });
+      await entered.promise;
+
+      let resultB;
+      try {
+        resultB = await Promise.race([
+          terminalizationB.abort({
+            selector: selectorFromAnchor(anchorB),
+            expectedSnapshotToken: anchorB.snapshotToken,
+          }),
+          delay(5_000).then(() => {
+            throw new Error("Independent-scope terminalization timed out.");
+          }),
+        ]);
+      } finally {
+        release.resolve();
+      }
+      const resultA = await pendingA;
+
+      expect(resultA.terminal.lifecycle).toBe("aborted");
+      expect(resultB.terminal.lifecycle).toBe("aborted");
+    });
+  });
+
+  it("rolls back lease deletion and terminal lifecycle after the second write", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const ids = uuidFactory();
+      const context = await provisionContext(
+        persistence,
+        "attempt_terminal_rollback",
+        sharedLocator("attempt-terminal-rollback"),
+        ids,
+      );
+      const anchor = (await createActivationPersistence(
+        persistence,
+        ids,
+      ).activate(pointMutationSessionActivationFixture(
+        context.deploymentId,
+        context.scopeId,
+      ))).anchor;
+      const before = await attemptRowState(persistence, context.scopeId);
+      const terminalization = createTerminalizationPersistence(persistence, {
+        afterTerminalizationEvent: (event) => {
+          if (
+            event.phase === "write" &&
+            event.step === "sessionTerminalized"
+          ) {
+            throw new Error("fail:sessionTerminalized");
+          }
+        },
+      });
+
+      await expect(terminalization.abort({
+        selector: selectorFromAnchor(anchor),
+        expectedSnapshotToken: anchor.snapshotToken,
+      })).rejects.toThrow("fail:sessionTerminalized");
+      await expect(attemptRowState(persistence, context.scopeId))
+        .resolves.toEqual(before);
+    });
+  });
 });
 
 async function provisionContext(
@@ -463,6 +673,15 @@ function createLoadPersistence(
   targetOptions: LocatedPointMutationSessionActivationTargetOptionsV1 = {},
 ) {
   return createPointMutationSessionAttemptLoadPersistenceV1(
+    resolutionPorts(persistence, targetOptions),
+  );
+}
+
+function createTerminalizationPersistence(
+  persistence: PostgresFlarexPersistence,
+  targetOptions: LocatedPointMutationSessionActivationTargetOptionsV1 = {},
+) {
+  return createPointMutationSessionAttemptTerminalizationPersistenceV1(
     resolutionPorts(persistence, targetOptions),
   );
 }

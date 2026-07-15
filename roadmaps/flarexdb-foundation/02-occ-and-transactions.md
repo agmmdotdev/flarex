@@ -10,8 +10,10 @@ host-neutral authority checkpoint `O03-A2b` are complete. `O03-A2c` is complete
 as exactly two private boundaries: located-current-epoch admission and
 schema-neutral two-sided point-mutation preparation. Operational revocation and
 hosted Worker/key adapters are deferred to their first real consumers. O03-B1
-activation and O03-B2a restart-safe reload are complete; neither deferred
-adapter blocks O03-B2b or the private C01-C07 proof.
+activation, O03-B2a restart-safe reload, and O03-B2b1 exact abort/expiry
+terminalization are complete. The O03-B2b parent remains active and incomplete;
+O03-B2b2 renewal/race proof is next before O04. Neither deferred adapter blocks
+O03-B2b or the private C01-C07 proof.
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -498,16 +500,17 @@ Parent non-goals:
 
 ### [ ] O03-B — Establish Active Session Authority
 
-O03-B is split into three reviewable checkpoints without changing the master
-order. `O03-B1` establishes one active request anchor atomically; `O03-B2a`
-reloads one exact active attempt across trusted-process boundaries; and
-`O03-B2b` adds the exact-fence lifecycle mutations needed before `O04` may
-consume the anchor.
+O03-B is split into reviewable checkpoints without changing the master order.
+`O03-B1` establishes one active request anchor atomically; `O03-B2a` reloads
+one exact active attempt across trusted-process boundaries; and the `O03-B2b`
+parent is completed by `O03-B2b1` exact terminalization followed by
+`O03-B2b2` renewal and renewal-versus-terminalization proof. Both B2b children
+must complete before `O04` may consume the anchor.
 
 #### [x] O03-B1 — Atomically Activate One Point-Mutation Anchor
 
 Status: complete as a private, non-routing atomic activation and exact active-
-anchor replay checkpoint. O03-B2b is now the next implementation gate.
+anchor replay checkpoint. O03-B2b2 is now the next implementation gate.
 
 Outcome:
 
@@ -561,7 +564,7 @@ Exit gate:
 Status: complete as a private, non-routing, read-only exact-attempt reload. The
 JSON-safe selector is inert lookup identity; every load freshly resolves
 placement, validates under `clock -> session -> lease` locks, and mints a new
-process-local capability. O03-B2b is the next implementation gate.
+process-local capability. O03-B2b2 is the next implementation gate.
 
 Outcome:
 
@@ -597,33 +600,87 @@ Exit gate:
 
 #### [ ] O03-B2b — Renew And Terminalize Exact Attempts
 
+Status: parent gate split into two independently reviewable checkpoints.
+`O03-B2b1` establishes exact abort/expiry terminalization and terminal
+observation. `O03-B2b2` then adds renewal and closes the cross-operation race
+proof. The parent remains incomplete until both children pass.
+
+##### [x] O03-B2b1 — Terminalize One Exact Attempt
+
+Status: complete as a private, non-routing exact abort/expiry terminalization
+boundary with idempotent first-terminal-state observation. O03-B2b2 renewal and
+cross-operation race proof is the next implementation gate; the B2b parent
+remains incomplete.
+
 Outcome:
 
-- Renew only the exact current attempt while keeping request/generation
-  authority on the session and snapshot-retention authority on the lease.
-- For renewal, abort, and expiry, follow the shared authority lock order: scope
-  clock, exact session row, then exact current lease. Use database time, reject
-  epoch rollover and stale generation/fence/revocation authority, and never
-  extend a lease beyond session hard expiry or grant expiry.
-- Define fail-closed exact-fence abort and expiry operations that atomically
-  remove the current lease and retain a terminal anchor. Here, "stale owner"
-  means a trusted operation presenting an old attempt fence; S07 defines no
-  separate owner column or authority.
-- Remain private and non-routing. Do not add lifecycle operations whose first
-  real consumers are later compiler, commit, retry, or retention gates.
+- A trusted abort consumes a genuine process-local loaded-attempt capability;
+  an exact expiry consumes only B2a's strict JSON-safe selector so cleanup can
+  survive process restart after the live-only loader correctly refuses an
+  expired attempt. Neither input carries physical placement or mutable
+  authority.
+- Resolve placement freshly, use one short transaction, and lock scope clock,
+  exact session, then the exact optional lease. Revalidate the exact fence,
+  generation/fence, epoch, revocation, protocol, grant/hard-expiry, and snapshot
+  structure before reading database time after the locks.
+- Treat `running` and the accepted future `finishing` lifecycle as lease-bearing
+  active states. A live abort records `aborted`; at or after the earliest lease,
+  hard, or grant expiry, abort and expiry canonically record `expired`. An exact
+  expiry before that boundary returns a typed no-mutation failure.
+- Atomically delete the exact lease and update the parent lifecycle and
+  `updated_at` from the same database timestamp. First terminal state wins;
+  repeated exact abort/expiry calls observe the stored terminal lifecycle and
+  original timestamp without DML, relabelling, or recreated authority.
+  `committed` may be observed but is never written by B2b1.
+- Require one exact lease for an active row and no lease for a terminal row.
+  Stable `created`, `committing`, or `retrying` rows, an active row without its
+  child, a terminal row retaining a child, or abort-side same-fence snapshot
+  substitution fail as invalid authority/corruption.
+- Remain private, non-routing, and schema-neutral. Authority-drifted expired
+  rows remain inert and fail closed until a separately preflighted maintenance
+  consumer owns reclamation; B2b1 does not add a scanner or retention-floor API.
 
 Exit gate:
 
+- capability impostors fail before abort persistence, while an exact serialized
+  selector survives a fresh expiry service and remains inert lookup identity;
+- abort/expiry use `clock -> session -> lease -> database time`, stale fences
+  cannot delete a newer attempt's lease, and exact bigint boundaries pass;
+- live abort, database-proven expiry, first-terminal-wins replay, active-child
+  enforcement, and rollback after either DML statement pass on PGlite; focused
+  real Postgres proves abort-versus-expiry serialization, post-lock time edges,
+  independent-scope progress, and rollback; and
+- renewal, legacy sessions, `/invoke/*`, exports, routing, finish/commit/retry,
+  retention, and storage-generation activation remain unchanged.
+
+##### [ ] O03-B2b2 — Renew One Exact Attempt
+
+Status: next implementation gate.
+
+Outcome:
+
+- Renew only a genuine exact current `running` or `finishing` attempt. Keep
+  request/generation authority on the session and snapshot-retention authority
+  on the lease; never change the selector fence or snapshot token.
+- Use the shared fresh-resolution and `clock -> session -> lease -> database
+  time` boundary. A trusted server duration derives
+  `min(databaseNow + duration, hardExpiry, grantExpiry)`; renewal never
+  shortens the existing lease, never revives expired or terminal authority, and
+  reports an unchanged hard-cap result explicitly.
+- Reject epoch rollover and stale generation/fence/revocation authority. The
+  heartbeat cadence and first operational caller remain deferred to their own
+  host preflight.
+
+Exit gate:
+
+- renewal preserves every parent and snapshot field and changes only
+  `lease_expires_at` when extension is possible;
 - renewal, abort, and expiry serialize at the locked exact attempt; a renewal
-  that linearizes first may succeed before later terminalization, but no stale
-  fence can renew or delete a newer attempt's lease and terminalization can
-  never be resurrected;
-- repeated terminal observation never reopens authority;
-- database-time expiry edges, exact bigint boundaries, active-child
-  enforcement, and intended lock order pass on PGlite and focused real
-  Postgres; and
-- legacy sessions, `/invoke/*`, exports, routing, and storage-generation
-  activation remain unchanged.
+  that linearizes first may succeed before later terminalization, while
+  terminalization-first can never be resurrected; and
+- monotonic/capped deadline edges and renew-versus-abort/expiry races pass on
+  PGlite and focused real Postgres without adding a route or compatibility
+  bridge.
 
 Deferred ownership after O03-B:
 

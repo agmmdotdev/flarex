@@ -750,11 +750,16 @@ O03-B's atomic activation operation.
 
 O03-B owns atomic anchor/lease creation, exact-fence loading and renewal,
 abort/expiry terminalization, active-child enforcement, and stale-attempt
-rejection. It is divided into three implementation checkpoints without changing that
+rejection. It is divided into reviewable checkpoints without changing that
 authority: O03-B1 creates or exactly replays one active request anchor, O03-B2a
-reloads one exact active attempt across trusted-process boundaries, and
-O03-B2b adds renewal, abort, and expiry. It does not predeclare consumer-
-specific finish, commit, retry, or retention APIs. O08 introduces
+reloads one exact active attempt across trusted-process boundaries, O03-B2b1
+adds exact abort/expiry terminalization with first-terminal-wins observation,
+and O03-B2b2 adds renewal plus renewal-versus-terminalization race proof. A
+live abort records `aborted`; once database time reaches the earliest lease,
+hard, or grant expiry, abort and expiry canonically record `expired`. Restart-
+safe expiry uses the strict inert exact-attempt selector because live-only B2a
+loading correctly refuses expired authority. O03-B does not predeclare
+consumer-specific finish, commit, retry, or retention APIs. O08 introduces
 retry replacement when trusted OCC
 classification exists: it explicitly deletes the old lease, advances the
 parent fence, and inserts the new lease in one transaction. The foreign key

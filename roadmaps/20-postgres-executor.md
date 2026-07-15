@@ -386,8 +386,9 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
   Checked revocation and Worker/key adapters are deferred nonblockers, while
   production preparation remains deferred to roadmap 17 plus S03-D4/S04.
   O03-B1 atomic activation/exact active-anchor replay and O03-B2a restart-safe
-  exact-attempt reload are complete. O03-B2b mutating lease mechanics, semantic point
-  dependencies, OCC, commit/change feed, idempotency outcomes, leased outbox,
+  exact-attempt reload are complete. O03-B2b1 exact abort/expiry terminalization
+  is also complete; B2b2 renewal/race proof remains before
+  semantic point dependencies, OCC, commit/change feed, idempotency outcomes, leased outbox,
   and the bounded commit compiler remain unimplemented. S06/S07 storage and
   relational proofs do not claim those later semantics.
 - The current broad persistence interface and legacy invoke-session tables are
@@ -446,8 +447,9 @@ The O03-A parent is complete: protocol-only O03-A1, auth-provenance O03-A2a,
 host-neutral grant authority O03-A2b, and A2c's located current-epoch plus
 two-sided preparation boundaries all pass. O03-B1 atomic activation/exact
 active-anchor replay and O03-B2a restart-safe exact-attempt reload also pass.
-O03-B2b renewal/abort/expiry mechanics are next; operational revocation and
-hosted Worker/key adapters do not block them.
+O03-B2b1 exact abort/expiry terminalization also passes. O03-B2b2 renewal/race
+proof is next; operational revocation and hosted Worker/key adapters do
+not block them.
 
 Follow the interleaved foundation order rather than pulling build/readiness
 work forward:

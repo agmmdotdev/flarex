@@ -14,12 +14,14 @@ revocation and hosted Worker/key adapters are deferred nonblocking gates for
 their first real consumers. The accepted `O03-B1`/`O03-B2a`/`O03-B2b` split
 consumes only the final opaque prepared-start capability. B1's atomic
 activation/exact active-anchor replay and B2a's restart-safe exact-attempt
-reload are complete; B2b renewal, abort, and expiry are next before O04.
+reload are complete. B2b now closes through B2b1 exact abort/expiry
+terminalization followed by B2b2 renewal and cross-operation race proof;
+B2b1 is complete and B2b2 is next before O04.
 
 | Stream | Current status |
 | --- | --- |
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, and narrow `S07-A` complete |
-| OCC/transactions | Private non-routing `O02`, all of `O03-A`, `O03-B1` activation/replay, and `O03-B2a` restart-safe exact-attempt reload are complete; standalone `O01` retired before implementation; `O03-B2b` mutating exact-fence lifecycle mechanics are next, while operational revocation and hosted adapters remain deferred nonblockers |
+| OCC/transactions | Private non-routing `O02`, all of `O03-A`, `O03-B1` activation/replay, `O03-B2a` restart-safe exact-attempt reload, and `O03-B2b1` exact terminalization are complete; standalone `O01` retired before implementation; `O03-B2b2` renewal/race proof is next and closes the B2b parent, while operational revocation and hosted adapters remain deferred nonblockers |
 | Commit compiler | Planned; `C01` is the first unchecked compiler gate |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
@@ -240,7 +242,10 @@ types and ports are introduced by the gates that first consume them.
 10. `O03-B1` (complete): private atomic session/lease activation plus exact active-anchor
     replay.
 11. `O03-B2a` (complete): restart-safe exact-attempt reload and a fresh private capability.
-12. `O03-B2b` (next): private exact-fence renewal, abort, and expiry mechanics.
+12. `O03-B2b` (parent): private exact-fence lifecycle mechanics.
+    - `O03-B2b1` (complete): exact abort/expiry terminalization and idempotent
+      terminal observation.
+    - `O03-B2b2` (next): exact renewal plus renewal-versus-terminalization race proof.
 13. `O04`: exact-snapshot point reads including missing-row dependencies.
 14. `O05`: pure point-OCC validator.
 15. `C01`: narrow compiler/executor ports without endpoint changes.
@@ -249,8 +254,8 @@ types and ports are introduced by the gates that first consume them.
 18. `C04`: pure deterministic point-row planner.
 
 `O03-B1` establishes atomic activation and exact active-anchor replay;
-`O03-B2a` closes restart-safe exact-attempt reload; and `O03-B2b` closes the
-mutating renewal/abort/expiry mechanics. Together they
+`O03-B2a` closes restart-safe exact-attempt reload; and `O03-B2b1` plus
+`O03-B2b2` close terminalization and renewal respectively. Together they
 define the active-session/current-lease invariant without guessing
 consumer-specific lifecycle APIs. `C05`, the first private commit consumer,
 introduces the exact-fence transition to `finishing`; C06 orchestrates it
