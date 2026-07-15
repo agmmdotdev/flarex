@@ -87,16 +87,21 @@ a real executor, transaction, or sync engine. The current app owns:
 - resumable SessionDO facet cleanup, mock-to-sync cleanup, RunDO cleanup, and a
   retained campaign/session/sync tombstone proving the terminal cleanup fence.
 
-This slice is still local and dry-run-only. The app-local
+This slice has complete local evidence and one sanitized production-eligibility
+attempt. The app-local
 [`P08-PRODUCTION-PREFLIGHT.md`](./P08-PRODUCTION-PREFLIGHT.md) freezes the
 isolated resources, budget, corrected one-campaign smoke/measurement flow,
-evidence destination, and teardown order. Its remaining prerequisite is exact
-authenticated Cloudflare account, Paid-plan, resource-ownership, and cost-target
-proof. `P07B` does not make a lost JavaScript call stack resumable: it seals the
-run and records the claim as `abandoned`. SessionDO cleanup explicitly deletes
-facet databases, removes supervisor probe rows, and retains one exact
-completion/fence tombstone; final namespace and Worker Loader code-cache
-teardown remains a `P11` responsibility.
+evidence destination, and teardown order. The first target rejected the gateway
+before creation because it was not Workers Paid; the private sync and mock
+Workers were removed and no sample ran. The sanitized result and final absence
+proof are in
+[`P09-PRODUCTION-ATTEMPT-1.md`](./P09-PRODUCTION-ATTEMPT-1.md). A Standard
+default usage-model setting is not Paid-subscription evidence. `P07B` does not
+make a lost JavaScript call stack resumable: it seals the run and records the
+claim as `abandoned`. SessionDO cleanup explicitly deletes facet databases,
+removes supervisor probe rows, and retains one exact completion/fence tombstone;
+final namespace and Worker Loader code-cache teardown after a successful run
+remains a `P11` responsibility.
 
 All durations are caller-local monotonic round trips. The protocol never
 subtracts absolute timestamps created by different isolates.

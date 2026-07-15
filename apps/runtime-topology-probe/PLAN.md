@@ -1,7 +1,8 @@
 # Runtime Topology Probe Turn Plan
 
 Status: experimental evidence plan; `P00` through `P07B` complete locally.
-`P08` through `P11` remain pending their gate-specific preflight.
+The first production target failed the P08 Paid-eligibility gate before P09
+smoke execution and was fully cleaned up; P10 and P11 evidence remain pending.
 
 This file owns a bounded production probe for measuring Cloudflare runtime
 communication. It is local to `apps/runtime-topology-probe`; it is not an
@@ -513,14 +514,19 @@ local matrix, schema-valid export, typecheck, tests, and deployment dry-runs.
 
 ### P08 - Production Deployment Preflight
 
-Status: local evidence complete; external target identification pending.
+Status: local evidence complete; first authenticated target proven ineligible
+and cleaned up; eligible Workers Paid target pending.
 
 This is a discussion/evidence gate before external state changes.
 
 The frozen target, budget, commands, corrected smoke/measurement sequence, and
-teardown are recorded in `P08-PRODUCTION-PREFLIGHT.md`. The remaining exit
-condition is interactive Wrangler authentication followed by exact account,
-Paid-plan, workers.dev subdomain, resource-ownership, and cost-ceiling proof.
+teardown are recorded in `P08-PRODUCTION-PREFLIGHT.md`. Authentication,
+workers.dev subdomain, resource ownership, and the USD 2 incremental-cost
+ceiling were proven. The first gateway upload returned Cloudflare code `10195`:
+the account's Standard default usage-model setting did not prove a Workers Paid
+subscription. The remaining exit condition is direct Paid-plan evidence for an
+already eligible target; purchasing or changing a plan is outside the current
+authorization.
 The future P11 namespace-removal configs and Worker-deletion commands are
 checked in and locally dry-run validated; they do not authorize or perform an
 external deletion.
@@ -540,7 +546,11 @@ scope would expand.
 
 ### P09 - Deploy And Smoke The Isolated Probe
 
-Status: pending.
+Status: attempt 1 stopped before gateway creation; cleanup complete; no smoke
+or latency evidence. A future attempt awaits an eligible Workers Paid target.
+
+The sanitized attempt and absence proof are recorded in
+`P09-PRODUCTION-ATTEMPT-1.md`.
 
 Deliver:
 
@@ -600,12 +610,13 @@ teardown are complete.
 
 - Active goal: build and validate the isolated production runtime-topology
   probe through separately approved gates.
-- Current gate: `P08` local evidence is complete; external target identity is
-  pending because Wrangler is not authenticated on this machine. Teardown
-  migrations and script-deletion commands are concrete and locally dry-run
-  validated, so P09 will not create resources without a rehearsed P11 path.
-- Next action: authenticate Wrangler, name and verify the exact isolated
-  Cloudflare account/resources, then execute the corrected P09 smoke without
-  purging the campaign.
+- Current gate: `P08` is blocked on an eligible Workers Paid target. The first
+  authenticated target rejected the gateway with code `10195`; its prior
+  Standard usage-model setting was insufficient evidence. All scripts and
+  namespaces created by that attempt are absent.
+- Next action: identify an already eligible Workers Paid target within the
+  existing USD 2 incremental ceiling, prove that subscription directly, then
+  restart P09 from the same clean app checkpoint and fresh resource names. A
+  subscription purchase or plan change requires new user authorization.
 - Goal completion condition: production evidence and analysis are recorded and
   the approved cleanup/retention action is verified.

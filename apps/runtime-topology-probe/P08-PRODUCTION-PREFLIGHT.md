@@ -1,7 +1,7 @@
 # P08 Production Deployment Preflight
 
-Status: local evidence complete; authenticated target verified in the task
-receipt; incremental-cost authorization pending.
+Status: local evidence complete; first authenticated target proven ineligible
+for Dynamic Workers; failed deployment attempt cleaned up.
 
 This record freezes the production target, budget, run order, evidence path,
 and teardown requirements for the isolated runtime-topology experiment. It is
@@ -10,22 +10,35 @@ binding or data access.
 
 ## Current External Target Evidence
 
-The authenticated 2026-07-15 task receipt confirms one selected account, the
-required Worker permissions, an account usage model compatible with Dynamic
-Workers, the workers.dev subdomain, and absence of all three isolated Worker
-names. Wrangler authentication is therefore no longer a P08 stop condition.
-The exact account identifier, email, subdomain, OAuth token, current usage
-values, and account resource inventory remain deliberately outside Git.
+The authenticated 2026-07-15 task receipt confirmed one selected account, the
+required Worker permissions, the Standard default usage-model setting, the
+workers.dev subdomain, and absence of all three isolated Worker names. The
+owner also authorized the incremental-cost boundary below. The subsequent
+gateway upload was rejected with Cloudflare API code `10195`, which requires
+switching to Workers Paid before using Dynamic Workers. That direct capability
+response proves that the selected account is not eligible.
+
+The private sync and mock Workers created before that rejection were removed
+through the checked-in teardown path. The gateway never existed, no bearer
+secret or route was installed, no campaign or facet ran, all three script names
+are absent, the account namespace result is empty, and current Dynamic Worker
+usage remains zero. The sanitized sequence is recorded in
+[`P09-PRODUCTION-ATTEMPT-1.md`](./P09-PRODUCTION-ATTEMPT-1.md). The exact
+account identifier, email, subdomain, OAuth token, current usage values, and
+account resource inventory remain deliberately outside Git.
 
 Recheck authentication and all three names immediately before every production
-deployment. Treat an account API's Standard usage-model setting as evidence of
-Workers Paid eligibility, not as a direct billing-subscription receipt. Do not
-deploy if `whoami` identifies zero or multiple accounts, a name is unexpectedly
-owned, the account setting changes, or a required read-only check fails.
+deployment. A Standard default usage-model setting is a Worker configuration
+choice, not proof of a Workers Paid subscription or Dynamic Worker eligibility.
+A future target must provide direct Paid-plan evidence, such as an authenticated
+billing/subscription receipt or dashboard confirmation, before any upload.
+Do not deploy if `whoami` identifies zero or multiple accounts, direct Paid
+eligibility is missing, a name is unexpectedly owned, or a required read-only
+check fails.
 
-The remaining P08 stop condition is explicit owner authorization of the
-incremental-cost boundary below. It is not a request for approval at every
-later experiment gate.
+The remaining P08 stop condition is an eligible Workers Paid target. The
+approved USD 2 incremental experiment ceiling does not authorize purchasing or
+changing a subscription.
 
 ## Frozen Isolated Resource Graph
 
@@ -118,11 +131,11 @@ run, and the 684-request operational ceiling fit the accepted cost ceiling.
 
 ## Cost Authorization And Enforcement
 
-The proposed authorization ceiling is **USD 2 of incremental Cloudflare spend
-for this experiment**. It excludes the account's existing Workers Paid minimum
+The owner authorized **USD 2 of incremental Cloudflare spend for this
+experiment** on 2026-07-15. It excludes any existing Workers Paid minimum
 subscription and authorizes no subscription purchase, plan change, usage-model
-change, unrelated workload, or larger retry. Owner authorization is pending
-until it is recorded in the task receipt.
+change, unrelated workload, or larger retry. The authorization remains valid
+only for the frozen experiment on an already eligible target.
 
 This is an operational stop boundary, not a Cloudflare billing cap. Cloudflare
 does not expose a per-experiment dollar limit, and usage analytics can lag. The
@@ -344,13 +357,20 @@ remote-state check must pass before the next numbered step begins.
    corepack pnpm --filter @flarex/runtime-topology-probe exec wrangler delete --config wrangler.sync.teardown.jsonc
    ```
 
-For either namespace check, a first-page API response is never proof of
-absence. Request the maximum supported `per_page=1000`, require
-`success === true`, and inspect every page from 1 through
-`result_info.total_pages`. Stop if pagination metadata is absent or
-inconsistent, any page fails, or the combined result cannot be checked. Only
-the fully concatenated result may prove that the exact Worker `script` plus
-class pairs are absent:
+For either namespace check, request the maximum supported `per_page=1000` and
+require `success === true` with no errors or messages. When
+`result_info.total_count` is greater than zero, require a consistent
+`result_info.total_pages` and inspect every page from 1 through that value. Stop
+if pagination metadata is absent or inconsistent, any page fails, or the
+combined result cannot be checked.
+
+Cloudflare's live empty-account response omits the optional `total_pages`
+field. That response proves absence only when page 1 has `per_page=1000`,
+`total_count === 0`, and an empty result, and a second default-page request
+independently returns the same authoritative zero total. A non-empty first page
+alone is never proof of absence. Only the fully concatenated result or that
+strict empty-account case may prove that the exact Worker `script` plus class
+pairs are absent:
 
 - `flarex-runtime-topology-probe-gateway` with `ProbeSessionDO`, `ProbeRunDO`,
   and `ProbeCampaignDO`; and
