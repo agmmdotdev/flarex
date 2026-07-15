@@ -24,10 +24,14 @@ correctness and the quality of TypeScript/Effect implementation.
   `typescript-diff-reviewer` and `code-quality-diff-reviewer`. Docs-only,
   formatting-only, generated refresh, and minor mechanical changes do not
   require them.
-- Reviewer behavior is defined in `.codex/agents/`. When Effect is in scope,
-  both reviewers must read `.codex/agents/effect-review-guide.md`, apply its
-  examples and exceptions, and report the Effect constructs they actually
-  inspected.
+- Effect implementation and review use the global `effect-ts-patterns` skill
+  plus `.codex/agents/effect-review-guide.md`. The skill owns reusable workflow
+  and curated examples; the checked-in overlay owns Flarex's version-specific
+  APIs, contracts, Cloudflare boundaries, and reviewer responsibility split.
+- The Effect standard is active during implementation rather than deferred to
+  review. Neighboring inconsistent code is not precedent, and bounded
+  behavior-preserving touched-flow debt is corrected in the approved slice
+  when focused validation exists.
 - Effect review includes the smallest connected operation, service/Layer,
   runtime boundary, and direct call path. Concrete pre-existing debt may be
   reported when the diff materially exercises or relies on it, but reviewers
@@ -53,10 +57,11 @@ touched-flow debt and must explain the connection to the change. Higher
 severity still requires evidence of real correctness, security, data-loss,
 compatibility, reliability, or operational impact.
 
-## Effect Review Boundary
+## Effect Implementation And Review Boundary
 
-The shared Effect guide records the durable distinctions established from the
-current Effect v4 source and application evidence:
+The global skill and Flarex overlay record the durable distinctions established
+from the current Effect v4 source, Flarex code, and curated T3 Code application
+evidence:
 
 - observable Effect-producing operations and service-method implementations
   normally use named `Effect.fn`;
@@ -95,8 +100,12 @@ Effect migration.
 
 - `AGENTS.md` is the workspace workflow authority.
 - `.codex/agents/*.toml` is the source of truth for each reviewer.
-- `.codex/agents/effect-review-guide.md` is the shared Effect review decision
-  guide and contains checked-in examples.
+- `C:\Users\Admin\.codex\skills\effect-ts-patterns\SKILL.md` is the global
+  implementation and review workflow; its optional references contain the
+  detailed pattern catalog and curated examples.
+- `.codex/agents/effect-review-guide.md` is the concise Flarex overlay for
+  installed-version facts, contracts, platform boundaries, review scope, and
+  reviewer ownership.
 - `opensrc/repos/github.com/effect-TS/effect-smol` is the preferred local API
   and library-pattern reference when available.
 - `opensrc/repos/github.com/pingdotgg/t3code` provides curated application
@@ -106,7 +115,7 @@ Effect migration.
   Convex-inspired behavior.
 
 The local `opensrc/` cache is optional and may be refreshed for deeper research.
-The checked-in shared guide keeps the reviewer decision rules available when
+The global skill and checked-in overlay keep the decision rules available when
 that cache is absent.
 
 ## Known Limitations

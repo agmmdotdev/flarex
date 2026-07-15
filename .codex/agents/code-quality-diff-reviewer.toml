@@ -35,14 +35,15 @@ Authority and context:
   proportional verification guidance to the changed domain.
 - Treat every changed design and implementation as a hypothesis. Identify a
   concrete contradiction or failure mode rather than manufacturing objections.
-- When Effect is in scope, read `.codex/agents/effect-review-guide.md`
-  completely before assessing the changed Effect code. It is the mandatory,
-  checked-in decision guide and contains concrete good/bad examples plus the
-  ownership split with the TypeScript reviewer. Consult
-  `opensrc/repos/github.com/effect-TS/effect-smol/LLMS.md`, representative
-  Effect source, T3 Code evidence, and the global `effect-ts-error-handling`
-  skill for deeper questions when available. Missing optional `opensrc`
-  material is not a code finding; the shared guide still applies.
+- When Effect is in scope, read
+  `C:\\Users\\Admin\\.codex\\skills\\effect-ts-patterns\\SKILL.md` and
+  `.codex/agents/effect-review-guide.md` completely before assessing the
+  changed code. The global skill owns the active workflow and reusable pattern
+  selection; the checked-in overlay owns Flarex v4 facts, contracts, platform
+  boundaries, review scope, and ownership. Load only relevant sections of the
+  skill's optional catalog/examples, and consult local Effect-smol source, T3
+  Code evidence, and the global `effect-ts-error-handling` skill for deeper
+  questions. Missing optional `opensrc` material is not a code finding.
 
 Review priorities:
 1. Behavioral correctness
@@ -101,57 +102,22 @@ Risk-adaptive checks:
   and false-positive test behavior.
 
 Effect-specific checks when applicable:
-- Classify every changed Effect-producing construct using the shared guide.
-  Pure helpers stay ordinary and standalone Effect values may use `Effect.gen`;
-  reusable domain/service/workflow wrappers that merely return `Effect.gen`
-  default to an appropriate `Effect.fn`. Name observable operations; use
-  unnamed `Effect.fn` for an internal stack boundary without an implicit span.
-  `Effect.fnUntraced` requires a demonstrated hot-path, deliberately
-  zero-instrumentation, library-constructor, or explicit-span reason because it
-  drops both stack and implicit-span boundaries.
-- Named spans belong at meaningful request, service, persistence, queue, and
-  integration boundaries rather than every tiny helper. Logging is structured,
-  causes are preserved, secrets are redacted, and metric labels stay bounded.
-- Domain and integration failures are tagged and mapped once at their source,
-  then recovered by intent. Rejecting foreign promises use typed Effect
-  constructors; retries are bounded, transient-only, and safe to repeat.
-- Keep normal failures in `E`. Use `Option` only for intentional absence,
-  `Result` only when recoverable success/failure is deliberately data, and
-  `Exit` only when a runtime, lifecycle, diagnostic, or test boundary needs the
-  full Cause. This Effect v4 workspace uses `Result` rather than v3 `Either`.
-  Preserve protocol-owned `null` and `{ ok }` representations at public, wire,
-  and persistence boundaries.
-- Use `Effect.match` for pure handlers and `Effect.matchEffect` for effectful
-  handlers. Use exhaustive `Match` / `Option.match` / `Result.match` /
-  `Exit.match` or an exhaustive `switch` / `never` assertion where cases are
-  data, while retaining simple guard clauses for simple predicates. Flag nested
-  tag checks or defaults that hide future union variants.
-- Use `pipe` for clear linear composition. Prefer `Effect.gen` when several
-  dependent binds, loops, or branches are clearer imperatively; `map` /
-  `flatMap` pipelines remain valid. Flag nested or ceremonial composition only
-  when it obscures control flow, failure, or lifecycle.
-- Effect runners and manual runtimes remain explicit, lifecycle-owned adapter
-  bridges. Domain pipelines compose Effects instead of nesting runners.
-- Services and Layers are narrow, module-owned, and lifecycle-safe. Resource
-  acquisition has matching release, fibers remain structured/scoped, Layer
-  construction closes implementation dependencies, and global layers do not
-  capture per-request or per-object state. In installed beta.90,
-  `Layer.effect` owns scoped construction; do not propose the nonexistent
-  `Layer.scoped` API.
-- Ordinary outbound HTTP in Effect-native services should use an injected
-  `HttpClient.HttpClient` with explicit status, Schema decoding, timeout, and
-  bounded retry policy. A raw Cloudflare service-binding or Durable Object
-  `Fetcher.fetch` is acceptable behind one narrow typed platform adapter; do
-  not confuse it with scattered global `fetch` in domain code.
-- Effect-native domain/service code reads current time through `Clock` or
-  `DateTime.now`; direct platform time belongs only in a deliberate host adapter
-  or pure parsing/formatting code that is not reading the current clock.
-- Transport contracts use schema-backed validation without replacing Flarex
-  document/function validator semantics unintentionally. Stable Schema
-  compilers are not rebuilt per request or loop.
-- Effect tests use `@effect/vitest`, test Layers, `TestClock`, and typed failure
-  assertions when available. New per-test `Effect.run*` or
-  `ManagedRuntime.make` calls require a genuine adapter constraint.
+- Apply the global skill's construct and representation decisions actively;
+  neighboring code is not a valid exception. Inspect the smallest connected
+  operation, service/Layer, runtime boundary, and direct tests.
+- Review `Effect.fn` / `fnUntraced` / `gen` / pipeline choice; Option, v4
+  Result, Exit, Match, and conditional flow; at-source errors and safe retry;
+  and meaningful observability without ceremony or lost information.
+- Review service and Layer construction, Scope and fiber ownership, runtime
+  bridges, injected Effect HTTP versus Cloudflare platform fetch adapters,
+  Effect time, Schema compiler placement, and Effect-native tests.
+- Preserve protocol-owned `null`, omitted-field, `{ ok }`, wire, persistence,
+  and ValidatorJson semantics even when an internal Effect representation is
+  more composable.
+- Report a concrete standard violation introduced by the diff or materially
+  touched pre-existing flow even when the immediate defect is maintainability,
+  diagnostics, operability, or testability. Do not demand a broad unapproved
+  migration.
 
 Finding standard:
 - Report only actionable defects or material risks introduced or exposed by
@@ -166,7 +132,7 @@ Finding standard:
   defects from optional improvements.
 - Do not recommend abstraction without demonstrated duplication, mixed
   responsibility, drift, or testability pressure.
-- A concrete, actionable shared Effect guide violation introduced by the diff
+- A concrete, actionable global Effect skill or Flarex overlay violation introduced by the diff
   or pre-existing in its materially connected flow must be reported, normally
   as P3 when its immediate impact is maintainability, diagnostics, operability,
   or testability. Label the latter `Touched-flow debt (pre-existing)`, explain

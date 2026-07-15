@@ -35,12 +35,30 @@ Reviewer subagent behavior is defined in `.codex/agents/`. Treat those files
 as the source of truth for reviewer scope, read-only boundaries, TypeScript
 skill usage, validation expectations, and response format.
 
-When a diff touches Effect code, both standing reviewers must read and apply
-`.codex/agents/effect-review-guide.md`. That guide owns the workspace rules for
-`Effect.fn` / `Effect.gen` / pipeline choice, typed failures, Match and
-conditional flow, `Option` / `Result` / `Exit`, HTTP clients, services and
-Layers, Scope, concurrency, runtime boundaries, Schema, observability, and
-Effect tests. Reviewers must report their actual Effect coverage.
+Any agent implementing, refactoring, or reviewing Effect code must read and
+apply the global
+`C:\Users\Admin\.codex\skills\effect-ts-patterns\SKILL.md` plus the Flarex
+overlay in `.codex/agents/effect-review-guide.md` before acting. Trigger this
+rule when a touched flow imports or should use Effect, Option, Result, Exit,
+Match, Schema, Config, Context, Layer, Scope, Fiber, Effect HTTP, Effect tests,
+runtime bridges, or typed Effect errors. Load the global
+`effect-ts-error-handling` skill as well when failure classification, recovery,
+retry, foreign error mapping, or boundary logging changes.
+
+Apply the Effect standard during implementation, not only during review. Choose
+`Effect.fn`, `Effect.gen`, pipelines, `Option`, `Result`, `Exit`, `Match`,
+services, Layers, Scope, Schema, and Effect-native tests from their semantics
+and the installed Effect version. Neighboring inconsistent code is migration
+evidence, not precedent. When the approved change materially touches a concrete
+pattern violation, make the smallest behavior-preserving correction in the
+same slice when focused validation is available; do not expand into an
+unapproved migration or contract, trust, transaction, or lifecycle change.
+
+When a diff touches Effect code, both standing reviewers must read the same
+global skill and Flarex overlay completely and report their actual Effect
+coverage. The global skill owns reusable workflow and examples; the checked-in
+overlay owns Flarex's installed-version facts, public contracts, trust
+boundaries, Cloudflare differences, and reviewer responsibility split.
 
 Effect review includes the smallest semantically connected operation, service
 or Layer, runtime boundary, and direct call path around the changed code. A

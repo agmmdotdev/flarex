@@ -39,14 +39,15 @@ Authority and guidance:
   preferences. Do not demand branded types, `satisfies`, type extraction,
   compiler-option changes, or explicit annotations without a concrete defect
   or drift risk in the current diff.
-- When Effect is in scope, read `.codex/agents/effect-review-guide.md`
-  completely before assessing the changed Effect code. It is the mandatory,
-  checked-in decision guide and contains concrete good/bad examples plus
-  reviewer ownership. Consult
-  `opensrc/repos/github.com/effect-TS/effect-smol/LLMS.md`, representative
-  Effect source, and the global `effect-ts-error-handling` skill for deeper API
-  or failure-model questions when available. Missing optional `opensrc`
-  material is not a code finding; the shared guide still applies.
+- When Effect is in scope, read
+  `C:\\Users\\Admin\\.codex\\skills\\effect-ts-patterns\\SKILL.md` and
+  `.codex/agents/effect-review-guide.md` completely before assessing the
+  changed code. The global skill owns the active workflow and reusable pattern
+  selection; the checked-in overlay owns Flarex v4 facts, contracts, platform
+  boundaries, review scope, and ownership. Load only relevant sections of the
+  skill's optional catalog/examples, and consult local Effect-smol source plus
+  the global `effect-ts-error-handling` skill for deeper API or failure-model
+  questions. Missing optional `opensrc` material is not a code finding.
 
 Review priorities:
 1. Contract agreement: static types, runtime decoders, schemas, persisted data,
@@ -74,50 +75,26 @@ Risk-adaptive checks:
   not merely that a value can be assigned to a type.
 
 Effect-specific checks when applicable:
-- Classify each changed construct using the shared guide. Pure functions remain
-  ordinary TypeScript and standalone Effect values may use `Effect.gen`, but a
-  new reusable or service-method function whose body merely returns
-  `Effect.gen` requires a concrete exception or an appropriate `Effect.fn`
-  boundary. Name observable operations; unnamed `Effect.fn` is valid for an
-  internal stack-frame boundary without an implicit span.
-- Verify precise `Effect.Effect<A, E, R>` channels. Use `Effect.fn.Return` where
-  an exported, generic, or service boundary needs explicit stabilization; do
-  not erase failures or requirements with assertions, global `Error`, or
-  `unknown`.
-- Verify that the representation matches the contract: `Option` for intentional
-  composable absence, `Result` for recoverable success/failure deliberately
-  retained as data, and `Exit` only where the full Cause is required. This
-  Effect v4 workspace uses `Result` rather than v3 `Either`. Conversions through
-  `Effect.option`, `Effect.result`, or `Effect.exit` must not erase information
-  the caller needs. Preserve protocol-owned `null` and `{ ok }` representations
-  at public, wire, and persistence boundaries.
-- Tagged unions and outcome types are handled exhaustively. Prefer
-  `Match.typeTags` / `Match.valueTags`, `Option.match`, `Result.match`, or
-  `Exit.match` when they make a missing variant a type error; an exhaustive
-  `switch` with a `never` assertion is also valid. Do not require Match for one
-  simple Boolean guard.
-- Service interfaces, `Effect.fn` implementations, Context identities, Layer
-  dependencies, runtime decoders, wire schemas, and tests must agree. Service
-  methods must not leak implementation-only requirements after construction.
-- Runtime/API contracts use Effect Schema or protocol-owned decoders as their
-  source of truth. Throwing compatibility helpers wrap typed paths rather than
-  becoming a second decoder.
-- Stable Schema decoder/encoder compilers are hoisted out of per-call paths;
-  dynamic schemas are compiled once at their narrowest stable factory boundary.
-- Domain and integration failures are tagged at source, remain distinguishable,
-  and are not repeatedly remapped downstream. Schema-backed errors are used
-  when encoding is part of the contract.
-- Effect runners and manual runtimes stay at real adapter/test boundaries;
-  Effect code composes with `yield*` or combinators rather than nested runners.
-- Ordinary outbound HTTP in Effect-native services uses an injected
-  `HttpClient.HttpClient` when practical, with explicit status and Schema
-  decoding contracts. Cloudflare service-binding and Durable Object
-  `Fetcher.fetch` calls may remain behind a narrow typed platform adapter.
-- Service and Layer types do not capture request-, Worker-, or Durable
-  Object-scoped state in unsafe global singletons. In installed beta.90,
-  `Layer.effect` owns scoped construction; do not propose the nonexistent
-  `Layer.scoped` API.
-- Effect Schema does not silently replace Flarex `ValidatorJson` semantics.
+- Apply the global skill's construct and representation decisions actively;
+  neighboring code is not a valid exception. Inspect the smallest connected
+  operation, service/Layer, runtime boundary, and direct tests.
+- Verify exact `A`, `E`, and `R`, return-type stabilization where needed,
+  service/Layer requirement closure, and static/runtime/encoded contract
+  agreement.
+- Verify that `Option`, v4 `Result`, and `Exit` are used only for their intended
+  semantics and that public `null`, omitted-field, `{ ok }`, wire, and
+  persistence shapes remain owned by their protocols.
+- Verify exhaustive tagged and outcome handling where future variants matter;
+  simple predicates may remain ordinary guards.
+- Verify tagged errors are mapped once at source, Schema-backed errors are used
+  when encoding is required, and runtime/API decoders remain the source of
+  truth.
+- Verify runtime runners, Context services, Layers, Scope, Effect HTTP, Schema
+  compilers, and Effect tests agree with the Flarex overlay and installed v4
+  APIs.
+- Report a concrete standard violation introduced by the diff or materially
+  touched pre-existing flow even when the immediate defect is maintainability,
+  diagnostics, or testability. Do not demand a broad unapproved migration.
 
 Finding standard:
 - Report only actionable defects or material risks introduced or exposed by
@@ -131,7 +108,7 @@ Finding standard:
 - Distinguish blocking correctness or compatibility defects from optional
   improvements. Avoid extraction advice without demonstrated duplication or
   drift risk.
-- A concrete, actionable shared Effect guide violation introduced by the diff
+- A concrete, actionable global Effect skill or Flarex overlay violation introduced by the diff
   or pre-existing in its materially connected flow must be reported, normally
   as P3 when its immediate impact is maintainability, diagnostics, or
   testability. Label the latter `Touched-flow debt (pre-existing)`, explain how
