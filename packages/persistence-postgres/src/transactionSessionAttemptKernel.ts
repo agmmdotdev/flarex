@@ -70,6 +70,24 @@ export interface LocatedExactRunningAttemptKernelV1
   ) => Promise<Result>;
 }
 
+/**
+ * Package-internal read-only capability used by detached attempt evidence
+ * loaders. It deliberately cannot run a caller callback under mutation locks.
+ */
+export interface LocatedRepeatableReadAttemptTargetV1
+  extends LocatedScopeClockReader {
+  readonly [RUN_LOCATED_REPEATABLE_READ_V1]: <Result>(
+    work: (tx: AppRowTransaction) => Promise<Result>,
+  ) => Promise<Result>;
+}
+
+export function isLocatedRepeatableReadAttemptTargetV1(
+  target: LocatedScopeClockReader,
+): target is LocatedRepeatableReadAttemptTargetV1 {
+  return typeof Reflect.get(target, RUN_LOCATED_REPEATABLE_READ_V1) ===
+    "function";
+}
+
 export function isLocatedExactRunningAttemptKernelV1(
   target: LocatedScopeClockReader,
 ): target is LocatedExactRunningAttemptKernelV1 {

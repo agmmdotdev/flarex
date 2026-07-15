@@ -861,10 +861,16 @@ CommitEnvelopeV1
   session id, attempt fence, protocol versions, final syscall sequence,
   journal carriage and digest, sibling successful-result evidence
 
-CommitPlanner
-  trusted catalog lookup and adapter-specific logical lowering
+AuthenticatedStoredAttemptV1 (introduced by C04A)
+  runtime-unforgeable process-local proof of the exact Postgres-stored seal
 
-PreparedCommitV1 (introduced by C04)
+VerifiedCommitInput (introduced by C04B)
+  authenticated evidence plus authoritative catalog, policy, and return facts
+
+CommitPlanner (introduced by C04C)
+  database-free adapter-specific logical lowering
+
+PreparedCommitV1 (introduced by C04C)
   process-local verified dependencies, final rows, physical operations,
   lock ordering, change atoms, and outbox templates
 
@@ -1038,7 +1044,7 @@ C03A gives that point consumer only an opaque pinned-table capability. It
 resolves `(deploymentId, schemaVersionId, tableName)` from the immutable pinned
 manifest, where membership and declared table ID are authoritative, and checks
 the stable deployment binding only as corroboration. It never reads the mutable
-active-schema pointer and is not C04's broader catalog/policy reader.
+active-schema pointer and is not C04B's broader catalog/policy reader.
 
 C03 persists four exact-attempt tables: one bounded root, one replace-in-place
 latest receipt, at most 4,096 qualified point dependencies with deterministic
@@ -1079,13 +1085,23 @@ private candidate, and validates canonical journal/result encoding and
 SHA-256. Caller-visible preparation and result evidence are defensive copies.
 A short exact-attempt transaction finally revalidates the candidate and stores
 the sealed evidence; stale candidates fail rather than widening lock scope.
-C04 reloads that trusted stored evidence, compares canonical bytes, journal
-digest, final sequence, and result evidence, then derives the first process-
-local `PreparedCommitV1` from verified catalog and policy facts. SHA-256 proves
-byte integrity only; authenticating the Postgres session/fence does not
-authenticate arbitrary inline journal bytes. C05 introduces the private exact-
-fence `running` to `finishing` transition; C06 later orchestrates it
-idempotently through the finish endpoint.
+C04A reloads that trusted stored evidence through a fresh opaque server-
+authority capability, rejects inline carriage before database work, and
+compares canonical bytes, journal digest, final sequence, result evidence,
+point evidence, and the complete scalar seal identity. It accepts only a live
+`running + sealed` attempt for initial planning or `finishing + sealed` for
+reconstruction, and returns a runtime-unforgeable process-local
+`AuthenticatedStoredAttemptV1`. A committed observation is typed as already
+committed and non-plannable; committed-outcome resolution remains C06/O07.
+C04B later adds authoritative catalog, policy, and return validation to produce
+`VerifiedCommitInput`; C04C then performs database-free deterministic lowering
+to `PreparedCommitV1`. SHA-256 proves byte integrity only; authenticating the
+Postgres session/fence does not authenticate arbitrary inline journal bytes.
+C03 seals while the session remains `running`, and that sealed root rejects
+later syscalls. C05 later locks and revalidates the detached scalar seal
+identity before the exact-fence `running` to `finishing` transition; a recovery
+path may rerun C04A from `finishing + sealed`. C06 later orchestrates finish
+idempotently through the endpoint.
 O07 atomically deletes the exact current lease and stores committed state with
 public idempotency identity, result/error outcome, committed token, data, feed,
 and outbox. O08 owns retry replacement; O11 first consumes active floors for
@@ -1097,7 +1113,7 @@ freshness atoms, system outbox rows, actor identity, or schema authority. The
 trusted planner derives those from logical writes, the session anchor, the
 pinned catalog, and adapter rules.
 
-Through C07 the only operational carriage is `storedForSessionAttempt`: C04
+Through C07 the only operational carriage is `storedForSessionAttempt`: C04A
 reloads the exact C03-owned Postgres evidence and rejects an inline carriage
 even when its digest matches. C02 may define an `inlineUntrusted` schema variant
 for forward compatibility, but it is deliberately dormant and non-consumable.
@@ -1196,9 +1212,11 @@ Requirements:
   defines restart-safe exact-fence load; O03-B2b1 defines abort and expiry;
   O03-B2b2 renewal remains conditional on a proven long-running-attempt
   consumer and is not a prerequisite for bounded private execution;
-- C05 introduces the private exact-fence transition to `finishing`; C06
-  orchestrates it idempotently through the finish endpoint, while C03 rejects
-  subsequent syscalls;
+- C03 sealing is the syscall barrier while the session is still `running`;
+  C04A authenticates that stored seal outside the later commit transaction,
+  and C05 locks and revalidates its scalar identity before the private exact-
+  fence transition to `finishing`; reconstruction may authenticate the same
+  sealed attempt from `finishing`, while C06 owns endpoint orchestration;
 - O07 deletes the exact current lease and enters `committed` only in the atomic
   publication/outcome transaction;
 - O08 handles a trusted OCC retry from `finishing` by atomically entering `retrying`,

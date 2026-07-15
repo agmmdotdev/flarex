@@ -1,10 +1,11 @@
 # Flarex Commerce/CMS v1 Schema Cutline
 
 Status: accepted v1 implementation cutline; the internal S06 row kernel, S07
-transaction-session authority tables, and O04 private exact-snapshot semantic
-point reads are implemented, while point OCC, sidecars, target activation,
-prototype retirement, and hosted routing remain incomplete; shipped-state
-migration remains conditional
+transaction-session authority tables, O04/O05 point read/OCC semantics, C03
+trusted point journal, and C04A stored-attempt authentication are implemented,
+while commit planning/publication, sidecars, target activation, prototype
+retirement, and hosted routing remain incomplete; shipped-state migration
+remains conditional
 
 Authoritative review:
 
@@ -1040,20 +1041,26 @@ located scope clock; O03-A consumes it for the signed grant contract. The
 required O03-B core owns the active-session child-existence invariant, atomic
 creation, exact-fence loading, abort/expiry, and stale-attempt rejection.
 O03-B2b2 renewal is conditional on a proven long-running-attempt consumer and
-does not block exact-snapshot reads or the private C07 proof. C05 introduces
-the private exact-fence transition to `finishing`, C06 orchestrates it
-idempotently through
-the finish endpoint, C03 rejects late syscalls, O07 atomically deletes the
-exact lease and stores committed state, O08 owns retry replacement, and O11
-first consumes active snapshot floors for history retention.
+does not block exact-snapshot reads or the private C07 proof. C03 seals while
+the attempt remains `running`, and that seal rejects later syscalls. C04A
+authenticates the detached seal for initial work or reconstructs it from
+`finishing + sealed`; C04B/C04C verify and plan. C05 locks and revalidates the
+scalar seal identity before the exact-fence transition to `finishing`, C06
+orchestrates the endpoint, O07 atomically deletes the exact lease and stores
+committed state, O08 owns retry replacement, and O11 first consumes active
+snapshot floors for history retention.
 
 C02 owns only the canonical syscall-sequence and journal/result/envelope
 representation plus integrity digests. C03 owns operational sequence and limit
-accounting and the first trusted Postgres-stored attempt evidence. C04 owns the
-fresh current-attempt/lease/fence reload, exact stored-evidence comparison, and
-replay decision before producing a process-local prepared plan. A matching
-digest does not authenticate caller-supplied inline bytes. S09/O07 own public
-idempotency, result/error, committed token, and uncertain-outcome recovery.
+accounting and the first trusted Postgres-stored attempt evidence. C04A owns a
+fresh opaque-authority reload of the exact live `running + sealed` or
+`finishing + sealed` attempt and produces only a runtime-unforgeable process-
+local authenticated capability. It rejects inline carriage before database
+work and treats `committed` as typed already-committed/non-plannable rather than
+deciding replay. C04B owns authoritative catalog, policy, and return validation;
+C04C owns the pure prepared plan. A matching digest does not authenticate
+caller-supplied inline bytes. S09/O07 own public idempotency, result/error,
+committed token, and uncertain-outcome recovery.
 Snapshot leases prevent engine-history GC from passing a live attempt.
 
 ### `fx_outbox`: keep

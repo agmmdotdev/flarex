@@ -923,6 +923,8 @@ describe("current-epoch transaction-grant admission", () => {
         sessionId: created.anchor.sessionId,
         attemptFence: created.anchor.attemptFence,
       },
+      storageGeneration: created.anchor.storageGeneration,
+      storageGenerationFence: created.anchor.storageGenerationFence,
       snapshotToken: created.anchor.snapshotToken,
       schemaVersionId: "schema_a2b",
     });

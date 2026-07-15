@@ -14,7 +14,8 @@ activation, O03-B2a restart-safe reload, and O03-B2b1 exact abort/expiry
 terminalization complete the required O03-B authority core. O04's private
 exact-snapshot point-read semantics and dependencies are complete; O05 pure
 point-OCC validation is also complete. Standalone C01 was retired before
-implementation, C02's inert logical protocol is complete, and C03 is the next
+implementation; C02's inert logical protocol, C03's trusted point journal, and
+C04A's private stored-attempt authentication are complete, and C04B is the next
 master-order gate.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
@@ -619,8 +620,9 @@ extension and does not determine this parent's completion.
 Status: complete as a private, non-routing exact abort/expiry terminalization
 boundary with idempotent first-terminal-state observation. This closes the
 required O03-B authority core. O04 and O05 are complete; standalone C01 is
-retired, C02's inert logical protocol is complete, and C03 is next in the
-master order.
+retired, C02's inert logical protocol, C03's trusted point journal, and C04A's
+stored-attempt authentication are complete, and C04B is next in the master
+order.
 
 Outcome:
 
@@ -709,9 +711,11 @@ Exit gate:
 
 Deferred ownership after the required O03-B core:
 
-- `C05` introduces the private exact-fence transition to `finishing`; `C06`
-  orchestrates it idempotently through the finish endpoint, and `C03` rejects
-  later syscalls;
+- C03 seals while the attempt is `running`, and that sealed root rejects later
+  syscalls. C04A authenticates only a live `running + sealed` attempt for
+  initial planning or `finishing + sealed` for reconstruction. `C05` locks and
+  revalidates its scalar seal identity before the private exact-fence
+  transition to `finishing`; `C06` owns endpoint orchestration;
 - `O07` atomically deletes the exact current lease and stores `committed` only
   inside the data/result/outcome/feed/outbox transaction;
 - `O08` introduces the checked delete/fence-advance/new-lease primitive with
@@ -787,7 +791,8 @@ Outcome:
   fence revalidation, and same-lane serialization in O06. Its scope-clock lock
   serializes authoritative V1 commits, so O05 does not invent a Convex-style
   in-memory pending-write interface. Keep same-row journal coalescing and staged
-  read-your-writes in C03/C04.
+  read-your-writes in C03; C04C later lowers the verified overlay into the
+  prepared point plan.
 - Treat authoritative revision history as the semantic source. O06 may derive
   the minimal head observation from a current pointer only after proving its
   equivalence under the same transaction; O05 never reads or blesses the
@@ -813,7 +818,7 @@ Exit gate:
 
 Outcome:
 
-- Add the short trusted transaction primitive that accepts only a typed,
+- Add the short trusted transaction primitive that accepts only C04C's typed,
   immutable prepared point plan.
 - Inside one transaction: lock the data-plane scope clock that owns the active
   generation/fence, then lock the exact session and current lease. Recheck

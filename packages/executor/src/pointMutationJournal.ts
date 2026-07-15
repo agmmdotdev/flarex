@@ -364,7 +364,9 @@ function immutableAttemptPinsEqual(
   left: LoadedPointMutationSessionAttemptInspectionV1,
   right: LoadedPointMutationSessionAttemptInspectionV1,
 ): boolean {
-  return left.schemaVersionId === right.schemaVersionId &&
+  return left.storageGeneration === right.storageGeneration &&
+    left.storageGenerationFence === right.storageGenerationFence &&
+    left.schemaVersionId === right.schemaVersionId &&
     left.snapshotToken.scopeId === right.snapshotToken.scopeId &&
     left.snapshotToken.epoch === right.snapshotToken.epoch &&
     left.snapshotToken.commitSeq === right.snapshotToken.commitSeq;

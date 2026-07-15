@@ -102,6 +102,9 @@ describe("O03-B2a point-mutation attempt loading", () => {
         sessionId: SESSION_ID,
         attemptFence: MAX_ATTEMPT_FENCE,
       },
+      storageGeneration:
+        FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+      storageGenerationFence: StorageGenerationFenceSchema.make(3n),
       snapshotToken: {
         scopeId: SCOPE_ID,
         epoch: ScopeEpochSchema.make("epoch_attempt_loading"),

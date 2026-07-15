@@ -3,9 +3,9 @@
 Status: active; S06 row storage, S07 physical session/snapshot-lease DDL, and
 O04/O05 point dependency and validation contracts exist. Standalone C01 was
 retired before implementation. C02's host-neutral logical journal, successful-
-result, and finish-envelope protocol and C03's first trusted Postgres point-
-journal consumer are complete; C04 exact stored-evidence verification and pure
-point-row planning are next.
+result, and finish-envelope protocol, C03's first trusted Postgres point-
+journal consumer, and C04A's private stored-attempt authentication are
+complete; C04B authoritative catalog/policy/return verification is next.
 
 This plan owns the bounded Flarex app-data path from logical session operations
 to a trusted deterministic physical plan and atomic commit. It does not make a
@@ -99,10 +99,16 @@ CommitEnvelopeV1
   stored-for-attempt or dormant inline-untrusted journal carriage and digest,
   sibling successful-result evidence
              |
-CommitPlannerV1
-  trusted catalog/policy lookup and logical-to-physical lowering
+AuthenticatedStoredAttemptV1 (introduced by C04A)
+  runtime-unforgeable process-local proof of the exact stored seal
              |
-PreparedCommitV1 (introduced by C04)
+VerifiedCommitInput (introduced by C04B)
+  authenticated evidence plus authoritative catalog/policy/return facts
+             |
+CommitPlannerV1 (introduced by C04C)
+  database-free logical-to-physical lowering
+             |
+PreparedCommitV1 (introduced by C04C)
   internal immutable dependencies, constraints, writes, change/outbox templates
              |
 CommitExecutor
@@ -156,9 +162,10 @@ Introduce each boundary only at its real owner:
   database or service ports.
 - C03 introduces only the `SessionJournalStore` needed by its first real
   Postgres-backed journal and point-overlay consumer.
-- C04 owns authoritative catalog loading, exact stored-evidence/anchor
-  verification, the internal branded `VerifiedCommitInput` capability, and the
-  concrete process-local `PreparedCommitV1` capability.
+- C04A owns exact stored-evidence authentication and only its private runtime-
+  unforgeable capability; C04B owns authoritative catalog/policy/return
+  verification and `VerifiedCommitInput`; C04C owns the concrete process-local
+  `PreparedCommitV1` capability.
 - O06/O07 own the exact atomic persistence capability; C05 is its first
   complete planner/executor composition consumer.
 - C06 owns `PostCommitWake`, after durable commit and outbox evidence make its
@@ -178,7 +185,7 @@ Outcome:
 
 - Define discriminated `LogicalReadDependency`, `LogicalAppWrite`,
   `SessionJournalV1`, separate `SuccessfulResultEvidenceV1`, and
-  `CommitEnvelopeV1` contracts. Concrete `PreparedCommitV1` is deferred to C04,
+  `CommitEnvelopeV1` contracts. Concrete `PreparedCommitV1` is deferred to C04C,
   where verified catalog/policy facts and physical operations exist.
 - Define attempt fence, canonical final syscall sequence, protocol versions,
   canonical journal/result evidence, and SHA-256 integrity digests. C03 owns
@@ -224,7 +231,7 @@ Outcome:
 - Add the C03A opaque pinned-table capability at this first consumer. Immutable
   pinned-manifest membership and its declared table ID are authoritative; the
   stable deployment binding corroborates them. The resolver never reads the
-  mutable active-schema pointer and does not absorb C04 catalog/policy work.
+  mutable active-schema pointer and does not absorb C04B catalog/policy work.
 - Create one exact-attempt journal root eagerly with initial activation. Seed
   and advance insert `_creationTime` from trusted database time using exact
   binary64 `nextUp`; future O08 attempt replacement must create a fresh root and
@@ -280,65 +287,80 @@ Exit gate:
   detachment, query plans, migration fresh/upgrade/rollback, and PGlite plus
   real-Postgres concurrency pass;
 - unsupported shapes fail closed with zero fallback, while inline carriage,
-  committed app-row publication, C04 planning, and legacy-engine extension stay
-  absent.
+  committed app-row publication, C04B/C04C verification/planning, and legacy-
+  engine extension stay absent.
 
-### [ ] C04 — Build The Pure Point-Row Planner
+### [x] C04A — Authenticate The Exact Stored Attempt
 
 Outcome:
 
-- Introduce a trusted `CatalogReader` keyed by already-authoritative session and
-  snapshot facts, plus the exact verified planner-input loader consumed by this
-  gate. Neither capability accepts journal-authored authority or exposes a raw
-  database handle to the pure planner.
-- Add a pre-planner verifier that accepts only `storedForSessionAttempt` through
-  C07, reloads the exact C03-owned journal/result seal, and compares canonical
-  journal bytes, journal digest, final sequence, and sibling result evidence.
-  Reject `inlineUntrusted` even when its digest matches. Then check protocol,
-  attempt fence, lifecycle/lease state using authoritative database time,
-  storage generation/fence, package/function, identity/policy/revocation,
-  schema, snapshot, and request identity.
-- Validate the encoded successful return against the pinned authoritative
-  return validator before `VerifiedCommitInput` can exist. An invalid return
-  never reaches planning or commit.
-- Return a branded internal `VerifiedCommitInput`; neither a raw envelope nor
-  caller-authored object can construct it.
-- Implement a database-free deterministic planner that receives only this
-  verified input plus trusted catalog/policy facts.
-- Resolve stable logical table identity, validate write policy and final values,
-  lower patches to final rows, derive row revision/current operations and point
-  dependencies, and sort locks/writes deterministically.
-- Derive deterministic change-atom and system-outbox templates from logical
-  operations and final rows; the executor stamps transaction-allocated
-  sequence, ID, and time fields.
-- Return the first concrete process-local `PreparedCommitV1`, containing only
-  the verified dependencies, final rows, physical operations, deterministic
-  lock order, change atoms, and outbox templates required by the later atomic
-  consumer.
-- Return typed preflight errors before a SQL transaction opens.
-- Accept no database handles, clock, network service, raw SQL, or untrusted
-  physical identifier.
+- Consume only a fresh opaque server-authority capability; the envelope is
+  carriage and cannot supply scope, placement, session, snapshot, package,
+  function, schema, policy, request, generation, or lease authority.
+- Reject `inlineUntrusted` before placement resolution or database I/O. For
+  `storedForSessionAttempt`, use one bounded read-only repeatable-read load of
+  the exact session, live lease, sealed root, and at most 4,096 point rows plus
+  one overflow sentinel, then close SQL before strict decoding, canonical
+  comparison, hashing, Schema validation, or point correlation.
+- Accept only live `running + sealed` for initial planning or
+  `finishing + sealed` for reconstruction. Return committed as typed already-
+  committed/non-plannable; outcome lookup remains C06/O07.
+- Bind the full detached scalar seal identity, canonical journal/result bytes,
+  digests, final sequence, accounting counters, and strictly correlated point
+  overlay evidence. The existing `sealed_at` and root `updated_at` identify the
+  seal; this gate adds no synthetic root version or DDL.
+- Return only a private runtime-unforgeable process-local
+  `AuthenticatedStoredAttemptV1`. Do not expose its constructor or raw evidence
+  and do not add a package-root or public subpath export.
+- Own no catalog/policy/return validation, prepared plan, physical writes,
+  commit transaction, replay outcome, route, or runtime activation.
 
 Exit gate:
 
-- identical trusted inputs produce byte-for-byte equivalent plans;
-- stale catalog, invalid value, invalid policy, unsupported feature, and
-  contradictory write errors are deterministic and unit-tested;
-- envelope/digest/anchor mismatches never reach the planner, and journal-
-  supplied physical writes, change atoms, or system outbox facts are rejected;
-- no persistence side effects occur.
+- inline carriage fails before I/O; authority/lifecycle/lease/seal/envelope and
+  point-correlation mismatches fail typed before capability construction;
+- max+1 evidence fails before child decoding, and no SQL transaction remains
+  open during CPU verification;
+- caller mutation and structural/cross-instance forgery cannot alter or mint a
+  capability, no public export exists, and focused PGlite plus real-Postgres
+  isolation/race/query-plan tests prove the read-only boundary.
+
+### [ ] C04B — Verify Catalog, Policy, And Successful Return
+
+Outcome:
+
+- Introduce the narrow trusted `CatalogReader` keyed only by authoritative
+  session/snapshot facts from `AuthenticatedStoredAttemptV1`; never trust active
+  pointers, journal authority, raw database handles, or caller physical IDs.
+- Validate pinned catalog identity, mutation policy, final logical values, and
+  the successful result against the authoritative return validator.
+- Return a private runtime-unforgeable `VerifiedCommitInput`; invalid catalog,
+  policy, value, or return evidence never reaches planning.
+
+### [ ] C04C — Build The Pure Point-Row Planner
+
+Outcome:
+
+- Implement a database-free deterministic planner that consumes only
+  `VerifiedCommitInput` and trusted catalog/policy facts.
+- Resolve final rows, point dependencies, physical row operations, deterministic
+  lock order, change atoms, and outbox templates without allocating sequence,
+  database timestamp, transaction, or publication state.
+- Return the first concrete process-local `PreparedCommitV1`; identical trusted
+  inputs produce byte-for-byte equivalent plans and unsupported shapes fail
+  before the later commit transaction opens.
 
 ### [ ] C05 — Execute One Atomic Point Mutation
 
 Outcome:
 
-- Introduce the private exact-fence finish transition at its first real
-  consumer: atomically change the exact current `running` attempt to
-  `finishing` while freezing the canonical journal evidence consumed by C04.
+- Consume the C04A/C04B/C04C evidence and plan created while the exact attempt
+  is `running + sealed`. Inside the short trusted lane, lock and revalidate the
+  complete scalar seal identity before atomically changing the exact current
+  `running` attempt to `finishing`; no large evidence bytes are reread there.
   This is not yet a stable endpoint; C06 later adds idempotent orchestration and
-  lost-outcome recovery.
-- Invoke the already-built C04 verifier/planner against that frozen exact-
-  attempt evidence to obtain `PreparedCommitV1`.
+  lost-outcome recovery. Recovery may rerun C04A from `finishing + sealed`
+  before reconstructing the same verified plan.
 - Consume the O06/O07-owned private `CommitExecutor` capability with
   `PreparedCommitV1`. This target capability must not wrap or promote legacy
   `commitInvokeSessionWrites`.
@@ -383,7 +405,7 @@ running or finishing -> aborted | expired
 S07's `committing` literal remains transaction-local/reserved in V1; it does
 not introduce a separately durable state or recovery protocol.
 
-- Invoke the C04-owned verified-input/return-validation gate before planning;
+- Invoke the C04B-owned verified-input/return-validation gate before C04C planning;
   the endpoint adds no weaker alternate finish path.
 - Store successful result, commit token, idempotency outcome, data,
   commit/change atoms, outbox, exact-current-lease deletion, and committed

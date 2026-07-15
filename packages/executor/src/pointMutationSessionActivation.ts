@@ -16,7 +16,9 @@ import {
 import {
   SnapshotTokenSchema,
   decodeReplacementScopeIdV1,
+  type FlarexDbV1StorageGeneration,
   type SnapshotToken,
+  type StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
 import {
   decodeCatalogSchemaVersionId,
@@ -67,6 +69,8 @@ export interface PointMutationSessionAttemptSelectorWireV1 {
 
 export interface LoadedPointMutationSessionAttemptInspectionV1 {
   readonly selector: PointMutationSessionAttemptSelectorV1;
+  readonly storageGeneration: FlarexDbV1StorageGeneration;
+  readonly storageGenerationFence: StorageGenerationFence;
   /** Snapshot observed during load; consumers must revalidate current liveness. */
   readonly snapshotToken: SnapshotToken;
   /** Immutable schema artifact pinned by the authoritative exact attempt. */
@@ -353,6 +357,8 @@ function captureLoadedAttemptInspection(
   }
   return Object.freeze({
     selector,
+    storageGeneration: anchor.storageGeneration,
+    storageGenerationFence: anchor.storageGenerationFence,
     snapshotToken: Object.freeze(
       SnapshotTokenSchema.make({
         scopeId: anchor.snapshotToken.scopeId,

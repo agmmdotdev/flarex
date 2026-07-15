@@ -4,9 +4,9 @@
 
 Status: accepted bounded design with an implemented `legacy_v1` prototype path;
 standalone `C01` was retired before implementation. C02's replacement logical
-journal/result/envelope protocol and C03's first trusted Postgres point-journal
-consumer are complete; C04 exact stored-evidence verification and pure point-
-row planning are next.
+journal/result/envelope protocol, C03's first trusted Postgres point-journal
+consumer, and C04A's private exact stored-attempt authentication are complete;
+C04B authoritative catalog/policy/return verification is next.
 
 This roadmap owns the durable direction for:
 
@@ -112,8 +112,9 @@ physical transaction-session/snapshot-lease tables are now consumed by private,
 non-routing activation/reload/terminalization and C03 point-journal operations,
 but no production route uses them. `SessionJournalV1`, separate successful-
 result evidence, and `CommitEnvelopeV1` form the host-neutral contract sealed by
-that private C03 consumer. `PreparedCommitV1` and the trusted commit planner
-remain unimplemented and belong to C04.
+that private C03 consumer. C04A now authenticates the exact stored seal into a
+private process-local capability. `VerifiedCommitInput`, `PreparedCommitV1`,
+and the trusted commit planner remain unimplemented and belong to C04B/C04C.
 
 ### Accepted replacement boundary
 
@@ -132,10 +133,16 @@ CommitEnvelopeV1
   stored-attempt or dormant inline-untrusted carriage and journal digest,
   sibling successful-result evidence
              |
-CommitPlannerV1
-  verified anchor/catalog/policy input -> deterministic physical plan
+AuthenticatedStoredAttemptV1 (introduced by C04A)
+  runtime-unforgeable process-local proof of the exact stored seal
              |
-PreparedCommitV1 (introduced by C04)
+VerifiedCommitInput (introduced by C04B)
+  authenticated evidence plus authoritative catalog/policy/return facts
+             |
+CommitPlannerV1 (introduced by C04C)
+  database-free deterministic physical planning
+             |
+PreparedCommitV1 (introduced by C04C)
   internal immutable capability; never serialized over /invoke/*
              |
 CommitExecutor
@@ -173,18 +180,20 @@ exact abort/expiry terminalization and active-child invariants. Conditional
 O03-B2b2 renewal belongs to its first proven long-running-attempt consumer. C02
 owns only canonical sequence fields, logical evidence shapes, and integrity
 digests; C03 owns operational sequencing, accounting, and the first trusted
-stored attempt journal; C04 owns exact stored-evidence reload and the concrete
-prepared capability. C05 introduces the private exact-fence transition to
-`finishing`, C06
-orchestrates it idempotently through the finish endpoint, C03 rejects late
-syscalls, O07 atomically deletes the exact lease and stores committed state plus
+stored attempt journal; C04A owns exact stored-evidence authentication, C04B
+owns authoritative catalog/policy/return verification, and C04C owns the
+concrete prepared capability. C03 seals while the attempt is `running`, and
+the sealed root rejects late syscalls. C05 locks and revalidates the scalar seal
+identity before the private exact-fence transition to `finishing`; C06
+orchestrates it idempotently through the finish endpoint. O07 atomically
+deletes the exact lease and stores committed state plus
 public idempotency/outcomes, O08 owns retry replacement, and O11 first consumes
 active floors.
 
 Temporary journal placement does not change this anchor. Reloading it
 authenticates the exact Postgres attempt and fences stale attempts; it does not
 authenticate arbitrary inline journal bytes. SHA-256 supplies integrity only.
-Through C07, C04 may operationally consume only the exact journal/result seal
+Through C07, C04A may operationally consume only the exact journal/result seal
 reloaded from the C03-owned Postgres store.
 
 ### Conditional facet-backed journal placement
@@ -284,23 +293,30 @@ session.
 
 ### Planner and executor split
 
-Before planning, trusted code verifies:
+Before planning, trusted code verifies in distinct authority stages:
 
-- `storedForSessionAttempt` carriage through C07, followed by an exact reload
-  of the C03-owned journal/result seal and comparison of canonical journal
-  bytes, digest, final syscall sequence, and sibling result evidence;
+- C04A accepts `storedForSessionAttempt` carriage through C07, followed by an
+  exact opaque-authority reload of the C03-owned journal/result/point seal and
+  comparison of canonical bytes, digests, final syscall sequence, counters,
+  sibling result evidence, and the complete scalar seal identity;
 - protocol versions and structural evidence. `inlineUntrusted` is rejected
   regardless of a matching digest until C07A proves its provenance boundary;
-- session lifecycle, attempt fence, expiry, generation/fence, and snapshot;
-- package, function, schema, policy, identity, grant, and revocation state;
-- request/idempotency identity and canonical arguments; and
-- the encoded function result against the pinned authoritative return
-  validator.
+- C04A accepts only a live `running + sealed` attempt for initial planning or
+  `finishing + sealed` for reconstruction; committed is typed already-
+  committed/non-plannable and replay stays with C06/O07;
+- C04B verifies package, function, schema, policy, identity, grant, revocation,
+  request/idempotency identity, canonical arguments, and the encoded function
+  result against the pinned authoritative return validator; and
+- C04C performs only database-free deterministic lowering.
 
-Only a branded verified input can reach the pure planner. The planner accepts
+Only runtime-unforgeable process-local authenticated and verified capabilities
+can reach the pure planner. The planner accepts
 no database handle, clock, network service, raw SQL, untrusted physical name,
-or transaction-specific sequence/lock fact. Identical trusted inputs produce
-equivalent deterministic plans and typed preflight errors before SQL opens.
+or transaction-specific sequence/lock fact. C04A's one bounded read-only
+repeatable-read transaction closes before canonical decoding, hashing, Schema
+validation, or point correlation; C04B/C04C finish before the later commit
+transaction opens. Identical trusted inputs produce equivalent deterministic
+plans.
 
 The short commit transaction then:
 
@@ -359,8 +375,9 @@ hosted transport guarantee. The final canonical journal retains its independent
 - C03A resolves only one opaque point-table capability from the session-pinned
   deployment/schema version and table name. The immutable manifest is
   authoritative; the stable binding corroborates the same ID. The mutable
-  active-schema pointer is never consulted, while C04 retains policy, full
-  catalog verification, final-row lowering, and physical planning.
+  active-schema pointer is never consulted, while C04B retains policy and full
+  catalog verification and C04C retains final-row lowering and physical
+  planning.
 - Initial activation creates the exact-attempt root with database time as its
   `_creationTime` seed/cursor. Insert draws exactly one server UUIDv4 only after
   replay classification, uses the current binary64 time, and atomically advances
@@ -553,7 +570,7 @@ The necessary Flarex divergences are:
 | Concern | Convex pattern | Flarex divergence |
 | --- | --- | --- |
 | Placement | Function runner, transaction state, database, and committer are close together. | Dynamic Worker, private executor Worker, optional per-session supervisor/per-attempt facet, and Postgres are separate failure domains. |
-| Journal integrity and provenance | Transaction state is internal to the backend. | C02 binds canonical journal/result evidence with SHA-256 for integrity. Through C07, C04 authenticates provenance only by reloading the exact C03-owned Postgres attempt seal. C02's inline variant is dormant until C07A proves non-forgeable supervisor/facet provenance; session/fence plus digest alone is insufficient. |
+| Journal integrity and provenance | Transaction state is internal to the backend. | C02 binds canonical journal/result evidence with SHA-256 for integrity. Through C07, C04A authenticates provenance only by reloading the exact C03-owned Postgres attempt seal. C02's inline variant is dormant until C07A proves non-forgeable supervisor/facet provenance; session/fence plus digest alone is insufficient. |
 | Session recovery | Backend request state and outcome lookup share one hosted system. | Flarex retains an authoritative Postgres anchor/outcome so DO restart or a lost response cannot duplicate a mutation. |
 | Physical lowering | Convex's integrated backend derives storage writes directly. | Flarex makes the trusted planner/executor split explicit so host adapters and untrusted journals cannot author physical/system facts. |
 | Adapter lanes | Convex app transactions operate on Convex data. | Payload and Medusa retain separate compatibility/transaction contracts instead of entering one universal journal. |
@@ -589,21 +606,21 @@ the strict host-neutral `SessionJournalV1`, separate successful-result evidence,
 dormant inline carriage. C03 now composes current-attempt authorization, O04
 semantics, a narrow pinned-manifest table capability, the trusted bounded
 Postgres journal store, and the staged read-your-writes overlay. This still does
-not make C04 planning, committed publication, production routing, or inline
-carriage active.
+not make C04B/C04C verification/planning, committed publication, production
+routing, or inline carriage active.
 
 ## Known Gaps And Limitations
 
-- Standalone `C01` was retired before implementation; C02's protocol-only gate
-  and C03's operational point-journal gate are complete, while `C04` through
-  `C09` remain unchecked in the focused plan.
+- Standalone `C01` was retired before implementation; C02's protocol-only gate,
+  C03's operational point-journal gate, and C04A's private stored-attempt gate
+  are complete, while C04B through C09 remain unchecked in the focused plan.
 - Current invoke sessions use wall-clock `beginTs`, not authoritative
   `SnapshotToken` reads.
 - The legacy journal persists directly in broad Postgres invoke-session tables.
   The replacement C03 journal exists behind a new explicit internal subpath and
   process-local attempt/table capabilities, but no production route consumes it
   and no compatibility bridge targets the legacy engine.
-- No branded verified compiler input, pure `CommitPlannerV1`, immutable
+- No authoritative `VerifiedCommitInput`, pure `CommitPlannerV1`, immutable
   `PreparedCommitV1`, or replacement `CommitExecutor` integration exists.
 - Current `commitInvokeSessionWrites` combines planning, OCC, timestamp
   allocation, physical publication, index maintenance, commit/outbox, and
@@ -632,9 +649,11 @@ The target point-mutation lifecycle is:
 trusted preparation and exact SnapshotToken
   -> fenced running session
   -> bounded logical syscalls and exact supported overlay
-  -> finishing CAS and canonical journal/result evidence
-  -> verified compiler input
-  -> C04 pure deterministic PreparedCommitV1
+  -> C03 sealed canonical journal/result evidence while still running
+  -> C04A authenticated stored attempt
+  -> C04B verified compiler input
+  -> C04C pure deterministic PreparedCommitV1
+  -> locked scalar seal revalidation and finishing CAS
   -> short authoritative Postgres OCC/constraint transaction
   -> atomic result, idempotency outcome, rows/sidecars,
      commit/change feed, outbox, and committed session
@@ -658,8 +677,9 @@ O03-B1 activation and O03-B2a restart-safe exact-attempt reload are complete.
 O03-B2b1 exact abort/expiry terminalization is also complete and closes the
 required session-authority core. O04 private exact-snapshot point reads and
 typed dependencies and O05 pure OCC validation are complete. Standalone C01
-was retired before implementation; C02's inert logical protocol and C03's
-operational point-journal consumer are complete, so C04 is next.
+was retired before implementation; C02's inert logical protocol, C03's
+operational point-journal consumer, and C04A's private stored-attempt
+authentication are complete, so C04B is next.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
 retention consumer proves that a bounded attempt must outlive its initial lease.
@@ -671,9 +691,9 @@ prerequisites. Shipped-state migration prerequisites are conditional.
 
 The former C01 standalone port-extraction gate is retired. Its proposed
 compatibility-wrapper work is dropped rather than redistributed: C03
-introduces its first required journal-store boundary, while C04 owns exact
-stored-evidence and catalog verification, verified input, and the concrete
-prepared capability,
+introduces its first required journal-store boundary, C04A owns exact stored-
+evidence authentication, C04B owns catalog/policy/return verification and
+verified input, and C04C owns the concrete prepared capability;
 O06/O07 own atomic execution with C05 as the first compiler consumer, and C06
 owns post-commit wake after durable evidence exists.
 
@@ -688,23 +708,27 @@ The remaining compiler gates are:
    pinned-manifest table resolution, constant-cardinality replay, operational
    sequence/limit accounting, deterministic coalescing, exact point overlays,
    two-phase seal, and fail-closed unsupported shapes.
-3. `C04` (next): reload and compare the exact stored attempt evidence, reject inline
-   carriage through C07, verify authoritative envelope/anchor/catalog facts,
-   and build a pure deterministic point-row planner that produces the concrete
-   process-local `PreparedCommitV1` with typed preflight errors.
-4. `C05`: execute one replacement point mutation through the complete atomic
+3. `C04A` (complete): reject inline carriage before I/O, freshly reload and
+   compare the exact live `running + sealed` or `finishing + sealed` attempt,
+   and return only a private runtime-unforgeable
+   `AuthenticatedStoredAttemptV1` after bounded detached verification.
+4. `C04B` (next): verify authoritative catalog, policy, arguments, and return
+   facts and produce a private `VerifiedCommitInput`.
+5. `C04C`: build the database-free deterministic point-row planner and concrete
+   process-local `PreparedCommitV1`.
+6. `C05`: execute one replacement point mutation through the complete atomic
    OCC/outcome/commit/outbox primitive.
-5. `C06`: add fenced idempotent finish, duplicate/concurrent finish behavior,
+7. `C06`: add fenced idempotent finish, duplicate/concurrent finish behavior,
    restart, expiry, and lost-response outcome recovery through stable
    `/invoke/*` endpoints.
-6. `C07`: close PGlite and real-Postgres concurrency, rollback, serialization,
+8. `C07`: close PGlite and real-Postgres concurrency, rollback, serialization,
    deadlock, uncertain-outcome, and contiguous-sequence gates.
-7. `C07A`: immediately measure journal persistence and move only the temporary
+9. `C07A`: immediately measure journal persistence and move only the temporary
    journal to a per-session supervisor/per-attempt facet if that path beats the
    Postgres-backed and custom-binding-only control baselines by the predeclared
    material-improvement threshold; otherwise retain Postgres journaling.
-8. `C08`: lower declared index and unique sidecars after their schema/OCC gates.
-9. `C09`: lower stable edge occurrences after relation identity and semantics
+10. `C08`: lower declared index and unique sidecars after their schema/OCC gates.
+11. `C09`: lower stable edge occurrences after relation identity and semantics
     are frozen.
 
 Each gate updates this roadmap only when it changes durable status,
