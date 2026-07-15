@@ -69,6 +69,10 @@ when the dependency changes.
   do not pipe a function value as though it were an Effect.
 - `Layer.effect` and `Layer.effectContext` run construction in the Layer's
   Scope. This version does not export `Layer.scoped`.
+- Effect HTTP client modules are exported from `effect/unstable/http` in this
+  beta. Ordinary fetch transport is provided by `FetchHttpClient.layer`; typed
+  request/response helpers live in `HttpClientRequest` and
+  `HttpClientResponse`. Re-check this unstable API on every Effect upgrade.
 
 ## Flarex Contract Rules
 
@@ -116,6 +120,10 @@ when the dependency changes.
 - For ordinary outbound HTTP use the installed Effect HTTP client with
   injected transport, explicit statuses, Schema decoding, timeout, and safe
   bounded retry.
+- Prefer `HttpClientRequest.schemaBodyJson` for typed JSON encoding,
+  `HttpClientResponse.schemaBodyJson` or `schemaJson` for decoding, and
+  `filterStatusOk` or `matchStatus` for an explicit status contract. Preserve
+  response-size limits; Schema decoding does not impose a byte bound.
 - Do not mechanically replace Cloudflare service-binding or Durable Object
   `Fetcher.fetch` calls. Keep them behind one narrow typed platform adapter.
 - Hoist stable Schema compilers. Compile dynamic schemas once at their narrowest

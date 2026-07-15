@@ -51,6 +51,10 @@ slice still requires the preflight and validation required by
 5. `Option`, `Result`, `Exit`, `Match`, `pipe`, and `Effect.gen` are semantic
    tools, not style quotas. Use each where its data or control-flow meaning is
    real; an exhaustive native `switch` or a simple guard is often correct.
+6. Ordinary outbound HTTP from an Effect-native service should use the
+   installed Effect `HttpClient` service. Cloudflare service bindings and
+   Durable Object stubs remain typed platform adapters unless a deliberate
+   custom client preserves their routing and capability semantics.
 
 ## Document Map
 
@@ -67,6 +71,12 @@ slice still requires the preflight and validation required by
   — tests, runtime diagnostics, and bounded incremental adoption.
 - [`06-current-repository-evidence.md`](./06-current-repository-evidence.md) —
   the current evidence snapshot and representative patterns behind this guide.
+- [`07-conditional-flow-examples.md`](./07-conditional-flow-examples.md) —
+  concrete rules and rewrites for guards, tagged unions, outcome values, and
+  Effect success/failure branches.
+- [`08-effect-http-client.md`](./08-effect-http-client.md) — the installed
+  Effect HTTP client stack, status/Schema/retry policy, test Layers, and the
+  Cloudflare adapter cutline.
 
 ## How To Use This Guidance
 

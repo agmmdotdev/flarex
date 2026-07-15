@@ -53,6 +53,8 @@ where a new variant must produce a compile error. Use `Option.match`,
 
 A native exhaustive switch is not inferior. A simple Boolean condition should
 remain a simple guard instead of being expanded into pattern-matching ceremony.
+See [`07-conditional-flow-examples.md`](./07-conditional-flow-examples.md) for
+current Flarex candidates and version-correct rewrites.
 
 ## Schema Boundaries
 

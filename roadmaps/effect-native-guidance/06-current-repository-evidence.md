@@ -31,6 +31,15 @@ Additional construct evidence:
 - `Match` use is sparse, while native switches and discriminant checks are
   common.
 
+A focused conditional scan found 130 production files importing Effect across
+these roots. They contain 1,853 `if` statement line hits, but that number is not
+a debt count. More actionable subsets include 16 direct `_tag` condition line
+hits in five files and 74 `kind` / `type` / `status` / `reason` condition line
+hits in sixteen files. Only twelve `Effect.match` line hits and five `Match`
+module line hits were found. Repeated tagged route dispatch and direct Result
+tag inspection deserve review; simple guards, codecs, and exhaustive switches
+do not deserve automatic conversion.
+
 These facts support a boundary-focused guide. They do not support replacing
 every throw, Promise, switch, or nullable value mechanically.
 
@@ -106,6 +115,16 @@ shared and lifecycle/composition ownership is real.
 runtime runners can be legitimate at the Web framework edge while the invoked
 operation remains Effect-native.
 
+No production use of Effect's `HttpClient` service was located. Backend source
+contains many raw `fetch` calls, but most are Cloudflare service-binding or
+Durable Object stub calls, inbound `fetch` methods, or generated Worker source.
+Those are not ordinary Internet HTTP and should not be replaced mechanically.
+The manually wrapped configurable fetch flow in
+[`../../packages/executor-http/src/liveQueryDelivery.ts`](../../packages/executor-http/src/liveQueryDelivery.ts)
+is a stronger future `HttpClient` candidate because it performs ordinary URL
+HTTP, owns request construction and status policy, and already exposes an
+injectable transport.
+
 ### Tests
 
 The inspected workspace contains 259 test files. Ninety contain
@@ -135,6 +154,9 @@ deterministic concurrency or lifecycle testing provides concrete value.
 - how interruption maps to an in-flight Postgres transaction outcome; and
 - whether Effect-aware test tooling should be adopted package-by-package or
   through one workspace test utility.
+- which raw fetch flows are ordinary outbound HTTP versus Cloudflare
+  capability-bearing platform dispatch, and which external calls require
+  bounded streaming before Schema decoding.
 
 Those questions belong in the preflight for the first concrete vertical port,
 not in a speculative file-by-file migration checklist.
