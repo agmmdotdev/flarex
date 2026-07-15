@@ -7,10 +7,12 @@
     "deploy:gateway:dry-run": "tsx scripts/runWranglerDryRun.ts gateway",
     "deploy:mock:dry-run": "tsx scripts/runWranglerDryRun.ts mock",
     "deploy:sync:dry-run": "tsx scripts/runWranglerDryRun.ts sync",
+    "probe:abort": "tsx scripts/runProbeMatrix.ts abort",
     "probe:purge": "tsx scripts/runProbeMatrix.ts purge",
     "probe:run": "tsx scripts/runProbeMatrix.ts run",
+    "probe:smoke": "tsx scripts/runProbeMatrix.ts smoke",
     "test": "vitest run --no-file-parallelism --test-timeout=20000",
-    "test:local": "vitest run test/gateway.miniflare.test.ts test/runDO.miniflare.test.ts test/campaign.miniflare.test.ts test/purge.miniflare.test.ts test/runner.miniflare.test.ts test/runnerRecovery.miniflare.test.ts --no-file-parallelism --test-timeout=180000 --hook-timeout=30000",
+    "test:local": "vitest run test/gateway.miniflare.test.ts test/runDO.miniflare.test.ts test/campaign.miniflare.test.ts test/purge.miniflare.test.ts test/runner.miniflare.test.ts test/runnerRecovery.miniflare.test.ts test/smoke.miniflare.test.ts --no-file-parallelism --test-timeout=180000 --hook-timeout=30000",
     "test:matrix": "vitest run test/runner.miniflare.test.ts --no-file-parallelism --test-timeout=180000 --hook-timeout=30000",
     "typecheck": "tsc -p tsconfig.json"
   },

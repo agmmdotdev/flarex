@@ -4,8 +4,10 @@ import { PROBE_LOCAL_REHEARSAL_MATRIX_V1 } from "../src/matrix";
 import {
   PROBE_DEFAULT_REQUEST_TIMEOUT_MS,
   ProbeRunnerError,
+  reconcileProbeCampaignForAbortV1,
   resumeProbeCampaignPurgeV1,
   runProbeCampaignV1,
+  runProbeCampaignSmokeV1,
   type ProbeRunnerTransport,
 } from "../src/runner";
 import {
@@ -17,8 +19,13 @@ import {
 } from "./probeFiles";
 
 const mode = process.argv[2] ?? "run";
-if (mode !== "run" && mode !== "purge") {
-  console.error("Usage: runProbeMatrix.ts run|purge");
+if (
+  mode !== "run" &&
+  mode !== "smoke" &&
+  mode !== "abort" &&
+  mode !== "purge"
+) {
+  console.error("Usage: runProbeMatrix.ts run|smoke|abort|purge");
   process.exit(1);
 }
 
@@ -41,6 +48,11 @@ const outputDirectory = resolve(
 const requestTimeoutMs = Number(
   process.env.RUNTIME_TOPOLOGY_PROBE_REQUEST_TIMEOUT_MS ??
     PROBE_DEFAULT_REQUEST_TIMEOUT_MS,
+);
+const productionPurgeBatchSize = 4;
+const productionMaxPurgeControlSteps = 256;
+const checkpoint = createFileProbeCheckpointStore(
+  join(stateDirectory, `${campaignId}.json`),
 );
 const transport: ProbeRunnerTransport = {
   origin,
@@ -74,6 +86,8 @@ try {
       },
       transport,
       requestTimeoutMs,
+      purgeBatchSize: productionPurgeBatchSize,
+      maxPurgeControlSteps: productionMaxPurgeControlSteps,
     });
     console.log(JSON.stringify({
       campaignId,
@@ -81,7 +95,39 @@ try {
       state: outcome.state,
       progress: outcome.progress,
     }, null, 2));
+  } else if (mode === "smoke") {
+    const outcome = await runProbeCampaignSmokeV1({
+      manifest: PROBE_LOCAL_REHEARSAL_MATRIX_V1,
+      transport,
+      requestTimeoutMs,
+      checkpoint,
+    });
+    const failed = outcome.samples.filter(sample => sample.state === "failed");
+    if (failed.length > 0) {
+      throw new ProbeRunnerError({
+        stage: "sample",
+        retryable: false,
+        cause: {
+          code: "production-smoke-scenario-failed",
+          samples: failed,
+        },
+      });
+    }
+    console.log(JSON.stringify({
+      campaignId,
+      operation: "smoke",
+      campaignState: outcome.campaign.state,
+      samples: outcome.samples,
+    }, null, 2));
   } else {
+    if (mode === "abort") {
+      await reconcileProbeCampaignForAbortV1({
+        manifest: PROBE_LOCAL_REHEARSAL_MATRIX_V1,
+        transport,
+        checkpoint,
+        requestTimeoutMs,
+      });
+    }
     const paths = probeEvidenceArtifactPaths(outputDirectory, campaignId);
     const outcome = await runProbeCampaignV1({
       manifest: PROBE_LOCAL_REHEARSAL_MATRIX_V1,
@@ -91,9 +137,9 @@ try {
       },
       transport,
       requestTimeoutMs,
-      checkpoint: createFileProbeCheckpointStore(
-        join(stateDirectory, `${campaignId}.json`),
-      ),
+      checkpoint,
+      purgeBatchSize: productionPurgeBatchSize,
+      maxPurgeControlSteps: productionMaxPurgeControlSteps,
       persistEvidence: async (raw, summary) => {
         return await writeProbeEvidenceArtifacts(
           outputDirectory,
@@ -105,7 +151,7 @@ try {
     });
     console.log(JSON.stringify({
       campaignId,
-      operation: "run",
+      operation: mode,
       rawArtifact: paths.raw,
       summaryArtifact: paths.summary,
       integrity: outcome.summary.integrity,

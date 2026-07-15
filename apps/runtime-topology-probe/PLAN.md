@@ -513,9 +513,14 @@ local matrix, schema-valid export, typecheck, tests, and deployment dry-runs.
 
 ### P08 - Production Deployment Preflight
 
-Status: pending.
+Status: local evidence complete; external target identification pending.
 
 This is a discussion/evidence gate before external state changes.
+
+The frozen target, budget, commands, corrected smoke/measurement sequence, and
+teardown are recorded in `P08-PRODUCTION-PREFLIGHT.md`. The remaining exit
+condition is interactive Wrangler authentication followed by exact account,
+Paid-plan, workers.dev subdomain, resource-ownership, and cost-ceiling proof.
 
 Deliver:
 
@@ -538,12 +543,16 @@ Deliver:
 
 - deploy the private sync target first, the private mock target second, and the
   protected gateway last;
-- verify authentication failure/success, every scenario once, trace
-  completeness, observability, limits, and purge behavior;
+- verify authentication failure/success, one ordinal from every scenario,
+  trace completeness, observability, limits, resumability, and the explicit
+  abort path;
+- leave the single immutable campaign running after a successful smoke so P10
+  can execute its remaining ordinals; production purge occurs once after P10;
 - stop immediately on incorrect routing, unbounded creation, or unexpected
   billing/resource behavior.
 
-Proof: a small production smoke receipt and a successful cleanup rehearsal.
+Proof: a small production smoke receipt plus a durable checkpoint that P10 can
+resume. P07B remains the successful pre-production cleanup rehearsal.
 
 ### P10 - Collect Production Latency Evidence
 
@@ -552,10 +561,14 @@ Status: pending.
 Deliver:
 
 - run only the frozen matrix and limits;
+- resume the exact campaign and checkpoint created by P09 rather than creating
+  a second campaign or deployment;
 - collect machine-readable raw samples and a derived summary;
 - separate client-to-edge latency from Cloudflare-internal hop durations;
 - report median/p95/p99, failure rate, startup-callback cohort, payload effects,
   concurrency effects, and region/colo caveats.
+- persist verified evidence before performing the campaign's single production
+  application purge.
 
 Proof: complete, schema-valid evidence with sample counts matching the approved
 budget and no secret or tenant data.
@@ -584,8 +597,10 @@ teardown are complete.
 
 - Active goal: build and validate the isolated production runtime-topology
   probe through separately approved gates.
-- Current gate: `P07B` is complete locally; production remains blocked.
-- Next action: perform the separate `P08` production deployment preflight and
-  name the exact isolated Cloudflare account and resources before any deploy.
+- Current gate: `P08` local evidence is complete; external target identity is
+  pending because Wrangler is not authenticated on this machine.
+- Next action: authenticate Wrangler, name and verify the exact isolated
+  Cloudflare account/resources, then execute the corrected P09 smoke without
+  purging the campaign.
 - Goal completion condition: production evidence and analysis are recorded and
   the approved cleanup/retention action is verified.

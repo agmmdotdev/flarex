@@ -14,10 +14,17 @@ export const PROBE_GATEWAY_WORKER_NAME = "runtime-topology-probe-gateway-test";
 export const PROBE_MOCK_WORKER_NAME = "runtime-topology-probe-mock-test";
 export const PROBE_SYNC_WORKER_NAME = "runtime-topology-probe-sync-test";
 
-export interface RuntimeProbeHarness {
+export type ProbeGatewayEnvWithoutRuns = Omit<
+  ProbeGatewayEnv,
+  "PROBE_RUNS"
+>;
+
+export interface RuntimeProbeHarness<
+  GatewayBindings extends object = ProbeGatewayEnv,
+> {
   readonly mf: Miniflare;
   readonly persistPath: string;
-  bindings(): Promise<ProbeGatewayEnv>;
+  bindings(): Promise<GatewayBindings>;
   mockBindings(): Promise<ProbeMockCommitEnv>;
   syncBindings(): Promise<Record<string, unknown>>;
   dispose(): Promise<void>;
@@ -34,6 +41,10 @@ export interface RuntimeProbeHarnessOptions {
   readonly workerLoader?: boolean;
 }
 
+interface RuntimeProbeHarnessInternalOptions extends RuntimeProbeHarnessOptions {
+  readonly includeCampaignRuns: boolean;
+}
+
 let gatewayBundlePromise: Promise<string> | undefined;
 let mockBundlePromise: Promise<string> | undefined;
 let syncBundlePromise: Promise<string> | undefined;
@@ -41,6 +52,24 @@ let syncBundlePromise: Promise<string> | undefined;
 export async function createRuntimeProbeHarness(
   options: RuntimeProbeHarnessOptions = {},
 ): Promise<RuntimeProbeHarness> {
+  return await createRuntimeProbeHarnessInternal<ProbeGatewayEnv>({
+    ...options,
+    includeCampaignRuns: true,
+  });
+}
+
+export async function createRuntimeProbeHarnessWithoutRuns(
+  options: RuntimeProbeHarnessOptions = {},
+): Promise<RuntimeProbeHarness<ProbeGatewayEnvWithoutRuns>> {
+  return await createRuntimeProbeHarnessInternal<ProbeGatewayEnvWithoutRuns>({
+    ...options,
+    includeCampaignRuns: false,
+  });
+}
+
+async function createRuntimeProbeHarnessInternal<GatewayBindings extends object>(
+  options: RuntimeProbeHarnessInternalOptions,
+): Promise<RuntimeProbeHarness<GatewayBindings>> {
   const persistPath = options.persistPath ??
     await mkdtemp(join(tmpdir(), "flarex-runtime-probe-"));
   const removePersistPathOnDispose =
@@ -104,10 +133,14 @@ export async function createRuntimeProbeHarness(
           },
         },
         durableObjects: {
-          PROBE_RUNS: {
-            className: "ProbeRunDO",
-            useSQLite: true,
-          },
+          ...(!options.includeCampaignRuns
+            ? {}
+            : {
+                PROBE_RUNS: {
+                  className: "ProbeRunDO",
+                  useSQLite: true,
+                },
+              }),
           PROBE_CAMPAIGN: {
             className: "ProbeCampaignDO",
             useSQLite: true,
@@ -160,7 +193,7 @@ export async function createRuntimeProbeHarness(
     mf,
     persistPath,
     bindings: async () =>
-      await mf.getBindings<ProbeGatewayEnv>(PROBE_GATEWAY_WORKER_NAME),
+      await mf.getBindings<GatewayBindings>(PROBE_GATEWAY_WORKER_NAME),
     mockBindings: async () =>
       await mf.getBindings<ProbeMockCommitEnv>(PROBE_MOCK_WORKER_NAME),
     syncBindings: async () =>

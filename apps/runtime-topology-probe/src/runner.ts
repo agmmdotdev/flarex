@@ -24,6 +24,7 @@ import {
   ProbeCampaignIdSchema,
   ProbeOrdinalSchema,
   type ProbeCampaignId,
+  type ProbeOrdinal,
 } from "./identity";
 import {
   PROBE_CAMPAIGN_PURGE_ROUTE,
@@ -132,6 +133,37 @@ export interface ProbeRunnerResultV1 {
   readonly purgedCampaign: ProbeCampaignStatusV1;
 }
 
+export interface ProbeSmokeRunnerOptionsV1 {
+  readonly manifest: ProbeCampaignManifestV1;
+  readonly transport: ProbeRunnerTransport;
+  readonly checkpoint: ProbeRunnerCheckpointStore;
+  readonly requestTimeoutMs?: number;
+}
+
+export interface ProbeSmokeSampleV1 {
+  readonly scenario: ProbeRunRequestV1["scenario"];
+  readonly runId: ProbeRunRequestV1["runId"];
+  readonly sampleOrdinal: ProbeOrdinal;
+  readonly state: "completed" | "failed";
+}
+
+export interface ProbeSmokeRunnerResultV1 {
+  readonly campaign: ProbeCampaignStatusV1;
+  readonly samples: readonly ProbeSmokeSampleV1[];
+}
+
+export interface ProbeReconcileRunnerOptionsV1 {
+  readonly manifest: ProbeCampaignManifestV1;
+  readonly transport: ProbeRunnerTransport;
+  readonly checkpoint: ProbeRunnerCheckpointStore;
+  readonly requestTimeoutMs?: number;
+}
+
+export type ProbeAbortReadyCampaignStatusV1 = Omit<
+  ProbeCampaignStatusV1,
+  "state"
+> & { readonly state: "evidence-sealed" | "reconciled" };
+
 export interface ProbePurgeEvidenceSealV1 {
   readonly manifestSha256: ProbeCampaignStatusV1["manifestSha256"];
   readonly evidence: NonNullable<ProbeCampaignStatusV1["evidence"]>;
@@ -191,6 +223,168 @@ export async function resumeProbeCampaignPurgeV1(
     options.purgeBatchSize ?? 4,
     options.maxPurgeControlSteps ?? 4_096,
   );
+}
+
+export async function runProbeCampaignSmokeV1(
+  options: ProbeSmokeRunnerOptionsV1,
+): Promise<ProbeSmokeRunnerResultV1> {
+  const client = new ProbeRunnerClient(
+    options.transport,
+    options.requestTimeoutMs,
+  );
+  let campaign = await client.registerCampaign(options.manifest);
+  if (campaign.state !== "running") {
+    throw new ProbeRunnerError({
+      stage: "campaign-registration",
+      retryable: false,
+      cause: `smoke requires a running campaign, received ${campaign.state}`,
+    });
+  }
+  const checkpoint = await loadCheckpoint(options.checkpoint, options.manifest);
+  for (const completion of checkpoint.externalCompletions) {
+    await client.completeExternal(completion);
+  }
+  const statuses = await readRunStatuses(client, options.manifest);
+  const selectedRuns: ProbeRunRequestV1[] = [];
+  const seenScenarios = new Set<ProbeRunRequestV1["scenario"]>();
+  for (const run of options.manifest.runs) {
+    if (seenScenarios.has(run.scenario)) continue;
+    seenScenarios.add(run.scenario);
+    selectedRuns.push(run);
+  }
+  for (const run of selectedRuns) {
+    const status = statuses.get(run.runId);
+    if (status === undefined) {
+      throw new ProbeRunnerError({
+        stage: "run-status",
+        retryable: true,
+        cause: `smoke run status is missing for ${run.runId}`,
+      });
+    }
+    const sampleOrdinal = ProbeOrdinalSchema.make(0);
+    const existing = status.samples.find(
+      sample => sample.sampleOrdinal === sampleOrdinal,
+    );
+    if (existing?.state === "claimed") {
+      throw new ProbeRunnerError({
+        stage: "sample",
+        retryable: true,
+        cause: `smoke sample remains claimed for ${run.runId}`,
+      });
+    }
+    if (
+      existing !== undefined &&
+      !checkpointHasCompletion(checkpoint, run.runId, sampleOrdinal)
+    ) {
+      throw new ProbeRunnerError({
+        stage: "checkpoint",
+        retryable: false,
+        cause: `smoke sample lacks its durable external completion for ${run.runId}`,
+      });
+    }
+    if (existing === undefined) {
+      if (status.counters.outstanding >= run.dimensions.concurrency) {
+        throw new ProbeRunnerError({
+          stage: "sample",
+          retryable: true,
+          cause: `smoke run has no free claim capacity for ${run.runId}`,
+        });
+      }
+      await executeOneSample(options, client, run, Number(sampleOrdinal));
+    }
+  }
+  const refreshed = await readRunStatuses(client, options.manifest);
+  const samples = selectedRuns.map(run => {
+    const sampleOrdinal = ProbeOrdinalSchema.make(0);
+    const sample = refreshed.get(run.runId)?.samples.find(
+      candidate => candidate.sampleOrdinal === sampleOrdinal,
+    );
+    if (
+      sample === undefined ||
+      (sample.state !== "completed" && sample.state !== "failed")
+    ) {
+      throw new ProbeRunnerError({
+        stage: "run-status",
+        retryable: true,
+        cause: `smoke sample is not terminal for ${run.runId}`,
+      });
+    }
+    return {
+      scenario: run.scenario,
+      runId: run.runId,
+      sampleOrdinal,
+      state: sample.state,
+    } satisfies ProbeSmokeSampleV1;
+  });
+  campaign = await client.readCampaignStatus(
+    options.manifest.campaignId,
+    options.manifest,
+  );
+  if (campaign.state !== "running") {
+    throw new ProbeRunnerError({
+      stage: "campaign-status",
+      retryable: false,
+      cause: `smoke changed campaign state to ${campaign.state}`,
+    });
+  }
+  return { campaign, samples };
+}
+
+export async function reconcileProbeCampaignForAbortV1(
+  options: ProbeReconcileRunnerOptionsV1,
+): Promise<ProbeAbortReadyCampaignStatusV1> {
+  const client = new ProbeRunnerClient(
+    options.transport,
+    options.requestTimeoutMs,
+  );
+  const campaign = await client.readCampaignStatus(
+    options.manifest.campaignId,
+    options.manifest,
+  );
+  if (campaign.state === "evidence-sealed") {
+    return abortReadyCampaignStatus(campaign);
+  }
+  if (
+    campaign.state !== "registering" &&
+    campaign.state !== "running" &&
+    campaign.state !== "sealing" &&
+    campaign.state !== "reconciling" &&
+    campaign.state !== "reconciled"
+  ) {
+    throw new ProbeRunnerError({
+      stage: "reconciliation",
+      retryable: false,
+      cause: `abort reconciliation cannot start from ${campaign.state}`,
+    });
+  }
+  const checkpoint = await loadCheckpoint(options.checkpoint, options.manifest);
+  for (const completion of checkpoint.externalCompletions) {
+    await client.completeExternal(completion);
+  }
+  const reconciled = campaign.state === "reconciled"
+    ? campaign
+    : await client.controlCampaign(
+      PROBE_CAMPAIGN_RECONCILE_ROUTE,
+      options.manifest.campaignId,
+      "reconciliation",
+    );
+  return abortReadyCampaignStatus(reconciled);
+}
+
+function abortReadyCampaignStatus(
+  campaign: ProbeCampaignStatusV1,
+): ProbeAbortReadyCampaignStatusV1 {
+  if (
+    campaign.state === "reconciled" ||
+    campaign.state === "evidence-sealed"
+  ) {
+    return { ...campaign, state: campaign.state };
+  }
+  throw new ProbeRunnerError({
+    stage: "reconciliation",
+    retryable: false,
+    cause: `abort reconciliation did not reach a terminal pre-evidence state: ${campaign.state}`,
+  });
 }
 
 export function createInMemoryProbeCheckpointStore(): ProbeRunnerCheckpointStore {
@@ -407,8 +601,13 @@ function campaignMatchesExpectedEvidenceSeal(
     status.evidence.recordCount === expected.evidence.recordCount;
 }
 
+type ProbeSampleExecutionOptionsV1 = Pick<
+  ProbeRunnerOptionsV1,
+  "checkpoint" | "manifest" | "transport"
+>;
+
 async function executeOneSample(
-  options: ProbeRunnerOptionsV1,
+  options: ProbeSampleExecutionOptionsV1,
   client: ProbeRunnerClient,
   run: ProbeRunRequestV1,
   ordinalValue: number,
@@ -469,6 +668,17 @@ async function executeOneSample(
     completion,
   );
   await client.completeExternal(completion);
+}
+
+function checkpointHasCompletion(
+  checkpoint: ProbeRunnerCheckpointV1,
+  runId: ProbeRunRequestV1["runId"],
+  sampleOrdinal: ProbeOrdinal,
+): boolean {
+  return checkpoint.externalCompletions.some(completion =>
+    completion.runId === runId &&
+    completion.sampleOrdinal === sampleOrdinal
+  );
 }
 
 async function loadCheckpoint(
@@ -755,6 +965,7 @@ class ProbeRunnerClient {
 
   async readCampaignStatus(
     campaignId: ProbeCampaignId,
+    expectedManifest?: ProbeCampaignManifestV1,
   ): Promise<ProbeCampaignStatusV1> {
     const response = await this.post(
       PROBE_CAMPAIGN_STATUS_ROUTE,
@@ -785,6 +996,7 @@ class ProbeRunnerClient {
       receipt.status,
       campaignId,
       "campaign-status",
+      expectedManifest,
     );
   }
 

@@ -87,14 +87,16 @@ a real executor, transaction, or sync engine. The current app owns:
 - resumable SessionDO facet cleanup, mock-to-sync cleanup, RunDO cleanup, and a
   retained campaign/session/sync tombstone proving the terminal cleanup fence.
 
-This slice is still local and dry-run-only. Production remains blocked until
-the separate `P08` deployment preflight names the Cloudflare account, isolated
-Worker/service/namespace resources, secrets, cost ceiling, observability, and
-rollback/teardown procedure. `P07B` does not make a lost JavaScript call stack
-resumable: it seals the run and records the claim as `abandoned`. SessionDO
-cleanup explicitly deletes facet databases, removes supervisor probe rows, and
-retains one exact completion/fence tombstone; final namespace and Worker Loader
-code-cache teardown remains a `P11` responsibility.
+This slice is still local and dry-run-only. The app-local
+[`P08-PRODUCTION-PREFLIGHT.md`](./P08-PRODUCTION-PREFLIGHT.md) freezes the
+isolated resources, budget, corrected one-campaign smoke/measurement flow,
+evidence destination, and teardown order. Its remaining prerequisite is exact
+authenticated Cloudflare account, Paid-plan, resource-ownership, and cost-target
+proof. `P07B` does not make a lost JavaScript call stack resumable: it seals the
+run and records the claim as `abandoned`. SessionDO cleanup explicitly deletes
+facet databases, removes supervisor probe rows, and retains one exact
+completion/fence tombstone; final namespace and Worker Loader code-cache
+teardown remains a `P11` responsibility.
 
 All durations are caller-local monotonic round trips. The protocol never
 subtracts absolute timestamps created by different isolates.
@@ -111,10 +113,17 @@ corepack pnpm --filter @flarex/runtime-topology-probe deploy:mock:dry-run
 corepack pnpm --filter @flarex/runtime-topology-probe deploy:gateway:dry-run
 ```
 
-After `P08` explicitly approves a production target, run the frozen matrix with
-the origin and bearer secret supplied only through environment variables:
+After P08 identifies the exact production target, supply the origin and bearer
+secret only through environment variables. P09 runs the resumable eight-scenario
+smoke without sealing or purging the singleton campaign; P10 then resumes the
+same checkpoint and completes the frozen matrix:
 
 ```sh
+RUNTIME_TOPOLOGY_PROBE_ORIGIN=https://probe.example.workers.dev \
+RUNTIME_TOPOLOGY_PROBE_TOKEN=replace-me \
+RUNTIME_TOPOLOGY_PROBE_REQUEST_TIMEOUT_MS=30000 \
+corepack pnpm --filter @flarex/runtime-topology-probe probe:smoke
+
 RUNTIME_TOPOLOGY_PROBE_ORIGIN=https://probe.example.workers.dev \
 RUNTIME_TOPOLOGY_PROBE_TOKEN=replace-me \
 RUNTIME_TOPOLOGY_PROBE_REQUEST_TIMEOUT_MS=30000 \
@@ -132,6 +141,12 @@ records. Strict raw and summary files are written under `.probe-output/` before
 purge begins. If a process stops after purge starts, verify those files and run
 `probe:purge`; that command refuses to resume cleanup unless both artifacts
 strictly decode and agree by digest.
+
+If P09 must stop after creating the campaign, `probe:abort` explicitly
+requires that exact campaign to exist, replays its durable external-completion
+checkpoint, reconciles unfinished ordinals as partial evidence, persists and
+verifies the artifacts, and runs the same bounded cleanup. Use it only for an
+intentional abort; ordinary P09 success must remain `running` for P10.
 
 ## Source Layout
 
