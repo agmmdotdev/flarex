@@ -19,6 +19,10 @@ import {
   type SnapshotToken,
 } from "flarex-protocol/storage-authority";
 import {
+  decodeCatalogSchemaVersionId,
+  type CatalogSchemaVersionId,
+} from "flarex-protocol/schema-manifest";
+import {
   TransactionSessionIdV1Schema,
   decodeTransactionAttemptFence,
 } from "flarex-protocol/transaction-session";
@@ -65,6 +69,8 @@ export interface LoadedPointMutationSessionAttemptInspectionV1 {
   readonly selector: PointMutationSessionAttemptSelectorV1;
   /** Snapshot observed during load; consumers must revalidate current liveness. */
   readonly snapshotToken: SnapshotToken;
+  /** Immutable schema artifact pinned by the authoritative exact attempt. */
+  readonly schemaVersionId: CatalogSchemaVersionId;
 }
 
 const loadedAttemptInspectionByHandle = new WeakMap<
@@ -353,6 +359,9 @@ function captureLoadedAttemptInspection(
         epoch: anchor.snapshotToken.epoch,
         commitSeq: anchor.snapshotToken.commitSeq,
       }),
+    ),
+    schemaVersionId: decodeCatalogSchemaVersionId(
+      result.executionPin.schemaVersionId,
     ),
   });
 }

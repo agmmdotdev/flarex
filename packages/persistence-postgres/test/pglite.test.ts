@@ -84,6 +84,10 @@ describe("createPGlitePersistence", () => {
       "fx_system_index_build_state",
       "fx_system_scope_clock",
       "fx_system_snapshot_lease",
+      "fx_system_tx_journal",
+      "fx_system_tx_journal_latest_receipt",
+      "fx_system_tx_journal_point",
+      "fx_system_tx_journal_write_event",
       "fx_system_tx_session",
       "indexes",
       "invoke_session_document_reads",
@@ -1153,7 +1157,201 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "28" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "29" }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("adds the four empty C03 attempt tables to an existing 0027 database", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-c03-upgrade-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
+    const previousJournal = resolve(migrationsFolder, "meta/_journal.json");
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const parsedJournal = JSON.parse(
+        await readFile(currentJournal, "utf8"),
+      ) as { entries?: Array<{ idx?: number }> };
+      if (!Array.isArray(parsedJournal.entries)) {
+        throw new Error("Current Drizzle journal is missing its entries array.");
+      }
+      parsedJournal.entries = parsedJournal.entries.filter(
+        (entry) => entry.idx !== 28,
+      );
+      await writeFile(
+        previousJournal,
+        `${JSON.stringify(parsedJournal, null, 2)}\n`,
+        "utf8",
+      );
+      const previousPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await previousPersistence.migrate();
+      await previousPersistence.query(`
+        insert into fx_system_scope_clock
+          (scope_id, storage_generation, epoch)
+        values
+          ('scope_before_c03', 'legacy_v1', 'epoch-before-c03')
+      `);
+      await expect(
+        previousPersistence.query(`select count(*) from fx_system_tx_journal`),
+      ).rejects.toThrow();
+
+      await copyFile(currentJournal, previousJournal);
+      const currentPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      await expect(currentPersistence.migrate()).resolves.toBeUndefined();
+      const tables = await currentPersistence.query<{ table_name: string }>(`
+        select table_name
+        from information_schema.tables
+        where table_schema = current_schema()
+          and table_name in (
+            'fx_system_tx_journal',
+            'fx_system_tx_journal_latest_receipt',
+            'fx_system_tx_journal_point',
+            'fx_system_tx_journal_write_event'
+          )
+        order by table_name
+      `);
+      expect(tables.rows).toEqual([
+        { table_name: "fx_system_tx_journal" },
+        { table_name: "fx_system_tx_journal_latest_receipt" },
+        { table_name: "fx_system_tx_journal_point" },
+        { table_name: "fx_system_tx_journal_write_event" },
+      ]);
+      const eventEvidenceColumn = await currentPersistence.query<{
+        column_default: string | null;
+        is_nullable: string;
+      }>(`
+        select column_default, is_nullable
+        from information_schema.columns
+        where table_schema = current_schema()
+          and table_name = 'fx_system_tx_journal'
+          and column_name = 'material_write_event_evidence_bytes'
+      `);
+      expect(eventEvidenceColumn.rows).toHaveLength(1);
+      expect(eventEvidenceColumn.rows[0]?.is_nullable).toBe("NO");
+      expect(eventEvidenceColumn.rows[0]?.column_default).toContain("0");
+      const eventEvidenceCheck = await currentPersistence.query<{
+        definition: string;
+      }>(`
+        select pg_get_constraintdef(constraint_row.oid) as definition
+        from pg_constraint constraint_row
+        join pg_class relation on relation.oid = constraint_row.conrelid
+        join pg_namespace namespace on namespace.oid = relation.relnamespace
+        where namespace.nspname = current_schema()
+          and relation.relname = 'fx_system_tx_journal'
+          and constraint_row.conname =
+            'fx_system_tx_journal_material_write_event_evidence_bytes_check'
+      `);
+      expect(eventEvidenceCheck.rows).toHaveLength(1);
+      expect(eventEvidenceCheck.rows[0]?.definition).toContain("67108864");
+      const preserved = await currentPersistence.query<{ count: string }>(`
+        select count(*)::text as count
+        from fx_system_scope_clock
+        where scope_id = 'scope_before_c03'
+      `);
+      expect(preserved.rows).toEqual([{ count: "1" }]);
+    } finally {
+      try {
+        await db.close();
+      } finally {
+        await rm(testRoot, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("rolls back a failed C03 migration receipt and recovers cleanly", async () => {
+    const testRoot = await mkdtemp(resolve(tmpdir(), "flarex-c03-failure-"));
+    const migrationsFolder = resolve(testRoot, "drizzle");
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const currentMigrationsFolder = resolve(packageRoot, "drizzle");
+    const currentJournal = resolve(currentMigrationsFolder, "meta/_journal.json");
+    const temporaryJournal = resolve(migrationsFolder, "meta/_journal.json");
+    const migrationName = "0028_glossy_galactus.sql";
+    const copiedMigration = resolve(migrationsFolder, migrationName);
+    const db = new PGlite();
+
+    try {
+      await cp(currentMigrationsFolder, migrationsFolder, { recursive: true });
+      const parsedJournal = JSON.parse(
+        await readFile(currentJournal, "utf8"),
+      ) as { entries?: Array<{ idx?: number }> };
+      if (!Array.isArray(parsedJournal.entries)) {
+        throw new Error("Current Drizzle journal is missing its entries array.");
+      }
+      parsedJournal.entries = parsedJournal.entries.filter(
+        (entry) => entry.idx !== 28,
+      );
+      await writeFile(
+        temporaryJournal,
+        `${JSON.stringify(parsedJournal, null, 2)}\n`,
+        "utf8",
+      );
+      const previousPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await previousPersistence.migrate();
+      await copyFile(currentJournal, temporaryJournal);
+
+      const realMigration = await readFile(copiedMigration, "utf8");
+      await writeFile(
+        copiedMigration,
+        `${realMigration}\n--> statement-breakpoint\nselect * from fx_c03_deliberate_missing_table;\n`,
+        "utf8",
+      );
+      const failingPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await expect(failingPersistence.migrate()).rejects.toThrow();
+      const absent = await failingPersistence.query<{ table_name: string }>(`
+        select table_name
+        from information_schema.tables
+        where table_schema = current_schema()
+          and table_name like 'fx_system_tx_journal%'
+      `);
+      expect(absent.rows).toEqual([]);
+      const failedReceipts = await failingPersistence.query<{ count: string }>(
+        `select count(*)::text as count from drizzle.__drizzle_migrations`,
+      );
+      expect(failedReceipts.rows).toEqual([{ count: "28" }]);
+
+      await copyFile(
+        resolve(currentMigrationsFolder, migrationName),
+        copiedMigration,
+      );
+      const recoveredPersistence = await createPGlitePersistence({
+        db,
+        migrationsFolder,
+      });
+      await expect(recoveredPersistence.migrate()).resolves.toBeUndefined();
+      await expect(recoveredPersistence.migrate()).resolves.toBeUndefined();
+      const recovered = await recoveredPersistence.query<{ count: string }>(`
+        select count(*)::text as count
+        from information_schema.tables
+        where table_schema = current_schema()
+          and table_name like 'fx_system_tx_journal%'
+      `);
+      expect(recovered.rows).toEqual([{ count: "4" }]);
+      const recoveredReceipts = await recoveredPersistence.query<{
+        count: string;
+      }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
+      expect(recoveredReceipts.rows).toEqual([{ count: "29" }]);
     } finally {
       try {
         await db.close();

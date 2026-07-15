@@ -1,6 +1,15 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 
+import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
+import {
+  CommitFinalSyscallSequenceV1Schema,
+  CommitMaterialWriteEventEvidenceBytesV1Schema,
+} from "flarex-protocol/commit-protocol";
 import { isJson, type Json, type JsonObject } from "flarex-protocol/json";
+import {
+  decodeCatalogSchemaVersionId,
+  type CatalogSchemaVersionId,
+} from "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
@@ -46,6 +55,7 @@ import {
 } from "flarex-protocol/transaction-session";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import type { AppRowTransaction } from "./appRows";
 import {
   getScopeClock,
   decodeScopeClockRecord,
@@ -61,11 +71,22 @@ import {
   type TrustedScopeAuthority,
 } from "./scopeAuthorityResolution";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
+import { resolvePinnedPointTableIdV1 } from "./pinnedPointTableResolution";
 import {
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
+  fxSystemTransactionJournals,
   fxSystemTransactionSessions,
 } from "./schema";
+import {
+  RESOLVE_PINNED_POINT_TABLE_ID_V1,
+  RUN_LOCATED_REPEATABLE_READ_V1,
+  RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1,
+  type ExactRunningAttemptKernelContextV1,
+  type ExactRunningAttemptKernelInputV1,
+  type ExactRunningAttemptWorkV1,
+  type LocatedExactRunningAttemptKernelV1,
+} from "./transactionSessionAttemptKernel";
 
 const UUID_V4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -162,6 +183,12 @@ export type PointMutationSessionActivationResultV1 =
 export interface PointMutationSessionAttemptLoadResultV1 {
   readonly status: "loaded";
   readonly anchor: PointMutationSessionAnchorV1;
+  readonly executionPin: PointMutationSessionAttemptExecutionPinV1;
+}
+
+/** Private execution input reloaded from the authoritative exact attempt. */
+export interface PointMutationSessionAttemptExecutionPinV1 {
+  readonly schemaVersionId: CatalogSchemaVersionId;
 }
 
 export type PointMutationSessionActiveLifecycleV1 = Extract<
@@ -333,6 +360,9 @@ export type PointMutationSessionAuthorityCorruptionIssueV1 =
   | "snapshotLeaseInvalid"
   | "snapshotAheadOfScopeClock"
   | "terminalSnapshotLeasePresent"
+  | "activeJournalRootMissing"
+  | "journalRootInvalid"
+  | "terminalJournalRootPresent"
   | "attemptSnapshotChanged"
   | "terminalizationWriteMismatch";
 
@@ -377,12 +407,14 @@ export class PointMutationSessionAttemptTerminalizationTargetV1Error
 
 export type PointMutationSessionActivationWriteStepV1 =
   | "sessionInserted"
-  | "leaseInserted";
+  | "leaseInserted"
+  | "journalRootInserted";
 
 export type PointMutationSessionAttemptLoadLockStepV1 =
   | "clockLocked"
   | "sessionLocked"
-  | "leaseLocked";
+  | "leaseLocked"
+  | "journalRootLocked";
 
 export type PointMutationSessionAttemptTerminalizationOperationV1 =
   | "abort"
@@ -397,7 +429,10 @@ export type PointMutationSessionAttemptTerminalizationEventV1 =
   | {
       readonly phase: "write";
       readonly operation: PointMutationSessionAttemptTerminalizationOperationV1;
-      readonly step: "leaseDeleted" | "sessionTerminalized";
+      readonly step:
+        | "journalDeleted"
+        | "leaseDeleted"
+        | "sessionTerminalized";
     };
 
 export interface LocatedPointMutationSessionActivationTargetOptionsV1 {
@@ -439,7 +474,8 @@ interface LocatedPointMutationSessionAttemptTerminalizationTargetV1
 interface LocatedPointMutationSessionTargetV1
   extends LocatedPointMutationSessionActivationTargetV1,
     LocatedPointMutationSessionAttemptLoadTargetV1,
-    LocatedPointMutationSessionAttemptTerminalizationTargetV1 {}
+    LocatedPointMutationSessionAttemptTerminalizationTargetV1,
+    LocatedExactRunningAttemptKernelV1 {}
 
 interface LocatedPointMutationSessionActivationInputV1 {
   readonly prepared: PreparedPointMutationSessionActivationV1;
@@ -617,6 +653,30 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       input: LocatedPointMutationSessionAttemptLoadInputV1,
     ) => db.transaction((tx) =>
       loadAttemptInTransaction(tx, input, afterLoadLock)),
+    [RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1]: <Result>(
+      input: ExactRunningAttemptKernelInputV1,
+      work: ExactRunningAttemptWorkV1<Result>,
+    ): Promise<Result> => db.transaction(async (tx) => {
+      const context = await loadExactRunningAttemptForKernelInTransaction(
+        tx,
+        input,
+        afterLoadLock,
+      );
+      return work(tx, context);
+    }),
+    [RESOLVE_PINNED_POINT_TABLE_ID_V1]: resolvePinnedPointTableIdV1.bind(
+      undefined,
+      db,
+    ),
+    [RUN_LOCATED_REPEATABLE_READ_V1]: <Result>(
+      work: (tx: AppRowTransaction) => Promise<Result>,
+    ): Promise<Result> => db.transaction(async (tx) => {
+      await tx.setTransaction({
+        isolationLevel: "repeatable read",
+        accessMode: "read only",
+      });
+      return work(tx);
+    }),
     terminalizeExactPointMutationSessionAttempt: (
       input: LocatedPointMutationSessionAttemptTerminalizationInputV1,
     ) => db.transaction((tx) =>
@@ -740,6 +800,27 @@ async function createSession(
   });
   await afterWrite?.("leaseInserted");
 
+  const creationTimeSeed = decodeAppCreationTimeV1(databaseNow.getTime());
+  await tx.insert(fxSystemTransactionJournals).values({
+    scopeUuid: clock.scopeUuid,
+    sessionId: input.candidateSessionId,
+    attemptFence: INITIAL_ATTEMPT_FENCE,
+    state: "open",
+    lastSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(0n),
+    creationTimeSeed,
+    nextCreationTime: creationTimeSeed,
+    readDocuments: 0,
+    readSemanticBytes: 0,
+    pointDependencyCount: 0,
+    writeOperations: 0,
+    writeSemanticBytes: 0,
+    materialWriteEventEvidenceBytes:
+      CommitMaterialWriteEventEvidenceBytesV1Schema.make(0),
+    createdAt: databaseNow,
+    updatedAt: databaseNow,
+  });
+  await afterWrite?.("journalRootInserted");
+
   return activationResult("created", {
     deploymentId: input.prepared.deploymentId,
     scopeId: input.prepared.scopeId,
@@ -769,7 +850,7 @@ async function replayExistingSession(
   if (!sessionEvidenceMatches(session, prepared.evidence)) {
     throw activationError({ reason: "requestKeyConflict" });
   }
-  const anchor = await loadLockedRunningAttemptAnchor(
+  const loaded = await loadLockedRunningAttempt(
     tx,
     {
       deploymentId: prepared.deploymentId,
@@ -780,7 +861,7 @@ async function replayExistingSession(
     clock,
     session,
   );
-  return activationResult("replayed", anchor);
+  return activationResult("replayed", loaded.anchor);
 }
 
 async function loadAttemptInTransaction(
@@ -790,6 +871,21 @@ async function loadAttemptInTransaction(
     | LocatedPointMutationSessionActivationTargetOptionsV1["afterLoadLock"]
     | undefined,
 ): Promise<PointMutationSessionAttemptLoadResultV1> {
+  const loaded = await loadExactRunningAttemptForKernelInTransaction(
+    tx,
+    input,
+    afterLoadLock,
+  );
+  return attemptLoadResult(loaded);
+}
+
+async function loadExactRunningAttemptForKernelInTransaction(
+  tx: FlarexMetadataDatabase,
+  input: ExactRunningAttemptKernelInputV1,
+  afterLoadLock:
+    | LocatedPointMutationSessionActivationTargetOptionsV1["afterLoadLock"]
+    | undefined,
+): Promise<ExactRunningAttemptKernelContextV1> {
   const selector = input.selector;
   const clock = await lockPointMutationSessionClock(tx, selector.scopeId);
   await afterLoadLock?.("clockLocked");
@@ -802,7 +898,7 @@ async function loadAttemptInTransaction(
     afterLoadLock,
   );
 
-  const anchor = await loadLockedRunningAttemptAnchor(
+  return loadLockedRunningAttempt(
     tx,
     {
       deploymentId: selector.deploymentId,
@@ -813,7 +909,6 @@ async function loadAttemptInTransaction(
     clock,
     session,
   );
-  return attemptLoadResult(anchor);
 }
 
 interface PointMutationSessionAttemptAuthorityFailureFactoryV1 {
@@ -888,12 +983,12 @@ interface LockedPointMutationSessionAttemptLoadV1 {
     | undefined;
 }
 
-async function loadLockedRunningAttemptAnchor(
+async function loadLockedRunningAttempt(
   tx: FlarexMetadataDatabase,
   input: LockedPointMutationSessionAttemptLoadV1,
   clock: LockedPointMutationSessionClockV1,
   session: TransactionSessionRow,
-): Promise<PointMutationSessionAnchorV1> {
+): Promise<ExactRunningAttemptKernelContextV1> {
   const locked = await lockPointMutationSessionAttemptStructure(
     tx,
     input,
@@ -916,24 +1011,78 @@ async function loadLockedRunningAttemptAnchor(
     throw input.failures.activeAttemptExpired();
   }
 
+  const journalRoot = await requireExactPointMutationSessionJournalRoot(
+    tx,
+    input.scopeId,
+    clock.scopeUuid,
+    locked.sessionId,
+    locked.attemptFence,
+    input.afterLeaseLock,
+  );
+
+  let schemaVersionId: CatalogSchemaVersionId;
+  try {
+    schemaVersionId = decodeCatalogSchemaVersionId(session.schemaVersionId);
+  } catch (cause) {
+    throw corruptionError(input.scopeId, "sessionRecordInvalid", cause);
+  }
+
   return Object.freeze({
-    deploymentId: input.deploymentId,
-    scopeId: input.scopeId,
-    sessionId: locked.sessionId,
-    requestKey: session.requestKey,
-    storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
-    storageGenerationFence: locked.storageGenerationFence,
-    attemptFence: locked.attemptFence,
-    snapshotToken: SnapshotTokenSchema.make({
+    scopeUuid: clock.scopeUuid,
+    anchor: Object.freeze({
+      deploymentId: input.deploymentId,
       scopeId: input.scopeId,
-      epoch: locked.snapshotEpoch,
-      commitSeq: locked.snapshotCommitSeq,
-    }),
-    hardExpiresAt: session.hardExpiresAt.toISOString(),
-    leaseExpiresAt: locked.lease.leaseExpiresAt.toISOString(),
-    createdAt: session.createdAt.toISOString(),
-    updatedAt: session.updatedAt.toISOString(),
-  } satisfies PointMutationSessionAnchorV1);
+      sessionId: locked.sessionId,
+      requestKey: session.requestKey,
+      storageGeneration: FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+      storageGenerationFence: locked.storageGenerationFence,
+      attemptFence: locked.attemptFence,
+      snapshotToken: SnapshotTokenSchema.make({
+        scopeId: input.scopeId,
+        epoch: locked.snapshotEpoch,
+        commitSeq: locked.snapshotCommitSeq,
+      }),
+      hardExpiresAt: session.hardExpiresAt.toISOString(),
+      leaseExpiresAt: locked.lease.leaseExpiresAt.toISOString(),
+      createdAt: session.createdAt.toISOString(),
+      updatedAt: session.updatedAt.toISOString(),
+    } satisfies PointMutationSessionAnchorV1),
+    executionPin: Object.freeze({ schemaVersionId }),
+    databaseNow,
+    journalRoot: Object.freeze({ ...journalRoot }),
+  } satisfies ExactRunningAttemptKernelContextV1);
+}
+
+async function requireExactPointMutationSessionJournalRoot(
+  tx: FlarexMetadataDatabase,
+  scopeId: ScopeId,
+  scopeUuid: ScopeUuidV1,
+  sessionId: TransactionSessionIdV1,
+  attemptFence: TransactionAttemptFence,
+  afterRootLock:
+    | ((step: PointMutationSessionAttemptLoadLockStepV1) =>
+        void | Promise<void>)
+    | undefined,
+): Promise<typeof fxSystemTransactionJournals.$inferSelect> {
+  const roots = await tx
+    .select()
+    .from(fxSystemTransactionJournals)
+    .where(and(
+      eq(fxSystemTransactionJournals.scopeUuid, scopeUuid),
+      eq(fxSystemTransactionJournals.sessionId, sessionId),
+      eq(fxSystemTransactionJournals.attemptFence, attemptFence),
+    ))
+    .limit(2)
+    .for("update");
+  const root = roots[0];
+  if (root === undefined) {
+    throw corruptionError(scopeId, "activeJournalRootMissing");
+  }
+  if (roots.length !== 1) {
+    throw corruptionError(scopeId, "journalRootInvalid");
+  }
+  await afterRootLock?.("journalRootLocked");
+  return root;
 }
 
 interface LockedPointMutationSessionAttemptStructureBaseV1 {
@@ -1124,6 +1273,22 @@ async function terminalizeAttemptInTransaction(
     session,
   );
   const databaseNow = await readDatabaseNow(tx, selector.scopeId);
+  const journalRoots = await tx
+    .select({ attemptFence: fxSystemTransactionJournals.attemptFence })
+    .from(fxSystemTransactionJournals)
+    .where(and(
+      eq(fxSystemTransactionJournals.scopeUuid, clock.scopeUuid),
+      eq(fxSystemTransactionJournals.sessionId, locked.sessionId),
+      eq(fxSystemTransactionJournals.attemptFence, locked.attemptFence),
+    ))
+    .limit(2)
+    .for("update");
+  if (journalRoots.length > 1) {
+    throw corruptionError(selector.scopeId, "journalRootInvalid");
+  }
+  if (journalRoots[0] !== undefined) {
+    await emitLock("journalRootLocked");
+  }
 
   switch (session.lifecycle) {
     case "committed":
@@ -1134,6 +1299,9 @@ async function terminalizeAttemptInTransaction(
           selector.scopeId,
           "terminalSnapshotLeasePresent",
         );
+      }
+      if (journalRoots[0] !== undefined) {
+        throw corruptionError(selector.scopeId, "terminalJournalRootPresent");
       }
       return attemptTerminalizationResult(
         "observed",
@@ -1165,6 +1333,9 @@ async function terminalizeAttemptInTransaction(
   if (locked.leaseState === "absent") {
     throw corruptionError(selector.scopeId, "snapshotLeaseMissing");
   }
+  if (journalRoots[0] === undefined) {
+    throw corruptionError(selector.scopeId, "activeJournalRootMissing");
+  }
   if (
     input.operation === "abort" &&
     (
@@ -1193,6 +1364,22 @@ async function terminalizeAttemptInTransaction(
     });
   }
   const lifecycle = isExpired ? "expired" : "aborted";
+
+  const deletedJournal = await tx
+    .delete(fxSystemTransactionJournals)
+    .where(and(
+      eq(fxSystemTransactionJournals.scopeUuid, clock.scopeUuid),
+      eq(fxSystemTransactionJournals.sessionId, locked.sessionId),
+      eq(fxSystemTransactionJournals.attemptFence, locked.attemptFence),
+    ))
+    .returning({ attemptFence: fxSystemTransactionJournals.attemptFence });
+  if (
+    deletedJournal.length !== 1 ||
+    deletedJournal[0]?.attemptFence !== locked.attemptFence
+  ) {
+    throw corruptionError(selector.scopeId, "terminalizationWriteMismatch");
+  }
+  await emitWrite("journalDeleted");
 
   const deleted = await tx
     .delete(fxSystemSnapshotLeases)
@@ -1490,7 +1677,11 @@ async function readDatabaseNow(
   }
   const epochMilliseconds = Number(epochMillisecondsText);
   const databaseNow = new Date(epochMilliseconds);
-  if (!Number.isSafeInteger(epochMilliseconds) || !isValidDate(databaseNow)) {
+  if (
+    !Number.isSafeInteger(epochMilliseconds) ||
+    epochMilliseconds <= 0 ||
+    !isValidDate(databaseNow)
+  ) {
     throw corruptionError(scopeId, "databaseClockInvalid");
   }
   return databaseNow;
@@ -1808,11 +1999,14 @@ function activationResult(
 }
 
 function attemptLoadResult(
-  anchor: PointMutationSessionAnchorV1,
+  loaded: ExactRunningAttemptKernelContextV1,
 ): PointMutationSessionAttemptLoadResultV1 {
   return Object.freeze({
     status: "loaded",
-    anchor: captureSessionAnchor(anchor),
+    anchor: captureSessionAnchor(loaded.anchor),
+    executionPin: Object.freeze({
+      schemaVersionId: loaded.executionPin.schemaVersionId,
+    }),
   });
 }
 

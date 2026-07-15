@@ -1,6 +1,6 @@
 import { Data, Schema } from "effect";
 
-import type { Json } from "./json";
+import { isJson, type Json, type JsonObject } from "./json";
 
 /**
  * The JavaScript value domain accepted at Flarex API boundaries.
@@ -215,6 +215,12 @@ export interface VerifyFlarexValueEvidenceV1Input {
   readonly profile?: FlarexValueProfileV1;
 }
 
+export interface DecodeCanonicalFlarexValueEvidenceV1Input {
+  readonly canonicalBytes: unknown;
+  readonly sha256: unknown;
+  readonly profile?: FlarexValueProfileV1;
+}
+
 interface NormalizedNode {
   readonly value: CanonicalFlarexRuntimeValueV1;
   readonly json: Json;
@@ -337,6 +343,99 @@ export async function verifyFlarexValueEvidenceV1(
     }
   }
   return canonical;
+}
+
+/**
+ * Decodes the canonical Value Codec V1 envelope owned by this module, then
+ * re-canonicalizes it so callers can trust neither stored bytes nor SHA alone.
+ */
+export async function decodeCanonicalFlarexValueEvidenceV1(
+  input: DecodeCanonicalFlarexValueEvidenceV1Input,
+): Promise<CanonicalFlarexValueV1> {
+  const expectedBytes = evidenceBytes(
+    input.canonicalBytes,
+    undefined,
+    "invalidCanonicalBytes",
+    "stored canonical bytes must be a Uint8Array",
+  );
+  const expectedSha256 = evidenceBytes(
+    input.sha256,
+    32,
+    "invalidSha256",
+    "stored SHA-256 must contain exactly 32 bytes",
+  );
+  let text: string;
+  try {
+    text = TEXT_DECODER.decode(expectedBytes);
+  } catch {
+    throw new FlarexValueEvidenceV1Error({
+      issue: {
+        reason: "invalidCanonicalBytes",
+        detail: "stored canonical bytes are not valid UTF-8",
+      },
+    });
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    throw new FlarexValueEvidenceV1Error({
+      issue: {
+        reason: "invalidCanonicalBytes",
+        detail: "stored canonical bytes are not valid JSON",
+      },
+    });
+  }
+  if (!isCanonicalValueEnvelope(parsed)) {
+    throw new FlarexValueEvidenceV1Error({
+      issue: {
+        reason: "invalidCanonicalBytes",
+        detail: "stored canonical bytes are not a strict Value Codec V1 envelope",
+      },
+    });
+  }
+  const canonical = await canonicalizeFlarexValueJsonV1(
+    parsed.value,
+    input.profile,
+  );
+  if (!bytesEqual(expectedBytes, canonical.canonicalBytes)) {
+    throw new FlarexValueEvidenceV1Error({
+      issue: { reason: "canonicalBytesMismatch" },
+    });
+  }
+  if (!bytesEqual(expectedSha256, canonical.sha256)) {
+    throw new FlarexValueEvidenceV1Error({
+      issue: { reason: "sha256Mismatch" },
+    });
+  }
+  return canonical;
+}
+
+function isCanonicalValueEnvelope(
+  value: unknown,
+): value is Readonly<{
+  readonly format: "flarex-value";
+  readonly value: Json;
+  readonly valueCodecVersion: 1;
+}> {
+  if (!isJson(value) || !isJsonObject(value)) {
+    return false;
+  }
+  const record = value;
+  const keys = Object.keys(record).sort(compareStrings);
+  return (
+    keys.length === 3 &&
+    keys[0] === "format" &&
+    keys[1] === "value" &&
+    keys[2] === "valueCodecVersion" &&
+    record.format === "flarex-value" &&
+    record.valueCodecVersion === 1 &&
+    isJson(record.value)
+  );
+}
+
+function isJsonObject(value: Json): value is JsonObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 export function copyCanonicalFlarexValueBytesV1(
@@ -1080,11 +1179,30 @@ function decodeCanonicalBase64(
   path: string,
   tag: string,
 ): Uint8Array {
-  if (!CANONICAL_BASE64_PATTERN.test(encoded)) {
+  const decodedLength = decodedBase64LengthFromShape(encoded);
+  if (decodedLength === undefined) {
     throw invalidTag(path, tag, "tag payload is not canonical standard base64");
   }
   const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
-  const bytes = new Uint8Array((encoded.length / 4) * 3 - padding);
+  const dataCharacterCount = encoded.length - padding;
+  for (let index = 0; index < dataCharacterCount; index += 1) {
+    if (base64Value(encoded.charCodeAt(index)) < 0) {
+      throw invalidTag(
+        path,
+        tag,
+        "tag payload contains an invalid base64 character",
+      );
+    }
+  }
+  if (
+    (padding === 2 &&
+      (base64Value(encoded.charCodeAt(encoded.length - 3)) & 0x0f) !== 0) ||
+    (padding === 1 &&
+      (base64Value(encoded.charCodeAt(encoded.length - 2)) & 0x03) !== 0)
+  ) {
+    throw invalidTag(path, tag, "tag payload is not canonical base64");
+  }
+  const bytes = new Uint8Array(decodedLength);
   let outputIndex = 0;
   for (let index = 0; index < encoded.length; index += 4) {
     const first = base64Value(encoded.charCodeAt(index));
@@ -1108,9 +1226,6 @@ function decodeCanonicalBase64(
       bytes[outputIndex] = ((third & 0x03) << 6) | fourth;
       outputIndex += 1;
     }
-  }
-  if (encodeBase64(bytes) !== encoded) {
-    throw invalidTag(path, tag, "tag payload is not canonical base64");
   }
   return bytes;
 }
@@ -1272,5 +1387,3 @@ const NUL = "\u0000";
 const BASE64_ALPHABET =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const ENCODED_FLOAT64_BASE64_LENGTH = 12;
-const CANONICAL_BASE64_PATTERN =
-  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;

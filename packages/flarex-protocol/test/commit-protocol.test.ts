@@ -6,14 +6,18 @@ import * as commitProtocolLeaf from "flarex-protocol/commit-protocol";
 import {
   COMMIT_ENVELOPE_FORMAT_V1,
   COMMIT_PROTOCOL_EXECUTION_LIMITS_V1,
+  COMMIT_PROTOCOL_OPERATIONAL_LIMITS_V1,
+  CanonicalSessionJournalBase64UrlV1Schema,
   CommitDocumentSemanticBytesV1Schema,
   CommitEnvelopeV1Schema,
   CommitFinalSyscallSequenceV1Schema,
+  CommitMaterialWriteEventEvidenceBytesV1Schema,
   CommitProtocolV1Error,
   CommitReadDocumentsV1Schema,
   CommitReadSemanticBytesV1Schema,
   CommitSyscallSequenceV1Schema,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
   MAX_COMMIT_READ_DOCUMENTS_V1,
   MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
   MAX_COMMIT_WRITE_OPERATIONS_V1,
@@ -31,6 +35,7 @@ import {
   type CanonicalSessionJournalV1,
   type CanonicalSuccessfulResultV1,
   type CommitEnvelopeV1,
+  type CommitProtocolV1Issue,
   type LogicalAppWriteV1,
   type LogicalReadDependencyV1,
   type SessionJournalV1,
@@ -39,6 +44,7 @@ import {
   decodeAppDocumentIdV1,
   type AppDocumentIdV1,
 } from "../src/app-document-id";
+import { AppCreationTimeV1Schema } from "../src/app-document";
 import type { JsonObject } from "../src/json";
 import { CommitSeqSchema } from "../src/storage-authority";
 import {
@@ -134,6 +140,69 @@ describe("commit protocol C02", () => {
 
     expect(first.canonicalBytes).toEqual(second.canonicalBytes);
     expect(first.sha256Hex).toBe(second.sha256Hex);
+  });
+
+  it("binds insert creation time into stable canonical journal evidence", async () => {
+    const first = await runEffect(canonicalizeSessionJournalV1Effect(
+      sessionJournal({
+        finalSyscallSequence: 1n,
+        writes: [insertWrite(
+          1n,
+          DOCUMENT_A,
+          { z: "last", a: 1 },
+          128,
+          1_700_000_000_000.25,
+        )],
+      }),
+    ));
+    const reordered = await runEffect(canonicalizeSessionJournalV1Effect(
+      sessionJournal({
+        finalSyscallSequence: 1n,
+        writes: [insertWrite(
+          1n,
+          DOCUMENT_A,
+          { a: 1, z: "last" },
+          128,
+          1_700_000_000_000.25,
+        )],
+      }),
+    ));
+    const differentCreationTime = await runEffect(
+      canonicalizeSessionJournalV1Effect(sessionJournal({
+        finalSyscallSequence: 1n,
+        writes: [insertWrite(
+          1n,
+          DOCUMENT_A,
+          { a: 1, z: "last" },
+          128,
+          1_700_000_000_001.25,
+        )],
+      })),
+    );
+
+    expect(first.canonicalBytes).toEqual(reordered.canonicalBytes);
+    expect(first.sha256Hex).toBe(reordered.sha256Hex);
+    expect(first.canonicalText).toContain(
+      '"creationTime":1700000000000.25',
+    );
+    expect(differentCreationTime.sha256Hex).not.toBe(first.sha256Hex);
+  });
+
+  it("does not eagerly manufacture inline carriage for stored evidence", async () => {
+    const canonical = await runEffect(canonicalizeSessionJournalV1Effect(
+      sessionJournal({ finalSyscallSequence: 0n }),
+    ));
+    const result = await runEffect(
+      canonicalizeSuccessfulResultV1Effect(null),
+    );
+
+    expect(canonical).not.toHaveProperty("inlineUntrustedBase64Url");
+
+    const stored = await runEffect(makeCommitEnvelopeV1Effect(
+      storedEnvelope(canonical, result),
+    ));
+    expect(stored.journal).toEqual({ kind: "storedForSessionAttempt" });
+    expect(stored.journal).not.toHaveProperty("canonicalJournalBase64Url");
   });
 
   it("round-trips canonical evidence and returns defensive bytes", async () => {
@@ -344,6 +413,34 @@ describe("commit protocol C02", () => {
     expect(COMMIT_PROTOCOL_EXECUTION_LIMITS_V1).not.toHaveProperty("syscalls");
     expect(COMMIT_PROTOCOL_EXECUTION_LIMITS_V1).not.toHaveProperty("lease");
     expect(COMMIT_PROTOCOL_EXECUTION_LIMITS_V1).not.toHaveProperty("scannedRows");
+    expect(COMMIT_PROTOCOL_EXECUTION_LIMITS_V1).not.toHaveProperty(
+      "materialWriteEventEvidenceBytes",
+    );
+    expect(COMMIT_PROTOCOL_OPERATIONAL_LIMITS_V1).toEqual({
+      canonicalEvidenceBytes: 67_108_864,
+      materialWriteEventEvidenceBytes: 67_108_864,
+    });
+    expect(MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1).toBe(
+      67_108_864,
+    );
+    expect(CommitMaterialWriteEventEvidenceBytesV1Schema.make(0)).toBe(0);
+    expect(CommitMaterialWriteEventEvidenceBytesV1Schema.make(
+      MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
+    )).toBe(MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1);
+    for (const invalid of [-1, 0.5, 67_108_865]) {
+      expect(() =>
+        CommitMaterialWriteEventEvidenceBytesV1Schema.make(invalid)
+      ).toThrow();
+    }
+    const operationalIssue = {
+      reason: "limitExceeded",
+      dimension: "materialWriteEventEvidenceBytes",
+      observed: 67_108_865,
+      maximum: 67_108_864,
+    } satisfies CommitProtocolV1Issue;
+    expect(operationalIssue.dimension).toBe(
+      "materialWriteEventEvidenceBytes",
+    );
 
     const exactDependencies = Array.from(
       { length: MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 },
@@ -620,11 +717,13 @@ function insertWrite(
   documentIdValue: AppDocumentIdV1,
   fieldsValueJson: JsonObject,
   resultingDocumentSemanticBytes: number,
+  creationTime = 1_700_000_000_000,
 ): LogicalAppWriteV1 {
   return {
     kind: "insert",
     syscallSequence: CommitSyscallSequenceV1Schema.make(syscallSequence),
     documentId: documentIdValue,
+    creationTime: AppCreationTimeV1Schema.make(creationTime),
     fieldsValueJson,
     resultingDocumentSemanticBytes: CommitDocumentSemanticBytesV1Schema.make(
       resultingDocumentSemanticBytes,
@@ -684,9 +783,22 @@ function inlineEnvelope(
     ...storedEnvelope(journal, result),
     journal: {
       kind: "inlineUntrusted",
-      canonicalJournalBase64Url: journal.inlineUntrustedBase64Url,
+      canonicalJournalBase64Url: CanonicalSessionJournalBase64UrlV1Schema.make(
+        base64UrlFromBytes(journal.canonicalBytes),
+      ),
     },
   };
+}
+
+function base64UrlFromBytes(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary)
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
 }
 
 function documentId(index: number): AppDocumentIdV1 {

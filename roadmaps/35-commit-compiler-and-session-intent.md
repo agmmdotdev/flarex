@@ -4,8 +4,9 @@
 
 Status: accepted bounded design with an implemented `legacy_v1` prototype path;
 standalone `C01` was retired before implementation. C02's replacement logical
-journal/result/envelope protocol is complete but inert; C03 is the next gate
-and the first operational journal consumer.
+journal/result/envelope protocol and C03's first trusted Postgres point-journal
+consumer are complete; C04 exact stored-evidence verification and pure point-
+row planning are next.
 
 This roadmap owns the durable direction for:
 
@@ -107,12 +108,12 @@ The repository defines the branded `SnapshotToken` protocol type and a private,
 non-routing resolver that captures one ephemeral exact snapshot plus its
 generation/fence from trusted placement and the data-plane scope clock. Current
 invoke sessions do not use that selection as read/commit authority. S07's
-physical transaction-session/snapshot-lease tables exist internally, but no
-production lifecycle operation creates or consumes them. `SessionJournalV1`,
-`SessionJournalV1`, separate successful-result evidence, and
-`CommitEnvelopeV1` now exist as a host-neutral protocol leaf, but no runtime
-consumes them. `PreparedCommitV1` and the trusted commit planner remain
-unimplemented and belong to C04.
+physical transaction-session/snapshot-lease tables are now consumed by private,
+non-routing activation/reload/terminalization and C03 point-journal operations,
+but no production route uses them. `SessionJournalV1`, separate successful-
+result evidence, and `CommitEnvelopeV1` form the host-neutral contract sealed by
+that private C03 consumer. `PreparedCommitV1` and the trusted commit planner
+remain unimplemented and belong to C04.
 
 ### Accepted replacement boundary
 
@@ -346,6 +347,54 @@ semantic. C07A must re-prove the appropriate hosted transport ceiling before it
 activates inline carriage. Temporary-evidence TTL remains owned by the journal
 store and lifecycle/retention gates.
 
+C03 also enforces a distinct 64 MiB cumulative
+`materialWriteEventEvidenceBytes` ceiling over temporary canonical event rows.
+That ceiling prevents Postgres amplification from patch/remove-heavy raw events;
+it is not a Convex transaction semantic, final-journal substitute, lease, or
+hosted transport guarantee. The final canonical journal retains its independent
+64 MiB gate.
+
+### Current C03 operational contract
+
+- C03A resolves only one opaque point-table capability from the session-pinned
+  deployment/schema version and table name. The immutable manifest is
+  authoritative; the stable binding corroborates the same ID. The mutable
+  active-schema pointer is never consulted, while C04 retains policy, full
+  catalog verification, final-row lowering, and physical planning.
+- Initial activation creates the exact-attempt root with database time as its
+  `_creationTime` seed/cursor. Insert draws exactly one server UUIDv4 only after
+  replay classification, uses the current binary64 time, and atomically advances
+  to `nextUp`. Live and historical-tombstone collisions fail closed; replay
+  draws neither a new ID nor a new time. O08 must repeat root creation with a
+  fresh database-time seed for every new attempt.
+- The durable replay surface is one latest receipt, not syscall history:
+  `last + 1` executes; byte-identical `last` replays; changed `last` conflicts;
+  lower values are stale; higher values are gaps. Per-attempt executor
+  serialization guarantees a lost response for `N` is resolved before `N + 1`.
+  Missing, no-op, and catchable failures advance the same receipt without
+  cardinality growth; incremental resource failure is sticky.
+- Point dependencies and raw successful material-write events are separate.
+  Dependencies keep immutable present or qualified-missing OCC evidence and a
+  deterministic final-row overlay. Raw events preserve pre-coalescing operation
+  accounting. Overlay reads add Convex-compatible logical row/byte accounting
+  but no second Postgres base-row read.
+- Each material event is strictly normalized and canonicalized once, charged
+  before mutation, and inserted from that same detached evidence. Overflow
+  advances the sequence into a replayable sticky failure without an event,
+  overlay change, or counter overflow; no-op/catchable failures consume zero.
+- Seal preparation selects at most each child limit plus one under read-only
+  repeatable read and detaches raw rows before closing SQL. It rejects excess
+  cardinality before decoding, recomputes event bytes against the root counter,
+  and keeps the private candidate and strict successful-result evidence
+  detached from callers. Canonicalization and SHA-256 occur after the
+  transaction closes. A short normal exact-attempt lock path revalidates and
+  stores the sealed journal and sibling result; changed evidence rejects the
+  stale candidate. Only `storedForSessionAttempt` is produced.
+- Abort and expiry lock and delete the exact root before lease deletion and
+  terminal session update, cascading all temporary children atomically. A
+  terminal session with retained journal evidence, or a running session without
+  its exact root, is corruption.
+
 ## Idempotency And Recovery Contract
 
 The authoritative uniqueness key is:
@@ -537,20 +586,23 @@ a private durable session anchor/current-attempt lease, and O04's private exact-
 snapshot point reader with present/qualified-missing dependencies. C02 now adds
 the strict host-neutral `SessionJournalV1`, separate successful-result evidence,
 `CommitEnvelopeV1`, canonical encoding/digests, exact execution ceilings, and
-dormant inline carriage. This protocol is inert: it does not mean the new
-compiler, production-routed session path, or exact-snapshot invoke path is
-active. C03 first composes current-attempt authorization, O04 semantics, the
-trusted Postgres journal store, and the staged read-your-writes overlay.
+dormant inline carriage. C03 now composes current-attempt authorization, O04
+semantics, a narrow pinned-manifest table capability, the trusted bounded
+Postgres journal store, and the staged read-your-writes overlay. This still does
+not make C04 planning, committed publication, production routing, or inline
+carriage active.
 
 ## Known Gaps And Limitations
 
 - Standalone `C01` was retired before implementation; C02's protocol-only gate
-  is complete, while `C03` through `C09` remain unchecked in the focused plan.
+  and C03's operational point-journal gate are complete, while `C04` through
+  `C09` remain unchecked in the focused plan.
 - Current invoke sessions use wall-clock `beginTs`, not authoritative
   `SnapshotToken` reads.
-- The legacy journal persists directly in broad Postgres invoke-session tables;
-  the new versioned logical journal/result/envelope contract exists only as an
-  inert protocol leaf and has no trusted C03 store or runtime consumer.
+- The legacy journal persists directly in broad Postgres invoke-session tables.
+  The replacement C03 journal exists behind a new explicit internal subpath and
+  process-local attempt/table capabilities, but no production route consumes it
+  and no compatibility bridge targets the legacy engine.
 - No branded verified compiler input, pure `CommitPlannerV1`, immutable
   `PreparedCommitV1`, or replacement `CommitExecutor` integration exists.
 - Current `commitInvokeSessionWrites` combines planning, OCC, timestamp
@@ -606,8 +658,8 @@ O03-B1 activation and O03-B2a restart-safe exact-attempt reload are complete.
 O03-B2b1 exact abort/expiry terminalization is also complete and closes the
 required session-authority core. O04 private exact-snapshot point reads and
 typed dependencies and O05 pure OCC validation are complete. Standalone C01
-was retired before implementation; C02's inert logical protocol is complete and
-C03 is next.
+was retired before implementation; C02's inert logical protocol and C03's
+operational point-journal consumer are complete, so C04 is next.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
 retention consumer proves that a bounded attempt must outlive its initial lease.
@@ -632,10 +684,11 @@ The remaining compiler gates are:
    `CommitEnvelopeV1`, canonical encoding, integrity digests, fences, sequence
    representation, exact execution limits, dormant inline carriage, and typed
    rejection. It defines no concrete `PreparedCommitV1`.
-2. `C03` (next): implement trusted Postgres-backed point CRUD journaling,
-   operational sequence/limit accounting, deterministic coalescing, exact
-   point overlays, and fail-closed unsupported shapes.
-3. `C04`: reload and compare the exact stored attempt evidence, reject inline
+2. `C03` (complete): trusted Postgres-backed point CRUD journaling, narrow
+   pinned-manifest table resolution, constant-cardinality replay, operational
+   sequence/limit accounting, deterministic coalescing, exact point overlays,
+   two-phase seal, and fail-closed unsupported shapes.
+3. `C04` (next): reload and compare the exact stored attempt evidence, reject inline
    carriage through C07, verify authoritative envelope/anchor/catalog facts,
    and build a pure deterministic point-row planner that produces the concrete
    process-local `PreparedCommitV1` with typed preflight errors.

@@ -14,6 +14,7 @@ import {
   SnapshotTokenSchema,
   StorageGenerationFenceSchema,
 } from "flarex-protocol/storage-authority";
+import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import {
   TransactionAttemptFenceSchema,
@@ -44,6 +45,9 @@ const SESSION_ID = TransactionSessionIdV1Schema.make(
 );
 const MAX_ATTEMPT_FENCE = TransactionAttemptFenceSchema.make(
   9_223_372_036_854_775_807n,
+);
+const SCHEMA_VERSION_ID = CatalogSchemaVersionIdSchema.make(
+  "schema_attempt_loading",
 );
 const SELECTOR = Object.freeze({
   deploymentId: DEPLOYMENT_ID,
@@ -103,6 +107,7 @@ describe("O03-B2a point-mutation attempt loading", () => {
         epoch: ScopeEpochSchema.make("epoch_attempt_loading"),
         commitSeq: CommitSeqSchema.make(19n),
       },
+      schemaVersionId: SCHEMA_VERSION_ID,
     });
 
     for (const invalid of [
@@ -181,6 +186,7 @@ describe("O03-B2a point-mutation attempt loading", () => {
             "70000000-0000-4000-8000-000000000099",
           ),
         },
+        executionPin: { schemaVersionId: SCHEMA_VERSION_ID },
       }),
     });
 
@@ -384,6 +390,7 @@ function loadResult(
   return Object.freeze({
     status: "loaded",
     anchor: anchor(selector),
+    executionPin: Object.freeze({ schemaVersionId: SCHEMA_VERSION_ID }),
   });
 }
 

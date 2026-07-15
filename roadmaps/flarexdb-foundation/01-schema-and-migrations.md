@@ -4,7 +4,8 @@
 
 Status: `S01`, `S02-A` through `S02-C`, resolve-only `S02-D1`, `S03-A`
 through `S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, and the narrow
-`S07-A` scope-revocation prerequisite are complete. Hosted proof `H01` through
+`S07-A` scope-revocation prerequisite and C03's bounded exact-attempt journal
+DDL are complete. Hosted proof `H01` through
 `H04` and `H05-A` are complete. `H05-B` and production routing `S02-D2` remain
 deferred. The `O03-A` parent is complete: protocol-only `O03-A1`, auth-
 provenance `O03-A2a`, host-neutral grant authority `O03-A2b`, and corrected
@@ -44,6 +45,8 @@ Use these sources in order:
 6. Current schema, contracts, repositories, and tests prove implementation:
    - [`../../packages/persistence-postgres/src/schema.ts`](../../packages/persistence-postgres/src/schema.ts)
    - [`../../packages/persistence-postgres/drizzle`](../../packages/persistence-postgres/drizzle)
+   - [`../../packages/persistence-postgres/src/sessionJournalStore.ts`](../../packages/persistence-postgres/src/sessionJournalStore.ts)
+   - [`../../packages/persistence-postgres/src/pinnedPointTableResolution.ts`](../../packages/persistence-postgres/src/pinnedPointTableResolution.ts)
    - [`../../packages/persistence-postgres/src/scopeAuthorityResolution.ts`](../../packages/persistence-postgres/src/scopeAuthorityResolution.ts)
    - [`../../packages/persistence-postgres/src/scopeClock.ts`](../../packages/persistence-postgres/src/scopeClock.ts)
    - [`../../packages/persistence-postgres/src/stableTableCatalog.ts`](../../packages/persistence-postgres/src/stableTableCatalog.ts)
@@ -91,7 +94,7 @@ Convex-first implementation references include:
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
 | Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. S06 is its first replacement-row consumer; no replacement route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
-| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, the required non-routing mutation-session authority core, and private exact-snapshot semantic point reads with typed dependencies are implemented. Point OCC, reconnect retention, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, target-native readiness, routing, and prototype retirement are not implemented; long-running-attempt renewal remains conditional on a proven consumer. |
+| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, the required non-routing mutation-session authority core, private exact-snapshot semantic point reads with typed dependencies, and C03's bounded exact-attempt point journal/overlay/seal are implemented. C04 verified planning, commit publication, reconnect retention, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, target-native readiness, routing, and prototype retirement are not implemented; long-running-attempt renewal remains conditional on a proven consumer. |
 
 Existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, and
 subscription tables remain an internal prototype behavior baseline. They are
@@ -153,6 +156,14 @@ These decisions are durable and are not re-opened by each implementation turn:
   current attempt fence, snapshot token, and lease expiry. O03-B owns atomic
   activation and the exactly-one-active-lease invariant; later consumer gates
   own finish, committed, retry-replacement, and retention operations.
+- Each active `running` attempt also owns exactly one
+  `fx_system_tx_journal` root keyed and restrictively fenced to that session
+  attempt. Its only children are one replace-in-place latest receipt, bounded
+  qualified point dependency/overlay rows, and bounded ordered material-write
+  events; deleting the root cascades those temporary children. Initial
+  activation creates the root with a database-time creation seed. Abort/expiry
+  deletes it before the lease/session transition, and O08 must create a fresh
+  root atomically with any future fence/lease replacement.
 - Session arguments and grants retain checked object JSON, Value Codec V1
   canonical bytes, and SHA-256. The grant contains minimized inert
   claims/capabilities. A cryptographic identity/policy digest is matching
@@ -597,6 +608,42 @@ Non-goals:
 - no session activation, lease renewal, final-commit revalidation, or routing;
   and
 - no control-plane epoch copy, per-grant database, or per-policy epoch table.
+
+### [x] C03 DDL — Add Bounded Exact-Attempt Journal State
+
+Outcome:
+
+- Migration 0028 adds `fx_system_tx_journal`,
+  `fx_system_tx_journal_latest_receipt`, `fx_system_tx_journal_point`, and
+  `fx_system_tx_journal_write_event` in the located data-plane schema.
+- The root is keyed by `(scope_uuid, session_id, attempt_fence)` and references
+  the session's exact current attempt with restrictive update/delete behavior.
+  All three children use the same exact key and cascade only from explicit root
+  deletion.
+- The receipt primary key is the attempt key, so accepted missing/no-op/error
+  operations replace one row instead of amplifying storage. Point rows are
+  unique by qualified table/row identity and bounded to 4,096; ordered material
+  events are unique by accepted syscall sequence and bounded to 16,000 plus
+  64 MiB cumulative canonical event evidence through trusted root accounting.
+- Root constraints bound all six incremental counters, including
+  `material_write_event_evidence_bytes` in `0..67108864`, creation-time seed/
+  cursor, open/failed/sealed state evidence, and canonical sealed bytes/digests.
+  Every nullable sealed, dependency-revision, and live-overlay branch is
+  explicitly two-valued so SQL `NULL` cannot satisfy a `CHECK` through unknown.
+  Canonicalization and SHA work do not occur under this schema's authority
+  locks.
+- Intra-schema foreign keys remain unqualified so PGlite, `public`, and the
+  required non-public real-Postgres `search_path` lane create the same schema.
+
+Exit gates:
+
+- fresh install, upgrade from 0027, idempotent replay, and injected-failure
+  rollback/recovery pass;
+- exact-fence restriction, child cascade, counter/evidence constraints, lookup
+  plans, cleanup, and concurrent operation/seal behavior pass on PGlite and
+  focused real Postgres; and
+- no committed app-row, commit/change, idempotency, outbox, C04 planner, inline
+  carriage, or legacy-engine table is introduced.
 
 ### [ ] S08 — Add Commit And Change-Feed DDL
 

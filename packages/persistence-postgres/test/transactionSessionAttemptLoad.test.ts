@@ -20,6 +20,7 @@ import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
   fxSystemSnapshotLeases,
+  fxSystemTransactionJournals,
   fxSystemTransactionSessions,
 } from "../src/schema";
 import {
@@ -153,7 +154,11 @@ describe("O03-B exact point-mutation attempt authority", () => {
     );
     const second = await restartedLoader.load(Object.freeze({ ...selector }));
 
-    expect(first).toEqual({ status: "loaded", anchor: activated.anchor });
+    expect(first).toEqual({
+      status: "loaded",
+      anchor: activated.anchor,
+      executionPin: { schemaVersionId: "schema_activation_v1" },
+    });
     expect(second).toEqual(first);
     expect(Object.isFrozen(first)).toBe(true);
     expect(Object.isFrozen(first.anchor)).toBe(true);
@@ -165,9 +170,11 @@ describe("O03-B exact point-mutation attempt authority", () => {
       "clockLocked",
       "sessionLocked",
       "leaseLocked",
+      "journalRootLocked",
       "clockLocked",
       "sessionLocked",
       "leaseLocked",
+      "journalRootLocked",
     ]);
 
     await persistence.query(
@@ -332,6 +339,8 @@ describe("O03-B exact point-mutation attempt authority", () => {
       "lock:clockLocked",
       "lock:sessionLocked",
       "lock:leaseLocked",
+      "lock:journalRootLocked",
+      "write:journalDeleted",
       "write:leaseDeleted",
       "write:sessionTerminalized",
     ]);
@@ -385,6 +394,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
     const committedAnchor = (await activate(committed)).anchor;
     await persistence.query(
       `delete from fx_system_snapshot_lease where session_id = $1`,
+      [committedAnchor.sessionId],
+    );
+    await persistence.query(
+      `delete from fx_system_tx_journal where session_id = $1`,
       [committedAnchor.sessionId],
     );
     await persistence.query(
@@ -504,8 +517,13 @@ describe("O03-B exact point-mutation attempt authority", () => {
       .from(fxSystemSnapshotLeases)
       .where(eq(fxSystemSnapshotLeases.sessionId, staleAnchor.sessionId));
     const staleLease = staleLeases[0];
-    if (staleLease === undefined) {
-      throw new Error("Stale-fence fixture is missing its active lease.");
+    const staleJournals = await persistence.drizzle
+      .select()
+      .from(fxSystemTransactionJournals)
+      .where(eq(fxSystemTransactionJournals.sessionId, staleAnchor.sessionId));
+    const staleJournal = staleJournals[0];
+    if (staleLease === undefined || staleJournal === undefined) {
+      throw new Error("Stale-fence fixture is missing its active attempt.");
     }
     const newerFence = TransactionAttemptFenceSchema.make(2n);
     await persistence.drizzle.transaction(async (tx) => {
@@ -513,11 +531,18 @@ describe("O03-B exact point-mutation attempt authority", () => {
         .delete(fxSystemSnapshotLeases)
         .where(eq(fxSystemSnapshotLeases.sessionId, staleAnchor.sessionId));
       await tx
+        .delete(fxSystemTransactionJournals)
+        .where(eq(fxSystemTransactionJournals.sessionId, staleAnchor.sessionId));
+      await tx
         .update(fxSystemTransactionSessions)
         .set({ attemptFence: newerFence })
         .where(eq(fxSystemTransactionSessions.sessionId, staleAnchor.sessionId));
       await tx.insert(fxSystemSnapshotLeases).values({
         ...staleLease,
+        attemptFence: newerFence,
+      });
+      await tx.insert(fxSystemTransactionJournals).values({
+        ...staleJournal,
         attemptFence: newerFence,
       });
     });
@@ -577,9 +602,14 @@ describe("O03-B exact point-mutation attempt authority", () => {
       .select()
       .from(fxSystemSnapshotLeases)
       .where(eq(fxSystemSnapshotLeases.sessionId, anchor.sessionId));
+    const journals = await persistence.drizzle
+      .select()
+      .from(fxSystemTransactionJournals)
+      .where(eq(fxSystemTransactionJournals.sessionId, anchor.sessionId));
     const session = sessions[0];
     const lease = leases[0];
-    if (session === undefined || lease === undefined) {
+    const journal = journals[0];
+    if (session === undefined || lease === undefined || journal === undefined) {
       throw new Error("Maximum-fence fixture is missing its active attempt.");
     }
     const maximumFence = TransactionAttemptFenceSchema.make(
@@ -590,11 +620,18 @@ describe("O03-B exact point-mutation attempt authority", () => {
         .delete(fxSystemSnapshotLeases)
         .where(eq(fxSystemSnapshotLeases.sessionId, anchor.sessionId));
       await tx
+        .delete(fxSystemTransactionJournals)
+        .where(eq(fxSystemTransactionJournals.sessionId, anchor.sessionId));
+      await tx
         .update(fxSystemTransactionSessions)
         .set({ attemptFence: maximumFence })
         .where(eq(fxSystemTransactionSessions.sessionId, anchor.sessionId));
       await tx.insert(fxSystemSnapshotLeases).values({
         ...lease,
+        attemptFence: maximumFence,
+      });
+      await tx.insert(fxSystemTransactionJournals).values({
+        ...journal,
         attemptFence: maximumFence,
       });
     });

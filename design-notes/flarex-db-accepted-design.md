@@ -1009,7 +1009,12 @@ uniqueness claim and not O07 committed-result replay. V1 session hard expiry is
 the already platform-bounded verified-grant expiry. Initial lease expiry is
 `min(databaseNow + configuredLeaseDuration, hardExpiry)` using one post-lock
 database timestamp and must be strictly in the future; exact replay never
-extends it.
+extends it. The same activation transaction creates the exact fence-1 C03
+journal root with that trusted database timestamp as both its creation-time
+seed and cursor. A running attempt without exactly one matching root is corrupt;
+abort or expiry deletes the root and its cascading temporary evidence before
+deleting the lease and terminalizing the session. O08 must create the next root
+atomically with every future attempt-fence/lease replacement.
 
 O03-B2a serializes only deployment, asserted scope, session, and canonical
 positive signed-int64 attempt-fence text. The asserted scope is an identity
@@ -1027,14 +1032,60 @@ canonical encoding, final-sequence fields, integrity digests, and execution
 limit constants. C03 is the first operational owner: it freshly authenticates
 the exact Postgres session attempt, enforces monotonic append order and
 incremental limits, rejects late syscalls, and stores the exact sealed journal
-and sibling successful-result evidence for that attempt. C04 reloads that
-trusted stored evidence, compares canonical bytes, journal digest, final
-sequence, and result evidence, then derives the first process-local
-`PreparedCommitV1` from verified catalog and policy facts. SHA-256 proves byte
-integrity only; authenticating the Postgres session/fence does not authenticate
-arbitrary inline journal bytes. C05 introduces the private exact-fence `running`
-to `finishing` transition; C06 later orchestrates it idempotently through the
-finish endpoint.
+and sibling successful-result evidence for that attempt.
+
+C03A gives that point consumer only an opaque pinned-table capability. It
+resolves `(deploymentId, schemaVersionId, tableName)` from the immutable pinned
+manifest, where membership and declared table ID are authoritative, and checks
+the stable deployment binding only as corroboration. It never reads the mutable
+active-schema pointer and is not C04's broader catalog/policy reader.
+
+C03 persists four exact-attempt tables: one bounded root, one replace-in-place
+latest receipt, at most 4,096 qualified point dependencies with deterministic
+same-row overlay state, and at most 16,000 ordered material-write events. For
+the latest sequence only, exact canonical request bytes replay the exact typed
+outcome; different bytes conflict, lower sequences are stale, and values above
+`last + 1` are gaps. The executor serializes calls per attempt, so a lost
+response for `N` must be recovered before `N + 1` can enter. Catchable missing
+or no-op outcomes advance and replace the receipt without growing row
+cardinality, while incremental resource-limit failures remain sticky until
+lifecycle cleanup.
+
+The root separately accounts the exact canonical bytes of persisted material-
+write events and caps their cumulative temporary evidence at 64 MiB. This is a
+Flarex storage-amplification guard, not a Convex transaction semantic, final-
+journal substitute, lease, or hosted transport promise. Each successful
+material write is strictly normalized and canonicalized once; that detached
+evidence is charged before any point, event, receipt, or root mutation and is
+the evidence inserted into the event row. A no-op or catchable failure creates
+no event and consumes no event-evidence bytes. An event that would exceed the
+cap advances the accepted sequence into the sticky failed state and stores its
+exact failure receipt without changing the point overlay, event table, or the
+prior in-range byte counter.
+
+Insert identity is server-only UUIDv4 generated exactly once after replay
+classification. Live or historical-tombstone collision fails closed and
+replays without another ID. Each attempt seeds `_creationTime` from database
+time; every insert consumes the current binary64 value and advances the cursor
+with exact `nextUp`, atomically with the accepted receipt, including rejected
+post-allocation inserts. Host/user wall-clock values are never accepted.
+
+Sealing first takes a read-only repeatable-read snapshot of at most each child
+limit plus one, detached raw row evidence, counters, and the latest receipt,
+then closes that SQL transaction. Excess cardinality is rejected before child
+decoding. Outside SQL, C03 strictly decodes the children, recomputes cumulative
+material-event bytes against the root counter, constructs an independent
+private candidate, and validates canonical journal/result encoding and
+SHA-256. Caller-visible preparation and result evidence are defensive copies.
+A short exact-attempt transaction finally revalidates the candidate and stores
+the sealed evidence; stale candidates fail rather than widening lock scope.
+C04 reloads that trusted stored evidence, compares canonical bytes, journal
+digest, final sequence, and result evidence, then derives the first process-
+local `PreparedCommitV1` from verified catalog and policy facts. SHA-256 proves
+byte integrity only; authenticating the Postgres session/fence does not
+authenticate arbitrary inline journal bytes. C05 introduces the private exact-
+fence `running` to `finishing` transition; C06 later orchestrates it
+idempotently through the finish endpoint.
 O07 atomically deletes the exact current lease and stores committed state with
 public idempotency identity, result/error outcome, committed token, data, feed,
 and outbox. O08 owns retry replacement; O11 first consumes active floors for
@@ -1074,12 +1125,13 @@ issues a new exact snapshot, creates a fresh facet, and reruns deterministic
 user code. A lost finish response is resolved from the authoritative Postgres
 outcome before any rerun.
 
-This journal records syscall sequence, logical read dependencies, and supported
-staged logical writes. It does not store the application rows being queried.
-Actual data reads still cross the restricted syscall boundary to the trusted
-executor and authoritative Postgres. Moving the journal can remove Postgres
-round trips used only to persist this bookkeeping; it does not remove the
-service-binding/syscall hop or transfer final commit authority.
+This journal records syscall sequence, logical read dependencies, supported
+staged logical writes, and the bounded final-document overlay required for
+read-your-writes. It does not cache or become authority for base application
+rows. Base data reads still cross the restricted syscall boundary to the
+trusted executor and authoritative Postgres. Moving the journal can remove
+Postgres round trips used only to persist this temporary evidence; it does not
+remove the service-binding/syscall hop or transfer final commit authority.
 
 Sequence the optimization from evidence: first close the replacement point
 mutation's PGlite and real-Postgres correctness gates, then immediately measure
@@ -1125,7 +1177,8 @@ terminal outcome or rolls back to the durable `finishing` state.
 Requirements:
 
 - C02 defines canonical syscall-sequence fields; C03 owns monotonic operational
-  append enforcement and trusted read rows/bytes accounting;
+  append enforcement, constant-cardinality latest-response replay, raw bounded
+  pre-coalescing write events, and trusted read rows/bytes accounting;
 - Convex-compatible execution ceilings are 32,000 documents read, 16 MiB of
   document bytes read, 4,096 point-read dependencies, 16,000 user write
   operations before coalescing, 16 MiB of resulting write-document bytes, and
@@ -1134,6 +1187,10 @@ Requirements:
 - a separate 64 MiB canonical-evidence cap is a Flarex resource/transport
   divergence, not a transaction semantic or a journal-authored lease. C07A must
   re-prove any hosted transport ceiling before inline activation;
+- a sibling 64 MiB cumulative material-write-event evidence cap is a C03
+  temporary-storage divergence. It is incrementally enforced before mutation,
+  recomputed from detached event bytes at seal, and does not replace the final
+  canonical-journal cap;
 - one fenced attempt owner;
 - O03-B1 defines initial activation and exact active-anchor replay; O03-B2a
   defines restart-safe exact-fence load; O03-B2b1 defines abort and expiry;

@@ -1,5 +1,6 @@
 import { Data, Effect, Schema } from "effect";
 
+import { AppCreationTimeV1Schema } from "./app-document";
 import {
   AppDocumentIdV1Schema,
   type AppDocumentIdV1,
@@ -91,11 +92,27 @@ export const COMMIT_PROTOCOL_EXECUTION_LIMITS_V1 = Object.freeze({
  * Flarex operational/resource-safety divergence, separate from transaction
  * semantics. The checked-in Convex function-runner response boundary is 64 MiB
  * to accommodate reads, writes, a result, and encoding overhead. C02 applies
- * the same pre-copy/pre-parse ceiling to one canonical evidence bundle. C07A
- * must re-prove its hosted transport boundary before activating inline
- * carriage.
+ * the same pre-copy/pre-parse ceiling to one canonical evidence bundle. C03
+ * separately applies that numeric ceiling to the cumulative canonical bytes
+ * of temporary material-write events so an attempt cannot amplify trusted
+ * storage before seal. That temporary-evidence bound is not a Convex
+ * transaction semantic, final-journal substitute, lease authority, or hosted
+ * transport guarantee. C07A must re-prove its hosted transport boundary before
+ * activating inline carriage.
  */
 export const MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 = 1 << 26;
+export const MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1 = 1 << 26;
+
+export interface CommitProtocolOperationalLimitsV1 {
+  readonly canonicalEvidenceBytes: number;
+  readonly materialWriteEventEvidenceBytes: number;
+}
+
+export const COMMIT_PROTOCOL_OPERATIONAL_LIMITS_V1 = Object.freeze({
+  canonicalEvidenceBytes: MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1,
+  materialWriteEventEvidenceBytes:
+    MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
+} satisfies CommitProtocolOperationalLimitsV1);
 
 const MAX_COMMIT_CANONICAL_EVIDENCE_BASE64URL_CHARACTERS_V1 =
   base64UrlMaximumCharacters(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1);
@@ -143,6 +160,14 @@ export const CommitReadSemanticBytesV1Schema =
   );
 export type CommitReadSemanticBytesV1 =
   typeof CommitReadSemanticBytesV1Schema.Type;
+
+export const CommitMaterialWriteEventEvidenceBytesV1Schema =
+  NonNegativeSafeIntegerSchema.check(Schema.isBetween({
+    minimum: 0,
+    maximum: MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
+  })).pipe(Schema.brand("FlarexDB/CommitMaterialWriteEventEvidenceBytesV1"));
+export type CommitMaterialWriteEventEvidenceBytesV1 =
+  typeof CommitMaterialWriteEventEvidenceBytesV1Schema.Type;
 
 export const CommitDocumentSemanticBytesV1Schema =
   PositiveSafeIntegerSchema.pipe(
@@ -210,6 +235,7 @@ const LogicalInsertWriteV1Schema = Schema.Struct({
   kind: Schema.Literal("insert"),
   syscallSequence: CommitSyscallSequenceV1Schema,
   documentId: AppDocumentIdV1Schema,
+  creationTime: AppCreationTimeV1Schema,
   fieldsValueJson: AppDocumentFieldsJsonV1Schema,
   resultingDocumentSemanticBytes: CommitDocumentSemanticBytesV1Schema,
 }).annotate(StrictStructOptions);
@@ -354,14 +380,14 @@ export const CommitEnvelopeV1Schema = Schema.Struct({
 export type CommitEnvelopeV1 = typeof CommitEnvelopeV1Schema.Type;
 
 export interface StoredForSessionAttemptCommitEnvelopeV1 {
-  readonly format: typeof COMMIT_ENVELOPE_FORMAT_V1;
-  readonly protocolVersion: TransactionSessionProtocolVersionV1;
-  readonly sessionId: TransactionSessionIdV1;
-  readonly attemptFence: TransactionAttemptFence;
-  readonly finalSyscallSequence: CommitFinalSyscallSequenceV1;
+  readonly format: CommitEnvelopeV1["format"];
+  readonly protocolVersion: CommitEnvelopeV1["protocolVersion"];
+  readonly sessionId: CommitEnvelopeV1["sessionId"];
+  readonly attemptFence: CommitEnvelopeV1["attemptFence"];
+  readonly finalSyscallSequence: CommitEnvelopeV1["finalSyscallSequence"];
   readonly journal: StoredForSessionAttemptJournalCarriageV1;
-  readonly journalSha256Hex: SessionJournalSha256HexV1;
-  readonly successfulResult: SuccessfulResultEvidenceV1;
+  readonly journalSha256Hex: CommitEnvelopeV1["journalSha256Hex"];
+  readonly successfulResult: CommitEnvelopeV1["successfulResult"];
 }
 
 export interface CanonicalSessionJournalV1 {
@@ -369,8 +395,6 @@ export interface CanonicalSessionJournalV1 {
   readonly canonicalText: string;
   readonly canonicalBytes: CanonicalSessionJournalBytesV1;
   readonly sha256Hex: SessionJournalSha256HexV1;
-  readonly inlineUntrustedBase64Url:
-    CanonicalSessionJournalBase64UrlV1;
 }
 
 export interface CanonicalSuccessfulResultV1 {
@@ -394,6 +418,7 @@ export type CommitProtocolV1LimitDimension =
   | "patchFields"
   | "writeSemanticBytes"
   | "resultSemanticBytes"
+  | "materialWriteEventEvidenceBytes"
   | "canonicalEvidenceBytes";
 
 export type CommitProtocolV1Issue =
@@ -540,11 +565,6 @@ export const canonicalizeSessionJournalV1Effect = Effect.fn(
   const stableCanonicalBytes = new Uint8Array(rawBytes);
   const sha256Hex = yield* sha256HexEffect(stableCanonicalBytes, "journal");
   const stableJournal = deepFreezeCommitProjection(journal);
-  const inlineUntrustedBase64Url =
-    CanonicalSessionJournalBase64UrlV1Schema.make(
-      encodeBase64Url(stableCanonicalBytes),
-    );
-
   return Object.freeze({
     journal: stableJournal,
     canonicalText,
@@ -554,7 +574,6 @@ export const canonicalizeSessionJournalV1Effect = Effect.fn(
       );
     },
     sha256Hex,
-    inlineUntrustedBase64Url,
   } satisfies CanonicalSessionJournalV1);
 });
 
@@ -859,14 +878,28 @@ const normalizeLogicalAppWriteV1Effect = Effect.fn(function* (
   write: LogicalAppWriteV1,
 ): Effect.fn.Return<LogicalAppWriteV1, CommitProtocolV1Error> {
   switch (write.kind) {
-    case "insert":
+    case "insert": {
+      const fieldsValueJson = yield* normalizeDeveloperDocumentFieldsEffect(
+        write.documentId,
+        write.fieldsValueJson,
+      );
+      return Object.freeze({
+        kind: "insert",
+        syscallSequence: write.syscallSequence,
+        documentId: write.documentId,
+        creationTime: AppCreationTimeV1Schema.make(write.creationTime),
+        fieldsValueJson,
+        resultingDocumentSemanticBytes:
+          write.resultingDocumentSemanticBytes,
+      });
+    }
     case "replace": {
       const fieldsValueJson = yield* normalizeDeveloperDocumentFieldsEffect(
         write.documentId,
         write.fieldsValueJson,
       );
       return Object.freeze({
-        kind: write.kind,
+        kind: "replace",
         syscallSequence: write.syscallSequence,
         documentId: write.documentId,
         fieldsValueJson,

@@ -3,8 +3,9 @@
 Status: active; S06 row storage, S07 physical session/snapshot-lease DDL, and
 O04/O05 point dependency and validation contracts exist. Standalone C01 was
 retired before implementation. C02's host-neutral logical journal, successful-
-result, and finish-envelope protocol is complete but deliberately inert; C03 is
-the next gate and the first operational journal consumer.
+result, and finish-envelope protocol and C03's first trusted Postgres point-
+journal consumer are complete; C04 exact stored-evidence verification and pure
+point-row planning are next.
 
 This plan owns the bounded Flarex app-data path from logical session operations
 to a trusted deterministic physical plan and atomic commit. It does not make a
@@ -194,6 +195,10 @@ Outcome:
 - Keep the separate 64 MiB canonical-evidence ceiling explicitly named as a
   Flarex resource/transport divergence based on Convex's bounded function-runner
   response, not as a transaction limit, syscall limit, lease, or scan counter.
+- Define a distinct 64 MiB `materialWriteEventEvidenceBytes` operational
+  ceiling for C03's cumulative temporary canonical event rows. It is a Flarex
+  storage-amplification guard, not a Convex transaction limit, final-journal
+  substitute, lease, or transport guarantee.
 - Reject unknown versions and forged physical/authority fields.
 
 Exit gate:
@@ -205,7 +210,7 @@ Exit gate:
 - successful result evidence remains outside `SessionJournalV1`, and returned
   byte arrays are defensive copies.
 
-### [ ] C03 — Implement Point Journal And Fail-Closed Overlay
+### [x] C03 — Implement Point Journal And Fail-Closed Overlay
 
 Outcome:
 
@@ -216,13 +221,46 @@ Outcome:
   bytes. It owns temporary logical attempt evidence, not scope resolution,
   catalog authority, physical planning, or committed writes. C07A alone may
   later move this temporary store after measurement.
+- Add the C03A opaque pinned-table capability at this first consumer. Immutable
+  pinned-manifest membership and its declared table ID are authoritative; the
+  stable deployment binding corroborates them. The resolver never reads the
+  mutable active-schema pointer and does not absorb C04 catalog/policy work.
+- Create one exact-attempt journal root eagerly with initial activation. Seed
+  and advance insert `_creationTime` from trusted database time using exact
+  binary64 `nextUp`; future O08 attempt replacement must create a fresh root and
+  seed in the same transaction as its new fence and lease.
+- Persist exactly four bounded attempt tables: the root, one replace-in-place
+  latest receipt, unique point dependency/overlay rows, and ordered material-
+  write events. Child evidence cascades only through explicit root deletion;
+  the root restrictively references the exact session fence.
 - Journal point `get`, insert, patch, replace, and delete operations.
 - Retain raw successful write events for exact pre-coalescing accounting while
   coalescing the internal same-row overlay deterministically and exposing exact
   point read-your-writes from the staged final row state.
+- Strictly normalize and canonicalize each material event once, charge those
+  exact detached bytes before any point/event/receipt/root mutation, and insert
+  the same evidence. Cap the cumulative event bytes at 64 MiB; `limit + 1`
+  stores a replayable sticky failure and advances sequence without adding an
+  event, changing the overlay, or advancing the prior in-range byte counter.
 - Freshly reload/authenticate the exact current attempt before each operation,
   enforce monotonically increasing sequences and incremental execution limits,
   and seal only canonical C02 evidence.
+- Execute only `last + 1`; replay `last` only for byte-identical canonical
+  requests; reject changed bytes, stale lower sequences, and gaps. Catchable
+  missing/no-op results replace the single latest receipt without growing
+  cardinality. Sticky incremental-limit failure retains that exact last receipt
+  until lifecycle cleanup.
+- Generate one server-only UUIDv4 after replay classification for each insert.
+  Return the inserted document immediately, fail closed on live or historical-
+  tombstone collision, and replay every accepted or rejected outcome without
+  another random draw.
+- Seal in two phases: collect at most each child limit plus one and detach raw
+  evidence under read-only repeatable read; close the transaction before child
+  decoding, canonicalization, or hashing; reject excess cardinality first;
+  recompute event bytes against the root; then take the normal short exact-
+  attempt lock path to revalidate and store the seal. Keep the private candidate
+  and successful-result evidence detached from caller-visible objects, reject
+  stale candidates, and never activate C02's dormant inline carriage.
 - Reject syscalls unless the exact current attempt remains `running`; in
   particular, reject every late syscall after C05's finish transition enters
   `finishing`.
@@ -231,10 +269,19 @@ Outcome:
 
 Exit gate:
 
-- every point-write combination has exact overlay tests;
-- missing reads and delete/reinsert behavior remain typed dependencies;
-- unsupported shapes fail closed and never fall back to Postgres;
-- legacy behavior is unchanged behind `legacy_v1`.
+- every point-write combination has exact overlay and pre-coalescing-accounting
+  tests;
+- present and qualified-missing reads, delete/reinsert, repeated reads, no-op
+  writes, sticky `limit + 1`, and creation-time/UUID replay are proven;
+- same/adjacent sequence races, lost-response replay, stale replay rejection,
+  and repeated missing/error calls prove constant receipt cardinality;
+- abort/expiry cleanup, stale seal candidates, large-evidence lock scope,
+  exact/+1 material-event evidence, max+1 child collection, strict result
+  detachment, query plans, migration fresh/upgrade/rollback, and PGlite plus
+  real-Postgres concurrency pass;
+- unsupported shapes fail closed with zero fallback, while inline carriage,
+  committed app-row publication, C04 planning, and legacy-engine extension stay
+  absent.
 
 ### [ ] C04 — Build The Pure Point-Row Planner
 

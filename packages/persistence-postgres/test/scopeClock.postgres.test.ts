@@ -568,7 +568,7 @@ describePostgres("real Postgres scope clock locking", () => {
             select count(*)::text as count
             from ${quoteIdentifier(databaseOptions.migrationsSchema)}.__drizzle_migrations
           `);
-          expect(recoveredReceipts.rows).toEqual([{ count: "28" }]);
+          expect(recoveredReceipts.rows).toEqual([{ count: "29" }]);
         } finally {
           await Promise.all([
             previousPersistence.close(),

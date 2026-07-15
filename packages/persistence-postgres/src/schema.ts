@@ -18,6 +18,22 @@ import {
 } from "drizzle-orm/pg-core";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { ExecutionIdentity } from "flarex-protocol/auth";
+import {
+  MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1,
+  CommitMaterialWriteEventEvidenceBytesV1Schema,
+  MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
+  MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_READ_DOCUMENTS_V1,
+  MAX_COMMIT_READ_SEMANTIC_BYTES_V1,
+  MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
+  MAX_COMMIT_WRITE_OPERATIONS_V1,
+  MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
+  type CommitFinalSyscallSequenceV1,
+  type CommitMaterialWriteEventEvidenceBytesV1,
+  type CommitProtocolV1LimitDimension,
+  type CommitSyscallSequenceV1,
+  type LogicalAppWriteV1,
+} from "flarex-protocol/commit-protocol";
 import type {
   CatalogIndexDefinitionId,
   CatalogIndexId,
@@ -84,8 +100,38 @@ import type {
   FlarexValueCodecVersion,
   FlarexValueSha256V1,
 } from "flarex-protocol/value";
+import { MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1 } from "flarex-protocol/value";
 
 import type { ScopeIsolationKind } from "./scopeMetadataTypes";
+
+type TransactionJournalOperationalLimitDimensionV1 = Extract<
+  CommitProtocolV1LimitDimension,
+  | "readDocuments"
+  | "readSemanticBytes"
+  | "pointReadDependencies"
+  | "writeOperations"
+  | "writeSemanticBytes"
+  | "materialWriteEventEvidenceBytes"
+>;
+
+type TransactionJournalOperationKindV1 =
+  | "get"
+  | "insert"
+  | "patch"
+  | "replace"
+  | "delete";
+
+type TransactionJournalOutcomeKindV1 =
+  | "missing"
+  | "present"
+  | "inserted"
+  | "unit"
+  | "error";
+
+type TransactionJournalDependencyKindV1 =
+  | "present"
+  | "missing_no_visible_revision"
+  | "missing_tombstone";
 
 export const bytea = customType<{
   data: Uint8Array;
@@ -963,6 +1009,470 @@ export const fxSystemSnapshotLeases = pgTable(
   ],
 );
 
+/** Bounded, temporary, exact-attempt logical journal authority. */
+export const fxSystemTransactionJournals = pgTable(
+  "fx_system_tx_journal",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    sessionId: uuid("session_id").$type<TransactionSessionIdV1>().notNull(),
+    attemptFence: bigint("attempt_fence", { mode: "bigint" })
+      .$type<TransactionAttemptFence>()
+      .notNull(),
+    state: text("state").$type<"open" | "sealed" | "failed">().notNull(),
+    lastSyscallSequence: bigint("last_syscall_sequence", { mode: "bigint" })
+      .$type<CommitFinalSyscallSequenceV1>()
+      .notNull()
+      .default(sql`0`),
+    creationTimeSeed: doublePrecision("creation_time_seed")
+      .$type<AppCreationTimeV1>()
+      .notNull(),
+    nextCreationTime: doublePrecision("next_creation_time")
+      .$type<AppCreationTimeV1>()
+      .notNull(),
+    readDocuments: integer("read_documents").notNull().default(0),
+    readSemanticBytes: integer("read_semantic_bytes").notNull().default(0),
+    pointDependencyCount: integer("point_dependency_count").notNull().default(0),
+    writeOperations: integer("write_operations").notNull().default(0),
+    writeSemanticBytes: integer("write_semantic_bytes").notNull().default(0),
+    materialWriteEventEvidenceBytes: integer(
+      "material_write_event_evidence_bytes",
+    ).$type<CommitMaterialWriteEventEvidenceBytesV1>().notNull().default(
+      CommitMaterialWriteEventEvidenceBytesV1Schema.make(0),
+    ),
+    failureDimension: text("failure_dimension")
+      .$type<TransactionJournalOperationalLimitDimensionV1>(),
+    sealedFinalSyscallSequence: bigint("sealed_final_syscall_sequence", {
+      mode: "bigint",
+    }).$type<CommitFinalSyscallSequenceV1>(),
+    sealedJournalBytes: bytea("sealed_journal_bytes"),
+    sealedJournalSha256: bytea("sealed_journal_sha256"),
+    sealedResultValueCodecVersion: integer("sealed_result_value_codec_version")
+      .$type<FlarexValueCodecVersion>(),
+    sealedResultSemanticBytes: integer("sealed_result_semantic_bytes"),
+    sealedResultBytes: bytea("sealed_result_bytes"),
+    sealedResultSha256: bytea("sealed_result_sha256"),
+    sealedAt: timestamp("sealed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_system_tx_journal_pk",
+      columns: [table.scopeUuid, table.sessionId, table.attemptFence],
+    }),
+    foreignKey({
+      name: "fx_system_tx_journal_attempt_fk",
+      columns: [table.scopeUuid, table.sessionId, table.attemptFence],
+      foreignColumns: [
+        fxSystemTransactionSessions.scopeUuid,
+        fxSystemTransactionSessions.sessionId,
+        fxSystemTransactionSessions.attemptFence,
+      ],
+    })
+      .onUpdate("restrict")
+      .onDelete("restrict"),
+    check(
+      "fx_system_tx_journal_attempt_fence_check",
+      sql`${table.attemptFence} >= 1`,
+    ),
+    check(
+      "fx_system_tx_journal_state_check",
+      sql`${table.state} in ('open', 'sealed', 'failed')`,
+    ),
+    check(
+      "fx_system_tx_journal_sequence_check",
+      sql`${table.lastSyscallSequence} >= 0`,
+    ),
+    check(
+      "fx_system_tx_journal_creation_time_check",
+      sql`
+        ${table.creationTimeSeed} > 0
+        and ${table.creationTimeSeed} < 9007199254740992
+        and ${table.nextCreationTime} >= ${table.creationTimeSeed}
+        and ${table.nextCreationTime} < 9007199254740992
+      `,
+    ),
+    check(
+      "fx_system_tx_journal_read_documents_check",
+      sql`${table.readDocuments} between 0 and ${sql.raw(String(MAX_COMMIT_READ_DOCUMENTS_V1))}`,
+    ),
+    check(
+      "fx_system_tx_journal_read_bytes_check",
+      sql`${table.readSemanticBytes} between 0 and ${sql.raw(String(MAX_COMMIT_READ_SEMANTIC_BYTES_V1))}`,
+    ),
+    check(
+      "fx_system_tx_journal_point_count_check",
+      sql`${table.pointDependencyCount} between 0 and ${sql.raw(String(MAX_COMMIT_POINT_READ_DEPENDENCIES_V1))}`,
+    ),
+    check(
+      "fx_system_tx_journal_write_count_check",
+      sql`${table.writeOperations} between 0 and ${sql.raw(String(MAX_COMMIT_WRITE_OPERATIONS_V1))}`,
+    ),
+    check(
+      "fx_system_tx_journal_write_bytes_check",
+      sql`${table.writeSemanticBytes} between 0 and ${sql.raw(String(MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1))}`,
+    ),
+    check(
+      "fx_system_tx_journal_material_write_event_evidence_bytes_check",
+      sql`${table.materialWriteEventEvidenceBytes} between 0 and ${sql.raw(String(MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1))}`,
+    ),
+    check(
+      "fx_system_tx_journal_failure_dimension_check",
+      sql`
+        ${table.failureDimension} is null
+        or (
+          ${table.failureDimension} is not null
+          and ${table.failureDimension} in (
+            'readDocuments',
+            'readSemanticBytes',
+            'pointReadDependencies',
+            'writeOperations',
+            'writeSemanticBytes',
+            'materialWriteEventEvidenceBytes'
+          )
+        )
+      `,
+    ),
+    check(
+      "fx_system_tx_journal_state_evidence_check",
+      sql`
+        (
+          ${table.state} = 'open'
+          and ${table.failureDimension} is null
+          and ${table.sealedFinalSyscallSequence} is null
+          and ${table.sealedJournalBytes} is null
+          and ${table.sealedJournalSha256} is null
+          and ${table.sealedResultValueCodecVersion} is null
+          and ${table.sealedResultSemanticBytes} is null
+          and ${table.sealedResultBytes} is null
+          and ${table.sealedResultSha256} is null
+          and ${table.sealedAt} is null
+        )
+        or (
+          ${table.state} = 'failed'
+          and ${table.failureDimension} is not null
+          and ${table.sealedFinalSyscallSequence} is null
+          and ${table.sealedJournalBytes} is null
+          and ${table.sealedJournalSha256} is null
+          and ${table.sealedResultValueCodecVersion} is null
+          and ${table.sealedResultSemanticBytes} is null
+          and ${table.sealedResultBytes} is null
+          and ${table.sealedResultSha256} is null
+          and ${table.sealedAt} is null
+        )
+        or (
+          ${table.state} = 'sealed'
+          and ${table.failureDimension} is null
+          and ${table.sealedFinalSyscallSequence} is not null
+          and ${table.sealedFinalSyscallSequence} = ${table.lastSyscallSequence}
+          and ${table.sealedJournalBytes} is not null
+          and octet_length(${table.sealedJournalBytes}) between 1 and ${sql.raw(String(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1))}
+          and ${table.sealedJournalSha256} is not null
+          and octet_length(${table.sealedJournalSha256}) = 32
+          and ${table.sealedResultValueCodecVersion} is not null
+          and ${table.sealedResultValueCodecVersion} = 1
+          and ${table.sealedResultSemanticBytes} is not null
+          and ${table.sealedResultSemanticBytes} between 0 and ${sql.raw(String(MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1))}
+          and ${table.sealedResultBytes} is not null
+          and octet_length(${table.sealedResultBytes}) between 1 and ${sql.raw(String(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1))}
+          and ${table.sealedResultSha256} is not null
+          and octet_length(${table.sealedResultSha256}) = 32
+          and ${table.sealedAt} is not null
+          and isfinite(${table.sealedAt})
+        )
+      `,
+    ),
+    check(
+      "fx_system_tx_journal_timestamp_check",
+      sql`
+        isfinite(${table.createdAt})
+        and isfinite(${table.updatedAt})
+        and ${table.updatedAt} >= ${table.createdAt}
+        and (
+          ${table.sealedAt} is null
+          or (
+            ${table.sealedAt} is not null
+            and ${table.sealedAt} >= ${table.createdAt}
+          )
+        )
+      `,
+    ),
+  ],
+);
+
+/** Constant-cardinality durable replay receipt for one exact attempt. */
+export const fxSystemTransactionJournalLatestReceipts = pgTable(
+  "fx_system_tx_journal_latest_receipt",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    sessionId: uuid("session_id").$type<TransactionSessionIdV1>().notNull(),
+    attemptFence: bigint("attempt_fence", { mode: "bigint" })
+      .$type<TransactionAttemptFence>()
+      .notNull(),
+    lastSyscallSequence: bigint("last_syscall_sequence", { mode: "bigint" })
+      .$type<CommitSyscallSequenceV1>()
+      .notNull(),
+    operationKind: text("operation_kind")
+      .$type<TransactionJournalOperationKindV1>()
+      .notNull(),
+    requestCodecVersion: integer("request_codec_version")
+      .$type<1>()
+      .notNull(),
+    requestBytes: bytea("request_bytes").notNull(),
+    requestSha256: bytea("request_sha256").notNull(),
+    outcomeKind: text("outcome_kind")
+      .$type<TransactionJournalOutcomeKindV1>()
+      .notNull(),
+    outcomeCodecVersion: integer("outcome_codec_version")
+      .$type<1>()
+      .notNull(),
+    outcomeBytes: bytea("outcome_bytes").notNull(),
+    outcomeSha256: bytea("outcome_sha256").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_system_tx_journal_receipt_pk",
+      columns: [table.scopeUuid, table.sessionId, table.attemptFence],
+    }),
+    foreignKey({
+      name: "fx_system_tx_journal_receipt_root_fk",
+      columns: [table.scopeUuid, table.sessionId, table.attemptFence],
+      foreignColumns: [
+        fxSystemTransactionJournals.scopeUuid,
+        fxSystemTransactionJournals.sessionId,
+        fxSystemTransactionJournals.attemptFence,
+      ],
+    })
+      .onUpdate("restrict")
+      .onDelete("cascade"),
+    check(
+      "fx_system_tx_journal_receipt_fence_check",
+      sql`${table.attemptFence} >= 1`,
+    ),
+    check(
+      "fx_system_tx_journal_receipt_sequence_check",
+      sql`${table.lastSyscallSequence} >= 1`,
+    ),
+    check(
+      "fx_system_tx_journal_receipt_operation_check",
+      sql`${table.operationKind} in ('get', 'insert', 'patch', 'replace', 'delete')`,
+    ),
+    check(
+      "fx_system_tx_journal_receipt_request_check",
+      sql`
+        ${table.requestCodecVersion} = 1
+        and octet_length(${table.requestBytes}) between 1 and ${sql.raw(String(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1))}
+        and octet_length(${table.requestSha256}) = 32
+      `,
+    ),
+    check(
+      "fx_system_tx_journal_receipt_outcome_check",
+      sql`
+        ${table.outcomeKind} in ('missing', 'present', 'inserted', 'unit', 'error')
+        and ${table.outcomeCodecVersion} = 1
+        and octet_length(${table.outcomeBytes}) between 1 and ${sql.raw(String(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1))}
+        and octet_length(${table.outcomeSha256}) = 32
+      `,
+    ),
+    check(
+      "fx_system_tx_journal_receipt_timestamp_check",
+      sql`
+        isfinite(${table.createdAt})
+        and isfinite(${table.updatedAt})
+        and ${table.updatedAt} >= ${table.createdAt}
+      `,
+    ),
+  ],
+);
+
+/** One immutable OCC dependency plus deterministic same-row overlay. */
+export const fxSystemTransactionJournalPoints = pgTable(
+  "fx_system_tx_journal_point",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    sessionId: uuid("session_id").$type<TransactionSessionIdV1>().notNull(),
+    attemptFence: bigint("attempt_fence", { mode: "bigint" })
+      .$type<TransactionAttemptFence>()
+      .notNull(),
+    tableId: integer("table_id").$type<CatalogTableId>().notNull(),
+    rowId: bytea("row_id").notNull(),
+    dependencyKind: text("dependency_kind")
+      .$type<TransactionJournalDependencyKindV1>()
+      .notNull(),
+    dependencyRevisionCommitSeq: bigint("dependency_revision_commit_seq", {
+      mode: "bigint",
+    }).$type<CommitSeq>(),
+    overlayKind: text("overlay_kind")
+      .$type<"none" | "live" | "deleted">()
+      .notNull(),
+    overlayCreationTime: doublePrecision("overlay_creation_time")
+      .$type<AppCreationTimeV1>(),
+    overlayValueCodecVersion: integer("overlay_value_codec_version")
+      .$type<FlarexValueCodecVersion>(),
+    overlayValueJson: jsonb("overlay_value_json").$type<JsonObject>(),
+    overlayValueBytes: bytea("overlay_value_bytes")
+      .$type<CanonicalFlarexValueBytesV1>(),
+    overlayValueSha256: bytea("overlay_value_sha256")
+      .$type<FlarexValueSha256V1>(),
+    overlaySemanticBytes: integer("overlay_semantic_bytes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_system_tx_journal_point_pk",
+      columns: [
+        table.scopeUuid,
+        table.sessionId,
+        table.attemptFence,
+        table.tableId,
+        table.rowId,
+      ],
+    }),
+    foreignKey({
+      name: "fx_system_tx_journal_point_root_fk",
+      columns: [table.scopeUuid, table.sessionId, table.attemptFence],
+      foreignColumns: [
+        fxSystemTransactionJournals.scopeUuid,
+        fxSystemTransactionJournals.sessionId,
+        fxSystemTransactionJournals.attemptFence,
+      ],
+    })
+      .onUpdate("restrict")
+      .onDelete("cascade"),
+    check(
+      "fx_system_tx_journal_point_identity_check",
+      sql`
+        ${table.attemptFence} >= 1
+        and ${table.tableId} between 1 and 2147483647
+        and octet_length(${table.rowId}) = 16
+      `,
+    ),
+    check(
+      "fx_system_tx_journal_point_dependency_check",
+      sql`
+        (
+          ${table.dependencyKind} = 'present'
+          and ${table.dependencyRevisionCommitSeq} is not null
+          and ${table.dependencyRevisionCommitSeq} >= 1
+        )
+        or (
+          ${table.dependencyKind} = 'missing_no_visible_revision'
+          and ${table.dependencyRevisionCommitSeq} is null
+        )
+        or (
+          ${table.dependencyKind} = 'missing_tombstone'
+          and ${table.dependencyRevisionCommitSeq} is not null
+          and ${table.dependencyRevisionCommitSeq} >= 1
+        )
+      `,
+    ),
+    check(
+      "fx_system_tx_journal_point_overlay_check",
+      sql`
+        (
+          ${table.overlayKind} in ('none', 'deleted')
+          and ${table.overlayCreationTime} is null
+          and ${table.overlayValueCodecVersion} is null
+          and ${table.overlayValueJson} is null
+          and ${table.overlayValueBytes} is null
+          and ${table.overlayValueSha256} is null
+          and ${table.overlaySemanticBytes} is null
+        )
+        or (
+          ${table.overlayKind} = 'live'
+          and ${table.overlayCreationTime} is not null
+          and ${table.overlayCreationTime} > 0
+          and ${table.overlayCreationTime} < 9007199254740992
+          and ${table.overlayValueCodecVersion} is not null
+          and ${table.overlayValueCodecVersion} = 1
+          and ${table.overlayValueJson} is not null
+          and jsonb_typeof(${table.overlayValueJson}) = 'object'
+          and ${table.overlayValueBytes} is not null
+          and octet_length(${table.overlayValueBytes}) > 0
+          and ${table.overlayValueSha256} is not null
+          and octet_length(${table.overlayValueSha256}) = 32
+          and ${table.overlaySemanticBytes} is not null
+          and ${table.overlaySemanticBytes} between 1 and ${sql.raw(String(MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1))}
+        )
+      `,
+    ),
+    check(
+      "fx_system_tx_journal_point_timestamp_check",
+      sql`
+        isfinite(${table.createdAt})
+        and isfinite(${table.updatedAt})
+        and ${table.updatedAt} >= ${table.createdAt}
+      `,
+    ),
+  ],
+);
+
+/** Ordered material writes retained before same-row coalescing. */
+export const fxSystemTransactionJournalWriteEvents = pgTable(
+  "fx_system_tx_journal_write_event",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    sessionId: uuid("session_id").$type<TransactionSessionIdV1>().notNull(),
+    attemptFence: bigint("attempt_fence", { mode: "bigint" })
+      .$type<TransactionAttemptFence>()
+      .notNull(),
+    syscallSequence: bigint("syscall_sequence", { mode: "bigint" })
+      .$type<CommitSyscallSequenceV1>()
+      .notNull(),
+    writeKind: text("write_kind")
+      .$type<LogicalAppWriteV1["kind"]>()
+      .notNull(),
+    eventCodecVersion: integer("event_codec_version").$type<1>().notNull(),
+    eventJson: jsonb("event_json").$type<JsonObject>().notNull(),
+    eventBytes: bytea("event_bytes").notNull(),
+    eventSha256: bytea("event_sha256").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_system_tx_journal_event_pk",
+      columns: [
+        table.scopeUuid,
+        table.sessionId,
+        table.attemptFence,
+        table.syscallSequence,
+      ],
+    }),
+    foreignKey({
+      name: "fx_system_tx_journal_event_root_fk",
+      columns: [table.scopeUuid, table.sessionId, table.attemptFence],
+      foreignColumns: [
+        fxSystemTransactionJournals.scopeUuid,
+        fxSystemTransactionJournals.sessionId,
+        fxSystemTransactionJournals.attemptFence,
+      ],
+    })
+      .onUpdate("restrict")
+      .onDelete("cascade"),
+    check(
+      "fx_system_tx_journal_event_identity_check",
+      sql`${table.attemptFence} >= 1 and ${table.syscallSequence} >= 1`,
+    ),
+    check(
+      "fx_system_tx_journal_event_payload_check",
+      sql`
+        ${table.writeKind} in ('insert', 'patch', 'replace', 'delete')
+        and ${table.eventCodecVersion} = 1
+        and jsonb_typeof(${table.eventJson}) = 'object'
+        and octet_length(${table.eventBytes}) between 1 and ${sql.raw(String(MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1))}
+        and octet_length(${table.eventSha256}) = 32
+      `,
+    ),
+    check(
+      "fx_system_tx_journal_event_timestamp_check",
+      sql`isfinite(${table.createdAt})`,
+    ),
+  ],
+);
+
 /**
  * Authoritative replacement app-row history. The current table below stores
  * only an exact pointer into this history and never duplicates value evidence.
@@ -1677,6 +2187,10 @@ export const flarexSchema = {
   fxSystemIndexBuildStates,
   fxSystemSnapshotLeases,
   fxSystemScopeClocks,
+  fxSystemTransactionJournalLatestReceipts,
+  fxSystemTransactionJournalPoints,
+  fxSystemTransactionJournals,
+  fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionSessions,
   indexes,
   invokeSessionDocumentReads,

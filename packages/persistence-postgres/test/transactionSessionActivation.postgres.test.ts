@@ -268,9 +268,11 @@ describePostgres("real Postgres O03-B session authority", () => {
         "clockLocked",
         "sessionLocked",
         "leaseLocked",
+        "journalRootLocked",
         "clockLocked",
         "sessionLocked",
         "leaseLocked",
+        "journalRootLocked",
       ]);
       await expect(attemptRowState(persistence, context.scopeId))
         .resolves.toEqual(before);
@@ -474,7 +476,7 @@ describePostgres("real Postgres O03-B session authority", () => {
       expect(events.filter((event) => event.endsWith(":leaseLocked")))
         .toHaveLength(1);
       expect(events.filter((event) => event.includes(":write:")))
-        .toHaveLength(2);
+        .toHaveLength(3);
       await expect(rowCounts(persistence, context.scopeId)).resolves.toEqual({
         sessions: 1,
         leases: 0,
@@ -524,6 +526,8 @@ describePostgres("real Postgres O03-B session authority", () => {
         "lock:clockLocked",
         "lock:sessionLocked",
         "lock:leaseLocked",
+        "lock:journalRootLocked",
+        "write:journalDeleted",
         "write:leaseDeleted",
         "write:sessionTerminalized",
       ]);

@@ -924,6 +924,7 @@ describe("current-epoch transaction-grant admission", () => {
         attemptFence: created.anchor.attemptFence,
       },
       snapshotToken: created.anchor.snapshotToken,
+      schemaVersionId: "schema_a2b",
     });
     expect(() => inspectLoadedPointMutationSessionAttemptV1({ ...loaded }))
       .toThrow(InvalidLoadedPointMutationSessionAttemptV1Error);

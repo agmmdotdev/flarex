@@ -17,17 +17,17 @@ anchor replay, B2a's restart-safe exact-attempt reload, and B2b1's exact
 abort/expiry terminalization are complete. O04's private exact-snapshot point
 reads and typed dependencies and O05's pure point-OCC validation are complete.
 The standalone C01 port-extraction gate was retired before implementation.
-C02's host-neutral logical journal/result/envelope protocol is complete but
-inert; C03 is next and is the first operational journal consumer. B2b2 renewal is a conditional
+C02's host-neutral logical journal/result/envelope protocol and C03's first
+trusted Postgres point-journal consumer are complete; C04 is next. B2b2 renewal is a conditional
 operational extension outside the current
 master order; it requires a real runtime or retention consumer that proves a
 bounded attempt must outlive its initial lease.
 
 | Stream | Current status |
 | --- | --- |
-| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, and narrow `S07-A` complete |
+| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, and C03's bounded exact-attempt journal DDL complete |
 | OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads with typed present/qualified-missing dependencies, and `O05` pure point-OCC validation are complete; standalone `O01` retired before implementation, while B2b2 renewal, operational revocation, and hosted adapters remain consumer-triggered deferred gates |
-| Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol gate `C02` complete; `C03` is the next and first operational compiler gate |
+| Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol gate `C02` and operational point-journal gate `C03` complete; `C04` exact stored-evidence verifier and pure point-row planner next |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
 
@@ -261,9 +261,10 @@ types and ports are introduced by the gates that first consume them.
 15. `C02` (complete, inert): versioned logical journal, separate successful-
     result evidence, finish-envelope protocol, canonical integrity, and exact
     execution-limit constants; no concrete prepared plan or runtime activation.
-16. `C03` (next): trusted Postgres journal, point read-your-writes, operational
-    sequence/limit accounting, and fail-closed unsupported shapes.
-17. `C04`: exact stored-evidence verification and the pure deterministic point-
+16. `C03` (complete): trusted Postgres journal, C03A pinned-table capability,
+    point read-your-writes, bounded latest-receipt replay, operational sequence/
+    limit accounting, two-phase seal, and fail-closed unsupported shapes.
+17. `C04` (next): exact stored-evidence verification and the pure deterministic point-
     row planner that introduces concrete `PreparedCommitV1`.
 
 The proposed C01 compatibility-wrapper work is not carried forward. C03 introduces
