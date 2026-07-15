@@ -13,12 +13,12 @@ consumes it for signed transaction-grant semantics. The required O03-B core now
 owns atomic activation/replay, restart-safe exact-attempt reload, abort/expiry,
 active-child enforcement, and stale-attempt rejection. O03-B2b2 renewal is a
 conditional operational extension for the first proven long-running-attempt
-consumer and does not block O05 or the private C07 proof. Completed O04 now
+consumer and does not block the private C01-C07 proof. Completed O04 now
 supplies a private exact-snapshot revision-history read with immutable present
 or qualified-missing point dependencies. It deliberately does not treat a
 loaded attempt as continuing authorization; C03 first composes fresh exact-
 attempt validation, the O04 reader, and staged read-your-writes. O05 pure point-
-OCC validation is next. C05 introduces the
+OCC validation is complete; C01 is next in the master order. C05 introduces the
 private exact-fence transition to `finishing`,
 C06 orchestrates it idempotently through the finish endpoint, C03 rejects late
 syscalls, O07 atomically deletes the exact lease and stores committed state plus

@@ -13,9 +13,10 @@ hosted Worker/key adapters are deferred to their first real consumers. O03-B1
 activation, O03-B2a restart-safe reload, and O03-B2b1 exact abort/expiry
 terminalization complete the required O03-B authority core. O04's private
 exact-snapshot point-read semantics and dependencies are complete; O05 pure
-point-OCC validation is next. O03-B2b2 renewal/race proof is a conditional
+point-OCC validation is also complete, and C01 is the next master-order gate.
+O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
-does not block O05 or the private C01-C07 proof.
+does not block the private C01-C07 proof.
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -513,7 +514,8 @@ it is not an O05 prerequisite.
 
 Status: complete as a private, non-routing atomic activation and exact active-
 anchor replay checkpoint. O04 now consumes its pinned snapshot semantics;
-O05 is the next implementation gate.
+O05 now consumes O04's qualified point dependencies without broadening this
+activation boundary.
 
 Outcome:
 
@@ -614,7 +616,8 @@ extension and does not determine this parent's completion.
 
 Status: complete as a private, non-routing exact abort/expiry terminalization
 boundary with idempotent first-terminal-state observation. This closes the
-required O03-B authority core. O04 is complete and O05 is next.
+required O03-B authority core. O04 and O05 are complete; C01 is next in the
+master order.
 
 Outcome:
 
@@ -758,27 +761,50 @@ Exit gate:
 - no DDL, route, root export, legacy adapter, current-pointer fast path,
   journal, staged overlay, O05 validation, or execution-attempt facade is added.
 
-### [ ] O05 — Build The Pure Point-OCC Validator
+### [x] O05 — Build The Pure Point-OCC Validator
 
-Status: next implementation gate. It consumes O04's frozen point-dependency
-contract and the separately verified snapshot/authority context; it does not
-reinterpret a developer-visible `null` as sufficient conflict evidence.
+Status: complete as a private, database-free, single-point decision kernel. It
+consumes O04's frozen point-dependency contract, the full pinned snapshot token,
+and a minimal authoritative row-head observation. It does not reinterpret a
+developer-visible `null` as sufficient conflict evidence.
 
 Outcome:
 
-- Implement a side-effect-free validator for present revision unchanged,
-  missing row still missing, insert absence, expected revision for
-  patch/replace/delete, scope/generation agreement, and epoch fence.
-- Produce typed, deterministic conflicts suitable for full user-code rerun.
-- Validate against committed rows and any same-lane pending/locked state needed
-  by the chosen Postgres protocol.
+- Implement one side-effect-free, database-free point validator. A present
+  dependency requires the same live revision; a missing dependency requires
+  either no head or the exact observed tombstone. Insert, patch, replace, and
+  delete preconditions later use those same dependency forms rather than a
+  second write-conflict model.
+- Return a strict `valid | conflict | invalidEvidence` decision. Only an exact-
+  row head revision above the pinned snapshot is a retryable conflict suitable
+  for a full user-code rerun. Identity mismatch, impossible sequence evidence,
+  history regression, or any mismatching head at or below the snapshot is
+  non-retryable invalid evidence.
+- Keep SQL, row-head loading, locks, session/lease checks, epoch and generation/
+  fence revalidation, and same-lane serialization in O06. Its scope-clock lock
+  serializes authoritative V1 commits, so O05 does not invent a Convex-style
+  in-memory pending-write interface. Keep same-row journal coalescing and staged
+  read-your-writes in C03/C04.
+- Treat authoritative revision history as the semantic source. O06 may derive
+  the minimal head observation from a current pointer only after proving its
+  equivalence under the same transaction; O05 never reads or blesses the
+  pointer itself.
 
 Exit gate:
 
-- exhaustive unit tests cover read/write, write/write, missing/insert,
-  delete/reinsert, same-row coalescing, unrelated rows, scope mismatch, and
-  stale epoch/generation;
-- no physical writes occur in this turn.
+- exhaustive unit tests cover present and missing reads, insert/write
+  preconditions, newer live and tombstone heads, delete/reinsert and final-
+  tombstone cases, same-value newer revisions, unrelated/mismatched identities,
+  scope mismatch, impossible pre-snapshot history, signed-bigint exactness, and
+  immutable deterministic decisions;
+- delete/reinsert cases prove that intervening history conflicts even when the
+  final value or missing state resembles the snapshot. They do not authorize
+  developer-facing reuse of a deleted document ID; Convex forbids that reuse,
+  and any Flarex divergence requires a separate accepted design decision;
+- no SQL, physical writes, root export, session/lease/epoch/generation
+  authority, journal, overlay, or coalescing is added in this turn; and
+- real-Postgres conflict serialization remains an O06 exit gate rather than a
+  false requirement for this pure kernel.
 
 ### [ ] O06 — Build The Private Atomic Point-Commit Harness
 

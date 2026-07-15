@@ -516,9 +516,10 @@ the staged read-your-writes overlay.
   committed-outcome replay, expiry tombstone, and target-generation activation
   rules are not implemented. Legacy outcome import remains conditional.
 - Replacement app-row revision/current and physical transaction-session/
-  snapshot-lease tables plus the private O04 point-read kernel exist internally.
-  Point OCC, production syscall/session composition, commit/change,
-  idempotency, leased outbox, and compiler composition remain prerequisites.
+  snapshot-lease tables plus the private O04 point-read kernel and O05 pure
+  point-OCC validator exist internally. Production syscall/session composition,
+  commit-time point-OCC integration/serialization, commit/change, idempotency,
+  leased outbox, and compiler composition remain prerequisites.
 - Exact range/relation/pagination overlays and phantom tests are incomplete.
 - Payload and Medusa adapter conformance remain separate future domains.
 - The scope-local commit lane may become a throughput bottleneck and must be
@@ -558,8 +559,8 @@ preparation boundaries are also complete, so O03-A2 and O03-A are complete.
 O03-B1 activation and O03-B2a restart-safe exact-attempt reload are complete.
 O03-B2b1 exact abort/expiry terminalization is also complete and closes the
 required session-authority core. O04 private exact-snapshot point reads and
-typed dependencies are also complete; O05 pure OCC validation is next before
-C01. O03-B2b2 renewal and renewal-
+typed dependencies and O05 pure OCC validation are complete; C01 is next.
+O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
 retention consumer proves that a bounded attempt must outlive its initial lease.
 Operational revocation and hosted Worker/key adapters are deferred and do not

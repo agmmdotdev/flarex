@@ -82,7 +82,7 @@ The repository contains two internal prototype paths plus the accepted target:
 | --- | --- |
 | Durable Object prototype | `PartitionDO` remains bound and reachable as an internal/public fallback, with authoritative Durable Object SQLite document/index/OCC state. It is unshipped legacy architecture, not a target storage generation. |
 | Initial Postgres prototype (`legacy_v1`) | `createFlarexExecutor` currently installs only `createLegacyV1AppDataEngine`, backed by the existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, subscription, and delivery tables. It supplies bounded prototype-regression evidence, not target authority or a supported migration obligation. |
-| Accepted FlarexDB target (`flarexdb_v1`) | Scope authority, scope clock including private current authorization-revocation storage, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, transaction-grant authority, the required private session core through activation/replay/reload/terminalization, and private exact-snapshot point reads with typed dependencies exist. Point OCC, commit compiler, target activation, and routing remain incomplete; attempt renewal is conditional on a proven long-running consumer. `v1` means the first intended shippable FlarexDB contract, not the first design attempt. |
+| Accepted FlarexDB target (`flarexdb_v1`) | Scope authority, scope clock including private current authorization-revocation storage, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, transaction-grant authority, the required private session core through activation/replay/reload/terminalization, private exact-snapshot point reads with typed dependencies, and pure point-OCC validation exist. Commit-time point-OCC integration/serialization, the commit compiler, target activation, and routing remain incomplete; attempt renewal is conditional on a proven long-running consumer. `v1` means the first intended shippable FlarexDB contract, not the first design attempt. |
 
 The existence of replacement catalog tables does not mean the replacement data
 path is active. The executor must not route a request into `flarexdb_v1` until
@@ -389,11 +389,13 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
   exact-attempt reload are complete. O03-B2b1 exact abort/expiry terminalization
   is also complete and closes the required session-authority core. O04's
   private exact-snapshot point reads and typed present/qualified-missing
-  dependencies are complete; O05 point OCC is next. Conditional B2b2 renewal
-  moves to its first proven long-running-attempt consumer. OCC, commit/change
-  feed, idempotency outcomes, leased outbox, and the bounded commit compiler
-  remain unimplemented. The O04 reader is not a routed syscall or continuing
-  attempt authorization; C03 owns that first operational composition.
+  dependencies and O05's pure point-OCC validator are complete; C01 is next.
+  Conditional B2b2 renewal
+  moves to its first proven long-running-attempt consumer. Commit-time point-
+  OCC integration/serialization, commit/change feed, idempotency outcomes,
+  leased outbox, and the bounded commit compiler remain unimplemented. The O04
+  reader is not a routed syscall or continuing attempt authorization; C03 owns
+  that first operational composition.
 - The current broad persistence interface and legacy invoke-session tables are
   prototype surfaces to narrow behind target-specific ports and then remove.
 - Existing freshness and live-query delivery behavior belongs to the legacy
@@ -452,9 +454,9 @@ two-sided preparation boundaries all pass. O03-B1 atomic activation/exact
 active-anchor replay and O03-B2a restart-safe exact-attempt reload also pass.
 O03-B2b1 exact abort/expiry terminalization also passes and closes the required
 session-authority core. O04 private exact-snapshot point reads and dependencies
-also pass; O05 pure point-OCC validation is next. O03-B2b2
+and O05 pure point-OCC validation are complete; C01 is next. O03-B2b2
 renewal/race proof, operational revocation, and hosted Worker/key adapters are
-consumer-triggered deferred gates and do not block O05 or the private C07 proof.
+consumer-triggered deferred gates and do not block the private C07 proof.
 
 Follow the interleaved foundation order rather than pulling build/readiness
 work forward:
