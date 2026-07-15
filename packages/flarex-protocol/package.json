@@ -15,6 +15,7 @@
     "./auth": "./src/auth.ts",
     "./catalog": "./src/catalog.ts",
     "./connection": "./src/connection.ts",
+    "./commit-protocol": "./src/commit-protocol.ts",
     "./deployment": "./src/deployment.ts",
     "./execution": "./src/execution.ts",
     "./invoke": "./src/invoke.ts",

@@ -97,7 +97,7 @@ with domain rationale in
 | [`flarexdb-foundation/README.md`](./flarexdb-foundation/README.md) | Focused execution index | Master status, wave order, hosted gate, and cross-plan invariants. |
 | [`flarexdb-foundation/01-schema-and-migrations.md`](./flarexdb-foundation/01-schema-and-migrations.md) | Active focused execution plan | Target schema/catalog, codecs, app storage, readiness, activation, prototype retirement, and conditional shipped-state migration. |
 | [`flarexdb-foundation/02-occ-and-transactions.md`](./flarexdb-foundation/02-occ-and-transactions.md) | Active focused execution plan | Exact snapshots, OCC dependencies, atomic commit lane, retry classes, retention, clean prototype retirement, and conditional live migration. |
-| [`flarexdb-foundation/03-commit-compiler.md`](./flarexdb-foundation/03-commit-compiler.md) | Active focused execution plan | Retired standalone `C01`, active `C02`–`C09` compiler gates, and conditional `C07A`. |
+| [`flarexdb-foundation/03-commit-compiler.md`](./flarexdb-foundation/03-commit-compiler.md) | Active focused execution plan | Retired standalone `C01`, completed inert `C02` protocol, active `C03`–`C09` compiler gates, and conditional `C07A`. |
 | [`flarexdb-foundation/04-payload-relational-contract.md`](./flarexdb-foundation/04-payload-relational-contract.md) | Accepted deferred contract | Relation semantics and stable occurrence identity required before `R01`/`R02`/`S12`/`C09`. |
 | [`flarexdb-foundation/05-managed-schema-deployment.md`](./flarexdb-foundation/05-managed-schema-deployment.md) | Accepted deferred contract | Migrationless developer experience and managed schema safety classes; implementation remains deferred. |
 

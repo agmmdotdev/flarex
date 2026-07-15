@@ -14,7 +14,8 @@ activation, O03-B2a restart-safe reload, and O03-B2b1 exact abort/expiry
 terminalization complete the required O03-B authority core. O04's private
 exact-snapshot point-read semantics and dependencies are complete; O05 pure
 point-OCC validation is also complete. Standalone C01 was retired before
-implementation, and C02 is the next master-order gate.
+implementation, C02's inert logical protocol is complete, and C03 is the next
+master-order gate.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
 does not block the private C02-C07 proof.
@@ -618,7 +619,8 @@ extension and does not determine this parent's completion.
 Status: complete as a private, non-routing exact abort/expiry terminalization
 boundary with idempotent first-terminal-state observation. This closes the
 required O03-B authority core. O04 and O05 are complete; standalone C01 is
-retired and C02 is next in the master order.
+retired, C02's inert logical protocol is complete, and C03 is next in the
+master order.
 
 Outcome:
 

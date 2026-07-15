@@ -19,7 +19,8 @@ or qualified-missing point dependencies. It deliberately does not treat a
 loaded attempt as continuing authorization; C03 first composes fresh exact-
 attempt validation, the O04 reader, and staged read-your-writes. O05 pure point-
 OCC validation is complete; standalone C01 was retired before implementation,
-and C02 is next in the master order. C05 introduces the
+C02's inert logical journal/result/envelope protocol is complete, and C03 is
+next in the master order. C05 introduces the
 private exact-fence transition to `finishing`,
 C06 orchestrates it idempotently through the finish endpoint, C03 rejects late
 syscalls, O07 atomically deletes the exact lease and stores committed state plus

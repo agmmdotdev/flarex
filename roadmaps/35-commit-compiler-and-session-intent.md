@@ -3,12 +3,14 @@
 ## Status And Scope
 
 Status: accepted bounded design with an implemented `legacy_v1` prototype path;
-standalone `C01` was retired before implementation, and no `C02` through `C09`
-replacement slice is complete.
+standalone `C01` was retired before implementation. C02's replacement logical
+journal/result/envelope protocol is complete but inert; C03 is the next gate
+and the first operational journal consumer.
 
 This roadmap owns the durable direction for:
 
-- the logical session journal and authenticated finish envelope;
+- the logical session journal and integrity-bound finish envelope with trusted
+  carriage provenance;
 - the trusted logical-to-physical commit planner;
 - the authoritative short Postgres commit executor;
 - session fencing, lifecycle, restart, expiry, and lost-outcome recovery;
@@ -107,25 +109,32 @@ generation/fence from trusted placement and the data-plane scope clock. Current
 invoke sessions do not use that selection as read/commit authority. S07's
 physical transaction-session/snapshot-lease tables exist internally, but no
 production lifecycle operation creates or consumes them. `SessionJournalV1`,
-`CommitEnvelopeV1`, `PreparedCommitV1`, and the trusted commit planner remain
-unimplemented.
+`SessionJournalV1`, separate successful-result evidence, and
+`CommitEnvelopeV1` now exist as a host-neutral protocol leaf, but no runtime
+consumes them. `PreparedCommitV1` and the trusted commit planner remain
+unimplemented and belong to C04.
 
 ### Accepted replacement boundary
 
-The replacement separates four responsibilities:
+The replacement separates protocol evidence from trusted physical planning and
+execution:
 
 ```text
 SessionJournalV1
-  bounded logical app reads, staged logical writes, canonical result
+  bounded logical point-read dependencies and raw staged logical writes
+
+SuccessfulResultEvidenceV1
+  separate canonical Value Codec result bytes, semantic size, and digest
              |
 CommitEnvelopeV1
-  protocol version, session id, attempt fence, syscall sequence,
-  canonical journal bytes or authenticated journal reference, digest
+  protocol versions, session id, attempt fence, final syscall sequence,
+  stored-attempt or dormant inline-untrusted carriage and journal digest,
+  sibling successful-result evidence
              |
 CommitPlannerV1
   verified anchor/catalog/policy input -> deterministic physical plan
              |
-PreparedCommitV1
+PreparedCommitV1 (introduced by C04)
   internal immutable capability; never serialized over /invoke/*
              |
 CommitExecutor
@@ -161,20 +170,28 @@ signed-grant semantics, O03-B1 owns atomic activation/exact active-anchor
 replay, O03-B2a owns restart-safe exact-attempt reload, and O03-B2b1 owns
 exact abort/expiry terminalization and active-child invariants. Conditional
 O03-B2b2 renewal belongs to its first proven long-running-attempt consumer. C02
-owns journal sequence/digest,
-C05 introduces the private exact-fence transition to `finishing`, C06
+owns only canonical sequence fields, logical evidence shapes, and integrity
+digests; C03 owns operational sequencing, accounting, and the first trusted
+stored attempt journal; C04 owns exact stored-evidence reload and the concrete
+prepared capability. C05 introduces the private exact-fence transition to
+`finishing`, C06
 orchestrates it idempotently through the finish endpoint, C03 rejects late
 syscalls, O07 atomically deletes the exact lease and stores committed state plus
 public idempotency/outcomes, O08 owns retry replacement, and O11 first consumes
 active floors.
 
-Temporary journal placement does not change this anchor. It authenticates a
-remote journal and fences stale attempts without making SessionDO transaction
-authority.
+Temporary journal placement does not change this anchor. Reloading it
+authenticates the exact Postgres attempt and fences stale attempts; it does not
+authenticate arbitrary inline journal bytes. SHA-256 supplies integrity only.
+Through C07, C04 may operationally consume only the exact journal/result seal
+reloaded from the C03-owned Postgres store.
 
 ### Conditional facet-backed journal placement
 
-If `C07A` selects Durable Object placement, use one server-issued supervisor
+The C02 `inlineUntrusted` carriage is schema-defined but dormant. If `C07A`
+selects Durable Object placement and first proves non-forgeable provenance for
+the exact supervisor/facet call path (or an equivalent host capability), use
+one server-issued supervisor
 Durable Object per top-level query/mutation session and one dynamically loaded
 facet per positive attempt fence. Do not use one execution actor per scope or
 deployment. The exact content-addressed artifact remains pinned by the
@@ -184,15 +201,17 @@ store; supervisor or facet SQLite is not a second code authority.
 The generated facet shell records the bounded logical journal and supported
 read-your-writes overlay in its isolated SQLite while actual snapshot reads
 still cross the restricted executor syscall capability. On handler completion,
-the facet seals canonical journal bytes, canonical result bytes, final syscall
-sequence, digest, session identity, and attempt fence. Because Cloudflare
+the facet seals canonical journal bytes, separate successful-result evidence,
+final syscall sequence, digest, session identity, and attempt fence. Because Cloudflare
 isolates parent and facet storage, the supervisor retrieves that envelope only
 through an RPC or `fetch` call on the exact facet stub; it cannot query the
 child database directly. The supervisor then forwards the envelope to trusted
 executor finish.
 
 The executor treats the returned journal as logical intent, not a transaction
-or authoritative row set. It reloads and validates the Postgres anchor and
+or authoritative row set. Inline evidence is consumable only under the C07A
+provenance boundary; a matching digest plus session/fence is insufficient. It
+reloads and validates the Postgres anchor and
 lowers the verified operations into physical revisions/current rows, derived
 sidecars, result-bearing idempotency outcome, commit/change feed, and outbox.
 Commit/abort/expiry deletes the attempt facet. OCC retry advances the trusted
@@ -266,8 +285,11 @@ session.
 
 Before planning, trusted code verifies:
 
-- protocol version, canonical journal bytes/reference, digest, and last syscall
-  sequence;
+- `storedForSessionAttempt` carriage through C07, followed by an exact reload
+  of the C03-owned journal/result seal and comparison of canonical journal
+  bytes, digest, final syscall sequence, and sibling result evidence;
+- protocol versions and structural evidence. `inlineUntrusted` is rejected
+  regardless of a matching digest until C07A proves its provenance boundary;
 - session lifecycle, attempt fence, expiry, generation/fence, and snapshot;
 - package, function, schema, policy, identity, grant, and revocation state;
 - request/idempotency identity and canonical arguments; and
@@ -310,9 +332,19 @@ cannot see the private journal.
 | Payload operation | Payload adapter lane or rejection |
 | Medusa operation | Medusa transaction lane; never generic fallback |
 
-Each syscall enforces incremental journal, read/write byte, row, scan, syscall,
-and lease limits. Waiting until finish to reject an oversized journal is not
-sufficient.
+C03 incrementally enforces the applicable Convex execution ceilings: 32,000
+documents read, 16 MiB of document bytes read, 4,096 point-read dependencies,
+16,000 user write operations before same-row coalescing, 16 MiB of resulting
+write-document bytes, and 16 MiB of successful-result semantic bytes.
+Structurally derivable totals are recomputed instead of trusted from envelope
+aggregates; C03 owns or verifies non-derivable read rows/bytes. C02 defines no
+scan counter, syscall-count authority, or journal-authored lease time.
+
+The separate 64 MiB canonical-evidence ceiling is a Flarex resource/transport
+divergence based on Convex's bounded function-runner response, not a transaction
+semantic. C07A must re-prove the appropriate hosted transport ceiling before it
+activates inline carriage. Temporary-evidence TTL remains owned by the journal
+store and lifecycle/retention gates.
 
 ## Idempotency And Recovery Contract
 
@@ -363,8 +395,10 @@ commit transaction.
    store temporary bookkeeping only.
 3. **Every attempt is fenced and sequenced.** Syscall sequence is monotonic;
    late calls after `finishing` and calls from stale attempts are rejected.
-4. **Canonical bytes and digest bind finish to the observed journal.** Unknown
-   protocol versions and forged fields fail before planning.
+4. **Canonical bytes and digest prove integrity, not provenance.** Unknown
+   protocol versions and forged fields fail before planning. Initially, exact
+   trusted-store reload supplies journal provenance; inline bytes remain
+   non-consumable until C07A proves a non-forgeable host boundary.
 5. **Arguments and results are authoritatively validated.** Dynamic Worker
    validation is early feedback, not commit authority.
 6. **The planner is pure and deterministic.** It allocates no commit sequence,
@@ -449,6 +483,14 @@ Flarex follows these Convex sources and patterns:
   for transaction-local reads, writes, and read-your-writes;
 - [`../../../crates/database/src/reads.rs`](../../../crates/database/src/reads.rs)
   for bounded typed dependency accounting;
+- [`../../../crates/common/src/knobs.rs`](../../../crates/common/src/knobs.rs)
+  and
+  [`../../../crates/database/src/execution_size.rs`](../../../crates/database/src/execution_size.rs)
+  for exact execution-limit constants and dimensions;
+- [`../../../crates/database/src/writes.rs`](../../../crates/database/src/writes.rs)
+  for pre-coalescing write counts and resulting-document byte accounting;
+- [`../../../crates/isolate/src/helpers.rs`](../../../crates/isolate/src/helpers.rs)
+  for successful-result semantic-size enforcement;
 - [`../../../crates/database/src/committer.rs`](../../../crates/database/src/committer.rs)
   for authoritative validation, deterministic derivation, and ordered
   publication;
@@ -462,7 +504,7 @@ The necessary Flarex divergences are:
 | Concern | Convex pattern | Flarex divergence |
 | --- | --- | --- |
 | Placement | Function runner, transaction state, database, and committer are close together. | Dynamic Worker, private executor Worker, optional per-session supervisor/per-attempt facet, and Postgres are separate failure domains. |
-| Journal authentication | Transaction state is internal to the backend. | Remote journal carriage needs protocol version, session identity, attempt fence, sequence, canonical bytes/reference, and digest. |
+| Journal integrity and provenance | Transaction state is internal to the backend. | C02 binds canonical journal/result evidence with SHA-256 for integrity. Through C07, C04 authenticates provenance only by reloading the exact C03-owned Postgres attempt seal. C02's inline variant is dormant until C07A proves non-forgeable supervisor/facet provenance; session/fence plus digest alone is insufficient. |
 | Session recovery | Backend request state and outcome lookup share one hosted system. | Flarex retains an authoritative Postgres anchor/outcome so DO restart or a lost response cannot duplicate a mutation. |
 | Physical lowering | Convex's integrated backend derives storage writes directly. | Flarex makes the trusted planner/executor split explicit so host adapters and untrusted journals cannot author physical/system facts. |
 | Adapter lanes | Convex app transactions operate on Convex data. | Payload and Medusa retain separate compatibility/transaction contracts instead of entering one universal journal. |
@@ -492,20 +534,23 @@ The replacement foundation also has private ephemeral snapshot resolution,
 branded scope/epoch/commit token types, storage-generation/fence primitives,
 stable catalogs, ordered-key codec work, the host-neutral general value codec,
 a private durable session anchor/current-attempt lease, and O04's private exact-
-snapshot point reader with present/qualified-missing dependencies. Those
-prerequisites do not define the later journal/envelope codec and do not mean
-the new compiler, production-routed session path, or exact-snapshot invoke path
-is active. C03 first composes current-attempt authorization, O04 semantics, and
-the staged read-your-writes overlay.
+snapshot point reader with present/qualified-missing dependencies. C02 now adds
+the strict host-neutral `SessionJournalV1`, separate successful-result evidence,
+`CommitEnvelopeV1`, canonical encoding/digests, exact execution ceilings, and
+dormant inline carriage. This protocol is inert: it does not mean the new
+compiler, production-routed session path, or exact-snapshot invoke path is
+active. C03 first composes current-attempt authorization, O04 semantics, the
+trusted Postgres journal store, and the staged read-your-writes overlay.
 
 ## Known Gaps And Limitations
 
-- Standalone `C01` was retired before implementation; `C02` through `C09`
-  remain unchecked in the focused plan.
+- Standalone `C01` was retired before implementation; C02's protocol-only gate
+  is complete, while `C03` through `C09` remain unchecked in the focused plan.
 - Current invoke sessions use wall-clock `beginTs`, not authoritative
   `SnapshotToken` reads.
 - The legacy journal persists directly in broad Postgres invoke-session tables;
-  no versioned logical journal/envelope/digest contract exists.
+  the new versioned logical journal/result/envelope contract exists only as an
+  inert protocol leaf and has no trusted C03 store or runtime consumer.
 - No branded verified compiler input, pure `CommitPlannerV1`, immutable
   `PreparedCommitV1`, or replacement `CommitExecutor` integration exists.
 - Current `commitInvokeSessionWrites` combines planning, OCC, timestamp
@@ -535,9 +580,9 @@ The target point-mutation lifecycle is:
 trusted preparation and exact SnapshotToken
   -> fenced running session
   -> bounded logical syscalls and exact supported overlay
-  -> finishing CAS and canonical journal digest
+  -> finishing CAS and canonical journal/result evidence
   -> verified compiler input
-  -> pure deterministic PreparedCommitV1
+  -> C04 pure deterministic PreparedCommitV1
   -> short authoritative Postgres OCC/constraint transaction
   -> atomic result, idempotency outcome, rows/sidecars,
      commit/change feed, outbox, and committed session
@@ -561,7 +606,8 @@ O03-B1 activation and O03-B2a restart-safe exact-attempt reload are complete.
 O03-B2b1 exact abort/expiry terminalization is also complete and closes the
 required session-authority core. O04 private exact-snapshot point reads and
 typed dependencies and O05 pure OCC validation are complete. Standalone C01
-was retired before implementation; C02 is next.
+was retired before implementation; C02's inert logical protocol is complete and
+C03 is next.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
 retention consumer proves that a bounded attempt must outlive its initial lease.
@@ -573,20 +619,26 @@ prerequisites. Shipped-state migration prerequisites are conditional.
 
 The former C01 standalone port-extraction gate is retired. Its proposed
 compatibility-wrapper work is dropped rather than redistributed: C03
-introduces its first required journal-store boundary, C04 owns catalog
-verification and verified input,
+introduces its first required journal-store boundary, while C04 owns exact
+stored-evidence and catalog verification, verified input, and the concrete
+prepared capability,
 O06/O07 own atomic execution with C05 as the first compiler consumer, and C06
 owns post-commit wake after durable evidence exists.
 
 The remaining compiler gates are:
 
-1. `C02`: define versioned logical dependencies/writes, `SessionJournalV1`,
-   `CommitEnvelopeV1`, immutable `PreparedCommitV1`, canonical encoding,
-   digest, fences, sequences, limits, and typed rejection.
-2. `C03`: implement point CRUD journaling, deterministic coalescing, exact
+1. `C02` (complete, inert): define versioned logical dependencies/writes,
+   `SessionJournalV1`, separate successful-result evidence,
+   `CommitEnvelopeV1`, canonical encoding, integrity digests, fences, sequence
+   representation, exact execution limits, dormant inline carriage, and typed
+   rejection. It defines no concrete `PreparedCommitV1`.
+2. `C03` (next): implement trusted Postgres-backed point CRUD journaling,
+   operational sequence/limit accounting, deterministic coalescing, exact
    point overlays, and fail-closed unsupported shapes.
-3. `C04`: build authoritative envelope/anchor verification plus a pure
-   deterministic point-row planner with typed preflight errors.
+3. `C04`: reload and compare the exact stored attempt evidence, reject inline
+   carriage through C07, verify authoritative envelope/anchor/catalog facts,
+   and build a pure deterministic point-row planner that produces the concrete
+   process-local `PreparedCommitV1` with typed preflight errors.
 4. `C05`: execute one replacement point mutation through the complete atomic
    OCC/outcome/commit/outbox primitive.
 5. `C06`: add fenced idempotent finish, duplicate/concurrent finish behavior,

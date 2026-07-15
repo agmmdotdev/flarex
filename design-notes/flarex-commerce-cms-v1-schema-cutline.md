@@ -1047,9 +1047,14 @@ the finish endpoint, C03 rejects late syscalls, O07 atomically deletes the
 exact lease and stores committed state, O08 owns retry replacement, and O11
 first consumes active snapshot floors for history retention.
 
-C02 owns syscall sequence and journal digest. S09/O07 own public idempotency,
-result/error, committed token, and uncertain-outcome recovery. Snapshot leases
-prevent engine-history GC from passing a live attempt.
+C02 owns only the canonical syscall-sequence and journal/result/envelope
+representation plus integrity digests. C03 owns operational sequence and limit
+accounting and the first trusted Postgres-stored attempt evidence. C04 owns the
+fresh current-attempt/lease/fence reload, exact stored-evidence comparison, and
+replay decision before producing a process-local prepared plan. A matching
+digest does not authenticate caller-supplied inline bytes. S09/O07 own public
+idempotency, result/error, committed token, and uncertain-outcome recovery.
+Snapshot leases prevent engine-history GC from passing a live attempt.
 
 ### `fx_outbox`: keep
 

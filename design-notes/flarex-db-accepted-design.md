@@ -851,14 +851,22 @@ epoch-independent.
 The compiler is a pure lowering boundary, not a new authority:
 
 ```text
-SessionJournal
+SessionJournalV1
   local read dependencies and logical app operations
 
+SuccessfulResultEvidenceV1
+  separate canonical Value Codec result bytes and digest
+
 CommitEnvelopeV1
-  session id, attempt fence, protocol version, journal digest
+  session id, attempt fence, protocol versions, final syscall sequence,
+  journal carriage and digest, sibling successful-result evidence
 
 CommitPlanner
   trusted catalog lookup and adapter-specific logical lowering
+
+PreparedCommitV1 (introduced by C04)
+  process-local verified dependencies, final rows, physical operations,
+  lock ordering, change atoms, and outbox templates
 
 CommitExecutor
   authorization, OCC, constraints, timestamp allocation, physical writes,
@@ -1014,9 +1022,19 @@ terminalization revalidates in its own transaction. O04 is intentionally a pure
 snapshot-read kernel rather than an authorization consumer; C03 must freshly
 validate the exact attempt when it first exposes O04 semantics as a syscall.
 
-C02 owns syscall sequence and journal digest. C05 introduces the
-private exact-fence `running` to `finishing` transition; C06 later orchestrates
-it idempotently through the finish endpoint, while C03 rejects late syscalls.
+C02 owns only the strict logical journal/result/envelope representation,
+canonical encoding, final-sequence fields, integrity digests, and execution
+limit constants. C03 is the first operational owner: it freshly authenticates
+the exact Postgres session attempt, enforces monotonic append order and
+incremental limits, rejects late syscalls, and stores the exact sealed journal
+and sibling successful-result evidence for that attempt. C04 reloads that
+trusted stored evidence, compares canonical bytes, journal digest, final
+sequence, and result evidence, then derives the first process-local
+`PreparedCommitV1` from verified catalog and policy facts. SHA-256 proves byte
+integrity only; authenticating the Postgres session/fence does not authenticate
+arbitrary inline journal bytes. C05 introduces the private exact-fence `running`
+to `finishing` transition; C06 later orchestrates it idempotently through the
+finish endpoint.
 O07 atomically deletes the exact current lease and stores committed state with
 public idempotency identity, result/error outcome, committed token, data, feed,
 and outbox. O08 owns retry replacement; O11 first consumes active floors for
@@ -1028,12 +1046,19 @@ freshness atoms, system outbox rows, actor identity, or schema authority. The
 trusted planner derives those from logical writes, the session anchor, the
 pinned catalog, and adapter rules.
 
-When `C07A` selects the facet-backed path, the dynamically loaded facet owns
+Through C07 the only operational carriage is `storedForSessionAttempt`: C04
+reloads the exact C03-owned Postgres evidence and rejects an inline carriage
+even when its digest matches. C02 may define an `inlineUntrusted` schema variant
+for forward compatibility, but it is deliberately dormant and non-consumable.
+
+Only when `C07A` selects the facet-backed path and proves exact supervisor/facet
+provenance (or an equivalent non-forgeable host capability) may the dynamically
+loaded facet own
 that temporary journal in its isolated SQLite database. The supervisor cannot
 open or query the facet database directly. After the handler finishes, it asks
 the exact current facet through RPC or `fetch` for a bounded sealed envelope
-containing canonical journal bytes, result bytes, final syscall sequence,
-digest, session identity, and attempt fence. The supervisor forwards that
+containing canonical journal bytes, separate result evidence, final syscall
+sequence, digest, session identity, and attempt fence. The supervisor forwards that
 envelope to the trusted executor. The executor does not copy the journal into
 Postgres as authoritative data: it revalidates the Postgres anchor and lowers
 the logical operations into physical rows, dependencies, commit/change atoms,
@@ -1099,7 +1124,16 @@ terminal outcome or rolls back to the durable `finishing` state.
 
 Requirements:
 
-- monotonic syscall sequence numbers;
+- C02 defines canonical syscall-sequence fields; C03 owns monotonic operational
+  append enforcement and trusted read rows/bytes accounting;
+- Convex-compatible execution ceilings are 32,000 documents read, 16 MiB of
+  document bytes read, 4,096 point-read dependencies, 16,000 user write
+  operations before coalescing, 16 MiB of resulting write-document bytes, and
+  16 MiB of successful-result semantic bytes. Structurally derivable totals are
+  recomputed rather than trusted from an envelope;
+- a separate 64 MiB canonical-evidence cap is a Flarex resource/transport
+  divergence, not a transaction semantic or a journal-authored lease. C07A must
+  re-prove any hosted transport ceiling before inline activation;
 - one fenced attempt owner;
 - O03-B1 defines initial activation and exact active-anchor replay; O03-B2a
   defines restart-safe exact-fence load; O03-B2b1 defines abort and expiry;
@@ -1114,11 +1148,12 @@ Requirements:
   incrementing the attempt fence, replacing the snapshot lease, discarding the
   old journal, and returning the same request anchor to `running` without
   changing storage generation;
-- canonical journal digest;
+- canonical journal digest for integrity, never authentication by itself;
 - idempotent repeated `finish`;
 - committed-outcome lookup after a lost response;
-- bounded journal size, TTL, and sensitive-data cleanup at their owning
-  compiler/outcome/retention gates.
+- temporary-evidence TTL and sensitive-data cleanup at their owning
+  journal/outcome/retention gates. C02 defines no syscall-count, scan-count, or
+  lease-time authority.
 
 The first compiler slice supports Flarex app point CRUD and only the query
 shapes with a complete overlay implementation. After a relevant staged write,
