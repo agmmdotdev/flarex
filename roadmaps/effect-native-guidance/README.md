@@ -47,7 +47,9 @@ slice still requires the preflight and validation required by
    predominantly Promise/throw contracts, so callers repeatedly adapt them and
    reconstruct error unions. The target is an Effect-native persistence
    surface with narrow driver adapters, while preserving transaction ownership
-   and Postgres correctness.
+   and Postgres correctness. Drizzle's native Effect v4 integration is a
+   candidate, but it currently requires the Drizzle v1 release-candidate line;
+   it is not available in the installed Drizzle 0.45 package.
 5. `Option`, `Result`, `Exit`, `Match`, `pipe`, and `Effect.gen` are semantic
    tools, not style quotas. Use each where its data or control-flow meaning is
    real; an exhaustive native `switch` or a simple guard is often correct.
@@ -77,6 +79,10 @@ slice still requires the preflight and validation required by
 - [`08-effect-http-client.md`](./08-effect-http-client.md) — the installed
   Effect HTTP client stack, status/Schema/retry policy, test Layers, and the
   Cloudflare adapter cutline.
+
+- [`09-drizzle-effect-postgres.md`](./09-drizzle-effect-postgres.md) - the
+  version compatibility matrix, current narrow adapter, native RC candidate,
+  and PGlite/Hyperdrive proof gates.
 
 ## How To Use This Guidance
 

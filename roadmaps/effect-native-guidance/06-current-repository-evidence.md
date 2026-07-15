@@ -92,6 +92,17 @@ transaction ownership, rollback-error capture, and release in `finally`.
 Effect adoption must strengthen typed composition without weakening this
 resource and transaction discipline.
 
+The package currently declares Drizzle ORM `^0.45.2`, Drizzle Kit `^0.31.10`,
+Effect through the workspace catalog, `pg` `^8.22.0`, and PGlite `^0.3.14`.
+The installed Drizzle 0.45.2 export map contains `node-postgres` and `pglite`
+drivers but no `effect-postgres` or `effect-schema` entry, and the workspace
+does not install `@effect/sql-pg` or `@effect/sql-drizzle`. Registry metadata
+checked on 2026-07-15 shows that `@effect/sql-drizzle@0.51.0` peers on Effect
+v3, while Drizzle `1.0.0-rc.2` exposes the Effect v4 Postgres path through
+`@effect/sql-pg`. See
+[`09-drizzle-effect-postgres.md`](./09-drizzle-effect-postgres.md) for the
+compatibility decision and required proof gates.
+
 ### Protocol
 
 [`../../packages/flarex-protocol/src/commit-protocol.ts`](../../packages/flarex-protocol/src/commit-protocol.ts)

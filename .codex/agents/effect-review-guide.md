@@ -108,6 +108,13 @@ when the dependency changes.
   pipelines that obscure success, failure, or lifecycle flow.
 - Map foreign throws and rejected promises once at their narrow source. Emit
   tagged errors there and do not repeatedly rewrap them downstream.
+- For Drizzle work, read
+  `roadmaps/effect-native-guidance/09-drizzle-effect-postgres.md`. Do not demand
+  removal of the one necessary Promise adapter while Flarex remains on Drizzle
+  0.45, do report repeated query-level wrappers, and do not recommend the
+  Effect v3 `@effect/sql-drizzle` package in this Effect v4 workspace. Treat
+  Drizzle v1 RC plus `@effect/sql-pg` as a preflighted migration candidate,
+  not an automatic cleanup.
 - Keep runtime runners at real adapter boundaries. Long-lived Workers and
   servers must own resourceful runtimes or Contexts for their lifecycle rather
   than rebuilding them per request.

@@ -39,6 +39,15 @@ The underlying `pg`, PGlite, and Drizzle APIs may remain Promise-native. Keep
 that foreign detail behind narrow adapter functions or an adapter service
 rather than exposing it through every domain-facing method.
 
+Drizzle now has an Effect-native Postgres integration, but not in Flarex's
+installed Drizzle 0.45 line. The current Effect v4-compatible path requires
+Drizzle v1 RC plus `@effect/sql-pg`; the published `@effect/sql-drizzle`
+adapter targets Effect v3. Follow
+[`09-drizzle-effect-postgres.md`](./09-drizzle-effect-postgres.md) before
+proposing dependency or transaction changes. Until its proof gates pass, one
+narrow `tryPromise` adapter is correct and repeated query-level wrappers are
+not.
+
 ## Preserve Transaction Ownership
 
 An Effect conversion must not weaken the existing database rules:
