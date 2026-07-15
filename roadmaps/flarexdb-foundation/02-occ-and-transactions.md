@@ -11,10 +11,11 @@ as exactly two private boundaries: located-current-epoch admission and
 schema-neutral two-sided point-mutation preparation. Operational revocation and
 hosted Worker/key adapters are deferred to their first real consumers. O03-B1
 activation, O03-B2a restart-safe reload, and O03-B2b1 exact abort/expiry
-terminalization complete the required O03-B authority core. O04 exact-snapshot
-point reads are next. O03-B2b2 renewal/race proof is a conditional operational
-extension that requires a proven long-running-attempt consumer; it does not
-block O04/O05 or the private C01-C07 proof.
+terminalization complete the required O03-B authority core. O04's private
+exact-snapshot point-read semantics and dependencies are complete; O05 pure
+point-OCC validation is next. O03-B2b2 renewal/race proof is a conditional
+operational extension that requires a proven long-running-attempt consumer; it
+does not block O05 or the private C01-C07 proof.
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -92,7 +93,8 @@ Convex-first implementation references:
 ## Typed Dependency Baseline
 
 Dependency types are introduced just in time by the gates that can prove their
-semantics. `O04` owns present and missing point dependencies, `O10` owns index
+semantics. Completed `O04` owns present and qualified-missing point
+dependencies, `O10` owns index
 ranges, and relation gates own edge ranges after stable relation identity is
 accepted. A conservative table-version fence is added only if its consuming
 gate demonstrates that it is necessary. Do not predeclare unsupported variants
@@ -505,12 +507,13 @@ Status: required pre-consumer authority core complete. `O03-B1` establishes one
 active request anchor atomically, `O03-B2a` reloads one exact active attempt
 across trusted-process boundaries, and `O03-B2b1` supplies exact abort/expiry
 terminalization. O03-B2b2 is retained as a conditional operational extension;
-it is not an O04 prerequisite.
+it is not an O05 prerequisite.
 
 #### [x] O03-B1 — Atomically Activate One Point-Mutation Anchor
 
 Status: complete as a private, non-routing atomic activation and exact active-
-anchor replay checkpoint. O04 is now the next implementation gate.
+anchor replay checkpoint. O04 now consumes its pinned snapshot semantics;
+O05 is the next implementation gate.
 
 Outcome:
 
@@ -564,7 +567,8 @@ Exit gate:
 Status: complete as a private, non-routing, read-only exact-attempt reload. The
 JSON-safe selector is inert lookup identity; every load freshly resolves
 placement, validates under `clock -> session -> lease` locks, and mints a new
-process-local capability. O04 is the next implementation gate.
+process-local capability. O04 is complete as a separate pure snapshot-read
+kernel; C03 is the first operational point-read consumer.
 
 Outcome:
 
@@ -579,8 +583,10 @@ Outcome:
   stale attempt and any epoch, generation/fence, or revocation drift.
 - Mint a fresh process-local exact-attempt capability only after successful
   validation. It binds the verified selector and pinned snapshot observed at
-  that transaction's linearization point; B2b and O04 must revalidate in their
-  own transactions rather than treating it as continuing authorization.
+  that transaction's linearization point. B2b revalidates in its own
+  transaction. C03 must compose fresh exact-attempt revalidation with O04's
+  snapshot-read semantics before exposing a syscall; O04 alone is deliberately
+  not continuing execution authorization.
 
 Exit gate:
 
@@ -608,7 +614,7 @@ extension and does not determine this parent's completion.
 
 Status: complete as a private, non-routing exact abort/expiry terminalization
 boundary with idempotent first-terminal-state observation. This closes the
-required O03-B authority core; O04 is the next implementation gate.
+required O03-B authority core. O04 is complete and O05 is next.
 
 Outcome:
 
@@ -708,23 +714,55 @@ Deferred ownership after the required O03-B core:
 - `O11` first introduces the active-floor query and engine-history cleanup
   consumer. Terminal-anchor retention remains aligned with S09 outcomes.
 
-### [ ] O04 — Implement Exact-Snapshot Point Reads
+### [x] O04 — Implement Exact-Snapshot Point Reads
+
+Status: complete as a private persistence semantic kernel. It accepts one
+strict `SnapshotToken` plus a branded table and row identity, reads only
+authoritative revision history for row visibility, and returns an immutable
+public document-or-null result together with the exact point dependency. One
+unlocked scope-clock lookup validates the scope-to-native-UUID projection; it
+is not a session-authority check, routed syscall, or broad persistence-facade
+method. C03 owns the first operational composition with a freshly validated
+attempt and staged read-your-writes state.
 
 Outcome:
 
-- Implement `getRowAtSnapshot` from revision history, using current rows only
-  when they are a proven safe optimization.
-- Return the value plus either a present-row revision dependency or a
-  missing-row dependency.
-- Never use wall-clock comparisons on the FlarexDB path.
+- Implement package-private `getAppRowAtSnapshotInTransaction` over S06's
+  exact backward revision read. Its input carries the full branded snapshot
+  token so scope and commit sequence cannot be supplied independently.
+- Use `fx_app_row_rev` as the only row-value and visibility source. The scope
+  clock is read without a lock only to validate the native scope projection;
+  `fx_app_row_current` remains an unselected future optimization. Write epoch
+  remains provenance and never filters visibility.
+- Return a verified canonical document and a present dependency containing the
+  observed revision sequence, or return public `null` with a missing
+  dependency. Missing dependencies retain whether no revision was visible or
+  the visible revision was a tombstone, including that tombstone's sequence,
+  so O05 can fail closed on contradictory history and detect same-row writes.
+- Freeze the result, dependency, and logical identity. Keep generation/fence,
+  lifecycle, lease, expiry, and current-attempt authorization out of this pure
+  kernel; never use wall-clock comparisons or acquire session/scope locks.
+- Retention is not activated here. Before O11 removes history, it must install
+  and enforce the retained-floor rule so compacted history cannot be mistaken
+  for a never-visible row.
 
 Exit gate:
 
-- present, missing, tombstone, insert-after-missing, update, delete/reinsert,
-  older snapshot, old-epoch untouched row, and cross-scope cases pass;
-- a row written after the snapshot is never returned.
+- PGlite proves present, never-visible missing, tombstone-qualified missing,
+  insert-after-missing, update, delete/reinsert, older snapshot, old-epoch
+  untouched rows, cross-scope/table isolation, immutability, no read-side DML,
+  and fail-closed canonical-evidence corruption;
+- focused real Postgres proves signed-bigint exactness, the composite backward
+  history lookup, and that a revision committed above the pinned snapshot never
+  leaks; and
+- no DDL, route, root export, legacy adapter, current-pointer fast path,
+  journal, staged overlay, O05 validation, or execution-attempt facade is added.
 
 ### [ ] O05 — Build The Pure Point-OCC Validator
+
+Status: next implementation gate. It consumes O04's frozen point-dependency
+contract and the separately verified snapshot/authority context; it does not
+reinterpret a developer-visible `null` as sufficient conflict evidence.
 
 Outcome:
 

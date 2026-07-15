@@ -21,6 +21,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
+  SnapshotTokenSchema,
   decodeScopeEpochUuidV1,
   decodeScopeUuidV1,
   projectScopeEpochUuidV1,
@@ -30,6 +31,7 @@ import {
   type ScopeEpochUuidV1,
   type ScopeId,
   type ScopeUuidV1,
+  type SnapshotToken,
 } from "flarex-protocol/storage-authority";
 import {
   FLAREX_VALUE_CODEC_VERSION_V1,
@@ -60,6 +62,49 @@ export interface AppRowIdentityV1 {
 export interface ReadAppRowAtSnapshotV1Input extends AppRowIdentityV1 {
   readonly snapshotCommitSeq: CommitSeq;
 }
+
+export interface GetAppRowAtSnapshotV1Input {
+  readonly snapshotToken: SnapshotToken;
+  readonly tableId: CatalogTableId;
+  readonly rowId: AppRowIdHexV1;
+}
+
+export interface PresentAppRowPointDependencyV1 {
+  readonly kind: "present";
+  readonly identity: AppRowIdentityV1;
+  readonly revisionCommitSeq: CommitSeq;
+}
+
+export interface MissingAppRowPointDependencyV1 {
+  readonly kind: "missing";
+  readonly identity: AppRowIdentityV1;
+  readonly basis:
+    | Readonly<{ readonly kind: "noVisibleRevision" }>
+    | Readonly<{
+        readonly kind: "tombstone";
+        readonly revisionCommitSeq: CommitSeq;
+      }>;
+}
+
+export type AppRowPointDependencyV1 =
+  | PresentAppRowPointDependencyV1
+  | MissingAppRowPointDependencyV1;
+
+export interface PresentAppRowPointReadResultV1 {
+  readonly kind: "present";
+  readonly document: CanonicalFlarexValueV1;
+  readonly dependency: PresentAppRowPointDependencyV1;
+}
+
+export interface MissingAppRowPointReadResultV1 {
+  readonly kind: "missing";
+  readonly document: null;
+  readonly dependency: MissingAppRowPointDependencyV1;
+}
+
+export type AppRowPointReadResultV1 =
+  | PresentAppRowPointReadResultV1
+  | MissingAppRowPointReadResultV1;
 
 export interface AppRowValueEvidenceV1 {
   readonly codecVersion: FlarexValueCodecVersion;
@@ -229,6 +274,64 @@ export async function readAppRowAtSnapshotInTransaction(
   return row === undefined
     ? MISSING_APP_ROW_REVISION_V1
     : decodeRevisionRow(identity, row);
+}
+
+/**
+ * Projects authoritative history into the logical point-read result and OCC
+ * evidence for one immutable snapshot. This private kernel does not authorize
+ * an execution attempt or apply staged read-your-writes state; C03 owns that
+ * composition before a syscall can consume it.
+ */
+export async function getAppRowAtSnapshotInTransaction(
+  tx: AppRowTransaction,
+  input: GetAppRowAtSnapshotV1Input,
+): Promise<AppRowPointReadResultV1> {
+  const snapshotToken = SnapshotTokenSchema.make(input.snapshotToken);
+  const identity = decodeIdentity({
+    scopeId: snapshotToken.scopeId,
+    tableId: input.tableId,
+    rowId: input.rowId,
+  });
+  const revision = await readAppRowAtSnapshotInTransaction(tx, {
+    ...identity,
+    snapshotCommitSeq: snapshotToken.commitSeq,
+  });
+
+  switch (revision.kind) {
+    case "live":
+      return Object.freeze({
+        kind: "present",
+        document: revision.document,
+        dependency: Object.freeze({
+          kind: "present",
+          identity,
+          revisionCommitSeq: revision.commitSeq,
+        } satisfies PresentAppRowPointDependencyV1),
+      } satisfies PresentAppRowPointReadResultV1);
+    case "tombstone":
+      return Object.freeze({
+        kind: "missing",
+        document: null,
+        dependency: Object.freeze({
+          kind: "missing",
+          identity,
+          basis: Object.freeze({
+            kind: "tombstone",
+            revisionCommitSeq: revision.commitSeq,
+          }),
+        } satisfies MissingAppRowPointDependencyV1),
+      } satisfies MissingAppRowPointReadResultV1);
+    case "missing":
+      return Object.freeze({
+        kind: "missing",
+        document: null,
+        dependency: Object.freeze({
+          kind: "missing",
+          identity,
+          basis: Object.freeze({ kind: "noVisibleRevision" }),
+        } satisfies MissingAppRowPointDependencyV1),
+      } satisfies MissingAppRowPointReadResultV1);
+  }
 }
 
 export async function readCurrentAppRowInTransaction(

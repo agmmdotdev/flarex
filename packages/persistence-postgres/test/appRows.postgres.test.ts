@@ -12,12 +12,14 @@ import {
   CommitSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
+  SnapshotTokenSchema,
 } from "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
 
 import {
   AppRowRevisionChainConflictError,
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
+  getAppRowAtSnapshotInTransaction,
   readAppRowAtSnapshotInTransaction,
   readCurrentAppRowInTransaction,
   type AppRowValueEvidenceV1,
@@ -162,6 +164,122 @@ describePostgres("real Postgres FlarexDB app-row storage", () => {
       );
     });
   }, 30_000);
+
+  it("keeps semantic point reads pinned while a later revision commits", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      await persistence.query(
+        `insert into fx_system_scope_clock
+           (scope_id, storage_generation, last_commit_seq, epoch)
+         values ($1, 'flarexdb_v1', $2, $3)`,
+        [scopeId, secondCommitSeq, firstEpoch],
+      );
+      const first = await canonicalizeAppDocumentV1({
+        tableId,
+        rowId,
+        creationTime,
+        fields: { title: "pinned" },
+      });
+      const second = await canonicalizeAppDocumentV1({
+        tableId,
+        rowId,
+        creationTime,
+        fields: { title: "later" },
+      });
+      await append(persistence, {
+        kind: "live",
+        scopeId,
+        tableId,
+        rowId,
+        writeEpoch: firstEpoch,
+        commitSeq: firstCommitSeq,
+        prevCommitSeq: null,
+        schemaVersionId,
+        creationTime,
+        value: evidence(first),
+      });
+
+      const [pinnedRead] = await Promise.all([
+        pointReadAt(persistence, firstCommitSeq),
+        append(persistence, {
+          kind: "live",
+          scopeId,
+          tableId,
+          rowId,
+          writeEpoch: firstEpoch,
+          commitSeq: secondCommitSeq,
+          prevCommitSeq: firstCommitSeq,
+          schemaVersionId,
+          creationTime,
+          value: evidence(second),
+        }),
+      ]);
+      expect(pinnedRead).toMatchObject({
+        kind: "present",
+        document: { value: { title: "pinned" } },
+        dependency: {
+          kind: "present",
+          identity: { scopeId, tableId, rowId },
+          revisionCommitSeq: firstCommitSeq,
+        },
+      });
+      await expect(pointReadAt(persistence, firstCommitSeq)).resolves.toMatchObject(
+        {
+          kind: "present",
+          document: { value: { title: "pinned" } },
+          dependency: { revisionCommitSeq: firstCommitSeq },
+        },
+      );
+
+      const tombstoneCommitSeq = CommitSeqSchema.make(secondCommitSeq + 2n);
+      await append(persistence, {
+        kind: "tombstone",
+        scopeId,
+        tableId,
+        rowId,
+        writeEpoch: firstEpoch,
+        commitSeq: tombstoneCommitSeq,
+        prevCommitSeq: secondCommitSeq,
+        schemaVersionId,
+        creationTime,
+      });
+      await expect(pointReadAt(persistence, tombstoneCommitSeq)).resolves.toEqual(
+        {
+          kind: "missing",
+          document: null,
+          dependency: {
+            kind: "missing",
+            identity: { scopeId, tableId, rowId },
+            basis: {
+              kind: "tombstone",
+              revisionCommitSeq: tombstoneCommitSeq,
+            },
+          },
+        },
+      );
+      await expect(
+        pointReadAt(persistence, firstCommitSeq - 1n),
+      ).resolves.toEqual({
+        kind: "missing",
+        document: null,
+        dependency: {
+          kind: "missing",
+          identity: { scopeId, tableId, rowId },
+          basis: { kind: "noVisibleRevision" },
+        },
+      });
+
+      await persistence.query(
+        `update fx_system_scope_clock set epoch = $2 where scope_id = $1`,
+        [scopeId, secondEpoch],
+      );
+      await expect(
+        pointReadAt(persistence, firstCommitSeq, secondEpoch),
+      ).resolves.toMatchObject({
+        kind: "present",
+        dependency: { revisionCommitSeq: firstCommitSeq },
+      });
+    });
+  }, 30_000);
 });
 
 async function append(
@@ -185,6 +303,24 @@ async function readAt(
       tableId,
       rowId,
       snapshotCommitSeq: CommitSeqSchema.make(commitSeq),
+    }),
+  );
+}
+
+async function pointReadAt(
+  persistence: PostgresFlarexPersistence,
+  commitSeq: bigint,
+  epoch = firstEpoch,
+) {
+  return persistence.drizzle.transaction((tx) =>
+    getAppRowAtSnapshotInTransaction(tx, {
+      snapshotToken: SnapshotTokenSchema.make({
+        scopeId,
+        epoch,
+        commitSeq: CommitSeqSchema.make(commitSeq),
+      }),
+      tableId,
+      rowId,
     }),
   );
 }

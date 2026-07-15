@@ -12,6 +12,7 @@ import {
   CommitSeqSchema,
   ScopeEpochSchema,
   ScopeIdSchema,
+  SnapshotTokenSchema,
 } from "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
 
@@ -20,6 +21,7 @@ import {
   AppRowRevisionChainConflictError,
   AppRowStorageCorruptionError,
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
+  getAppRowAtSnapshotInTransaction,
   readAppRowAtSnapshotInTransaction,
   readCurrentAppRowInTransaction,
   type AppendAppRowRevisionV1Input,
@@ -136,6 +138,105 @@ describe("FlarexDB app-row revision storage", () => {
     });
   });
 
+  it("projects exact point reads into present and qualified missing dependencies", async () => {
+    const persistence = await appRowPersistence();
+    const first = await canonicalDocument({ title: "first" });
+    const replacement = await canonicalDocument({ title: "replacement" });
+    await append(persistence, {
+      kind: "live",
+      ...identity,
+      writeEpoch: firstEpoch,
+      commitSeq: CommitSeqSchema.make(1n),
+      prevCommitSeq: null,
+      schemaVersionId,
+      creationTime,
+      value: evidence(first),
+    });
+    await append(persistence, {
+      kind: "tombstone",
+      ...identity,
+      writeEpoch: firstEpoch,
+      commitSeq: CommitSeqSchema.make(3n),
+      prevCommitSeq: CommitSeqSchema.make(1n),
+      schemaVersionId,
+      creationTime,
+    });
+    await append(persistence, {
+      kind: "live",
+      ...identity,
+      writeEpoch: firstEpoch,
+      commitSeq: CommitSeqSchema.make(5n),
+      prevCommitSeq: CommitSeqSchema.make(3n),
+      schemaVersionId,
+      creationTime,
+      value: evidence(replacement),
+    });
+
+    await expect(pointReadAt(persistence, 0n)).resolves.toEqual({
+      kind: "missing",
+      document: null,
+      dependency: {
+        kind: "missing",
+        identity,
+        basis: { kind: "noVisibleRevision" },
+      },
+    });
+
+    const present = await pointReadAt(persistence, 1n);
+    expect(present).toMatchObject({
+      kind: "present",
+      document: { value: { title: "first" } },
+      dependency: {
+        kind: "present",
+        identity,
+        revisionCommitSeq: 1n,
+      },
+    });
+    expect(Object.isFrozen(present)).toBe(true);
+    expect(Object.isFrozen(present.dependency)).toBe(true);
+    expect(Object.isFrozen(present.dependency.identity)).toBe(true);
+
+    await expect(pointReadAt(persistence, 3n)).resolves.toEqual({
+      kind: "missing",
+      document: null,
+      dependency: {
+        kind: "missing",
+        identity,
+        basis: { kind: "tombstone", revisionCommitSeq: 3n },
+      },
+    });
+    await expect(pointReadAt(persistence, 4n)).resolves.toEqual({
+      kind: "missing",
+      document: null,
+      dependency: {
+        kind: "missing",
+        identity,
+        basis: { kind: "tombstone", revisionCommitSeq: 3n },
+      },
+    });
+    await expect(pointReadAt(persistence, 5n)).resolves.toMatchObject({
+      kind: "present",
+      document: { value: { title: "replacement" } },
+      dependency: { kind: "present", revisionCommitSeq: 5n },
+    });
+
+    await persistence.query(
+      `update fx_system_scope_clock set epoch = $2 where scope_id = $1`,
+      [scopeId, secondEpoch],
+    );
+    await expect(pointReadAt(persistence, 5n, secondEpoch)).resolves.toMatchObject(
+      {
+        kind: "present",
+        dependency: { kind: "present", revisionCommitSeq: 5n },
+      },
+    );
+
+    const counts = await persistence.query<{ revisions: string }>(
+      `select count(*)::text as revisions from fx_app_row_rev`,
+    );
+    expect(counts.rows).toEqual([{ revisions: "3" }]);
+  });
+
   it("keeps identical physical row bytes isolated by scope and table", async () => {
     const persistence = await appRowPersistence();
     const document = await canonicalDocument({ title: "isolated" });
@@ -168,6 +269,33 @@ describe("FlarexDB app-row revision storage", () => {
         }),
       ),
     ).resolves.toEqual({ kind: "missing" });
+    await expect(
+      pointReadAt(
+        persistence,
+        1n,
+        ScopeEpochSchema.make("epoch_50000000-0000-0000-0000-000000000012"),
+        otherScopeId,
+      ),
+    ).resolves.toEqual({
+      kind: "missing",
+      document: null,
+      dependency: {
+        kind: "missing",
+        identity: { scopeId: otherScopeId, tableId, rowId },
+        basis: { kind: "noVisibleRevision" },
+      },
+    });
+    await expect(
+      pointReadAt(persistence, 1n, firstEpoch, scopeId, otherTableId),
+    ).resolves.toEqual({
+      kind: "missing",
+      document: null,
+      dependency: {
+        kind: "missing",
+        identity: { scopeId, tableId: otherTableId, rowId },
+        basis: { kind: "noVisibleRevision" },
+      },
+    });
     await expect(
       persistence.drizzle.transaction((tx) =>
         readAppRowAtSnapshotInTransaction(tx, {
@@ -366,6 +494,16 @@ describe("FlarexDB app-row revision storage", () => {
         }),
       ),
     ).rejects.toBeInstanceOf(AppRowStorageCorruptionError);
+    await expect(
+      pointReadAt(
+        persistence,
+        1n,
+        firstEpoch,
+        scopeId,
+        tableId,
+        corruptionRowId,
+      ),
+    ).rejects.toBeInstanceOf(AppRowStorageCorruptionError);
   });
 
   it("enforces physical row constraints and keeps mutation off the root API", async () => {
@@ -393,10 +531,18 @@ describe("FlarexDB app-row revision storage", () => {
       keyof PGliteFlarexPersistence,
       "appendAppRowRevisionAndAdvanceCurrent"
     >;
+    type ForbiddenPointReadKey = Extract<
+      keyof PGliteFlarexPersistence,
+      "getAppRowAtSnapshot"
+    >;
     const hasNoAmbientMutation: [ForbiddenMutationKey] extends [never]
       ? true
       : false = true;
+    const hasNoAmbientPointRead: [ForbiddenPointReadKey] extends [never]
+      ? true
+      : false = true;
     expect(hasNoAmbientMutation).toBe(true);
+    expect(hasNoAmbientPointRead).toBe(true);
   });
 });
 
@@ -456,6 +602,27 @@ async function readAt(
     readAppRowAtSnapshotInTransaction(tx, {
       ...identity,
       snapshotCommitSeq: CommitSeqSchema.make(commitSeq),
+    }),
+  );
+}
+
+async function pointReadAt(
+  persistence: PGliteFlarexPersistence,
+  commitSeq: bigint,
+  epoch = firstEpoch,
+  selectedScopeId = scopeId,
+  selectedTableId = tableId,
+  selectedRowId = rowId,
+) {
+  return persistence.drizzle.transaction((tx) =>
+    getAppRowAtSnapshotInTransaction(tx, {
+      snapshotToken: SnapshotTokenSchema.make({
+        scopeId: selectedScopeId,
+        epoch,
+        commitSeq: CommitSeqSchema.make(commitSeq),
+      }),
+      tableId: selectedTableId,
+      rowId: selectedRowId,
     }),
   );
 }

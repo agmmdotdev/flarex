@@ -91,7 +91,7 @@ Convex-first implementation references include:
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
 | Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. S06 is its first replacement-row consumer; no replacement route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
-| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, and the required non-routing mutation-session authority core are implemented. Semantic point reads/OCC, conditional long-running-attempt renewal, reconnect retention, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, target-native readiness, routing, and prototype retirement are not implemented. |
+| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, the required non-routing mutation-session authority core, and private exact-snapshot semantic point reads with typed dependencies are implemented. Point OCC, reconnect retention, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, target-native readiness, routing, and prototype retirement are not implemented; long-running-attempt renewal remains conditional on a proven consumer. |
 
 Existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, and
 subscription tables remain an internal prototype behavior baseline. They are
@@ -485,8 +485,8 @@ Outcome:
   evidence or become a second value authority.
 - Add only transaction-bound append/current-advance primitives and exact
   revision reads at or before a caller-supplied commit sequence. Storage reads
-  preserve `missing | live | tombstone`; later point-read code owns dependency
-  recording and any public `null` projection.
+  preserve `missing | live | tombstone`; completed O04 now owns the semantic
+  present/qualified-missing dependency and developer-facing `null` projection.
 
 Non-goals:
 

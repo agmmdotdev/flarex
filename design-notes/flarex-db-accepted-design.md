@@ -697,9 +697,25 @@ bytes, and hash are SQL `NULL`; it is never represented by encoded Flarex null.
 `fx_app_row_current` stores only an epoch-independent pointer protected by a
 foreign key to one exact revision. Epoch on a revision is write provenance, not
 part of row identity or a visibility predicate. S06 supplies storage history
-and caller-transaction primitives only; point-read dependencies, commit
-allocation, OCC validation, publication, and retention remain with their later
-focused gates.
+and caller-transaction primitives. Completed O04 adds the private semantic
+point reader: one full `SnapshotToken` plus branded table/row identity selects
+the newest verified revision at or before the token's commit sequence. A live
+revision returns the canonical document plus a present dependency carrying its
+revision sequence. No visible revision and a visible tombstone both return
+developer-facing `null`, while the missing dependency distinguishes
+never-visible history from a tombstone and retains the tombstone sequence.
+This qualified absence is internal OCC evidence, not a public storage state.
+
+O04 uses revision history as the only row-value and visibility source. It first
+performs one unlocked scope-clock lookup to validate the scope-to-native-UUID
+projection, but acquires no scope/session lock, performs no wall-clock
+comparison, and is not continuing attempt authorization. C03 first composes it
+with fresh exact-attempt validation and staged read-your-writes; O05 owns pure
+conflict decisions. Commit allocation, publication, and retention remain with
+their later focused gates. Before O11 removes history, the retained floor must
+be checked so compacted history cannot be returned as ordinary absence.
+`fx_app_row_current` may be introduced as a read optimization only after
+equivalence with the authoritative history lookup is proven.
 
 ## App Rows, Indexes, Edges, And Retention
 
@@ -993,8 +1009,10 @@ check rather than placement authority. Each load resolves placement again,
 locks scope clock then exact session then exact lease, captures database time
 after those locks, and validates current authority and liveness without
 mutating authoritative rows. Its fresh process-local capability records the
-verified selector and pinned snapshot at that linearization point; later
-operations must revalidate in their own transactions.
+verified selector and pinned snapshot at that linearization point. B2b
+terminalization revalidates in its own transaction. O04 is intentionally a pure
+snapshot-read kernel rather than an authorization consumer; C03 must freshly
+validate the exact attempt when it first exposes O04 semantics as a syscall.
 
 C02 owns syscall sequence and journal digest. C05 introduces the
 private exact-fence `running` to `finishing` transition; C06 later orchestrates

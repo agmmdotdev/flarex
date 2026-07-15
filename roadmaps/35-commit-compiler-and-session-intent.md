@@ -491,9 +491,12 @@ The `legacy_v1` prototype path currently proves:
 The replacement foundation also has private ephemeral snapshot resolution,
 branded scope/epoch/commit token types, storage-generation/fence primitives,
 stable catalogs, ordered-key codec work, the host-neutral general value codec,
-and a private durable session anchor/current-attempt lease. Those prerequisites
-do not define the later journal/envelope codec and do not mean the new compiler,
-production-routed session path, or exact-snapshot invoke path is active.
+a private durable session anchor/current-attempt lease, and O04's private exact-
+snapshot point reader with present/qualified-missing dependencies. Those
+prerequisites do not define the later journal/envelope codec and do not mean
+the new compiler, production-routed session path, or exact-snapshot invoke path
+is active. C03 first composes current-attempt authorization, O04 semantics, and
+the staged read-your-writes overlay.
 
 ## Known Gaps And Limitations
 
@@ -513,9 +516,9 @@ production-routed session path, or exact-snapshot invoke path is active.
   committed-outcome replay, expiry tombstone, and target-generation activation
   rules are not implemented. Legacy outcome import remains conditional.
 - Replacement app-row revision/current and physical transaction-session/
-  snapshot-lease tables exist internally. Production session lifecycle,
-  commit/change, idempotency, leased outbox, and compiler composition remain
-  prerequisites.
+  snapshot-lease tables plus the private O04 point-read kernel exist internally.
+  Point OCC, production syscall/session composition, commit/change,
+  idempotency, leased outbox, and compiler composition remain prerequisites.
 - Exact range/relation/pagination overlays and phantom tests are incomplete.
 - Payload and Medusa adapter conformance remain separate future domains.
 - The scope-local commit lane may become a throughput bottleneck and must be
@@ -554,8 +557,9 @@ Corrected O03-A2c's located current-epoch and two-sided point-mutation
 preparation boundaries are also complete, so O03-A2 and O03-A are complete.
 O03-B1 activation and O03-B2a restart-safe exact-attempt reload are complete.
 O03-B2b1 exact abort/expiry terminalization is also complete and closes the
-required session-authority core. O04 exact-snapshot point reads are next,
-followed by O05 pure OCC validation before C01. O03-B2b2 renewal and renewal-
+required session-authority core. O04 private exact-snapshot point reads and
+typed dependencies are also complete; O05 pure OCC validation is next before
+C01. O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
 retention consumer proves that a bounded attempt must outlive its initial lease.
 Operational revocation and hosted Worker/key adapters are deferred and do not

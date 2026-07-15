@@ -1,9 +1,10 @@
 # Flarex Commerce/CMS v1 Schema Cutline
 
-Status: accepted v1 implementation cutline; the internal S06 row kernel and
-S07 transaction-session authority tables are implemented, while OCC, sidecars,
-target activation, prototype retirement, and hosted routing remain incomplete;
-shipped-state migration remains conditional
+Status: accepted v1 implementation cutline; the internal S06 row kernel, S07
+transaction-session authority tables, and O04 private exact-snapshot semantic
+point reads are implemented, while point OCC, sidecars, target activation,
+prototype retirement, and hosted routing remain incomplete; shipped-state
+migration remains conditional
 
 Authoritative review:
 

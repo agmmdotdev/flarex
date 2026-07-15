@@ -14,7 +14,8 @@ revocation and hosted Worker/key adapters are deferred nonblocking gates for
 their first real consumers. The required `O03-B` authority core consumes only
 the final opaque prepared-start capability. B1's atomic activation/exact active-
 anchor replay, B2a's restart-safe exact-attempt reload, and B2b1's exact
-abort/expiry terminalization are complete. O04 exact-snapshot point reads are
+abort/expiry terminalization are complete. O04's private exact-snapshot point
+reads and typed dependencies are complete; O05 pure point-OCC validation is
 next. B2b2 renewal is a conditional operational extension outside the current
 master order; it requires a real runtime or retention consumer that proves a
 bounded attempt must outlive its initial lease.
@@ -22,7 +23,7 @@ bounded attempt must outlive its initial lease.
 | Stream | Current status |
 | --- | --- |
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, and narrow `S07-A` complete |
-| OCC/transactions | Private non-routing `O02`, all of `O03-A`, and the required `O03-B` authority core through B1 activation/replay, B2a restart-safe exact-attempt reload, and B2b1 exact terminalization are complete; standalone `O01` retired before implementation; `O04` exact-snapshot point reads are next, while B2b2 renewal, operational revocation, and hosted adapters remain consumer-triggered deferred gates |
+| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, and `O04` exact-snapshot point reads with typed present/qualified-missing dependencies are complete; standalone `O01` retired before implementation; `O05` pure point-OCC validation is next, while B2b2 renewal, operational revocation, and hosted adapters remain consumer-triggered deferred gates |
 | Commit compiler | Planned; `C01` is the first unchecked compiler gate |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
@@ -245,8 +246,9 @@ types and ports are introduced by the gates that first consume them.
 11. `O03-B2a` (complete): restart-safe exact-attempt reload and a fresh private capability.
 12. `O03-B2b1` (complete): exact abort/expiry terminalization and idempotent
     terminal observation; this closes the required O03-B authority core.
-13. `O04` (next): exact-snapshot point reads including missing-row dependencies.
-14. `O05`: pure point-OCC validator.
+13. `O04` (complete): private exact-snapshot point reads including qualified
+    missing-row dependencies.
+14. `O05` (next): pure point-OCC validator.
 15. `C01`: narrow compiler/executor ports without endpoint changes.
 16. `C02`: versioned journal/envelope/plan protocol.
 17. `C03`: point read-your-writes and fail-closed unsupported shapes.
@@ -267,8 +269,9 @@ deletes the exact lease and stores `committed` only with the atomic data/outcome
 commit, `O08` introduces storage-level retry replacement together with the
 trusted retry coordinator, and `O11` first consumes active snapshot floors for
 history retention. `created` and `committing` remain transaction-local/reserved
-rather than separately durable V1 states. This refinement does not move `O04`
-or any later milestone ahead of session activation.
+rather than separately durable V1 states. Completed `O04` remains a pure
+semantic kernel; C03 first composes it with current-attempt authorization and
+staged state.
 
 S07 intentionally excludes reconnect-retention DDL. Roadmap 21 owns that
 contract and must introduce it through a separately preflighted schema gate
