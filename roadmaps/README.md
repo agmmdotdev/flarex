@@ -90,6 +90,12 @@ with domain rationale in
 | [`21-cloudflare-freshness-cache.md`](./21-cloudflare-freshness-cache.md) | Postgres-authoritative sync, per-scope coordination, recovery, delivery boundaries, and deferred caches. |
 | [`35-commit-compiler-and-session-intent.md`](./35-commit-compiler-and-session-intent.md) | Logical session journal, trusted planner/executor split, exact snapshots, idempotency, and conditional SessionDO journaling. |
 
+## Cross-Cutting Engineering Guidance
+
+| Guidance | Purpose |
+| --- | --- |
+| [`effect-native-guidance/`](./effect-native-guidance/README.md) | Active Effect implementation guidance derived from current executor, Postgres persistence, protocol, backend, host, and test patterns. It defines target boundaries and incremental adoption rules without becoming a file-by-file migration plan. |
+
 ## Foundation Execution And Deferred Contracts
 
 | Plan | Classification | Purpose |

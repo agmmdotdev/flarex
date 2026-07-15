@@ -1,7 +1,13 @@
 # Effect Migration Checklist
 
-This is the concrete source of truth for the remaining Effect v4 migration.
-Update this file every Effect migration turn:
+Status: completed initiative record. Completion of this checklist means the
+scoped route, protocol, and runtime-boundary migration gates were closed. It
+does not claim that every executor or Postgres persistence service is
+Effect-native. Active implementation direction now lives in
+[`effect-native-guidance/`](./effect-native-guidance/README.md).
+
+This was the concrete source of truth while the scoped Effect v4 migration was
+active. Its historical turn protocol was:
 
 - move the active checkpoint marker to the current slice
 - tick completed items only after code, focused tests, broad validation, and the

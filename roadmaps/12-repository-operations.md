@@ -28,6 +28,10 @@ correctness and the quality of TypeScript/Effect implementation.
   plus `.codex/agents/effect-review-guide.md`. The skill owns reusable workflow
   and curated examples; the checked-in overlay owns Flarex's version-specific
   APIs, contracts, Cloudflare boundaries, and reviewer responsibility split.
+- [`effect-native-guidance/`](./effect-native-guidance/README.md) records the
+  current repository-wide pattern evidence and target direction for boundaries,
+  failures, persistence, services/Layers, data types, tests, and incremental
+  adoption. It is guidance for an approved slice, not a package-wide checklist.
 - The Effect standard is active during implementation rather than deferred to
   review. Neighboring inconsistent code is not precedent, and bounded
   behavior-preserving touched-flow debt is corrected in the approved slice
@@ -106,6 +110,8 @@ Effect migration.
 - `.codex/agents/effect-review-guide.md` is the concise Flarex overlay for
   installed-version facts, contracts, platform boundaries, review scope, and
   reviewer ownership.
+- `roadmaps/effect-native-guidance/` is the checked-in map of current Flarex
+  pattern gaps and the target engineering direction for future vertical ports.
 - `opensrc/repos/github.com/effect-TS/effect-smol` is the preferred local API
   and library-pattern reference when available.
 - `opensrc/repos/github.com/pingdotgg/t3code` provides curated application

@@ -167,6 +167,8 @@ Use these paths instead of scanning entire repositories:
 
 - Global examples:
   `C:\Users\Admin\.codex\skills\effect-ts-patterns\references\curated-examples.md`
+- Flarex pattern map:
+  `roadmaps/effect-native-guidance/README.md` and its focused domain guides
 - Effect-smol: `LLMS.md`, `.patterns/effect.md`, `.patterns/testing.md`,
   `packages/effect/src/Effect.ts`, `Option.ts`, `Result.ts`, and `Exit.ts`
 - Flarex: `packages/flarex-protocol/src/validator-engine.ts`,
