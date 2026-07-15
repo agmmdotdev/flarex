@@ -1,6 +1,7 @@
 # P08 Production Deployment Preflight
 
-Status: local evidence complete; external target identification pending.
+Status: local evidence complete; authenticated target verified in the task
+receipt; incremental-cost authorization pending.
 
 This record freezes the production target, budget, run order, evidence path,
 and teardown requirements for the isolated runtime-topology experiment. It is
@@ -9,20 +10,22 @@ binding or data access.
 
 ## Current External Target Evidence
 
-As checked on 2026-07-15:
+The authenticated 2026-07-15 task receipt confirms one selected account, the
+required Worker permissions, an account usage model compatible with Dynamic
+Workers, the workers.dev subdomain, and absence of all three isolated Worker
+names. Wrangler authentication is therefore no longer a P08 stop condition.
+The exact account identifier, email, subdomain, OAuth token, current usage
+values, and account resource inventory remain deliberately outside Git.
 
-- `wrangler whoami` reports that this machine is not authenticated;
-- no `CLOUDFLARE_*`, `CF_*`, `WRANGLER_*`, or
-  `RUNTIME_TOPOLOGY_PROBE_*` environment variable is present;
-- the configs intentionally contain no `account_id` or named environment; and
-- therefore the exact account, Workers Paid-plan eligibility, workers.dev
-  subdomain, existing-name collisions, secret state, and account cost ceiling
-  are not yet proven.
+Recheck authentication and all three names immediately before every production
+deployment. Treat an account API's Standard usage-model setting as evidence of
+Workers Paid eligibility, not as a direct billing-subscription receipt. Do not
+deploy if `whoami` identifies zero or multiple accounts, a name is unexpectedly
+owned, the account setting changes, or a required read-only check fails.
 
-This is the one P08 stop condition. It is an external target ambiguity, not a
-request for per-gate implementation permission. After interactive Wrangler
-authentication, record the selected account and collision checks in the task
-receipt; do not commit account IDs, tokens, or secret values.
+The remaining P08 stop condition is explicit owner authorization of the
+incremental-cost boundary below. It is not a request for approval at every
+later experiment gate.
 
 ## Frozen Isolated Resource Graph
 
@@ -53,7 +56,7 @@ argument, config, checkpoint, artifact, log, or committed file.
   behavior of `.load()`. Requests and CPU reuse Workers Standard pricing.
 - [Dynamic Worker custom limits](https://developers.cloudflare.com/dynamic-workers/usage/limits/)
   support per-invocation CPU and subrequest ceilings. The fixed source packages
-  set 50 ms CPU limits and at most one or two subrequests.
+  set 25 ms or 50 ms CPU limits and at most four subrequests.
 - [Service bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/)
   are private Worker-to-Worker calls. Each call is a subrequest and the platform
   permits at most 32 Worker invocations in one request; every frozen topology is
@@ -76,7 +79,8 @@ historical name. Its production use is exactly:
 - 12 run/dimension cells across 8 scenarios;
 - 32 total samples: 8 warmups and 24 measurements;
 - collector concurrency 4;
-- 12 stable Dynamic Worker code IDs, below the currently included 1,000 unique
+- 12 bounded Dynamic Worker code IDs across the stable identities and
+  per-ordinal new-code identities, below the currently included 1,000 unique
   Dynamic Workers per month;
 - 960 configured payload bytes and 20 configured journal entries in aggregate;
 - 13 SessionDO identities, 18 facet identities, 5 sync scopes, and 12 RunDO
@@ -111,6 +115,76 @@ this frozen matrix.
 Before deployment, the selected account owner must confirm that Workers Paid,
 12 unique Dynamic Workers, 32 sample executions, 100% tracing for this bounded
 run, and the 684-request operational ceiling fit the accepted cost ceiling.
+
+## Cost Authorization And Enforcement
+
+The proposed authorization ceiling is **USD 2 of incremental Cloudflare spend
+for this experiment**. It excludes the account's existing Workers Paid minimum
+subscription and authorizes no subscription purchase, plan change, usage-model
+change, unrelated workload, or larger retry. Owner authorization is pending
+until it is recorded in the task receipt.
+
+This is an operational stop boundary, not a Cloudflare billing cap. Cloudflare
+does not expose a per-experiment dollar limit, and usage analytics can lag. The
+probe enforces the boundary by limiting activity before it happens and by
+stopping after the smoke phase if observed behavior or usage is inconsistent
+with the frozen model.
+
+Current documented Workers Paid rates used for the estimate are:
+
+| Meter | Included monthly usage | Overage rate |
+| --- | --- | --- |
+| Dynamic Workers created daily | 1,000 unique Dynamic Workers | USD 0.002 per Dynamic Worker per day |
+| Workers requests | 10 million | USD 0.30 per million |
+| Workers CPU | 30 million CPU milliseconds | USD 0.02 per million CPU milliseconds |
+| Durable Object requests | 1 million | USD 0.15 per million |
+| Durable Object duration | 400,000 GB-s | USD 12.50 per million GB-s |
+| SQLite Durable Object rows read | 25 billion | USD 0.001 per million |
+| SQLite Durable Object rows written | 50 million | USD 1.00 per million |
+| Trace span or log events | 10 million | USD 0.60 per million |
+
+These rates are sourced from Cloudflare's
+[Dynamic Workers pricing](https://developers.cloudflare.com/dynamic-workers/pricing/),
+[Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/),
+[Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/),
+and [Workers traces](https://developers.cloudflare.com/workers/observability/traces/)
+documentation and must be rechecked when the production run begins.
+
+The clean staged campaign makes 23 Dynamic Worker or facet invocations. A
+successful idempotent smoke replay adds none because all eight samples are
+already complete. The budget nevertheless reserves up to five additional
+dynamic invocations if the first smoke stopped before durably completing the
+five dynamic scenarios, producing a conservative operational maximum of 28
+while retaining the same 12 bounded code IDs. The fixed Dynamic Worker
+packages bound execution CPU at 50 ms for direct, facet, journal, and
+full-invoke paths and at 25 ms for reruns; the clean campaign plus that
+five-invocation reserve has 1,250 ms of configured execution-CPU allowance.
+Dynamic Worker startup CPU is separately metered and is not represented by
+that allowance.
+
+Expected incremental spend is approximately USD 0 when the account retains
+its included monthly headroom, but that expectation is not a guarantee of a
+zero-dollar invoice. The task receipt must keep account-specific usage checks
+outside Git and must not claim quota headroom for meters that the available
+OAuth/API evidence cannot prove. Even if all included allowance has already
+been consumed, the frozen volume is orders of magnitude below the USD 2
+boundary under the published unit rates; unexpected duration, trace volume,
+identity churn, retry, or pricing behavior still requires an immediate stop.
+
+Enforcement is fail-closed:
+
+1. Do not deploy until the owner explicitly accepts the USD 2 incremental
+   boundary.
+2. Recheck the pricing pages, authenticated target, usage model, name absence,
+   and available account-level usage evidence immediately before deployment.
+3. Keep stable Dynamic Worker IDs, source CPU/subrequest limits, the 684 gateway
+   request ceiling, one optional smoke replay, and at most two cleanup
+   invocations unchanged.
+4. After the eight-scenario smoke, inspect classifications, invocation counts,
+   traces, errors, and available usage evidence before resuming P10.
+5. Stop without expanding the run when a limit, identity, retry count, runtime
+   duration, trace pattern, price, or resource differs from this record. Any
+   larger run requires a new cost review and explicit authorization.
 
 ## Corrected Production Sequence
 
