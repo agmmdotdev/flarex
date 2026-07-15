@@ -13,6 +13,19 @@ const targets = {
     ),
     outdir: "dist/gateway",
   },
+  "gateway-teardown": {
+    bundleUrl: new URL(
+      "../dist/gateway-teardown/teardownWorker.js",
+      import.meta.url,
+    ),
+    config: "wrangler.gateway.teardown.jsonc",
+    metafile: "dist/gateway-teardown/bundle-meta.json",
+    metafileUrl: new URL(
+      "../dist/gateway-teardown/bundle-meta.json",
+      import.meta.url,
+    ),
+    outdir: "dist/gateway-teardown",
+  },
   mock: {
     bundleUrl: new URL("../dist/mock/mockCommitWorker.js", import.meta.url),
     config: "wrangler.mock.jsonc",
@@ -33,11 +46,26 @@ const targets = {
     ),
     outdir: "dist/sync",
   },
+  "sync-teardown": {
+    bundleUrl: new URL(
+      "../dist/sync-teardown/teardownWorker.js",
+      import.meta.url,
+    ),
+    config: "wrangler.sync.teardown.jsonc",
+    metafile: "dist/sync-teardown/bundle-meta.json",
+    metafileUrl: new URL(
+      "../dist/sync-teardown/bundle-meta.json",
+      import.meta.url,
+    ),
+    outdir: "dist/sync-teardown",
+  },
 } as const;
 
 const targetName = process.argv[2] ?? "gateway";
 if (!isDryRunTarget(targetName)) {
-  console.error("Usage: runWranglerDryRun.ts gateway|mock|sync");
+  console.error(
+    "Usage: runWranglerDryRun.ts gateway|gateway-teardown|mock|sync|sync-teardown",
+  );
   process.exit(1);
 }
 const target = targets[targetName];

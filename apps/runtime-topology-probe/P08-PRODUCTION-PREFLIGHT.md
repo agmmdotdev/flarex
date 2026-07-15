@@ -160,6 +160,25 @@ Do not execute the deploy or secret commands until `whoami` identifies exactly
 one intended account and the three Worker names are confirmed absent or owned
 by this experiment.
 
+The teardown configurations and deletion commands can be validated locally
+without authentication or an external state change:
+
+```sh
+corepack pnpm --filter @flarex/runtime-topology-probe deploy:gateway:teardown:dry-run
+corepack pnpm --filter @flarex/runtime-topology-probe deploy:sync:teardown:dry-run
+corepack pnpm --filter @flarex/runtime-topology-probe teardown:gateway:delete:dry-run
+corepack pnpm --filter @flarex/runtime-topology-probe teardown:mock:delete:dry-run
+corepack pnpm --filter @flarex/runtime-topology-probe teardown:sync:delete:dry-run
+```
+
+The two teardown deployment configs preserve the exact Worker names and prior
+migration tags, switch to `src/teardownWorker.ts`, disable the gateway's
+workers.dev exposure, remove every Durable Object, service, and Worker Loader
+binding, and append only the deletion migration. The teardown Worker exports
+no Durable Object class and returns `410 Gone` if it is reached during the
+short migration-to-deletion window. The ordinary deployment configs remain
+unchanged.
+
 ## Evidence And Success Criteria
 
 - `.probe-state/` is the ignored, resumable external-duration checkpoint.
@@ -189,7 +208,98 @@ by this experiment.
    raw evidence are absent or intentionally retained according to the final
    P11 receipt.
 
+The destructive P11 sequence is fail-closed. Run each command as a separate
+shell invocation after authenticated target re-verification. Never paste these
+commands into one shell block. A command must exit zero and its following
+remote-state check must pass before the next numbered step begins.
+
+1. Deploy only the gateway deletion migration:
+
+   ```sh
+   corepack pnpm --filter @flarex/runtime-topology-probe exec wrangler deploy --config wrangler.gateway.teardown.jsonc
+   ```
+
+   Then list gateway deployments and inspect the authenticated Cloudflare
+   binding inventory. Confirm the newest deployment is the binding-free
+   teardown Worker, `workers_dev` is disabled, and `PROBE_SESSIONS`,
+   `PROBE_RUNS`, `PROBE_CAMPAIGN`, `MOCK_*`, and `LOADER` are all absent.
+   Use the dashboard or authenticated Durable Object Namespace List API to
+   confirm that no namespace owned by the gateway script remains for
+   `ProbeSessionDO`, `ProbeRunDO`, or `ProbeCampaignDO`. Stop if any check is
+   missing or fails.
+
+   ```sh
+   corepack pnpm --filter @flarex/runtime-topology-probe exec wrangler deployments list --config wrangler.gateway.teardown.jsonc
+   ```
+
+2. Only after step 1 is proven, delete the gateway:
+
+   ```sh
+   corepack pnpm --filter @flarex/runtime-topology-probe exec wrangler delete --config wrangler.gateway.teardown.jsonc
+   ```
+
+   Confirm that the gateway script, workers.dev route, and gateway secret are
+   absent before continuing.
+
+3. Delete the mock Worker, then confirm that the script and its external
+   `PROBE_SYNC` binding are absent:
+
+   ```sh
+   corepack pnpm --filter @flarex/runtime-topology-probe exec wrangler delete --config wrangler.mock.jsonc
+   ```
+
+4. Only after the mock is absent, deploy the sync deletion migration:
+
+   ```sh
+   corepack pnpm --filter @flarex/runtime-topology-probe exec wrangler deploy --config wrangler.sync.teardown.jsonc
+   ```
+
+   Then list sync deployments, confirm the newest deployment is the
+   binding-free teardown Worker, and use the dashboard or authenticated
+   namespace API to confirm that no namespace owned by the sync script remains
+   for `ProbeSyncDO`. Stop if any check is missing or fails.
+
+   ```sh
+   corepack pnpm --filter @flarex/runtime-topology-probe exec wrangler deployments list --config wrangler.sync.teardown.jsonc
+   ```
+
+5. Only after step 4 is proven, delete the sync Worker and verify final account
+   absence:
+
+   ```sh
+   corepack pnpm --filter @flarex/runtime-topology-probe exec wrangler delete --config wrangler.sync.teardown.jsonc
+   ```
+
+For either namespace check, a first-page API response is never proof of
+absence. Request the maximum supported `per_page=1000`, require
+`success === true`, and inspect every page from 1 through
+`result_info.total_pages`. Stop if pagination metadata is absent or
+inconsistent, any page fails, or the combined result cannot be checked. Only
+the fully concatenated result may prove that the exact Worker `script` plus
+class pairs are absent:
+
+- `flarex-runtime-topology-probe-gateway` with `ProbeSessionDO`, `ProbeRunDO`,
+  and `ProbeCampaignDO`; and
+- `flarex-runtime-topology-probe-sync` with `ProbeSyncDO`.
+
+Do not log or commit the account identifier, API token, or full account
+namespace inventory. Record only the sanitized P11 absence conclusion and the
+number of pages checked.
+
+Do not run those commands before evidence preservation and the application
+purge attempt. A `deleted_classes` migration irreversibly deletes every object
+and all stored data for the named class. If a Worker was never deployed, verify
+its absence instead of deploying the teardown configuration merely to create a
+cleanup receipt. If an earlier teardown step fails, stop and inspect the exact
+remote state; do not skip ahead and strand a live external binding.
+
 Cloudflare's [`wrangler delete`](https://developers.cloudflare.com/workers/wrangler/commands/workers/#delete)
 removes a Worker and associated platform resources, but the explicit
 `deleted_classes` deployments make Durable Object class/data deletion visible
-and auditable before script removal.
+and auditable before script removal. Cloudflare's
+[Durable Object migration reference](https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/#delete-migration)
+requires removing the binding and class reference before applying that
+deletion migration; the checked-in teardown configs encode that precondition.
+The authenticated
+[Namespace List API](https://developers.cloudflare.com/api/resources/durable_objects/subresources/namespaces/methods/list/)
+is the machine-readable account-level check when the dashboard is not used.

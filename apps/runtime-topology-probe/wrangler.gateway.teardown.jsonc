@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "flarex-runtime-topology-probe-gateway",
+  "main": "src/teardownWorker.ts",
+  "compatibility_date": "2026-06-14",
+  "workers_dev": false,
+  "preview_urls": false,
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ProbeSessionDO"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["ProbeRunDO"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["ProbeCampaignDO"]
+    },
+    {
+      "tag": "v4-delete-probe-state",
+      "deleted_classes": [
+        "ProbeSessionDO",
+        "ProbeRunDO",
+        "ProbeCampaignDO"
+      ]
+    }
+  ]
+}

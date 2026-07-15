@@ -521,6 +521,9 @@ The frozen target, budget, commands, corrected smoke/measurement sequence, and
 teardown are recorded in `P08-PRODUCTION-PREFLIGHT.md`. The remaining exit
 condition is interactive Wrangler authentication followed by exact account,
 Paid-plan, workers.dev subdomain, resource-ownership, and cost-ceiling proof.
+The future P11 namespace-removal configs and Worker-deletion commands are
+checked in and locally dry-run validated; they do not authorize or perform an
+external deletion.
 
 Deliver:
 
@@ -598,7 +601,9 @@ teardown are complete.
 - Active goal: build and validate the isolated production runtime-topology
   probe through separately approved gates.
 - Current gate: `P08` local evidence is complete; external target identity is
-  pending because Wrangler is not authenticated on this machine.
+  pending because Wrangler is not authenticated on this machine. Teardown
+  migrations and script-deletion commands are concrete and locally dry-run
+  validated, so P09 will not create resources without a rehearsed P11 path.
 - Next action: authenticate Wrangler, name and verify the exact isolated
   Cloudflare account/resources, then execute the corrected P09 smoke without
   purging the campaign.

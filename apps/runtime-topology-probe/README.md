@@ -111,7 +111,19 @@ corepack pnpm --filter @flarex/runtime-topology-probe test:matrix
 corepack pnpm --filter @flarex/runtime-topology-probe deploy:sync:dry-run
 corepack pnpm --filter @flarex/runtime-topology-probe deploy:mock:dry-run
 corepack pnpm --filter @flarex/runtime-topology-probe deploy:gateway:dry-run
+corepack pnpm --filter @flarex/runtime-topology-probe deploy:gateway:teardown:dry-run
+corepack pnpm --filter @flarex/runtime-topology-probe deploy:sync:teardown:dry-run
+corepack pnpm --filter @flarex/runtime-topology-probe teardown:gateway:delete:dry-run
+corepack pnpm --filter @flarex/runtime-topology-probe teardown:mock:delete:dry-run
+corepack pnpm --filter @flarex/runtime-topology-probe teardown:sync:delete:dry-run
 ```
+
+The teardown commands above are local dry-runs. Their configs retain the
+production Worker names but export only a binding-free `410 Gone` handler and
+append the required Durable Object deletion tags. The authenticated,
+destructive P11 order is intentionally documented only in
+[`P08-PRODUCTION-PREFLIGHT.md`](./P08-PRODUCTION-PREFLIGHT.md); never substitute
+these configs for the ordinary deployment configs during P09.
 
 After P08 identifies the exact production target, supply the origin and bearer
 secret only through environment variables. P09 runs the resumable eight-scenario
