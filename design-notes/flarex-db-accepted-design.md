@@ -782,7 +782,7 @@ cascade an old snapshot into a new attempt. S07 owns only the relational shape
 and migration proof.
 
 The previously ordered O03-B2b2 renewal gate is a conditional operational
-extension, not an O04/O05 or private C01-C07 prerequisite. Convex bounds one
+extension, not an O04/O05 or private C02-C07 prerequisite. Convex bounds one
 execution attempt and starts retries with a fresh transaction/snapshot rather
 than renewing the old attempt. Flarex may still require renewal because its
 execution and Postgres-retention owners are separated, but the first real
@@ -971,7 +971,7 @@ package/function authority. The physical representation and any DDL require a
 fresh preflight. The checked revocation command moves to its first operational
 or admin consumer, and backend Worker/key/binding adapters move to their first
 hosted-production consumer. Those gates do not block O03-B, O04/O05, or the
-private C01-C07 proof.
+private C02-C07 proof.
 
 The narrow schema prerequisite S07-A first adds one nonnegative scope-wide
 `authorization_revocation_epoch` to the located data-plane scope clock. O03-A
@@ -1244,7 +1244,7 @@ ConnectionDO
 The following is a future composition diagram only. It does not describe the
 current implemented runtime and does not change the foundation execution order.
 The facet-backed session path remains conditional `C07A` work after the
-Postgres-backed `C01` through `C07` proof, and the per-scope `DeploymentSyncDO`
+Postgres-backed `C02` through `C07` proof, and the per-scope `DeploymentSyncDO`
 replacement remains separately unimplemented. Neither is the immediate next
 foundation gate.
 

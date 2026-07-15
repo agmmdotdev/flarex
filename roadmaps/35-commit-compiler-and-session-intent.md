@@ -3,8 +3,8 @@
 ## Status And Scope
 
 Status: accepted bounded design with an implemented `legacy_v1` prototype path;
-the replacement commit compiler is planned and no `C01` through `C09`
-slice is complete.
+standalone `C01` was retired before implementation, and no `C02` through `C09`
+replacement slice is complete.
 
 This roadmap owns the durable direction for:
 
@@ -41,7 +41,7 @@ Use these sources in order:
 2. [`flarexdb-foundation/README.md`](./flarexdb-foundation/README.md) owns the
    interleaved schema/OCC/compiler execution order.
 3. [`flarexdb-foundation/03-commit-compiler.md`](./flarexdb-foundation/03-commit-compiler.md)
-   owns the executable `C01` through `C09` gates.
+   owns the C01 retirement decision and executable `C02` through `C09` gates.
 4. [`flarexdb-foundation/02-occ-and-transactions.md`](./flarexdb-foundation/02-occ-and-transactions.md)
    owns snapshot issuance, session anchors, OCC validation, atomic outcome,
    retention, and retry primitives consumed by the compiler.
@@ -500,7 +500,8 @@ the staged read-your-writes overlay.
 
 ## Known Gaps And Limitations
 
-- `C01` through `C09` remain unchecked in the focused plan.
+- Standalone `C01` was retired before implementation; `C02` through `C09`
+  remain unchecked in the focused plan.
 - Current invoke sessions use wall-clock `beginTs`, not authoritative
   `SnapshotToken` reads.
 - The legacy journal persists directly in broad Postgres invoke-session tables;
@@ -559,7 +560,8 @@ preparation boundaries are also complete, so O03-A2 and O03-A are complete.
 O03-B1 activation and O03-B2a restart-safe exact-attempt reload are complete.
 O03-B2b1 exact abort/expiry terminalization is also complete and closes the
 required session-authority core. O04 private exact-snapshot point reads and
-typed dependencies and O05 pure OCC validation are complete; C01 is next.
+typed dependencies and O05 pure OCC validation are complete. Standalone C01
+was retired before implementation; C02 is next.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
 retention consumer proves that a bounded attempt must outlive its initial lease.
@@ -569,30 +571,35 @@ Hosted compiler execution still waits for the required schema, exact-snapshot
 OCC, commit, target activation, target-only caller/recovery, and hosted
 prerequisites. Shipped-state migration prerequisites are conditional.
 
-The compiler gates are:
+The former C01 standalone port-extraction gate is retired. Its proposed
+compatibility-wrapper work is dropped rather than redistributed: C03
+introduces its first required journal-store boundary, C04 owns catalog
+verification and verified input,
+O06/O07 own atomic execution with C05 as the first compiler consumer, and C06
+owns post-commit wake after durable evidence exists.
 
-1. `C01`: extract narrow journal, catalog, planner-input, executor, and
-   post-commit ports without changing `/invoke/*` behavior.
-2. `C02`: define versioned logical dependencies/writes, `SessionJournalV1`,
+The remaining compiler gates are:
+
+1. `C02`: define versioned logical dependencies/writes, `SessionJournalV1`,
    `CommitEnvelopeV1`, immutable `PreparedCommitV1`, canonical encoding,
    digest, fences, sequences, limits, and typed rejection.
-3. `C03`: implement point CRUD journaling, deterministic coalescing, exact
+2. `C03`: implement point CRUD journaling, deterministic coalescing, exact
    point overlays, and fail-closed unsupported shapes.
-4. `C04`: build authoritative envelope/anchor verification plus a pure
+3. `C04`: build authoritative envelope/anchor verification plus a pure
    deterministic point-row planner with typed preflight errors.
-5. `C05`: execute one replacement point mutation through the complete atomic
+4. `C05`: execute one replacement point mutation through the complete atomic
    OCC/outcome/commit/outbox primitive.
-6. `C06`: add fenced idempotent finish, duplicate/concurrent finish behavior,
+5. `C06`: add fenced idempotent finish, duplicate/concurrent finish behavior,
    restart, expiry, and lost-response outcome recovery through stable
    `/invoke/*` endpoints.
-7. `C07`: close PGlite and real-Postgres concurrency, rollback, serialization,
+6. `C07`: close PGlite and real-Postgres concurrency, rollback, serialization,
    deadlock, uncertain-outcome, and contiguous-sequence gates.
-8. `C07A`: immediately measure journal persistence and move only the temporary
+7. `C07A`: immediately measure journal persistence and move only the temporary
    journal to a per-session supervisor/per-attempt facet if that path beats the
    Postgres-backed and custom-binding-only control baselines by the predeclared
    material-improvement threshold; otherwise retain Postgres journaling.
-9. `C08`: lower declared index and unique sidecars after their schema/OCC gates.
-10. `C09`: lower stable edge occurrences after relation identity and semantics
+8. `C08`: lower declared index and unique sidecars after their schema/OCC gates.
+9. `C09`: lower stable edge occurrences after relation identity and semantics
     are frozen.
 
 Each gate updates this roadmap only when it changes durable status,

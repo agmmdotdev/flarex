@@ -15,8 +15,9 @@ their first real consumers. The required `O03-B` authority core consumes only
 the final opaque prepared-start capability. B1's atomic activation/exact active-
 anchor replay, B2a's restart-safe exact-attempt reload, and B2b1's exact
 abort/expiry terminalization are complete. O04's private exact-snapshot point
-reads and typed dependencies and O05's pure point-OCC validation are complete;
-C01 narrow compiler/executor ports are next. B2b2 renewal is a conditional
+reads and typed dependencies and O05's pure point-OCC validation are complete.
+The standalone C01 port-extraction gate was retired before implementation;
+C02's versioned logical protocol is next. B2b2 renewal is a conditional
 operational extension outside the current
 master order; it requires a real runtime or retention consumer that proves a
 bounded attempt must outlive its initial lease.
@@ -25,7 +26,7 @@ bounded attempt must outlive its initial lease.
 | --- | --- |
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, and narrow `S07-A` complete |
 | OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads with typed present/qualified-missing dependencies, and `O05` pure point-OCC validation are complete; standalone `O01` retired before implementation, while B2b2 renewal, operational revocation, and hosted adapters remain consumer-triggered deferred gates |
-| Commit compiler | Planned; `C01` is the next and first unchecked compiler gate |
+| Commit compiler | Standalone `C01` retired before implementation; `C02` is the next and first unchecked compiler implementation gate |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
 
@@ -173,16 +174,18 @@ Fixed cross-adapter rules:
 ## Master Execution Order
 
 This order is the current dependency hypothesis, not an instruction to execute
-the next identifier blindly. Before each meaningful gate, follow the
-implementation-step preflight in [`../../AGENTS.md`](../../AGENTS.md): verify
-the repository and primary references, explain what/why/where and the proof
-boundary to the user, and challenge the order and scope. Continue through gates
-inside an already approved goal or plan without treating each preflight as a
-new permission checkpoint. Request direction only when the stop conditions in
-`AGENTS.md` apply. If the gate is no longer the smallest correctness-preserving
-route to the nearest end-to-end milestone, record the correction here and
-continue with the smallest in-scope slice unless that correction crosses a stop
-condition.
+the next identifier blindly. Before each meaningful behavior-changing gate,
+follow the implementation-step preflight in
+[`../../AGENTS.md`](../../AGENTS.md): verify the repository and primary
+references, explain what/why/where and the proof boundary to the user, and
+challenge the order and scope. Do not start implementation until the user
+explicitly approves that discussed step. A generic `go`, `continue`, or prior
+approval does not authorize the next roadmap gate. If a gate is no longer the
+smallest correctness-preserving route to the nearest end-to-end milestone,
+recommend the correction and update the owning plan after agreement before
+implementing it. Discussion-only, research-only, docs-only, and mechanical work
+does not require a ceremonial preflight unless it proposes a subsequent
+implementation gate.
 
 Create a new subgate only when a distinct trust, transaction, recovery,
 migration, compatibility, or evidence boundary requires an independently
@@ -254,10 +257,16 @@ types and ports are introduced by the gates that first consume them.
 13. `O04` (complete): private exact-snapshot point reads including qualified
     missing-row dependencies.
 14. `O05` (complete): pure point-OCC validator.
-15. `C01` (next): narrow compiler/executor ports without endpoint changes.
-16. `C02`: versioned journal/envelope/plan protocol.
-17. `C03`: point read-your-writes and fail-closed unsupported shapes.
-18. `C04`: pure deterministic point-row planner.
+15. `C02` (next): versioned journal/envelope/plan protocol.
+16. `C03`: point read-your-writes and fail-closed unsupported shapes.
+17. `C04`: pure deterministic point-row planner.
+
+The proposed C01 compatibility-wrapper work is not carried forward. C03 introduces
+only the `SessionJournalStore` required by its first real Postgres-backed
+journal consumer; C04 owns authoritative catalog loading, envelope/anchor
+verification, and `VerifiedCommitInput`; O06/O07 own the atomic persistence
+capability and C05 is its first `PreparedCommitV1` compiler consumer; C06 owns
+`PostCommitWake` after durable commit/outbox evidence exists.
 
 `O03-B1` establishes atomic activation and exact active-anchor replay;
 `O03-B2a` closes restart-safe exact-attempt reload; and `O03-B2b1` closes

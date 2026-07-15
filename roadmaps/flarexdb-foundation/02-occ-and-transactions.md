@@ -13,10 +13,11 @@ hosted Worker/key adapters are deferred to their first real consumers. O03-B1
 activation, O03-B2a restart-safe reload, and O03-B2b1 exact abort/expiry
 terminalization complete the required O03-B authority core. O04's private
 exact-snapshot point-read semantics and dependencies are complete; O05 pure
-point-OCC validation is also complete, and C01 is the next master-order gate.
+point-OCC validation is also complete. Standalone C01 was retired before
+implementation, and C02 is the next master-order gate.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
-does not block the private C01-C07 proof.
+does not block the private C02-C07 proof.
 
 This plan owns exact snapshots, typed read dependencies, conflict validation,
 the short scope-local commit lane, result-bearing idempotency, retry classes,
@@ -616,8 +617,8 @@ extension and does not determine this parent's completion.
 
 Status: complete as a private, non-routing exact abort/expiry terminalization
 boundary with idempotent first-terminal-state observation. This closes the
-required O03-B authority core. O04 and O05 are complete; C01 is next in the
-master order.
+required O03-B authority core. O04 and O05 are complete; standalone C01 is
+retired and C02 is next in the master order.
 
 Outcome:
 
@@ -844,6 +845,10 @@ Exit gate:
 
 Outcome:
 
+- Complete the O06 harness as the private `CommitExecutor` capability that
+  accepts only the immutable prepared point plan. C05 is its first compiler
+  consumer; this target capability never wraps or promotes legacy
+  `commitInvokeSessionWrites`.
 - Lock/claim `(scope_id, request_key)` and bind it to identity fingerprint,
   function reference, and canonical request hash.
 - Store the successful encoded result, commit token, data, commit/change atoms,

@@ -1,8 +1,9 @@
 # FlarexDB Commit Compiler Plan
 
 Status: planned; S06 row storage, S07 physical session/snapshot-lease DDL, and
-O04/O05 point dependency and validation contracts exist. C01 is the next gate;
-no compiler turn is implemented.
+O04/O05 point dependency and validation contracts exist. Standalone C01 was
+retired before implementation; C02 is the next gate, and no compiler code turn
+is implemented.
 
 This plan owns the bounded Flarex app-data path from logical session operations
 to a trusted deterministic physical plan and atomic commit. It does not make a
@@ -127,30 +128,31 @@ Postgres cannot see the private journal.
 
 ## Turn Checklist
 
-### [ ] C01 — Extract Narrow Compiler And Executor Ports
+### C01 — Retired Before Implementation
 
-Outcome:
+The standalone structural gate was premature. It proposed journal, catalog,
+verified-input, executor, and wake ports before the gates that define their
+exact data contracts and first consumers. Implementing it would either create
+speculative weak interfaces or encode the legacy invoke-session shapes into the
+replacement. Wrapping the current finish path would also create a temporary
+compatibility layer without a shipped-data or public-contract obligation.
 
-- Consume the shared storage split/types from S01, snapshot selection from O02,
-  grant/session activation authority from O03-A/O03-B, and point dependency/
-  validation contracts from O04/O05. Add only compiler-facing composition
-  adapters such as
-  `SessionJournalStore`, `CatalogReader`, verified planner-input loading, and
-  `PostCommitWake`.
-- Wrap current finish/planning call sites with compatibility composition; do
-  not redefine generation routing, storage engines, or lifecycle CAS.
-- Keep `/invoke/start`, `/invoke/syscall`, `/invoke/finish`, and `/invoke/abort`
-  stable.
-- Consume storage generation from the trusted data-plane scope clock/session
-  anchor, never from a client/header or journal field.
+Introduce each boundary only at its real owner:
 
-Exit gate:
+- C02 defines immutable logical protocol data and canonical encoding; it adds no
+  database or service ports.
+- C03 introduces only the `SessionJournalStore` needed by its first real
+  Postgres-backed journal and point-overlay consumer.
+- C04 owns authoritative catalog loading, envelope/anchor verification, and the
+  internal branded `VerifiedCommitInput` capability.
+- O06/O07 own the exact atomic persistence capability; C05 is its first
+  `PreparedCommitV1` compiler consumer.
+- C06 owns `PostCommitWake`, after durable commit and outbox evidence make its
+  ordering meaningful.
 
-- existing executor, persistence, private Worker Fetch adapter,
-  artifact-runtime, and test SDK tests remain green; optional Nitro/Vercel
-  compatibility tests remain green while that adapter is supported;
-- this turn changes structure, not behavior;
-- new code does not add v1/v2 conditionals across the broad legacy interface.
+The proposed compatibility-wrapping work is dropped rather than redistributed.
+Legacy `/invoke/*` behavior remains regression evidence until target callers
+switch; it is not a source contract for the replacement.
 
 ### [ ] C02 — Define The Versioned Logical Protocol
 
@@ -178,6 +180,11 @@ Exit gate:
 
 Outcome:
 
+- Introduce the narrow `SessionJournalStore` required by this first typed
+  consumer, expressed only in C02 protocol types and backed initially by
+  Postgres. It owns temporary logical attempt evidence, not scope resolution,
+  catalog authority, SQL, or physical writes. C07A alone may later move this
+  temporary store after measurement.
 - Journal point `get`, insert, patch, replace, and delete operations.
 - Coalesce same-row writes deterministically and expose exact point
   read-your-writes from the staged final row state.
@@ -198,6 +205,10 @@ Exit gate:
 
 Outcome:
 
+- Introduce a trusted `CatalogReader` keyed by already-authoritative session and
+  snapshot facts, plus the exact verified planner-input loader consumed by this
+  gate. Neither capability accepts journal-authored authority or exposes a raw
+  database handle to the pure planner.
 - Add a pre-planner verifier that loads the authoritative anchor and journal,
   then checks protocol, attempt fence, lifecycle state, expiry, last syscall
   sequence, canonical bytes/digest, storage generation/fence, package/function,
@@ -239,7 +250,9 @@ Outcome:
   lost-outcome recovery.
 - Invoke the already-built C04 verifier/planner against that frozen exact-
   attempt evidence to obtain `PreparedCommitV1`.
-- Call the complete O06+O07 atomic primitive with `PreparedCommitV1`.
+- Consume the O06/O07-owned private `CommitExecutor` capability with
+  `PreparedCommitV1`. This target capability must not wrap or promote legacy
+  `commitInvokeSessionWrites`.
 - Inside the transaction, recheck session/fence/authority/epoch, validate point
   dependencies, allocate the commit sequence, publish row revision/current,
   write successful result/idempotency outcome, commit/change atoms and outbox,
@@ -288,7 +301,9 @@ not introduce a separately durable state or recovery protocol.
   session state atomically.
 - Make repeated finish replay the authoritative outcome.
 - Resolve uncertain responses by lookup before rerunning anything.
-- Wake post-commit work only after durable commit.
+- Introduce `PostCommitWake` only at this stable finish boundary. Wake
+  post-commit work only after durable commit; wake failure is an observable
+  latency/operability failure and never revokes or hides the committed outcome.
 
 Exit gate:
 
@@ -325,7 +340,7 @@ Exit gate:
 
 Prerequisite:
 
-- C01-C07 and their PGlite/real-Postgres gates are green through the current
+- C02-C07 and their PGlite/real-Postgres gates are green through the current
   Postgres-backed journal path.
 
 Decision gate:
