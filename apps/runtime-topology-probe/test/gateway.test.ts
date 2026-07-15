@@ -354,6 +354,9 @@ function registeredStatus(run: ProbeRunRequestV1) {
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
     run,
     state: "registered",
+    sealed: false,
+    reconciled: false,
+    evidenceFrozen: false,
     budgets: {
       limits: PROBE_RUN_BUDGET_LIMITS_V1,
       planned: probeRunBudgetPlanV1(run),
@@ -369,6 +372,7 @@ function registeredStatus(run: ProbeRunRequestV1) {
       terminal: 0,
       completed: 0,
       failed: 0,
+      abandoned: 0,
       outstanding: 0,
       highWaterOutstandingClaims: 0,
       eligible: 0,

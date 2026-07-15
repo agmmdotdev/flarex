@@ -316,7 +316,11 @@ const REQUEST_KEYS = [
 
 export class ProbeRerunFacet extends DurableObject {
   async fetch(request) {
-    if (request.method !== "POST" || new URL(request.url).pathname !== "/v1/rerun") {
+    const pathname = new URL(request.url).pathname;
+    if (request.method === "POST" && pathname === "/v1/purge-ensure") {
+      return await this.ensurePurgeStorage();
+    }
+    if (request.method !== "POST" || pathname !== "/v1/rerun") {
       return json({ error: "not_found" }, 404);
     }
     const value = await readJson(request);
@@ -339,6 +343,14 @@ export class ProbeRerunFacet extends DurableObject {
       reentryDepth: value.reentryDepth,
       payloadBytes: value.payload.length
     }, 200);
+  }
+
+  async ensurePurgeStorage() {
+    const sql = this.ctx.storage.sql;
+    sql.exec("CREATE TABLE IF NOT EXISTS probe_purge_marker (singleton INTEGER PRIMARY KEY CHECK (singleton = 1))");
+    sql.exec("INSERT OR IGNORE INTO probe_purge_marker (singleton) VALUES (1)");
+    await this.ctx.storage.sync();
+    return json({ kind: "purge-ready" }, 200);
   }
 }
 

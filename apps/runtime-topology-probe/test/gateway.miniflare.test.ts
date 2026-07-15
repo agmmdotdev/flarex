@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   decodeProbeOrdinalEffect,
@@ -57,17 +57,18 @@ import {
   PROBE_TEST_TOKEN,
   removeRuntimeProbePersistPath,
   type RuntimeProbeHarness,
+  type RuntimeProbeHarnessOptions,
 } from "./runtimeHarness";
 import { runEffectTest, runEffectTestSync } from "./effectTest";
 
 describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
   let harness: RuntimeProbeHarness;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     harness = await createRuntimeProbeHarness();
   });
 
-  afterAll(async () => {
+  afterEach(async () => {
     await harness.dispose();
   });
 
@@ -398,15 +399,13 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
         payloadBytes: 32,
       }),
     );
-    const maxEntries = await measuredDispatch(
-      harness,
+    const maxEntries = await measuredDispatchOnFreshHarness(
       validSampleRequest("facet_journal", "p04_max_entries", {
         journalEntries: 256,
         payloadBytes: 1,
       }),
     );
-    const maxPayload = await measuredDispatch(
-      harness,
+    const maxPayload = await measuredDispatchOnFreshHarness(
       validSampleRequest("facet_journal", "p04_max_payload", {
         journalEntries: 1,
         payloadBytes: 65_536,
@@ -574,9 +573,9 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
         noLoaderHarness,
         validSampleRequest("dynamic_direct_echo", "p03_no_loader"),
       );
-      const edge = await dispatch(
-        noLoaderHarness,
+      const edgeStatus = await dispatchStatusOnFreshHarness(
         validSampleRequest("edge_echo", "p03_no_loader_edge"),
+        { workerLoader: false },
       );
       const status = await noLoaderHarness.mf.dispatchFetch(
         `https://probe.test${PROBE_RUN_ROUTE}/p03_no_loader`,
@@ -584,7 +583,7 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
       );
       expect(dynamic.fragment.outcome.kind).toBe("error");
       expect(dynamic.control.terminalState).toBe("failed");
-      expect(edge.status).toBe(200);
+      expect(edgeStatus).toBe(200);
       expect(await status.json()).toMatchObject({
         kind: "found",
         status: {
@@ -1029,17 +1028,17 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
         noMockHarness,
         validSampleRequest("commit_wake", "p05_no_mock_wake"),
       );
-      const invoke = await measuredDispatch(
-        noMockHarness,
+      const invoke = await measuredDispatchOnFreshHarness(
         validSampleRequest("full_invoke", "p05_no_mock_invoke"),
+        { mockFinish: false, mockRead: false, mockRerun: false },
       );
-      const rerun = await measuredDispatch(
-        noMockHarness,
+      const rerun = await measuredDispatchOnFreshHarness(
         validSampleRequest("sync_rerun", "p06_no_mock_rerun"),
+        { mockFinish: false, mockRead: false, mockRerun: false },
       );
-      const edge = await dispatch(
-        noMockHarness,
+      const edgeStatus = await dispatchStatusOnFreshHarness(
         validSampleRequest("edge_echo", "p05_no_mock_edge"),
+        { mockFinish: false, mockRead: false, mockRerun: false },
       );
 
       expect(wake.fragment.outcome.kind).toBe("error");
@@ -1063,7 +1062,7 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
         workerLoader: "callback-not-run",
         facet: "callback-not-run",
       });
-      expect(edge.status).toBe(200);
+      expect(edgeStatus).toBe(200);
     } finally {
       await noMockHarness.dispose();
     }
@@ -1259,6 +1258,30 @@ async function measuredDispatch(
     control: controlled.control,
     raw,
   };
+}
+
+async function measuredDispatchOnFreshHarness(
+  body: unknown,
+  options: RuntimeProbeHarnessOptions = {},
+) {
+  const isolated = await createRuntimeProbeHarness(options);
+  try {
+    return await measuredDispatch(isolated, body);
+  } finally {
+    await isolated.dispose();
+  }
+}
+
+async function dispatchStatusOnFreshHarness(
+  body: unknown,
+  options: RuntimeProbeHarnessOptions = {},
+): Promise<number> {
+  const isolated = await createRuntimeProbeHarness(options);
+  try {
+    return (await dispatch(isolated, body)).status;
+  } finally {
+    await isolated.dispose();
+  }
 }
 
 async function controlValue(

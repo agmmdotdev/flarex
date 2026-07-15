@@ -1,19 +1,37 @@
-import type {
-  ProbeCallbackObservation,
-  ProbeDurationMs,
-  ProbeScenario,
-  ProbeSessionMode,
-  ProbeSpanName,
+import { Schema } from "effect";
+
+import {
+  ProbeCallbackObservationSchema,
+  ProbeDurationMsSchema,
+  ProbeEdgeColoSchema,
+  ProbeSamplePhaseSchema,
+  ProbeScenarioSchema,
+  ProbeSessionModeSchema,
+  ProbeSpanNameSchema,
+  type ProbeDurationMs,
+  type ProbeSpanName,
 } from "./protocol";
-import type {
-  ProbeControlledSampleResultV1,
-  ProbeMeasurementDisposition,
+import {
+  ProbeMeasurementDispositionSchema,
+  type ProbeControlledSampleResultV1,
 } from "./runtimeProtocol";
 import {
   PROBE_SCENARIO_TOPOLOGY,
   validateProbeTraceV1,
 } from "./trace";
-import type { ProbeCodeMode } from "./identity";
+import { ProbeCodeModeSchema } from "./identity";
+
+const StrictStructOptions = {
+  parseOptions: { onExcessProperty: "error" },
+} as const;
+
+const SummaryCountSchema = Schema.Int.check(
+  Schema.makeFilter((value: number) =>
+    value >= 0 && value <= 2_048
+      ? undefined
+      : "summary count must be between 0 and 2048"
+  ),
+);
 
 export const ProbePercentile = {
   median: 50,
@@ -27,37 +45,77 @@ export type ProbeMeasurement =
   | { readonly kind: "success"; readonly durationMs: ProbeDurationMs }
   | { readonly kind: "failure" };
 
-export interface ProbeLatencySummaryV1 {
-  readonly count: number;
-  readonly successCount: number;
-  readonly failureCount: number;
-  readonly minMs: ProbeDurationMs | null;
-  readonly medianMs: ProbeDurationMs | null;
-  readonly p95Ms: ProbeDurationMs | null;
-  readonly p99Ms: ProbeDurationMs | null;
-  readonly maxMs: ProbeDurationMs | null;
+const NullableDurationSchema = Schema.Union([ProbeDurationMsSchema, Schema.Null]);
+
+const ProbeLatencySummaryV1Shape = Schema.Struct({
+  count: SummaryCountSchema,
+  successCount: SummaryCountSchema,
+  failureCount: SummaryCountSchema,
+  minMs: NullableDurationSchema,
+  medianMs: NullableDurationSchema,
+  p95Ms: NullableDurationSchema,
+  p99Ms: NullableDurationSchema,
+  maxMs: NullableDurationSchema,
+}).annotate(StrictStructOptions);
+
+export const ProbeLatencySummaryV1Schema = ProbeLatencySummaryV1Shape.check(
+  Schema.makeFilter(summary => latencySummaryIssueV1(summary)),
+);
+export type ProbeLatencySummaryV1 = typeof ProbeLatencySummaryV1Schema.Type;
+
+function latencySummaryIssueV1(
+  summary: typeof ProbeLatencySummaryV1Shape.Type,
+): string | undefined {
+  if (summary.count !== summary.successCount + summary.failureCount) {
+    return "latency summary count must equal success plus failure";
+  }
+  const durations = [
+    summary.minMs,
+    summary.medianMs,
+    summary.p95Ms,
+    summary.p99Ms,
+    summary.maxMs,
+  ];
+  if (summary.successCount === 0) {
+    return durations.every(duration => duration === null)
+      ? undefined
+      : "latency summary without successes must not report durations";
+  }
+  if (durations.some(duration => duration === null)) {
+    return "latency summary successes require every duration statistic";
+  }
+  return summary.minMs !== null && summary.medianMs !== null &&
+      summary.p95Ms !== null && summary.p99Ms !== null &&
+      summary.maxMs !== null && summary.minMs <= summary.medianMs &&
+      summary.medianMs <= summary.p95Ms && summary.p95Ms <= summary.p99Ms &&
+      summary.p99Ms <= summary.maxMs
+    ? undefined
+    : "latency summary duration statistics must be ordered";
 }
 
-export interface ProbeCohortKeyV1 {
-  readonly scenario: ProbeScenario;
-  readonly spanName: ProbeSpanName;
-  readonly codeMode: ProbeCodeMode;
-  readonly sessionMode: ProbeSessionMode;
-  readonly configuredConcurrency: number;
-  readonly observedOutstandingClaims: number;
-  readonly phase: ProbeControlledSampleResultV1["control"]["phase"];
-  readonly measurementDisposition: ProbeMeasurementDisposition;
-  readonly journalEntries: number;
-  readonly payloadBytes: number;
-  readonly edgeColo: string | null;
-  readonly workerLoaderCallback: ProbeCallbackObservation;
-  readonly facetStartupCallback: ProbeCallbackObservation;
-}
+export const ProbeCohortKeyV1Schema = Schema.Struct({
+  scenario: ProbeScenarioSchema,
+  spanName: ProbeSpanNameSchema,
+  codeMode: ProbeCodeModeSchema,
+  sessionMode: ProbeSessionModeSchema,
+  configuredConcurrency: Schema.Int,
+  observedOutstandingClaims: Schema.Int,
+  phase: ProbeSamplePhaseSchema,
+  measurementDisposition: ProbeMeasurementDispositionSchema,
+  journalEntries: Schema.Int,
+  payloadBytes: Schema.Int,
+  edgeColo: Schema.Union([ProbeEdgeColoSchema, Schema.Null]),
+  workerLoaderCallback: ProbeCallbackObservationSchema,
+  facetStartupCallback: ProbeCallbackObservationSchema,
+}).annotate(StrictStructOptions);
+export type ProbeCohortKeyV1 = typeof ProbeCohortKeyV1Schema.Type;
 
-export interface ProbeHopLatencySummaryV1 {
-  readonly cohort: ProbeCohortKeyV1;
-  readonly latency: ProbeLatencySummaryV1;
-}
+export const ProbeHopLatencySummaryV1Schema = Schema.Struct({
+  cohort: ProbeCohortKeyV1Schema,
+  latency: ProbeLatencySummaryV1Schema,
+}).annotate(StrictStructOptions);
+export type ProbeHopLatencySummaryV1 =
+  typeof ProbeHopLatencySummaryV1Schema.Type;
 
 export function nearestRankPercentile(
   values: readonly ProbeDurationMs[],

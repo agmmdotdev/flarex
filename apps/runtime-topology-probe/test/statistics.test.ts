@@ -1,4 +1,3 @@
-import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,11 +6,13 @@ import {
 } from "../src/protocol";
 import {
   nearestRankPercentile,
+  ProbeLatencySummaryV1Schema,
   ProbePercentile,
   summarizeProbeMeasurements,
   summarizeProbeSamples,
 } from "../src/statistics";
 import { controlledSample, validSample } from "./fixtures";
+import { runEffectTestSync } from "./effectTest";
 
 const duration = (value: number) => ProbeDurationMsSchema.make(value);
 
@@ -44,6 +45,29 @@ describe("runtime topology probe statistics", () => {
     });
   });
 
+  it("rejects contradictory or unordered latency summaries", () => {
+    expect(() => ProbeLatencySummaryV1Schema.make({
+      count: 1,
+      successCount: 0,
+      failureCount: 1,
+      minMs: duration(1),
+      medianMs: null,
+      p95Ms: null,
+      p99Ms: null,
+      maxMs: null,
+    })).toThrow();
+    expect(() => ProbeLatencySummaryV1Schema.make({
+      count: 1,
+      successCount: 1,
+      failureCount: 0,
+      minMs: duration(5),
+      medianMs: duration(4),
+      p95Ms: duration(6),
+      p99Ms: duration(6),
+      maxMs: duration(6),
+    })).toThrow();
+  });
+
   it("treats failed and structurally incomplete samples as failures", () => {
     const success = validSample("edge_echo");
     const incomplete = {
@@ -53,7 +77,7 @@ describe("runtime topology probe statistics", () => {
     const failedBase = validSample("edge_echo");
     const failedRoot = failedBase.spans[0];
     if (failedRoot === undefined) throw new Error("Missing failed root span.");
-    const failed = Effect.runSync(
+    const failed = runEffectTestSync(
       decodeProbeSampleResultV1Effect({
         ...failedBase,
         outcome: {

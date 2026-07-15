@@ -8,7 +8,7 @@ declare global {
   namespace Cloudflare {
     interface GlobalProps {
       mainModule: typeof import("./gatewayWorker");
-      durableNamespaces: "ProbeRunDO" | "ProbeSessionDO";
+      durableNamespaces: "ProbeCampaignDO" | "ProbeRunDO" | "ProbeSessionDO";
     }
   }
 }

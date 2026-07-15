@@ -1,4 +1,16 @@
 import {
+  decodeProbeCampaignControlReceiptV1OrNull,
+  decodeProbeCampaignControlRequestV1Effect,
+  decodeProbeCampaignManifestV1Effect,
+  decodeProbeCampaignPurgeRequestV1OrNull,
+  decodeProbeCampaignRegistrationReceiptV1OrNull,
+  decodeProbeCampaignStatusReceiptV1OrNull,
+  ProbeCampaignManifestV1Schema,
+  ProbeCampaignControlRequestV1Schema,
+  type ProbeCampaignErrorCodeV1,
+  type ProbeCampaignManifestV1,
+} from "./campaignProtocol";
+import {
   copyCloudflareRpcRecord,
   protocolValueOrNull,
 } from "./effectBoundary";
@@ -23,6 +35,8 @@ import {
   type ProbeFacetSessionResponseV1,
 } from "./facetProtocol";
 import {
+  PROBE_CAMPAIGN_ACTOR_NAME,
+  ProbeCampaignIdSchema,
   probeSampleId,
   probeSpanId,
   probeRunActorId,
@@ -42,6 +56,7 @@ import {
 } from "./invokeProtocol";
 import type {
   MockFinishEntrypoint,
+  MockPurgeEntrypoint,
   MockReadEntrypoint,
   MockRerunEntrypoint,
 } from "./mockCommitWorker";
@@ -57,6 +72,7 @@ import {
   PROBE_PROTOCOL_VERSION_V1,
   ProbeDurationMsSchema,
   ProbeTraceSpanV1Schema,
+  sameProbeDimensionsV1,
   type ProbeNormalizedErrorV1,
   type ProbeRunRequestV1,
   type ProbeStartupObservationsV1,
@@ -70,9 +86,14 @@ import {
   type ProbeSyncWakeObservationV1,
 } from "./runtimeProtocol";
 import type { ProbeRunDO } from "./probeRunDO";
+import type { ProbeCampaignDO } from "./probeCampaignDO";
 import {
+  decodeProbeExternalCompletionReceiptV1OrNull,
+  decodeProbeExternalCompletionRequestV1Effect,
   decodeProbePublicSampleRequestV1Effect,
   decodeProbeRunRegistrationReceiptV1OrNull,
+  decodeProbeRunEvidencePageReceiptV1OrNull,
+  decodeProbeRunEvidencePageRequestV1Effect,
   decodeProbeRunStatusReceiptV1OrNull,
   decodeProbeSampleClaimReceiptV1OrNull,
   decodeProbeSampleFinalizeReceiptV1OrNull,
@@ -103,13 +124,24 @@ import {
 import type { ProbeRuntimeRerunCapability } from "./runtimeRerunEntrypoint";
 
 export interface ProbeGatewayEnv extends ProbeSessionEnv {
+  readonly PROBE_CAMPAIGN: DurableObjectNamespace<ProbeCampaignDO>;
   readonly PROBE_RUNS: DurableObjectNamespace<ProbeRunDO>;
   readonly PROBE_SESSIONS: DurableObjectNamespace<ProbeSessionDO>;
   readonly LOADER?: WorkerLoader;
   readonly MOCK_FINISH?: Service<typeof MockFinishEntrypoint>;
+  readonly MOCK_PURGE?: Service<typeof MockPurgeEntrypoint>;
   readonly MOCK_READ?: Service<typeof MockReadEntrypoint>;
   readonly MOCK_RERUN?: Service<typeof MockRerunEntrypoint>;
+  readonly RUNTIME_TOPOLOGY_PROBE_TEST_UNFROZEN_ADMISSION?: string;
   readonly RUNTIME_TOPOLOGY_PROBE_TOKEN?: string;
+}
+
+export interface ProbeGatewayAdmissionPolicy {
+  manifestIsAdmitted(
+    env: ProbeGatewayEnv,
+    manifest: ProbeCampaignManifestV1,
+  ): boolean;
+  runIdIsAdmitted(env: ProbeGatewayEnv, runId: ProbeRunId): boolean;
 }
 
 export interface ProbeGatewayWorker {
@@ -126,7 +158,15 @@ export type ProbeRuntimeRerunCapabilityFactory = (
 
 export const PROBE_SAMPLE_ROUTE = "/v1/samples";
 export const PROBE_RUN_ROUTE = "/v1/runs";
-export const PROBE_PUBLIC_BODY_MAX_BYTES = 8_192;
+export const PROBE_CAMPAIGN_ROUTE = "/v1/campaign";
+export const PROBE_CAMPAIGN_STATUS_ROUTE = "/v1/campaign/status";
+export const PROBE_CAMPAIGN_RECONCILE_ROUTE = "/v1/campaign/reconcile";
+export const PROBE_CAMPAIGN_SEAL_EVIDENCE_ROUTE =
+  "/v1/campaign/seal-evidence";
+export const PROBE_CAMPAIGN_PURGE_ROUTE = "/v1/campaign/purge";
+export const PROBE_EXTERNAL_COMPLETION_ROUTE = "/v1/external-completions";
+export const PROBE_EVIDENCE_PAGE_ROUTE = "/v1/evidence";
+export const PROBE_PUBLIC_BODY_MAX_BYTES = 65_536;
 const PROBE_SAMPLE_BODY_MAX_BYTES = 1_024;
 const PROBE_INTERNAL_RESPONSE_MAX_BYTES = 8_192;
 
@@ -135,7 +175,9 @@ export type ProbeRuntimeFailureSource =
   | { readonly kind: "response-status"; readonly status: number }
   | { readonly kind: "invalid-receipt" };
 
-export function createProbeGatewayWorker(): ProbeGatewayWorker {
+export function createProbeGatewayWorker(
+  admission: ProbeGatewayAdmissionPolicy,
+): ProbeGatewayWorker {
   return {
     async fetch(request, env, createRuntimeRerunCapability) {
       const token = env.RUNTIME_TOPOLOGY_PROBE_TOKEN;
@@ -147,11 +189,29 @@ export function createProbeGatewayWorker(): ProbeGatewayWorker {
       }
 
       const pathname = new URL(request.url).pathname;
+      if (pathname === PROBE_CAMPAIGN_ROUTE) {
+        return await registerProbeCampaign(request, env, admission);
+      }
+      if (pathname === PROBE_CAMPAIGN_STATUS_ROUTE) {
+        return await readProbeCampaignStatus(request, env);
+      }
+      if (pathname === PROBE_CAMPAIGN_RECONCILE_ROUTE) {
+        return await controlProbeCampaign(request, env, "reconcile");
+      }
+      if (pathname === PROBE_CAMPAIGN_SEAL_EVIDENCE_ROUTE) {
+        return await controlProbeCampaign(request, env, "seal-evidence");
+      }
+      if (pathname === PROBE_CAMPAIGN_PURGE_ROUTE) {
+        return await controlProbeCampaign(request, env, "purge");
+      }
       if (pathname === PROBE_RUN_ROUTE) {
-        return await registerProbeRun(request, env);
+        return await registerProbeRun(request, env, admission);
       }
       const statusRunId = await runIdFromStatusPath(pathname);
       if (statusRunId !== null) {
+        if (!admission.runIdIsAdmitted(env, statusRunId)) {
+          return gatewayError("invalid_request", 404);
+        }
         return await readProbeRunStatus(request, env, statusRunId);
       }
       if (pathname === PROBE_SAMPLE_ROUTE) {
@@ -159,7 +219,14 @@ export function createProbeGatewayWorker(): ProbeGatewayWorker {
           request,
           env,
           createRuntimeRerunCapability,
+          admission,
         );
+      }
+      if (pathname === PROBE_EXTERNAL_COMPLETION_ROUTE) {
+        return await completeExternalProbeSample(request, env, admission);
+      }
+      if (pathname === PROBE_EVIDENCE_PAGE_ROUTE) {
+        return await readProbeEvidencePage(request, env, admission);
       }
       return gatewayError("invalid_request", 404);
     },
@@ -171,9 +238,130 @@ interface ProbeScenarioExecution {
   readonly syncWake: ProbeSyncWakeObservationV1;
 }
 
+async function registerProbeCampaign(
+  request: Request,
+  env: ProbeGatewayEnv,
+  admission: ProbeGatewayAdmissionPolicy,
+): Promise<Response> {
+  if (request.method !== "POST") return gatewayError("invalid_request", 405);
+  if (!isJsonContentType(request.headers.get("content-type"))) {
+    return gatewayError("invalid_request", 415);
+  }
+  const body = await readBoundedJson(request, PROBE_PUBLIC_BODY_MAX_BYTES);
+  if (!body.ok) return publicBodyError(body.reason);
+  const manifest = await protocolValueOrNull(
+    decodeProbeCampaignManifestV1Effect(body.value),
+  );
+  if (manifest === null) return gatewayError("invalid_request", 400);
+  return await registerCampaignManifest(env, manifest, admission);
+}
+
+async function registerCampaignManifest(
+  env: ProbeGatewayEnv,
+  manifest: ProbeCampaignManifestV1,
+  admission: ProbeGatewayAdmissionPolicy,
+): Promise<Response> {
+  if (!admission.manifestIsAdmitted(env, manifest)) {
+    return gatewayError("invalid_request", 404);
+  }
+  let rawReceipt: unknown;
+  try {
+    rawReceipt = await env.PROBE_CAMPAIGN.getByName(PROBE_CAMPAIGN_ACTOR_NAME)
+      .register(manifest);
+  } catch {
+    return gatewayError("runtime_failure", 502);
+  }
+  const receipt = decodeProbeCampaignRegistrationReceiptV1OrNull(
+    copyCloudflareRpcRecord(rawReceipt),
+  );
+  if (receipt === null) return gatewayError("runtime_failure", 502);
+  if (receipt.kind === "rejected") {
+    return noStoreJson(receipt, campaignErrorHttpStatus(receipt.error.code));
+  }
+  if (
+    receipt.status.manifest.campaignId !== manifest.campaignId ||
+    receipt.status.manifest.runs.length !== manifest.runs.length
+  ) {
+    return gatewayError("runtime_failure", 502);
+  }
+  return noStoreJson(receipt, receipt.created ? 201 : 200);
+}
+
+async function readProbeCampaignStatus(
+  request: Request,
+  env: ProbeGatewayEnv,
+): Promise<Response> {
+  if (request.method !== "POST") return gatewayError("invalid_request", 405);
+  const control = await readCampaignControlBody(request);
+  if (control instanceof Response) return control;
+  let rawReceipt: unknown;
+  try {
+    rawReceipt = await env.PROBE_CAMPAIGN.getByName(PROBE_CAMPAIGN_ACTOR_NAME)
+      .status(control);
+  } catch {
+    return gatewayError("runtime_failure", 502);
+  }
+  const receipt = decodeProbeCampaignStatusReceiptV1OrNull(
+    copyCloudflareRpcRecord(rawReceipt),
+  );
+  if (receipt === null) return gatewayError("runtime_failure", 502);
+  return noStoreJson(receipt, receipt.kind === "found" ? 200 : 404);
+}
+
+async function controlProbeCampaign(
+  request: Request,
+  env: ProbeGatewayEnv,
+  operation: "purge" | "reconcile" | "seal-evidence",
+): Promise<Response> {
+  if (request.method !== "POST") return gatewayError("invalid_request", 405);
+  const body = await readBoundedJson(request, PROBE_PUBLIC_BODY_MAX_BYTES);
+  if (!body.ok) return publicBodyError(body.reason);
+  const decoded = operation === "purge"
+    ? decodeProbeCampaignPurgeRequestV1OrNull(body.value)
+    : await protocolValueOrNull(
+        decodeProbeCampaignControlRequestV1Effect(body.value),
+      );
+  if (decoded === null) return gatewayError("invalid_request", 400);
+  let rawReceipt: unknown;
+  try {
+    const campaign = env.PROBE_CAMPAIGN.getByName(PROBE_CAMPAIGN_ACTOR_NAME);
+    rawReceipt = operation === "purge"
+      ? await campaign.purge(decoded)
+      : operation === "reconcile"
+      ? await campaign.reconcile(decoded)
+      : await campaign.sealEvidence(decoded);
+  } catch {
+    return gatewayError("runtime_failure", 502);
+  }
+  const receipt = decodeProbeCampaignControlReceiptV1OrNull(
+    copyCloudflareRpcRecord(rawReceipt),
+  );
+  if (receipt === null) return gatewayError("runtime_failure", 502);
+  return receipt.kind === "rejected"
+    ? noStoreJson(receipt, campaignErrorHttpStatus(receipt.error.code))
+    : noStoreJson(receipt);
+}
+
+async function readCampaignControlBody(
+  request: Request,
+): Promise<
+  typeof ProbeCampaignControlRequestV1Schema.Type | Response
+> {
+  if (!isJsonContentType(request.headers.get("content-type"))) {
+    return gatewayError("invalid_request", 415);
+  }
+  const body = await readBoundedJson(request, PROBE_PUBLIC_BODY_MAX_BYTES);
+  if (!body.ok) return publicBodyError(body.reason);
+  const control = await protocolValueOrNull(
+    decodeProbeCampaignControlRequestV1Effect(body.value),
+  );
+  return control ?? gatewayError("invalid_request", 400);
+}
+
 async function registerProbeRun(
   request: Request,
   env: ProbeGatewayEnv,
+  admission: ProbeGatewayAdmissionPolicy,
 ): Promise<Response> {
   if (request.method !== "POST") {
     return gatewayError("invalid_request", 405);
@@ -187,24 +375,83 @@ async function registerProbeRun(
     decodeProbeRunRequestV1Effect(body.value),
   );
   if (run === null) return gatewayError("invalid_request", 400);
+  const manifest = ProbeCampaignManifestV1Schema.make({
+    protocolVersion: run.protocolVersion,
+    campaignId: ProbeCampaignIdSchema.make(run.runId),
+    collectorConcurrency: 1,
+    runs: [run],
+  });
+  return await registerCampaignManifest(env, manifest, admission);
+}
+
+async function completeExternalProbeSample(
+  request: Request,
+  env: ProbeGatewayEnv,
+  admission: ProbeGatewayAdmissionPolicy,
+): Promise<Response> {
+  if (request.method !== "POST") return gatewayError("invalid_request", 405);
+  if (!isJsonContentType(request.headers.get("content-type"))) {
+    return gatewayError("invalid_request", 415);
+  }
+  const body = await readBoundedJson(request, PROBE_SAMPLE_BODY_MAX_BYTES);
+  if (!body.ok) return publicBodyError(body.reason);
+  const completion = await protocolValueOrNull(
+    decodeProbeExternalCompletionRequestV1Effect(body.value),
+  );
+  if (completion === null) return gatewayError("invalid_request", 400);
+  if (!admission.runIdIsAdmitted(env, completion.runId)) {
+    return gatewayError("invalid_request", 404);
+  }
   let rawReceipt: unknown;
   try {
-    rawReceipt = await env.PROBE_RUNS.getByName(probeRunActorId(run.runId))
-      .register(run);
+    rawReceipt = await env.PROBE_RUNS.getByName(
+      probeRunActorId(completion.runId),
+    ).completeExternal(completion);
   } catch {
     return gatewayError("runtime_failure", 502);
   }
-  const receipt = decodeProbeRunRegistrationReceiptV1OrNull(
+  const receipt = decodeProbeExternalCompletionReceiptV1OrNull(
     copyCloudflareRpcRecord(rawReceipt),
   );
   if (receipt === null) return gatewayError("runtime_failure", 502);
-  if (receipt.kind === "rejected") {
-    return noStoreJson(receipt, runStateHttpStatus(receipt.error));
+  return receipt.kind === "rejected"
+    ? noStoreJson(receipt, runStateHttpStatus(receipt.error))
+    : noStoreJson(receipt);
+}
+
+async function readProbeEvidencePage(
+  request: Request,
+  env: ProbeGatewayEnv,
+  admission: ProbeGatewayAdmissionPolicy,
+): Promise<Response> {
+  if (request.method !== "POST") return gatewayError("invalid_request", 405);
+  if (!isJsonContentType(request.headers.get("content-type"))) {
+    return gatewayError("invalid_request", 415);
   }
-  if (!probeRegisteredRunReceiptMatchesRequest(receipt, run)) {
+  const body = await readBoundedJson(request, PROBE_SAMPLE_BODY_MAX_BYTES);
+  if (!body.ok) return publicBodyError(body.reason);
+  const pageRequest = await protocolValueOrNull(
+    decodeProbeRunEvidencePageRequestV1Effect(body.value),
+  );
+  if (pageRequest === null) return gatewayError("invalid_request", 400);
+  if (!admission.runIdIsAdmitted(env, pageRequest.runId)) {
+    return gatewayError("invalid_request", 404);
+  }
+  let rawReceipt: unknown;
+  try {
+    rawReceipt = await env.PROBE_RUNS.getByName(
+      probeRunActorId(pageRequest.runId),
+    ).evidencePage(pageRequest);
+  } catch {
     return gatewayError("runtime_failure", 502);
   }
-  return noStoreJson(receipt, receipt.created ? 201 : 200);
+  const receipt = decodeProbeRunEvidencePageReceiptV1OrNull(
+    copyCloudflareRpcRecord(rawReceipt),
+  );
+  if (receipt === null) return gatewayError("runtime_failure", 502);
+  return receipt.kind === "rejected"
+    ? noStoreJson(receipt, runStateHttpStatus(receipt.error))
+    : noStoreJson(receipt);
 }
 
 async function readProbeRunStatus(
@@ -243,6 +490,7 @@ async function executeClaimedSample(
   request: Request,
   env: ProbeGatewayEnv,
   createRuntimeRerunCapability: ProbeRuntimeRerunCapabilityFactory | undefined,
+  admission: ProbeGatewayAdmissionPolicy,
 ): Promise<Response> {
   if (request.method !== "POST") {
     return gatewayError("invalid_request", 405);
@@ -256,6 +504,9 @@ async function executeClaimedSample(
     decodeProbePublicSampleRequestV1Effect(body.value),
   );
   if (publicRequest === null) return gatewayError("invalid_request", 400);
+  if (!admission.runIdIsAdmitted(env, publicRequest.runId)) {
+    return gatewayError("invalid_request", 404);
+  }
   const runStub = env.PROBE_RUNS.getByName(
     probeRunActorId(publicRequest.runId),
   );
@@ -501,6 +752,26 @@ function runStateHttpStatus(error: ProbeRunStateErrorV1): number {
   return 409;
 }
 
+function campaignErrorHttpStatus(code: ProbeCampaignErrorCodeV1): number {
+  switch (code) {
+    case "invalid-request":
+    case "identity-mismatch":
+      return 400;
+    case "campaign-not-registered":
+      return 404;
+    case "registration-incomplete":
+    case "reconciliation-incomplete":
+    case "purge-incomplete":
+      return 503;
+    case "manifest-conflict":
+    case "campaign-not-running":
+    case "campaign-not-reconciled":
+    case "evidence-not-sealed":
+    case "target-rejected":
+      return 409;
+  }
+}
+
 async function executeFacetScenario(
   env: ProbeGatewayEnv,
   sampleRequest: ProbeGatewaySampleRequestV1,
@@ -680,7 +951,7 @@ export function probeSampleFinalizeReceiptMatchesRequest(
     request.sampleOrdinal === claim.sampleOrdinal &&
     request.claimToken === claim.claimToken &&
     request.fragment.scenario === claim.run.scenario &&
-    sameRunDimensions(request.fragment.dimensions, claim.run.dimensions) &&
+    sameProbeDimensionsV1(request.fragment.dimensions, claim.run.dimensions) &&
     sameProbeGatewaySample(fragment, request.fragment) &&
     control.phase === claim.phase &&
     control.terminalState ===
@@ -708,7 +979,7 @@ function sameProbeGatewaySample(
     left.runId === right.runId &&
     left.sampleId === right.sampleId &&
     left.scenario === right.scenario &&
-    sameRunDimensions(left.dimensions, right.dimensions) &&
+    sameProbeDimensionsV1(left.dimensions, right.dimensions) &&
     left.identity.kind === right.identity.kind &&
     left.identity.sampleOrdinal === right.identity.sampleOrdinal &&
     left.identity.scopeId === right.identity.scopeId &&
@@ -763,17 +1034,6 @@ function expectedMeasurementDisposition(
       syncWake.disposition === "duplicate"
     ? "excluded-duplicate-wake" as const
     : "eligible" as const;
-}
-
-function sameRunDimensions(
-  left: ProbeRunRequestV1["dimensions"],
-  right: ProbeRunRequestV1["dimensions"],
-): boolean {
-  return left.codeMode === right.codeMode &&
-    left.concurrency === right.concurrency &&
-    left.journalEntries === right.journalEntries &&
-    left.payloadBytes === right.payloadBytes &&
-    left.sessionMode === right.sessionMode;
 }
 
 async function executeCommitWake(

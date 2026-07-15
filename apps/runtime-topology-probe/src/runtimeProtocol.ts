@@ -165,6 +165,8 @@ export const ProbeControlledGatewaySampleV1Schema =
   );
 export type ProbeControlledGatewaySampleV1 =
   typeof ProbeControlledGatewaySampleV1Schema.Type;
+export const decodeProbeControlledGatewaySampleV1OrNull =
+  strictSchemaValueOrNullDecoder(ProbeControlledGatewaySampleV1Schema);
 
 const ProbeControlledSampleResultV1Shape = Schema.Struct({
   sample: ProbeSampleResultV1Schema,
@@ -179,6 +181,8 @@ export const ProbeControlledSampleResultV1Schema =
   );
 export type ProbeControlledSampleResultV1 =
   typeof ProbeControlledSampleResultV1Schema.Type;
+export const decodeProbeControlledSampleResultV1OrNull =
+  strictSchemaValueOrNullDecoder(ProbeControlledSampleResultV1Schema);
 
 export class ProbeRuntimeProtocolValidationError extends Data.TaggedError(
   "ProbeRuntimeProtocolValidationError",

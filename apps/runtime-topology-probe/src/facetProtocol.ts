@@ -466,9 +466,18 @@ export class ProbeInvocationFacet extends DurableObject {
   async fetch(request) {
     const pathname = new URL(request.url).pathname;
     if (request.method !== "POST") return json({ error: "not_found" }, 404);
+    if (pathname === "/v1/purge-ensure") return await this.ensurePurgeStorage();
     if (pathname === "/v1/invoke") return await this.invoke(request);
     if (pathname === "/v1/lifecycle") return await this.lifecycle(request);
     return json({ error: "not_found" }, 404);
+  }
+
+  async ensurePurgeStorage() {
+    const sql = this.ctx.storage.sql;
+    sql.exec("CREATE TABLE IF NOT EXISTS probe_purge_marker (singleton INTEGER PRIMARY KEY CHECK (singleton = 1))");
+    sql.exec("INSERT OR IGNORE INTO probe_purge_marker (singleton) VALUES (1)");
+    await this.ctx.storage.sync();
+    return json({ kind: "purge-ready" }, 200);
   }
 
   async invoke(request) {

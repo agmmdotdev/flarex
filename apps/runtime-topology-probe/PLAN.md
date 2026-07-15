@@ -1,7 +1,7 @@
 # Runtime Topology Probe Turn Plan
 
-Status: experimental evidence plan; `P00` through `P07A` complete locally.
-`P07B` through `P11` remain pending their gate-specific preflight and approval.
+Status: experimental evidence plan; `P00` through `P07B` complete locally.
+`P08` through `P11` remain pending their gate-specific preflight.
 
 This file owns a bounded production probe for measuring Cloudflare runtime
 communication. It is local to `apps/runtime-topology-probe`; it is not an
@@ -178,10 +178,11 @@ version before the production matrix is registered.
   service bindings.
 - Bound repetitions, concurrency, payload bytes, journal entries, facets per
   session, and unique Dynamic Worker code IDs at the server boundary.
-- Gates `P02` through `P07A` are local and dry-run-only. Production deployment
-  remains blocked until `P07B` adds bounded cross-run orchestration, evidence
-  export, reconciliation, and resumable purge. `P07A` enforces budgets only for
-  one immutable run/cell; it is not an account-wide run-ID creation limit.
+- Gates `P02` through `P07B` are local and dry-run-only. `P07B` closes the local
+  bounded-orchestration, evidence, reconciliation, and resumable-purge gates;
+  production deployment remains blocked on the separate `P08` preflight.
+  `P07A` budgets only one immutable run/cell; the fixed `P07B` coordinator owns
+  the deployment-wide creation limit for this isolated probe.
 - Set `globalOutbound: null` for loaded code. Pass only the narrow mock syscall
   capability required by the selected scenario.
 - A facet must never call back into the same supervisor while that supervisor
@@ -364,7 +365,8 @@ prove crash-durable cleanup: an isolate termination between facet creation and
 deletion could leave tracked state. Nor does P06 atomically claim its
 deterministic sample/session/attempt identity. Those limitations keep this a
 latency-topology experiment. `P07A` adds sample claims and per-cell budgets;
-`P07B` must still add reconciliation and idempotent purge before production.
+`P07B` adds reconciliation, verified evidence persistence, and idempotent purge
+before any production deployment can be considered.
 
 If Cloudflare's forwarded RPC capability cannot cross the complete local or
 hosted call chain, record that unsupported result directly. Do not substitute
@@ -414,12 +416,88 @@ Miniflare; and all deployment dry-runs.
 
 ### P07B - Add Reconciliation, Purge, Runner, And Evidence Export
 
-Status: pending preflight and approval.
+Status: complete locally; not deployed.
+
+#### Approved implementation preflight
+
+What: add one fixed-identity, gateway-owned `ProbeCampaignDO` for this isolated
+deployment. It freezes one immutable matrix before creating any RunDO, derives
+the exact cross-run sample-execution and distinct-code-ID budgets, coordinates
+run registration/reconciliation/evidence sealing, and retains a resumable purge
+journal. Extend RunDO with sealed/reconciled state, explicit abandoned claims,
+caller-duration completion, safe paged evidence, and storage purge. Extend
+SessionDO and ProbeSyncDO with identity-fenced purge operations, with sync purge
+still routed through the private mock Worker. Add a host-neutral runner, a
+checked-in bounded local matrix, strict raw/summary artifact schemas, and a
+bounded abortable deadline plus pre-decode response ceiling for every runner
+request.
+
+Why now: P07A prevents duplicate execution inside one run but deliberately
+leaves unlimited run IDs, lost caller durations, abandoned claims, and crash
+cleanup unresolved. Those are the remaining local blockers before an external
+deployment can be safely named and costed at P08.
+
+Authority and evidence: this app-local plan owns the experiment order. Current
+`gateway.ts`, `probeRunDO.ts`, `sessionDO.ts`, `probeSyncDO.ts`, and their
+Miniflare tests provide the implementation baseline. Cloudflare's facet API
+requires explicit facet deletion, while SQLite `deleteAll()` clears only the
+owning Durable Object's private storage. The accepted Flarex design remains
+unchanged: this coordinator and all SQLite state are synthetic, isolated, and
+non-authoritative.
+
+What was challenged:
+
+- The budget is deployment-wide for this one fixed coordinator, not literally
+  Cloudflare-account-wide across arbitrary scripts. P08 must verify that this is
+  the sole isolated probe deployment before using broader language.
+- A caller-selected coordinator identity or direct RunDO registration would
+  recreate the unlimited-creation hole, so the public identifier never selects
+  the coordinator object.
+- The coordinator stays off the timed sample path. Its immutable manifest plus
+  each RunDO's one-claim-per-ordinal fence already bound actual scenario
+  executions; an extra singleton authorization hop would distort concurrency
+  and external latency without strengthening that execution bound.
+- Reconciliation seals runs first, never reopens an ordinal, and records a lost
+  call as `abandoned` without a fabricated result or duration. A late finalize
+  races atomically with reconciliation and loses if abandonment commits first.
+- Caller-local external duration is durably acknowledged only after the full
+  response body is read. A terminal server fragment without that acknowledgement
+  is exported as `external-duration-missing`, never estimated or replayed.
+- Purge deletes manifest-derived and durably tracked facets before compacting
+  SessionDO SQLite to one exact completion/fence tombstone, then clears sync
+  storage through mock -> sync and clears RunDO storage last. Exact campaign,
+  SessionDO, and SyncDO completion/fence tombstones remain until P11 so cleanup
+  is resumable and the deployment cannot silently accept a second campaign,
+  reopen a purged session, or process a late synthetic sync wake.
+- SessionDO deliberately uses one physical child-deletion authority
+  (`facets.delete`) and a transactional supervisor-row wipe. The pinned local
+  workerd recursively deletes facet files again when parent `deleteAll()` runs;
+  that double deletion fails before Cloudflare's
+  [idempotency fix](https://github.com/cloudflare/workerd/commit/e7e3c6ac8c988b4620e9f65f9ece9ee1c917b1d7).
+  Therefore the receipt means all probe data was cleared except the named
+  tombstone, not that the SessionDO identity or SQLite file was deallocated.
+  Worker Loader exposes no code-cache deletion operation, and P11 owns final
+  deployment/namespace teardown.
+
+Existing paths are classified as follows: keep the eight measured topology
+shapes and one-way binding graph; port direct run registration behind the fixed
+campaign manifest; extend RunDO, SessionDO, and ProbeSyncDO state machines;
+rewrite the local collector around durable external-completion acknowledgement;
+delete no production or legacy Flarex path; add no compatibility bridge because
+the probe has no shipped contract or authoritative data.
+
+Completion proof: strict manifest/budget tests, registration races and restart,
+seal/reconcile/finalize races, caller-completion idempotency, redacted paged
+evidence, interrupted and resumed purge in the required order, a full local
+12-cell/eight-scenario matrix with exact counts, schema-valid raw and derived
+artifacts, a stalled-transport deadline/abort proof, package typecheck and tests,
+all three Wrangler dry-runs, and both required project reviewers. No active
+architecture roadmap is changed and no external resource is deployed in P07B.
 
 Deliver:
 
 - bounded local orchestration for the frozen cross-run scenario/dimension
-  matrix and its account-wide request/unique-code budget;
+  matrix and its deployment-wide request/unique-code budget;
 - partial-run inspection and explicit abandoned-claim reconciliation without
   pretending to resume a lost JavaScript call stack;
 - resumable, idempotent facet and Durable Object storage purge;
@@ -506,8 +584,8 @@ teardown are complete.
 
 - Active goal: build and validate the isolated production runtime-topology
   probe through separately approved gates.
-- Current gate: `P07A` is complete locally; production remains blocked.
-- Next action: present the separate `P07B` preflight before implementing purge,
-  reconciliation, matrix orchestration, or evidence export.
+- Current gate: `P07B` is complete locally; production remains blocked.
+- Next action: perform the separate `P08` production deployment preflight and
+  name the exact isolated Cloudflare account and resources before any deploy.
 - Goal completion condition: production evidence and analysis are recorded and
   the approved cleanup/retention action is verified.

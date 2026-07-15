@@ -25,6 +25,11 @@
       "binding": "MOCK_RERUN",
       "service": "flarex-runtime-topology-probe-mock",
       "entrypoint": "MockRerunEntrypoint"
+    },
+    {
+      "binding": "MOCK_PURGE",
+      "service": "flarex-runtime-topology-probe-mock",
+      "entrypoint": "MockPurgeEntrypoint"
     }
   ],
   "durable_objects": {
@@ -36,6 +41,10 @@
       {
         "name": "PROBE_RUNS",
         "class_name": "ProbeRunDO"
+      },
+      {
+        "name": "PROBE_CAMPAIGN",
+        "class_name": "ProbeCampaignDO"
       }
     ]
   },
@@ -47,6 +56,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["ProbeRunDO"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["ProbeCampaignDO"]
     }
   ],
   "observability": {

@@ -7,10 +7,10 @@ and teardown requirements live in [`PLAN.md`](./PLAN.md).
 
 ## Current Slice
 
-`P07A` is complete locally. It wraps the existing P02-P06 communication shapes
-in durable per-cell run coordination without introducing a real executor,
-transaction, or sync engine. `P07B` remains a separately approved future gate.
-The current app owns:
+`P07B` is complete locally and has not been deployed. The app wraps the P02-P06
+communication shapes in
+durable per-cell and deployment-wide campaign coordination without introducing
+a real executor, transaction, or sync engine. The current app owns:
 
 - bearer-protected run creation, run status, and compact per-sample commands
   with bounded streaming JSON reads;
@@ -69,14 +69,32 @@ The current app owns:
   receipt requires proof that the fresh facet startup callback ran; and
 - cursor-preservation, same-identity normal cleanup replay, new-code isolation,
   missing-capability failure, and one-way binding-graph proofs in Miniflare.
+- one fixed deployment-wide `ProbeCampaignDO` that freezes a single immutable
+  matrix, exact aggregate sample/code/payload/journal budgets, and ordered
+  registration, reconciliation, evidence, and purge progress;
+- RunDO seal/reconcile/evidence states that classify unfinished work as
+  `abandoned`, fence late finalization, and preserve terminal server fragments
+  whose caller-local duration was not acknowledged;
+- a checked-in 12-cell/eight-scenario matrix with 32 bounded sample executions,
+  a host-neutral concurrent runner, and an atomic file checkpoint for replaying
+  exact external-duration completions;
+- strict raw/summary artifacts that are persisted and reread before cleanup and
+  cannot carry the bearer token, claim tokens, or payload strings;
+- exact request/receipt and bounded evidence-page correlation, canonical
+  manifest verification, and nested sample-to-run artifact binding;
+- a required persistence receipt that must match the raw, summary, manifest,
+  and durable evidence seal before cleanup can begin; and
+- resumable SessionDO facet cleanup, mock-to-sync cleanup, RunDO cleanup, and a
+  retained campaign/session/sync tombstone proving the terminal cleanup fence.
 
-This slice is local and dry-run-only. Production remains blocked until `P07B`
-adds cross-run matrix/account budgeting, abandoned-claim reconciliation,
-machine-readable evidence export, and resumable idempotent purge. A RunDO owns
-only one run/cell and therefore cannot cap unlimited distinct run IDs. Normal
-facet cleanup is tested, but abrupt isolate termination can still leave tracked
-facet state; P07A deliberately leaves a lost in-flight sample visibly claimed
-instead of pretending its JavaScript call stack can resume.
+This slice is still local and dry-run-only. Production remains blocked until
+the separate `P08` deployment preflight names the Cloudflare account, isolated
+Worker/service/namespace resources, secrets, cost ceiling, observability, and
+rollback/teardown procedure. `P07B` does not make a lost JavaScript call stack
+resumable: it seals the run and records the claim as `abandoned`. SessionDO
+cleanup explicitly deletes facet databases, removes supervisor probe rows, and
+retains one exact completion/fence tombstone; final namespace and Worker Loader
+code-cache teardown remains a `P11` responsibility.
 
 All durations are caller-local monotonic round trips. The protocol never
 subtracts absolute timestamps created by different isolates.
@@ -87,10 +105,33 @@ subtracts absolute timestamps created by different isolates.
 corepack pnpm --filter @flarex/runtime-topology-probe typecheck
 corepack pnpm --filter @flarex/runtime-topology-probe test
 corepack pnpm --filter @flarex/runtime-topology-probe test:local
+corepack pnpm --filter @flarex/runtime-topology-probe test:matrix
 corepack pnpm --filter @flarex/runtime-topology-probe deploy:sync:dry-run
 corepack pnpm --filter @flarex/runtime-topology-probe deploy:mock:dry-run
 corepack pnpm --filter @flarex/runtime-topology-probe deploy:gateway:dry-run
 ```
+
+After `P08` explicitly approves a production target, run the frozen matrix with
+the origin and bearer secret supplied only through environment variables:
+
+```sh
+RUNTIME_TOPOLOGY_PROBE_ORIGIN=https://probe.example.workers.dev \
+RUNTIME_TOPOLOGY_PROBE_TOKEN=replace-me \
+RUNTIME_TOPOLOGY_PROBE_REQUEST_TIMEOUT_MS=30000 \
+corepack pnpm --filter @flarex/runtime-topology-probe probe:run
+```
+
+Each collector request has a bounded deadline. The optional timeout defaults to
+30,000 milliseconds and must be an integer from 1 through 300,000; a timeout is
+reported at the originating runner stage as a retryable failure and aborts the
+request signal. Response streaming remains inside that deadline and is capped
+at 4 MiB before schema decoding.
+
+The ignored `.probe-state/` checkpoint contains only caller-duration completion
+records. Strict raw and summary files are written under `.probe-output/` before
+purge begins. If a process stops after purge starts, verify those files and run
+`probe:purge`; that command refuses to resume cleanup unless both artifacts
+strictly decode and agree by digest.
 
 ## Source Layout
 
@@ -102,6 +143,12 @@ corepack pnpm --filter @flarex/runtime-topology-probe deploy:gateway:dry-run
   completion plus control metadata kept outside topology spans.
 - `src/runProtocol.ts` owns strict run registration, claim, finalize, status,
   budget, disposition, and controlled-sample contracts.
+- `src/campaignProtocol.ts` owns the immutable deployment campaign, aggregate
+  budgets, control receipts, and canonical manifest digest.
+- `src/evidenceProtocol.ts` owns redacted raw/summary artifact schemas and exact
+  integrity accounting.
+- `src/runner.ts` owns host-neutral collection, external-duration completion,
+  reconciliation, evidence sealing, and bounded purge orchestration.
 - `src/dynamicProtocol.ts` owns the direct Worker wire contract and fixed
   capability-free source package.
 - `src/facetProtocol.ts` owns the strict facet/session wire contracts, logical

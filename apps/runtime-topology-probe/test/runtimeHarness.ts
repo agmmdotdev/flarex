@@ -30,6 +30,7 @@ export interface RuntimeProbeHarnessOptions {
   readonly mockRead?: boolean;
   readonly mockRerun?: boolean;
   readonly token?: string | false;
+  readonly unfrozenAdmission?: boolean;
   readonly workerLoader?: boolean;
 }
 
@@ -48,6 +49,12 @@ export async function createRuntimeProbeHarness(
     ? {}
     : {
         RUNTIME_TOPOLOGY_PROBE_TOKEN: options.token ?? PROBE_TEST_TOKEN,
+        ...(options.unfrozenAdmission === false
+          ? {}
+          : {
+              RUNTIME_TOPOLOGY_PROBE_TEST_UNFROZEN_ADMISSION:
+                "explicit-test-only",
+            }),
       };
   const miniflareOptions = {
     durableObjectsPersist: persistPath,
@@ -91,10 +98,18 @@ export async function createRuntimeProbeHarness(
                   entrypoint: "MockRerunEntrypoint",
                 },
               }),
+          MOCK_PURGE: {
+            name: PROBE_MOCK_WORKER_NAME,
+            entrypoint: "MockPurgeEntrypoint",
+          },
         },
         durableObjects: {
           PROBE_RUNS: {
             className: "ProbeRunDO",
+            useSQLite: true,
+          },
+          PROBE_CAMPAIGN: {
+            className: "ProbeCampaignDO",
             useSQLite: true,
           },
           PROBE_SESSIONS: {

@@ -16,6 +16,7 @@ import {
 } from "./protocol";
 import {
   ProbeControlledGatewaySampleV1Schema,
+  ProbeControlledSampleResultV1Schema,
   ProbeGatewaySampleV1Schema,
   ProbeMeasurementDispositionSchema,
   ProbeSyncWakeObservationV1Schema,
@@ -88,6 +89,7 @@ export const ProbeRunCountersV1Schema = Schema.Struct({
   terminal: SampleCountSchema,
   completed: SampleCountSchema,
   failed: SampleCountSchema,
+  abandoned: SampleCountSchema,
   outstanding: ConcurrencyCountSchema,
   highWaterOutstandingClaims: ConcurrencyCountSchema,
   eligible: SampleCountSchema,
@@ -113,6 +115,15 @@ export const ProbeRunSampleStatusV1Schema = Schema.Union([
     measurementDisposition: ProbeMeasurementDispositionSchema,
     syncWake: ProbeSyncWakeObservationV1Schema,
   }).annotate(StrictStructOptions),
+  Schema.Struct({
+    sampleOrdinal: ProbeOrdinalSchema,
+    phase: ProbeSamplePhaseSchema,
+    state: Schema.Literal("abandoned"),
+    observedOutstandingClaims: ObservedOutstandingClaimsSchema,
+    measurementDisposition: Schema.Null,
+    syncWake: Schema.Null,
+    abandonmentReason: Schema.Literal("campaign-reconciliation"),
+  }).annotate(StrictStructOptions),
 ]);
 export type ProbeRunSampleStatusV1 =
   typeof ProbeRunSampleStatusV1Schema.Type;
@@ -126,6 +137,9 @@ const ProbeRunStatusV1Shape = Schema.Struct({
     "partial",
     "complete",
   ]),
+  sealed: Schema.Boolean,
+  reconciled: Schema.Boolean,
+  evidenceFrozen: Schema.Boolean,
   budgets: ProbeRunBudgetsV1Schema,
   counters: ProbeRunCountersV1Schema,
   samples: Schema.Array(ProbeRunSampleStatusV1Schema),
@@ -153,6 +167,15 @@ export const ProbeRunStateErrorCodeSchema = Schema.Literals([
   "claim-token-mismatch",
   "finalization-conflict",
   "identity-mismatch",
+  "run-sealed",
+  "run-not-sealed",
+  "run-not-reconciled",
+  "sample-reconciled-abandoned",
+  "sample-not-finalized",
+  "external-completion-conflict",
+  "evidence-frozen",
+  "evidence-not-frozen",
+  "purge-not-ready",
 ]);
 export type ProbeRunStateErrorCode =
   typeof ProbeRunStateErrorCodeSchema.Type;
@@ -228,6 +251,113 @@ export const ProbeSampleFinalizeReceiptV1Schema = Schema.Union([
 export type ProbeSampleFinalizeReceiptV1 =
   typeof ProbeSampleFinalizeReceiptV1Schema.Type;
 
+export const ProbeExternalCompletionRequestV1Schema = Schema.Struct({
+  protocolVersion: ProbeProtocolVersionV1Schema,
+  runId: ProbeRunIdSchema,
+  sampleOrdinal: ProbeOrdinalSchema,
+  externalDurationMs: ProbeDurationMsSchema,
+}).annotate(StrictStructOptions);
+export type ProbeExternalCompletionRequestV1 =
+  typeof ProbeExternalCompletionRequestV1Schema.Type;
+
+export const ProbeExternalCompletionReceiptV1Schema = Schema.Union([
+  Schema.Struct({
+    protocolVersion: ProbeProtocolVersionV1Schema,
+    kind: Schema.Literal("completed"),
+    idempotent: Schema.Boolean,
+    result: ProbeControlledSampleResultV1Schema,
+  }).annotate(StrictStructOptions),
+  RejectedOperationSchema,
+]);
+export type ProbeExternalCompletionReceiptV1 =
+  typeof ProbeExternalCompletionReceiptV1Schema.Type;
+
+export const ProbeRunControlOperationV1Schema = Schema.Literals([
+  "seal",
+  "reconcile",
+  "freeze-evidence",
+]);
+export type ProbeRunControlOperationV1 =
+  typeof ProbeRunControlOperationV1Schema.Type;
+
+export const ProbeRunControlRequestV1Schema = Schema.Struct({
+  protocolVersion: ProbeProtocolVersionV1Schema,
+  runId: ProbeRunIdSchema,
+  operation: ProbeRunControlOperationV1Schema,
+}).annotate(StrictStructOptions);
+export type ProbeRunControlRequestV1 =
+  typeof ProbeRunControlRequestV1Schema.Type;
+
+export const ProbeRunControlReceiptV1Schema = Schema.Union([
+  Schema.Struct({
+    protocolVersion: ProbeProtocolVersionV1Schema,
+    kind: Schema.Literal("accepted"),
+    idempotent: Schema.Boolean,
+    status: ProbeRunStatusV1Schema,
+  }).annotate(StrictStructOptions),
+  RejectedOperationSchema,
+]);
+export type ProbeRunControlReceiptV1 =
+  typeof ProbeRunControlReceiptV1Schema.Type;
+
+const EvidencePageLimitSchema = boundedInteger(
+  1,
+  100,
+  "evidence page limit",
+);
+
+export const ProbeRunEvidencePageRequestV1Schema = Schema.Struct({
+  protocolVersion: ProbeProtocolVersionV1Schema,
+  runId: ProbeRunIdSchema,
+  cursor: ProbeOrdinalSchema,
+  limit: EvidencePageLimitSchema,
+}).annotate(StrictStructOptions);
+export type ProbeRunEvidencePageRequestV1 =
+  typeof ProbeRunEvidencePageRequestV1Schema.Type;
+
+const ProbeRunEvidenceRecordBase = {
+  runId: ProbeRunIdSchema,
+  sampleOrdinal: ProbeOrdinalSchema,
+  phase: ProbeSamplePhaseSchema,
+} as const;
+
+export const ProbeRunEvidenceRecordV1Schema = Schema.Union([
+  Schema.Struct({
+    ...ProbeRunEvidenceRecordBase,
+    kind: Schema.Literal("observed"),
+    result: ProbeControlledSampleResultV1Schema,
+  }).annotate(StrictStructOptions),
+  Schema.Struct({
+    ...ProbeRunEvidenceRecordBase,
+    kind: Schema.Literal("external-duration-missing"),
+    fragment: ProbeControlledGatewaySampleV1Schema,
+  }).annotate(StrictStructOptions),
+  Schema.Struct({
+    ...ProbeRunEvidenceRecordBase,
+    kind: Schema.Literal("abandoned"),
+    reason: Schema.Literal("campaign-reconciliation"),
+  }).annotate(StrictStructOptions),
+  Schema.Struct({
+    ...ProbeRunEvidenceRecordBase,
+    kind: Schema.Literal("not-started"),
+  }).annotate(StrictStructOptions),
+]);
+export type ProbeRunEvidenceRecordV1 =
+  typeof ProbeRunEvidenceRecordV1Schema.Type;
+
+export const ProbeRunEvidencePageReceiptV1Schema = Schema.Union([
+  Schema.Struct({
+    protocolVersion: ProbeProtocolVersionV1Schema,
+    kind: Schema.Literal("page"),
+    runId: ProbeRunIdSchema,
+    records: Schema.Array(ProbeRunEvidenceRecordV1Schema),
+    nextCursor: Schema.Union([ProbeOrdinalSchema, Schema.Null]),
+  }).annotate(StrictStructOptions),
+  RejectedOperationSchema,
+]);
+export type ProbeRunEvidencePageReceiptV1 =
+  typeof ProbeRunEvidencePageReceiptV1Schema.Type;
+
 export const ProbeRunStatusRequestV1Schema = Schema.Struct({
   protocolVersion: ProbeProtocolVersionV1Schema,
   runId: ProbeRunIdSchema,
@@ -257,7 +387,10 @@ export class ProbeRunProtocolValidationError extends Data.TaggedError(
   readonly boundary:
     | "public-sample-request-v1"
     | "sample-finalize-request-v1"
-    | "run-status-request-v1";
+    | "run-status-request-v1"
+    | "external-completion-request-v1"
+    | "run-control-request-v1"
+    | "run-evidence-page-request-v1";
   readonly cause: unknown;
 }> {}
 
@@ -271,6 +404,18 @@ const decodeUnknownFinalizeRequest = Schema.decodeUnknownEffect(
 );
 const decodeUnknownStatusRequest = Schema.decodeUnknownEffect(
   ProbeRunStatusRequestV1Schema,
+  StrictParseOptions,
+);
+const decodeUnknownExternalCompletionRequest = Schema.decodeUnknownEffect(
+  ProbeExternalCompletionRequestV1Schema,
+  StrictParseOptions,
+);
+const decodeUnknownRunControlRequest = Schema.decodeUnknownEffect(
+  ProbeRunControlRequestV1Schema,
+  StrictParseOptions,
+);
+const decodeUnknownEvidencePageRequest = Schema.decodeUnknownEffect(
+  ProbeRunEvidencePageRequestV1Schema,
   StrictParseOptions,
 );
 
@@ -313,6 +458,45 @@ export const decodeProbeRunStatusRequestV1Effect = Effect.fn(
     ),
   ));
 
+export const decodeProbeExternalCompletionRequestV1Effect = Effect.fn(
+  "RuntimeTopologyProbe.decodeExternalCompletionRequestV1",
+)((value: unknown) =>
+  decodeUnknownExternalCompletionRequest(value).pipe(
+    Effect.mapError(
+      cause =>
+        new ProbeRunProtocolValidationError({
+          boundary: "external-completion-request-v1",
+          cause,
+        }),
+    ),
+  ));
+
+export const decodeProbeRunControlRequestV1Effect = Effect.fn(
+  "RuntimeTopologyProbe.decodeRunControlRequestV1",
+)((value: unknown) =>
+  decodeUnknownRunControlRequest(value).pipe(
+    Effect.mapError(
+      cause =>
+        new ProbeRunProtocolValidationError({
+          boundary: "run-control-request-v1",
+          cause,
+        }),
+    ),
+  ));
+
+export const decodeProbeRunEvidencePageRequestV1Effect = Effect.fn(
+  "RuntimeTopologyProbe.decodeRunEvidencePageRequestV1",
+)((value: unknown) =>
+  decodeUnknownEvidencePageRequest(value).pipe(
+    Effect.mapError(
+      cause =>
+        new ProbeRunProtocolValidationError({
+          boundary: "run-evidence-page-request-v1",
+          cause,
+        }),
+    ),
+  ));
+
 export const decodeProbeRunRequestV1OrNull =
   strictSchemaValueOrNullDecoder(ProbeRunRequestV1Schema);
 export const decodeProbePublicSampleRequestV1OrNull =
@@ -321,6 +505,12 @@ export const decodeProbeSampleFinalizeRequestV1OrNull =
   strictSchemaValueOrNullDecoder(ProbeSampleFinalizeRequestV1Schema);
 export const decodeProbeRunStatusRequestV1OrNull =
   strictSchemaValueOrNullDecoder(ProbeRunStatusRequestV1Schema);
+export const decodeProbeExternalCompletionRequestV1OrNull =
+  strictSchemaValueOrNullDecoder(ProbeExternalCompletionRequestV1Schema);
+export const decodeProbeRunControlRequestV1OrNull =
+  strictSchemaValueOrNullDecoder(ProbeRunControlRequestV1Schema);
+export const decodeProbeRunEvidencePageRequestV1OrNull =
+  strictSchemaValueOrNullDecoder(ProbeRunEvidencePageRequestV1Schema);
 export const decodeProbeRunRegistrationReceiptV1OrNull =
   strictSchemaValueOrNullDecoder(ProbeRunRegistrationReceiptV1Schema);
 export const decodeProbeSampleClaimReceiptV1OrNull =
@@ -329,8 +519,65 @@ export const decodeProbeSampleFinalizeReceiptV1OrNull =
   strictSchemaValueOrNullDecoder(ProbeSampleFinalizeReceiptV1Schema);
 export const decodeProbeRunStatusReceiptV1OrNull =
   strictSchemaValueOrNullDecoder(ProbeRunStatusReceiptV1Schema);
-export const decodeProbeControlledGatewaySampleV1OrNull =
-  strictSchemaValueOrNullDecoder(ProbeControlledGatewaySampleV1Schema);
+export const decodeProbeExternalCompletionReceiptV1OrNull =
+  strictSchemaValueOrNullDecoder(ProbeExternalCompletionReceiptV1Schema);
+export const decodeProbeRunControlReceiptV1OrNull =
+  strictSchemaValueOrNullDecoder(ProbeRunControlReceiptV1Schema);
+export const decodeProbeRunEvidencePageReceiptV1OrNull =
+  strictSchemaValueOrNullDecoder(ProbeRunEvidencePageReceiptV1Schema);
+
+export function probeExternalCompletionReceiptMatchesRequestV1(
+  receipt: Extract<
+    ProbeExternalCompletionReceiptV1,
+    { readonly kind: "completed" }
+  >,
+  request: ProbeExternalCompletionRequestV1,
+): boolean {
+  const sample = receipt.result.sample;
+  const externalRoots = sample.spans.filter(
+    span => span.name === "external_request" && span.parentSpanId === null,
+  );
+  return receipt.protocolVersion === request.protocolVersion &&
+    sample.protocolVersion === request.protocolVersion &&
+    sample.runId === request.runId &&
+    sample.identity.sampleOrdinal === request.sampleOrdinal &&
+    externalRoots.length === 1 &&
+    externalRoots[0]?.durationMs === request.externalDurationMs;
+}
+
+export function probeRunEvidencePageReceiptMatchesRequestV1(
+  receipt: Extract<ProbeRunEvidencePageReceiptV1, { readonly kind: "page" }>,
+  request: ProbeRunEvidencePageRequestV1,
+  run: ProbeRunRequestV1,
+): boolean {
+  const cursor = Number(request.cursor);
+  const total = run.warmupRepetitions + run.repetitions;
+  if (
+    receipt.protocolVersion !== request.protocolVersion ||
+    run.protocolVersion !== request.protocolVersion ||
+    request.runId !== run.runId ||
+    receipt.runId !== request.runId ||
+    cursor > total
+  ) {
+    return false;
+  }
+  const end = Math.min(cursor + request.limit, total);
+  if (receipt.records.length !== end - cursor) return false;
+  for (let index = 0; index < receipt.records.length; index += 1) {
+    const record = receipt.records[index];
+    const ordinal = cursor + index;
+    if (
+      record === undefined ||
+      record.runId !== request.runId ||
+      record.sampleOrdinal !== ordinal ||
+      record.phase !==
+        (ordinal < run.warmupRepetitions ? "warmup" : "measurement")
+    ) {
+      return false;
+    }
+  }
+  return receipt.nextCursor === (end < total ? end : null);
+}
 
 export function probeRunBudgetPlanV1(
   run: ProbeRunRequestV1,
@@ -386,15 +633,27 @@ function runStatusRelationshipIssue(
   if (counters.claimed !== counters.terminal + counters.outstanding) {
     return "claimed samples must equal terminal plus outstanding samples";
   }
-  if (counters.terminal !== counters.completed + counters.failed) {
-    return "terminal samples must equal completed plus failed samples";
-  }
   if (
     counters.terminal !==
+      counters.completed + counters.failed + counters.abandoned
+  ) {
+    return "terminal samples must equal completed, failed, plus abandoned samples";
+  }
+  if (
+    counters.completed + counters.failed !==
       counters.eligible + counters.excludedWarmup +
         counters.excludedDuplicateWake
   ) {
-    return "terminal samples must equal the disposition counters";
+    return "executed terminal samples must equal the disposition counters";
+  }
+  if (status.reconciled && !status.sealed) {
+    return "a reconciled run must be sealed";
+  }
+  if (status.evidenceFrozen && !status.reconciled) {
+    return "frozen evidence requires a reconciled run";
+  }
+  if (status.reconciled && counters.outstanding !== 0) {
+    return "a reconciled run cannot retain outstanding claims";
   }
   if (budgets.consumed.sampleClaims !== counters.claimed) {
     return "consumed sample claims must equal claimed samples";
@@ -446,6 +705,7 @@ function runSampleRelationshipIssue(
   const seenOrdinals = new Set<number>();
   let completed = 0;
   let failed = 0;
+  let abandoned = 0;
   let outstanding = 0;
   let eligible = 0;
   let excludedWarmup = 0;
@@ -479,6 +739,10 @@ function runSampleRelationshipIssue(
     );
     if (sample.state === "claimed") {
       outstanding += 1;
+      continue;
+    }
+    if (sample.state === "abandoned") {
+      abandoned += 1;
       continue;
     }
     const wakeScenario = status.run.scenario === "commit_wake" ||
@@ -524,6 +788,7 @@ function runSampleRelationshipIssue(
   if (
     completed !== status.counters.completed ||
     failed !== status.counters.failed ||
+    abandoned !== status.counters.abandoned ||
     outstanding !== status.counters.outstanding
   ) {
     return "sample lifecycle states must match the durable counters";

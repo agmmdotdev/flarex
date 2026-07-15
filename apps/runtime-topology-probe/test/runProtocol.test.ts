@@ -11,8 +11,11 @@ import {
 } from "../src/protocol";
 import {
   decodeProbePublicSampleRequestV1Effect,
+  probeRunEvidencePageReceiptMatchesRequestV1,
   probeRunBudgetPlanV1,
   PROBE_RUN_BUDGET_LIMITS_V1,
+  ProbeRunEvidencePageReceiptV1Schema,
+  ProbeRunEvidencePageRequestV1Schema,
   ProbeRunSampleStatusV1Schema,
   ProbeRunStatusV1Schema,
 } from "../src/runProtocol";
@@ -95,6 +98,65 @@ describe("P07A run-control protocol", () => {
     ).rejects.toBeDefined();
   });
 
+  it("binds evidence pages to one exact bounded request window", () => {
+    const run = validRun("p07b_evidence_page", { repetitions: 2 });
+    const request = ProbeRunEvidencePageRequestV1Schema.make({
+      protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+      runId: run.runId,
+      cursor: ordinal(0),
+      limit: 1,
+    });
+    const valid = ProbeRunEvidencePageReceiptV1Schema.make({
+      protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+      kind: "page",
+      runId: run.runId,
+      records: [{
+        kind: "not-started",
+        runId: run.runId,
+        sampleOrdinal: ordinal(0),
+        phase: "measurement",
+      }],
+      nextCursor: ordinal(1),
+    });
+    if (valid.kind !== "page") throw new Error("page fixture is rejected");
+
+    expect(probeRunEvidencePageReceiptMatchesRequestV1(valid, request, run))
+      .toBe(true);
+    const stalled = ProbeRunEvidencePageReceiptV1Schema.make({
+      ...valid,
+      nextCursor: ordinal(0),
+    });
+    const overlapping = ProbeRunEvidencePageReceiptV1Schema.make({
+      ...valid,
+      records: [{
+        kind: "not-started",
+        runId: run.runId,
+        sampleOrdinal: ordinal(1),
+        phase: "measurement",
+      }],
+    });
+    const wrongRun = ProbeRunEvidencePageReceiptV1Schema.make({
+      ...valid,
+      runId: validRun("p07b_evidence_wrong_run").runId,
+    });
+    if (
+      stalled.kind !== "page" ||
+      overlapping.kind !== "page" ||
+      wrongRun.kind !== "page"
+    ) {
+      throw new Error("invalid page fixture kind");
+    }
+    expect(probeRunEvidencePageReceiptMatchesRequestV1(stalled, request, run))
+      .toBe(false);
+    expect(probeRunEvidencePageReceiptMatchesRequestV1(
+      overlapping,
+      request,
+      run,
+    )).toBe(false);
+    expect(probeRunEvidencePageReceiptMatchesRequestV1(wrongRun, request, run))
+      .toBe(false);
+  });
+
   it("rejects status receipts whose sample rows contradict durable aggregates", () => {
     const run = validRun("p07a_status_relations", {
       repetitions: 2,
@@ -120,6 +182,9 @@ describe("P07A run-control protocol", () => {
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       run,
       state: "outstanding-claims",
+      sealed: false,
+      reconciled: false,
+      evidenceFrozen: false,
       budgets: {
         limits: PROBE_RUN_BUDGET_LIMITS_V1,
         planned: probeRunBudgetPlanV1(run),
@@ -135,6 +200,7 @@ describe("P07A run-control protocol", () => {
         terminal: 0,
         completed: 0,
         failed: 0,
+        abandoned: 0,
         outstanding: 2,
         highWaterOutstandingClaims: 2,
         eligible: 0,
@@ -191,6 +257,7 @@ describe("P07A run-control protocol", () => {
         terminal: 2,
         completed: 2,
         failed: 0,
+        abandoned: 0,
         outstanding: 0,
         highWaterOutstandingClaims: 2,
         eligible: 2,
@@ -235,6 +302,9 @@ describe("P07A run-control protocol", () => {
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       run: warmupRun,
       state: "partial",
+      sealed: false,
+      reconciled: false,
+      evidenceFrozen: false,
       budgets: {
         limits: PROBE_RUN_BUDGET_LIMITS_V1,
         planned: probeRunBudgetPlanV1(warmupRun),
@@ -250,6 +320,7 @@ describe("P07A run-control protocol", () => {
         terminal: 1,
         completed: 1,
         failed: 0,
+        abandoned: 0,
         outstanding: 0,
         highWaterOutstandingClaims: 1,
         eligible: 0,
@@ -286,6 +357,9 @@ describe("P07A run-control protocol", () => {
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       run: wakeRun,
       state: "complete" as const,
+      sealed: false,
+      reconciled: false,
+      evidenceFrozen: false,
       budgets: {
         limits: PROBE_RUN_BUDGET_LIMITS_V1,
         planned: probeRunBudgetPlanV1(wakeRun),
@@ -301,6 +375,7 @@ describe("P07A run-control protocol", () => {
         terminal: 1,
         completed: 1,
         failed: 0,
+        abandoned: 0,
         outstanding: 0,
         highWaterOutstandingClaims: 1,
         eligible: 1,

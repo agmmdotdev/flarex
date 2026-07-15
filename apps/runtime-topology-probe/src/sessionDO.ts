@@ -25,7 +25,12 @@ import {
   type ProbeFacetLifecycleWorkerResponseV1,
   type ProbeFacetWorkerResponseV1,
 } from "./facetProtocol";
-import { ProbeSessionIdSchema, type ProbeSessionId } from "./identity";
+import {
+  ProbeAttemptIdSchema,
+  ProbeCodeIdSchema,
+  ProbeSessionIdSchema,
+  type ProbeSessionId,
+} from "./identity";
 import { noStoreJson, readBoundedJson } from "./http";
 import {
   decodeProbeInvokeFacetRequestV1OrNull,
@@ -47,6 +52,12 @@ import {
   PROBE_PROTOCOL_VERSION_V1,
   ProbeDurationMsSchema,
 } from "./protocol";
+import {
+  decodeProbeSessionPurgeRequestV1OrNull,
+  ProbeSessionPurgeReceiptV1Schema,
+  type ProbeSessionPurgeRequestV1,
+  type ProbeSessionPurgeReceiptV1,
+} from "./purgeProtocol";
 import {
   decodeProbeSessionEchoRequestV1Effect,
   ProbeSessionControlResponseV1Schema,
@@ -106,6 +117,9 @@ type TrackedFacetIdentityResult =
 
 export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
   private readonly sql = this.ctx.storage.sql;
+  private storageInitialized = true;
+  private activeOperations = 0;
+  private purgeTail: Promise<void> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: ProbeSessionEnv) {
     super(ctx, env);
@@ -113,37 +127,311 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
   }
 
   async fetch(request: Request): Promise<Response> {
-    const sessionId = decodeObjectSessionId(this.ctx.id.name);
-    if (sessionId === null) {
-      return internalError("invalid_session_object", 409);
+    this.ensureStorage();
+    if (sessionPurgeStarted(this.sql)) {
+      return internalError("session_purge_started", 409);
     }
+    this.activeOperations += 1;
+    try {
+      const sessionId = decodeObjectSessionId(this.ctx.id.name);
+      if (sessionId === null) {
+        return internalError("invalid_session_object", 409);
+      }
 
-    const pathname = new URL(request.url).pathname;
-    if (pathname === sessionRoutes.echo) {
-      return await this.echo(request, sessionId);
+      const pathname = new URL(request.url).pathname;
+      if (pathname === sessionRoutes.echo) {
+        return await this.echo(request, sessionId);
+      }
+      if (pathname === sessionRoutes.facet) {
+        return await this.facet(request, sessionId);
+      }
+      if (pathname === sessionRoutes.facetLifecycle) {
+        return await this.facetLifecycle(request, sessionId);
+      }
+      if (pathname === sessionRoutes.fullInvoke) {
+        return await this.fullInvoke(request, sessionId);
+      }
+      if (pathname === sessionRoutes.rerun) {
+        return await this.rerun(request, sessionId);
+      }
+      if (pathname === sessionRoutes.controlRead) {
+        return this.control(request, sessionId, "read");
+      }
+      if (pathname === sessionRoutes.controlIncrement) {
+        return await this.control(request, sessionId, "increment");
+      }
+      if (pathname === sessionRoutes.controlReset) {
+        return await this.control(request, sessionId, "reset");
+      }
+      return internalError("not_found", 404);
+    } finally {
+      this.activeOperations -= 1;
     }
-    if (pathname === sessionRoutes.facet) {
-      return await this.facet(request, sessionId);
+  }
+
+  async purge(value: unknown): Promise<ProbeSessionPurgeReceiptV1> {
+    const previous = this.purgeTail;
+    let release: () => void = () => {};
+    this.purgeTail = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await this.purgeSerial(value);
+    } finally {
+      release();
     }
-    if (pathname === sessionRoutes.facetLifecycle) {
-      return await this.facetLifecycle(request, sessionId);
+  }
+
+  private async purgeSerial(
+    value: unknown,
+  ): Promise<ProbeSessionPurgeReceiptV1> {
+    if (this.activeOperations !== 0) {
+      throw new Error("probe session purge is busy");
     }
-    if (pathname === sessionRoutes.fullInvoke) {
-      return await this.fullInvoke(request, sessionId);
+    this.ensureStorage();
+    const request = decodeProbeSessionPurgeRequestV1OrNull(value);
+    if (request === null || this.ctx.id.name !== request.sessionId) {
+      throw new Error("invalid probe session purge identity");
     }
-    if (pathname === sessionRoutes.rerun) {
-      return await this.rerun(request, sessionId);
+    const canonicalRequest = JSON.stringify(request);
+    const completion = this.sql.exec<{
+      request_json: string;
+      deleted_facets: number;
+    }>(
+      `SELECT request_json, deleted_facets
+       FROM probe_session_purge_completion
+       WHERE singleton = 1`,
+    ).toArray()[0];
+    if (completion !== undefined) {
+      if (completion.request_json !== canonicalRequest) {
+        throw new Error("probe session purge request conflicts with completion");
+      }
+      assertExactSessionPurgeTombstone(this.sql);
+      return ProbeSessionPurgeReceiptV1Schema.make({
+        protocolVersion: request.protocolVersion,
+        kind: "probe-data-cleared",
+        sessionId: request.sessionId,
+        deletedFacets: completion.deleted_facets,
+        probeDataCleared: true,
+        completionTombstoneRetained: true,
+      });
     }
-    if (pathname === sessionRoutes.controlRead) {
-      return this.control(request, sessionId, "read");
+    const existingPlan = this.sql.exec<{ request_json: string }>(
+      `SELECT request_json FROM probe_session_purge_plan
+       WHERE singleton = 1`,
+    ).toArray()[0];
+    if (
+      existingPlan !== undefined &&
+      existingPlan.request_json !== canonicalRequest
+    ) {
+      throw new Error("probe session purge request conflicts with active plan");
     }
-    if (pathname === sessionRoutes.controlIncrement) {
-      return await this.control(request, sessionId, "increment");
+    const facets = new Map<string, ProbeSessionPurgeRequestV1["facets"][number]>();
+    for (const facet of request.facets) facets.set(facet.attemptId, facet);
+    const tracked = this.sql.exec<{ facet_name: string; code_id: string }>(
+      `SELECT facet_name, code_id FROM probe_active_facets ORDER BY facet_name`,
+    ).toArray();
+    for (const row of tracked) {
+      const trackedFacet = {
+        attemptId: ProbeAttemptIdSchema.make(row.facet_name),
+        codeId: ProbeCodeIdSchema.make(row.code_id),
+      };
+      const existing = facets.get(row.facet_name);
+      if (existing !== undefined && existing.codeId !== trackedFacet.codeId) {
+        throw new Error("probe session purge facet identity conflict");
+      }
+      facets.set(row.facet_name, trackedFacet);
     }
-    if (pathname === sessionRoutes.controlReset) {
-      return await this.control(request, sessionId, "reset");
+    const orderedFacets = [...facets.values()].sort((left, right) =>
+      left.attemptId.localeCompare(right.attemptId)
+    );
+    if (orderedFacets.length > 600) {
+      throw new Error("probe session purge facet budget exceeded");
     }
-    return internalError("not_found", 404);
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec(
+        `INSERT OR IGNORE INTO probe_session_purge_plan
+           (singleton, request_json)
+         VALUES (1, ?)`,
+        canonicalRequest,
+      );
+      for (const facet of orderedFacets) {
+        const existing = this.sql.exec<{ code_id: string }>(
+          `SELECT code_id FROM probe_session_purge_facets
+           WHERE facet_name = ?`,
+          facet.attemptId,
+        ).toArray()[0];
+        if (existing !== undefined && existing.code_id !== facet.codeId) {
+          throw new Error("probe session purge facet identity conflict");
+        }
+        this.sql.exec(
+          `INSERT OR IGNORE INTO probe_session_purge_facets
+             (facet_name, code_id, phase)
+           VALUES (?, ?, 'pending')`,
+          facet.attemptId,
+          facet.codeId,
+        );
+      }
+    });
+    const next = this.sql.exec<{
+      facet_name: string;
+      code_id: string;
+      phase: "pending" | "prepared";
+    }>(
+      `SELECT facet_name, code_id, phase
+       FROM probe_session_purge_facets
+       WHERE phase <> 'deleted'
+       ORDER BY facet_name
+       LIMIT 1`,
+    ).toArray()[0];
+    if (next?.phase === "pending") {
+      const loader = this.env.LOADER;
+      if (loader === undefined) {
+        throw new Error("probe session purge requires Worker Loader");
+      }
+      await this.ensurePurgeFacet(loader, {
+        attemptId: ProbeAttemptIdSchema.make(next.facet_name),
+        codeId: ProbeCodeIdSchema.make(next.code_id),
+      });
+      this.ctx.facets.abort(next.facet_name, "probe campaign purge");
+      this.sql.exec(
+        `UPDATE probe_session_purge_facets SET phase = 'prepared'
+         WHERE facet_name = ?`,
+        next.facet_name,
+      );
+      await this.ctx.storage.sync();
+      return ProbeSessionPurgeReceiptV1Schema.make({
+        protocolVersion: request.protocolVersion,
+        kind: "in-progress",
+        sessionId: request.sessionId,
+        pendingFacets: countPendingPurgeFacets(this.sql),
+        probeDataCleared: false,
+      });
+    }
+    if (next?.phase === "prepared") {
+      try {
+        this.ctx.facets.delete(next.facet_name);
+      } catch {
+        this.sql.exec(
+          `UPDATE probe_session_purge_facets SET phase = 'pending'
+           WHERE facet_name = ?`,
+          next.facet_name,
+        );
+        await this.ctx.storage.sync();
+        return ProbeSessionPurgeReceiptV1Schema.make({
+          protocolVersion: request.protocolVersion,
+          kind: "in-progress",
+          sessionId: request.sessionId,
+          pendingFacets: countPendingPurgeFacets(this.sql),
+          probeDataCleared: false,
+        });
+      }
+      this.sql.exec(
+        `UPDATE probe_session_purge_facets SET phase = 'deleted'
+         WHERE facet_name = ?`,
+        next.facet_name,
+      );
+      this.sql.exec(
+        "DELETE FROM probe_active_facets WHERE facet_name = ?",
+        next.facet_name,
+      );
+      await this.ctx.storage.sync();
+      const pendingFacets = countPendingPurgeFacets(this.sql);
+      if (pendingFacets > 0) {
+        return ProbeSessionPurgeReceiptV1Schema.make({
+          protocolVersion: request.protocolVersion,
+          kind: "in-progress",
+          sessionId: request.sessionId,
+          pendingFacets,
+          probeDataCleared: false,
+        });
+      }
+    }
+    const deletedFacets = this.sql.exec<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM probe_session_purge_facets
+       WHERE phase = 'deleted'`,
+    ).one().count;
+    const planRequest = this.sql.exec<{ request_json: string }>(
+      `SELECT request_json FROM probe_session_purge_plan
+       WHERE singleton = 1`,
+    ).one().request_json;
+    if (planRequest !== canonicalRequest) {
+      throw new Error("probe session purge plan identity changed");
+    }
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM probe_active_facets");
+      this.sql.exec("DELETE FROM probe_session_purge_facets");
+      this.sql.exec("DELETE FROM probe_session_control");
+      this.sql.exec(
+        `INSERT INTO probe_session_purge_completion
+           (singleton, request_json, deleted_facets)
+         VALUES (1, ?, ?)`,
+        planRequest,
+        deletedFacets,
+      );
+      this.sql.exec("DELETE FROM probe_session_purge_plan");
+    });
+    assertExactSessionPurgeTombstone(this.sql);
+    await this.ctx.storage.sync();
+    return ProbeSessionPurgeReceiptV1Schema.make({
+      protocolVersion: request.protocolVersion,
+      kind: "probe-data-cleared",
+      sessionId: request.sessionId,
+      deletedFacets,
+      probeDataCleared: true,
+      completionTombstoneRetained: true,
+    });
+  }
+
+  private ensureStorage(): void {
+    if (this.storageInitialized) return;
+    initializeSessionStorage(this.sql);
+    this.storageInitialized = true;
+  }
+
+  private async ensurePurgeFacet(
+    loader: WorkerLoader,
+    facet: ProbeSessionPurgeRequestV1["facets"][number],
+  ): Promise<void> {
+    let stub: Fetcher;
+    if (facet.codeId.startsWith("rtp-code-facet-v1-")) {
+      const worker = loader.get(facet.codeId, () => probeFacetWorkerCode());
+      stub = this.ctx.facets.get(facet.attemptId, () => ({
+        id: facet.attemptId,
+        class: worker.getDurableObjectClass(PROBE_FACET_CLASS_NAME),
+      }));
+    } else if (facet.codeId.startsWith("rtp-code-invoke-v1-")) {
+      const mockRead = this.env.MOCK_READ;
+      if (mockRead === undefined) {
+        throw new Error("probe invoke purge requires mock-read capability");
+      }
+      const worker = loader.get(
+        facet.codeId,
+        () => probeInvokeWorkerCode(mockRead),
+      );
+      stub = this.ctx.facets.get(facet.attemptId, () => ({
+        id: facet.attemptId,
+        class: worker.getDurableObjectClass(PROBE_INVOKE_FACET_CLASS_NAME),
+      }));
+    } else if (facet.codeId.startsWith("rtp-code-rerun-v1-")) {
+      const worker = loader.get(facet.codeId, () => probeRerunWorkerCode());
+      stub = this.ctx.facets.get(facet.attemptId, () => ({
+        id: facet.attemptId,
+        class: worker.getDurableObjectClass(PROBE_RERUN_FACET_CLASS_NAME),
+      }));
+    } else {
+      throw new Error("probe session purge received an unsupported code profile");
+    }
+    const response = await stub.fetch(
+      new Request("https://probe-facet.internal/v1/purge-ensure", {
+        method: "POST",
+      }),
+    );
+    await response.arrayBuffer();
+    if (!response.ok) {
+      throw new Error("probe facet purge preparation failed");
+    }
   }
 
   private async echo(
@@ -959,16 +1247,77 @@ function initializeSessionStorage(sql: SqlStorage): void {
     key TEXT PRIMARY KEY CHECK (key = 'counter'),
     value INTEGER NOT NULL CHECK (value >= 0)
   )`);
-  sql.exec(
-    `INSERT OR IGNORE INTO probe_session_control (key, value)
-     VALUES ('counter', 0)`,
-  );
   sql.exec(`CREATE TABLE IF NOT EXISTS probe_active_facets (
     facet_name TEXT PRIMARY KEY,
     code_id TEXT NOT NULL,
     run_id TEXT NOT NULL,
     sample_id TEXT NOT NULL
   )`);
+  sql.exec(`CREATE TABLE IF NOT EXISTS probe_session_purge_facets (
+    facet_name TEXT PRIMARY KEY,
+    code_id TEXT NOT NULL,
+    phase TEXT NOT NULL CHECK (phase IN ('pending', 'prepared', 'deleted'))
+  )`);
+  sql.exec(`CREATE TABLE IF NOT EXISTS probe_session_purge_plan (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    request_json TEXT NOT NULL
+  )`);
+  sql.exec(`CREATE TABLE IF NOT EXISTS probe_session_purge_completion (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    request_json TEXT NOT NULL,
+    deleted_facets INTEGER NOT NULL CHECK (deleted_facets >= 0)
+  )`);
+  sql.exec(
+    `INSERT OR IGNORE INTO probe_session_control (key, value)
+     SELECT 'counter', 0
+     WHERE NOT EXISTS (
+       SELECT 1 FROM probe_session_purge_completion WHERE singleton = 1
+     )`,
+  );
+}
+
+function assertExactSessionPurgeTombstone(sql: SqlStorage): void {
+  const rows = sql.exec<{
+    active_facets: number;
+    control_rows: number;
+    purge_facets: number;
+    purge_plans: number;
+    purge_tombstones: number;
+  }>(
+    `SELECT
+       (SELECT COUNT(*) FROM probe_active_facets) AS active_facets,
+       (SELECT COUNT(*) FROM probe_session_control) AS control_rows,
+       (SELECT COUNT(*) FROM probe_session_purge_facets) AS purge_facets,
+       (SELECT COUNT(*) FROM probe_session_purge_plan) AS purge_plans,
+       (SELECT COUNT(*) FROM probe_session_purge_completion)
+         AS purge_tombstones`,
+  ).one();
+  if (
+    rows.active_facets !== 0 ||
+    rows.control_rows !== 0 ||
+    rows.purge_facets !== 0 ||
+    rows.purge_plans !== 0 ||
+    rows.purge_tombstones !== 1
+  ) {
+    throw new Error("probe session purge tombstone is not exact");
+  }
+}
+
+function countPendingPurgeFacets(sql: SqlStorage): number {
+  return sql.exec<{ count: number }>(
+    `SELECT COUNT(*) AS count FROM probe_session_purge_facets
+     WHERE phase <> 'deleted'`,
+  ).one().count;
+}
+
+function sessionPurgeStarted(sql: SqlStorage): boolean {
+  return sql.exec<{ count: number }>(
+    `SELECT (
+       (SELECT COUNT(*) FROM probe_session_purge_facets) +
+       (SELECT COUNT(*) FROM probe_session_purge_plan) +
+       (SELECT COUNT(*) FROM probe_session_purge_completion)
+     ) AS count`,
+  ).one().count > 0;
 }
 
 function readControlValue(sql: SqlStorage): number {

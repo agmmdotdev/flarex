@@ -14,6 +14,13 @@ export const ProbeRunIdSchema = Schema.String.check(
 ).pipe(Schema.brand("Flarex/RuntimeTopologyProbeRunIdV1"));
 export type ProbeRunId = typeof ProbeRunIdSchema.Type;
 
+export const ProbeCampaignIdSchema = Schema.String.check(
+  Schema.isPattern(RUN_ID_PATTERN),
+).pipe(Schema.brand("Flarex/RuntimeTopologyProbeCampaignIdV1"));
+export type ProbeCampaignId = typeof ProbeCampaignIdSchema.Type;
+
+export const PROBE_CAMPAIGN_ACTOR_NAME = "rtp-campaign-control-v1" as const;
+
 export const ProbeRunActorIdSchema = Schema.String.check(
   Schema.isPattern(/^rtp-run-[a-z0-9][a-z0-9_-]{0,39}$/),
 ).pipe(Schema.brand("Flarex/RuntimeTopologyProbeRunActorIdV1"));

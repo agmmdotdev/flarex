@@ -21,6 +21,11 @@ import {
   type ProbeSyncRerunRequestV1,
 } from "./rerunProtocol";
 import type { ProbeRuntimeRerunCapability } from "./runtimeRerunEntrypoint";
+import {
+  decodeProbeSyncPurgeReceiptV1OrNull,
+  decodeProbeSyncPurgeRequestV1OrNull,
+  type ProbeSyncPurgeReceiptV1,
+} from "./purgeProtocol";
 
 export interface ProbeMockCommitEnv {
   readonly PROBE_SYNC: DurableObjectNamespace<ProbeSyncDO>;
@@ -99,6 +104,28 @@ export class MockRerunEntrypoint extends WorkerEntrypoint<ProbeMockCommitEnv> {
     );
     if (receipt === null || !sameRerunReceipt(receipt, request)) {
       throw new Error("invalid synthetic sync rerun receipt");
+    }
+    return receipt;
+  }
+}
+
+export class MockPurgeEntrypoint extends WorkerEntrypoint<ProbeMockCommitEnv> {
+  async purge(value: unknown): Promise<ProbeSyncPurgeReceiptV1> {
+    const request = decodeProbeSyncPurgeRequestV1OrNull(value);
+    if (request === null) throw new Error("invalid synthetic sync purge");
+    const rawReceipt = await this.env.PROBE_SYNC.getByName(request.scopeId)
+      .purge(request);
+    const receipt = decodeProbeSyncPurgeReceiptV1OrNull(
+      copyCloudflareRpcRecord(rawReceipt),
+    );
+    if (
+      receipt === null ||
+      receipt.scopeId !== request.scopeId ||
+      receipt.protocolVersion !== request.protocolVersion ||
+      receipt.probeDataCleared !== true ||
+      receipt.completionTombstoneRetained !== true
+    ) {
+      throw new Error("invalid synthetic sync purge receipt");
     }
     return receipt;
   }

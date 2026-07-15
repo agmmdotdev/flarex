@@ -16,10 +16,16 @@ import {
   type ProbeRunRequestV1,
 } from "../src/protocol";
 import {
+  decodeProbeExternalCompletionReceiptV1OrNull,
   decodeProbeRunRegistrationReceiptV1OrNull,
+  decodeProbeRunControlReceiptV1OrNull,
+  decodeProbeRunEvidencePageReceiptV1OrNull,
   decodeProbeRunStatusReceiptV1OrNull,
   decodeProbeSampleClaimReceiptV1OrNull,
   decodeProbeSampleFinalizeReceiptV1OrNull,
+  ProbeExternalCompletionRequestV1Schema,
+  ProbeRunControlRequestV1Schema,
+  ProbeRunEvidencePageRequestV1Schema,
   ProbeRunStatusRequestV1Schema,
   ProbeSampleFinalizeRequestV1Schema,
   type ProbeSampleClaimReceiptV1,
@@ -336,6 +342,211 @@ describe.sequential("P07A ProbeRunDO state machine", () => {
     }
   });
 
+  it("seals new claims, abandons outstanding work, and fences late finalization", async () => {
+    const harness = await createRuntimeProbeHarness();
+    try {
+      const run = validRun("p07b_reconcile", { repetitions: 2 });
+      await register(harness, run);
+      const claimed = await requiredClaim(harness, run, 0);
+      expect(await controlRun(harness, run, "reconcile")).toMatchObject({
+        kind: "rejected",
+        error: { code: "run-not-sealed", retryable: false },
+      });
+      expect(await controlRun(harness, run, "seal")).toMatchObject({
+        kind: "accepted",
+        idempotent: false,
+      });
+      expect(await claim(harness, run, 1)).toMatchObject({
+        kind: "rejected",
+        error: { code: "run-sealed", retryable: false },
+      });
+      expect(await controlRun(harness, run, "reconcile")).toMatchObject({
+        kind: "accepted",
+        idempotent: false,
+      });
+      expect(await controlRun(harness, run, "reconcile")).toMatchObject({
+        kind: "accepted",
+        idempotent: true,
+      });
+      expect(await finalize(harness, run, claimed, 0)).toMatchObject({
+        kind: "rejected",
+        error: { code: "sample-reconciled-abandoned", retryable: false },
+      });
+      const status = await readStatus(harness, run);
+      expect(status.counters).toMatchObject({
+        claimed: 1,
+        terminal: 1,
+        abandoned: 1,
+        outstanding: 0,
+      });
+      expect(status.samples).toEqual([
+        expect.objectContaining({ state: "abandoned", sampleOrdinal: 0 }),
+      ]);
+      await controlRun(harness, run, "freeze-evidence");
+      const evidence = await evidencePage(harness, run, 0, 2);
+      expect(evidence.records).toEqual([
+        expect.objectContaining({
+          kind: "abandoned",
+          sampleOrdinal: 0,
+          reason: "campaign-reconciliation",
+        }),
+        expect.objectContaining({ kind: "not-started", sampleOrdinal: 1 }),
+      ]);
+      expect(JSON.stringify(evidence)).not.toContain(claimed.claimToken);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it("linearizes a real claim-versus-seal race without losing counters", async () => {
+    const harness = await createRuntimeProbeHarness();
+    try {
+      const run = validRun("p07b_claim_seal_race");
+      await register(harness, run);
+      const [claimReceipt, sealReceipt] = await Promise.all([
+        claim(harness, run, 0),
+        controlRun(harness, run, "seal"),
+      ]);
+      expect(sealReceipt).toMatchObject({ kind: "accepted" });
+      if (claimReceipt.kind === "rejected") {
+        expect(claimReceipt.error).toMatchObject({
+          code: "run-sealed",
+          retryable: false,
+        });
+      }
+      expect(await controlRun(harness, run, "reconcile")).toMatchObject({
+        kind: "accepted",
+        idempotent: false,
+      });
+      expect(await controlRun(harness, run, "reconcile")).toMatchObject({
+        kind: "accepted",
+        idempotent: true,
+      });
+      const status = await readStatus(harness, run);
+      const claimWon = claimReceipt.kind === "claimed";
+      expect(status).toMatchObject({ sealed: true, reconciled: true });
+      expect(status.counters).toMatchObject({
+        claimed: claimWon ? 1 : 0,
+        terminal: claimWon ? 1 : 0,
+        completed: 0,
+        failed: 0,
+        abandoned: claimWon ? 1 : 0,
+        outstanding: 0,
+        highWaterOutstandingClaims: claimWon ? 1 : 0,
+      });
+      expect(status.counters.claimed).toBe(
+        status.counters.terminal + status.counters.outstanding,
+      );
+      expect(status.counters.terminal).toBe(
+        status.counters.completed + status.counters.failed +
+          status.counters.abandoned,
+      );
+      expect(status.budgets.consumed.sampleClaims).toBe(
+        status.counters.claimed,
+      );
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it("linearizes a real finalize-versus-reconcile race", async () => {
+    const harness = await createRuntimeProbeHarness();
+    try {
+      const run = validRun("p07b_finalize_reconcile_race");
+      await register(harness, run);
+      const claimed = await requiredClaim(harness, run, 0);
+      await controlRun(harness, run, "seal");
+      const [finalizeReceipt, reconcileReceipt] = await Promise.all([
+        finalize(harness, run, claimed, 0),
+        controlRun(harness, run, "reconcile"),
+      ]);
+      expect(reconcileReceipt).toMatchObject({ kind: "accepted" });
+      const finalizeWon = finalizeReceipt.kind === "finalized";
+      if (!finalizeWon) {
+        expect(finalizeReceipt).toMatchObject({
+          kind: "rejected",
+          error: {
+            code: "sample-reconciled-abandoned",
+            retryable: false,
+          },
+        });
+      }
+      const status = await readStatus(harness, run);
+      expect(status.counters).toMatchObject({
+        claimed: 1,
+        terminal: 1,
+        completed: finalizeWon ? 1 : 0,
+        failed: 0,
+        abandoned: finalizeWon ? 0 : 1,
+        outstanding: 0,
+      });
+      expect(status.samples).toEqual([
+        expect.objectContaining({
+          sampleOrdinal: 0,
+          state: finalizeWon ? "completed" : "abandoned",
+        }),
+      ]);
+      expect(await controlRun(harness, run, "reconcile")).toMatchObject({
+        kind: "accepted",
+        idempotent: true,
+      });
+      const finalizeReplay = await finalize(harness, run, claimed, 0);
+      expect(finalizeReplay).toMatchObject(
+        finalizeWon
+          ? { kind: "finalized", idempotent: true }
+          : {
+              kind: "rejected",
+              error: {
+                code: "sample-reconciled-abandoned",
+                retryable: false,
+              },
+            },
+      );
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it("acknowledges caller duration idempotently and preserves missing duration evidence", async () => {
+    const harness = await createRuntimeProbeHarness();
+    try {
+      const run = validRun("p07b_external", { repetitions: 2 });
+      await register(harness, run);
+      const firstClaim = await requiredClaim(harness, run, 0);
+      await finalize(harness, run, firstClaim, 0);
+      expect(await completeExternal(harness, run, 0, 5)).toMatchObject({
+        kind: "completed",
+        idempotent: false,
+      });
+      expect(await completeExternal(harness, run, 0, 5)).toMatchObject({
+        kind: "completed",
+        idempotent: true,
+      });
+      expect(await completeExternal(harness, run, 0, 6)).toMatchObject({
+        kind: "rejected",
+        error: { code: "external-completion-conflict", retryable: false },
+      });
+      const secondClaim = await requiredClaim(harness, run, 1);
+      await finalize(harness, run, secondClaim, 1);
+      await controlRun(harness, run, "seal");
+      await controlRun(harness, run, "reconcile");
+      await controlRun(harness, run, "freeze-evidence");
+      const evidence = await evidencePage(harness, run, 0, 2);
+      expect(evidence.records[0]).toMatchObject({
+        kind: "observed",
+        sampleOrdinal: 0,
+      });
+      expect(evidence.records[1]).toMatchObject({
+        kind: "external-duration-missing",
+        sampleOrdinal: 1,
+      });
+      expect(JSON.stringify(evidence)).not.toContain(firstClaim.claimToken);
+      expect(JSON.stringify(evidence)).not.toContain(secondClaim.claimToken);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
   it("rejects a run routed to the wrong deterministic object", async () => {
     const harness = await createRuntimeProbeHarness();
     try {
@@ -513,6 +724,75 @@ async function readStatus(
     throw new Error("run status not found");
   }
   return receipt.status;
+}
+
+async function controlRun(
+  harness: RuntimeProbeHarness,
+  run: ProbeRunRequestV1,
+  operation: "freeze-evidence" | "reconcile" | "seal",
+) {
+  const bindings = await harness.bindings();
+  const raw = await bindings.PROBE_RUNS.getByName(probeRunActorId(run.runId))
+    .control(
+      ProbeRunControlRequestV1Schema.make({
+        protocolVersion: run.protocolVersion,
+        runId: run.runId,
+        operation,
+      }),
+    );
+  const receipt = decodeProbeRunControlReceiptV1OrNull(
+    copyCloudflareRpcRecord(raw),
+  );
+  if (receipt === null) throw new Error("invalid run control receipt");
+  return receipt;
+}
+
+async function completeExternal(
+  harness: RuntimeProbeHarness,
+  run: ProbeRunRequestV1,
+  ordinalValue: number,
+  durationMs: number,
+) {
+  const bindings = await harness.bindings();
+  const raw = await bindings.PROBE_RUNS.getByName(probeRunActorId(run.runId))
+    .completeExternal(
+      ProbeExternalCompletionRequestV1Schema.make({
+        protocolVersion: run.protocolVersion,
+        runId: run.runId,
+        sampleOrdinal: ordinal(ordinalValue),
+        externalDurationMs: ProbeDurationMsSchema.make(durationMs),
+      }),
+    );
+  const receipt = decodeProbeExternalCompletionReceiptV1OrNull(
+    copyCloudflareRpcRecord(raw),
+  );
+  if (receipt === null) throw new Error("invalid external completion receipt");
+  return receipt;
+}
+
+async function evidencePage(
+  harness: RuntimeProbeHarness,
+  run: ProbeRunRequestV1,
+  cursor: number,
+  limit: number,
+) {
+  const bindings = await harness.bindings();
+  const raw = await bindings.PROBE_RUNS.getByName(probeRunActorId(run.runId))
+    .evidencePage(
+      ProbeRunEvidencePageRequestV1Schema.make({
+        protocolVersion: run.protocolVersion,
+        runId: run.runId,
+        cursor: ordinal(cursor),
+        limit,
+      }),
+    );
+  const receipt = decodeProbeRunEvidencePageReceiptV1OrNull(
+    copyCloudflareRpcRecord(raw),
+  );
+  if (receipt === null || receipt.kind !== "page") {
+    throw new Error("invalid evidence page receipt");
+  }
+  return receipt;
 }
 
 function ordinal(value: number) {

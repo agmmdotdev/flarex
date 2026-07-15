@@ -154,6 +154,17 @@ export const ProbeDimensionsV1Schema = Schema.Struct({
 }).annotate(StrictStructOptions);
 export type ProbeDimensionsV1 = typeof ProbeDimensionsV1Schema.Type;
 
+export function sameProbeDimensionsV1(
+  left: ProbeDimensionsV1,
+  right: ProbeDimensionsV1,
+): boolean {
+  return left.codeMode === right.codeMode &&
+    left.concurrency === right.concurrency &&
+    left.journalEntries === right.journalEntries &&
+    left.payloadBytes === right.payloadBytes &&
+    left.sessionMode === right.sessionMode;
+}
+
 const ProbeRunRequestV1Shape = Schema.Struct({
   protocolVersion: ProbeProtocolVersionV1Schema,
   runId: ProbeRunIdSchema,

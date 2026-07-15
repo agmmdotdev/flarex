@@ -15,15 +15,21 @@ import {
 } from "./protocol";
 import {
   canonicalProbeRunRequestV1,
-  decodeProbeControlledGatewaySampleV1OrNull,
+  decodeProbeExternalCompletionRequestV1OrNull,
   decodeProbePublicSampleRequestV1OrNull,
+  decodeProbeRunControlRequestV1OrNull,
+  decodeProbeRunEvidencePageRequestV1OrNull,
   decodeProbeRunRequestV1OrNull,
   decodeProbeRunStatusRequestV1OrNull,
   decodeProbeSampleFinalizeRequestV1OrNull,
   probeRunBudgetPlanV1,
   PROBE_RUN_BUDGET_LIMITS_V1,
+  ProbeExternalCompletionReceiptV1Schema,
+  ProbeRunControlReceiptV1Schema,
   ProbeRunBudgetsV1Schema,
   ProbeRunCountersV1Schema,
+  ProbeRunEvidencePageReceiptV1Schema,
+  ProbeRunEvidenceRecordV1Schema,
   ProbeRunRegistrationReceiptV1Schema,
   ProbeRunSampleStatusV1Schema,
   ProbeRunStatusReceiptV1Schema,
@@ -31,6 +37,10 @@ import {
   ProbeSampleClaimReceiptV1Schema,
   ProbeSampleFinalizeReceiptV1Schema,
   type ProbeRunBudgetValuesV1,
+  type ProbeExternalCompletionReceiptV1,
+  type ProbeRunControlReceiptV1,
+  type ProbeRunEvidencePageReceiptV1,
+  type ProbeRunEvidenceRecordV1,
   type ProbeRunRegistrationReceiptV1,
   type ProbeRunSampleStatusV1,
   type ProbeRunStateErrorCode,
@@ -40,13 +50,21 @@ import {
   type ProbeSampleFinalizeReceiptV1,
 } from "./runProtocol";
 import {
+  completeControlledProbeGatewaySampleV1,
   controlledProbeGatewaySampleV1,
+  decodeProbeControlledGatewaySampleV1OrNull,
+  decodeProbeControlledSampleResultV1OrNull,
   decodeProbeSyncWakeObservationV1OrNull,
   probeSyncWakeRelationshipIssueV1,
   ProbeSampleControlV1Schema,
   type ProbeMeasurementDisposition,
   type ProbeSyncWakeObservationV1,
 } from "./runtimeProtocol";
+import {
+  decodeProbeRunPurgeRequestV1OrNull,
+  ProbeRunPurgeReceiptV1Schema,
+  type ProbeRunPurgeReceiptV1,
+} from "./purgeProtocol";
 
 interface RunRow {
   readonly [key: string]: SqlStorageValue;
@@ -60,6 +78,7 @@ interface RunRow {
   readonly terminal_count: number;
   readonly completed_count: number;
   readonly failed_count: number;
+  readonly abandoned_count: number;
   readonly outstanding_count: number;
   readonly high_water_outstanding: number;
   readonly consumed_payload_bytes: number;
@@ -69,6 +88,9 @@ interface RunRow {
   readonly excluded_warmup_count: number;
   readonly excluded_duplicate_wake_count: number;
   readonly next_ordered_ordinal: number;
+  readonly sealed: number;
+  readonly reconciled: number;
+  readonly evidence_frozen: number;
 }
 
 interface SampleRow {
@@ -82,6 +104,9 @@ interface SampleRow {
   readonly controlled_sample_json: string | null;
   readonly measurement_disposition: string | null;
   readonly sync_wake_json: string | null;
+  readonly external_duration_ms: number | null;
+  readonly completed_sample_json: string | null;
+  readonly abandonment_reason: string | null;
 }
 
 type ClaimTransactionResult =
@@ -105,6 +130,7 @@ type FinalizeTransactionResult =
 
 export class ProbeRunDO extends DurableObject<Record<string, never>> {
   private readonly sql = this.ctx.storage.sql;
+  private storageInitialized = true;
 
   constructor(ctx: DurableObjectState, env: Record<string, never>) {
     super(ctx, env);
@@ -112,6 +138,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
   }
 
   async register(value: unknown): Promise<ProbeRunRegistrationReceiptV1> {
+    this.ensureStorage();
     const run = decodeProbeRunRequestV1OrNull(value);
     if (run === null) return rejectedRegistration("invalid-request");
     if (!this.hasRunIdentity(run.runId)) {
@@ -161,6 +188,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
   }
 
   async claim(value: unknown): Promise<ProbeSampleClaimReceiptV1> {
+    this.ensureStorage();
     const request = decodeProbePublicSampleRequestV1OrNull(value);
     if (request === null) return rejectedClaim("invalid-request");
     if (!this.hasRunIdentity(request.runId)) {
@@ -174,6 +202,9 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
           return { kind: "rejected", code: "run-not-registered" };
         }
         const run = decodeStoredRun(row.config_json);
+        if (row.sealed === 1) {
+          return { kind: "rejected", code: "run-sealed" };
+        }
         if (request.sampleOrdinal >= row.total_samples) {
           return { kind: "rejected", code: "sample-out-of-range" };
         }
@@ -303,6 +334,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
   }
 
   async finalize(value: unknown): Promise<ProbeSampleFinalizeReceiptV1> {
+    this.ensureStorage();
     const request = decodeProbeSampleFinalizeRequestV1OrNull(value);
     if (request === null) return rejectedFinalize("invalid-request");
     if (!this.hasRunIdentity(request.runId)) {
@@ -339,6 +371,12 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
           return { kind: "rejected", code: "identity-mismatch" };
         }
         const canonicalFinalization = canonicalFinalizeRequest(request);
+        if (sample.lifecycle_state === "abandoned") {
+          return {
+            kind: "rejected",
+            code: "sample-reconciled-abandoned",
+          };
+        }
         if (sample.lifecycle_state !== "claimed") {
           if (sample.finalization_json !== canonicalFinalization) {
             return { kind: "rejected", code: "finalization-conflict" };
@@ -425,7 +463,266 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
     });
   }
 
+  async completeExternal(
+    value: unknown,
+  ): Promise<ProbeExternalCompletionReceiptV1> {
+    this.ensureStorage();
+    const request = decodeProbeExternalCompletionRequestV1OrNull(value);
+    if (request === null) return rejectedExternalCompletion("invalid-request");
+    if (!this.hasRunIdentity(request.runId)) {
+      return rejectedExternalCompletion("identity-mismatch");
+    }
+    const result = this.ctx.storage.transactionSync<
+      | {
+          readonly kind: "completed";
+          readonly idempotent: boolean;
+          readonly result: NonNullable<
+            ReturnType<typeof decodeProbeControlledSampleResultV1OrNull>
+          >;
+        }
+      | { readonly kind: "rejected"; readonly code: ProbeRunStateErrorCode }
+    >(() => {
+      const runRow = readRunRowOrNull(this.sql);
+      if (runRow === null) {
+        return { kind: "rejected", code: "run-not-registered" };
+      }
+      if (runRow.evidence_frozen === 1) {
+        return { kind: "rejected", code: "evidence-frozen" };
+      }
+      const sample = readSampleRowOrNull(this.sql, request.sampleOrdinal);
+      if (sample === null || sample.lifecycle_state === "claimed") {
+        return { kind: "rejected", code: "sample-not-finalized" };
+      }
+      if (sample.lifecycle_state === "abandoned") {
+        return { kind: "rejected", code: "sample-reconciled-abandoned" };
+      }
+      if (
+        sample.completed_sample_json !== null ||
+        sample.external_duration_ms !== null
+      ) {
+        if (sample.external_duration_ms !== request.externalDurationMs) {
+          return {
+            kind: "rejected",
+            code: "external-completion-conflict",
+          };
+        }
+        return {
+          kind: "completed",
+          idempotent: true,
+          result: decodeStoredCompletedSample(sample.completed_sample_json),
+        };
+      }
+      const controlled = decodeStoredControlledSample(
+        sample.controlled_sample_json,
+      );
+      const completed = completeControlledProbeGatewaySampleV1(
+        controlled,
+        request.externalDurationMs,
+      );
+      this.sql.exec(
+        `UPDATE probe_run_samples_v1
+         SET external_duration_ms = ?, completed_sample_json = ?
+         WHERE sample_ordinal = ?`,
+        request.externalDurationMs,
+        JSON.stringify(completed),
+        request.sampleOrdinal,
+      );
+      return { kind: "completed", idempotent: false, result: completed };
+    });
+    if (result.kind === "rejected") {
+      return rejectedExternalCompletion(result.code);
+    }
+    await this.ctx.storage.sync();
+    return ProbeExternalCompletionReceiptV1Schema.make({
+      protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+      ...result,
+    });
+  }
+
+  async control(value: unknown): Promise<ProbeRunControlReceiptV1> {
+    this.ensureStorage();
+    const request = decodeProbeRunControlRequestV1OrNull(value);
+    if (request === null) return rejectedRunControl("invalid-request");
+    if (!this.hasRunIdentity(request.runId)) {
+      return rejectedRunControl("identity-mismatch");
+    }
+    const result = this.ctx.storage.transactionSync<
+      | { readonly kind: "accepted"; readonly idempotent: boolean }
+      | { readonly kind: "rejected"; readonly code: ProbeRunStateErrorCode }
+    >(() => {
+      const row = readRunRowOrNull(this.sql);
+      if (row === null) {
+        return { kind: "rejected", code: "run-not-registered" };
+      }
+      switch (request.operation) {
+        case "seal":
+          if (row.sealed === 1) {
+            return { kind: "accepted", idempotent: true };
+          }
+          this.sql.exec(
+            "UPDATE probe_run_v1 SET sealed = 1 WHERE singleton = 1",
+          );
+          return { kind: "accepted", idempotent: false };
+        case "reconcile": {
+          if (row.sealed !== 1) {
+            return { kind: "rejected", code: "run-not-sealed" };
+          }
+          if (row.reconciled === 1) {
+            return { kind: "accepted", idempotent: true };
+          }
+          const abandoned = this.sql.exec<{ count: number }>(
+            `SELECT COUNT(*) AS count
+             FROM probe_run_samples_v1
+             WHERE lifecycle_state = 'claimed'`,
+          ).one().count;
+          this.sql.exec(
+            `UPDATE probe_run_samples_v1
+             SET lifecycle_state = 'abandoned',
+                 abandonment_reason = 'campaign-reconciliation'
+             WHERE lifecycle_state = 'claimed'`,
+          );
+          this.sql.exec(
+            `UPDATE probe_run_v1
+             SET reconciled = 1,
+                 terminal_count = terminal_count + ?,
+                 abandoned_count = abandoned_count + ?,
+                 outstanding_count = outstanding_count - ?
+             WHERE singleton = 1`,
+            abandoned,
+            abandoned,
+            abandoned,
+          );
+          return { kind: "accepted", idempotent: false };
+        }
+        case "freeze-evidence":
+          if (row.reconciled !== 1) {
+            return { kind: "rejected", code: "run-not-reconciled" };
+          }
+          if (row.evidence_frozen === 1) {
+            return { kind: "accepted", idempotent: true };
+          }
+          this.sql.exec(
+            "UPDATE probe_run_v1 SET evidence_frozen = 1 WHERE singleton = 1",
+          );
+          return { kind: "accepted", idempotent: false };
+      }
+    });
+    if (result.kind === "rejected") return rejectedRunControl(result.code);
+    await this.ctx.storage.sync();
+    return ProbeRunControlReceiptV1Schema.make({
+      protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+      kind: "accepted",
+      idempotent: result.idempotent,
+      status: this.readStatus(),
+    });
+  }
+
+  async evidencePage(value: unknown): Promise<ProbeRunEvidencePageReceiptV1> {
+    this.ensureStorage();
+    const request = decodeProbeRunEvidencePageRequestV1OrNull(value);
+    if (request === null) return rejectedEvidencePage("invalid-request");
+    if (!this.hasRunIdentity(request.runId)) {
+      return rejectedEvidencePage("identity-mismatch");
+    }
+    const runRow = readRunRowOrNull(this.sql);
+    if (runRow === null) return rejectedEvidencePage("run-not-registered");
+    if (runRow.evidence_frozen !== 1) {
+      return rejectedEvidencePage("evidence-not-frozen");
+    }
+    const run = decodeStoredRun(runRow.config_json);
+    const start = Number(request.cursor);
+    const end = Math.min(start + request.limit, runRow.total_samples);
+    const records: ProbeRunEvidenceRecordV1[] = [];
+    for (let ordinal = start; ordinal < end; ordinal += 1) {
+      const sampleOrdinal = ProbeOrdinalSchema.make(ordinal);
+      const phase: ProbeSamplePhase = ordinal < run.warmupRepetitions
+        ? "warmup"
+        : "measurement";
+      const sample = readSampleRowOrNull(this.sql, sampleOrdinal);
+      if (sample === null) {
+        records.push(
+          ProbeRunEvidenceRecordV1Schema.make({
+            kind: "not-started",
+            runId: run.runId,
+            sampleOrdinal,
+            phase,
+          }),
+        );
+        continue;
+      }
+      if (sample.lifecycle_state === "abandoned") {
+        records.push(
+          ProbeRunEvidenceRecordV1Schema.make({
+            kind: "abandoned",
+            runId: run.runId,
+            sampleOrdinal,
+            phase,
+            reason: "campaign-reconciliation",
+          }),
+        );
+        continue;
+      }
+      if (sample.lifecycle_state === "claimed") {
+        throw new Error("frozen run evidence retained an outstanding claim");
+      }
+      if (sample.completed_sample_json !== null) {
+        records.push(
+          ProbeRunEvidenceRecordV1Schema.make({
+            kind: "observed",
+            runId: run.runId,
+            sampleOrdinal,
+            phase,
+            result: decodeStoredCompletedSample(sample.completed_sample_json),
+          }),
+        );
+        continue;
+      }
+      records.push(
+        ProbeRunEvidenceRecordV1Schema.make({
+          kind: "external-duration-missing",
+          runId: run.runId,
+          sampleOrdinal,
+          phase,
+          fragment: decodeStoredControlledSample(
+            sample.controlled_sample_json,
+          ),
+        }),
+      );
+    }
+    const nextCursor = end < runRow.total_samples
+      ? ProbeOrdinalSchema.make(end)
+      : null;
+    return ProbeRunEvidencePageReceiptV1Schema.make({
+      protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+      kind: "page",
+      runId: run.runId,
+      records,
+      nextCursor,
+    });
+  }
+
+  async purge(value: unknown): Promise<ProbeRunPurgeReceiptV1> {
+    this.ensureStorage();
+    const request = decodeProbeRunPurgeRequestV1OrNull(value);
+    if (request === null || !this.hasRunIdentity(request.runId)) {
+      throw new Error("invalid probe run purge identity");
+    }
+    const row = readRunRowOrNull(this.sql);
+    if (row !== null && row.evidence_frozen !== 1) {
+      throw new Error("probe run purge requires frozen evidence");
+    }
+    await this.ctx.storage.deleteAll();
+    this.storageInitialized = false;
+    return ProbeRunPurgeReceiptV1Schema.make({
+      protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+      kind: "storage-cleared",
+      runId: request.runId,
+      storageCleared: true,
+    });
+  }
+
   async status(value: unknown): Promise<ProbeRunStatusReceiptV1> {
+    this.ensureStorage();
     const request = decodeProbeRunStatusRequestV1OrNull(value);
     if (request === null || !this.hasRunIdentity(request.runId)) {
       return ProbeRunStatusReceiptV1Schema.make({
@@ -449,6 +746,12 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
     return this.ctx.id.name === probeRunActorId(runId);
   }
 
+  private ensureStorage(): void {
+    if (this.storageInitialized) return;
+    initializeRunStorage(this.sql);
+    this.storageInitialized = true;
+  }
+
   private readStatus(): ProbeRunStatusV1 {
     const row = readRunRowOrNull(this.sql);
     if (row === null) throw new Error("probe run is not registered");
@@ -462,7 +765,10 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
               finalization_json,
               controlled_sample_json,
               measurement_disposition,
-              sync_wake_json
+              sync_wake_json,
+              external_duration_ms,
+              completed_sample_json,
+              abandonment_reason
        FROM probe_run_samples_v1
        ORDER BY sample_ordinal`,
     ).toArray().map(sampleStatusFromRow);
@@ -471,6 +777,9 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       run,
       state: runState(row),
+      sealed: row.sealed === 1,
+      reconciled: row.reconciled === 1,
+      evidenceFrozen: row.evidence_frozen === 1,
       budgets: ProbeRunBudgetsV1Schema.make({
         limits: PROBE_RUN_BUDGET_LIMITS_V1,
         planned,
@@ -486,6 +795,7 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
         terminal: row.terminal_count,
         completed: row.completed_count,
         failed: row.failed_count,
+        abandoned: row.abandoned_count,
         outstanding: row.outstanding_count,
         highWaterOutstandingClaims: row.high_water_outstanding,
         eligible: row.eligible_count,
@@ -514,6 +824,7 @@ function initializeRunStorage(sql: SqlStorage): void {
     terminal_count INTEGER NOT NULL DEFAULT 0 CHECK (terminal_count >= 0),
     completed_count INTEGER NOT NULL DEFAULT 0 CHECK (completed_count >= 0),
     failed_count INTEGER NOT NULL DEFAULT 0 CHECK (failed_count >= 0),
+    abandoned_count INTEGER NOT NULL DEFAULT 0 CHECK (abandoned_count >= 0),
     outstanding_count INTEGER NOT NULL DEFAULT 0
       CHECK (outstanding_count >= 0),
     high_water_outstanding INTEGER NOT NULL DEFAULT 0
@@ -530,13 +841,19 @@ function initializeRunStorage(sql: SqlStorage): void {
     excluded_duplicate_wake_count INTEGER NOT NULL DEFAULT 0
       CHECK (excluded_duplicate_wake_count >= 0),
     next_ordered_ordinal INTEGER NOT NULL DEFAULT 0
-      CHECK (next_ordered_ordinal >= 0)
+      CHECK (next_ordered_ordinal >= 0),
+    sealed INTEGER NOT NULL DEFAULT 0 CHECK (sealed IN (0, 1)),
+    reconciled INTEGER NOT NULL DEFAULT 0 CHECK (reconciled IN (0, 1)),
+    evidence_frozen INTEGER NOT NULL DEFAULT 0
+      CHECK (evidence_frozen IN (0, 1))
   )`);
   sql.exec(`CREATE TABLE IF NOT EXISTS probe_run_samples_v1 (
     sample_ordinal INTEGER PRIMARY KEY CHECK (sample_ordinal >= 0),
     phase TEXT NOT NULL CHECK (phase IN ('warmup', 'measurement')),
     lifecycle_state TEXT NOT NULL
-      CHECK (lifecycle_state IN ('claimed', 'completed', 'failed')),
+      CHECK (lifecycle_state IN (
+        'claimed', 'completed', 'failed', 'abandoned'
+      )),
     claim_token TEXT NOT NULL UNIQUE,
     observed_outstanding_claims INTEGER NOT NULL
       CHECK (observed_outstanding_claims > 0),
@@ -549,18 +866,41 @@ function initializeRunStorage(sql: SqlStorage): void {
         'excluded-duplicate-wake'
       )),
     sync_wake_json TEXT,
+    external_duration_ms REAL CHECK (
+      external_duration_ms IS NULL OR external_duration_ms >= 0
+    ),
+    completed_sample_json TEXT,
+    abandonment_reason TEXT CHECK (
+      abandonment_reason IS NULL OR
+      abandonment_reason = 'campaign-reconciliation'
+    ),
     CHECK (
       (lifecycle_state = 'claimed' AND
         finalization_json IS NULL AND
         controlled_sample_json IS NULL AND
         measurement_disposition IS NULL AND
-        sync_wake_json IS NULL)
+        sync_wake_json IS NULL AND
+        external_duration_ms IS NULL AND
+        completed_sample_json IS NULL AND
+        abandonment_reason IS NULL)
       OR
       (lifecycle_state IN ('completed', 'failed') AND
         finalization_json IS NOT NULL AND
         controlled_sample_json IS NOT NULL AND
         measurement_disposition IS NOT NULL AND
-        sync_wake_json IS NOT NULL)
+        sync_wake_json IS NOT NULL AND
+        abandonment_reason IS NULL AND
+        ((external_duration_ms IS NULL AND completed_sample_json IS NULL) OR
+         (external_duration_ms IS NOT NULL AND completed_sample_json IS NOT NULL)))
+      OR
+      (lifecycle_state = 'abandoned' AND
+        finalization_json IS NULL AND
+        controlled_sample_json IS NULL AND
+        measurement_disposition IS NULL AND
+        sync_wake_json IS NULL AND
+        external_duration_ms IS NULL AND
+        completed_sample_json IS NULL AND
+        abandonment_reason = 'campaign-reconciliation')
     )
   )`);
   sql.exec(`CREATE TABLE IF NOT EXISTS probe_run_code_ids_v1 (
@@ -579,8 +919,9 @@ function readRunRowOrNull(sql: SqlStorage): RunRow | null {
             planned_unique_code_ids,
             claimed_count,
             terminal_count,
-            completed_count,
-            failed_count,
+              completed_count,
+              failed_count,
+              abandoned_count,
             outstanding_count,
             high_water_outstanding,
             consumed_payload_bytes,
@@ -588,8 +929,11 @@ function readRunRowOrNull(sql: SqlStorage): RunRow | null {
             consumed_unique_code_ids,
             eligible_count,
             excluded_warmup_count,
-            excluded_duplicate_wake_count,
-            next_ordered_ordinal
+              excluded_duplicate_wake_count,
+              next_ordered_ordinal,
+              sealed,
+              reconciled,
+              evidence_frozen
      FROM probe_run_v1
      WHERE singleton = 1`,
   ).toArray()[0] ?? null;
@@ -608,7 +952,10 @@ function readSampleRowOrNull(
             finalization_json,
             controlled_sample_json,
             measurement_disposition,
-            sync_wake_json
+            sync_wake_json,
+            external_duration_ms,
+            completed_sample_json,
+            abandonment_reason
      FROM probe_run_samples_v1
      WHERE sample_ordinal = ?`,
     sampleOrdinal,
@@ -625,6 +972,13 @@ function decodeStoredControlledSample(value: string | null) {
   if (value === null) throw new Error("terminal probe sample is missing");
   const decoded = decodeProbeControlledGatewaySampleV1OrNull(JSON.parse(value));
   if (decoded === null) throw new Error("stored controlled sample is invalid");
+  return decoded;
+}
+
+function decodeStoredCompletedSample(value: string | null) {
+  if (value === null) throw new Error("completed probe sample is missing");
+  const decoded = decodeProbeControlledSampleResultV1OrNull(JSON.parse(value));
+  if (decoded === null) throw new Error("stored completed sample is invalid");
   return decoded;
 }
 
@@ -663,6 +1017,20 @@ function sampleStatusFromRow(row: SampleRow): ProbeRunSampleStatusV1 {
       observedOutstandingClaims: row.observed_outstanding_claims,
       measurementDisposition: null,
       syncWake: null,
+    });
+  }
+  if (row.lifecycle_state === "abandoned") {
+    if (row.abandonment_reason !== "campaign-reconciliation") {
+      throw new Error("stored abandoned probe sample is invalid");
+    }
+    return ProbeRunSampleStatusV1Schema.make({
+      sampleOrdinal,
+      phase,
+      state: "abandoned",
+      observedOutstandingClaims: row.observed_outstanding_claims,
+      measurementDisposition: null,
+      syncWake: null,
+      abandonmentReason: "campaign-reconciliation",
     });
   }
   if (
@@ -791,6 +1159,36 @@ function rejectedFinalize(
   code: ProbeRunStateErrorCode,
 ): ProbeSampleFinalizeReceiptV1 {
   return ProbeSampleFinalizeReceiptV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    kind: "rejected",
+    error: { code, retryable: retryableStateError(code) },
+  });
+}
+
+function rejectedExternalCompletion(
+  code: ProbeRunStateErrorCode,
+): ProbeExternalCompletionReceiptV1 {
+  return ProbeExternalCompletionReceiptV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    kind: "rejected",
+    error: { code, retryable: retryableStateError(code) },
+  });
+}
+
+function rejectedRunControl(
+  code: ProbeRunStateErrorCode,
+): ProbeRunControlReceiptV1 {
+  return ProbeRunControlReceiptV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    kind: "rejected",
+    error: { code, retryable: retryableStateError(code) },
+  });
+}
+
+function rejectedEvidencePage(
+  code: ProbeRunStateErrorCode,
+): ProbeRunEvidencePageReceiptV1 {
+  return ProbeRunEvidencePageReceiptV1Schema.make({
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
     kind: "rejected",
     error: { code, retryable: retryableStateError(code) },
