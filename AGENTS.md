@@ -92,12 +92,9 @@ durably and proceed until new evidence invalidates it.
 ## Implementation Step Preflight
 
 Before starting any roadmap implementation gate or other meaningful
-behavior-changing slice, research and communicate the preflight described
-below. The preflight is a correctness and sequencing check, not a per-gate
-permission checkpoint. Do not stop solely to obtain another user approval when
-the gate remains inside an already approved goal or plan. A roadmap number is a
-current planning hypothesis, not proof that the step is still correctly
-ordered.
+behavior-changing slice, stop and discuss that step with the user. A roadmap
+number is a current planning hypothesis, not sufficient authorization or proof
+that the step is still correctly ordered.
 
 Research the step before presenting it. Read the accepted design, the relevant
 domain roadmap and focused plan, current definitions/schema/code/tests, related
@@ -121,38 +118,19 @@ The preflight must explain in plain language:
 5. **How completion will be proven:** focused tests, required real-Postgres or
    Cloudflare lanes, compatibility checks, and the exact exit criteria.
 
-Once the user explicitly approves a goal, roadmap plan, or complete experiment,
-that approval authorizes its ordered, in-scope local implementation gates until
-the goal is complete. A generic `go`, `continue`, `resume`, or equivalent
-instruction continues the active approved goal; it is not limited to one gate.
-Keep presenting each gate's preflight, challenge, scope, and proof in task
-updates, then proceed without asking permission again.
-
-If research shows that a planned step is premature, duplicated, over-broad, or
-ordered incorrectly, record the correction in the owning plan and continue
-with the smallest correctness-preserving in-scope slice. Stop and request user
-direction only when continuation requires one of the following:
-
-- a material expansion or replacement of the approved objective;
-- a changed architecture, trust, data-authority, or compatibility boundary not
-  already covered by the approved plan;
-- a destructive or difficult-to-reverse action, or an external state change,
-  that the approved goal did not already authorize;
-- an exact production account, target, secret, cost budget, or teardown path
-  that cannot be identified safely from repository and environment evidence; or
-- a user choice that would materially change the resulting behavior or public
-  contract.
-
-Do not mark an active goal blocked, pause its loop, or yield merely because the
-next roadmap gate has begun or because separate per-gate approval is absent.
+Do not begin implementation until the user explicitly approves the step after
+this preflight. A generic `go`, `continue`, or prior approval authorizes only
+the already-discussed step; it does not automatically authorize the next
+roadmap gate. If research shows that the planned step is premature, duplicated,
+over-broad, or ordered incorrectly, recommend the correction and update the
+owning plan after agreement before implementing it.
 
 This preflight is required once per meaningful implementation gate, not before
 every shell command, formatting action, validation rerun, or small test-fix
-loop inside an approved unchanged slice. Re-run and communicate the preflight
-if evidence materially changes the approved scope, architecture, trust
-boundary, or execution order; pause only when one of the stop conditions above
-applies. Discussion-only, research-only, docs-only, and mechanical turns do not
-need a ceremonial self-preflight unless they propose a subsequent
+loop inside an approved unchanged slice. Pause for a new preflight if evidence
+materially changes the approved scope, architecture, trust boundary, or
+execution order. Discussion-only, research-only, docs-only, and mechanical
+turns do not need a ceremonial self-preflight unless they propose a subsequent
 implementation gate.
 
 ## Replacement Design Authority
