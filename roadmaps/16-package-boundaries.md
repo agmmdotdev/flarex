@@ -340,12 +340,13 @@ semantics.
   stored-attempt verification, and persistence journal canonicalization paths,
   while narrower ordered-index comparators retain their domain-significant
   names.
-- `flarex-protocol/connection` owns inbound sync client wire types and runtime
-  decoding. Backend connection adapters consume that contract directly;
-  backend server-message construction remains host-side until the matching
-  server wire contract is consolidated. The published backend test protocol
-  entrypoint is a deprecated compatibility facade that re-exports the
-  protocol-owned client names rather than defining another wire contract.
+- `flarex-protocol/connection` owns sync client and server wire types plus
+  structural runtime decoding. Backend connection code consumes those
+  contracts directly. The SDK derives its narrower outbound and supported
+  inbound subsets, while its argument-normalization helper remains local. The
+  published backend test protocol entrypoint is a deprecated compatibility
+  facade that re-exports protocol-owned names rather than defining another
+  wire contract.
 
 ## Known Gaps And Limitations
 
@@ -357,9 +358,9 @@ semantics.
   code alongside forward platform coordination. Replacement must prevent that
   ownership from leaking into new Postgres work, port intended semantics, move
   callers, and delete the prototype path after target-only proof.
-- The SDK still owns a narrower sync-client outbound subset and a permissive
-  server-message parser. Consolidating those with the protocol package must
-  preserve or deliberately tighten the public client compatibility boundary.
+- The SDK does not yet own an action-request lifecycle, so it deliberately
+  rejects protocol-valid `ActionResponse` messages even though the shared wire
+  contract and backend support that variant.
 - `@flarex/persistence-postgres` exports both broad compatibility surfaces and
   narrower runtime-specific entrypoints. Further narrowing should follow real
   internal caller migrations; broad prototype surfaces are not permanent APIs.

@@ -1,128 +1,62 @@
-export type Json =
-  | null
-  | boolean
-  | number
-  | string
-  | Json[]
-  | { [key: string]: Json | undefined };
+import {
+  parseConnectionServerMessage,
+  type ConnectionActionResponseMessage,
+  type ConnectionAddQueryMessage,
+  type ConnectionAuthenticateMessage,
+  type ConnectionIdentityVersion,
+  type ConnectionModifyQuerySetMessage,
+  type ConnectionMutationRequestMessage,
+  type ConnectionQueryFailedMessage,
+  type ConnectionQueryId,
+  type ConnectionQueryRemovedMessage,
+  type ConnectionQuerySetModification,
+  type ConnectionQuerySetVersion,
+  type ConnectionQueryUpdatedMessage,
+  type ConnectionRequestId,
+  type ConnectionServerMessage,
+  type ConnectionStateModification,
+  type ConnectionStateVersion,
+  type ConnectionSyncTimestamp,
+  type ConnectionTransitionMessage,
+} from "flarex-protocol/connection";
+import type { Json as ProtocolJson } from "flarex-protocol/json";
 
-export type QuerySetVersion = number;
-export type IdentityVersion = number;
-export type SyncTimestamp = number;
-export type QueryId = number;
-export type RequestId = number;
+export type Json = ProtocolJson;
+export type QuerySetVersion = ConnectionQuerySetVersion;
+export type IdentityVersion = ConnectionIdentityVersion;
+export type SyncTimestamp = ConnectionSyncTimestamp;
+export type QueryId = ConnectionQueryId;
+export type RequestId = ConnectionRequestId;
 export type QueryToken = string;
 
-export type StateVersion = {
-  querySet: QuerySetVersion;
-  ts: SyncTimestamp;
-  identity: IdentityVersion;
-};
-
-export type AddQuery = {
-  type: "Add";
-  queryId: QueryId;
-  udfPath: string;
-  args: Json[];
-  journal?: string | null;
+export type AddQuery = Omit<ConnectionAddQueryMessage, "partitionKey"> & {
   partitionKey: string;
 };
 
-export type RemoveQuery = {
-  type: "Remove";
-  queryId: QueryId;
-};
-
+export type RemoveQuery = Extract<ConnectionQuerySetModification, { type: "Remove" }>;
 export type QuerySetModification = AddQuery | RemoveQuery;
-
-export type ModifyQuerySet = {
-  type: "ModifyQuerySet";
-  baseVersion: QuerySetVersion;
-  newVersion: QuerySetVersion;
+export type ModifyQuerySet = Omit<ConnectionModifyQuerySetMessage, "modifications"> & {
   modifications: QuerySetModification[];
 };
 
-export type MutationRequest = {
-  type: "Mutation";
-  requestId: RequestId;
-  udfPath: string;
-  args: Json[];
-  partitionKey?: string;
-};
-
-export type Authenticate =
-  | { type: "Authenticate"; tokenType: "User"; value: string; baseVersion: IdentityVersion }
-  | { type: "Authenticate"; tokenType: "None"; baseVersion: IdentityVersion };
+export type MutationRequest = ConnectionMutationRequestMessage;
+export type Authenticate = Extract<
+  ConnectionAuthenticateMessage,
+  { tokenType: "User" | "None" }
+>;
 
 export type ClientMessage = Authenticate | ModifyQuerySet | MutationRequest;
-
-export type QueryUpdated = {
-  type: "QueryUpdated";
-  queryId: QueryId;
-  value: Json;
-  logLines: string[];
-  journal: string | null;
-};
-
-export type QueryFailed = {
-  type: "QueryFailed";
-  queryId: QueryId;
-  errorMessage: string;
-  logLines: string[];
-  errorData: Json;
-  journal: string | null;
-};
-
-export type QueryRemoved = {
-  type: "QueryRemoved";
-  queryId: QueryId;
-};
-
-export type StateModification = QueryUpdated | QueryFailed | QueryRemoved;
-
-export type Transition = {
-  type: "Transition";
-  startVersion: StateVersion;
-  endVersion: StateVersion;
-  modifications: StateModification[];
-  serverTs?: number;
-};
-
-export type MutationResponse =
-  | {
-      type: "MutationResponse";
-      requestId: RequestId;
-      success: true;
-      result: Json;
-      ts?: SyncTimestamp;
-      logLines: string[];
-    }
-  | {
-      type: "MutationResponse";
-      requestId: RequestId;
-      success: false;
-      result: string;
-      logLines: string[];
-      errorData?: Json;
-    };
-
-export type FatalError = {
-  type: "FatalError";
-  error: string;
-};
-
-export type AuthError = {
-  type: "AuthError";
-  error: string;
-  baseVersion: IdentityVersion;
-  authUpdateAttempted: boolean;
-};
-
-export type Ping = {
-  type: "Ping";
-};
-
-export type ServerMessage = Transition | MutationResponse | FatalError | AuthError | Ping;
+export type StateVersion = ConnectionStateVersion;
+export type QueryUpdated = ConnectionQueryUpdatedMessage;
+export type QueryFailed = ConnectionQueryFailedMessage;
+export type QueryRemoved = ConnectionQueryRemovedMessage;
+export type StateModification = ConnectionStateModification;
+export type Transition = ConnectionTransitionMessage;
+export type MutationResponse = Extract<ConnectionServerMessage, { type: "MutationResponse" }>;
+export type FatalError = Extract<ConnectionServerMessage, { type: "FatalError" }>;
+export type AuthError = Extract<ConnectionServerMessage, { type: "AuthError" }>;
+export type Ping = Extract<ConnectionServerMessage, { type: "Ping" }>;
+export type ServerMessage = Exclude<ConnectionServerMessage, ConnectionActionResponseMessage>;
 
 export function assertJson(value: unknown, path = "$"): Json {
   if (value === null) return null;
@@ -141,18 +75,9 @@ export function assertJson(value: unknown, path = "$"): Json {
 }
 
 export function parseServerMessage(value: unknown): ServerMessage {
-  if (typeof value !== "object" || value === null || !("type" in value)) {
-    throw new Error("Sync server message must be an object with a type.");
+  const message = parseConnectionServerMessage(value);
+  if (message.type === "ActionResponse") {
+    throw new Error("Unknown sync server message type: ActionResponse.");
   }
-  const message = value as { type: unknown };
-  if (
-    message.type === "Transition" ||
-    message.type === "MutationResponse" ||
-    message.type === "FatalError" ||
-    message.type === "AuthError" ||
-    message.type === "Ping"
-  ) {
-    return value as ServerMessage;
-  }
-  throw new Error(`Unknown sync server message type: ${String(message.type)}.`);
+  return message;
 }

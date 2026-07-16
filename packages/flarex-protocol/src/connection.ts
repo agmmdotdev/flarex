@@ -53,7 +53,13 @@ export type ConnectionAuthenticateMessage =
     }
   | {
       type: "Authenticate";
-      tokenType: "User" | "Admin";
+      tokenType: "User";
+      value: string;
+      baseVersion: ConnectionIdentityVersion;
+    }
+  | {
+      type: "Authenticate";
+      tokenType: "Admin";
       value: string;
       baseVersion: ConnectionIdentityVersion;
     };
@@ -87,6 +93,108 @@ export type ConnectionClientMessage =
   | ConnectionActionRequestMessage
   | ConnectionEventMessage;
 
+export type ConnectionSyncTimestamp = number;
+
+export type ConnectionStateVersion = {
+  querySet: ConnectionQuerySetVersion;
+  ts: ConnectionSyncTimestamp;
+  identity: ConnectionIdentityVersion;
+};
+
+export type ConnectionQueryUpdatedMessage = {
+  type: "QueryUpdated";
+  queryId: ConnectionQueryId;
+  value: Json;
+  logLines: ReadonlyArray<string>;
+  journal: string | null;
+};
+
+export type ConnectionQueryFailedMessage = {
+  type: "QueryFailed";
+  queryId: ConnectionQueryId;
+  errorMessage: string;
+  logLines: ReadonlyArray<string>;
+  errorData: Json;
+  journal: string | null;
+};
+
+export type ConnectionQueryRemovedMessage = {
+  type: "QueryRemoved";
+  queryId: ConnectionQueryId;
+};
+
+export type ConnectionStateModification =
+  | ConnectionQueryUpdatedMessage
+  | ConnectionQueryFailedMessage
+  | ConnectionQueryRemovedMessage;
+
+export type ConnectionTransitionMessage = {
+  type: "Transition";
+  startVersion: ConnectionStateVersion;
+  endVersion: ConnectionStateVersion;
+  modifications: ReadonlyArray<ConnectionStateModification>;
+  serverTs?: number | undefined;
+};
+
+export type ConnectionMutationResponseMessage =
+  | {
+      type: "MutationResponse";
+      requestId: ConnectionRequestId;
+      success: true;
+      result: Json;
+      ts?: ConnectionSyncTimestamp | undefined;
+      logLines: ReadonlyArray<string>;
+    }
+  | {
+      type: "MutationResponse";
+      requestId: ConnectionRequestId;
+      success: false;
+      result: string;
+      logLines: ReadonlyArray<string>;
+      errorData?: Json | undefined;
+    };
+
+export type ConnectionActionResponseMessage =
+  | {
+      type: "ActionResponse";
+      requestId: ConnectionRequestId;
+      success: true;
+      result: Json;
+      logLines: ReadonlyArray<string>;
+    }
+  | {
+      type: "ActionResponse";
+      requestId: ConnectionRequestId;
+      success: false;
+      result: string;
+      logLines: ReadonlyArray<string>;
+      errorData?: Json | undefined;
+    };
+
+export type ConnectionFatalErrorMessage = {
+  type: "FatalError";
+  error: string;
+};
+
+export type ConnectionAuthErrorMessage = {
+  type: "AuthError";
+  error: string;
+  baseVersion: ConnectionIdentityVersion;
+  authUpdateAttempted: boolean;
+};
+
+export type ConnectionPingMessage = {
+  type: "Ping";
+};
+
+export type ConnectionServerMessage =
+  | ConnectionTransitionMessage
+  | ConnectionMutationResponseMessage
+  | ConnectionActionResponseMessage
+  | ConnectionFatalErrorMessage
+  | ConnectionAuthErrorMessage
+  | ConnectionPingMessage;
+
 export type ConnectionInvalidationRequest = {
   queryId: ConnectionQueryId;
 };
@@ -96,6 +204,13 @@ export class ConnectionClientMessageError extends Data.TaggedError(
 )<{
   readonly message: string;
   readonly cause?: unknown;
+}> {}
+
+export class ConnectionServerMessageError extends Data.TaggedError(
+  "ConnectionServerMessageError",
+)<{
+  readonly message: string;
+  readonly cause: Schema.SchemaError;
 }> {}
 
 export class ConnectionRouteValidationError extends Data.TaggedError(
@@ -172,12 +287,114 @@ const ConnectionClientMessageSchema = Schema.Union([
   }),
 ]);
 
+const ConnectionStateVersionSchema = Schema.Struct({
+  querySet: ConnectionInteger,
+  ts: Schema.Number,
+  identity: ConnectionInteger,
+});
+
+const ConnectionQueryUpdatedMessageSchema = Schema.Struct({
+  type: Schema.Literal("QueryUpdated"),
+  queryId: ConnectionInteger,
+  value: JsonValue,
+  logLines: Schema.Array(Schema.String),
+  journal: Schema.Union([Schema.String, Schema.Null]),
+});
+
+const ConnectionQueryFailedMessageSchema = Schema.Struct({
+  type: Schema.Literal("QueryFailed"),
+  queryId: ConnectionInteger,
+  errorMessage: Schema.String,
+  logLines: Schema.Array(Schema.String),
+  errorData: JsonValue,
+  journal: Schema.Union([Schema.String, Schema.Null]),
+});
+
+const ConnectionQueryRemovedMessageSchema = Schema.Struct({
+  type: Schema.Literal("QueryRemoved"),
+  queryId: ConnectionInteger,
+});
+
+const ConnectionStateModificationSchema = Schema.Union([
+  ConnectionQueryUpdatedMessageSchema,
+  ConnectionQueryFailedMessageSchema,
+  ConnectionQueryRemovedMessageSchema,
+]);
+
+const ConnectionMutationResponseMessageSchema = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("MutationResponse"),
+    requestId: ConnectionInteger,
+    success: Schema.Literal(true),
+    result: JsonValue,
+    ts: Schema.optional(Schema.Number),
+    logLines: Schema.Array(Schema.String),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("MutationResponse"),
+    requestId: ConnectionInteger,
+    success: Schema.Literal(false),
+    result: Schema.String,
+    logLines: Schema.Array(Schema.String),
+    errorData: Schema.optional(JsonValue),
+  }),
+]);
+
+const ConnectionActionResponseMessageSchema = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("ActionResponse"),
+    requestId: ConnectionInteger,
+    success: Schema.Literal(true),
+    result: JsonValue,
+    logLines: Schema.Array(Schema.String),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("ActionResponse"),
+    requestId: ConnectionInteger,
+    success: Schema.Literal(false),
+    result: Schema.String,
+    logLines: Schema.Array(Schema.String),
+    errorData: Schema.optional(JsonValue),
+  }),
+]);
+
+export const ConnectionServerMessageSchema = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("Transition"),
+    startVersion: ConnectionStateVersionSchema,
+    endVersion: ConnectionStateVersionSchema,
+    modifications: Schema.Array(ConnectionStateModificationSchema),
+    serverTs: Schema.optional(Schema.Number),
+  }),
+  ConnectionMutationResponseMessageSchema,
+  ConnectionActionResponseMessageSchema,
+  Schema.Struct({
+    type: Schema.Literal("FatalError"),
+    error: Schema.String,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("AuthError"),
+    error: Schema.String,
+    baseVersion: ConnectionInteger,
+    authUpdateAttempted: Schema.Boolean,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("Ping"),
+  }),
+]);
+
 export const ConnectionInvalidationRequestSchema = Schema.Struct({
   queryId: ConnectionInteger,
 });
 
 const decodeUnknownConnectionClientMessage = Schema.decodeUnknownEffect(
   ConnectionClientMessageSchema,
+);
+const decodeUnknownConnectionServerMessage = Schema.decodeUnknownEffect(
+  ConnectionServerMessageSchema,
+);
+const decodeUnknownConnectionServerMessageSync = Schema.decodeUnknownSync(
+  ConnectionServerMessageSchema,
 );
 const decodeUnknownConnectionInvalidationRequest = Schema.decodeUnknownEffect(
   ConnectionInvalidationRequestSchema,
@@ -203,6 +420,15 @@ export const decodeConnectionClientMessagePayloadEffect = Effect.fn(
   );
   return parsed;
 });
+
+export const decodeConnectionServerMessagePayloadEffect = Effect.fn(
+  "ConnectionProtocol.decodeServerMessagePayload",
+)((
+  value: unknown,
+): Effect.Effect<ConnectionServerMessage, ConnectionServerMessageError> =>
+  decodeUnknownConnectionServerMessage(value).pipe(
+    Effect.mapError(cause => connectionServerMessageError(value, cause)),
+  ));
 
 export const decodeConnectionInvalidationPayloadEffect = Effect.fn(
   "ConnectionProtocol.decodeInvalidationPayload",
@@ -276,6 +502,15 @@ export function parseConnectionClientMessage(value: unknown): ConnectionClientMe
       };
     default:
       throw new Error(`Unknown sync client message type: ${value.type}.`);
+  }
+}
+
+export function parseConnectionServerMessage(value: unknown): ConnectionServerMessage {
+  try {
+    return decodeUnknownConnectionServerMessageSync(value);
+  } catch (cause) {
+    if (!Schema.isSchemaError(cause)) throw cause;
+    throw connectionServerMessageError(value, cause);
   }
 }
 
@@ -396,6 +631,37 @@ function connectionClientMessageError(cause: unknown): ConnectionClientMessageEr
     cause,
   });
 }
+
+function connectionServerMessageError(
+  value: unknown,
+  cause: Schema.SchemaError,
+): ConnectionServerMessageError {
+  if (!isRecord(value) || typeof value.type !== "string") {
+    return new ConnectionServerMessageError({
+      message: "Sync server message must be an object with a type.",
+      cause,
+    });
+  }
+  if (!CONNECTION_SERVER_MESSAGE_TYPES.some(type => type === value.type)) {
+    return new ConnectionServerMessageError({
+      message: `Unknown sync server message type: ${value.type}.`,
+      cause,
+    });
+  }
+  return new ConnectionServerMessageError({
+    message: `Invalid sync server message payload for ${value.type}.`,
+    cause,
+  });
+}
+
+const CONNECTION_SERVER_MESSAGE_TYPES = [
+  "Transition",
+  "MutationResponse",
+  "ActionResponse",
+  "FatalError",
+  "AuthError",
+  "Ping",
+] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

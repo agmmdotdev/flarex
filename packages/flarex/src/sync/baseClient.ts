@@ -41,8 +41,8 @@ export type SyncMutationOptions = {
 };
 
 type QueryResult =
-  | { success: true; value: Json; logLines: string[] }
-  | { success: false; error: Error; logLines: string[]; errorData?: Json };
+  | { success: true; value: Json; logLines: ReadonlyArray<string> }
+  | { success: false; error: Error; logLines: ReadonlyArray<string>; errorData?: Json };
 
 type PendingMutation = {
   resolve: (value: Json) => void;
@@ -149,8 +149,15 @@ export class BaseFlarexClient {
   }
 
   private handleMessageData(data: unknown): void {
-    const parsed = typeof data === "string" ? JSON.parse(data) : data;
-    const message = parseServerMessage(parsed);
+    let message: ServerMessage;
+    try {
+      const parsed = typeof data === "string" ? JSON.parse(data) : data;
+      message = parseServerMessage(parsed);
+    } catch (cause) {
+      this.failAll(syncProtocolFailure(cause));
+      this.socket.close();
+      return;
+    }
     this.handleServerMessage(message);
   }
 
@@ -270,4 +277,8 @@ function syncUrl(address: string): string {
     url.pathname = `${url.pathname.replace(/\/$/, "")}/sync`;
   }
   return url.toString();
+}
+
+function syncProtocolFailure(cause: unknown): Error {
+  return cause instanceof Error ? cause : new Error(String(cause));
 }

@@ -243,18 +243,26 @@ type ServerMessage =
   | Ping;
 ```
 
-`flarex-protocol/connection` is the transport-neutral owner of inbound client
-message types and runtime decoding. `ConnectionDO` and its route adapters
-consume that contract directly; `packages/flarex-backend/src/syncProtocol.ts`
-owns only the current server-to-client message shapes. The backend converts
-protocol-owned readonly JSON into its legacy mutable JSON representation at
-the existing execution boundary rather than maintaining a second wire parser.
-The published `flarex-backend/test/sync-protocol` test entrypoint retains
-deprecated client-type and parser names as direct protocol re-exports so test
-consumers can migrate without restoring a second contract owner.
-The SDK's narrower outbound subset and server-message decoder remain a
-separate ownership slice because changing them can affect public client
-behavior.
+`flarex-protocol/connection` is the transport-neutral owner of both inbound
+client messages and outbound server wire messages. It owns the shared client
+parser, the server-message Schema, a typed Effect decoder, and a throwing
+compatibility parser. `ConnectionDO` and its route adapters consume those
+contracts directly. The backend converts protocol-owned readonly JSON into its
+legacy mutable JSON representation only at the existing invocation boundary.
+The published `flarex-backend/test/sync-protocol` entrypoint retains deprecated
+client and server names as direct protocol re-exports so test consumers can
+migrate without restoring a second contract owner.
+
+The SDK derives its deliberately narrower outbound client types and supported
+server-message subset from the protocol contract. Its local JSON helper remains
+SDK-owned because it normalizes developer arguments by omitting `undefined`
+object fields; it now returns the protocol JSON representation. Server payloads
+are structurally decoded by the shared protocol Schema instead of accepted by
+type-tag assertions. A malformed or unsupported server frame rejects pending
+mutations and closes the socket so the client cannot continue from untrusted
+protocol state. The SDK continues to reject `ActionResponse` until it owns an
+action request and pending-response lifecycle, while the shared wire contract
+recognizes the backend-supported message.
 
 The first supported client message should be `ModifyQuerySet`:
 

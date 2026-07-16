@@ -8,6 +8,9 @@ import type {
   ConnectionClientMessage as ClientMessage,
   ConnectionMutationRequestMessage as MutationRequest,
   ConnectionQueryId as QueryId,
+  ConnectionServerMessage as ServerMessage,
+  ConnectionStateModification as StateModification,
+  ConnectionStateVersion as StateVersion,
 } from "flarex-protocol/connection";
 import type { Json as ProtocolJson } from "flarex-protocol/json";
 import { R2BackendExecutionArtifactStore } from "./artifactStore";
@@ -64,11 +67,6 @@ import { requireProjectIdEffect } from "./project";
 import {
   partitionObjectName,
 } from "./routing";
-import {
-  type ServerMessage,
-  type StateModification,
-  type StateVersion,
-} from "./syncProtocol";
 import type {
   ActiveDeploymentStatus,
   Env,

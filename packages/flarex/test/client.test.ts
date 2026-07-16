@@ -876,4 +876,75 @@ describe("FlarexClient", () => {
 
     await expect(result).resolves.toEqual({ completed: true });
   });
+
+  it("rejects pending mutations and closes after a malformed server frame", async () => {
+    FakeWebSocket.instances = [];
+    const client = new FlarexClient("https://example.test/deployments/app", {
+      webSocketConstructor: FakeWebSocket,
+    });
+
+    const result = client.mutation(
+      { _path: "lessons:complete", _kind: "mutation", _partition: userPartition },
+      { userId: "user-1", lessonId: "intro" },
+    );
+    const ws = FakeWebSocket.instances[0]!;
+
+    ws.receive({
+      type: "MutationResponse",
+      requestId: 0,
+      success: true,
+    });
+
+    await expect(result).rejects.toThrow(
+      "Invalid sync server message payload for MutationResponse.",
+    );
+    expect(ws.readyState).toBe(3);
+  });
+
+  it("does not classify subscriber callback failures as malformed server frames", async () => {
+    FakeWebSocket.instances = [];
+    const client = new FlarexClient("https://example.test/deployments/app", {
+      webSocketConstructor: FakeWebSocket,
+    });
+    const onError = vi.fn();
+    client.onUpdate(
+      { _path: "lessons:list", _kind: "query", _partition: userPartition },
+      { userId: "user-1" },
+      () => {
+        throw new Error("subscriber boom");
+      },
+      onError,
+    );
+    const result = client.mutation(
+      { _path: "lessons:complete", _kind: "mutation", _partition: userPartition },
+      { userId: "user-1", lessonId: "intro" },
+    );
+    const ws = FakeWebSocket.instances[0]!;
+
+    ws.receive({
+      type: "Transition",
+      startVersion: { querySet: 0, ts: 0, identity: 0 },
+      endVersion: { querySet: 1, ts: 1, identity: 0 },
+      modifications: [{
+        type: "QueryUpdated",
+        queryId: 0,
+        value: [],
+        logLines: [],
+        journal: null,
+      }],
+    });
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      message: "subscriber boom",
+    }));
+    expect(ws.readyState).toBe(1);
+
+    ws.receive({
+      type: "MutationResponse",
+      requestId: 0,
+      success: true,
+      result: { completed: true },
+      logLines: [],
+    });
+    await expect(result).resolves.toEqual({ completed: true });
+  });
 });

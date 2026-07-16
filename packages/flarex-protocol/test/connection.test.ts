@@ -6,10 +6,13 @@ import {
   ConnectionClientMessageError,
   ConnectionInvalidationRequestSchema,
   ConnectionRouteValidationError,
+  ConnectionServerMessageError,
   decodeConnectionClientMessageEffect,
   decodeConnectionClientMessagePayloadEffect,
   decodeConnectionInvalidationPayloadEffect,
   decodeConnectionLiveQueryDeliveryPayloadEffect,
+  decodeConnectionServerMessagePayloadEffect,
+  parseConnectionServerMessage,
 } from "../src/connection";
 
 const decodeConnectionInvalidationRequest = Schema.decodeUnknownSync(
@@ -65,6 +68,91 @@ describe("connection protocol schemas", () => {
       _tag: "ConnectionClientMessageError",
       message: "ModifyQuerySet.modifications must be an array.",
     });
+  });
+
+  it("decodes server wire messages through the shared protocol authority", async () => {
+    await expect(Effect.runPromise(decodeConnectionServerMessagePayloadEffect({
+      type: "Transition",
+      startVersion: { querySet: 0, ts: 0, identity: 0 },
+      endVersion: { querySet: 1, ts: 1, identity: 0 },
+      modifications: [{
+        type: "QueryUpdated",
+        queryId: 1,
+        value: { name: "Ada" },
+        logLines: [],
+        journal: null,
+      }],
+    }))).resolves.toEqual({
+      type: "Transition",
+      startVersion: { querySet: 0, ts: 0, identity: 0 },
+      endVersion: { querySet: 1, ts: 1, identity: 0 },
+      modifications: [{
+        type: "QueryUpdated",
+        queryId: 1,
+        value: { name: "Ada" },
+        logLines: [],
+        journal: null,
+      }],
+    });
+
+    expect(parseConnectionServerMessage({
+      type: "ActionResponse",
+      requestId: 2,
+      success: true,
+      result: { ok: true },
+      logLines: [],
+    })).toEqual({
+      type: "ActionResponse",
+      requestId: 2,
+      success: true,
+      result: { ok: true },
+      logLines: [],
+    });
+  });
+
+  it("rejects malformed and unknown server wire messages with typed failures", async () => {
+    await expect(Effect.runPromise(decodeConnectionServerMessagePayloadEffect({
+      type: "Transition",
+      modifications: [],
+    }))).rejects.toMatchObject({
+      _tag: "ConnectionServerMessageError",
+      message: "Invalid sync server message payload for Transition.",
+    });
+
+    await expect(Effect.runPromise(decodeConnectionServerMessagePayloadEffect({
+      type: "FutureMessage",
+    }))).rejects.toMatchObject({
+      _tag: "ConnectionServerMessageError",
+      message: "Unknown sync server message type: FutureMessage.",
+    });
+
+    expect(() => parseConnectionServerMessage(null))
+      .toThrow(ConnectionServerMessageError);
+  });
+
+  it("does not normalize decoder defects into malformed server messages", () => {
+    const defect = new Error("prototype trap");
+    const result = new Proxy({}, {
+      getPrototypeOf: () => {
+        throw defect;
+      },
+    });
+
+    let caught: unknown;
+    try {
+      parseConnectionServerMessage({
+        type: "MutationResponse",
+        requestId: 1,
+        success: true,
+        result,
+        logLines: [],
+      });
+    } catch (cause) {
+      caught = cause;
+    }
+
+    expect(caught).not.toBeInstanceOf(ConnectionServerMessageError);
+    expect(caught).toBeInstanceOf(Error);
   });
 
   it("decodes invalidation route bodies", async () => {

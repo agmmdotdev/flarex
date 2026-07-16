@@ -210,8 +210,11 @@ How Flarex differs:
 Known limitations:
 
 - The published `flarex-backend/test/sync-protocol` entrypoint still exposes
-  deprecated inbound client names for test-consumer compatibility, but those
-  names now directly re-export the `flarex-protocol/connection` authority.
+  deprecated client and server names for test-consumer compatibility, but
+  those names directly re-export the `flarex-protocol/connection` authority.
+- The SDK derives its narrower sync subsets from the shared protocol and uses
+  the shared structural server decoder. It still rejects `ActionResponse`
+  until action requests and pending-response ownership are implemented.
 - `connectionDO.ts` still has runtime try/catch blocks for invocation/session
   behavior; those are not S-3 JSON parsing boundaries.
 - `executor-http` remains untouched until E-1.

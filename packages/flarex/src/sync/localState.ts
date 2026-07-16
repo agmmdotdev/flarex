@@ -182,9 +182,13 @@ export function serializePathArgsAndPartition(
 
 function stableJson(value: Json): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (isJsonArray(value)) return `[${value.map(stableJson).join(",")}]`;
   return `{${Object.keys(value)
     .sort()
     .map(key => `${JSON.stringify(key)}:${stableJson(value[key] ?? null)}`)
     .join(",")}}`;
+}
+
+function isJsonArray(value: Json): value is ReadonlyArray<Json> {
+  return Array.isArray(value);
 }
