@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import {
   CommitSyscallSequenceV1Schema,
+  SESSION_JOURNAL_FORMAT_V1,
   canonicalizeSessionJournalV1Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
@@ -18,9 +19,11 @@ import {
 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import {
+  TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
   TransactionAttemptFenceSchema,
   type TransactionSessionLifecycleV1,
 } from "flarex-protocol/transaction-session";
+import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
 import {
   beforeAll,
   describe,
@@ -30,6 +33,7 @@ import {
 } from "vitest";
 
 import type { StoredAttemptEvidenceLoaderPortV1 } from "../../executor/src/storedAttemptAuthentication";
+import type { StoredCommitAuthorityEvidenceLoaderPortV1 } from "../../executor/src/storedAttemptAuthentication";
 import * as persistenceRoot from "../src";
 import {
   createPGliteLocatedPointMutationSessionActivationTargetV1,
@@ -44,6 +48,12 @@ import {
   type SessionJournalAttemptV1,
   type SessionJournalStorePersistenceV1,
 } from "../src/sessionJournalStore";
+import {
+  createStoredCommitAuthorityEvidenceLoaderV1,
+  MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1,
+  type StoredCommitAuthorityEvidenceAuthorityV1,
+  type StoredCommitAuthorityEvidenceQueryV1,
+} from "../src/storedCommitAuthorityEvidence";
 import {
   createStoredAttemptEvidenceLoaderV1,
   type StoredAttemptEvidenceAuthorityV1,
@@ -385,6 +395,218 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     ).toBe(true);
   });
 
+  it("size-projects C04B1 authority evidence before bounded payload transfer", async () => {
+    const current = await scenario("commit_authority_capture");
+    await seal(current);
+    const authenticatedEvidence = await current.loader.load(current.authority);
+    if (authenticatedEvidence.kind !== "loaded") {
+      throw new Error("Expected C04A evidence.");
+    }
+    const authority = commitAuthorityFromStoredEvidence(
+      current.authority,
+      authenticatedEvidence.evidence,
+    );
+    const queries: StoredCommitAuthorityEvidenceQueryV1["name"][] = [];
+    let transactionClosed = false;
+    const loader = createStoredCommitAuthorityEvidenceLoaderV1(
+      resolutionPorts(persistence),
+      {
+        observeQuery: (query) => queries.push(query.name),
+        afterRepeatableRead: () => {
+          transactionClosed = true;
+        },
+      },
+    );
+    const executorPort: StoredCommitAuthorityEvidenceLoaderPortV1 = loader;
+    const result = await executorPort.load(authority);
+
+    expect(transactionClosed).toBe(true);
+    expect(result.kind).toBe("loaded");
+    expect(queries.indexOf("authoritySizes")).toBeLessThan(
+      queries.indexOf("authorityPayload"),
+    );
+    expect(queries.indexOf("schemaSizes")).toBeLessThan(
+      queries.indexOf("schemaPayload"),
+    );
+    expect(queries).not.toContain("activePackageId");
+    if (result.kind !== "loaded") throw new Error("Expected C04B1 evidence.");
+    expect(result.evidence.schema.schemaVersionId).toBe(
+      current.schemaVersionId,
+    );
+    expect(result.evidence.schema.stableBindings).toEqual([
+      { logicalName: "users", tableId: 1 },
+    ]);
+    result.evidence.session.validatedArgsCanonicalBytes.fill(0);
+    const second = await executorPort.load(authority);
+    if (second.kind !== "loaded") throw new Error("Expected detached reload.");
+    expect(
+      second.evidence.session.validatedArgsCanonicalBytes.some(
+        (byte) => byte !== 0,
+      ),
+    ).toBe(true);
+  });
+
+  it("decodes malformed schema evidence only after repeatable read closes", async () => {
+    const current = await scenario("commit_authority_malformed_schema");
+    await seal(current);
+    const authenticatedEvidence = await current.loader.load(current.authority);
+    if (authenticatedEvidence.kind !== "loaded") {
+      throw new Error("Expected C04A evidence.");
+    }
+    const authority = commitAuthorityFromStoredEvidence(
+      current.authority,
+      authenticatedEvidence.evidence,
+    );
+    await persistence.query(
+      `
+        update fx_control_schema_version
+        set manifest_bytes = convert_to('x', 'UTF8')
+        where deployment_id = $1
+          and schema_version_id = $2
+      `,
+      [current.anchor.deploymentId, current.schemaVersionId],
+    );
+
+    let transactionClosed = false;
+    let decodeObservedAfterClose = false;
+    const loader = createStoredCommitAuthorityEvidenceLoaderV1(
+      resolutionPorts(persistence),
+      {
+        afterRepeatableRead: () => {
+          transactionClosed = true;
+        },
+        beforeSchemaArtifactDecode: () => {
+          decodeObservedAfterClose = transactionClosed;
+        },
+      },
+    );
+
+    await expect(loader.load(authority)).resolves.toMatchObject({
+      kind: "corrupt",
+      reason: "schemaArtifactInvalid",
+    });
+    expect(transactionClosed).toBe(true);
+    expect(decodeObservedAfterClose).toBe(true);
+  });
+
+  it("does not disguise unexpected detached materialization defects as corruption", async () => {
+    const current = await scenario("commit_authority_materialization_defect");
+    await seal(current);
+    const authenticatedEvidence = await current.loader.load(current.authority);
+    if (authenticatedEvidence.kind !== "loaded") {
+      throw new Error("Expected C04A evidence.");
+    }
+    const authority = commitAuthorityFromStoredEvidence(
+      current.authority,
+      authenticatedEvidence.evidence,
+    );
+    const defect = new Error("materialization defect sentinel");
+    const loader = createStoredCommitAuthorityEvidenceLoaderV1(
+      resolutionPorts(persistence),
+      {
+        beforeSchemaArtifactDecode: () => {
+          throw defect;
+        },
+      },
+    );
+
+    await expect(loader.load(authority)).rejects.toBe(defect);
+  });
+
+  it("accepts the exact 64 MiB aggregate and skips every payload at +1", async () => {
+    const current = await scenario("commit_authority_limit");
+    await seal(current);
+    const authenticatedEvidence = await current.loader.load(current.authority);
+    if (authenticatedEvidence.kind !== "loaded") {
+      throw new Error("Expected C04A evidence.");
+    }
+    const baseAuthority = commitAuthorityFromStoredEvidence(
+      current.authority,
+      authenticatedEvidence.evidence,
+    );
+    const measured = await persistence.query<{
+      total: string;
+      args_bytes: string;
+    }>(
+      `
+        select
+          (
+            octet_length(session.validated_args_json::text)
+            + octet_length(session.validated_args_canonical_bytes)
+            + octet_length(session.authorization_grant_json::text)
+            + octet_length(session.authorization_grant_canonical_bytes)
+            + octet_length(schema_version.manifest_json::text)
+            + octet_length(schema_version.manifest_bytes)
+          )::bigint::text as total,
+          octet_length(session.validated_args_canonical_bytes)::bigint::text
+            as args_bytes
+        from fx_system_tx_session as session
+        join fx_control_schema_version as schema_version
+          on schema_version.deployment_id = $2
+          and schema_version.schema_version_id = session.schema_version_id
+        where session.session_id = $1
+      `,
+      [current.anchor.sessionId, current.anchor.deploymentId],
+    );
+    const measurement = measured.rows[0];
+    if (measurement === undefined) throw new Error("Missing size measurement.");
+    const exactArgsBytes = Number(measurement.args_bytes) +
+      MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1 -
+      Number(measurement.total);
+    await persistence.query(
+      `
+        update fx_system_tx_session
+        set validated_args_canonical_bytes =
+          convert_to(repeat('x', $2), 'UTF8')
+        where session_id = $1
+      `,
+      [current.anchor.sessionId, exactArgsBytes],
+    );
+    const exactAuthority = Object.freeze({
+      ...baseAuthority,
+      session: Object.freeze({
+        ...baseAuthority.session,
+        validatedArgsCanonicalByteLength: exactArgsBytes,
+      }),
+    });
+    const exactQueries: string[] = [];
+    const exactLoader = createStoredCommitAuthorityEvidenceLoaderV1(
+      resolutionPorts(persistence),
+      { observeQuery: (query) => exactQueries.push(query.name) },
+    );
+    await expect(exactLoader.load(exactAuthority)).resolves.toMatchObject({
+      kind: "loaded",
+    });
+    expect(exactQueries).toContain("authorityPayload");
+
+    await persistence.query(
+      `
+        update fx_system_tx_session
+        set validated_args_canonical_bytes =
+          validated_args_canonical_bytes || decode('00', 'hex')
+        where session_id = $1
+      `,
+      [current.anchor.sessionId],
+    );
+    const overflowAuthority = Object.freeze({
+      ...baseAuthority,
+      session: Object.freeze({
+        ...baseAuthority.session,
+        validatedArgsCanonicalByteLength: exactArgsBytes + 1,
+      }),
+    });
+    const overflowQueries: string[] = [];
+    const overflowLoader = createStoredCommitAuthorityEvidenceLoaderV1(
+      resolutionPorts(persistence),
+      { observeQuery: (query) => overflowQueries.push(query.name) },
+    );
+    await expect(overflowLoader.load(overflowAuthority)).resolves
+      .toMatchObject({ kind: "corrupt", reason: "evidenceLimitExceeded" });
+    expect(overflowQueries).not.toContain("authorityPayload");
+    expect(overflowQueries).not.toContain("schemaPayload");
+    expect(overflowQueries).not.toContain("stableBindings");
+  }, 120_000);
+
   interface ScenarioOptions {
     readonly afterRepeatableRead?: () => void | Promise<void>;
   }
@@ -517,6 +739,47 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     return row;
   }
 });
+
+function commitAuthorityFromStoredEvidence(
+  authority: StoredAttemptEvidenceAuthorityV1,
+  evidence: Extract<
+    Awaited<ReturnType<StoredAttemptEvidenceLoaderV1["load"]>>,
+    { readonly kind: "loaded" }
+  >["evidence"],
+): StoredCommitAuthorityEvidenceAuthorityV1 {
+  return Object.freeze({
+    ...authority,
+    session: Object.freeze(structuredClone(evidence.session)),
+    sealIdentity: Object.freeze({
+      scopeUuid: evidence.scopeUuid,
+      lifecycle: evidence.session.lifecycle,
+      sessionUpdatedAtMilliseconds: evidence.session.updatedAtMilliseconds,
+      leaseExpiresAtMilliseconds: evidence.lease.leaseExpiresAtMilliseconds,
+      rootCreatedAtMilliseconds: evidence.root.createdAtMilliseconds,
+      rootUpdatedAtMilliseconds: evidence.root.updatedAtMilliseconds,
+      sealedAtMilliseconds: evidence.root.sealedAtMilliseconds,
+      finalSyscallSequence: evidence.root.sealedFinalSyscallSequence,
+      creationTimeSeed: evidence.root.creationTimeSeed,
+      nextCreationTime: evidence.root.nextCreationTime,
+      journalFormat: SESSION_JOURNAL_FORMAT_V1,
+      journalProtocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
+      journalValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+      journalByteLength: evidence.root.journalBytes.byteLength,
+      journalSha256: new Uint8Array(evidence.root.journalSha256),
+      resultValueCodecVersion: evidence.root.resultValueCodecVersion,
+      resultSemanticBytes: evidence.root.resultSemanticBytes,
+      resultByteLength: evidence.root.resultBytes.byteLength,
+      resultSha256: new Uint8Array(evidence.root.resultSha256),
+      readDocuments: evidence.root.readDocuments,
+      readSemanticBytes: evidence.root.readSemanticBytes,
+      pointDependencyCount: evidence.root.pointDependencyCount,
+      writeOperations: evidence.root.writeOperations,
+      writeSemanticBytes: evidence.root.writeSemanticBytes,
+      materialWriteEventEvidenceBytes:
+        evidence.root.materialWriteEventEvidenceBytes,
+    }),
+  });
+}
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(

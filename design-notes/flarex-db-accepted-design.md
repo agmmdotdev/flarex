@@ -864,7 +864,11 @@ CommitEnvelopeV1
 AuthenticatedStoredAttemptV1 (introduced by C04A)
   runtime-unforgeable process-local proof of the exact Postgres-stored seal
 
-VerifiedCommitInput (introduced by C04B)
+AuthenticatedCommitAuthorityV1 (introduced by C04B1)
+  same-factory proof of current argument, grant, revocation, pinned schema,
+  and immutable proof-only function metadata
+
+VerifiedCommitInput (introduced by C04B2)
   authenticated evidence plus authoritative catalog, policy, and return facts
 
 CommitPlanner (introduced by C04C)
@@ -977,6 +981,12 @@ functionPath, functionKind: "mutation", validatedArgsSha256, requestKey }`.
 Auth, policy, revocation epoch, time, and signing-key data remain separate grant
 pins.
 
+Both trusted preparers reject arguments before activation when Convex's
+implicit outer argument array would exceed 16 MiB: the exact charged size is
+`2 + argumentSemanticBytes`. C04B1 independently reapplies the same rule to
+the stored argument evidence; this is a transaction semantic, not a transport
+limit.
+
 Production preparation is a later adapter owned jointly by roadmap 17 and
 S03-D4/S04. It must read one coherent active package, artifact/source,
 function-validator, and schema snapshot with an activation revision or fence;
@@ -986,6 +996,15 @@ fresh preflight. The checked revocation command moves to its first operational
 or admin consumer, and backend Worker/key/binding adapters move to their first
 hosted-production consumer. Those gates do not block O03-B, O04/O05, or the
 private C02-C07 proof.
+
+Until that production snapshot exists, C04B1 may reuse the immutable
+setup-seeded metadata only as a temporary proof adapter. Its sole consumer is
+the private C07 proof; its reason is deferred production activation-snapshot
+authority; and roadmap 17 plus S03-D4/S04 publishing one coherent package,
+artifact/source, function-validator, and schema snapshot is its mandatory
+deletion/replacement gate. It is unreachable from production selection and
+cannot consult `activePackageId`, `analysisJson`, or the mutable active-schema
+pointer.
 
 The narrow schema prerequisite S07-A first adds one nonnegative scope-wide
 `authorization_revocation_epoch` to the located data-plane scope clock. O03-A
@@ -1044,7 +1063,8 @@ C03A gives that point consumer only an opaque pinned-table capability. It
 resolves `(deploymentId, schemaVersionId, tableName)` from the immutable pinned
 manifest, where membership and declared table ID are authoritative, and checks
 the stable deployment binding only as corroboration. It never reads the mutable
-active-schema pointer and is not C04B's broader catalog/policy reader.
+active-schema pointer. C04B1 owns the broader pinned schema/binding
+reauthentication, while C04B2 owns final value/return validation.
 
 C03 persists four exact-attempt tables: one bounded root, one replace-in-place
 latest receipt, at most 4,096 qualified point dependencies with deterministic
@@ -1093,7 +1113,22 @@ point evidence, and the complete scalar seal identity. It accepts only a live
 reconstruction, and returns a runtime-unforgeable process-local
 `AuthenticatedStoredAttemptV1`. A committed observation is typed as already
 committed and non-plannable; committed-outcome resolution remains C06/O07.
-C04B later adds authoritative catalog, policy, and return validation to produce
+C04B1 extends only that factory-local vault: a genuine same-factory C04A
+capability triggers one fresh bounded read-only repeatable-read capture of
+stored arguments/grant, current scope revocation and database time, the one
+immutable pinned schema artifact, and corroborating stable bindings. It
+projects stored lengths before payload selection, transfers JSON as text, and
+closes SQL before decoding, canonicalization, SHA-256, Ed25519, or proof-
+metadata work. The exact prepared-start grant kernel is shared, but C04B1
+cannot manufacture or register a prepared-start handle.
+
+C04B1 returns only private `AuthenticatedCommitAuthorityV1`. Its separate
+64 MiB corruption/materialization ceiling charges six stored representations:
+argument JSON and canonical bytes, grant JSON and canonical bytes, and pinned-
+schema JSON and canonical bytes. This is a Flarex operational resource guard,
+not a Convex transaction semantic, hosted transport guarantee, or substitute
+for the independent journal limits. C04B2 remains unapproved and alone may add
+final document/result and authoritative return-validator checks to produce
 `VerifiedCommitInput`; C04C then performs database-free deterministic lowering
 to `PreparedCommitV1`. SHA-256 proves byte integrity only; authenticating the
 Postgres session/fence does not authenticate arbitrary inline journal bytes.
@@ -1214,9 +1249,12 @@ Requirements:
   consumer and is not a prerequisite for bounded private execution;
 - C03 sealing is the syscall barrier while the session is still `running`;
   C04A authenticates that stored seal outside the later commit transaction,
-  and C05 locks and revalidates its scalar identity before the private exact-
-  fence transition to `finishing`; reconstruction may authenticate the same
-  sealed attempt from `finishing`, while C06 owns endpoint orchestration;
+  C04B1 reauthenticates current stored argument/grant/revocation/schema facts
+  into a second same-factory private capability, and C04B2 alone may validate
+  final values/return evidence into `VerifiedCommitInput`; C05 locks and
+  revalidates the seal's scalar identity before the private exact-fence
+  transition to `finishing`; reconstruction may authenticate the same sealed
+  attempt from `finishing`, while C06 owns endpoint orchestration;
 - O07 deletes the exact current lease and enters `committed` only in the atomic
   publication/outcome transaction;
 - O08 handles a trusted OCC retry from `finishing` by atomically entering `retrying`,

@@ -154,6 +154,30 @@ describe("executor point-mutation preparation", () => {
       ExecutorPointMutationScopeAuthorityV1Error,
     );
   });
+
+  it("inherits the exact 16 MiB implicit argument-array boundary", async () => {
+    const preparation = createExecutorPointMutationStartPreparationV1({
+      loadActiveTargetMetadata: async () => targetMetadata(),
+      loadCurrentScopeAuthority: async () => currentAuthority(),
+    });
+    const exact = "x".repeat(
+      MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1 - 14,
+    );
+    await expect(preparation.prepare(candidate({ orderId: exact }))).resolves
+      .toSatisfy((value) => {
+        expect(() => inspectExecutorPreparedPointMutationStartV1(value))
+          .not.toThrow();
+        return true;
+      });
+    await expect(preparation.prepare(candidate({ orderId: `${exact}x` })))
+      .rejects.toMatchObject({
+        issue: {
+          reason: "argumentsTooLarge",
+          observed:
+            MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1 + 1,
+        },
+      });
+  });
 });
 
 function candidate(
@@ -225,3 +249,4 @@ function targetMetadata() {
     },
   };
 }
+import { MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1 } from "flarex-protocol/point-mutation-start";

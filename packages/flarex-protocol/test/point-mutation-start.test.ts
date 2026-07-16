@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1,
   POINT_MUTATION_REQUEST_FORMAT_V1,
   PointMutationTargetSelectionV1Error,
   canonicalizePointMutationRequestV1,
@@ -206,6 +207,55 @@ describe("point-mutation preparation evidence", () => {
       artifactId: `artifact_${"f".repeat(32)}`,
     })).toThrow();
     expect(ValidatorValueErrorV1).toBeDefined();
+  });
+
+  it("charges the implicit Convex argument array at the exact 16 MiB limit", async () => {
+    const exactPayload = "x".repeat(
+      MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1 - 8,
+    );
+    const metadata = targetMetadata({
+      functions: [targetFunction({
+        argsValidator: {
+          type: "object",
+          value: {
+            x: {
+              fieldType: { type: "string" },
+              optional: false,
+            },
+          },
+        },
+      })],
+    });
+
+    await expect(preparePointMutationStartEvidenceV1(
+      metadata,
+      {
+        deploymentId: DEPLOYMENT_ID,
+        functionPath: FUNCTION_PATH,
+        args: { x: exactPayload },
+        requestKey: REQUEST_KEY,
+      },
+      EPOCH,
+    )).resolves.toBeDefined();
+
+    await expect(preparePointMutationStartEvidenceV1(
+      metadata,
+      {
+        deploymentId: DEPLOYMENT_ID,
+        functionPath: FUNCTION_PATH,
+        args: { x: `${exactPayload}x` },
+        requestKey: REQUEST_KEY,
+      },
+      EPOCH,
+    )).rejects.toMatchObject({
+      _tag: "PointMutationTargetSelectionV1Error",
+      issue: {
+        reason: "argumentsTooLarge",
+        observed:
+          MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1 + 1,
+        maximum: MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1,
+      },
+    });
   });
 });
 

@@ -1,19 +1,12 @@
+import { Effect } from "effect";
+
 import {
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
-  TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
-  TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
-  TransactionGrantIdentityAccessPolicyV1Error,
-  TransactionGrantProtocolV1Error,
-  TransactionGrantTimestampV1Schema,
-  canonicalizeTransactionGrantIdentityAccessPolicyV1,
-  deriveInertTransactionGrantEvidenceV1,
-  type InertTransactionGrantEvidenceV1,
   type TransactionGrantDeploymentIdV1,
   type TransactionGrantKeyIdV1,
   type TransactionGrantPayloadV1,
 } from "flarex-protocol/transaction-grant";
 import type {
-  PointMutationGrantLogicalPinsV1,
   PreparedPointMutationStartEvidenceV1,
 } from "flarex-protocol/point-mutation-start";
 import type { ScopeId } from "flarex-protocol/storage-authority";
@@ -23,11 +16,22 @@ import {
   inspectExecutorPreparedPointMutationStartV1,
   type ExecutorPreparedPointMutationStartV1,
 } from "./pointMutationStartPreparation";
+import {
+  createTransactionGrantVerificationKernelV1,
+  registerTransactionGrantVerificationKernelV1,
+  verificationFailure,
+  type VerifiedTransactionGrantInspectionV1,
+} from "./transactionGrantVerificationKernel";
+
+export {
+  TransactionGrantVerificationV1Error,
+  type ExpectedTransactionGrantLogicalPinFieldV1,
+  type ExpectedTransactionGrantLogicalPinsV1,
+  type TransactionGrantVerificationV1Issue,
+  type VerifiedTransactionGrantInspectionV1,
+} from "./transactionGrantVerificationKernel";
 
 const MAX_ECMASCRIPT_DATE_EPOCH_MILLISECONDS = 8_640_000_000_000_000;
-
-export type ExpectedTransactionGrantLogicalPinsV1 =
-  PointMutationGrantLogicalPinsV1;
 
 export interface TransactionGrantVerificationClockV1 {
   readonly now: () => Date;
@@ -150,38 +154,6 @@ export class TransactionGrantAuthorityConfigurationV1Error extends Error {
   }
 }
 
-export type ExpectedTransactionGrantLogicalPinFieldV1 =
-  keyof ExpectedTransactionGrantLogicalPinsV1;
-
-export type TransactionGrantVerificationV1Issue =
-  | { readonly reason: "malformedEvidence" }
-  | { readonly reason: "invalidPreparedStart" }
-  | { readonly reason: "unknownKey" }
-  | { readonly reason: "disabledKey" }
-  | { readonly reason: "unissuableKey" }
-  | { readonly reason: "signatureInvalid" }
-  | { readonly reason: "cryptographicVerificationFailed" }
-  | { readonly reason: "invalidClockReading" }
-  | { readonly reason: "issuedInFuture" }
-  | { readonly reason: "expired" }
-  | { readonly reason: "lifetimeExceeded" }
-  | { readonly reason: "keyWindowMismatch" }
-  | { readonly reason: "keyRetentionExpired" }
-  | { readonly reason: "policyMismatch" }
-  | { readonly reason: "policyDigestMismatch" }
-  | {
-      readonly reason: "pinMismatch";
-      readonly field: ExpectedTransactionGrantLogicalPinFieldV1;
-    };
-
-export class TransactionGrantVerificationV1Error extends Error {
-  readonly name = "TransactionGrantVerificationV1Error";
-
-  constructor(readonly issue: TransactionGrantVerificationV1Issue) {
-    super(`Transaction grant verification failed: ${issue.reason}.`);
-  }
-}
-
 export class InvalidVerifiedTransactionGrantV1Error extends Error {
   readonly name = "InvalidVerifiedTransactionGrantV1Error";
 
@@ -196,12 +168,6 @@ const verifiedTransactionGrantBrand: unique symbol = Symbol(
 
 export interface VerifiedTransactionGrantV1 {
   readonly [verifiedTransactionGrantBrand]: true;
-}
-
-export interface VerifiedTransactionGrantInspectionV1 {
-  readonly evidence: InertTransactionGrantEvidenceV1;
-  readonly verificationKeyId: TransactionGrantKeyIdV1;
-  readonly verifiedAt: TransactionGrantPayloadV1["issuedAt"];
 }
 
 const verifiedTransactionGrantInspectionByHandle = new WeakMap<
@@ -527,13 +493,16 @@ export function createTransactionGrantVerifierV1(
     );
   }
 
-  const maximumGrantLifetimeMilliseconds =
-    config.maximumGrantLifetimeMilliseconds;
-  const maximumFutureIssuedAtSkewMilliseconds =
-    config.maximumFutureIssuedAtSkewMilliseconds;
   const readCurrentTime = config.clock.now;
-
-  return Object.freeze({
+  const kernel = createTransactionGrantVerificationKernelV1({
+    deploymentId: keyNamespace.deploymentId,
+    keysById: keyNamespace.keysById,
+    maximumGrantLifetimeMilliseconds:
+      config.maximumGrantLifetimeMilliseconds,
+    maximumFutureIssuedAtSkewMilliseconds:
+      config.maximumFutureIssuedAtSkewMilliseconds,
+  });
+  const verifier: TransactionGrantVerifierV1 = Object.freeze({
     verify: async (
       input: VerifyTransactionGrantV1Input,
     ): Promise<VerifiedTransactionGrantV1> => {
@@ -550,84 +519,14 @@ export function createTransactionGrantVerifierV1(
         throw cause;
       }
       const expectedPins = preparedStart.logicalPins;
-      if (expectedPins.deploymentId !== keyNamespace.deploymentId) {
-        throw pinMismatch("deploymentId");
-      }
-
-      let evidence: InertTransactionGrantEvidenceV1;
-      try {
-        evidence = await deriveInertTransactionGrantEvidenceV1(input.jws);
-      } catch (cause) {
-        if (cause instanceof TransactionGrantProtocolV1Error) {
-          throw verificationFailure("malformedEvidence");
-        }
-        throw verificationFailure("malformedEvidence");
-      }
-
-      const key = keyNamespace.keysById.get(evidence.protectedHeader.kid);
-      if (key === undefined) throw verificationFailure("unknownKey");
-      if (key.state === "disabled") {
-        throw verificationFailure("disabledKey");
-      }
-      if (key.state === "verifyOnly" && key.phase === "prepublished") {
-        throw verificationFailure("unissuableKey");
-      }
-
-      let signatureValid: boolean;
-      try {
-        signatureValid = await key.verify(
-          new Uint8Array(evidence.signingInput),
-          new Uint8Array(evidence.signatureBytes),
-        );
-      } catch {
-        throw verificationFailure("cryptographicVerificationFailed");
-      }
-      if (!signatureValid) throw verificationFailure("signatureInvalid");
-
-      let nowEpochMilliseconds: number;
-      let verifiedAt: TransactionGrantPayloadV1["issuedAt"];
-      try {
-        nowEpochMilliseconds = readCurrentTime().getTime();
-        if (!isValidEpochMilliseconds(nowEpochMilliseconds)) {
-          throw new Error("Invalid clock reading.");
-        }
-        verifiedAt = TransactionGrantTimestampV1Schema.make(
-          new Date(nowEpochMilliseconds).toISOString(),
-        );
-      } catch {
-        throw verificationFailure("invalidClockReading");
-      }
-      const issuedAtEpochMilliseconds = Date.parse(evidence.payload.issuedAt);
-      const expiresAtEpochMilliseconds = Date.parse(evidence.payload.expiresAt);
-      if (
-        issuedAtEpochMilliseconds >
-        nowEpochMilliseconds + maximumFutureIssuedAtSkewMilliseconds
-      ) {
-        throw verificationFailure("issuedInFuture");
-      }
-      if (expiresAtEpochMilliseconds <= nowEpochMilliseconds) {
-        throw verificationFailure("expired");
-      }
-      if (
-        expiresAtEpochMilliseconds - issuedAtEpochMilliseconds >
-        maximumGrantLifetimeMilliseconds
-      ) {
-        throw verificationFailure("lifetimeExceeded");
-      }
-      enforceKeyWindow(
-        key,
-        issuedAtEpochMilliseconds,
-        expiresAtEpochMilliseconds,
-        nowEpochMilliseconds,
-      );
-      await enforcePointMutationPolicy(evidence.payload);
-      compareExpectedPins(evidence.payload, expectedPins);
-
-      const inspection = Object.freeze({
-        evidence,
-        verificationKeyId: key.kid,
-        verifiedAt,
-      } satisfies VerifiedTransactionGrantInspectionV1);
+      const inspection = await Effect.runPromise(kernel.verify({
+        jws: input.jws,
+        expectedLogicalPins: expectedPins,
+        trustedNowEpochMilliseconds: Effect.try({
+          try: () => readCurrentTime().getTime(),
+          catch: () => verificationFailure("invalidClockReading"),
+        }),
+      }));
       const handle = Object.freeze({
         [verifiedTransactionGrantBrand]: true as const,
       });
@@ -639,6 +538,8 @@ export function createTransactionGrantVerifierV1(
       return handle;
     },
   });
+  registerTransactionGrantVerificationKernelV1(verifier, kernel);
+  return verifier;
 }
 
 export function inspectVerifiedTransactionGrantV1(
@@ -733,128 +634,10 @@ function isValidIssuedAtWindow(
         (issuanceEnd === undefined || verificationEnd >= issuanceEnd)));
 }
 
-function enforceKeyWindow(
-  key: Exclude<
-    StoredTransactionGrantVerificationKeyV1,
-    | { readonly state: "disabled" }
-    | { readonly state: "verifyOnly"; readonly phase: "prepublished" }
-  >,
-  issuedAtEpochMilliseconds: number,
-  expiresAtEpochMilliseconds: number,
-  nowEpochMilliseconds: number,
-): void {
-  if (
-    issuedAtEpochMilliseconds < key.issuedAtInclusiveEpochMilliseconds ||
-    (key.issuedAtExclusiveEpochMilliseconds !== undefined &&
-      issuedAtEpochMilliseconds >= key.issuedAtExclusiveEpochMilliseconds)
-  ) {
-    throw verificationFailure("keyWindowMismatch");
-  }
-  const verificationEnd =
-    key.verificationEndsAtExclusiveEpochMilliseconds;
-  if (
-    verificationEnd !== undefined &&
-    (expiresAtEpochMilliseconds > verificationEnd ||
-      nowEpochMilliseconds >= verificationEnd)
-  ) {
-    throw verificationFailure("keyRetentionExpired");
-  }
-}
-
-async function enforcePointMutationPolicy(
-  payload: TransactionGrantPayloadV1,
-): Promise<void> {
-  if (
-    payload.policyVersion !==
-      TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1 ||
-    !sameCapabilities(
-      payload.capabilities,
-      TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
-    ) ||
-    payload.auth.kind === "trustedDev" ||
-    (payload.auth.kind === "verifiedBearer" &&
-      Object.keys(payload.auth.claims).length !== 0)
-  ) {
-    throw verificationFailure("policyMismatch");
-  }
-
-  let policyEvidence: Awaited<
-    ReturnType<typeof canonicalizeTransactionGrantIdentityAccessPolicyV1>
-  >;
-  try {
-    policyEvidence =
-      await canonicalizeTransactionGrantIdentityAccessPolicyV1({
-        policyVersion: payload.policyVersion,
-        auth: payload.auth,
-        capabilities: payload.capabilities,
-      });
-  } catch (cause) {
-    if (cause instanceof TransactionGrantIdentityAccessPolicyV1Error) {
-      throw verificationFailure("policyMismatch");
-    }
-    throw verificationFailure("policyMismatch");
-  }
-  if (policyEvidence.sha256Hex !== payload.identityAccessPolicySha256) {
-    throw verificationFailure("policyDigestMismatch");
-  }
-}
-
-function sameCapabilities(
-  actual: ReadonlyArray<string>,
-  expected: ReadonlyArray<string>,
-): boolean {
-  return actual.length === expected.length &&
-    actual.every((capability, index) => capability === expected[index]);
-}
-
-function compareExpectedPins(
-  payload: TransactionGrantPayloadV1,
-  expected: ExpectedTransactionGrantLogicalPinsV1,
-): void {
-  const fields = [
-    "deploymentId",
-    "scopeId",
-    "packageId",
-    "artifactRuntime",
-    "artifactId",
-    "sourcePackageHash",
-    "executionModule",
-    "functionPath",
-    "functionKind",
-    "schemaVersionId",
-    "validatedArgsValueCodecVersion",
-    "validatedArgsSha256",
-    "requestKey",
-    "requestSha256",
-    "authorizationRevocationEpoch",
-  ] as const satisfies ReadonlyArray<ExpectedTransactionGrantLogicalPinFieldV1>;
-  for (const field of fields) {
-    if (payload[field] !== expected[field]) throw pinMismatch(field);
-  }
-}
-
 function currentEpochAdmissionFailure(
   issue: CurrentEpochTransactionGrantAdmissionV1Issue,
 ): CurrentEpochTransactionGrantAdmissionV1Error {
   return new CurrentEpochTransactionGrantAdmissionV1Error(issue);
-}
-
-function verificationFailure(
-  reason: Exclude<
-    TransactionGrantVerificationV1Issue,
-    { readonly reason: "pinMismatch" }
-  >["reason"],
-): TransactionGrantVerificationV1Error {
-  return new TransactionGrantVerificationV1Error({ reason });
-}
-
-function pinMismatch(
-  field: ExpectedTransactionGrantLogicalPinFieldV1,
-): TransactionGrantVerificationV1Error {
-  return new TransactionGrantVerificationV1Error({
-    reason: "pinMismatch",
-    field,
-  });
 }
 
 function isPositiveSafeInteger(value: number): boolean {

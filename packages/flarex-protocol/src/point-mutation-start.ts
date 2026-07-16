@@ -62,6 +62,10 @@ export const POINT_MUTATION_TARGET_METADATA_VERSION_V1 = 1;
 export const POINT_MUTATION_REQUEST_FORMAT_V1 =
   "flarex.point-mutation-request";
 export const POINT_MUTATION_REQUEST_VERSION_V1 = 1;
+/** Convex transaction arguments are charged as one implicit array value. */
+export const POINT_MUTATION_ARGUMENT_ARRAY_OVERHEAD_SEMANTIC_BYTES_V1 = 2;
+export const MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1 =
+  16 * 1024 * 1024;
 
 const PointMutationFunctionKindV1Schema = Schema.Literals([
   "query",
@@ -197,7 +201,12 @@ export type PointMutationTargetSelectionV1Issue =
   | { readonly reason: "duplicateFunctionPath" }
   | { readonly reason: "wrongFunctionKind" }
   | { readonly reason: "functionNotPublic" }
-  | { readonly reason: "argumentsNotObject" };
+  | { readonly reason: "argumentsNotObject" }
+  | {
+      readonly reason: "argumentsTooLarge";
+      readonly observed: number;
+      readonly maximum: number;
+    };
 
 export class PointMutationTargetSelectionV1Error extends Data.TaggedError(
   "PointMutationTargetSelectionV1Error",
@@ -287,6 +296,7 @@ export async function canonicalizePointMutationArgumentsV1(
   if (!isRuntimeObject(normalized.value)) {
     throw selectionFailure("argumentsNotObject");
   }
+  requirePointMutationArgumentSemanticSizeV1(normalized.semanticSizeBytes);
   const tableIdByLogicalName = new Map<string, CatalogTableId>(
     schemaManifest.tableDefinitions.tables.map((table) => [
       table.logicalName,
@@ -344,6 +354,33 @@ export async function canonicalizePointMutationArgumentsV1(
   } satisfies CanonicalPointMutationArgumentsV1);
 }
 
+/**
+ * Applies Convex's argument accounting to an already-normalized argument
+ * object. The caller supplies the object value's semantic bytes; the implicit
+ * outer argument array contributes exactly two additional bytes.
+ */
+export function requirePointMutationArgumentSemanticSizeV1(
+  argumentSemanticBytes: number,
+): number {
+  const observed =
+    POINT_MUTATION_ARGUMENT_ARRAY_OVERHEAD_SEMANTIC_BYTES_V1 +
+    argumentSemanticBytes;
+  if (
+    !Number.isSafeInteger(argumentSemanticBytes) ||
+    argumentSemanticBytes < 0 ||
+    observed > MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1
+  ) {
+    throw new PointMutationTargetSelectionV1Error({
+      issue: {
+        reason: "argumentsTooLarge",
+        observed,
+        maximum: MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1,
+      },
+    });
+  }
+  return observed;
+}
+
 export async function canonicalizePointMutationRequestV1(input: {
   readonly deploymentId: TransactionGrantPayloadV1["deploymentId"];
   readonly functionPath: TransactionGrantPayloadV1["functionPath"];
@@ -382,7 +419,10 @@ export async function canonicalizePointMutationRequestV1(input: {
 }
 
 function selectionFailure(
-  reason: PointMutationTargetSelectionV1Issue["reason"],
+  reason: Exclude<
+    PointMutationTargetSelectionV1Issue["reason"],
+    "argumentsTooLarge"
+  >,
 ): PointMutationTargetSelectionV1Error {
   return new PointMutationTargetSelectionV1Error({ issue: { reason } });
 }

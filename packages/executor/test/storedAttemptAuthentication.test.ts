@@ -31,6 +31,25 @@ import {
 import { isJson, type JsonObject } from "flarex-protocol/json";
 import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
 import {
+  TRANSACTION_GRANT_KEY_PURPOSE_V1,
+  TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+  TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+  TransactionGrantKeyIdV1Schema,
+  canonicalizeTransactionGrantIdentityAccessPolicyV1,
+  canonicalizeTransactionGrantPayloadV1,
+  canonicalizeTransactionGrantProtectedHeaderV1,
+  deriveInertTransactionGrantEvidenceV1,
+  encodeTransactionGrantEd25519SignatureV1,
+  transactionGrantIdentityAccessPolicySha256BytesV1FromHex,
+  TransactionGrantDeploymentIdV1Schema,
+} from "flarex-protocol/transaction-grant";
+import {
+  MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1,
+  PointMutationTargetSelectionV1Error,
+  decodeActivePointMutationTargetMetadataV1,
+  preparePointMutationStartEvidenceV1,
+} from "flarex-protocol/point-mutation-start";
+import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
   ReplacementScopeIdV1Schema,
@@ -39,10 +58,11 @@ import {
   StorageGenerationFenceSchema,
   decodeScopeUuidV1,
 } from "flarex-protocol/storage-authority";
-import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import {
   TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
   TransactionAttemptFenceSchema,
+  TransactionAuthorizationRevocationEpochSchema,
+  TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
   TransactionSessionIdV1Schema,
 } from "flarex-protocol/transaction-session";
@@ -52,11 +72,22 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import * as executorRoot from "../src/index";
 // @ts-expect-error C04A capability types must remain absent from the package root.
 import type { AuthenticatedStoredAttemptV1 as ForbiddenRootCapability } from "../src/index";
+// @ts-expect-error C04B1 capability types must remain absent from the package root.
+import type { AuthenticatedCommitAuthorityV1 as ForbiddenCommitAuthority } from "../src/index";
 import {
   createPointMutationSessionAttemptLoadingV1,
   type PointMutationSessionAttemptSelectorWireV1,
 } from "../src/pointMutationSessionActivation";
 import {
+  createTransactionGrantVerificationKeyNamespaceV1,
+  createTransactionGrantVerifierV1,
+  TransactionGrantVerificationV1Error,
+} from "../src/transactionGrant";
+import {
+  InvalidAuthenticatedStoredAttemptV1Error,
+  StoredCommitAuthorityCorruptionV1Error,
+  StoredCommitAuthorityConfigurationV1Error,
+  StoredCommitAuthorityMismatchV1Error,
   InvalidStoredAttemptAuthorityV1Error,
   StoredAttemptAlreadyCommittedV1Error,
   StoredAttemptAuthorityMismatchV1Error,
@@ -67,6 +98,7 @@ import {
   type StoredAttemptAuthenticationV1,
   type StoredAttemptEvidenceLoadResultPortV1,
   type StoredAttemptEvidencePortV1,
+  type StoredCommitAuthorityEvidencePortV1,
 } from "../src/storedAttemptAuthentication";
 
 const DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
@@ -172,6 +204,7 @@ describe("C04A stored-attempt authentication", () => {
     type RootLeak = Extract<
       keyof typeof executorRoot,
       | "AuthenticatedStoredAttemptV1"
+      | "AuthenticatedCommitAuthorityV1"
       | "createStoredAttemptAuthenticationV1"
     >;
     expectTypeOf<RootLeak>().toEqualTypeOf<never>();
@@ -499,6 +532,353 @@ describe("C04A stored-attempt authentication", () => {
     expect(failure).toBeInstanceOf(StoredAttemptStorageCorruptionV1Error);
     expect(failure).toMatchObject({ reason: "patchSetOverlayMismatch" });
   });
+
+  it("mints C04B1 authority only from a genuine same-factory C04A capability", async () => {
+    const current = await commitAuthorityFixture();
+    let authorityLoads = 0;
+    let metadataLoads = 0;
+    const authentication = createStoredAttemptAuthenticationV1(
+      { load: async () => loaded(current.fixture.evidence) },
+      {
+        evidenceLoader: {
+          load: async () => {
+            authorityLoads += 1;
+            return { kind: "loaded", evidence: current.commitEvidence };
+          },
+        },
+        transactionGrantVerifier: current.verifier,
+        functionMetadata: {
+          load: () => {
+            metadataLoads += 1;
+            return Effect.succeed(structuredClone(current.functionSnapshot));
+          },
+        },
+      },
+    );
+    const authority = await deriveAuthority(authentication);
+    const stored = await runEffect(authentication.authenticate(
+      authority,
+      encodeEnvelope(current.fixture.envelope),
+    ));
+    const commitAuthority = await runEffect(
+      authentication.authenticateCommitAuthority(stored),
+    );
+
+    expect(authentication.isCommitAuthorityAuthenticated(commitAuthority)).toBe(
+      true,
+    );
+    expect(authentication.isCommitAuthorityAuthenticated({
+      ...commitAuthority,
+    })).toBe(false);
+    expect(JSON.stringify(commitAuthority)).toBe("{}");
+    expect(authorityLoads).toBe(1);
+    expect(metadataLoads).toBe(1);
+    expect(current.hostClockReads()).toBe(0);
+    expect(authentication.remainsCommitAuthorityStateUnchangedForTest(
+      commitAuthority,
+      () => {
+        current.commitEvidence.session.validatedArgsCanonicalBytes.fill(0);
+        current.commitEvidence.session.authorizationGrantCanonicalBytes.fill(0);
+        Object.assign(current.commitEvidence.schema.manifest, {
+          kind: "mutated",
+        });
+        Object.assign(current.functionSnapshot.functionMetadata, {
+          visibility: "internal",
+        });
+      },
+    )).toBe(true);
+
+    const second = createStoredAttemptAuthenticationV1(
+      { load: async () => loaded(current.fixture.evidence) },
+      {
+        evidenceLoader: {
+          load: async () => {
+            authorityLoads += 1;
+            return { kind: "loaded", evidence: current.commitEvidence };
+          },
+        },
+        transactionGrantVerifier: current.verifier,
+        functionMetadata: {
+          load: () => {
+            metadataLoads += 1;
+            return Effect.succeed(current.functionSnapshot);
+          },
+        },
+      },
+    );
+    const crossFactoryFailure = await runFailure(
+      second.authenticateCommitAuthority(stored),
+    );
+    expect(crossFactoryFailure).toBeInstanceOf(
+      InvalidAuthenticatedStoredAttemptV1Error,
+    );
+    expect(authorityLoads).toBe(1);
+    expect(metadataLoads).toBe(1);
+  });
+
+  it("fails C04B1 closed for revocation, argument, and metadata drift", async () => {
+    const cases: ReadonlyArray<Readonly<{
+      readonly expected: new (...arguments_: never[]) => Error;
+      readonly mutateEvidence?: (
+        evidence: StoredCommitAuthorityEvidencePortV1,
+      ) => void;
+      readonly mutateMetadata?: (metadata: Record<string, unknown>) => void;
+    }>> = [
+      {
+        expected: StoredCommitAuthorityMismatchV1Error,
+        mutateEvidence: (evidence: StoredCommitAuthorityEvidencePortV1) => {
+          Object.assign(evidence, { currentAuthorizationRevocationEpoch: 1n });
+        },
+      },
+      {
+        expected: StoredCommitAuthorityCorruptionV1Error,
+        mutateEvidence: (evidence: StoredCommitAuthorityEvidencePortV1) => {
+          evidence.session.validatedArgsCanonicalBytes.fill(0);
+        },
+      },
+      {
+        expected: StoredCommitAuthorityCorruptionV1Error,
+        mutateMetadata: (metadata: Record<string, unknown>) => {
+          Object.assign(metadata, { sourcePackageHash: "f".repeat(64) });
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const current = await commitAuthorityFixture();
+      const evidence = structuredClone(current.commitEvidence);
+      const metadata = structuredClone(current.functionSnapshot);
+      testCase.mutateEvidence?.(evidence);
+      testCase.mutateMetadata?.(metadata);
+      const authentication = createStoredAttemptAuthenticationV1(
+        { load: async () => loaded(current.fixture.evidence) },
+        {
+          evidenceLoader: {
+            load: async () => ({ kind: "loaded", evidence }),
+          },
+          transactionGrantVerifier: current.verifier,
+          functionMetadata: { load: () => Effect.succeed(metadata) },
+        },
+      );
+      const authority = await deriveAuthority(authentication);
+      const stored = await runEffect(authentication.authenticate(
+        authority,
+        encodeEnvelope(current.fixture.envelope),
+      ));
+      const failure = await runFailure(
+        authentication.authenticateCommitAuthority(stored),
+      );
+      expect(failure).toBeInstanceOf(testCase.expected);
+    }
+  });
+
+  it("uses captured database time for grant expiry and rejects fake verifiers", async () => {
+    const current = await commitAuthorityFixture();
+    const expiredEvidence = structuredClone(current.commitEvidence);
+    Object.assign(expiredEvidence, {
+      databaseNowMilliseconds:
+        expiredEvidence.session.authorizationGrantExpiresAtMilliseconds,
+    });
+    const authentication = createStoredAttemptAuthenticationV1(
+      { load: async () => loaded(current.fixture.evidence) },
+      {
+        evidenceLoader: {
+          load: async () => ({ kind: "loaded", evidence: expiredEvidence }),
+        },
+        transactionGrantVerifier: current.verifier,
+        functionMetadata: {
+          load: () => Effect.succeed(current.functionSnapshot),
+        },
+      },
+    );
+    const authority = await deriveAuthority(authentication);
+    const stored = await runEffect(authentication.authenticate(
+      authority,
+      encodeEnvelope(current.fixture.envelope),
+    ));
+    const failure = await runFailure(
+      authentication.authenticateCommitAuthority(stored),
+    );
+    expect(failure).toBeInstanceOf(TransactionGrantVerificationV1Error);
+    expect(failure).toMatchObject({ issue: { reason: "expired" } });
+    expect(current.hostClockReads()).toBe(0);
+
+    expect(() => Reflect.apply(
+      createStoredAttemptAuthenticationV1,
+      undefined,
+      [
+        { load: async () => loaded(current.fixture.evidence) },
+        {
+          evidenceLoader: {
+            load: async () => ({
+              kind: "loaded",
+              evidence: current.commitEvidence,
+            }),
+          },
+          transactionGrantVerifier: Object.freeze({ verify: async () => ({}) }),
+          functionMetadata: {
+            load: () => Effect.succeed(current.functionSnapshot),
+          },
+        },
+      ],
+    )).toThrow(StoredCommitAuthorityConfigurationV1Error);
+  });
+
+  it("rechecks the stored implicit argument array at the exact 16 MiB boundary", async () => {
+    const exactPayload = "x".repeat(
+      MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1 - 8,
+    );
+    const argumentsValidator = {
+      type: "object",
+      value: {
+        x: {
+          fieldType: { type: "string" },
+          optional: false,
+        },
+      },
+    };
+    const current = await commitAuthorityFixture(
+      { x: exactPayload },
+      argumentsValidator,
+    );
+    const exactAuthentication = createStoredAttemptAuthenticationV1(
+      { load: async () => loaded(current.fixture.evidence) },
+      {
+        evidenceLoader: {
+          load: async () => ({
+            kind: "loaded",
+            evidence: current.commitEvidence,
+          }),
+        },
+        transactionGrantVerifier: current.verifier,
+        functionMetadata: {
+          load: () => Effect.succeed(current.functionSnapshot),
+        },
+      },
+    );
+    const exactAuthority = await deriveAuthority(exactAuthentication);
+    const exactStored = await runEffect(exactAuthentication.authenticate(
+      exactAuthority,
+      encodeEnvelope(current.fixture.envelope),
+    ));
+    await expect(runEffect(
+      exactAuthentication.authenticateCommitAuthority(exactStored),
+    )).resolves.toSatisfy((authority) =>
+      exactAuthentication.isCommitAuthorityAuthenticated(authority)
+    );
+
+    const oversizedEvidence = structuredClone(current.commitEvidence);
+    Object.assign(oversizedEvidence.session, {
+      validatedArgsJson: { x: `${exactPayload}x` },
+    });
+    const oversizedAuthentication = createStoredAttemptAuthenticationV1(
+      { load: async () => loaded(current.fixture.evidence) },
+      {
+        evidenceLoader: {
+          load: async () => ({
+            kind: "loaded",
+            evidence: oversizedEvidence,
+          }),
+        },
+        transactionGrantVerifier: current.verifier,
+        functionMetadata: {
+          load: () => Effect.succeed(current.functionSnapshot),
+        },
+      },
+    );
+    const oversizedAuthority = await deriveAuthority(
+      oversizedAuthentication,
+    );
+    const oversizedStored = await runEffect(
+      oversizedAuthentication.authenticate(
+        oversizedAuthority,
+        encodeEnvelope(current.fixture.envelope),
+      ),
+    );
+    const failure = await runFailure(
+      oversizedAuthentication.authenticateCommitAuthority(oversizedStored),
+    );
+    expect(failure).toBeInstanceOf(PointMutationTargetSelectionV1Error);
+    expect(failure).toMatchObject({
+      issue: {
+        reason: "argumentsTooLarge",
+        observed:
+          MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1 + 1,
+      },
+    });
+  }, 120_000);
+
+  it("rejects tampered grant representations and missing or corrupt metadata", async () => {
+    const grantCases: ReadonlyArray<(
+      evidence: StoredCommitAuthorityEvidencePortV1,
+    ) => void> = [
+      (evidence) => evidence.session.authorizationGrantCanonicalBytes.fill(0),
+      (evidence) => Object.assign(evidence.session.authorizationGrantJson, {
+        payload: "not-canonical-base64url",
+      }),
+      (evidence) => evidence.session.validatedArgsSha256.fill(0),
+    ];
+    for (const mutate of grantCases) {
+      const current = await commitAuthorityFixture();
+      const evidence = structuredClone(current.commitEvidence);
+      mutate(evidence);
+      const authentication = createStoredAttemptAuthenticationV1(
+        { load: async () => loaded(current.fixture.evidence) },
+        {
+          evidenceLoader: {
+            load: async () => ({ kind: "loaded", evidence }),
+          },
+          transactionGrantVerifier: current.verifier,
+          functionMetadata: {
+            load: () => Effect.succeed(current.functionSnapshot),
+          },
+        },
+      );
+      const authority = await deriveAuthority(authentication);
+      const stored = await runEffect(authentication.authenticate(
+        authority,
+        encodeEnvelope(current.fixture.envelope),
+      ));
+      await expect(runEffect(
+        authentication.authenticateCommitAuthority(stored),
+      )).rejects.toBeDefined();
+    }
+
+    const current = await commitAuthorityFixture();
+    for (const metadata of [
+      null,
+      [current.functionSnapshot, current.functionSnapshot],
+      { ...current.functionSnapshot, unexpected: true },
+    ]) {
+      const authentication = createStoredAttemptAuthenticationV1(
+        { load: async () => loaded(current.fixture.evidence) },
+        {
+          evidenceLoader: {
+            load: async () => ({
+              kind: "loaded",
+              evidence: current.commitEvidence,
+            }),
+          },
+          transactionGrantVerifier: current.verifier,
+          functionMetadata: { load: () => Effect.succeed(metadata) },
+        },
+      );
+      const authority = await deriveAuthority(authentication);
+      const stored = await runEffect(authentication.authenticate(
+        authority,
+        encodeEnvelope(current.fixture.envelope),
+      ));
+      const failure = await runFailure(
+        authentication.authenticateCommitAuthority(stored),
+      );
+      expect(failure).toBeInstanceOf(StoredCommitAuthorityCorruptionV1Error);
+      expect(failure).toMatchObject({
+        reason: metadata === null
+          ? "functionMetadataMissing"
+          : "functionMetadataInvalid",
+      });
+    }
+  });
 });
 
 interface Fixture {
@@ -506,6 +886,205 @@ interface Fixture {
   readonly result: CanonicalSuccessfulResultV1;
   readonly envelope: CommitEnvelopeV1;
   readonly evidence: StoredAttemptEvidencePortV1;
+}
+
+async function commitAuthorityFixture(
+  args: JsonObject = {},
+  argumentsValidator: unknown = { type: "object", value: {} },
+) {
+  const fixture = await emptyFixture();
+  const revocationEpoch = TransactionAuthorizationRevocationEpochSchema.make(
+    0n,
+  );
+  const target = decodeActivePointMutationTargetMetadataV1({
+    format: "flarex.point-mutation-target-metadata",
+    version: 1,
+    deploymentId: DEPLOYMENT_ID,
+    scopeId: SCOPE_ID,
+    packageId: "package_c04b1",
+    artifactRuntime: "dynamic-worker",
+    artifactId: `artifact_${"a".repeat(32)}`,
+    sourcePackageHash: "a".repeat(64),
+    schemaVersionId: SCHEMA_VERSION_ID,
+    functions: [{
+      path: "users:create",
+      executionModule: "flarex/users.ts",
+      kind: "mutation",
+      visibility: "public",
+      argsValidator: argumentsValidator,
+      returnsValidator: { type: "string" },
+    }],
+    schemaManifest: {
+      kind: "appSchema",
+      manifestVersion: 1,
+      tableDefinitions: {
+        kind: "tableDefinitions",
+        sectionVersion: 1,
+        tables: [{
+          tableId: 1,
+          namespace: "app",
+          logicalName: "users",
+          definition: {
+            kind: "appDocument",
+            definitionVersion: 1,
+            documentType: { type: "object", value: {} },
+          },
+        }],
+      },
+      indexBindings: {
+        kind: "indexBindings",
+        sectionVersion: 1,
+        indexes: [],
+      },
+    },
+  });
+  const requestKey = TransactionRequestKeyV1Schema.make("request:c04b1");
+  const prepared = await preparePointMutationStartEvidenceV1(
+    target,
+    {
+      deploymentId: DEPLOYMENT_ID,
+      functionPath: TransactionFunctionPathV1Schema.make("users:create"),
+      args,
+      requestKey,
+    },
+    revocationEpoch,
+  );
+  const policy = await canonicalizeTransactionGrantIdentityAccessPolicyV1({
+    policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+    auth: { kind: "anonymous" },
+    capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+  });
+  const issuedAtMilliseconds = fixture.evidence.databaseNowMilliseconds - 1_000;
+  const expiresAtMilliseconds = fixture.evidence.databaseNowMilliseconds + 60_000;
+  const payload = await canonicalizeTransactionGrantPayloadV1({
+    format: "flarex.transaction-grant",
+    version: 1,
+    grantId: "grant_c04b1",
+    ...prepared.logicalPins,
+    policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+    identityAccessPolicySha256: policy.sha256Hex,
+    capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+    auth: { kind: "anonymous" },
+    issuedAt: new Date(issuedAtMilliseconds).toISOString(),
+    expiresAt: new Date(expiresAtMilliseconds).toISOString(),
+    authorizationRevocationEpoch: revocationEpoch.toString(),
+  });
+  const kid = TransactionGrantKeyIdV1Schema.make("key_c04b1");
+  const header = canonicalizeTransactionGrantProtectedHeaderV1({
+    alg: "Ed25519",
+    kid,
+    typ: "flarex-transaction-grant+jws",
+  });
+  const grant = await deriveInertTransactionGrantEvidenceV1({
+    protected: header.base64url,
+    payload: payload.base64url,
+    signature: encodeTransactionGrantEd25519SignatureV1(
+      new Uint8Array(64),
+    ),
+  });
+  Object.assign(fixture.evidence.session, {
+    packageId: prepared.logicalPins.packageId,
+    artifactRuntime: prepared.logicalPins.artifactRuntime,
+    artifactId: prepared.logicalPins.artifactId,
+    sourcePackageHash: prepared.logicalPins.sourcePackageHash,
+    executionModule: prepared.logicalPins.executionModule,
+    functionPath: prepared.logicalPins.functionPath,
+    functionKind: prepared.logicalPins.functionKind,
+    policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+    identityAccessPolicySha256:
+      transactionGrantIdentityAccessPolicySha256BytesV1FromHex(
+        policy.sha256Hex,
+      ),
+    validatedArgsValueCodecVersion:
+      prepared.logicalPins.validatedArgsValueCodecVersion,
+    validatedArgsCanonicalByteLength:
+      prepared.validatedArguments.canonicalBytes.byteLength,
+    validatedArgsSha256: new Uint8Array(prepared.validatedArguments.sha256),
+    authorizationGrantId: grant.authorizationGrantId,
+    authorizationGrantValueCodecVersion:
+      grant.authorizationGrantValueCodecVersion,
+    authorizationGrantCanonicalByteLength:
+      grant.authorizationGrantCanonicalBytes.byteLength,
+    authorizationGrantSha256: new Uint8Array(
+      grant.authorizationGrantSha256,
+    ),
+    authorizationRevocationEpoch: revocationEpoch,
+    authorizationGrantExpiresAtMilliseconds: expiresAtMilliseconds,
+    requestKey,
+    requestSha256: new Uint8Array(prepared.requestEvidence.sha256),
+    hardExpiresAtMilliseconds: expiresAtMilliseconds,
+  });
+
+  let hostClockReadCount = 0;
+  const verifier = createTransactionGrantVerifierV1({
+    clock: {
+      now: () => {
+        hostClockReadCount += 1;
+        return new Date(0);
+      },
+    },
+    verificationKeyNamespace:
+      createTransactionGrantVerificationKeyNamespaceV1({
+        deploymentId: DEPLOYMENT_ID,
+        keys: [{
+          state: "active",
+          kid,
+          purpose: TRANSACTION_GRANT_KEY_PURPOSE_V1,
+          issuedAtInclusiveEpochMilliseconds: issuedAtMilliseconds - 1_000,
+          verificationEndsAtExclusiveEpochMilliseconds:
+            expiresAtMilliseconds + 1_000,
+          verify: async () => true,
+        }],
+      }),
+    maximumGrantLifetimeMilliseconds: 120_000,
+    maximumFutureIssuedAtSkewMilliseconds: 0,
+  });
+  const sessionEvidence = fixture.evidence.session;
+  const commitEvidence: StoredCommitAuthorityEvidencePortV1 = {
+    databaseNowMilliseconds: fixture.evidence.databaseNowMilliseconds,
+    currentAuthorizationRevocationEpoch: revocationEpoch,
+    session: {
+      ...structuredClone(sessionEvidence),
+      validatedArgsJson: structuredClone(
+        prepared.validatedArguments.valueJson,
+      ),
+      validatedArgsCanonicalBytes: new Uint8Array(
+        prepared.validatedArguments.canonicalBytes,
+      ),
+      authorizationGrantJson: structuredClone(grant.authorizationGrantJson),
+      authorizationGrantCanonicalBytes: new Uint8Array(
+        grant.authorizationGrantCanonicalBytes,
+      ),
+    },
+    schema: {
+      deploymentId: DEPLOYMENT_ID,
+      schemaVersionId: SCHEMA_VERSION_ID,
+      manifest: structuredClone(target.schemaManifest),
+      stableBindings: [{ logicalName: "users", tableId: decodeCatalogTableId(1) }],
+    },
+  };
+  const functionMetadata = target.functions[0];
+  if (functionMetadata === undefined) throw new Error("Missing metadata.");
+  const functionSnapshot = {
+    deploymentId: DEPLOYMENT_ID,
+    scopeId: SCOPE_ID,
+    packageId: prepared.logicalPins.packageId,
+    artifactRuntime: prepared.logicalPins.artifactRuntime,
+    artifactId: prepared.logicalPins.artifactId,
+    sourcePackageHash: prepared.logicalPins.sourcePackageHash,
+    executionModule: prepared.logicalPins.executionModule,
+    functionPath: prepared.logicalPins.functionPath,
+    functionKind: prepared.logicalPins.functionKind,
+    schemaVersionId: prepared.logicalPins.schemaVersionId,
+    functionMetadata: structuredClone(functionMetadata),
+  };
+  return {
+    fixture,
+    commitEvidence,
+    functionSnapshot,
+    verifier,
+    hostClockReads: () => hostClockReadCount,
+  };
 }
 
 async function emptyFixture(): Promise<Fixture> {

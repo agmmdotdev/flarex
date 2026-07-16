@@ -6,7 +6,8 @@ Status: accepted bounded design with an implemented `legacy_v1` prototype path;
 standalone `C01` was retired before implementation. C02's replacement logical
 journal/result/envelope protocol, C03's first trusted Postgres point-journal
 consumer, and C04A's private exact stored-attempt authentication are complete;
-C04B authoritative catalog/policy/return verification is next.
+C04B1's same-factory current commit-authority authentication is also complete.
+C04B2 value/return validation remains unapproved and is next.
 
 This roadmap owns the durable direction for:
 
@@ -112,9 +113,11 @@ physical transaction-session/snapshot-lease tables are now consumed by private,
 non-routing activation/reload/terminalization and C03 point-journal operations,
 but no production route uses them. `SessionJournalV1`, separate successful-
 result evidence, and `CommitEnvelopeV1` form the host-neutral contract sealed by
-that private C03 consumer. C04A now authenticates the exact stored seal into a
-private process-local capability. `VerifiedCommitInput`, `PreparedCommitV1`,
-and the trusted commit planner remain unimplemented and belong to C04B/C04C.
+that private C03 consumer. C04A authenticates the exact stored seal, and C04B1
+authenticates current stored argument/grant/revocation/schema authority into a
+second same-factory process-local capability. `VerifiedCommitInput`,
+`PreparedCommitV1`, and the trusted commit planner remain unimplemented and
+belong to C04B2/C04C.
 
 ### Accepted replacement boundary
 
@@ -136,7 +139,10 @@ CommitEnvelopeV1
 AuthenticatedStoredAttemptV1 (introduced by C04A)
   runtime-unforgeable process-local proof of the exact stored seal
              |
-VerifiedCommitInput (introduced by C04B)
+AuthenticatedCommitAuthorityV1 (introduced by C04B1)
+  current database-time argument/grant/revocation/schema authority
+             |
+VerifiedCommitInput (introduced by C04B2)
   authenticated evidence plus authoritative catalog/policy/return facts
              |
 CommitPlannerV1 (introduced by C04C)
@@ -180,9 +186,10 @@ exact abort/expiry terminalization and active-child invariants. Conditional
 O03-B2b2 renewal belongs to its first proven long-running-attempt consumer. C02
 owns only canonical sequence fields, logical evidence shapes, and integrity
 digests; C03 owns operational sequencing, accounting, and the first trusted
-stored attempt journal; C04A owns exact stored-evidence authentication, C04B
-owns authoritative catalog/policy/return verification, and C04C owns the
-concrete prepared capability. C03 seals while the attempt is `running`, and
+stored attempt journal; C04A owns exact stored-evidence authentication, C04B1
+owns current commit-authority authentication, C04B2 owns final value/return
+verification and `VerifiedCommitInput`, and C04C owns the concrete prepared
+capability. C03 seals while the attempt is `running`, and
 the sealed root rejects late syscalls. C05 locks and revalidates the scalar seal
 identity before the private exact-fence transition to `finishing`; C06
 orchestrates it idempotently through the finish endpoint. O07 atomically
@@ -304,9 +311,15 @@ Before planning, trusted code verifies in distinct authority stages:
 - C04A accepts only a live `running + sealed` attempt for initial planning or
   `finishing + sealed` for reconstruction; committed is typed already-
   committed/non-plannable and replay stays with C06/O07;
-- C04B verifies package, function, schema, policy, identity, grant, revocation,
-  request/idempotency identity, canonical arguments, and the encoded function
-  result against the pinned authoritative return validator; and
+- C04B1 accepts only a genuine same-factory C04A capability, then uses one
+  bounded read-only repeatable-read snapshot and one database timestamp to
+  reauthenticate stored arguments/grant, current revocation, immutable pinned
+  schema, and corroborating stable bindings. It closes SQL before JSON/Schema,
+  SHA-256, Ed25519, and immutable proof-metadata work and returns only
+  `AuthenticatedCommitAuthorityV1`;
+- C04B2 later validates final logical values and the encoded successful result
+  against pinned authoritative validators, and alone produces
+  `VerifiedCommitInput`; and
 - C04C performs only database-free deterministic lowering.
 
 Only runtime-unforgeable process-local authenticated and verified capabilities
@@ -314,9 +327,25 @@ can reach the pure planner. The planner accepts
 no database handle, clock, network service, raw SQL, untrusted physical name,
 or transaction-specific sequence/lock fact. C04A's one bounded read-only
 repeatable-read transaction closes before canonical decoding, hashing, Schema
-validation, or point correlation; C04B/C04C finish before the later commit
+validation, or point correlation; C04B1's second bounded snapshot likewise
+closes before payload decoding and cryptography. C04B2/C04C finish before the later commit
 transaction opens. Identical trusted inputs produce equivalent deterministic
 plans.
+
+C04B1 shares the exact grant-verification kernel with prepared-start
+verification without manufacturing that handle. Both trusted preparation
+paths and the stored recheck apply Convex's exact implicit argument-array cost:
+`2 + argumentSemanticBytes <= 16 MiB`. Separately, C04B1 rejects more than
+64 MiB across stored argument JSON/bytes, grant JSON/bytes, and pinned-schema
+JSON/bytes before selecting those payloads. That six-representation ceiling is
+a Flarex materialization/corruption guard, not a Convex semantic.
+
+The immutable setup-seeded function metadata remains a temporary proof adapter:
+its consumer is the private C07 proof, its reason is deferred production
+activation-snapshot authority, and roadmap 17 plus S03-D4/S04 publishing one
+coherent package/artifact/source/function-validator/schema snapshot is its
+deletion/replacement gate. Production selection cannot reach it, and C04B1
+does not consult `activePackageId`, `analysisJson`, or an active-schema pointer.
 
 The short commit transaction then:
 
@@ -375,9 +404,9 @@ hosted transport guarantee. The final canonical journal retains its independent
 - C03A resolves only one opaque point-table capability from the session-pinned
   deployment/schema version and table name. The immutable manifest is
   authoritative; the stable binding corroborates the same ID. The mutable
-  active-schema pointer is never consulted, while C04B retains policy and full
-  catalog verification and C04C retains final-row lowering and physical
-  planning.
+  active-schema pointer is never consulted, while C04B1 reauthenticates the
+  complete pinned schema and stable bindings, C04B2 retains final value/return
+  validation, and C04C retains final-row lowering and physical planning.
 - Initial activation creates the exact-attempt root with database time as its
   `_creationTime` seed/cursor. Insert draws exactly one server UUIDv4 only after
   replay classification, uses the current binary64 time, and atomically advances
@@ -605,15 +634,17 @@ the strict host-neutral `SessionJournalV1`, separate successful-result evidence,
 `CommitEnvelopeV1`, canonical encoding/digests, exact execution ceilings, and
 dormant inline carriage. C03 now composes current-attempt authorization, O04
 semantics, a narrow pinned-manifest table capability, the trusted bounded
-Postgres journal store, and the staged read-your-writes overlay. This still does
-not make C04B/C04C verification/planning, committed publication, production
+Postgres journal store, and the staged read-your-writes overlay. C04B1 now adds
+only the private current-authority capability. This still does not make
+C04B2/C04C verification/planning, committed publication, production
 routing, or inline carriage active.
 
 ## Known Gaps And Limitations
 
 - Standalone `C01` was retired before implementation; C02's protocol-only gate,
-  C03's operational point-journal gate, and C04A's private stored-attempt gate
-  are complete, while C04B through C09 remain unchecked in the focused plan.
+  C03's operational point-journal gate, C04A's private stored-attempt gate, and
+  C04B1's private commit-authority gate are complete. C04B2 through C09 remain
+  unchecked; C04B2 is not yet approved.
 - Current invoke sessions use wall-clock `beginTs`, not authoritative
   `SnapshotToken` reads.
 - The legacy journal persists directly in broad Postgres invoke-session tables.
@@ -651,7 +682,8 @@ trusted preparation and exact SnapshotToken
   -> bounded logical syscalls and exact supported overlay
   -> C03 sealed canonical journal/result evidence while still running
   -> C04A authenticated stored attempt
-  -> C04B verified compiler input
+  -> C04B1 authenticated current commit authority
+  -> C04B2 verified compiler input
   -> C04C pure deterministic PreparedCommitV1
   -> locked scalar seal revalidation and finishing CAS
   -> short authoritative Postgres OCC/constraint transaction
@@ -679,7 +711,8 @@ required session-authority core. O04 private exact-snapshot point reads and
 typed dependencies and O05 pure OCC validation are complete. Standalone C01
 was retired before implementation; C02's inert logical protocol, C03's
 operational point-journal consumer, and C04A's private stored-attempt
-authentication are complete, so C04B is next.
+authentication plus C04B1's current commit-authority authentication are
+complete, so unapproved C04B2 is next.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
 retention consumer proves that a bounded attempt must outlive its initial lease.
@@ -692,8 +725,9 @@ prerequisites. Shipped-state migration prerequisites are conditional.
 The former C01 standalone port-extraction gate is retired. Its proposed
 compatibility-wrapper work is dropped rather than redistributed: C03
 introduces its first required journal-store boundary, C04A owns exact stored-
-evidence authentication, C04B owns catalog/policy/return verification and
-verified input, and C04C owns the concrete prepared capability;
+evidence authentication, C04B1 owns current argument/grant/revocation/schema
+authority, C04B2 owns final value/return verification and verified input, and
+C04C owns the concrete prepared capability;
 O06/O07 own atomic execution with C05 as the first compiler consumer, and C06
 owns post-commit wake after durable evidence exists.
 
@@ -712,22 +746,27 @@ The remaining compiler gates are:
    compare the exact live `running + sealed` or `finishing + sealed` attempt,
    and return only a private runtime-unforgeable
    `AuthenticatedStoredAttemptV1` after bounded detached verification.
-4. `C04B` (next): verify authoritative catalog, policy, arguments, and return
-   facts and produce a private `VerifiedCommitInput`.
-5. `C04C`: build the database-free deterministic point-row planner and concrete
+4. `C04B1` (complete): same-factory database-time authentication of stored
+   arguments/grant, current revocation, pinned schema/stable bindings, and the
+   temporary immutable proof-metadata snapshot into a private
+   `AuthenticatedCommitAuthorityV1`.
+5. `C04B2` (next, unapproved): validate final logical values and successful
+   return evidence against authoritative validators and produce a private
+   `VerifiedCommitInput`.
+6. `C04C`: build the database-free deterministic point-row planner and concrete
    process-local `PreparedCommitV1`.
-6. `C05`: execute one replacement point mutation through the complete atomic
+7. `C05`: execute one replacement point mutation through the complete atomic
    OCC/outcome/commit/outbox primitive.
-7. `C06`: add fenced idempotent finish, duplicate/concurrent finish behavior,
+8. `C06`: add fenced idempotent finish, duplicate/concurrent finish behavior,
    restart, expiry, and lost-response outcome recovery through stable
    `/invoke/*` endpoints.
-8. `C07`: close PGlite and real-Postgres concurrency, rollback, serialization,
+9. `C07`: close PGlite and real-Postgres concurrency, rollback, serialization,
    deadlock, uncertain-outcome, and contiguous-sequence gates.
-9. `C07A`: immediately measure journal persistence and move only the temporary
+10. `C07A`: immediately measure journal persistence and move only the temporary
    journal to a per-session supervisor/per-attempt facet if that path beats the
    Postgres-backed and custom-binding-only control baselines by the predeclared
    material-improvement threshold; otherwise retain Postgres journaling.
-10. `C08`: lower declared index and unique sidecars after their schema/OCC gates.
+11. `C08`: lower declared index and unique sidecars after their schema/OCC gates.
 11. `C09`: lower stable edge occurrences after relation identity and semantics
     are frozen.
 

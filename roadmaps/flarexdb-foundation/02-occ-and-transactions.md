@@ -15,8 +15,9 @@ terminalization complete the required O03-B authority core. O04's private
 exact-snapshot point-read semantics and dependencies are complete; O05 pure
 point-OCC validation is also complete. Standalone C01 was retired before
 implementation; C02's inert logical protocol, C03's trusted point journal, and
-C04A's private stored-attempt authentication are complete, and C04B is the next
-master-order gate.
+C04A's private stored-attempt authentication and C04B1's private current
+commit-authority authentication are complete. C04B2 value/return validation
+remains unapproved and is the next master-order design gate.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
 does not block the private C02-C07 proof.
@@ -621,8 +622,8 @@ Status: complete as a private, non-routing exact abort/expiry terminalization
 boundary with idempotent first-terminal-state observation. This closes the
 required O03-B authority core. O04 and O05 are complete; standalone C01 is
 retired, C02's inert logical protocol, C03's trusted point journal, and C04A's
-stored-attempt authentication are complete, and C04B is next in the master
-order.
+stored-attempt authentication plus C04B1's current commit-authority
+authentication are complete. Unapproved C04B2 is next in the master order.
 
 Outcome:
 

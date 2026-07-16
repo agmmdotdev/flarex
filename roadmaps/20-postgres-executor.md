@@ -391,7 +391,9 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
   private exact-snapshot point reads and typed present/qualified-missing
   dependencies and O05's pure point-OCC validator are complete. Standalone C01
   was retired before implementation; C02's inert logical journal/result/
-  envelope protocol is complete and C03 is next.
+  envelope protocol, C03's bounded point journal, C04A's stored-attempt
+  authentication, and C04B1's current commit-authority authentication are
+  complete. C04B2 value/return validation remains unapproved and is next.
   Conditional B2b2 renewal
   moves to its first proven long-running-attempt consumer. Commit-time point-
   OCC integration/serialization, commit/change feed, idempotency outcomes,
@@ -459,8 +461,9 @@ active-anchor replay and O03-B2a restart-safe exact-attempt reload also pass.
 O03-B2b1 exact abort/expiry terminalization also passes and closes the required
 session-authority core. O04 private exact-snapshot point reads and dependencies
 and O05 pure point-OCC validation are complete. Standalone C01 was retired
-before implementation; C02's inert logical protocol is complete and C03 is
-next. O03-B2b2
+before implementation; C02's inert logical protocol, C03's bounded point
+journal, C04A's stored-attempt authentication, and C04B1's private current-
+authority authentication are complete. Unapproved C04B2 is next. O03-B2b2
 renewal/race proof, operational revocation, and hosted Worker/key adapters are
 consumer-triggered deferred gates and do not block the private C07 proof.
 

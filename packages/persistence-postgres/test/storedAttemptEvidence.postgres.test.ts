@@ -1,6 +1,8 @@
 import { Effect, Schema } from "effect";
+import { Client } from "pg";
 import {
   CommitEnvelopeV1Schema,
+  SESSION_JOURNAL_FORMAT_V1,
   canonicalizeSessionJournalV1Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
@@ -11,6 +13,8 @@ import {
 } from "flarex-protocol/schema-manifest";
 import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
+import { TRANSACTION_SESSION_PROTOCOL_VERSION_V1 } from "flarex-protocol/transaction-session";
+import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -28,6 +32,11 @@ import {
 import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import { createSessionJournalStorePersistenceV1 } from "../src/sessionJournalStore";
+import {
+  createStoredCommitAuthorityEvidenceLoaderV1,
+  type StoredCommitAuthorityEvidenceAuthorityV1,
+  type StoredCommitAuthorityEvidenceQueryV1,
+} from "../src/storedCommitAuthorityEvidence";
 import {
   createStoredAttemptEvidenceLoaderV1,
   type StoredAttemptEvidenceLoaderOptionsV1,
@@ -51,7 +60,7 @@ import {
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const encodeEnvelope = Schema.encodeSync(CommitEnvelopeV1Schema);
 
-describePostgres("real Postgres C04A stored-attempt authentication", () => {
+describePostgres("real Postgres stored-attempt authority", () => {
   it("closes repeatable read before hashing and binds one complete sealed snapshot", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const observedQueries = new Map<
@@ -213,6 +222,200 @@ describePostgres("real Postgres C04A stored-attempt authentication", () => {
         });
     });
   }, 120_000);
+
+  it("captures C04B1 authority coherently and closes SQL before schema hashing", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const current = await scenario(persistence, "commit_authority_rr");
+      const prepared = await current.store.prepareSeal(current.attempt);
+      const journal = await runEffect(
+        canonicalizeSessionJournalV1Effect(prepared.journal),
+      );
+      const result = await runEffect(
+        canonicalizeSuccessfulResultV1Effect({ ok: true }),
+      );
+      await current.store.completeSeal(
+        prepared.preparation,
+        journal,
+        result,
+      );
+      const stored = await current.loader.load(current.authority);
+      if (stored.kind !== "loaded") throw new Error("Expected C04A evidence.");
+      const authority = commitAuthorityFromStoredEvidence(
+        current.authority,
+        stored.evidence,
+      );
+      const observed = new Map<
+        StoredCommitAuthorityEvidenceQueryV1["name"],
+        StoredCommitAuthorityEvidenceQueryV1
+      >();
+      const loader = createStoredCommitAuthorityEvidenceLoaderV1(
+        resolutionPorts(persistence),
+        { observeQuery: (query) => observed.set(query.name, query) },
+      );
+      const digestEntered = deferredSignal();
+      const releaseDigest = deferredSignal();
+      const originalDigest = crypto.subtle.digest.bind(crypto.subtle);
+      let gatedDigest = false;
+      const digestSpy = vi.spyOn(crypto.subtle, "digest").mockImplementation(
+        async (algorithm, data) => {
+          if (!gatedDigest) {
+            gatedDigest = true;
+            digestEntered.resolve();
+            await releaseDigest.promise;
+          }
+          return originalDigest(algorithm, data);
+        },
+      );
+      const loadPromise = loader.load(authority);
+      await digestEntered.promise;
+
+      const locker = await persistence.pool.connect();
+      let lockTransactionOpen = false;
+      try {
+        await locker.query("begin");
+        lockTransactionOpen = true;
+        await locker.query("set local lock_timeout = '2s'");
+        await locker.query(`
+          lock table
+            fx_system_scope_clock,
+            fx_system_tx_session,
+            fx_system_snapshot_lease,
+            fx_system_tx_journal,
+            fx_control_schema_version,
+            fx_control_table
+          in access exclusive mode nowait
+        `);
+        await locker.query("rollback");
+        lockTransactionOpen = false;
+      } finally {
+        if (lockTransactionOpen) {
+          await locker.query("rollback").catch(() => undefined);
+        }
+        locker.release();
+        releaseDigest.resolve();
+      }
+      let loaded: Awaited<typeof loadPromise>;
+      try {
+        loaded = await loadPromise;
+      } finally {
+        releaseDigest.resolve();
+        digestSpy.mockRestore();
+      }
+      expect(loaded).toMatchObject({ kind: "loaded" });
+      expect([...observed.keys()]).toEqual([
+        "clock",
+        "authoritySizes",
+        "lease",
+        "root",
+        "schemaSizes",
+        "authorityPayload",
+        "schemaPayload",
+        "stableBindings",
+      ]);
+      const authorityPlan = await explainCommitAuthorityObserved(
+        persistence,
+        requireCommitObservedQuery(observed, "authoritySizes"),
+      );
+      const schemaPlan = await explainCommitAuthorityObserved(
+        persistence,
+        requireCommitObservedQuery(observed, "schemaSizes"),
+      );
+      expect(authorityPlan).toContain("fx_system_tx_session");
+      expect(authorityPlan).toContain("Index Scan");
+      expect(schemaPlan).toContain("fx_control_schema_version");
+      expect(schemaPlan).toContain("Index Scan");
+    });
+  }, 120_000);
+
+  it("keeps one coherent C04B1 snapshot across revocation and uses database-time expiry", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const racing = await scenario(persistence, "commit_authority_race");
+      await sealScenario(racing);
+      const racingStored = await racing.loader.load(racing.authority);
+      if (racingStored.kind !== "loaded") {
+        throw new Error("Expected C04A racing evidence.");
+      }
+      const racingAuthority = commitAuthorityFromStoredEvidence(
+        racing.authority,
+        racingStored.evidence,
+      );
+      if (postgresUrl === null) {
+        throw new Error("Real Postgres URL disappeared during the test.");
+      }
+      const schemaResult = await persistence.pool.query<{
+        schema_name: string;
+      }>("select current_schema() as schema_name");
+      const schemaName = schemaResult.rows[0]?.schema_name;
+      if (schemaName === undefined) {
+        throw new Error("Missing temporary Postgres schema.");
+      }
+      const revocationClient = new Client({ connectionString: postgresUrl });
+      await revocationClient.connect();
+      await revocationClient.query(
+        "select set_config('search_path', $1, false)",
+        [schemaName],
+      );
+      await revocationClient.query("set lock_timeout = '5s'");
+      let revocationCommitted = false;
+      const racingLoader = createStoredCommitAuthorityEvidenceLoaderV1(
+        resolutionPorts(persistence),
+        {
+          afterSizeProjection: async () => {
+            if (revocationCommitted) return;
+            await revocationClient.query(
+              `
+                update fx_system_scope_clock
+                set authorization_revocation_epoch =
+                  authorization_revocation_epoch + 1
+                where scope_id = $1
+              `,
+              [racing.anchor.scopeId],
+            );
+            revocationCommitted = true;
+          },
+        },
+      );
+      try {
+        await expect(racingLoader.load(racingAuthority)).resolves
+          .toMatchObject({ kind: "loaded" });
+        expect(revocationCommitted).toBe(true);
+        await expect(
+          createStoredCommitAuthorityEvidenceLoaderV1(
+            resolutionPorts(persistence),
+          ).load(racingAuthority),
+        ).resolves.toMatchObject({
+          kind: "authorityMismatch",
+          reason: "revocationEpochChanged",
+        });
+      } finally {
+        await revocationClient.end();
+      }
+
+      const expired = await scenario(persistence, "commit_authority_expired");
+      await sealScenario(expired);
+      const expiredStored = await expired.loader.load(expired.authority);
+      if (expiredStored.kind !== "loaded") {
+        throw new Error("Expected C04A expiry evidence.");
+      }
+      const expiredAuthority = commitAuthorityFromStoredEvidence(
+        expired.authority,
+        expiredStored.evidence,
+      );
+      await persistence.query(
+        `
+          update fx_system_snapshot_lease
+          set lease_expires_at = clock_timestamp() - interval '1 millisecond'
+          where session_id = $1
+        `,
+        [expired.anchor.sessionId],
+      );
+      await expect(
+        createStoredCommitAuthorityEvidenceLoaderV1(
+          resolutionPorts(persistence),
+        ).load(expiredAuthority),
+      ).resolves.toMatchObject({ kind: "notPlannable", reason: "expired" });
+    });
+  }, 120_000);
 });
 
 interface Scenario {
@@ -302,6 +505,17 @@ async function scenario(
   });
 }
 
+async function sealScenario(current: Scenario): Promise<void> {
+  const prepared = await current.store.prepareSeal(current.attempt);
+  const journal = await runEffect(
+    canonicalizeSessionJournalV1Effect(prepared.journal),
+  );
+  const result = await runEffect(
+    canonicalizeSuccessfulResultV1Effect({ ok: true }),
+  );
+  await current.store.completeSeal(prepared.preparation, journal, result);
+}
+
 function resolutionPorts(
   persistence: PostgresFlarexPersistence,
 ): PointMutationSessionAuthorityResolutionPortsV1 {
@@ -320,6 +534,47 @@ function resolutionPorts(
         ),
     },
   };
+}
+
+function commitAuthorityFromStoredEvidence(
+  authority: Scenario["authority"],
+  evidence: Extract<
+    Awaited<ReturnType<Scenario["loader"]["load"]>>,
+    { readonly kind: "loaded" }
+  >["evidence"],
+): StoredCommitAuthorityEvidenceAuthorityV1 {
+  return Object.freeze({
+    ...authority,
+    session: Object.freeze(structuredClone(evidence.session)),
+    sealIdentity: Object.freeze({
+      scopeUuid: evidence.scopeUuid,
+      lifecycle: evidence.session.lifecycle,
+      sessionUpdatedAtMilliseconds: evidence.session.updatedAtMilliseconds,
+      leaseExpiresAtMilliseconds: evidence.lease.leaseExpiresAtMilliseconds,
+      rootCreatedAtMilliseconds: evidence.root.createdAtMilliseconds,
+      rootUpdatedAtMilliseconds: evidence.root.updatedAtMilliseconds,
+      sealedAtMilliseconds: evidence.root.sealedAtMilliseconds,
+      finalSyscallSequence: evidence.root.sealedFinalSyscallSequence,
+      creationTimeSeed: evidence.root.creationTimeSeed,
+      nextCreationTime: evidence.root.nextCreationTime,
+      journalFormat: SESSION_JOURNAL_FORMAT_V1,
+      journalProtocolVersion: TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
+      journalValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+      journalByteLength: evidence.root.journalBytes.byteLength,
+      journalSha256: new Uint8Array(evidence.root.journalSha256),
+      resultValueCodecVersion: evidence.root.resultValueCodecVersion,
+      resultSemanticBytes: evidence.root.resultSemanticBytes,
+      resultByteLength: evidence.root.resultBytes.byteLength,
+      resultSha256: new Uint8Array(evidence.root.resultSha256),
+      readDocuments: evidence.root.readDocuments,
+      readSemanticBytes: evidence.root.readSemanticBytes,
+      pointDependencyCount: evidence.root.pointDependencyCount,
+      writeOperations: evidence.root.writeOperations,
+      writeSemanticBytes: evidence.root.writeSemanticBytes,
+      materialWriteEventEvidenceBytes:
+        evidence.root.materialWriteEventEvidenceBytes,
+    }),
+  });
 }
 
 function selectorWire(
@@ -435,6 +690,37 @@ async function lookupPlans(
         requireObservedQuery(queries, "points"),
       ),
     });
+  } finally {
+    client.release();
+  }
+}
+
+function requireCommitObservedQuery(
+  queries: ReadonlyMap<
+    StoredCommitAuthorityEvidenceQueryV1["name"],
+    StoredCommitAuthorityEvidenceQueryV1
+  >,
+  name: StoredCommitAuthorityEvidenceQueryV1["name"],
+): StoredCommitAuthorityEvidenceQueryV1 {
+  const query = queries.get(name);
+  if (query === undefined) {
+    throw new Error(`C04B1 loader did not execute its ${name} query.`);
+  }
+  return query;
+}
+
+async function explainCommitAuthorityObserved(
+  persistence: PostgresFlarexPersistence,
+  query: StoredCommitAuthorityEvidenceQueryV1,
+): Promise<string> {
+  const client = await persistence.pool.connect();
+  try {
+    await client.query("set enable_seqscan = off");
+    const result = await client.query(
+      `explain (format json) ${query.sql}`,
+      [...query.params],
+    );
+    return JSON.stringify(result.rows);
   } finally {
     client.release();
   }

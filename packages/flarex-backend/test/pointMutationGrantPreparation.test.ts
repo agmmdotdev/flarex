@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1 } from "flarex-protocol/point-mutation-start";
 import { ReplacementScopeIdV1Schema } from "flarex-protocol/storage-authority";
 import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import {
@@ -182,6 +183,36 @@ describe("issuer point-mutation grant preparation", () => {
     });
     await expect(runTestEffect(corrupt.prepare(input))).rejects
       .toMatchObject({ issue: "corrupt" });
+  });
+
+  it("inherits the exact 16 MiB implicit argument-array boundary", async () => {
+    const preparation = makeIssuerPointMutationGrantPreparationV1({
+      loadActiveTargetMetadata: () => Effect.succeed(targetMetadata()),
+      loadCurrentScopeAuthority: () => Effect.succeed(currentAuthority()),
+    });
+    const requestKey = createServerPreparedTransactionRequestKeyV1(
+      REQUEST_KEY,
+    );
+    const exact = "x".repeat(
+      MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1 - 14,
+    );
+    await expect(runTestEffect(preparation.prepare({
+      deploymentId: DEPLOYMENT_ID,
+      functionPath: FUNCTION_PATH,
+      args: { orderId: exact },
+      requestKey,
+    }))).resolves.toBeDefined();
+    await expect(runTestEffect(preparation.prepare({
+      deploymentId: DEPLOYMENT_ID,
+      functionPath: FUNCTION_PATH,
+      args: { orderId: `${exact}x` },
+      requestKey,
+    }))).rejects.toMatchObject({
+      issue: {
+        reason: "argumentsTooLarge",
+        observed: MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1 + 1,
+      },
+    });
   });
 });
 

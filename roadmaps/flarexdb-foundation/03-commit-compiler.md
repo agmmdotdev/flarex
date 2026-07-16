@@ -4,8 +4,9 @@ Status: active; S06 row storage, S07 physical session/snapshot-lease DDL, and
 O04/O05 point dependency and validation contracts exist. Standalone C01 was
 retired before implementation. C02's host-neutral logical journal, successful-
 result, and finish-envelope protocol, C03's first trusted Postgres point-
-journal consumer, and C04A's private stored-attempt authentication are
-complete; C04B authoritative catalog/policy/return verification is next.
+journal consumer, C04A's private stored-attempt authentication, and C04B1's
+private commit-authority authentication are complete. C04B2 value/return
+validation remains unapproved and is the next compiler design gate.
 
 This plan owns the bounded Flarex app-data path from logical session operations
 to a trusted deterministic physical plan and atomic commit. It does not make a
@@ -102,7 +103,11 @@ CommitEnvelopeV1
 AuthenticatedStoredAttemptV1 (introduced by C04A)
   runtime-unforgeable process-local proof of the exact stored seal
              |
-VerifiedCommitInput (introduced by C04B)
+AuthenticatedCommitAuthorityV1 (introduced by C04B1)
+  same-factory proof of current arguments, grant, revocation, schema, and
+  immutable proof-only function metadata
+             |
+VerifiedCommitInput (introduced by C04B2)
   authenticated evidence plus authoritative catalog/policy/return facts
              |
 CommitPlannerV1 (introduced by C04C)
@@ -163,9 +168,10 @@ Introduce each boundary only at its real owner:
 - C03 introduces only the `SessionJournalStore` needed by its first real
   Postgres-backed journal and point-overlay consumer.
 - C04A owns exact stored-evidence authentication and only its private runtime-
-  unforgeable capability; C04B owns authoritative catalog/policy/return
-  verification and `VerifiedCommitInput`; C04C owns the concrete process-local
-  `PreparedCommitV1` capability.
+  unforgeable capability. C04B1 owns the same-factory current argument/grant/
+  revocation/schema authority capture and its private capability. C04B2 alone
+  owns final value/return validation and `VerifiedCommitInput`; C04C owns the
+  concrete process-local `PreparedCommitV1` capability.
 - O06/O07 own the exact atomic persistence capability; C05 is its first
   complete planner/executor composition consumer.
 - C06 owns `PostCommitWake`, after durable commit and outbox evidence make its
@@ -231,7 +237,8 @@ Outcome:
 - Add the C03A opaque pinned-table capability at this first consumer. Immutable
   pinned-manifest membership and its declared table ID are authoritative; the
   stable deployment binding corroborates them. The resolver never reads the
-  mutable active-schema pointer and does not absorb C04B catalog/policy work.
+  mutable active-schema pointer and does not absorb C04B1 authority capture or
+  C04B2 value/return validation.
 - Create one exact-attempt journal root eagerly with initial activation. Seed
   and advance insert `_creationTime` from trusted database time using exact
   binary64 `nextUp`; future O08 attempt replacement must create a fresh root and
@@ -286,9 +293,9 @@ Exit gate:
   exact/+1 material-event evidence, max+1 child collection, strict result
   detachment, query plans, migration fresh/upgrade/rollback, and PGlite plus
   real-Postgres concurrency pass;
-- unsupported shapes fail closed with zero fallback, while inline carriage,
-  committed app-row publication, C04B/C04C verification/planning, and legacy-
-  engine extension stay absent.
+- unsupported shapes fail closed with zero fallback; C03 itself introduces no
+  inline activation, committed app-row publication, C04B1/C04B2/C04C
+  verification/planning, or legacy-engine extension.
 
 ### [x] C04A — Authenticate The Exact Stored Attempt
 
@@ -325,15 +332,71 @@ Exit gate:
   capability, no public export exists, and focused PGlite plus real-Postgres
   isolation/race/query-plan tests prove the read-only boundary.
 
-### [ ] C04B — Verify Catalog, Policy, And Successful Return
+### C04B — Verify Commit Authority And Values
+
+The former broad gate is split because current immutable authority records are
+sufficient for a useful first checkpoint, while no accepted production
+function-validator catalog exists yet. C04B is not complete until both
+sub-gates complete.
+
+#### [x] C04B1 — Authenticate Current Commit Authority
 
 Outcome:
 
-- Introduce the narrow trusted `CatalogReader` keyed only by authoritative
-  session/snapshot facts from `AuthenticatedStoredAttemptV1`; never trust active
-  pointers, journal authority, raw database handles, or caller physical IDs.
-- Validate pinned catalog identity, mutation policy, final logical values, and
-  the successful result against the authoritative return validator.
+- Extend only the C04A factory-local vault. A genuine same-factory
+  `AuthenticatedStoredAttemptV1` can mint a private, runtime-unforgeable
+  `AuthenticatedCommitAuthorityV1`; structural and cross-factory values fail
+  before persistence, and neither capability is package-root exported.
+- Use one fresh bounded read-only repeatable-read capture of the exact stored
+  argument/grant evidence, current scope revocation authority, one database
+  timestamp, the immutable pinned schema artifact, and its stable table
+  bindings. Project and sum stored representation lengths before selecting
+  payloads, select JSON as text, and close SQL before JSON/Schema decoding,
+  canonicalization, SHA-256, Ed25519, or function-metadata work.
+- Share the exact transaction-grant verification kernel with the existing
+  prepared-start verifier, supplying explicit trusted database time and exact
+  logical pins. C04B1 cannot manufacture or register a prepared-start handle.
+- Apply Convex's argument limit in both trusted preparation paths and again to
+  stored arguments: the implicit outer array costs exactly
+  `2 + argumentSemanticBytes`, which must be at most 16 MiB.
+- Bound materialization separately at 64 MiB over the stored argument JSON,
+  argument canonical bytes, grant JSON, grant canonical bytes, pinned-schema
+  JSON, and pinned-schema canonical bytes. This is a Flarex operational
+  corruption/resource ceiling, not a Convex transaction semantic.
+- Retain the immutable setup-seeded function-metadata source only as a
+  temporary proof adapter. Its sole consumer is the private C07 proof, its
+  reason is that the production activation snapshot is deferred, and its
+  deletion/replacement gate is roadmap 17 plus S03-D4/S04 publishing one
+  coherent production package/artifact/source/function-validator/schema
+  snapshot. It is unreachable from production target selection and never
+  reads `activePackageId`, `analysisJson`, or the mutable active-schema pointer.
+- Own no final document/result validation, return-validator execution,
+  `VerifiedCommitInput`, planner, physical operation, commit transaction,
+  publication, DDL, route, or hosted activation.
+
+Exit gate:
+
+- exact and limit-plus-one argument and materialization boundaries fail at the
+  correct layer; oversize evidence is rejected before payload selection;
+- current revocation, key, policy, request, idempotency, execution, schema, and
+  grant pins fail closed, while one repeatable-read snapshot stays coherent
+  across a concurrent authority change;
+- tampered JSON/bytes/digests, corrupt schema/bindings, absent or malformed
+  metadata, expiry, and same/cross-factory forgery are typed failures;
+- caller mutation cannot change private state, CPU/crypto occurs after SQL
+  closes, and focused unit, PGlite, and real-Postgres isolation/query-plan
+  proofs pass.
+
+#### [ ] C04B2 — Validate Final Values And Successful Return
+
+Status: unapproved; require a fresh preflight after the C04B1 checkpoint.
+
+Outcome:
+
+- Consume only a genuine `AuthenticatedCommitAuthorityV1`, introduce the
+  smallest production function-validator authority justified by the accepted
+  activation snapshot, and validate final logical documents plus the successful
+  result against pinned authoritative validators.
 - Return a private runtime-unforgeable `VerifiedCommitInput`; invalid catalog,
   policy, value, or return evidence never reaches planning.
 
@@ -354,8 +417,8 @@ Outcome:
 
 Outcome:
 
-- Consume the C04A/C04B/C04C evidence and plan created while the exact attempt
-  is `running + sealed`. Inside the short trusted lane, lock and revalidate the
+- Consume the C04A/C04B1/C04B2/C04C evidence and plan created while the exact
+  attempt is `running + sealed`. Inside the short trusted lane, lock and revalidate the
   complete scalar seal identity before atomically changing the exact current
   `running` attempt to `finishing`; no large evidence bytes are reread there.
   This is not yet a stable endpoint; C06 later adds idempotent orchestration and
@@ -405,7 +468,7 @@ running or finishing -> aborted | expired
 S07's `committing` literal remains transaction-local/reserved in V1; it does
 not introduce a separately durable state or recovery protocol.
 
-- Invoke the C04B-owned verified-input/return-validation gate before C04C planning;
+- Invoke the C04B2-owned verified-input/return-validation gate before C04C planning;
   the endpoint adds no weaker alternate finish path.
 - Store successful result, commit token, idempotency outcome, data,
   commit/change atoms, outbox, exact-current-lease deletion, and committed
