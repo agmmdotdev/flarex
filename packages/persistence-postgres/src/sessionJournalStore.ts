@@ -1,3 +1,4 @@
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
@@ -947,7 +948,7 @@ function capturePatchChanges(input: unknown): ReadonlyArray<LogicalPatchFieldV1>
   if (Object.getOwnPropertySymbols(input).length > 0) {
     throw new Error("Patch cannot contain symbol fields.");
   }
-  const fields = Object.keys(input).sort(compareStrings);
+  const fields = Object.keys(input).sort(compareUtf16Strings);
   if (fields.length > MAX_FLAREX_VALUE_OBJECT_FIELDS_V1) {
     throw new Error(
       `Patch exceeds the ${MAX_FLAREX_VALUE_OBJECT_FIELDS_V1}-field limit.`,
@@ -1063,10 +1064,6 @@ function isRuntimeDocumentObject(
 
 function cloneJsonObject(input: JsonObject): JsonObject {
   return structuredClone(input);
-}
-
-function compareStrings(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 type AppliedSessionJournalOperationV1 =
@@ -2700,7 +2697,7 @@ function canonicalJson(value: Json): string {
   }
   if (isJsonObject(value)) {
     return `{${Object.keys(value)
-      .sort(compareStrings)
+      .sort(compareUtf16Strings)
       .map((key) => {
         const item = value[key];
         if (item === undefined) {
@@ -2859,7 +2856,7 @@ async function materializeSealCandidate(
     dependencies.push(logicalDependencyFromPoint(dependency));
   }
   dependencies.sort((left, right) =>
-    compareStrings(left.documentId, right.documentId));
+    compareUtf16Strings(left.documentId, right.documentId));
 
   const eventRows = snapshot.events;
   if (eventRows.length !== counters.writeOperations) {

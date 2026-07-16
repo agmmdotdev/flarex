@@ -384,6 +384,9 @@ importers:
       '@electric-sql/pglite':
         specifier: ^0.3.14
         version: 0.3.16
+      '@flarex/utils':
+        specifier: workspace:*
+        version: link:../utils
       '@types/pg':
         specifier: ^8.20.0
         version: 8.20.0
