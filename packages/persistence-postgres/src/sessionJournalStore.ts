@@ -55,6 +55,7 @@ import {
   type StoredForSessionAttemptCommitEnvelopeV1,
 } from "flarex-protocol/commit-protocol";
 import {
+  encodeCanonicalJson,
   isJson,
   isJsonObject,
   jsonEqual,
@@ -756,6 +757,16 @@ export function createSessionJournalStorePersistenceV1(
         prepared.candidate,
         journal,
         successfulResult,
+        (evidence) =>
+          Effect.runPromise(
+            verifySuccessfulResultEvidenceV1Effect(evidence).pipe(
+              Effect.mapError(() =>
+                new SessionJournalSealV1Error({
+                  reason: "canonicalResultMismatch",
+                })
+              ),
+            ),
+          ),
       );
       const resolved = await resolveJournalTarget(ports, prepared.attempt);
       const envelope = await resolved.target[
@@ -2682,29 +2693,6 @@ function isFiniteDate(value: Date): boolean {
   return value instanceof Date && Number.isFinite(value.getTime());
 }
 
-function canonicalJson(value: Json): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(",")}]`;
-  }
-  if (isJsonObject(value)) {
-    return `{${Object.keys(value)
-      .sort(compareUtf16Strings)
-      .map((key) => {
-        const item = value[key];
-        if (item === undefined) {
-          throw new Error("Canonical JSON object lost a property.");
-        }
-        return `${JSON.stringify(key)}:${canonicalJson(item)}`;
-      })
-      .join(",")}}`;
-  }
-  const encoded = JSON.stringify(value);
-  if (encoded === undefined) {
-    throw new Error("Canonical JSON primitive could not be encoded.");
-  }
-  return encoded;
-}
-
 interface SessionJournalSealCandidateV1 {
   readonly lastSyscallSequence: CommitFinalSyscallSequenceV1;
   readonly nextCreationTime: AppCreationTimeV1;
@@ -3253,6 +3241,9 @@ async function validateCanonicalSealEvidence(
   candidate: SessionJournalSealCandidateV1,
   journal: CanonicalSessionJournalV1,
   successfulResult: CanonicalSuccessfulResultV1,
+  verifySuccessfulResult: (
+    evidence: unknown,
+  ) => Promise<CanonicalSuccessfulResultV1>,
 ): Promise<ValidatedCanonicalSealEvidenceV1> {
   const supplied = captureCanonicalSealInputs(journal, successfulResult);
   const expectedJournalJson = requireJson(
@@ -3261,7 +3252,14 @@ async function validateCanonicalSealEvidence(
   const suppliedJournalJson = requireJson(
     encodeSessionJournal(supplied.journal),
   );
-  const expectedJournalText = canonicalJson(expectedJournalJson);
+  const expectedJournalText = encodeCanonicalJson(
+    expectedJournalJson,
+    () => {
+      throw new SessionJournalSealV1Error({
+        reason: "canonicalJournalMismatch",
+      });
+    },
+  );
   if (
     !jsonEqual(expectedJournalJson, suppliedJournalJson) ||
     supplied.journalCanonicalText !== expectedJournalText ||
@@ -3287,20 +3285,19 @@ async function validateCanonicalSealEvidence(
   const normalizedResult = normalizeFlarexValueJsonV1(
     supplied.resultValueJson,
   );
-  const expectedResultText = canonicalJson({
-    format: "flarex-value",
-    value: normalizedResult.valueJson,
-    valueCodecVersion: 1,
-  });
-  const verifiedResult = await Effect.runPromise(
-    verifySuccessfulResultEvidenceV1Effect(supplied.resultEvidence).pipe(
-      Effect.mapError(() =>
-        new SessionJournalSealV1Error({
-          reason: "canonicalResultMismatch",
-        })
-      ),
-    ),
+  const expectedResultText = encodeCanonicalJson(
+    {
+      format: "flarex-value",
+      value: normalizedResult.valueJson,
+      valueCodecVersion: 1,
+    },
+    () => {
+      throw new SessionJournalSealV1Error({
+        reason: "canonicalResultMismatch",
+      });
+    },
   );
+  const verifiedResult = await verifySuccessfulResult(supplied.resultEvidence);
   const verifiedResultBytes = verifiedResult.canonicalBytes;
   if (
     supplied.resultSemanticBytes !== normalizedResult.semanticSizeBytes ||

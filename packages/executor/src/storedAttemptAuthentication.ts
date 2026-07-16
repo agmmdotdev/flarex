@@ -1,4 +1,4 @@
-import { compareUtf16Strings } from "@flarex/utils/strings";
+import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
 import { Data, Effect, Encoding, Schema } from "effect";
 
 import {
@@ -31,7 +31,11 @@ import {
   type SessionJournalV1,
   type StoredForSessionAttemptCommitEnvelopeV1,
 } from "flarex-protocol/commit-protocol";
-import type { Json, JsonObject } from "flarex-protocol/json";
+import {
+  encodeCanonicalJson,
+  type Json,
+  type JsonObject,
+} from "flarex-protocol/json";
 import {
   CatalogSchemaVersionIdSchema,
   decodeSchemaManifestAppSchemaV1,
@@ -126,10 +130,7 @@ import {
   verifyPinnedFunctionMetadataEffect,
   type VerifiedCommitAuthorityEvidenceV1,
 } from "./storedAttemptAuthentication/commitAuthorityVerification";
-import {
-  bytesEqual,
-  detachVerifiedGrant,
-} from "./storedAttemptAuthentication/canonicalEvidence";
+import { detachVerifiedGrant } from "./storedAttemptAuthentication/verifiedGrantEvidence";
 import {
   CommitDocumentValidationV1Error,
   CommitInputAuthorityCorruptionV1Error,
@@ -1649,8 +1650,11 @@ const verifyPointWriteChainEffect = Effect.fn(function* (
     const valuesMatch = yield* Effect.try({
       try: () => {
         const expected = normalizeFlarexValueJsonV1(change.valueJson).value;
-        return canonicalJson(normalizeFlarexValueV1(actual).valueJson) ===
-          canonicalJson(normalizeFlarexValueV1(expected).valueJson);
+        return canonicalPointEvidenceJson(
+          normalizeFlarexValueV1(actual).valueJson,
+        ) === canonicalPointEvidenceJson(
+          normalizeFlarexValueV1(expected).valueJson,
+        );
       },
       catch: mapPointEvidenceFailure,
     });
@@ -1910,25 +1914,10 @@ function base64UrlFromBytes(bytes: Uint8Array): string {
   return Encoding.encodeBase64Url(bytes);
 }
 
-function canonicalJson(value: Json): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(",")}]`;
-  }
-  if (isJsonObject(value)) {
-    return `{${Object.keys(value)
-      .sort(compareUtf16Strings)
-      .map((key) => {
-        const item = value[key];
-        if (item === undefined) throw corruption("jsonPropertyMissing");
-        return `${JSON.stringify(key)}:${canonicalJson(item)}`;
-      })
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function isJsonObject(value: Json): value is JsonObject {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+function canonicalPointEvidenceJson(value: Json): string {
+  return encodeCanonicalJson(value, () => {
+    throw corruption("jsonPropertyMissing");
+  });
 }
 
 function mapSynchronousStorageFailure(

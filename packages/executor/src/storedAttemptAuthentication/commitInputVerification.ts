@@ -1,3 +1,4 @@
+import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect } from "effect";
 
@@ -40,7 +41,6 @@ import type {
   StoredAttemptSealIdentityPortV1,
   StoredAttemptSessionScalarsPortV1,
 } from "../storedAttemptAuthentication";
-import { bytesEqual } from "./canonicalEvidence";
 
 export class InvalidAuthenticatedCommitAuthorityV1Error extends Data.TaggedError(
   "InvalidAuthenticatedCommitAuthorityV1Error",

@@ -1,6 +1,11 @@
+import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
 import { Effect, Schema } from "effect";
 
-import type { JsonObject } from "flarex-protocol/json";
+import {
+  encodeCanonicalJson,
+  isJsonObject,
+  type JsonObject,
+} from "flarex-protocol/json";
 import {
   CatalogSchemaVersionIdSchema,
   decodeSchemaManifestAppSchemaV1,
@@ -61,12 +66,7 @@ import {
   type StoredCommitAuthoritySchemaEvidencePortV1,
   type StoredCommitAuthoritySessionEvidencePortV1,
 } from "./commitAuthorityModel";
-import {
-  bytesEqual,
-  canonicalJson,
-  detachVerifiedGrant,
-  isJsonObject,
-} from "./canonicalEvidence";
+import { detachVerifiedGrant } from "./verifiedGrantEvidence";
 
 const StrictStructOptions: {
   readonly parseOptions: { readonly onExcessProperty: "error" };
@@ -441,7 +441,7 @@ function bindingsMatchManifest(
 }
 
 function canonicalCommitAuthorityJson(value: JsonObject): string {
-  return canonicalJson(value, () => {
+  return encodeCanonicalJson(value, () => {
     throw commitAuthorityCorruption("authorizationGrantInvalid");
   });
 }
