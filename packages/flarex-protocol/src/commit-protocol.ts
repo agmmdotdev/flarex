@@ -8,9 +8,11 @@ import {
   type AppDocumentIdV1,
 } from "./app-document-id";
 import {
+  encodeCanonicalJson,
   isJsonArray,
   isJsonObject,
   JsonValue,
+  type CanonicalJsonEncodingInvariantIssue,
   type Json,
   type JsonObject,
 } from "./json";
@@ -563,7 +565,10 @@ export const canonicalizeSessionJournalV1Effect = Effect.fn(
   const json = yield* decodeUnknownJsonValue(encoded).pipe(
     Effect.mapError(() => invalidSchemaError("journal")),
   );
-  const canonicalText = encodeCanonicalJson(json);
+  const canonicalText = encodeCanonicalJson(
+    json,
+    commitJsonEncodingInvariantFailure,
+  );
   const rawBytes = TEXT_ENCODER.encode(canonicalText);
   yield* enforceLimitEffect(
     "canonicalEvidenceBytes",
@@ -1574,34 +1579,20 @@ function invalidSchemaError(
   });
 }
 
-function encodeCanonicalJson(value: Json): string {
-  if (isJsonArray(value)) {
-    const items: string[] = [];
-    for (let index = 0; index < value.length; index += 1) {
-      const item = value[index];
-      if (item === undefined) {
-        throw new Error("Validated commit journal lost an array item.");
-      }
-      items.push(encodeCanonicalJson(item));
-    }
-    return `[${items.join(",")}]`;
-  }
-  if (isJsonObject(value)) {
-    const fields: string[] = [];
-    for (const key of Object.keys(value).sort(compareUtf16Strings)) {
-      const item = value[key];
-      if (item === undefined) {
-        throw new Error("Validated commit journal lost an object property.");
-      }
-      fields.push(`${JSON.stringify(key)}:${encodeCanonicalJson(item)}`);
-    }
-    return `{${fields.join(",")}}`;
-  }
-  const encoded = JSON.stringify(value);
-  if (encoded === undefined) {
-    throw new Error("Validated commit journal could not be encoded.");
-  }
-  return encoded;
+const COMMIT_JSON_ENCODING_INVARIANT_MESSAGES = {
+  missingArrayItem: "Validated commit journal lost an array item.",
+  missingObjectProperty:
+    "Validated commit journal lost an object property.",
+  primitiveEncodingFailed: "Validated commit journal could not be encoded.",
+} as const satisfies Record<
+  CanonicalJsonEncodingInvariantIssue["reason"],
+  string
+>;
+
+function commitJsonEncodingInvariantFailure(
+  issue: CanonicalJsonEncodingInvariantIssue,
+): never {
+  throw new Error(COMMIT_JSON_ENCODING_INVARIANT_MESSAGES[issue.reason]);
 }
 
 function encodeBase64Url(bytes: Uint8Array): string {

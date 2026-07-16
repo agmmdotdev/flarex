@@ -1,16 +1,24 @@
 import { Schema } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
+  encodeCanonicalJson,
   isJson,
   isJsonArray,
   isJsonObject,
   JsonValue,
+  type CanonicalJsonEncodingInvariantIssue,
   type Json,
   type JsonObject,
   type WritableJson,
 } from "../src/json";
 
 const decodeJson = Schema.decodeUnknownSync(JsonValue);
+
+function failCanonicalJsonEncoding(
+  issue: CanonicalJsonEncodingInvariantIssue,
+): never {
+  throw new Error(issue.reason);
+}
 
 function expectJsonObjectNarrowing(value: Json): void {
   if (isJsonObject(value)) {
@@ -43,6 +51,46 @@ describe("protocol JSON", () => {
 
     expect(isJson(nullPrototypeObject)).toBe(true);
     expect(decodeJson(nullPrototypeObject)).toEqual(nullPrototypeObject);
+  });
+
+  it("rejects sparse arrays from the shared JSON contract", () => {
+    const sparse: unknown[] = [];
+    sparse.length = 1;
+
+    expect(isJson(sparse)).toBe(false);
+    expect(() => decodeJson(sparse)).toThrow();
+  });
+
+  it("rejects sparse arrays with inherited indexed values", () => {
+    const inheritedItems = Object.create(Array.prototype) as unknown[];
+    inheritedItems[0] = true;
+    const sparse: unknown[] = [];
+    Object.setPrototypeOf(sparse, inheritedItems);
+    sparse.length = 1;
+
+    expect(Object.hasOwn(sparse, 0)).toBe(false);
+    expect(sparse[0]).toBe(true);
+    expect(isJson(sparse)).toBe(false);
+    expect(() => decodeJson(sparse)).toThrow();
+    expect(() =>
+      encodeCanonicalJson(sparse as Json[], failCanonicalJsonEncoding),
+    ).toThrow("missingArrayItem");
+  });
+
+  it("encodes validated JSON with deterministic key order and spelling", () => {
+    const value: Json = { z: -0, a: [true, null, "\n"] };
+
+    expect(encodeCanonicalJson(value, failCanonicalJsonEncoding)).toBe(
+      '{"a":[true,null,"\\n"],"z":0}',
+    );
+  });
+
+  it("reports a missing typed array item as an encoding invariant failure", () => {
+    const sparse: Json[] = [];
+    sparse.length = 1;
+
+    expect(() => encodeCanonicalJson(sparse, failCanonicalJsonEncoding))
+      .toThrow("missingArrayItem");
   });
 
   it("discriminates the object member of validated JSON", () => {

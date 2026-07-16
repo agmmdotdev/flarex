@@ -1,4 +1,3 @@
-import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Schema } from "effect";
 
 import {
@@ -7,7 +6,12 @@ import {
   type CatalogIndexId,
   type CatalogTableId,
 } from "./catalog";
-import { isJsonArray, type Json } from "./json";
+import {
+  encodeCanonicalJson,
+  isJsonArray,
+  type CanonicalJsonEncodingInvariantIssue,
+  type Json,
+} from "./json";
 import {
   ObjectValidatorJsonV1,
   type ValidatorJsonV1,
@@ -431,7 +435,10 @@ export async function canonicalizeSchemaManifestV1(
   value: unknown,
 ): Promise<CanonicalSchemaManifestV1> {
   const manifest = decodeSchemaManifestJson(value);
-  const manifestText = encodeCanonicalJson(manifest);
+  const manifestText = encodeCanonicalJson(
+    manifest,
+    schemaManifestJsonEncodingInvariantFailure,
+  );
   const canonicalText =
     `{"format":"flarexdb-schema-manifest","manifest":${manifestText},` +
     `"manifestCodecVersion":1}`;
@@ -911,35 +918,22 @@ function isPostgresJsonString(value: string): boolean {
   return true;
 }
 
-function encodeCanonicalJson(value: Json): string {
-  if (isJsonArray(value)) {
-    const items: string[] = [];
-    for (let index = 0; index < value.length; index += 1) {
-      const item = value[index];
-      if (item === undefined) {
-        throw new Error("Validated JSON array lost an item during encoding.");
-      }
-      items.push(encodeCanonicalJson(item));
-    }
-    return `[${items.join(",")}]`;
-  }
-  if (value !== null && typeof value === "object") {
-    return `{${Object.keys(value)
-      .sort(compareUtf16Strings)
-      .map((key) => {
-        const item = value[key];
-        if (item === undefined) {
-          throw new Error("Validated JSON object lost a property during encoding.");
-        }
-        return `${JSON.stringify(key)}:${encodeCanonicalJson(item)}`;
-      })
-      .join(",")}}`;
-  }
-  const encoded = JSON.stringify(value);
-  if (encoded === undefined) {
-    throw new Error("Validated JSON value could not be encoded.");
-  }
-  return encoded;
+const SCHEMA_MANIFEST_JSON_ENCODING_INVARIANT_MESSAGES = {
+  missingArrayItem: "Validated JSON array lost an item during encoding.",
+  missingObjectProperty:
+    "Validated JSON object lost a property during encoding.",
+  primitiveEncodingFailed: "Validated JSON value could not be encoded.",
+} as const satisfies Record<
+  CanonicalJsonEncodingInvariantIssue["reason"],
+  string
+>;
+
+function schemaManifestJsonEncodingInvariantFailure(
+  issue: CanonicalJsonEncodingInvariantIssue,
+): never {
+  throw new Error(
+    SCHEMA_MANIFEST_JSON_ENCODING_INVARIANT_MESSAGES[issue.reason],
+  );
 }
 
 function cloneAndFreezeManifest(

@@ -3,9 +3,11 @@ import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Schema } from "effect";
 
 import {
+  encodeCanonicalJson,
   isJson,
   isJsonArray,
   isJsonObject,
+  type CanonicalJsonEncodingInvariantIssue,
   type Json,
   type JsonObject,
 } from "./json";
@@ -457,7 +459,10 @@ export function copyFlarexValueSha256V1(
 async function canonicalizeNormalizedValue(
   normalized: NormalizedFlarexValueV1,
 ): Promise<CanonicalFlarexValueV1> {
-  const valueText = encodeCanonicalJson(normalized.valueJson);
+  const valueText = encodeCanonicalJson(
+    normalized.valueJson,
+    valueJsonEncodingInvariantFailure,
+  );
   const canonicalText =
     `{"format":"flarex-value","value":${valueText},` +
     `"valueCodecVersion":1}`;
@@ -1079,35 +1084,20 @@ function taggedJson(tag: string, payload: string): Json {
   return Object.freeze(value);
 }
 
-function encodeCanonicalJson(value: Json): string {
-  if (isJsonArray(value)) {
-    const items: string[] = [];
-    for (let index = 0; index < value.length; index += 1) {
-      const item = value[index];
-      if (item === undefined) {
-        throw new Error("Validated Flarex value JSON lost an array item.");
-      }
-      items.push(encodeCanonicalJson(item));
-    }
-    return `[${items.join(",")}]`;
-  }
-  if (value !== null && typeof value === "object") {
-    return `{${Object.keys(value)
-      .sort(compareUtf16Strings)
-      .map((key) => {
-        const item = value[key];
-        if (item === undefined) {
-          throw new Error("Validated Flarex value JSON lost an object property.");
-        }
-        return `${JSON.stringify(key)}:${encodeCanonicalJson(item)}`;
-      })
-      .join(",")}}`;
-  }
-  const encoded = JSON.stringify(value);
-  if (encoded === undefined) {
-    throw new Error("Validated Flarex value JSON could not be encoded.");
-  }
-  return encoded;
+const VALUE_JSON_ENCODING_INVARIANT_MESSAGES = {
+  missingArrayItem: "Validated Flarex value JSON lost an array item.",
+  missingObjectProperty:
+    "Validated Flarex value JSON lost an object property.",
+  primitiveEncodingFailed: "Validated Flarex value JSON could not be encoded.",
+} as const satisfies Record<
+  CanonicalJsonEncodingInvariantIssue["reason"],
+  string
+>;
+
+function valueJsonEncodingInvariantFailure(
+  issue: CanonicalJsonEncodingInvariantIssue,
+): never {
+  throw new Error(VALUE_JSON_ENCODING_INVARIANT_MESSAGES[issue.reason]);
 }
 
 function encodeInt64(value: bigint): string {

@@ -1,3 +1,4 @@
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Schema } from "effect";
 
 export type JsonObject = { readonly [key: string]: Json };
@@ -21,6 +22,14 @@ export type WritableJson =
   | string
   | WritableJson[]
   | { [key: string]: WritableJson };
+
+export type CanonicalJsonEncodingInvariantIssue =
+  | Readonly<{ readonly reason: "missingArrayItem"; readonly index: number }>
+  | Readonly<{
+      readonly reason: "missingObjectProperty";
+      readonly key: string;
+    }>
+  | Readonly<{ readonly reason: "primitiveEncodingFailed" }>;
 
 export const Json: Schema.Schema<Json> = Schema.suspend(() =>
   Schema.Union([
@@ -55,6 +64,52 @@ export function isJsonObject(value: Json): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * Encodes validated JSON using ECMAScript UTF-16 key order and JSON primitive
+ * spelling. The callback owns failures caused by a typed value losing an item
+ * or property after validation.
+ */
+export function encodeCanonicalJson(
+  value: Json,
+  onInvariantViolation: (issue: CanonicalJsonEncodingInvariantIssue) => never,
+): string {
+  if (isJsonArray(value)) {
+    const items: string[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.hasOwn(value, index)) {
+        return onInvariantViolation({ reason: "missingArrayItem", index });
+      }
+      const item = value[index];
+      if (item === undefined) {
+        return onInvariantViolation({ reason: "missingArrayItem", index });
+      }
+      items.push(encodeCanonicalJson(item, onInvariantViolation));
+    }
+    return `[${items.join(",")}]`;
+  }
+  if (isJsonObject(value)) {
+    const fields: string[] = [];
+    for (const key of Object.keys(value).sort(compareUtf16Strings)) {
+      const item = value[key];
+      if (item === undefined) {
+        return onInvariantViolation({ reason: "missingObjectProperty", key });
+      }
+      fields.push(
+        `${JSON.stringify(key)}:${encodeCanonicalJson(
+          item,
+          onInvariantViolation,
+        )}`,
+      );
+    }
+    return `{${fields.join(",")}}`;
+  }
+  const encoded = JSON.stringify(value);
+  if (encoded === undefined) {
+    return onInvariantViolation({ reason: "primitiveEncodingFailed" });
+  }
+  return encoded;
+}
+
 export function isJson(value: unknown): value is Json {
   if (
     value === null ||
@@ -67,7 +122,12 @@ export function isJson(value: unknown): value is Json {
     return Number.isFinite(value);
   }
   if (Array.isArray(value)) {
-    return value.every(isJson);
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.hasOwn(value, index)) return false;
+      const item = value[index];
+      if (item === undefined || !isJson(item)) return false;
+    }
+    return true;
   }
   if (typeof value === "object") {
     const prototype = Object.getPrototypeOf(value);

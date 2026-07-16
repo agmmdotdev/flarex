@@ -358,11 +358,13 @@ semantics.
   executor, and backend retain their published writable names as aliases.
   Executor HTTP delegates JSON membership to the protocol guard while keeping
   its domain error adapter. The protocol JSON module also owns array- and
-  object-member discrimination after JSON validation; unknown-input guards,
-  writable legacy narrowing, domain-specific normalization, and
-  canonicalization remain with their owners. Backend adapters use one
-  backend-owned boundary to detach readonly protocol JSON into the writable
-  backend representation.
+  object-member discrimination after JSON validation and the shared
+  deterministic JSON text encoding used by value, schema-manifest, and commit
+  evidence. Sparse arrays are outside the shared JSON contract. Unknown-input
+  adapters, writable legacy narrowing, domain-specific normalization, limits,
+  hashing, evidence construction, and failure mapping remain with their
+  owners. Backend adapters use one backend-owned boundary to detach readonly
+  protocol JSON into the writable backend representation.
 
 ## Known Gaps And Limitations
 
