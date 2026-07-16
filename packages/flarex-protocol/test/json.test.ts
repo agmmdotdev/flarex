@@ -5,6 +5,7 @@ import {
   isJson,
   isJsonArray,
   isJsonObject,
+  jsonEqual,
   JsonValue,
   type CanonicalJsonEncodingInvariantIssue,
   type Json,
@@ -83,6 +84,26 @@ describe("protocol JSON", () => {
     expect(encodeCanonicalJson(value, failCanonicalJsonEncoding)).toBe(
       '{"a":[true,null,"\\n"],"z":0}',
     );
+  });
+
+  it("compares validated JSON structurally with JSON number semantics", () => {
+    const left: Json = { z: [-0, { enabled: true }], a: null };
+    const right: Json = { a: null, z: [0, { enabled: true }] };
+
+    expect(jsonEqual(left, right)).toBe(true);
+    expect(jsonEqual({ value: 1 }, { value: 2 })).toBe(false);
+    expect(jsonEqual([1, 2], [1, 2, 3])).toBe(false);
+  });
+
+  it("does not treat inherited array items as JSON equality", () => {
+    const inheritedItems = Object.create(Array.prototype) as Json[];
+    inheritedItems[0] = true;
+    const sparse: Json[] = [];
+    Object.setPrototypeOf(sparse, inheritedItems);
+    sparse.length = 1;
+
+    expect(jsonEqual(sparse, [true])).toBe(false);
+    expect(jsonEqual([true], sparse)).toBe(false);
   });
 
   it("reports a missing typed array item as an encoding invariant failure", () => {

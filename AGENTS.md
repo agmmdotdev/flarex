@@ -115,6 +115,9 @@ hashing, and named evidence-capture constructors retain their domain owners
 and may delegate to that primitive. Retain narrow local wrappers when their
 names communicate an important domain invariant. Never centralize a legacy
 path just because it is duplicated; removal can be the correct reuse strategy.
+Before consolidating equality helpers, pin their treatment of negative zero,
+key order, sparse or invalid containers, unknown non-JSON inputs, allocation,
+and failure behavior; the same helper name does not prove the same contract.
 
 ## Core Rule
 

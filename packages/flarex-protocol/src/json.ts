@@ -64,6 +64,46 @@ export function isJsonObject(value: Json): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/** Compares validated JSON values without depending on object key order. */
+export function jsonEqual(left: Json, right: Json): boolean {
+  // JSON text encodes both negative and positive zero as 0.
+  if (left === right) return true;
+  if (isJsonArray(left)) {
+    if (!isJsonArray(right) || left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index += 1) {
+      if (!Object.hasOwn(left, index) || !Object.hasOwn(right, index)) {
+        return false;
+      }
+      const leftValue = left[index];
+      const rightValue = right[index];
+      if (
+        leftValue === undefined ||
+        rightValue === undefined ||
+        !jsonEqual(leftValue, rightValue)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (!isJsonObject(left) || !isJsonObject(right)) return false;
+  const leftKeys = Object.keys(left);
+  if (leftKeys.length !== Object.keys(right).length) return false;
+  for (const key of leftKeys) {
+    if (!Object.hasOwn(right, key)) return false;
+    const leftValue = left[key];
+    const rightValue = right[key];
+    if (
+      leftValue === undefined ||
+      rightValue === undefined ||
+      !jsonEqual(leftValue, rightValue)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Encodes validated JSON using ECMAScript UTF-16 key order and JSON primitive
  * spelling. The callback owns failures caused by a typed value losing an item

@@ -246,6 +246,36 @@ describe("O03-B1 point-mutation session activation", () => {
     expect(replayed.anchor).toEqual(created.anchor);
   });
 
+  it("replays negative-zero JSON after JSONB normalizes it to zero", async () => {
+    const context = await provisionContext("negative_zero_argument");
+    const input = pointMutationSessionActivationFixture(
+      context.deploymentId,
+      context.scopeId,
+      { evidence: { validatedArgsJson: { value: -0 } } },
+    );
+    const activation = activationPersistence();
+
+    const created = await activation.activate(input);
+    const persisted = await persistence.query<{
+      validated_args_json: JsonObject;
+    }>(
+      `
+        select s.validated_args_json
+        from fx_system_tx_session s
+        join fx_system_scope_clock c using (scope_uuid)
+        where c.scope_id = $1
+      `,
+      [context.scopeId],
+    );
+
+    expect(Object.is(persisted.rows[0]?.validated_args_json.value, 0)).toBe(
+      true,
+    );
+    const replayed = await activation.activate(input);
+    expect(replayed.status).toBe("replayed");
+    expect(replayed.anchor).toEqual(created.anchor);
+  });
+
   it("caps the initial lease at the verified grant hard expiry", async () => {
     const context = await provisionContext("expiry_cap");
     const databaseTime = await persistence.query<{ now: string }>(

@@ -361,12 +361,15 @@ semantics.
   Executor HTTP delegates JSON membership to the protocol guard while keeping
   its domain error adapter. The protocol JSON module also owns array- and
   object-member discrimination after JSON validation and the shared
+  structural equality contract without canonical JSON text allocation, plus
   deterministic JSON text encoding used by value, schema-manifest, and commit
-  evidence. Sparse arrays are outside the shared JSON contract. Unknown-input
-  adapters, writable legacy narrowing, domain-specific normalization, limits,
-  hashing, evidence construction, and failure mapping remain with their
-  owners. Backend adapters use one backend-owned boundary to detach readonly
-  protocol JSON into the writable backend representation.
+  evidence. JSON equality ignores object key order and treats negative and
+  positive zero alike. Sparse arrays are outside the shared JSON contract.
+  Unknown-input adapters and database-shaped comparators, writable legacy
+  narrowing, domain-specific normalization, limits, hashing, evidence
+  construction, and failure mapping remain with their owners. Backend adapters
+  use one backend-owned boundary to detach readonly protocol JSON into the
+  writable backend representation.
 
 ## Known Gaps And Limitations
 

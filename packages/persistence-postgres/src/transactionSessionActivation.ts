@@ -10,6 +10,7 @@ import {
   isJson,
   isJsonArray,
   isJsonObject,
+  jsonEqual,
   type Json,
   type JsonObject,
 } from "flarex-protocol/json";
@@ -2166,37 +2167,6 @@ function cloneJson(value: Json): Json {
     return cloneJsonObject(value);
   }
   return value;
-}
-
-function jsonEqual(left: Json, right: Json): boolean {
-  if (Object.is(left, right)) return true;
-  if (isJsonArray(left)) {
-    if (!isJsonArray(right) || left.length !== right.length) return false;
-    return left.every((value, index) => {
-      const rightValue = right[index];
-      return rightValue !== undefined && jsonEqual(value, rightValue);
-    });
-  }
-  if (!isJsonObject(left) || !isJsonObject(right)) {
-    return false;
-  }
-  const leftKeys = Object.keys(left).sort();
-  const rightKeys = Object.keys(right).sort();
-  if (
-    leftKeys.length !== rightKeys.length ||
-    leftKeys.some((key, index) => key !== rightKeys[index])
-  ) {
-    return false;
-  }
-  return leftKeys.every((key) => {
-    const leftValue = left[key];
-    const rightValue = right[key];
-    return (
-      leftValue !== undefined &&
-      rightValue !== undefined &&
-      jsonEqual(leftValue, rightValue)
-    );
-  });
 }
 
 function capturePhysicalLocator(

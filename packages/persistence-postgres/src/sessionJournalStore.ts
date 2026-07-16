@@ -57,6 +57,7 @@ import {
 import {
   isJson,
   isJsonObject,
+  jsonEqual,
   JsonValue,
   type Json,
   type JsonObject,
@@ -2679,10 +2680,6 @@ function corruption(
 
 function isFiniteDate(value: Date): boolean {
   return value instanceof Date && Number.isFinite(value.getTime());
-}
-
-function jsonEqual(left: Json, right: Json): boolean {
-  return canonicalJson(left) === canonicalJson(right);
 }
 
 function canonicalJson(value: Json): string {
