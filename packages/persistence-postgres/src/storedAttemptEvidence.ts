@@ -1,3 +1,4 @@
+import { copyBytes } from "@flarex/utils/bytes";
 import { and, asc, eq, sql } from "drizzle-orm";
 
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
@@ -935,10 +936,6 @@ function validByteLength(value: Uint8Array, length: number): boolean {
 
 function positiveSafeInteger(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0;
-}
-
-function copyBytes(value: Uint8Array): Uint8Array {
-  return new Uint8Array(value);
 }
 
 function authorityMismatch(

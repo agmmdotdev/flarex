@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { bytesEqual, bytesEqualFullScan } from "@flarex/utils/bytes";
+import { bytesEqual, bytesEqualFullScan, copyBytes } from "@flarex/utils/bytes";
+
+describe("copyBytes", () => {
+  it("copies only the visible byte range without retaining mutable aliases", () => {
+    const backing = new Uint8Array([9, 1, 2, 8]);
+    const source = backing.subarray(1, 3);
+    const copy = copyBytes(source);
+
+    expect(copy).toEqual(new Uint8Array([1, 2]));
+    expect(copy).not.toBe(source);
+    expect(copy.buffer).not.toBe(source.buffer);
+
+    source.fill(7);
+    expect(copy).toEqual(new Uint8Array([1, 2]));
+
+    copy.fill(6);
+    expect(source).toEqual(new Uint8Array([7, 7]));
+  });
+});
 
 const comparisons = [
   ["bytesEqual", bytesEqual],

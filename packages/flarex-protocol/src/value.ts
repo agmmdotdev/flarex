@@ -1,4 +1,7 @@
-import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
+import {
+  bytesEqualFullScan as bytesEqual,
+  copyBytes,
+} from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Schema } from "effect";
 
@@ -447,13 +450,13 @@ function isCanonicalValueEnvelope(
 export function copyCanonicalFlarexValueBytesV1(
   value: CanonicalFlarexValueBytesV1,
 ): CanonicalFlarexValueBytesV1 {
-  return decodeCanonicalFlarexValueBytesV1(new Uint8Array(value));
+  return decodeCanonicalFlarexValueBytesV1(copyBytes(value));
 }
 
 export function copyFlarexValueSha256V1(
   value: FlarexValueSha256V1,
 ): FlarexValueSha256V1 {
-  return decodeFlarexValueSha256V1(new Uint8Array(value));
+  return decodeFlarexValueSha256V1(copyBytes(value));
 }
 
 async function canonicalizeNormalizedValue(
@@ -1277,7 +1280,7 @@ function evidenceBytes(
       issue: { reason, detail },
     });
   }
-  return new Uint8Array(value);
+  return copyBytes(value);
 }
 
 function limitsForProfile(profile: FlarexValueProfileV1): FlarexValueLimitsV1 {

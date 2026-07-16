@@ -109,7 +109,10 @@ package-root catch-all barrel unless its public surface has been deliberately
 approved. Pin extracted behavior with focused tests, replace copies only when
 their semantics are exact, including short-circuiting, full-scan, allocation,
 normalization, and failure behavior. Do not claim cryptographic constant-time
-behavior for ordinary JavaScript loops. Retain narrow local wrappers when their
+behavior for ordinary JavaScript loops. A generic defensive byte copy may
+detach `Uint8Array` storage, but branded validation, ArrayBuffer conversion,
+hashing, and named evidence-capture constructors retain their domain owners
+and may delegate to that primitive. Retain narrow local wrappers when their
 names communicate an important domain invariant. Never centralize a legacy
 path just because it is duplicated; removal can be the correct reuse strategy.
 

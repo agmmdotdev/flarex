@@ -1,3 +1,8 @@
+/** Returns an owned byte array that does not share storage with the input. */
+export function copyBytes(value: Uint8Array): Uint8Array {
+  return new Uint8Array(value);
+}
+
 /** Compares byte arrays and returns as soon as a mismatch is found. */
 export function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   if (left.byteLength !== right.byteLength) return false;

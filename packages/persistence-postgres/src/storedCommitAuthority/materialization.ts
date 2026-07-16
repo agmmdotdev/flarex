@@ -1,4 +1,7 @@
-import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
+import {
+  bytesEqualFullScan as bytesEqual,
+  copyBytes,
+} from "@flarex/utils/bytes";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { JsonObject } from "flarex-protocol/json";
 import {
@@ -812,10 +815,6 @@ function validByteLength(value: Uint8Array, length: number): boolean {
 
 function positiveSafeInteger(value: number | undefined): value is number {
   return value !== undefined && Number.isSafeInteger(value) && value > 0;
-}
-
-function copyBytes(value: Uint8Array): Uint8Array {
-  return new Uint8Array(value);
 }
 
 function isJsonObject(value: unknown): value is JsonObject {
