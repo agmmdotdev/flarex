@@ -20,6 +20,10 @@ service when one or more of these are true:
 
 Do not create one global dependency container. Build the smallest local graph
 owned by the application, Worker, Durable Object, server, or test boundary.
+Follow
+[`14-domain-services-layers-and-composition.md`](./14-domain-services-layers-and-composition.md)
+for domain-first file organization, service-versus-plain-value classification,
+Context lifetime rules, and composition-root structure.
 
 ## Target Service Shape
 
@@ -55,6 +59,13 @@ principle, not copy those files mechanically.
 - Use `Layer.succeed` for an already-created lifecycle-free capability.
 - Use `Layer.effect` for effectful construction. In the installed Effect v4,
   construction runs in the Layer's Scope.
+- Keep ordinary business effects on service operations. Layer construction may
+  acquire resources, validate configuration, run an explicitly owned startup
+  gate, or launch a scoped background process; it must not eagerly perform
+  request or mutation work.
+- Use `Layer.effectDiscard` only for owned startup work that provides no
+  capability, and use `Effect.forkScoped` for background fibers whose lifetime
+  is the Layer's Scope.
 - Acquire pools, clients, subscriptions, and background resources with a
   matching release path owned by Scope.
 - Do not capture request-, Worker-, or Durable Object-scoped state in a global

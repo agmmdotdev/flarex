@@ -66,6 +66,10 @@ slice still requires the preflight and validation required by
    values, opaque capabilities, and deliberate shared snapshots; use readonly
    types for ephemeral records, persistent collections for useful functional
    updates, and `Ref` for lifecycle-owned state that intentionally changes.
+9. Organize substantial Effect code by domain first. Keep pure domain logic,
+   service contracts, live Layers, and composition roots distinct; put business
+   effects in service operations while Layers own construction, requirement
+   closure, resources, startup gates, and scoped background work.
 
 ## Document Map
 
@@ -104,6 +108,9 @@ slice still requires the preflight and validation required by
 - [`13-runtime-immutability-and-value-ownership.md`](./13-runtime-immutability-and-value-ownership.md)
   - `Object.freeze`, ownership capture, canonical snapshots, opaque handles,
   persistent collections, and Effect-managed mutable state.
+- [`14-domain-services-layers-and-composition.md`](./14-domain-services-layers-and-composition.md)
+  - domain-first folders, service selection, Layer construction, Context
+  lifetimes, composition roots, and bounded organization migrations.
 
 ## How To Use This Guidance
 

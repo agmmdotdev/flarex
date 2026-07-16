@@ -127,6 +127,13 @@ when the dependency changes.
   ownership, preserve canonical values and WeakMap-backed capability handles,
   and use readonly types, persistent collections, or `Ref` only when their
   distinct semantics fit.
+- Apply
+  `roadmaps/effect-native-guidance/14-domain-services-layers-and-composition.md`
+  when a touched Effect flow introduces, splits, moves, or materially extends a
+  domain module, Context service, live Layer, composition root, runtime bridge,
+  or scoped startup process. Organize by domain, keep pure logic plain, preserve
+  capability cardinality and Context lifetime, and do not execute ordinary
+  business work during Layer construction.
 
 ## Services, Boundaries, And Tests
 
@@ -150,6 +157,15 @@ when the dependency changes.
   than rebuilding them per request.
 - Compose and provide Layers at application, host, or test boundaries. Do not
   capture request-, Worker-, or Durable Object-scoped state in a global Layer.
+- Keep service contracts separate from substantial live adapters and compose
+  local domain graphs before the host graph. A small single implementation may
+  keep a static Layer on its service; do not create empty folder or service
+  ceremony.
+- Use `Layer.effectDiscard` only for startup work that provides no service.
+  Business effects remain on service methods; background fibers started by a
+  Layer must be scoped to it.
+- Do not model dynamically repeated instances as singleton Context tags. Use a
+  scoped factory/plain value when several instances of one kind must coexist.
 - Keep fibers structured, scoped, supervised, joined, or explicitly
   interrupted.
 - Use Effect time in Effect-native domain/service code. Direct platform time is
@@ -179,14 +195,17 @@ The TypeScript reviewer owns precise `A`, `E`, and `R`; public and service
 contract agreement; return-type stabilization; Layer dependency closure;
 Schema decoded/encoded agreement; database row/parameter type agreement;
 tagged-error shapes; unsafe widening and assertions; precision loss; compile-
-time versus runtime immutability agreement; caller/owned value types; and reuse
+time versus runtime immutability agreement; caller/owned value types; service
+contract versus adapter type ownership; package dependency direction; and reuse
 of stable repo types.
 
 The code-quality reviewer owns `fn` / `fnUntraced` / `gen` / pipeline choice;
 Option, Result, Exit, Match, and conditional-flow choice; error provenance and
 retry; HTTP composition; observability and redaction; Scope, fibers, Layer and
 runtime lifecycle; Schema compiler placement; state and collection ownership;
-mutation isolation; freeze depth and performance; and Effect test style.
+mutation isolation; freeze depth and performance; domain/module responsibility;
+Layer construction versus business effects; composition-root placement; and
+Effect test style.
 
 Both reviewers retain their broader correctness responsibilities. The Effect
 standard adds to, rather than replaces, behavioral, security, transaction,

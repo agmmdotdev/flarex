@@ -54,6 +54,15 @@ pattern violation, make the smallest behavior-preserving correction in the
 same slice when focused validation is available; do not expand into an
 unapproved migration or contract, trust, transaction, or lifecycle change.
 
+Organize new and materially refactored Effect code by domain first. Keep pure
+models and policies, service contracts, substantial live Layers, and domain or
+host composition roots visibly separate. Business effects belong in service
+operations; Layers own construction, requirement closure, acquisition and
+release, startup gates, and scoped background processes. Preserve request,
+transaction, Worker, and Durable Object lifetimes, and do not force dynamic
+multi-instance values into singleton Context tags. Follow
+`roadmaps/effect-native-guidance/14-domain-services-layers-and-composition.md`.
+
 When a diff touches Effect code, both standing reviewers must read the same
 global skill and Flarex overlay completely and report their actual Effect
 coverage. The global skill owns reusable workflow and examples; the checked-in
