@@ -352,9 +352,11 @@ semantics.
   shape. The SDK aliases its readonly `JSONValue` to that owner; live-query,
   executor, and backend retain their published writable names as aliases.
   Executor HTTP delegates JSON membership to the protocol guard while keeping
-  its domain error adapter. Domain-specific normalization and canonicalization
-  remain with their owners. Backend adapters use one backend-owned boundary to
-  detach readonly protocol JSON into the writable backend representation.
+  its domain error adapter. The protocol JSON module also owns object-member
+  discrimination after JSON validation; unknown-input guards, writable legacy
+  narrowing, domain-specific normalization, and canonicalization remain with
+  their owners. Backend adapters use one backend-owned boundary to detach
+  readonly protocol JSON into the writable backend representation.
 
 ## Known Gaps And Limitations
 

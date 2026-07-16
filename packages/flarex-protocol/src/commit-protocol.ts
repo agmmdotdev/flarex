@@ -6,7 +6,7 @@ import {
   AppDocumentIdV1Schema,
   type AppDocumentIdV1,
 } from "./app-document-id";
-import { JsonValue, type Json, type JsonObject } from "./json";
+import { isJsonObject, JsonValue, type Json, type JsonObject } from "./json";
 import {
   CanonicalNonNegativePostgresBigIntFromString,
   CanonicalPositivePostgresBigIntFromString,
@@ -1641,10 +1641,6 @@ function copyToArrayBuffer(value: Uint8Array): ArrayBuffer {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isJsonObject(value: Json): value is JsonObject {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function isJsonArray(value: Json): value is ReadonlyArray<Json> {

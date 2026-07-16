@@ -5,7 +5,7 @@ import {
   requireAppDocumentIdentityV1ForTable,
 } from "./app-document-id";
 import type { CatalogTableId } from "./catalog";
-import type { JsonObject } from "./json";
+import { isJsonObject, type JsonObject } from "./json";
 import {
   CatalogSchemaVersionIdSchema,
   SchemaManifestAppSchemaV1Schema,
@@ -434,12 +434,6 @@ function isRuntimeObject(
     value !== null &&
     !Array.isArray(value) &&
     !(value instanceof ArrayBuffer);
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-  return typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value);
 }
 
 function deepFreezeProjection<T>(value: T): T {

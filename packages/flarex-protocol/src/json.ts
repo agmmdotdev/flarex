@@ -39,6 +39,14 @@ export const JsonValue = Schema.declare<Json>(isJson, {
     "A JSON value: null, boolean, finite number, string, array, or plain record.",
 });
 
+/**
+ * Discriminates the object member of an already-validated JSON value.
+ * Use {@link isJson} first when the input is unknown.
+ */
+export function isJsonObject(value: Json): value is JsonObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 export function isJson(value: unknown): value is Json {
   if (
     value === null ||

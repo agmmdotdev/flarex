@@ -1,7 +1,7 @@
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Schema } from "effect";
 
-import { isJson, type Json, type JsonObject } from "./json";
+import { isJson, isJsonObject, type Json, type JsonObject } from "./json";
 
 /**
  * The JavaScript value domain accepted at Flarex API boundaries.
@@ -433,10 +433,6 @@ function isCanonicalValueEnvelope(
     record.valueCodecVersion === 1 &&
     isJson(record.value)
   );
-}
-
-function isJsonObject(value: Json): value is JsonObject {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 export function copyCanonicalFlarexValueBytesV1(

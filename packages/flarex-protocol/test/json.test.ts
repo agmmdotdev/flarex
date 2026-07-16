@@ -1,8 +1,21 @@
 import { Schema } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { isJson, JsonValue, type Json, type WritableJson } from "../src/json";
+import {
+  isJson,
+  isJsonObject,
+  JsonValue,
+  type Json,
+  type JsonObject,
+  type WritableJson,
+} from "../src/json";
 
 const decodeJson = Schema.decodeUnknownSync(JsonValue);
+
+function expectJsonObjectNarrowing(value: Json): void {
+  if (isJsonObject(value)) {
+    expectTypeOf(value).toEqualTypeOf<JsonObject>();
+  }
+}
 
 describe("protocol JSON", () => {
   it("provides a writable compatibility shape without changing canonical JSON", () => {
@@ -23,6 +36,17 @@ describe("protocol JSON", () => {
 
     expect(isJson(nullPrototypeObject)).toBe(true);
     expect(decodeJson(nullPrototypeObject)).toEqual(nullPrototypeObject);
+  });
+
+  it("discriminates the object member of validated JSON", () => {
+    const value: Json = { nested: true };
+
+    expect(isJsonObject(value)).toBe(true);
+    expect(isJsonObject(null)).toBe(false);
+    expect(isJsonObject([])).toBe(false);
+    expect(isJsonObject("value")).toBe(false);
+
+    expectJsonObjectNarrowing(value);
   });
 
   it("rejects values outside the shared JSON contract", () => {
