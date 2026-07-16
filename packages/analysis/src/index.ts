@@ -1,3 +1,4 @@
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { Data, Effect } from "effect";
 import { assertValidatorJson } from "flarex/validator-json";
 import type { ValidatorJSON } from "flarex/values";
@@ -1132,8 +1133,4 @@ function analyzerResponseFailure(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

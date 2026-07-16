@@ -1,3 +1,4 @@
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { Data, Effect } from "effect";
 import type { SourcePackage } from "./sourcePackage.ts";
 
@@ -89,8 +90,4 @@ function requiredStringEffect(
     return Effect.fail(new DevRouteValidationError({ message: `Missing ${name}.` }));
   }
   return Effect.succeed(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

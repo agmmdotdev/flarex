@@ -1,3 +1,4 @@
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { and, asc, desc, gt, lte, sql } from "drizzle-orm";
 
 import {
@@ -429,10 +430,6 @@ function parityResultRows(value: unknown): readonly Record<string, unknown>[] {
     rows.push(row);
   }
   return rows;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function requireExactKeys(

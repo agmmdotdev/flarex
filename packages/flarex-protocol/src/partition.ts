@@ -1,3 +1,4 @@
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { Data, Effect } from "effect";
 import type { DeploymentSchema } from "./deployment";
 import { isJson } from "./json";
@@ -473,8 +474,4 @@ function partitionRoutePayloadValidationResultToEffect<A>(
   result: PartitionRoutePayloadValidationResult<A>,
 ): Effect.Effect<A, PartitionRoutePayloadError> {
   return result.success ? Effect.succeed(result.value) : Effect.fail(result.error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

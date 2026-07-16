@@ -1446,7 +1446,3 @@ function documentOwnerValue(tableName: string, ownerField: string, value: Json):
 function partitionOwnerKey(owner: Pick<PartitionOwnerChange, "tableId" | "ownerField" | "ownerValue">): string {
   return `${owner.tableId}\0${owner.ownerField}\0${owner.ownerValue}`;
 }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}

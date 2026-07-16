@@ -1,3 +1,4 @@
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import {
   decodeAuthConfigPromise,
   type AuthConfig,
@@ -132,8 +133,4 @@ function modulePaths(sourcePackage: Record<string, unknown>): ReadonlySet<string
       isRecord(module) && typeof module.path === "string" ? [module.path] : [],
     ),
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

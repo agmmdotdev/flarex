@@ -1,3 +1,4 @@
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { Effect } from "effect";
 import { decodeAnalyzerProtocolSuccessResponseEffect } from "@flarex/analysis";
 import { decodeAuthConfigEffect } from "flarex-protocol/auth";
@@ -991,8 +992,4 @@ function canonicalValue(value: unknown): unknown {
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, item]) => [key, canonicalValue(item)]),
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

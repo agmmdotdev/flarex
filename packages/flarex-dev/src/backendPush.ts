@@ -1,3 +1,4 @@
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import type { Miniflare } from "miniflare";
 import { Data, Effect } from "effect";
 import {
@@ -859,10 +860,6 @@ function backendRequestUrl(baseUrl: string, path: string): URL {
   const basePath = base.pathname === "/" ? "" : base.pathname.replace(/\/$/, "");
   base.pathname = `${basePath}${path}`;
   return base;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function errorMessage(error: unknown): string {

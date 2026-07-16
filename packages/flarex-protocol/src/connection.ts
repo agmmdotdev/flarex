@@ -1,3 +1,4 @@
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { Data, Effect, Schema } from "effect";
 import {
   decodeLiveQueryDeliveryChangesBodyEffect,
@@ -662,7 +663,3 @@ const CONNECTION_SERVER_MESSAGE_TYPES = [
   "AuthError",
   "Ping",
 ] as const;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}

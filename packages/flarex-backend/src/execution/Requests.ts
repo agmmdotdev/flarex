@@ -1,3 +1,4 @@
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { Effect } from "effect";
 import {
   decodeExecutionFinishRequestEffect,
@@ -163,8 +164,4 @@ function backendIndexRangeExpression(
     field: expression.field,
     value: backendJson(expression.value),
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

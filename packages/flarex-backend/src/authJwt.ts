@@ -1,4 +1,5 @@
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { Data, Effect, Schema } from "effect";
 import type {
   AuthConfig,
@@ -927,10 +928,6 @@ function failJwtAuth(
   message: string,
 ): Effect.Effect<never, JwtAuthError> {
   return Effect.fail(new JwtAuthError({ reason, message }));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isCustomJwtProvider(provider: AuthProvider): provider is CustomJwtAuthProvider {
