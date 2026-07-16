@@ -1,3 +1,4 @@
+import { compareBytesLexicographically } from "@flarex/utils/bytes";
 import { Data, Schema } from "effect";
 
 import {
@@ -1458,7 +1459,7 @@ class OrderedIndexByteReader {
       }
       if (
         previousFieldBytes !== undefined &&
-        compareBytes(previousFieldBytes, fieldBytes) >= 0
+        compareBytesLexicographically(previousFieldBytes, fieldBytes) >= 0
       ) {
         throw this.invalid("object fields are duplicated or not strictly byte-ordered");
       }
@@ -1767,18 +1768,6 @@ function compareHexByteStrings(left: string, right: string): number {
 
 function compareAsciiStrings(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
-}
-
-function compareBytes(left: Uint8Array, right: Uint8Array): number {
-  const length = Math.min(left.byteLength, right.byteLength);
-  for (let index = 0; index < length; index += 1) {
-    const leftByte = left[index];
-    const rightByte = right[index];
-    if (leftByte !== rightByte) {
-      return (leftByte ?? 0) - (rightByte ?? 0);
-    }
-  }
-  return left.byteLength - right.byteLength;
 }
 
 function bytesToHex(values: Iterable<number>): string {

@@ -1,3 +1,4 @@
+import { compareBytesLexicographically } from "@flarex/utils/bytes";
 import { Data, Result } from "effect";
 
 import {
@@ -265,20 +266,7 @@ function comparePointCandidates(
 ): number {
   const tableOrder = left.point.tableId - right.point.tableId;
   if (tableOrder !== 0) return tableOrder;
-  return compareBytes(left.rowBytes, right.rowBytes);
-}
-
-function compareBytes(left: Uint8Array, right: Uint8Array): number {
-  const length = Math.min(left.byteLength, right.byteLength);
-  for (let index = 0; index < length; index += 1) {
-    const leftByte = left[index];
-    const rightByte = right[index];
-    if (leftByte === undefined || rightByte === undefined) {
-      throw new Error("Canonical row identity lost a byte during comparison.");
-    }
-    if (leftByte !== rightByte) return leftByte - rightByte;
-  }
-  return left.byteLength - right.byteLength;
+  return compareBytesLexicographically(left.rowBytes, right.rowBytes);
 }
 
 function captureAuthorityPins(

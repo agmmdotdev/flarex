@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   bytesEqual,
   bytesEqualFullScan,
+  compareBytesLexicographically,
   copyBytes,
   copyBytesToArrayBuffer,
 } from "@flarex/utils/bytes";
@@ -42,6 +43,41 @@ describe("copyBytesToArrayBuffer", () => {
 
     copy.fill(6);
     expect(source).toEqual(new Uint8Array([7, 7]));
+  });
+});
+
+describe("compareBytesLexicographically", () => {
+  it("orders by the first differing unsigned byte", () => {
+    expect(compareBytesLexicographically(
+      new Uint8Array([1, 254]),
+      new Uint8Array([1, 255]),
+    )).toBeLessThan(0);
+    expect(compareBytesLexicographically(
+      new Uint8Array([255]),
+      new Uint8Array([0]),
+    )).toBeGreaterThan(0);
+  });
+
+  it("orders an equal prefix before a longer value", () => {
+    expect(compareBytesLexicographically(
+      new Uint8Array([1, 2]),
+      new Uint8Array([1, 2, 0]),
+    )).toBeLessThan(0);
+    expect(compareBytesLexicographically(
+      new Uint8Array([1, 2, 0]),
+      new Uint8Array([1, 2]),
+    )).toBeGreaterThan(0);
+  });
+
+  it("treats identical values as equal", () => {
+    expect(compareBytesLexicographically(
+      new Uint8Array(),
+      new Uint8Array(),
+    )).toBe(0);
+    expect(compareBytesLexicographically(
+      new Uint8Array([0, 128, 255]),
+      new Uint8Array([0, 128, 255]),
+    )).toBe(0);
   });
 });
 

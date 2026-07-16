@@ -10,6 +10,22 @@ export function copyBytesToArrayBuffer(value: Uint8Array): ArrayBuffer {
   return buffer;
 }
 
+/**
+ * Compares unsigned bytes lexicographically, with a shorter equal prefix
+ * ordered before a longer one.
+ */
+export function compareBytesLexicographically(
+  left: Uint8Array,
+  right: Uint8Array,
+): number {
+  const length = Math.min(left.byteLength, right.byteLength);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return left.byteLength - right.byteLength;
+}
+
 /** Compares byte arrays and returns as soon as a mismatch is found. */
 export function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   if (left.byteLength !== right.byteLength) return false;
