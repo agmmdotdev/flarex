@@ -1,5 +1,6 @@
 import { Data, Effect, Schema } from "effect";
 import { executionIdentityFingerprint } from "./auth";
+import { isJson } from "./json";
 
 export type LiveQueryDeliveryJson =
   | null
@@ -341,24 +342,5 @@ function deliveryWakePayloadFailure<A = never>(
 }
 
 function isLiveQueryDeliveryJson(value: unknown): value is LiveQueryDeliveryJson {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean"
-  ) {
-    return true;
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value);
-  }
-  if (Array.isArray(value)) {
-    return value.every(isLiveQueryDeliveryJson);
-  }
-  if (typeof value === "object") {
-    const prototype = Object.getPrototypeOf(value);
-    if (prototype !== Object.prototype && prototype !== null) return false;
-    if (Object.getOwnPropertySymbols(value).length > 0) return false;
-    return Object.values(value as Record<string, unknown>).every(isLiveQueryDeliveryJson);
-  }
-  return false;
+  return isJson(value);
 }

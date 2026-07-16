@@ -70,6 +70,7 @@ import type {
   PushSourcePackage,
   ReadSet,
 } from "./types.ts";
+import { backendJson } from "./execution/JsonRouteBoundary.ts";
 
 export type ExecutionArtifactInvokePayload = ExecutionArtifactInvokePayloadFor<
   ActiveDeploymentStatus["executionArtifactRef"],
@@ -404,7 +405,7 @@ export const decodeMaterializedExecutionArtifactInvokeResponse = Effect.fn(
 
 function backendInvokeResponseFromProtocol(response: ProtocolInvokeResponse): InvokeResponse {
   return {
-    value: cloneProtocolJson(response.value),
+    value: backendJson(response.value),
     ...(response.readSet === undefined ? {} : { readSet: backendReadSetFromProtocol(response.readSet) }),
     ...(response.readTs === undefined ? {} : { readTs: response.readTs }),
     ...(response.committedTs === undefined ? {} : { committedTs: response.committedTs }),
@@ -450,18 +451,8 @@ function backendWriteFromProtocol(write: NonNullable<ProtocolInvokeResponse["wri
     id: write.id,
     prevTs: write.prevTs,
     ts: write.ts,
-    value: cloneProtocolJson(write.value),
+    value: backendJson(write.value),
   };
-}
-
-function cloneProtocolJson(value: ProtocolInvokeResponse["value"]): Json {
-  if (value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) {
-    return value.map(cloneProtocolJson);
-  }
-  return Object.fromEntries(
-    Object.entries(value).map(([key, entry]) => [key, cloneProtocolJson(entry)]),
-  );
 }
 
 function readServiceBindingExecutionArtifactRuntimeResponseJson(

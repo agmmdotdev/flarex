@@ -347,6 +347,12 @@ semantics.
   published backend test protocol entrypoint is a deprecated compatibility
   facade that re-exports protocol-owned names rather than defining another
   wire contract.
+- `flarex-protocol/json` owns shared finite plain-JSON validation semantics.
+  Live-query delivery delegates to that guard while retaining its published
+  writable type and domain Schema label as a narrow compatibility surface.
+  Domain-specific normalization and canonicalization remain with their owners.
+  Backend adapters use one backend-owned boundary to detach readonly protocol
+  JSON into the legacy mutable backend representation.
 
 ## Known Gaps And Limitations
 
