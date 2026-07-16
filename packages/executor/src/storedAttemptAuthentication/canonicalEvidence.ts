@@ -1,3 +1,4 @@
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import type { Json, JsonObject } from "flarex-protocol/json";
 
 import type {
@@ -27,7 +28,7 @@ export function canonicalJson(
   }
   if (isJsonObject(value)) {
     return `{${Object.keys(value)
-      .sort(compareStrings)
+      .sort(compareUtf16Strings)
       .map((key) => {
         const item = value[key];
         if (item === undefined) return onMissingProperty();
@@ -48,8 +49,4 @@ export function detachVerifiedGrant(
   input: VerifiedTransactionGrantInspectionV1,
 ): VerifiedTransactionGrantInspectionV1 {
   return Object.freeze(structuredClone(input));
-}
-
-function compareStrings(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }

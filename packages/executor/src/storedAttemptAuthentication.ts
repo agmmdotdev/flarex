@@ -1,3 +1,4 @@
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect, Schema } from "effect";
 
 import {
@@ -1812,7 +1813,7 @@ function canonicalJson(value: Json): string {
   }
   if (isJsonObject(value)) {
     return `{${Object.keys(value)
-      .sort(compareStrings)
+      .sort(compareUtf16Strings)
       .map((key) => {
         const item = value[key];
         if (item === undefined) throw corruption("jsonPropertyMissing");
@@ -1821,10 +1822,6 @@ function canonicalJson(value: Json): string {
       .join(",")}}`;
   }
   return JSON.stringify(value);
-}
-
-function compareStrings(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function isJsonObject(value: Json): value is JsonObject {

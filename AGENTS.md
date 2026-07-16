@@ -185,6 +185,22 @@ execution order. Discussion-only, research-only, docs-only, and mechanical
 turns do not need a ceremonial self-preflight unless they propose a subsequent
 implementation gate.
 
+### Standing Approval For Utility Consolidation
+
+The user has explicitly granted standing approval for the active goal to
+incrementally consolidate shared utilities and duplicated contracts into their
+correct workspace or domain owners. Within that goal, this paragraph overrides
+the per-step approval pause above: after researching and challenging a bounded
+slice, proceed to implement, validate, review, commit, and continue without
+asking the user to approve each ownership decision again.
+
+This standing approval does not widen the goal. Keep behavior, public
+contracts, trust boundaries, transaction semantics, persistence authority, and
+runtime lifecycles unchanged unless their correction is itself supported by
+the goal's current evidence. Pause only when new evidence requires a material
+expansion outside utility or duplicated-contract ownership, an irreversible
+external action, or information that cannot be established from the repository.
+
 ## Replacement Design Authority
 
 Flarex is in an intentional replacement effort. Do not confuse the currently

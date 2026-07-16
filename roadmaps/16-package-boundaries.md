@@ -336,8 +336,9 @@ semantics.
 - The Effect boundary checker rejects synchronous execution, hidden aliases,
   direct runtime imports, and unregistered production `runPromise` sites.
 - `@flarex/utils/strings` owns the tested ECMAScript UTF-16 string comparator
-  reused by protocol canonicalization and deterministic ordering paths, while
-  narrower ordered-index comparators retain their domain-significant names.
+  reused by protocol canonicalization, deterministic ordering, and executor
+  stored-attempt verification paths, while narrower ordered-index comparators
+  retain their domain-significant names.
 
 ## Known Gaps And Limitations
 

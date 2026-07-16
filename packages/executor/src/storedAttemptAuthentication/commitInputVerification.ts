@@ -1,3 +1,4 @@
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect } from "effect";
 
 import {
@@ -274,7 +275,7 @@ export const verifyCommitInputStateEffect = Effect.fn(
     }
   }
   verifiedPoints.sort((left, right) =>
-    compareStrings(left.documentId, right.documentId)
+    compareUtf16Strings(left.documentId, right.documentId)
   );
 
   if (!Object.hasOwn(source.functionMetadata, "returnsValidator")) {
@@ -499,10 +500,6 @@ function isCanonicalObject(
     value !== null &&
     !Array.isArray(value) &&
     !(value instanceof ArrayBuffer);
-}
-
-function compareStrings(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function authorityCorruption(

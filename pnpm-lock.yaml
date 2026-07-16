@@ -185,6 +185,9 @@ importers:
       '@flarex/persistence-postgres':
         specifier: workspace:*
         version: link:../persistence-postgres
+      '@flarex/utils':
+        specifier: workspace:*
+        version: link:../utils
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.90

@@ -21,6 +21,7 @@
   "dependencies": {
     "@flarex/freshness": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
+    "@flarex/utils": "workspace:*",
     "effect": "catalog:",
     "flarex": "workspace:*",
     "flarex-protocol": "workspace:*"
