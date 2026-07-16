@@ -2,7 +2,7 @@
 
 Status: active cross-cutting implementation guidance.
 
-Evidence snapshot: 2026-07-15 current working tree. Re-check the code and the
+Evidence snapshot: 2026-07-16 current working tree. Re-check the code and the
 installed Effect version before using a specific API.
 
 ## Purpose
@@ -57,6 +57,10 @@ slice still requires the preflight and validation required by
    installed Effect `HttpClient` service. Cloudflare service bindings and
    Durable Object stubs remain typed platform adapters unless a deliberate
    custom client preserves their routing and capability semantics.
+7. Treat text, number, bytes, JSON, and database values as explicit encoded
+   and decoded representations. Keep total native conversions pure, but use a
+   named Schema, `Result`, or typed Effect boundary when input can be invalid,
+   lossy, non-canonical, or foreign.
 
 ## Document Map
 
@@ -89,6 +93,9 @@ slice still requires the preflight and validation required by
 - [`11-data-validation-and-trust-boundaries.md`](./11-data-validation-and-trust-boundaries.md)
   - structural Schema decoding, pure Result validation, semantic verification,
   capability authenticity, configuration, and defect-preserving boundaries.
+- [`12-encoded-data-and-database-codecs.md`](./12-encoded-data-and-database-codecs.md)
+  - numeric text, UTF-8 and byte ownership, Effect Encoding, canonical
+  protocols, and database parameter/row codecs.
 
 ## How To Use This Guidance
 

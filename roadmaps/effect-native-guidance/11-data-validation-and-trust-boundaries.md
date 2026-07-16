@@ -130,6 +130,11 @@ back into an Effect; a normal typed guard may be clearer.
 
 ## Canonicalization And Compatibility APIs
 
+Apply [`12-encoded-data-and-database-codecs.md`](./12-encoded-data-and-database-codecs.md)
+when validation crosses number/text, UTF-8/bytes, hex/base64, JSON, or database
+representations. General Effect encoding validity does not by itself prove a
+Flarex canonical representation.
+
 When canonicalization is used by Effect-native verification, its primary API
 should return an Effect with precise protocol failures. A throwing or Promise
 API may remain as a thin compatibility wrapper when an existing caller needs

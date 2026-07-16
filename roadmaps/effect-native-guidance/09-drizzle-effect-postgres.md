@@ -177,6 +177,13 @@ Treat generated database schemas as one candidate implementation of an
 internal row boundary. Compare their encoded and decoded types with Flarex's
 existing contracts before adoption.
 
+Apply [`12-encoded-data-and-database-codecs.md`](./12-encoded-data-and-database-codecs.md)
+when a migration touches bigint/numeric text, timestamps, JSON, byte arrays,
+hex/base64 evidence, or parameter conversion. A driver codec normalizes the
+driver representation; it does not prove Flarex range, brand, canonicality,
+authority, or cross-field invariants. Keep one domain decoder after driver
+normalization and one encoder before driver parameters.
+
 ## Required Proof Gates
 
 A future implementation preflight should keep the work in this order:

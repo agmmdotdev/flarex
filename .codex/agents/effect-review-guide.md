@@ -60,6 +60,12 @@ when the dependency changes.
   `Effect.catchNoSuchElement` when only missing-value failure means absence.
 - `Effect.exit` captures the full Cause and belongs at runtime, lifecycle,
   supervision, diagnostics, or test boundaries.
+- Effect `Encoding` decoders such as hex and base64 return `Result`; use
+  `Effect.fromResult` when the parse enters an Effect flow. The installed
+  Schema also provides encoded/decoded transforms including
+  `FiniteFromString`, `BigIntFromString`, and `Uint8ArrayFrom*`.
+- `Schema.NumberFromString` uses JavaScript number coercion. It is not a
+  substitute for explicit lexical, integer, safe-range, or domain checks.
 - `Option.fromNullishOr` converts nullable boundary values while preserving all
   non-nullish values.
 - Named `Effect.fn("Domain.operation")` creates an observable operation span;
@@ -104,6 +110,13 @@ when the dependency changes.
   database authority, runtime pins, or WeakMap-backed process-local capability
   authenticity. Keep those owners explicit and preserve defects across broad
   foreign catches.
+- Apply
+  `roadmaps/effect-native-guidance/12-encoded-data-and-database-codecs.md`
+  when a touched flow converts number/text, UTF-8/bytes, JSON, hex/base64, or
+  database rows and parameters. Keep total native conversions pure; require a
+  named decoder for invalid, lossy, non-canonical, or foreign input. Preserve
+  defensive byte copies and project-owned canonical codecs where they express
+  ownership or protocol semantics.
 
 ## Services, Boundaries, And Tests
 
@@ -154,8 +167,9 @@ when the dependency changes.
 
 The TypeScript reviewer owns precise `A`, `E`, and `R`; public and service
 contract agreement; return-type stabilization; Layer dependency closure;
-Schema decoded/encoded agreement; tagged-error shapes; unsafe widening and
-assertions; and reuse of stable repo types.
+Schema decoded/encoded agreement; database row/parameter type agreement;
+tagged-error shapes; unsafe widening and assertions; precision loss; and reuse
+of stable repo types.
 
 The code-quality reviewer owns `fn` / `fnUntraced` / `gen` / pipeline choice;
 Option, Result, Exit, Match, and conditional-flow choice; error provenance and
