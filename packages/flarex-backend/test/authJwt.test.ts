@@ -1,5 +1,6 @@
+import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
+import { Effect, Encoding } from "effect";
 import { describe, expect, it } from "vitest";
-import { Effect } from "effect";
 import type { AuthConfig, CustomJwtAuthProvider } from "flarex-protocol/auth";
 
 import {
@@ -768,28 +769,16 @@ async function signJwt(input: {
       ? { name: "RSASSA-PKCS1-v1_5" }
       : { name: "ECDSA", hash: "SHA-256" },
     input.privateKey,
-    arrayBufferFromBytes(signingInput),
+    copyBytesToArrayBuffer(signingInput),
   );
-  return `${encodedHeader}.${encodedPayload}.${base64UrlBytes(new Uint8Array(signature))}`;
+  const encodedSignature = Encoding.encodeBase64Url(
+    new Uint8Array(signature),
+  );
+  return `${encodedHeader}.${encodedPayload}.${encodedSignature}`;
 }
 
 function base64UrlJson(value: unknown): string {
-  return base64UrlBytes(new TextEncoder().encode(JSON.stringify(value)));
-}
-
-function base64UrlBytes(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-function arrayBufferFromBytes(bytes: Uint8Array): ArrayBuffer {
-  const copy = new Uint8Array(bytes.byteLength);
-  copy.set(bytes);
-  return copy.buffer;
+  return Encoding.encodeBase64Url(
+    new TextEncoder().encode(JSON.stringify(value)),
+  );
 }

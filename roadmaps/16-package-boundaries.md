@@ -348,6 +348,12 @@ semantics.
   domain owners. The full-scan primitive preserves evidence/authentication
   behavior but explicitly makes no cryptographic constant-time claim; callers
   keep the algorithm their boundary already required.
+- Total unpadded Base64URL encoding reuses Effect `Encoding` rather than adding
+  another Flarex utility implementation. Protocol canonicality checks still
+  re-encode and compare at their owning boundary, while input limits, branded
+  outputs, JWT or evidence policy, and typed decoding failures remain local.
+  Source strings that intentionally execute without package imports retain a
+  bounded local encoder.
 - `flarex-protocol/connection` owns sync client and server wire types plus
   structural runtime decoding. Backend connection code consumes those
   contracts directly. The SDK derives its narrower outbound and supported

@@ -1,5 +1,5 @@
 import { bytesEqual } from "@flarex/utils/bytes";
-import { Data, Schema } from "effect";
+import { Data, Encoding, Schema } from "effect";
 
 import type { Json, JsonObject } from "./json";
 import { JsonValue } from "./json";
@@ -694,7 +694,7 @@ export function canonicalizeTransactionGrantProtectedHeaderV1(
   const immutableHeader = deepFreezeTransactionGrantProjection(header);
   const stableCanonicalBytes = new Uint8Array(canonicalBytes);
   const base64url = TransactionGrantProtectedHeaderBase64UrlV1Schema.make(
-    encodeBase64Url(stableCanonicalBytes),
+    Encoding.encodeBase64Url(stableCanonicalBytes),
   );
   return Object.freeze({
     header: immutableHeader,
@@ -746,7 +746,7 @@ export async function canonicalizeTransactionGrantPayloadV1(
     canonical.valueJson,
   );
   const base64url = CanonicalTransactionGrantPayloadBase64UrlV1Schema.make(
-    encodeBase64Url(stableCanonicalBytes),
+    Encoding.encodeBase64Url(stableCanonicalBytes),
   );
   return Object.freeze({
     payload: immutablePayload,
@@ -777,7 +777,7 @@ export function encodeTransactionGrantEd25519SignatureV1(
     "signature",
   );
   return TransactionGrantEd25519SignatureBase64UrlV1Schema.make(
-    encodeBase64Url(bytes),
+    Encoding.encodeBase64Url(bytes),
   );
 }
 
@@ -997,23 +997,10 @@ function decodeBase64Url(
   const bytes = Uint8Array.from(binary, (character) =>
     character.charCodeAt(0)
   );
-  if (encodeBase64Url(bytes) !== value) {
+  if (Encoding.encodeBase64Url(bytes) !== value) {
     throw invalidBase64Url(field, "Expected one canonical Base64url spelling");
   }
   return bytes;
-}
-
-function encodeBase64Url(bytes: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 8_192;
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    const chunk = bytes.subarray(offset, offset + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/u, "");
 }
 
 function base64UrlMaximumCharacters(byteLength: number): number {

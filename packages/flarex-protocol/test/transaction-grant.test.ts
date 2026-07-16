@@ -1,6 +1,7 @@
 /// <reference types="node" />
 
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
+import { Encoding } from "effect";
 import { Miniflare } from "miniflare";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
@@ -219,7 +220,9 @@ describe("transaction-grant protocol", () => {
           body: JSON.stringify({
             privateKeyPkcs8Base64: TEST_PRIVATE_KEY_PKCS8_BASE64,
             publicKeySpkiBase64: TEST_PUBLIC_KEY_SPKI_BASE64,
-            signingInputBase64Url: base64UrlFromBytes(fixture.signingInput),
+            signingInputBase64Url: Encoding.encodeBase64Url(
+              fixture.signingInput,
+            ),
             signatureBase64Url: fixture.jws.signature,
           }),
         });
@@ -434,9 +437,9 @@ describe("transaction-grant protocol", () => {
     payloadBytesWithWhitespace.set(fixture.payload.canonicalBytes);
     payloadBytesWithWhitespace[payloadBytesWithWhitespace.length - 1] = 0x0a;
     for (const payload of [
-      base64UrlFromBytes(new Uint8Array([0xff])),
+      Encoding.encodeBase64Url(new Uint8Array([0xff])),
       base64UrlFromUtf8("{"),
-      base64UrlFromBytes(payloadBytesWithWhitespace),
+      Encoding.encodeBase64Url(payloadBytesWithWhitespace),
     ]) {
       await expect(deriveInertTransactionGrantEvidenceV1({
         ...fixture.jws,
@@ -676,13 +679,13 @@ describe("transaction-grant protocol", () => {
 
     await expect(deriveInertTransactionGrantEvidenceV1({
       ...fixture.jws,
-      protected: base64UrlFromBytes(new Uint8Array(
+      protected: Encoding.encodeBase64Url(new Uint8Array(
         MAX_TRANSACTION_GRANT_PROTECTED_HEADER_BYTES_V1 + 1,
       )),
     })).rejects.toBeInstanceOf(TransactionGrantProtocolV1Error);
     await expect(deriveInertTransactionGrantEvidenceV1({
       ...fixture.jws,
-      payload: base64UrlFromBytes(new Uint8Array(
+      payload: Encoding.encodeBase64Url(new Uint8Array(
         MAX_TRANSACTION_GRANT_PAYLOAD_CANONICAL_BYTES_V1 + 1,
       )),
     })).rejects.toBeInstanceOf(TransactionGrantProtocolV1Error);
@@ -692,7 +695,7 @@ describe("transaction-grant protocol", () => {
     ]) {
       await expect(deriveInertTransactionGrantEvidenceV1({
         ...fixture.jws,
-        signature: base64UrlFromBytes(new Uint8Array(signatureBytes)),
+        signature: Encoding.encodeBase64Url(new Uint8Array(signatureBytes)),
       })).rejects.toBeInstanceOf(TransactionGrantProtocolV1Error);
     }
 
@@ -877,16 +880,7 @@ function decodeBase64(value: string): Uint8Array {
 }
 
 function base64UrlFromUtf8(value: string): string {
-  return base64UrlFromBytes(new TextEncoder().encode(value));
-}
-
-function base64UrlFromBytes(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/u, "");
+  return Encoding.encodeBase64Url(new TextEncoder().encode(value));
 }
 
 function base64UrlMaximumCharacters(byteLength: number): number {

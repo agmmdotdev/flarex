@@ -1,3 +1,4 @@
+import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import { Data, Effect, Schema } from "effect";
 import type {
   AuthConfig,
@@ -612,8 +613,8 @@ async function verifyJwtSignatureWithKey(
     return await crypto.subtle.verify(
       algorithm.verifyAlgorithm,
       key,
-      arrayBufferFromBytes(parsed.signature),
-      arrayBufferFromBytes(parsed.signingInput),
+      copyBytesToArrayBuffer(parsed.signature),
+      copyBytesToArrayBuffer(parsed.signingInput),
     );
   } catch {
     return false;
@@ -855,12 +856,6 @@ function bytesFromBase64Url(value: string): Uint8Array {
       cause,
     });
   }
-}
-
-function arrayBufferFromBytes(bytes: Uint8Array): ArrayBuffer {
-  const copy = new Uint8Array(bytes.byteLength);
-  copy.set(bytes);
-  return copy.buffer;
 }
 
 function createVerifiedAuthContext(

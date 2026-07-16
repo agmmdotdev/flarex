@@ -1,4 +1,4 @@
-import { Effect, Result, Schema } from "effect";
+import { Effect, Encoding, Result, Schema } from "effect";
 import {
   AppCreationTimeV1Schema,
   canonicalizeAppDocumentV1,
@@ -176,7 +176,7 @@ describe("C04A stored-attempt authentication", () => {
         kind: "inlineUntrusted",
         canonicalJournalBase64Url:
           CanonicalSessionJournalBase64UrlV1Schema.make(
-            base64UrlFromBytes(fixture.journal.canonicalBytes),
+            Encoding.encodeBase64Url(fixture.journal.canonicalBytes),
           ),
       },
     };
@@ -2501,15 +2501,6 @@ function hexBytes(value: string): Uint8Array {
     bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
   }
   return bytes;
-}
-
-function base64UrlFromBytes(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary)
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/u, "");
 }
 
 function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {

@@ -1,5 +1,5 @@
 import { compareUtf16Strings } from "@flarex/utils/strings";
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Encoding, Schema } from "effect";
 
 import {
   AppDocumentSystemFieldV1Error,
@@ -1907,19 +1907,7 @@ function base64UrlFromBytes(bytes: Uint8Array): string {
   if (!(bytes instanceof Uint8Array)) {
     throw corruption("resultBytesInvalid");
   }
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let offset = 0; offset < bytes.byteLength; offset += chunkSize) {
-    const chunk = bytes.subarray(
-      offset,
-      Math.min(offset + chunkSize, bytes.byteLength),
-    );
-    binary += String.fromCharCode(...chunk);
-  }
-  return btoa(binary)
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/u, "");
+  return Encoding.encodeBase64Url(bytes);
 }
 
 function canonicalJson(value: Json): string {

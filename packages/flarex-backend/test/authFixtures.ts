@@ -1,3 +1,5 @@
+import { Encoding } from "effect";
+
 import type { Json } from "../src/types";
 
 export interface RsaJwtSigningKeys {
@@ -43,7 +45,10 @@ export async function signJwt(input: {
     input.privateKey,
     new TextEncoder().encode(signingInput),
   );
-  return `${signingInput}.${base64UrlBytes(new Uint8Array(signature))}`;
+  const encodedSignature = Encoding.encodeBase64Url(
+    new Uint8Array(signature),
+  );
+  return `${signingInput}.${encodedSignature}`;
 }
 
 export function dataJsonUrl(value: Json): string {
@@ -56,14 +61,7 @@ function requiredString(value: unknown, field: string): string {
 }
 
 function base64UrlJson(value: unknown): string {
-  return base64UrlBytes(new TextEncoder().encode(JSON.stringify(value)));
-}
-
-function base64UrlBytes(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/u, "");
+  return Encoding.encodeBase64Url(
+    new TextEncoder().encode(JSON.stringify(value)),
+  );
 }

@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@flarex/analysis": "workspace:*",
+    "@flarex/utils": "workspace:*",
     "effect": "catalog:",
     "flarex": "workspace:*",
     "flarex-protocol": "workspace:*"
@@ -42,7 +43,6 @@
   },
   "devDependencies": {
     "@flarex/executor": "workspace:*",
-    "@flarex/utils": "workspace:*",
     "miniflare": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

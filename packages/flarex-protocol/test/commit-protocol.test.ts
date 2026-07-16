@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Encoding, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import * as protocolRoot from "../src/index";
@@ -784,21 +784,10 @@ function inlineEnvelope(
     journal: {
       kind: "inlineUntrusted",
       canonicalJournalBase64Url: CanonicalSessionJournalBase64UrlV1Schema.make(
-        base64UrlFromBytes(journal.canonicalBytes),
+        Encoding.encodeBase64Url(journal.canonicalBytes),
       ),
     },
   };
-}
-
-function base64UrlFromBytes(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary)
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
 }
 
 function documentId(index: number): AppDocumentIdV1 {

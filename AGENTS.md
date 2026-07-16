@@ -99,6 +99,13 @@ Effect or another Flarex package. Keep a helper package-local while it has one
 legitimate owner or expresses a local invariant more clearly than a generic
 primitive.
 
+Before adding a local utility, inspect the installed platform and dependency
+APIs for an exact portable owner. Reuse a total encoder such as Effect
+`Encoding.encodeBase64Url` when its spelling and input contract match. Keep
+validation, canonical re-encoding checks, size limits, branded outputs, and
+typed failure mapping at the protocol or domain boundary; a general decoder
+does not prove a Flarex canonical representation.
+
 Do not move Effect Schema options, typed errors, authority or cryptographic
 logic, persistence codecs, canonical protocol encodings, universal deep-freeze
 logic, or legacy compatibility into `@flarex/utils`. Those concerns stay with

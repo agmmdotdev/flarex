@@ -1,6 +1,6 @@
 import { bytesEqual, copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Encoding, Schema } from "effect";
 
 import { AppCreationTimeV1Schema } from "./app-document";
 import {
@@ -1109,7 +1109,7 @@ const createCanonicalSuccessfulResultV1Effect = Effect.fn(function* (
     valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
     canonicalValueBase64Url:
       CanonicalSuccessfulResultBase64UrlV1Schema.make(
-        encodeBase64Url(stableCanonicalBytes),
+        Encoding.encodeBase64Url(stableCanonicalBytes),
       ),
     sha256Hex: SuccessfulResultSha256HexV1Schema.make(
       encodeLowercaseHex(canonical.sha256),
@@ -1262,7 +1262,7 @@ const decodeBase64UrlEffect = Effect.fn(function* (
     MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1,
   );
   const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
-  if (encodeBase64Url(bytes) !== value) {
+  if (Encoding.encodeBase64Url(bytes) !== value) {
     return yield* protocolFailureEffect({
       reason: "invalidBase64Url",
       component,
@@ -1593,19 +1593,6 @@ function commitJsonEncodingInvariantFailure(
   issue: CanonicalJsonEncodingInvariantIssue,
 ): never {
   throw new Error(COMMIT_JSON_ENCODING_INVARIANT_MESSAGES[issue.reason]);
-}
-
-function encodeBase64Url(bytes: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 8_192;
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    const chunk = bytes.subarray(offset, offset + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/u, "");
 }
 
 function base64UrlMaximumCharacters(byteLength: number): number {
