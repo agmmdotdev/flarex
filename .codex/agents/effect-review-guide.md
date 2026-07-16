@@ -124,6 +124,10 @@ when the dependency changes.
   interrupted.
 - Use Effect time in Effect-native domain/service code. Direct platform time is
   allowed in deliberate host adapters and pure parsing or formatting helpers.
+  Follow `roadmaps/effect-native-guidance/10-time-clock-and-datetime.md`:
+  distinguish live-time acquisition from deterministic conversion, preserve
+  database-authoritative transaction time, and do not hide `Date.now()` inside
+  `Effect.sync` because that still bypasses `TestClock`.
 - For ordinary outbound HTTP use the installed Effect HTTP client with
   injected transport, explicit statuses, Schema decoding, timeout, and safe
   bounded retry.

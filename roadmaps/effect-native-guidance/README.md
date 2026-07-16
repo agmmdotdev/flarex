@@ -83,6 +83,9 @@ slice still requires the preflight and validation required by
 - [`09-drizzle-effect-postgres.md`](./09-drizzle-effect-postgres.md) - the
   version compatibility matrix, current narrow adapter, native RC candidate,
   and PGlite/Hyperdrive proof gates.
+- [`10-time-clock-and-datetime.md`](./10-time-clock-and-datetime.md) - current
+  time through Effect Clock, pure DateTime handling, database-time authority,
+  platform adapters, and deterministic tests.
 
 ## How To Use This Guidance
 
