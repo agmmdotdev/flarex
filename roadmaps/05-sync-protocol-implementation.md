@@ -243,6 +243,19 @@ type ServerMessage =
   | Ping;
 ```
 
+`flarex-protocol/connection` is the transport-neutral owner of inbound client
+message types and runtime decoding. `ConnectionDO` and its route adapters
+consume that contract directly; `packages/flarex-backend/src/syncProtocol.ts`
+owns only the current server-to-client message shapes. The backend converts
+protocol-owned readonly JSON into its legacy mutable JSON representation at
+the existing execution boundary rather than maintaining a second wire parser.
+The published `flarex-backend/test/sync-protocol` test entrypoint retains
+deprecated client-type and parser names as direct protocol re-exports so test
+consumers can migrate without restoring a second contract owner.
+The SDK's narrower outbound subset and server-message decoder remain a
+separate ownership slice because changing them can affect public client
+behavior.
+
 The first supported client message should be `ModifyQuerySet`:
 
 ```ts

@@ -209,9 +209,9 @@ How Flarex differs:
 
 Known limitations:
 
-- `connection/MessageBoundary.ts` still calls the legacy
-  `parseClientMessage(...)` compatibility helper after schema decoding to
-  preserve exact validation messages.
+- The published `flarex-backend/test/sync-protocol` entrypoint still exposes
+  deprecated inbound client names for test-consumer compatibility, but those
+  names now directly re-export the `flarex-protocol/connection` authority.
 - `connectionDO.ts` still has runtime try/catch blocks for invocation/session
   behavior; those are not S-3 JSON parsing boundaries.
 - `executor-http` remains untouched until E-1.

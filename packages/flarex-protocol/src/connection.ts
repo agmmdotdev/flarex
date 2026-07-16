@@ -13,6 +13,11 @@ export type ConnectionRequestId = number;
 
 export type ConnectionConnectMessage = {
   type: "Connect";
+  sessionId?: string;
+  connectionCount?: number;
+  lastCloseReason?: string | null;
+  maxObservedTimestamp?: number;
+  clientTs?: number;
 };
 
 export type ConnectionAddQueryMessage = {
@@ -248,7 +253,7 @@ function parseConnectionClientMessageEffect(
   });
 }
 
-function parseConnectionClientMessage(value: unknown): ConnectionClientMessage {
+export function parseConnectionClientMessage(value: unknown): ConnectionClientMessage {
   if (!isRecord(value) || typeof value.type !== "string") {
     throw new Error("Sync client message must be an object with a string type.");
   }

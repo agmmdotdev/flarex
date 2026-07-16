@@ -340,6 +340,12 @@ semantics.
   stored-attempt verification, and persistence journal canonicalization paths,
   while narrower ordered-index comparators retain their domain-significant
   names.
+- `flarex-protocol/connection` owns inbound sync client wire types and runtime
+  decoding. Backend connection adapters consume that contract directly;
+  backend server-message construction remains host-side until the matching
+  server wire contract is consolidated. The published backend test protocol
+  entrypoint is a deprecated compatibility facade that re-exports the
+  protocol-owned client names rather than defining another wire contract.
 
 ## Known Gaps And Limitations
 
@@ -351,6 +357,9 @@ semantics.
   code alongside forward platform coordination. Replacement must prevent that
   ownership from leaking into new Postgres work, port intended semantics, move
   callers, and delete the prototype path after target-only proof.
+- The SDK still owns a narrower sync-client outbound subset and a permissive
+  server-message parser. Consolidating those with the protocol package must
+  preserve or deliberately tighten the public client compatibility boundary.
 - `@flarex/persistence-postgres` exports both broad compatibility surfaces and
   narrower runtime-specific entrypoints. Further narrowing should follow real
   internal caller migrations; broad prototype surfaces are not permanent APIs.

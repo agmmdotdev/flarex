@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { executionIdentityFingerprint } from "flarex-protocol/auth";
 import { describe, expect, it } from "vitest";
 import { RequestJsonError } from "../src/http";
 import {
@@ -6,6 +7,8 @@ import {
   decodePublicLiveQueryDeliveryRoutePayload,
 } from "../src/liveQueryDelivery/RouteBoundary";
 import { createBackendHarness } from "./backendHarness";
+
+const anonymousIdentityFingerprint = executionIdentityFingerprint({ kind: "anonymous" });
 
 describe("public live query delivery route boundary", () => {
   it("decodes public live query delivery route payloads through a named Effect boundary", async () => {
@@ -45,6 +48,7 @@ describe("public live query delivery route boundary", () => {
           queryId: 1,
           functionPath: "users:get",
           argsJson: { id: "1:user" },
+          identityFingerprint: anonymousIdentityFingerprint,
           resultJson: { name: "Ada" },
           previousResultHash: "{\"name\":\"Grace\"}",
           resultHash: "{\"name\":\"Ada\"}",
@@ -56,6 +60,7 @@ describe("public live query delivery route boundary", () => {
           queryId: 2,
           functionPath: "users:list",
           argsJson: {},
+          identityFingerprint: anonymousIdentityFingerprint,
           previousResultHash: "previous",
           errorMessage: "boom",
           errorData: { code: "QUERY_FAILED" },
@@ -69,6 +74,7 @@ describe("public live query delivery route boundary", () => {
         queryId: 1,
         functionPath: "users:get",
         argsJson: { id: "1:user" },
+        identityFingerprint: anonymousIdentityFingerprint,
         resultJson: { name: "Ada" },
         previousResultHash: "{\"name\":\"Grace\"}",
         resultHash: "{\"name\":\"Ada\"}",
@@ -80,6 +86,7 @@ describe("public live query delivery route boundary", () => {
         queryId: 2,
         functionPath: "users:list",
         argsJson: {},
+        identityFingerprint: anonymousIdentityFingerprint,
         previousResultHash: "previous",
         errorMessage: "boom",
         errorData: { code: "QUERY_FAILED" },

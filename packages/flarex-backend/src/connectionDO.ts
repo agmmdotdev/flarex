@@ -3,6 +3,13 @@ import {
   executionIdentityFingerprint,
   type ExecutionIdentity,
 } from "flarex-protocol/auth";
+import type {
+  ConnectionAddQueryMessage as AddQuery,
+  ConnectionClientMessage as ClientMessage,
+  ConnectionMutationRequestMessage as MutationRequest,
+  ConnectionQueryId as QueryId,
+} from "flarex-protocol/connection";
+import type { Json as ProtocolJson } from "flarex-protocol/json";
 import { R2BackendExecutionArtifactStore } from "./artifactStore";
 import { ServiceBindingExecutionArtifactRuntime } from "./artifactRuntime";
 import {
@@ -45,6 +52,7 @@ import {
   loadActiveDeployment,
   loadActiveDeploymentEffect,
 } from "./invoke";
+import { backendJson } from "./execution/JsonRouteBoundary";
 import {
   addLiveQueryDeliverySkipReason,
   liveQueryDeliveryChangePayloadErrorToHttpError,
@@ -57,10 +65,6 @@ import {
   partitionObjectName,
 } from "./routing";
 import {
-  type AddQuery,
-  type ClientMessage,
-  type MutationRequest,
-  type QueryId,
   type ServerMessage,
   type StateModification,
   type StateVersion,
@@ -77,7 +81,7 @@ import type {
 type ActiveQuery = {
   queryId: QueryId;
   udfPath: string;
-  args: Json[];
+  args: AddQuery["args"];
   partitionKey: string;
   journal: string | null;
   readSet?: ReadSet;
@@ -1068,10 +1072,11 @@ function connectionNameFromRequest(request: Request): string {
   throw new Error("Sync request is missing connection name.");
 }
 
-function argsObjectForInvoke(args: Json[]): Json {
+function argsObjectForInvoke(args: ReadonlyArray<ProtocolJson>): Json {
   if (args.length === 0) return null;
-  if (args.length === 1) return args[0];
-  return args;
+  const first = args[0];
+  if (args.length === 1 && first !== undefined) return backendJson(first);
+  return backendJson(args);
 }
 
 function requireQueryInvokeResponse(response: InvokeResponse): QueryInvokeResponse {

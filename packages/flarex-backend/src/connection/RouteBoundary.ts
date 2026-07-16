@@ -2,9 +2,9 @@ import type {
   LiveQueryDeliveryChange,
   LiveQueryDeliveryChangePayloadError,
 } from "../liveQueryDelivery";
+import type { ConnectionQueryId } from "flarex-protocol/connection";
 import { Effect } from "effect";
 import { readJsonEffect, RequestJsonError } from "../http";
-import type { QueryId } from "../syncProtocol";
 import {
   ConnectionRouteValidationError,
   decodeConnectionInvalidationPayload,
@@ -24,36 +24,32 @@ export type ConnectionRouteError =
 
 export const decodeConnectionInvalidationRequest = Effect.fn(
   "ConnectionRouteBoundary.decodeInvalidationRequest",
-)(function* (
+)((
   request: Request,
-): Effect.fn.Return<QueryId, ConnectionRouteError> {
-  return yield* readJsonEffect(request).pipe(
+): Effect.Effect<ConnectionQueryId, ConnectionRouteError> =>
+  readJsonEffect(request).pipe(
     Effect.flatMap(decodeConnectionInvalidationRoutePayload),
-  );
-});
+  ));
 
 export const decodeConnectionInvalidationRoutePayload = Effect.fn(
   "ConnectionRouteBoundary.decodeInvalidationPayload",
-)(function* (
+)((
   value: unknown,
-): Effect.fn.Return<QueryId, ConnectionRouteValidationError> {
-  return yield* decodeConnectionInvalidationPayload(value);
-});
+): Effect.Effect<ConnectionQueryId, ConnectionRouteValidationError> =>
+  decodeConnectionInvalidationPayload(value));
 
 export const decodeConnectionLiveQueryDeliveryRequest = Effect.fn(
   "ConnectionRouteBoundary.decodeLiveQueryDeliveryRequest",
-)(function* (
+)((
   request: Request,
-): Effect.fn.Return<LiveQueryDeliveryChange[], ConnectionRouteError> {
-  return yield* readJsonEffect(request).pipe(
+): Effect.Effect<LiveQueryDeliveryChange[], ConnectionRouteError> =>
+  readJsonEffect(request).pipe(
     Effect.flatMap(decodeConnectionLiveQueryDeliveryRoutePayload),
-  );
-});
+  ));
 
 export const decodeConnectionLiveQueryDeliveryRoutePayload = Effect.fn(
   "ConnectionRouteBoundary.decodeLiveQueryDeliveryPayload",
-)(function* (
+)((
   value: unknown,
-): Effect.fn.Return<LiveQueryDeliveryChange[], LiveQueryDeliveryChangePayloadError> {
-  return yield* decodeConnectionLiveQueryDeliveryPayload(value);
-});
+): Effect.Effect<LiveQueryDeliveryChange[], LiveQueryDeliveryChangePayloadError> =>
+  decodeConnectionLiveQueryDeliveryPayload(value));

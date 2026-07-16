@@ -15,11 +15,13 @@ import {
   type BackendHarness,
 } from "flarex-backend/test/backendHarness";
 import type {
-  ModifyQuerySet,
-  MutationRequest,
   MutationResponse,
   QueryFailed,
 } from "flarex-backend/test/sync-protocol";
+import type {
+  ConnectionModifyQuerySetMessage as ModifyQuerySet,
+  ConnectionMutationRequestMessage as MutationRequest,
+} from "flarex-protocol/connection";
 import type {
   AnalyzedStartPushRequest,
   DeploymentAnalysis,

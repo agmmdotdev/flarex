@@ -5,6 +5,10 @@ import {
   decodeConnectionClientMessage,
   decodeConnectionClientMessagePayload,
 } from "../src/connection/MessageBoundary";
+import {
+  parseClientMessage,
+  type ClientMessage,
+} from "../src/syncProtocol";
 
 describe("connection message boundary", () => {
   it("decodes websocket client messages through a named Effect boundary", async () => {
@@ -46,5 +50,14 @@ describe("connection message boundary", () => {
       _tag: "ConnectionClientMessageError",
       message: "ModifyQuerySet.modifications must be an array.",
     });
+  });
+
+  it("keeps the published backend test parser as a protocol-owned compatibility facade", () => {
+    const message: ClientMessage = parseClientMessage({
+      type: "Connect",
+      sessionId: "legacy-session",
+    });
+
+    expect(message).toEqual({ type: "Connect" });
   });
 });
