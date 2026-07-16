@@ -86,6 +86,9 @@ slice still requires the preflight and validation required by
 - [`10-time-clock-and-datetime.md`](./10-time-clock-and-datetime.md) - current
   time through Effect Clock, pure DateTime handling, database-time authority,
   platform adapters, and deterministic tests.
+- [`11-data-validation-and-trust-boundaries.md`](./11-data-validation-and-trust-boundaries.md)
+  - structural Schema decoding, pure Result validation, semantic verification,
+  capability authenticity, configuration, and defect-preserving boundaries.
 
 ## How To Use This Guidance
 

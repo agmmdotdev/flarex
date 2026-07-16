@@ -67,6 +67,12 @@ current Flarex candidates and version-correct rewrites.
   shapes, and trusted corruption checks; library uniformity does not override
   those contracts.
 
+Schema proves only the contract it decodes. It does not by itself prove
+authorization, cryptographic validity, freshness, database authority, runtime
+pin agreement, or process-local capability authenticity. Follow
+[`11-data-validation-and-trust-boundaries.md`](./11-data-validation-and-trust-boundaries.md)
+for the structural, pure, semantic, and capability validation cutlines.
+
 ## Effect.fn, Effect.gen, And pipe
 
 | Construct | Prefer it when |

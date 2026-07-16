@@ -97,6 +97,13 @@ when the dependency changes.
   silently replace Flarex `ValidatorJson` or Convex-style validation semantics.
 - Throwing parser APIs are compatibility wrappers over typed decoders, not a
   second source of validation truth.
+- Apply
+  `roadmaps/effect-native-guidance/11-data-validation-and-trust-boundaries.md`
+  when validation changes. Schema proves declared structure and intrinsic
+  value invariants; it does not prove authorization, crypto, freshness,
+  database authority, runtime pins, or WeakMap-backed process-local capability
+  authenticity. Keep those owners explicit and preserve defects across broad
+  foreign catches.
 
 ## Services, Boundaries, And Tests
 
