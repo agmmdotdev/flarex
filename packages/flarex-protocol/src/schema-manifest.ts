@@ -1,3 +1,4 @@
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Schema } from "effect";
 
 import {
@@ -924,7 +925,7 @@ function encodeCanonicalJson(value: Json): string {
   }
   if (value !== null && typeof value === "object") {
     return `{${Object.keys(value)
-      .sort(compareUtf16)
+      .sort(compareUtf16Strings)
       .map((key) => {
         const item = value[key];
         if (item === undefined) {
@@ -939,10 +940,6 @@ function encodeCanonicalJson(value: Json): string {
     throw new Error("Validated JSON value could not be encoded.");
   }
   return encoded;
-}
-
-function compareUtf16(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function cloneAndFreezeManifest(

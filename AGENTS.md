@@ -86,6 +86,31 @@ commit. If the diff changes after reviewers are spawned, the previous reviews
 are stale; rerun the required reviewer set against the final diff unless the
 only change is docs-only commentary.
 
+## Shared Utility And Contract Ownership
+
+Classify a repeated helper by its real authority before extracting it:
+generic primitive, protocol/domain contract, persistence, host/runtime, test,
+or legacy compatibility. Repetition alone does not make a helper generic.
+
+Use `@flarex/utils` only for total, deterministic, domain-neutral primitives
+shared by, or proven exactly duplicated across, independent package owners. It
+is a dependency leaf: it must have no runtime dependencies and must not import
+Effect or another Flarex package. Keep a helper package-local while it has one
+legitimate owner or expresses a local invariant more clearly than a generic
+primitive.
+
+Do not move Effect Schema options, typed errors, authority or cryptographic
+logic, persistence codecs, canonical protocol encodings, universal deep-freeze
+logic, or legacy compatibility into `@flarex/utils`. Those concerns stay with
+their protocol, domain, persistence, host, or temporary migration owner.
+
+Expose generic utilities through intentional subpath exports. Do not add a
+package-root catch-all barrel unless its public surface has been deliberately
+approved. Pin extracted behavior with focused tests, replace copies only when
+their semantics are exact, and retain narrow local wrappers when their names
+communicate an important domain invariant. Never centralize a legacy path just
+because it is duplicated; removal can be the correct reuse strategy.
+
 ## Core Rule
 
 Flarex is a Convex-inspired, Postgres-authoritative backend hosted on

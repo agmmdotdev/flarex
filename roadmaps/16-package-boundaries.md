@@ -43,6 +43,8 @@ Use these sources in order when they disagree:
 Decisive current implementation anchors include:
 
 - [`pnpm-workspace.yaml`](../pnpm-workspace.yaml) for workspace membership;
+- [`packages/utils/package.json`](../packages/utils/package.json) and
+  [`src`](../packages/utils/src) for dependency-free generic primitives;
 - [`packages/flarex-protocol/package.json`](../packages/flarex-protocol/package.json)
   and [`src`](../packages/flarex-protocol/src) for transport-neutral contracts;
 - [`packages/flarex/package.json`](../packages/flarex/package.json) and
@@ -94,6 +96,9 @@ framework-neutral domain cores
 portable developer and wire contracts
   -> flarex
   -> flarex-protocol
+
+generic dependency leaf
+  -> @flarex/utils
 ```
 
 This is a responsibility diagram, not a claim that every manifest forms a
@@ -107,6 +112,7 @@ must not be copied into production Worker cores.
 
 | Workspace member | Current responsibility | Boundary |
 | --- | --- | --- |
+| `@flarex/utils` | Total, deterministic, domain-neutral primitives proven reusable across independent package owners | Dependency leaf with no runtime dependencies, Effect, Flarex-domain contracts, persistence, host logic, crypto/authority, canonical protocol encodings, or legacy compatibility; exports are explicit subpaths |
 | `flarex-protocol` | Shared JSON-safe wire contracts, decoders, identities, manifests, and protocol types | Must remain host-neutral and must not acquire persistence, Worker, Node, or application orchestration |
 | `flarex` | Public developer SDK: values, validators, schema, function registration, clients, React, auth, IDs, and artifact-facing types | May use protocol contracts; must not expose backend storage, executor internals, or host configuration |
 | `@flarex/analysis` | Portable analysis of developer source/function modules | Consumes SDK/protocol models; backend execution remains authoritative even when local tooling invokes the same analyzer |
@@ -127,6 +133,12 @@ No `packages/flarex-core` package currently exists. Add another shared package
 only when two legitimate owners duplicate a stable, coherent abstraction and
 neither existing lower-level package is the correct home. A speculative
 “common” package would obscure authority rather than improve it.
+
+`@flarex/utils` is not a core or common-domain package. A candidate belongs
+there only after it is proven to be a stable generic primitive with independent
+consumers and no lower-level domain owner. Repeated protocol canonicalization,
+persistence codecs, authority logic, Effect contracts, host behavior, and
+legacy compatibility remain with their real owners.
 
 ### Hosted Runtime Topology
 
@@ -323,6 +335,9 @@ semantics.
   destructive teardown, and deployable bundle checks guard that separation.
 - The Effect boundary checker rejects synchronous execution, hidden aliases,
   direct runtime imports, and unregistered production `runPromise` sites.
+- `@flarex/utils/strings` owns the tested ECMAScript UTF-16 string comparator
+  reused by protocol canonicalization and deterministic ordering paths, while
+  narrower ordered-index comparators retain their domain-significant names.
 
 ## Known Gaps And Limitations
 

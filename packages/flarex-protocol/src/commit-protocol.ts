@@ -1,3 +1,4 @@
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect, Schema } from "effect";
 
 import { AppCreationTimeV1Schema } from "./app-document";
@@ -787,7 +788,7 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
   );
 
   const readDependencies = [...journal.readDependencies].sort((left, right) =>
-    compareStrings(left.documentId, right.documentId)
+    compareUtf16Strings(left.documentId, right.documentId)
   );
   const seenDependencies = new Set<AppDocumentIdV1>();
   for (const dependency of readDependencies) {
@@ -817,7 +818,7 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
       ? -1
       : left.syscallSequence > right.syscallSequence
         ? 1
-        : compareStrings(left.documentId, right.documentId)
+        : compareUtf16Strings(left.documentId, right.documentId)
   );
   const writes: LogicalAppWriteV1[] = [];
   const seenWriteSequences = new Set<CommitSyscallSequenceV1>();
@@ -914,7 +915,7 @@ const normalizeLogicalAppWriteV1Effect = Effect.fn(function* (
         MAX_FLAREX_VALUE_OBJECT_FIELDS_V1,
       );
       const orderedChanges = [...write.changes].sort((left, right) =>
-        compareStrings(left.field, right.field)
+        compareUtf16Strings(left.field, right.field)
       );
       const seenFields = new Set<string>();
       const changes: LogicalPatchFieldV1[] = [];
@@ -1580,7 +1581,7 @@ function encodeCanonicalJson(value: Json): string {
   }
   if (isJsonObject(value)) {
     const fields: string[] = [];
-    for (const key of Object.keys(value).sort(compareStrings)) {
+    for (const key of Object.keys(value).sort(compareUtf16Strings)) {
       const item = value[key];
       if (item === undefined) {
         throw new Error("Validated commit journal lost an object property.");
@@ -1648,10 +1649,6 @@ function isJsonObject(value: Json): value is JsonObject {
 
 function isJsonArray(value: Json): value is ReadonlyArray<Json> {
   return Array.isArray(value);
-}
-
-function compareStrings(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function deepFreezeCommitProjection<T>(value: T): T {

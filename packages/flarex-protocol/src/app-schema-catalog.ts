@@ -1,3 +1,5 @@
+import { compareUtf16Strings } from "@flarex/utils/strings";
+
 import {
   canonicalizeAppIndexPhysicalSpecV1,
   type CanonicalAppIndexPhysicalSpecV1,
@@ -239,7 +241,7 @@ function verifyValidatorIdTargets(
       );
       return;
     case "object": {
-      const fieldNames = Object.keys(validator.value).sort(compareText);
+      const fieldNames = Object.keys(validator.value).sort(compareUtf16Strings);
       for (const fieldName of fieldNames) {
         const field = validator.value[fieldName];
         if (field === undefined) {
@@ -411,10 +413,6 @@ function compareIndexes(
   right: SchemaManifestAppIndexBindingV1,
 ): number {
   return left.logicalIndexId - right.logicalIndexId;
-}
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function deepFreeze(value: unknown): void {

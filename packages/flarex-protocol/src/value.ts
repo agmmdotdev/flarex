@@ -1,3 +1,4 @@
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Schema } from "effect";
 
 import { isJson, type Json, type JsonObject } from "./json";
@@ -422,7 +423,7 @@ function isCanonicalValueEnvelope(
     return false;
   }
   const record = value;
-  const keys = Object.keys(record).sort(compareStrings);
+  const keys = Object.keys(record).sort(compareUtf16Strings);
   return (
     keys.length === 3 &&
     keys[0] === "format" &&
@@ -1089,7 +1090,7 @@ function encodeCanonicalJson(value: Json): string {
   }
   if (value !== null && typeof value === "object") {
     return `{${Object.keys(value)
-      .sort(compareStrings)
+      .sort(compareUtf16Strings)
       .map((key) => {
         const item = value[key];
         if (item === undefined) {
@@ -1319,11 +1320,7 @@ function isCanonicalArrayIndex(key: string, length: number): boolean {
 }
 
 function compareDataProperties(left: DataProperty, right: DataProperty): number {
-  return compareStrings(left.key, right.key);
-}
-
-function compareStrings(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
+  return compareUtf16Strings(left.key, right.key);
 }
 
 function propertyPath(path: string, field: string): string {
