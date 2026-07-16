@@ -61,6 +61,11 @@ slice still requires the preflight and validation required by
    and decoded representations. Keep total native conversions pure, but use a
    named Schema, `Result`, or typed Effect boundary when input can be invalid,
    lossy, non-canonical, or foreign.
+8. Treat runtime immutability as an ownership and authority decision, not an
+   Effect style quota. Keep freezes that protect captured evidence, canonical
+   values, opaque capabilities, and deliberate shared snapshots; use readonly
+   types for ephemeral records, persistent collections for useful functional
+   updates, and `Ref` for lifecycle-owned state that intentionally changes.
 
 ## Document Map
 
@@ -96,6 +101,9 @@ slice still requires the preflight and validation required by
 - [`12-encoded-data-and-database-codecs.md`](./12-encoded-data-and-database-codecs.md)
   - numeric text, UTF-8 and byte ownership, Effect Encoding, canonical
   protocols, and database parameter/row codecs.
+- [`13-runtime-immutability-and-value-ownership.md`](./13-runtime-immutability-and-value-ownership.md)
+  - `Object.freeze`, ownership capture, canonical snapshots, opaque handles,
+  persistent collections, and Effect-managed mutable state.
 
 ## How To Use This Guidance
 

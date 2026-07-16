@@ -73,6 +73,13 @@ pin agreement, or process-local capability authenticity. Follow
 [`11-data-validation-and-trust-boundaries.md`](./11-data-validation-and-trust-boundaries.md)
 for the structural, pure, semantic, and capability validation cutlines.
 
+Schema decoding, Effect `Data`, and TypeScript `readonly` types also do not
+imply runtime deep immutability. When a value must resist mutation because it
+captures authority, canonical evidence, or a shared snapshot, establish
+ownership and apply the narrow runtime protection deliberately. Follow
+[`13-runtime-immutability-and-value-ownership.md`](./13-runtime-immutability-and-value-ownership.md)
+for the `Object.freeze`, persistent collection, and `Ref` cutlines.
+
 ## Effect.fn, Effect.gen, And pipe
 
 | Construct | Prefer it when |

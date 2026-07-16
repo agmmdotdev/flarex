@@ -27,6 +27,13 @@ For an Effect-native operation, test the semantic channels separately:
 - deterministic time behavior where time affects correctness; and
 - runtime adapter translation independently from domain failure behavior.
 
+When runtime immutability is in scope, assert freezing only if it is an API or
+authority contract. Prefer ownership tests that mutate the original caller
+input after capture and prove the stored snapshot remains unchanged. Exercise
+nested data for deep-snapshot contracts, forged identities for opaque
+capabilities, and mutable-buffer aliasing for byte boundaries. A test that only
+counts freezes or checks syntax does not prove ownership safety.
+
 Postgres persistence slices still require their focused PGlite lane and the
 relevant real-Postgres correctness lane. Mock Layers cannot prove isolation,
 locks, rollback, migrations, or query behavior.

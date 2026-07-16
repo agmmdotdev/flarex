@@ -75,6 +75,9 @@ when the dependency changes.
   do not pipe a function value as though it were an Effect.
 - `Layer.effect` and `Layer.effectContext` run construction in the Layer's
   Scope. This version does not export `Layer.scoped`.
+- `Data.Class`, `Data.TaggedClass`, Schema decoding, and readonly TypeScript
+  fields do not imply runtime deep freezing. Persistent Effect collections and
+  the `Ref` family solve different functional-update and managed-state needs.
 - Effect HTTP client modules are exported from `effect/unstable/http` in this
   beta. Ordinary fetch transport is provided by `FetchHttpClient.layer`; typed
   request/response helpers live in `HttpClientRequest` and
@@ -117,6 +120,13 @@ when the dependency changes.
   named decoder for invalid, lossy, non-canonical, or foreign input. Preserve
   defensive byte copies and project-owned canonical codecs where they express
   ownership or protocol semantics.
+- Apply
+  `roadmaps/effect-native-guidance/13-runtime-immutability-and-value-ownership.md`
+  when a touched flow freezes, clones, shares, or evolves runtime values. Copy
+  caller-owned inputs before freezing, distinguish shallow freeze from deep
+  ownership, preserve canonical values and WeakMap-backed capability handles,
+  and use readonly types, persistent collections, or `Ref` only when their
+  distinct semantics fit.
 
 ## Services, Boundaries, And Tests
 
@@ -168,13 +178,15 @@ when the dependency changes.
 The TypeScript reviewer owns precise `A`, `E`, and `R`; public and service
 contract agreement; return-type stabilization; Layer dependency closure;
 Schema decoded/encoded agreement; database row/parameter type agreement;
-tagged-error shapes; unsafe widening and assertions; precision loss; and reuse
+tagged-error shapes; unsafe widening and assertions; precision loss; compile-
+time versus runtime immutability agreement; caller/owned value types; and reuse
 of stable repo types.
 
 The code-quality reviewer owns `fn` / `fnUntraced` / `gen` / pipeline choice;
 Option, Result, Exit, Match, and conditional-flow choice; error provenance and
 retry; HTTP composition; observability and redaction; Scope, fibers, Layer and
-runtime lifecycle; Schema compiler placement; and Effect test style.
+runtime lifecycle; Schema compiler placement; state and collection ownership;
+mutation isolation; freeze depth and performance; and Effect test style.
 
 Both reviewers retain their broader correctness responsibilities. The Effect
 standard adds to, rather than replaces, behavioral, security, transaction,
