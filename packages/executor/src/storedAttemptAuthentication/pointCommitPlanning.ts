@@ -1,0 +1,340 @@
+import { Data, Result } from "effect";
+
+import {
+  appRowIdHexV1ToBytes,
+  type AppDocumentIdV1,
+  type AppRowIdHexV1,
+} from "flarex-protocol/app-document-id";
+import type { CatalogTableId } from "flarex-protocol/catalog";
+import {
+  CanonicalSuccessfulResultBytesV1Schema,
+  type LogicalReadDependencyV1,
+} from "flarex-protocol/commit-protocol";
+
+import type {
+  CommitInputAuthorityPinsV1,
+  VerifiedCommitInputStateV1,
+  VerifiedCommitPointV1,
+  VerifiedSuccessfulResultV1,
+} from "./commitInputVerification";
+
+export class InvalidVerifiedCommitInputV1Error extends Data.TaggedError(
+  "InvalidVerifiedCommitInputV1Error",
+)<{
+  readonly reason: "notSameFactory";
+}> {}
+
+export type UnsupportedPointCommitPlanV1Issue =
+  | {
+      readonly reason: "multipleMaterialRows";
+      readonly maximum: 1;
+      readonly observed: number;
+    }
+  | {
+      readonly reason: "developerIndexMaintenance";
+      readonly tableId: CatalogTableId;
+    }
+  | { readonly reason: "unsupportedReadDependency" }
+  | { readonly reason: "unsupportedPointState" };
+
+export class UnsupportedPointCommitPlanV1Error extends Data.TaggedError(
+  "UnsupportedPointCommitPlanV1Error",
+)<{
+  readonly issue: UnsupportedPointCommitPlanV1Issue;
+}> {}
+
+export interface PreparedPointDependencyV1 {
+  readonly documentId: AppDocumentIdV1;
+  readonly tableId: CatalogTableId;
+  readonly rowId: AppRowIdHexV1;
+  readonly dependency: LogicalReadDependencyV1;
+}
+
+type PreparedPointRowIntentBaseV1 = PreparedPointDependencyV1;
+
+export type PreparedPointRowIntentV1 =
+  | Readonly<PreparedPointRowIntentBaseV1 & {
+      readonly kind: "live";
+      readonly creationTime: Extract<
+        VerifiedCommitPointV1,
+        { readonly kind: "live" }
+      >["creationTime"];
+      readonly value: Extract<
+        VerifiedCommitPointV1,
+        { readonly kind: "live" }
+      >["value"];
+      readonly canonicalBytes: Uint8Array;
+      readonly semanticSizeBytes: number;
+    }>
+  | Readonly<PreparedPointRowIntentBaseV1 & {
+      readonly kind: "deleted";
+    }>;
+
+export interface PreparedPointCommitStateV1 {
+  readonly authorityPins: VerifiedCommitInputStateV1["authorityPins"];
+  readonly sealIdentity: VerifiedCommitInputStateV1["sealIdentity"];
+  readonly dependencies: ReadonlyArray<PreparedPointDependencyV1>;
+  readonly rowIntent: PreparedPointRowIntentV1 | null;
+  readonly successfulResult: Readonly<VerifiedSuccessfulResultV1>;
+}
+
+interface OrderedPointCandidateV1 {
+  readonly point: VerifiedCommitPointV1;
+  readonly dependency: PreparedPointDependencyV1;
+  readonly rowBytes: Uint8Array;
+}
+
+export function planPointCommitStateV1(
+  source: VerifiedCommitInputStateV1,
+): Result.Result<
+  PreparedPointCommitStateV1,
+  UnsupportedPointCommitPlanV1Error
+> {
+  const candidates: OrderedPointCandidateV1[] = [];
+  const materialCandidates: OrderedPointCandidateV1[] = [];
+
+  for (const point of source.points) {
+    const capturedDependency = captureLogicalReadDependency(point.dependency);
+    if (Result.isFailure(capturedDependency)) {
+      return Result.fail(capturedDependency.failure);
+    }
+    const dependency = Object.freeze({
+      documentId: point.documentId,
+      tableId: point.tableId,
+      rowId: point.rowId,
+      dependency: capturedDependency.success,
+    } satisfies PreparedPointDependencyV1);
+    const candidate = Object.freeze({
+      point,
+      dependency,
+      rowBytes: appRowIdHexV1ToBytes(point.rowId),
+    } satisfies OrderedPointCandidateV1);
+    candidates.push(candidate);
+
+    const material = isMaterialPoint(point);
+    if (Result.isFailure(material)) {
+      return Result.fail(material.failure);
+    }
+    if (material.success) materialCandidates.push(candidate);
+  }
+
+  candidates.sort(comparePointCandidates);
+  materialCandidates.sort(comparePointCandidates);
+
+  if (materialCandidates.length > 1) {
+    return Result.fail(new UnsupportedPointCommitPlanV1Error({
+      issue: {
+        reason: "multipleMaterialRows",
+        maximum: 1,
+        observed: materialCandidates.length,
+      },
+    }));
+  }
+
+  const materialCandidate = materialCandidates[0];
+  if (
+    materialCandidate !== undefined &&
+    source.schemaManifest.indexBindings.indexes.some(
+      (index) => index.tableId === materialCandidate.point.tableId,
+    )
+  ) {
+    return Result.fail(new UnsupportedPointCommitPlanV1Error({
+      issue: {
+        reason: "developerIndexMaintenance",
+        tableId: materialCandidate.point.tableId,
+      },
+    }));
+  }
+
+  const dependencies = Object.freeze(
+    candidates.map((candidate) => candidate.dependency),
+  );
+  return Result.succeed(Object.freeze({
+    authorityPins: captureAuthorityPins(source.authorityPins),
+    sealIdentity: captureSealIdentity(source.sealIdentity),
+    dependencies,
+    rowIntent: materialCandidate === undefined
+      ? null
+      : captureRowIntent(materialCandidate),
+    successfulResult: captureSuccessfulResult(source.successfulResult),
+  } satisfies PreparedPointCommitStateV1));
+}
+
+function captureLogicalReadDependency(
+  dependency: LogicalReadDependencyV1,
+): Result.Result<
+  LogicalReadDependencyV1,
+  UnsupportedPointCommitPlanV1Error
+> {
+  switch (dependency.kind) {
+    case "appRowPoint":
+      switch (dependency.observed.kind) {
+        case "present":
+          return Result.succeed(Object.freeze({
+            kind: "appRowPoint",
+            documentId: dependency.documentId,
+            observed: Object.freeze({
+              kind: "present",
+              revisionCommitSeq: dependency.observed.revisionCommitSeq,
+            }),
+          } satisfies LogicalReadDependencyV1));
+        case "missing":
+          switch (dependency.observed.basis.kind) {
+            case "noVisibleRevision":
+              return Result.succeed(Object.freeze({
+                kind: "appRowPoint",
+                documentId: dependency.documentId,
+                observed: Object.freeze({
+                  kind: "missing",
+                  basis: Object.freeze({ kind: "noVisibleRevision" }),
+                }),
+              } satisfies LogicalReadDependencyV1));
+            case "tombstone":
+              return Result.succeed(Object.freeze({
+                kind: "appRowPoint",
+                documentId: dependency.documentId,
+                observed: Object.freeze({
+                  kind: "missing",
+                  basis: Object.freeze({
+                    kind: "tombstone",
+                    revisionCommitSeq:
+                      dependency.observed.basis.revisionCommitSeq,
+                  }),
+                }),
+              } satisfies LogicalReadDependencyV1));
+            default:
+              return Result.fail(unsupportedReadDependency(
+                dependency.observed.basis,
+              ));
+          }
+        default:
+          return Result.fail(unsupportedReadDependency(dependency.observed));
+      }
+    default:
+      return Result.fail(unsupportedReadDependency(dependency));
+  }
+}
+
+function isMaterialPoint(
+  point: VerifiedCommitPointV1,
+): Result.Result<boolean, UnsupportedPointCommitPlanV1Error> {
+  switch (point.kind) {
+    case "unchanged":
+      return Result.succeed(false);
+    case "live":
+    case "deleted":
+      return Result.succeed(true);
+    default:
+      return Result.fail(unsupportedPointState(point));
+  }
+}
+
+function captureRowIntent(
+  candidate: OrderedPointCandidateV1,
+): PreparedPointRowIntentV1 {
+  const point = candidate.point;
+  switch (point.kind) {
+    case "live": {
+      const stableBytes = new Uint8Array(point.canonicalBytes);
+      return Object.freeze({
+        ...candidate.dependency,
+        kind: "live",
+        creationTime: point.creationTime,
+        value: point.value,
+        get canonicalBytes(): Uint8Array {
+          return new Uint8Array(stableBytes);
+        },
+        semanticSizeBytes: point.semanticSizeBytes,
+      });
+    }
+    case "deleted":
+      return Object.freeze({
+        ...candidate.dependency,
+        kind: "deleted",
+      });
+    case "unchanged":
+      throw new Error("Unchanged point cannot produce a material row intent.");
+    default:
+      throw unsupportedPointState(point);
+  }
+}
+
+function comparePointCandidates(
+  left: OrderedPointCandidateV1,
+  right: OrderedPointCandidateV1,
+): number {
+  const tableOrder = left.point.tableId - right.point.tableId;
+  if (tableOrder !== 0) return tableOrder;
+  return compareBytes(left.rowBytes, right.rowBytes);
+}
+
+function compareBytes(left: Uint8Array, right: Uint8Array): number {
+  const length = Math.min(left.byteLength, right.byteLength);
+  for (let index = 0; index < length; index += 1) {
+    const leftByte = left[index];
+    const rightByte = right[index];
+    if (leftByte === undefined || rightByte === undefined) {
+      throw new Error("Canonical row identity lost a byte during comparison.");
+    }
+    if (leftByte !== rightByte) return leftByte - rightByte;
+  }
+  return left.byteLength - right.byteLength;
+}
+
+function captureAuthorityPins(
+  pins: VerifiedCommitInputStateV1["authorityPins"],
+): VerifiedCommitInputStateV1["authorityPins"] {
+  return Object.freeze({
+    ...pins,
+    snapshotToken: Object.freeze({ ...pins.snapshotToken }),
+  });
+}
+
+function captureSealIdentity(
+  seal: VerifiedCommitInputStateV1["sealIdentity"],
+): VerifiedCommitInputStateV1["sealIdentity"] {
+  const stableJournalSha256 = new Uint8Array(seal.journalSha256);
+  const stableResultSha256 = new Uint8Array(seal.resultSha256);
+  return Object.freeze({
+    ...seal,
+    get journalSha256(): Uint8Array {
+      return new Uint8Array(stableJournalSha256);
+    },
+    get resultSha256(): Uint8Array {
+      return new Uint8Array(stableResultSha256);
+    },
+  });
+}
+
+function captureSuccessfulResult(
+  result: VerifiedSuccessfulResultV1,
+): Readonly<VerifiedSuccessfulResultV1> {
+  const stableBytes = new Uint8Array(result.canonicalBytes);
+  return Object.freeze({
+    valueCodecVersion: result.valueCodecVersion,
+    value: result.value,
+    get canonicalBytes(): VerifiedSuccessfulResultV1["canonicalBytes"] {
+      return CanonicalSuccessfulResultBytesV1Schema.make(
+        new Uint8Array(stableBytes),
+      );
+    },
+    semanticSizeBytes: result.semanticSizeBytes,
+    sha256Hex: result.sha256Hex,
+  });
+}
+
+function unsupportedReadDependency(
+  _value: unknown,
+): UnsupportedPointCommitPlanV1Error {
+  return new UnsupportedPointCommitPlanV1Error({
+    issue: { reason: "unsupportedReadDependency" },
+  });
+}
+
+function unsupportedPointState(
+  _value: never,
+): UnsupportedPointCommitPlanV1Error {
+  return new UnsupportedPointCommitPlanV1Error({
+    issue: { reason: "unsupportedPointState" },
+  });
+}

@@ -872,16 +872,21 @@ VerifiedCommitInput (introduced by C04B2)
   same-factory private-C07 proof of authenticated logical evidence plus pinned
   proof-validator facts; not production activation authority
 
-CommitPlanner (introduced by C04C)
-  database-free adapter-specific logical lowering
+PointCommitPlannerV1 (introduced by C04C1)
+  same-factory database-free logical point/dependency lowering
 
-PreparedCommitV1 (introduced by C04C)
-  process-local verified dependencies, final rows, physical operations,
-  lock ordering, change atoms, and outbox templates
+PreparedPointCommitV1 (introduced by C04C1)
+  process-local authenticated dependencies, successful result, and at most one
+  final logical row intent; it contains no SQL or publication authority
+
+Conditional physical lowering (C04C2)
+  introduced only if the first S08/S09/O06/O07 consumers prove that a distinct
+  physical/change/outbox lowering capability is useful
 
 CommitExecutor
-  authorization, OCC, constraints, timestamp allocation, physical writes,
-  idempotency outcome, commit record, freshness atoms, and outbox
+  authorization, actual SQL locks, OCC, constraints, sequence/time allocation,
+  physical revision/current writes, idempotency outcome, commit/change records,
+  freshness atoms, and outbox; O09 later owns multi-row/unique ordering
 ```
 
 S07 implements a small located Postgres transaction-session anchor containing:
@@ -1144,8 +1149,12 @@ live final documents and the recanonicalized successful result against the
 already-authenticated pinned proof validators. It mints a frozen, runtime-
 unforgeable `VerifiedCommitInputV1` containing logical evidence only. Deletes
 and unchanged reads have no final document to validate; unknown or system table
-ID targets fail closed; C04C then performs database-free deterministic lowering
-to `PreparedCommitV1`. SHA-256 proves byte integrity only; authenticating the
+ID targets fail closed. C04C1 then performs database-free deterministic logical
+point lowering to private `PreparedPointCommitV1`. It preserves every logical
+dependency and at most one final logical row intent without claiming physical
+rows, SQL lock order, sequence/time, change atoms, or outbox authority. Any
+separate C04C2 physical/change/outbox lowering remains conditional on the first
+S08/S09/O06/O07 consumers. SHA-256 proves byte integrity only; authenticating the
 Postgres session/fence does not authenticate arbitrary inline journal bytes.
 C03 seals while the session remains `running`, and that sealed root rejects
 later syscalls. C05 later locks and revalidates the detached scalar seal

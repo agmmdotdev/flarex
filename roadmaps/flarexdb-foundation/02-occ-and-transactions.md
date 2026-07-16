@@ -17,7 +17,8 @@ point-OCC validation is also complete. Standalone C01 was retired before
 implementation; C02's inert logical protocol, C03's trusted point journal, and
 C04A's private stored-attempt authentication and C04B1's private current
 commit-authority authentication and C04B2's private-C07 final-value proof are
-complete. C04C remains unapproved in the master order.
+complete. Corrected C04C1 private logical point planning is complete; C04C2
+remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
 does not block the private C02-C07 proof.
@@ -624,7 +625,8 @@ required O03-B authority core. O04 and O05 are complete; standalone C01 is
 retired, C02's inert logical protocol, C03's trusted point journal, and C04A's
 stored-attempt authentication plus C04B1's current commit-authority
 authentication and C04B2's private-C07 final-value proof are complete. C04C
-remains unapproved in the master order.
+is now split: C04C1 logical point planning is complete, while
+C04C2 remains conditional and unapproved.
 
 Outcome:
 
@@ -793,8 +795,9 @@ Outcome:
   fence revalidation, and same-lane serialization in O06. Its scope-clock lock
   serializes authoritative V1 commits, so O05 does not invent a Convex-style
   in-memory pending-write interface. Keep same-row journal coalescing and staged
-  read-your-writes in C03; C04C later lowers the verified overlay into the
-  prepared point plan.
+  read-your-writes in C03; C04C1 later lowers the verified overlay and every
+  protocol-owned `LogicalReadDependencyV1` into the private logical prepared
+  point plan. It does not duplicate O05's persistence-owned dependency type.
 - Treat authoritative revision history as the semantic source. O06 may derive
   the minimal head observation from a current pointer only after proving its
   equivalence under the same transaction; O05 never reads or blesses the
@@ -820,8 +823,11 @@ Exit gate:
 
 Outcome:
 
-- Add the short trusted transaction primitive that accepts only C04C's typed,
-  immutable prepared point plan.
+- Add the short trusted transaction primitive that accepts only C04C1's typed,
+  immutable `PreparedPointCommitV1`. At this transaction boundary, adapt the
+  authenticated protocol-owned logical dependency losslessly into O05's
+  persistence input and load the authoritative row head; C04C1 neither imports
+  nor duplicates `AppRowPointDependencyV1`.
 - Inside one transaction: lock the data-plane scope clock that owns the active
   generation/fence, then lock the exact session and current lease. Recheck
   scope/epoch/generation/fence, attempt fence, lifecycle, snapshot, grant and
@@ -863,6 +869,10 @@ Outcome:
 - Store the successful encoded result, commit token, data, commit/change atoms,
   outbox rows, exact-current-lease deletion, and committed session state in the
   same transaction.
+- O06/O07 own actual SQL lock acquisition, sequence/time allocation, physical
+  revision/current lowering, and atomic result/change/outbox publication.
+  C04C1's numeric table/row ordering is canonical logical evidence ordering
+  only, not SQL lock authority.
 - Retain a compact non-reusable committed tombstone after result payload expiry.
 
 All authoritative writers use one lock order:
@@ -939,6 +949,9 @@ Exit gate:
   deterministic ordering, and sidecar rollback pass on PGlite and real
   Postgres;
 - Payload and Medusa behavior remains excluded.
+
+C04C1 rejects more than one material logical row. O09, not C04C1, owns the
+first accepted multi-row and unique-lock/write ordering contract.
 
 ### [ ] O10 — Prove One Exact Indexed Dependency
 

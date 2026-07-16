@@ -82,7 +82,7 @@ The repository contains two internal prototype paths plus the accepted target:
 | --- | --- |
 | Durable Object prototype | `PartitionDO` remains bound and reachable as an internal/public fallback, with authoritative Durable Object SQLite document/index/OCC state. It is unshipped legacy architecture, not a target storage generation. |
 | Initial Postgres prototype (`legacy_v1`) | `createFlarexExecutor` currently installs only `createLegacyV1AppDataEngine`, backed by the existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, subscription, and delivery tables. It supplies bounded prototype-regression evidence, not target authority or a supported migration obligation. |
-| Accepted FlarexDB target (`flarexdb_v1`) | Scope authority, scope clock including private current authorization-revocation storage, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, transaction-grant authority, the required private session core through activation/replay/reload/terminalization, private exact-snapshot point reads with typed dependencies, and pure point-OCC validation exist. Commit-time point-OCC integration/serialization, the commit compiler, target activation, and routing remain incomplete; attempt renewal is conditional on a proven long-running consumer. `v1` means the first intended shippable FlarexDB contract, not the first design attempt. |
+| Accepted FlarexDB target (`flarexdb_v1`) | Scope authority, scope clock including private current authorization-revocation storage, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, transaction-grant authority, the required private session core through activation/replay/reload/terminalization, private exact-snapshot point reads with typed dependencies, pure point-OCC validation, C04B2 verified logical input, and corrected C04C1 private logical point planning exist. Commit-time point-OCC integration/serialization, physical lowering/publication, target activation, and routing remain incomplete; attempt renewal and C04C2 are conditional on proven consumers. `v1` means the first intended shippable FlarexDB contract, not the first design attempt. |
 
 The existence of replacement catalog tables does not mean the replacement data
 path is active. The executor must not route a request into `flarexdb_v1` until
@@ -393,7 +393,9 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
   was retired before implementation; C02's inert logical journal/result/
   envelope protocol, C03's bounded point journal, C04A's stored-attempt
 authentication, C04B1's current commit-authority authentication, and C04B2's
-zero-I/O private-C07 final-value proof are complete. C04C remains unapproved.
+zero-I/O private-C07 final-value proof are complete. Corrected C04C1 private
+logical point planning is complete; C04C2 remains conditional
+and unapproved.
   Conditional B2b2 renewal
   moves to its first proven long-running-attempt consumer. Commit-time point-
   OCC integration/serialization, commit/change feed, idempotency outcomes,
@@ -464,8 +466,10 @@ and O05 pure point-OCC validation are complete. Standalone C01 was retired
 before implementation; C02's inert logical protocol, C03's bounded point
 journal, C04A's stored-attempt authentication, and C04B1's private current-
 authority authentication are complete. C04B2's same-factory final-document/
-result validation is complete only for the private C07 proof; unapproved C04C
-is the next compiler hypothesis. O03-B2b2
+result validation is complete only for the private C07 proof; corrected C04C1
+logical point planning is complete. S08 is the next Wave 2
+prerequisite after that checkpoint; C04C2 remains consumer-triggered and
+conditional. O03-B2b2
 renewal/race proof, operational revocation, and hosted Worker/key adapters are
 consumer-triggered deferred gates and do not block the private C07 proof.
 
@@ -473,8 +477,8 @@ Follow the interleaved foundation order rather than pulling build/readiness
 work forward:
 
 1. Wave 1 continues from completed private snapshot resolution and value codec
-   into just-in-time row/session capabilities, point reads, and pure point
-   planning.
+   into just-in-time row/session capabilities, point reads, and the approved
+   private logical point-plan capability.
 2. Wave 2 closes one atomic result-bearing point mutation with idempotency,
    commit feed, and outbox through the real-Postgres `C07` gate.
 3. Immediately after `C07`, apply the predeclared threshold to the conditional

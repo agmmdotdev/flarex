@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import {
   AppCreationTimeV1Schema,
   canonicalizeAppDocumentV1,
@@ -7,6 +7,7 @@ import {
   appRowIdHexV1ToBytes,
   decodeAppDocumentIdV1,
   decodeAppDocumentIdentityV1,
+  type AppDocumentIdV1,
 } from "flarex-protocol/app-document-id";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import {
@@ -26,10 +27,14 @@ import {
   type CanonicalSessionJournalV1,
   type CanonicalSuccessfulResultV1,
   type CommitEnvelopeV1,
+  type LogicalReadDependencyV1,
   type SessionJournalV1,
 } from "flarex-protocol/commit-protocol";
 import { isJson, type JsonObject } from "flarex-protocol/json";
-import { CatalogSchemaVersionIdSchema } from "flarex-protocol/schema-manifest";
+import {
+  CatalogSchemaVersionIdSchema,
+  decodeSchemaManifestAppSchemaV1,
+} from "flarex-protocol/schema-manifest";
 import {
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
   TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
@@ -79,6 +84,8 @@ import type { AuthenticatedStoredAttemptV1 as ForbiddenRootCapability } from "..
 import type { AuthenticatedCommitAuthorityV1 as ForbiddenCommitAuthority } from "../src/index";
 // @ts-expect-error C04B2 capability types must remain absent from the package root.
 import type { VerifiedCommitInputV1 as ForbiddenVerifiedCommitInput } from "../src/index";
+// @ts-expect-error C04C1 capability types must remain absent from the package root.
+import type { PreparedPointCommitV1 as ForbiddenPreparedPointCommit } from "../src/index";
 import {
   createPointMutationSessionAttemptLoadingV1,
   type PointMutationSessionAttemptSelectorWireV1,
@@ -94,6 +101,7 @@ import {
   CommitSuccessfulResultValidationV1Error,
   InvalidAuthenticatedCommitAuthorityV1Error,
   InvalidAuthenticatedStoredAttemptV1Error,
+  InvalidVerifiedCommitInputV1Error,
   StoredCommitAuthorityCorruptionV1Error,
   StoredCommitAuthorityConfigurationV1Error,
   StoredCommitAuthorityMismatchV1Error,
@@ -103,6 +111,7 @@ import {
   StoredAttemptEnvelopeMismatchV1Error,
   StoredAttemptNotPlannableV1Error,
   StoredAttemptStorageCorruptionV1Error,
+  UnsupportedPointCommitPlanV1Error,
   createStoredAttemptAuthenticationV1,
   type StoredAttemptAuthenticationV1,
   type StoredAttemptEvidenceLoadResultPortV1,
@@ -112,7 +121,13 @@ import {
 import {
   verifyCommitInputStateEffect,
   type CommitInputVerificationSourceV1,
+  type VerifiedCommitInputStateV1,
+  type VerifiedCommitPointV1,
 } from "../src/storedAttemptAuthentication/commitInputVerification";
+import {
+  planPointCommitStateV1,
+  type PreparedPointCommitStateV1,
+} from "../src/storedAttemptAuthentication/pointCommitPlanning";
 
 const DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
   "deployment_c04a_executor",
@@ -1247,6 +1262,302 @@ describe("C04A stored-attempt authentication", () => {
     );
     expect(authorityFailure).toMatchObject({ reason: "returnsValidatorMissing" });
   });
+
+  it("mints an opaque same-factory C04C1 capability with zero I/O", async () => {
+    type RootLeak = Extract<
+      keyof typeof executorRoot,
+      | "PreparedPointCommitV1"
+      | "StoredPointCommitPlanningV1"
+      | "planPointCommitStateV1"
+    >;
+    expectTypeOf<RootLeak>().toEqualTypeOf<never>();
+    expect("PreparedPointCommitV1" in executorRoot).toBe(false);
+
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: await emptyFixture("planned"),
+      returnsValidator: { type: "string" },
+    });
+    const first = await verifyCommitInputFixture(current);
+    const countsBeforePlanning = first.countsAfterVerification();
+    const prepared = await runEffect(
+      first.authentication.planPointCommit(first.verifiedCommitInput),
+    );
+
+    expect(first.authentication.isPointCommitPrepared(prepared)).toBe(true);
+    expect(Object.isFrozen(prepared)).toBe(true);
+    expect(JSON.stringify(prepared)).toBe("{}");
+    expect(Reflect.ownKeys(prepared)).toHaveLength(1);
+    expect(first.countsAfterVerification()).toEqual(countsBeforePlanning);
+
+    const forgedFailure = await runFailure(
+      first.authentication.planPointCommit({ ...first.verifiedCommitInput }),
+    );
+    expect(forgedFailure).toBeInstanceOf(InvalidVerifiedCommitInputV1Error);
+    expect(forgedFailure).toMatchObject({ reason: "notSameFactory" });
+    expect(first.countsAfterVerification()).toEqual(countsBeforePlanning);
+
+    const replanned = await runEffect(
+      first.authentication.planPointCommit(first.verifiedCommitInput),
+    );
+    expect(first.authentication.arePreparedPointCommitStatesEquivalentForTest(
+      prepared,
+      replanned,
+    )).toBe(true);
+
+    const second = await verifyCommitInputFixture(current);
+    const secondCounts = second.countsAfterVerification();
+    const crossFactoryFailure = await runFailure(
+      second.authentication.planPointCommit(first.verifiedCommitInput),
+    );
+    expect(crossFactoryFailure).toBeInstanceOf(
+      InvalidVerifiedCommitInputV1Error,
+    );
+    expect(second.countsAfterVerification()).toEqual(secondCounts);
+  });
+
+  it("composes every current point outcome through C04C1 without new I/O", async () => {
+    const nameDocument = {
+      type: "object",
+      value: {
+        name: { optional: false, fieldType: { type: "string" } },
+      },
+    };
+    const cases = [
+      await commitAuthorityFixture({}, undefined, {
+        fixture: await emptyFixture("empty"),
+        returnsValidator: { type: "string" },
+      }),
+      await commitAuthorityFixture({}, undefined, {
+        fixture: await readFixture("read"),
+        documentType: { type: "object", value: {} },
+        returnsValidator: { type: "string" },
+      }),
+      await commitAuthorityFixture({}, undefined, {
+        fixture: await insertFixture({ name: "insert" }, "insert"),
+        documentType: nameDocument,
+        returnsValidator: { type: "string" },
+      }),
+      await commitAuthorityFixture({}, undefined, {
+        fixture: await replaceFixture({ name: "replace" }, "replace"),
+        documentType: nameDocument,
+        returnsValidator: { type: "string" },
+      }),
+      await commitAuthorityFixture({}, undefined, {
+        fixture: await patchFixture("after", "patch"),
+        documentType: {
+          type: "object",
+          value: {
+            name: { optional: false, fieldType: { type: "string" } },
+            stable: { optional: false, fieldType: { type: "boolean" } },
+          },
+        },
+        returnsValidator: { type: "string" },
+      }),
+      await commitAuthorityFixture({}, undefined, {
+        fixture: await deleteFixture("delete"),
+        documentType: { type: "object", value: {} },
+        returnsValidator: { type: "string" },
+      }),
+    ];
+
+    for (const current of cases) {
+      const verified = await verifyCommitInputFixture(current);
+      const countsBeforePlanning = verified.countsAfterVerification();
+      const prepared = await runEffect(
+        verified.authentication.planPointCommit(verified.verifiedCommitInput),
+      );
+      expect(verified.authentication.isPointCommitPrepared(prepared)).toBe(true);
+      expect(verified.countsAfterVerification()).toEqual(countsBeforePlanning);
+    }
+  });
+
+  it("preserves every dependency and the complete live or logical delete intent", async () => {
+    const unchangedId = decodeAppDocumentIdV1(
+      "1:00000000-0000-4000-8000-000000000011",
+    );
+    const unchanged = unchangedPlannerPoint(unchangedId, {
+      kind: "missing",
+      basis: {
+        kind: "tombstone",
+        revisionCommitSeq: CommitSeqSchema.make(14n),
+      },
+    });
+    const unchangedPlan = requirePlanSuccess(planPointCommitStateV1(
+      await plannerSourceForTest([unchanged]),
+    ));
+    expect(unchangedPlan.rowIntent).toBeNull();
+    expect(unchangedPlan.dependencies).toEqual([{
+      documentId: unchangedId,
+      tableId: decodeCatalogTableId(1),
+      rowId: decodeAppDocumentIdentityV1(unchangedId).rowId,
+      dependency: unchanged.dependency,
+    }]);
+
+    const liveId = decodeAppDocumentIdV1(
+      "1:00000000-0000-4000-8000-000000000012",
+    );
+    const live = await livePlannerPoint(liveId, {
+      kind: "missing",
+      basis: { kind: "noVisibleRevision" },
+    });
+    const liveSource = await plannerSourceForTest([live]);
+    const livePlan = requirePlanSuccess(planPointCommitStateV1(liveSource));
+    expect(livePlan.rowIntent).toMatchObject({
+      kind: "live",
+      documentId: liveId,
+      dependency: live.dependency,
+      creationTime: live.creationTime,
+      semanticSizeBytes: live.semanticSizeBytes,
+    });
+    if (livePlan.rowIntent?.kind !== "live") {
+      throw new Error("Expected one live logical intent.");
+    }
+    const originalLiveBytes = livePlan.rowIntent.canonicalBytes;
+    live.canonicalBytes.fill(0);
+    livePlan.rowIntent.canonicalBytes.fill(0);
+    livePlan.sealIdentity.journalSha256.fill(0);
+    expect(livePlan.rowIntent.canonicalBytes).toEqual(originalLiveBytes);
+    expect(livePlan.sealIdentity.journalSha256).not.toEqual(
+      new Uint8Array(32),
+    );
+
+    const deletedId = decodeAppDocumentIdV1(
+      "1:00000000-0000-4000-8000-000000000013",
+    );
+    const deleted = deletedPlannerPoint(deletedId, {
+      kind: "present",
+      revisionCommitSeq: CommitSeqSchema.make(15n),
+    });
+    const deletedPlan = requirePlanSuccess(planPointCommitStateV1(
+      await plannerSourceForTest([deleted]),
+    ));
+    expect(deletedPlan.rowIntent).toEqual({
+      kind: "deleted",
+      documentId: deletedId,
+      tableId: decodeCatalogTableId(1),
+      rowId: decodeAppDocumentIdentityV1(deletedId).rowId,
+      dependency: deleted.dependency,
+    });
+    expect(Object.hasOwn(deletedPlan.rowIntent ?? {}, "creationTime")).toBe(
+      false,
+    );
+  });
+
+  it("orders logical evidence by numeric table ID and canonical row bytes", async () => {
+    const tableTen = unchangedPlannerPoint(decodeAppDocumentIdV1(
+      "10:00000000-0000-4000-8000-000000000001",
+    ));
+    const tableTwoHigh = unchangedPlannerPoint(decodeAppDocumentIdV1(
+      "2:00000000-0000-4000-8000-000000000010",
+    ));
+    const tableTwoLow = unchangedPlannerPoint(decodeAppDocumentIdV1(
+      "2:00000000-0000-4000-8000-00000000000f",
+    ));
+    const plan = requirePlanSuccess(planPointCommitStateV1(
+      await plannerSourceForTest([tableTen, tableTwoHigh, tableTwoLow]),
+    ));
+
+    expect(plan.dependencies.map((dependency) => dependency.documentId)).toEqual([
+      tableTwoLow.documentId,
+      tableTwoHigh.documentId,
+      tableTen.documentId,
+    ]);
+    expect(plan.rowIntent).toBeNull();
+  });
+
+  it("fails typed for multiple material rows, indexed writes, and future shapes", async () => {
+    const firstLive = await livePlannerPoint(decodeAppDocumentIdV1(
+      "1:00000000-0000-4000-8000-000000000021",
+    ));
+    const secondLive = await livePlannerPoint(decodeAppDocumentIdV1(
+      "1:00000000-0000-4000-8000-000000000022",
+    ));
+    const multipleFailure = requirePlanFailure(planPointCommitStateV1(
+      await plannerSourceForTest([firstLive, secondLive]),
+    ));
+    expect(multipleFailure).toBeInstanceOf(UnsupportedPointCommitPlanV1Error);
+    expect(multipleFailure).toMatchObject({
+      issue: { reason: "multipleMaterialRows", maximum: 1, observed: 2 },
+    });
+
+    const developerIndex = {
+      logicalIndexId: 1,
+      tableId: 1,
+      namespace: "app",
+      descriptor: "by_name",
+      spec: {
+        kind: "developerOrdered",
+        specVersion: 1,
+        fields: ["name"],
+      },
+    };
+    const indexedFailure = requirePlanFailure(planPointCommitStateV1(
+      await plannerSourceForTest([firstLive], [developerIndex]),
+    ));
+    expect(indexedFailure).toMatchObject({
+      issue: { reason: "developerIndexMaintenance", tableId: 1 },
+    });
+    const indexedRead = unchangedPlannerPoint(firstLive.documentId);
+    expect(Result.isSuccess(planPointCommitStateV1(
+      await plannerSourceForTest([indexedRead], [developerIndex]),
+    ))).toBe(true);
+
+    const base = await plannerSourceForTest([indexedRead]);
+    const futurePoint = Object.freeze({ ...indexedRead, kind: "future" });
+    const futurePointSource = Object.freeze({
+      ...base,
+      points: Object.freeze([futurePoint]),
+    });
+    // @ts-expect-error The runtime guard proves a future point variant fails closed.
+    const futurePointResult = planPointCommitStateV1(futurePointSource);
+    const futurePointFailure = requirePlanFailure(futurePointResult);
+    expect(futurePointFailure).toMatchObject({
+      issue: { reason: "unsupportedPointState" },
+    });
+
+    const futureDependencyPoint = Object.freeze({
+      ...indexedRead,
+      dependency: Object.freeze({
+        kind: "appRowRange",
+        documentId: indexedRead.documentId,
+      }),
+    });
+    const futureDependencySource = Object.freeze({
+      ...base,
+      points: Object.freeze([futureDependencyPoint]),
+    });
+    // @ts-expect-error The protocol currently permits point dependencies only.
+    const futureDependencyResult = planPointCommitStateV1(futureDependencySource);
+    const futureDependencyFailure = requirePlanFailure(futureDependencyResult);
+    expect(futureDependencyFailure).toMatchObject({
+      issue: { reason: "unsupportedReadDependency" },
+    });
+  });
+
+  it("reconstructs equivalent logical state and owned evidence bytes", async () => {
+    const documentId = decodeAppDocumentIdV1(
+      "1:00000000-0000-4000-8000-000000000031",
+    );
+    const firstPoint = await livePlannerPoint(documentId);
+    const secondPoint = await livePlannerPoint(documentId);
+    const first = requirePlanSuccess(planPointCommitStateV1(
+      await plannerSourceForTest([firstPoint]),
+    ));
+    const second = requirePlanSuccess(planPointCommitStateV1(
+      await plannerSourceForTest([secondPoint]),
+    ));
+
+    expect(first).toEqual(second);
+    if (first.rowIntent?.kind !== "live" || second.rowIntent?.kind !== "live") {
+      throw new Error("Expected reconstructed live logical intents.");
+    }
+    expect(first.rowIntent.canonicalBytes).toEqual(
+      second.rowIntent.canonicalBytes,
+    );
+    expect(first.successfulResult.canonicalBytes).toEqual(
+      second.successfulResult.canonicalBytes,
+    );
+  });
 });
 
 interface Fixture {
@@ -1259,6 +1570,7 @@ interface Fixture {
 interface CommitAuthorityFixtureOptions {
   readonly fixture?: Fixture;
   readonly documentType?: unknown;
+  readonly indexBindings?: ReadonlyArray<unknown>;
   readonly returnsValidator?: unknown | null;
 }
 
@@ -1311,7 +1623,7 @@ async function commitAuthorityFixture(
       indexBindings: {
         kind: "indexBindings",
         sectionVersion: 1,
-        indexes: [],
+        indexes: options.indexBindings ?? [],
       },
     },
   });
@@ -1593,6 +1905,170 @@ function commitInputSourceForTest(
     schemaManifest: structuredClone(current.commitEvidence.schema.manifest),
     functionMetadata: structuredClone(current.functionSnapshot.functionMetadata),
   };
+}
+
+async function plannerSourceForTest(
+  points: ReadonlyArray<VerifiedCommitPointV1>,
+  indexBindings: ReadonlyArray<unknown> = [],
+): Promise<VerifiedCommitInputStateV1> {
+  const current = await commitAuthorityFixture({}, undefined, {
+    fixture: await emptyFixture("planned"),
+    returnsValidator: { type: "string" },
+  });
+  const base = await runEffect(verifyCommitInputStateEffect(
+    commitInputSourceForTest(current),
+  ));
+  const tableDefinitions: unknown[] = [
+    ...structuredClone(base.schemaManifest.tableDefinitions.tables),
+  ];
+  const knownTableIds = new Set(
+    base.schemaManifest.tableDefinitions.tables.map((table) => table.tableId),
+  );
+  const missingTableIds = new Set<VerifiedCommitPointV1["tableId"]>();
+  for (const point of points) {
+    if (knownTableIds.has(point.tableId)) continue;
+    missingTableIds.add(point.tableId);
+  }
+  for (const tableId of [...missingTableIds].sort((left, right) => left - right)) {
+    tableDefinitions.push({
+      tableId,
+      namespace: "app",
+      logicalName: `table${tableId}`,
+      definition: {
+        kind: "appDocument",
+        definitionVersion: 1,
+        documentType: { type: "object", value: {} },
+      },
+    });
+  }
+  const schemaManifest = decodeSchemaManifestAppSchemaV1({
+    ...structuredClone(base.schemaManifest),
+    tableDefinitions: {
+      ...structuredClone(base.schemaManifest.tableDefinitions),
+      tables: tableDefinitions,
+    },
+    indexBindings: {
+      kind: "indexBindings",
+      sectionVersion: 1,
+      indexes: structuredClone(indexBindings),
+    },
+  });
+  return Object.freeze({
+    ...base,
+    points: Object.freeze([...points]),
+    schemaManifest,
+  } satisfies VerifiedCommitInputStateV1);
+}
+
+function unchangedPlannerPoint(
+  documentId: AppDocumentIdV1,
+  observed: LogicalReadDependencyV1["observed"] = Object.freeze({
+    kind: "missing",
+    basis: Object.freeze({ kind: "noVisibleRevision" }),
+  }),
+): Extract<VerifiedCommitPointV1, { readonly kind: "unchanged" }> {
+  const identity = decodeAppDocumentIdentityV1(documentId);
+  return Object.freeze({
+    kind: "unchanged",
+    documentId,
+    tableId: identity.tableId,
+    rowId: identity.rowId,
+    dependency: logicalPointDependency(documentId, observed),
+  });
+}
+
+function deletedPlannerPoint(
+  documentId: AppDocumentIdV1,
+  observed: LogicalReadDependencyV1["observed"] = Object.freeze({
+    kind: "present",
+    revisionCommitSeq: CommitSeqSchema.make(1n),
+  }),
+): Extract<VerifiedCommitPointV1, { readonly kind: "deleted" }> {
+  const identity = decodeAppDocumentIdentityV1(documentId);
+  return Object.freeze({
+    kind: "deleted",
+    documentId,
+    tableId: identity.tableId,
+    rowId: identity.rowId,
+    dependency: logicalPointDependency(documentId, observed),
+  });
+}
+
+async function livePlannerPoint(
+  documentId: AppDocumentIdV1,
+  observed: LogicalReadDependencyV1["observed"] = Object.freeze({
+    kind: "missing",
+    basis: Object.freeze({ kind: "noVisibleRevision" }),
+  }),
+): Promise<Extract<VerifiedCommitPointV1, { readonly kind: "live" }>> {
+  const identity = decodeAppDocumentIdentityV1(documentId);
+  const creationTime = AppCreationTimeV1Schema.make(1_700_000_000_100.25);
+  const document = await canonicalizeAppDocumentV1({
+    tableId: identity.tableId,
+    rowId: identity.rowId,
+    creationTime,
+    fields: { name: "planned" },
+  });
+  return Object.freeze({
+    kind: "live",
+    documentId,
+    tableId: identity.tableId,
+    rowId: identity.rowId,
+    dependency: logicalPointDependency(documentId, observed),
+    creationTime,
+    value: document.value,
+    canonicalBytes: new Uint8Array(document.canonicalBytes),
+    semanticSizeBytes: document.semanticSizeBytes,
+  });
+}
+
+function logicalPointDependency(
+  documentId: AppDocumentIdV1,
+  observed: LogicalReadDependencyV1["observed"],
+): LogicalReadDependencyV1 {
+  if (observed.kind === "present") {
+    return Object.freeze({
+      kind: "appRowPoint",
+      documentId,
+      observed: Object.freeze({
+        kind: "present",
+        revisionCommitSeq: observed.revisionCommitSeq,
+      }),
+    });
+  }
+  const basis = observed.basis.kind === "noVisibleRevision"
+    ? Object.freeze({ kind: "noVisibleRevision" as const })
+    : Object.freeze({
+      kind: "tombstone" as const,
+      revisionCommitSeq: observed.basis.revisionCommitSeq,
+    });
+  return Object.freeze({
+    kind: "appRowPoint",
+    documentId,
+    observed: Object.freeze({ kind: "missing", basis }),
+  });
+}
+
+function requirePlanSuccess(
+  result: Result.Result<
+    PreparedPointCommitStateV1,
+    UnsupportedPointCommitPlanV1Error
+  >,
+): PreparedPointCommitStateV1 {
+  if (Result.isFailure(result)) throw result.failure;
+  return result.success;
+}
+
+function requirePlanFailure(
+  result: Result.Result<
+    PreparedPointCommitStateV1,
+    UnsupportedPointCommitPlanV1Error
+  >,
+): UnsupportedPointCommitPlanV1Error {
+  if (Result.isSuccess(result)) {
+    throw new Error("Expected point commit planning to fail.");
+  }
+  return result.failure;
 }
 
 async function emptyFixture(successfulResult: unknown = { ok: true }): Promise<Fixture> {

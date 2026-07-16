@@ -6,10 +6,12 @@ retired before implementation. C02's host-neutral logical journal, successful-
 result, and finish-envelope protocol, C03's first trusted Postgres point-
 journal consumer, C04A's private stored-attempt authentication, and C04B1's
 private commit-authority authentication are complete. C04B2's private-C07
-final-document/result proof is also complete; C04C remains unapproved.
+final-document/result proof is also complete. Corrected C04C1 private logical
+point planning is complete; C04C2 remains conditional and
+unapproved.
 
 This plan owns the bounded Flarex app-data path from logical session operations
-to a trusted deterministic physical plan and atomic commit. It does not make a
+through a private logical point plan to an atomic commit. It does not make a
 SessionDO journal authoritative, does not compile arbitrary Payload or Medusa
 transactions, and does not promise unsupported query overlays.
 
@@ -110,14 +112,16 @@ AuthenticatedCommitAuthorityV1 (introduced by C04B1)
 VerifiedCommitInput (introduced by C04B2)
   same-factory logical proof using already-authenticated pinned proof validators
              |
-CommitPlannerV1 (introduced by C04C)
-  database-free logical-to-physical lowering
+PointCommitPlannerV1 (introduced by C04C1)
+  same-factory database-free logical point/dependency lowering
              |
-PreparedCommitV1 (introduced by C04C)
-  internal immutable dependencies, constraints, writes, change/outbox templates
+PreparedPointCommitV1 (introduced by C04C1)
+  internal immutable dependencies, successful result, and at most one final
+  logical row intent; no SQL or publication authority
              |
 CommitExecutor
-  authority/fence checks, OCC, sequence allocation, atomic publication/outcome
+  authority/fence checks, actual SQL locks, OCC, physical lowering, sequence/
+  time allocation, and atomic publication/outcome
 ```
 
 The journal/envelope cannot author:
@@ -131,10 +135,14 @@ The journal/envelope cannot author:
 Those are resolved or derived by trusted code from the session anchor, pinned
 catalog/policy, logical operations, and final row bodies.
 
-`PreparedCommitV1` is an internal non-serializable capability. It never arrives
-over `/invoke/*` and contains no allocated commit/outbox sequence, generated
-outbox ID, database timestamp, transaction handle, or transaction-specific lock
-fact. `CommitExecutor` derives those again inside each SQL retry.
+`PreparedPointCommitV1` is the private C04C1 non-serializable capability. It
+never arrives over `/invoke/*` and contains only the authenticated authority and
+seal link, successful result, every logical point dependency, and at most one
+net material logical row intent. It contains no physical table or column name,
+allocated commit/outbox sequence, generated outbox ID, database timestamp,
+transaction handle, SQL lock fact, change atom, or outbox template. O06/O07
+adapt the authenticated logical evidence and derive their physical transaction
+inputs inside the authoritative SQL boundary.
 
 ## V1 Read-Your-Writes Matrix
 
@@ -170,8 +178,10 @@ Introduce each boundary only at its real owner:
 - C04A owns exact stored-evidence authentication and only its private runtime-
   unforgeable capability. C04B1 owns the same-factory current argument/grant/
   revocation/schema authority capture and its private capability. C04B2 alone
-  owns final value/return validation and `VerifiedCommitInput`; C04C owns the
-  concrete process-local `PreparedCommitV1` capability.
+  owns final value/return validation and `VerifiedCommitInput`; C04C1 owns the
+  concrete process-local logical `PreparedPointCommitV1` capability. C04C2 is
+  conditional on S08/S09/O06/O07 proving a separate physical/change/outbox
+  lowering capability useful.
 - O06/O07 own the exact atomic persistence capability; C05 is its first
   complete planner/executor composition consumer.
 - C06 owns `PostCommitWake`, after durable commit and outbox evidence make its
@@ -191,8 +201,9 @@ Outcome:
 
 - Define discriminated `LogicalReadDependency`, `LogicalAppWrite`,
   `SessionJournalV1`, separate `SuccessfulResultEvidenceV1`, and
-  `CommitEnvelopeV1` contracts. Concrete `PreparedCommitV1` is deferred to C04C,
-  where verified catalog/policy facts and physical operations exist.
+  `CommitEnvelopeV1` contracts. Private logical `PreparedPointCommitV1` is
+  deferred to C04C1. Physical revision/current rows, locks, change atoms, and
+  outbox records remain with their S08/S09/O06/O07 consumers.
 - Define attempt fence, canonical final syscall sequence, protocol versions,
   canonical journal/result evidence, and SHA-256 integrity digests. C03 owns
   operational monotonic sequencing and append rejection.
@@ -391,7 +402,8 @@ Exit gate:
 
 Status: complete only as the private C07 proof gate. Production validator
 authority and syscall-time validation parity remain deferred Wave 4 decisions;
-C04C is not authorized by this status.
+C04C1 later received its own separate approval. This status does not authorize
+C04C2 or any transaction/publication gate.
 
 Outcome:
 
@@ -419,24 +431,39 @@ Outcome:
   S03-D4/S04 still own the coherent activation-fenced package/artifact/source/
   function-validator/schema snapshot and replacement of the proof adapter.
 
-### [ ] C04C — Build The Pure Point-Row Planner
+### [x] C04C1 — Build The Pure Logical Point Planner
+
+Status: complete. The old broad C04C physical planner is
+superseded.
 
 Outcome:
 
-- Implement a database-free deterministic planner that consumes only
-  `VerifiedCommitInput` and trusted catalog/policy facts.
-- Resolve final rows, point dependencies, physical row operations, deterministic
-  lock order, change atoms, and outbox templates without allocating sequence,
-  database timestamp, transaction, or publication state.
-- Return the first concrete process-local `PreparedCommitV1`; identical trusted
-  inputs produce byte-for-byte equivalent plans and unsupported shapes fail
-  before the later commit transaction opens.
+- Consume only a genuine same-factory `VerifiedCommitInputV1` and perform zero
+  database, catalog, clock, transaction, or metadata I/O.
+- Preserve every protocol-owned `LogicalReadDependencyV1`, order logical
+  evidence by numeric table ID then row bytes, and retain at most one material
+  logical row intent. Live intent carries the already-verified complete final
+  document; deleted intent carries identity/dependency only.
+- Return private process-local `PreparedPointCommitV1`. Identical authenticated
+  inputs reconstruct equivalent logical state and contained bytes. More than
+  one material row, future/non-point shapes, and material writes requiring a
+  declared developer index fail typed before any later SQL transaction opens.
+- Include no physical names, O05 persistence dependency, current head,
+  predecessor sequence, SQL lock fact, commit sequence/time, physical revision/
+  current operation, change atom, outbox template, or publication identity.
+
+### [ ] C04C2 — Conditional Consumer-Driven Physical Lowering
+
+Do not introduce this gate unless the frozen S08/S09/O06/O07 first-consumer
+contracts prove that a distinct physical/change/outbox lowering capability is
+useful. O06/O07 own actual SQL locks, physical revision/current lowering,
+sequence/time allocation, and publication; O09 owns multi-row/unique ordering.
 
 ### [ ] C05 — Execute One Atomic Point Mutation
 
 Outcome:
 
-- Consume the C04A/C04B1/C04B2/C04C evidence and plan created while the exact
+- Consume the C04A/C04B1/C04B2/C04C1 evidence and plan created while the exact
   attempt is `running + sealed`. Inside the short trusted lane, lock and revalidate the
   complete scalar seal identity before atomically changing the exact current
   `running` attempt to `finishing`; no large evidence bytes are reread there.
@@ -444,7 +471,9 @@ Outcome:
   lost-outcome recovery. Recovery may rerun C04A from `finishing + sealed`
   before reconstructing the same verified plan.
 - Consume the O06/O07-owned private `CommitExecutor` capability with
-  `PreparedCommitV1`. This target capability must not wrap or promote legacy
+  `PreparedPointCommitV1`. O06 adapts logical dependency evidence to O05, loads
+  the authoritative head, and performs physical lowering in the short
+  transaction. This target capability must not wrap or promote legacy
   `commitInvokeSessionWrites`.
 - Inside the transaction, recheck session/fence/authority/epoch, validate point
   dependencies, allocate the commit sequence, publish row revision/current,
@@ -487,7 +516,7 @@ running or finishing -> aborted | expired
 S07's `committing` literal remains transaction-local/reserved in V1; it does
 not introduce a separately durable state or recovery protocol.
 
-- Invoke the C04B2-owned verified-input/return-validation gate before C04C planning;
+- Invoke the C04B2-owned verified-input/return-validation gate before C04C1 planning;
   the endpoint adds no weaker alternate finish path.
 - Store successful result, commit token, idempotency outcome, data,
   commit/change atoms, outbox, exact-current-lease deletion, and committed

@@ -20,7 +20,9 @@ The standalone C01 port-extraction gate was retired before implementation.
 C02's host-neutral logical journal/result/envelope protocol, C03's first
 trusted Postgres point-journal consumer, and C04A's private stored-attempt
 authentication gate, C04B1's private commit-authority gate, and C04B2's private
-C07 final-document/result proof are complete; C04C planning remains unapproved.
+C07 final-document/result proof are complete. Corrected C04C1 database-free
+logical point planning is complete; C04C2 remains conditional
+and unapproved.
 B2b2 renewal is
 a conditional
 operational extension outside the current
@@ -31,7 +33,7 @@ bounded attempt must outlive its initial lease.
 | --- | --- |
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, and C03's bounded exact-attempt journal DDL complete |
 | OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads with typed present/qualified-missing dependencies, and `O05` pure point-OCC validation are complete; standalone `O01` retired before implementation, while B2b2 renewal, operational revocation, and hosted adapters remain consumer-triggered deferred gates |
-| Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, and private-C07 final-value proof `C04B2` complete; pure planner `C04C` remains unapproved |
+| Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, private-C07 final-value proof `C04B2`, and corrected private logical point planner `C04C1` complete; `C04C2` is conditional and unapproved |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
 
@@ -147,7 +149,7 @@ transaction API and never raw Postgres handles.
 
 | Consumer | Low-level capability | Boundary |
 | --- | --- | --- |
-| Flarex app data | Exact snapshot reads plus `SessionJournalV1` and sibling result evidence -> `CommitEnvelopeV1` -> C04A authenticated seal -> C04B1 authenticated commit authority -> C04B2 verified input -> C04C-owned `PreparedCommitV1` -> `CommitExecutor` | First lane; bounded point CRUD |
+| Flarex app data | Exact snapshot reads plus `SessionJournalV1` and sibling result evidence -> `CommitEnvelopeV1` -> C04A authenticated seal -> C04B1 authenticated commit authority -> C04B2 verified input -> C04C1-owned `PreparedPointCommitV1` -> O06/O07 `CommitExecutor` | First lane; bounded point CRUD. A separate C04C2 exists only if those first consumers prove that physical/change/outbox lowering deserves its own capability. |
 | Payload | App-row/catalog primitives through a Payload-owned request transaction adapter | Later conformance-tested adapter |
 | Medusa | Scope commit participation, change atoms, and outbox inside a Medusa-owned SQL transaction | Preserves repositories, modules, links, migrations, and workflows |
 | System writers | Fenced scope commit participation for migrations, backfills, repairs, and admin work | Cannot bypass OCC/commit ordering |
@@ -278,16 +280,22 @@ types and ports are introduced by the gates that first consume them.
     same-factory runtime-unforgeable `VerifiedCommitInputV1`. Production
     activation-fenced validator authority and syscall-time validation parity
     remain Wave 4 decisions.
-20. `C04C` (unapproved): database-free deterministic point-row planning that introduces
-    concrete `PreparedCommitV1`.
+20. `C04C1` (complete): database-free deterministic logical point
+    planning that introduces private `PreparedPointCommitV1`, preserves every
+    protocol dependency, and carries at most one final logical row intent.
+    `C04C2` is not an automatic follow-up: it remains conditional until the
+    S08/S09/O06/O07 consumers prove a separate physical/change/outbox lowering
+    capability useful.
 
 The proposed C01 compatibility-wrapper work is not carried forward. C03 introduces
 only the `SessionJournalStore` required by its first real Postgres-backed
 journal consumer; C04A owns exact stored-evidence authentication, C04B1 owns
 current commit-authority authentication, C04B2 owns final value/return
-validation and `VerifiedCommitInput`, and C04C owns concrete
-`PreparedCommitV1`; O06/O07 own the atomic persistence capability and C05 is
-the first complete planner/executor composition consumer; C06 owns
+validation and `VerifiedCommitInput`, and C04C1 owns only private logical
+`PreparedPointCommitV1`; O06/O07 own authoritative head loading, actual SQL
+locks, physical revision/current lowering, sequence/time allocation, and atomic
+publication. O09 owns later multi-row/unique ordering. C05 is the first complete
+planner/executor composition consumer; C06 owns
 `PostCommitWake` after durable commit/outbox evidence exists.
 
 `O03-B1` establishes atomic activation and exact active-anchor replay;
@@ -326,6 +334,10 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
 6. `O08`: separate OCC reruns, safe SQL retries, and uncertain-outcome lookup.
 7. `C06`: idempotent finish and lost-outcome recovery through `/invoke/*`.
 8. `C07`: PGlite plus real-Postgres correctness gate.
+
+After O07 and before C05, introduce C04C2 only if the frozen S08/S09/O06/O07
+first-consumer contracts prove that a separate physical/change/outbox lowering
+capability is necessary. The step is not part of the mandatory order today.
 
 `C07` is the first end-to-end replacement milestone, but it proves only a
 private test-generation point-mutation kernel. It does not authorize canary or

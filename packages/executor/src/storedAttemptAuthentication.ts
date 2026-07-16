@@ -139,6 +139,12 @@ import {
   type CommitInputVerificationV1Error,
   type VerifiedCommitInputStateV1,
 } from "./storedAttemptAuthentication/commitInputVerification";
+import {
+  InvalidVerifiedCommitInputV1Error,
+  planPointCommitStateV1,
+  UnsupportedPointCommitPlanV1Error,
+  type PreparedPointCommitStateV1,
+} from "./storedAttemptAuthentication/pointCommitPlanning";
 
 export {
   InvalidAuthenticatedStoredAttemptV1Error,
@@ -178,6 +184,11 @@ export type {
   VerifiedSuccessfulResultV1,
 } from "./storedAttemptAuthentication/commitInputVerification";
 
+export {
+  InvalidVerifiedCommitInputV1Error,
+  UnsupportedPointCommitPlanV1Error,
+} from "./storedAttemptAuthentication/pointCommitPlanning";
+
 const trustedStoredAttemptAuthorityBrand: unique symbol = Symbol(
   "FlarexExecutor/TrustedStoredAttemptAuthorityV1",
 );
@@ -212,6 +223,15 @@ const verifiedCommitInputBrand: unique symbol = Symbol(
 /** Private C04B2 proof capability; production activation remains deferred. */
 export interface VerifiedCommitInputV1 {
   readonly [verifiedCommitInputBrand]: true;
+}
+
+const preparedPointCommitBrand: unique symbol = Symbol(
+  "FlarexExecutor/PreparedPointCommitV1",
+);
+
+/** Private C04C1 logical point plan; this carries no SQL authority. */
+export interface PreparedPointCommitV1 {
+  readonly [preparedPointCommitBrand]: true;
 }
 
 export class InvalidStoredAttemptAuthorityV1Error extends Data.TaggedError(
@@ -597,17 +617,38 @@ export interface StoredCommitInputVerificationV1
   ) => boolean;
 }
 
+export type PointCommitPlanningV1Error =
+  | InvalidVerifiedCommitInputV1Error
+  | UnsupportedPointCommitPlanV1Error;
+
+export interface StoredPointCommitPlanningV1
+  extends StoredCommitInputVerificationV1 {
+  readonly planPointCommit: (
+    input: VerifiedCommitInputV1,
+  ) => Effect.Effect<
+    PreparedPointCommitV1,
+    PointCommitPlanningV1Error,
+    never
+  >;
+  readonly isPointCommitPrepared: (value: unknown) => boolean;
+  /** Internal test seam: compares opaque same-factory plan state. */
+  readonly arePreparedPointCommitStatesEquivalentForTest: (
+    left: PreparedPointCommitV1,
+    right: PreparedPointCommitV1,
+  ) => boolean;
+}
+
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
 ): StoredAttemptAuthenticationV1;
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
   commitAuthority: StoredCommitAuthorityAuthenticationConfigV1,
-): StoredCommitInputVerificationV1;
+): StoredPointCommitPlanningV1;
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
   commitAuthority?: StoredCommitAuthorityAuthenticationConfigV1,
-): StoredAttemptAuthenticationV1 | StoredCommitInputVerificationV1 {
+): StoredAttemptAuthenticationV1 | StoredPointCommitPlanningV1 {
   const authorityStates = new WeakMap<object, StoredAttemptAuthorityStateV1>();
   const authenticatedStates = new WeakMap<
     object,
@@ -620,6 +661,10 @@ export function createStoredAttemptAuthenticationV1(
   const verifiedCommitInputStates = new WeakMap<
     object,
     VerifiedCommitInputStateV1
+  >();
+  const preparedPointCommitStates = new WeakMap<
+    object,
+    PreparedPointCommitStateV1
   >();
   const grantKernel = commitAuthority === undefined
     ? undefined
@@ -796,10 +841,32 @@ export function createStoredAttemptAuthenticationV1(
       },
     );
 
+  const planPointCommit: StoredPointCommitPlanningV1["planPointCommit"] =
+    Effect.fn("StoredAttemptAuthentication.planPointCommit")(
+      function* (input) {
+        const state = lookupVerifiedCommitInputState(
+          verifiedCommitInputStates,
+          input,
+        );
+        if (state === undefined) {
+          return yield* Effect.fail(new InvalidVerifiedCommitInputV1Error({
+            reason: "notSameFactory",
+          }));
+        }
+        const planned = yield* Effect.fromResult(planPointCommitStateV1(state));
+        const handle: PreparedPointCommitV1 = Object.freeze({
+          [preparedPointCommitBrand]: PROCESS_LOCAL_CAPABILITY,
+        });
+        preparedPointCommitStates.set(handle, planned);
+        return handle;
+      },
+    );
+
   return Object.freeze({
     ...base,
     authenticateCommitAuthority,
     verifyCommitInput,
+    planPointCommit,
     isCommitAuthorityAuthenticated: (value: unknown): boolean =>
       typeof value === "object" &&
       value !== null &&
@@ -832,7 +899,28 @@ export function createStoredAttemptAuthenticationV1(
       action();
       return before === serializeVerifiedCommitInputStateForTest(state);
     },
-  } satisfies StoredCommitInputVerificationV1);
+    isPointCommitPrepared: (value: unknown): boolean =>
+      typeof value === "object" &&
+      value !== null &&
+      preparedPointCommitStates.has(value),
+    arePreparedPointCommitStatesEquivalentForTest: (
+      left: PreparedPointCommitV1,
+      right: PreparedPointCommitV1,
+    ): boolean => {
+      const leftState = lookupPreparedPointCommitState(
+        preparedPointCommitStates,
+        left,
+      );
+      const rightState = lookupPreparedPointCommitState(
+        preparedPointCommitStates,
+        right,
+      );
+      return leftState !== undefined &&
+        rightState !== undefined &&
+        serializePreparedPointCommitStateForTest(leftState) ===
+          serializePreparedPointCommitStateForTest(rightState);
+    },
+  } satisfies StoredPointCommitPlanningV1);
 }
 
 function captureCommitAuthorityPort(
@@ -894,6 +982,24 @@ function requireVerifiedCommitInputState(
   return state;
 }
 
+function lookupVerifiedCommitInputState(
+  states: WeakMap<object, VerifiedCommitInputStateV1>,
+  value: VerifiedCommitInputV1,
+): VerifiedCommitInputStateV1 | undefined {
+  return typeof value === "object" && value !== null
+    ? states.get(value)
+    : undefined;
+}
+
+function lookupPreparedPointCommitState(
+  states: WeakMap<object, PreparedPointCommitStateV1>,
+  value: PreparedPointCommitV1,
+): PreparedPointCommitStateV1 | undefined {
+  return typeof value === "object" && value !== null
+    ? states.get(value)
+    : undefined;
+}
+
 function deepDetachCommitAuthorityState(
   storedAttempt: AuthenticatedStoredAttemptStateV1,
   evidence: VerifiedCommitAuthorityEvidenceV1,
@@ -928,6 +1034,15 @@ function serializeVerifiedCommitInputStateForTest(
     new CommitInputAuthorityCorruptionV1Error({
       reason: "successfulResultInvalid",
     })
+  );
+}
+
+function serializePreparedPointCommitStateForTest(
+  state: PreparedPointCommitStateV1,
+): string {
+  return serializePrivateStateForTest(
+    state,
+    () => new Error("Prepared point commit state could not be serialized."),
   );
 }
 

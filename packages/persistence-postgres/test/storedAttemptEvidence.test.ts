@@ -478,7 +478,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     ).toBe(true);
   });
 
-  it("composes C03 through private C04B2 after both SQL captures close", async () => {
+  it("composes C03 through private C04C1 after both SQL captures close", async () => {
     let storedSqlClosed = false;
     const current = await c04b2Scenario("commit_input_composition", {
       afterRepeatableRead: () => {
@@ -539,12 +539,16 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const verified = await runEffect(
       authentication.verifyCommitInput(commitAuthority),
     );
+    const prepared = await runEffect(
+      authentication.planPointCommit(verified),
+    );
 
     expect(storedSqlClosed).toBe(true);
     expect(authoritySqlClosed).toBe(true);
     expect(schemaDecodeAfterSqlClose).toBe(true);
     expect(metadataAfterSqlClose).toBe(true);
     expect(authentication.isCommitInputVerified(verified)).toBe(true);
+    expect(authentication.isPointCommitPrepared(prepared)).toBe(true);
     expect({ authorityQueries, metadataLoads }).toEqual(beforeVerification);
   });
 
