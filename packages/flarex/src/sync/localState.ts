@@ -1,3 +1,5 @@
+import { isJsonArray } from "flarex-protocol/json";
+
 import {
   assertJson,
   type Authenticate,
@@ -187,8 +189,4 @@ function stableJson(value: Json): string {
     .sort()
     .map(key => `${JSON.stringify(key)}:${stableJson(value[key] ?? null)}`)
     .join(",")}}`;
-}
-
-function isJsonArray(value: Json): value is ReadonlyArray<Json> {
-  return Array.isArray(value);
 }

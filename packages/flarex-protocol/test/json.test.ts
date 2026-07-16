@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   isJson,
+  isJsonArray,
   isJsonObject,
   JsonValue,
   type Json,
@@ -14,6 +15,12 @@ const decodeJson = Schema.decodeUnknownSync(JsonValue);
 function expectJsonObjectNarrowing(value: Json): void {
   if (isJsonObject(value)) {
     expectTypeOf(value).toEqualTypeOf<JsonObject>();
+  }
+}
+
+function expectJsonArrayNarrowing(value: Json): void {
+  if (isJsonArray(value)) {
+    expectTypeOf(value).toEqualTypeOf<ReadonlyArray<Json>>();
   }
 }
 
@@ -47,6 +54,17 @@ describe("protocol JSON", () => {
     expect(isJsonObject("value")).toBe(false);
 
     expectJsonObjectNarrowing(value);
+  });
+
+  it("discriminates the array member of validated JSON", () => {
+    const value: Json = [true, null];
+
+    expect(isJsonArray(value)).toBe(true);
+    expect(isJsonArray({ nested: true })).toBe(false);
+    expect(isJsonArray(null)).toBe(false);
+    expect(isJsonArray("value")).toBe(false);
+
+    expectJsonArrayNarrowing(value);
   });
 
   it("rejects values outside the shared JSON contract", () => {

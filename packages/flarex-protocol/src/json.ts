@@ -40,6 +40,14 @@ export const JsonValue = Schema.declare<Json>(isJson, {
 });
 
 /**
+ * Discriminates the array member of an already-validated JSON value.
+ * Use {@link isJson} first when the input is unknown.
+ */
+export function isJsonArray(value: Json): value is ReadonlyArray<Json> {
+  return Array.isArray(value);
+}
+
+/**
  * Discriminates the object member of an already-validated JSON value.
  * Use {@link isJson} first when the input is unknown.
  */

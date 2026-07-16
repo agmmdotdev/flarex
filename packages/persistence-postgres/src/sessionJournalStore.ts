@@ -53,7 +53,13 @@ import {
   type SessionJournalV1,
   type StoredForSessionAttemptCommitEnvelopeV1,
 } from "flarex-protocol/commit-protocol";
-import { isJson, JsonValue, type Json, type JsonObject } from "flarex-protocol/json";
+import {
+  isJson,
+  isJsonObject,
+  JsonValue,
+  type Json,
+  type JsonObject,
+} from "flarex-protocol/json";
 import {
   decodeCatalogSchemaVersionId,
   decodeSchemaManifestAppTableName,
@@ -1045,10 +1051,6 @@ function isPlainObject(
   }
   const prototype = Object.getPrototypeOf(input);
   return prototype === Object.prototype || prototype === null;
-}
-
-function isJsonObject(input: Json): input is JsonObject {
-  return input !== null && typeof input === "object" && !Array.isArray(input);
 }
 
 function isRuntimeDocumentObject(

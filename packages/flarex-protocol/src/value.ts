@@ -1,7 +1,13 @@
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Schema } from "effect";
 
-import { isJson, isJsonObject, type Json, type JsonObject } from "./json";
+import {
+  isJson,
+  isJsonArray,
+  isJsonObject,
+  type Json,
+  type JsonObject,
+} from "./json";
 
 /**
  * The JavaScript value domain accepted at Flarex API boundaries.
@@ -1302,10 +1308,6 @@ function limitsForProfile(profile: FlarexValueProfileV1): FlarexValueLimitsV1 {
 }
 
 function isUnknownArray(value: unknown): value is ReadonlyArray<unknown> {
-  return Array.isArray(value);
-}
-
-function isJsonArray(value: Json): value is ReadonlyArray<Json> {
   return Array.isArray(value);
 }
 

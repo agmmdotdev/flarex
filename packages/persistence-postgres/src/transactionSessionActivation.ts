@@ -5,7 +5,13 @@ import {
   CommitFinalSyscallSequenceV1Schema,
   CommitMaterialWriteEventEvidenceBytesV1Schema,
 } from "flarex-protocol/commit-protocol";
-import { isJson, type Json, type JsonObject } from "flarex-protocol/json";
+import {
+  isJson,
+  isJsonArray,
+  isJsonObject,
+  type Json,
+  type JsonObject,
+} from "flarex-protocol/json";
 import {
   decodeCatalogSchemaVersionId,
   type CatalogSchemaVersionId,
@@ -2198,14 +2204,6 @@ function jsonEqual(left: Json, right: Json): boolean {
       jsonEqual(leftValue, rightValue)
     );
   });
-}
-
-function isJsonArray(value: Json): value is ReadonlyArray<Json> {
-  return Array.isArray(value);
-}
-
-function isJsonObject(value: Json): value is JsonObject {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function capturePhysicalLocator(

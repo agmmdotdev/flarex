@@ -7,7 +7,7 @@ import {
   type CatalogIndexId,
   type CatalogTableId,
 } from "./catalog";
-import type { Json } from "./json";
+import { isJsonArray, type Json } from "./json";
 import {
   ObjectValidatorJsonV1,
   type ValidatorJsonV1,
@@ -972,10 +972,6 @@ function cloneAndFreezeJson(value: Json): Json {
     return Object.freeze(copy);
   }
   return value;
-}
-
-function isJsonArray(value: Json): value is ReadonlyArray<Json> {
-  return Array.isArray(value);
 }
 
 function defineFrozenJsonProperty(
