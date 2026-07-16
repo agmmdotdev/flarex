@@ -1,14 +1,8 @@
 import { Data, Effect, Schema } from "effect";
 import { executionIdentityFingerprint } from "./auth";
-import { isJson } from "./json";
+import { isJson, type WritableJson } from "./json";
 
-export type LiveQueryDeliveryJson =
-  | null
-  | boolean
-  | number
-  | string
-  | LiveQueryDeliveryJson[]
-  | { [key: string]: LiveQueryDeliveryJson };
+export type LiveQueryDeliveryJson = WritableJson;
 
 export type LiveQueryDeliveryUpdatedChange = {
   kind: "updated";

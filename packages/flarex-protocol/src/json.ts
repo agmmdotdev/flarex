@@ -10,6 +10,18 @@ export type Json =
   | ReadonlyArray<Json>
   | JsonObject;
 
+/**
+ * JSON with writable array and object properties for compatibility APIs.
+ * This is a compile-time shape and does not promise runtime mutability.
+ */
+export type WritableJson =
+  | null
+  | boolean
+  | number
+  | string
+  | WritableJson[]
+  | { [key: string]: WritableJson };
+
 export const Json: Schema.Schema<Json> = Schema.suspend(() =>
   Schema.Union([
     Schema.Null,

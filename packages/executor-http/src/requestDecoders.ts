@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { decodeExecutionIdentityEffect } from "flarex-protocol/auth";
+import { isJson as isProtocolJson } from "flarex-protocol/json";
 import type {
   AbortInvokeSessionInput,
   AbortStaleInvokeSessionsInput,
@@ -1816,19 +1817,5 @@ function prefixBadRequest(
 }
 
 function isJson(value: unknown): value is Json {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return Number.isFinite(value as number) || typeof value !== "number";
-  }
-  if (Array.isArray(value)) {
-    return value.every(isJson);
-  }
-  if (typeof value === "object") {
-    return Object.values(value as Record<string, unknown>).every(isJson);
-  }
-  return false;
+  return isProtocolJson(value);
 }

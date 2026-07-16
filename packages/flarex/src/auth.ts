@@ -1,10 +1,6 @@
-export type JSONValue =
-  | null
-  | boolean
-  | number
-  | string
-  | ReadonlyArray<JSONValue>
-  | { readonly [key: string]: JSONValue };
+import type { Json } from "flarex-protocol/json";
+
+export type JSONValue = Json;
 
 export type {
   AuthConfig,

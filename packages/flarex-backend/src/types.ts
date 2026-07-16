@@ -1,16 +1,11 @@
 import type { ExecutionArtifactRef } from "flarex/artifacts";
 import type { DeploymentRecord } from "flarex-protocol";
 import type { AuthConfig } from "flarex-protocol/auth";
+import type { WritableJson } from "flarex-protocol/json";
 export type { ExecutionArtifactRef } from "flarex/artifacts";
 export type { DeploymentRecord } from "flarex-protocol";
 
-export type Json =
-  | null
-  | boolean
-  | number
-  | string
-  | Json[]
-  | { [key: string]: Json };
+export type Json = WritableJson;
 
 export type ValidatorJson =
   | { type: "null" | "number" | "bigint" | "boolean" | "string" | "bytes" | "any" }

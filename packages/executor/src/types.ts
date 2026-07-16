@@ -8,6 +8,7 @@ import type {
 } from "@flarex/persistence-postgres/legacy-v1-app-data-engine";
 import type { LiveQueryDeliveryChange } from "flarex";
 import type { AuthConfig, ExecutionIdentity } from "flarex-protocol/auth";
+import type { WritableJson } from "flarex-protocol/json";
 import type {
   DeploymentPackageMetadataRecord,
   DeploymentMetadataRecord,
@@ -679,13 +680,7 @@ export interface DeploymentFunctionMetadata {
 
 export type InvokableFunctionKind = "query" | "mutation";
 
-export type Json =
-  | null
-  | boolean
-  | number
-  | string
-  | Json[]
-  | { [key: string]: Json };
+export type Json = WritableJson;
 
 export type TablePlacement =
   | { kind: "partitionBy"; field: string }

@@ -227,6 +227,27 @@ describe("executor HTTP invoke body decoders", () => {
       message: "value must be a JSON value.",
     });
   });
+
+  it("rejects non-plain objects at JSON value boundaries", async () => {
+    const symbolProperty = { value: true, [Symbol("hidden")]: false };
+
+    for (const value of [new Date(0), new Map<string, unknown>(), symbolProperty]) {
+      const failure = await Effect.runPromise(
+        decodeInvokeFinishBody({
+          deploymentId: "deployment_active",
+          projectId: "project_active",
+          sessionId: "session_active",
+          value,
+        }).pipe(Effect.flip),
+      );
+
+      expect(failure).toBeInstanceOf(ExecutorHttpBodyValidationError);
+      expect(failure.body).toEqual({
+        error: "bad_request",
+        message: "value must be a JSON value.",
+      });
+    }
+  });
 });
 
 describe("executor HTTP live query body decoders", () => {
