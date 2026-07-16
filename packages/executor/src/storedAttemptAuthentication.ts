@@ -1,15 +1,18 @@
 import { Data, Effect, Schema } from "effect";
 
 import {
+  AppDocumentSystemFieldV1Error,
   canonicalizeAppDocumentV1,
   verifyAppDocumentEvidenceV1,
   type AppCreationTimeV1,
 } from "flarex-protocol/app-document";
 import {
+  AppDocumentIdV1Error,
   appDocumentIdV1FromRowIdentity,
   appRowIdHexV1FromBytes,
   decodeAppDocumentIdentityV1,
   type AppDocumentIdV1,
+  type AppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
@@ -20,6 +23,7 @@ import {
   type CommitFinalSyscallSequenceV1,
   type CommitMaterialWriteEventEvidenceBytesV1,
   type CommitProtocolV1Error,
+  type CanonicalSuccessfulResultV1,
   type LogicalAppWriteV1,
   type LogicalPatchFieldV1,
   type LogicalReadDependencyV1,
@@ -79,6 +83,8 @@ import {
   normalizeFlarexValueJsonV1,
   normalizeFlarexValueV1,
   type CanonicalFlarexRuntimeValueV1,
+  FlarexValueCodecV1Error,
+  FlarexValueEvidenceV1Error,
   type FlarexValueCodecVersion,
 } from "flarex-protocol/value";
 
@@ -123,6 +129,15 @@ import {
   bytesEqual,
   detachVerifiedGrant,
 } from "./storedAttemptAuthentication/canonicalEvidence";
+import {
+  CommitDocumentValidationV1Error,
+  CommitInputAuthorityCorruptionV1Error,
+  CommitSuccessfulResultValidationV1Error,
+  InvalidAuthenticatedCommitAuthorityV1Error,
+  verifyCommitInputStateEffect,
+  type CommitInputVerificationV1Error,
+  type VerifiedCommitInputStateV1,
+} from "./storedAttemptAuthentication/commitInputVerification";
 
 export {
   InvalidAuthenticatedStoredAttemptV1Error,
@@ -146,6 +161,21 @@ export type {
   StoredCommitAuthoritySchemaEvidencePortV1,
   StoredCommitAuthoritySessionEvidencePortV1,
 } from "./storedAttemptAuthentication/commitAuthorityModel";
+
+export {
+  CommitDocumentValidationV1Error,
+  CommitInputAuthorityCorruptionV1Error,
+  CommitSuccessfulResultValidationV1Error,
+  InvalidAuthenticatedCommitAuthorityV1Error,
+} from "./storedAttemptAuthentication/commitInputVerification";
+
+export type {
+  CommitDocumentValidationIssueV1,
+  CommitInputAuthorityCorruptionReasonV1,
+  CommitInputVerificationV1Error,
+  VerifiedCommitPointV1,
+  VerifiedSuccessfulResultV1,
+} from "./storedAttemptAuthentication/commitInputVerification";
 
 const trustedStoredAttemptAuthorityBrand: unique symbol = Symbol(
   "FlarexExecutor/TrustedStoredAttemptAuthorityV1",
@@ -172,6 +202,15 @@ const authenticatedCommitAuthorityBrand: unique symbol = Symbol(
 /** Private C04B1 authority only; this is not VerifiedCommitInput. */
 export interface AuthenticatedCommitAuthorityV1 {
   readonly [authenticatedCommitAuthorityBrand]: true;
+}
+
+const verifiedCommitInputBrand: unique symbol = Symbol(
+  "FlarexExecutor/VerifiedCommitInputV1",
+);
+
+/** Private C04B2 proof capability; production activation remains deferred. */
+export interface VerifiedCommitInputV1 {
+  readonly [verifiedCommitInputBrand]: true;
 }
 
 export class InvalidStoredAttemptAuthorityV1Error extends Data.TaggedError(
@@ -290,7 +329,7 @@ export type StoredAttemptAuthenticationV1Error =
   | StoredAttemptStorageCorruptionV1Error
   | StoredAttemptPersistenceV1Error;
 
-interface StoredAttemptAuthorityStateV1 {
+export interface StoredAttemptAuthorityStateV1 {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
   readonly scopeId: ReplacementScopeIdV1;
   readonly sessionId: TransactionSessionIdV1;
@@ -516,11 +555,19 @@ export interface AuthenticatedStoredAttemptStateV1 {
   readonly session: StoredAttemptSessionScalarsPortV1;
   readonly sealIdentity: Readonly<StoredAttemptSealIdentityPortV1>;
   readonly journal: SessionJournalV1;
-  readonly successfulResultValueJson: Json;
-  readonly points: ReadonlyArray<StoredAttemptPointEvidencePortV1>;
+  readonly successfulResult: AuthenticatedSuccessfulResultV1;
+  readonly points: ReadonlyArray<AuthenticatedStoredAttemptPointV1>;
 }
 
-interface AuthenticatedCommitAuthorityStateV1 {
+export interface AuthenticatedSuccessfulResultV1 {
+  readonly value: CanonicalFlarexRuntimeValueV1;
+  readonly valueJson: Json;
+  readonly canonicalBytes: Uint8Array;
+  readonly semanticSizeBytes: number;
+  readonly sha256Hex: CanonicalSuccessfulResultV1["evidence"]["sha256Hex"];
+}
+
+export interface AuthenticatedCommitAuthorityStateV1 {
   readonly storedAttempt: AuthenticatedStoredAttemptStateV1;
   readonly databaseNowMilliseconds: number;
   readonly argumentsJson: JsonObject;
@@ -533,17 +580,33 @@ interface AuthenticatedCommitAuthorityStateV1 {
   readonly functionMetadata: PointMutationTargetFunctionMetadataV1;
 }
 
+export interface StoredCommitInputVerificationV1
+  extends StoredCommitAuthorityAuthenticationV1 {
+  readonly verifyCommitInput: (
+    authority: AuthenticatedCommitAuthorityV1,
+  ) => Effect.Effect<
+    VerifiedCommitInputV1,
+    CommitInputVerificationV1Error
+  >;
+  readonly isCommitInputVerified: (value: unknown) => boolean;
+  /** Internal test seam: verifies private-state detachment without exposure. */
+  readonly remainsVerifiedCommitInputStateUnchangedForTest: (
+    value: VerifiedCommitInputV1,
+    action: () => void,
+  ) => boolean;
+}
+
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
 ): StoredAttemptAuthenticationV1;
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
   commitAuthority: StoredCommitAuthorityAuthenticationConfigV1,
-): StoredCommitAuthorityAuthenticationV1;
+): StoredCommitInputVerificationV1;
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
   commitAuthority?: StoredCommitAuthorityAuthenticationConfigV1,
-): StoredAttemptAuthenticationV1 | StoredCommitAuthorityAuthenticationV1 {
+): StoredAttemptAuthenticationV1 | StoredCommitInputVerificationV1 {
   const authorityStates = new WeakMap<object, StoredAttemptAuthorityStateV1>();
   const authenticatedStates = new WeakMap<
     object,
@@ -552,6 +615,10 @@ export function createStoredAttemptAuthenticationV1(
   const commitAuthorityStates = new WeakMap<
     object,
     AuthenticatedCommitAuthorityStateV1
+  >();
+  const verifiedCommitInputStates = new WeakMap<
+    object,
+    VerifiedCommitInputStateV1
   >();
   const grantKernel = commitAuthority === undefined
     ? undefined
@@ -696,9 +763,42 @@ export function createStoredAttemptAuthenticationV1(
     return handle;
   });
 
+  const verifyCommitInput: StoredCommitInputVerificationV1["verifyCommitInput"] =
+    Effect.fn("StoredAttemptAuthentication.verifyCommitInput")(
+      function* (authority) {
+        const state = lookupCommitAuthorityState(
+          commitAuthorityStates,
+          authority,
+        );
+        if (state === undefined) {
+          return yield* Effect.fail(
+            new InvalidAuthenticatedCommitAuthorityV1Error({
+              reason: "notSameFactory",
+            }),
+          );
+        }
+        const verified = yield* verifyCommitInputStateEffect({
+          authority: state.storedAttempt.authority,
+          session: state.storedAttempt.session,
+          sealIdentity: state.storedAttempt.sealIdentity,
+          journal: state.storedAttempt.journal,
+          points: state.storedAttempt.points,
+          successfulResult: state.storedAttempt.successfulResult,
+          schemaManifest: state.schemaManifest,
+          functionMetadata: state.functionMetadata,
+        });
+        const handle: VerifiedCommitInputV1 = Object.freeze({
+          [verifiedCommitInputBrand]: PROCESS_LOCAL_CAPABILITY,
+        });
+        verifiedCommitInputStates.set(handle, verified);
+        return handle;
+      },
+    );
+
   return Object.freeze({
     ...base,
     authenticateCommitAuthority,
+    verifyCommitInput,
     isCommitAuthorityAuthenticated: (value: unknown): boolean =>
       typeof value === "object" &&
       value !== null &&
@@ -715,7 +815,23 @@ export function createStoredAttemptAuthenticationV1(
       action();
       return before === serializeCommitAuthorityStateForTest(state);
     },
-  } satisfies StoredCommitAuthorityAuthenticationV1);
+    isCommitInputVerified: (value: unknown): boolean =>
+      typeof value === "object" &&
+      value !== null &&
+      verifiedCommitInputStates.has(value),
+    remainsVerifiedCommitInputStateUnchangedForTest: (
+      value: VerifiedCommitInputV1,
+      action: () => void,
+    ): boolean => {
+      const state = requireVerifiedCommitInputState(
+        verifiedCommitInputStates,
+        value,
+      );
+      const before = serializeVerifiedCommitInputStateForTest(state);
+      action();
+      return before === serializeVerifiedCommitInputStateForTest(state);
+    },
+  } satisfies StoredCommitInputVerificationV1);
 }
 
 function captureCommitAuthorityPort(
@@ -753,6 +869,30 @@ function requireCommitAuthorityState(
   return state;
 }
 
+function lookupCommitAuthorityState(
+  states: WeakMap<object, AuthenticatedCommitAuthorityStateV1>,
+  value: AuthenticatedCommitAuthorityV1,
+): AuthenticatedCommitAuthorityStateV1 | undefined {
+  return typeof value === "object" && value !== null
+    ? states.get(value)
+    : undefined;
+}
+
+function requireVerifiedCommitInputState(
+  states: WeakMap<object, VerifiedCommitInputStateV1>,
+  value: VerifiedCommitInputV1,
+): VerifiedCommitInputStateV1 {
+  const state = typeof value === "object" && value !== null
+    ? states.get(value)
+    : undefined;
+  if (state === undefined) {
+    throw new InvalidAuthenticatedCommitAuthorityV1Error({
+      reason: "notSameFactory",
+    });
+  }
+  return state;
+}
+
 function deepDetachCommitAuthorityState(
   storedAttempt: AuthenticatedStoredAttemptStateV1,
   evidence: VerifiedCommitAuthorityEvidenceV1,
@@ -773,24 +913,21 @@ function deepDetachCommitAuthorityState(
 function serializeCommitAuthorityStateForTest(
   state: AuthenticatedCommitAuthorityStateV1,
 ): string {
-  const serialized = JSON.stringify(
-    state,
-    (_key: string, value: unknown): unknown => {
-      if (typeof value === "bigint") {
-        return Object.freeze({ bigint: value.toString() });
-      }
-      if (value instanceof Uint8Array) {
-        return Object.freeze({ bytes: base64UrlFromBytes(value) });
-      }
-      return value;
-    },
-  );
-  if (serialized === undefined) {
-    throw new StoredCommitAuthorityCorruptionV1Error({
+  return serializePrivateStateForTest(state, () =>
+    new StoredCommitAuthorityCorruptionV1Error({
       reason: "sessionEvidenceInvalid",
-    });
-  }
-  return serialized;
+    })
+  );
+}
+
+function serializeVerifiedCommitInputStateForTest(
+  state: VerifiedCommitInputStateV1,
+): string {
+  return serializePrivateStateForTest(state, () =>
+    new CommitInputAuthorityCorruptionV1Error({
+      reason: "successfulResultInvalid",
+    })
+  );
 }
 
 const requireLoadedEvidenceEffect = Effect.fn(
@@ -905,17 +1042,45 @@ const verifyStoredEvidenceEffect = Effect.fn(
   if (counterMismatch !== undefined) {
     return yield* Effect.fail(counterMismatch);
   }
-  yield* verifyPointCorrelationEffect(evidence.points, journal.journal);
+  const points = yield* verifyPointCorrelationEffect(
+    evidence.points,
+    journal.journal,
+  );
+  const successfulResultValue = yield* normalizeAuthenticatedResultValueEffect(
+    successfulResult.valueJson,
+  );
   return yield* Effect.try({
     try: () => captureAuthenticatedState(
       authority,
       evidence,
       journal.journal,
-      successfulResult.valueJson,
+      successfulResult,
+      successfulResultValue,
+      points,
     ),
     catch: mapSynchronousStorageFailure,
   });
 });
+
+const normalizeAuthenticatedResultValueEffect = Effect.fn(
+  "StoredAttemptAuthentication.normalizeAuthenticatedResultValue",
+)((valueJson: Json): Effect.Effect<
+  CanonicalFlarexRuntimeValueV1,
+  StoredAttemptStorageCorruptionV1Error
+> =>
+  Effect.try({
+    try: () => normalizeFlarexValueJsonV1(valueJson).value,
+    catch: (cause): unknown => cause,
+  }).pipe(
+    Effect.catch((cause: unknown) =>
+      cause instanceof FlarexValueCodecV1Error
+        ? Effect.fail(new StoredAttemptStorageCorruptionV1Error({
+            reason: "successfulResultEvidenceInvalid",
+            cause,
+          }))
+        : Effect.die(cause)
+    ),
+  ));
 
 function evidenceAuthorityMismatch(
   expected: StoredAttemptAuthorityStateV1,
@@ -1032,8 +1197,10 @@ function journalCounterMismatch(
   return undefined;
 }
 
-interface VerifiedPointV1 {
+export interface AuthenticatedStoredAttemptPointV1 {
   readonly documentId: AppDocumentIdV1;
+  readonly tableId: CatalogTableId;
+  readonly rowId: AppRowIdHexV1;
   readonly dependency: LogicalReadDependencyV1;
   readonly overlayKind: "none" | "live" | "deleted";
   readonly overlayCreationTime: AppCreationTimeV1 | null;
@@ -1047,12 +1214,18 @@ const verifyPointCorrelationEffect = Effect.fn(
 )(function* (
   rows: ReadonlyArray<StoredAttemptPointEvidencePortV1>,
   journal: SessionJournalV1,
-): Effect.fn.Return<void, StoredAttemptStorageCorruptionV1Error> {
+): Effect.fn.Return<
+  ReadonlyArray<AuthenticatedStoredAttemptPointV1>,
+  StoredAttemptStorageCorruptionV1Error
+> {
   const dependencies = new Map<AppDocumentIdV1, LogicalReadDependencyV1>();
   for (const dependency of journal.readDependencies) {
     dependencies.set(dependency.documentId, dependency);
   }
-  const points = new Map<AppDocumentIdV1, VerifiedPointV1>();
+  const points = new Map<
+    AppDocumentIdV1,
+    AuthenticatedStoredAttemptPointV1
+  >();
   for (const row of rows) {
     const point = yield* verifyPointEffect(row);
     if (points.has(point.documentId)) {
@@ -1089,11 +1262,15 @@ const verifyPointCorrelationEffect = Effect.fn(
       writesByDocument.get(point.documentId) ?? [],
     );
   }
+  return Object.freeze([...points.values()]);
 });
 
 const verifyPointEffect = Effect.fn(function* (
   row: StoredAttemptPointEvidencePortV1,
-): Effect.fn.Return<VerifiedPointV1, StoredAttemptStorageCorruptionV1Error> {
+): Effect.fn.Return<
+  AuthenticatedStoredAttemptPointV1,
+  StoredAttemptStorageCorruptionV1Error
+> {
   const identity = yield* Effect.try({
     try: () => {
       const rowId = appRowIdHexV1FromBytes(row.rowId);
@@ -1124,6 +1301,8 @@ const verifyPointEffect = Effect.fn(function* (
     }
     return Object.freeze({
       documentId: identity.documentId,
+      tableId: row.tableId,
+      rowId: identity.rowId,
       dependency,
       overlayKind: row.overlayKind,
       overlayCreationTime: null,
@@ -1164,6 +1343,8 @@ const verifyPointEffect = Effect.fn(function* (
   }
   return Object.freeze({
     documentId: identity.documentId,
+    tableId: row.tableId,
+    rowId: identity.rowId,
     dependency,
     overlayKind: "live",
     overlayCreationTime,
@@ -1234,7 +1415,7 @@ const dependencyFromPointEffect = Effect.fn(function* (
 });
 
 const verifyPointWriteChainEffect = Effect.fn(function* (
-  point: VerifiedPointV1,
+  point: AuthenticatedStoredAttemptPointV1,
   writes: ReadonlyArray<LogicalAppWriteV1>,
 ): Effect.fn.Return<void, StoredAttemptStorageCorruptionV1Error> {
   if (writes.length === 0) {
@@ -1461,7 +1642,9 @@ function captureAuthenticatedState(
   authority: StoredAttemptAuthorityStateV1,
   evidence: StoredAttemptEvidencePortV1,
   journal: SessionJournalV1,
-  successfulResultValueJson: Json,
+  successfulResult: CanonicalSuccessfulResultV1,
+  successfulResultValue: CanonicalFlarexRuntimeValueV1,
+  points: ReadonlyArray<AuthenticatedStoredAttemptPointV1>,
 ): AuthenticatedStoredAttemptStateV1 {
   const root = evidence.root;
   return Object.freeze({
@@ -1499,8 +1682,32 @@ function captureAuthenticatedState(
         root.materialWriteEventEvidenceBytes,
     }),
     journal: structuredClone(journal),
-    successfulResultValueJson: structuredClone(successfulResultValueJson),
-    points: Object.freeze(structuredClone(evidence.points)),
+    successfulResult: Object.freeze({
+      value: successfulResultValue,
+      valueJson: structuredClone(successfulResult.valueJson),
+      canonicalBytes: new Uint8Array(successfulResult.canonicalBytes),
+      semanticSizeBytes: successfulResult.semanticSizeBytes,
+      sha256Hex: successfulResult.evidence.sha256Hex,
+    }),
+    points: Object.freeze(points.map(detachAuthenticatedPoint)),
+  });
+}
+
+function detachAuthenticatedPoint(
+  point: AuthenticatedStoredAttemptPointV1,
+): AuthenticatedStoredAttemptPointV1 {
+  return Object.freeze({
+    documentId: point.documentId,
+    tableId: point.tableId,
+    rowId: point.rowId,
+    dependency: Object.freeze(structuredClone(point.dependency)),
+    overlayKind: point.overlayKind,
+    overlayCreationTime: point.overlayCreationTime,
+    overlayValue: point.overlayValue,
+    overlayBytes: point.overlayBytes === null
+      ? null
+      : new Uint8Array(point.overlayBytes),
+    overlaySemanticBytes: point.overlaySemanticBytes,
   });
 }
 
@@ -1531,6 +1738,16 @@ function requireAuthenticatedState(
 function serializeAuthenticatedStateForTest(
   state: AuthenticatedStoredAttemptStateV1,
 ): string {
+  return serializePrivateStateForTest(
+    state,
+    () => corruption("storedEvidenceInvalid"),
+  );
+}
+
+function serializePrivateStateForTest(
+  state: unknown,
+  onUndefined: () => Error,
+): string {
   const serialized = JSON.stringify(
     state,
     (_key: string, value: unknown): unknown => {
@@ -1544,7 +1761,7 @@ function serializeAuthenticatedStateForTest(
     },
   );
   if (serialized === undefined) {
-    throw corruption("storedEvidenceInvalid");
+    throw onUndefined();
   }
   return serialized;
 }
@@ -1632,10 +1849,19 @@ function mapPointEvidenceFailure(
   if (cause instanceof StoredAttemptStorageCorruptionV1Error) {
     return cause;
   }
-  return new StoredAttemptStorageCorruptionV1Error({
-    reason: "pointEvidenceInvalid",
-    cause,
-  });
+  if (
+    cause instanceof AppDocumentIdV1Error ||
+    cause instanceof AppDocumentSystemFieldV1Error ||
+    cause instanceof FlarexValueCodecV1Error ||
+    cause instanceof FlarexValueEvidenceV1Error ||
+    Schema.isSchemaError(cause)
+  ) {
+    return new StoredAttemptStorageCorruptionV1Error({
+      reason: "pointEvidenceInvalid",
+      cause,
+    });
+  }
+  throw cause;
 }
 
 function authorityMismatchError(

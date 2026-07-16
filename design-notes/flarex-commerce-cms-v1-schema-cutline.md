@@ -2,8 +2,9 @@
 
 Status: accepted v1 implementation cutline; the internal S06 row kernel, S07
 transaction-session authority tables, O04/O05 point read/OCC semantics, C03
-trusted point journal, and C04A stored-attempt authentication are implemented,
-while commit planning/publication, sidecars, target activation, prototype
+trusted point journal, and private C04A/C04B1/C04B2 authentication and final-
+value proof gates are implemented, while physical commit planning/publication,
+sidecars, target activation, prototype
 retirement, and hosted routing remain incomplete; shipped-state migration
 remains conditional
 
@@ -1057,8 +1058,11 @@ fresh opaque-authority reload of the exact live `running + sealed` or
 `finishing + sealed` attempt and produces only a runtime-unforgeable process-
 local authenticated capability. It rejects inline carriage before database
 work and treats `committed` as typed already-committed/non-plannable rather than
-deciding replay. C04B owns authoritative catalog, policy, and return validation;
-C04C owns the pure prepared plan. A matching digest does not authenticate
+deciding replay. C04B1 reauthenticates current pinned proof authority and C04B2
+uses it only for the private C07 final-document/result proof; production
+function-validator authority remains part of the later coherent activation-
+fenced snapshot, and syscall-time validation parity remains unresolved. C04C
+owns the pure prepared plan. A matching digest does not authenticate
 caller-supplied inline bytes. S09/O07 own public idempotency, result/error,
 committed token, and uncertain-outcome recovery.
 Snapshot leases prevent engine-history GC from passing a live attempt.

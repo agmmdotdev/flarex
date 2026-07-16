@@ -66,14 +66,19 @@ import {
   TransactionRequestKeyV1Schema,
   TransactionSessionIdV1Schema,
 } from "flarex-protocol/transaction-session";
-import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import {
+  FLAREX_VALUE_CODEC_VERSION_V1,
+  normalizeFlarexValueJsonV1,
+} from "flarex-protocol/value";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import * as executorRoot from "../src/index";
 // @ts-expect-error C04A capability types must remain absent from the package root.
 import type { AuthenticatedStoredAttemptV1 as ForbiddenRootCapability } from "../src/index";
 // @ts-expect-error C04B1 capability types must remain absent from the package root.
 import type { AuthenticatedCommitAuthorityV1 as ForbiddenCommitAuthority } from "../src/index";
+// @ts-expect-error C04B2 capability types must remain absent from the package root.
+import type { VerifiedCommitInputV1 as ForbiddenVerifiedCommitInput } from "../src/index";
 import {
   createPointMutationSessionAttemptLoadingV1,
   type PointMutationSessionAttemptSelectorWireV1,
@@ -84,6 +89,10 @@ import {
   TransactionGrantVerificationV1Error,
 } from "../src/transactionGrant";
 import {
+  CommitDocumentValidationV1Error,
+  CommitInputAuthorityCorruptionV1Error,
+  CommitSuccessfulResultValidationV1Error,
+  InvalidAuthenticatedCommitAuthorityV1Error,
   InvalidAuthenticatedStoredAttemptV1Error,
   StoredCommitAuthorityCorruptionV1Error,
   StoredCommitAuthorityConfigurationV1Error,
@@ -100,6 +109,10 @@ import {
   type StoredAttemptEvidencePortV1,
   type StoredCommitAuthorityEvidencePortV1,
 } from "../src/storedAttemptAuthentication";
+import {
+  verifyCommitInputStateEffect,
+  type CommitInputVerificationSourceV1,
+} from "../src/storedAttemptAuthentication/commitInputVerification";
 
 const DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
   "deployment_c04a_executor",
@@ -533,6 +546,50 @@ describe("C04A stored-attempt authentication", () => {
     expect(failure).toMatchObject({ reason: "patchSetOverlayMismatch" });
   });
 
+  it("preserves unexpected point-evidence verifier failures as defects", async () => {
+    const fixture = await insertFixture({ name: "defect-boundary" });
+    const authentication = createStoredAttemptAuthenticationV1({
+      load: async () => loaded(fixture.evidence),
+    });
+    const authority = await deriveAuthority(authentication);
+    const pointBytes = requirePoint(fixture.evidence).overlayValueBytes;
+    if (pointBytes === null) throw new Error("Missing live point bytes.");
+    const defect = new Error("point verifier defect sentinel");
+    const originalDigest = crypto.subtle.digest.bind(crypto.subtle);
+    let targetedPointDigest = false;
+    const digestSpy = vi.spyOn(crypto.subtle, "digest").mockImplementation(
+      async (algorithm, data) => {
+        const actual = data instanceof ArrayBuffer
+          ? new Uint8Array(data)
+          : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+        const isPointEvidence = actual.byteLength === pointBytes.byteLength &&
+          actual.every((byte, index) => byte === pointBytes[index]);
+        if (isPointEvidence) {
+          targetedPointDigest = true;
+          throw defect;
+        }
+        return originalDigest(algorithm, data);
+      },
+    );
+    let rejection: unknown;
+    try {
+      await runEffect(authentication.authenticate(
+        authority,
+        encodeEnvelope(fixture.envelope),
+      ));
+    } catch (cause) {
+      rejection = cause;
+    } finally {
+      digestSpy.mockRestore();
+    }
+
+    expect(targetedPointDigest).toBe(true);
+    expect(rejection).not.toBeInstanceOf(
+      StoredAttemptStorageCorruptionV1Error,
+    );
+    expect(String(rejection)).toContain(defect.message);
+  });
+
   it("mints C04B1 authority only from a genuine same-factory C04A capability", async () => {
     const current = await commitAuthorityFixture();
     let authorityLoads = 0;
@@ -879,6 +936,317 @@ describe("C04A stored-attempt authentication", () => {
       });
     }
   });
+
+  it("mints an opaque C04B2 capability with zero post-authority I/O", async () => {
+    type RootLeak = Extract<
+      keyof typeof executorRoot,
+      | "VerifiedCommitInputV1"
+      | "StoredCommitInputVerificationV1"
+      | "verifyCommitInputStateEffect"
+    >;
+    expectTypeOf<RootLeak>().toEqualTypeOf<never>();
+    expect("VerifiedCommitInputV1" in executorRoot).toBe(false);
+
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: await emptyFixture("verified"),
+      returnsValidator: { type: "string" },
+    });
+    const first = await verifyCommitInputFixture(current);
+
+    expect(first.authentication.isCommitInputVerified(
+      first.verifiedCommitInput,
+    )).toBe(true);
+    expect(Object.isFrozen(first.verifiedCommitInput)).toBe(true);
+    expect(JSON.stringify(first.verifiedCommitInput)).toBe("{}");
+    expect(Reflect.ownKeys(first.verifiedCommitInput)).toHaveLength(1);
+    expect(first.countsAfterVerification()).toEqual(
+      first.countsBeforeVerification,
+    );
+
+    const forgedFailure = await runFailure(
+      first.authentication.verifyCommitInput({ ...first.commitAuthority }),
+    );
+    expect(forgedFailure).toBeInstanceOf(
+      InvalidAuthenticatedCommitAuthorityV1Error,
+    );
+    expect(first.countsAfterVerification()).toEqual(
+      first.countsBeforeVerification,
+    );
+
+    const second = await verifyCommitInputFixture(current);
+    const secondCounts = second.countsAfterVerification();
+    const crossFactoryFailure = await runFailure(
+      second.authentication.verifyCommitInput(first.commitAuthority),
+    );
+    expect(crossFactoryFailure).toBeInstanceOf(
+      InvalidAuthenticatedCommitAuthorityV1Error,
+    );
+    expect(second.countsAfterVerification()).toEqual(secondCounts);
+
+    expect(first.authentication.remainsVerifiedCommitInputStateUnchangedForTest(
+      first.verifiedCommitInput,
+      () => {
+        current.fixture.evidence.root.resultBytes.fill(0);
+        current.fixture.evidence.root.resultSha256.fill(0);
+        Object.assign(current.commitEvidence.schema.manifest, {
+          kind: "mutated",
+        });
+        Object.assign(current.functionSnapshot.functionMetadata, {
+          returnsValidator: { type: "null" },
+        });
+      },
+    )).toBe(true);
+  });
+
+  it("validates complete live insert, replace, and patch projections only", async () => {
+    const nameDocument = {
+      type: "object",
+      value: {
+        name: { optional: false, fieldType: { type: "string" } },
+      },
+    };
+    const patchDocument = {
+      type: "object",
+      value: {
+        name: { optional: false, fieldType: { type: "string" } },
+        stable: { optional: false, fieldType: { type: "boolean" } },
+      },
+    };
+    for (const current of [
+      await commitAuthorityFixture({}, undefined, {
+        fixture: await insertFixture({ name: "insert" }, "ok"),
+        documentType: nameDocument,
+        returnsValidator: { type: "string" },
+      }),
+      await commitAuthorityFixture({}, undefined, {
+        fixture: await replaceFixture({ name: "replace" }, "ok"),
+        documentType: nameDocument,
+        returnsValidator: { type: "string" },
+      }),
+      await commitAuthorityFixture({}, undefined, {
+        fixture: await patchFixture("after", "ok"),
+        documentType: patchDocument,
+        returnsValidator: { type: "string" },
+      }),
+    ]) {
+      const verified = await verifyCommitInputFixture(current);
+      expect(verified.authentication.isCommitInputVerified(
+        verified.verifiedCommitInput,
+      )).toBe(true);
+    }
+
+    for (const fixture of [await readFixture("ok"), await deleteFixture("ok")]) {
+      const current = await commitAuthorityFixture({}, undefined, {
+        fixture,
+        documentType: {
+          type: "object",
+          value: {
+            neverPresent: {
+              optional: false,
+              fieldType: { type: "string" },
+            },
+          },
+        },
+        returnsValidator: { type: "string" },
+      });
+      const verified = await verifyCommitInputFixture(current);
+      expect(verified.authentication.isCommitInputVerified(
+        verified.verifiedCommitInput,
+      )).toBe(true);
+    }
+
+    const detachedCurrent = await commitAuthorityFixture({}, undefined, {
+      fixture: await insertFixture({ name: "detached" }, "ok"),
+      documentType: nameDocument,
+      returnsValidator: { type: "string" },
+    });
+    const detached = await verifyCommitInputFixture(detachedCurrent);
+    expect(detached.authentication.remainsVerifiedCommitInputStateUnchangedForTest(
+      detached.verifiedCommitInput,
+      () => {
+        const point = requirePoint(detachedCurrent.fixture.evidence);
+        point.overlayValueBytes?.fill(0);
+        if (point.overlayValueJson !== null) {
+          Object.assign(point.overlayValueJson, { name: "mutated" });
+        }
+        detachedCurrent.fixture.evidence.root.resultBytes.fill(0);
+      },
+    )).toBe(true);
+
+    const strictFailureCurrent = await commitAuthorityFixture({}, undefined, {
+      fixture: await insertFixture({ name: "strict", extra: true }, "ok"),
+      documentType: nameDocument,
+      returnsValidator: { type: "string" },
+    });
+    const strictAuthentication = await authenticateCommitAuthorityFixture(
+      strictFailureCurrent,
+    );
+    const strictFailure = await runFailure(
+      strictAuthentication.authentication.verifyCommitInput(
+        strictAuthentication.commitAuthority,
+      ),
+    );
+    expect(strictFailure).toBeInstanceOf(CommitDocumentValidationV1Error);
+    expect(strictFailure).toMatchObject({
+      issue: {
+        reason: "validator",
+        issue: { reason: "unexpectedField", field: "extra" },
+      },
+    });
+  });
+
+  it("rejects non-Convex system fields before developer validation", async () => {
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: await insertFixture({ _private: true }, "ok"),
+      documentType: {
+        type: "object",
+        value: {
+          _private: { optional: false, fieldType: { type: "boolean" } },
+        },
+      },
+      returnsValidator: { type: "string" },
+    });
+    const authenticated = await authenticateCommitAuthorityFixture(current);
+    const failure = await runFailure(
+      authenticated.authentication.verifyCommitInput(
+        authenticated.commitAuthority,
+      ),
+    );
+    expect(failure).toBeInstanceOf(CommitDocumentValidationV1Error);
+    expect(failure).toMatchObject({
+      issue: { reason: "unexpectedSystemField", field: "_private" },
+    });
+  });
+
+  it("uses only pinned manifest table authority for document IDs", async () => {
+    const validUsersId = "1:00000000-0000-4000-8000-000000000010";
+    const wrongUsersId = "2:00000000-0000-4000-8000-000000000010";
+    const validatorFor = (tableName: string) => ({
+      type: "object",
+      value: {
+        friendId: {
+          optional: false,
+          fieldType: { type: "id", tableName },
+        },
+      },
+    });
+
+    const valid = await verifyCommitInputFixture(
+      await commitAuthorityFixture({}, undefined, {
+        fixture: await insertFixture({ friendId: validUsersId }, "ok"),
+        documentType: validatorFor("users"),
+        returnsValidator: { type: "string" },
+      }),
+    );
+    expect(valid.authentication.isCommitInputVerified(
+      valid.verifiedCommitInput,
+    )).toBe(true);
+
+    for (const testCase of [
+      {
+        value: wrongUsersId,
+        tableName: "users",
+        reason: "idMismatch",
+      },
+      {
+        value: validUsersId,
+        tableName: "missing",
+        reason: "idAuthorityUnavailable",
+      },
+      {
+        value: validUsersId,
+        tableName: "_storage",
+        reason: "idAuthorityUnavailable",
+      },
+    ]) {
+      const current = await commitAuthorityFixture({}, undefined, {
+        fixture: await insertFixture({ friendId: testCase.value }, "ok"),
+        documentType: validatorFor(testCase.tableName),
+        returnsValidator: { type: "string" },
+      });
+      const authenticated = await authenticateCommitAuthorityFixture(current);
+      const failure = await runFailure(
+        authenticated.authentication.verifyCommitInput(
+          authenticated.commitAuthority,
+        ),
+      );
+      expect(failure).toBeInstanceOf(CommitDocumentValidationV1Error);
+      expect(failure).toMatchObject({
+        issue: { reason: "validator", issue: { reason: testCase.reason } },
+      });
+    }
+  });
+
+  it("implements null, any, and explicit-null return-validator behavior", async () => {
+    for (const current of [
+      await commitAuthorityFixture({}, undefined, {
+        fixture: await emptyFixture({ unvalidated: true }),
+        returnsValidator: null,
+      }),
+      await commitAuthorityFixture({}, undefined, {
+        fixture: await emptyFixture({ accepted: "by-any" }),
+        returnsValidator: { type: "any" },
+      }),
+      await commitAuthorityFixture({}, undefined, {
+        fixture: await emptyFixture(null),
+        returnsValidator: { type: "null" },
+      }),
+    ]) {
+      const verified = await verifyCommitInputFixture(current);
+      expect(verified.authentication.isCommitInputVerified(
+        verified.verifiedCommitInput,
+      )).toBe(true);
+    }
+
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: await emptyFixture("not-null"),
+      returnsValidator: { type: "null" },
+    });
+    const authenticated = await authenticateCommitAuthorityFixture(current);
+    const failure = await runFailure(
+      authenticated.authentication.verifyCommitInput(
+        authenticated.commitAuthority,
+      ),
+    );
+    expect(failure).toBeInstanceOf(
+      CommitSuccessfulResultValidationV1Error,
+    );
+    expect(failure).toMatchObject({ issue: { reason: "typeMismatch" } });
+  });
+
+  it("fails typed before planning for result-seal and validator-authority corruption", async () => {
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: await emptyFixture("verified"),
+      returnsValidator: { type: "string" },
+    });
+    const source = commitInputSourceForTest(current);
+    const sealFailure = await runFailure(verifyCommitInputStateEffect({
+      ...source,
+      sealIdentity: {
+        ...source.sealIdentity,
+        resultSemanticBytes: source.sealIdentity.resultSemanticBytes + 1,
+      },
+    }));
+    expect(sealFailure).toBeInstanceOf(
+      CommitInputAuthorityCorruptionV1Error,
+    );
+    expect(sealFailure).toMatchObject({
+      reason: "successfulResultSemanticBytesMismatch",
+    });
+
+    const missingReturns = structuredClone(source.functionMetadata);
+    expect(Reflect.deleteProperty(missingReturns, "returnsValidator")).toBe(
+      true,
+    );
+    const authorityFailure = await runFailure(verifyCommitInputStateEffect({
+      ...source,
+      functionMetadata: missingReturns,
+    }));
+    expect(authorityFailure).toBeInstanceOf(
+      CommitInputAuthorityCorruptionV1Error,
+    );
+    expect(authorityFailure).toMatchObject({ reason: "returnsValidatorMissing" });
+  });
 });
 
 interface Fixture {
@@ -888,11 +1256,18 @@ interface Fixture {
   readonly evidence: StoredAttemptEvidencePortV1;
 }
 
+interface CommitAuthorityFixtureOptions {
+  readonly fixture?: Fixture;
+  readonly documentType?: unknown;
+  readonly returnsValidator?: unknown | null;
+}
+
 async function commitAuthorityFixture(
   args: JsonObject = {},
   argumentsValidator: unknown = { type: "object", value: {} },
+  options: CommitAuthorityFixtureOptions = {},
 ) {
-  const fixture = await emptyFixture();
+  const fixture = options.fixture ?? await emptyFixture();
   const revocationEpoch = TransactionAuthorizationRevocationEpochSchema.make(
     0n,
   );
@@ -912,7 +1287,9 @@ async function commitAuthorityFixture(
       kind: "mutation",
       visibility: "public",
       argsValidator: argumentsValidator,
-      returnsValidator: { type: "string" },
+      returnsValidator: Object.hasOwn(options, "returnsValidator")
+        ? options.returnsValidator
+        : { type: "string" },
     }],
     schemaManifest: {
       kind: "appSchema",
@@ -927,7 +1304,7 @@ async function commitAuthorityFixture(
           definition: {
             kind: "appDocument",
             definitionVersion: 1,
-            documentType: { type: "object", value: {} },
+            documentType: options.documentType ?? { type: "object", value: {} },
           },
         }],
       },
@@ -1087,11 +1464,145 @@ async function commitAuthorityFixture(
   };
 }
 
-async function emptyFixture(): Promise<Fixture> {
-  return fixtureForJournal(emptyJournal());
+type CommitAuthorityFixture = Awaited<ReturnType<typeof commitAuthorityFixture>>;
+
+async function authenticateCommitAuthorityFixture(
+  current: CommitAuthorityFixture,
+) {
+  let storedEvidenceLoads = 0;
+  let authorityEvidenceLoads = 0;
+  let metadataLoads = 0;
+  const authentication = createStoredAttemptAuthenticationV1(
+    {
+      load: async () => {
+        storedEvidenceLoads += 1;
+        return loaded(current.fixture.evidence);
+      },
+    },
+    {
+      evidenceLoader: {
+        load: async () => {
+          authorityEvidenceLoads += 1;
+          return { kind: "loaded", evidence: current.commitEvidence };
+        },
+      },
+      transactionGrantVerifier: current.verifier,
+      functionMetadata: {
+        load: () => {
+          metadataLoads += 1;
+          return Effect.succeed(structuredClone(current.functionSnapshot));
+        },
+      },
+    },
+  );
+  const authority = await deriveAuthority(authentication);
+  const storedAttempt = await runEffect(authentication.authenticate(
+    authority,
+    encodeEnvelope(current.fixture.envelope),
+  ));
+  const commitAuthority = await runEffect(
+    authentication.authenticateCommitAuthority(storedAttempt),
+  );
+  return {
+    authentication,
+    storedAttempt,
+    commitAuthority,
+    counts: () => Object.freeze({
+      storedEvidenceLoads,
+      authorityEvidenceLoads,
+      metadataLoads,
+      hostClockReads: current.hostClockReads(),
+    }),
+  };
 }
 
-async function insertFixture(fields: JsonObject): Promise<Fixture> {
+async function verifyCommitInputFixture(current: CommitAuthorityFixture) {
+  const authenticated = await authenticateCommitAuthorityFixture(current);
+  const countsBeforeVerification = authenticated.counts();
+  const verifiedCommitInput = await runEffect(
+    authenticated.authentication.verifyCommitInput(
+      authenticated.commitAuthority,
+    ),
+  );
+  return {
+    ...authenticated,
+    verifiedCommitInput,
+    countsBeforeVerification,
+    countsAfterVerification: authenticated.counts,
+  };
+}
+
+function commitInputSourceForTest(
+  current: CommitAuthorityFixture,
+): CommitInputVerificationSourceV1 {
+  const evidence = current.fixture.evidence;
+  if (evidence.points.length !== 0) {
+    throw new Error("The synthetic corruption source supports empty journals only.");
+  }
+  const result = normalizeFlarexValueJsonV1(current.fixture.result.valueJson);
+  return {
+    authority: Object.freeze({
+      deploymentId: evidence.deploymentId,
+      scopeId: evidence.scopeId,
+      sessionId: evidence.sessionId,
+      attemptFence: evidence.attemptFence,
+      storageGeneration:
+        FlarexDbV1StorageGenerationSchema.make("flarexdb_v1"),
+      storageGenerationFence: STORAGE_FENCE,
+      snapshotToken: Object.freeze({ ...evidence.lease.snapshotToken }),
+      schemaVersionId: SCHEMA_VERSION_ID,
+    }),
+    session: structuredClone(evidence.session),
+    sealIdentity: Object.freeze({
+      scopeUuid: evidence.scopeUuid,
+      lifecycle: evidence.session.lifecycle,
+      sessionUpdatedAtMilliseconds: evidence.session.updatedAtMilliseconds,
+      leaseExpiresAtMilliseconds: evidence.lease.leaseExpiresAtMilliseconds,
+      rootCreatedAtMilliseconds: evidence.root.createdAtMilliseconds,
+      rootUpdatedAtMilliseconds: evidence.root.updatedAtMilliseconds,
+      sealedAtMilliseconds: evidence.root.sealedAtMilliseconds,
+      finalSyscallSequence: evidence.root.sealedFinalSyscallSequence,
+      creationTimeSeed: evidence.root.creationTimeSeed,
+      nextCreationTime: evidence.root.nextCreationTime,
+      journalFormat: current.fixture.journal.journal.format,
+      journalProtocolVersion: current.fixture.journal.journal.protocolVersion,
+      journalValueCodecVersion: current.fixture.journal.journal.valueCodecVersion,
+      journalByteLength: evidence.root.journalBytes.byteLength,
+      journalSha256: new Uint8Array(evidence.root.journalSha256),
+      resultValueCodecVersion: evidence.root.resultValueCodecVersion,
+      resultSemanticBytes: evidence.root.resultSemanticBytes,
+      resultByteLength: evidence.root.resultBytes.byteLength,
+      resultSha256: new Uint8Array(evidence.root.resultSha256),
+      readDocuments: evidence.root.readDocuments,
+      readSemanticBytes: evidence.root.readSemanticBytes,
+      pointDependencyCount: evidence.root.pointDependencyCount,
+      writeOperations: evidence.root.writeOperations,
+      writeSemanticBytes: evidence.root.writeSemanticBytes,
+      materialWriteEventEvidenceBytes:
+        evidence.root.materialWriteEventEvidenceBytes,
+    }),
+    journal: structuredClone(current.fixture.journal.journal),
+    points: [],
+    successfulResult: Object.freeze({
+      value: result.value,
+      valueJson: structuredClone(current.fixture.result.valueJson),
+      canonicalBytes: new Uint8Array(current.fixture.result.canonicalBytes),
+      semanticSizeBytes: current.fixture.result.semanticSizeBytes,
+      sha256Hex: current.fixture.result.evidence.sha256Hex,
+    }),
+    schemaManifest: structuredClone(current.commitEvidence.schema.manifest),
+    functionMetadata: structuredClone(current.functionSnapshot.functionMetadata),
+  };
+}
+
+async function emptyFixture(successfulResult: unknown = { ok: true }): Promise<Fixture> {
+  return fixtureForJournal(emptyJournal(), successfulResult);
+}
+
+async function insertFixture(
+  fields: JsonObject,
+  successfulResult: unknown = { ok: true },
+): Promise<Fixture> {
   const documentId = decodeAppDocumentIdV1(
     "1:00000000-0000-4000-8000-000000000001",
   );
@@ -1121,7 +1632,7 @@ async function insertFixture(fields: JsonObject): Promise<Fixture> {
         CommitDocumentSemanticBytesV1Schema.make(document.semanticSizeBytes),
     }],
   };
-  const fixture = await fixtureForJournal(journal);
+  const fixture = await fixtureForJournal(journal, successfulResult);
   Object.assign(fixture.evidence.root, {
     pointDependencyCount: 1,
     writeOperations: 1,
@@ -1145,7 +1656,10 @@ async function insertFixture(fields: JsonObject): Promise<Fixture> {
   return fixture;
 }
 
-async function patchFixture(finalName: string): Promise<Fixture> {
+async function patchFixture(
+  finalName: string,
+  successfulResult: unknown = { ok: true },
+): Promise<Fixture> {
   const documentId = decodeAppDocumentIdV1(
     "1:00000000-0000-4000-8000-000000000002",
   );
@@ -1177,7 +1691,7 @@ async function patchFixture(finalName: string): Promise<Fixture> {
         CommitDocumentSemanticBytesV1Schema.make(document.semanticSizeBytes),
     }],
   };
-  const fixture = await fixtureForJournal(journal);
+  const fixture = await fixtureForJournal(journal, successfulResult);
   Object.assign(fixture.evidence.root, {
     pointDependencyCount: 1,
     writeOperations: 1,
@@ -1201,7 +1715,10 @@ async function patchFixture(finalName: string): Promise<Fixture> {
   return fixture;
 }
 
-async function replaceFixture(fields: JsonObject): Promise<Fixture> {
+async function replaceFixture(
+  fields: JsonObject,
+  successfulResult: unknown = { ok: true },
+): Promise<Fixture> {
   const documentId = decodeAppDocumentIdV1(
     "1:00000000-0000-4000-8000-000000000003",
   );
@@ -1233,7 +1750,7 @@ async function replaceFixture(fields: JsonObject): Promise<Fixture> {
         CommitDocumentSemanticBytesV1Schema.make(document.semanticSizeBytes),
     }],
   };
-  const fixture = await fixtureForJournal(journal);
+  const fixture = await fixtureForJournal(journal, successfulResult);
   Object.assign(fixture.evidence.root, {
     pointDependencyCount: 1,
     writeOperations: 1,
@@ -1257,7 +1774,9 @@ async function replaceFixture(fields: JsonObject): Promise<Fixture> {
   return fixture;
 }
 
-async function deleteFixture(): Promise<Fixture> {
+async function deleteFixture(
+  successfulResult: unknown = { ok: true },
+): Promise<Fixture> {
   const documentId = decodeAppDocumentIdV1(
     "1:00000000-0000-4000-8000-000000000004",
   );
@@ -1279,7 +1798,7 @@ async function deleteFixture(): Promise<Fixture> {
       documentId,
     }],
   };
-  const fixture = await fixtureForJournal(journal);
+  const fixture = await fixtureForJournal(journal, successfulResult);
   Object.assign(fixture.evidence.root, {
     pointDependencyCount: 1,
     writeOperations: 1,
@@ -1302,12 +1821,54 @@ async function deleteFixture(): Promise<Fixture> {
   return fixture;
 }
 
-async function fixtureForJournal(journalValue: SessionJournalV1): Promise<Fixture> {
+async function readFixture(
+  successfulResult: unknown = { ok: true },
+): Promise<Fixture> {
+  const documentId = decodeAppDocumentIdV1(
+    "1:00000000-0000-4000-8000-000000000005",
+  );
+  const identity = decodeAppDocumentIdentityV1(documentId);
+  const journal: SessionJournalV1 = {
+    ...emptyJournal(),
+    finalSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(1n),
+    readDependencies: [{
+      kind: "appRowPoint",
+      documentId,
+      observed: {
+        kind: "present",
+        revisionCommitSeq: CommitSeqSchema.make(12n),
+      },
+    }],
+  };
+  const fixture = await fixtureForJournal(journal, successfulResult);
+  Object.assign(fixture.evidence.root, { pointDependencyCount: 1 });
+  Reflect.apply(Array.prototype.push, fixture.evidence.points, [{
+    tableId: identity.tableId,
+    rowId: appRowIdHexV1ToBytes(identity.rowId),
+    dependencyKind: "present",
+    dependencyRevisionCommitSeq: 12n,
+    overlayKind: "none",
+    overlayCreationTime: null,
+    overlayValueCodecVersion: null,
+    overlayValueJson: null,
+    overlayValueBytes: null,
+    overlayValueSha256: null,
+    overlaySemanticBytes: null,
+    createdAtMilliseconds: 1_700_000_000_000,
+    updatedAtMilliseconds: 1_700_000_000_000,
+  }]);
+  return fixture;
+}
+
+async function fixtureForJournal(
+  journalValue: SessionJournalV1,
+  successfulResult: unknown = { ok: true },
+): Promise<Fixture> {
   const journal = await runEffect(canonicalizeSessionJournalV1Effect(
     journalValue,
   ));
   const result = await runEffect(
-    canonicalizeSuccessfulResultV1Effect({ ok: true }),
+    canonicalizeSuccessfulResultV1Effect(successfulResult),
   );
   const envelope: CommitEnvelopeV1 = {
     format: COMMIT_ENVELOPE_FORMAT_V1,

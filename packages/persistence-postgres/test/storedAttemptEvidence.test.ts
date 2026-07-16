@@ -1,10 +1,28 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
+  CommitEnvelopeV1Schema,
   CommitSyscallSequenceV1Schema,
   SESSION_JOURNAL_FORMAT_V1,
   canonicalizeSessionJournalV1Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
+import {
+  TRANSACTION_GRANT_KEY_PURPOSE_V1,
+  TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+  TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+  TransactionGrantKeyIdV1Schema,
+  canonicalizeTransactionGrantIdentityAccessPolicyV1,
+  canonicalizeTransactionGrantPayloadV1,
+  canonicalizeTransactionGrantProtectedHeaderV1,
+  deriveInertTransactionGrantEvidenceV1,
+  encodeTransactionGrantEd25519SignatureV1,
+  transactionGrantIdentityAccessPolicySha256BytesV1FromHex,
+  TransactionGrantDeploymentIdV1Schema,
+} from "flarex-protocol/transaction-grant";
+import {
+  decodeActivePointMutationTargetMetadataV1,
+  preparePointMutationStartEvidenceV1,
+} from "flarex-protocol/point-mutation-start";
 import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
@@ -17,10 +35,12 @@ import {
   StorageGenerationFenceSchema,
   decodeReplacementScopeIdV1,
 } from "flarex-protocol/storage-authority";
-import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
 import {
   TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
   TransactionAttemptFenceSchema,
+  TransactionAuthorizationRevocationEpochSchema,
+  TransactionFunctionPathV1Schema,
+  TransactionRequestKeyV1Schema,
   type TransactionSessionLifecycleV1,
 } from "flarex-protocol/transaction-session";
 import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
@@ -32,8 +52,18 @@ import {
   it,
 } from "vitest";
 
-import type { StoredAttemptEvidenceLoaderPortV1 } from "../../executor/src/storedAttemptAuthentication";
-import type { StoredCommitAuthorityEvidenceLoaderPortV1 } from "../../executor/src/storedAttemptAuthentication";
+import {
+  createPointMutationSessionAttemptLoadingV1,
+} from "../../executor/src/pointMutationSessionActivation";
+import {
+  createStoredAttemptAuthenticationV1,
+  type StoredAttemptEvidenceLoaderPortV1,
+  type StoredCommitAuthorityEvidenceLoaderPortV1,
+} from "../../executor/src/storedAttemptAuthentication";
+import {
+  createTransactionGrantVerificationKeyNamespaceV1,
+  createTransactionGrantVerifierV1,
+} from "../../executor/src/transactionGrant";
 import * as persistenceRoot from "../src";
 import {
   createPGliteLocatedPointMutationSessionActivationTargetV1,
@@ -61,6 +91,7 @@ import {
 } from "../src/storedAttemptEvidence";
 import {
   createPointMutationSessionActivationPersistenceV1,
+  createPointMutationSessionAttemptLoadPersistenceV1,
   type PointMutationSessionAnchorV1,
   type PointMutationSessionAttemptSelectorV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
@@ -75,6 +106,7 @@ const sharedLocator = Object.freeze({
   databaseKey: "stored-attempt-evidence-primary",
   schemaName: "public",
 }) satisfies SharedDatabaseScopePhysicalLocator;
+const encodeEnvelope = Schema.encodeSync(CommitEnvelopeV1Schema);
 
 interface Scenario {
   readonly persistence: PGliteFlarexPersistence;
@@ -446,6 +478,76 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     ).toBe(true);
   });
 
+  it("composes C03 through private C04B2 after both SQL captures close", async () => {
+    let storedSqlClosed = false;
+    const current = await c04b2Scenario("commit_input_composition", {
+      afterRepeatableRead: () => {
+        storedSqlClosed = true;
+      },
+    });
+    const envelope = await seal(current);
+    const loadedAttempt = await current.loading.load({
+      deploymentId: current.anchor.deploymentId,
+      scopeId: current.anchor.scopeId,
+      sessionId: current.anchor.sessionId,
+      attemptFence: current.anchor.attemptFence.toString(),
+    });
+    let authoritySqlClosed = false;
+    let schemaDecodeAfterSqlClose = false;
+    let metadataAfterSqlClose = false;
+    let authorityQueries = 0;
+    let metadataLoads = 0;
+    const authorityLoader = createStoredCommitAuthorityEvidenceLoaderV1(
+      resolutionPorts(persistence),
+      {
+        observeQuery: () => {
+          authorityQueries += 1;
+        },
+        afterRepeatableRead: () => {
+          authoritySqlClosed = true;
+        },
+        beforeSchemaArtifactDecode: () => {
+          schemaDecodeAfterSqlClose = authoritySqlClosed;
+        },
+      },
+    );
+    const authentication = createStoredAttemptAuthenticationV1(
+      current.loader,
+      {
+        evidenceLoader: authorityLoader,
+        transactionGrantVerifier: current.verifier,
+        functionMetadata: {
+          load: () => {
+            metadataLoads += 1;
+            metadataAfterSqlClose = authoritySqlClosed;
+            return Effect.succeed(structuredClone(current.functionSnapshot));
+          },
+        },
+      },
+    );
+    const authority = await runEffect(
+      authentication.deriveAuthority(loadedAttempt),
+    );
+    const stored = await runEffect(authentication.authenticate(
+      authority,
+      encodeEnvelope(envelope),
+    ));
+    const commitAuthority = await runEffect(
+      authentication.authenticateCommitAuthority(stored),
+    );
+    const beforeVerification = { authorityQueries, metadataLoads };
+    const verified = await runEffect(
+      authentication.verifyCommitInput(commitAuthority),
+    );
+
+    expect(storedSqlClosed).toBe(true);
+    expect(authoritySqlClosed).toBe(true);
+    expect(schemaDecodeAfterSqlClose).toBe(true);
+    expect(metadataAfterSqlClose).toBe(true);
+    expect(authentication.isCommitInputVerified(verified)).toBe(true);
+    expect({ authorityQueries, metadataLoads }).toEqual(beforeVerification);
+  });
+
   it("decodes malformed schema evidence only after repeatable read closes", async () => {
     const current = await scenario("commit_authority_malformed_schema");
     await seal(current);
@@ -667,6 +769,227 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       attempt,
       loader,
       authority,
+    });
+  }
+
+  async function c04b2Scenario(
+    label: string,
+    loaderOptions: ScenarioOptions = {},
+  ) {
+    const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
+      `deployment_stored_attempt_${label}`,
+    );
+    const schemaVersionId = CatalogSchemaVersionIdSchema.make(
+      `schema_stored_attempt_${label}`,
+    );
+    const provisioned = await createPGliteSharedScopeAuthorityProvisioner(
+      persistence,
+      {
+        physicalLocator: sharedLocator,
+        randomUuid: nextUuid,
+      },
+    ).ensure({
+      deploymentId,
+      projectId: `project_stored_attempt_${label}`,
+    });
+    const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
+    await setFlarexActivationClock(persistence, scopeId);
+    const usersTable = appTable("users");
+    await persistence.publishAppSchemaV1({
+      deploymentId,
+      schemaVersionId,
+      version: CatalogSchemaVersionSchema.make(1),
+      tables: [usersTable],
+      indexes: [],
+    });
+    const target = decodeActivePointMutationTargetMetadataV1({
+      format: "flarex.point-mutation-target-metadata",
+      version: 1,
+      deploymentId,
+      scopeId,
+      packageId: "package_c04b2_pglite",
+      artifactRuntime: "dynamic-worker",
+      artifactId: `artifact_${"b".repeat(32)}`,
+      sourcePackageHash: "b".repeat(64),
+      schemaVersionId,
+      functions: [{
+        path: "users:create",
+        executionModule: "flarex/users.ts",
+        kind: "mutation",
+        visibility: "public",
+        argsValidator: { type: "object", value: {} },
+        returnsValidator: {
+          type: "object",
+          value: {
+            ok: { optional: false, fieldType: { type: "boolean" } },
+          },
+        },
+      }],
+      schemaManifest: {
+        kind: "appSchema",
+        manifestVersion: 1,
+        tableDefinitions: {
+          kind: "tableDefinitions",
+          sectionVersion: 1,
+          tables: [{
+            tableId: 1,
+            namespace: "app",
+            logicalName: usersTable.logicalName,
+            definition: usersTable.definition,
+          }],
+        },
+        indexBindings: {
+          kind: "indexBindings",
+          sectionVersion: 1,
+          indexes: [],
+        },
+      },
+    });
+    const requestKey = TransactionRequestKeyV1Schema.make(
+      `request:${label}`,
+    );
+    const revocationEpoch = TransactionAuthorizationRevocationEpochSchema.make(
+      0n,
+    );
+    const prepared = await preparePointMutationStartEvidenceV1(
+      target,
+      {
+        deploymentId,
+        functionPath: TransactionFunctionPathV1Schema.make("users:create"),
+        args: {},
+        requestKey,
+      },
+      revocationEpoch,
+    );
+    const policy = await canonicalizeTransactionGrantIdentityAccessPolicyV1({
+      policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+      auth: { kind: "anonymous" },
+      capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+    });
+    const issuedAtMilliseconds = Date.now() - 1_000;
+    const expiresAtMilliseconds = Date.now() + 60_000;
+    const payload = await canonicalizeTransactionGrantPayloadV1({
+      format: "flarex.transaction-grant",
+      version: 1,
+      grantId: `grant_${label}`,
+      ...prepared.logicalPins,
+      policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+      identityAccessPolicySha256: policy.sha256Hex,
+      capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+      auth: { kind: "anonymous" },
+      issuedAt: new Date(issuedAtMilliseconds).toISOString(),
+      expiresAt: new Date(expiresAtMilliseconds).toISOString(),
+      authorizationRevocationEpoch: revocationEpoch.toString(),
+    });
+    const kid = TransactionGrantKeyIdV1Schema.make(`key_${label}`);
+    const header = canonicalizeTransactionGrantProtectedHeaderV1({
+      alg: "Ed25519",
+      kid,
+      typ: "flarex-transaction-grant+jws",
+    });
+    const grant = await deriveInertTransactionGrantEvidenceV1({
+      protected: header.base64url,
+      payload: payload.base64url,
+      signature: encodeTransactionGrantEd25519SignatureV1(
+        new Uint8Array(64),
+      ),
+    });
+    const ports = resolutionPorts(persistence);
+    const activation = await createPointMutationSessionActivationPersistenceV1(
+      ports,
+      { leaseDurationMilliseconds: 60_000, randomUuid: nextUuid },
+    ).activate(pointMutationSessionActivationFixture(
+      deploymentId,
+      scopeId,
+      {
+        evidence: {
+          packageId: prepared.logicalPins.packageId,
+          artifactRuntime: prepared.logicalPins.artifactRuntime,
+          artifactId: prepared.logicalPins.artifactId,
+          sourcePackageHash: prepared.logicalPins.sourcePackageHash,
+          executionModule: prepared.logicalPins.executionModule,
+          functionPath: prepared.logicalPins.functionPath,
+          functionKind: prepared.logicalPins.functionKind,
+          schemaVersionId: prepared.logicalPins.schemaVersionId,
+          policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+          identityAccessPolicySha256:
+            transactionGrantIdentityAccessPolicySha256BytesV1FromHex(
+              policy.sha256Hex,
+            ),
+          validatedArgsJson: structuredClone(
+            prepared.validatedArguments.valueJson,
+          ),
+          validatedArgsValueCodecVersion:
+            prepared.logicalPins.validatedArgsValueCodecVersion,
+          validatedArgsCanonicalBytes: prepared.validatedArguments.canonicalBytes,
+          validatedArgsSha256: prepared.validatedArguments.sha256,
+          authorizationGrantId: grant.authorizationGrantId,
+          authorizationGrantJson: structuredClone(grant.authorizationGrantJson),
+          authorizationGrantValueCodecVersion:
+            grant.authorizationGrantValueCodecVersion,
+          authorizationGrantCanonicalBytes:
+            grant.authorizationGrantCanonicalBytes,
+          authorizationGrantSha256: grant.authorizationGrantSha256,
+          authorizationRevocationEpoch: revocationEpoch,
+          authorizationGrantExpiresAt: new Date(expiresAtMilliseconds),
+          requestKey,
+          requestSha256: prepared.requestEvidence.sha256,
+        },
+      },
+    ));
+    const store = createSessionJournalStorePersistenceV1(ports, {
+      randomUuid: nextUuid,
+    });
+    const functionMetadata = target.functions[0];
+    if (functionMetadata === undefined) {
+      throw new Error("Missing C04B2 function metadata fixture.");
+    }
+    return Object.freeze({
+      persistence,
+      anchor: activation.anchor,
+      schemaVersionId,
+      store,
+      attempt: store.openAttempt({
+        selector: selectorFromAnchor(activation.anchor),
+        snapshotToken: activation.anchor.snapshotToken,
+        schemaVersionId,
+      }),
+      loader: createStoredAttemptEvidenceLoaderV1(ports, loaderOptions),
+      authority: authorityFromAnchor(activation.anchor, schemaVersionId),
+      loading: createPointMutationSessionAttemptLoadingV1(
+        createPointMutationSessionAttemptLoadPersistenceV1(ports),
+      ),
+      verifier: createTransactionGrantVerifierV1({
+        clock: { now: () => new Date(0) },
+        verificationKeyNamespace:
+          createTransactionGrantVerificationKeyNamespaceV1({
+            deploymentId,
+            keys: [{
+              state: "active",
+              kid,
+              purpose: TRANSACTION_GRANT_KEY_PURPOSE_V1,
+              issuedAtInclusiveEpochMilliseconds: issuedAtMilliseconds - 1_000,
+              verificationEndsAtExclusiveEpochMilliseconds:
+                expiresAtMilliseconds + 1_000,
+              verify: async () => true,
+            }],
+          }),
+        maximumGrantLifetimeMilliseconds: 120_000,
+        maximumFutureIssuedAtSkewMilliseconds: 0,
+      }),
+      functionSnapshot: Object.freeze({
+        deploymentId,
+        scopeId,
+        packageId: prepared.logicalPins.packageId,
+        artifactRuntime: prepared.logicalPins.artifactRuntime,
+        artifactId: prepared.logicalPins.artifactId,
+        sourcePackageHash: prepared.logicalPins.sourcePackageHash,
+        executionModule: prepared.logicalPins.executionModule,
+        functionPath: prepared.logicalPins.functionPath,
+        functionKind: prepared.logicalPins.functionKind,
+        schemaVersionId,
+        functionMetadata: structuredClone(functionMetadata),
+      }),
     });
   }
 

@@ -392,8 +392,8 @@ credentialed/provisioning `H05-B` receipt remains incomplete.
   dependencies and O05's pure point-OCC validator are complete. Standalone C01
   was retired before implementation; C02's inert logical journal/result/
   envelope protocol, C03's bounded point journal, C04A's stored-attempt
-  authentication, and C04B1's current commit-authority authentication are
-  complete. C04B2 value/return validation remains unapproved and is next.
+authentication, C04B1's current commit-authority authentication, and C04B2's
+zero-I/O private-C07 final-value proof are complete. C04C remains unapproved.
   Conditional B2b2 renewal
   moves to its first proven long-running-attempt consumer. Commit-time point-
   OCC integration/serialization, commit/change feed, idempotency outcomes,
@@ -463,7 +463,9 @@ session-authority core. O04 private exact-snapshot point reads and dependencies
 and O05 pure point-OCC validation are complete. Standalone C01 was retired
 before implementation; C02's inert logical protocol, C03's bounded point
 journal, C04A's stored-attempt authentication, and C04B1's private current-
-authority authentication are complete. Unapproved C04B2 is next. O03-B2b2
+authority authentication are complete. C04B2's same-factory final-document/
+result validation is complete only for the private C07 proof; unapproved C04C
+is the next compiler hypothesis. O03-B2b2
 renewal/race proof, operational revocation, and hosted Worker/key adapters are
 consumer-triggered deferred gates and do not block the private C07 proof.
 
@@ -487,6 +489,11 @@ work forward:
    That binding must not fall back to DeploymentDO, legacy `prepareInvoke`,
    numeric schema metadata, or partition routing. Baseline import, shadow
    comparison, and dual operation remain dormant conditional work.
+   The private C04B2 proof does not pull that authority forward: it consumes
+   only C04B1-authenticated setup-seeded proof metadata after SQL closes and
+   validates final overlays after execution. The production preflight must
+   separately decide whether a narrow validator capability belongs in C03 so
+   invalid writes regain Convex syscall-time/catchable behavior.
 6. Complete `H05-B` before `S02-D2` activates the hosted replacement route,
    then migrate internal callers and remove legacy authority after target-only
    sync/reconnect proof.

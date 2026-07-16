@@ -5,8 +5,8 @@ O04/O05 point dependency and validation contracts exist. Standalone C01 was
 retired before implementation. C02's host-neutral logical journal, successful-
 result, and finish-envelope protocol, C03's first trusted Postgres point-
 journal consumer, C04A's private stored-attempt authentication, and C04B1's
-private commit-authority authentication are complete. C04B2 value/return
-validation remains unapproved and is the next compiler design gate.
+private commit-authority authentication are complete. C04B2's private-C07
+final-document/result proof is also complete; C04C remains unapproved.
 
 This plan owns the bounded Flarex app-data path from logical session operations
 to a trusted deterministic physical plan and atomic commit. It does not make a
@@ -108,7 +108,7 @@ AuthenticatedCommitAuthorityV1 (introduced by C04B1)
   immutable proof-only function metadata
              |
 VerifiedCommitInput (introduced by C04B2)
-  authenticated evidence plus authoritative catalog/policy/return facts
+  same-factory logical proof using already-authenticated pinned proof validators
              |
 CommitPlannerV1 (introduced by C04C)
   database-free logical-to-physical lowering
@@ -387,18 +387,37 @@ Exit gate:
   closes, and focused unit, PGlite, and real-Postgres isolation/query-plan
   proofs pass.
 
-#### [ ] C04B2 — Validate Final Values And Successful Return
+#### [x] C04B2 — Validate Final Values And Successful Return
 
-Status: unapproved; require a fresh preflight after the C04B1 checkpoint.
+Status: complete only as the private C07 proof gate. Production validator
+authority and syscall-time validation parity remain deferred Wave 4 decisions;
+C04C is not authorized by this status.
 
 Outcome:
 
-- Consume only a genuine `AuthenticatedCommitAuthorityV1`, introduce the
-  smallest production function-validator authority justified by the accepted
-  activation snapshot, and validate final logical documents plus the successful
-  result against pinned authoritative validators.
-- Return a private runtime-unforgeable `VerifiedCommitInput`; invalid catalog,
-  policy, value, or return evidence never reaches planning.
+- Consume only a genuine same-factory `AuthenticatedCommitAuthorityV1`; perform
+  zero database/catalog/clock/active-pointer/metadata I/O and reuse only the
+  already-authenticated immutable setup-seeded proof metadata. This does not
+  create or imply production function-validator authority.
+- Validate every live final logical document against its pinned strict app-table
+  validator after enforcing exact `_id`/`_creationTime` and rejecting every
+  other top-level underscore field. Deletes and unchanged reads have no final
+  document. ID validators resolve only exact app tables in the pinned manifest;
+  unknown and system targets fail closed.
+- Recanonicalize the authenticated successful result, compare codec, bytes,
+  digest, byte length, and semantic size with the C04A seal, then apply the
+  pinned return validator. A null validator is unvalidated, explicit `any`
+  accepts, and explicit `null` accepts only null.
+- Return a frozen same-factory runtime-unforgeable `VerifiedCommitInputV1`
+  containing only authenticated logical evidence, complete final logical
+  states, validated canonical result evidence, and pinned identities. Invalid
+  authority, value, or result evidence never reaches planning.
+- Record the deliberate private-proof timing gap: validation currently occurs
+  after execution/final overlay rather than at Convex syscall time. The later
+  production preflight must decide whether a narrow validator capability moves
+  into C03 to restore syscall-time/catchable-failure parity. Roadmap 17 plus
+  S03-D4/S04 still own the coherent activation-fenced package/artifact/source/
+  function-validator/schema snapshot and replacement of the proof adapter.
 
 ### [ ] C04C — Build The Pure Point-Row Planner
 

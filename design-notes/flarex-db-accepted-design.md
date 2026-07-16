@@ -869,7 +869,8 @@ AuthenticatedCommitAuthorityV1 (introduced by C04B1)
   and immutable proof-only function metadata
 
 VerifiedCommitInput (introduced by C04B2)
-  authenticated evidence plus authoritative catalog, policy, and return facts
+  same-factory private-C07 proof of authenticated logical evidence plus pinned
+  proof-validator facts; not production activation authority
 
 CommitPlanner (introduced by C04C)
   database-free adapter-specific logical lowering
@@ -1006,6 +1007,16 @@ deletion/replacement gate. It is unreachable from production selection and
 cannot consult `activePackageId`, `analysisJson`, or the mutable active-schema
 pointer.
 
+C04B2 is the private consumer of that already-authenticated proof metadata. It
+performs no database, clock, catalog, active-pointer, or metadata lookup and
+cannot promote the adapter into production authority. This private proof
+validates complete final overlay documents and the successful result after
+execution. Convex normally validates write values at syscall time, so catchable
+validator failures are not yet behaviorally equivalent. The later production
+activation preflight must decide whether a narrow validator capability moves
+into C03 to restore syscall-time validation and catchability while keeping the
+coherent activation-fenced schema/function-validator snapshot in Wave 4.
+
 The narrow schema prerequisite S07-A first adds one nonnegative scope-wide
 `authorization_revocation_epoch` to the located data-plane scope clock. O03-A
 then consumes that authority: a V1 bump conservatively invalidates every
@@ -1127,9 +1138,13 @@ C04B1 returns only private `AuthenticatedCommitAuthorityV1`. Its separate
 argument JSON and canonical bytes, grant JSON and canonical bytes, and pinned-
 schema JSON and canonical bytes. This is a Flarex operational resource guard,
 not a Convex transaction semantic, hosted transport guarantee, or substitute
-for the independent journal limits. C04B2 remains unapproved and alone may add
-final document/result and authoritative return-validator checks to produce
-`VerifiedCommitInput`; C04C then performs database-free deterministic lowering
+for the independent journal limits. C04B2 extends the same factory-local vault:
+only a genuine C04B1 capability can trigger zero-I/O validation of complete
+live final documents and the recanonicalized successful result against the
+already-authenticated pinned proof validators. It mints a frozen, runtime-
+unforgeable `VerifiedCommitInputV1` containing logical evidence only. Deletes
+and unchanged reads have no final document to validate; unknown or system table
+ID targets fail closed; C04C then performs database-free deterministic lowering
 to `PreparedCommitV1`. SHA-256 proves byte integrity only; authenticating the
 Postgres session/fence does not authenticate arbitrary inline journal bytes.
 C03 seals while the session remains `running`, and that sealed root rejects
@@ -1250,8 +1265,9 @@ Requirements:
 - C03 sealing is the syscall barrier while the session is still `running`;
   C04A authenticates that stored seal outside the later commit transaction,
   C04B1 reauthenticates current stored argument/grant/revocation/schema facts
-  into a second same-factory private capability, and C04B2 alone may validate
-  final values/return evidence into `VerifiedCommitInput`; C05 locks and
+  into a second same-factory private capability, and private-proof C04B2
+  validates final values/return evidence into `VerifiedCommitInputV1` without
+  widening production validator authority; C05 locks and
   revalidates the seal's scalar identity before the private exact-fence
   transition to `finishing`; reconstruction may authenticate the same sealed
   attempt from `finishing`, while C06 owns endpoint orchestration;

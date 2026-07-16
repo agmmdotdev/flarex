@@ -6,8 +6,9 @@ Status: accepted bounded design with an implemented `legacy_v1` prototype path;
 standalone `C01` was retired before implementation. C02's replacement logical
 journal/result/envelope protocol, C03's first trusted Postgres point-journal
 consumer, and C04A's private exact stored-attempt authentication are complete;
-C04B1's same-factory current commit-authority authentication is also complete.
-C04B2 value/return validation remains unapproved and is next.
+C04B1's same-factory current commit-authority authentication and C04B2's
+private-C07 final-document/result proof are also complete. C04C planning remains
+unapproved.
 
 This roadmap owns the durable direction for:
 
@@ -115,9 +116,10 @@ but no production route uses them. `SessionJournalV1`, separate successful-
 result evidence, and `CommitEnvelopeV1` form the host-neutral contract sealed by
 that private C03 consumer. C04A authenticates the exact stored seal, and C04B1
 authenticates current stored argument/grant/revocation/schema authority into a
-second same-factory process-local capability. `VerifiedCommitInput`,
-`PreparedCommitV1`, and the trusted commit planner remain unimplemented and
-belong to C04B2/C04C.
+second same-factory process-local capability. C04B2 now mints private
+same-factory `VerifiedCommitInputV1` after zero-I/O final-value/result proof;
+`PreparedCommitV1` and the trusted commit planner remain unimplemented and
+belong to C04C.
 
 ### Accepted replacement boundary
 
@@ -143,7 +145,7 @@ AuthenticatedCommitAuthorityV1 (introduced by C04B1)
   current database-time argument/grant/revocation/schema authority
              |
 VerifiedCommitInput (introduced by C04B2)
-  authenticated evidence plus authoritative catalog/policy/return facts
+  private-C07 logical proof using already-authenticated pinned proof validators
              |
 CommitPlannerV1 (introduced by C04C)
   database-free deterministic physical planning
@@ -317,9 +319,10 @@ Before planning, trusted code verifies in distinct authority stages:
   schema, and corroborating stable bindings. It closes SQL before JSON/Schema,
   SHA-256, Ed25519, and immutable proof-metadata work and returns only
   `AuthenticatedCommitAuthorityV1`;
-- C04B2 later validates final logical values and the encoded successful result
-  against pinned authoritative validators, and alone produces
-  `VerifiedCommitInput`; and
+- C04B2 accepts only the genuine same-factory C04B1 capability, performs no
+  database/catalog/clock/metadata I/O, validates complete live final documents
+  and recanonicalized successful-result evidence against already-authenticated
+  pinned proof validators, and produces private `VerifiedCommitInputV1`; and
 - C04C performs only database-free deterministic lowering.
 
 Only runtime-unforgeable process-local authenticated and verified capabilities
@@ -328,9 +331,9 @@ no database handle, clock, network service, raw SQL, untrusted physical name,
 or transaction-specific sequence/lock fact. C04A's one bounded read-only
 repeatable-read transaction closes before canonical decoding, hashing, Schema
 validation, or point correlation; C04B1's second bounded snapshot likewise
-closes before payload decoding and cryptography. C04B2/C04C finish before the later commit
-transaction opens. Identical trusted inputs produce equivalent deterministic
-plans.
+closes before payload decoding and cryptography. C04B2/C04C finish before the
+later commit transaction opens. Identical trusted inputs produce equivalent
+deterministic plans.
 
 C04B1 shares the exact grant-verification kernel with prepared-start
 verification without manufacturing that handle. Both trusted preparation
@@ -346,6 +349,15 @@ activation-snapshot authority, and roadmap 17 plus S03-D4/S04 publishing one
 coherent package/artifact/source/function-validator/schema snapshot is its
 deletion/replacement gate. Production selection cannot reach it, and C04B1
 does not consult `activePackageId`, `analysisJson`, or an active-schema pointer.
+
+C04B2 is only the private C07 consumer of that authenticated proof adapter. It
+does not promote mutable current metadata into production authority. It also
+validates after execution and final overlay construction, whereas Convex
+normally validates writes at syscall time. The later production preflight must
+decide whether a narrow pinned validator capability moves into C03 to restore
+syscall-time/catchable-failure parity. Roadmap 17 plus S03-D4/S04 continue to
+own the coherent activation-fenced package/artifact/source/function-validator/
+schema snapshot.
 
 The short commit transaction then:
 
@@ -651,8 +663,10 @@ routing, or inline carriage active.
   The replacement C03 journal exists behind a new explicit internal subpath and
   process-local attempt/table capabilities, but no production route consumes it
   and no compatibility bridge targets the legacy engine.
-- No authoritative `VerifiedCommitInput`, pure `CommitPlannerV1`, immutable
-  `PreparedCommitV1`, or replacement `CommitExecutor` integration exists.
+- A private same-factory `VerifiedCommitInputV1` now exists for the C07 proof;
+  no production-authoritative validator binding, pure `CommitPlannerV1`,
+  immutable `PreparedCommitV1`, or replacement `CommitExecutor` integration
+  exists.
 - Current `commitInvokeSessionWrites` combines planning, OCC, timestamp
   allocation, physical publication, index maintenance, commit/outbox, and
   session completion.
@@ -711,8 +725,8 @@ required session-authority core. O04 private exact-snapshot point reads and
 typed dependencies and O05 pure OCC validation are complete. Standalone C01
 was retired before implementation; C02's inert logical protocol, C03's
 operational point-journal consumer, and C04A's private stored-attempt
-authentication plus C04B1's current commit-authority authentication are
-complete, so unapproved C04B2 is next.
+authentication plus C04B1's current commit-authority authentication and C04B2's
+private-C07 final-value proof are complete; C04C remains unapproved.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
 retention consumer proves that a bounded attempt must outlive its initial lease.
@@ -750,10 +764,10 @@ The remaining compiler gates are:
    arguments/grant, current revocation, pinned schema/stable bindings, and the
    temporary immutable proof-metadata snapshot into a private
    `AuthenticatedCommitAuthorityV1`.
-5. `C04B2` (next, unapproved): validate final logical values and successful
-   return evidence against authoritative validators and produce a private
-   `VerifiedCommitInput`.
-6. `C04C`: build the database-free deterministic point-row planner and concrete
+5. `C04B2` (complete for private C07): validate final logical values and
+   successful return evidence against already-authenticated proof validators
+   and produce private same-factory `VerifiedCommitInputV1` without I/O.
+6. `C04C` (unapproved): build the database-free deterministic point-row planner and concrete
    process-local `PreparedCommitV1`.
 7. `C05`: execute one replacement point mutation through the complete atomic
    OCC/outcome/commit/outbox primitive.
