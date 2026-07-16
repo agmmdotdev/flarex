@@ -369,14 +369,18 @@ semantics.
   its domain error adapter. The protocol JSON module also owns array- and
   object-member discrimination after JSON validation and the shared
   structural equality contract without canonical JSON text allocation, plus
-  deterministic JSON text encoding used by value, schema-manifest, and commit
-  evidence. JSON equality ignores object key order and treats negative and
-  positive zero alike. Sparse arrays are outside the shared JSON contract.
-  Unknown-input adapters and database-shaped comparators, writable legacy
-  narrowing, domain-specific normalization, limits, hashing, evidence
-  construction, and failure mapping remain with their owners. Backend adapters
-  use one backend-owned boundary to detach readonly protocol JSON into the
-  writable backend representation.
+  deterministic JSON text encoding used by value, schema-manifest, commit
+  evidence, SDK query tokens, and executor/backend live-query fingerprints.
+  JSON equality ignores object key order and treats negative and positive zero
+  alike. Sparse arrays are outside the shared JSON contract. Query-token and
+  fingerprint names plus invariant-failure adapters remain domain-local. The
+  SDK argument normalizer also remains local because it deliberately omits
+  `undefined` object fields before encoding while preserving valid keys such as
+  `__proto__` as own data properties. Unknown-input adapters and
+  database-shaped comparators, writable legacy narrowing, domain-specific
+  normalization, limits, hashing, evidence construction, and failure mapping
+  remain with their owners. Backend adapters use one backend-owned boundary to
+  detach readonly protocol JSON into the writable backend representation.
 
 ## Known Gaps And Limitations
 

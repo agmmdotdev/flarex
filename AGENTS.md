@@ -127,6 +127,13 @@ the correct reuse strategy.
 Before consolidating equality helpers, pin their treatment of negative zero,
 key order, sparse or invalid containers, unknown non-JSON inputs, allocation,
 and failure behavior; the same helper name does not prove the same contract.
+Canonical JSON text for already-validated Flarex JSON belongs to the protocol
+owner. Consumers should retain domain-significant names such as query tokens
+or fingerprints and keep invariant-failure adapters local. Normalizers that
+omit SDK `undefined` fields, validate unknown input, or map domain failures are
+not interchangeable with the canonical encoder. A JSON object normalizer must
+preserve every valid string key, including `__proto__`, as an own enumerable
+data property and must not install caller-controlled prototypes.
 
 ## Core Rule
 

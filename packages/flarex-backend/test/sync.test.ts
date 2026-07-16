@@ -2177,7 +2177,13 @@ describe("sync protocol", () => {
   });
 
   it("suppresses QueryUpdated when an invalidation rerun returns the same value", async () => {
-    const harness = await createSyncHarness([], () => ({ user: "Ada" }));
+    let invocation = 0;
+    const harness = await createSyncHarness([], () => {
+      invocation += 1;
+      return invocation === 1
+        ? { z: 2, user: { name: "Ada", active: true } }
+        : { user: { active: true, name: "Ada" }, z: 2 };
+    });
     harnesses.push(harness);
     await activateDeployment(harness, "sync-dedup-deployment");
 

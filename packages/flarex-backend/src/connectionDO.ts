@@ -12,7 +12,11 @@ import type {
   ConnectionStateModification as StateModification,
   ConnectionStateVersion as StateVersion,
 } from "flarex-protocol/connection";
-import type { Json as ProtocolJson } from "flarex-protocol/json";
+import {
+  encodeCanonicalJson,
+  type CanonicalJsonEncodingInvariantIssue,
+  type Json as ProtocolJson,
+} from "flarex-protocol/json";
 import { R2BackendExecutionArtifactStore } from "./artifactStore";
 import { ServiceBindingExecutionArtifactRuntime } from "./artifactRuntime";
 import {
@@ -1136,14 +1140,13 @@ function errorMessage(error: unknown): string {
 }
 
 function fingerprintJson(value: Json): string {
-  return stableJson(value);
+  return encodeCanonicalJson(value, liveQueryFingerprintInvariantViolation);
 }
 
-function stableJson(value: Json): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  return `{${Object.keys(value)
-    .sort()
-    .map(key => `${JSON.stringify(key)}:${stableJson(value[key] ?? null)}`)
-    .join(",")}}`;
+function liveQueryFingerprintInvariantViolation(
+  issue: CanonicalJsonEncodingInvariantIssue,
+): never {
+  throw new Error(
+    `Live-query result lost its validated JSON shape while fingerprinting (${issue.reason}).`,
+  );
 }

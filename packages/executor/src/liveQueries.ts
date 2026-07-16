@@ -5,6 +5,10 @@ import {
 import type { FreshnessReadSet } from "@flarex/freshness";
 import type { DeleteLiveQuerySubscriptionResult } from "@flarex/persistence-postgres";
 import { executionIdentityFingerprint } from "flarex-protocol/auth";
+import {
+  encodeCanonicalJson,
+  type CanonicalJsonEncodingInvariantIssue,
+} from "flarex-protocol/json";
 
 import type { AppDataEngineRegistry } from "./appDataEngines";
 import {
@@ -435,7 +439,7 @@ export async function runLiveQuerySubscriptionWithInvoke(
 }
 
 export function fingerprintJson(value: Json): string {
-  return stableJson(value);
+  return encodeCanonicalJson(value, liveQueryFingerprintInvariantViolation);
 }
 
 function liveQueryChangeFromRerun(
@@ -473,11 +477,10 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function stableJson(value: Json): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  return `{${Object.keys(value)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableJson(value[key] ?? null)}`)
-    .join(",")}}`;
+function liveQueryFingerprintInvariantViolation(
+  issue: CanonicalJsonEncodingInvariantIssue,
+): never {
+  throw new Error(
+    `Live-query result lost its validated JSON shape while fingerprinting (${issue.reason}).`,
+  );
 }

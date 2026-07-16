@@ -62,14 +62,23 @@ export function assertJson(value: unknown, path = "$"): Json {
   if (value === null) return null;
   if (typeof value === "boolean" || typeof value === "string") return value;
   if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (Array.isArray(value)) return value.map((item, index) => assertJson(item, `${path}[${index}]`));
-  if (typeof value === "object") {
-    const result: Record<string, Json> = {};
-    for (const [key, field] of Object.entries(value)) {
-      if (field === undefined) continue;
-      result[key] = assertJson(field, `${path}.${key}`);
+  if (Array.isArray(value)) {
+    const result: Json[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.hasOwn(value, index)) {
+        throw new Error(`Expected ${path}[${index}] to be a JSON value.`);
+      }
+      result.push(assertJson(value[index], `${path}[${index}]`));
     }
     return result;
+  }
+  if (typeof value === "object") {
+    const entries: Array<readonly [string, Json]> = [];
+    for (const [key, field] of Object.entries(value)) {
+      if (field === undefined) continue;
+      entries.push([key, assertJson(field, `${path}.${key}`)]);
+    }
+    return Object.fromEntries(entries);
   }
   throw new Error(`Expected ${path} to be a JSON value.`);
 }

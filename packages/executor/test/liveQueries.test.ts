@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createMemoryFreshnessMirrorStore } from "@flarex/freshness";
 import type { DocumentRevisionRecord } from "@flarex/persistence-postgres";
 import { executionIdentityFingerprint } from "flarex-protocol/auth";
+import type { WritableJson } from "flarex-protocol/json";
 import {
   createFlarexExecutor as createBaseFlarexExecutor,
   DeploymentProjectMismatchError,
@@ -342,6 +343,15 @@ describe("executor live query subscriptions", () => {
   it("fingerprints object results with stable key order", () => {
     expect(fingerprintJson({ b: 2, a: { d: 4, c: 3 } })).toBe(
       '{"a":{"c":3,"d":4},"b":2}',
+    );
+  });
+
+  it("fails explicitly when a typed result loses an array item", () => {
+    const sparse: WritableJson[] = [];
+    sparse.length = 1;
+
+    expect(() => fingerprintJson(sparse)).toThrow(
+      "Live-query result lost its validated JSON shape while fingerprinting (missingArrayItem).",
     );
   });
 

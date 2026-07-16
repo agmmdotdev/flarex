@@ -1,9 +1,11 @@
-import { isJsonArray } from "flarex-protocol/json";
+import {
+  encodeCanonicalJson,
+  type CanonicalJsonEncodingInvariantIssue,
+} from "flarex-protocol/json";
 
 import {
   assertJson,
   type Authenticate,
-  type Json,
   type IdentityVersion,
   type ModifyQuerySet,
   type QueryId,
@@ -179,14 +181,17 @@ export function serializePathArgsAndPartition(
   args: Record<string, unknown>,
   partitionKey: string,
 ): QueryToken {
-  return `${partitionKey}|${udfPath}|${stableJson(assertJson(args))}`;
+  const canonicalArgs = encodeCanonicalJson(
+    assertJson(args),
+    queryTokenJsonInvariantViolation,
+  );
+  return `${partitionKey}|${udfPath}|${canonicalArgs}`;
 }
 
-function stableJson(value: Json): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (isJsonArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  return `{${Object.keys(value)
-    .sort()
-    .map(key => `${JSON.stringify(key)}:${stableJson(value[key] ?? null)}`)
-    .join(",")}}`;
+function queryTokenJsonInvariantViolation(
+  issue: CanonicalJsonEncodingInvariantIssue,
+): never {
+  throw new Error(
+    `Query arguments lost their validated JSON shape while creating a query token (${issue.reason}).`,
+  );
 }
