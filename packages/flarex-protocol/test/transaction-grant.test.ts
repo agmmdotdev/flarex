@@ -1,5 +1,6 @@
 /// <reference types="node" />
 
+import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import { Miniflare } from "miniflare";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
@@ -829,7 +830,7 @@ async function signedFixture(): Promise<{
   const signatureBytes = new Uint8Array(await crypto.subtle.sign(
     { name: "Ed25519" },
     privateKey,
-    copyToArrayBuffer(signingInput),
+    copyBytesToArrayBuffer(signingInput),
   ));
   const jwsInput = {
     protected: header.base64url,
@@ -846,15 +847,15 @@ async function verifyEvidence(
   return crypto.subtle.verify(
     { name: "Ed25519" },
     await importPublicKey(),
-    copyToArrayBuffer(evidence.signatureBytes),
-    copyToArrayBuffer(evidence.signingInput),
+    copyBytesToArrayBuffer(evidence.signatureBytes),
+    copyBytesToArrayBuffer(evidence.signingInput),
   );
 }
 
 async function importPrivateKey(): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     "pkcs8",
-    copyToArrayBuffer(decodeBase64(TEST_PRIVATE_KEY_PKCS8_BASE64)),
+    copyBytesToArrayBuffer(decodeBase64(TEST_PRIVATE_KEY_PKCS8_BASE64)),
     { name: "Ed25519" },
     false,
     ["sign"],
@@ -864,7 +865,7 @@ async function importPrivateKey(): Promise<CryptoKey> {
 async function importPublicKey(): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     "spki",
-    copyToArrayBuffer(decodeBase64(TEST_PUBLIC_KEY_SPKI_BASE64)),
+    copyBytesToArrayBuffer(decodeBase64(TEST_PUBLIC_KEY_SPKI_BASE64)),
     { name: "Ed25519" },
     false,
     ["verify"],
@@ -892,14 +893,10 @@ function base64UrlMaximumCharacters(byteLength: number): number {
   return Math.ceil((byteLength * 4) / 3);
 }
 
-function copyToArrayBuffer(value: Uint8Array): ArrayBuffer {
-  return new Uint8Array(value).buffer;
-}
-
 async function sha256Hex(value: Uint8Array): Promise<string> {
   return toHex(new Uint8Array(await crypto.subtle.digest(
     "SHA-256",
-    copyToArrayBuffer(value),
+    copyBytesToArrayBuffer(value),
   )));
 }
 

@@ -1,3 +1,4 @@
+import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
 import type { Plugin, ResolvedConfig } from "vite";
@@ -159,7 +160,7 @@ async function nodeRequestToRequest(request: IncomingMessage): Promise<Request> 
   const init: RequestInit = { headers };
   if (request.method !== undefined) init.method = request.method;
   if (body.byteLength > 0 && request.method !== "GET" && request.method !== "HEAD") {
-    init.body = new Uint8Array(body).buffer as ArrayBuffer;
+    init.body = copyBytesToArrayBuffer(body);
   }
   return new Request(url, init);
 }

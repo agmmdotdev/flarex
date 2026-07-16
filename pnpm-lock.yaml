@@ -286,6 +286,9 @@ importers:
       '@flarex/executor':
         specifier: workspace:*
         version: link:../executor
+      '@flarex/utils':
+        specifier: workspace:*
+        version: link:../utils
       miniflare:
         specifier: 'catalog:'
         version: 4.20260611.0
@@ -316,6 +319,9 @@ importers:
       '@flarex/persistence-postgres':
         specifier: workspace:*
         version: link:../persistence-postgres
+      '@flarex/utils':
+        specifier: workspace:*
+        version: link:../utils
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.90

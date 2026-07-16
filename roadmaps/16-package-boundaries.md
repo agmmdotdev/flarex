@@ -340,13 +340,14 @@ semantics.
   stored-attempt verification, and persistence journal canonicalization paths,
   while narrower ordered-index comparators retain their domain-significant
   names.
-- `@flarex/utils/bytes` owns tested defensive byte copying, ordinary early-exit
-  byte equality, and a separately named equal-length full-scan comparison. A
-  copy detaches only the input byte range; branded validation, ArrayBuffer
-  conversion, hashing, and named evidence capture remain with their domain
-  owners. The full-scan primitive preserves evidence/authentication behavior
-  but explicitly makes no cryptographic constant-time claim; callers keep the
-  algorithm their boundary already required.
+- `@flarex/utils/bytes` owns tested defensive copying into an owned
+  `Uint8Array` or fresh exactly-sized `ArrayBuffer`, ordinary early-exit byte
+  equality, and a separately named equal-length full-scan comparison. Copies
+  include only the input view's visible byte range. Representation choice,
+  branded validation, hashing, and named evidence capture remain with their
+  domain owners. The full-scan primitive preserves evidence/authentication
+  behavior but explicitly makes no cryptographic constant-time claim; callers
+  keep the algorithm their boundary already required.
 - `flarex-protocol/connection` owns sync client and server wire types plus
   structural runtime decoding. Backend connection code consumes those
   contracts directly. The SDK derives its narrower outbound and supported

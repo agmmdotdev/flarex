@@ -1,13 +1,14 @@
 import {
+  createExecutorPointMutationStartPreparationV1,
+} from "@flarex/executor/point-mutation-start";
+import {
   createPointMutationStartAdmissionV1,
   createTransactionGrantVerificationKeyNamespaceV1,
   createTransactionGrantVerifierV1,
   inspectAdmittedPointMutationStartV1,
   inspectVerifiedTransactionGrantV1,
 } from "@flarex/executor/transaction-grant";
-import {
-  createExecutorPointMutationStartPreparationV1,
-} from "@flarex/executor/point-mutation-start";
+import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import { ReplacementScopeIdV1Schema } from "flarex-protocol/storage-authority";
 import {
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
@@ -111,8 +112,8 @@ export default {
         verify: (signingInput, signature) => crypto.subtle.verify(
           { name: "Ed25519" },
           publicKey,
-          copyToArrayBuffer(signature),
-          copyToArrayBuffer(signingInput),
+          copyBytesToArrayBuffer(signature),
+          copyBytesToArrayBuffer(signingInput),
         ),
       }],
     });
@@ -149,7 +150,7 @@ export default {
 async function importPublicKey(): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     "spki",
-    copyToArrayBuffer(decodeBase64(TEST_PUBLIC_KEY_SPKI_BASE64)),
+    copyBytesToArrayBuffer(decodeBase64(TEST_PUBLIC_KEY_SPKI_BASE64)),
     { name: "Ed25519" },
     false,
     ["verify"],
@@ -184,12 +185,6 @@ function requireLiteral<T extends string | number>(
 
 function decodeBase64(value: string): Uint8Array {
   return Uint8Array.from(atob(value), character => character.charCodeAt(0));
-}
-
-function copyToArrayBuffer(bytesValue: Uint8Array): ArrayBuffer {
-  const copy = new Uint8Array(bytesValue.byteLength);
-  copy.set(bytesValue);
-  return copy.buffer;
 }
 
 function deepFreezeProjection<T>(value: T): T {

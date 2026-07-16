@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { bytesEqual, bytesEqualFullScan, copyBytes } from "@flarex/utils/bytes";
+import {
+  bytesEqual,
+  bytesEqualFullScan,
+  copyBytes,
+  copyBytesToArrayBuffer,
+} from "@flarex/utils/bytes";
 
 describe("copyBytes", () => {
   it("copies only the visible byte range without retaining mutable aliases", () => {
@@ -11,6 +16,26 @@ describe("copyBytes", () => {
     expect(copy).toEqual(new Uint8Array([1, 2]));
     expect(copy).not.toBe(source);
     expect(copy.buffer).not.toBe(source.buffer);
+
+    source.fill(7);
+    expect(copy).toEqual(new Uint8Array([1, 2]));
+
+    copy.fill(6);
+    expect(source).toEqual(new Uint8Array([7, 7]));
+  });
+});
+
+describe("copyBytesToArrayBuffer", () => {
+  it("copies only the visible byte range into independent exact storage", () => {
+    const backing = new Uint8Array([9, 1, 2, 8]);
+    const source = backing.subarray(1, 3);
+    const buffer = copyBytesToArrayBuffer(source);
+    const copy = new Uint8Array(buffer);
+
+    expect(buffer).toBeInstanceOf(ArrayBuffer);
+    expect(buffer.byteLength).toBe(2);
+    expect(copy).toEqual(new Uint8Array([1, 2]));
+    expect(buffer).not.toBe(source.buffer);
 
     source.fill(7);
     expect(copy).toEqual(new Uint8Array([1, 2]));

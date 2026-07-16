@@ -1,6 +1,7 @@
 import {
   bytesEqualFullScan as bytesEqual,
   copyBytes,
+  copyBytesToArrayBuffer,
 } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Schema } from "effect";
@@ -472,7 +473,7 @@ async function canonicalizeNormalizedValue(
   const canonicalBytes = decodeCanonicalFlarexValueBytesV1(
     TEXT_ENCODER.encode(canonicalText),
   );
-  const digestInput = copyToArrayBuffer(canonicalBytes);
+  const digestInput = copyBytesToArrayBuffer(canonicalBytes);
   const sha256 = decodeFlarexValueSha256V1(
     new Uint8Array(await crypto.subtle.digest("SHA-256", digestInput)),
   );
@@ -799,7 +800,7 @@ function decodeTaggedValue(
       const semanticSizeBytes = 2 + bytes.byteLength;
       assertSemanticSize(semanticSizeBytes, path, context.limits);
       return Object.freeze({
-        value: copyToArrayBuffer(bytes),
+        value: copyBytesToArrayBuffer(bytes),
         json: taggedJson(tag, entry.value),
         semanticSizeBytes,
         nestingDepth: 0,
@@ -1318,12 +1319,6 @@ function defineFrozenProperty<Value>(
     writable: false,
     value,
   });
-}
-
-function copyToArrayBuffer(value: Uint8Array): ArrayBuffer {
-  const buffer = new ArrayBuffer(value.byteLength);
-  new Uint8Array(buffer).set(value);
-  return buffer;
 }
 
 function unsupported(path: string, detail: string): FlarexValueCodecV1Error {

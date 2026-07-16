@@ -42,6 +42,7 @@
   },
   "devDependencies": {
     "@flarex/executor": "workspace:*",
+    "@flarex/utils": "workspace:*",
     "miniflare": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

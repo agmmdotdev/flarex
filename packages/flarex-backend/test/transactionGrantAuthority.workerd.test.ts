@@ -1,5 +1,6 @@
 /// <reference types="node" />
 
+import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import { Effect } from "effect";
 import { Miniflare } from "miniflare";
 import { dirname, join } from "node:path";
@@ -90,7 +91,7 @@ describe("transaction-grant authority in workerd", () => {
                 try: async () => new Uint8Array(await crypto.subtle.sign(
                   { name: "Ed25519" },
                   privateKey,
-                  copyToArrayBuffer(signingInput),
+                  copyBytesToArrayBuffer(signingInput),
                 )),
                 catch: () =>
                   new TransactionGrantIssuerSourceV1Error({
@@ -267,7 +268,7 @@ function targetMetadataFixture(
 async function importPrivateKey(): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     "pkcs8",
-    copyToArrayBuffer(decodeBase64(TEST_PRIVATE_KEY_PKCS8_BASE64)),
+    copyBytesToArrayBuffer(decodeBase64(TEST_PRIVATE_KEY_PKCS8_BASE64)),
     { name: "Ed25519" },
     false,
     ["sign"],
@@ -280,10 +281,4 @@ function runTestEffect<A, E>(effect: Effect.Effect<A, E, never>): Promise<A> {
 
 function decodeBase64(value: string): Uint8Array {
   return Uint8Array.from(atob(value), character => character.charCodeAt(0));
-}
-
-function copyToArrayBuffer(bytesValue: Uint8Array): ArrayBuffer {
-  const copy = new Uint8Array(bytesValue.byteLength);
-  copy.set(bytesValue);
-  return copy.buffer;
 }

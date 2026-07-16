@@ -1,4 +1,4 @@
-import { bytesEqual } from "@flarex/utils/bytes";
+import { bytesEqual, copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect, Schema } from "effect";
 
@@ -1221,7 +1221,7 @@ const sha256HexEffect = Effect.fn(function* (
   SessionJournalSha256HexV1,
   CommitProtocolV1Error
 > {
-  const digestInput = copyToArrayBuffer(bytes);
+  const digestInput = copyBytesToArrayBuffer(bytes);
   const digestBuffer = yield* Effect.tryPromise({
     try: () => crypto.subtle.digest("SHA-256", digestInput),
     catch: () =>
@@ -1621,12 +1621,6 @@ function encodeLowercaseHex(value: Uint8Array): string {
     value,
     byte => byte.toString(16).padStart(2, "0"),
   ).join("");
-}
-
-function copyToArrayBuffer(value: Uint8Array): ArrayBuffer {
-  const buffer = new ArrayBuffer(value.byteLength);
-  new Uint8Array(buffer).set(value);
-  return buffer;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

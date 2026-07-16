@@ -3,6 +3,13 @@ export function copyBytes(value: Uint8Array): Uint8Array {
   return new Uint8Array(value);
 }
 
+/** Copies the visible bytes into a fresh, exactly sized ArrayBuffer. */
+export function copyBytesToArrayBuffer(value: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(value.byteLength);
+  new Uint8Array(buffer).set(value);
+  return buffer;
+}
+
 /** Compares byte arrays and returns as soon as a mismatch is found. */
 export function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   if (left.byteLength !== right.byteLength) return false;

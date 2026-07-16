@@ -1,5 +1,6 @@
 /// <reference types="node" />
 
+import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import {
   resolveCurrentScopeAuthorizationEpoch,
 } from "@flarex/persistence-postgres";
@@ -1122,7 +1123,7 @@ async function signedFixture(
   const signatureBytes = new Uint8Array(await crypto.subtle.sign(
     { name: "Ed25519" },
     options.privateKey ?? await importPrivateKey(),
-    copyToArrayBuffer(signingInput),
+    copyBytesToArrayBuffer(signingInput),
   ));
   const evidence = await deriveInertTransactionGrantEvidenceV1({
     protected: header.base64url,
@@ -1285,15 +1286,15 @@ function signatureVerifier(
   return (signingInput, signature) => crypto.subtle.verify(
     { name: "Ed25519" },
     publicKey,
-    copyToArrayBuffer(signature),
-    copyToArrayBuffer(signingInput),
+    copyBytesToArrayBuffer(signature),
+    copyBytesToArrayBuffer(signingInput),
   );
 }
 
 async function importPrivateKey(): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     "pkcs8",
-    copyToArrayBuffer(decodeBase64(TEST_PRIVATE_KEY_PKCS8_BASE64)),
+    copyBytesToArrayBuffer(decodeBase64(TEST_PRIVATE_KEY_PKCS8_BASE64)),
     { name: "Ed25519" },
     false,
     ["sign"],
@@ -1303,7 +1304,7 @@ async function importPrivateKey(): Promise<CryptoKey> {
 async function importPublicKey(): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     "spki",
-    copyToArrayBuffer(decodeBase64(TEST_PUBLIC_KEY_SPKI_BASE64)),
+    copyBytesToArrayBuffer(decodeBase64(TEST_PUBLIC_KEY_SPKI_BASE64)),
     { name: "Ed25519" },
     false,
     ["verify"],
@@ -1320,12 +1321,6 @@ async function generateEd25519Keys(): Promise<CryptoKeyPair> {
 
 function decodeBase64(value: string): Uint8Array {
   return Uint8Array.from(atob(value), character => character.charCodeAt(0));
-}
-
-function copyToArrayBuffer(bytesValue: Uint8Array): ArrayBuffer {
-  const copy = new Uint8Array(bytesValue.byteLength);
-  copy.set(bytesValue);
-  return copy.buffer;
 }
 
 function flipBase64UrlCharacter(value: string): string {
