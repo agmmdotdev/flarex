@@ -107,9 +107,11 @@ their protocol, domain, persistence, host, or temporary migration owner.
 Expose generic utilities through intentional subpath exports. Do not add a
 package-root catch-all barrel unless its public surface has been deliberately
 approved. Pin extracted behavior with focused tests, replace copies only when
-their semantics are exact, and retain narrow local wrappers when their names
-communicate an important domain invariant. Never centralize a legacy path just
-because it is duplicated; removal can be the correct reuse strategy.
+their semantics are exact, including short-circuiting, full-scan, allocation,
+normalization, and failure behavior. Do not claim cryptographic constant-time
+behavior for ordinary JavaScript loops. Retain narrow local wrappers when their
+names communicate an important domain invariant. Never centralize a legacy
+path just because it is duplicated; removal can be the correct reuse strategy.
 
 ## Core Rule
 

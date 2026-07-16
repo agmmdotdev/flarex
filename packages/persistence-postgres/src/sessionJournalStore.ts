@@ -1,3 +1,4 @@
+import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
@@ -2678,15 +2679,6 @@ function corruption(
 
 function isFiniteDate(value: Date): boolean {
   return value instanceof Date && Number.isFinite(value.getTime());
-}
-
-function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.byteLength !== right.byteLength) return false;
-  let difference = 0;
-  for (let index = 0; index < left.byteLength; index += 1) {
-    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
-  }
-  return difference === 0;
 }
 
 function jsonEqual(left: Json, right: Json): boolean {

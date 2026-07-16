@@ -1,3 +1,4 @@
+import { bytesEqual } from "@flarex/utils/bytes";
 import { Data, Schema } from "effect";
 
 import type { Json, JsonObject } from "./json";
@@ -1087,14 +1088,6 @@ function assertEvidenceSize(
       maximumBytes,
     },
   });
-}
-
-function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.byteLength !== right.byteLength) return false;
-  for (let index = 0; index < left.byteLength; index += 1) {
-    if (left[index] !== right[index]) return false;
-  }
-  return true;
 }
 
 function deepFreezeTransactionGrantProjection<T>(value: T): T {

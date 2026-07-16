@@ -1,3 +1,4 @@
+import { bytesEqual } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect, Schema } from "effect";
 
@@ -1629,14 +1630,6 @@ function encodeLowercaseHex(value: Uint8Array): string {
     value,
     byte => byte.toString(16).padStart(2, "0"),
   ).join("");
-}
-
-function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.byteLength !== right.byteLength) return false;
-  for (let index = 0; index < left.byteLength; index += 1) {
-    if (left[index] !== right[index]) return false;
-  }
-  return true;
 }
 
 function copyToArrayBuffer(value: Uint8Array): ArrayBuffer {

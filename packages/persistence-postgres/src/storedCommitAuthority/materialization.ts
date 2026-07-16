@@ -1,3 +1,4 @@
+import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { JsonObject } from "flarex-protocol/json";
 import {
@@ -815,15 +816,6 @@ function positiveSafeInteger(value: number | undefined): value is number {
 
 function copyBytes(value: Uint8Array): Uint8Array {
   return new Uint8Array(value);
-}
-
-function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.byteLength !== right.byteLength) return false;
-  let difference = 0;
-  for (let index = 0; index < left.byteLength; index += 1) {
-    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
-  }
-  return difference === 0;
 }
 
 function isJsonObject(value: unknown): value is JsonObject {

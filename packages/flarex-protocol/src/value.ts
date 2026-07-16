@@ -1,3 +1,4 @@
+import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Schema } from "effect";
 
@@ -1287,18 +1288,6 @@ function evidenceBytes(
     });
   }
   return new Uint8Array(value);
-}
-
-function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.byteLength !== right.byteLength) return false;
-  let difference = 0;
-  for (let index = 0; index < left.byteLength; index += 1) {
-    const leftByte = left[index];
-    const rightByte = right[index];
-    if (leftByte === undefined || rightByte === undefined) return false;
-    difference |= leftByte ^ rightByte;
-  }
-  return difference === 0;
 }
 
 function limitsForProfile(profile: FlarexValueProfileV1): FlarexValueLimitsV1 {

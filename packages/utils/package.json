@@ -6,6 +6,7 @@
     "src"
   ],
   "exports": {
+    "./bytes": "./src/bytes.ts",
     "./strings": "./src/strings.ts"
   },
   "scripts": {

@@ -340,6 +340,11 @@ semantics.
   stored-attempt verification, and persistence journal canonicalization paths,
   while narrower ordered-index comparators retain their domain-significant
   names.
+- `@flarex/utils/bytes` owns tested ordinary early-exit byte equality and a
+  separately named equal-length full-scan comparison. The full-scan primitive
+  preserves evidence/authentication behavior but explicitly makes no
+  cryptographic constant-time claim; callers keep the algorithm their boundary
+  already required.
 - `flarex-protocol/connection` owns sync client and server wire types plus
   structural runtime decoding. Backend connection code consumes those
   contracts directly. The SDK derives its narrower outbound and supported

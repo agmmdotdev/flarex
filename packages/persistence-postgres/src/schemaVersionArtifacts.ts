@@ -1,3 +1,4 @@
+import { bytesEqual } from "@flarex/utils/bytes";
 import { and, eq } from "drizzle-orm";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
@@ -703,14 +704,6 @@ function copySchemaManifestSha256(
   value: SchemaManifestSha256,
 ): SchemaManifestSha256 {
   return decodeSchemaManifestSha256(new Uint8Array(value));
-}
-
-function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.byteLength !== right.byteLength) return false;
-  for (let index = 0; index < left.byteLength; index += 1) {
-    if (left[index] !== right[index]) return false;
-  }
-  return true;
 }
 
 function jsonValuesEqual(left: unknown, right: unknown): boolean {

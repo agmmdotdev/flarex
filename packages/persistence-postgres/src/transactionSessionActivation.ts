@@ -1,3 +1,4 @@
+import { bytesEqual } from "@flarex/utils/bytes";
 import { and, asc, eq, sql } from "drizzle-orm";
 
 import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
@@ -2138,14 +2139,6 @@ function cloneValidTerminalDate(value: Date, scopeId: ScopeId): Date {
 
 function isValidDate(value: Date): boolean {
   return Number.isFinite(value.getTime());
-}
-
-function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.byteLength !== right.byteLength) return false;
-  for (let index = 0; index < left.byteLength; index += 1) {
-    if (left[index] !== right[index]) return false;
-  }
-  return true;
 }
 
 function cloneJsonObject(value: JsonObject): JsonObject {
