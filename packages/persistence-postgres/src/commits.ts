@@ -1,4 +1,5 @@
 import { and, desc, eq } from "drizzle-orm";
+import { isWritableJsonObject } from "flarex-protocol/json";
 
 import { commits, documents, leases } from "./schema";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -220,18 +221,11 @@ export async function commitInvokeSessionWrites(
           "document does not exist",
         );
       }
-      if (!isJsonObject(current.value)) {
+      if (!isWritableJsonObject(current.value)) {
         throw new InvokeSessionPatchTargetError(
           input.deploymentId,
           write.documentId,
           "current document value is not an object",
-        );
-      }
-      if (!isJsonObject(write.valueJson)) {
-        throw new InvokeSessionPatchTargetError(
-          input.deploymentId,
-          write.documentId,
-          "patch value is not an object",
         );
       }
       const value: PersistenceJson = {
@@ -471,10 +465,6 @@ async function validateIndexReads(
       );
     }
   }
-}
-
-function isJsonObject(value: unknown): value is Record<string, PersistenceJson> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function validateDocumentReads(

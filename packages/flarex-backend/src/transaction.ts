@@ -1,4 +1,5 @@
 import { Data, Effect } from "effect";
+import { isWritableJsonObject } from "flarex-protocol/json";
 import { readResponseJsonOrNullEffect } from "./http";
 import { partitionObjectName } from "./routing";
 import { encodeFlarexId, isFlarexIdForTable } from "./ids";
@@ -299,7 +300,7 @@ export class SingleShardTransaction {
       if (current === null) {
         return yield* transactionInvariantFailure(`Cannot patch missing document ${id}.`);
       }
-      if (!isJsonObject(current.value)) {
+      if (!isWritableJsonObject(current.value)) {
         return yield* transactionInvariantFailure(`Cannot patch non-object document ${id}.`);
       }
       yield* self.replaceEffect(tableId, id, { ...current.value, ...value });
@@ -505,8 +506,4 @@ function cloneReadSet(readSet: ReadSet): ReadSet {
 
 function documentKey(tableId: number, id: string): string {
   return `${tableId}:${id}`;
-}
-
-function isJsonObject(value: Json): value is { [key: string]: Json } {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

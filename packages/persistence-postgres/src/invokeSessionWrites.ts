@@ -1,4 +1,10 @@
 import { and, asc, eq } from "drizzle-orm";
+import {
+  isJson,
+  isWritableJsonObject,
+  isWritableJsonObjectFromUnknown,
+  type WritableJsonObject,
+} from "flarex-protocol/json";
 
 import { invokeSessionDocumentWrites } from "./schema";
 import type { FlarexMetadataDatabase } from "./deployments";
@@ -19,8 +25,75 @@ export interface StageInvokeSessionDocumentWriteInput {
   valueJson?: PersistenceJson | null;
 }
 
-export type InvokeSessionDocumentWriteRecord =
+export type InvokeSessionDocumentWriteStorageRow =
   typeof invokeSessionDocumentWrites.$inferSelect;
+
+type InvokeSessionDocumentWriteRecordBase = Omit<
+  InvokeSessionDocumentWriteStorageRow,
+  "op" | "valueJson"
+>;
+
+export type InvokeSessionDocumentWriteRecord =
+  | (InvokeSessionDocumentWriteRecordBase & {
+      op: "insert" | "replace";
+      valueJson: PersistenceJson;
+    })
+  | (InvokeSessionDocumentWriteRecordBase & {
+      op: "patch";
+      valueJson: WritableJsonObject;
+    })
+  | (InvokeSessionDocumentWriteRecordBase & {
+      op: "delete";
+      valueJson: null;
+    });
+
+export type InvokeSessionDocumentWriteCorruptionReason =
+  | "opUnsupported"
+  | "valueNotJson"
+  | "patchValueNotObject"
+  | "deleteValuePresent";
+
+export class InvokeSessionDocumentWriteCorruptionError extends Error {
+  constructor(
+    readonly deploymentId: string,
+    readonly sessionId: string,
+    readonly documentId: string,
+    readonly reason: InvokeSessionDocumentWriteCorruptionReason,
+  ) {
+    super(
+      `Invoke session document write is corrupt: ${deploymentId}/${sessionId}/${documentId} (${reason})`,
+    );
+    this.name = "InvokeSessionDocumentWriteCorruptionError";
+  }
+}
+
+export function decodeInvokeSessionDocumentWriteRecord(
+  row: InvokeSessionDocumentWriteStorageRow,
+): InvokeSessionDocumentWriteRecord {
+  switch (row.op) {
+    case "insert":
+    case "replace":
+      if (!isPersistenceJson(row.valueJson)) {
+        throw writeCorruption(row, "valueNotJson");
+      }
+      return { ...row, op: row.op, valueJson: row.valueJson };
+    case "patch":
+      if (!isPersistenceJson(row.valueJson)) {
+        throw writeCorruption(row, "valueNotJson");
+      }
+      if (!isWritableJsonObject(row.valueJson)) {
+        throw writeCorruption(row, "patchValueNotObject");
+      }
+      return { ...row, op: "patch", valueJson: row.valueJson };
+    case "delete":
+      if (row.valueJson !== null) {
+        throw writeCorruption(row, "deleteValuePresent");
+      }
+      return { ...row, op: "delete", valueJson: null };
+    default:
+      throw writeCorruption(row, "opUnsupported");
+  }
+}
 
 export class InvokeSessionDocumentWriteAlreadyExistsError extends Error {
   constructor(
@@ -54,6 +127,7 @@ export async function stageInvokeSessionDocumentWrite(
   db: FlarexMetadataDatabase,
   input: StageInvokeSessionDocumentWriteInput,
 ): Promise<InvokeSessionDocumentWriteRecord> {
+  validateStageInvokeSessionDocumentWriteInput(input);
   const rows = await db
     .insert(invokeSessionDocumentWrites)
     .values({
@@ -78,7 +152,7 @@ export async function stageInvokeSessionDocumentWrite(
   if (write === undefined) {
     return await coalesceInvokeSessionDocumentWrite(db, input);
   }
-  return write;
+  return decodeInvokeSessionDocumentWriteRecord(write);
 }
 
 export async function listInvokeSessionDocumentWrites(
@@ -86,7 +160,7 @@ export async function listInvokeSessionDocumentWrites(
   deploymentId: string,
   sessionId: string,
 ): Promise<InvokeSessionDocumentWriteRecord[]> {
-  return db
+  const rows = await db
     .select()
     .from(invokeSessionDocumentWrites)
     .where(
@@ -100,6 +174,7 @@ export async function listInvokeSessionDocumentWrites(
       asc(invokeSessionDocumentWrites.tableId),
       asc(invokeSessionDocumentWrites.documentId),
     );
+  return rows.map(decodeInvokeSessionDocumentWriteRecord);
 }
 
 async function coalesceInvokeSessionDocumentWrite(
@@ -120,11 +195,11 @@ async function coalesceInvokeSessionDocumentWrite(
     await db
       .delete(invokeSessionDocumentWrites)
       .where(writeIdentity(input));
-    return {
+    return decodeInvokeSessionDocumentWriteRecord({
       ...existing,
       op: input.op,
       valueJson: input.valueJson ?? null,
-    };
+    });
   }
 
   const rows = await db
@@ -144,7 +219,7 @@ async function coalesceInvokeSessionDocumentWrite(
       input.documentId,
     );
   }
-  return write;
+  return decodeInvokeSessionDocumentWriteRecord(write);
 }
 
 async function getInvokeSessionDocumentWrite(
@@ -159,7 +234,8 @@ async function getInvokeSessionDocumentWrite(
     .from(invokeSessionDocumentWrites)
     .where(writeIdentity(input))
     .limit(1);
-  return rows[0] ?? null;
+  const row = rows[0];
+  return row === undefined ? null : decodeInvokeSessionDocumentWriteRecord(row);
 }
 
 function coalesceDocumentWrite(
@@ -249,7 +325,10 @@ function mergeJsonObjects(
   existing: InvokeSessionDocumentWriteRecord,
   input: StageInvokeSessionDocumentWriteInput,
 ): PersistenceJson {
-  if (!isJsonObject(left) || !isJsonObject(right)) {
+  if (
+    !isWritableJsonObjectFromUnknown(left) ||
+    !isWritableJsonObjectFromUnknown(right)
+  ) {
     throw writeConflict(existing, input);
   }
   return { ...left, ...right };
@@ -282,6 +361,50 @@ function writeIdentity(
   );
 }
 
-function isJsonObject(value: unknown): value is Record<string, PersistenceJson> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isPersistenceJson(value: unknown): value is PersistenceJson {
+  return isJson(value);
+}
+
+function validateStageInvokeSessionDocumentWriteInput(
+  input: StageInvokeSessionDocumentWriteInput,
+): void {
+  const valueJson = input.valueJson ?? null;
+  switch (input.op) {
+    case "insert":
+    case "replace":
+      if (!isPersistenceJson(valueJson)) {
+        throw writeCorruption(input, "valueNotJson");
+      }
+      return;
+    case "patch":
+      if (!isPersistenceJson(valueJson)) {
+        throw writeCorruption(input, "valueNotJson");
+      }
+      if (!isWritableJsonObject(valueJson)) {
+        throw writeCorruption(input, "patchValueNotObject");
+      }
+      return;
+    case "delete":
+      if (valueJson !== null) {
+        throw writeCorruption(input, "deleteValuePresent");
+      }
+      return;
+    default:
+      throw writeCorruption(input, "opUnsupported");
+  }
+}
+
+function writeCorruption(
+  row: Pick<
+    InvokeSessionDocumentWriteStorageRow,
+    "deploymentId" | "sessionId" | "documentId"
+  >,
+  reason: InvokeSessionDocumentWriteCorruptionReason,
+): InvokeSessionDocumentWriteCorruptionError {
+  return new InvokeSessionDocumentWriteCorruptionError(
+    row.deploymentId,
+    row.sessionId,
+    row.documentId,
+    reason,
+  );
 }

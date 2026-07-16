@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Schema } from "effect";
 
@@ -21,7 +22,9 @@ export type WritableJson =
   | number
   | string
   | WritableJson[]
-  | { [key: string]: WritableJson };
+  | WritableJsonObject;
+
+export type WritableJsonObject = { [key: string]: WritableJson };
 
 export type CanonicalJsonEncodingInvariantIssue =
   | Readonly<{ readonly reason: "missingArrayItem"; readonly index: number }>
@@ -61,7 +64,24 @@ export function isJsonArray(value: Json): value is ReadonlyArray<Json> {
  * Use {@link isJson} first when the input is unknown.
  */
 export function isJsonObject(value: Json): value is JsonObject {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+  return isNonArrayRecord(value);
+}
+
+/** Discriminates the object member of writable compatibility JSON. */
+export function isWritableJsonObject(
+  value: WritableJson,
+): value is WritableJsonObject {
+  return isNonArrayRecord(value);
+}
+
+/**
+ * Validates unknown input before exposing the writable compatibility object
+ * shape. This type narrowing does not promise runtime mutability.
+ */
+export function isWritableJsonObjectFromUnknown(
+  value: unknown,
+): value is WritableJsonObject {
+  return isJson(value) && isJsonObject(value);
 }
 
 /** Compares validated JSON values without depending on object key order. */
@@ -151,6 +171,13 @@ export function encodeCanonicalJson(
 }
 
 export function isJson(value: unknown): value is Json {
+  return isJsonWithAncestors(value, new WeakSet<object>());
+}
+
+function isJsonWithAncestors(
+  value: unknown,
+  ancestors: WeakSet<object>,
+): value is Json {
   if (
     value === null ||
     typeof value === "string" ||
@@ -162,12 +189,20 @@ export function isJson(value: unknown): value is Json {
     return Number.isFinite(value);
   }
   if (Array.isArray(value)) {
-    for (let index = 0; index < value.length; index += 1) {
-      if (!Object.hasOwn(value, index)) return false;
-      const item = value[index];
-      if (item === undefined || !isJson(item)) return false;
+    if (ancestors.has(value)) return false;
+    ancestors.add(value);
+    try {
+      for (let index = 0; index < value.length; index += 1) {
+        if (!Object.hasOwn(value, index)) return false;
+        const item = value[index];
+        if (item === undefined || !isJsonWithAncestors(item, ancestors)) {
+          return false;
+        }
+      }
+      return true;
+    } finally {
+      ancestors.delete(value);
     }
-    return true;
   }
   if (typeof value === "object") {
     const prototype = Object.getPrototypeOf(value);
@@ -177,7 +212,15 @@ export function isJson(value: unknown): value is Json {
     if (Object.getOwnPropertySymbols(value).length > 0) {
       return false;
     }
-    return Object.values(value as Record<string, unknown>).every(isJson);
+    if (ancestors.has(value)) return false;
+    ancestors.add(value);
+    try {
+      return Object.values(value as Record<string, unknown>).every((item) =>
+        isJsonWithAncestors(item, ancestors),
+      );
+    } finally {
+      ancestors.delete(value);
+    }
   }
   return false;
 }

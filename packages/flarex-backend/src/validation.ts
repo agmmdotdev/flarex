@@ -1,3 +1,4 @@
+import { isWritableJsonObject } from "flarex-protocol/json";
 import { Effect } from "effect";
 import type { Json, ValidatorJson } from "./types";
 
@@ -79,7 +80,7 @@ export function validateJsonValue(
       validateObject(validator.value, value, path, options);
       return;
     case "record":
-      expect(isJsonObject(value), "Expected an object.", path);
+      expect(isWritableJsonObject(value), "Expected an object.", path);
       for (const [key, entry] of Object.entries(value)) {
         validateJsonValue(validator.keys, key, `${path}.${key} (key)`, options);
         validateJsonValue(validator.values, entry, `${path}.${key}`, options);
@@ -130,7 +131,7 @@ export function parseValidatorJson(
   path: string,
 ): BackendValidationResult<ValidatorJson | null> {
   if (value === undefined || value === null) return backendValidationSuccess(null);
-  if (!isJsonObject(value)) {
+  if (!isWritableJsonObject(value)) {
     return backendValidationFailure("Expected validator object.", path);
   }
   const type = value.type;
@@ -177,12 +178,12 @@ export function parseValidatorJson(
     }
     case "object": {
       const rawFields = value.value;
-      if (!isJsonObject(rawFields)) {
+      if (!isWritableJsonObject(rawFields)) {
         return backendValidationFailure("Object validator value must be an object.", `${path}.value`);
       }
       const fields: Record<string, { fieldType: ValidatorJson; optional: boolean }> = {};
       for (const [name, rawField] of Object.entries(rawFields)) {
-        if (!isJsonObject(rawField)) {
+        if (!isWritableJsonObject(rawField)) {
           return backendValidationFailure("Object validator field must be an object.", `${path}.value.${name}`);
         }
         if (typeof rawField.optional !== "boolean") {
@@ -251,7 +252,7 @@ function validateObject(
   path: string,
   options: BackendValidationOptions,
 ): void {
-  expect(isJsonObject(value), "Expected an object.", path);
+  expect(isWritableJsonObject(value), "Expected an object.", path);
   for (const [name, field] of Object.entries(fields)) {
     if (!(name in value)) {
       if (!field.optional) throw new BackendValidationError("Required field is missing.", `${path}.${name}`);
@@ -266,8 +267,4 @@ function validateObject(
 
 function expect(condition: boolean, message: string, path: string): asserts condition {
   if (!condition) throw new BackendValidationError(message, path);
-}
-
-function isJsonObject(value: Json): value is Record<string, Json> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

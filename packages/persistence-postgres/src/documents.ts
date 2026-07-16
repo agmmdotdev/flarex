@@ -1,15 +1,11 @@
 import { and, asc, desc, eq, gt, lt, lte } from "drizzle-orm";
+import type { WritableJson } from "flarex-protocol/json";
 
 import { documents } from "./schema";
 import type { FlarexMetadataDatabase } from "./deployments";
 
-export type PersistenceJson =
-  | null
-  | boolean
-  | number
-  | string
-  | PersistenceJson[]
-  | { [key: string]: PersistenceJson };
+/** Published legacy-persistence name for protocol-owned writable JSON values. */
+export type PersistenceJson = WritableJson;
 
 export interface ParsedFlarexDocumentId {
   tableId: number;

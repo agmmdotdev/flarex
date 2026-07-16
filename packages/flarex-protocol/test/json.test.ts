@@ -5,12 +5,15 @@ import {
   isJson,
   isJsonArray,
   isJsonObject,
+  isWritableJsonObject,
+  isWritableJsonObjectFromUnknown,
   jsonEqual,
   JsonValue,
   type CanonicalJsonEncodingInvariantIssue,
   type Json,
   type JsonObject,
   type WritableJson,
+  type WritableJsonObject,
 } from "../src/json";
 
 const decodeJson = Schema.decodeUnknownSync(JsonValue);
@@ -33,6 +36,18 @@ function expectJsonArrayNarrowing(value: Json): void {
   }
 }
 
+function expectWritableJsonObjectNarrowing(value: WritableJson): void {
+  if (isWritableJsonObject(value)) {
+    expectTypeOf(value).toEqualTypeOf<WritableJsonObject>();
+  }
+}
+
+function expectUnknownWritableJsonObjectNarrowing(value: unknown): void {
+  if (isWritableJsonObjectFromUnknown(value)) {
+    expectTypeOf(value).toEqualTypeOf<WritableJsonObject>();
+  }
+}
+
 describe("protocol JSON", () => {
   it("provides a writable compatibility shape without changing canonical JSON", () => {
     const writable = { nested: [1] } satisfies WritableJson;
@@ -40,8 +55,10 @@ describe("protocol JSON", () => {
     writable.nested.push(2);
 
     expect(writable).toEqual({ nested: [1, 2] });
+    expect(isWritableJsonObject(writable)).toBe(true);
     expectTypeOf(writable).toMatchTypeOf<WritableJson>();
     expectTypeOf<WritableJson>().toMatchTypeOf<Json>();
+    expectWritableJsonObjectNarrowing(writable);
   });
 
   it("accepts finite plain JSON values", () => {
@@ -76,6 +93,19 @@ describe("protocol JSON", () => {
     expect(() =>
       encodeCanonicalJson(sparse as Json[], failCanonicalJsonEncoding),
     ).toThrow("missingArrayItem");
+  });
+
+  it("rejects cyclic JSON candidates without rejecting shared acyclic values", () => {
+    const cyclicObject: Record<string, unknown> = {};
+    cyclicObject.self = cyclicObject;
+    const cyclicArray: unknown[] = [];
+    cyclicArray.push(cyclicArray);
+    const shared = { value: true };
+
+    expect(isJson(cyclicObject)).toBe(false);
+    expect(isJson(cyclicArray)).toBe(false);
+    expect(isJson({ left: shared, right: shared })).toBe(true);
+    expect(isWritableJsonObjectFromUnknown(cyclicObject)).toBe(false);
   });
 
   it("encodes validated JSON with deterministic key order and spelling", () => {
@@ -123,6 +153,21 @@ describe("protocol JSON", () => {
     expect(isJsonObject("value")).toBe(false);
 
     expectJsonObjectNarrowing(value);
+  });
+
+  it("validates unknown input before exposing a writable JSON object", () => {
+    const value: unknown = { nested: [true, null, 1, "value"] };
+
+    expect(isWritableJsonObjectFromUnknown(value)).toBe(true);
+    expect(isWritableJsonObjectFromUnknown([])).toBe(false);
+    expect(isWritableJsonObjectFromUnknown(new Date(0))).toBe(false);
+    expect(
+      isWritableJsonObjectFromUnknown({ nested: Number.POSITIVE_INFINITY }),
+    ).toBe(false);
+    expect(isWritableJsonObjectFromUnknown({ nested: undefined })).toBe(false);
+    expect(isWritableJsonObjectFromUnknown({ [Symbol("hidden")]: true })).toBe(false);
+
+    expectUnknownWritableJsonObjectNarrowing(value);
   });
 
   it("discriminates the array member of validated JSON", () => {

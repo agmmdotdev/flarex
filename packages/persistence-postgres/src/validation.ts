@@ -1,3 +1,5 @@
+import { isWritableJsonObject } from "flarex-protocol/json";
+
 import { parseFlarexDocumentId, type PersistenceJson } from "./documents";
 
 export type ValidatorJson =
@@ -169,7 +171,7 @@ function validateJsonValue(
     case "object":
       return validateObject(validator.value, value, path, options);
     case "record":
-      expect(isJsonObject(value), "Expected an object.", path);
+      expect(isWritableJsonObject(value), "Expected an object.", path);
       for (const [key, entry] of Object.entries(value)) {
         validateJsonValue(validator.keys, key, `${path}.${key} (key)`, options);
         validateJsonValue(validator.values, entry, `${path}.${key}`, options);
@@ -312,7 +314,7 @@ function validateObject(
   path: string,
   options: { validateId?: (tableName: string, value: string, path: string) => void },
 ): void {
-  expect(isJsonObject(value), "Expected an object.", path);
+  expect(isWritableJsonObject(value), "Expected an object.", path);
   for (const [name, field] of Object.entries(fields)) {
     if (!(name in value)) {
       if (!field.optional) {
@@ -341,10 +343,6 @@ function expect(
   path: string,
 ): asserts condition {
   if (!condition) throw new DeploymentValidatorMetadataError(message, path);
-}
-
-function isJsonObject(value: PersistenceJson): value is Record<string, PersistenceJson> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

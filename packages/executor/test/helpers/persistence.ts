@@ -16,6 +16,7 @@ import {
   type InsertInvokeSessionTableReadInput,
   type InvokeSessionIndexReadRecord,
   type InvokeSessionDocumentReadRecord,
+  decodeInvokeSessionDocumentWriteRecord,
   InvokeSessionDocumentWriteAlreadyExistsError,
   InvokeSessionDocumentWriteConflictError,
   type InvokeSessionDocumentWriteRecord,
@@ -73,6 +74,10 @@ import {
 
 import type { FlarexExecutorPersistence } from "../../src";
 import type { ExecutionIdentity } from "flarex-protocol/auth";
+import {
+  isWritableJsonObject,
+  isWritableJsonObjectFromUnknown,
+} from "flarex-protocol/json";
 
 export function healthyPersistence(): FlarexExecutorPersistence {
   return memoryPersistence();
@@ -497,26 +502,7 @@ export function memoryPersistence(
         input.tableId,
         input.documentId,
       );
-      if (documentWrites.has(key)) {
-        const existing = documentWrites.get(key)!;
-        const coalesced = coalesceDocumentWrite(existing, input);
-        if (coalesced === null) {
-          documentWrites.delete(key);
-          return {
-            ...existing,
-            op: input.op,
-            valueJson: input.valueJson ?? null,
-          };
-        }
-        const updated = {
-          ...existing,
-          op: coalesced.op,
-          valueJson: coalesced.valueJson,
-        };
-        documentWrites.set(key, updated);
-        return updated;
-      }
-      const write: InvokeSessionDocumentWriteRecord = {
+      const candidate = decodeInvokeSessionDocumentWriteRecord({
         deploymentId: input.deploymentId,
         sessionId: input.sessionId,
         tableId: input.tableId,
@@ -524,9 +510,30 @@ export function memoryPersistence(
         op: input.op,
         valueJson: input.valueJson ?? null,
         stagedAt: new Date("2026-06-19T00:00:00.000Z"),
-      };
-      documentWrites.set(key, write);
-      return write;
+      });
+      if (documentWrites.has(key)) {
+        const existing = decodeInvokeSessionDocumentWriteRecord(
+          documentWrites.get(key)!,
+        );
+        const coalesced = coalesceDocumentWrite(existing, input);
+        if (coalesced === null) {
+          documentWrites.delete(key);
+          return decodeInvokeSessionDocumentWriteRecord({
+            ...existing,
+            op: input.op,
+            valueJson: input.valueJson ?? null,
+          });
+        }
+        const updated = decodeInvokeSessionDocumentWriteRecord({
+          ...existing,
+          op: coalesced.op,
+          valueJson: coalesced.valueJson,
+        });
+        documentWrites.set(key, updated);
+        return updated;
+      }
+      documentWrites.set(key, candidate);
+      return candidate;
     },
     async listInvokeSessionDocumentWrites(deploymentId: string, sessionId: string) {
       return Array.from(documentWrites.values())
@@ -540,14 +547,17 @@ export function memoryPersistence(
             left.stagedAt.getTime() - right.stagedAt.getTime() ||
             left.tableId - right.tableId ||
             left.documentId.localeCompare(right.documentId),
-        );
+        )
+        .map(decodeInvokeSessionDocumentWriteRecord);
     },
     async commitInvokeSessionWrites(input: CommitInvokeSessionWritesInput) {
-      const writes = Array.from(documentWrites.values()).filter(
-        (write) =>
-          write.deploymentId === input.deploymentId &&
-          write.sessionId === input.sessionId,
-      );
+      const writes = Array.from(documentWrites.values())
+        .filter(
+          (write) =>
+            write.deploymentId === input.deploymentId &&
+            write.sessionId === input.sessionId,
+        )
+        .map(decodeInvokeSessionDocumentWriteRecord);
       const latestCommitTs = commits
         .filter((commit) => commit.deploymentId === input.deploymentId)
         .reduce((latest, commit) => Math.max(latest, commit.ts), 0);
@@ -669,18 +679,11 @@ export function memoryPersistence(
               "document does not exist",
             );
           }
-          if (!isJsonObject(current.value)) {
+          if (!isWritableJsonObject(current.value)) {
             throw new InvokeSessionPatchTargetError(
               input.deploymentId,
               write.documentId,
               "current document value is not an object",
-            );
-          }
-          if (!isJsonObject(write.valueJson)) {
-            throw new InvokeSessionPatchTargetError(
-              input.deploymentId,
-              write.documentId,
-              "patch value is not an object",
             );
           }
           const value = { ...current.value, ...write.valueJson };
@@ -1681,7 +1684,10 @@ function mergeJsonObjects(
   existing: InvokeSessionDocumentWriteRecord,
   input: StageInvokeSessionDocumentWriteInput,
 ) {
-  if (!isJsonObject(left) || !isJsonObject(right)) {
+  if (
+    !isWritableJsonObjectFromUnknown(left) ||
+    !isWritableJsonObjectFromUnknown(right)
+  ) {
     throw writeConflict(existing, input);
   }
   return { ...left, ...right };
@@ -1704,10 +1710,10 @@ function getField(
   value: DocumentRevisionRecord["value"],
   field: string,
 ): DocumentRevisionRecord["value"] | undefined {
-  if (!isJsonObject(value)) return undefined;
+  if (!isWritableJsonObject(value)) return undefined;
   let cursor: DocumentRevisionRecord["value"] | undefined = value;
   for (const segment of field.split(".")) {
-    if (!isJsonObject(cursor)) return undefined;
+    if (!isWritableJsonObject(cursor)) return undefined;
     cursor = cursor[segment];
   }
   return cursor;
@@ -1735,10 +1741,4 @@ function claimOwnerMatches(
   claimOwner: string | undefined,
 ): boolean {
   return claimOwner === undefined || delivery.claimOwner === claimOwner;
-}
-
-function isJsonObject(
-  value: unknown,
-): value is Record<string, DocumentRevisionRecord["value"]> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

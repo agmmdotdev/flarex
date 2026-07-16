@@ -3,9 +3,11 @@ import { createMemoryFreshnessMirrorStore } from "@flarex/freshness";
 import type { ArtifactSourcePackage } from "flarex/artifacts";
 import {
   FlarexDocumentIdFormatError,
+  InvokeSessionDocumentWriteCorruptionError,
   InvokeSessionMetadataAlreadyExistsError,
   InvokeSessionOccConflictError,
   type DocumentRevisionRecord,
+  type InvokeSessionDocumentWriteRecord,
   type PersistenceJson,
 } from "@flarex/persistence-postgres";
 
@@ -1594,6 +1596,130 @@ describe("executor invoke sessions", () => {
       value: { _id: "1:team_patch", name: "Old", count: 2 },
       readSet: { documents: [{ tableId: 1, id: "1:team_patch" }] },
     });
+  });
+
+  it("fails closed when a staged patch row contains non-JSON data", async () => {
+    const corruptWrite = {
+      deploymentId: "deployment_session",
+      sessionId: "session_active",
+      tableId: 1,
+      documentId: "1:team_patch",
+      op: "patch",
+      valueJson: { nested: Number.POSITIVE_INFINITY },
+      stagedAt: new Date("2026-06-19T00:00:00.000Z"),
+    } satisfies InvokeSessionDocumentWriteRecord;
+    const persistence = memoryPersistence(
+      [],
+      [activePackage()],
+      [activeSession({ functionKind: "mutation", beginTs: 15 })],
+      [
+        documentRevision({
+          id: "1:team_patch",
+          documentId: "team_patch",
+          ts: 10,
+          value: { name: "Old", count: 1 },
+        }),
+      ],
+      [],
+      [corruptWrite],
+    );
+    const executor = createFlarexExecutor({ persistence });
+
+    await expect(
+      executor.invokeSyscall({
+        deploymentId: "deployment_session",
+        projectId: "project_session",
+        sessionId: "session_active",
+        syscall: { op: "get", id: "1:team_patch" },
+      }),
+    ).rejects.toMatchObject({
+      name: InvokeSessionDocumentWriteCorruptionError.name,
+      reason: "valueNotJson",
+    });
+    await expect(
+      persistence.getDocumentRevisionAtTs(
+        "deployment_session",
+        "1:team_patch",
+        15,
+      ),
+    ).resolves.toMatchObject({ value: { name: "Old", count: 1 } });
+    await expect(
+      persistence.listInvokeSessionDocumentReads(
+        "deployment_session",
+        "session_active",
+      ),
+    ).resolves.toEqual([]);
+  });
+
+  it("does not let a later staged write hide stored corruption", async () => {
+    const corruptWrite = {
+      deploymentId: "deployment_session",
+      sessionId: "session_active",
+      tableId: 1,
+      documentId: "1:team_patch",
+      op: "patch",
+      valueJson: { nested: Number.POSITIVE_INFINITY },
+      stagedAt: new Date("2026-06-19T00:00:00.000Z"),
+    } satisfies InvokeSessionDocumentWriteRecord;
+    const persistence = memoryPersistence([], [], [], [], [], [corruptWrite]);
+
+    await expect(
+      persistence.stageInvokeSessionDocumentWrite({
+        deploymentId: corruptWrite.deploymentId,
+        sessionId: corruptWrite.sessionId,
+        tableId: corruptWrite.tableId,
+        documentId: corruptWrite.documentId,
+        op: "replace",
+        valueJson: { replacement: true },
+      }),
+    ).rejects.toMatchObject({
+      name: InvokeSessionDocumentWriteCorruptionError.name,
+      reason: "valueNotJson",
+    });
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        corruptWrite.deploymentId,
+        corruptWrite.sessionId,
+      ),
+    ).rejects.toMatchObject({
+      name: InvokeSessionDocumentWriteCorruptionError.name,
+      reason: "valueNotJson",
+    });
+  });
+
+  it("validates a later staged write before changing memory state", async () => {
+    const initialWrite = {
+      deploymentId: "deployment_session",
+      sessionId: "session_active",
+      tableId: 1,
+      documentId: "1:team_insert",
+      op: "insert",
+      valueJson: { draft: true },
+      stagedAt: new Date("2026-06-19T00:00:00.000Z"),
+    } satisfies InvokeSessionDocumentWriteRecord;
+    const persistence = memoryPersistence([], [], [], [], [], [initialWrite]);
+
+    await expect(
+      persistence.stageInvokeSessionDocumentWrite({
+        deploymentId: initialWrite.deploymentId,
+        sessionId: initialWrite.sessionId,
+        tableId: initialWrite.tableId,
+        documentId: initialWrite.documentId,
+        op: "delete",
+        valueJson: { unexpected: true },
+      }),
+    ).rejects.toMatchObject({
+      name: InvokeSessionDocumentWriteCorruptionError.name,
+      reason: "deleteValuePresent",
+    });
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        initialWrite.deploymentId,
+        initialWrite.sessionId,
+      ),
+    ).resolves.toMatchObject([
+      { op: "insert", valueJson: { draft: true } },
+    ]);
   });
 
   it("coalesces repeated patches inside one mutation session", async () => {

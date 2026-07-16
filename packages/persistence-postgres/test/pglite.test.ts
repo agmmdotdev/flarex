@@ -22,6 +22,7 @@ import {
   InvokeSessionDocumentValidationError,
   InvokeSessionDocumentWriteAlreadyExistsError,
   InvokeSessionDocumentWriteConflictError,
+  InvokeSessionDocumentWriteCorruptionError,
   InvokeSessionDeleteTargetError,
   InvokeSessionInsertConflictError,
   InvokeSessionIndexOccConflictError,
@@ -2302,6 +2303,68 @@ describe("createPGlitePersistence", () => {
     await expect(
       persistence.stageInvokeSessionDocumentWrite(input),
     ).rejects.toThrow(InvokeSessionDocumentWriteAlreadyExistsError);
+  });
+
+  it("rejects invalid staged write values before changing storage", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const identity = {
+      deploymentId: "deployment_invalid_writes",
+      sessionId: "session_invalid_writes",
+      tableId: 1,
+      documentId: "1:message",
+    };
+
+    await expect(
+      persistence.stageInvokeSessionDocumentWrite({
+        ...identity,
+        op: "patch",
+        valueJson: null,
+      }),
+    ).rejects.toMatchObject({
+      name: InvokeSessionDocumentWriteCorruptionError.name,
+      reason: "patchValueNotObject",
+    });
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        identity.deploymentId,
+        identity.sessionId,
+      ),
+    ).resolves.toEqual([]);
+
+    await persistence.stageInvokeSessionDocumentWrite({
+      ...identity,
+      op: "patch",
+      valueJson: { count: 1 },
+    });
+    await expect(
+      persistence.stageInvokeSessionDocumentWrite({
+        ...identity,
+        op: "replace",
+        valueJson: { nested: Number.POSITIVE_INFINITY },
+      }),
+    ).rejects.toMatchObject({
+      name: InvokeSessionDocumentWriteCorruptionError.name,
+      reason: "valueNotJson",
+    });
+    await expect(
+      persistence.stageInvokeSessionDocumentWrite({
+        ...identity,
+        op: "delete",
+        valueJson: { unexpected: true },
+      }),
+    ).rejects.toMatchObject({
+      name: InvokeSessionDocumentWriteCorruptionError.name,
+      reason: "deleteValuePresent",
+    });
+    await expect(
+      persistence.listInvokeSessionDocumentWrites(
+        identity.deploymentId,
+        identity.sessionId,
+      ),
+    ).resolves.toMatchObject([
+      { op: "patch", valueJson: { count: 1 } },
+    ]);
   });
 
   it("coalesces repeated staged writes for one document", async () => {

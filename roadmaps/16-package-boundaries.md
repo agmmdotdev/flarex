@@ -364,13 +364,20 @@ semantics.
 - `flarex-protocol/json` owns the canonical readonly JSON shape, its finite
   plain-value guard and Schema, and one documented writable compatibility
   shape. The SDK aliases its readonly `JSONValue` to that owner; live-query,
-  executor, and backend retain their published writable names as aliases.
+  executor, backend, and legacy Postgres persistence retain their published
+  writable names as aliases.
   Executor HTTP delegates JSON membership to the protocol guard while keeping
   its domain error adapter. The protocol JSON module also owns array- and
-  object-member discrimination after JSON validation and the shared
-  structural equality contract without canonical JSON text allocation, plus
-  deterministic JSON text encoding used by value, schema-manifest, commit
-  evidence, SDK query tokens, and executor/backend live-query fingerprints.
+  object-member discrimination after JSON validation, plus an unknown-input
+  guard that validates the full value before exposing the writable JSON object
+  compatibility shape. That narrowing does not promise runtime mutability. The
+  Postgres persistence boundary decodes staged-write JSONB rows once into an
+  operation-discriminated record; malformed JSON and invalid operation/value
+  combinations fail as storage corruption before executor document views.
+  The module owns the shared structural equality contract without canonical
+  JSON text allocation, plus deterministic JSON text encoding used by value,
+  schema-manifest, commit evidence, SDK query tokens, and executor/backend
+  live-query fingerprints.
   JSON equality ignores object key order and treats negative and positive zero
   alike. Sparse arrays are outside the shared JSON contract. Query-token and
   fingerprint names plus invariant-failure adapters remain domain-local. The

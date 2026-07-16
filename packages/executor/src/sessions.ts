@@ -31,6 +31,7 @@ import {
 import type {
   LegacyV1AppDataEngine,
 } from "@flarex/persistence-postgres/legacy-v1-app-data-engine";
+import { isWritableJsonObject } from "flarex-protocol/json";
 
 import {
   legacyV1StorageAuthorityForPersistedSession,
@@ -294,7 +295,7 @@ export async function invokeSyscall(
         input.syscall.id,
       );
     }
-    if (!isJsonObject(document.value)) {
+    if (!isWritableJsonObject(document.value)) {
       throw new InvokePatchNonObjectDocumentError(
         input.deploymentId,
         input.syscall.id,
@@ -690,8 +691,7 @@ async function documentAtTransactionView(
     staged.op === "patch" &&
     base !== null &&
     !base.deleted &&
-    isJsonObject(base.value) &&
-    isJsonObject(staged.valueJson)
+    isWritableJsonObject(base.value)
   ) {
     return {
       value: { ...base.value, ...staged.valueJson },
@@ -865,7 +865,7 @@ async function observedTsForStagedWrite(
 async function patchedIndexDocumentValue(
   appDataEngine: LegacyV1AppDataEngine,
   session: InvokeSessionMetadataRecord,
-  write: InvokeSessionDocumentWriteRecord,
+  write: Extract<InvokeSessionDocumentWriteRecord, { op: "patch" }>,
 ): Promise<PersistenceJson | null> {
   const base = await appDataEngine.getDocumentRevisionAtTs(
     session.deploymentId,
@@ -875,8 +875,7 @@ async function patchedIndexDocumentValue(
   if (
     base === null ||
     base.deleted ||
-    !isJsonObject(base.value) ||
-    !isJsonObject(write.valueJson)
+    !isWritableJsonObject(base.value)
   ) {
     return null;
   }
@@ -909,11 +908,11 @@ function applyStagedWriteToTableView(
     return;
   }
 
-  if (write.op === "patch" && isJsonObject(write.valueJson)) {
+  if (write.op === "patch") {
     const current =
       visible.get(write.documentId) ??
       baseDocuments.find((document) => document.id === write.documentId);
-    if (current !== undefined && isJsonObject(current.value)) {
+    if (current !== undefined && isWritableJsonObject(current.value)) {
       visible.set(write.documentId, {
         id: write.documentId,
         value: { ...current.value, ...write.valueJson },
@@ -937,12 +936,12 @@ function getField(
   value: PersistenceJson,
   field: string,
 ): PersistenceJson | undefined {
-  if (!isJsonObject(value)) {
+  if (!isWritableJsonObject(value)) {
     return undefined;
   }
   let cursor: PersistenceJson | undefined = value;
   for (const segment of field.split(".")) {
-    if (!isJsonObject(cursor)) {
+    if (!isWritableJsonObject(cursor)) {
       return undefined;
     }
     cursor = cursor[segment];
@@ -1110,21 +1109,17 @@ function idForInsert(tableId: number, requestedId?: string): string {
 }
 
 function documentValue(id: string, value: PersistenceJson): PersistenceJson {
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+  if (isWritableJsonObject(value)) {
     return { ...value, _id: id };
   }
   return value;
 }
 
 function requireJsonObject(value: PersistenceJson): Record<string, PersistenceJson> {
-  if (!isJsonObject(value)) {
+  if (!isWritableJsonObject(value)) {
     throw new InvokePatchValueError();
   }
   return value;
-}
-
-function isJsonObject(value: unknown): value is Record<string, PersistenceJson> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export const defaultIds: IdGenerator = {
