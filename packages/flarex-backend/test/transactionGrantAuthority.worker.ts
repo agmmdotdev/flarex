@@ -9,6 +9,10 @@ import {
   inspectVerifiedTransactionGrantV1,
 } from "@flarex/executor/transaction-grant";
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
+import {
+  isNonArrayRecord,
+  type UnknownRecord,
+} from "@flarex/utils/records";
 import { ReplacementScopeIdV1Schema } from "flarex-protocol/storage-authority";
 import {
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
@@ -157,13 +161,9 @@ async function importPublicKey(): Promise<CryptoKey> {
   );
 }
 
-function requiredRecord(value: unknown): Record<string, unknown> {
-  if (isRecord(value)) return value;
+function requiredRecord(value: unknown): UnknownRecord {
+  if (isNonArrayRecord(value)) return value;
   throw new Error("Expected an object.");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function requiredString(value: unknown): string {

@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
@@ -9,7 +10,7 @@ describe("private executor Wrangler configuration", () => {
     );
     const config: unknown = JSON.parse(raw);
 
-    if (!isRecord(config)) {
+    if (!isNonArrayRecord(config)) {
       throw new Error("Executor Wrangler config must be an object.");
     }
 
@@ -43,7 +44,7 @@ describe("private executor Wrangler configuration", () => {
     );
     const config: unknown = JSON.parse(raw);
 
-    if (!isRecord(config)) {
+    if (!isNonArrayRecord(config)) {
       throw new Error("H05 probe Wrangler config must be an object.");
     }
 
@@ -78,7 +79,3 @@ describe("private executor Wrangler configuration", () => {
     ]);
   });
 });
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}

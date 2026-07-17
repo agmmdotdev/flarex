@@ -14,6 +14,7 @@
     "flarex-backend": "workspace:*"
   },
   "devDependencies": {
+    "@flarex/utils": "workspace:*",
     "vitest": "catalog:",
     "wrangler": "catalog:"
   }

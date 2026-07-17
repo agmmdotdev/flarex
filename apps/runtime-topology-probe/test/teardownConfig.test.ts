@@ -1,3 +1,7 @@
+import {
+  isNonArrayRecord,
+  type UnknownRecord,
+} from "@flarex/utils/records";
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
@@ -136,16 +140,16 @@ function expectTeardownTracksProduction(
   ).toStrictEqual(readDurableObjectClassNames(production));
 }
 
-function readRecord(path: string): Record<string, unknown> {
+function readRecord(path: string): UnknownRecord {
   const value = readJson(path);
-  if (!isRecord(value)) {
+  if (!isNonArrayRecord(value)) {
     throw new Error(`Expected ${path} to contain a JSON object`);
   }
   return value;
 }
 
 function readDurableObjectClassNames(
-  config: Readonly<Record<string, unknown>>,
+  config: UnknownRecord,
 ): ReadonlyArray<string> {
   const durableObjects = readRecordProperty(config, "durable_objects");
   return readRecordArrayProperty(durableObjects, "bindings")
@@ -154,29 +158,29 @@ function readDurableObjectClassNames(
 }
 
 function readRecordProperty(
-  value: Readonly<Record<string, unknown>>,
+  value: UnknownRecord,
   property: string,
-): Record<string, unknown> {
+): UnknownRecord {
   const entry = value[property];
-  if (!isRecord(entry)) {
+  if (!isNonArrayRecord(entry)) {
     throw new Error(`Expected ${property} to be an object`);
   }
   return entry;
 }
 
 function readRecordArrayProperty(
-  value: Readonly<Record<string, unknown>>,
+  value: UnknownRecord,
   property: string,
-): ReadonlyArray<Record<string, unknown>> {
+): ReadonlyArray<UnknownRecord> {
   const entries = value[property];
   if (!Array.isArray(entries)) {
     throw new Error(`Expected ${property} to be an array of objects`);
   }
 
-  const records: Array<Record<string, unknown>> = [];
+  const records: Array<UnknownRecord> = [];
   for (const entry of entries) {
     const candidate: unknown = entry;
-    if (!isRecord(candidate)) {
+    if (!isNonArrayRecord(candidate)) {
       throw new Error(`Expected ${property} to be an array of objects`);
     }
     records.push(candidate);
@@ -185,7 +189,7 @@ function readRecordArrayProperty(
 }
 
 function readStringArrayProperty(
-  value: Readonly<Record<string, unknown>>,
+  value: UnknownRecord,
   property: string,
 ): ReadonlyArray<string> {
   const entries = value[property];
@@ -205,7 +209,7 @@ function readStringArrayProperty(
 }
 
 function readStringProperty(
-  value: Readonly<Record<string, unknown>>,
+  value: UnknownRecord,
   property: string,
 ): string {
   const entry = value[property];
@@ -216,9 +220,9 @@ function readStringProperty(
 }
 
 function lastRecord(
-  values: ReadonlyArray<Record<string, unknown>>,
+  values: ReadonlyArray<UnknownRecord>,
   label: string,
-): Record<string, unknown> {
+): UnknownRecord {
   const value = values[values.length - 1];
   if (value === undefined) {
     throw new Error(`Expected ${label} to contain at least one object`);
@@ -230,7 +234,7 @@ function readStringRecordProperty(
   value: unknown,
   property: string,
 ): Readonly<Record<string, string>> {
-  if (!isRecord(value) || !isRecord(value[property])) {
+  if (!isNonArrayRecord(value) || !isNonArrayRecord(value[property])) {
     throw new Error(`Expected ${property} to be an object`);
   }
 
@@ -242,10 +246,6 @@ function readStringRecordProperty(
     result[key] = entry;
   }
   return result;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isString(value: unknown): value is string {

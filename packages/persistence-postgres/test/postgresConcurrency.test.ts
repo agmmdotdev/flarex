@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { describe, expect, it } from "vitest";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -330,7 +331,7 @@ describePostgres("real Postgres OCC concurrency", () => {
         value: expect.objectContaining({ count: expect.any(Number) }),
       });
       const currentValue = current?.value;
-      if (!isRecord(currentValue)) {
+      if (!isNonArrayRecord(currentValue)) {
         throw new Error("Expected current document value.");
       }
       expect([1, 2]).toContain(currentValue.count);
@@ -506,8 +507,4 @@ function rejectedOutcomes(
   return outcomes.flatMap((outcome) =>
     outcome.status === "rejected" ? [outcome.reason] : [],
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -338,11 +338,13 @@ semantics.
 - `@flarex/utils/records` owns shallow non-null, non-array object narrowing as
   both a predicate and nullable adapter. It deliberately does not promise a
   plain prototype, JSON membership, symbol-key rejection, or runtime
-  mutability. Executor metadata, persistence authority, and importable H05
-  evidence, Worker, and collector modules reuse it. Stricter canonical and
-  domain object guards retain their owners, while standalone generated source
-  keeps the smallest equivalent local predicate because it cannot import a
-  workspace package at runtime.
+  mutability. Executor metadata, persistence authority, importable H05
+  evidence/Worker/collector modules, and ordinary importable test modules reuse
+  it. Stricter canonical, domain object, and writable fixture guards retain
+  their owners, while standalone generated source keeps the smallest equivalent
+  local predicate because it cannot import a workspace package at runtime.
+  Test-only consumers declare a development dependency instead of widening
+  their production graph.
 - `@flarex/utils/strings` owns the tested ECMAScript UTF-16 string comparator
   reused by protocol canonicalization, deterministic ordering, executor
   stored-attempt verification, and persistence journal canonicalization paths,

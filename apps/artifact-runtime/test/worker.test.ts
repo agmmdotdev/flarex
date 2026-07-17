@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
@@ -1433,33 +1434,29 @@ function generatedInvokeRequest(payload: ExecutionArtifactInvokePayload): Reques
 }
 
 function isGeneratedDynamicWorkerModule(value: unknown): value is { readonly default: GeneratedDynamicWorker } {
-  if (!isRecord(value)) return false;
+  if (!isNonArrayRecord(value)) return false;
   const defaultExport = value.default;
-  return isRecord(defaultExport) && typeof defaultExport.fetch === "function";
+  return isNonArrayRecord(defaultExport) && typeof defaultExport.fetch === "function";
 }
 
 function bodyValue(body: unknown, context: string): unknown {
-  if (isRecord(body) && "value" in body) return body.value;
+  if (isNonArrayRecord(body) && "value" in body) return body.value;
   throw new Error(`${context} body is missing value.`);
 }
 
 function bodySessionId(body: unknown): unknown {
-  if (isRecord(body) && "sessionId" in body) return body.sessionId;
+  if (isNonArrayRecord(body) && "sessionId" in body) return body.sessionId;
   throw new Error("Body is missing sessionId.");
 }
 
 function bodyPath(body: unknown): unknown {
-  if (isRecord(body) && "path" in body) return body.path;
+  if (isNonArrayRecord(body) && "path" in body) return body.path;
   throw new Error("Body is missing path.");
 }
 
 function bodyOp(body: unknown): unknown {
-  if (isRecord(body) && "op" in body) return body.op;
+  if (isNonArrayRecord(body) && "op" in body) return body.op;
   throw new Error("Body is missing op.");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 class FakeR2Bucket implements R2BucketLike {
