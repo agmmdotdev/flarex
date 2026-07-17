@@ -9,20 +9,22 @@ import { decodePublicPartitionSchemaCachePayload } from "./Requests";
 
 export const decodePublicPartitionSchemaCacheRequest = Effect.fn(
   "PublicSchemaCacheRouteBoundary.decodeRequest",
-)(function* (
-  request: Request,
-  partitionKey: string,
-): Effect.fn.Return<PartitionSchemaCacheRequest, PartitionRouteError> {
-  return yield* readJsonEffect(request).pipe(
-    Effect.flatMap(value => decodePublicPartitionSchemaCacheRoutePayload(value, partitionKey)),
-  );
-});
+)(
+  (
+    request: Request,
+    partitionKey: string,
+  ): Effect.Effect<PartitionSchemaCacheRequest, PartitionRouteError> =>
+    readJsonEffect(request).pipe(
+      Effect.flatMap(value => decodePublicPartitionSchemaCacheRoutePayload(value, partitionKey)),
+    ),
+);
 
 export const decodePublicPartitionSchemaCacheRoutePayload = Effect.fn(
   "PublicSchemaCacheRouteBoundary.decodePayload",
-)(function* (
-  value: unknown,
-  partitionKey: string,
-): Effect.fn.Return<PartitionSchemaCacheRequest, PartitionRoutePayloadError> {
-  return yield* decodePublicPartitionSchemaCachePayload(value, partitionKey);
-});
+)(
+  (
+    value: unknown,
+    partitionKey: string,
+  ): Effect.Effect<PartitionSchemaCacheRequest, PartitionRoutePayloadError> =>
+    decodePublicPartitionSchemaCachePayload(value, partitionKey),
+);

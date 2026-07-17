@@ -1,5 +1,8 @@
-import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
-import { Data, Effect } from "effect";
+import {
+  isNonArrayRecord as isRecord,
+  type UnknownRecord,
+} from "@flarex/utils/records";
+import { Data, Effect, Result } from "effect";
 import type { DeploymentSchema } from "./deployment";
 import { isJson } from "./json";
 
@@ -74,73 +77,52 @@ export class PartitionRoutePayloadError extends Data.TaggedError("PartitionRoute
 export const decodePartitionSchemaCachePayloadEffect = Effect.fn(
   "PartitionProtocol.decodeSchemaCachePayload",
 )(
-  function* (
-    value: unknown,
-  ): Effect.fn.Return<PartitionSchemaCacheRequest, PartitionRoutePayloadError> {
-    return yield* partitionRoutePayloadValidationResultToEffect(
-      normalizePartitionSchemaCachePayload(value),
-    );
-  },
+  (value: unknown): Effect.Effect<PartitionSchemaCacheRequest, PartitionRoutePayloadError> =>
+    Effect.fromResult(normalizePartitionSchemaCachePayload(value)),
 );
 
 export const decodePublicPartitionSchemaCachePayloadEffect = Effect.fn(
   "PartitionProtocol.decodePublicSchemaCachePayload",
 )(
-  function* (
+  (
     value: unknown,
     partitionKey: string,
-  ): Effect.fn.Return<PartitionSchemaCacheRequest, PartitionRoutePayloadError> {
-    yield* decodePartitionSchemaCachePayloadEffect(value);
-    return { partitionKey, schema: value as Partial<DeploymentSchema> };
-  },
+  ): Effect.Effect<PartitionSchemaCacheRequest, PartitionRoutePayloadError> =>
+    decodePartitionSchemaCachePayloadEffect(value).pipe(
+      Effect.map(schema => ({ partitionKey, schema })),
+    ),
 );
 
 export const decodePartitionCommitPayloadEffect = Effect.fn(
   "PartitionProtocol.decodeCommitPayload",
 )(
-  function* (
-    value: unknown,
-  ): Effect.fn.Return<PartitionCommitRequest, PartitionRoutePayloadError> {
-    return yield* partitionRoutePayloadValidationResultToEffect(
-      normalizePartitionCommitPayload(value),
-    );
-  },
+  (value: unknown): Effect.Effect<PartitionCommitRequest, PartitionRoutePayloadError> =>
+    Effect.fromResult(normalizePartitionCommitPayload(value)),
 );
 
 export const decodePartitionSubscriptionRegistrationPayloadEffect = Effect.fn(
   "PartitionProtocol.decodeSubscriptionRegistrationPayload",
 )(
-  function* (
+  (
     value: unknown,
-  ): Effect.fn.Return<PartitionSubscriptionRegistrationRequest, PartitionRoutePayloadError> {
-    return yield* partitionRoutePayloadValidationResultToEffect(
-      normalizePartitionSubscriptionRegistrationPayload(value),
-    );
-  },
+  ): Effect.Effect<PartitionSubscriptionRegistrationRequest, PartitionRoutePayloadError> =>
+    Effect.fromResult(normalizePartitionSubscriptionRegistrationPayload(value)),
 );
 
 export const decodePartitionSubscriptionTargetPayloadEffect = Effect.fn(
   "PartitionProtocol.decodeSubscriptionTargetPayload",
 )(
-  function* (
-    value: unknown,
-  ): Effect.fn.Return<PartitionSubscriptionTargetRequest, PartitionRoutePayloadError> {
-    return yield* partitionRoutePayloadValidationResultToEffect(
-      normalizePartitionSubscriptionTargetPayload(value),
-    );
-  },
+  (value: unknown): Effect.Effect<PartitionSubscriptionTargetRequest, PartitionRoutePayloadError> =>
+    Effect.fromResult(normalizePartitionSubscriptionTargetPayload(value)),
 );
 
 export const decodePartitionConnectionUnregisterPayloadEffect = Effect.fn(
   "PartitionProtocol.decodeConnectionUnregisterPayload",
 )(
-  function* (
+  (
     value: unknown,
-  ): Effect.fn.Return<PartitionConnectionUnregisterRequest, PartitionRoutePayloadError> {
-    return yield* partitionRoutePayloadValidationResultToEffect(
-      normalizePartitionConnectionUnregisterPayload(value),
-    );
-  },
+  ): Effect.Effect<PartitionConnectionUnregisterRequest, PartitionRoutePayloadError> =>
+    Effect.fromResult(normalizePartitionConnectionUnregisterPayload(value)),
 );
 
 function normalizePartitionSchemaCachePayload(
@@ -149,7 +131,7 @@ function normalizePartitionSchemaCachePayload(
   if (!isRecord(value)) {
     return partitionRoutePayloadValidationFailure("schema-cache request body must be an object.");
   }
-  return partitionRoutePayloadValidationSuccess(value as PartitionSchemaCacheRequest);
+  return Result.succeed(value as PartitionSchemaCacheRequest);
 }
 
 function normalizePartitionCommitPayload(
@@ -158,77 +140,70 @@ function normalizePartitionCommitPayload(
   if (!isRecord(value)) {
     return partitionRoutePayloadValidationFailure("commit request body must be an object.");
   }
-  const beginTs = requiredIntegerField(value, "beginTs");
-  if (!beginTs.success) return beginTs;
-  const schemaVersion = value.schemaVersion === undefined
-    ? partitionRoutePayloadValidationSuccess(undefined)
-    : integerField(value, "schemaVersion");
-  if (!schemaVersion.success) return schemaVersion;
-  const source = value.source === undefined
-    ? partitionRoutePayloadValidationSuccess(undefined)
-    : stringField(value, "source");
-  if (!source.success) return source;
-  const idempotencyKey = value.idempotencyKey === undefined
-    ? partitionRoutePayloadValidationSuccess(undefined)
-    : stringField(value, "idempotencyKey");
-  if (!idempotencyKey.success) return idempotencyKey;
-  const readSet = value.readSet === undefined
-    ? partitionRoutePayloadValidationSuccess(undefined)
-    : readSetField(value, "readSet");
-  if (!readSet.success) return readSet;
-  const writes = writesField(value, "writes");
-  if (!writes.success) return writes;
+  return Result.gen(function* () {
+    const beginTs = yield* requiredIntegerField(value, "beginTs");
+    const schemaVersion = yield* (value.schemaVersion === undefined
+      ? Result.succeed(undefined)
+      : integerField(value, "schemaVersion"));
+    const source = yield* (value.source === undefined
+      ? Result.succeed(undefined)
+      : stringField(value, "source"));
+    const idempotencyKey = yield* (value.idempotencyKey === undefined
+      ? Result.succeed(undefined)
+      : stringField(value, "idempotencyKey"));
+    const readSet = yield* (value.readSet === undefined
+      ? Result.succeed(undefined)
+      : readSetField(value, "readSet"));
+    const writes = yield* writesField(value, "writes");
 
-  return partitionRoutePayloadValidationSuccess({
-    beginTs: beginTs.value,
-    ...(schemaVersion.value === undefined ? {} : { schemaVersion: schemaVersion.value }),
-    ...(source.value === undefined ? {} : { source: source.value }),
-    ...(idempotencyKey.value === undefined ? {} : { idempotencyKey: idempotencyKey.value }),
-    ...(readSet.value === undefined ? {} : { readSet: readSet.value }),
-    writes: writes.value,
+    return {
+      beginTs,
+      ...(schemaVersion === undefined ? {} : { schemaVersion }),
+      ...(source === undefined ? {} : { source }),
+      ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+      ...(readSet === undefined ? {} : { readSet }),
+      writes,
+    };
   });
 }
 
 function normalizePartitionSubscriptionRegistrationPayload(
   value: unknown,
 ): PartitionRoutePayloadValidationResult<PartitionSubscriptionRegistrationRequest> {
-  const target = normalizePartitionSubscriptionTargetPayload(value);
-  if (!target.success) return target;
-  const readSet = requiredReadSet(value, "readSet");
-  if (!readSet.success) return readSet;
-  return partitionRoutePayloadValidationSuccess({
-    ...target.value,
-    readSet: readSet.value,
+  return Result.gen(function* () {
+    const target = yield* normalizePartitionSubscriptionTargetPayload(value);
+    const readSet = yield* requiredReadSet(value, "readSet");
+    return { ...target, readSet };
   });
 }
 
 function normalizePartitionSubscriptionTargetPayload(
   value: unknown,
 ): PartitionRoutePayloadValidationResult<PartitionSubscriptionTargetRequest> {
-  const connectionName = requiredStringField(value, "connectionName");
-  if (!connectionName.success) return connectionName;
-  const queryId = requiredIntegerField(value, "queryId");
-  if (!queryId.success) return queryId;
-  return partitionRoutePayloadValidationSuccess({
-    connectionName: connectionName.value,
-    queryId: queryId.value,
+  return Result.gen(function* () {
+    const connectionName = yield* requiredStringField(value, "connectionName");
+    const queryId = yield* requiredIntegerField(value, "queryId");
+    return { connectionName, queryId };
   });
 }
 
 function normalizePartitionConnectionUnregisterPayload(
   value: unknown,
 ): PartitionRoutePayloadValidationResult<PartitionConnectionUnregisterRequest> {
-  const connectionName = requiredStringField(value, "connectionName");
-  if (!connectionName.success) return connectionName;
-  return partitionRoutePayloadValidationSuccess({ connectionName: connectionName.value });
+  return requiredStringField(value, "connectionName").pipe(
+    Result.map(connectionName => ({ connectionName })),
+  );
 }
 
 function requiredStringField(
   value: unknown,
   field: string,
 ): PartitionRoutePayloadValidationResult<string> {
-  if (isRecord(value) && typeof value[field] === "string" && value[field].length > 0) {
-    return partitionRoutePayloadValidationSuccess(value[field]);
+  if (isRecord(value)) {
+    const property = value[field];
+    if (typeof property === "string" && property.length > 0) {
+      return Result.succeed(property);
+    }
   }
   return partitionRoutePayloadValidationFailure(`${field} must be a non-empty string.`);
 }
@@ -244,14 +219,14 @@ function requiredIntegerField(
 }
 
 function integerField(
-  value: Record<string, unknown>,
+  value: UnknownRecord,
   field: string,
 ): PartitionRoutePayloadValidationResult<number> {
   const property = propertyForPath(value, field);
   if (typeof property !== "number" || !Number.isInteger(property)) {
     return partitionRoutePayloadValidationFailure(`${field} must be an integer.`);
   }
-  return partitionRoutePayloadValidationSuccess(property);
+  return Result.succeed(property);
 }
 
 function requiredReadSet(
@@ -265,213 +240,192 @@ function requiredReadSet(
 }
 
 function stringField(
-  value: Record<string, unknown>,
+  value: UnknownRecord,
   field: string,
 ): PartitionRoutePayloadValidationResult<string> {
   const property = propertyForPath(value, field);
   if (typeof property !== "string") {
     return partitionRoutePayloadValidationFailure(`${field} must be a string.`);
   }
-  return partitionRoutePayloadValidationSuccess(property);
+  return Result.succeed(property);
 }
 
 function readSetField(
-  value: Record<string, unknown>,
+  value: UnknownRecord,
   field: string,
 ): PartitionRoutePayloadValidationResult<PartitionReadSet> {
   const candidate = value[field];
   if (!isRecord(candidate)) {
     return partitionRoutePayloadValidationFailure(`${field} must be an object.`);
   }
-  const documents = candidate.documents === undefined
-    ? partitionRoutePayloadValidationSuccess(undefined)
-    : documentReadsField(candidate, `${field}.documents`);
-  if (!documents.success) return documents;
-  const tables = candidate.tables === undefined
-    ? partitionRoutePayloadValidationSuccess(undefined)
-    : tableReadsField(candidate, `${field}.tables`);
-  if (!tables.success) return tables;
-  const indexes = candidate.indexes === undefined
-    ? partitionRoutePayloadValidationSuccess(undefined)
-    : indexReadsField(candidate, `${field}.indexes`);
-  if (!indexes.success) return indexes;
+  return Result.gen(function* () {
+    const documents = yield* (candidate.documents === undefined
+      ? Result.succeed(undefined)
+      : documentReadsField(candidate, `${field}.documents`));
+    const tables = yield* (candidate.tables === undefined
+      ? Result.succeed(undefined)
+      : tableReadsField(candidate, `${field}.tables`));
+    const indexes = yield* (candidate.indexes === undefined
+      ? Result.succeed(undefined)
+      : indexReadsField(candidate, `${field}.indexes`));
 
-  return partitionRoutePayloadValidationSuccess({
-    ...(documents.value === undefined ? {} : { documents: documents.value }),
-    ...(tables.value === undefined ? {} : { tables: tables.value }),
-    ...(indexes.value === undefined ? {} : { indexes: indexes.value }),
+    return {
+      ...(documents === undefined ? {} : { documents }),
+      ...(tables === undefined ? {} : { tables }),
+      ...(indexes === undefined ? {} : { indexes }),
+    };
   });
 }
 
 function documentReadsField(
-  value: Record<string, unknown>,
+  value: UnknownRecord,
   field: string,
 ): PartitionRoutePayloadValidationResult<PartitionDocumentRead[]> {
   const candidate = value.documents;
   if (!Array.isArray(candidate)) {
     return partitionRoutePayloadValidationFailure(`${field} must be an array.`);
   }
-  const entries: PartitionDocumentRead[] = [];
-  for (const [index, entry] of candidate.entries()) {
-    const path = `${field}[${index}]`;
-    if (!isRecord(entry)) return partitionRoutePayloadValidationFailure(`${path} must be an object.`);
-    const tableId = integerField(entry, `${path}.tableId`);
-    if (!tableId.success) return tableId;
-    const id = nonEmptyStringProperty(entry, `${path}.id`);
-    if (!id.success) return id;
-    entries.push({
-      tableId: tableId.value,
-      id: id.value,
-    });
-  }
-  return partitionRoutePayloadValidationSuccess(entries);
+  return Result.gen(function* () {
+    const entries: PartitionDocumentRead[] = [];
+    for (const [index, entry] of candidate.entries()) {
+      const path = `${field}[${index}]`;
+      if (!isRecord(entry)) {
+        return yield* partitionRoutePayloadValidationFailure(`${path} must be an object.`);
+      }
+      const tableId = yield* integerField(entry, `${path}.tableId`);
+      const id = yield* nonEmptyStringProperty(entry, `${path}.id`);
+      entries.push({ tableId, id });
+    }
+    return entries;
+  });
 }
 
 function tableReadsField(
-  value: Record<string, unknown>,
+  value: UnknownRecord,
   field: string,
 ): PartitionRoutePayloadValidationResult<PartitionTableRead[]> {
   const candidate = value.tables;
   if (!Array.isArray(candidate)) {
     return partitionRoutePayloadValidationFailure(`${field} must be an array.`);
   }
-  const entries: PartitionTableRead[] = [];
-  for (const [index, entry] of candidate.entries()) {
-    const path = `${field}[${index}]`;
-    if (!isRecord(entry)) return partitionRoutePayloadValidationFailure(`${path} must be an object.`);
-    const tableId = integerField(entry, `${path}.tableId`);
-    if (!tableId.success) return tableId;
-    entries.push({ tableId: tableId.value });
-  }
-  return partitionRoutePayloadValidationSuccess(entries);
+  return Result.gen(function* () {
+    const entries: PartitionTableRead[] = [];
+    for (const [index, entry] of candidate.entries()) {
+      const path = `${field}[${index}]`;
+      if (!isRecord(entry)) {
+        return yield* partitionRoutePayloadValidationFailure(`${path} must be an object.`);
+      }
+      const tableId = yield* integerField(entry, `${path}.tableId`);
+      entries.push({ tableId });
+    }
+    return entries;
+  });
 }
 
 function indexReadsField(
-  value: Record<string, unknown>,
+  value: UnknownRecord,
   field: string,
 ): PartitionRoutePayloadValidationResult<PartitionIndexRead[]> {
   const candidate = value.indexes;
   if (!Array.isArray(candidate)) {
     return partitionRoutePayloadValidationFailure(`${field} must be an array.`);
   }
-  const entries: PartitionIndexRead[] = [];
-  for (const [index, entry] of candidate.entries()) {
-    const path = `${field}[${index}]`;
-    if (!isRecord(entry)) return partitionRoutePayloadValidationFailure(`${path} must be an object.`);
-    const indexId = integerField(entry, `${path}.indexId`);
-    if (!indexId.success) return indexId;
-    const lower = entry.lower === undefined
-      ? partitionRoutePayloadValidationSuccess(undefined)
-      : stringProperty(entry, `${path}.lower`);
-    if (!lower.success) return lower;
-    const upper = entry.upper === undefined
-      ? partitionRoutePayloadValidationSuccess(undefined)
-      : stringProperty(entry, `${path}.upper`);
-    if (!upper.success) return upper;
-    entries.push({
-      indexId: indexId.value,
-      ...(lower.value === undefined ? {} : { lower: lower.value }),
-      ...(upper.value === undefined ? {} : { upper: upper.value }),
-    });
-  }
-  return partitionRoutePayloadValidationSuccess(entries);
+  return Result.gen(function* () {
+    const entries: PartitionIndexRead[] = [];
+    for (const [index, entry] of candidate.entries()) {
+      const path = `${field}[${index}]`;
+      if (!isRecord(entry)) {
+        return yield* partitionRoutePayloadValidationFailure(`${path} must be an object.`);
+      }
+      const indexId = yield* integerField(entry, `${path}.indexId`);
+      const lower = yield* (entry.lower === undefined
+        ? Result.succeed(undefined)
+        : stringProperty(entry, `${path}.lower`));
+      const upper = yield* (entry.upper === undefined
+        ? Result.succeed(undefined)
+        : stringProperty(entry, `${path}.upper`));
+      entries.push({
+        indexId,
+        ...(lower === undefined ? {} : { lower }),
+        ...(upper === undefined ? {} : { upper }),
+      });
+    }
+    return entries;
+  });
 }
 
 function writesField(
-  value: Record<string, unknown>,
+  value: UnknownRecord,
   field: string,
 ): PartitionRoutePayloadValidationResult<PartitionDocumentWrite[]> {
   const candidate = value[field];
   if (!Array.isArray(candidate)) {
     return partitionRoutePayloadValidationFailure(`${field} must be an array.`);
   }
-  const writes: PartitionDocumentWrite[] = [];
-  for (const [index, entry] of candidate.entries()) {
-    const path = `${field}[${index}]`;
-    if (!isRecord(entry)) return partitionRoutePayloadValidationFailure(`${path} must be an object.`);
-    const tableId = integerField(entry, `${path}.tableId`);
-    if (!tableId.success) return tableId;
-    const id = entry.id === undefined
-      ? partitionRoutePayloadValidationSuccess(undefined)
-      : nonEmptyStringProperty(entry, `${path}.id`);
-    if (!id.success) return id;
-    const value = jsonProperty(entry, `${path}.value`);
-    if (!value.success) return value;
-    writes.push({
-      tableId: tableId.value,
-      ...(id.value === undefined ? {} : { id: id.value }),
-      value: value.value,
-    });
-  }
-  return partitionRoutePayloadValidationSuccess(writes);
+  return Result.gen(function* () {
+    const writes: PartitionDocumentWrite[] = [];
+    for (const [index, entry] of candidate.entries()) {
+      const path = `${field}[${index}]`;
+      if (!isRecord(entry)) {
+        return yield* partitionRoutePayloadValidationFailure(`${path} must be an object.`);
+      }
+      const tableId = yield* integerField(entry, `${path}.tableId`);
+      const id = yield* (entry.id === undefined
+        ? Result.succeed(undefined)
+        : nonEmptyStringProperty(entry, `${path}.id`));
+      const value = yield* jsonProperty(entry, `${path}.value`);
+      writes.push({
+        tableId,
+        ...(id === undefined ? {} : { id }),
+        value,
+      });
+    }
+    return writes;
+  });
 }
 
 function jsonProperty(
-  value: Record<string, unknown>,
+  value: UnknownRecord,
   field: string,
 ): PartitionRoutePayloadValidationResult<PartitionJson | null> {
   const property = propertyForPath(value, field);
   if (!isJson(property)) {
     return partitionRoutePayloadValidationFailure(`${field} must be a JSON value.`);
   }
-  return partitionRoutePayloadValidationSuccess(property as PartitionJson);
+  return Result.succeed(property as PartitionJson);
 }
 
 function nonEmptyStringProperty(
-  value: Record<string, unknown>,
+  value: UnknownRecord,
   field: string,
 ): PartitionRoutePayloadValidationResult<string> {
   const property = propertyForPath(value, field);
   if (typeof property !== "string" || property.length === 0) {
     return partitionRoutePayloadValidationFailure(`${field} must be a non-empty string.`);
   }
-  return partitionRoutePayloadValidationSuccess(property);
+  return Result.succeed(property);
 }
 
 function stringProperty(
-  value: Record<string, unknown>,
+  value: UnknownRecord,
   field: string,
 ): PartitionRoutePayloadValidationResult<string> {
   const property = propertyForPath(value, field);
   if (typeof property !== "string") {
     return partitionRoutePayloadValidationFailure(`${field} must be a string.`);
   }
-  return partitionRoutePayloadValidationSuccess(property);
+  return Result.succeed(property);
 }
 
-function propertyForPath(value: Record<string, unknown>, field: string): unknown {
+function propertyForPath(value: UnknownRecord, field: string): unknown {
   const propertyName = field.slice(field.lastIndexOf(".") + 1);
   return value[propertyName];
 }
 
-type PartitionRoutePayloadValidationResult<A> =
-  | {
-      readonly success: true;
-      readonly value: A;
-    }
-  | {
-      readonly success: false;
-      readonly error: PartitionRoutePayloadError;
-    };
-
-function partitionRoutePayloadValidationSuccess<A>(value: A): PartitionRoutePayloadValidationResult<A> {
-  return {
-    success: true,
-    value,
-  };
-}
+type PartitionRoutePayloadValidationResult<A> = Result.Result<A, PartitionRoutePayloadError>;
 
 function partitionRoutePayloadValidationFailure<A = never>(
   message: string,
 ): PartitionRoutePayloadValidationResult<A> {
-  return {
-    success: false,
-    error: new PartitionRoutePayloadError({ message }),
-  };
-}
-
-function partitionRoutePayloadValidationResultToEffect<A>(
-  result: PartitionRoutePayloadValidationResult<A>,
-): Effect.Effect<A, PartitionRoutePayloadError> {
-  return result.success ? Effect.succeed(result.value) : Effect.fail(result.error);
+  return Result.fail(new PartitionRoutePayloadError({ message }));
 }

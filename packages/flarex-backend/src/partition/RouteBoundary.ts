@@ -43,93 +43,87 @@ export type PartitionIndexReadRequest = {
 
 export const decodePartitionSchemaCacheRequest = Effect.fn(
   "PartitionRouteBoundary.decodeSchemaCacheRequest",
-)(function* (
-  request: Request,
-): Effect.fn.Return<PartitionSchemaCacheRequest, PartitionRouteError> {
-  return yield* readJsonEffect(request).pipe(
-    Effect.flatMap(decodePartitionSchemaCacheRoutePayload),
-  );
-});
+)(
+  (request: Request): Effect.Effect<PartitionSchemaCacheRequest, PartitionRouteError> =>
+    readJsonEffect(request).pipe(
+      Effect.flatMap(decodePartitionSchemaCacheRoutePayload),
+    ),
+);
 
 export const decodePartitionSchemaCacheRoutePayload = Effect.fn(
   "PartitionRouteBoundary.decodeSchemaCachePayload",
-)(function* (
-  value: unknown,
-): Effect.fn.Return<PartitionSchemaCacheRequest, PartitionRoutePayloadError> {
-  return yield* decodePartitionSchemaCachePayload(value);
-});
+)(
+  (value: unknown): Effect.Effect<PartitionSchemaCacheRequest, PartitionRoutePayloadError> =>
+    decodePartitionSchemaCachePayload(value),
+);
 
 export const decodePartitionCommitRequest = Effect.fn(
   "PartitionRouteBoundary.decodeCommitRequest",
-)(function* (
-  request: Request,
-): Effect.fn.Return<PartitionCommitRequest, PartitionRouteError> {
-  return yield* readJsonEffect(request).pipe(
-    Effect.flatMap(decodePartitionCommitRoutePayload),
-  );
-});
+)(
+  (request: Request): Effect.Effect<PartitionCommitRequest, PartitionRouteError> =>
+    readJsonEffect(request).pipe(
+      Effect.flatMap(decodePartitionCommitRoutePayload),
+    ),
+);
 
 export const decodePartitionCommitRoutePayload = Effect.fn(
   "PartitionRouteBoundary.decodeCommitPayload",
-)(function* (
-  value: unknown,
-): Effect.fn.Return<PartitionCommitRequest, PartitionRoutePayloadError> {
-  return yield* decodePartitionCommitPayload(value);
-});
+)(
+  (value: unknown): Effect.Effect<PartitionCommitRequest, PartitionRoutePayloadError> =>
+    decodePartitionCommitPayload(value),
+);
 
 export const decodePartitionSubscriptionRegistrationRequest = Effect.fn(
   "PartitionRouteBoundary.decodeSubscriptionRegistrationRequest",
-)(function* (
-  request: Request,
-): Effect.fn.Return<PartitionSubscriptionRegistrationRequest, PartitionRouteError> {
-  return yield* readJsonEffect(request).pipe(
-    Effect.flatMap(decodePartitionSubscriptionRegistrationRoutePayload),
-  );
-});
+)(
+  (request: Request): Effect.Effect<PartitionSubscriptionRegistrationRequest, PartitionRouteError> =>
+    readJsonEffect(request).pipe(
+      Effect.flatMap(decodePartitionSubscriptionRegistrationRoutePayload),
+    ),
+);
 
 export const decodePartitionSubscriptionRegistrationRoutePayload = Effect.fn(
   "PartitionRouteBoundary.decodeSubscriptionRegistrationPayload",
-)(function* (
-  value: unknown,
-): Effect.fn.Return<PartitionSubscriptionRegistrationRequest, PartitionRoutePayloadError> {
-  return yield* decodePartitionSubscriptionRegistrationPayload(value);
-});
+)(
+  (
+    value: unknown,
+  ): Effect.Effect<PartitionSubscriptionRegistrationRequest, PartitionRoutePayloadError> =>
+    decodePartitionSubscriptionRegistrationPayload(value),
+);
 
 export const decodePartitionSubscriptionTargetRequest = Effect.fn(
   "PartitionRouteBoundary.decodeSubscriptionTargetRequest",
-)(function* (
-  request: Request,
-): Effect.fn.Return<PartitionSubscriptionTargetRequest, PartitionRouteError> {
-  return yield* readJsonEffect(request).pipe(
-    Effect.flatMap(decodePartitionSubscriptionTargetRoutePayload),
-  );
-});
+)(
+  (request: Request): Effect.Effect<PartitionSubscriptionTargetRequest, PartitionRouteError> =>
+    readJsonEffect(request).pipe(
+      Effect.flatMap(decodePartitionSubscriptionTargetRoutePayload),
+    ),
+);
 
 export const decodePartitionSubscriptionTargetRoutePayload = Effect.fn(
   "PartitionRouteBoundary.decodeSubscriptionTargetPayload",
-)(function* (
-  value: unknown,
-): Effect.fn.Return<PartitionSubscriptionTargetRequest, PartitionRoutePayloadError> {
-  return yield* decodePartitionSubscriptionTargetPayload(value);
-});
+)(
+  (value: unknown): Effect.Effect<PartitionSubscriptionTargetRequest, PartitionRoutePayloadError> =>
+    decodePartitionSubscriptionTargetPayload(value),
+);
 
 export const decodePartitionConnectionUnregisterRequest = Effect.fn(
   "PartitionRouteBoundary.decodeConnectionUnregisterRequest",
-)(function* (
-  request: Request,
-): Effect.fn.Return<PartitionConnectionUnregisterRequest, PartitionRouteError> {
-  return yield* readJsonEffect(request).pipe(
-    Effect.flatMap(decodePartitionConnectionUnregisterRoutePayload),
-  );
-});
+)(
+  (request: Request): Effect.Effect<PartitionConnectionUnregisterRequest, PartitionRouteError> =>
+    readJsonEffect(request).pipe(
+      Effect.flatMap(decodePartitionConnectionUnregisterRoutePayload),
+    ),
+);
 
 export const decodePartitionConnectionUnregisterRoutePayload = Effect.fn(
   "PartitionRouteBoundary.decodeConnectionUnregisterPayload",
-)(function* (
-  value: unknown,
-): Effect.fn.Return<PartitionConnectionUnregisterRequest, PartitionRoutePayloadError> {
-  return yield* decodePartitionConnectionUnregisterPayload(value);
-});
+)(
+  (
+    value: unknown,
+  ): Effect.Effect<PartitionConnectionUnregisterRequest, PartitionRoutePayloadError> =>
+    decodePartitionConnectionUnregisterPayload(value),
+);
 
 export const decodePartitionDocumentReadSearchParams = Effect.fn(
   "PartitionRouteBoundary.decodeDocumentReadSearchParams",
