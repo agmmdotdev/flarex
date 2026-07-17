@@ -47,6 +47,7 @@ import {
   type PreparedAppSchemaPublicationV1,
 } from "./appSchemaPublicationPreparation";
 import type { FlarexMetadataDatabase } from "./deployments";
+import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import { lockSchemaManifestBindingDeployment } from "./schemaManifestTableBindings";
 import {
   fxControlIndexDefinitions,
@@ -1579,35 +1580,6 @@ function decodeStoredTimestamp(
     );
   }
   return new Date(value.getTime());
-}
-
-function hasExactOwnDataKeys(
-  value: unknown,
-  expectedKeys: ReadonlyArray<string>,
-): boolean {
-  if (
-    value === null ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
-    Object.getPrototypeOf(value) !== Object.prototype
-  ) {
-    return false;
-  }
-  const keys = Reflect.ownKeys(value);
-  if (keys.length !== expectedKeys.length) return false;
-  const expected = new Set(expectedKeys);
-  for (const key of keys) {
-    if (typeof key !== "string" || !expected.has(key)) return false;
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (
-      descriptor === undefined ||
-      !("value" in descriptor) ||
-      !descriptor.enumerable
-    ) {
-      return false;
-    }
-  }
-  return true;
 }
 
 function invalidInputMessage(

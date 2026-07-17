@@ -15,6 +15,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
   enforceAppSchemaPublicationV1CanonicalByteLowerBound,
   enforceAppSchemaPublicationV1CanonicalByteQuota,
@@ -321,35 +322,6 @@ function invalidField(
     { reason: "invalidField", field },
     cause === undefined ? undefined : { cause },
   );
-}
-
-function hasExactOwnDataKeys(
-  value: unknown,
-  expectedKeys: ReadonlyArray<string>,
-): value is Record<string, unknown> {
-  if (
-    value === null ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
-    Object.getPrototypeOf(value) !== Object.prototype
-  ) {
-    return false;
-  }
-  const keys = Reflect.ownKeys(value);
-  if (keys.length !== expectedKeys.length) return false;
-  const expected = new Set(expectedKeys);
-  for (const key of keys) {
-    if (typeof key !== "string" || !expected.has(key)) return false;
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (
-      descriptor === undefined ||
-      !("value" in descriptor) ||
-      !descriptor.enumerable
-    ) {
-      return false;
-    }
-  }
-  return true;
 }
 
 function deepFreeze(value: unknown): void {
