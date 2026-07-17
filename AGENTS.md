@@ -125,6 +125,15 @@ asserting a mutable `Record`. Its result is readonly and does not establish a
 plain prototype, JSON membership, symbol-key policy, or a domain shape. Retain
 a local domain guard when it checks those additional invariants, but delegate
 only its exact shallow-record step to the generic primitive.
+When a value is already typed as Flarex `Json` or `WritableJson`, use the
+protocol-owned `isJsonObject` or `isWritableJsonObject` discriminator instead
+of rediscovering that union member with the generic unknown-record predicate.
+Those discriminators classify validated JSON; they do not validate unknown
+input.
+Raw HTTP JSON readers return `unknown`. An unconstrained generic type argument
+or assertion does not validate a response body and must not let callers choose
+an arbitrary success type. Keep the domain-owned payload decoder as the sole
+authority that turns the raw body into a typed success value.
 When multiple Effect consumers call the same Promise-based protocol operation,
 prefer one protocol-owned Effect adapter that preserves its typed failures and
 routes unexpected causes to defects. Consumers may translate the typed error

@@ -84,7 +84,7 @@ export const forceReconnectEffect = Effect.fn(
         closed: 0,
       };
     }
-    const payload = yield* decodeSchedulerForceReconnectJsonResponse<unknown>(
+    const payload = yield* decodeSchedulerForceReconnectJsonResponse(
       response,
     );
     const result = yield* decodeSchedulerForceReconnectPayload(payload);

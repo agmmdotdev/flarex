@@ -345,9 +345,17 @@ semantics.
 - `@flarex/utils/records` owns shallow non-null, non-array object narrowing as
   both a predicate and nullable adapter. It deliberately does not promise a
   plain prototype, JSON membership, symbol-key rejection, or runtime
-  mutability. Protocol request and host-payload decoders, executor metadata,
-  persistence authority, importable H05 evidence/Worker/collector modules, and
-  ordinary importable test modules reuse it without mutable-record assertions.
+  mutability. Protocol request and host-payload decoders, backend live-query
+  and scheduler response decoders and delivery guards, deployment metadata,
+  executor metadata, persistence authority, importable H05 evidence/Worker/
+  collector modules, and ordinary importable test modules reuse it without
+  mutable-record assertions. Backend traversal and placement logic whose input
+  is already Flarex `Json` uses the protocol-owned `isJsonObject` or
+  `isWritableJsonObject` discriminator instead of treating JSON membership as
+  a generic record concern. Backend live-query and scheduler HTTP readers keep
+  successful response bodies as `unknown`; their domain payload decoders are
+  the only typed-success authority rather than an unconstrained caller-chosen
+  generic.
   Stricter canonical, domain object, and writable fixture guards retain their
   owners and may delegate only the shallow record step, while standalone
   generated source keeps the smallest equivalent local predicate because it

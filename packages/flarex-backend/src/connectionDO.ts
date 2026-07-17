@@ -1085,9 +1085,6 @@ function requireQueryInvokeResponse(response: InvokeResponse): QueryInvokeRespon
   if (response.readSet === undefined) {
     throw new Error("Query response must include readSet.");
   }
-  if (!isReadSet(response.readSet)) {
-    throw new Error("Query response readSet must be an object.");
-  }
   if (response.readTs === undefined) {
     throw new Error("Query response with readSet must include readTs.");
   }
@@ -1099,10 +1096,6 @@ function requireQueryInvokeResponse(response: InvokeResponse): QueryInvokeRespon
     readSet: response.readSet,
     readTs: response.readTs,
   };
-}
-
-function isReadSet(value: unknown): value is ReadSet {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function postExecutor(

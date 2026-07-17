@@ -64,7 +64,7 @@ export const expiredConnectionDeploymentsEffect = Effect.fn(
       "/maintenance/live-queries/expired-connection-deployments",
       body,
     );
-    const payload = yield* decodeSchedulerExpiredConnectionDeploymentsResponse<unknown>(
+    const payload = yield* decodeSchedulerExpiredConnectionDeploymentsResponse(
       response,
     );
     return yield* decodeSchedulerExpiredConnectionDeploymentsPayload(payload);
@@ -91,7 +91,7 @@ export const cleanupExpiredLiveQueryConnectionsEffect = Effect.fn(
       "/maintenance/live-queries/connections/cleanup",
       body,
     );
-    const payload = yield* decodeSchedulerCleanupConnectionsResponse<unknown>(
+    const payload = yield* decodeSchedulerCleanupConnectionsResponse(
       response,
     );
     return yield* decodeSchedulerCleanupConnectionsPayload(payload);
@@ -114,7 +114,7 @@ export const deadLetterStuckLiveQueryDeliveriesEffect = Effect.fn(
       "/maintenance/live-queries/dead-letter-stuck",
       body,
     );
-    const payload = yield* decodeSchedulerDeadLetterStuckResponse<unknown>(
+    const payload = yield* decodeSchedulerDeadLetterStuckResponse(
       response,
     );
     return yield* decodeSchedulerDeadLetterPayload(payload);
@@ -137,7 +137,7 @@ export const pendingDeploymentsEffect = Effect.fn(
       "/maintenance/live-queries/pending-deployments",
       body,
     );
-    const payload = yield* decodeSchedulerPendingDeploymentsResponse<unknown>(
+    const payload = yield* decodeSchedulerPendingDeploymentsResponse(
       response,
     );
     return yield* decodeSchedulerPendingDeploymentsPayload(payload);
@@ -160,7 +160,7 @@ export const rerunStaleLiveQuerySubscriptionsEffect = Effect.fn(
       "/maintenance/live-queries/rerun",
       body,
     );
-    const payload = yield* decodeSchedulerRerunResponse<unknown>(response);
+    const payload = yield* decodeSchedulerRerunResponse(response);
     return yield* decodeSchedulerRerunPayload(payload);
   },
 );

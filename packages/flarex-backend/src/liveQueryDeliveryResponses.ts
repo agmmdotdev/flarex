@@ -1,3 +1,7 @@
+import {
+  isNonArrayRecord,
+  type UnknownRecord,
+} from "@flarex/utils/records";
 import { Data, Effect } from "effect";
 import { HttpError, readResponseJsonOrNullEffect } from "./http";
 
@@ -48,8 +52,10 @@ export type ClaimLiveQueryDeliveryBatchResult = {
 export const decodeLiveQueryDeliveryClaimResponse = Effect.fn(
   "LiveQueryDelivery.decodeClaimResponse",
 )(
-  function* <A>(response: LiveQueryDeliveryHttpResponse) {
-    return yield* decodeLiveQueryDeliveryResponse<A>(
+  function* (
+    response: LiveQueryDeliveryHttpResponse,
+  ): Effect.fn.Return<unknown, LiveQueryDeliveryResponseError> {
+    return yield* decodeLiveQueryDeliveryResponse(
       response,
       "claim",
       `Live query delivery claim failed with status ${response.status}.`,
@@ -60,8 +66,10 @@ export const decodeLiveQueryDeliveryClaimResponse = Effect.fn(
 export const decodeLiveQueryDeliveryAckResponse = Effect.fn(
   "LiveQueryDelivery.decodeAckResponse",
 )(
-  function* <A>(response: LiveQueryDeliveryHttpResponse) {
-    return yield* decodeLiveQueryDeliveryResponse<A>(
+  function* (
+    response: LiveQueryDeliveryHttpResponse,
+  ): Effect.fn.Return<unknown, LiveQueryDeliveryResponseError> {
+    return yield* decodeLiveQueryDeliveryResponse(
       response,
       "ack",
       `Live query delivery ack failed with status ${response.status}.`,
@@ -72,8 +80,11 @@ export const decodeLiveQueryDeliveryAckResponse = Effect.fn(
 export const decodeConnectionLiveQueryDeliveryResponse = Effect.fn(
   "LiveQueryDelivery.decodeConnectionResponse",
 )(
-  function* <A>(response: LiveQueryDeliveryHttpResponse, connectionId: string) {
-    return yield* decodeLiveQueryDeliveryResponse<A>(
+  function* (
+    response: LiveQueryDeliveryHttpResponse,
+    connectionId: string,
+  ): Effect.fn.Return<unknown, LiveQueryDeliveryResponseError> {
+    return yield* decodeLiveQueryDeliveryResponse(
       response,
       "connectionDelivery",
       `ConnectionDO live query delivery failed for ${connectionId} with status ${response.status}.`,
@@ -151,11 +162,11 @@ export const decodeLiveQueryDeliveryAckPayload = Effect.fn(
   },
 );
 
-function decodeLiveQueryDeliveryResponse<A>(
+function decodeLiveQueryDeliveryResponse(
   response: LiveQueryDeliveryHttpResponse,
   operation: LiveQueryDeliveryResponseOperation,
   message: string,
-): Effect.Effect<A, LiveQueryDeliveryResponseError> {
+): Effect.Effect<unknown, LiveQueryDeliveryResponseError> {
   return Effect.gen(function* () {
     const body = yield* readLiveQueryDeliveryResponseJson(response);
     if (!response.ok) {
@@ -166,7 +177,7 @@ function decodeLiveQueryDeliveryResponse<A>(
         body,
       }));
     }
-    return body as A;
+    return body;
   });
 }
 
@@ -208,9 +219,9 @@ function responseRecord(
   value: unknown,
   operation: LiveQueryDeliveryResponseOperation,
   message: string,
-): Effect.Effect<Record<string, unknown>, LiveQueryDeliveryResponsePayloadError> {
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-    return Effect.succeed(value as Record<string, unknown>);
+): Effect.Effect<UnknownRecord, LiveQueryDeliveryResponsePayloadError> {
+  if (isNonArrayRecord(value)) {
+    return Effect.succeed(value);
   }
   return failPayload(operation, message);
 }

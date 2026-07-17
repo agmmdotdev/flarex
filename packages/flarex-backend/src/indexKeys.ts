@@ -1,3 +1,4 @@
+import { isWritableJsonObject } from "flarex-protocol/json";
 import type { Json, SchemaIndex } from "./types";
 
 export type IndexRangeExpression = {
@@ -9,11 +10,11 @@ export type IndexRangeExpression = {
 const textEncoder = new TextEncoder();
 
 function getField(value: Json, field: string): Json | undefined {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  if (!isWritableJsonObject(value)) return undefined;
   let cursor: Json | undefined = value;
   for (const segment of field.split(".")) {
-    if (cursor === null || typeof cursor !== "object" || Array.isArray(cursor)) return undefined;
-    cursor = (cursor as Record<string, Json>)[segment];
+    if (cursor === undefined || !isWritableJsonObject(cursor)) return undefined;
+    cursor = cursor[segment];
   }
   return cursor;
 }

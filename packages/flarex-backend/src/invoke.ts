@@ -3,6 +3,7 @@ import {
   decodeActiveDeploymentStatusEffect,
   DeploymentRoute,
 } from "flarex-protocol/deployment";
+import { isWritableJsonObject } from "flarex-protocol/json";
 import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
 import { HttpError, readResponseJsonEffect } from "./http";
 import {
@@ -692,7 +693,7 @@ export const partitionKeyFromArgsEffect = Effect.fn("Invoke.partitionKeyFromArgs
   field: string,
   label: string,
 ): Effect.fn.Return<string, InvokePartitionValidationError> {
-  if (typeof request.args !== "object" || request.args === null || Array.isArray(request.args)) {
+  if (!isWritableJsonObject(request.args)) {
     return yield* partitionValidationFailure(
       `${request.path} ${label} requires object arguments.`,
     );
@@ -860,12 +861,13 @@ export const queryDocumentsEffect = Effect.fn("Invoke.queryDocuments")(function*
       continueCursor: result.continueCursor,
     };
   }
+  const lastDocument = page.at(-1);
   return {
     page,
     isDone: true,
     continueCursor: String(
-      typeof page.at(-1) === "object" && page.at(-1) !== null
-        ? (page.at(-1) as { _id?: unknown })._id ?? ""
+      lastDocument !== undefined && isWritableJsonObject(lastDocument)
+        ? lastDocument._id ?? ""
         : "",
     ),
   };
@@ -1216,7 +1218,7 @@ export const validateDocumentIdTableEffect = Effect.fn(
 });
 
 function documentValue(id: string, value: Json): Json {
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+  if (isWritableJsonObject(value)) {
     return { ...value, _id: id };
   }
   return value;
@@ -1249,7 +1251,7 @@ export const validateDocumentPlacementEffect = Effect.fn(
 ): Effect.fn.Return<void, InvokeDocumentPlacementError> {
   const placementField = ownerFieldForPlacement(table);
   if (placementField === null) return;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isWritableJsonObject(value)) {
     return yield* Effect.fail(new InvokeDocumentPlacementError({
       message: `$document(${table.name}) must be an object for placement validation.`,
     }));

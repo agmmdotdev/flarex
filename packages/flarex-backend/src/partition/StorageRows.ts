@@ -4,7 +4,12 @@ import {
   ValidatorJson as ProtocolValidatorJson,
   type ValidatorJson as ProtocolValidatorJsonType,
 } from "flarex-protocol/deployment";
-import { JsonValue, type Json as ProtocolJson } from "flarex-protocol/json";
+import {
+  isJsonArray,
+  isJsonObject,
+  JsonValue,
+  type Json as ProtocolJson,
+} from "flarex-protocol/json";
 import type {
   CommitResponse,
   CommittedWrite,
@@ -313,9 +318,11 @@ function validatorJsonFromStorage(decoded: ProtocolValidatorJsonType): Validator
 }
 
 function jsonFromStorage(value: ProtocolJson): Json {
-  if (value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) return value.map(jsonFromStorage);
-  return Object.fromEntries(
-    Object.entries(value).map(([key, entry]) => [key, jsonFromStorage(entry)]),
-  );
+  if (isJsonArray(value)) return value.map(jsonFromStorage);
+  if (isJsonObject(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, jsonFromStorage(entry)]),
+    );
+  }
+  return value;
 }

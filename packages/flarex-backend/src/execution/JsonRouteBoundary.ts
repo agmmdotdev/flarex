@@ -1,11 +1,15 @@
-import type { Json as ProtocolJson } from "flarex-protocol/json";
+import {
+  isJsonArray,
+  isJsonObject,
+  type Json as ProtocolJson,
+} from "flarex-protocol/json";
 import type { Json } from "../types";
 
 export function backendJson(value: ProtocolJson): Json {
-  if (Array.isArray(value)) {
+  if (isJsonArray(value)) {
     return value.map(backendJson);
   }
-  if (value !== null && typeof value === "object") {
+  if (isJsonObject(value)) {
     return Object.fromEntries(
       Object.entries(value).map(([key, entry]) => [key, backendJson(entry)]),
     );

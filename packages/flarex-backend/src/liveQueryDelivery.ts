@@ -1,3 +1,7 @@
+import {
+  isNonArrayRecord,
+  type UnknownRecord,
+} from "@flarex/utils/records";
 import { HttpError } from "./http";
 import { Data, Effect } from "effect";
 import {
@@ -146,7 +150,7 @@ export const deliverLiveQueryChangesToConnectionsEffect = Effect.fn(
           cause: error,
         }),
       });
-      const body = yield* decodeConnectionLiveQueryDeliveryResponse<unknown>(
+      const body = yield* decodeConnectionLiveQueryDeliveryResponse(
         response,
         connectionId,
       );
@@ -355,9 +359,9 @@ export function isLiveQueryDeliveryFanoutError(
 function resultRecord(
   value: unknown,
   connectionId: string,
-): Effect.Effect<Record<string, unknown>, LiveQueryDeliveryResultPayloadError> {
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-    return Effect.succeed(value as Record<string, unknown>);
+): Effect.Effect<UnknownRecord, LiveQueryDeliveryResultPayloadError> {
+  if (isNonArrayRecord(value)) {
+    return Effect.succeed(value);
   }
   return failResultPayload(
     connectionId,
@@ -409,11 +413,11 @@ function optionalLiveQueryDeliverySkipReasons(
   connectionId: string,
 ): Effect.Effect<LiveQueryDeliverySkipReasons | undefined, LiveQueryDeliveryResultPayloadError> {
   if (value === undefined) return Effect.succeed(undefined);
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return failResultPayload(connectionId, `${field} must be an object when present.`);
   }
+  const record = value;
   return Effect.gen(function* () {
-    const record = value as Record<string, unknown>;
     const result: LiveQueryDeliverySkipReasons = {};
     for (const reason of LIVE_QUERY_DELIVERY_SKIP_REASONS) {
       const count = yield* optionalResultInteger(

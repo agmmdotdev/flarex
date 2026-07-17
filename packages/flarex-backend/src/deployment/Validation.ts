@@ -170,10 +170,10 @@ export const decodeDiagnostics = Effect.fn("DeploymentValidation.decodeDiagnosti
     }
     const diagnostics: PushDiagnostic[] = [];
     for (const [index, diagnostic] of value.slice(-100).entries()) {
-      if (typeof diagnostic !== "object" || diagnostic === null || Array.isArray(diagnostic)) {
+      if (!isRecord(diagnostic)) {
         return yield* deploymentValidationFailureEffect(`Push diagnostic at index ${index} must be an object.`);
       }
-      const record = diagnostic as Partial<PushDiagnostic>;
+      const record = diagnostic;
       if (record.level !== "log" && record.level !== "warn" && record.level !== "error") {
         return yield* deploymentValidationFailureEffect(`Push diagnostic at index ${index} has an invalid level.`);
       }
@@ -776,10 +776,10 @@ const decodeSourcePosition = Effect.fn("DeploymentValidation.decodeSourcePositio
   path: string,
 ): Effect.fn.Return<AnalyzedSourcePosition | undefined, DeploymentValidationError> {
   if (value === undefined) return undefined;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return yield* deploymentValidationFailureEffect(`${path}: Invalid source position.`);
   }
-  const position = value as Partial<AnalyzedSourcePosition>;
+  const position = value;
   if (typeof position.path !== "string" || position.path.length === 0) {
     return yield* deploymentValidationFailureEffect(`${path}.path: Source position path must be a non-empty string.`);
   }
@@ -813,10 +813,10 @@ const decodeFunctionRoutePolicy = Effect.fn("DeploymentValidation.decodeFunction
   path: string,
 ): Effect.fn.Return<FunctionRoutePolicy | null, DeploymentValidationError> {
   if (value === undefined || value === null) return null;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return yield* deploymentValidationFailureEffect(`${path}: Invalid route policy.`);
   }
-  const route = value as Partial<FunctionRoutePolicy>;
+  const route = value;
   if (route.type === "args" && typeof route.field === "string" && route.field.length > 0) {
     return { type: "args", field: route.field };
   }
@@ -828,10 +828,10 @@ const decodeFunctionPartitionPolicy = Effect.fn("DeploymentValidation.decodeFunc
   path: string,
 ): Effect.fn.Return<FunctionPartitionMetadata | null, DeploymentValidationError> {
   if (value === undefined || value === null) return null;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return yield* deploymentValidationFailureEffect(`${path}: Invalid partition policy.`);
   }
-  const partition = value as Partial<FunctionPartitionMetadata>;
+  const partition = value;
   if (
     partition.type === "partitionCreateRoot" &&
     typeof partition.table === "string" &&
@@ -881,10 +881,10 @@ const decodePlacement = Effect.fn("DeploymentValidation.decodePlacement")(functi
   value: unknown,
   path: string,
 ): Effect.fn.Return<SchemaTable["placement"], DeploymentValidationError> {
-  if (typeof value !== "object" || value === null || Array.isArray(value) || !("kind" in value)) {
+  if (!isRecord(value) || !("kind" in value)) {
     return yield* deploymentValidationFailureEffect(`${path}: Invalid placement.`);
   }
-  const placement = value as Partial<SchemaTable["placement"]>;
+  const placement = value;
   if (placement.kind === "global") return { kind: "global" };
   if (placement.kind === "partitionBy" && typeof placement.field === "string") {
     return { kind: "partitionBy", field: placement.field };

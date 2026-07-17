@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Effect } from "effect";
 import { HttpError } from "../http";
 import { isLiveQueryDeliverySkipReason } from "../liveQueryDelivery";
@@ -79,7 +80,7 @@ export const wakeDeliveryEffect = Effect.fn("SchedulerDeliveryWake.wakeDelivery"
         error: responseBodyError(result),
       };
     }
-    const result = yield* decodeSchedulerWakeDeliveryJsonResponse<unknown>(
+    const result = yield* decodeSchedulerWakeDeliveryJsonResponse(
       response,
     );
     return {
@@ -125,10 +126,10 @@ export function schedulerDeliveryWakeBoundaryErrorToHttpError(
 export function isDeliveryDrainFailureResult(
   value: unknown,
 ): value is DeliveryDrainFailureResult {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return false;
   }
-  const record = value as Record<string, unknown>;
+  const record = value;
   const failure = record.failure;
   const summary = record.summary;
   return (
@@ -142,8 +143,8 @@ export function isDeliveryDrainFailureResult(
 }
 
 function responseBodyError(value: unknown): string {
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-    const error = (value as Record<string, unknown>).error;
+  if (isNonArrayRecord(value)) {
+    const error = value.error;
     if (typeof error === "string") return error;
   }
   if (typeof value === "string") return value;
@@ -154,10 +155,10 @@ function responseBodyError(value: unknown): string {
 function isDeliveryDrainFailureSummary(
   value: unknown,
 ): value is DeliveryDrainFailureResult["summary"] {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return false;
   }
-  const record = value as Record<string, unknown>;
+  const record = value;
   const skipReasons = record.skipReasons;
   const staleSkipped = record.staleSkipped;
   return (
@@ -176,10 +177,10 @@ function isDeliveryDrainFailureSummary(
 function isDeliveryDrainFailureDetail(
   value: unknown,
 ): value is DeliveryDrainFailureResult["failure"] {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return false;
   }
-  const record = value as Record<string, unknown>;
+  const record = value;
   return (
     (
       record.stage === "claim" ||
@@ -200,10 +201,10 @@ function deliveryDrainFailureDetailsMatch(
 
 function isOptionalDeliverySkipReasons(value: unknown): boolean {
   if (value === undefined) return true;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return false;
   }
-  const record = value as Record<string, unknown>;
+  const record = value;
   return (
     Object.keys(record).every(isLiveQueryDeliverySkipReason) &&
     isOptionalNonNegativeInteger(record.wrongDeployment) &&
@@ -220,13 +221,11 @@ function deliveryStaleSkippedMatchesSkipReason(
 ): boolean {
   if (
     staleSkipped === undefined ||
-    typeof skipReasons !== "object" ||
-    skipReasons === null ||
-    Array.isArray(skipReasons)
+    !isNonArrayRecord(skipReasons)
   ) {
     return true;
   }
-  const staleSkipReason = (skipReasons as Record<string, unknown>).stale;
+  const staleSkipReason = skipReasons.stale;
   return staleSkipReason === undefined || staleSkipReason === staleSkipped;
 }
 

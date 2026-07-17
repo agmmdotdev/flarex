@@ -71,7 +71,7 @@ export const claimLiveQueryDeliveryBatchEffect = Effect.fn(
       "/maintenance/live-queries/claim",
       body,
     );
-    const payload = yield* decodeLiveQueryDeliveryClaimResponse<unknown>(response);
+    const payload = yield* decodeLiveQueryDeliveryClaimResponse(response);
     return yield* decodeLiveQueryDeliveryClaimPayload(payload);
   },
 );
@@ -93,7 +93,7 @@ export const ackLiveQueryDeliveryBatchEffect = Effect.fn(
         claimOwner: input.claimOwner,
       },
     );
-    const payload = yield* decodeLiveQueryDeliveryAckResponse<unknown>(response);
+    const payload = yield* decodeLiveQueryDeliveryAckResponse(response);
     return yield* decodeLiveQueryDeliveryAckPayload(payload);
   },
 );
