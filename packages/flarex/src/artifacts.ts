@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
 import type { AuthConfig } from "flarex-protocol/auth";
 
 export type ArtifactSourceModule = {
@@ -15,12 +16,116 @@ export type ArtifactSourcePackage = {
   execution: string;
 };
 
+export type StoredArtifactSourceModule = ArtifactSourceModule & {
+  source?: string;
+  sourceMap?: string;
+};
+
+export type MaterializedArtifactSourceModule = ArtifactSourceModule & {
+  source: string;
+  sourceMap?: string;
+};
+
+export type StoredArtifactSourcePackage = Omit<
+  ArtifactSourcePackage,
+  "modules"
+> & {
+  modules: StoredArtifactSourceModule[];
+};
+
+export type MaterializedArtifactSourcePackage = Omit<
+  ArtifactSourcePackage,
+  "modules"
+> & {
+  modules: MaterializedArtifactSourceModule[];
+};
+
 export type ExecutionArtifactRef = {
   runtime: "dynamic-worker";
   artifactId: string;
   sourcePackageHash: string;
   executionModule: string;
 };
+
+export type StoredExecutionArtifactManifest = {
+  version: 1;
+  ref: ExecutionArtifactRef;
+  sourcePackagePath: string;
+};
+
+export function executionArtifactManifestKey(
+  ref: ExecutionArtifactRef,
+): string {
+  return `artifacts/${ref.artifactId}/manifest.json`;
+}
+
+export function executionArtifactSourcePackageKey(
+  ref: ExecutionArtifactRef,
+): string {
+  return `artifacts/${ref.artifactId}/source-package.json`;
+}
+
+export function validateStoredExecutionArtifactManifest(
+  ref: ExecutionArtifactRef,
+  manifest: unknown,
+): asserts manifest is StoredExecutionArtifactManifest {
+  if (!isNonArrayRecord(manifest)) {
+    throw new Error(
+      `Stored execution artifact manifest is invalid for ${ref.artifactId}.`,
+    );
+  }
+  if (manifest.version !== 1) {
+    throw new Error(
+      `Unsupported execution artifact manifest version for ${ref.artifactId}.`,
+    );
+  }
+  if (manifest.sourcePackagePath !== executionArtifactSourcePackageKey(ref)) {
+    throw new Error(
+      `Execution artifact manifest path mismatch for ${ref.artifactId}.`,
+    );
+  }
+  if (!storedExecutionArtifactRefMatches(manifest.ref, ref)) {
+    throw new Error(
+      `Execution artifact manifest ref mismatch for ${ref.artifactId}.`,
+    );
+  }
+}
+
+export function cloneArtifactSourcePackage(
+  sourcePackage: MaterializedArtifactSourcePackage,
+): MaterializedArtifactSourcePackage;
+export function cloneArtifactSourcePackage(
+  sourcePackage: StoredArtifactSourcePackage,
+): StoredArtifactSourcePackage;
+export function cloneArtifactSourcePackage(
+  sourcePackage: StoredArtifactSourcePackage,
+): StoredArtifactSourcePackage {
+  return {
+    modules: sourcePackage.modules.map((module) => ({ ...module })),
+    functions: [...sourcePackage.functions],
+    ...(sourcePackage.schema === undefined
+      ? {}
+      : { schema: sourcePackage.schema }),
+    ...(sourcePackage.authConfig === undefined
+      ? {}
+      : { authConfig: structuredClone(sourcePackage.authConfig) }),
+    ...(sourcePackage.authConfigModule === undefined
+      ? {}
+      : { authConfigModule: sourcePackage.authConfigModule }),
+    execution: sourcePackage.execution,
+  };
+}
+
+function storedExecutionArtifactRefMatches(
+  value: unknown,
+  expected: ExecutionArtifactRef,
+): boolean {
+  return isNonArrayRecord(value) &&
+    value.runtime === expected.runtime &&
+    value.artifactId === expected.artifactId &&
+    value.sourcePackageHash === expected.sourcePackageHash &&
+    value.executionModule === expected.executionModule;
+}
 
 export async function executionArtifactRefForSourcePackage(
   sourcePackage: ArtifactSourcePackage,

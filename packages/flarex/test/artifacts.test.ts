@@ -1,10 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   assertExecutionArtifactRefMatchesSourcePackage,
+  cloneArtifactSourcePackage,
+  executionArtifactManifestKey,
   executionArtifactRefForSourcePackage,
   executionArtifactRefsEqual,
+  executionArtifactSourcePackageKey,
   stableSourcePackageManifest,
+  validateStoredExecutionArtifactManifest,
   type ArtifactSourcePackage,
+  type MaterializedArtifactSourcePackage,
+  type StoredExecutionArtifactManifest,
 } from "../src/artifacts";
 
 describe("execution artifact refs", () => {
@@ -98,6 +104,110 @@ describe("execution artifact refs", () => {
         package_,
       ),
     ).rejects.toThrow(`Execution artifact ref does not match source package: ${ref.artifactId}`);
+  });
+});
+
+describe("execution artifact storage contracts", () => {
+  it("derives the manifest and source-package object keys", async () => {
+    const ref = await executionArtifactRefForSourcePackage(sourcePackage());
+
+    expect(executionArtifactManifestKey(ref)).toBe(
+      `artifacts/${ref.artifactId}/manifest.json`,
+    );
+    expect(executionArtifactSourcePackageKey(ref)).toBe(
+      `artifacts/${ref.artifactId}/source-package.json`,
+    );
+  });
+
+  it("validates the stored manifest version, path, and exact ref", async () => {
+    const ref = await executionArtifactRefForSourcePackage(sourcePackage());
+    const manifest: unknown = {
+      version: 1,
+      ref,
+      sourcePackagePath: executionArtifactSourcePackageKey(ref),
+    };
+
+    validateStoredExecutionArtifactManifest(ref, manifest);
+    expectTypeOf(manifest).toEqualTypeOf<StoredExecutionArtifactManifest>();
+    expect(() =>
+      validateStoredExecutionArtifactManifest(ref, {
+        version: 2,
+        ref,
+        sourcePackagePath: executionArtifactSourcePackageKey(ref),
+      })
+    ).toThrow(
+      `Unsupported execution artifact manifest version for ${ref.artifactId}.`,
+    );
+    expect(() =>
+      validateStoredExecutionArtifactManifest(ref, {
+        version: 1,
+        ref,
+        sourcePackagePath: "artifacts/other/source-package.json",
+      })
+    ).toThrow(
+      `Execution artifact manifest path mismatch for ${ref.artifactId}.`,
+    );
+    expect(() =>
+      validateStoredExecutionArtifactManifest(ref, {
+        version: 1,
+        ref: { ...ref, sourcePackageHash: "f".repeat(64) },
+        sourcePackagePath: executionArtifactSourcePackageKey(ref),
+      })
+    ).toThrow(
+      `Execution artifact manifest ref mismatch for ${ref.artifactId}.`,
+    );
+    expect(() =>
+      validateStoredExecutionArtifactManifest(ref, null)
+    ).toThrow(
+      `Stored execution artifact manifest is invalid for ${ref.artifactId}.`,
+    );
+    expect(() =>
+      validateStoredExecutionArtifactManifest(ref, {
+        version: 1,
+        sourcePackagePath: executionArtifactSourcePackageKey(ref),
+      })
+    ).toThrow(
+      `Execution artifact manifest ref mismatch for ${ref.artifactId}.`,
+    );
+  });
+
+  it("clones only source-package fields while preserving module details", () => {
+    const package_: MaterializedArtifactSourcePackage & {
+      ignoredMetadata: string;
+    } = {
+      ...sourcePackageWithAuth("app-a"),
+      modules: sourcePackageWithAuth("app-a").modules.map((module) => ({
+        ...module,
+        source: `// ${module.path}`,
+      })),
+      ignoredMetadata: "not persisted",
+    };
+
+    const cloned = cloneArtifactSourcePackage(package_);
+
+    expect(cloned).toEqual({
+      modules: package_.modules,
+      functions: package_.functions,
+      schema: package_.schema,
+      authConfig: package_.authConfig,
+      authConfigModule: package_.authConfigModule,
+      execution: package_.execution,
+    });
+    expect(Object.hasOwn(cloned, "ignoredMetadata")).toBe(false);
+    expect(cloned.modules).not.toBe(package_.modules);
+    expect(cloned.modules[0]).not.toBe(package_.modules[0]);
+    expect(cloned.functions).not.toBe(package_.functions);
+    expect(cloned.authConfig).not.toBe(package_.authConfig);
+    expect(cloned.authConfig?.providers).not.toBe(
+      package_.authConfig?.providers,
+    );
+  });
+
+  it("keeps absent optional source-package fields absent", () => {
+    const cloned = cloneArtifactSourcePackage(sourcePackage());
+
+    expect(Object.hasOwn(cloned, "authConfig")).toBe(false);
+    expect(Object.hasOwn(cloned, "authConfigModule")).toBe(false);
   });
 });
 

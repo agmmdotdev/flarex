@@ -2,7 +2,10 @@ import {
   DeploymentPackageMetadataAlreadyExistsError,
   type DeploymentPackageMetadataRecord,
 } from "@flarex/persistence-postgres";
-import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
+import {
+  cloneArtifactSourcePackage,
+  executionArtifactRefForSourcePackage,
+} from "flarex/artifacts";
 
 import {
   DeploymentNotFoundError,
@@ -134,16 +137,5 @@ function assertDeploymentPackageMatches(
 export function deploymentPackageSourcePackageJson(
   sourcePackage: RegisterDeploymentPackageInput["sourcePackage"],
 ): Record<string, unknown> {
-  return {
-    modules: sourcePackage.modules.map((module) => ({ ...module })),
-    functions: [...sourcePackage.functions],
-    ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
-    ...(sourcePackage.authConfig === undefined
-      ? {}
-      : { authConfig: structuredClone(sourcePackage.authConfig) }),
-    ...(sourcePackage.authConfigModule === undefined
-      ? {}
-      : { authConfigModule: sourcePackage.authConfigModule }),
-    execution: sourcePackage.execution,
-  };
+  return cloneArtifactSourcePackage(sourcePackage);
 }

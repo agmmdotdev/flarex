@@ -1,8 +1,12 @@
 import {
   assertExecutionArtifactRefMatchesSourcePackage,
+  cloneArtifactSourcePackage,
+  executionArtifactManifestKey,
   executionArtifactRefForSourcePackage,
-  executionArtifactRefsEqual,
+  executionArtifactSourcePackageKey,
+  validateStoredExecutionArtifactManifest,
   type ExecutionArtifactRef,
+  type StoredExecutionArtifactManifest,
 } from "flarex/artifacts";
 import type { SourcePackage } from "./sourcePackage.ts";
 
@@ -23,18 +27,15 @@ type R2BucketLike = {
   delete(key: string | string[]): Promise<unknown>;
 };
 
-type StoredExecutionArtifactManifest = {
-  version: 1;
-  ref: ExecutionArtifactRef;
-  sourcePackagePath: string;
-};
-
 export class LocalInMemoryExecutionArtifactStore implements ExecutionArtifactStore {
   private readonly packages = new Map<string, SourcePackage>();
 
   async put(sourcePackage: SourcePackage): Promise<ExecutionArtifactRef> {
     const ref = await executionArtifactRefForSourcePackage(sourcePackage);
-    this.packages.set(ref.artifactId, cloneSourcePackage(sourcePackage));
+    this.packages.set(
+      ref.artifactId,
+      cloneArtifactSourcePackage(sourcePackage),
+    );
     return ref;
   }
 
@@ -44,7 +45,7 @@ export class LocalInMemoryExecutionArtifactStore implements ExecutionArtifactSto
       throw new Error(`Unknown execution artifact: ${ref.artifactId}`);
     }
     await assertExecutionArtifactRefMatchesSourcePackage(ref, sourcePackage);
-    return cloneSourcePackage(sourcePackage);
+    return cloneArtifactSourcePackage(sourcePackage);
   }
 }
 
@@ -70,17 +71,17 @@ export class R2ExecutionArtifactStore implements DurableExecutionArtifactStore {
   }
 
   async get(ref: ExecutionArtifactRef): Promise<SourcePackage> {
-    const manifest = await this.getJson<StoredExecutionArtifactManifest>(manifestKey(ref));
+    const manifest = await this.getJson<unknown>(manifestKey(ref));
     if (manifest === null) {
       throw new Error(`Unknown execution artifact: ${ref.artifactId}`);
     }
-    validateStoredManifest(ref, manifest);
+    validateStoredExecutionArtifactManifest(ref, manifest);
     const sourcePackage = await this.getJson<SourcePackage>(manifest.sourcePackagePath);
     if (sourcePackage === null) {
       throw new Error(`Execution artifact source package is missing: ${ref.artifactId}`);
     }
     await assertExecutionArtifactRefMatchesSourcePackage(ref, sourcePackage);
-    return cloneSourcePackage(sourcePackage);
+    return cloneArtifactSourcePackage(sourcePackage);
   }
 
   async delete(ref: ExecutionArtifactRef): Promise<void> {
@@ -100,39 +101,9 @@ export class R2ExecutionArtifactStore implements DurableExecutionArtifactStore {
 }
 
 export function manifestKey(ref: ExecutionArtifactRef): string {
-  return `artifacts/${ref.artifactId}/manifest.json`;
+  return executionArtifactManifestKey(ref);
 }
 
 export function sourcePackageKey(ref: ExecutionArtifactRef): string {
-  return `artifacts/${ref.artifactId}/source-package.json`;
-}
-
-function validateStoredManifest(
-  ref: ExecutionArtifactRef,
-  manifest: StoredExecutionArtifactManifest,
-): void {
-  if (manifest.version !== 1) {
-    throw new Error(`Unsupported execution artifact manifest version for ${ref.artifactId}.`);
-  }
-  if (manifest.sourcePackagePath !== sourcePackageKey(ref)) {
-    throw new Error(`Execution artifact manifest path mismatch for ${ref.artifactId}.`);
-  }
-  if (!executionArtifactRefsEqual(manifest.ref, ref)) {
-    throw new Error(`Execution artifact manifest ref mismatch for ${ref.artifactId}.`);
-  }
-}
-
-function cloneSourcePackage(sourcePackage: SourcePackage): SourcePackage {
-  return {
-    modules: sourcePackage.modules.map(module => ({ ...module })),
-    functions: [...sourcePackage.functions],
-    ...(sourcePackage.schema === undefined ? {} : { schema: sourcePackage.schema }),
-    ...(sourcePackage.authConfig === undefined
-      ? {}
-      : { authConfig: structuredClone(sourcePackage.authConfig) }),
-    ...(sourcePackage.authConfigModule === undefined
-      ? {}
-      : { authConfigModule: sourcePackage.authConfigModule }),
-    execution: sourcePackage.execution,
-  };
+  return executionArtifactSourcePackageKey(ref);
 }
