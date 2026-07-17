@@ -19,6 +19,10 @@ import {
   isPathInside,
   writeNewAtomicEvidenceFile,
 } from "./h05EvidenceOutput";
+import {
+  requiredEnvironmentValue,
+  requiredUntrimmedEnvironmentValue,
+} from "./h05Environment";
 import { collectH05ProbeTeardownEvidence } from "./h05ProbeTeardownCollector";
 import {
   assertH05SourceEvidenceUnchanged,
@@ -157,21 +161,4 @@ function commandOutput(executable: string, args: readonly string[]): string {
     timeout: 10_000,
     windowsHide: true,
   }).trim();
-}
-
-function requiredEnvironmentValue(
-  value: string | undefined,
-  name: string,
-): string {
-  const normalized = value?.trim();
-  if (normalized !== undefined && normalized.length > 0) return normalized;
-  throw new Error(`${name} is required.`);
-}
-
-function requiredUntrimmedEnvironmentValue(
-  value: string | undefined,
-  name: string,
-): string {
-  if (value !== undefined && value.length > 0) return value;
-  throw new Error(`${name} is required.`);
 }

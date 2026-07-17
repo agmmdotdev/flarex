@@ -333,6 +333,9 @@ semantics.
   wrapper over the Fetch adapter.
 - H05 proof code separates pure evidence contracts from Node collectors and
   destructive teardown, and deployable bundle checks guard that separation.
+  Its Node entry scripts share required environment-value policy locally:
+  identifiers and configuration values are trimmed, secret tokens retain their
+  exact spelling, and this host policy stays out of `@flarex/utils`.
 - The Effect boundary checker rejects synchronous execution, hidden aliases,
   direct runtime imports, and unregistered production `runPromise` sites.
 - `@flarex/utils/records` owns shallow non-null, non-array object narrowing as
