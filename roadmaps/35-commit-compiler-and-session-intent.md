@@ -701,11 +701,15 @@ carriage, or conditional C04C2 active.
   available/expired state constraints are implemented. Its writer, outcome
   lookup/replay, expiry transition, public key mapping, and target-generation
   activation remain unimplemented; legacy outcome import remains conditional.
+- S09-B's fixed-kind, scope-local commit-wake table and package-private fenced
+  claim/settlement repository are implemented. O07 atomic production, C06 host
+  dispatch, the deterministic sync sink, and delivery retention/GC remain
+  unimplemented; S08 is still the canonical recovery authority.
 - Replacement app-row revision/current and physical transaction-session/
   snapshot-lease tables plus the private O04 point-read kernel and O05 pure
   point-OCC validator exist internally. Production syscall/session composition,
   commit-time point-OCC integration/serialization, commit/change, S09-A
-  consumption, S09-B leased outbox, and compiler composition remain
+  consumption, O07 wake production, and compiler composition remain
   prerequisites.
 - Exact range/relation/pagination overlays and phantom tests are incomplete.
 - Payload and Medusa adapter conformance remain separate future domains.
@@ -754,8 +758,9 @@ was retired before implementation; C02's inert logical protocol, C03's
 operational point-journal consumer, and C04A's private stored-attempt
  authentication plus C04B1's current commit-authority authentication and C04B2's
  private-C07 final-value proof are complete. Corrected C04C1, S08 commit/feed
- DDL, and S09-A private committed-success DDL are complete; S09-B is the next
- schema gate and C04C2 remains conditional and unapproved.
+ DDL, S09-A private committed-success DDL, and S09-B private commit-wake DDL
+ and fenced repository are complete. O06 is the next Wave 2 prerequisite and
+ C04C2 remains conditional and unapproved.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
 retention consumer proves that a bounded attempt must outlive its initial lease.

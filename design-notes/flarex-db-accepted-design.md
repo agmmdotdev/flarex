@@ -164,7 +164,7 @@ work continues.
 | --- | --- | --- |
 | Existing `documents`, `indexes`, invoke sessions, Postgres live-query registry, and delivery outbox | Implemented prototype baseline | Keep only as bounded internal behavior evidence until equivalent target paths and tests exist. Do not extend it or treat it as a shipped migration obligation. |
 | Typed app row JSON with revision/current, declared index, edge, and unique sidecars | Partially implemented accepted target | S06 implements the internal, non-routing row revision/current kernel. Index, edge, and unique sidecars plus target-native index population/build and routing consumers remain planned behind the storage-generation boundary. |
-| Native commit feed and internal committed-success outcomes | Partially implemented accepted target | S08 implements native commit/change-feed storage and its bounded private reader. S09-A implements only the private scope-lifetime committed-success result receipt; allocation, outcome lookup/replay, payload expiry, publication, and the S09-B leased outbox remain pending. |
+| Native commit feed, committed-success outcomes, and commit wakes | Partially implemented accepted target | S08 implements native commit/change-feed storage and its bounded private reader. S09-A implements the private scope-lifetime committed-success result receipt. S09-B implements the fixed-kind private commit-wake table and fenced claim/settlement repository. O07 atomic production, C06 dispatch, outcome lookup/replay, payload expiry, sync activation, and retention advancement remain pending. |
 | SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | Prove the Postgres-backed point path through the real-Postgres gate, then immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
 | Payload adapter | Staged target | Start with reserved logical collections and scalar CRUD/transaction conformance; add relations, versions/drafts, globals, auth, locks, and hooks incrementally. |
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
@@ -1371,6 +1371,38 @@ making its request key reusable. A late retry after payload expiry returns
 `CommittedResultExpired` rather than reapplying the mutation. Result-payload,
 committed-key, commit-feed, outbox-delivery, reconnect, and Payload-version
 retention are separate policies.
+
+S09-B owns one private `deployment_sync_commit_wake_v1` row per committed
+scope-local token, keyed by `(scope_uuid, outbox_seq)` and uniquely correlated
+to `(scope_uuid, event_kind, commit_seq)`. `last_outbox_seq` remains the sole
+scope-lifetime allocation head; S09-B adds no allocator or writer. The row has
+only a restrictive scope-clock foreign key. It deliberately has no foreign key
+to compactable S08 headers, arbitrary payload, consumer group, generic cursor,
+or global surrogate identity. O07 must later insert the exact wake and advance
+the clock atomically with the data, result, outcome, and S08 header.
+
+Claims use database time, a monotonic claim fence equal to the attempt count,
+bounded retry scheduling, and exact owner/fence settlement. Pending and expired
+claimed rows are eligible; delivered and dead-lettered are terminal only for
+the current state machine. Failure evidence is a bounded redacted code/summary/
+time tuple. Crash after the sink durably accepts but before acknowledgement is
+therefore at-least-once: the lease expires, a higher fence reclaims the row,
+and the sink deduplicates by the canonical commit token.
+
+Claim-time integrity captures the scope heads, inclusive retained floor,
+candidate wake, and retained S08 header in one PostgreSQL statement snapshot.
+A missing header is valid only when `commit_seq < oldest_available_commit_seq`;
+equality still requires the exact epoch-matching header. Epoch is immutable
+write provenance, not an eligibility filter: an old-epoch pending or claimed
+wake remains dispatchable after rollover. The deterministic scope sink treats
+an old-epoch wake behind its durable cursor as a duplicate and treats a real
+epoch discontinuity as a resnapshot boundary.
+
+S09-B defines no GC or redrive API. Pending, claimed, delivered, and dead-
+lettered rows remain retained until a later accepted gate freezes consumer
+progress, delivery-idempotency retention, dead-letter/operator policy, and safe
+deletion. S08 remains canonical recovery authority; an external lag sweep must
+still recover a scope even if no wake row is available.
 
 If shipped legacy request keys are discovered, storage-generation cutover must
 fence their namespace. Recoverable committed keys are imported with outcomes;

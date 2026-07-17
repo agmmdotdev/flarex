@@ -1380,8 +1380,18 @@ seq > watermark + 1
 
 ## Outbox And Recovery
 
-Outbox is durable recovery and derived work. It is not the normal hot path for
-same-Worker live sync.
+The following generic multi-consumer sketch is superseded for the accepted v1
+slice. S09-B implements one private `deployment_sync_commit_wake_v1` row keyed
+by `(scope_uuid, outbox_seq)`, unique per scope/commit, and owned by the scope
+clock without an FK to compactable commit headers. It has no arbitrary payload,
+consumer group/cursor, global surrogate ID, allocator, producer, sink, GC, or
+redrive API. Its database-time pending/claimed/delivered/dead-lettered state,
+claim fence, attempts, retry time, and bounded failure evidence support
+at-least-once low-latency wake delivery; the S08 commit/change feed remains the
+canonical recovery authority. Generic consumers require a separately accepted
+first-consumer contract.
+
+Superseded proposal sketch:
 
 ```sql
 fx_system_outbox (
@@ -2258,9 +2268,11 @@ and hot-scope promotion remain measurement-triggered options.
 Commit and outbox cursors must be scoped. A single global Postgres sequence is
 useful for debugging, but client sync should not rely on global sequence density
 or ordering across unrelated deployments. Live sync uses
-`(scope_id, epoch, commit_seq)`. Outbox cursors use
-`(scope_id, epoch, outbox_seq)` only for consumer delivery progress and are not
-the canonical live-query cursor.
+`(scope_id, epoch, commit_seq)`. The former epoch-bearing generic outbox-cursor
+proposal is superseded: S09-B exposes no consumer cursor, its `outbox_seq` is
+scope-lifetime monotonic, and epoch is write provenance rather than claim
+eligibility. Any future delivery-progress cursor must be frozen with its first
+accepted consumer and is never the canonical live-query cursor.
 
 ### Read-Set Granularity
 

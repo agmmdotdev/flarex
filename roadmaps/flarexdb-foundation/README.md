@@ -23,8 +23,10 @@ authentication gate, C04B1's private commit-authority gate, and C04B2's private
 C07 final-document/result proof are complete. Corrected C04C1 database-free
 logical point planning, S08's native commit/change-feed schema plus bounded
 package-private reader, and S09-A's private committed-success result DDL are
-complete. The retained-history floor is physically present but fixed at zero
-until O11; S09-B remains pending and C04C2 remains conditional and unapproved.
+complete. S09-B's fixed-kind private commit-wake schema and fenced repository
+are also complete. The retained-history floor is physically present but fixed
+at zero until O11; O07 production and C06 dispatch remain pending, and C04C2
+remains conditional and unapproved.
 B2b2 renewal is
 a conditional
 operational extension outside the current
@@ -33,7 +35,7 @@ bounded attempt must outlive its initial lease.
 
 | Stream | Current status |
 | --- | --- |
-| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, and S09-A's private committed-success result DDL complete; S09-B remains pending |
+| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, S09-A's private committed-success result DDL, and S09-B's fixed-kind private commit-wake DDL complete |
 | OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads with typed present/qualified-missing dependencies, and `O05` pure point-OCC validation are complete; standalone `O01` retired before implementation, while B2b2 renewal, operational revocation, and hosted adapters remain consumer-triggered deferred gates |
 | Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, private-C07 final-value proof `C04B2`, and corrected private logical point planner `C04C1` complete; `C04C2` is conditional and unapproved |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
@@ -336,7 +338,11 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
 2. `S09-A` (complete): private scope-lifetime committed-success result DDL,
    keyed by the server-prepared internal request identity and deliberately
    decoupled from compactable S08 headers.
-3. `S09-B`: leased outbox, delivery state, and outbox-retention DDL.
+3. `S09-B` (complete): fixed-kind private commit-wake DDL and package-private
+   database-time claim/retry/deliver/dead-letter repository. Claims use exact
+   owner/fence CAS and snapshot-consistent inclusive-floor/header correlation;
+   old-epoch rows remain eligible. There is no allocator, O07 writer, C06 host,
+   generic consumer/cursor, GC, redrive, or sink implementation.
 4. `O06`: private non-routable scope-local commit transaction harness.
 5. `O07`: atomic result, outcome, data, commit/change atoms, and outbox.
 6. `C05`: one point mutation through the complete primitive.

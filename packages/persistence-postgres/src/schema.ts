@@ -136,6 +136,21 @@ type TransactionJournalDependencyKindV1 =
 
 type IdempotencyResultState = "available" | "expired";
 
+export type CommitWakeOutboxEventKindV1 =
+  "deployment_sync_commit_wake_v1";
+
+export type CommitWakeOutboxDeliveryStateV1 =
+  | "pending"
+  | "claimed"
+  | "delivered"
+  | "dead_lettered";
+
+export type CommitWakeOutboxFailureCodeV1 =
+  | "transient_delivery"
+  | "claim_lease_expired"
+  | "terminal_delivery"
+  | "attempts_exhausted";
+
 export const bytea = customType<{
   data: Uint8Array;
   driverData: Uint8Array;
@@ -876,6 +891,254 @@ export const fxSystemIdempotency = pgTable(
     ),
     check(
       "fx_system_idempotency_created_at_check",
+      sql`isfinite(${table.createdAt})`,
+    ),
+  ],
+);
+
+/**
+ * Scope-local durable wake evidence for the first replacement commit
+ * dispatcher. The commit token is correlated by the private repository rather
+ * than foreign-keyed to compactable feed history.
+ */
+export const fxSystemOutbox = pgTable(
+  "fx_system_outbox",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    outboxSeq: bigint("outbox_seq", { mode: "bigint" })
+      .$type<OutboxSeq>()
+      .notNull(),
+    epochUuid: uuid("epoch_uuid").$type<ScopeEpochUuidV1>().notNull(),
+    commitSeq: bigint("commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull(),
+    eventKind: text("event_kind")
+      .$type<CommitWakeOutboxEventKindV1>()
+      .notNull(),
+    deliveryState: text("delivery_state")
+      .$type<CommitWakeOutboxDeliveryStateV1>()
+      .notNull()
+      .default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .defaultNow(),
+    attemptCount: bigint("attempt_count", { mode: "bigint" })
+      .notNull()
+      .default(sql`0`),
+    claimFence: bigint("claim_fence", { mode: "bigint" })
+      .notNull()
+      .default(sql`0`),
+    claimOwner: uuid("claim_owner"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    claimExpiresAt: timestamp("claim_expires_at", { withTimezone: true }),
+    lastFailureCode: text("last_failure_code")
+      .$type<CommitWakeOutboxFailureCodeV1>(),
+    lastFailureSummary: text("last_failure_summary"),
+    lastFailedAt: timestamp("last_failed_at", { withTimezone: true }),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scopeUuid, table.outboxSeq] }),
+    unique("fx_system_outbox_commit_event_unique").on(
+      table.scopeUuid,
+      table.eventKind,
+      table.commitSeq,
+    ),
+    foreignKey({
+      name: "fx_system_outbox_scope_clock_fk",
+      columns: [table.scopeUuid],
+      foreignColumns: [fxSystemScopeClocks.scopeUuid],
+    })
+      .onUpdate("restrict")
+      .onDelete("restrict"),
+    index("fx_system_outbox_claimable_idx")
+      .on(
+        table.scopeUuid,
+        sql`(
+          case
+            when ${table.deliveryState} = 'pending' then ${table.nextAttemptAt}
+            when ${table.deliveryState} = 'claimed' then ${table.claimExpiresAt}
+            else null
+          end
+        )`,
+        table.outboxSeq,
+      )
+      .where(sql`${table.deliveryState} in ('pending', 'claimed')`),
+    index("fx_system_outbox_commit_token_idx").on(
+      table.scopeUuid,
+      table.commitSeq,
+      table.epochUuid,
+      table.outboxSeq,
+    ),
+    check(
+      "fx_system_outbox_outbox_seq_check",
+      sql`${table.outboxSeq} >= 1`,
+    ),
+    check(
+      "fx_system_outbox_commit_seq_check",
+      sql`${table.commitSeq} >= 1`,
+    ),
+    check(
+      "fx_system_outbox_event_kind_check",
+      sql`${table.eventKind} = 'deployment_sync_commit_wake_v1'`,
+    ),
+    check(
+      "fx_system_outbox_delivery_state_check",
+      sql`${table.deliveryState} in ('pending', 'claimed', 'delivered', 'dead_lettered')`,
+    ),
+    check(
+      "fx_system_outbox_attempt_fence_check",
+      sql`
+        ${table.attemptCount} >= 0
+        and ${table.claimFence} >= 0
+        and ${table.attemptCount} = ${table.claimFence}
+      `,
+    ),
+    check(
+      "fx_system_outbox_failure_evidence_check",
+      sql`
+        (
+          (
+            ${table.lastFailureCode} is null
+            and ${table.lastFailureSummary} is null
+            and ${table.lastFailedAt} is null
+          )
+          or
+          (
+            ${table.lastFailureCode} in (
+              'transient_delivery',
+              'claim_lease_expired',
+              'terminal_delivery',
+              'attempts_exhausted'
+            )
+            and ${table.lastFailedAt} is not null
+            and isfinite(${table.lastFailedAt})
+            and ${table.lastFailedAt} >= ${table.createdAt}
+            and (
+              ${table.lastFailureSummary} is null
+              or (
+                ${nonBlankText(table.lastFailureSummary)}
+                and octet_length(${table.lastFailureSummary}) <= 1024
+              )
+            )
+          )
+        ) is true
+      `,
+    ),
+    check(
+      "fx_system_outbox_state_shape_check",
+      sql`
+        (
+          (
+            ${table.deliveryState} = 'pending'
+            and ${table.nextAttemptAt} is not null
+            and isfinite(${table.nextAttemptAt})
+            and ${table.nextAttemptAt} >= ${table.createdAt}
+            and ${table.claimOwner} is null
+            and ${table.claimedAt} is null
+            and ${table.claimExpiresAt} is null
+            and ${table.deliveredAt} is null
+            and ${table.deadLetteredAt} is null
+            and (
+              (
+                ${table.attemptCount} = 0
+                and ${table.nextAttemptAt} = ${table.createdAt}
+                and ${table.lastFailureCode} is null
+                and ${table.lastFailureSummary} is null
+                and ${table.lastFailedAt} is null
+              )
+              or
+              (
+                ${table.attemptCount} >= 1
+                and ${table.lastFailureCode} is not null
+                and ${table.lastFailedAt} is not null
+                and ${table.nextAttemptAt} >= ${table.lastFailedAt}
+              )
+            )
+          )
+          or
+          (
+            ${table.deliveryState} = 'claimed'
+            and ${table.attemptCount} >= 1
+            and ${table.nextAttemptAt} is null
+            and ${table.claimOwner} is not null
+            and ${table.claimedAt} is not null
+            and isfinite(${table.claimedAt})
+            and ${table.claimedAt} >= ${table.createdAt}
+            and ${table.claimExpiresAt} is not null
+            and isfinite(${table.claimExpiresAt})
+            and ${table.claimExpiresAt} > ${table.claimedAt}
+            and ${table.deliveredAt} is null
+            and ${table.deadLetteredAt} is null
+            and (
+              (
+                ${table.attemptCount} = 1
+                and ${table.lastFailureCode} is null
+                and ${table.lastFailureSummary} is null
+                and ${table.lastFailedAt} is null
+              )
+              or
+              (
+                ${table.attemptCount} > 1
+                and ${table.lastFailureCode} is not null
+                and ${table.lastFailedAt} is not null
+              )
+            )
+          )
+          or
+          (
+            ${table.deliveryState} = 'delivered'
+            and ${table.attemptCount} >= 1
+            and ${table.nextAttemptAt} is null
+            and ${table.claimOwner} is null
+            and ${table.claimedAt} is null
+            and ${table.claimExpiresAt} is null
+            and ${table.deliveredAt} is not null
+            and isfinite(${table.deliveredAt})
+            and ${table.deliveredAt} >= ${table.createdAt}
+            and ${table.deadLetteredAt} is null
+            and (
+              (
+                ${table.attemptCount} = 1
+                and ${table.lastFailureCode} is null
+                and ${table.lastFailureSummary} is null
+                and ${table.lastFailedAt} is null
+              )
+              or
+              (
+                ${table.attemptCount} > 1
+                and ${table.lastFailureCode} is not null
+                and ${table.lastFailedAt} is not null
+              )
+            )
+          )
+          or
+          (
+            ${table.deliveryState} = 'dead_lettered'
+            and ${table.attemptCount} >= 1
+            and ${table.nextAttemptAt} is null
+            and ${table.claimOwner} is null
+            and ${table.claimedAt} is null
+            and ${table.claimExpiresAt} is null
+            and ${table.lastFailureCode} in (
+              'terminal_delivery',
+              'attempts_exhausted'
+            )
+            and ${table.lastFailedAt} is not null
+            and ${table.deliveredAt} is null
+            and ${table.deadLetteredAt} is not null
+            and isfinite(${table.deadLetteredAt})
+            and ${table.deadLetteredAt} >= ${table.createdAt}
+            and ${table.deadLetteredAt} = ${table.lastFailedAt}
+          )
+        ) is true
+      `,
+    ),
+    check(
+      "fx_system_outbox_created_at_check",
       sql`isfinite(${table.createdAt})`,
     ),
   ],

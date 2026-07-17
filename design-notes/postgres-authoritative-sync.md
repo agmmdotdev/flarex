@@ -35,7 +35,8 @@ Postgres owns:
 - authoritative rows and revision history;
 - the scope epoch and commit sequence;
 - canonical commit/change atoms;
-- transactional outbox and recovery feed; and
+- canonical commit/change recovery feed plus transactional commit-wake
+  evidence; and
 - a conservative fenced DeploymentSyncDO cursor mirror for the external sweep.
 
 Cloudflare owns:

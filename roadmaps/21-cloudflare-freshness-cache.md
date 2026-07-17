@@ -95,6 +95,17 @@ The implementation also retains the older PartitionDO subscription fallback
 when the Postgres executor binding is absent. That fallback is unshipped
 prototype behavior, not the forward authority or a migration obligation.
 
+### Implemented replacement substrate
+
+The private replacement foundation now has S08's canonical scope-local commit
+headers/change rows and bounded reader, S09-A's committed-success result
+receipt, and S09-B's single-purpose `deployment_sync_commit_wake_v1` table and
+fenced claim/settlement repository. The wake is an at-least-once latency hint;
+S08 remains the recovery authority, including across epoch rollover and feed
+compaction. No target producer, C06 dispatcher, `DeploymentSyncDO` sink,
+external lag sweep, reconnect activation, or delivery-retention policy is
+implemented yet.
+
 Postgres currently persists:
 
 - legacy commit and outbox rows keyed by `deployment_id` and wall-clock `ts`;
