@@ -54,6 +54,18 @@ describe("H05 hosted receipt-v2 summary", () => {
     });
   });
 
+  it("retains the receipt Wrangler version diagnostic", () => {
+    const receipt = validReceipt();
+    nestedRecord(receipt, "source").wranglerVersion = "5.0.0";
+
+    expect(decodeH05HostedReceipt(receipt)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "source.wranglerVersion has an invalid format.",
+      ),
+    });
+  });
+
   it("retains receipt-owned rejection of all-zero SHA-256 placeholders", () => {
     const receipt = validReceipt();
     nestedRecord(receipt, "inputs").dataPlaneEvidenceSha256 = "0".repeat(64);

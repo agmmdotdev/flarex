@@ -73,6 +73,20 @@ describe("H05 probe teardown evidence contract", () => {
     });
   });
 
+  it("retains the teardown Wrangler version diagnostic", () => {
+    const evidence = validCompiledEvidence();
+
+    expect(decodeH05ProbeTeardownEvidence({
+      ...evidence,
+      source: { ...evidence.source, wranglerVersion: "5.0.0" },
+    })).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "source.wranglerVersion must be a supported Wrangler version.",
+      ),
+    });
+  });
+
   it("supports an idempotent already-absent retry", () => {
     const collection = validCollection();
     collection.deletion = {

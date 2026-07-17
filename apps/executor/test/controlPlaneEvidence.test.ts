@@ -47,6 +47,21 @@ describe("H05 control-plane evidence contract", () => {
     });
   });
 
+  it("retains the control-plane Wrangler version diagnostic", () => {
+    const payload = validPayload();
+    const compiled = compileH05ControlPlaneEvidence({
+      ...payload,
+      source: { ...payload.source, wranglerVersion: "5.0.0" },
+    });
+
+    expect(compiled).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "source.wranglerVersion has an invalid format.",
+      ),
+    });
+  });
+
   it("rejects a tampered outer hash and non-canonical JSON", () => {
     const compiled = compileH05ControlPlaneEvidence(validPayload());
     if (!compiled.ok) throw new Error(compiled.message);

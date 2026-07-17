@@ -47,4 +47,23 @@ describe("H05 source evidence commands", () => {
       );
     }
   });
+
+  it("retains the source-evidence unsupported-Wrangler error contract", () => {
+    commandOutputMock
+      .mockReturnValueOnce("a".repeat(40))
+      .mockReturnValueOnce("")
+      .mockReturnValueOnce("5.0.0");
+
+    try {
+      readH05SourceEvidence();
+      expect.unreachable("expected source evidence collection to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(H05SourceEvidenceError);
+      if (!(error instanceof H05SourceEvidenceError)) throw error;
+      expect(error.code).toBe("unsupported-wrangler");
+      expect(error.message).toBe(
+        "H05 source evidence observed an unsupported Wrangler version.",
+      );
+    }
+  });
 });

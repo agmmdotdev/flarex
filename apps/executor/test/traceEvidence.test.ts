@@ -63,6 +63,20 @@ describe("H05 trace evidence contract", () => {
     });
   });
 
+  it("retains the trace Wrangler version diagnostic", () => {
+    const evidence = validCompiledEvidence();
+
+    expect(decodeH05TraceEvidence({
+      ...evidence,
+      source: { ...evidence.source, wranglerVersion: "5.0.0" },
+    })).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "source.wranglerVersion must be a supported Wrangler 4 version.",
+      ),
+    });
+  });
+
   it("persists hashes rather than raw telemetry identifiers", () => {
     const compiled = validCompiledEvidence();
     const serialized = serializeH05TraceEvidence(compiled);

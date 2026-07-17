@@ -17,6 +17,7 @@ import {
 } from "./proofIdentity";
 import { isH05LowercaseSha256Digest } from "./sha256";
 import { requireOrderedH05Timestamps } from "./timestampOrder";
+import { isH05SupportedWranglerVersion } from "./wranglerVersion";
 import {
   h05ExecutorCompatibilityDate,
   h05ExecutorTokenName,
@@ -489,9 +490,8 @@ function decodeSource(value: unknown, path: string): H05ControlPlaneSourceEviden
   return {
     commit: gitCommitString(record.commit, `${path}.commit`),
     worktreeClean: true,
-    wranglerVersion: patternString(
+    wranglerVersion: wranglerVersionString(
       record.wranglerVersion,
-      /^4\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/,
       `${path}.wranglerVersion`,
     ),
   };
@@ -1299,6 +1299,14 @@ function sha256String(value: unknown, path: string): string {
 function gitCommitString(value: unknown, path: string): string {
   const decoded = nonEmptyString(value, path);
   if (!isH05FullLowercaseGitCommit(decoded)) {
+    fail(`${path} has an invalid format.`);
+  }
+  return decoded;
+}
+
+function wranglerVersionString(value: unknown, path: string): string {
+  const decoded = nonEmptyString(value, path);
+  if (!isH05SupportedWranglerVersion(decoded)) {
     fail(`${path} has an invalid format.`);
   }
   return decoded;

@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 
 import type { H05ControlPlaneSourceEvidence } from "../h05/controlPlaneEvidence";
 import { isH05FullLowercaseGitCommit } from "../h05/gitCommit";
+import { isH05SupportedWranglerVersion } from "../h05/wranglerVersion";
 import { commandOutput } from "./commandOutput";
 export { h05SourceEvidenceSha256 } from "../h05/controlPlaneEvidence";
 
@@ -46,7 +47,7 @@ export function readH05SourceEvidence(): H05ControlPlaneSourceEvidence {
     createRequire(import.meta.url).resolve("wrangler"),
     "--version",
   ]);
-  if (!/^4\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(wranglerVersion)) {
+  if (!isH05SupportedWranglerVersion(wranglerVersion)) {
     throw new H05SourceEvidenceError(
       "unsupported-wrangler",
       "H05 source evidence observed an unsupported Wrangler version.",

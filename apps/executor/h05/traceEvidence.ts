@@ -21,6 +21,7 @@ import {
 import { h05ProbeEndpoint } from "./probeProtocol";
 import { isH05LowercaseSha256Digest } from "./sha256";
 import { requireOrderedH05Timestamps } from "./timestampOrder";
+import { isH05SupportedWranglerVersion } from "./wranglerVersion";
 import {
   decodeH05DataPlaneEvidence,
   h05AuthorizedInvocationCount,
@@ -1401,10 +1402,10 @@ function gitCommit(value: unknown, path: string): H05TraceGitCommit {
 }
 
 function wranglerVersion(value: unknown, path: string): string {
-  if (
-    typeof value !== "string" ||
-    !/^4\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(value)
-  ) {
+  if (typeof value !== "string") {
+    failAt(path, "must be a supported Wrangler 4 version.");
+  }
+  if (!isH05SupportedWranglerVersion(value)) {
     failAt(path, "must be a supported Wrangler 4 version.");
   }
   return value;
