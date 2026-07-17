@@ -1,3 +1,4 @@
+import { asNonArrayRecord } from "@flarex/utils/records";
 import { isWritableJsonObject } from "flarex-protocol/json";
 
 import { parseFlarexDocumentId, type PersistenceJson } from "./documents";
@@ -42,13 +43,13 @@ export class DeploymentValidatorMetadataError extends Error {
 export function schemaTableValidatorsFromAnalysis(
   analysisJson: unknown,
 ): SchemaTableValidatorMetadata[] {
-  const analysis = asRecord(analysisJson);
+  const analysis = asNonArrayRecord(analysisJson);
   if (analysis === null) return [];
-  const schema = asRecord(analysis.schema);
+  const schema = asNonArrayRecord(analysis.schema);
   if (schema === null || !Array.isArray(schema.tables)) return [];
 
   return schema.tables.flatMap((rawTable, index) => {
-    const table = asRecord(rawTable);
+    const table = asNonArrayRecord(rawTable);
     if (table === null) {
       throw new DeploymentValidatorMetadataError(
         "Schema table must be an object.",
@@ -195,7 +196,7 @@ function validateJsonValue(
 
 function assertValidatorJson(value: unknown, path: string): ValidatorJson | null {
   if (value === undefined || value === null) return null;
-  const validator = asRecord(value);
+  const validator = asNonArrayRecord(value);
   if (validator === null || typeof validator.type !== "string") {
     throw new DeploymentValidatorMetadataError(
       "Validator must be an object with a string type.",
@@ -273,7 +274,7 @@ function objectValidatorFields(
   value: unknown,
   path: string,
 ): Record<string, { fieldType: ValidatorJson; optional: boolean }> {
-  const fields = asRecord(value);
+  const fields = asNonArrayRecord(value);
   if (fields === null) {
     throw new DeploymentValidatorMetadataError(
       "Object validator value must be an object.",
@@ -282,7 +283,7 @@ function objectValidatorFields(
   }
   return Object.fromEntries(
     Object.entries(fields).map(([name, rawField]) => {
-      const field = asRecord(rawField);
+      const field = asNonArrayRecord(rawField);
       if (field === null || typeof field.optional !== "boolean") {
         throw new DeploymentValidatorMetadataError(
           "Object validator field must have an optional boolean.",
@@ -343,10 +344,4 @@ function expect(
   path: string,
 ): asserts condition {
   if (!condition) throw new DeploymentValidatorMetadataError(message, path);
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
 }

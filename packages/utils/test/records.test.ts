@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
+  asNonArrayRecord,
   isNonArrayRecord,
   type UnknownRecord,
 } from "@flarex/utils/records";
@@ -30,5 +31,24 @@ describe("isNonArrayRecord", () => {
     expect(isNonArrayRecord("value")).toBe(false);
     expect(isNonArrayRecord(1)).toBe(false);
     expect(isNonArrayRecord(true)).toBe(false);
+  });
+});
+
+describe("asNonArrayRecord", () => {
+  it("returns the same accepted object without claiming mutability", () => {
+    const value: unknown = { nested: true };
+    const record = asNonArrayRecord(value);
+
+    expect(record).toBe(value);
+    expectTypeOf(record).toEqualTypeOf<UnknownRecord | null>();
+    expect(asNonArrayRecord(new Date(0))).toBeInstanceOf(Date);
+    expect(asNonArrayRecord(Object.create(null))).not.toBeNull();
+  });
+
+  it("returns null for arrays, null, functions, and primitives", () => {
+    expect(asNonArrayRecord([])).toBeNull();
+    expect(asNonArrayRecord(null)).toBeNull();
+    expect(asNonArrayRecord(() => undefined)).toBeNull();
+    expect(asNonArrayRecord("value")).toBeNull();
   });
 });

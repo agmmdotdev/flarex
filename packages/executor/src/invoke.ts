@@ -1,3 +1,5 @@
+import { asNonArrayRecord } from "@flarex/utils/records";
+
 import {
   DeploymentSchemaMetadataUnavailableError,
   FunctionKindMismatchError,
@@ -79,7 +81,7 @@ export function deploymentSchemaFromAnalysis(
   deploymentId: string,
   packageId: string,
 ): DeploymentSchemaMetadata {
-  const analysis = asRecord(analysisJson);
+  const analysis = asNonArrayRecord(analysisJson);
   if (analysis === null) {
     throw new DeploymentSchemaMetadataUnavailableError(
       deploymentId,
@@ -88,7 +90,7 @@ export function deploymentSchemaFromAnalysis(
     );
   }
 
-  const schema = asRecord(analysis.schema);
+  const schema = asNonArrayRecord(analysis.schema);
   if (schema === null) {
     throw new DeploymentSchemaMetadataUnavailableError(
       deploymentId,
@@ -135,7 +137,7 @@ function schemaTableFromJson(
   packageId: string,
   index: number,
 ): SchemaTableMetadata {
-  const table = asRecord(value);
+  const table = asNonArrayRecord(value);
   if (table === null) {
     throw invalidSchemaMetadata(deploymentId, packageId, `table at index ${index} must be an object`);
   }
@@ -185,7 +187,7 @@ function tablePlacementFromJson(
   packageId: string,
   tableIndex: number,
 ): TablePlacement {
-  const placement = asRecord(value);
+  const placement = asNonArrayRecord(value);
   if (placement === null) {
     throw invalidSchemaMetadata(
       deploymentId,
@@ -233,7 +235,7 @@ function schemaIndexFromJson(
   packageId: string,
   index: number,
 ): SchemaIndexMetadata {
-  const indexMetadata = asRecord(value);
+  const indexMetadata = asNonArrayRecord(value);
   if (indexMetadata === null) {
     throw invalidSchemaMetadata(deploymentId, packageId, `index at index ${index} must be an object`);
   }
@@ -467,11 +469,4 @@ function invalidSchemaMetadata(
 
 function isInvokableFunctionKind(value: string): value is InvokableFunctionKind {
   return value === "query" || value === "mutation";
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
-  }
-  return value as Record<string, unknown>;
 }

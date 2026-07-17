@@ -1,3 +1,4 @@
+import { asNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, gt, gte, lt, lte, type SQL } from "drizzle-orm";
 
 import { indexes } from "./schema";
@@ -77,8 +78,8 @@ export class InvokeSessionIndexMetadataError extends Error {
 }
 
 export function schemaIndexesFromAnalysis(analysisJson: unknown): SchemaIndexRecord[] {
-  const analysis = asRecord(analysisJson);
-  const schema = asRecord(analysis?.schema);
+  const analysis = asNonArrayRecord(analysisJson);
+  const schema = asNonArrayRecord(analysis?.schema);
   if (schema === null || !Array.isArray(schema.indexes)) return [];
   return schema.indexes.map((value, index) => schemaIndexFromJson(value, index));
 }
@@ -302,7 +303,7 @@ export function indexBoundsForExpressions(
 }
 
 function schemaIndexFromJson(value: unknown, index: number): SchemaIndexRecord {
-  const metadata = asRecord(value);
+  const metadata = asNonArrayRecord(value);
   if (metadata === null) {
     throw new InvokeSessionIndexMetadataError(`index at ${index} must be an object`);
   }
@@ -476,10 +477,4 @@ async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
   const buffer = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(buffer).set(bytes);
   return new Uint8Array(await crypto.subtle.digest("SHA-256", buffer));
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
 }

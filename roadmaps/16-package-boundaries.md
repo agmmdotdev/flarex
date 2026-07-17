@@ -335,6 +335,10 @@ semantics.
   destructive teardown, and deployable bundle checks guard that separation.
 - The Effect boundary checker rejects synchronous execution, hidden aliases,
   direct runtime imports, and unregistered production `runPromise` sites.
+- `@flarex/utils/records` owns shallow non-null, non-array object narrowing as
+  both a predicate and nullable adapter. It deliberately does not promise a
+  plain prototype, JSON membership, symbol-key rejection, or runtime
+  mutability; stricter canonical and domain object guards retain their owners.
 - `@flarex/utils/strings` owns the tested ECMAScript UTF-16 string comparator
   reused by protocol canonicalization, deterministic ordering, executor
   stored-attempt verification, and persistence journal canonicalization paths,

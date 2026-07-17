@@ -1,3 +1,5 @@
+import { asNonArrayRecord } from "@flarex/utils/records";
+
 import {
   DeploymentFunctionMetadataUnavailableError,
   FunctionNotFoundError,
@@ -40,7 +42,7 @@ function deploymentFunctionsFromAnalysis(
   deploymentId: string,
   packageId: string,
 ): DeploymentFunctionMetadata[] {
-  const analysis = asRecord(analysisJson);
+  const analysis = asNonArrayRecord(analysisJson);
   if (analysis === null) {
     throw new DeploymentFunctionMetadataUnavailableError(
       deploymentId,
@@ -49,7 +51,7 @@ function deploymentFunctionsFromAnalysis(
     );
   }
 
-  const functionsContainer = asRecord(analysis.functions);
+  const functionsContainer = asNonArrayRecord(analysis.functions);
   if (functionsContainer === null || !Array.isArray(functionsContainer.functions)) {
     throw new DeploymentFunctionMetadataUnavailableError(
       deploymentId,
@@ -69,7 +71,7 @@ function deploymentFunctionMetadataFromJson(
   packageId: string,
   index: number,
 ): DeploymentFunctionMetadata {
-  const metadata = asRecord(value);
+  const metadata = asNonArrayRecord(value);
   if (metadata === null) {
     throw invalidFunctionMetadata(deploymentId, packageId, index, "must be an object");
   }
@@ -135,7 +137,7 @@ function functionRoutePolicyFromJson(
   index: number,
 ): FunctionRoutePolicy | null {
   if (value === null) return null;
-  const route = asRecord(value);
+  const route = asNonArrayRecord(value);
   if (route === null) {
     throw invalidFunctionMetadata(deploymentId, packageId, index, "route must be null or an object");
   }
@@ -160,7 +162,7 @@ function functionPartitionMetadataFromJson(
   index: number,
 ): FunctionPartitionMetadata | null {
   if (value === null) return null;
-  const partition = asRecord(value);
+  const partition = asNonArrayRecord(value);
   if (partition === null) {
     throw invalidFunctionMetadata(deploymentId, packageId, index, "partition must be null or an object");
   }
@@ -229,13 +231,6 @@ function invalidFunctionMetadata(
     packageId,
     `function metadata at index ${index} ${message}`,
   );
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
-  }
-  return value as Record<string, unknown>;
 }
 
 function isDeploymentFunctionKind(value: unknown): value is DeploymentFunctionKind {
