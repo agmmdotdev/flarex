@@ -1,6 +1,14 @@
 import { Effect } from "effect";
+import {
+  isNonArrayRecord,
+  type UnknownRecord,
+} from "@flarex/utils/records";
 import { decodeExecutionIdentityEffect } from "flarex-protocol/auth";
-import { isJson as isProtocolJson } from "flarex-protocol/json";
+import {
+  isJson as isProtocolJson,
+  isJsonObject,
+  type JsonObject,
+} from "flarex-protocol/json";
 import type {
   AbortInvokeSessionInput,
   AbortStaleInvokeSessionsInput,
@@ -217,10 +225,10 @@ function parseBeginInvokeSessionBody(
     const parsed = yield* decodeExecutorHttpValidationResult(
       parseBeginInvokeSessionBodyResult(body),
     );
-    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    if (!isNonArrayRecord(body)) {
       return parsed;
     }
-    const record = body as Record<string, unknown>;
+    const record = body;
     if (!("identity" in record)) {
       return parsed;
     }
@@ -287,10 +295,10 @@ function parseLiveQuerySubscriptionRecordBody(
     const parsed = yield* decodeExecutorHttpValidationResult(
       parseLiveQuerySubscriptionRecordBodyResult(body),
     );
-    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    if (!isNonArrayRecord(body)) {
       return parsed;
     }
-    const record = body as Record<string, unknown>;
+    const record = body;
     if (!("identity" in record)) {
       return parsed;
     }
@@ -418,7 +426,7 @@ function parseInvokeBodyResult(
       value: BeginInvokeSessionInput;
     }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -426,7 +434,7 @@ function parseInvokeBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const projectId = requiredString(record, "projectId");
@@ -467,7 +475,7 @@ function parseInvokeSyscallBodyResult(
 ):
   | { value: InvokeSyscallInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -475,7 +483,7 @@ function parseInvokeSyscallBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const projectId = requiredString(record, "projectId");
@@ -500,7 +508,7 @@ function parseInvokeFinishBodyResult(
 ):
   | { value: FinishInvokeSessionInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -508,7 +516,7 @@ function parseInvokeFinishBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const projectId = requiredString(record, "projectId");
@@ -533,7 +541,7 @@ function parseInvokeAbortBodyResult(
 ):
   | { value: AbortInvokeSessionInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -541,7 +549,7 @@ function parseInvokeAbortBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const projectId = requiredString(record, "projectId");
@@ -563,7 +571,7 @@ function parseInvokeAbortStaleBodyResult(
 ):
   | { value: AbortStaleInvokeSessionsInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -571,7 +579,7 @@ function parseInvokeAbortStaleBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const projectId = requiredString(record, "projectId");
@@ -598,7 +606,7 @@ function parseInvokeSessionMaintenanceBodyResult(
 ):
   | { value: RunInvokeSessionMaintenanceInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -606,7 +614,7 @@ function parseInvokeSessionMaintenanceBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const projectId = requiredString(record, "projectId");
@@ -633,7 +641,7 @@ function parseLiveQueryRerunMaintenanceBodyResult(
 ):
   | { value: { deploymentId: string; projectId: string; limit?: number } }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -641,7 +649,7 @@ function parseLiveQueryRerunMaintenanceBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const projectId = requiredString(record, "projectId");
@@ -663,7 +671,7 @@ function parseLiveQueryDeliveryMaintenanceBodyResult(
 ):
   | { value: { deploymentId: string; limit?: number } }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -671,7 +679,7 @@ function parseLiveQueryDeliveryMaintenanceBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const limit = optionalPositiveInteger(record, "limit");
@@ -690,7 +698,7 @@ function parseLiveQuerySubscriptionRecordBodyResult(
 ):
   | { value: RecordLiveQuerySubscriptionInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -698,7 +706,7 @@ function parseLiveQuerySubscriptionRecordBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const projectId = requiredString(record, "projectId");
@@ -746,7 +754,7 @@ function parseLiveQuerySubscriptionRemoveBodyResult(
 ):
   | { value: RemoveLiveQuerySubscriptionInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -754,7 +762,7 @@ function parseLiveQuerySubscriptionRemoveBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const projectId = requiredString(record, "projectId");
@@ -779,7 +787,7 @@ function parseLiveQueryConnectionTouchBodyResult(
 ):
   | { value: TouchLiveQueryConnectionInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -787,7 +795,7 @@ function parseLiveQueryConnectionTouchBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const projectId = requiredString(record, "projectId");
@@ -814,7 +822,7 @@ function parseLiveQuerySubscriptionRemoveConnectionBodyResult(
 ):
   | { value: RemoveLiveQuerySubscriptionsForConnectionInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -822,7 +830,7 @@ function parseLiveQuerySubscriptionRemoveConnectionBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const projectId = requiredString(record, "projectId");
@@ -844,7 +852,7 @@ function parseLiveQueryConnectionCleanupBodyResult(
 ):
   | { value: RemoveExpiredLiveQuerySubscriptionsInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -852,7 +860,7 @@ function parseLiveQueryConnectionCleanupBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const projectId = requiredString(record, "projectId");
@@ -874,7 +882,7 @@ function parseLiveQueryClaimMaintenanceBodyResult(
 ):
   | { value: ClaimLiveQueryDeliveryBatchInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -882,7 +890,7 @@ function parseLiveQueryClaimMaintenanceBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const limit = optionalPositiveInteger(record, "limit");
@@ -912,7 +920,7 @@ function parseLiveQueryAckMaintenanceBodyResult(
 ):
   | { value: AckLiveQueryDeliveriesInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -920,7 +928,7 @@ function parseLiveQueryAckMaintenanceBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const deliveryIds = requiredStringArray(record.deliveryIds, "deliveryIds");
@@ -945,7 +953,7 @@ function parseLiveQueryFailureMaintenanceBodyResult(
 ):
   | { value: RecordLiveQueryDeliveryFailureInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -953,7 +961,7 @@ function parseLiveQueryFailureMaintenanceBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const deliveryIds = requiredStringArray(record.deliveryIds, "deliveryIds");
@@ -984,7 +992,7 @@ function parseLiveQueryDeadLetterMaintenanceBodyResult(
 ):
   | { value: MarkLiveQueryDeliveriesDeadLetteredInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -992,7 +1000,7 @@ function parseLiveQueryDeadLetterMaintenanceBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = requiredString(record, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const deliveryIds = requiredStringArray(record.deliveryIds, "deliveryIds");
@@ -1020,7 +1028,7 @@ function parseLiveQueryDeadLetterStuckMaintenanceBodyResult(
 ):
   | { value: DeadLetterStuckLiveQueryDeliveriesInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -1028,7 +1036,7 @@ function parseLiveQueryDeadLetterStuckMaintenanceBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = optionalString(record.deploymentId, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const olderThan = requiredDate(record, "olderThan");
@@ -1068,7 +1076,7 @@ function parseLiveQueryPendingDeploymentsMaintenanceBodyResult(
 ):
   | { value: ListPendingLiveQueryDeliveryDeploymentsInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -1076,7 +1084,7 @@ function parseLiveQueryPendingDeploymentsMaintenanceBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const limit = optionalPositiveInteger(record, "limit");
   if ("error" in limit) return limit;
   const cursor = optionalPendingLiveQueryDeliveryDeploymentCursor(record.cursor);
@@ -1095,7 +1103,7 @@ function parseLiveQueryExpiredConnectionDeploymentsMaintenanceBodyResult(
 ):
   | { value: ListExpiredLiveQueryConnectionDeploymentsInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -1103,7 +1111,7 @@ function parseLiveQueryExpiredConnectionDeploymentsMaintenanceBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const expiredAt = optionalDate(record.expiredAt, "expiredAt");
   if ("error" in expiredAt) return expiredAt;
   const limit = optionalPositiveInteger(record, "limit");
@@ -1125,7 +1133,7 @@ function parseLiveQueryStuckDeliveriesMaintenanceBodyResult(
 ):
   | { value: ListStuckLiveQueryDeliveriesInput }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+  if (!isNonArrayRecord(body)) {
     return {
       error: {
         error: "bad_request",
@@ -1133,7 +1141,7 @@ function parseLiveQueryStuckDeliveriesMaintenanceBodyResult(
       },
     };
   }
-  const record = body as Record<string, unknown>;
+  const record = body;
   const deploymentId = optionalString(record.deploymentId, "deploymentId");
   if ("error" in deploymentId) return deploymentId;
   const olderThan = requiredDate(record, "olderThan");
@@ -1180,7 +1188,7 @@ function optionalStuckLiveQueryDeliveryCursor(
   | { value?: { lastAttemptedAt: Date; deploymentId: string; deliveryId: string } }
   | { error: { error: "bad_request"; message: string } } {
   if (value === undefined) return {};
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return {
       error: {
         error: "bad_request",
@@ -1188,7 +1196,7 @@ function optionalStuckLiveQueryDeliveryCursor(
       },
     };
   }
-  const record = value as Record<string, unknown>;
+  const record = value;
   const lastAttemptedAt = optionalDate(
     record.lastAttemptedAt,
     "cursor.lastAttemptedAt",
@@ -1230,7 +1238,7 @@ function optionalStuckLiveQueryDeliveryCursor(
 }
 
 function parseSyscallRequest(
-  record: Record<string, unknown>,
+  record: UnknownRecord,
 ):
   | { value: InvokeSyscallRequest }
   | { error: { error: "bad_request"; message: string } } {
@@ -1288,7 +1296,7 @@ function parseSyscallRequest(
 }
 
 function requiredString(
-  record: Record<string, unknown>,
+  record: UnknownRecord,
   field: string,
 ): { value: string } | { error: { error: "bad_request"; message: string } } {
   const value = record[field];
@@ -1365,7 +1373,7 @@ function optionalNullableString(
 }
 
 function requiredDate(
-  record: Record<string, unknown>,
+  record: UnknownRecord,
   field: string,
 ): { value: Date } | { error: { error: "bad_request"; message: string } } {
   const value = record[field];
@@ -1438,7 +1446,7 @@ function optionalLiveQueryDeliveryCursor(
   | { value?: { createdAt: Date; deliveryId: string } }
   | { error: { error: "bad_request"; message: string } } {
   if (value === undefined) return {};
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return {
       error: {
         error: "bad_request",
@@ -1446,7 +1454,7 @@ function optionalLiveQueryDeliveryCursor(
       },
     };
   }
-  const record = value as Record<string, unknown>;
+  const record = value;
   const createdAt = optionalDate(record.createdAt, "cursor.createdAt");
   if ("error" in createdAt) return createdAt;
   const deliveryId = requiredString(record, "deliveryId");
@@ -1480,7 +1488,7 @@ function optionalPendingLiveQueryDeliveryDeploymentCursor(
   | { value?: { oldestCreatedAt: Date; deploymentId: string } }
   | { error: { error: "bad_request"; message: string } } {
   if (value === undefined) return {};
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return {
       error: {
         error: "bad_request",
@@ -1488,7 +1496,7 @@ function optionalPendingLiveQueryDeliveryDeploymentCursor(
       },
     };
   }
-  const record = value as Record<string, unknown>;
+  const record = value;
   const oldestCreatedAt = optionalDate(
     record.oldestCreatedAt,
     "cursor.oldestCreatedAt",
@@ -1525,7 +1533,7 @@ function optionalExpiredLiveQueryConnectionDeploymentCursor(
   | { value?: NonNullable<ListExpiredLiveQueryConnectionDeploymentsInput["cursor"]> }
   | { error: { error: "bad_request"; message: string } } {
   if (value === undefined) return {};
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return {
       error: {
         error: "bad_request",
@@ -1533,7 +1541,7 @@ function optionalExpiredLiveQueryConnectionDeploymentCursor(
       },
     };
   }
-  const record = value as Record<string, unknown>;
+  const record = value;
   const oldestExpiredAt = optionalDate(
     record.oldestExpiredAt,
     "cursor.oldestExpiredAt",
@@ -1565,7 +1573,7 @@ function optionalExpiredLiveQueryConnectionDeploymentCursor(
 }
 
 function requiredPositiveInteger(
-  record: Record<string, unknown>,
+  record: UnknownRecord,
   field: string,
 ): { value: number } | { error: { error: "bad_request"; message: string } } {
   const value = record[field];
@@ -1586,7 +1594,7 @@ function requiredPositiveInteger(
 }
 
 function requiredNonNegativeInteger(
-  record: Record<string, unknown>,
+  record: UnknownRecord,
   field: string,
 ): { value: number } | { error: { error: "bad_request"; message: string } } {
   const value = record[field];
@@ -1607,7 +1615,7 @@ function requiredNonNegativeInteger(
 }
 
 function optionalPositiveInteger(
-  record: Record<string, unknown>,
+  record: UnknownRecord,
   field: string,
 ):
   | { value?: number }
@@ -1635,15 +1643,11 @@ function requiredJsonObject(
   value: unknown,
   field: string,
 ):
-  | { value: Record<string, Json> }
+  | { value: JsonObject }
   | { error: { error: "bad_request"; message: string } } {
   const parsed = jsonValue(value, field);
   if ("error" in parsed) return parsed;
-  if (
-    parsed.value === null ||
-    typeof parsed.value !== "object" ||
-    Array.isArray(parsed.value)
-  ) {
+  if (!isJsonObject(parsed.value)) {
     return {
       error: {
         error: "bad_request",
@@ -1768,10 +1772,10 @@ function itemRecord(
   value: unknown,
   field: string,
 ):
-  | { value: Record<string, unknown> }
+  | { value: UnknownRecord }
   | { error: { error: "bad_request"; message: string } } {
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-    return { value: value as Record<string, unknown> };
+  if (isNonArrayRecord(value)) {
+    return { value };
   }
   return badRequest(`${field} must be an object.`);
 }

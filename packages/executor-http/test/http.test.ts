@@ -228,6 +228,20 @@ describe("executor HTTP invoke body decoders", () => {
     });
   });
 
+  it("rejects non-record bodies at the shared record boundary", async () => {
+    for (const body of [null, [], "invalid"] as const) {
+      const failure = await Effect.runPromise(
+        decodePrepareInvokeBody(body).pipe(Effect.flip),
+      );
+
+      expect(failure).toBeInstanceOf(ExecutorHttpBodyValidationError);
+      expect(failure.body).toEqual({
+        error: "bad_request",
+        message: "Request body must be a JSON object.",
+      });
+    }
+  });
+
   it("rejects non-plain objects at JSON value boundaries", async () => {
     const symbolProperty = { value: true, [Symbol("hidden")]: false };
 

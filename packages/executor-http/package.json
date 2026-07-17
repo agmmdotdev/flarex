@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@flarex/executor": "workspace:*",
+    "@flarex/utils": "workspace:*",
     "effect": "catalog:",
     "elysia": "^1.4.13",
     "flarex-protocol": "workspace:*"
