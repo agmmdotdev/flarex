@@ -7,6 +7,7 @@ import { decodeExactH05Scalar } from "./exactScalar";
 import { decodeExactH05StringTuple } from "./exactStringTuple";
 import { requireExactH05Record } from "./exactRecord";
 import { formatH05JsonDocument } from "./jsonDocument";
+import { isH05FullLowercaseGitCommit } from "./gitCommit";
 import {
   decodeH05ControlPlaneEvidence,
   type H05ControlPlaneEvidence,
@@ -1392,7 +1393,7 @@ function sha256String(value: unknown, path: string): H05TraceSha256 {
 }
 
 function gitCommit(value: unknown, path: string): H05TraceGitCommit {
-  if (typeof value !== "string" || !/^[a-f0-9]{40}$/.test(value)) {
+  if (!isH05FullLowercaseGitCommit(value)) {
     failAt(path, "must be a full lowercase Git commit ID.");
   }
   return value as H05TraceGitCommit;

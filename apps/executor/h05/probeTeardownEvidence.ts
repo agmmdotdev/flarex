@@ -5,6 +5,7 @@ import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { decodeExactH05Scalar } from "./exactScalar";
 import { requireExactH05Record } from "./exactRecord";
 import { formatH05JsonDocument } from "./jsonDocument";
+import { isH05FullLowercaseGitCommit } from "./gitCommit";
 import {
   decodeH05ControlPlaneEvidence,
   type H05ControlPlaneEvidence,
@@ -832,7 +833,7 @@ function gitCommit(
   value: unknown,
   path: string,
 ): H05ProbeTeardownGitCommit {
-  if (typeof value !== "string" || !/^[a-f0-9]{40}$/.test(value)) {
+  if (!isH05FullLowercaseGitCommit(value)) {
     failAt(path, "must be a full lowercase Git commit ID.");
   }
   return value as H05ProbeTeardownGitCommit;

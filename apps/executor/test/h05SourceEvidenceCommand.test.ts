@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const commandOutputMock = vi.hoisted(() => vi.fn());
 
@@ -12,6 +12,10 @@ import {
 } from "../scripts/h05SourceEvidence";
 
 describe("H05 source evidence commands", () => {
+  beforeEach(() => {
+    commandOutputMock.mockReset();
+  });
+
   it("maps child-process failures to the source-evidence error contract", () => {
     commandOutputMock.mockImplementation(() => {
       throw new Error("child-process failure sentinel");
@@ -25,6 +29,22 @@ describe("H05 source evidence commands", () => {
       if (!(error instanceof H05SourceEvidenceError)) throw error;
       expect(error.code).toBe("command-failed");
       expect(error.message).toBe("H05 source evidence command could not run.");
+    }
+  });
+
+  it("retains the source-evidence invalid-commit error contract", () => {
+    commandOutputMock.mockReturnValueOnce("A".repeat(40));
+
+    try {
+      readH05SourceEvidence();
+      expect.unreachable("expected source evidence collection to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(H05SourceEvidenceError);
+      if (!(error instanceof H05SourceEvidenceError)) throw error;
+      expect(error.code).toBe("invalid-commit");
+      expect(error.message).toBe(
+        "H05 source evidence requires a full lowercase Git commit ID.",
+      );
     }
   });
 });

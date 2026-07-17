@@ -53,6 +53,18 @@ describe("H05 hosted receipt-v2 summary", () => {
     });
   });
 
+  it("retains receipt-owned rejection of all-zero Git commit placeholders", () => {
+    const receipt = validReceipt();
+    nestedRecord(receipt, "source").commit = "0".repeat(40);
+
+    expect(decodeH05HostedReceipt(receipt)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "source.commit must not use an all-zero placeholder.",
+      ),
+    });
+  });
+
   it("retains canonical invocation and data-plane evidence contracts", () => {
     const dataPlane = validH05TraceDataPlaneEvidence();
     const invocation = recordClone(dataPlane.invocation);

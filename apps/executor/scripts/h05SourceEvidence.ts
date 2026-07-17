@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 
 import type { H05ControlPlaneSourceEvidence } from "../h05/controlPlaneEvidence";
+import { isH05FullLowercaseGitCommit } from "../h05/gitCommit";
 import { commandOutput } from "./commandOutput";
 export { h05SourceEvidenceSha256 } from "../h05/controlPlaneEvidence";
 
@@ -22,7 +23,7 @@ export class H05SourceEvidenceError extends Error {
 
 export function readH05SourceEvidence(): H05ControlPlaneSourceEvidence {
   const commit = sourceEvidenceCommandOutput("git", ["rev-parse", "HEAD"]);
-  if (!/^[a-f0-9]{40}$/.test(commit)) {
+  if (!isH05FullLowercaseGitCommit(commit)) {
     throw new H05SourceEvidenceError(
       "invalid-commit",
       "H05 source evidence requires a full lowercase Git commit ID.",

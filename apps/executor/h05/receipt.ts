@@ -4,6 +4,7 @@ import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import { decodeExactH05Scalar } from "./exactScalar";
 import { formatH05JsonDocument } from "./jsonDocument";
+import { isH05FullLowercaseGitCommit } from "./gitCommit";
 import {
   decodeH05ProofRunId,
   h05ProofIdentity,
@@ -63,9 +64,16 @@ const sha256Decoder: Decoder<Sha256> = (value, path) => {
   }
   return decoded as Sha256;
 };
-const gitCommitDecoder = nonPlaceholderBrandedPattern<GitCommit>(
-  /^[a-f0-9]{40}$/,
-);
+const gitCommitDecoder: Decoder<GitCommit> = (value, path) => {
+  const decoded = nonEmptyString(value, path);
+  if (!isH05FullLowercaseGitCommit(decoded)) {
+    fail(`${path} has an invalid format.`);
+  }
+  if (/^0+$/.test(decoded)) {
+    fail(`${path} must not use an all-zero placeholder.`);
+  }
+  return decoded as GitCommit;
+};
 const cloudflareResourceIdDecoder: Decoder<CloudflareResourceId> = (
   value,
   path,
@@ -870,13 +878,6 @@ function nonPlaceholderPattern(pattern: RegExp): Decoder<string> {
     }
     return decoded;
   };
-}
-
-function nonPlaceholderBrandedPattern<Brand extends string>(
-  pattern: RegExp,
-): Decoder<Brand> {
-  const decode = nonPlaceholderPattern(pattern);
-  return (value, path) => decode(value, path) as Brand;
 }
 
 function h05ProofRunIdDecoder(

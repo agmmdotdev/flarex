@@ -8,6 +8,7 @@ import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { decodeExactH05Scalar } from "./exactScalar";
 import { decodeExactH05StringTuple } from "./exactStringTuple";
 import { formatH05JsonDocument } from "./jsonDocument";
+import { isH05FullLowercaseGitCommit } from "./gitCommit";
 import {
   decodeH05ProofRunId,
   h05ProofIdentity,
@@ -485,7 +486,7 @@ function decodeSource(value: unknown, path: string): H05ControlPlaneSourceEviden
   ]);
   literal(record.worktreeClean, true, `${path}.worktreeClean`);
   return {
-    commit: patternString(record.commit, /^[a-f0-9]{40}$/, `${path}.commit`),
+    commit: gitCommitString(record.commit, `${path}.commit`),
     worktreeClean: true,
     wranglerVersion: patternString(
       record.wranglerVersion,
@@ -1290,6 +1291,14 @@ function isoTimestamp(value: unknown, path: string): string {
 function sha256String(value: unknown, path: string): string {
   const decoded = nonEmptyString(value, path);
   if (!isH05LowercaseSha256Digest(decoded)) {
+    fail(`${path} has an invalid format.`);
+  }
+  return decoded;
+}
+
+function gitCommitString(value: unknown, path: string): string {
+  const decoded = nonEmptyString(value, path);
+  if (!isH05FullLowercaseGitCommit(decoded)) {
     fail(`${path} has an invalid format.`);
   }
   return decoded;

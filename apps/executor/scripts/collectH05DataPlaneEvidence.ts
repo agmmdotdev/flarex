@@ -3,6 +3,7 @@ import { basename, dirname, resolve } from "node:path";
 import { argv } from "node:process";
 
 import { runHostedExecutorOccProof } from "../h05/hostedPostgresProof";
+import { isH05FullLowercaseGitCommit } from "../h05/gitCommit";
 import {
   compileH05DataPlaneEvidence,
   h05DataPlaneEvidenceFormat,
@@ -75,7 +76,7 @@ console.log(
 
 function readSourceCommit(): string {
   const commit = commandOutput("git", ["rev-parse", "HEAD"]);
-  if (!/^[a-f0-9]{40}$/.test(commit)) {
+  if (!isH05FullLowercaseGitCommit(commit)) {
     throw new Error("H05 data-plane evidence requires a full lowercase Git commit ID.");
   }
   return commit;
