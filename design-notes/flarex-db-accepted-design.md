@@ -164,8 +164,8 @@ work continues.
 | --- | --- | --- |
 | Existing `documents`, `indexes`, invoke sessions, Postgres live-query registry, and delivery outbox | Implemented prototype baseline | Keep only as bounded internal behavior evidence until equivalent target paths and tests exist. Do not extend it or treat it as a shipped migration obligation. |
 | Typed app row JSON with revision/current, declared index, edge, and unique sidecars | Partially implemented accepted target | S06 implements the internal, non-routing row revision/current kernel. Index, edge, and unique sidecars plus target-native index population/build and routing consumers remain planned behind the storage-generation boundary. |
-| Native commit feed, committed-success outcomes, and commit wakes | Partially implemented accepted target | S08 implements native commit/change-feed storage and its bounded private reader. S09-A implements the private scope-lifetime committed-success result receipt. S09-B implements the fixed-kind private commit-wake table and fenced claim/settlement repository. O07 atomic production, C06 dispatch, outcome lookup/replay, payload expiry, sync activation, and retention advancement remain pending. |
-| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | The Postgres-backed point path now has C04C1's private logical plan and O06's reusable rollback-proven transaction kernel; O07 remains the first durable publication. After the complete point path passes its real-Postgres gate, immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
+| Native commit feed, committed-success outcomes, and commit wakes | Partially implemented accepted target | S08 implements native commit/change-feed storage and its bounded private reader. S09-A implements the private scope-lifetime committed-success result receipt. S09-B implements the fixed-kind private commit-wake table and fenced claim/settlement repository. O07-A implements the private read-only committed-outcome resolver. O07-B atomic production, C06 replay orchestration/dispatch, payload expiry, sync activation, and retention advancement remain pending. |
+| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | The Postgres-backed point path now has C04C1's private logical plan and O06's reusable rollback-proven transaction kernel; O07-B remains the first durable publication. After the complete point path passes its real-Postgres gate, immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
 | Payload adapter | Staged target | Start with reserved logical collections and scalar CRUD/transaction conformance; add relations, versions/drafts, globals, auth, locks, and hooks incrementally. |
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
 | DeploymentSyncDO | Accepted v1 coordination target | One deterministic instance per scope, durable SQLite cursor/query/dependency state, Postgres catch-up. |
@@ -855,7 +855,7 @@ commit_seq)`, carries its write `epoch_uuid`, exact typed-app-row
 `change_count`, and finite database-owned `committed_at`, and exposes a unique
 `(scope_uuid, epoch_uuid, commit_seq)` projection for its children. Sequence is
 the feed order; timestamp is metadata only. Zero-change headers are physically
-  representable, but S08 does not decide whether O07 allocates one for a
+  representable, but S08 does not decide whether O07-B allocates one for a
   read-only or otherwise change-free transaction.
 
 Each `fx_system_commit_app_row_change` child is an ordered pointer to one
@@ -915,7 +915,7 @@ PreparedPointCommitV1 (introduced by C04C1)
   final logical row intent; it contains no SQL or publication authority
 
 Conditional physical lowering (C04C2)
-  introduced only if the first S08/S09-A/S09-B/O06/O07 consumers prove that a
+  introduced only if the first S08/S09-A/S09-B/O06/O07-B consumers prove that a
   distinct physical/change/outbox lowering capability is useful
 
 O06 point-commit transaction kernel
@@ -925,7 +925,12 @@ O06 point-commit transaction kernel
   O05 validation; tentative physical revision/current lowering; and an exact
   forced-rollback proof. It exposes no tentative sequence or published state.
 
-O07 CommitExecutor
+O07-A committed-outcome resolver
+  validates and copies a closed structural lookup record that is not itself
+  authority; captures the outcome, clock/floor, and optional exact header in
+  one statement; and verifies bounded canonical result evidence after SQL
+
+O07-B CommitExecutor
   reuses and extends the O06 kernel with sequence/time allocation, durable
   physical revision/current writes, idempotency outcome, commit/change records,
   freshness atoms, outbox, lease deletion, committed session state, and clock
@@ -1089,7 +1094,7 @@ anchor returns unchanged, including its stored snapshot and timestamps.
 Changed evidence, multiple matches, stale authority, a missing or expired
 lease, or a non-`running` anchor fails closed. This is a logical
 one-anchor-per-request invariant under the authoritative lock, not a physical
-uniqueness claim and not O07 committed-result replay. V1 session hard expiry is
+uniqueness claim and not O07-A committed-result lookup. V1 session hard expiry is
 the already platform-bounded verified-grant expiry. Initial lease expiry is
 `min(databaseNow + configuredLeaseDuration, hardExpiry)` using one post-lock
 database timestamp and must be strictly in the future; exact replay never
@@ -1171,7 +1176,7 @@ point evidence, and the complete scalar seal identity. It accepts only a live
 `running + sealed` attempt for initial planning or `finishing + sealed` for
 reconstruction, and returns a runtime-unforgeable process-local
 `AuthenticatedStoredAttemptV1`. A committed observation is typed as already
-committed and non-plannable; committed-outcome resolution remains C06/O07.
+committed and non-plannable; O07-A owns lookup and C06/O08 own its orchestration.
 C04B1 extends only that factory-local vault: a genuine same-factory C04A
 capability triggers one fresh bounded read-only repeatable-read capture of
 stored arguments/grant, current scope revocation and database time, the one
@@ -1200,14 +1205,14 @@ only deletion of a snapshot-present row yields a logical delete intent. The
 plan claims no physical rows, SQL lock order, sequence/time, change atoms, or
 outbox authority. Any
 separate C04C2 physical/change/outbox lowering remains conditional on the first
-S08/S09-A/S09-B/O06/O07 consumers. SHA-256 proves byte integrity only; authenticating the
+S08/S09-A/S09-B/O06/O07-B consumers. SHA-256 proves byte integrity only; authenticating the
 Postgres session/fence does not authenticate arbitrary inline journal bytes.
 C03 seals while the session remains `running`, and that sealed root rejects
 later syscalls. C05 later locks and revalidates the detached scalar seal
 identity before the exact-fence `running` to `finishing` transition; a recovery
 path may rerun C04A from `finishing + sealed`. C06 later orchestrates finish
 idempotently through the endpoint.
-O07 atomically deletes the exact current lease and stores committed state with
+O07-B atomically deletes the exact current lease and stores committed state with
 the server-prepared internal request identity, committed-success result receipt,
 committed token, data, feed, and S09-B outbox. Failed or rolled-back executions
 create no S09-A outcome. O08 owns retry replacement; O11 first consumes active
@@ -1295,7 +1300,7 @@ construction and compatibility. Neither is a durable externally observable
 active state in V1: O03-B1 commits the new anchor as `running` with its exact
   current lease. C05's exact-fence transition leaves the durable attempt at
   `finishing`; O06 proves the reusable short transaction kernel only through
-  forced rollback, and O07 either commits the terminal outcome or rolls back to
+  forced rollback, and O07-B either commits the terminal outcome or rolls back to
   that durable `finishing` state.
 
 Requirements:
@@ -1329,7 +1334,7 @@ Requirements:
   revalidates the seal's scalar identity before the private exact-fence
   transition to `finishing`; reconstruction may authenticate the same sealed
   attempt from `finishing`, while C06 owns endpoint orchestration;
-- O07 deletes the exact current lease and enters `committed` only in the atomic
+- O07-B deletes the exact current lease and enters `committed` only in the atomic
   publication/outcome transaction;
 - O08 handles a trusted OCC retry from `finishing` by atomically entering `retrying`,
   incrementing the attempt fence, replacing the snapshot lease, discarding the
@@ -1337,7 +1342,8 @@ Requirements:
   changing storage generation;
 - canonical journal digest for integrity, never authentication by itself;
 - idempotent repeated `finish`;
-- committed-outcome lookup after a lost response;
+- O07-A committed-outcome lookup after a lost response, with C06/O08 still
+  owning orchestration and retry policy;
 - temporary-evidence TTL and sensitive-data cleanup at their owning
   journal/outcome/retention gates. C02 defines no syscall-count, scan-count, or
   lease-time authority.
@@ -1367,15 +1373,25 @@ private C07 proof deliberately retains result evidence without Convex log lines;
 public key mapping and log-replay parity require a later activation/API
 preflight.
 
-O07 must insert the successful outcome atomically with data, session state, the
-S08 commit header, and S09-B outbox evidence. Reusing a key with different
-identity, function, or request evidence fails, and a lost response is resolved
-from the stored outcome. S09-A defines the physical states only: C06/O07 later
-own lookup/replay, and a future retention consumer owns the one-way
+O07-A is the private authoritative lookup primitive for this record. Its
+validated/copied closed input is matching evidence, not self-authenticating
+commit authority; the production caller must derive it from authenticated
+same-factory provenance. One statement captures the outcome, clock, inclusive
+retained floor, and optional exact S08 header. It returns `missing`, a matching
+`available` result with detached canonical evidence, or a matching `expired`
+token without payload; mismatches are typed key-reuse conflicts and malformed
+stored evidence is typed corruption. Large canonical decoding and hashing run
+only after SQL settles. Old-epoch receipts remain valid, and their epoch is
+correlated only with a retained exact header; a missing header is valid only
+strictly below a positive retained floor.
+
+O07-B must insert the successful outcome atomically with data, session state,
+the S08 commit header, and S09-B outbox evidence. C06/O08 later orchestrate
+replay and uncertain-outcome policy. A future retention consumer owns the one-way
 `available -> expired` transition.
 
 The immutable commit token deliberately has no foreign key to the compactable
-S08 commit header. O07 proves both in one transaction; O11 may later delete
+S08 commit header. O07-B proves both in one transaction; O11 may later delete
 pre-floor commit/change history without deleting the scope-lifetime receipt or
 making its request key reusable. A late retry after payload expiry returns
 `CommittedResultExpired` rather than reapplying the mutation. Result-payload,
@@ -1388,7 +1404,7 @@ to `(scope_uuid, event_kind, commit_seq)`. `last_outbox_seq` remains the sole
 scope-lifetime allocation head; S09-B adds no allocator or writer. The row has
 only a restrictive scope-clock foreign key. It deliberately has no foreign key
 to compactable S08 headers, arbitrary payload, consumer group, generic cursor,
-or global surrogate identity. O07 must later insert the exact wake and advance
+or global surrogate identity. O07-B must later insert the exact wake and advance
 the clock atomically with the data, result, outcome, and S08 header.
 
 Claims use database time, a monotonic claim fence equal to the attempt count,

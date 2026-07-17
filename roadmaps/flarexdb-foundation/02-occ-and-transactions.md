@@ -18,8 +18,9 @@ implementation; C02's inert logical protocol, C03's trusted point journal, and
 C04A's private stored-attempt authentication and C04B1's private current
 commit-authority authentication and C04B2's private-C07 final-value proof are
 complete. Corrected C04C1 private logical point planning and O06's reusable
-rollback-proven point-commit transaction kernel are complete; O07 durable
-publication remains pending, and C04C2 remains conditional and unapproved.
+rollback-proven point-commit transaction kernel and O07-A private read-only
+committed-outcome resolver are complete; O07-B durable publication remains
+pending, and C04C2 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
 does not block the private C02-C07 proof.
@@ -120,7 +121,7 @@ Introduce later contracts only at their real owners: row revisions at `S06`,
 current revocation storage at `S07-A`, grant semantics at `O03-A`, initial
 session authority at `S07`/`O03-B`, point dependencies at `O04`, point conflict
 decisions at `O05`, commit/feed capabilities at `S08`/`O06`, and committed
-outcomes at `S09-A`/`O07`. A row revision derives from `CommitSeq`; it never owns
+outcomes at `S09-A`/`O07-B`. A row revision derives from `CommitSeq`; it never owns
 another sequence. The legacy adapter never treats wall-clock `ts` as a
 replacement commit sequence.
 
@@ -137,7 +138,7 @@ Outcome:
 - Treat the result as an ephemeral selection, not a durable pin or commit
   authorization. `S07-A` owns current revocation storage, `O03-A` owns signed-
   grant semantics, `O03-B` owns initial session/package/schema/policy binding
-  and the current lease, and `O06`/`O07` own final transactional revalidation.
+  and the current lease, and `O06`/`O07-B` own final transactional revalidation.
 - Leave legacy `beginTs` and production storage-generation routing unchanged.
 
 Exit gate:
@@ -721,7 +722,7 @@ Deferred ownership after the required O03-B core:
   initial planning or `finishing + sealed` for reconstruction. `C05` locks and
   revalidates its scalar seal identity before the private exact-fence
   transition to `finishing`; `C06` owns endpoint orchestration;
-- `O07` atomically deletes the exact current lease and stores `committed` only
+- `O07-B` atomically deletes the exact current lease and stores `committed` only
   inside the data/result/outcome/feed/outbox transaction;
 - `O08` introduces the checked delete/fence-advance/new-lease primitive with
   trusted OCC rerun classification, journal discard, backoff, SQL retry, and
@@ -835,7 +836,7 @@ Outcome:
   revalidates the complete scalar authority/seal identity, loads only bounded
   authoritative row heads, adapts logical dependencies losslessly into O05,
   and exercises tentative live/delete revision/current lowering through the
-  same internal row functions O07 can extend.
+  same internal row functions O07-B can extend.
 - O06 publishes nothing. A package-private same-factory proof adapter throws one
   private sentinel out of the transaction callback so the driver rolls back;
   only that exact sentinel becomes a frozen non-authoritative `wouldCommit`
@@ -846,7 +847,7 @@ Outcome:
 - No clock advance, row revision/current state, S08 header/change, S09-A result,
   S09-B wake, session transition, or lease deletion becomes durable, and no
   tentative commit sequence is exposed. The proof seam is package-private and
-  non-routable; O07 is the first durable publisher.
+  non-routable; O07-B is the first durable publisher.
 
 Required real-Postgres cases:
 
@@ -867,13 +868,45 @@ Exit gate:
   pass; PGlite alone cannot close this turn;
 - same-factory and structural-forgery tests prove untrusted journals cannot call
   the primitive or supply physical authority;
-- the production kernel is reusable by O07, while the forced-rollback adapter
+- the production kernel is reusable by O07-B, while the forced-rollback adapter
   remains test/proof-only and no externally routable mutation can commit through
   O06; and
-- O07/C07 retain the durable exactly-one-winner, contiguous-sequence, atomic
+- O07-B/C07 retain the durable exactly-one-winner, contiguous-sequence, atomic
   header/change/outcome/wake, and uncertain-outcome exit gates.
 
-### [ ] O07 — Add Atomic Outcome, Idempotency, And Outbox
+### [x] O07-A — Resolve Committed Point Outcomes
+
+Outcome:
+
+- Accept a closed, structurally validated and defensively copied lookup record
+  containing scope, request key, and expected identity/policy, function, and
+  canonical-request match evidence. The record is not self-authenticating
+  authority; its future caller must derive it from authenticated same-factory
+  provenance.
+- Read the S09-A outcome, scope clock and inclusive retained floor, and optional
+  exact S08 header in one bounded statement. Transfer canonical result bytes
+  only through a size- and match-guarded projection, then close SQL before
+  decoding, hashing, or canonical verification.
+- Return exhaustive `missing`, matching `available`, or matching `expired`
+  outcomes. Reject exact evidence mismatch as a typed request-key reuse
+  conflict and malformed state, result evidence, future tokens, missing
+  retained headers, or retained epoch mismatch as typed stored corruption.
+- Preserve scope-lifetime old-epoch receipts. Compare epoch only with a retained
+  exact header; a header may be absent only when its token is strictly below a
+  positive retained floor. Floor equality still requires the header.
+- Own no retry, polling, writer, expiry transition, session mutation, route, or
+  commit authority.
+
+Exit gate:
+
+- focused PGlite proves states, every match mismatch, malformed/canonical
+  evidence, floor boundaries, defensive ownership, and single-statement
+  size-first projection;
+- isolated real Postgres proves statement-snapshot publication/compaction
+  behavior, post-SQL verification, and index-backed bounded plans; and
+- the resolver stays absent from package roots and all host/public routes.
+
+### [ ] O07-B — Add Atomic Outcome, Idempotency, And Outbox
 
 Outcome:
 
@@ -891,7 +924,7 @@ Outcome:
   OCC-conflicted, serialization-rolled-back, and diagnostic-error attempts
   create no committed outcome.
 - O06 owns the reusable actual authority-lock, revalidation, O05, and tentative
-  revision/current-lowering kernel. O07 owns sequence/time allocation and the
+  revision/current-lowering kernel. O07-B owns sequence/time allocation and the
   first durable result/data/change/outbox publication through that kernel.
   C04C1's numeric table/row ordering is canonical logical evidence ordering
   only, not SQL lock authority.
@@ -900,7 +933,7 @@ Outcome:
 All authoritative writers use one lock order:
 
 ```text
-fast S09-A committed-outcome lookup outside the transaction
+O07-A committed-outcome lookup outside the transaction
   -> begin transaction
   -> lock data-plane scope clock/generation fence
   -> lock exact session row and exact current lease
@@ -933,8 +966,8 @@ Outcome:
    deterministic user code under the same request-level generation/fence pin.
 2. PostgreSQL `40001` or `40P01` before a known decision retries the same
    immutable physical plan within a strict bound.
-3. An uncertain connection outcome performs authoritative outcome lookup before
-   any retry.
+3. An uncertain connection outcome consumes O07-A's authoritative lookup before
+   any retry; it does not reimplement the resolver.
 
 No request silently crosses a generation fence during an active OCC retry. The
 current clean-replacement path has no legacy request-rebind obligation. If

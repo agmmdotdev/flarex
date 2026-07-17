@@ -82,7 +82,7 @@ The repository contains two internal prototype paths plus the accepted target:
 | --- | --- |
 | Durable Object prototype | `PartitionDO` remains bound and reachable as an internal/public fallback, with authoritative Durable Object SQLite document/index/OCC state. It is unshipped legacy architecture, not a target storage generation. |
 | Initial Postgres prototype (`legacy_v1`) | `createFlarexExecutor` currently installs only `createLegacyV1AppDataEngine`, backed by the existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, subscription, and delivery tables. It supplies bounded prototype-regression evidence, not target authority or a supported migration obligation. |
-| Accepted FlarexDB target (`flarexdb_v1`) | Scope authority, scope clock including private current authorization-revocation storage and the inert retained floor, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, transaction-grant authority, the required private session core through activation/replay/reload/terminalization, private exact-snapshot point reads with typed dependencies, pure point-OCC validation, C04B2 verified logical input, corrected C04C1 private logical point planning, S08 native commit/change-feed storage with its bounded package-private reader, S09-A private committed-success result storage, S09-B fixed-kind private commit-wake storage and claim/settlement repository, and O06's rollback-proven private point-commit transaction kernel exist. O07 durable physical lowering/publication, wake production, C06 dispatch, outcome replay/expiry, floor advancement/reset policy, target activation, and routing remain incomplete; attempt renewal and C04C2 are conditional on proven consumers. `v1` means the first intended shippable FlarexDB contract, not the first design attempt. |
+| Accepted FlarexDB target (`flarexdb_v1`) | Scope authority, scope clock including private current authorization-revocation storage and the inert retained floor, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, transaction-grant authority, the required private session core through activation/replay/reload/terminalization, private exact-snapshot point reads with typed dependencies, pure point-OCC validation, C04B2 verified logical input, corrected C04C1 private logical point planning, S08 native commit/change-feed storage with its bounded package-private reader, S09-A private committed-success result storage, S09-B fixed-kind private commit-wake storage and claim/settlement repository, O06's rollback-proven private point-commit transaction kernel, and O07-A's private read-only committed-outcome resolver exist. O07-B durable physical lowering/publication, wake production, C06 dispatch/replay orchestration, outcome expiry, floor advancement/reset policy, target activation, and routing remain incomplete; attempt renewal and C04C2 are conditional on proven consumers. `v1` means the first intended shippable FlarexDB contract, not the first design attempt. |
 
 The existence of replacement catalog tables does not mean the replacement data
 path is active. The executor must not route a request into `flarexdb_v1` until
@@ -401,13 +401,14 @@ epoch-provenance constraints, inert retained floor, and bounded contiguous
   package-private reader are complete. S09-A's package-private, scope-lifetime
   committed-success result table and S09-B's fixed-kind package-private wake
   table and fenced repository are also complete. Neither introduces its future
-  O07 writer, outcome replay/expiry behavior, C06 host dispatch, or retention
+  O07-B writer, outcome expiry/replay orchestration, C06 host dispatch, or retention
   policy. O06's reusable private transaction kernel now performs fresh scalar
   authority revalidation, authoritative head loading, O05 validation, and
   tentative revision/current lowering under an exact forced rollback; it
   publishes no sequence or durable state. Conditional B2b2 renewal moves to its
-  first proven long-running-attempt consumer. O07 durable commit/change/data/
-  outcome/wake publication, S09-A consumption, C06 delivery, and the bounded
+  first proven long-running-attempt consumer. O07-A now consumes S09-A through
+  one private read-only resolver. O07-B durable commit/change/data/outcome/wake
+  publication, C06 delivery/replay orchestration, and the bounded
   compiler composition remain unimplemented. The O04
   reader is not a routed syscall or continuing attempt authorization; C03 owns
   that first operational composition.
@@ -480,8 +481,9 @@ logical point planning is complete. S08's additive native commit/change-feed
   schema and bounded private reader are complete, with the retained floor fixed
   at zero and allocation/publication deferred. S09-A's private committed-success
   schema and S09-B fixed-kind private commit-wake gate are complete. O06's
-  rollback-proven reusable private point-commit kernel is also complete; O07 is
-  the next Wave 2 prerequisite, while C04C2 remains consumer-triggered and
+  rollback-proven reusable private point-commit kernel and O07-A's read-only
+  outcome resolver are also complete; O07-B is the next Wave 2 prerequisite,
+  while C04C2 remains consumer-triggered and
   conditional. O03-B2b2
 renewal/race proof, operational revocation, and hosted Worker/key adapters are
 consumer-triggered deferred gates and do not block the private C07 proof.

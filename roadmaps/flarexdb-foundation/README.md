@@ -26,8 +26,9 @@ package-private reader, and S09-A's private committed-success result DDL are
 complete. S09-B's fixed-kind private commit-wake schema and fenced repository
 are also complete. O06's reusable private point-commit transaction kernel and
 forced-rollback proof are complete. The retained-history floor is physically
-present but fixed at zero until O11; O07 durable production and C06 dispatch
-remain pending, and C04C2 remains conditional and unapproved.
+present but fixed at zero until O11. O07-A's private read-only committed-
+outcome resolver is complete; O07-B durable production and C06 dispatch remain
+pending, and C04C2 remains conditional and unapproved.
 B2b2 renewal is
 a conditional
 operational extension outside the current
@@ -154,7 +155,7 @@ transaction API and never raw Postgres handles.
 
 | Consumer | Low-level capability | Boundary |
 | --- | --- | --- |
-| Flarex app data | Exact snapshot reads plus `SessionJournalV1` and sibling result evidence -> `CommitEnvelopeV1` -> C04A authenticated seal -> C04B1 authenticated commit authority -> C04B2 verified input -> C04C1-owned `PreparedPointCommitV1` -> O06/O07 `CommitExecutor` | First lane; bounded point CRUD. A separate C04C2 exists only if those first consumers prove that physical/change/outbox lowering deserves its own capability. |
+| Flarex app data | Exact snapshot reads plus `SessionJournalV1` and sibling result evidence -> `CommitEnvelopeV1` -> C04A authenticated seal -> C04B1 authenticated commit authority -> C04B2 verified input -> C04C1-owned `PreparedPointCommitV1` -> O06/O07-B `CommitExecutor` | First lane; bounded point CRUD. O07-A is the separate recovery lookup seam. A separate C04C2 exists only if the physical consumers prove that physical/change/outbox lowering deserves its own capability. |
 | Payload | App-row/catalog primitives through a Payload-owned request transaction adapter | Later conformance-tested adapter |
 | Medusa | Scope commit participation, change atoms, and outbox inside a Medusa-owned SQL transaction | Preserves repositories, modules, links, migrations, and workflows |
 | System writers | Fenced scope commit participation for migrations, backfills, repairs, and admin work | Cannot bypass OCC/commit ordering |
@@ -290,7 +291,7 @@ types and ports are introduced by the gates that first consume them.
     planning that introduces private `PreparedPointCommitV1`, preserves every
     protocol dependency, and carries at most one final logical row intent.
     `C04C2` is not an automatic follow-up: it remains conditional until the
-    S08/S09-A/S09-B/O06/O07 consumers prove a separate physical/change/outbox
+    S08/S09-A/S09-B/O06/O07-B consumers prove a separate physical/change/outbox
     lowering capability useful.
 
 The proposed C01 compatibility-wrapper work is not carried forward. C03 introduces
@@ -300,8 +301,9 @@ current commit-authority authentication, C04B2 owns final value/return
 validation and `VerifiedCommitInput`, and C04C1 owns only private logical
 `PreparedPointCommitV1`; O06 owns the reusable short transaction kernel,
 authoritative head loading, actual authority locks, O05 validation, tentative
-physical revision/current lowering, and its exact forced-rollback proof. O07
-reuses and extends that kernel with sequence/time allocation and atomic durable
+physical revision/current lowering, and its exact forced-rollback proof. O07-A
+is the separate read-only committed-outcome recovery seam; O07-B reuses and
+extends that kernel with sequence/time allocation and atomic durable
 publication. O09 owns later multi-row/unique ordering. C05 is the first complete
 planner/production-executor composition consumer; C06 owns
 `PostCommitWake` after durable commit/outbox evidence exists.
@@ -319,10 +321,11 @@ root rejects later syscalls. C04A may authenticate that detached evidence
 before C05, or reconstruct it from `finishing + sealed` after a crash. `C05`,
 the first private commit consumer, locks and revalidates the scalar seal
 identity before the exact-fence transition to `finishing`; C06 orchestrates it
-idempotently through the finish endpoint. `O07`
+idempotently through the finish endpoint. `O07-B`
 deletes the exact lease and stores `committed` only with the atomic data/outcome
 commit, `O08` introduces storage-level retry replacement together with the
-trusted retry coordinator, and `O11` first consumes active snapshot floors for
+trusted retry coordinator while consuming O07-A for uncertain decisions, and
+`O11` first consumes active snapshot floors for
 history retention. `created` and `committing` remain transaction-local/reserved
 rather than separately durable V1 states. Completed `O04` remains a pure
 semantic kernel; C03 first composes it with current-attempt authorization and
@@ -337,29 +340,33 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
 1. `S08` (complete): native scope-local commit headers and epoch-provenance-
    checked typed app-row changes; package-private bounded contiguous
    `listAfter`; retained-history floor physically present but fixed at `0`
-   until O11. Header allocation remains an O07 decision.
+   until O11. Header allocation remains an O07-B decision.
 2. `S09-A` (complete): private scope-lifetime committed-success result DDL,
    keyed by the server-prepared internal request identity and deliberately
    decoupled from compactable S08 headers.
 3. `S09-B` (complete): fixed-kind private commit-wake DDL and package-private
    database-time claim/retry/deliver/dead-letter repository. Claims use exact
    owner/fence CAS and snapshot-consistent inclusive-floor/header correlation;
-   old-epoch rows remain eligible. There is no allocator, O07 writer, C06 host,
+   old-epoch rows remain eligible. There is no allocator, O07-B writer, C06 host,
    generic consumer/cursor, GC, redrive, or sink implementation.
 4. `O06` (complete): reusable private non-routable point-commit transaction
    kernel plus a test-only forced-rollback proof adapter. It revalidates current
    authority, loads authoritative heads, applies O05, and exercises tentative
    physical row lowering without publishing a sequence or durable mutation.
-5. `O07`: extend the O06 kernel with atomic result, outcome, data,
+5. `O07-A` (complete): private read-only committed-outcome resolver with one
+   bounded statement and post-SQL canonical result verification. Its closed
+   structural input is not commit authority; O08/C06 later own recovery policy.
+6. `O07-B`: extend the O06 kernel with atomic result, outcome, data,
    commit/change atoms, outbox, session/lease completion, and clock advance.
-6. `C05`: one point mutation through the complete primitive.
-7. `O08`: separate OCC reruns, safe SQL retries, and uncertain-outcome lookup.
-8. `C06`: idempotent finish and lost-outcome recovery through `/invoke/*`.
-9. `C07`: PGlite plus real-Postgres correctness gate.
+7. `C05`: one point mutation through the complete primitive.
+8. `O08`: separate OCC reruns, safe SQL retries, and uncertain-outcome policy
+   using O07-A rather than reimplementing lookup.
+9. `C06`: idempotent finish and lost-outcome recovery through `/invoke/*`.
+10. `C07`: PGlite plus real-Postgres correctness gate.
 
 This S09-A/S09-B split refines one existing Wave 2 outcome; it does not reorder
-the wave. After O07 and before C05, introduce C04C2 only if the frozen
-S08/S09-A/S09-B/O06/O07 first-consumer contracts prove that a separate
+the wave. After O07-B and before C05, introduce C04C2 only if the frozen
+S08/S09-A/S09-B/O06/O07-B first-consumer contracts prove that a separate
 physical/change/outbox lowering capability is necessary. The step is not part
 of the mandatory order today.
 

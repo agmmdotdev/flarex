@@ -10,8 +10,9 @@ final-document/result proof is also complete. Corrected C04C1 private logical
 point planning, S08 commit/feed DDL, and S09-A private committed-success DDL are
 complete. S09-B's fixed-kind private commit-wake DDL and fenced repository are
 also complete. O06's reusable private point-commit transaction kernel and
-forced-rollback proof are complete; O07 durable production and C06 dispatch
-remain pending, while C04C2 remains conditional and unapproved.
+forced-rollback proof and O07-A private read-only committed-outcome resolver are
+complete; O07-B durable production and C06 dispatch remain pending, while
+C04C2 remains conditional and unapproved.
 
 This plan owns the bounded Flarex app-data path from logical session operations
 through a private logical point plan to an atomic commit. It does not make a
@@ -126,7 +127,11 @@ O06 point-commit transaction kernel
   same-factory unwrapping, closed persistence command, current authority locks,
   scalar revalidation, O05, tentative physical row lowering, forced rollback
              |
-O07 CommitExecutor
+O07-A committed-outcome resolver
+  one bounded outcome/clock/floor/header statement plus post-SQL canonical
+  evidence verification; its closed structural input is not commit authority
+             |
+O07-B CommitExecutor
   reuse of the O06 kernel plus sequence/time allocation and atomic durable
   data/outcome/feed/outbox/session publication
 ```
@@ -149,7 +154,7 @@ net material logical row intent. It contains no physical table or column name,
 allocated commit/outbox sequence, generated outbox ID, database timestamp,
 transaction handle, SQL lock fact, change atom, or outbox template. O06 adapts
 the authenticated logical evidence into a detached closed command and derives
-tentative row operations inside the authoritative SQL boundary; O07 extends
+tentative row operations inside the authoritative SQL boundary; O07-B extends
 that same kernel with durable publication atoms.
 
 ## V1 Read-Your-Writes Matrix
@@ -188,9 +193,9 @@ Introduce each boundary only at its real owner:
   revocation/schema authority capture and its private capability. C04B2 alone
   owns final value/return validation and `VerifiedCommitInput`; C04C1 owns the
   concrete process-local logical `PreparedPointCommitV1` capability. C04C2 is
-  conditional on S08/S09-A/S09-B/O06/O07 proving a separate physical/change/
+  conditional on S08/S09-A/S09-B/O06/O07-B proving a separate physical/change/
   outbox lowering capability useful.
-- O06 owns the reusable rollback-proven transaction kernel; O07 owns the first
+- O06 owns the reusable rollback-proven transaction kernel; O07-B owns the first
   exact durable atomic persistence capability. C05 is their first complete
   planner/production-executor composition consumer.
 - C06 owns `PostCommitWake`, after durable commit and outbox evidence make its
@@ -212,7 +217,7 @@ Outcome:
   `SessionJournalV1`, separate `SuccessfulResultEvidenceV1`, and
   `CommitEnvelopeV1` contracts. Private logical `PreparedPointCommitV1` is
   deferred to C04C1. Physical revision/current rows, locks, change atoms, and
-  outbox records remain with their S08/S09-A/S09-B/O06/O07 consumers.
+  outbox records remain with their S08/S09-A/S09-B/O06/O07-B consumers.
 - Define attempt fence, canonical final syscall sequence, protocol versions,
   canonical journal/result evidence, and SHA-256 integrity digests. C03 owns
   operational monotonic sequencing and append rejection.
@@ -331,7 +336,8 @@ Outcome:
   comparison, hashing, Schema validation, or point correlation.
 - Accept only live `running + sealed` for initial planning or
   `finishing + sealed` for reconstruction. Return committed as typed already-
-  committed/non-plannable; outcome lookup remains C06/O07.
+  committed/non-plannable; O07-A owns the read-only outcome lookup while C06/O08
+  later own recovery orchestration.
 - Bind the full detached scalar seal identity, canonical journal/result bytes,
   digests, final sequence, accounting counters, and strictly correlated point
   overlay evidence. The existing `sealed_at` and root `updated_at` identify the
@@ -467,10 +473,10 @@ Outcome:
 
 ### [ ] C04C2 — Conditional Consumer-Driven Physical Lowering
 
-Do not introduce this gate unless the frozen S08/S09-A/S09-B/O06/O07 first-
+Do not introduce this gate unless the frozen S08/S09-A/S09-B/O06/O07-B first-
 consumer contracts prove that a distinct physical/change/outbox lowering
 capability is useful. O06 already owns the reusable authority locks,
-revalidation, O05 adaptation, and tentative revision/current lowering. O07 owns
+revalidation, O05 adaptation, and tentative revision/current lowering. O07-B owns
 sequence/time allocation and durable publication; O09 owns multi-row/unique
 ordering.
 
@@ -485,8 +491,8 @@ Outcome:
   This is not yet a stable endpoint; C06 later adds idempotent orchestration and
   lost-outcome recovery. Recovery may rerun C04A from `finishing + sealed`
   before reconstructing the same verified plan.
-- Consume the O07-owned private production `CommitExecutor` capability with
-  `PreparedPointCommitV1`. O07 reuses the O06 kernel, which already adapts
+- Consume the O07-B-owned private production `CommitExecutor` capability with
+  `PreparedPointCommitV1`. O07-B reuses the O06 kernel, which already adapts
   logical dependency evidence to O05, loads the authoritative head, and
   exercises tentative physical lowering in the short transaction. This target
   capability must not wrap or promote legacy `commitInvokeSessionWrites`.
@@ -516,7 +522,7 @@ Outcome:
 - Compose the distributed lifecycle owners through the stable endpoint; do not
   introduce a second state machine in compiler code. C06 idempotently
   orchestrates C05's exact-fence transition and existing commit/retry/outcome
-  primitives; C03 rejects later syscalls. O07 owns exact-lease deletion plus
+  primitives; C03 rejects later syscalls. O07-B owns exact-lease deletion plus
   the atomic `committed` transition, and O08 owns retry replacement:
 
 ```text
