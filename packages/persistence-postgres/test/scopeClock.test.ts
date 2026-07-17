@@ -446,6 +446,7 @@ describe("scope clock", () => {
         drop constraint fx_system_scope_clock_storage_generation_check,
         drop constraint fx_system_scope_clock_storage_generation_fence_positive_check,
         drop constraint fx_system_scope_clock_last_commit_seq_non_negative_check,
+        drop constraint fx_system_scope_clock_oldest_available_commit_seq_check,
         drop constraint fx_system_scope_clock_last_outbox_seq_non_negative_check,
         drop constraint fx_system_scope_clock_epoch_non_empty_check
     `);

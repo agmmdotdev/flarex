@@ -82,6 +82,8 @@ describe("createPGlitePersistence", () => {
       "fx_control_scope",
       "fx_control_scope_provisioning",
       "fx_control_table",
+      "fx_system_commit",
+      "fx_system_commit_app_row_change",
       "fx_system_index_build_state",
       "fx_system_scope_clock",
       "fx_system_snapshot_lease",
@@ -1158,7 +1160,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "29" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "30" }]);
     } finally {
       try {
         await db.close();
@@ -1186,7 +1188,7 @@ describe("createPGlitePersistence", () => {
         throw new Error("Current Drizzle journal is missing its entries array.");
       }
       parsedJournal.entries = parsedJournal.entries.filter(
-        (entry) => entry.idx !== 28,
+        (entry) => entry.idx !== undefined && entry.idx < 28,
       );
       await writeFile(
         previousJournal,
@@ -1295,7 +1297,7 @@ describe("createPGlitePersistence", () => {
         throw new Error("Current Drizzle journal is missing its entries array.");
       }
       parsedJournal.entries = parsedJournal.entries.filter(
-        (entry) => entry.idx !== 28,
+        (entry) => entry.idx !== undefined && entry.idx < 28,
       );
       await writeFile(
         temporaryJournal,
@@ -1352,7 +1354,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "29" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "30" }]);
     } finally {
       try {
         await db.close();

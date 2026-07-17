@@ -84,7 +84,7 @@ Convex-first implementation references include:
 | --- | --- |
 | Storage generation | `legacy_v1` is the only wired Postgres app-data engine, while PartitionDO remains a separate authoritative fallback. Both are unshipped prototypes. `flarexdb_v1` is the accepted first shippable contract but remains unreachable from runtime execution. |
 | Scope authority | `fx_control_scope`, split provisioning receipts, and `fx_system_scope_clock` exist. Shared/split provisioning, reconciliation, and read-only authority resolution exist; production routing does not. |
-| Scope clock | Epoch, storage generation/fence, last commit sequence, last outbox sequence, and the scope-wide authorization-revocation epoch are persisted. O03-A2c now consumes a high-level located read for preliminary grant admission; the exact checked-increment remains a private test primitive, and no trusted revocation command or session/runtime consumer exists yet. No standalone production sequence allocator exists. |
+| Scope clock | Epoch, storage generation/fence, last commit sequence, last outbox sequence, the scope-wide authorization-revocation epoch, and S08's retained-history floor are persisted. The floor is fixed at `0` until O11 owns advancement. O03-A2c consumes a high-level located read for preliminary grant admission; the exact checked-increment remains a private test primitive, and no trusted revocation command or standalone production sequence allocator exists. |
 | Stable table catalog | Deployment-scoped stable table IDs and exact name/ID reads exist. |
 | Schema artifacts | Immutable canonical manifest bytes, SHA-256 checksum, deployment/version ownership, and exact replay/collision checks exist. |
 | Table definitions | Strict app-document definitions live only inside the immutable manifest; no second table-definition projection exists. |
@@ -94,7 +94,7 @@ Convex-first implementation references include:
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
 | Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. S06 is its first replacement-row consumer; no replacement route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
-| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, the required non-routing mutation-session authority core, private exact-snapshot semantic point reads with typed dependencies, and C03's bounded exact-attempt point journal/overlay/seal are implemented. C04 verified planning, commit publication, reconnect retention, commit feed, result-bearing idempotency, replacement outbox, index sidecars, edges, target-native readiness, routing, and prototype retirement are not implemented; long-running-attempt renewal remains conditional on a proven consumer. |
+| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, the required non-routing mutation-session authority core, private exact-snapshot semantic point reads with typed dependencies, C03's bounded exact-attempt point journal/overlay/seal, C04A/C04B1/C04B2 authenticated verification, corrected C04C1 logical point planning, and S08's native commit/change-feed schema plus bounded private reader are implemented. Atomic commit publication, reconnect retention/retained-floor advancement, result-bearing idempotency, replacement outbox, index sidecars, edges, target-native readiness, routing, and prototype retirement are not implemented; C04C2 and long-running-attempt renewal remain conditional on proven consumers. |
 
 Existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, and
 subscription tables remain an internal prototype behavior baseline. They are
@@ -645,20 +645,37 @@ Exit gates:
 - no committed app-row, commit/change, idempotency, outbox, C04 planner, inline
   carriage, or legacy-engine table is introduced.
 
-### [ ] S08 — Add Commit And Change-Feed DDL
+### [x] S08 — Add Commit And Change-Feed DDL
 
 Outcome:
 
-- Add scope-local commit and typed change rows.
-- Add `oldest_available_commit_seq` to the authoritative scope clock.
-- Keep allocation private to the final O06 transaction; schema repositories
-  cannot advance the clock independently.
+- Add native scope-local commit headers and ordered typed app-row change
+  children. Exact composite foreign keys bind every child to both its header's
+  epoch and a row revision written with that same epoch provenance.
+- Add `oldest_available_commit_seq` to the authoritative scope clock, fixed at
+  `0` with no writer until O11 owns retention advancement. S08 fails closed on
+  a nonzero floor and defines no reconnect/reset behavior.
+- Keep zero-child headers representable while deferring their allocation policy
+  and every clock advance to O06/O07. Sequence, not `committed_at`, orders the
+  feed; the clock may never advance without its corresponding header.
+- Keep the reader package-private. `listAfter` captures clock, floor, headers,
+  and children in one read-only repeatable-read snapshot and returns the
+  largest contiguous whole-commit prefix bounded by 100 headers and 16,000
+  children, with explicit continuation.
+- Leave legacy commit/document/lease/outbox objects unchanged. They remain
+  unshipped prototype evidence with no compatibility bridge or dual-write
+  obligation.
 
 Exit gates:
 
-- scope/epoch/sequence keys and ordered `listAfter` pass;
-- upgrade/replay/failure recovery passes; and
-- no gap-producing standalone allocator exists.
+- native scope/epoch/sequence keys, exact header/revision epoch provenance,
+  finite database-owned timestamps, strict child count/ordinal correlation,
+  contiguous bounded `listAfter`, and tail-gap detection pass;
+- fresh install, upgrade/replay/failure recovery, non-public schema parity,
+  FK/restrict behavior, query plans, and PGlite/real-Postgres boundaries pass;
+  and
+- no gap-producing allocator, floor writer, retention/reset policy, generic
+  change summary, legacy bridge, or S09/O06/O07 behavior exists.
 
 ### [ ] S09 — Add Idempotency And Leased-Outbox DDL
 

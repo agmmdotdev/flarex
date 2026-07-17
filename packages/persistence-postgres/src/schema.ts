@@ -643,6 +643,12 @@ export const fxSystemScopeClocks = pgTable(
       .$type<CommitSeq>()
       .notNull()
       .default(sql`0`),
+    oldestAvailableCommitSeq: bigint("oldest_available_commit_seq", {
+      mode: "bigint",
+    })
+      .$type<CommitSeq>()
+      .notNull()
+      .default(sql`0`),
     lastOutboxSeq: bigint("last_outbox_seq", { mode: "bigint" })
       .$type<OutboxSeq>()
       .notNull()
@@ -686,6 +692,10 @@ export const fxSystemScopeClocks = pgTable(
       sql`${table.lastCommitSeq} >= 0`,
     ),
     check(
+      "fx_system_scope_clock_oldest_available_commit_seq_check",
+      sql`${table.oldestAvailableCommitSeq} >= 0 and ${table.oldestAvailableCommitSeq} <= ${table.lastCommitSeq}`,
+    ),
+    check(
       "fx_system_scope_clock_last_outbox_seq_non_negative_check",
       sql`${table.lastOutboxSeq} >= 0`,
     ),
@@ -696,6 +706,52 @@ export const fxSystemScopeClocks = pgTable(
     check(
       "fx_system_scope_clock_epoch_non_empty_check",
       nonBlankText(table.epoch),
+    ),
+  ],
+);
+
+/**
+ * Scope-local commit headers for the authoritative replacement app-row feed.
+ * The sequence, rather than committed_at, defines feed order.
+ */
+export const fxSystemCommits = pgTable(
+  "fx_system_commit",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    epochUuid: uuid("epoch_uuid").$type<ScopeEpochUuidV1>().notNull(),
+    commitSeq: bigint("commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull(),
+    changeCount: integer("change_count").notNull(),
+    committedAt: timestamp("committed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scopeUuid, table.commitSeq] }),
+    unique("fx_system_commit_scope_epoch_seq_unique").on(
+      table.scopeUuid,
+      table.epochUuid,
+      table.commitSeq,
+    ),
+    foreignKey({
+      name: "fx_system_commit_scope_clock_fk",
+      columns: [table.scopeUuid],
+      foreignColumns: [fxSystemScopeClocks.scopeUuid],
+    })
+      .onUpdate("restrict")
+      .onDelete("restrict"),
+    check(
+      "fx_system_commit_seq_positive_check",
+      sql`${table.commitSeq} >= 1`,
+    ),
+    check(
+      "fx_system_commit_change_count_check",
+      sql`${table.changeCount} between 0 and 16000`,
+    ),
+    check(
+      "fx_system_commit_committed_at_finite_check",
+      sql`isfinite(${table.committedAt})`,
     ),
   ],
 );
@@ -1510,6 +1566,13 @@ export const fxAppRowRevisions = pgTable(
     primaryKey({
       columns: [table.scopeUuid, table.tableId, table.rowId, table.commitSeq],
     }),
+    unique("fx_app_row_rev_change_provenance_unique").on(
+      table.scopeUuid,
+      table.tableId,
+      table.rowId,
+      table.writeEpochUuid,
+      table.commitSeq,
+    ),
     foreignKey({
       name: "fx_app_row_rev_scope_clock_fk",
       columns: [table.scopeUuid],
@@ -1563,6 +1626,77 @@ export const fxAppRowRevisions = pgTable(
           and octet_length(${table.valueSha256}) = 32
         )
       `,
+    ),
+  ],
+);
+
+/**
+ * Typed app-row changes for one committed feed header. Each child is bound to
+ * both its exact header epoch and the same-epoch authoritative row revision.
+ */
+export const fxSystemCommitAppRowChanges = pgTable(
+  "fx_system_commit_app_row_change",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    epochUuid: uuid("epoch_uuid").$type<ScopeEpochUuidV1>().notNull(),
+    commitSeq: bigint("commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull(),
+    changeOrdinal: integer("change_ordinal").notNull(),
+    tableId: integer("table_id").$type<CatalogTableId>().notNull(),
+    rowId: bytea("row_id").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.scopeUuid, table.commitSeq, table.changeOrdinal],
+    }),
+    unique("fx_system_commit_app_row_change_row_unique").on(
+      table.scopeUuid,
+      table.commitSeq,
+      table.tableId,
+      table.rowId,
+    ),
+    foreignKey({
+      name: "fx_system_commit_app_row_change_header_fk",
+      columns: [table.scopeUuid, table.epochUuid, table.commitSeq],
+      foreignColumns: [
+        fxSystemCommits.scopeUuid,
+        fxSystemCommits.epochUuid,
+        fxSystemCommits.commitSeq,
+      ],
+    })
+      .onUpdate("restrict")
+      .onDelete("restrict"),
+    foreignKey({
+      name: "fx_system_commit_app_row_change_revision_fk",
+      columns: [
+        table.scopeUuid,
+        table.tableId,
+        table.rowId,
+        table.epochUuid,
+        table.commitSeq,
+      ],
+      foreignColumns: [
+        fxAppRowRevisions.scopeUuid,
+        fxAppRowRevisions.tableId,
+        fxAppRowRevisions.rowId,
+        fxAppRowRevisions.writeEpochUuid,
+        fxAppRowRevisions.commitSeq,
+      ],
+    })
+      .onUpdate("restrict")
+      .onDelete("restrict"),
+    check(
+      "fx_system_commit_app_row_change_ordinal_check",
+      sql`${table.changeOrdinal} between 0 and 15999`,
+    ),
+    check(
+      "fx_system_commit_app_row_change_table_id_check",
+      sql`${table.tableId} between 1 and 2147483647`,
+    ),
+    check(
+      "fx_system_commit_app_row_change_row_id_length_check",
+      sql`octet_length(${table.rowId}) = 16`,
     ),
   ],
 );

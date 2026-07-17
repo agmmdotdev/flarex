@@ -846,6 +846,40 @@ Epoch on a persisted row/change is write provenance, not a filter that hides
 untouched data after rollover. Current-row and uniqueness keys remain
 epoch-independent.
 
+## Commit Feed Authority
+
+S08 introduces the first target-native commit-feed storage and bounded private
+reader. A scope-local commit header is keyed by native `(scope_uuid,
+commit_seq)`, carries its write `epoch_uuid`, exact typed-app-row
+`change_count`, and finite database-owned `committed_at`, and exposes a unique
+`(scope_uuid, epoch_uuid, commit_seq)` projection for its children. Sequence is
+the feed order; timestamp is metadata only. Zero-change headers are physically
+representable, but S08 does not decide whether O06/O07 allocate one for a
+read-only or otherwise change-free transaction.
+
+Each `fx_system_commit_app_row_change` child is an ordered pointer to one
+authoritative app-row revision, not a generic JSON summary or duplicated
+operation. Its foreign keys prove both the exact commit epoch and the exact row
+revision write epoch. The row-revision table therefore exposes the narrow
+unique epoch-provenance projection required for this physical invariant. A
+child cannot associate a header from one epoch with a revision written in
+another epoch, even if later transaction code is defective.
+
+The package-private S08 `listAfter` reader captures the authoritative scope
+clock, inert retained-history floor, headers, and children in one read-only
+repeatable-read snapshot. It returns the largest contiguous whole-commit
+prefix after an exclusive cursor, bounded by 100 headers and 16,000 total
+children, plus an explicit continuation fact. It strictly correlates header
+counts, child ordinals, scope/epoch/revision provenance, and the captured
+clock. A missing interior or tail header is corruption, never end-of-feed, and
+`last_commit_seq` must never advance without the corresponding header in the
+same publication transaction.
+
+S08 gives `oldest_available_commit_seq` a physical home but no writer. It must
+remain `0`, and the S08 reader fails closed if it observes any nonzero value.
+O11 later owns retention advancement and deletion ordering; roadmap 21 owns
+reconnect/reset policy. S08 does not infer either policy from the floor column.
+
 ## Commit Compiler Trust Boundary
 
 The compiler is a pure lowering boundary, not a new authority:

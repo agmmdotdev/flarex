@@ -435,5 +435,49 @@ export * from "./liveQueryConnections";
 export * from "./liveQuerySubscriptions";
 export * from "./liveQueryDeliveries";
 export * from "./validation";
-export { flarexSchema } from "./schema";
-export * from "./schema";
+
+/**
+ * Historical package-root schema surface. New transaction-authority tables
+ * remain private until their owning repository or transaction port is approved.
+ */
+export {
+  bytea,
+  commits,
+  deploymentPackages,
+  deployments,
+  documentFreshnessVersions,
+  documents,
+  flarexSchema,
+  freshnessProcessedEvents,
+  fxAppRowCurrent,
+  fxAppRowRevisions,
+  fxControlIndexDefinitions,
+  fxControlIndexes,
+  fxControlSchemaVersionIndexBindings,
+  fxControlSchemaVersions,
+  fxControlScopeProvisioning,
+  fxControlScopes,
+  fxControlTables,
+  fxSystemIndexBuildStates,
+  fxSystemScopeClocks,
+  fxSystemSnapshotLeases,
+  fxSystemTransactionJournalLatestReceipts,
+  fxSystemTransactionJournalPoints,
+  fxSystemTransactionJournals,
+  fxSystemTransactionJournalWriteEvents,
+  fxSystemTransactionSessions,
+  indexes,
+  invokeSessionDocumentReads,
+  invokeSessionDocumentWrites,
+  invokeSessionIndexReads,
+  invokeSessionTableReads,
+  invokeSessions,
+  leases,
+  liveQueryConnections,
+  liveQueryDeliveries,
+  liveQuerySubscriptions,
+  outbox,
+  persistenceGlobals,
+  readOnly,
+  tableFreshnessVersions,
+} from "./schema";

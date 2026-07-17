@@ -21,8 +21,9 @@ C02's host-neutral logical journal/result/envelope protocol, C03's first
 trusted Postgres point-journal consumer, and C04A's private stored-attempt
 authentication gate, C04B1's private commit-authority gate, and C04B2's private
 C07 final-document/result proof are complete. Corrected C04C1 database-free
-logical point planning is complete; C04C2 remains conditional
-and unapproved.
+logical point planning and S08's native commit/change-feed schema plus bounded
+package-private reader are complete. The retained-history floor is physically
+present but fixed at zero until O11; C04C2 remains conditional and unapproved.
 B2b2 renewal is
 a conditional
 operational extension outside the current
@@ -31,7 +32,7 @@ bounded attempt must outlive its initial lease.
 
 | Stream | Current status |
 | --- | --- |
-| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, and C03's bounded exact-attempt journal DDL complete |
+| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, and S08's native commit/change-feed DDL plus inert retained floor complete |
 | OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads with typed present/qualified-missing dependencies, and `O05` pure point-OCC validation are complete; standalone `O01` retired before implementation, while B2b2 renewal, operational revocation, and hosted adapters remain consumer-triggered deferred gates |
 | Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, private-C07 final-value proof `C04B2`, and corrected private logical point planner `C04C1` complete; `C04C2` is conditional and unapproved |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
@@ -326,7 +327,10 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
 
 ### Wave 2 — One Atomic App-Data Commit
 
-1. `S08`: commit/change-feed DDL and retained-history floor.
+1. `S08` (complete): native scope-local commit headers and epoch-provenance-
+   checked typed app-row changes; package-private bounded contiguous
+   `listAfter`; retained-history floor physically present but fixed at `0`
+   until O11. Header allocation remains an O06/O07 decision.
 2. `S09`: result-bearing idempotency and leased-outbox DDL.
 3. `O06`: private non-routable scope-local commit transaction harness.
 4. `O07`: atomic result, outcome, data, commit/change atoms, and outbox.

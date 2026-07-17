@@ -204,6 +204,13 @@
       "when": 1784125521011,
       "tag": "0028_glossy_galactus",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1784267455188,
+      "tag": "0029_mysterious_namora",
+      "breakpoints": true
     }
   ]
 }

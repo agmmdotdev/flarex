@@ -1181,64 +1181,46 @@ Rules:
 ## Commit, OCC, And Transaction Tables
 
 The commit log is the source of sync ordering. It replaces the old idea that a
-projection database is the normal sync source.
+projection database is the normal sync source. The following S08 inventory
+supersedes the earlier generic `bigserial` commit ID, text scope/epoch,
+`summary_json`, source/mutation metadata, and polymorphic commit-write sketch.
+Those shapes are not the accepted target.
 
-```sql
-fx_system_scope_clock (
-  scope_id text primary key,
-  storage_generation text not null, -- accepted target: flarexdb_v1
-  storage_generation_fence bigint not null default 1,
-  authorization_revocation_epoch bigint not null default 0
-    check (authorization_revocation_epoch >= 0),
-  last_commit_seq bigint not null default 0,
-  last_outbox_seq bigint not null default 0,
-  oldest_available_commit_seq bigint not null default 0,
-  epoch text not null,
-  updated_at timestamptz not null
-)
+```text
+fx_system_scope_clock
+  existing native scope_uuid and epoch_uuid projections
+  scope-lifetime last_commit_seq
+  oldest_available_commit_seq, fixed at 0 until O11 owns advancement
 
-fx_system_commit (
-  commit_id bigserial unique,
-  scope_id text not null,
-  commit_seq bigint not null,
-  epoch text not null,
-  schema_version_id text not null,
-  actor_id text,
-  source text not null, -- app, payload, medusa, workflow, system
-  mutation_id text,
-  summary_json jsonb not null,
-  committed_at timestamptz not null,
-  primary key (scope_id, commit_seq),
-  unique (scope_id, epoch, commit_seq)
-)
+fx_system_commit
+  key: native (scope_uuid, commit_seq)
+  child authority: unique (scope_uuid, epoch_uuid, commit_seq)
+  exact typed-app-row change_count in 0..16,000
+  finite database-owned committed_at metadata
 
-create index fx_commit_source_idx
-  on fx_system_commit (scope_id, epoch, source, committed_at, commit_seq);
+fx_system_commit_app_row_change
+  key: (scope_uuid, commit_seq, change_ordinal)
+  exact commit FK: (scope_uuid, epoch_uuid, commit_seq)
+  exact row-revision FK including the same epoch provenance
+  numeric table_id plus 16-byte row_id
+  no operation duplication, JSON summary, global surrogate ID, or text scope
 
-fx_system_commit_write (
-  scope_id text not null,
-  epoch text not null,
-  commit_seq bigint not null,
-  write_id text not null,
-  namespace text not null,
-  table_name text not null,
-  row_id text,
-  relation_key text,
-  index_key text,
-  dependency_key_json jsonb,
-  key_codec_version integer,
-  operation text not null,
-  primary key (scope_id, commit_seq, write_id),
-  foreign key (scope_id, epoch, commit_seq)
-    references fx_system_commit (scope_id, epoch, commit_seq)
-)
-
-create index fx_commit_write_lookup_idx
-  on fx_system_commit_write (scope_id, epoch, namespace, table_name, row_id, relation_key, index_key);
+fx_app_row_rev
+  narrow unique projection including write_epoch_uuid so the change child
+  physically proves that header and revision epoch provenance agree
 ```
 
-The authoritative snapshot token is `(scope_id, epoch, commit_seq)`. Do not use
-wall-clock time as the transaction begin token.
+The package-private `listAfter` contract captures the scope clock, floor,
+headers, and children in one read-only repeatable-read snapshot. It selects the
+largest contiguous prefix after an exclusive cursor without splitting a
+commit, capped at 100 headers and 16,000 children, and returns explicit
+continuation. Missing interior or tail headers, count/ordinal mismatches, or
+scope/epoch/revision mismatches are corruption. The floor has no S08 writer and
+must remain `0`; retention advancement and reconnect/reset semantics belong to
+O11 and roadmap 21 respectively.
+
+The authoritative snapshot token is `(scope_uuid, epoch_uuid, commit_seq)`. Do
+not use wall-clock time as the transaction begin token.
 
 An empty scope has `last_commit_seq = 0`. The final trusted transaction locks
 the scope clock, allocates `last_commit_seq + 1`, publishes that commit and all
@@ -1853,9 +1835,9 @@ Schema pieces from this lineage:
 
 ```text
 fx_system_tx_session
-fx_system_row_version
+fx_app_row_rev
 fx_system_commit
-fx_system_commit_write
+fx_system_commit_app_row_change
 fx_sync_deployment_cursor
 DeploymentSyncDO read-set maps and query reruns
 ```
