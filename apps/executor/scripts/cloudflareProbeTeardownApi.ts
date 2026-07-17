@@ -1,4 +1,7 @@
-import { isPositiveSafeInteger } from "@flarex/utils/numbers";
+import {
+  isNonNegativeSafeInteger,
+  isPositiveSafeInteger,
+} from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import {
@@ -240,8 +243,7 @@ async function readBoundedBody(
   if (contentLength !== null) {
     const parsed = Number(contentLength);
     if (
-      !Number.isSafeInteger(parsed) ||
-      parsed < 0 ||
+      !isNonNegativeSafeInteger(parsed) ||
       parsed > maximumResponseBytes
     ) {
       throw new H05ResponseSizeError();

@@ -369,11 +369,13 @@ semantics.
   stored-attempt verification, and persistence journal canonicalization paths,
   while narrower ordered-index comparators retain their domain-significant
   names.
-- `@flarex/utils/numbers` owns the total positive-safe-integer predicate used
-  across independent executor/H05 and persistence owners. Domain decoders keep
-  their own error messages, inclusive or exclusive zero policy, upper bounds,
-  timestamps and durations, brands, and typed failures; sharing the primitive
-  does not make those numeric contracts interchangeable.
+- `@flarex/utils/numbers` owns total positive- and non-negative-safe-integer
+  predicates used across independent protocol, executor/H05, and persistence
+  owners. The non-negative predicate preserves JavaScript's acceptance of
+  negative zero. Domain decoders keep their own error messages, upper bounds,
+  integer-but-not-safe contracts, signed ranges, timestamps and durations,
+  brands, and typed failures; sharing the primitive does not make those numeric
+  contracts interchangeable.
 - `@flarex/utils/bytes` owns tested defensive copying into an owned
   `Uint8Array` or fresh exactly-sized `ArrayBuffer`, ordinary early-exit byte
   equality, a separately named equal-length full-scan comparison, and lowercase

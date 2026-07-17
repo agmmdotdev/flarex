@@ -140,10 +140,13 @@ Raw HTTP JSON readers return `unknown`. An unconstrained generic type argument
 or assertion does not validate a response body and must not let callers choose
 an arbitrary success type. Keep the domain-owned payload decoder as the sole
 authority that turns the raw body into a typed success value.
-Use `@flarex/utils/numbers` to classify an unknown value as a positive
-JavaScript safe integer. Keep caller-specific error text, upper bounds,
-zero-inclusive ranges, time semantics, and branded or protocol numeric policy
-with their owning decoder; a shared predicate is not a shared range contract.
+Use `@flarex/utils/numbers` to classify an unknown value as a positive or
+non-negative JavaScript safe integer. The non-negative predicate deliberately
+accepts JavaScript negative zero, matching `Number.isSafeInteger(value)` plus
+`value >= 0`. Keep caller-specific error text, upper bounds,
+integer-but-not-safe contracts, signed ranges, time semantics, and branded or
+protocol numeric policy with their owning decoder; a shared predicate is not a
+shared range contract.
 When a pure recoverable decoder serves both a typed Effect API and an existing
 throwing compatibility API, keep one domain-local Effect v4 `Result`
 normalizer. Enter the Effect error channel once with `Effect.fromResult`, and

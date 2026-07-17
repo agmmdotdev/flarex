@@ -1,4 +1,7 @@
-import { isPositiveSafeInteger } from "@flarex/utils/numbers";
+import {
+  isNonNegativeSafeInteger,
+  isPositiveSafeInteger,
+} from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { and, asc, desc, gt, lte, sql } from "drizzle-orm";
 
@@ -409,7 +412,7 @@ function parityBigIntField(
 ): bigint {
   const value = row?.[databaseField];
   if (typeof value === "bigint" && value >= 0n) return value;
-  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+  if (isNonNegativeSafeInteger(value)) {
     return BigInt(value);
   }
   if (typeof value === "string" && /^(0|[1-9][0-9]*)$/.test(value)) {

@@ -1,5 +1,8 @@
 import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
-import { isPositiveSafeInteger } from "@flarex/utils/numbers";
+import {
+  isNonNegativeSafeInteger,
+  isPositiveSafeInteger,
+} from "@flarex/utils/numbers";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
@@ -2141,7 +2144,7 @@ function decodeJournalCounters(
     ],
   ];
   if (limits.some(([value, maximum]) =>
-    !Number.isSafeInteger(value) || value < 0 || value > maximum)) {
+    !isNonNegativeSafeInteger(value) || value > maximum)) {
     throw corruption(attempt, "journalCountersInvalid");
   }
   return Object.freeze(counters);

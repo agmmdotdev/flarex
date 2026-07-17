@@ -1,3 +1,4 @@
+import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import { Schema } from "effect";
 
 import {
@@ -875,7 +876,7 @@ function isCanonicalJsonArray(
 function isCanonicalArrayIndex(key: string, length: number): boolean {
   if (!/^(?:0|[1-9][0-9]*)$/.test(key)) return false;
   const index = Number(key);
-  return Number.isSafeInteger(index) && index >= 0 && index < length;
+  return isNonNegativeSafeInteger(index) && index < length;
 }
 
 function isCanonicalJsonRecord(

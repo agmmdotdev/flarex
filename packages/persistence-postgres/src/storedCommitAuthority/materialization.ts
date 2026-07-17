@@ -2,7 +2,10 @@ import {
   bytesEqualFullScan as bytesEqual,
   copyBytes,
 } from "@flarex/utils/bytes";
-import { isPositiveSafeInteger } from "@flarex/utils/numbers";
+import {
+  isNonNegativeSafeInteger,
+  isPositiveSafeInteger,
+} from "@flarex/utils/numbers";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { JsonObject } from "flarex-protocol/json";
 import {
@@ -768,7 +771,7 @@ export function parseLength(
     return undefined;
   }
   const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+  return isNonNegativeSafeInteger(parsed) ? parsed : undefined;
 }
 
 function parsePositiveIntegerText(

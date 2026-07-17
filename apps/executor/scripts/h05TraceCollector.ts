@@ -1,4 +1,7 @@
-import { isPositiveSafeInteger } from "@flarex/utils/numbers";
+import {
+  isNonNegativeSafeInteger,
+  isPositiveSafeInteger,
+} from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import {
@@ -1078,11 +1081,7 @@ function optionalHttpStatus(value: unknown): number | undefined {
 }
 
 function nonNegativeSafeInteger(value: unknown, context: string): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < 0
-  ) {
+  if (!isNonNegativeSafeInteger(value)) {
     throw new Error(`H05 ${context} is not a non-negative safe integer.`);
   }
   return value;

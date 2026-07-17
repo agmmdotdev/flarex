@@ -1,3 +1,4 @@
+import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import { Data, Result, Schema } from "effect";
 
 import {
@@ -366,8 +367,7 @@ export function requirePointMutationArgumentSemanticSizeV1(
     POINT_MUTATION_ARGUMENT_ARRAY_OVERHEAD_SEMANTIC_BYTES_V1 +
     argumentSemanticBytes;
   if (
-    !Number.isSafeInteger(argumentSemanticBytes) ||
-    argumentSemanticBytes < 0 ||
+    !isNonNegativeSafeInteger(argumentSemanticBytes) ||
     observed > MAX_POINT_MUTATION_ARGUMENT_ARRAY_SEMANTIC_BYTES_V1
   ) {
     throw new PointMutationTargetSelectionV1Error({

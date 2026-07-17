@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
-import { isPositiveSafeInteger } from "@flarex/utils/numbers";
+import {
+  isNonNegativeSafeInteger,
+  isPositiveSafeInteger,
+} from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import {
@@ -1174,7 +1177,7 @@ function positiveSafeInteger(value: unknown, path: string): number {
 }
 
 function nonNegativeSafeInteger(value: unknown, path: string): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+  if (!isNonNegativeSafeInteger(value)) {
     throw new Error(`${path} must be a non-negative safe integer.`);
   }
   return value;

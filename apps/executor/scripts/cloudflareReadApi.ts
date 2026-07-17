@@ -1,4 +1,7 @@
-import { isPositiveSafeInteger } from "@flarex/utils/numbers";
+import {
+  isNonNegativeSafeInteger,
+  isPositiveSafeInteger,
+} from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 export interface H05CloudflareReadApi {
@@ -169,7 +172,7 @@ async function readBoundedBody(
   const contentLength = response.headers.get("content-length");
   if (contentLength !== null) {
     const parsed = Number(contentLength);
-    if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > maximumResponseBytes) {
+    if (!isNonNegativeSafeInteger(parsed) || parsed > maximumResponseBytes) {
       throw new H05ResponseSizeError();
     }
   }
