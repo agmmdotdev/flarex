@@ -3,6 +3,7 @@ import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 
+import { decodeExactH05Scalar } from "./exactScalar";
 import { requireExactH05Record } from "./exactRecord";
 import { formatH05JsonDocument } from "./jsonDocument";
 import {
@@ -1508,8 +1509,7 @@ function literal<const Value extends string | number | boolean>(
   expected: Value,
   path: string,
 ): Value {
-  if (value !== expected) failAt(path, `must equal ${JSON.stringify(expected)}.`);
-  return expected;
+  return decodeExactH05Scalar(value, expected, path, fail);
 }
 
 function addUnique(values: Set<string>, value: string, name: string): void {

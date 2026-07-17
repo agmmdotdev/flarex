@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
+import { decodeExactH05Scalar } from "./exactScalar";
 import { formatH05JsonDocument } from "./jsonDocument";
 import {
   decodeH05ProofRunId,
@@ -925,9 +926,7 @@ function exactValue<Value extends string | number | boolean>(
   expected: Value,
   path: string,
 ): void {
-  if (value !== expected) {
-    fail(`${path} must equal ${JSON.stringify(expected)}.`);
-  }
+  decodeExactH05Scalar(value, expected, path, fail);
 }
 
 function timestampInWindow(

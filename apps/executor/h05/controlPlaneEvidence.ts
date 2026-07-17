@@ -5,6 +5,7 @@ import {
 } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
+import { decodeExactH05Scalar } from "./exactScalar";
 import { formatH05JsonDocument } from "./jsonDocument";
 import {
   decodeH05ProofRunId,
@@ -1232,8 +1233,7 @@ function literal<const Value extends string | number | boolean>(
   expected: Value,
   path: string,
 ): Value {
-  if (value !== expected) fail(`${path} must equal ${JSON.stringify(expected)}.`);
-  return expected;
+  return decodeExactH05Scalar(value, expected, path, fail);
 }
 
 function oneOf<const Values extends readonly (string | number)[]>(
