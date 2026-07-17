@@ -1,6 +1,7 @@
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { Data, Effect, Option, Result, Schema } from "effect";
-import { isNonArrayRecord } from "@flarex/utils/records";
 
 import {
   CommitSeqSchema,
@@ -388,47 +389,49 @@ export function createCommitWakeOutboxRepositoryV1(
 function validateClaimForCommitInput(
   input: ClaimCommitWakeForCommitInputV1,
 ): Result.Result<ValidatedClaimForCommitInputV1, CommitWakeInputErrorV1> {
-  const common = validateClaimInput(
-    "claimForCommit",
-    input.scopeUuid,
-    input.claimOwner,
-    input.leaseMilliseconds,
-  );
-  if (Result.isFailure(common)) return Result.fail(common.failure);
-  if (!isPositivePersistedBigInt(input.commitSeq)) {
-    return inputFailure("claimForCommit", "commitSeqInvalid");
-  }
-  return Result.succeed(Object.freeze({
-    ...common.success,
-    commitSeq: CommitSeqSchema.make(input.commitSeq),
-  }));
+  return Result.gen(function*() {
+    const common = yield* validateClaimInput(
+      "claimForCommit",
+      input,
+    );
+    if (!isPositivePersistedBigInt(input.commitSeq)) {
+      return yield* inputFailure("claimForCommit", "commitSeqInvalid");
+    }
+    return Object.freeze({
+      ...common,
+      commitSeq: CommitSeqSchema.make(input.commitSeq),
+    });
+  });
 }
 
 function validateClaimReadyBatchInput(
   input: ClaimReadyCommitWakesInputV1,
 ): Result.Result<ValidatedClaimReadyBatchInputV1, CommitWakeInputErrorV1> {
-  const common = validateClaimInput(
-    "claimReadyBatch",
-    input.scopeUuid,
-    input.claimOwner,
-    input.leaseMilliseconds,
-  );
-  if (Result.isFailure(common)) return Result.fail(common.failure);
-  if (
-    !Number.isInteger(input.limit) ||
-    input.limit < 1 ||
-    input.limit > MAX_COMMIT_WAKE_CLAIM_BATCH_SIZE_V1
-  ) {
-    return inputFailure("claimReadyBatch", "claimBatchLimitInvalid");
-  }
-  return Result.succeed(Object.freeze({ ...common.success, limit: input.limit }));
+  return Result.gen(function*() {
+    const common = yield* validateClaimInput(
+      "claimReadyBatch",
+      input,
+    );
+    if (
+      !isPositiveSafeInteger(input.limit) ||
+      input.limit > MAX_COMMIT_WAKE_CLAIM_BATCH_SIZE_V1
+    ) {
+      return yield* inputFailure(
+        "claimReadyBatch",
+        "claimBatchLimitInvalid",
+      );
+    }
+    return Object.freeze({ ...common, limit: input.limit });
+  });
 }
 
 function validateClaimInput(
   operation: "claimForCommit" | "claimReadyBatch",
-  scopeUuid: ScopeUuidV1,
-  claimOwner: CommitWakeClaimOwnerV1,
-  leaseMilliseconds: number,
+  input: Readonly<{
+    scopeUuid: ScopeUuidV1;
+    claimOwner: CommitWakeClaimOwnerV1;
+    leaseMilliseconds: number;
+  }>,
 ): Result.Result<
   Readonly<{
     scopeUuid: ScopeUuidV1;
@@ -437,50 +440,49 @@ function validateClaimInput(
   }>,
   CommitWakeInputErrorV1
 > {
-  const decodedScope = decodeScopeUuidResult(scopeUuid);
-  if (Result.isFailure(decodedScope)) {
-    return inputFailure(operation, "scopeUuidInvalid");
-  }
-  const decodedOwner = decodeClaimOwnerResult(claimOwner);
-  if (Result.isFailure(decodedOwner)) {
-    return inputFailure(operation, "claimOwnerInvalid");
-  }
-  if (!isValidDelayMilliseconds(leaseMilliseconds)) {
-    return inputFailure(operation, "leaseMillisecondsInvalid");
-  }
-  return Result.succeed(Object.freeze({
-    scopeUuid: decodedScope.success,
-    claimOwner: decodedOwner.success,
-    leaseMilliseconds,
-  }));
+  return Result.gen(function*() {
+    const decodedScope = yield* decodeScopeUuidResult(input.scopeUuid).pipe(
+      Result.mapError(() => inputError(operation, "scopeUuidInvalid")),
+    );
+    const decodedOwner = yield* decodeClaimOwnerResult(input.claimOwner).pipe(
+      Result.mapError(() => inputError(operation, "claimOwnerInvalid")),
+    );
+    if (!isValidDelayMilliseconds(input.leaseMilliseconds)) {
+      return yield* inputFailure(operation, "leaseMillisecondsInvalid");
+    }
+    return Object.freeze({
+      scopeUuid: decodedScope,
+      claimOwner: decodedOwner,
+      leaseMilliseconds: input.leaseMilliseconds,
+    });
+  });
 }
 
 function validateSettleClaimInput(
   input: SettleCommitWakeClaimInputV1,
 ): Result.Result<ValidatedSettleClaimInputV1, CommitWakeInputErrorV1> {
-  const decodedScope = decodeScopeUuidResult(input.scopeUuid);
-  if (Result.isFailure(decodedScope)) {
-    return inputFailure("settleClaim", "scopeUuidInvalid");
-  }
-  if (!isPositivePersistedBigInt(input.outboxSeq)) {
-    return inputFailure("settleClaim", "outboxSeqInvalid");
-  }
-  const decodedOwner = decodeClaimOwnerResult(input.claimOwner);
-  if (Result.isFailure(decodedOwner)) {
-    return inputFailure("settleClaim", "claimOwnerInvalid");
-  }
-  if (!isPositivePersistedBigInt(input.claimFence)) {
-    return inputFailure("settleClaim", "claimFenceInvalid");
-  }
-  const settlement = validateSettlement(input.settlement);
-  if (Result.isFailure(settlement)) return Result.fail(settlement.failure);
-  return Result.succeed(Object.freeze({
-    scopeUuid: decodedScope.success,
-    outboxSeq: OutboxSeqSchema.make(input.outboxSeq),
-    claimOwner: decodedOwner.success,
-    claimFence: CommitWakeClaimFenceV1Schema.make(input.claimFence),
-    settlement: settlement.success,
-  }));
+  return Result.gen(function*() {
+    const decodedScope = yield* decodeScopeUuidResult(input.scopeUuid).pipe(
+      Result.mapError(() => inputError("settleClaim", "scopeUuidInvalid")),
+    );
+    if (!isPositivePersistedBigInt(input.outboxSeq)) {
+      return yield* inputFailure("settleClaim", "outboxSeqInvalid");
+    }
+    const decodedOwner = yield* decodeClaimOwnerResult(input.claimOwner).pipe(
+      Result.mapError(() => inputError("settleClaim", "claimOwnerInvalid")),
+    );
+    if (!isPositivePersistedBigInt(input.claimFence)) {
+      return yield* inputFailure("settleClaim", "claimFenceInvalid");
+    }
+    const settlement = yield* validateSettlement(input.settlement);
+    return Object.freeze({
+      scopeUuid: decodedScope,
+      outboxSeq: OutboxSeqSchema.make(input.outboxSeq),
+      claimOwner: decodedOwner,
+      claimFence: CommitWakeClaimFenceV1Schema.make(input.claimFence),
+      settlement,
+    });
+  });
 }
 
 function validateSettlement(
@@ -496,16 +498,14 @@ function validateSettlement(
       ) {
         return inputFailure("settleClaim", "retryDelayMillisecondsInvalid");
       }
-      const summary = validateFailureSummary(settlement.failureSummary);
-      if (Result.isFailure(summary)) return Result.fail(summary.failure);
-      return Result.succeed(Object.freeze({
-        kind: "retry",
-        retryDelayMilliseconds: settlement.retryDelayMilliseconds,
-        failureCode: settlement.failureCode,
-        ...(summary.success === undefined
-          ? {}
-          : { failureSummary: summary.success }),
-      }));
+      return validateFailureSummary(settlement.failureSummary).pipe(
+        Result.map(summary => Object.freeze({
+          kind: "retry",
+          retryDelayMilliseconds: settlement.retryDelayMilliseconds,
+          failureCode: settlement.failureCode,
+          ...(summary === undefined ? {} : { failureSummary: summary }),
+        })),
+      );
     }
     case "deadLettered": {
       if (
@@ -514,15 +514,13 @@ function validateSettlement(
       ) {
         return inputFailure("settleClaim", "settlementInvalid");
       }
-      const summary = validateFailureSummary(settlement.failureSummary);
-      if (Result.isFailure(summary)) return Result.fail(summary.failure);
-      return Result.succeed(Object.freeze({
-        kind: "deadLettered",
-        failureCode: settlement.failureCode,
-        ...(summary.success === undefined
-          ? {}
-          : { failureSummary: summary.success }),
-      }));
+      return validateFailureSummary(settlement.failureSummary).pipe(
+        Result.map(summary => Object.freeze({
+          kind: "deadLettered",
+          failureCode: settlement.failureCode,
+          ...(summary === undefined ? {} : { failureSummary: summary }),
+        })),
+      );
     }
   }
 }
@@ -1429,7 +1427,14 @@ function inputFailure(
   operation: CommitWakeOperationV1,
   reason: CommitWakeInputFailureReasonV1,
 ): Result.Result<never, CommitWakeInputErrorV1> {
-  return Result.fail(new CommitWakeInputErrorV1({ operation, reason }));
+  return Result.fail(inputError(operation, reason));
+}
+
+function inputError(
+  operation: CommitWakeOperationV1,
+  reason: CommitWakeInputFailureReasonV1,
+): CommitWakeInputErrorV1 {
+  return new CommitWakeInputErrorV1({ operation, reason });
 }
 
 function corruption(
@@ -1449,8 +1454,7 @@ function corruption(
 }
 
 function isValidDelayMilliseconds(value: number): boolean {
-  return Number.isInteger(value) &&
-    value >= 1 &&
+  return isPositiveSafeInteger(value) &&
     value <= MAX_COMMIT_WAKE_DELAY_MILLISECONDS_V1;
 }
 
