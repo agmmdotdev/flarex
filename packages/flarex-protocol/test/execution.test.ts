@@ -200,6 +200,12 @@ describe("execution protocol schemas", () => {
       value: new Date(0),
     })))
       .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
+    await expect(Effect.runPromise(decodeExecutionSyscallRequestEffect({
+      op: "patch",
+      id: "1:user",
+      value: { [Symbol("metadata")]: true },
+    })))
+      .rejects.toBeInstanceOf(ExecutionProtocolValidationError);
   });
 
   it("exposes typed execution syscall decode failures before compatibility parsing", async () => {

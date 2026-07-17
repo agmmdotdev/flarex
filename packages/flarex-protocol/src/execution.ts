@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { Effect, Schema } from "effect";
 import { isJson, JsonValue, type Json } from "./json";
 
@@ -86,13 +87,11 @@ export const ExecutionIndexRangeExpressionSchema = Schema.Struct({
 
 const JsonRecordValue = Schema.declare<{ readonly [key: string]: Json }>(
   (value): value is { readonly [key: string]: Json } => {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-      return false;
-    }
+    if (!isNonArrayRecord(value)) return false;
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return false;
     if (Object.getOwnPropertySymbols(value).length > 0) return false;
-    return Object.values(value as Record<string, unknown>).every(isJson);
+    return Object.values(value).every(isJson);
   },
   {
     title: "JsonRecordValue",
@@ -164,7 +163,7 @@ export const decodeExecutionStartRequestEffect = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<ExecutionStartRequest, ExecutionProtocolValidationError> {
-  if (!isRecordValue(value)) {
+  if (!isNonArrayRecord(value)) {
     return yield* executionProtocolValidationFailure(
       "ExecutionStartRequest",
       "Execution start request must be an object.",
@@ -201,7 +200,7 @@ export const decodeExecutionSyscallRequestEffect = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<ExecutionSyscallRequest, ExecutionProtocolValidationError> {
-  if (!isRecordValue(value)) {
+  if (!isNonArrayRecord(value)) {
     return yield* executionProtocolValidationFailure(
       "ExecutionSyscallRequest",
       "Execution syscall request must be an object.",
@@ -266,7 +265,7 @@ export const decodeExecutionFinishRequestEffect = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<ExecutionFinishRequest, ExecutionProtocolValidationError> {
-  if (!isRecordValue(value)) {
+  if (!isNonArrayRecord(value)) {
     return yield* executionProtocolValidationFailure(
       "ExecutionFinishRequest",
       "Execution finish request must be an object.",
@@ -297,8 +296,4 @@ function executionProtocolValidationFailure(
     message,
     cause,
   }));
-}
-
-function isRecordValue(value: unknown): value is object {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

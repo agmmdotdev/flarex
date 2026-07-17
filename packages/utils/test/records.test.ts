@@ -15,11 +15,14 @@ function readValue(value: unknown): unknown {
 describe("isNonArrayRecord", () => {
   it("accepts objects without claiming a plain-object contract", () => {
     const nullPrototype: unknown = Object.create(null);
+    const symbolKey = Symbol("metadata");
+    const symbolBearing: unknown = { [symbolKey]: true };
 
     expect(isNonArrayRecord({ value: 1 })).toBe(true);
     expect(isNonArrayRecord(nullPrototype)).toBe(true);
     expect(isNonArrayRecord(new Date(0))).toBe(true);
     expect(isNonArrayRecord(new (class Example {})())).toBe(true);
+    expect(isNonArrayRecord(symbolBearing)).toBe(true);
     expect(readValue({ value: 1 })).toBe(1);
   });
 

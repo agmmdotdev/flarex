@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { Effect, Schema } from "effect";
 import { JsonValue, type Json } from "./json";
 
@@ -85,7 +86,7 @@ export const decodePublicInvokeRequestBodyEffect = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<PublicInvokeRequestBody, InvokeProtocolValidationError> {
-  if (!isRecordValue(value)) {
+  if (!isNonArrayRecord(value)) {
     return yield* invokeProtocolValidationFailure(
       "PublicInvokeRequestBody",
       "Invoke request body must be an object.",
@@ -128,8 +129,4 @@ function invokeProtocolValidationFailure(
     message,
     cause,
   }));
-}
-
-function isRecordValue(value: unknown): value is object {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

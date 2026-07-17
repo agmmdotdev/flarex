@@ -105,6 +105,12 @@ APIs for an exact portable owner. Reuse a total encoder such as Effect
 validation, canonical re-encoding checks, size limits, branded outputs, and
 typed failure mapping at the protocol or domain boundary; a general decoder
 does not prove a Flarex canonical representation.
+At an importable unknown-object boundary, use `@flarex/utils/records` directly
+for shallow non-null, non-array narrowing instead of repeating the check or
+asserting a mutable `Record`. Its result is readonly and does not establish a
+plain prototype, JSON membership, symbol-key policy, or a domain shape. Retain
+a local domain guard when it checks those additional invariants, but delegate
+only its exact shallow-record step to the generic primitive.
 When multiple Effect consumers call the same Promise-based protocol operation,
 prefer one protocol-owned Effect adapter that preserves its typed failures and
 routes unexpected causes to defects. Consumers may translate the typed error

@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { Effect, Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "effect/unstable/httpapi";
 import { AuthConfigSchema } from "./auth";
@@ -442,7 +443,7 @@ export const decodeAbandonPushRequestEffect = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<AbandonPushRequest, DeploymentProtocolValidationError> {
-  if (!isRecordValue(value)) {
+  if (!isNonArrayRecord(value)) {
     return yield* deploymentProtocolValidationFailure(
       "AbandonPushRequest",
       "Abandon push request must be an object.",
@@ -472,7 +473,7 @@ export const decodeFinishPushRequestEffect = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<FinishPushRequest, DeploymentProtocolValidationError> {
-  if (!isRecordValue(value)) {
+  if (!isNonArrayRecord(value)) {
     return yield* deploymentProtocolValidationFailure(
       "FinishPushRequest",
       "Finish push request must be an object.",
@@ -502,7 +503,7 @@ export const decodeStartPushRequestEffect = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<StartPushRequest, DeploymentProtocolValidationError> {
-  if (!isRecordValue(value)) {
+  if (!isNonArrayRecord(value)) {
     return yield* deploymentProtocolValidationFailure(
       "StartPushRequest",
       "Start push request must be an object.",
@@ -619,7 +620,7 @@ export const decodeAnalyzedStartPushRequestEffect = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<AnalyzedStartPushRequest, DeploymentProtocolValidationError> {
-  if (!isRecordValue(value)) {
+  if (!isNonArrayRecord(value)) {
     return yield* deploymentProtocolValidationFailure(
       "AnalyzedStartPushRequest",
       "Analyzed start push request must be an object.",
@@ -777,8 +778,4 @@ function deploymentProtocolValidationFailure(
     message,
     cause,
   }));
-}
-
-function isRecordValue(value: unknown): value is object {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

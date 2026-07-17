@@ -1,4 +1,5 @@
-import { Data, Effect, Schema } from "effect";
+import { isNonArrayRecord } from "@flarex/utils/records";
+import { Data, Effect, Result, Schema } from "effect";
 import {
   PushSourcePackage,
   type ActiveDeploymentStatus,
@@ -113,7 +114,7 @@ export const decodeExecutionArtifactInvokePayloadBodyEffect = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<ExecutionArtifactInvokePayload, ExecutionArtifactInvokePayloadError> {
-  const payload = yield* executionArtifactInvokePayloadValidationResultToEffect(
+  const payload = yield* Effect.fromResult(
     normalizeExecutionArtifactInvokePayload(value),
   );
   yield* decodeUnknownExecutionIdentity(payload.identity).pipe(
@@ -137,98 +138,60 @@ export const decodeExecutionArtifactInvokePayloadBodyEffect = Effect.fn(
 
 function normalizeExecutionArtifactInvokePayload(
   value: unknown,
-): ExecutionArtifactInvokePayloadValidationResult<ExecutionArtifactInvokePayload> {
+): Result.Result<
+  ExecutionArtifactInvokePayload,
+  ExecutionArtifactInvokePayloadError
+> {
   if (isExecutionArtifactInvokePayload(value)) {
-    return executionArtifactInvokePayloadValidationSuccess(value);
+    return Result.succeed(value);
   }
-  return executionArtifactInvokePayloadValidationFailure(INVALID_INVOKE_PAYLOAD_MESSAGE);
-}
-
-type ExecutionArtifactInvokePayloadValidationResult<A> =
-  | {
-      readonly success: true;
-      readonly value: A;
-    }
-  | {
-      readonly success: false;
-      readonly error: ExecutionArtifactInvokePayloadError;
-    };
-
-function executionArtifactInvokePayloadValidationSuccess<A>(
-  value: A,
-): ExecutionArtifactInvokePayloadValidationResult<A> {
-  return {
-    success: true,
-    value,
-  };
-}
-
-function executionArtifactInvokePayloadValidationFailure<A = never>(
-  message: string,
-): ExecutionArtifactInvokePayloadValidationResult<A> {
-  return {
-    success: false,
-    error: new ExecutionArtifactInvokePayloadError({ message }),
-  };
-}
-
-function executionArtifactInvokePayloadValidationResultToEffect<A>(
-  result: ExecutionArtifactInvokePayloadValidationResult<A>,
-): Effect.Effect<A, ExecutionArtifactInvokePayloadError> {
-  return result.success ? Effect.succeed(result.value) : Effect.fail(result.error);
+  return Result.fail(new ExecutionArtifactInvokePayloadError({
+    message: INVALID_INVOKE_PAYLOAD_MESSAGE,
+  }));
 }
 
 function isExecutionArtifactInvokePayload(
   value: unknown,
 ): value is ExecutionArtifactInvokePayload {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const payload = value as Partial<ExecutionArtifactInvokePayload>;
+  if (!isNonArrayRecord(value)) return false;
   return (
-    typeof payload.deploymentId === "string" &&
-    payload.identity !== undefined &&
-    isExecutionArtifactRef(payload.ref) &&
-    (payload.sourcePackage === undefined ||
-      (typeof payload.sourcePackage === "object" && payload.sourcePackage !== null)) &&
-    isExecutionArtifactInvokeRequest(payload.request)
+    typeof value.deploymentId === "string" &&
+    value.identity !== undefined &&
+    isExecutionArtifactRef(value.ref) &&
+    (value.sourcePackage === undefined ||
+      (typeof value.sourcePackage === "object" && value.sourcePackage !== null)) &&
+    isExecutionArtifactInvokeRequest(value.request)
   );
 }
 
 function isExecutionArtifactRef(
   value: unknown,
 ): value is ActiveDeploymentStatus["executionArtifactRef"] {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const ref = value as Partial<ActiveDeploymentStatus["executionArtifactRef"]>;
+  if (!isNonArrayRecord(value)) return false;
   return (
-    ref.runtime === "dynamic-worker" &&
-    typeof ref.artifactId === "string" &&
-    typeof ref.sourcePackageHash === "string" &&
-    typeof ref.executionModule === "string"
+    value.runtime === "dynamic-worker" &&
+    typeof value.artifactId === "string" &&
+    typeof value.sourcePackageHash === "string" &&
+    typeof value.executionModule === "string"
   );
 }
 
 function isExecutionArtifactInvokeRequest(
   value: unknown,
 ): value is ExecutionArtifactInvokeRequest {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const request = value as Partial<ExecutionArtifactInvokeRequest>;
+  if (!isNonArrayRecord(value)) return false;
   return (
-    typeof request.path === "string" &&
-    isJson(request.args) &&
-    (request.partitionKey === undefined || typeof request.partitionKey === "string") &&
-    (request.projectId === undefined || typeof request.projectId === "string") &&
+    typeof value.path === "string" &&
+    isJson(value.args) &&
+    (value.partitionKey === undefined || typeof value.partitionKey === "string") &&
+    (value.projectId === undefined || typeof value.projectId === "string") &&
     (
-      request.kind === undefined ||
-      request.kind === "query" ||
-      request.kind === "mutation" ||
-      request.kind === "action" ||
-      request.kind === "workflowMutation"
+      value.kind === undefined ||
+      value.kind === "query" ||
+      value.kind === "mutation" ||
+      value.kind === "action" ||
+      value.kind === "workflowMutation"
     ) &&
-    (request.idempotencyKey === undefined || typeof request.idempotencyKey === "string")
+    (value.idempotencyKey === undefined || typeof value.idempotencyKey === "string")
   );
 }

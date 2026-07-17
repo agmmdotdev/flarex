@@ -1,4 +1,8 @@
-import { Data, DateTime, Effect, Schema } from "effect";
+import {
+  isNonArrayRecord,
+  type UnknownRecord,
+} from "@flarex/utils/records";
+import { Data, DateTime, Effect, Result, Schema } from "effect";
 
 export const SCHEDULER_DEFAULT_DELIVERY_LIMIT = 100;
 export const SCHEDULER_DEFAULT_MAX_BATCHES = 3;
@@ -135,7 +139,7 @@ export const decodeSchedulerDeliveryReconcilePayloadEffect = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<SchedulerDeliveryReconcileRequest, SchedulerRoutePayloadError> {
-  const request = yield* schedulerRoutePayloadValidationResultToEffect(
+  const request = yield* Effect.fromResult(
     normalizeSchedulerDeliveryReconcilePayload(value),
   );
   yield* decodeUnknownSchedulerDeliveryReconcileRequest(request).pipe(
@@ -153,7 +157,7 @@ export const decodeSchedulerConnectionReconcilePayloadEffect = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<SchedulerConnectionReconcileRequest, SchedulerRoutePayloadError> {
-  const request = yield* schedulerRoutePayloadValidationResultToEffect(
+  const request = yield* Effect.fromResult(
     normalizeSchedulerConnectionReconcilePayload(value),
   );
   yield* decodeUnknownSchedulerConnectionReconcileRequest(request).pipe(
@@ -171,7 +175,7 @@ export const decodeSchedulerRerunSubscriptionsPayloadEffect = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<SchedulerRerunSubscriptionsRequest, SchedulerRoutePayloadError> {
-  const request = yield* schedulerRoutePayloadValidationResultToEffect(
+  const request = yield* Effect.fromResult(
     normalizeSchedulerRerunSubscriptionsPayload(value),
   );
   yield* decodeUnknownSchedulerRerunSubscriptionsRequest(request).pipe(
@@ -190,7 +194,7 @@ export const decodeSchedulerDeadLetterDeliveriesPayloadEffect = Effect.fn(
   value: unknown,
 ): Effect.fn.Return<SchedulerDeadLetterDeliveriesRequest, SchedulerRoutePayloadError> {
   const nowMillis = yield* DateTime.now.pipe(Effect.map(DateTime.toEpochMillis));
-  const request = yield* schedulerRoutePayloadValidationResultToEffect(
+  const request = yield* Effect.fromResult(
     normalizeSchedulerDeadLetterDeliveriesPayload(value, nowMillis),
   );
   yield* decodeUnknownSchedulerDeadLetterDeliveriesRequest(request).pipe(
@@ -208,7 +212,7 @@ export const decodeSchedulerCleanupConnectionsRouteBodyEffect = Effect.fn(
 )(function* (
   value: unknown,
 ): Effect.fn.Return<SchedulerCleanupConnectionsRouteBody, SchedulerRoutePayloadError> {
-  const request = yield* schedulerRoutePayloadValidationResultToEffect(
+  const request = yield* Effect.fromResult(
     normalizeSchedulerCleanupConnectionsPayload(value),
   );
   yield* decodeUnknownSchedulerCleanupConnectionsRouteBody(request).pipe(
@@ -224,75 +228,75 @@ export const decodeSchedulerCleanupConnectionsRouteBodyEffect = Effect.fn(
 function normalizeSchedulerDeliveryReconcilePayload(
   value: unknown,
 ): SchedulerRoutePayloadValidationResult<SchedulerDeliveryReconcileRequest> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return schedulerRoutePayloadValidationFailure("Live query delivery reconcile request body must be an object.");
   }
-  const body = value as Record<string, unknown>;
+  const body = value;
   const limit = optionalPositiveInteger(body.limit, "limit");
-  if (!limit.success) return limit;
+  if (Result.isFailure(limit)) return Result.fail(limit.failure);
   const deliveryLimit = optionalPositiveInteger(body.deliveryLimit, "deliveryLimit");
-  if (!deliveryLimit.success) return deliveryLimit;
+  if (Result.isFailure(deliveryLimit)) return Result.fail(deliveryLimit.failure);
   const maxBatches = optionalPositiveInteger(body.maxBatches, "maxBatches");
-  if (!maxBatches.success) return maxBatches;
+  if (Result.isFailure(maxBatches)) return Result.fail(maxBatches.failure);
   const cursor = body.cursor === undefined
-    ? schedulerRoutePayloadValidationSuccess(undefined)
+    ? Result.succeed(undefined)
     : pendingCursor(body.cursor);
-  if (!cursor.success) return cursor;
-  return schedulerRoutePayloadValidationSuccess({
-    ...(limit.value === undefined ? {} : { limit: limit.value }),
-    ...(deliveryLimit.value === undefined ? {} : { deliveryLimit: deliveryLimit.value }),
-    ...(maxBatches.value === undefined ? {} : { maxBatches: maxBatches.value }),
-    ...(cursor.value === undefined ? {} : { cursor: cursor.value }),
+  if (Result.isFailure(cursor)) return Result.fail(cursor.failure);
+  return Result.succeed({
+    ...(limit.success === undefined ? {} : { limit: limit.success }),
+    ...(deliveryLimit.success === undefined ? {} : { deliveryLimit: deliveryLimit.success }),
+    ...(maxBatches.success === undefined ? {} : { maxBatches: maxBatches.success }),
+    ...(cursor.success === undefined ? {} : { cursor: cursor.success }),
   });
 }
 
 function normalizeSchedulerConnectionReconcilePayload(
   value: unknown,
 ): SchedulerRoutePayloadValidationResult<SchedulerConnectionReconcileRequest> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return schedulerRoutePayloadValidationFailure("Live query connection reconcile request body must be an object.");
   }
-  const body = value as Record<string, unknown>;
+  const body = value;
   const expiredAt = optionalDateString(body.expiredAt, "expiredAt");
-  if (!expiredAt.success) return expiredAt;
+  if (Result.isFailure(expiredAt)) return Result.fail(expiredAt.failure);
   const limit = optionalPositiveInteger(body.limit, "limit");
-  if (!limit.success) return limit;
+  if (Result.isFailure(limit)) return Result.fail(limit.failure);
   const cursor = body.cursor === undefined
-    ? schedulerRoutePayloadValidationSuccess(undefined)
+    ? Result.succeed(undefined)
     : expiredConnectionCursor(body.cursor);
-  if (!cursor.success) return cursor;
-  return schedulerRoutePayloadValidationSuccess({
-    ...(expiredAt.value === undefined ? {} : { expiredAt: expiredAt.value }),
-    ...(limit.value === undefined ? {} : { limit: limit.value }),
-    ...(cursor.value === undefined ? {} : { cursor: cursor.value }),
+  if (Result.isFailure(cursor)) return Result.fail(cursor.failure);
+  return Result.succeed({
+    ...(expiredAt.success === undefined ? {} : { expiredAt: expiredAt.success }),
+    ...(limit.success === undefined ? {} : { limit: limit.success }),
+    ...(cursor.success === undefined ? {} : { cursor: cursor.success }),
   });
 }
 
 function normalizeSchedulerRerunSubscriptionsPayload(
   value: unknown,
 ): SchedulerRoutePayloadValidationResult<SchedulerRerunSubscriptionsRequest> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return schedulerRoutePayloadValidationFailure("Live query rerun request body must be an object.");
   }
-  const body = value as Record<string, unknown>;
+  const body = value;
   const deploymentId = nonEmptyString(body.deploymentId, "deploymentId");
-  if (!deploymentId.success) return deploymentId;
+  if (Result.isFailure(deploymentId)) return Result.fail(deploymentId.failure);
   const projectId = body.projectId === undefined
-    ? schedulerRoutePayloadValidationSuccess(undefined)
+    ? Result.succeed(undefined)
     : nonEmptyString(body.projectId, "projectId");
-  if (!projectId.success) return projectId;
+  if (Result.isFailure(projectId)) return Result.fail(projectId.failure);
   const limit = optionalPositiveInteger(body.limit, "limit");
-  if (!limit.success) return limit;
+  if (Result.isFailure(limit)) return Result.fail(limit.failure);
   const deliveryLimit = optionalPositiveInteger(body.deliveryLimit, "deliveryLimit");
-  if (!deliveryLimit.success) return deliveryLimit;
+  if (Result.isFailure(deliveryLimit)) return Result.fail(deliveryLimit.failure);
   const maxBatches = optionalPositiveInteger(body.maxBatches, "maxBatches");
-  if (!maxBatches.success) return maxBatches;
-  return schedulerRoutePayloadValidationSuccess({
-    deploymentId: deploymentId.value,
-    ...(projectId.value === undefined ? {} : { projectId: projectId.value }),
-    ...(limit.value === undefined ? {} : { limit: limit.value }),
-    ...(deliveryLimit.value === undefined ? {} : { deliveryLimit: deliveryLimit.value }),
-    ...(maxBatches.value === undefined ? {} : { maxBatches: maxBatches.value }),
+  if (Result.isFailure(maxBatches)) return Result.fail(maxBatches.failure);
+  return Result.succeed({
+    deploymentId: deploymentId.success,
+    ...(projectId.success === undefined ? {} : { projectId: projectId.success }),
+    ...(limit.success === undefined ? {} : { limit: limit.success }),
+    ...(deliveryLimit.success === undefined ? {} : { deliveryLimit: deliveryLimit.success }),
+    ...(maxBatches.success === undefined ? {} : { maxBatches: maxBatches.success }),
   });
 }
 
@@ -300,118 +304,124 @@ function normalizeSchedulerDeadLetterDeliveriesPayload(
   value: unknown,
   nowMillis: number,
 ): SchedulerRoutePayloadValidationResult<SchedulerDeadLetterDeliveriesRequest> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return schedulerRoutePayloadValidationFailure("Dead-letter request body must be an object.");
   }
-  const body = value as Record<string, unknown>;
+  const body = value;
   const deploymentId = body.deploymentId === undefined
-    ? schedulerRoutePayloadValidationSuccess(undefined)
+    ? Result.succeed(undefined)
     : nonEmptyString(body.deploymentId, "deploymentId");
-  if (!deploymentId.success) return deploymentId;
+  if (Result.isFailure(deploymentId)) return Result.fail(deploymentId.failure);
   const olderThan = deadLetterOlderThan(body, nowMillis);
-  if (!olderThan.success) return olderThan;
+  if (Result.isFailure(olderThan)) return Result.fail(olderThan.failure);
   const stuckAfterMs = body.olderThan === undefined
     ? deadLetterStuckAfterMs(body.stuckAfterMs)
-    : schedulerRoutePayloadValidationSuccess(SCHEDULER_DEFAULT_STUCK_AFTER_MS);
-  if (!stuckAfterMs.success) return stuckAfterMs;
+    : Result.succeed(SCHEDULER_DEFAULT_STUCK_AFTER_MS);
+  if (Result.isFailure(stuckAfterMs)) return Result.fail(stuckAfterMs.failure);
   const minAttempts = body.minAttempts === undefined
-    ? schedulerRoutePayloadValidationSuccess(SCHEDULER_DEFAULT_MIN_ATTEMPTS)
+    ? Result.succeed(SCHEDULER_DEFAULT_MIN_ATTEMPTS)
     : positiveInteger(body.minAttempts, "minAttempts");
-  if (!minAttempts.success) return minAttempts;
+  if (Result.isFailure(minAttempts)) return Result.fail(minAttempts.failure);
   const limit = body.limit === undefined
-    ? schedulerRoutePayloadValidationSuccess(SCHEDULER_DEFAULT_DELIVERY_LIMIT)
+    ? Result.succeed(SCHEDULER_DEFAULT_DELIVERY_LIMIT)
     : positiveInteger(body.limit, "limit");
-  if (!limit.success) return limit;
+  if (Result.isFailure(limit)) return Result.fail(limit.failure);
   const reason = body.reason === undefined
-    ? schedulerRoutePayloadValidationSuccess(SCHEDULER_DEFAULT_DEAD_LETTER_REASON)
+    ? Result.succeed(SCHEDULER_DEFAULT_DEAD_LETTER_REASON)
     : nonEmptyString(body.reason, "reason");
-  if (!reason.success) return reason;
+  if (Result.isFailure(reason)) return Result.fail(reason.failure);
   const deadLetteredAt = body.deadLetteredAt === undefined
-    ? schedulerRoutePayloadValidationSuccess(new Date(nowMillis).toISOString())
+    ? Result.succeed(new Date(nowMillis).toISOString())
     : dateString(body.deadLetteredAt, "deadLetteredAt");
-  if (!deadLetteredAt.success) return deadLetteredAt;
+  if (Result.isFailure(deadLetteredAt)) {
+    return Result.fail(deadLetteredAt.failure);
+  }
   const maxBatches = body.maxBatches === undefined
-    ? schedulerRoutePayloadValidationSuccess(SCHEDULER_DEFAULT_MAX_BATCHES)
+    ? Result.succeed(SCHEDULER_DEFAULT_MAX_BATCHES)
     : positiveInteger(body.maxBatches, "maxBatches");
-  if (!maxBatches.success) return maxBatches;
-  return schedulerRoutePayloadValidationSuccess({
-    ...(deploymentId.value === undefined ? {} : { deploymentId: deploymentId.value }),
-    olderThan: olderThan.value,
-    stuckAfterMs: stuckAfterMs.value,
-    minAttempts: minAttempts.value,
+  if (Result.isFailure(maxBatches)) return Result.fail(maxBatches.failure);
+  return Result.succeed({
+    ...(deploymentId.success === undefined ? {} : { deploymentId: deploymentId.success }),
+    olderThan: olderThan.success,
+    stuckAfterMs: stuckAfterMs.success,
+    minAttempts: minAttempts.success,
     ...(body.cursor === undefined ? {} : { cursor: body.cursor }),
-    limit: limit.value,
-    reason: reason.value,
-    deadLetteredAt: deadLetteredAt.value,
-    maxBatches: maxBatches.value,
+    limit: limit.success,
+    reason: reason.success,
+    deadLetteredAt: deadLetteredAt.success,
+    maxBatches: maxBatches.success,
   });
 }
 
 function normalizeSchedulerCleanupConnectionsPayload(
   value: unknown,
 ): SchedulerRoutePayloadValidationResult<SchedulerCleanupConnectionsRouteBody> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return schedulerRoutePayloadValidationFailure("Live query connection cleanup request body must be an object.");
   }
-  const body = value as Record<string, unknown>;
+  const body = value;
   const deploymentId = nonEmptyString(body.deploymentId, "deploymentId");
-  if (!deploymentId.success) return deploymentId;
+  if (Result.isFailure(deploymentId)) return Result.fail(deploymentId.failure);
   const expiredAt = optionalDateString(body.expiredAt, "expiredAt");
-  if (!expiredAt.success) return expiredAt;
-  return schedulerRoutePayloadValidationSuccess({
-    deploymentId: deploymentId.value,
+  if (Result.isFailure(expiredAt)) return Result.fail(expiredAt.failure);
+  return Result.succeed({
+    deploymentId: deploymentId.success,
     projectId: body.projectId,
-    ...(expiredAt.value === undefined ? {} : { expiredAt: expiredAt.value }),
+    ...(expiredAt.success === undefined ? {} : { expiredAt: expiredAt.success }),
   });
 }
 
 function deadLetterOlderThan(
-  body: Record<string, unknown>,
+  body: UnknownRecord,
   nowMillis: number,
 ): SchedulerRoutePayloadValidationResult<string> {
   if (body.olderThan !== undefined) {
     return dateString(body.olderThan, "olderThan");
   }
   const stuckAfterMs = deadLetterStuckAfterMs(body.stuckAfterMs);
-  if (!stuckAfterMs.success) return stuckAfterMs;
-  return schedulerRoutePayloadValidationSuccess(new Date(nowMillis - stuckAfterMs.value).toISOString());
+  if (Result.isFailure(stuckAfterMs)) return Result.fail(stuckAfterMs.failure);
+  return Result.succeed(new Date(nowMillis - stuckAfterMs.success).toISOString());
 }
 
 function deadLetterStuckAfterMs(value: unknown): SchedulerRoutePayloadValidationResult<number> {
   return value === undefined
-    ? schedulerRoutePayloadValidationSuccess(SCHEDULER_DEFAULT_STUCK_AFTER_MS)
+    ? Result.succeed(SCHEDULER_DEFAULT_STUCK_AFTER_MS)
     : positiveInteger(value, "stuckAfterMs");
 }
 
 function pendingCursor(value: unknown): SchedulerRoutePayloadValidationResult<SchedulerPendingDeploymentCursor> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return schedulerRoutePayloadValidationFailure("cursor must be an object.");
   }
-  const record = value as Record<string, unknown>;
+  const record = value;
   const oldestCreatedAt = dateString(record.oldestCreatedAt, "cursor.oldestCreatedAt");
-  if (!oldestCreatedAt.success) return oldestCreatedAt;
+  if (Result.isFailure(oldestCreatedAt)) {
+    return Result.fail(oldestCreatedAt.failure);
+  }
   const deploymentId = nonEmptyString(record.deploymentId, "cursor.deploymentId");
-  if (!deploymentId.success) return deploymentId;
-  return schedulerRoutePayloadValidationSuccess({
-    oldestCreatedAt: oldestCreatedAt.value,
-    deploymentId: deploymentId.value,
+  if (Result.isFailure(deploymentId)) return Result.fail(deploymentId.failure);
+  return Result.succeed({
+    oldestCreatedAt: oldestCreatedAt.success,
+    deploymentId: deploymentId.success,
   });
 }
 
 function expiredConnectionCursor(
   value: unknown,
 ): SchedulerRoutePayloadValidationResult<SchedulerExpiredConnectionDeploymentCursor> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return schedulerRoutePayloadValidationFailure("cursor must be an object.");
   }
-  const record = value as Record<string, unknown>;
+  const record = value;
   const oldestExpiredAt = dateString(record.oldestExpiredAt, "cursor.oldestExpiredAt");
-  if (!oldestExpiredAt.success) return oldestExpiredAt;
+  if (Result.isFailure(oldestExpiredAt)) {
+    return Result.fail(oldestExpiredAt.failure);
+  }
   const deploymentId = nonEmptyString(record.deploymentId, "cursor.deploymentId");
-  if (!deploymentId.success) return deploymentId;
-  return schedulerRoutePayloadValidationSuccess({
-    oldestExpiredAt: oldestExpiredAt.value,
-    deploymentId: deploymentId.value,
+  if (Result.isFailure(deploymentId)) return Result.fail(deploymentId.failure);
+  return Result.succeed({
+    oldestExpiredAt: oldestExpiredAt.success,
+    deploymentId: deploymentId.success,
   });
 }
 
@@ -419,12 +429,12 @@ function optionalPositiveInteger(
   value: unknown,
   field: string,
 ): SchedulerRoutePayloadValidationResult<number | undefined> {
-  return value === undefined ? schedulerRoutePayloadValidationSuccess(undefined) : positiveInteger(value, field);
+  return value === undefined ? Result.succeed(undefined) : positiveInteger(value, field);
 }
 
 function positiveInteger(value: unknown, field: string): SchedulerRoutePayloadValidationResult<number> {
   if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-    return schedulerRoutePayloadValidationSuccess(value);
+    return Result.succeed(value);
   }
   return schedulerRoutePayloadValidationFailure(`${field} must be a positive integer.`);
 }
@@ -433,50 +443,29 @@ function optionalDateString(
   value: unknown,
   field: string,
 ): SchedulerRoutePayloadValidationResult<string | undefined> {
-  return value === undefined ? schedulerRoutePayloadValidationSuccess(undefined) : dateString(value, field);
+  return value === undefined ? Result.succeed(undefined) : dateString(value, field);
 }
 
 function dateString(value: unknown, field: string): SchedulerRoutePayloadValidationResult<string> {
   const text = nonEmptyString(value, field);
-  if (!text.success) return text;
-  const date = new Date(text.value);
-  if (!Number.isNaN(date.getTime())) return schedulerRoutePayloadValidationSuccess(date.toISOString());
+  if (Result.isFailure(text)) return Result.fail(text.failure);
+  const date = new Date(text.success);
+  if (!Number.isNaN(date.getTime())) return Result.succeed(date.toISOString());
   return schedulerRoutePayloadValidationFailure(`${field} must be an ISO date string.`);
 }
 
 function nonEmptyString(value: unknown, field: string): SchedulerRoutePayloadValidationResult<string> {
-  if (typeof value === "string" && value.length > 0) return schedulerRoutePayloadValidationSuccess(value);
+  if (typeof value === "string" && value.length > 0) return Result.succeed(value);
   return schedulerRoutePayloadValidationFailure(`${field} must be a non-empty string.`);
 }
 
-type SchedulerRoutePayloadValidationResult<A> =
-  | {
-      readonly success: true;
-      readonly value: A;
-    }
-  | {
-      readonly success: false;
-      readonly error: SchedulerRoutePayloadError;
-    };
-
-function schedulerRoutePayloadValidationSuccess<A>(value: A): SchedulerRoutePayloadValidationResult<A> {
-  return {
-    success: true,
-    value,
-  };
-}
+type SchedulerRoutePayloadValidationResult<A> = Result.Result<
+  A,
+  SchedulerRoutePayloadError
+>;
 
 function schedulerRoutePayloadValidationFailure<A = never>(
   message: string,
 ): SchedulerRoutePayloadValidationResult<A> {
-  return {
-    success: false,
-    error: new SchedulerRoutePayloadError({ message }),
-  };
-}
-
-function schedulerRoutePayloadValidationResultToEffect<A>(
-  result: SchedulerRoutePayloadValidationResult<A>,
-): Effect.Effect<A, SchedulerRoutePayloadError> {
-  return result.success ? Effect.succeed(result.value) : Effect.fail(result.error);
+  return Result.fail(new SchedulerRoutePayloadError({ message }));
 }

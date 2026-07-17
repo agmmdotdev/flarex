@@ -1,3 +1,7 @@
+import {
+  isNonArrayRecord,
+  type UnknownRecord,
+} from "@flarex/utils/records";
 import { Data, Effect, Schema } from "effect";
 import { executionIdentityFingerprint } from "./auth";
 import { isJson, type WritableJson } from "./json";
@@ -155,11 +159,11 @@ export const decodePublicDeliveryWakePayloadEffect = Effect.fn(
   value: unknown,
   deploymentId: string,
 ): Effect.fn.Return<DeliveryWakeRequest, DeliveryWakePayloadError> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     return yield* deliveryWakePayloadFailure("Delivery wake request body must be an object.");
   }
   return yield* decodeDeliveryWakePayloadWithDeploymentEffect({
-    ...(value as Record<string, unknown>),
+    ...value,
     deploymentId,
   });
 });
@@ -250,10 +254,8 @@ const decodeLiveQueryDeliveryChange = Effect.fn("LiveQueryProtocol.decodeDeliver
 function liveQueryDeliveryRecord(
   value: unknown,
   message: string,
-): Effect.Effect<Record<string, unknown>, LiveQueryDeliveryChangePayloadError> {
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-    return Effect.succeed(value as Record<string, unknown>);
-  }
+): Effect.Effect<UnknownRecord, LiveQueryDeliveryChangePayloadError> {
+  if (isNonArrayRecord(value)) return Effect.succeed(value);
   return liveQueryDeliveryPayloadFailure(message);
 }
 
@@ -297,10 +299,8 @@ function liveQueryDeliveryPayloadFailure<A = never>(
 
 function deliveryWakeRecord(
   value: unknown,
-): Effect.Effect<Record<string, unknown>, DeliveryWakePayloadError> {
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-    return Effect.succeed(value as Record<string, unknown>);
-  }
+): Effect.Effect<UnknownRecord, DeliveryWakePayloadError> {
+  if (isNonArrayRecord(value)) return Effect.succeed(value);
   return deliveryWakePayloadFailure("Delivery wake request body must be an object.");
 }
 
