@@ -1,4 +1,5 @@
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { asc, eq, gt } from "drizzle-orm";
 import {
   ScopeIdSchema,
@@ -255,7 +256,7 @@ function decodeScopePhysicalLocator(
   value: unknown,
   scopeId: string,
 ): ScopePhysicalLocator {
-  if (!isJsonObject(value)) {
+  if (!isNonArrayRecord(value)) {
     throw new ScopeMetadataCorruptionError(
       scopeId,
       "physical locator is not an object",
@@ -310,10 +311,6 @@ function decodeScopePhysicalLocator(
         "physical locator kind is unsupported",
       );
   }
-}
-
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function requireNonBlankInput(

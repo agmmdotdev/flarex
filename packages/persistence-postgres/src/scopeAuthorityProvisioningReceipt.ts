@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
@@ -585,7 +586,7 @@ function decodeSplitScopePhysicalLocator(
   value: unknown,
   scopeId: string,
 ): SplitScopePhysicalLocator {
-  if (!isJsonObject(value)) {
+  if (!isNonArrayRecord(value)) {
     throw new ScopeAuthorityProvisioningReceiptCorruptionError(
       scopeId,
       "physical locator is not an object",
@@ -656,10 +657,6 @@ function requireNonBlankInput(
   if (value.trim().length === 0) {
     throw new InvalidScopeAuthorityProvisioningReceiptInputError(field);
   }
-}
-
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function scopeAuthorityProvisioningReceiptConflictMessage(

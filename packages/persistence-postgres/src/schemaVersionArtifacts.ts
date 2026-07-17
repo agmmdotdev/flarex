@@ -1,4 +1,5 @@
 import { bytesEqual } from "@flarex/utils/bytes";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq } from "drizzle-orm";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
@@ -715,7 +716,7 @@ function jsonValuesEqual(left: unknown, right: unknown): boolean {
       jsonValuesEqual(value, right[index])
     );
   }
-  if (!isJsonObject(left) || !isJsonObject(right)) return false;
+  if (!isNonArrayRecord(left) || !isNonArrayRecord(right)) return false;
   const leftKeys = Object.keys(left).sort();
   const rightKeys = Object.keys(right).sort();
   if (leftKeys.length !== rightKeys.length) return false;
@@ -724,12 +725,6 @@ function jsonValuesEqual(left: unknown, right: unknown): boolean {
     if (!jsonValuesEqual(left[key], right[key])) return false;
   }
   return true;
-}
-
-function isJsonObject(
-  value: unknown,
-): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isValidDate(value: unknown): value is Date {
