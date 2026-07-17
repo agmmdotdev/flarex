@@ -1672,16 +1672,43 @@ describe("C04A stored-attempt authentication", () => {
       issue: { reason: "unsupportedPointState" },
     });
 
+    let invalidPointRowIdReads = 0;
+    const skippedRowIdDefect = new Error(
+      "row ID must not be read after dependency failure",
+    );
+    let invalidPointKindReads = 0;
+    const skippedMaterialCheckDefect = new Error(
+      "material state must not be read after dependency failure",
+    );
     const futureDependencyPoint = Object.freeze({
       ...indexedRead,
       dependency: Object.freeze({
         kind: "appRowRange",
         documentId: indexedRead.documentId,
       }),
+      get rowId(): never {
+        invalidPointRowIdReads += 1;
+        throw skippedRowIdDefect;
+      },
+      get kind(): never {
+        invalidPointKindReads += 1;
+        throw skippedMaterialCheckDefect;
+      },
+    });
+    let laterDependencyReads = 0;
+    const skippedLaterPointDefect = new Error(
+      "later point must not be read after dependency failure",
+    );
+    const laterPoint = Object.freeze({
+      ...indexedRead,
+      get dependency(): never {
+        laterDependencyReads += 1;
+        throw skippedLaterPointDefect;
+      },
     });
     const futureDependencySource = Object.freeze({
       ...base,
-      points: Object.freeze([futureDependencyPoint]),
+      points: Object.freeze([futureDependencyPoint, laterPoint]),
     });
     // @ts-expect-error The protocol currently permits point dependencies only.
     const futureDependencyResult = planPointCommitStateV1(futureDependencySource);
@@ -1689,6 +1716,9 @@ describe("C04A stored-attempt authentication", () => {
     expect(futureDependencyFailure).toMatchObject({
       issue: { reason: "unsupportedReadDependency" },
     });
+    expect(invalidPointRowIdReads).toBe(0);
+    expect(invalidPointKindReads).toBe(0);
+    expect(laterDependencyReads).toBe(0);
   });
 
   it("reconstructs equivalent logical state and owned evidence bytes", async () => {

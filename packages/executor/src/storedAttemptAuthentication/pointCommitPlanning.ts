@@ -91,74 +91,72 @@ export function planPointCommitStateV1(
   PreparedPointCommitStateV1,
   UnsupportedPointCommitPlanV1Error
 > {
-  const candidates: OrderedPointCandidateV1[] = [];
-  const materialCandidates: OrderedPointCandidateV1[] = [];
+  return Result.gen(function* () {
+    const candidates: OrderedPointCandidateV1[] = [];
+    const materialCandidates: OrderedPointCandidateV1[] = [];
 
-  for (const point of source.points) {
-    const capturedDependency = captureLogicalReadDependency(point.dependency);
-    if (Result.isFailure(capturedDependency)) {
-      return Result.fail(capturedDependency.failure);
+    for (const point of source.points) {
+      const capturedDependency = yield* captureLogicalReadDependency(
+        point.dependency,
+      );
+      const dependency = Object.freeze({
+        documentId: point.documentId,
+        tableId: point.tableId,
+        rowId: point.rowId,
+        dependency: capturedDependency,
+      } satisfies PreparedPointDependencyV1);
+      const candidate = Object.freeze({
+        point,
+        dependency,
+        rowBytes: appRowIdHexV1ToBytes(point.rowId),
+      } satisfies OrderedPointCandidateV1);
+      candidates.push(candidate);
+
+      const material = yield* isNetMaterialPoint(point);
+      if (material) materialCandidates.push(candidate);
     }
-    const dependency = Object.freeze({
-      documentId: point.documentId,
-      tableId: point.tableId,
-      rowId: point.rowId,
-      dependency: capturedDependency.success,
-    } satisfies PreparedPointDependencyV1);
-    const candidate = Object.freeze({
-      point,
-      dependency,
-      rowBytes: appRowIdHexV1ToBytes(point.rowId),
-    } satisfies OrderedPointCandidateV1);
-    candidates.push(candidate);
 
-    const material = isNetMaterialPoint(point);
-    if (Result.isFailure(material)) {
-      return Result.fail(material.failure);
+    candidates.sort(comparePointCandidates);
+    materialCandidates.sort(comparePointCandidates);
+
+    if (materialCandidates.length > 1) {
+      return yield* Result.fail(new UnsupportedPointCommitPlanV1Error({
+        issue: {
+          reason: "multipleMaterialRows",
+          maximum: 1,
+          observed: materialCandidates.length,
+        },
+      }));
     }
-    if (material.success) materialCandidates.push(candidate);
-  }
 
-  candidates.sort(comparePointCandidates);
-  materialCandidates.sort(comparePointCandidates);
+    const materialCandidate = materialCandidates[0];
+    if (
+      materialCandidate !== undefined &&
+      source.schemaManifest.indexBindings.indexes.some(
+        (index) => index.tableId === materialCandidate.point.tableId,
+      )
+    ) {
+      return yield* Result.fail(new UnsupportedPointCommitPlanV1Error({
+        issue: {
+          reason: "developerIndexMaintenance",
+          tableId: materialCandidate.point.tableId,
+        },
+      }));
+    }
 
-  if (materialCandidates.length > 1) {
-    return Result.fail(new UnsupportedPointCommitPlanV1Error({
-      issue: {
-        reason: "multipleMaterialRows",
-        maximum: 1,
-        observed: materialCandidates.length,
-      },
-    }));
-  }
-
-  const materialCandidate = materialCandidates[0];
-  if (
-    materialCandidate !== undefined &&
-    source.schemaManifest.indexBindings.indexes.some(
-      (index) => index.tableId === materialCandidate.point.tableId,
-    )
-  ) {
-    return Result.fail(new UnsupportedPointCommitPlanV1Error({
-      issue: {
-        reason: "developerIndexMaintenance",
-        tableId: materialCandidate.point.tableId,
-      },
-    }));
-  }
-
-  const dependencies = Object.freeze(
-    candidates.map((candidate) => candidate.dependency),
-  );
-  return Result.succeed(Object.freeze({
-    authorityPins: captureAuthorityPins(source.authorityPins),
-    sealIdentity: captureSealIdentity(source.sealIdentity),
-    dependencies,
-    rowIntent: materialCandidate === undefined
-      ? null
-      : captureRowIntent(materialCandidate),
-    successfulResult: captureSuccessfulResult(source.successfulResult),
-  } satisfies PreparedPointCommitStateV1));
+    const dependencies = Object.freeze(
+      candidates.map((candidate) => candidate.dependency),
+    );
+    return Object.freeze({
+      authorityPins: captureAuthorityPins(source.authorityPins),
+      sealIdentity: captureSealIdentity(source.sealIdentity),
+      dependencies,
+      rowIntent: materialCandidate === undefined
+        ? null
+        : captureRowIntent(materialCandidate),
+      successfulResult: captureSuccessfulResult(source.successfulResult),
+    } satisfies PreparedPointCommitStateV1);
+  });
 }
 
 function captureLogicalReadDependency(
