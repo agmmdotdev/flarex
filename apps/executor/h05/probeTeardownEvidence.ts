@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import {
@@ -640,7 +641,7 @@ function decodeVerification(
     );
   }
   return {
-    attemptsUsed: integerInRange(
+    attemptsUsed: positiveSafeIntegerInRange(
       record.attemptsUsed,
       h05ProbeTeardownStableObservationCount,
       h05ProbeTeardownMaximumAttempts,
@@ -700,7 +701,7 @@ function decodeObservation(
         `${path}.authenticatedScriptLookup.status`,
       ),
     },
-    attempt: integerInRange(
+    attempt: positiveSafeIntegerInRange(
       record.attempt,
       1,
       h05ProbeTeardownMaximumAttempts,
@@ -934,15 +935,14 @@ function workersDevOrigin(value: unknown, path: string): string {
   return url.origin;
 }
 
-function integerInRange(
+function positiveSafeIntegerInRange(
   value: unknown,
   minimum: number,
   maximum: number,
   path: string,
 ): number {
   if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
+    !isPositiveSafeInteger(value) ||
     value < minimum ||
     value > maximum
   ) {

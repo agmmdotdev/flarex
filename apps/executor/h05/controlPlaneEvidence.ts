@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
+import {
+  isNonNegativeSafeInteger,
+  isPositiveSafeInteger,
+} from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import {
@@ -570,7 +573,12 @@ function decodeHyperdriveSnapshot(
       `${path}.name`,
     ),
     originScheme,
-    originPort: integerInRange(record.originPort, 1, 65_535, `${path}.originPort`),
+    originPort: positiveSafeIntegerInRange(
+      record.originPort,
+      1,
+      65_535,
+      `${path}.originPort`,
+    ),
     cachingDisabled: true,
     tlsMode,
     originHostSha256: sha256String(
@@ -1040,7 +1048,7 @@ function decodePrivacySnapshot(
   ]);
   const zoneIds = zoneIdArray(zonesRecord.zoneIds, `${path}.zones.zoneIds`);
   assertSortedUnique(zoneIds, `${path}.zones.zoneIds`);
-  const pageCount = integerInRange(
+  const pageCount = positiveSafeIntegerInRange(
     zonesRecord.pageCount,
     1,
     h05MaximumZonePages,
@@ -1262,15 +1270,14 @@ function nonNegativeSafeInteger(value: unknown, path: string): number {
   return value;
 }
 
-function integerInRange(
+function positiveSafeIntegerInRange(
   value: unknown,
   minimum: number,
   maximum: number,
   path: string,
 ): number {
   if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
+    !isPositiveSafeInteger(value) ||
     value < minimum ||
     value > maximum
   ) {

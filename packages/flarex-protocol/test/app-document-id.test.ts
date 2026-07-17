@@ -63,6 +63,7 @@ describe("replacement app document identity v1", () => {
       "+1:00112233-4455-6677-8899-aabbccddeeff",
       "1e0:00112233-4455-6677-8899-aabbccddeeff",
       "2147483648:00112233-4455-6677-8899-aabbccddeeff",
+      "9007199254740992:00112233-4455-6677-8899-aabbccddeeff",
       "1:ada",
       "1:00112233445566778899aabbccddeeff",
       "1:00112233-4455-6677-8899-AABBCCDDEEFF",

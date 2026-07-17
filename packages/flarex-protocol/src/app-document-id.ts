@@ -1,4 +1,5 @@
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { Data, Schema } from "effect";
 
 import {
@@ -87,7 +88,7 @@ export function decodeAppDocumentIdentityV1(
     });
   }
   const tableNumber = Number(tableText);
-  if (!Number.isSafeInteger(tableNumber)) {
+  if (!isPositiveSafeInteger(tableNumber)) {
     throw new AppDocumentIdV1Error({
       issue: { reason: "invalidTableId", value: tableText },
     });
@@ -177,7 +178,7 @@ function decodeAppDocumentIdPartsV1(
   const tableText = value.slice(0, separator);
   if (!/^[1-9][0-9]*$/.test(tableText)) return null;
   const tableNumber = Number(tableText);
-  if (!Number.isSafeInteger(tableNumber)) return null;
+  if (!isPositiveSafeInteger(tableNumber)) return null;
   if (!Schema.is(CatalogTableIdSchema)(tableNumber)) return null;
   const uuid = value.slice(separator + 1);
   return isCanonicalUuidTextV1(uuid)

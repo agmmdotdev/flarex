@@ -135,7 +135,7 @@ const h05WindowDecoder = object({
 });
 const h05PostgresCleanupDecoder = object({ proofRowsRemaining: literal(0) });
 const postgresSchemeDecoder = literalUnion(["postgres", "postgresql"]);
-const postgresPortDecoder = integerInRangeDecoder(1, 65_535);
+const postgresPortDecoder = positiveSafeIntegerInRangeDecoder(1, 65_535);
 const postgresTlsModeDecoder = literalUnion([
   "require",
   "verify-ca",
@@ -817,11 +817,13 @@ function literalUnion<
   };
 }
 
-function integerInRangeDecoder(minimum: number, maximum: number): Decoder<number> {
+function positiveSafeIntegerInRangeDecoder(
+  minimum: number,
+  maximum: number,
+): Decoder<number> {
   return (value, path) => {
     if (
-      typeof value !== "number" ||
-      !Number.isSafeInteger(value) ||
+      !isPositiveSafeInteger(value) ||
       value < minimum ||
       value > maximum
     ) {

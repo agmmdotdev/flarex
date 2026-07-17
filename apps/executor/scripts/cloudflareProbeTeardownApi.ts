@@ -335,7 +335,7 @@ function workersDevOrigin(value: string): string {
 }
 
 function httpStatus(value: number, path: string): number {
-  if (!Number.isSafeInteger(value) || value < 100 || value > 599) {
+  if (!isPositiveSafeInteger(value) || value < 100 || value > 599) {
     throw new Error(`${path} is invalid.`);
   }
   return value;

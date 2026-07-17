@@ -368,7 +368,7 @@ export function decodeH05ExpectedPostgresTarget(
   const port =
     url.port === ""
       ? 5432
-      : integerInRange(
+      : positiveSafeIntegerInRange(
           Number(url.port),
           1,
           65_535,
@@ -867,7 +867,12 @@ function projectHyperdrive(
     ["postgres", "postgresql"] as const,
     "Hyperdrive origin scheme",
   );
-  const port = integerInRange(origin.port, 1, 65_535, "Hyperdrive origin port");
+  const port = positiveSafeIntegerInRange(
+    origin.port,
+    1,
+    65_535,
+    "Hyperdrive origin port",
+  );
   const caching = record(result.caching, "Hyperdrive caching");
   if (caching.disabled !== true) {
     throw new Error("Hyperdrive query caching must be explicitly disabled.");
@@ -1110,7 +1115,12 @@ function validateExpectedPostgresTarget(
   return {
     database: stringValue(value.database, "expected PostgreSQL database"),
     host,
-    port: integerInRange(value.port, 1, 65_535, "expected PostgreSQL port"),
+    port: positiveSafeIntegerInRange(
+      value.port,
+      1,
+      65_535,
+      "expected PostgreSQL port",
+    ),
     scheme: oneOf(
       value.scheme,
       ["postgres", "postgresql"] as const,
@@ -1152,15 +1162,14 @@ function oneOf<const Values extends readonly string[]>(
   return value as Values[number];
 }
 
-function integerInRange(
+function positiveSafeIntegerInRange(
   value: unknown,
   minimum: number,
   maximum: number,
   path: string,
 ): number {
   if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
+    !isPositiveSafeInteger(value) ||
     value < minimum ||
     value > maximum
   ) {

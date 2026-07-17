@@ -2,6 +2,10 @@ import {
   bytesEqual,
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
+import {
+  isNonNegativeSafeInteger,
+  isPositiveSafeInteger,
+} from "@flarex/utils/numbers";
 import { Data, Effect, Encoding, Schema } from "effect";
 
 import type { Json, JsonObject } from "./json";
@@ -98,13 +102,15 @@ export function isTransactionGrantEpochMillisecondsV1(
 export function isPositiveTransactionGrantDurationMillisecondsV1(
   value: number,
 ): boolean {
-  return isTransactionGrantEpochMillisecondsV1(value) && value > 0;
+  return isPositiveSafeInteger(value) &&
+    value <= MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1;
 }
 
 export function isNonNegativeTransactionGrantDurationMillisecondsV1(
   value: number,
 ): boolean {
-  return isTransactionGrantEpochMillisecondsV1(value) && value >= 0;
+  return isNonNegativeSafeInteger(value) &&
+    value <= MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1;
 }
 
 const MAX_TRANSACTION_GRANT_PROTECTED_HEADER_BASE64URL_CHARACTERS_V1 =
