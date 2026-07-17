@@ -1,10 +1,21 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { analyzeFunctionModules, listFunctionModules } from "../src/analyze";
 
 describe("analyzeFunctionModules", () => {
+  it("orders discovered modules by UTF-16 code units", async () => {
+    const functionsDir = await createFunctions({
+      "a.ts": "export const value = 'a';\n",
+      "Z.ts": "export const value = 'Z';\n",
+    });
+
+    const modules = await listFunctionModules(functionsDir);
+
+    expect(modules.map(module => module.moduleName)).toEqual(["Z", "a"]);
+  });
+
   it("uses Convex-style markers and returns validator metadata", async () => {
     const functionsDir = await createFunctions({
       "functions.ts": `import { internalAction, mutation, query, workflowMutation } from "flarex/server";
@@ -144,6 +155,7 @@ async function analyze(functionsDir: string) {
 
 async function createFunctions(files: Record<string, string>): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), "flarex-analyze-"));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
   const functionsDir = path.join(root, "functions");
   await mkdir(functionsDir, { recursive: true });
   await Promise.all(

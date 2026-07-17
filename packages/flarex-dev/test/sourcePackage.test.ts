@@ -1,15 +1,44 @@
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { analyzeSourcePackageLocally } from "../src/analyze";
 import {
   bundleFlarexSourcePackage,
   finalCodegen,
   initialCodegen,
 } from "../src/generate";
+import { bundleSourcePackage } from "../src/sourcePackage";
 
 describe("Flarex source packages", () => {
+  it("orders bundled module and function paths by UTF-16 code units", async () => {
+    const root = await createTemporaryRoot("flarex-source-order-");
+    const appDir = path.join(root, "flarex");
+    const functionsDir = path.join(appDir, "functions");
+    await mkdir(functionsDir, { recursive: true });
+    const lowercasePath = path.join(functionsDir, "a.ts");
+    const uppercasePath = path.join(functionsDir, "Z.ts");
+    await Promise.all([
+      writeFile(lowercasePath, "export const value = 'a';\n"),
+      writeFile(uppercasePath, "export const value = 'Z';\n"),
+    ]);
+
+    const package_ = await bundleSourcePackage({
+      appDir,
+      functionModules: [
+        { moduleName: "a", absolutePath: lowercasePath },
+        { moduleName: "Z", absolutePath: uppercasePath },
+      ],
+    });
+
+    expect(package_.modules.map(module => module.path)).toEqual([
+      "Z.js",
+      "_flarex/execution.js",
+      "a.js",
+    ]);
+    expect(package_.functions).toEqual(["Z.js", "a.js"]);
+  });
+
   it("bundles deterministic isolate modules and analyzes the execution entry", async () => {
     const firstRoot = await createProject();
     const secondRoot = await createProject();
@@ -182,7 +211,7 @@ function hashFor(package_: Awaited<ReturnType<typeof bundleFlarexSourcePackage>>
 }
 
 async function createProject(): Promise<string> {
-  const root = await mkdtemp(path.join(tmpdir(), "flarex-source-package-"));
+  const root = await createTemporaryRoot("flarex-source-package-");
   await mkdir(path.join(root, "flarex/functions"), { recursive: true });
   await writeFile(
     path.join(root, "flarex/schema.ts"),
@@ -205,6 +234,12 @@ export const list = query({ args: {}, handler: async () => [] });
 export const get = query({ args: {}, handler: async () => null });
 `,
   );
+  return root;
+}
+
+async function createTemporaryRoot(prefix: string): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), prefix));
+  onTestFinished(() => rm(root, { recursive: true, force: true }));
   return root;
 }
 

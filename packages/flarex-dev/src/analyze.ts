@@ -1,6 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Effect } from "effect";
 import {
   analyzeExecutionModulesEffect,
@@ -63,7 +64,9 @@ export async function listFunctionModules(functionsDir: string): Promise<Functio
       moduleName: relativePath.replaceAll("\\", "/").replace(/\.[^.]+$/, ""),
     });
   }
-  return modules.sort((left, right) => left.moduleName.localeCompare(right.moduleName));
+  return modules.sort((left, right) =>
+    compareUtf16Strings(left.moduleName, right.moduleName)
+  );
 }
 
 function isFunctionEntryPoint(relativePath: string, base: string): boolean {

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { stat } from "node:fs/promises";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import {
   decodeAuthConfigPromise,
   type AuthConfig,
@@ -57,10 +58,10 @@ export async function bundleSourcePackage(
     ...(authConfigModule ? [authConfigModule] : []),
     execution,
   ]
-    .sort((left, right) => left.path.localeCompare(right.path));
+    .sort((left, right) => compareUtf16Strings(left.path, right.path));
   return {
     modules,
-    functions: functions.map(module => module.path).sort(),
+    functions: functions.map(module => module.path).sort(compareUtf16Strings),
     ...(schema ? { schema: schema.path } : {}),
     ...(authConfig === undefined ? {} : { authConfig }),
     ...(authConfigModule === undefined ? {} : { authConfigModule: authConfigModule.path }),
