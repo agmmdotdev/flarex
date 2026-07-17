@@ -126,6 +126,26 @@ describe("scheduler protocol schemas", () => {
     });
   });
 
+  it("preserves the first scheduler field failure", async () => {
+    await expect(Effect.runPromise(decodeSchedulerDeliveryReconcilePayloadEffect({
+      limit: 0,
+      deliveryLimit: 0,
+      maxBatches: 0,
+    }))).rejects.toMatchObject({
+      _tag: "SchedulerRoutePayloadError",
+      message: "limit must be a positive integer.",
+    });
+
+    await expect(Effect.runPromise(decodeSchedulerRerunSubscriptionsPayloadEffect({
+      deploymentId: "",
+      projectId: "",
+      limit: 0,
+    }))).rejects.toMatchObject({
+      _tag: "SchedulerRoutePayloadError",
+      message: "deploymentId must be a non-empty string.",
+    });
+  });
+
   it("exposes scheduler schemas for normalized payloads", () => {
     expect(decodeSchedulerDeliveryReconcileRequest({ limit: 1 })).toEqual({ limit: 1 });
     expect(decodeSchedulerConnectionReconcileRequest({ expiredAt: "2026-01-01T00:00:00.000Z" }))

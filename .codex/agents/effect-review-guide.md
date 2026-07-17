@@ -53,6 +53,12 @@ Flarex currently installs Effect v4 beta.90. Re-check the lockfile and exports
 when the dependency changes.
 
 - Use `Result`, not v3 `Either`, and `Effect.result`, not `Effect.either`.
+- `Result.gen` and `Option.gen` short-circuit before later yielded decoder calls.
+  Array and record member expressions are evaluated before `Result.all` or
+  `Option.all` inspects their input, while a lazy iterable can defer member
+  creation and is consumed only through the first failed or absent member. Do
+  not replace sequential decoders with `all` until that construction and
+  call-level short-circuiting behavior is deliberate.
 - Broad recovery uses `Effect.catch`, `Effect.catchCause`, and
   `Effect.catchDefect`; `catchTag` and `catchTags` remain available. Do not use
   v3 `catchAll*` names here.
@@ -143,6 +149,11 @@ when the dependency changes.
 - Use `pipe` for short linear transformation, recovery, timeout, retry, and
   observability chains. Do not create one-combinator generators or nested
   pipelines that obscure success, failure, or lifecycle flow.
+- Use the installed generator form when several success values are needed or
+  later calls must not occur after an earlier `None` or failure. Use `all` only
+  for independent members after checking eager construction for `Option` and
+  `Result`, and execution order, concurrency, failure, and interruption for
+  `Effect`. Preserve full-Cause ownership when composing `Exit` values.
 - Map foreign throws and rejected promises once at their narrow source. Emit
   tagged errors there and do not repeatedly rewrap them downstream.
 - For Drizzle work, read

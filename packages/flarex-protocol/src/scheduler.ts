@@ -232,21 +232,19 @@ function normalizeSchedulerDeliveryReconcilePayload(
     return schedulerRoutePayloadValidationFailure("Live query delivery reconcile request body must be an object.");
   }
   const body = value;
-  const limit = optionalPositiveInteger(body.limit, "limit");
-  if (Result.isFailure(limit)) return Result.fail(limit.failure);
-  const deliveryLimit = optionalPositiveInteger(body.deliveryLimit, "deliveryLimit");
-  if (Result.isFailure(deliveryLimit)) return Result.fail(deliveryLimit.failure);
-  const maxBatches = optionalPositiveInteger(body.maxBatches, "maxBatches");
-  if (Result.isFailure(maxBatches)) return Result.fail(maxBatches.failure);
-  const cursor = body.cursor === undefined
-    ? Result.succeed(undefined)
-    : pendingCursor(body.cursor);
-  if (Result.isFailure(cursor)) return Result.fail(cursor.failure);
-  return Result.succeed({
-    ...(limit.success === undefined ? {} : { limit: limit.success }),
-    ...(deliveryLimit.success === undefined ? {} : { deliveryLimit: deliveryLimit.success }),
-    ...(maxBatches.success === undefined ? {} : { maxBatches: maxBatches.success }),
-    ...(cursor.success === undefined ? {} : { cursor: cursor.success }),
+  return Result.gen(function* () {
+    const limit = yield* optionalPositiveInteger(body.limit, "limit");
+    const deliveryLimit = yield* optionalPositiveInteger(body.deliveryLimit, "deliveryLimit");
+    const maxBatches = yield* optionalPositiveInteger(body.maxBatches, "maxBatches");
+    const cursor = yield* (body.cursor === undefined
+      ? Result.succeed(undefined)
+      : pendingCursor(body.cursor));
+    return {
+      ...(limit === undefined ? {} : { limit }),
+      ...(deliveryLimit === undefined ? {} : { deliveryLimit }),
+      ...(maxBatches === undefined ? {} : { maxBatches }),
+      ...(cursor === undefined ? {} : { cursor }),
+    };
   });
 }
 
@@ -257,18 +255,17 @@ function normalizeSchedulerConnectionReconcilePayload(
     return schedulerRoutePayloadValidationFailure("Live query connection reconcile request body must be an object.");
   }
   const body = value;
-  const expiredAt = optionalDateString(body.expiredAt, "expiredAt");
-  if (Result.isFailure(expiredAt)) return Result.fail(expiredAt.failure);
-  const limit = optionalPositiveInteger(body.limit, "limit");
-  if (Result.isFailure(limit)) return Result.fail(limit.failure);
-  const cursor = body.cursor === undefined
-    ? Result.succeed(undefined)
-    : expiredConnectionCursor(body.cursor);
-  if (Result.isFailure(cursor)) return Result.fail(cursor.failure);
-  return Result.succeed({
-    ...(expiredAt.success === undefined ? {} : { expiredAt: expiredAt.success }),
-    ...(limit.success === undefined ? {} : { limit: limit.success }),
-    ...(cursor.success === undefined ? {} : { cursor: cursor.success }),
+  return Result.gen(function* () {
+    const expiredAt = yield* optionalDateString(body.expiredAt, "expiredAt");
+    const limit = yield* optionalPositiveInteger(body.limit, "limit");
+    const cursor = yield* (body.cursor === undefined
+      ? Result.succeed(undefined)
+      : expiredConnectionCursor(body.cursor));
+    return {
+      ...(expiredAt === undefined ? {} : { expiredAt }),
+      ...(limit === undefined ? {} : { limit }),
+      ...(cursor === undefined ? {} : { cursor }),
+    };
   });
 }
 
@@ -279,24 +276,21 @@ function normalizeSchedulerRerunSubscriptionsPayload(
     return schedulerRoutePayloadValidationFailure("Live query rerun request body must be an object.");
   }
   const body = value;
-  const deploymentId = nonEmptyString(body.deploymentId, "deploymentId");
-  if (Result.isFailure(deploymentId)) return Result.fail(deploymentId.failure);
-  const projectId = body.projectId === undefined
-    ? Result.succeed(undefined)
-    : nonEmptyString(body.projectId, "projectId");
-  if (Result.isFailure(projectId)) return Result.fail(projectId.failure);
-  const limit = optionalPositiveInteger(body.limit, "limit");
-  if (Result.isFailure(limit)) return Result.fail(limit.failure);
-  const deliveryLimit = optionalPositiveInteger(body.deliveryLimit, "deliveryLimit");
-  if (Result.isFailure(deliveryLimit)) return Result.fail(deliveryLimit.failure);
-  const maxBatches = optionalPositiveInteger(body.maxBatches, "maxBatches");
-  if (Result.isFailure(maxBatches)) return Result.fail(maxBatches.failure);
-  return Result.succeed({
-    deploymentId: deploymentId.success,
-    ...(projectId.success === undefined ? {} : { projectId: projectId.success }),
-    ...(limit.success === undefined ? {} : { limit: limit.success }),
-    ...(deliveryLimit.success === undefined ? {} : { deliveryLimit: deliveryLimit.success }),
-    ...(maxBatches.success === undefined ? {} : { maxBatches: maxBatches.success }),
+  return Result.gen(function* () {
+    const deploymentId = yield* nonEmptyString(body.deploymentId, "deploymentId");
+    const projectId = yield* (body.projectId === undefined
+      ? Result.succeed(undefined)
+      : nonEmptyString(body.projectId, "projectId"));
+    const limit = yield* optionalPositiveInteger(body.limit, "limit");
+    const deliveryLimit = yield* optionalPositiveInteger(body.deliveryLimit, "deliveryLimit");
+    const maxBatches = yield* optionalPositiveInteger(body.maxBatches, "maxBatches");
+    return {
+      deploymentId,
+      ...(projectId === undefined ? {} : { projectId }),
+      ...(limit === undefined ? {} : { limit }),
+      ...(deliveryLimit === undefined ? {} : { deliveryLimit }),
+      ...(maxBatches === undefined ? {} : { maxBatches }),
+    };
   });
 }
 
@@ -308,48 +302,40 @@ function normalizeSchedulerDeadLetterDeliveriesPayload(
     return schedulerRoutePayloadValidationFailure("Dead-letter request body must be an object.");
   }
   const body = value;
-  const deploymentId = body.deploymentId === undefined
-    ? Result.succeed(undefined)
-    : nonEmptyString(body.deploymentId, "deploymentId");
-  if (Result.isFailure(deploymentId)) return Result.fail(deploymentId.failure);
-  const olderThan = deadLetterOlderThan(body, nowMillis);
-  if (Result.isFailure(olderThan)) return Result.fail(olderThan.failure);
-  const stuckAfterMs = body.olderThan === undefined
-    ? deadLetterStuckAfterMs(body.stuckAfterMs)
-    : Result.succeed(SCHEDULER_DEFAULT_STUCK_AFTER_MS);
-  if (Result.isFailure(stuckAfterMs)) return Result.fail(stuckAfterMs.failure);
-  const minAttempts = body.minAttempts === undefined
-    ? Result.succeed(SCHEDULER_DEFAULT_MIN_ATTEMPTS)
-    : positiveInteger(body.minAttempts, "minAttempts");
-  if (Result.isFailure(minAttempts)) return Result.fail(minAttempts.failure);
-  const limit = body.limit === undefined
-    ? Result.succeed(SCHEDULER_DEFAULT_DELIVERY_LIMIT)
-    : positiveInteger(body.limit, "limit");
-  if (Result.isFailure(limit)) return Result.fail(limit.failure);
-  const reason = body.reason === undefined
-    ? Result.succeed(SCHEDULER_DEFAULT_DEAD_LETTER_REASON)
-    : nonEmptyString(body.reason, "reason");
-  if (Result.isFailure(reason)) return Result.fail(reason.failure);
-  const deadLetteredAt = body.deadLetteredAt === undefined
-    ? Result.succeed(new Date(nowMillis).toISOString())
-    : dateString(body.deadLetteredAt, "deadLetteredAt");
-  if (Result.isFailure(deadLetteredAt)) {
-    return Result.fail(deadLetteredAt.failure);
-  }
-  const maxBatches = body.maxBatches === undefined
-    ? Result.succeed(SCHEDULER_DEFAULT_MAX_BATCHES)
-    : positiveInteger(body.maxBatches, "maxBatches");
-  if (Result.isFailure(maxBatches)) return Result.fail(maxBatches.failure);
-  return Result.succeed({
-    ...(deploymentId.success === undefined ? {} : { deploymentId: deploymentId.success }),
-    olderThan: olderThan.success,
-    stuckAfterMs: stuckAfterMs.success,
-    minAttempts: minAttempts.success,
-    ...(body.cursor === undefined ? {} : { cursor: body.cursor }),
-    limit: limit.success,
-    reason: reason.success,
-    deadLetteredAt: deadLetteredAt.success,
-    maxBatches: maxBatches.success,
+  return Result.gen(function* () {
+    const deploymentId = yield* (body.deploymentId === undefined
+      ? Result.succeed(undefined)
+      : nonEmptyString(body.deploymentId, "deploymentId"));
+    const olderThan = yield* deadLetterOlderThan(body, nowMillis);
+    const stuckAfterMs = yield* (body.olderThan === undefined
+      ? deadLetterStuckAfterMs(body.stuckAfterMs)
+      : Result.succeed(SCHEDULER_DEFAULT_STUCK_AFTER_MS));
+    const minAttempts = yield* (body.minAttempts === undefined
+      ? Result.succeed(SCHEDULER_DEFAULT_MIN_ATTEMPTS)
+      : positiveInteger(body.minAttempts, "minAttempts"));
+    const limit = yield* (body.limit === undefined
+      ? Result.succeed(SCHEDULER_DEFAULT_DELIVERY_LIMIT)
+      : positiveInteger(body.limit, "limit"));
+    const reason = yield* (body.reason === undefined
+      ? Result.succeed(SCHEDULER_DEFAULT_DEAD_LETTER_REASON)
+      : nonEmptyString(body.reason, "reason"));
+    const deadLetteredAt = yield* (body.deadLetteredAt === undefined
+      ? Result.succeed(new Date(nowMillis).toISOString())
+      : dateString(body.deadLetteredAt, "deadLetteredAt"));
+    const maxBatches = yield* (body.maxBatches === undefined
+      ? Result.succeed(SCHEDULER_DEFAULT_MAX_BATCHES)
+      : positiveInteger(body.maxBatches, "maxBatches"));
+    return {
+      ...(deploymentId === undefined ? {} : { deploymentId }),
+      olderThan,
+      stuckAfterMs,
+      minAttempts,
+      ...(body.cursor === undefined ? {} : { cursor: body.cursor }),
+      limit,
+      reason,
+      deadLetteredAt,
+      maxBatches,
+    };
   });
 }
 
@@ -360,14 +346,14 @@ function normalizeSchedulerCleanupConnectionsPayload(
     return schedulerRoutePayloadValidationFailure("Live query connection cleanup request body must be an object.");
   }
   const body = value;
-  const deploymentId = nonEmptyString(body.deploymentId, "deploymentId");
-  if (Result.isFailure(deploymentId)) return Result.fail(deploymentId.failure);
-  const expiredAt = optionalDateString(body.expiredAt, "expiredAt");
-  if (Result.isFailure(expiredAt)) return Result.fail(expiredAt.failure);
-  return Result.succeed({
-    deploymentId: deploymentId.success,
-    projectId: body.projectId,
-    ...(expiredAt.success === undefined ? {} : { expiredAt: expiredAt.success }),
+  return Result.gen(function* () {
+    const deploymentId = yield* nonEmptyString(body.deploymentId, "deploymentId");
+    const expiredAt = yield* optionalDateString(body.expiredAt, "expiredAt");
+    return {
+      deploymentId,
+      projectId: body.projectId,
+      ...(expiredAt === undefined ? {} : { expiredAt }),
+    };
   });
 }
 
@@ -378,9 +364,9 @@ function deadLetterOlderThan(
   if (body.olderThan !== undefined) {
     return dateString(body.olderThan, "olderThan");
   }
-  const stuckAfterMs = deadLetterStuckAfterMs(body.stuckAfterMs);
-  if (Result.isFailure(stuckAfterMs)) return Result.fail(stuckAfterMs.failure);
-  return Result.succeed(new Date(nowMillis - stuckAfterMs.success).toISOString());
+  return deadLetterStuckAfterMs(body.stuckAfterMs).pipe(
+    Result.map(stuckAfterMs => new Date(nowMillis - stuckAfterMs).toISOString()),
+  );
 }
 
 function deadLetterStuckAfterMs(value: unknown): SchedulerRoutePayloadValidationResult<number> {
@@ -394,15 +380,10 @@ function pendingCursor(value: unknown): SchedulerRoutePayloadValidationResult<Sc
     return schedulerRoutePayloadValidationFailure("cursor must be an object.");
   }
   const record = value;
-  const oldestCreatedAt = dateString(record.oldestCreatedAt, "cursor.oldestCreatedAt");
-  if (Result.isFailure(oldestCreatedAt)) {
-    return Result.fail(oldestCreatedAt.failure);
-  }
-  const deploymentId = nonEmptyString(record.deploymentId, "cursor.deploymentId");
-  if (Result.isFailure(deploymentId)) return Result.fail(deploymentId.failure);
-  return Result.succeed({
-    oldestCreatedAt: oldestCreatedAt.success,
-    deploymentId: deploymentId.success,
+  return Result.gen(function* () {
+    const oldestCreatedAt = yield* dateString(record.oldestCreatedAt, "cursor.oldestCreatedAt");
+    const deploymentId = yield* nonEmptyString(record.deploymentId, "cursor.deploymentId");
+    return { oldestCreatedAt, deploymentId };
   });
 }
 
@@ -413,15 +394,10 @@ function expiredConnectionCursor(
     return schedulerRoutePayloadValidationFailure("cursor must be an object.");
   }
   const record = value;
-  const oldestExpiredAt = dateString(record.oldestExpiredAt, "cursor.oldestExpiredAt");
-  if (Result.isFailure(oldestExpiredAt)) {
-    return Result.fail(oldestExpiredAt.failure);
-  }
-  const deploymentId = nonEmptyString(record.deploymentId, "cursor.deploymentId");
-  if (Result.isFailure(deploymentId)) return Result.fail(deploymentId.failure);
-  return Result.succeed({
-    oldestExpiredAt: oldestExpiredAt.success,
-    deploymentId: deploymentId.success,
+  return Result.gen(function* () {
+    const oldestExpiredAt = yield* dateString(record.oldestExpiredAt, "cursor.oldestExpiredAt");
+    const deploymentId = yield* nonEmptyString(record.deploymentId, "cursor.deploymentId");
+    return { oldestExpiredAt, deploymentId };
   });
 }
 
@@ -447,11 +423,14 @@ function optionalDateString(
 }
 
 function dateString(value: unknown, field: string): SchedulerRoutePayloadValidationResult<string> {
-  const text = nonEmptyString(value, field);
-  if (Result.isFailure(text)) return Result.fail(text.failure);
-  const date = new Date(text.success);
-  if (!Number.isNaN(date.getTime())) return Result.succeed(date.toISOString());
-  return schedulerRoutePayloadValidationFailure(`${field} must be an ISO date string.`);
+  return nonEmptyString(value, field).pipe(
+    Result.flatMap(text => {
+      const date = new Date(text);
+      return !Number.isNaN(date.getTime())
+        ? Result.succeed(date.toISOString())
+        : schedulerRoutePayloadValidationFailure(`${field} must be an ISO date string.`);
+    }),
+  );
 }
 
 function nonEmptyString(value: unknown, field: string): SchedulerRoutePayloadValidationResult<string> {

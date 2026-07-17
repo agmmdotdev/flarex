@@ -54,6 +54,20 @@ pattern violation, make the smallest behavior-preserving correction in the
 same slice when focused validation is available; do not expand into an
 unapproved migration or contract, trust, transaction, or lifecycle change.
 
+Choose pipelines, generator composition, and collection combinators by
+evaluation semantics. Use `pipe` for a short linear flow; use the installed
+`gen` when several success values are needed or later calls must not occur
+after an earlier absence or failure; use `all` only for independent members
+whose ordering, failure, concurrency, interruption, and allocation behavior
+matches the contract. Array and record member expressions passed to
+`Option.all` or `Result.all` are evaluated before the combinator inspects them;
+a lazy iterable can instead defer member creation and stop consumption at the
+first `None` or failure. `Effect` values remain lazy, but JavaScript used to
+construct their collection is not, and execution and cancellation policy must
+still be deliberate. Keep `Exit` at a boundary that owns its full `Cause`. Do
+not inspect an outcome merely to rebuild the same absence or failure, and
+preserve call-level short-circuiting when refactoring.
+
 Organize new and materially refactored Effect code by domain first. Keep pure
 models and policies, service contracts, substantial live Layers, and domain or
 host composition roots visibly separate. Business effects belong in service
