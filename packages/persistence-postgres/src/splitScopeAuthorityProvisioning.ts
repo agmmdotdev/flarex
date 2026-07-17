@@ -42,6 +42,7 @@ import {
   type SplitScopeMetadataRecord,
 } from "./scopeMetadata";
 import type { SplitScopePhysicalLocator } from "./scopeMetadataTypes";
+import { scopePhysicalLocatorsEqual } from "./scopePhysicalLocator";
 import {
   type LocatedSplitScopeClockTarget,
   SplitScopeInitialClockConflictError,
@@ -700,7 +701,10 @@ function requireScopeIdentity(
     expected.scopeId !== actual.scopeId ||
     expected.deploymentId !== actual.deploymentId ||
     expected.createdAt.getTime() !== actual.createdAt.getTime() ||
-    !physicalLocatorsEqual(expected.physicalLocator, actual.physicalLocator)
+    !scopePhysicalLocatorsEqual(
+      expected.physicalLocator,
+      actual.physicalLocator,
+    )
   ) {
     throw new SplitScopeAuthorityConflictError({
       reason: "scopeChangedDuringFinalization",
@@ -747,7 +751,7 @@ async function resolveTarget(
       resolutionCause: error,
     });
   }
-  if (!physicalLocatorsEqual(capturedExpected, actual)) {
+  if (!scopePhysicalLocatorsEqual(capturedExpected, actual)) {
     throw new SplitScopeAuthorityTargetResolutionError({
       reason: "resolvedLocatorMismatch",
       expected: capturedExpected,
@@ -812,17 +816,6 @@ function publishedPublicationStatus(
     PublishSplitScopeAuthorityReadyStatuses.publishedReady
     ? SplitScopeAuthorityProvisioningStatuses.publishedReady
     : SplitScopeAuthorityProvisioningStatuses.alreadyReady;
-}
-
-function physicalLocatorsEqual(
-  left: SplitScopePhysicalLocator,
-  right: SplitScopePhysicalLocator,
-): boolean {
-  return (
-    left.kind === right.kind &&
-    left.databaseKey === right.databaseKey &&
-    left.schemaName === right.schemaName
-  );
 }
 
 function splitScopeAuthorityConflictMessage(

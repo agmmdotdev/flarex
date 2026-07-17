@@ -33,6 +33,7 @@ import {
   fxControlScopes,
 } from "./schema";
 import type { SplitScopePhysicalLocator } from "./scopeMetadataTypes";
+import { scopePhysicalLocatorsEqual } from "./scopePhysicalLocator";
 
 export type ScopeAuthorityProvisioningReceiptConflict =
   | {
@@ -352,7 +353,7 @@ async function lockAndRequireScopePlacement(
       scopeId,
     });
   }
-  if (!physicalLocatorsEqual(scope.physicalLocator, expected)) {
+  if (!scopePhysicalLocatorsEqual(scope.physicalLocator, expected)) {
     throw new ScopeAuthorityProvisioningReceiptConflictError({
       reason: "scopePlacementMismatch",
       scopeId,
@@ -448,7 +449,7 @@ function requireReceiptPlacement(
   receipt: SplitScopeAuthorityProvisioningReceipt,
   expected: SplitScopePhysicalLocator,
 ): void {
-  if (!physicalLocatorsEqual(receipt.physicalLocator, expected)) {
+  if (!scopePhysicalLocatorsEqual(receipt.physicalLocator, expected)) {
     throw new ScopeAuthorityProvisioningReceiptConflictError({
       reason: "receiptPlacementMismatch",
       scopeId: receipt.scopeId,
@@ -633,17 +634,6 @@ function decodeSplitScopePhysicalLocator(
         "physical locator is not a supported split placement",
       );
   }
-}
-
-function physicalLocatorsEqual(
-  left: ScopeMetadataRecord["physicalLocator"],
-  right: SplitScopePhysicalLocator,
-): boolean {
-  return (
-    left.kind === right.kind &&
-    left.databaseKey === right.databaseKey &&
-    left.schemaName === right.schemaName
-  );
 }
 
 function requireValidDate(

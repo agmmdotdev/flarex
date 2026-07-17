@@ -19,6 +19,7 @@ import {
   type ScopeMetadataRecord,
 } from "./scopeMetadata";
 import type { SharedDatabaseScopePhysicalLocator } from "./scopeMetadataTypes";
+import { scopePhysicalLocatorsEqual } from "./scopePhysicalLocator";
 import { getScopeClock, type ScopeClockRecord } from "./scopeClock";
 import {
   insertInitialScopeClockInTransaction,
@@ -506,11 +507,7 @@ function requirePhysicalLocatorMatch(
   expected: SharedDatabaseScopePhysicalLocator,
 ): ScopeMetadataRecord {
   const actual = scope.physicalLocator;
-  if (
-    actual.kind !== expected.kind ||
-    actual.databaseKey !== expected.databaseKey ||
-    actual.schemaName !== expected.schemaName
-  ) {
+  if (!scopePhysicalLocatorsEqual(actual, expected)) {
     throw new SharedScopeAuthorityConflictError({
       reason: "physicalLocatorMismatch",
       deploymentId: scope.deploymentId,

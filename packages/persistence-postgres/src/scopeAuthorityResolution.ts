@@ -10,6 +10,7 @@ import type {
   ScopePhysicalLocator,
   SplitScopePhysicalLocator,
 } from "./scopeMetadataTypes";
+import { scopePhysicalLocatorsEqual } from "./scopePhysicalLocator";
 
 export interface ScopeMetadataReader {
   getScopeMetadataByDeploymentId(
@@ -252,7 +253,7 @@ async function resolveSplitScopeAuthority<
     });
   }
   const receiptLocator = captureSplitPhysicalLocator(receipt.physicalLocator);
-  if (!physicalLocatorsEqual(expectedLocator, receiptLocator)) {
+  if (!scopePhysicalLocatorsEqual(expectedLocator, receiptLocator)) {
     throw resolutionError({
       reason: "splitProvisioningReceiptPlacementMismatch",
       scopeId: intent.scopeId,
@@ -292,7 +293,7 @@ async function resolveScopeAuthorityAtTarget<
     });
   }
   const actualLocator = decodedLocator.value;
-  if (!physicalLocatorsEqual(expectedLocator, actualLocator)) {
+  if (!scopePhysicalLocatorsEqual(expectedLocator, actualLocator)) {
     throw resolutionError({
       reason: "scopeClockTargetPlacementMismatch",
       scopeId: intent.scopeId,
@@ -347,17 +348,6 @@ function resolutionError(
   failure: TrustedScopeAuthorityResolutionFailure,
 ): TrustedScopeAuthorityResolutionError {
   return new TrustedScopeAuthorityResolutionError(failure);
-}
-
-function physicalLocatorsEqual(
-  left: ScopePhysicalLocator,
-  right: ScopePhysicalLocator,
-): boolean {
-  return (
-    left.kind === right.kind &&
-    left.databaseKey === right.databaseKey &&
-    left.schemaName === right.schemaName
-  );
 }
 
 function captureScopeAuthorityIntent(
