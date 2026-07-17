@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect, Schema } from "effect";
 
@@ -465,9 +466,7 @@ export async function sha256Hex(value: string): Promise<string> {
     "SHA-256",
     new TextEncoder().encode(value),
   );
-  return [...new Uint8Array(digest)]
-    .map(byte => byte.toString(16).padStart(2, "0"))
-    .join("");
+  return encodeBytesToLowercaseHex(new Uint8Array(digest));
 }
 
 function campaignManifestIssueV1(

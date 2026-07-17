@@ -1,4 +1,7 @@
-import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
+import {
+  bytesEqualFullScan as bytesEqual,
+  encodeBytesToLowercaseHex,
+} from "@flarex/utils/bytes";
 import {
   isNonNegativeSafeInteger,
   isPositiveSafeInteger,
@@ -3277,7 +3280,7 @@ async function validateCanonicalSealEvidence(
   }
   const journalDigest = await sha256(supplied.journalBytes);
   if (
-    bytesToHex(journalDigest) !== supplied.journalSha256Hex ||
+    encodeBytesToLowercaseHex(journalDigest) !== supplied.journalSha256Hex ||
     supplied.journal.finalSyscallSequence !== candidate.lastSyscallSequence
   ) {
     throw new SessionJournalSealV1Error({
@@ -3459,14 +3462,6 @@ function storedSealEnvelope(
 async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
   const copy = new Uint8Array(bytes);
   return new Uint8Array(await crypto.subtle.digest("SHA-256", copy.buffer));
-}
-
-function bytesToHex(bytes: Uint8Array): string {
-  let result = "";
-  for (const byte of bytes) {
-    result += byte.toString(16).padStart(2, "0");
-  }
-  return result;
 }
 
 function decodeLowercaseSha256Hex(value: string): Uint8Array {

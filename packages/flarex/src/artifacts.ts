@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import type { AuthConfig } from "flarex-protocol/auth";
@@ -221,7 +222,5 @@ function canonicalValue(value: unknown): unknown {
 
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return [...new Uint8Array(digest)]
-    .map(byte => byte.toString(16).padStart(2, "0"))
-    .join("");
+  return encodeBytesToLowercaseHex(new Uint8Array(digest));
 }

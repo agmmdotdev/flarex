@@ -1,4 +1,7 @@
-import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
+import {
+  bytesEqualFullScan as bytesEqual,
+  encodeBytesToLowercaseHex,
+} from "@flarex/utils/bytes";
 import { Data, Effect, Encoding, Schema } from "effect";
 
 import type {
@@ -2127,9 +2130,7 @@ function bytesToLowercaseHex(
   if (!(bytes instanceof Uint8Array) || bytes.byteLength !== 32) {
     throw corruption(reason);
   }
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
-    "",
-  );
+  return encodeBytesToLowercaseHex(bytes);
 }
 
 function base64UrlFromBytes(bytes: Uint8Array): string {

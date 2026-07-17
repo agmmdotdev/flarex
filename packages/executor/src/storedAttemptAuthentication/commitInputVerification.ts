@@ -1,4 +1,7 @@
-import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
+import {
+  bytesEqualFullScan as bytesEqual,
+  encodeBytesToLowercaseHex,
+} from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect } from "effect";
 
@@ -488,9 +491,7 @@ function lowercaseHexOrUndefined(bytes: Uint8Array): string | undefined {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength !== 32) {
     return undefined;
   }
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
-    "",
-  );
+  return encodeBytesToLowercaseHex(bytes);
 }
 
 function isCanonicalObject(

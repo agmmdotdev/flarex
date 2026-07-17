@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Data, Effect, Schema } from "effect";
 
 import {
@@ -422,9 +423,7 @@ async function sha256Hex(value: string): Promise<string> {
     "SHA-256",
     new TextEncoder().encode(value),
   );
-  return Array.from(new Uint8Array(digest), byte =>
-    byte.toString(16).padStart(2, "0")
-  ).join("");
+  return encodeBytesToLowercaseHex(new Uint8Array(digest));
 }
 
 export const PROBE_FACET_WORKER_MAIN_MODULE = "probe-facet-worker.js";
