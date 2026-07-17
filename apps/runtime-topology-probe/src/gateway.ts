@@ -63,6 +63,7 @@ import type {
 import {
   hasExactBearerCapability,
   isConfiguredSecret,
+  isJsonContentType,
   noStoreJson,
   readBoundedJson,
 } from "./http";
@@ -1977,11 +1978,6 @@ function requestColo(request: Request): string | null {
   return typeof colo === "string" && /^[A-Z0-9]{3,8}$/.test(colo)
     ? colo
     : null;
-}
-
-function isJsonContentType(value: string | null): boolean {
-  return value !== null &&
-    value.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
 }
 
 function failedNestedSample(

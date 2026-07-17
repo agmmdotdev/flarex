@@ -80,6 +80,11 @@ export async function hasExactBearerCapability(
   return difference === 0;
 }
 
+export function isJsonContentType(value: string | null): boolean {
+  return value !== null &&
+    value.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
+}
+
 export function noStoreJson(
   body: unknown,
   status = 200,

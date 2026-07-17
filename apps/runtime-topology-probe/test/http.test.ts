@@ -1,8 +1,25 @@
 import { describe, expect, it } from "vitest";
 
-import { readBoundedJson } from "../src/http";
+import {
+  isJsonContentType,
+  readBoundedJson,
+} from "../src/http";
 
 describe("bounded probe HTTP JSON reader", () => {
+  it.each([
+    ["application/json", true],
+    ["APPLICATION/JSON", true],
+    [" application/json ", true],
+    ["application/json; charset=utf-8", true],
+    ["application/json ; charset=utf-8", true],
+    ["application/problem+json", false],
+    ["text/json", false],
+    ["", false],
+    [null, false],
+  ])("classifies JSON content type %j", (value, expected) => {
+    expect(isJsonContentType(value)).toBe(expected);
+  });
+
   it("decodes a valid chunked JSON body", async () => {
     const result = await readBoundedJson(
       bodySource(["{\"value\":", "1}"]),

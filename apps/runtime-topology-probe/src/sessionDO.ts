@@ -32,7 +32,11 @@ import {
   ProbeSessionIdSchema,
   type ProbeSessionId,
 } from "./identity";
-import { noStoreJson, readBoundedJson } from "./http";
+import {
+  isJsonContentType,
+  noStoreJson,
+  readBoundedJson,
+} from "./http";
 import { elapsedPerformanceDurationSince } from "./performanceDuration";
 import {
   decodeProbeInvokeFacetRequestV1OrNull,
@@ -1340,11 +1344,6 @@ function decodeObjectSessionId(value: string | undefined): ProbeSessionId | null
   } catch {
     return null;
   }
-}
-
-function isJsonContentType(value: string | null): boolean {
-  return value !== null &&
-    value.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
 }
 
 function internalError(error: string, status: number): Response {
