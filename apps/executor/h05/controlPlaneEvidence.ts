@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import {
   decodeH05ProofRunId,
@@ -1346,10 +1347,6 @@ function canonicalJson(value: unknown): string {
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function decodeFailure(error: unknown): { readonly ok: false; readonly message: string } {

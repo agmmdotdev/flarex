@@ -23,6 +23,7 @@
     "@flarex/executor": "workspace:*",
     "@flarex/executor-http": "workspace:*",
     "@flarex/persistence-postgres": "workspace:*",
+    "@flarex/utils": "workspace:*",
     "pg": "^8.22.0"
   },
   "devDependencies": {

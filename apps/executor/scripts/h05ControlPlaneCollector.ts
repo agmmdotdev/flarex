@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import {
   compileH05ControlPlaneEvidence,
@@ -1205,13 +1206,8 @@ function record(
   value: unknown,
   path: string,
 ): Readonly<Record<string, unknown>> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new Error(`${path} must be an object.`);
   }
-  return value as Readonly<Record<string, unknown>>;
-}
-
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return value;
 }

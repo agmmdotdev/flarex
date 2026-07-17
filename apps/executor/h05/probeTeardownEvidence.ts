@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import {
   decodeH05ControlPlaneEvidence,
@@ -976,10 +977,6 @@ function timestampMs(value: string): number {
 
 function sha256(value: string): H05ProbeTeardownSha256 {
   return createHash("sha256").update(value).digest("hex") as H05ProbeTeardownSha256;
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function errorMessage(error: unknown): string {

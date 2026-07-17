@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import {
   decodeH05ProofRunId,
@@ -946,10 +947,6 @@ function orderedTimestamps(
   if (Date.parse(first) > Date.parse(second)) {
     fail(`${path} timestamps are out of order.`);
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function fail(message: string): never {

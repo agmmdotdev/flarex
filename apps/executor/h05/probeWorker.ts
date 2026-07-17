@@ -1,3 +1,5 @@
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+
 import {
   decodeH05ProofRunId,
   h05ProofIdentity,
@@ -260,10 +262,6 @@ function probeJson(body: Record<string, string>, status: number): Response {
 
 function isAllowedInvokePath(value: unknown): value is H05AllowedInvokePath {
   return Object.values(h05AllowedInvokePaths).some((path) => path === value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export default createH05ProbeWorker() satisfies ExportedHandler<H05ProbeEnv>;

@@ -1,3 +1,4 @@
+import { isNonArrayRecord as isUnknownRecord } from "@flarex/utils/records";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
 import type {
@@ -447,12 +448,6 @@ function decodePhysicalLocator(value: unknown): PhysicalLocatorDecodeResult {
     default:
       return { ok: false, invalidReason: "locatorKindUnsupported" };
   }
-}
-
-function isUnknownRecord(
-  value: unknown,
-): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function hasGetCurrentClock(

@@ -941,7 +941,7 @@ function getField(
   }
   let cursor: PersistenceJson | undefined = value;
   for (const segment of field.split(".")) {
-    if (!isWritableJsonObject(cursor)) {
+    if (cursor === undefined || !isWritableJsonObject(cursor)) {
       return undefined;
     }
     cursor = cursor[segment];

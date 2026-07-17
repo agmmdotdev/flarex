@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import {
   createFlarexExecutor,
   withReadyDeploymentAuthority,
@@ -737,10 +738,6 @@ function numberField(value: Record<string, unknown>, field: string): number {
     return fieldValue;
   }
   throw new Error(`${field} must be a safe integer.`);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function waitForClockAfter(timestamp: number): Promise<void> {

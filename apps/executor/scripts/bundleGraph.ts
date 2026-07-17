@@ -1,3 +1,5 @@
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+
 interface BundleImport {
   readonly path: string;
   readonly original?: string;
@@ -177,13 +179,9 @@ function decodeEntryPoint(
 function requireRecord(
   value: unknown,
   description: string,
-): Record<string, unknown> {
+): Readonly<Record<string, unknown>> {
   if (isRecord(value)) return value;
   throw new Error(`${description} must be an object.`);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function normalizePath(path: string): string {

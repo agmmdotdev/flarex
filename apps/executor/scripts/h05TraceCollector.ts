@@ -1,3 +1,5 @@
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+
 import {
   decodeH05ControlPlaneEvidence,
   h05CloudflareAccountIdSha256,
@@ -1161,8 +1163,4 @@ class H05TelemetryPendingError extends Error {
     super("H05 telemetry is not complete yet.");
     this.name = "H05TelemetryPendingError";
   }
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

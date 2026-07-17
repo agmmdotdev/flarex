@@ -1,3 +1,5 @@
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+
 import {
   decodeH05ProofRunId,
   type H05ProofRunId,
@@ -341,8 +343,4 @@ function positiveSafeInteger(value: number, name: string): number {
     throw new Error(`${name} must be a positive safe integer.`);
   }
   return value;
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

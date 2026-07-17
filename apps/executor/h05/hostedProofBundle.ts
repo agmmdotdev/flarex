@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import {
   decodeH05ControlPlaneEvidence,
@@ -470,10 +471,6 @@ function bundleSha256(value: string): H05HostedProofBundleSha256 {
 
 function canonicalJson(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function errorMessage(error: unknown): string {

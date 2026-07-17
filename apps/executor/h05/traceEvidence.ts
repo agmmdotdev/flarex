@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import {
   decodeH05ControlPlaneEvidence,
@@ -1554,8 +1555,4 @@ function failAt(path: string, message: string): never {
 
 function fail(message: string): never {
   throw new Error(`Invalid H05 trace evidence: ${message}`);
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
