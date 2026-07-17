@@ -194,7 +194,7 @@ describe("fixed H05 Cloudflare probe teardown API", () => {
         probePublicOrigin,
         runId: "run_a",
       }),
-    ).toThrow("FLAREX_H05_TEARDOWN_API_TOKEN");
+    ).toThrow("FLAREX_H05_TEARDOWN_API_TOKEN is invalid.");
     expect(() =>
       createH05CloudflareProbeTeardownApi({
         accountId,

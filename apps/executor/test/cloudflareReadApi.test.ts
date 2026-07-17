@@ -5,6 +5,12 @@ import { createH05CloudflareReadApi } from "../scripts/cloudflareReadApi";
 const apiToken = "cloudflare-test-token";
 
 describe("bounded H05 Cloudflare read API", () => {
+  it("retains the Cloudflare read token diagnostic", () => {
+    expect(() => createH05CloudflareReadApi({ apiToken: " short " })).toThrow(
+      "CLOUDFLARE_API_TOKEN is invalid.",
+    );
+  });
+
   it("uses the fixed API origin, canonical query order, and bearer auth", async () => {
     const requests: Array<{
       readonly headers: Record<string, string>;

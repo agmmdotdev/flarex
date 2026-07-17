@@ -9,6 +9,12 @@ const apiToken = "telemetry-test-token";
 const accountId = "a".repeat(32);
 
 describe("bounded H05 Cloudflare telemetry API", () => {
+  it("retains the Cloudflare telemetry token diagnostic", () => {
+    expect(() =>
+      createH05CloudflareTelemetryApi({ apiToken: " short " }),
+    ).toThrow("FLAREX_H05_TELEMETRY_API_TOKEN is invalid.");
+  });
+
   it("posts only to the fixed account telemetry endpoint with bearer auth", async () => {
     const requests: Array<{
       readonly body: string | undefined;

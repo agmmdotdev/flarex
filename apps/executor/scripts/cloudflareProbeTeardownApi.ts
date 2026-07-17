@@ -4,6 +4,7 @@ import {
 } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
+import { isH05CloudflareApiToken } from "../h05/cloudflareApiToken";
 import { isH05CloudflareHexId } from "../h05/cloudflareHexId";
 import { isH05HttpsOriginUrl } from "../h05/httpsOrigin";
 import {
@@ -299,11 +300,7 @@ function cloudflareAccountId(value: string): string {
 }
 
 function decodeApiToken(value: string): string {
-  if (
-    value.length < 10 ||
-    value !== value.trim() ||
-    /[\u0000-\u0020\u007f]/.test(value)
-  ) {
+  if (!isH05CloudflareApiToken(value)) {
     throw new Error("FLAREX_H05_TEARDOWN_API_TOKEN is invalid.");
   }
   return value;
