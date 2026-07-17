@@ -17,5 +17,6 @@ export * from "./runProtocol";
 export * from "./runtimeProtocol";
 export * from "./runner";
 export * from "./sessionProtocol";
+export * from "./sha256";
 export * from "./statistics";
 export * from "./trace";

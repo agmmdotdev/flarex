@@ -14,7 +14,6 @@ import {
   ProbeCampaignRegistrationReceiptV1Schema,
   ProbeCampaignStatusReceiptV1Schema,
   ProbeCampaignStatusV1Schema,
-  sha256Hex,
   type ProbeCampaignControlReceiptV1,
   type ProbeCampaignErrorCodeV1,
   type ProbeCampaignManifestV1,
@@ -24,6 +23,7 @@ import {
   type ProbeCampaignStatusV1,
 } from "./campaignProtocol";
 import { copyCloudflareRpcRecord } from "./effectBoundary";
+import { sha256Hex } from "./sha256";
 import {
   PROBE_CAMPAIGN_ACTOR_NAME,
   probeRunActorId,

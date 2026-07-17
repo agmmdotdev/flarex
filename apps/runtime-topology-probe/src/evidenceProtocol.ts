@@ -2,7 +2,6 @@ import { Data, Effect, Schema } from "effect";
 
 import {
   ProbeCampaignStatusV1Schema,
-  sha256Hex,
   type ProbeCampaignStatusV1,
 } from "./campaignProtocol";
 import { strictSchemaValueOrNullDecoder } from "./effectBoundary";
@@ -15,6 +14,7 @@ import {
   summarizeProbeSamples,
 } from "./statistics";
 import { sameProbeDimensionsV1 } from "./protocol";
+import { sha256Hex } from "./sha256";
 
 const StrictStructOptions = {
   parseOptions: { onExcessProperty: "error" },

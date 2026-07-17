@@ -21,10 +21,8 @@ import {
   type ProbeRunnerCheckpointStore,
   type ProbeRunnerCheckpointV1,
 } from "../src/runner";
-import {
-  canonicalProbeCampaignManifestV1,
-  sha256Hex,
-} from "../src/campaignProtocol";
+import { canonicalProbeCampaignManifestV1 } from "../src/campaignProtocol";
+import { sha256Hex } from "../src/sha256";
 
 const decodeCheckpoint = strictSchemaValueOrNullDecoder(
   ProbeRunnerCheckpointV1Schema,

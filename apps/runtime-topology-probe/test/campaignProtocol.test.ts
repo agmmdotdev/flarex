@@ -6,7 +6,6 @@ import {
   PROBE_CAMPAIGN_BUDGET_LIMIT_VALUES_V1,
   ProbeCampaignManifestV1Schema,
   ProbeCampaignStatusV1Schema,
-  sha256Hex,
 } from "../src/campaignProtocol";
 import { ProbeCampaignIdSchema, ProbeRunIdSchema } from "../src/identity";
 import { PROBE_LOCAL_REHEARSAL_MATRIX_V1 } from "../src/matrix";
@@ -18,12 +17,6 @@ import {
 } from "../src/protocol";
 
 describe("campaign protocol", () => {
-  it("encodes SHA-256 evidence as canonical lowercase hexadecimal text", async () => {
-    await expect(sha256Hex("abc")).resolves.toBe(
-      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
-    );
-  });
-
   it("derives the checked-in matrix budget by exact code-ID union", () => {
     expect(probeCampaignBudgetPlanV1(PROBE_LOCAL_REHEARSAL_MATRIX_V1)).toEqual({
       runCells: 12,

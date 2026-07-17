@@ -1,4 +1,3 @@
-import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect, Schema } from "effect";
 
@@ -447,14 +446,6 @@ export function canonicalProbeCampaignManifestV1(
     collectorConcurrency: manifest.collectorConcurrency,
     runs: manifest.runs.map(run => JSON.parse(canonicalProbeRunRequestV1(run))),
   });
-}
-
-export async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value),
-  );
-  return encodeBytesToLowercaseHex(new Uint8Array(digest));
 }
 
 function campaignManifestIssueV1(

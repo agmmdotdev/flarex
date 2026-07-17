@@ -7,7 +7,6 @@ import {
   decodeProbeCampaignRegistrationReceiptV1OrNull,
   decodeProbeCampaignStatusReceiptV1OrNull,
   PROBE_CAMPAIGN_LIMITS_V1,
-  sha256Hex,
   type ProbeCampaignManifestV1,
   type ProbeCampaignStatusV1,
 } from "./campaignProtocol";
@@ -43,6 +42,7 @@ import {
   ProbeDurationMsSchema,
   type ProbeRunRequestV1,
 } from "./protocol";
+import { sha256Hex } from "./sha256";
 import {
   decodeProbeExternalCompletionReceiptV1OrNull,
   decodeProbeRunEvidencePageReceiptV1OrNull,

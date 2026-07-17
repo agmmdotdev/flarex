@@ -1,4 +1,3 @@
-import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Data, Effect, Schema } from "effect";
 
 import {
@@ -21,6 +20,7 @@ import {
   ProbeProtocolVersionV1Schema,
   ProbeSessionModeSchema,
 } from "./protocol";
+import { sha256Hex } from "./sha256";
 
 const StrictStructOptions = {
   parseOptions: { onExcessProperty: "error" },
@@ -416,14 +416,6 @@ function canonicalJournalSeal(
     payloadDigest,
     Array.from({ length: request.journalEntries }, (_, sequence) => sequence),
   ]);
-}
-
-async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(value),
-  );
-  return encodeBytesToLowercaseHex(new Uint8Array(digest));
 }
 
 export const PROBE_FACET_WORKER_MAIN_MODULE = "probe-facet-worker.js";
