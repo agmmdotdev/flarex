@@ -20,6 +20,7 @@ import {
   type ExecutorOccProofSqlEvidence,
   type ExecutorOccProofTransport,
 } from "./executorOccProof";
+import { isH05HttpsOriginUrl } from "./httpsOrigin";
 import { h05ProbeEndpoint, h05ProbeHop } from "./probeProtocol";
 import {
   decodeH05ProofRunId,
@@ -363,13 +364,7 @@ export function decodeHostedExecutorOccProofConfig(
   if (probeUrl.protocol !== "https:") {
     throw new Error("FLAREX_H05_PROBE_URL must use HTTPS.");
   }
-  if (
-    probeUrl.username !== "" ||
-    probeUrl.password !== "" ||
-    probeUrl.pathname !== "/" ||
-    probeUrl.search !== "" ||
-    probeUrl.hash !== ""
-  ) {
+  if (!isH05HttpsOriginUrl(probeUrl)) {
     throw new Error(
       "FLAREX_H05_PROBE_URL must be an HTTPS origin without credentials, query, or fragment.",
     );

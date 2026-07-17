@@ -13,6 +13,7 @@ import { decodeExactH05Scalar } from "./exactScalar";
 import { decodeExactH05StringTuple } from "./exactStringTuple";
 import { formatH05JsonDocument } from "./jsonDocument";
 import { isH05FullLowercaseGitCommit } from "./gitCommit";
+import { isH05HttpsOriginUrl } from "./httpsOrigin";
 import { isH05CanonicalIsoTimestamp } from "./isoTimestamp";
 import {
   decodeH05ProofRunId,
@@ -1338,14 +1339,7 @@ function httpsOrigin(value: unknown, path: string): string {
   } catch {
     fail(`${path} must be a valid HTTPS origin.`);
   }
-  if (
-    parsed.protocol !== "https:" ||
-    parsed.username !== "" ||
-    parsed.password !== "" ||
-    parsed.pathname !== "/" ||
-    parsed.search !== "" ||
-    parsed.hash !== ""
-  ) {
+  if (!isH05HttpsOriginUrl(parsed)) {
     fail(`${path} must be an HTTPS origin without credentials, path, query, or fragment.`);
   }
   return parsed.origin;

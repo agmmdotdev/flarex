@@ -4,6 +4,8 @@ import {
 } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
+import { isH05HttpsOriginUrl } from "../h05/httpsOrigin";
+
 export interface H05CloudflareReadApi {
   get(
     path: string,
@@ -229,12 +231,7 @@ function decodePublicOrigin(value: string): URL {
     throw new Error("H05 direct public Worker origin is invalid.");
   }
   if (
-    url.protocol !== "https:" ||
-    url.username !== "" ||
-    url.password !== "" ||
-    url.pathname !== "/" ||
-    url.search !== "" ||
-    url.hash !== "" ||
+    !isH05HttpsOriginUrl(url) ||
     !url.hostname.endsWith(".workers.dev")
   ) {
     throw new Error("H05 direct public Worker origin is invalid.");

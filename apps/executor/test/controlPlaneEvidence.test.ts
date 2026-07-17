@@ -216,6 +216,24 @@ describe("H05 control-plane evidence contract", () => {
     });
   });
 
+  it("retains the control-plane HTTPS origin diagnostic", () => {
+    const payload = validPayload();
+    const compiled = compileH05ControlPlaneEvidence({
+      ...payload,
+      probe: {
+        ...payload.probe,
+        publicOrigin: `${payload.probe.publicOrigin}/path`,
+      },
+    });
+
+    expect(compiled).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "probe.publicOrigin must be an HTTPS origin without credentials, path, query, or fragment.",
+      ),
+    });
+  });
+
   it("keeps the privacy observation inside the active deployment fence", () => {
     const payload = validPayload();
     const compiled = compileH05ControlPlaneEvidence({

@@ -5,6 +5,7 @@ import {
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import { isH05CloudflareHexId } from "../h05/cloudflareHexId";
+import { isH05HttpsOriginUrl } from "../h05/httpsOrigin";
 import {
   decodeH05ProofRunId,
   type H05ProofRunId,
@@ -322,12 +323,7 @@ function workersDevOrigin(value: string): string {
     throw new Error("H05 probe public origin is invalid.");
   }
   if (
-    url.protocol !== "https:" ||
-    url.username !== "" ||
-    url.password !== "" ||
-    url.pathname !== "/" ||
-    url.search !== "" ||
-    url.hash !== "" ||
+    !isH05HttpsOriginUrl(url) ||
     !url.hostname.endsWith(".workers.dev")
   ) {
     throw new Error("H05 probe public origin is invalid.");

@@ -78,6 +78,23 @@ describe("H05 hosted receipt-v2 summary", () => {
     });
   });
 
+  it("retains the receipt HTTPS origin diagnostic", () => {
+    const receipt = validReceipt();
+    const probe = nestedRecord(receipt, "probe");
+    const publicOrigin = probe.publicOrigin;
+    if (typeof publicOrigin !== "string") {
+      throw new Error("fixture probe.publicOrigin must be a string");
+    }
+    probe.publicOrigin = `${publicOrigin}/path`;
+
+    expect(decodeH05HostedReceipt(receipt)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "probe.publicOrigin must be an HTTPS origin without credentials, path, query, or fragment.",
+      ),
+    });
+  });
+
   it("retains receipt-owned rejection of all-zero Hyperdrive IDs", () => {
     const receipt = validReceipt();
     nestedRecord(receipt, "hyperdrive").id = "0".repeat(32);

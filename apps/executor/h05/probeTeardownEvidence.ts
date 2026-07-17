@@ -6,6 +6,7 @@ import { decodeExactH05Scalar } from "./exactScalar";
 import { requireExactH05Record } from "./exactRecord";
 import { formatH05JsonDocument } from "./jsonDocument";
 import { isH05FullLowercaseGitCommit } from "./gitCommit";
+import { isH05HttpsOriginUrl } from "./httpsOrigin";
 import { isH05CanonicalIsoTimestamp } from "./isoTimestamp";
 import {
   decodeH05ControlPlaneEvidence,
@@ -918,12 +919,7 @@ function workersDevOrigin(value: unknown, path: string): string {
     failAt(path, "must be a valid URL.");
   }
   if (
-    url.protocol !== "https:" ||
-    url.username !== "" ||
-    url.password !== "" ||
-    url.pathname !== "/" ||
-    url.search !== "" ||
-    url.hash !== "" ||
+    !isH05HttpsOriginUrl(url) ||
     !url.hostname.endsWith(".workers.dev")
   ) {
     failAt(path, "must be an HTTPS workers.dev origin.");

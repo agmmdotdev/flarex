@@ -56,6 +56,19 @@ describe("H05 probe teardown evidence contract", () => {
     });
   });
 
+  it("retains the teardown evidence HTTPS origin diagnostic", () => {
+    const evidence = recordClone(validCompiledEvidence());
+    nestedRecord(evidence, "inputs").probePublicOrigin =
+      "https://flarex-executor-h05-probe.example.workers.dev/path";
+
+    expect(decodeH05ProbeTeardownEvidence(evidence)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "$.inputs.probePublicOrigin must be an HTTPS workers.dev origin.",
+      ),
+    });
+  });
+
   it("retains the teardown canonical timestamp diagnostic", () => {
     const collection = validCollection();
     nestedRecord(collection, "window").startedAt =
