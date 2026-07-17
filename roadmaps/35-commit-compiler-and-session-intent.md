@@ -162,10 +162,12 @@ CommitExecutor
 
 The compiler is a lowering boundary, not a new authority. User code and the
 journal describe logical operations only. C04C1 retains authenticated logical
-dependencies, final logical row intent, and successful result evidence. O06/
-O07 later derive and publish physical rows, locks, change atoms, and system
-outbox records under current transaction authority; O09 owns multi-row/unique
-ordering.
+dependencies, net final logical row intent, and successful result evidence. An
+insert followed by delete keeps its qualified-missing dependency but produces
+no row intent; only deletion of a snapshot-present row produces a logical
+delete. O06/O07 later derive and publish physical rows, locks, change atoms,
+and system outbox records under current transaction authority; O09 owns
+multi-row/unique ordering.
 
 ### Authoritative session anchor
 

@@ -1151,8 +1151,11 @@ unforgeable `VerifiedCommitInputV1` containing logical evidence only. Deletes
 and unchanged reads have no final document to validate; unknown or system table
 ID targets fail closed. C04C1 then performs database-free deterministic logical
 point lowering to private `PreparedPointCommitV1`. It preserves every logical
-dependency and at most one final logical row intent without claiming physical
-rows, SQL lock order, sequence/time, change atoms, or outbox authority. Any
+dependency and at most one net final logical row intent. An insert followed by
+delete retains its qualified-missing dependency but collapses to no row intent;
+only deletion of a snapshot-present row yields a logical delete intent. The
+plan claims no physical rows, SQL lock order, sequence/time, change atoms, or
+outbox authority. Any
 separate C04C2 physical/change/outbox lowering remains conditional on the first
 S08/S09/O06/O07 consumers. SHA-256 proves byte integrity only; authenticating the
 Postgres session/fence does not authenticate arbitrary inline journal bytes.

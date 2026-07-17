@@ -441,9 +441,13 @@ Outcome:
 - Consume only a genuine same-factory `VerifiedCommitInputV1` and perform zero
   database, catalog, clock, transaction, or metadata I/O.
 - Preserve every protocol-owned `LogicalReadDependencyV1`, order logical
-  evidence by numeric table ID then row bytes, and retain at most one material
-  logical row intent. Live intent carries the already-verified complete final
-  document; deleted intent carries identity/dependency only.
+  evidence by numeric table ID then row bytes, and retain at most one net
+  material logical row intent. Live intent carries the already-verified
+  complete final document. Delete of a snapshot-present row carries logical
+  delete identity/dependency, while insert followed by delete retains its
+  qualified-missing dependency and collapses to no row intent. A deleted point
+  with a tombstone dependency is impossible behind authenticated C04A/B input
+  and remains a defect rather than a physical delete or ordinary no-op.
 - Return private process-local `PreparedPointCommitV1`. Identical authenticated
   inputs reconstruct equivalent logical state and contained bytes. More than
   one material row, future/non-point shapes, and material writes requiring a

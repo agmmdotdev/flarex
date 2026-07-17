@@ -112,7 +112,7 @@ export function planPointCommitStateV1(
     } satisfies OrderedPointCandidateV1);
     candidates.push(candidate);
 
-    const material = isMaterialPoint(point);
+    const material = isNetMaterialPoint(point);
     if (Result.isFailure(material)) {
       return Result.fail(material.failure);
     }
@@ -216,15 +216,36 @@ function captureLogicalReadDependency(
   }
 }
 
-function isMaterialPoint(
+function isNetMaterialPoint(
   point: VerifiedCommitPointV1,
 ): Result.Result<boolean, UnsupportedPointCommitPlanV1Error> {
   switch (point.kind) {
     case "unchanged":
       return Result.succeed(false);
     case "live":
-    case "deleted":
       return Result.succeed(true);
+    case "deleted":
+      switch (point.dependency.observed.kind) {
+        case "present":
+          return Result.succeed(true);
+        case "missing":
+          switch (point.dependency.observed.basis.kind) {
+            case "noVisibleRevision":
+              return Result.succeed(false);
+            case "tombstone":
+              throw new Error(
+                "Authenticated deleted point cannot carry a tombstone dependency.",
+              );
+            default:
+              return Result.fail(unsupportedReadDependency(
+                point.dependency.observed.basis,
+              ));
+          }
+        default:
+          return Result.fail(unsupportedReadDependency(
+            point.dependency.observed,
+          ));
+      }
     default:
       return Result.fail(unsupportedPointState(point));
   }
@@ -248,11 +269,17 @@ function captureRowIntent(
         semanticSizeBytes: point.semanticSizeBytes,
       });
     }
-    case "deleted":
+    case "deleted": {
+      if (point.dependency.observed.kind !== "present") {
+        throw new Error(
+          "Only a deleted point with a present dependency can produce a logical delete intent.",
+        );
+      }
       return Object.freeze({
         ...candidate.dependency,
         kind: "deleted",
       });
+    }
     case "unchanged":
       throw new Error("Unchanged point cannot produce a material row intent.");
     default:

@@ -1443,6 +1443,56 @@ describe("C04A stored-attempt authentication", () => {
     );
   });
 
+  it("collapses insert then delete without consuming the net material-row budget", async () => {
+    const insertedThenDeletedId = decodeAppDocumentIdV1(
+      "1:00000000-0000-4000-8000-000000000014",
+    );
+    const insertedThenDeleted = deletedPlannerPoint(insertedThenDeletedId, {
+      kind: "missing",
+      basis: { kind: "noVisibleRevision" },
+    });
+    const noOpPlan = requirePlanSuccess(planPointCommitStateV1(
+      await plannerSourceForTest([insertedThenDeleted]),
+    ));
+    expect(noOpPlan.rowIntent).toBeNull();
+    expect(noOpPlan.dependencies).toEqual([{
+      documentId: insertedThenDeletedId,
+      tableId: decodeCatalogTableId(1),
+      rowId: decodeAppDocumentIdentityV1(insertedThenDeletedId).rowId,
+      dependency: insertedThenDeleted.dependency,
+    }]);
+
+    const liveId = decodeAppDocumentIdV1(
+      "1:00000000-0000-4000-8000-000000000015",
+    );
+    const live = await livePlannerPoint(liveId);
+    const combinedPlan = requirePlanSuccess(planPointCommitStateV1(
+      await plannerSourceForTest([live, insertedThenDeleted]),
+    ));
+    expect(combinedPlan.dependencies.map(({ documentId }) => documentId))
+      .toEqual([insertedThenDeletedId, liveId]);
+    expect(combinedPlan.rowIntent).toMatchObject({
+      kind: "live",
+      documentId: liveId,
+      dependency: live.dependency,
+    });
+
+    const tombstoneDeletedId = decodeAppDocumentIdV1(
+      "1:00000000-0000-4000-8000-000000000016",
+    );
+    const tombstoneDeleted = deletedPlannerPoint(tombstoneDeletedId, {
+      kind: "missing",
+      basis: {
+        kind: "tombstone",
+        revisionCommitSeq: CommitSeqSchema.make(16n),
+      },
+    });
+    const impossibleSource = await plannerSourceForTest([tombstoneDeleted]);
+    expect(() => planPointCommitStateV1(impossibleSource)).toThrow(
+      "Authenticated deleted point cannot carry a tombstone dependency.",
+    );
+  });
+
   it("orders logical evidence by numeric table ID and canonical row bytes", async () => {
     const tableTen = unchangedPlannerPoint(decodeAppDocumentIdV1(
       "10:00000000-0000-4000-8000-000000000001",

@@ -485,7 +485,48 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         storedSqlClosed = true;
       },
     });
+    const table = await current.store.resolvePointTable(current.attempt, "users");
+    const insertedThenDeleted = await current.store.runPointOperation(table, {
+      kind: "insert",
+      syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+      fields: { name: "transient" },
+    });
+    if (
+      insertedThenDeleted.kind !== "completed" ||
+      insertedThenDeleted.outcome.kind !== "inserted"
+    ) {
+      throw new Error("Expected the transient insert to complete.");
+    }
+    await expect(current.store.runPointOperation(table, {
+      kind: "delete",
+      syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+      documentId: insertedThenDeleted.outcome.documentId,
+    })).resolves.toMatchObject({ kind: "completed" });
+    await expect(current.store.runPointOperation(table, {
+      kind: "insert",
+      syscallSequence: CommitSyscallSequenceV1Schema.make(3n),
+      fields: { name: "material" },
+    })).resolves.toMatchObject({
+      kind: "completed",
+      outcome: { kind: "inserted" },
+    });
     const envelope = await seal(current);
+    const storedEvidence = await current.loader.load(current.authority);
+    if (storedEvidence.kind !== "loaded") {
+      throw new Error("Expected stored insert/delete evidence to load.");
+    }
+    expect(storedEvidence.evidence.points).toHaveLength(2);
+    expect(storedEvidence.evidence.points).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dependencyKind: "missing_no_visible_revision",
+        overlayKind: "deleted",
+      }),
+      expect.objectContaining({
+        dependencyKind: "missing_no_visible_revision",
+        overlayKind: "live",
+      }),
+    ]));
+    storedSqlClosed = false;
     const loadedAttempt = await current.loading.load({
       deploymentId: current.anchor.deploymentId,
       scopeId: current.anchor.scopeId,
