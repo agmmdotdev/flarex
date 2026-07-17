@@ -68,6 +68,12 @@ still be deliberate. Keep `Exit` at a boundary that owns its full `Cause`. Do
 not inspect an outcome merely to rebuild the same absence or failure, and
 preserve call-level short-circuiting when refactoring.
 
+Refactor the whole composition shape rather than mechanically replacing every
+failure or absence guard with its own pipeline. One transformation or dependent
+step usually belongs in a short `map` / `flatMap` pipeline; several named or
+dependent successes usually belong in the installed `gen`. Preserve validation,
+effect-execution, and first-failure order either way.
+
 Organize new and materially refactored Effect code by domain first. Keep pure
 models and policies, service contracts, substantial live Layers, and domain or
 host composition roots visibly separate. Business effects belong in service

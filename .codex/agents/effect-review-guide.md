@@ -154,6 +154,10 @@ when the dependency changes.
   for independent members after checking eager construction for `Option` and
   `Result`, and execution order, concurrency, failure, and interruption for
   `Effect`. Preserve full-Cause ownership when composing `Exit` values.
+- Review the whole composition shape rather than asking for a separate pipeline
+  around every propagation guard. Prefer a short `map` / `flatMap` pipeline for
+  one linear transformation or dependent step, and the installed `gen` for
+  several named or dependent successes whose order matters.
 - Map foreign throws and rejected promises once at their narrow source. Emit
   tagged errors there and do not repeatedly rewrap them downstream.
 - For Drizzle work, read
