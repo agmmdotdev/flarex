@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
@@ -70,7 +71,7 @@ describe("FlarexDB schema manifest contracts", () => {
       '{"format":"flarexdb-schema-manifest","manifest":{},"manifestCodecVersion":1}',
     );
     expect(artifact.canonicalBytes).toHaveLength(76);
-    expect(toHex(artifact.sha256)).toBe(
+    expect(encodeBytesToLowercaseHex(artifact.sha256)).toBe(
       "ddd4820699614ff561924bbfca12688a0eb8e42a848f481dfee413518c23e02b",
     );
   });
@@ -188,9 +189,3 @@ describe("FlarexDB schema manifest contracts", () => {
     await expect(canonicalizeSchemaManifestV1(value)).rejects.toThrow();
   });
 });
-
-function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
-    "",
-  );
-}

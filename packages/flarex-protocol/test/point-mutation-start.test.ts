@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -55,7 +56,7 @@ describe("point-mutation preparation evidence", () => {
       `"validatedArgsSha256":"${"b".repeat(64)}",` +
       '"version":1},"valueCodecVersion":1}',
     );
-    expect(toHex(request.sha256)).toBe(
+    expect(encodeBytesToLowercaseHex(request.sha256)).toBe(
       "7e9616f28039d505bd84bbe307684a4a263c70d668080d4db485221f08da1685",
     );
   });
@@ -332,9 +333,4 @@ function appTable(tableId: number, logicalName: string) {
       documentType: { type: "object", value: {} },
     },
   };
-}
-
-function toHex(value: Uint8Array): string {
-  return Array.from(value, (byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
 }

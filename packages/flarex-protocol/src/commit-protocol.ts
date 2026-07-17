@@ -1,4 +1,8 @@
-import { bytesEqual, copyBytesToArrayBuffer } from "@flarex/utils/bytes";
+import {
+  bytesEqual,
+  copyBytesToArrayBuffer,
+  encodeBytesToLowercaseHex,
+} from "@flarex/utils/bytes";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect, Encoding, Schema } from "effect";
@@ -1113,7 +1117,7 @@ const createCanonicalSuccessfulResultV1Effect = Effect.fn(function* (
         Encoding.encodeBase64Url(stableCanonicalBytes),
       ),
     sha256Hex: SuccessfulResultSha256HexV1Schema.make(
-      encodeLowercaseHex(canonical.sha256),
+      encodeBytesToLowercaseHex(canonical.sha256),
     ),
   } satisfies SuccessfulResultEvidenceV1);
   const stableValueJson = deepFreezeCommitProjection(canonical.valueJson);
@@ -1231,7 +1235,9 @@ const sha256HexEffect = Effect.fn(function* (
       }),
   });
   const digest = new Uint8Array(digestBuffer);
-  return SessionJournalSha256HexV1Schema.make(encodeLowercaseHex(digest));
+  return SessionJournalSha256HexV1Schema.make(
+    encodeBytesToLowercaseHex(digest),
+  );
 });
 
 const decodeBase64UrlEffect = Effect.fn(function* (
@@ -1602,13 +1608,6 @@ function base64UrlMaximumCharacters(byteLength: number): number {
 
 function base64UrlDecodedLength(value: string): number {
   return Math.floor((value.length * 3) / 4);
-}
-
-function encodeLowercaseHex(value: Uint8Array): string {
-  return Array.from(
-    value,
-    byte => byte.toString(16).padStart(2, "0"),
-  ).join("");
 }
 
 function deepFreezeCommitProjection<T>(value: T): T {

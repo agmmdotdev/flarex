@@ -1,5 +1,8 @@
-import { bytesEqual } from "@flarex/utils/bytes";
-import { Data, Encoding, Schema } from "effect";
+import {
+  bytesEqual,
+  encodeBytesToLowercaseHex,
+} from "@flarex/utils/bytes";
+import { Data, Effect, Encoding, Schema } from "effect";
 
 import type { Json, JsonObject } from "./json";
 import { JsonValue } from "./json";
@@ -32,6 +35,7 @@ import {
 } from "./transaction-session";
 import {
   FLAREX_VALUE_CODEC_VERSION_V1,
+  FlarexValueCodecV1Error,
   FlarexValueCodecVersionSchema,
   canonicalizeFlarexValueJsonV1,
   canonicalizeFlarexValueV1,
@@ -185,7 +189,7 @@ export function transactionGrantIdentityAccessPolicySha256HexV1FromBytes(
   value: TransactionIdentityAccessPolicySha256V1,
 ): TransactionGrantIdentityAccessPolicySha256HexV1 {
   return TransactionGrantIdentityAccessPolicySha256HexV1Schema.make(
-    encodeLowercaseHex(value),
+    encodeBytesToLowercaseHex(value),
   );
 }
 
@@ -193,7 +197,7 @@ export function transactionGrantValidatedArgsSha256HexV1FromBytes(
   value: TransactionArgumentsSha256V1,
 ): TransactionGrantValidatedArgsSha256HexV1 {
   return TransactionGrantValidatedArgsSha256HexV1Schema.make(
-    encodeLowercaseHex(value),
+    encodeBytesToLowercaseHex(value),
   );
 }
 
@@ -201,7 +205,7 @@ export function transactionGrantRequestSha256HexV1FromBytes(
   value: TransactionRequestSha256V1,
 ): TransactionGrantRequestSha256HexV1 {
   return TransactionGrantRequestSha256HexV1Schema.make(
-    encodeLowercaseHex(value),
+    encodeBytesToLowercaseHex(value),
   );
 }
 
@@ -383,31 +387,61 @@ export async function canonicalizeTransactionGrantIdentityAccessPolicyV1(
       auth: input.auth,
       capabilities: input.capabilities,
     });
-  } catch {
+  } catch (cause) {
+    if (!Schema.isSchemaError(cause)) throw cause;
     throw new TransactionGrantIdentityAccessPolicyV1Error({
       issue: "invalidSchema",
     });
   }
 
+  let canonical: Awaited<ReturnType<typeof canonicalizeFlarexValueV1>>;
   try {
-    const canonical = await canonicalizeFlarexValueV1(policy);
-    const stableCanonicalBytes = new Uint8Array(canonical.canonicalBytes);
-    const immutablePolicy = deepFreezeTransactionGrantProjection(policy);
-    return Object.freeze({
-      policy: immutablePolicy,
-      get canonicalBytes(): Uint8Array {
-        return new Uint8Array(stableCanonicalBytes);
-      },
-      sha256Hex: TransactionGrantIdentityAccessPolicySha256HexV1Schema.make(
-        encodeLowercaseHex(canonical.sha256),
-      ),
-    } satisfies CanonicalTransactionGrantIdentityAccessPolicyV1);
-  } catch {
+    canonical = await canonicalizeFlarexValueV1(policy);
+  } catch (cause) {
+    if (
+      !(cause instanceof FlarexValueCodecV1Error) &&
+      !(typeof DOMException !== "undefined" && cause instanceof DOMException)
+    ) {
+      throw cause;
+    }
     throw new TransactionGrantIdentityAccessPolicyV1Error({
       issue: "canonicalizationFailed",
     });
   }
+
+  const stableCanonicalBytes = new Uint8Array(canonical.canonicalBytes);
+  const immutablePolicy = deepFreezeTransactionGrantProjection(policy);
+  return Object.freeze({
+    policy: immutablePolicy,
+    get canonicalBytes(): Uint8Array {
+      return new Uint8Array(stableCanonicalBytes);
+    },
+    sha256Hex: TransactionGrantIdentityAccessPolicySha256HexV1Schema.make(
+      encodeBytesToLowercaseHex(canonical.sha256),
+    ),
+  } satisfies CanonicalTransactionGrantIdentityAccessPolicyV1);
 }
+
+export const canonicalizeTransactionGrantIdentityAccessPolicyV1Effect =
+  Effect.fn(
+    "TransactionGrant.canonicalizeIdentityAccessPolicyV1",
+  )(function* (
+    input: TransactionGrantIdentityAccessPolicyInputV1,
+  ): Effect.fn.Return<
+    CanonicalTransactionGrantIdentityAccessPolicyV1,
+    TransactionGrantIdentityAccessPolicyV1Error
+  > {
+    return yield* Effect.tryPromise({
+      try: () => canonicalizeTransactionGrantIdentityAccessPolicyV1(input),
+      catch: (cause): unknown => cause,
+    }).pipe(
+      Effect.catch((cause: unknown) =>
+        cause instanceof TransactionGrantIdentityAccessPolicyV1Error
+          ? Effect.fail(cause)
+          : Effect.die(cause)
+      ),
+    );
+  });
 
 const TransactionGrantPayloadStructureV1Schema = Schema.Struct({
   format: Schema.Literal(TRANSACTION_GRANT_FORMAT_V1),
@@ -1088,13 +1122,6 @@ function deepFreezeTransactionGrantProjection<T>(value: T): T {
   }
   Object.freeze(value);
   return value;
-}
-
-function encodeLowercaseHex(value: Uint8Array): string {
-  return Array.from(
-    value,
-    (byte) => byte.toString(16).padStart(2, "0"),
-  ).join("");
 }
 
 function decodeLowercaseHex(value: string): Uint8Array {

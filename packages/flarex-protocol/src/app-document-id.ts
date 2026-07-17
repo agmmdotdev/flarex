@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Data, Schema } from "effect";
 
 import {
@@ -150,7 +151,7 @@ export function appRowIdHexV1FromBytes(value: unknown): AppRowIdHexV1 {
       },
     });
   }
-  return decodeAppRowIdHexV1(bytesToHex(value));
+  return decodeAppRowIdHexV1(encodeBytesToLowercaseHex(value));
 }
 
 export function appRowIdHexV1ToBytes(value: AppRowIdHexV1): Uint8Array {
@@ -182,12 +183,4 @@ function decodeAppDocumentIdPartsV1(
   return isCanonicalUuidTextV1(uuid)
     ? { tableId: decodeCatalogTableId(tableNumber), uuid }
     : null;
-}
-
-function bytesToHex(value: Uint8Array): string {
-  let hex = "";
-  for (const byte of value) {
-    hex += byte.toString(16).padStart(2, "0");
-  }
-  return hex;
 }

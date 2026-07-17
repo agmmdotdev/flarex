@@ -1,7 +1,10 @@
 /// <reference types="node" />
 
-import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
-import { Encoding } from "effect";
+import {
+  copyBytesToArrayBuffer,
+  encodeBytesToLowercaseHex,
+} from "@flarex/utils/bytes";
+import { Effect, Encoding } from "effect";
 import { Miniflare } from "miniflare";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
@@ -23,6 +26,7 @@ import {
   TransactionGrantRequestSha256HexV1Schema,
   TransactionGrantValidatedArgsSha256HexV1Schema,
   canonicalizeTransactionGrantIdentityAccessPolicyV1,
+  canonicalizeTransactionGrantIdentityAccessPolicyV1Effect,
   canonicalizeTransactionGrantPayloadV1,
   canonicalizeTransactionGrantProtectedHeaderV1,
   createTransactionGrantSigningInputV1,
@@ -36,6 +40,7 @@ import {
   transactionGrantValidatedArgsSha256HexV1FromBytes,
   type CanonicalTransactionGrantPayloadBase64UrlV1,
   type InertTransactionGrantEvidenceV1,
+  type TransactionGrantIdentityAccessPolicyInputV1,
   type TransactionGrantIdentityAccessPolicySha256HexV1,
   type TransactionGrantJwsV1,
   type TransactionGrantProtectedHeaderBase64UrlV1,
@@ -170,6 +175,30 @@ describe("transaction-grant protocol", () => {
     expect(anonymous.canonicalBytes[0]).not.toBe(0);
   });
 
+  it("preserves unexpected policy-input defects", async () => {
+    const defect = new Error("policy input getter defect");
+    const input: TransactionGrantIdentityAccessPolicyInputV1 = {
+      capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+      auth: { kind: "anonymous" },
+      policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+    };
+    const hostileInput = new Proxy(input, {
+      get(target, property, receiver): unknown {
+        if (property === "policyVersion") throw defect;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    await expect(
+      canonicalizeTransactionGrantIdentityAccessPolicyV1(hostileInput),
+    ).rejects.toBe(defect);
+    await expect(
+      Effect.runPromise(Effect.result(
+        canonicalizeTransactionGrantIdentityAccessPolicyV1Effect(hostileInput),
+      )),
+    ).rejects.toThrow("policy input getter defect");
+  });
+
   it("pins deterministic Ed25519 JWS and S07 evidence golden values", async () => {
     const fixture = await signedFixture();
 
@@ -190,7 +219,9 @@ describe("transaction-grant protocol", () => {
     expect(fixture.evidence.authorizationGrantCanonicalBytes).toHaveLength(
       2_031,
     );
-    expect(toHex(fixture.evidence.authorizationGrantSha256)).toBe(
+    expect(encodeBytesToLowercaseHex(
+      fixture.evidence.authorizationGrantSha256,
+    )).toBe(
       GOLDEN_ENVELOPE_SHA256,
     );
     expect(await verifyEvidence(fixture.evidence)).toBe(true);
@@ -888,15 +919,12 @@ function base64UrlMaximumCharacters(byteLength: number): number {
 }
 
 async function sha256Hex(value: Uint8Array): Promise<string> {
-  return toHex(new Uint8Array(await crypto.subtle.digest(
-    "SHA-256",
-    copyBytesToArrayBuffer(value),
-  )));
-}
-
-function toHex(value: Uint8Array): string {
-  return Array.from(
-    value,
-    (byte) => byte.toString(16).padStart(2, "0"),
-  ).join("");
+  return encodeBytesToLowercaseHex(
+    new Uint8Array(
+      await crypto.subtle.digest(
+        "SHA-256",
+        copyBytesToArrayBuffer(value),
+      ),
+    ),
+  );
 }

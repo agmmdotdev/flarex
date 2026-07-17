@@ -105,6 +105,10 @@ APIs for an exact portable owner. Reuse a total encoder such as Effect
 validation, canonical re-encoding checks, size limits, branded outputs, and
 typed failure mapping at the protocol or domain boundary; a general decoder
 does not prove a Flarex canonical representation.
+When multiple Effect consumers call the same Promise-based protocol operation,
+prefer one protocol-owned Effect adapter that preserves its typed failures and
+routes unexpected causes to defects. Consumers may translate the typed error
+channel for their domain, but must not turn defects into ordinary failures.
 
 Do not move Effect Schema options, typed errors, authority or cryptographic
 logic, persistence codecs, canonical protocol encodings, universal deep-freeze
@@ -115,15 +119,20 @@ Expose generic utilities through intentional subpath exports. Do not add a
 package-root catch-all barrel unless its public surface has been deliberately
 approved. Pin extracted behavior with focused tests, replace copies only when
 their semantics are exact, including short-circuiting, full-scan, allocation,
-normalization, and failure behavior. Do not claim cryptographic constant-time
-behavior for ordinary JavaScript loops. Generic defensive byte copies may
-detach `Uint8Array` storage or copy a visible byte range into a fresh,
-exactly-sized `ArrayBuffer`. The decision to require either representation,
-plus branded validation, hashing, and named evidence-capture constructors,
-retains its domain owner and may delegate to those primitives. Retain narrow
-local wrappers when their names communicate an important domain invariant.
-Never centralize a legacy path just because it is duplicated; removal can be
-the correct reuse strategy.
+normalization, and failure behavior. Detached `ArrayBuffer` views are part of a
+byte helper's input and failure contract: do not replace an iterator-based
+encoder with a length/index implementation if that changes detached views from
+throwing to an empty result. Canonical byte helpers must read the intrinsic
+typed-array view rather than a caller-overridden iterator. Pin detached,
+visible-range, and overridden-iterator cases explicitly. Do not claim
+cryptographic constant-time behavior for ordinary JavaScript loops. Generic
+defensive byte copies may detach `Uint8Array` storage or copy a visible byte
+range into a fresh, exactly-sized `ArrayBuffer`. The decision to require either
+representation, plus branded validation, hashing, and named evidence-capture
+constructors, retains its domain owner and may delegate to those primitives.
+Retain narrow local wrappers when their names communicate an important domain
+invariant. Never centralize a legacy path just because it is duplicated;
+removal can be the correct reuse strategy.
 Before consolidating equality helpers, pin their treatment of negative zero,
 key order, sparse or invalid containers, unknown non-JSON inputs, allocation,
 and failure behavior; the same helper name does not prove the same contract.

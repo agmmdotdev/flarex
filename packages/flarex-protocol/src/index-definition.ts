@@ -1,3 +1,4 @@
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { Schema } from "effect";
 
 import {
@@ -198,7 +199,9 @@ export async function canonicalizeAppIndexPhysicalSpecV1(
 export function canonicalAppIndexPhysicalSpecBytesHexV1FromBytes(
   value: Uint8Array,
 ): CanonicalAppIndexPhysicalSpecBytesHexV1 {
-  return decodeCanonicalAppIndexPhysicalSpecBytesHexV1(bytesToHex(value));
+  return decodeCanonicalAppIndexPhysicalSpecBytesHexV1(
+    encodeBytesToLowercaseHex(value),
+  );
 }
 
 export function canonicalAppIndexPhysicalSpecBytesHexV1ToBytes(
@@ -210,7 +213,9 @@ export function canonicalAppIndexPhysicalSpecBytesHexV1ToBytes(
 export function appIndexPhysicalSpecSha256HexV1FromBytes(
   value: Uint8Array,
 ): AppIndexPhysicalSpecSha256HexV1 {
-  return decodeAppIndexPhysicalSpecSha256HexV1(bytesToHex(value));
+  return decodeAppIndexPhysicalSpecSha256HexV1(
+    encodeBytesToLowercaseHex(value),
+  );
 }
 
 export function appIndexPhysicalSpecSha256HexV1ToBytes(
@@ -251,12 +256,6 @@ function encodeJsonString(value: string): string {
     throw new Error("Validated app index physical-spec string was not JSON.");
   }
   return encoded;
-}
-
-function bytesToHex(value: Uint8Array): string {
-  let hex = "";
-  for (const byte of value) hex += byte.toString(16).padStart(2, "0");
-  return hex;
 }
 
 function hexToBytes(value: string): Uint8Array {

@@ -14,7 +14,7 @@ import {
   TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
   TransactionGrantIdentityAccessPolicyV1Error,
   TransactionGrantProtocolV1Error,
-  canonicalizeTransactionGrantIdentityAccessPolicyV1,
+  canonicalizeTransactionGrantIdentityAccessPolicyV1Effect,
   canonicalizeTransactionGrantPayloadV1,
   canonicalizeTransactionGrantProtectedHeaderV1,
   createTransactionGrantSigningInputV1,
@@ -276,11 +276,12 @@ export function makePointMutationTransactionGrantIssuerV1(
 
       const issuedAt = yield* canonicalTimestamp(nowEpochMilliseconds);
       const expiresAt = yield* canonicalTimestamp(expiresAtEpochMilliseconds);
-      const policyEvidence = yield* policyEvidenceEffect({
-        policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
-        auth: authentication.auth,
-        capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
-      });
+      const policyEvidence = yield*
+        canonicalizeTransactionGrantIdentityAccessPolicyV1Effect({
+          policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+          auth: authentication.auth,
+          capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+        });
       const grantId = yield* runtime.nextGrantId;
       const payload = yield* protocolPromise(() =>
         canonicalizeTransactionGrantPayloadV1({
@@ -617,27 +618,6 @@ function canonicalTimestamp(
       new TransactionGrantIssuanceV1Error({
         issue: "timestampOutOfRange",
       }),
-  });
-}
-
-function policyEvidenceEffect(
-  input: Parameters<
-    typeof canonicalizeTransactionGrantIdentityAccessPolicyV1
-  >[0],
-): Effect.Effect<
-  Awaited<
-    ReturnType<typeof canonicalizeTransactionGrantIdentityAccessPolicyV1>
-  >,
-  TransactionGrantIdentityAccessPolicyV1Error
-> {
-  return Effect.tryPromise({
-    try: () => canonicalizeTransactionGrantIdentityAccessPolicyV1(input),
-    catch: cause =>
-      cause instanceof TransactionGrantIdentityAccessPolicyV1Error
-        ? cause
-        : new TransactionGrantIdentityAccessPolicyV1Error({
-            issue: "canonicalizationFailed",
-          }),
   });
 }
 

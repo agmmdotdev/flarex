@@ -6,6 +6,7 @@ import {
   compareBytesLexicographically,
   copyBytes,
   copyBytesToArrayBuffer,
+  encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
 
 describe("copyBytes", () => {
@@ -43,6 +44,35 @@ describe("copyBytesToArrayBuffer", () => {
 
     copy.fill(6);
     expect(source).toEqual(new Uint8Array([7, 7]));
+  });
+});
+
+describe("encodeBytesToLowercaseHex", () => {
+  it("encodes only the visible byte range with lowercase spelling", () => {
+    const backing = new Uint8Array([255, 0, 1, 15, 16, 171, 254]);
+
+    expect(encodeBytesToLowercaseHex(backing.subarray(1, 6))).toBe(
+      "00010f10ab",
+    );
+    expect(encodeBytesToLowercaseHex(new Uint8Array())).toBe("");
+  });
+
+  it("rejects a detached view instead of encoding it as empty", () => {
+    const buffer = new ArrayBuffer(2);
+    const bytes = new Uint8Array(buffer);
+    structuredClone(buffer, { transfer: [buffer] });
+
+    expect(() => encodeBytesToLowercaseHex(bytes)).toThrow(TypeError);
+  });
+
+  it("reads backing bytes instead of a caller-overridden iterator", () => {
+    const bytes = new Uint8Array([0]);
+    Object.defineProperty(bytes, Symbol.iterator, {
+      value: () => [255][Symbol.iterator](),
+    });
+
+    expect([...bytes]).toEqual([255]);
+    expect(encodeBytesToLowercaseHex(bytes)).toBe("00");
   });
 });
 

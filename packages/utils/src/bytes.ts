@@ -11,6 +11,21 @@ export function copyBytesToArrayBuffer(value: Uint8Array): ArrayBuffer {
 }
 
 /**
+ * Encodes the visible byte range as lowercase hexadecimal text.
+ *
+ * Intrinsic typed-array iteration reads the actual visible byte range, ignores
+ * caller-overridden iterators, and preserves the platform TypeError for
+ * detached views instead of treating a formerly non-empty view as empty.
+ */
+export function encodeBytesToLowercaseHex(value: Uint8Array): string {
+  let encoded = "";
+  for (const byte of Uint8Array.prototype.values.call(value)) {
+    encoded += byte.toString(16).padStart(2, "0");
+  }
+  return encoded;
+}
+
+/**
  * Compares unsigned bytes lexicographically, with a shorter equal prefix
  * ordered before a longer one.
  */

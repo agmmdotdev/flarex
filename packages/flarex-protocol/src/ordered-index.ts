@@ -1,4 +1,7 @@
-import { compareBytesLexicographically } from "@flarex/utils/bytes";
+import {
+  compareBytesLexicographically,
+  encodeBytesToLowercaseHex,
+} from "@flarex/utils/bytes";
 import { Data, Schema } from "effect";
 
 import {
@@ -499,7 +502,7 @@ export function orderedIndexBytesV1FromBytes(
   }
   return Object.freeze({
     kind: "bytes",
-    hex: decodeOrderedIndexByteValueHexV1(bytesToHex(value)),
+    hex: decodeOrderedIndexByteValueHexV1(encodeBytesToLowercaseHex(value)),
   });
 }
 
@@ -525,7 +528,7 @@ export function orderedIndexKeyBytesHexV1FromBytes(
       maximumBytes: MAX_ORDERED_INDEX_KEY_BYTES_V1,
     });
   }
-  return decodeOrderedIndexKeyBytesHexV1(bytesToHex(value));
+  return decodeOrderedIndexKeyBytesHexV1(encodeBytesToLowercaseHex(value));
 }
 
 export function orderedIndexKeyBytesHexV1ToBytes(
@@ -552,7 +555,7 @@ export function orderedIndexBoundHexV1FromBytes(
       maximumBytes: MAX_ORDERED_INDEX_BOUND_BYTES_V1,
     });
   }
-  return decodeOrderedIndexBoundHexV1(bytesToHex(value));
+  return decodeOrderedIndexBoundHexV1(encodeBytesToLowercaseHex(value));
 }
 
 export function orderedIndexBoundHexV1ToBytes(

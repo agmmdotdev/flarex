@@ -32,6 +32,7 @@ import {
   orderedIndexBytesV1FromBytes,
   orderedIndexBytesV1ToBytes,
   orderedIndexCreationTimeV1,
+  orderedIndexBoundHexV1FromBytes,
   orderedIndexBoundHexV1ToBytes,
   orderedIndexFloat64FromBitsV1,
   orderedIndexFloat64FromNumberV1,
@@ -575,6 +576,32 @@ describe("ordered value codec v1", () => {
     expect(orderedIndexBytesV1ToBytes(byteValue)).toEqual(
       new Uint8Array([0x00, 0x7f, 0xff]),
     );
+  });
+
+  it("rejects detached byte views instead of encoding them as empty", () => {
+    const converters: ReadonlyArray<(value: Uint8Array) => unknown> = [
+      orderedIndexBytesV1FromBytes,
+      orderedIndexKeyBytesHexV1FromBytes,
+      orderedIndexBoundHexV1FromBytes,
+    ];
+
+    for (const convert of converters) {
+      const buffer = new ArrayBuffer(1);
+      const bytes = new Uint8Array(buffer);
+      structuredClone(buffer, { transfer: [buffer] });
+
+      expect(() => convert(bytes)).toThrow(TypeError);
+    }
+  });
+
+  it("encodes backing bytes instead of a caller-controlled iterator", () => {
+    const bytes = new Uint8Array([0]);
+    Object.defineProperty(bytes, Symbol.iterator, {
+      value: () => [255][Symbol.iterator](),
+    });
+
+    expect([...bytes]).toEqual([255]);
+    expect(orderedIndexKeyBytesHexV1FromBytes(bytes)).toBe("00");
   });
 });
 

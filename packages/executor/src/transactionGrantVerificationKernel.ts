@@ -7,7 +7,7 @@ import {
   TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
   TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
   TransactionGrantTimestampV1Schema,
-  canonicalizeTransactionGrantIdentityAccessPolicyV1,
+  canonicalizeTransactionGrantIdentityAccessPolicyV1Effect,
   deriveInertTransactionGrantEvidenceV1,
   type InertTransactionGrantEvidenceV1,
   type TransactionGrantDeploymentIdV1,
@@ -243,14 +243,12 @@ const enforcePointMutationPolicyEffect = Effect.fn(
     return yield* Effect.fail(verificationFailure("policyMismatch"));
   }
 
-  const policyEvidence = yield* Effect.tryPromise({
-    try: () => canonicalizeTransactionGrantIdentityAccessPolicyV1({
+  const policyEvidence = yield*
+    canonicalizeTransactionGrantIdentityAccessPolicyV1Effect({
       policyVersion: payload.policyVersion,
       auth: payload.auth,
       capabilities: payload.capabilities,
-    }),
-    catch: () => verificationFailure("policyMismatch"),
-  });
+    }).pipe(Effect.mapError(() => verificationFailure("policyMismatch")));
   if (policyEvidence.sha256Hex !== payload.identityAccessPolicySha256) {
     return yield* Effect.fail(verificationFailure("policyDigestMismatch"));
   }

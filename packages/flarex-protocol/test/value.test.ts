@@ -2,6 +2,7 @@
 
 import { runInNewContext } from "node:vm";
 
+import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -119,7 +120,7 @@ describe("Flarex value codec v1", () => {
     );
     expect(first.canonicalBytes).toEqual(second.canonicalBytes);
     expect(first.sha256).toEqual(second.sha256);
-    expect(toHex(first.sha256)).toBe(
+    expect(encodeBytesToLowercaseHex(first.sha256)).toBe(
       "13a5fe92a089b4539a1523646899224e8fee89c6bf38a31cbfa07643de711394",
     );
   });
@@ -345,10 +346,6 @@ function nestedValue(depth: number): unknown {
     value = { value };
   }
   return value;
-}
-
-function toHex(value: Uint8Array): string {
-  return Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function captureCodecError(operation: () => unknown): FlarexValueCodecV1Error {

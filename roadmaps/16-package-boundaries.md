@@ -355,12 +355,23 @@ semantics.
   names.
 - `@flarex/utils/bytes` owns tested defensive copying into an owned
   `Uint8Array` or fresh exactly-sized `ArrayBuffer`, ordinary early-exit byte
-  equality, and a separately named equal-length full-scan comparison. Copies
-  include only the input view's visible byte range. Representation choice,
-  branded validation, hashing, and named evidence capture remain with their
-  domain owners. The full-scan primitive preserves evidence/authentication
-  behavior but explicitly makes no cryptographic constant-time claim; callers
-  keep the algorithm their boundary already required.
+  equality, a separately named equal-length full-scan comparison, and lowercase
+  hexadecimal encoding of a visible byte range. Copies and encoding inspect
+  only that visible range. Hex encoding uses the intrinsic typed-array iterator
+  so caller overrides cannot substitute other bytes, and it preserves the
+  platform `TypeError` for detached views instead of silently treating a
+  formerly non-empty view as empty. Representation choice, branded validation,
+  hashing, and named evidence capture remain with their domain owners. The
+  full-scan primitive preserves evidence/authentication behavior but explicitly
+  makes no cryptographic constant-time claim; callers keep the algorithm their
+  boundary already required. Iterable or number-array adapters retain their
+  local representation owner, and Flarex canonical decoders retain length,
+  case, re-encoding, branding, and typed failure policy.
+- Promise compatibility for identity-access-policy canonicalization remains a
+  protocol contract. Its protocol-owned Effect adapter preserves the existing
+  typed policy error while treating unexpected Promise causes as defects;
+  issuer and verifier consumers reuse that adapter and translate only its typed
+  error channel.
 - Total unpadded Base64URL encoding reuses Effect `Encoding` rather than adding
   another Flarex utility implementation. Protocol canonicality checks still
   re-encode and compare at their owning boundary, while input limits, branded
