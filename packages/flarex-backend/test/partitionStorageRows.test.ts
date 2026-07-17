@@ -92,10 +92,12 @@ describe("PartitionDO storage row decoders", () => {
       type: "object",
       value: {
         name: {
-          fieldType: { type: "string" },
+          fieldType: { type: "string", ignored: true },
           optional: false,
+          ignored: true,
         },
       },
+      ignored: true,
     })))).resolves.toEqual({
       type: "object",
       value: {
@@ -131,6 +133,13 @@ describe("PartitionDO storage row decoders", () => {
 
     await expect(Effect.runPromise(
       decodePartitionStorageIndexFieldsJson(JSON.stringify(["name", 123])),
+    )).rejects.toBeInstanceOf(PartitionStorageJsonError);
+
+    await expect(Effect.runPromise(
+      decodePartitionStorageTableValidatorJson(JSON.stringify({
+        type: "id",
+        tableName: "",
+      })),
     )).rejects.toBeInstanceOf(PartitionStorageJsonError);
   });
 });

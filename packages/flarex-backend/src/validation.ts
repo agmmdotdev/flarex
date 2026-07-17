@@ -1,5 +1,5 @@
 import { isWritableJsonObject } from "flarex-protocol/json";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import type { Json, ValidatorJson } from "./types";
 
 export type BackendValidationOptions = {
@@ -16,31 +16,13 @@ export class BackendValidationError extends Error {
   }
 }
 
-export type BackendValidationResult<A> =
-  | {
-      readonly success: true;
-      readonly value: A;
-    }
-  | {
-      readonly success: false;
-      readonly error: BackendValidationError;
-    };
-
-function backendValidationSuccess<A>(value: A): BackendValidationResult<A> {
-  return {
-    success: true,
-    value,
-  };
-}
+export type BackendValidationResult<A> = Result.Result<A, BackendValidationError>;
 
 function backendValidationFailure<A = never>(
   message: string,
   path: string,
 ): BackendValidationResult<A> {
-  return {
-    success: false,
-    error: new BackendValidationError(message, path),
-  };
+  return Result.fail(new BackendValidationError(message, path));
 }
 
 export function validateJsonValue(
@@ -100,13 +82,13 @@ export function validateJsonValue(
 }
 
 export const validateJsonValueEffect = Effect.fn("Validation.validateJsonValue")(
-  function* (
+  (
     validator: ValidatorJson,
     value: Json,
     path = "$",
     options: BackendValidationOptions = {},
-  ): Effect.fn.Return<void, BackendValidationError> {
-    return yield* Effect.suspend(() => {
+  ): Effect.Effect<void, BackendValidationError> =>
+    Effect.suspend(() => {
       try {
         validateJsonValue(validator, value, path, options);
         return Effect.void;
@@ -116,21 +98,18 @@ export const validateJsonValueEffect = Effect.fn("Validation.validateJsonValue")
         }
         return Effect.die(error);
       }
-    });
-  },
+    }),
 );
 
 export function assertValidatorJson(value: Json | undefined | null, path: string): ValidatorJson | null {
-  const result = parseValidatorJson(value, path);
-  if (result.success) return result.value;
-  throw result.error;
+  return Result.getOrThrow(parseValidatorJson(value, path));
 }
 
 export function parseValidatorJson(
   value: Json | undefined | null,
   path: string,
 ): BackendValidationResult<ValidatorJson | null> {
-  if (value === undefined || value === null) return backendValidationSuccess(null);
+  if (value === undefined || value === null) return Result.succeed(null);
   if (!isWritableJsonObject(value)) {
     return backendValidationFailure("Expected validator object.", path);
   }
@@ -146,7 +125,7 @@ export function parseValidatorJson(
     case "string":
     case "bytes":
     case "any":
-      return backendValidationSuccess({ type });
+      return Result.succeed({ type });
     case "id": {
       const tableName = value.tableName;
       if (typeof tableName !== "string" || tableName.length === 0) {
@@ -155,7 +134,7 @@ export function parseValidatorJson(
           `${path}.tableName`,
         );
       }
-      return backendValidationSuccess({ type, tableName });
+      return Result.succeed({ type, tableName });
     }
     case "literal": {
       const literal = value.value;
@@ -169,65 +148,66 @@ export function parseValidatorJson(
           `${path}.value`,
         );
       }
-      return backendValidationSuccess({ type, value: literal });
+      return Result.succeed({ type, value: literal });
     }
     case "array": {
-      const item = parseRequiredValidatorJson(value.value, `${path}.value`);
-      if (!item.success) return item;
-      return backendValidationSuccess({ type, value: item.value });
+      return parseRequiredValidatorJson(value.value, `${path}.value`).pipe(
+        Result.map(item => ({ type, value: item })),
+      );
     }
     case "object": {
       const rawFields = value.value;
       if (!isWritableJsonObject(rawFields)) {
         return backendValidationFailure("Object validator value must be an object.", `${path}.value`);
       }
-      const fields: Record<string, { fieldType: ValidatorJson; optional: boolean }> = {};
-      for (const [name, rawField] of Object.entries(rawFields)) {
-        if (!isWritableJsonObject(rawField)) {
-          return backendValidationFailure("Object validator field must be an object.", `${path}.value.${name}`);
-        }
-        if (typeof rawField.optional !== "boolean") {
-          return backendValidationFailure(
-            "Object validator optional flag must be a boolean.",
-            `${path}.value.${name}.optional`,
+      return Result.gen(function* () {
+        const fields: Array<readonly [
+          string,
+          { readonly fieldType: ValidatorJson; readonly optional: boolean },
+        ]> = [];
+        for (const [name, rawField] of Object.entries(rawFields)) {
+          if (!isWritableJsonObject(rawField)) {
+            return yield* backendValidationFailure(
+              "Object validator field must be an object.",
+              `${path}.value.${name}`,
+            );
+          }
+          if (typeof rawField.optional !== "boolean") {
+            return yield* backendValidationFailure(
+              "Object validator optional flag must be a boolean.",
+              `${path}.value.${name}.optional`,
+            );
+          }
+          const fieldType = yield* parseRequiredValidatorJson(
+            rawField.fieldType,
+            `${path}.value.${name}.fieldType`,
           );
+          fields.push([name, {
+            fieldType,
+            optional: rawField.optional,
+          }]);
         }
-        const fieldType = parseRequiredValidatorJson(
-          rawField.fieldType,
-          `${path}.value.${name}.fieldType`,
-        );
-        if (!fieldType.success) return fieldType;
-        fields[name] = {
-          fieldType: fieldType.value,
-          optional: rawField.optional,
-        };
-      }
-      return backendValidationSuccess({ type, value: fields });
+        return { type, value: Object.fromEntries(fields) };
+      });
     }
     case "record": {
-      const keys = parseRequiredValidatorJson(value.keys, `${path}.keys`);
-      if (!keys.success) return keys;
-      const values = parseRequiredValidatorJson(value.values, `${path}.values`);
-      if (!values.success) return values;
-      return backendValidationSuccess({
-        type,
-        keys: keys.value,
-        values: values.value,
+      return Result.gen(function* () {
+        const keys = yield* parseRequiredValidatorJson(value.keys, `${path}.keys`);
+        const values = yield* parseRequiredValidatorJson(value.values, `${path}.values`);
+        return { type, keys, values };
       });
     }
     case "union": {
       if (!Array.isArray(value.value)) {
         return backendValidationFailure("Union validator value must be an array.", `${path}.value`);
       }
-      const members: ValidatorJson[] = [];
-      for (const [index, member] of value.value.entries()) {
-        const parsed = parseRequiredValidatorJson(member, `${path}.value[${index}]`);
-        if (!parsed.success) return parsed;
-        members.push(parsed.value);
-      }
-      return backendValidationSuccess({
-        type,
-        value: members,
+      const rawMembers = value.value;
+      return Result.gen(function* () {
+        const members: ValidatorJson[] = [];
+        for (const [index, member] of rawMembers.entries()) {
+          members.push(yield* parseRequiredValidatorJson(member, `${path}.value[${index}]`));
+        }
+        return { type, value: members };
       });
     }
     default:
@@ -239,29 +219,31 @@ function parseRequiredValidatorJson(
   value: Json | undefined,
   path: string,
 ): BackendValidationResult<ValidatorJson> {
-  const parsed = parseValidatorJson(value, path);
-  if (!parsed.success) return parsed;
-  return parsed.value === null
-    ? backendValidationFailure("Validator is required.", path)
-    : backendValidationSuccess(parsed.value);
+  return parseValidatorJson(value, path).pipe(
+    Result.flatMap(parsed => parsed === null
+      ? backendValidationFailure("Validator is required.", path)
+      : Result.succeed(parsed)),
+  );
 }
 
 function validateObject(
-  fields: Record<string, { fieldType: ValidatorJson; optional: boolean }>,
+  fields: Extract<ValidatorJson, { readonly type: "object" }>["value"],
   value: Json,
   path: string,
   options: BackendValidationOptions,
 ): void {
   expect(isWritableJsonObject(value), "Expected an object.", path);
   for (const [name, field] of Object.entries(fields)) {
-    if (!(name in value)) {
+    if (!Object.hasOwn(value, name)) {
       if (!field.optional) throw new BackendValidationError("Required field is missing.", `${path}.${name}`);
       continue;
     }
     validateJsonValue(field.fieldType, value[name]!, `${path}.${name}`, options);
   }
   for (const name of Object.keys(value)) {
-    if (!(name in fields)) throw new BackendValidationError("Field is not allowed.", `${path}.${name}`);
+    if (!Object.hasOwn(fields, name)) {
+      throw new BackendValidationError("Field is not allowed.", `${path}.${name}`);
+    }
   }
 }
 

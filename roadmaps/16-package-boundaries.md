@@ -417,6 +417,17 @@ semantics.
   published backend test protocol entrypoint is a deprecated compatibility
   facade that re-exports protocol-owned names rather than defining another
   wire contract.
+- `flarex-protocol/validator-json` owns the readonly `ValidatorJsonV1` wire
+  type and structural Schema. Backend and Postgres persistence retain their
+  published `ValidatorJson` names as direct type aliases, and backend storage
+  decoding returns that protocol-decoded value without recursively cloning it.
+  Backend and persistence path/error adapters remain local because their
+  failure contracts differ. The protocol Schema owns the shared non-empty ID
+  table-name invariant, and every validator field-map consumer treats all
+  string keys as own data properties rather than inherited names. The SDK's
+  developer-side `ValidatorJSON` remains separate while it represents bigint
+  literals and other non-JSON runtime validation semantics that are not an
+  exact wire-contract duplicate.
 - `flarex-protocol/json` owns the canonical readonly JSON shape, its finite
   plain-value guard and Schema, and one documented writable compatibility
   shape. The SDK aliases its readonly `JSONValue` to that owner; live-query,

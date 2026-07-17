@@ -446,6 +446,27 @@ describe("deployment validation", () => {
     });
   });
 
+  it("preserves reserved validator field names through JSON normalization", () => {
+    const fields = Object.fromEntries([[
+      "__proto__",
+      { fieldType: { type: "string" }, optional: false },
+    ]]);
+    const normalized = validateSchema({
+      ...simpleSchema(),
+      tables: [{
+        tableId: 1,
+        name: "messages",
+        placement: { kind: "global" },
+        validator: { type: "object", value: fields },
+      }],
+    });
+    const validator = normalized.tables[0]?.validator;
+    if (validator === undefined || validator === null || validator.type !== "object") {
+      throw new Error("Expected an object validator.");
+    }
+    expect(Object.hasOwn(validator.value, "__proto__")).toBe(true);
+  });
+
   it("preserves deployment schema validation error messages", () => {
     expectDeploymentValidationFailure(
       () => validateSchema("not-schema"),

@@ -41,7 +41,10 @@ export function assertValidatorJson(
       return { type, value: requiredValidator(value.value, `${path}.value`) };
     case "object": {
       assertObject(value.value, "Object validator value must be an object.", `${path}.value`);
-      const fields: Record<string, { fieldType: ValidatorJSON; optional: boolean }> = {};
+      const fields: Array<readonly [
+        string,
+        { readonly fieldType: ValidatorJSON; readonly optional: boolean },
+      ]> = [];
       for (const [name, rawField] of Object.entries(value.value)) {
         assertObject(rawField, "Object validator field must be an object.", `${path}.value.${name}`);
         if (typeof rawField.optional !== "boolean") {
@@ -49,12 +52,12 @@ export function assertValidatorJson(
             `${path}.value.${name}.optional: Object validator optional flag must be a boolean.`,
           );
         }
-        fields[name] = {
+        fields.push([name, {
           fieldType: requiredValidator(rawField.fieldType, `${path}.value.${name}.fieldType`),
           optional: rawField.optional,
-        };
+        }]);
       }
-      return { type, value: fields };
+      return { type, value: Object.fromEntries(fields) };
     }
     case "record":
       return {

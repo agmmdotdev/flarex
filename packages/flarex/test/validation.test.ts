@@ -7,6 +7,7 @@ import {
   v,
 } from "../src/values";
 import { parseFlarexId } from "../src/ids";
+import { assertValidatorJson } from "../src/validatorJson";
 
 describe("runtime validation", () => {
   it("validates nested values and optional fields", () => {
@@ -79,5 +80,30 @@ describe("runtime validation", () => {
     expect(() =>
       validateValue(validator, { userId: "2:core" }, "$", { validateId }),
     ).toThrowError("$.userId: Expected an ID for table users.");
+  });
+
+  it("treats reserved object names as own validator and value fields", () => {
+    for (const fieldName of ["__proto__", "constructor", "toString"]) {
+      const fields = Object.fromEntries([[
+        fieldName,
+        { fieldType: { type: "string" }, optional: false },
+      ]]);
+      const parsed = assertValidatorJson({ type: "object", value: fields });
+      if (parsed === null || parsed.type !== "object") {
+        throw new Error("Expected an object validator.");
+      }
+      expect(Object.hasOwn(parsed.value, fieldName)).toBe(true);
+      expect(() => validateValue(parsed, {})).toThrow(
+        `$.${fieldName}: Required field is missing.`,
+      );
+      expect(() => validateValue(
+        { type: "object", value: {} },
+        Object.fromEntries([[fieldName, "value"]]),
+      )).toThrow(`$.${fieldName}: Field is not allowed.`);
+      expect(() => validateValue(
+        parsed,
+        Object.fromEntries([[fieldName, "value"]]),
+      )).not.toThrow();
+    }
   });
 });

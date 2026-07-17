@@ -2,19 +2,13 @@ import type { ExecutionArtifactRef } from "flarex/artifacts";
 import type { DeploymentRecord } from "flarex-protocol";
 import type { AuthConfig } from "flarex-protocol/auth";
 import type { WritableJson } from "flarex-protocol/json";
+import type { ValidatorJson as ProtocolValidatorJson } from "flarex-protocol/validator-json";
 export type { ExecutionArtifactRef } from "flarex/artifacts";
 export type { DeploymentRecord } from "flarex-protocol";
 
 export type Json = WritableJson;
 
-export type ValidatorJson =
-  | { type: "null" | "number" | "bigint" | "boolean" | "string" | "bytes" | "any" }
-  | { type: "id"; tableName: string }
-  | { type: "literal"; value: string | number | boolean }
-  | { type: "array"; value: ValidatorJson }
-  | { type: "object"; value: Record<string, { fieldType: ValidatorJson; optional: boolean }> }
-  | { type: "record"; keys: ValidatorJson; values: ValidatorJson }
-  | { type: "union"; value: ValidatorJson[] };
+export type ValidatorJson = ProtocolValidatorJson;
 
 export type Env = {
   REGISTRY: DurableObjectNamespace;

@@ -1,15 +1,12 @@
 import { Data, Effect, Schema } from "effect";
-import {
-  TablePlacement as ProtocolTablePlacement,
-  ValidatorJson as ProtocolValidatorJson,
-  type ValidatorJson as ProtocolValidatorJsonType,
-} from "flarex-protocol/deployment";
+import { TablePlacement as ProtocolTablePlacement } from "flarex-protocol/deployment";
 import {
   isJsonArray,
   isJsonObject,
   JsonValue,
   type Json as ProtocolJson,
 } from "flarex-protocol/json";
+import { ValidatorJson as ProtocolValidatorJson } from "flarex-protocol/validator-json";
 import type {
   CommitResponse,
   CommittedWrite,
@@ -134,15 +131,13 @@ export const decodePartitionStorageTablePlacementJson = Effect.fn(
 
 export const decodePartitionStorageTableValidatorJson = Effect.fn(
   "PartitionStorageRows.decodeTableValidatorJson",
-)(function* (
-  raw: string,
-): Effect.fn.Return<ValidatorJson | null, PartitionStorageJsonError> {
-  const decoded = yield* parsePartitionStorageJson(raw, "table-validator").pipe(
-    Effect.flatMap(value => decodeUnknownValidatorJsonOrNull(value)),
-    Effect.mapError(cause => partitionStorageJsonErrorFromCause("table-validator", cause)),
-  );
-  return decoded === null ? null : validatorJsonFromStorage(decoded);
-});
+)(
+  (raw: string): Effect.Effect<ValidatorJson | null, PartitionStorageJsonError> =>
+    parsePartitionStorageJson(raw, "table-validator").pipe(
+      Effect.flatMap(value => decodeUnknownValidatorJsonOrNull(value)),
+      Effect.mapError(cause => partitionStorageJsonErrorFromCause("table-validator", cause)),
+    ),
+);
 
 export const decodePartitionStorageCommittedWritesJson = Effect.fn(
   "PartitionStorageRows.decodeCommittedWritesJson",
@@ -278,43 +273,6 @@ function tablePlacementFromStorage(decoded: typeof ProtocolTablePlacement.Type):
     };
   }
   return { kind: "global" };
-}
-
-function validatorJsonFromStorage(decoded: ProtocolValidatorJsonType): ValidatorJson {
-  switch (decoded.type) {
-    case "null":
-    case "number":
-    case "bigint":
-    case "boolean":
-    case "string":
-    case "bytes":
-    case "any":
-      return { type: decoded.type };
-    case "id":
-      return { type: "id", tableName: decoded.tableName };
-    case "literal":
-      return { type: "literal", value: decoded.value };
-    case "array":
-      return { type: "array", value: validatorJsonFromStorage(decoded.value) };
-    case "object": {
-      const fields: Record<string, { fieldType: ValidatorJson; optional: boolean }> = {};
-      for (const [fieldName, field] of Object.entries(decoded.value)) {
-        fields[fieldName] = {
-          fieldType: validatorJsonFromStorage(field.fieldType),
-          optional: field.optional,
-        };
-      }
-      return { type: "object", value: fields };
-    }
-    case "record":
-      return {
-        type: "record",
-        keys: validatorJsonFromStorage(decoded.keys),
-        values: validatorJsonFromStorage(decoded.values),
-      };
-    case "union":
-      return { type: "union", value: decoded.value.map(validatorJsonFromStorage) };
-  }
 }
 
 function jsonFromStorage(value: ProtocolJson): Json {

@@ -1,5 +1,11 @@
 import { Schema } from "effect";
 
+const ValidatorIdTableName = Schema.String.check(
+  Schema.makeFilter(value => value.length > 0
+    ? undefined
+    : "tableName must be a Convex-compatible table identifier"),
+);
+
 export type ObjectValidatorJsonV1 = {
   readonly type: "object";
   readonly value: Readonly<
@@ -54,7 +60,7 @@ export const ValidatorJsonV1: Schema.Codec<ValidatorJsonV1> =
       }),
       Schema.Struct({
         type: Schema.Literal("id"),
-        tableName: Schema.String,
+        tableName: ValidatorIdTableName,
       }),
       Schema.Struct({
         type: Schema.Literal("literal"),

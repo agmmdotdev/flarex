@@ -1,19 +1,10 @@
 import { asNonArrayRecord } from "@flarex/utils/records";
 import { isWritableJsonObject } from "flarex-protocol/json";
+import type { ValidatorJson as ProtocolValidatorJson } from "flarex-protocol/validator-json";
 
 import { parseFlarexDocumentId, type PersistenceJson } from "./documents";
 
-export type ValidatorJson =
-  | { type: "null" | "number" | "bigint" | "boolean" | "string" | "bytes" | "any" }
-  | { type: "id"; tableName: string }
-  | { type: "literal"; value: string | number | boolean }
-  | { type: "array"; value: ValidatorJson }
-  | {
-      type: "object";
-      value: Record<string, { fieldType: ValidatorJson; optional: boolean }>;
-    }
-  | { type: "record"; keys: ValidatorJson; values: ValidatorJson }
-  | { type: "union"; value: ValidatorJson[] };
+export type ValidatorJson = ProtocolValidatorJson;
 
 export interface SchemaTableValidatorMetadata {
   tableId: number;
@@ -310,14 +301,14 @@ function requiredValidator(value: unknown, path: string): ValidatorJson {
 }
 
 function validateObject(
-  fields: Record<string, { fieldType: ValidatorJson; optional: boolean }>,
+  fields: Extract<ValidatorJson, { readonly type: "object" }>["value"],
   value: PersistenceJson,
   path: string,
   options: { validateId?: (tableName: string, value: string, path: string) => void },
 ): void {
   expect(isWritableJsonObject(value), "Expected an object.", path);
   for (const [name, field] of Object.entries(fields)) {
-    if (!(name in value)) {
+    if (!Object.hasOwn(value, name)) {
       if (!field.optional) {
         throw new DeploymentValidatorMetadataError(
           "Required field is missing.",
@@ -329,7 +320,7 @@ function validateObject(
     validateJsonValue(field.fieldType, value[name]!, `${path}.${name}`, options);
   }
   for (const name of Object.keys(value)) {
-    if (!(name in fields)) {
+    if (!Object.hasOwn(fields, name)) {
       throw new DeploymentValidatorMetadataError(
         "Field is not allowed.",
         `${path}.${name}`,

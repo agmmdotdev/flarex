@@ -174,6 +174,47 @@ describe("shared analyzer semantics", () => {
       .toBe("users");
   });
 
+  it("preserves reserved validator field names in backend analysis", async () => {
+    const fields: Extract<ValidatorJSON, { type: "object" }>["value"] = Object.fromEntries([[
+      "__proto__",
+      { fieldType: { type: "string" }, optional: false },
+    ]]);
+    const analysis: DeploymentAnalysis = {
+      schema: {
+        version: 1,
+        tables: [{
+          tableId: 1,
+          name: "users",
+          validator: { type: "object", value: fields },
+          placement: { kind: "global" },
+        }],
+        indexes: [],
+      },
+      functions: [{
+        moduleName: "users",
+        functions: [{
+          moduleName: "users",
+          exportName: "create",
+          kind: "mutation",
+          visibility: "public",
+          args: { type: "object", value: fields },
+          returns: null,
+        }],
+      }],
+    };
+
+    const converted = await Effect.runPromise(
+      deploymentAnalysisFromCodegenAnalysisEffect(analysis),
+    );
+    const tableValidator = converted.schema.tables[0]?.validator;
+    const argsValidator = converted.functions.functions[0]?.args;
+    if (tableValidator?.type !== "object" || argsValidator?.type !== "object") {
+      throw new Error("Expected object validators.");
+    }
+    expect(Object.hasOwn(tableValidator.value, "__proto__")).toBe(true);
+    expect(Object.hasOwn(argsValidator.value, "__proto__")).toBe(true);
+  });
+
   it("rejects BigInt literal validators at the backend metadata conversion boundary", async () => {
     const analysis: DeploymentAnalysis = {
       schema: { version: 1, tables: [], indexes: [] },
@@ -199,6 +240,37 @@ describe("shared analyzer semantics", () => {
     await expect(Effect.runPromise(deploymentAnalysisFromCodegenAnalysisEffect(analysis)))
       .rejects.toMatchObject({
         message: "BigInt literal validators are not supported by backend deployment metadata.",
+      });
+  });
+
+  it("rejects empty ID table names at the backend metadata conversion boundary", async () => {
+    const analysis: DeploymentAnalysis = {
+      schema: {
+        version: 1,
+        tables: [{
+          tableId: 1,
+          name: "users",
+          validator: objectValidator({
+            ownerId: {
+              fieldType: { type: "id", tableName: "" },
+              optional: false,
+            },
+            later: {
+              fieldType: { type: "literal", value: 1n },
+              optional: false,
+            },
+          }),
+          placement: { kind: "global" },
+        }],
+        indexes: [],
+      },
+      functions: [],
+    };
+
+    await expect(Effect.runPromise(deploymentAnalysisFromCodegenAnalysisEffect(analysis)))
+      .rejects.toMatchObject({
+        _tag: "AnalyzerValidatorError",
+        message: expect.stringContaining("tableName must be a Convex-compatible table identifier"),
       });
   });
 

@@ -128,14 +128,16 @@ function validateObject(
 ): void {
   expect(isPlainObject(value), "Expected an object.", path);
   for (const [name, field] of Object.entries(fields)) {
-    if (!(name in value)) {
+    if (!Object.hasOwn(value, name)) {
       if (!field.optional) throw new ValidationError("Required field is missing.", `${path}.${name}`);
       continue;
     }
     validateJson(field.fieldType, value[name], `${path}.${name}`, options);
   }
   for (const name of Object.keys(value)) {
-    if (!(name in fields)) throw new ValidationError("Field is not allowed.", `${path}.${name}`);
+    if (!Object.hasOwn(fields, name)) {
+      throw new ValidationError("Field is not allowed.", `${path}.${name}`);
+    }
   }
 }
 

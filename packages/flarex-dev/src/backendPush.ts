@@ -3,7 +3,6 @@ import type { Miniflare } from "miniflare";
 import { Data, Effect } from "effect";
 import {
   backendCodegenAnalysisFromCodegenAnalysisEffect,
-  backendRequiredValidatorJsonEffect,
   deploymentAnalysisFromCodegenAnalysisEffect,
 } from "@flarex/analysis";
 import {
@@ -23,7 +22,6 @@ import type {
   FinishPushResponse,
   PushState,
   StartPushRequest,
-  ValidatorJson as BackendValidatorJson,
 } from "flarex-backend/types";
 import type { DeploymentAnalysis as CodegenDeploymentAnalysis } from "./analyze.ts";
 import {
@@ -506,65 +504,23 @@ function decodeProtocolDeploymentAnalysisEffect(
 ): Effect.Effect<BackendDeploymentAnalysis, ExecutionArtifactAnalysisError> {
   return decodeDeploymentAnalysisEffect(value).pipe(
     Effect.mapError(error => new ExecutionArtifactAnalysisError(error.message, diagnostics)),
-    Effect.flatMap(analysis => backendDeploymentAnalysisFromProtocolEffect(analysis).pipe(
-      Effect.mapError(error => new ExecutionArtifactAnalysisError(error.message, diagnostics)),
-    )),
+    Effect.map(backendDeploymentAnalysisFromProtocol),
   );
 }
 
-function backendDeploymentAnalysisFromProtocolEffect(
+function backendDeploymentAnalysisFromProtocol(
   analysis: ProtocolDeploymentAnalysis,
-): Effect.Effect<BackendDeploymentAnalysis, ExecutionArtifactAnalysisError> {
-  return Effect.gen(function* () {
-    const tables = yield* Effect.forEach(analysis.schema.tables, table =>
-      Effect.gen(function* () {
-        return {
-          tableId: table.tableId,
-          name: table.name,
-          ...(table.state === undefined ? {} : { state: table.state }),
-          ...(table.validator === undefined
-            ? {}
-            : {
-                validator: table.validator === null
-                  ? null
-                  : yield* backendValidatorJsonFromProtocolEffect(table.validator),
-              }),
-          placement: { ...table.placement },
-        };
-      }),
-    );
-    const functions = yield* Effect.forEach(analysis.functions.functions, fn =>
-      Effect.gen(function* () {
-        return {
-          path: fn.path,
-          kind: fn.kind,
-          ...(fn.visibility === undefined ? {} : { visibility: fn.visibility }),
-          ...(fn.args === undefined
-            ? {}
-            : {
-                args: fn.args === null
-                  ? null
-                  : yield* backendValidatorJsonFromProtocolEffect(fn.args),
-              }),
-          ...(fn.returns === undefined
-            ? {}
-            : {
-                returns: fn.returns === null
-                  ? null
-                  : yield* backendValidatorJsonFromProtocolEffect(fn.returns),
-              }),
-          ...(fn.route === undefined ? {} : { route: fn.route === null ? null : { ...fn.route } }),
-          ...(fn.partition === undefined
-            ? {}
-            : { partition: fn.partition === null ? null : { ...fn.partition } }),
-          ...(fn.position === undefined ? {} : { position: { ...fn.position } }),
-        };
-      }),
-    );
-    return {
+): BackendDeploymentAnalysis {
+  return {
     schema: {
       version: analysis.schema.version,
-      tables,
+      tables: analysis.schema.tables.map(table => ({
+        tableId: table.tableId,
+        name: table.name,
+        ...(table.state === undefined ? {} : { state: table.state }),
+        ...(table.validator === undefined ? {} : { validator: table.validator }),
+        placement: { ...table.placement },
+      })),
       indexes: analysis.schema.indexes.map(index => ({
         indexId: index.indexId,
         tableId: index.tableId,
@@ -574,10 +530,20 @@ function backendDeploymentAnalysisFromProtocolEffect(
       })),
     },
     functions: {
-      functions,
+      functions: analysis.functions.functions.map(fn => ({
+        path: fn.path,
+        kind: fn.kind,
+        ...(fn.visibility === undefined ? {} : { visibility: fn.visibility }),
+        ...(fn.args === undefined ? {} : { args: fn.args }),
+        ...(fn.returns === undefined ? {} : { returns: fn.returns }),
+        ...(fn.route === undefined ? {} : { route: fn.route === null ? null : { ...fn.route } }),
+        ...(fn.partition === undefined
+          ? {}
+          : { partition: fn.partition === null ? null : { ...fn.partition } }),
+        ...(fn.position === undefined ? {} : { position: { ...fn.position } }),
+      })),
     },
   };
-  });
 }
 
 function codegenDeploymentAnalysisFromProtocolEffect(
@@ -636,14 +602,6 @@ function rejectCodegenRouteMetadata(value: unknown): ParseResult<void> {
     }
   }
   return { ok: true, value: undefined };
-}
-
-function backendValidatorJsonFromProtocolEffect(
-  value: ProtocolValidatorJson,
-): Effect.Effect<BackendValidatorJson, ExecutionArtifactAnalysisError> {
-  return backendRequiredValidatorJsonEffect(validatorJsonFromProtocol(value)).pipe(
-    Effect.mapError(error => new ExecutionArtifactAnalysisError(error.message, [])),
-  );
 }
 
 function validatorJsonFromProtocol(value: ProtocolValidatorJson): ValidatorJSON {

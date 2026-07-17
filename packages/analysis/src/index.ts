@@ -1,5 +1,5 @@
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
-import { Data, Effect } from "effect";
+import { Data, Effect, Schema } from "effect";
 import { assertValidatorJson } from "flarex/validator-json";
 import type { ValidatorJSON } from "flarex/values";
 import type {
@@ -14,6 +14,7 @@ import {
   decodeDeploymentCodegenAnalysisEffect,
 } from "flarex-protocol/deployment";
 import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
+import { ValidatorJson as ProtocolValidatorJsonSchema } from "flarex-protocol/validator-json";
 
 export type AnalyzerDiagnostic = {
   readonly level: "log" | "warn" | "error";
@@ -1015,7 +1016,27 @@ function backendFunctionPartitionEffect(
   });
 }
 
-export function backendValidatorJsonEffect(
+const decodeProtocolValidatorJsonEffect = Schema.decodeUnknownEffect(
+  ProtocolValidatorJsonSchema,
+);
+
+export const backendValidatorJsonEffect = Effect.fn(
+  "FlarexAnalysis.backendValidatorJson",
+)(function* (
+  value: ValidatorJSON | null,
+): Effect.fn.Return<BackendValidatorJson | null, AnalyzerValidatorError> {
+  const validator = yield* backendValidatorJsonWorker(value);
+  if (validator === null) return null;
+  yield* decodeProtocolValidatorJsonEffect(validator).pipe(
+    Effect.mapError(cause => validatorError(
+      `Invalid backend validator metadata: ${errorMessage(cause)}`,
+      cause,
+    )),
+  );
+  return validator;
+});
+
+function backendValidatorJsonWorker(
   value: ValidatorJSON | null,
 ): Effect.Effect<BackendValidatorJson | null, AnalyzerValidatorError> {
   return Effect.gen(function* () {
@@ -1029,8 +1050,14 @@ export function backendValidatorJsonEffect(
       case "bytes":
       case "any":
         return { type: value.type };
-      case "id":
+      case "id": {
+        if (value.tableName.length === 0) {
+          return yield* validatorFailure(
+            "Invalid backend validator metadata: tableName must be a Convex-compatible table identifier",
+          );
+        }
         return { type: "id", tableName: value.tableName };
+      }
       case "literal": {
         if (typeof value.value === "bigint") {
           return yield* validatorFailure("BigInt literal validators are not supported by backend deployment metadata.");
@@ -1038,40 +1065,54 @@ export function backendValidatorJsonEffect(
         return { type: "literal", value: value.value };
       }
       case "array":
-        return { type: "array", value: yield* backendRequiredValidatorJsonEffect(value.value) };
+        return { type: "array", value: yield* backendRequiredValidatorJsonWorker(value.value) };
       case "object": {
-        const fields: Record<string, { fieldType: BackendValidatorJson; optional: boolean }> = {};
+        const fields: Array<readonly [
+          string,
+          { readonly fieldType: BackendValidatorJson; readonly optional: boolean },
+        ]> = [];
         for (const [name, field] of Object.entries(value.value)) {
-          fields[name] = {
-            fieldType: yield* backendRequiredValidatorJsonEffect(field.fieldType),
+          fields.push([name, {
+            fieldType: yield* backendRequiredValidatorJsonWorker(field.fieldType),
             optional: field.optional,
-          };
+          }]);
         }
-        return { type: "object", value: fields };
+        return { type: "object", value: Object.fromEntries(fields) };
       }
       case "record":
         return {
           type: "record",
-          keys: yield* backendRequiredValidatorJsonEffect(value.keys),
-          values: yield* backendRequiredValidatorJsonEffect(value.values),
+          keys: yield* backendRequiredValidatorJsonWorker(value.keys),
+          values: yield* backendRequiredValidatorJsonWorker(value.values),
         };
       case "union":
         return {
           type: "union",
-          value: yield* Effect.forEach(value.value, member => backendRequiredValidatorJsonEffect(member)),
+          value: yield* Effect.forEach(value.value, member => backendRequiredValidatorJsonWorker(member)),
         };
     }
   });
 }
 
-export function backendRequiredValidatorJsonEffect(
+export const backendRequiredValidatorJsonEffect = Effect.fn(
+  "FlarexAnalysis.backendRequiredValidatorJson",
+)(
+  (value: ValidatorJSON): Effect.Effect<BackendValidatorJson, AnalyzerValidatorError> =>
+    backendValidatorJsonEffect(value).pipe(
+      Effect.flatMap(validator => validator === null
+        ? validatorFailure("Required backend validator cannot be null.")
+        : Effect.succeed(validator)),
+    ),
+);
+
+function backendRequiredValidatorJsonWorker(
   value: ValidatorJSON,
 ): Effect.Effect<BackendValidatorJson, AnalyzerValidatorError> {
-  return Effect.gen(function* () {
-    const validator = yield* backendValidatorJsonEffect(value);
-    if (validator === null) return yield* validatorFailure("Required backend validator cannot be null.");
-    return validator;
-  });
+  return backendValidatorJsonWorker(value).pipe(
+    Effect.flatMap(validator => validator === null
+      ? validatorFailure("Required backend validator cannot be null.")
+      : Effect.succeed(validator)),
+  );
 }
 
 function schemaFailure(message: string, cause?: unknown): Effect.Effect<never, AnalyzerSchemaError> {

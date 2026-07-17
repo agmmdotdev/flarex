@@ -927,11 +927,11 @@ const decodeValidator = Effect.fn("DeploymentValidation.decodeValidator")(functi
   path: string,
 ): Effect.fn.Return<ValidatorJson | null, DeploymentValidationError> {
   const json = yield* decodeJsonValue(value, path);
-  const validator = parseValidatorJson(json, path);
-  if (!validator.success) {
-    return yield* deploymentValidationFailureEffect(`Invalid validator metadata: ${validator.error.message}`);
-  }
-  return validator.value;
+  return yield* Effect.fromResult(parseValidatorJson(json, path)).pipe(
+    Effect.mapError(error => new DeploymentValidationError({
+      message: `Invalid validator metadata: ${error.message}`,
+    })),
+  );
 });
 
 const decodeJsonValue = Effect.fn("DeploymentValidation.decodeJsonValue")(function* (
@@ -954,15 +954,15 @@ const decodeJsonValue = Effect.fn("DeploymentValidation.decodeJsonValue")(functi
     return parsedArray;
   }
   if (isRecord(value)) {
-    const record: { [key: string]: Json } = {};
+    const entries: Array<readonly [string, Json]> = [];
     for (const [key, item] of Object.entries(value)) {
       const parsed = yield* decodeJsonValue(item, `${path}.${key}`);
       if (parsed === undefined) {
         return yield* deploymentValidationFailureEffect(`${path}.${key}: Expected JSON value.`);
       }
-      record[key] = parsed;
+      entries.push([key, parsed]);
     }
-    return record;
+    return Object.fromEntries(entries);
   }
   return yield* deploymentValidationFailureEffect(`${path}: Expected JSON value.`);
 });

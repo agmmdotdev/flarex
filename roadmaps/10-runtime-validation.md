@@ -107,7 +107,11 @@ The public SDK supports validators for:
 
 SDK validation produces path-aware `ValidationError` failures and rejects extra
 object fields. ID validators can delegate table-name checks to an authoritative
-resolver.
+resolver. Validator object fields are own data properties: reserved names such
+as `__proto__`, `constructor`, and `toString` neither mutate the field map's
+prototype nor satisfy required/allowed-field checks through inheritance. The
+shared wire Schema rejects empty ID-validator table names before a backend or
+persistence error adapter applies its local path and message.
 
 Registered functions expose Convex-shaped runtime markers plus `exportArgs()`
 and `exportReturns()`. Strict validator serialization rejects `undefined`
