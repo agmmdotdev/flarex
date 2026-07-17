@@ -20,13 +20,37 @@ import {
   canonicalizeFlarexValueJsonV1,
   canonicalizeFlarexValueV1,
   flarexValueToJsonV1,
+  isCanonicalFlarexRuntimeObjectV1,
   jsonToFlarexValueV1,
   normalizeFlarexValueJsonV1,
   normalizeFlarexValueV1,
   verifyFlarexValueEvidenceV1,
+  type CanonicalFlarexRuntimeObjectV1,
+  type CanonicalFlarexRuntimeValueV1,
 } from "../src/value";
 
 describe("Flarex value codec v1", () => {
+  it("discriminates the object member of an already-canonical runtime value", () => {
+    const objectValue = Object.freeze({
+      nested: Object.freeze([1n, "value"]),
+    }) satisfies CanonicalFlarexRuntimeObjectV1;
+
+    expect(isCanonicalFlarexRuntimeObjectV1(objectValue)).toBe(true);
+    expect(isCanonicalFlarexRuntimeObjectV1(Object.freeze({}))).toBe(true);
+
+    for (const nonObject of [
+      null,
+      1n,
+      1,
+      true,
+      "value",
+      new ArrayBuffer(0),
+      Object.freeze([]),
+    ] satisfies ReadonlyArray<CanonicalFlarexRuntimeValueV1>) {
+      expect(isCanonicalFlarexRuntimeObjectV1(nonObject)).toBe(false);
+    }
+  });
+
   it("round-trips the complete portable value domain with exact tags", () => {
     const bytes = new Uint8Array([0, 127, 255]).buffer;
     const source = {

@@ -28,9 +28,11 @@ import type {
   TransactionAttemptFence,
   TransactionSessionIdV1,
 } from "flarex-protocol/transaction-session";
-import type {
-  CanonicalFlarexRuntimeValueV1,
-  FlarexValueCodecVersion,
+import {
+  isCanonicalFlarexRuntimeObjectV1,
+  type CanonicalFlarexRuntimeObjectV1,
+  type CanonicalFlarexRuntimeValueV1,
+  type FlarexValueCodecVersion,
 } from "flarex-protocol/value";
 import {
   validateValidatorValueV1,
@@ -343,11 +345,11 @@ const projectDeveloperFieldsEffect = Effect.fn(function* (
   point: AuthenticatedStoredAttemptPointV1,
   tableName: string,
 ): Effect.fn.Return<
-  Readonly<Record<string, CanonicalFlarexRuntimeValueV1>>,
+  CanonicalFlarexRuntimeObjectV1,
   CommitInputAuthorityCorruptionV1Error | CommitDocumentValidationV1Error
 > {
   const value = point.overlayValue;
-  if (!isCanonicalObject(value)) {
+  if (!isCanonicalFlarexRuntimeObjectV1(value)) {
     return yield* authorityCorruptionEffect("pointDocumentNotObject");
   }
   if (value._id !== point.documentId) {
@@ -493,15 +495,6 @@ function lowercaseHexOrUndefined(bytes: Uint8Array): string | undefined {
     return undefined;
   }
   return encodeBytesToLowercaseHex(bytes);
-}
-
-function isCanonicalObject(
-  value: CanonicalFlarexRuntimeValueV1 | null,
-): value is Readonly<Record<string, CanonicalFlarexRuntimeValueV1>> {
-  return typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    !(value instanceof ArrayBuffer);
 }
 
 function authorityCorruption(

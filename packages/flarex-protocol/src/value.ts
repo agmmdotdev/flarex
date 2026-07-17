@@ -33,6 +33,11 @@ export type FlarexValue =
   | ReadonlyArray<FlarexValue>
   | { readonly [key: string]: FlarexValue | undefined };
 
+/** The object member of an already-canonical Flarex runtime value. */
+export type CanonicalFlarexRuntimeObjectV1 = {
+  readonly [key: string]: CanonicalFlarexRuntimeValueV1;
+};
+
 /** A defensively copied logical value with no retained undefined fields. */
 export type CanonicalFlarexRuntimeValueV1 =
   | null
@@ -42,7 +47,22 @@ export type CanonicalFlarexRuntimeValueV1 =
   | string
   | ArrayBuffer
   | ReadonlyArray<CanonicalFlarexRuntimeValueV1>
-  | { readonly [key: string]: CanonicalFlarexRuntimeValueV1 };
+  | CanonicalFlarexRuntimeObjectV1;
+
+/**
+ * Discriminates the object member of the canonical value union.
+ * This does not validate unknown input or establish canonicality.
+ */
+export function isCanonicalFlarexRuntimeObjectV1(
+  value: CanonicalFlarexRuntimeValueV1,
+): value is CanonicalFlarexRuntimeObjectV1 {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    !(value instanceof ArrayBuffer)
+  );
+}
 
 export const MIN_FLAREX_INT64_V1 = -(1n << 63n);
 export const MAX_FLAREX_INT64_V1 = (1n << 63n) - 1n;
@@ -967,10 +987,7 @@ function assertProfileRoot(
 ): void {
   if (
     limits.requireDocumentObject &&
-    (value === null ||
-      typeof value !== "object" ||
-      Array.isArray(value) ||
-      value instanceof ArrayBuffer)
+    !isCanonicalFlarexRuntimeObjectV1(value)
   ) {
     throw new FlarexValueCodecV1Error({
       issue: { reason: "appDocumentRoot", path: "$" },

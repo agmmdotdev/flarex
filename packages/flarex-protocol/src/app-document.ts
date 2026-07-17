@@ -8,8 +8,10 @@ import {
 } from "./app-document-id";
 import {
   canonicalizeFlarexValueV1,
+  isCanonicalFlarexRuntimeObjectV1,
   normalizeFlarexValueV1,
   verifyFlarexValueEvidenceV1,
+  type CanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeValueV1,
   type CanonicalFlarexValueV1,
   type VerifyFlarexValueEvidenceV1Input,
@@ -122,7 +124,7 @@ export async function verifyAppDocumentEvidenceV1(
 }
 
 function assertDeveloperDidNotAuthorSystemFields(
-  fields: Readonly<Record<string, CanonicalFlarexRuntimeValueV1>>,
+  fields: CanonicalFlarexRuntimeObjectV1,
 ): void {
   for (const field of ["_id", "_creationTime"] as const) {
     if (Object.hasOwn(fields, field)) {
@@ -135,20 +137,9 @@ function assertDeveloperDidNotAuthorSystemFields(
 
 function requireCanonicalDocumentObject(
   value: CanonicalFlarexRuntimeValueV1,
-): Readonly<Record<string, CanonicalFlarexRuntimeValueV1>> {
-  if (!isCanonicalDocumentObject(value)) {
+): CanonicalFlarexRuntimeObjectV1 {
+  if (!isCanonicalFlarexRuntimeObjectV1(value)) {
     throw new Error("Value Codec V1 app-document profile returned a non-object.");
   }
   return value;
-}
-
-function isCanonicalDocumentObject(
-  value: CanonicalFlarexRuntimeValueV1,
-): value is Readonly<Record<string, CanonicalFlarexRuntimeValueV1>> {
-  return !(
-    typeof value !== "object" ||
-    value === null ||
-    value instanceof ArrayBuffer ||
-    Array.isArray(value)
-  );
 }

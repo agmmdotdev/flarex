@@ -1,6 +1,9 @@
 import { Data, Result } from "effect";
 
-import type { CanonicalFlarexRuntimeValueV1 } from "./value";
+import {
+  isCanonicalFlarexRuntimeObjectV1,
+  type CanonicalFlarexRuntimeValueV1,
+} from "./value";
 import type { ValidatorJsonV1 } from "./validator-json";
 
 export type ValidatorValueExpectedV1 =
@@ -148,7 +151,9 @@ function validateValidatorValueAtPathV1(
       return Result.succeed(undefined);
     }
     case "object": {
-      if (!isCanonicalObject(value)) return typeMismatch(path, "object");
+      if (!isCanonicalFlarexRuntimeObjectV1(value)) {
+        return typeMismatch(path, "object");
+      }
       for (const [fieldName, field] of Object.entries(validator.value)) {
         const fieldPath = appendFieldPath(path, fieldName);
         if (!Object.hasOwn(value, fieldName)) {
@@ -181,7 +186,9 @@ function validateValidatorValueAtPathV1(
       return Result.succeed(undefined);
     }
     case "record": {
-      if (!isCanonicalObject(value)) return typeMismatch(path, "object");
+      if (!isCanonicalFlarexRuntimeObjectV1(value)) {
+        return typeMismatch(path, "object");
+      }
       for (const [fieldName, fieldValue] of Object.entries(value)) {
         const fieldPath = appendFieldPath(path, fieldName);
         const keyResult = validateValidatorValueAtPathV1(
@@ -269,15 +276,6 @@ function validationFailure(
   issue: ValidatorValueIssueV1,
 ): Result.Result<void, ValidatorValueErrorV1> {
   return Result.fail(new ValidatorValueErrorV1({ issue }));
-}
-
-function isCanonicalObject(
-  value: CanonicalFlarexRuntimeValueV1,
-): value is Readonly<Record<string, CanonicalFlarexRuntimeValueV1>> {
-  return typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    !(value instanceof ArrayBuffer);
 }
 
 function appendFieldPath(path: string, fieldName: string): string {

@@ -104,6 +104,7 @@ import {
   copyCanonicalFlarexValueBytesV1,
   copyFlarexValueSha256V1,
   decodeCanonicalFlarexValueEvidenceV1,
+  isCanonicalFlarexRuntimeObjectV1,
   normalizeFlarexValueJsonV1,
   normalizeFlarexValueV1,
   type CanonicalFlarexRuntimeValueV1,
@@ -953,7 +954,7 @@ function captureStoredRequest(
 
 function captureDeveloperFieldsValueJson(input: unknown): JsonObject {
   const normalized = normalizeFlarexValueV1(input, "appDocument");
-  if (!isRuntimeDocumentObject(normalized.value)) {
+  if (!isCanonicalFlarexRuntimeObjectV1(normalized.value)) {
     throw new Error("App-document normalization returned a non-object.");
   }
   for (const field of ["_id", "_creationTime"] as const) {
@@ -1071,17 +1072,6 @@ function isPlainObject(
   }
   const prototype = Object.getPrototypeOf(input);
   return prototype === Object.prototype || prototype === null;
-}
-
-function isRuntimeDocumentObject(
-  input: CanonicalFlarexRuntimeValueV1,
-): input is Readonly<Record<string, CanonicalFlarexRuntimeValueV1>> {
-  return !(
-    typeof input !== "object" ||
-    input === null ||
-    input instanceof ArrayBuffer ||
-    Array.isArray(input)
-  );
 }
 
 function cloneJsonObject(input: JsonObject): JsonObject {
@@ -1963,7 +1953,7 @@ function dependenciesEqual(
 function developerFieldsFromDocument(
   document: CanonicalFlarexRuntimeValueV1,
 ): Record<string, CanonicalFlarexRuntimeValueV1> {
-  if (!isRuntimeDocumentObject(document)) {
+  if (!isCanonicalFlarexRuntimeObjectV1(document)) {
     throw new Error("Canonical app document is not an object.");
   }
   const fields: Record<string, CanonicalFlarexRuntimeValueV1> = {};
@@ -1982,7 +1972,7 @@ function developerFieldsFromDocument(
 function creationTimeFromDocument(
   document: CanonicalFlarexRuntimeValueV1,
 ): AppCreationTimeV1 {
-  if (!isRuntimeDocumentObject(document)) {
+  if (!isCanonicalFlarexRuntimeObjectV1(document)) {
     throw new Error("Canonical app document is not an object.");
   }
   return decodeAppCreationTimeV1(document._creationTime);

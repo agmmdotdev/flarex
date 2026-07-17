@@ -69,6 +69,7 @@ import {
   FLAREX_VALUE_CODEC_VERSION_V1,
   FlarexValueCodecV1Error,
   canonicalizeFlarexValueV1,
+  isCanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeValueV1,
   type CanonicalFlarexValueV1,
   type FlarexValueCodecVersion,
@@ -819,18 +820,9 @@ function isCanonicalDocumentForIntent(
   intent: Extract<PointCommitRowIntentV1, { readonly kind: "live" }>,
 ): boolean {
   const value = document.value;
-  if (!isCanonicalRuntimeObject(value)) return false;
+  if (!isCanonicalFlarexRuntimeObjectV1(value)) return false;
   return value._id === intent.documentId &&
     value._creationTime === intent.creationTime;
-}
-
-function isCanonicalRuntimeObject(
-  value: CanonicalFlarexRuntimeValueV1,
-): value is Readonly<Record<string, CanonicalFlarexRuntimeValueV1>> {
-  return typeof value === "object" &&
-    value !== null &&
-    !(value instanceof ArrayBuffer) &&
-    !Array.isArray(value);
 }
 
 interface LockedPointCommitClockV1 {

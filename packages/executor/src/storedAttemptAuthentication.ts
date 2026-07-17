@@ -98,6 +98,7 @@ import {
   FLAREX_VALUE_CODEC_VERSION_V1,
   canonicalizeFlarexValueJsonV1,
   decodeFlarexValueCodecVersion,
+  isCanonicalFlarexRuntimeObjectV1,
   normalizeFlarexValueJsonV1,
   normalizeFlarexValueV1,
   type CanonicalFlarexRuntimeValueV1,
@@ -1940,12 +1941,7 @@ const copyRuntimeDocumentEffect = Effect.fn(function* (
   Record<string, CanonicalFlarexRuntimeValueV1>,
   StoredAttemptStorageCorruptionV1Error
 > {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    value instanceof ArrayBuffer ||
-    Array.isArray(value)
-  ) {
+  if (!isCanonicalFlarexRuntimeObjectV1(value)) {
     return yield* corruptionEffect("overlayDocumentNotObject");
   }
   const fields: Record<string, CanonicalFlarexRuntimeValueV1> = {};

@@ -41,6 +41,7 @@ import {
 } from "flarex-protocol/transaction-grant";
 import {
   canonicalizeFlarexValueV1,
+  isCanonicalFlarexRuntimeObjectV1,
   type CanonicalFlarexRuntimeValueV1,
 } from "flarex-protocol/value";
 import {
@@ -1767,21 +1768,10 @@ function requireInsertedCreationTime(
     throw new Error("Expected inserted journal outcome.");
   }
   const document = result.outcome.document;
-  if (!isRuntimeDocumentObject(document)) {
+  if (!isCanonicalFlarexRuntimeObjectV1(document)) {
     throw new Error("Inserted outcome is not an app document.");
   }
   return decodeAppCreationTimeV1(document._creationTime);
-}
-
-function isRuntimeDocumentObject(
-  input: CanonicalFlarexRuntimeValueV1,
-): input is Readonly<Record<string, CanonicalFlarexRuntimeValueV1>> {
-  return !(
-    typeof input !== "object" ||
-    input === null ||
-    input instanceof ArrayBuffer ||
-    Array.isArray(input)
-  );
 }
 
 async function semanticBytes(
