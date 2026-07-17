@@ -8,7 +8,9 @@ journal consumer, C04A's private stored-attempt authentication, and C04B1's
 private commit-authority authentication are complete. C04B2's private-C07
 final-document/result proof is also complete. Corrected C04C1 private logical
 point planning, S08 commit/feed DDL, and S09-A private committed-success DDL are
-complete; S09-B remains pending and C04C2 remains conditional and unapproved.
+complete. S09-B's fixed-kind private commit-wake DDL and fenced repository are
+also complete; O07 production and C06 dispatch remain pending, while C04C2
+remains conditional and unapproved.
 
 This plan owns the bounded Flarex app-data path from logical session operations
 through a private logical point plan to an atomic commit. It does not make a
