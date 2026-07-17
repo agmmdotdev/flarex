@@ -75,6 +75,43 @@ describe("shared analyzer semantics", () => {
     ]);
   });
 
+  it("orders schema tables, modules, and exports by UTF-16 code units", async () => {
+    const analysis = await Effect.runPromise(analyzeLoadedSourcePackageEffect({
+      schemaDefinition: {
+        tables: {
+          a: schemaTableDefinition(),
+          Z: schemaTableDefinition(),
+        },
+      },
+      executionModules: {
+        a: {
+          a: runtimeFunction({ kind: "query", args: objectValidator({}) }),
+          Z: runtimeFunction({ kind: "query", args: objectValidator({}) }),
+        },
+        Z: {
+          list: runtimeFunction({ kind: "query", args: objectValidator({}) }),
+        },
+      },
+      sourceMaps: {},
+    }));
+
+    expect(analysis.schema.tables.map(table => ({
+      tableId: table.tableId,
+      name: table.name,
+    }))).toEqual([
+      { tableId: 1, name: "Z" },
+      { tableId: 2, name: "a" },
+    ]);
+    expect(analysis.functions.map(module => module.moduleName)).toEqual([
+      "Z",
+      "a",
+    ]);
+    expect(analysis.functions[1]?.functions.map(fn => fn.exportName)).toEqual([
+      "Z",
+      "a",
+    ]);
+  });
+
   it("rejects invalid argument validators with a typed analyzer error", async () => {
     await expect(Effect.runPromise(analyzeLoadedSourcePackageEffect({
       schemaDefinition: schemaDefinition(),
@@ -344,17 +381,23 @@ describe("shared analyzer semantics", () => {
 function schemaDefinition(): unknown {
   return {
     tables: {
-      users: {
-        kind: "table",
-        validator: {
-          isFlarexValidator: true,
-          json: objectValidator({
-            name: { fieldType: { type: "string" }, optional: false },
-          }),
-        },
-        indexes: [],
-      },
+      users: schemaTableDefinition({
+        name: { fieldType: { type: "string" }, optional: false },
+      }),
     },
+  };
+}
+
+function schemaTableDefinition(
+  fields: Record<string, { fieldType: ValidatorJSON; optional: boolean }> = {},
+): Record<string, unknown> {
+  return {
+    kind: "table",
+    validator: {
+      isFlarexValidator: true,
+      json: objectValidator(fields),
+    },
+    indexes: [],
   };
 }
 

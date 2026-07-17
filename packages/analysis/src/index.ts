@@ -1,4 +1,5 @@
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect, Schema } from "effect";
 import { assertValidatorJson } from "flarex/validator-json";
 import type { ValidatorJSON } from "flarex/values";
@@ -298,7 +299,7 @@ export const analyzeSchemaDefinitionEffect = Effect.fn(
     .filter((entry): entry is [string, Record<string, unknown>] =>
       isRecord(entry[1]) && entry[1].kind === "table",
     )
-    .sort(([left], [right]) => left.localeCompare(right));
+    .sort(([left], [right]) => compareUtf16Strings(left, right));
   const tableIds = new Map(entries.map(([name], index) => [name, index + 1] as const));
   const tables: AnalyzedSchema["tables"][number][] = [];
   const indexes: AnalyzedSchema["indexes"][number][] = [];
@@ -340,10 +341,10 @@ export const analyzeExecutionModulesEffect = Effect.fn(
 > {
   const modules: AnalyzedModule[] = [];
   for (const [moduleName, exports] of Object.entries(analyzedExports)
-    .sort(([left], [right]) => left.localeCompare(right))) {
+    .sort(([left], [right]) => compareUtf16Strings(left, right))) {
     const functions: AnalyzedFunction[] = [];
     for (const [exportName, value] of Object.entries(exports)
-      .sort(([left], [right]) => left.localeCompare(right))) {
+      .sort(([left], [right]) => compareUtf16Strings(left, right))) {
       const analyzed = yield* analyzeExportEffect(moduleName, exportName, value, options.positionFor);
       if (analyzed !== null) functions.push(analyzed);
     }
@@ -494,102 +495,97 @@ function emptySchema(): AnalyzedSchema {
   return { version: 1, tables: [], indexes: [] };
 }
 
-function analyzeTableValidatorEffect(
+const analyzeTableValidatorEffect = Effect.fn(function* (
   value: unknown,
   tableName: string,
-): Effect.Effect<ValidatorJSON, AnalyzerSchemaError | AnalyzerValidatorError> {
-  return Effect.gen(function* () {
-    if (!isRecord(value) || value.isFlarexValidator !== true || !("json" in value)) {
-      return yield* schemaFailure(`Schema table "${tableName}" has an invalid document validator.`);
-    }
-    const validator = yield* assertValidatorJsonEffect(value.json, `schema.tables.${tableName}.validator`);
-    if (validator === null || validator.type !== "object") {
-      return yield* schemaFailure(`Schema table "${tableName}" document validator must be an object validator.`);
-    }
-    return validator;
-  });
-}
+): Effect.fn.Return<ValidatorJSON, AnalyzerSchemaError | AnalyzerValidatorError> {
+  if (!isRecord(value) || value.isFlarexValidator !== true || !("json" in value)) {
+    return yield* schemaFailure(`Schema table "${tableName}" has an invalid document validator.`);
+  }
+  const validator = yield* assertValidatorJsonEffect(value.json, `schema.tables.${tableName}.validator`);
+  if (validator === null || validator.type !== "object") {
+    return yield* schemaFailure(`Schema table "${tableName}" document validator must be an object validator.`);
+  }
+  return validator;
+});
 
-function analyzePlacementEffect(
+const analyzePlacementEffect = Effect.fn(function* (
   value: unknown,
   tableName: string,
-): Effect.Effect<AnalyzedSchema["tables"][number]["placement"], AnalyzerSchemaError> {
-  return Effect.gen(function* () {
-    if (value === undefined) return { kind: "partitionBy", field: "_id" };
-    if (!isRecord(value) || typeof value.kind !== "string") {
-      return yield* schemaFailure(`Schema table "${tableName}" has an invalid placement.`);
-    }
-    if (value.kind === "global") return { kind: "global" };
-    if (value.kind === "partitionBy" && typeof value.field === "string") {
-      return { kind: "partitionBy", field: value.field };
-    }
-    if (
-      value.kind === "colocateWith" &&
-      typeof value.table === "string" &&
-      typeof value.field === "string"
-    ) {
-      return { kind: "colocateWith", table: value.table, field: value.field };
-    }
+): Effect.fn.Return<AnalyzedSchema["tables"][number]["placement"], AnalyzerSchemaError> {
+  if (value === undefined) return { kind: "partitionBy", field: "_id" };
+  if (!isRecord(value) || typeof value.kind !== "string") {
     return yield* schemaFailure(`Schema table "${tableName}" has an invalid placement.`);
-  });
-}
+  }
+  if (value.kind === "global") return { kind: "global" };
+  if (value.kind === "partitionBy" && typeof value.field === "string") {
+    return { kind: "partitionBy", field: value.field };
+  }
+  if (
+    value.kind === "colocateWith" &&
+    typeof value.table === "string" &&
+    typeof value.field === "string"
+  ) {
+    return { kind: "colocateWith", table: value.table, field: value.field };
+  }
+  return yield* schemaFailure(`Schema table "${tableName}" has an invalid placement.`);
+});
 
-function analyzeIndexesEffect(
+const analyzeIndexesEffect = Effect.fn(function* (
   value: unknown,
   tableName: string,
-): Effect.Effect<ReadonlyArray<{ readonly name: string; readonly fields: readonly string[] }>, AnalyzerSchemaError> {
-  return Effect.gen(function* () {
-    if (!Array.isArray(value)) {
-      return yield* schemaFailure(`Schema table "${tableName}" has invalid indexes.`);
+): Effect.fn.Return<
+  ReadonlyArray<{ readonly name: string; readonly fields: readonly string[] }>,
+  AnalyzerSchemaError
+> {
+  if (!Array.isArray(value)) {
+    return yield* schemaFailure(`Schema table "${tableName}" has invalid indexes.`);
+  }
+  const indexes: Array<{ name: string; fields: string[] }> = [];
+  for (const [position, index] of value.entries()) {
+    if (
+      !isRecord(index) ||
+      typeof index.name !== "string" ||
+      !Array.isArray(index.fields) ||
+      !index.fields.every(field => typeof field === "string")
+    ) {
+      return yield* schemaFailure(`Schema table "${tableName}" has an invalid index at position ${position}.`);
     }
-    const indexes: Array<{ name: string; fields: string[] }> = [];
-    for (const [position, index] of value.entries()) {
-      if (
-        !isRecord(index) ||
-        typeof index.name !== "string" ||
-        !Array.isArray(index.fields) ||
-        !index.fields.every(field => typeof field === "string")
-      ) {
-        return yield* schemaFailure(`Schema table "${tableName}" has an invalid index at position ${position}.`);
-      }
-      indexes.push({ name: index.name, fields: [...index.fields] });
-    }
-    return indexes;
-  });
-}
+    indexes.push({ name: index.name, fields: [...index.fields] });
+  }
+  return indexes;
+});
 
-function analyzeExportEffect(
+const analyzeExportEffect = Effect.fn(function* (
   moduleName: string,
   exportName: string,
   value: unknown,
   positionFor: SourcePositionResolver | undefined,
-): Effect.Effect<
+): Effect.fn.Return<
   AnalyzedFunction | null,
   AnalyzerFunctionMetadataError | AnalyzerValidatorError | AnalyzerPartitionError
 > {
-  return Effect.gen(function* () {
-    if (!isRuntimeFunction(value)) return null;
+  if (!isRuntimeFunction(value)) return null;
 
-    const kind = functionKind(value);
-    if (kind === null) return null;
-    const visibility = functionVisibility(value);
-    if (visibility === null) return null;
+  const kind = functionKind(value);
+  if (kind === null) return null;
+  const visibility = functionVisibility(value);
+  if (visibility === null) return null;
 
-    const identifier = `${moduleName}:${exportName}`;
-    yield* assertHandlerEffect(value, identifier);
-    const position = positionFor?.(moduleName, exportName);
-    return {
-      moduleName,
-      exportName,
-      kind,
-      visibility,
-      args: yield* parseArgsValidatorEffect(value, identifier),
-      returns: yield* parseValidatorExportEffect(value, "exportReturns", identifier, null, true),
-      partition: yield* parsePartitionExportEffect(value, identifier),
-      ...(position === undefined ? {} : { position }),
-    };
-  });
-}
+  const identifier = `${moduleName}:${exportName}`;
+  yield* assertHandlerEffect(value, identifier);
+  const position = positionFor?.(moduleName, exportName);
+  return {
+    moduleName,
+    exportName,
+    kind,
+    visibility,
+    args: yield* parseArgsValidatorEffect(value, identifier),
+    returns: yield* parseValidatorExportEffect(value, "exportReturns", identifier, null, true),
+    partition: yield* parsePartitionExportEffect(value, identifier),
+    ...(position === undefined ? {} : { position }),
+  };
+});
 
 function lowerRootPartitionEffect(
   fn: AnalyzedFunction,
