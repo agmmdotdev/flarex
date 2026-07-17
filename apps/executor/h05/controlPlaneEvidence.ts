@@ -5,6 +5,9 @@ import {
 } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
+import {
+  isH05ControlPlaneCloudflareResourceId,
+} from "./controlPlaneCloudflareResourceId";
 import { decodeExactH05Scalar } from "./exactScalar";
 import { decodeExactH05StringTuple } from "./exactStringTuple";
 import { formatH05JsonDocument } from "./jsonDocument";
@@ -1314,11 +1317,7 @@ function wranglerVersionString(value: unknown, path: string): string {
 
 function cloudflareId(value: unknown, path: string): string {
   const decoded = nonEmptyString(value, path);
-  if (
-    decoded.length < 8 ||
-    decoded.length > 128 ||
-    /[\u0000-\u0020\u007f]/.test(decoded)
-  ) {
+  if (!isH05ControlPlaneCloudflareResourceId(decoded)) {
     fail(`${path} must be a bounded opaque Cloudflare identifier.`);
   }
   return decoded;

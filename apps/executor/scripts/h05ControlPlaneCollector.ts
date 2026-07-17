@@ -26,6 +26,9 @@ import {
   type H05TraceSettingsEvidence,
   type H05WorkerVersionEvidence,
 } from "../h05/controlPlaneEvidence";
+import {
+  isH05ControlPlaneCloudflareResourceId,
+} from "../h05/controlPlaneCloudflareResourceId";
 import { isH05CanonicalIsoTimestamp } from "../h05/isoTimestamp";
 import {
   h05ExecutorWorkerName,
@@ -1067,11 +1070,7 @@ function zeroOrOne(value: number, path: string): 0 | 1 {
 
 function opaqueId(value: unknown, path: string): string {
   const decoded = stringValue(value, path);
-  if (
-    decoded.length < 8 ||
-    decoded.length > 128 ||
-    /[\u0000-\u0020\u007f]/.test(decoded)
-  ) {
+  if (!isH05ControlPlaneCloudflareResourceId(decoded)) {
     throw new Error(`${path} is not a bounded opaque identifier.`);
   }
   return decoded;

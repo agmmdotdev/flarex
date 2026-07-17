@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
+import {
+  isH05ControlPlaneCloudflareResourceId,
+} from "./controlPlaneCloudflareResourceId";
 import { decodeExactH05Scalar } from "./exactScalar";
 import { formatH05JsonDocument } from "./jsonDocument";
 import { isH05FullLowercaseGitCommit } from "./gitCommit";
@@ -81,11 +84,7 @@ const cloudflareResourceIdDecoder: Decoder<CloudflareResourceId> = (
   path,
 ) => {
   const decoded = nonEmptyString(value, path);
-  if (
-    decoded.length < 8 ||
-    decoded.length > 128 ||
-    /[\u0000-\u0020\u007f]/.test(decoded)
-  ) {
+  if (!isH05ControlPlaneCloudflareResourceId(decoded)) {
     fail(`${path} must be a bounded opaque Cloudflare identifier.`);
   }
   return decoded as CloudflareResourceId;

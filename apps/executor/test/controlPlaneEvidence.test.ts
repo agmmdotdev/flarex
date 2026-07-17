@@ -62,6 +62,27 @@ describe("H05 control-plane evidence contract", () => {
     });
   });
 
+  it("retains the control-plane Cloudflare resource ID diagnostic", () => {
+    const payload = validPayload();
+    const compiled = compileH05ControlPlaneEvidence({
+      ...payload,
+      executor: {
+        ...payload.executor,
+        deploymentBefore: {
+          ...payload.executor.deploymentBefore,
+          deploymentId: "short",
+        },
+      },
+    });
+
+    expect(compiled).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "executor.deploymentBefore.deploymentId must be a bounded opaque Cloudflare identifier.",
+      ),
+    });
+  });
+
   it("rejects a tampered outer hash and non-canonical JSON", () => {
     const compiled = compileH05ControlPlaneEvidence(validPayload());
     if (!compiled.ok) throw new Error(compiled.message);

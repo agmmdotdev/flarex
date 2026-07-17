@@ -66,6 +66,18 @@ describe("H05 hosted receipt-v2 summary", () => {
     });
   });
 
+  it("retains the receipt Cloudflare resource ID diagnostic", () => {
+    const receipt = validReceipt();
+    nestedRecord(receipt, "executor").deploymentId = "short";
+
+    expect(decodeH05HostedReceipt(receipt)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "executor.deploymentId must be a bounded opaque Cloudflare identifier.",
+      ),
+    });
+  });
+
   it("retains receipt-owned rejection of all-zero SHA-256 placeholders", () => {
     const receipt = validReceipt();
     nestedRecord(receipt, "inputs").dataPlaneEvidenceSha256 = "0".repeat(64);

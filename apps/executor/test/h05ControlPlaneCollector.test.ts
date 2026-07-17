@@ -29,6 +29,7 @@ interface FixtureOverrides {
   readonly domainUnfilteredTotalCount?: number;
   readonly duplicateZone?: boolean;
   readonly emptyZones?: boolean;
+  readonly executorDeploymentId?: string;
   readonly executorDeploymentDrift?: boolean;
   readonly hyperdrivePassword?: string;
   readonly multiPageZones?: boolean;
@@ -52,6 +53,16 @@ describe("H05 Cloudflare control-plane collector", () => {
       ...collectorOptions(fixture.api),
       now: () => "2026-07-11T10:00:00.000+00:00",
     })).rejects.toThrow("must be a canonical UTC ISO timestamp");
+  });
+
+  it("retains the collector Cloudflare resource ID diagnostic", async () => {
+    const fixture = fixtureApi({ executorDeploymentId: "short" });
+
+    await expect(
+      collectH05ControlPlaneEvidence(collectorOptions(fixture.api)),
+    ).rejects.toThrow(
+      "flarex-executor deployment ID is not a bounded opaque identifier.",
+    );
   });
 
   it("projects a complete sanitized preflight and paginates every visible zone", async () => {
@@ -442,7 +453,9 @@ function fixtureApi(overrides: FixtureOverrides = {}): {
         return result({
           deployments: [
             {
-              id: executor ? "executor-deployment-1" : "probe-deployment-1",
+              id: executor
+                ? overrides.executorDeploymentId ?? "executor-deployment-1"
+                : "probe-deployment-1",
               versions: [{ version_id: versionId, percentage: 100 }],
             },
           ],
