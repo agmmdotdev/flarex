@@ -2,6 +2,7 @@ import { RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 
 import { copyCloudflareRpcRecord } from "./effectBoundary";
 import { readBoundedJson } from "./http";
+import { elapsedPerformanceDurationSince } from "./performanceDuration";
 import {
   decodeProbeRerunSessionResponseV1OrNull,
   decodeProbeRuntimeRerunRequestV1OrNull,
@@ -80,7 +81,7 @@ export class ProbeRuntimeRerunEntrypoint
     return ProbeRuntimeRerunResponseV1Schema.make({
       session: sessionReceipt,
       runtimeSessionDurationMs: ProbeDurationMsSchema.make(
-        elapsedSince(startedAt),
+        elapsedPerformanceDurationSince(startedAt),
       ),
       terminalAck: true,
     });
@@ -104,9 +105,4 @@ function sameRerunSessionReceipt(
     response.codeId === request.codeId &&
     response.reentryDepth === request.reentryDepth &&
     response.payloadBytes === request.payload.length;
-}
-
-function elapsedSince(startedAt: number): number {
-  const duration = performance.now() - startedAt;
-  return Number.isFinite(duration) && duration > 0 ? duration : 0;
 }

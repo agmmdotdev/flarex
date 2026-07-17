@@ -33,6 +33,7 @@ import {
   type ProbeSessionId,
 } from "./identity";
 import { noStoreJson, readBoundedJson } from "./http";
+import { elapsedPerformanceDurationSince } from "./performanceDuration";
 import {
   decodeProbeInvokeFacetRequestV1OrNull,
   decodeProbeInvokeFacetWorkerResponseV1OrNull,
@@ -536,7 +537,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     ) {
       return internalError("facet_receipt_mismatch", 502);
     }
-    const facetDurationMs = elapsedSince(startedAt);
+    const facetDurationMs = elapsedPerformanceDurationSince(startedAt);
 
     return noStoreJson(
       ProbeFacetSessionResponseV1Schema.make({
@@ -659,7 +660,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     ) {
       return internalError("facet_receipt_mismatch", 502);
     }
-    const facetDurationMs = elapsedSince(facetStartedAt);
+    const facetDurationMs = elapsedPerformanceDurationSince(facetStartedAt);
 
     const finishRequest = ProbeMockFinishRequestV1Schema.make({
       protocolVersion: request.protocolVersion,
@@ -690,7 +691,8 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     if (finish === null || !sameMockFinishReceipt(finish, finishRequest)) {
       return internalError("mock_finish_receipt_mismatch", 502);
     }
-    const sessionMockFinishDurationMs = elapsedSince(finishStartedAt);
+    const sessionMockFinishDurationMs =
+      elapsedPerformanceDurationSince(finishStartedAt);
     const observation = {
       facet: facetReceipt,
       facetDurationMs: ProbeDurationMsSchema.make(facetDurationMs),
@@ -815,7 +817,9 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     return noStoreJson(
       ProbeRerunSessionResponseV1Schema.make({
         facet: facetReceipt,
-        facetDurationMs: ProbeDurationMsSchema.make(elapsedSince(startedAt)),
+        facetDurationMs: ProbeDurationMsSchema.make(
+          elapsedPerformanceDurationSince(startedAt),
+        ),
         workerLoaderCallbackRan: observations.workerLoaderCallbackRan,
         facetStartupCallbackRan: observations.facetStartupCallbackRan,
       }),
@@ -1336,11 +1340,6 @@ function decodeObjectSessionId(value: string | undefined): ProbeSessionId | null
   } catch {
     return null;
   }
-}
-
-function elapsedSince(startedAt: number): number {
-  const duration = performance.now() - startedAt;
-  return Number.isFinite(duration) && duration > 0 ? duration : 0;
 }
 
 function isJsonContentType(value: string | null): boolean {

@@ -66,6 +66,7 @@ import {
   noStoreJson,
   readBoundedJson,
 } from "./http";
+import { elapsedPerformanceDurationSince } from "./performanceDuration";
 import {
   probeSampleIdentityV1,
   decodeProbeRunRequestV1Effect,
@@ -545,7 +546,9 @@ async function executeClaimedSample(
   } catch {
     execution = failedScenarioExecution(sampleRequest, edgeColo);
   }
-  const scenarioWindowDurationMs = elapsedSince(scenarioStartedAt);
+  const scenarioWindowDurationMs = elapsedPerformanceDurationSince(
+    scenarioStartedAt,
+  );
   const finalizeRequest = ProbeSampleFinalizeRequestV1Schema.make({
     protocolVersion: publicRequest.protocolVersion,
     runId: publicRequest.runId,
@@ -827,11 +830,16 @@ async function executeFacetScenario(
       sampleRequest,
       edgeColo,
       error,
-      [sessionSpan(elapsedSince(startedAt), { kind: "error", error })],
+      [
+        sessionSpan(elapsedPerformanceDurationSince(startedAt), {
+          kind: "error",
+          error,
+        }),
+      ],
       unobservedFacetStartup(),
     );
   }
-  const sessionDurationMs = elapsedSince(startedAt);
+  const sessionDurationMs = elapsedPerformanceDurationSince(startedAt);
   if (!response.ok) {
     const error = runtimeError(
       "gateway_session_rtt",
@@ -1191,13 +1199,18 @@ async function executeFullInvokeScenario(
         sampleRequest,
         edgeColo,
         error,
-        [sessionSpan(elapsedSince(startedAt), { kind: "error", error })],
+        [
+          sessionSpan(elapsedPerformanceDurationSince(startedAt), {
+            kind: "error",
+            error,
+          }),
+        ],
         unobservedFacetStartup(),
       ),
       syncWake: { kind: "unobserved" },
     };
   }
-  const sessionDurationMs = elapsedSince(startedAt);
+  const sessionDurationMs = elapsedPerformanceDurationSince(startedAt);
   const body = await readBoundedJson(
     response,
     PROBE_INTERNAL_RESPONSE_MAX_BYTES,
@@ -1243,7 +1256,12 @@ async function executeFullInvokeScenario(
         sampleRequest,
         edgeColo,
         error,
-        [sessionSpan(elapsedSince(startedAt), { kind: "error", error })],
+        [
+          sessionSpan(elapsedPerformanceDurationSince(startedAt), {
+            kind: "error",
+            error,
+          }),
+        ],
         unobservedFacetStartup(),
       ),
       syncWake: { kind: "unobserved" },
@@ -1262,7 +1280,12 @@ async function executeFullInvokeScenario(
         sampleRequest,
         edgeColo,
         error,
-        [sessionSpan(elapsedSince(startedAt), { kind: "error", error })],
+        [
+          sessionSpan(elapsedPerformanceDurationSince(startedAt), {
+            kind: "error",
+            error,
+          }),
+        ],
         unobservedFacetStartup(),
       ),
       syncWake: { kind: "unobserved" },
@@ -1420,7 +1443,7 @@ async function executeSessionEcho(
       sampleRequest.run,
       sampleRequest.sampleOrdinal,
       edgeColo,
-      elapsedSince(startedAt),
+      elapsedPerformanceDurationSince(startedAt),
       probeRuntimeFailureRetryable({ kind: "transport" }),
     );
   }
@@ -1429,7 +1452,7 @@ async function executeSessionEcho(
       sampleRequest.run,
       sampleRequest.sampleOrdinal,
       edgeColo,
-      elapsedSince(startedAt),
+      elapsedPerformanceDurationSince(startedAt),
       probeRuntimeFailureRetryable({
         kind: "response-status",
         status: response.status,
@@ -1443,7 +1466,7 @@ async function executeSessionEcho(
   const decoded = body.ok
     ? await decodeSessionResponse(body.value)
     : null;
-  const durationMs = elapsedSince(startedAt);
+  const durationMs = elapsedPerformanceDurationSince(startedAt);
   if (
     decoded === null ||
     !sameSessionReceipt(decoded, internalRequest)
@@ -1534,7 +1557,7 @@ async function executeDynamicDirectEcho(
       sampleRequest.run,
       sampleRequest.sampleOrdinal,
       edgeColo,
-      elapsedSince(startedAt),
+      elapsedPerformanceDurationSince(startedAt),
       loaderCallbackRan,
       probeRuntimeFailureRetryable({ kind: "transport" }),
     );
@@ -1544,7 +1567,7 @@ async function executeDynamicDirectEcho(
       sampleRequest.run,
       sampleRequest.sampleOrdinal,
       edgeColo,
-      elapsedSince(startedAt),
+      elapsedPerformanceDurationSince(startedAt),
       loaderCallbackRan,
       probeRuntimeFailureRetryable({
         kind: "response-status",
@@ -1559,7 +1582,7 @@ async function executeDynamicDirectEcho(
   const decoded = body.ok
     ? await decodeDirectResponse(body.value)
     : null;
-  const durationMs = elapsedSince(startedAt);
+  const durationMs = elapsedPerformanceDurationSince(startedAt);
   if (decoded === null || !sameDirectReceipt(decoded, internalRequest)) {
     return failedDynamicSample(
       sampleRequest.run,
@@ -1954,11 +1977,6 @@ function requestColo(request: Request): string | null {
   return typeof colo === "string" && /^[A-Z0-9]{3,8}$/.test(colo)
     ? colo
     : null;
-}
-
-function elapsedSince(startedAt: number): number {
-  const duration = performance.now() - startedAt;
-  return Number.isFinite(duration) && duration > 0 ? duration : 0;
 }
 
 function isJsonContentType(value: string | null): boolean {

@@ -12,6 +12,7 @@ import {
   type ProbeSyntheticCursor,
 } from "./commitProtocol";
 import { copyCloudflareRpcRecord } from "./effectBoundary";
+import { elapsedPerformanceDurationSince } from "./performanceDuration";
 import { ProbeDurationMsSchema } from "./protocol";
 import {
   decodeProbeRuntimeRerunResponseV1OrNull,
@@ -66,7 +67,7 @@ export class ProbeSyncDO extends DurableObject<Record<string, never>> {
         await this.ctx.storage.sync();
       }
       const cursor = ProbeSyntheticCursorSchema.make(readCursor(this.sql));
-      const cursorDurationMs = elapsedSince(startedAt);
+      const cursorDurationMs = elapsedPerformanceDurationSince(startedAt);
       return ProbeSyncWakeReceiptV1Schema.make({
         protocolVersion: request.protocolVersion,
         runId: request.runId,
@@ -139,7 +140,8 @@ export class ProbeSyncDO extends DurableObject<Record<string, never>> {
         ) {
           throw new Error("invalid synthetic runtime rerun response");
         }
-        const syncRuntimeRerunDurationMs = elapsedSince(startedAt);
+        const syncRuntimeRerunDurationMs =
+          elapsedPerformanceDurationSince(startedAt);
         const cursorAfter = readCursor(this.sql);
         if (cursorAfter !== cursorBefore) {
           throw new Error("synthetic sync cursor changed during rerun");
@@ -305,9 +307,4 @@ function readCursor(sql: SqlStorage): ProbeSyntheticCursor {
        WHERE singleton = 1`,
     ).one().cursor,
   );
-}
-
-function elapsedSince(startedAt: number): number {
-  const duration = performance.now() - startedAt;
-  return Number.isFinite(duration) && duration > 0 ? duration : 0;
 }

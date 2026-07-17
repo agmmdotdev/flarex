@@ -12,6 +12,7 @@ import {
   type ProbeMockReadResponseV1,
 } from "./commitProtocol";
 import { copyCloudflareRpcRecord } from "./effectBoundary";
+import { elapsedPerformanceDurationSince } from "./performanceDuration";
 import { ProbeDurationMsSchema } from "./protocol";
 import type { ProbeSyncDO } from "./probeSyncDO";
 import {
@@ -76,7 +77,7 @@ export class MockFinishEntrypoint extends WorkerEntrypoint<ProbeMockCommitEnv> {
       copyCloudflareRpcRecord(rawReceipt),
     );
     if (receipt === null) throw new Error("invalid synthetic sync receipt");
-    const mockSyncWakeDurationMs = elapsedSince(startedAt);
+    const mockSyncWakeDurationMs = elapsedPerformanceDurationSince(startedAt);
     return ProbeMockFinishResponseV1Schema.make({
       request,
       mockSyncWakeDurationMs: ProbeDurationMsSchema.make(
@@ -139,11 +140,6 @@ export default {
     });
   },
 } satisfies ExportedHandler<ProbeMockCommitEnv>;
-
-function elapsedSince(startedAt: number): number {
-  const duration = performance.now() - startedAt;
-  return Number.isFinite(duration) && duration > 0 ? duration : 0;
-}
 
 function sameRerunReceipt(
   receipt: ProbeSyncRerunReceiptV1,
