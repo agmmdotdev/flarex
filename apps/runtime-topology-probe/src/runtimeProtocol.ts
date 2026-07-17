@@ -29,7 +29,8 @@ import {
   ProbeScenarioSchema,
   ProbeStartupObservationsV1Schema,
   ProbeTraceSpanV1Schema,
-  type ProbeNormalizedErrorV1,
+  sameProbeNormalizedErrorV1,
+  sameProbeSampleIdentityV1,
   type ProbeRunRequestV1,
   type ProbeSampleOutcomeV1,
   type ProbeSamplePhase,
@@ -418,7 +419,7 @@ function gatewaySampleRelationshipIssue(
     sample.dimensions,
     sample.identity.sampleOrdinal,
   );
-  if (!sameGatewayIdentity(sample.identity, expectedIdentity)) {
+  if (!sameProbeSampleIdentityV1(sample.identity, expectedIdentity)) {
     return "identity must match the run, scenario, dimensions, and sample ordinal";
   }
   switch (sample.scenario) {
@@ -486,7 +487,7 @@ function sessionEchoRelationshipIssue(
       : "successful session_echo requires a successful span";
   }
   return span.outcome.kind === "error" &&
-      sameError(span.outcome.error, sample.outcome.error)
+      sameProbeNormalizedErrorV1(span.outcome.error, sample.outcome.error)
     ? undefined
     : "failed session_echo requires one matching failed span";
 }
@@ -510,7 +511,7 @@ function dynamicDirectRelationshipIssue(
       : "successful dynamic_direct_echo requires a successful span";
   }
   return span.outcome.kind === "error" &&
-      sameError(span.outcome.error, sample.outcome.error)
+      sameProbeNormalizedErrorV1(span.outcome.error, sample.outcome.error)
     ? undefined
     : "failed dynamic_direct_echo requires one matching failed span";
 }
@@ -647,7 +648,7 @@ function nestedSpanTreeIssue(
     if (index === lastIndex) {
       if (
         span.outcome.kind !== "error" ||
-        !sameError(span.outcome.error, sample.outcome.error) ||
+        !sameProbeNormalizedErrorV1(span.outcome.error, sample.outcome.error) ||
         span.name !== sample.outcome.error.stage
       ) {
         return `failed ${sample.scenario} requires a matching terminal failed span`;
@@ -657,27 +658,6 @@ function nestedSpanTreeIssue(
     }
   }
   return undefined;
-}
-
-function sameGatewayIdentity(
-  left: typeof ProbeSampleIdentityV1Schema.Type,
-  right: typeof ProbeSampleIdentityV1Schema.Type,
-): boolean {
-  return left.kind === right.kind &&
-    left.sampleOrdinal === right.sampleOrdinal &&
-    left.scopeId === right.scopeId &&
-    left.sessionId === right.sessionId &&
-    left.attemptId === right.attemptId &&
-    left.codeId === right.codeId;
-}
-
-function sameError(
-  left: ProbeNormalizedErrorV1,
-  right: ProbeNormalizedErrorV1,
-): boolean {
-  return left.code === right.code &&
-    left.retryable === right.retryable &&
-    left.stage === right.stage;
 }
 
 function ordinal(value: number): ProbeOrdinal {

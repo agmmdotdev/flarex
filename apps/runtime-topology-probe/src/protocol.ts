@@ -203,6 +203,15 @@ export const ProbeNormalizedErrorV1Schema = Schema.Struct({
 export type ProbeNormalizedErrorV1 =
   typeof ProbeNormalizedErrorV1Schema.Type;
 
+export function sameProbeNormalizedErrorV1(
+  left: ProbeNormalizedErrorV1,
+  right: ProbeNormalizedErrorV1,
+): boolean {
+  return left.code === right.code &&
+    left.retryable === right.retryable &&
+    left.stage === right.stage;
+}
+
 export const ProbeSpanOutcomeV1Schema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("ok") }).annotate(StrictStructOptions),
   Schema.Struct({
@@ -287,6 +296,18 @@ export const ProbeSampleIdentityV1Schema = Schema.Union([
 ]);
 export type ProbeSampleIdentityV1 =
   typeof ProbeSampleIdentityV1Schema.Type;
+
+export function sameProbeSampleIdentityV1(
+  left: ProbeSampleIdentityV1,
+  right: ProbeSampleIdentityV1,
+): boolean {
+  return left.kind === right.kind &&
+    left.sampleOrdinal === right.sampleOrdinal &&
+    left.scopeId === right.scopeId &&
+    left.sessionId === right.sessionId &&
+    left.attemptId === right.attemptId &&
+    left.codeId === right.codeId;
+}
 
 const ProbeSampleResultV1Shape = Schema.Struct({
   protocolVersion: ProbeProtocolVersionV1Schema,
@@ -448,7 +469,7 @@ function sampleRelationshipIssue(
     sample.dimensions,
     sample.identity.sampleOrdinal,
   );
-  if (!sameSampleIdentity(sample.identity, expectedIdentity)) {
+  if (!sameProbeSampleIdentityV1(sample.identity, expectedIdentity)) {
     return "identity must match the run, scenario, dimensions, and sample ordinal";
   }
   return probeStartupRelationshipIssueV1(
@@ -456,18 +477,6 @@ function sampleRelationshipIssue(
     sample.startup,
     sample.outcome,
   );
-}
-
-function sameSampleIdentity(
-  left: ProbeSampleIdentityV1,
-  right: ProbeSampleIdentityV1,
-): boolean {
-  return left.kind === right.kind &&
-    left.sampleOrdinal === right.sampleOrdinal &&
-    left.scopeId === right.scopeId &&
-    left.sessionId === right.sessionId &&
-    left.attemptId === right.attemptId &&
-    left.codeId === right.codeId;
 }
 
 export function probeStartupRelationshipIssueV1(

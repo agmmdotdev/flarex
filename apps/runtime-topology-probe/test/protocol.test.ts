@@ -1,12 +1,18 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { decodeProbeRunIdEffect } from "../src/identity";
+import {
+  decodeProbeOrdinalEffect,
+  decodeProbeRunIdEffect,
+} from "../src/identity";
 import {
   decodeProbeRunRequestV1Effect,
   decodeProbeSampleResultV1Effect,
+  probeSampleIdentityV1,
   PROBE_LIMITS_V1,
   PROBE_PROTOCOL_VERSION_V1,
+  sameProbeNormalizedErrorV1,
+  sameProbeSampleIdentityV1,
 } from "../src/protocol";
 import { validSample } from "./fixtures";
 import { runEffectTestSync } from "./effectTest";
@@ -187,6 +193,99 @@ describe("runtime topology probe protocol", () => {
 
     expect(successFailure.boundary).toBe("sample-result-v1");
     expect(mixedFailure.boundary).toBe("sample-result-v1");
+  });
+
+  it("compares normalized errors by every protocol field", () => {
+    const error = {
+      code: "runtime_failure",
+      retryable: false,
+      stage: "external_request",
+    } as const;
+
+    expect(sameProbeNormalizedErrorV1(error, { ...error })).toBe(true);
+    expect(sameProbeNormalizedErrorV1(error, {
+      ...error,
+      code: "invalid_request",
+    })).toBe(false);
+    expect(sameProbeNormalizedErrorV1(error, {
+      ...error,
+      retryable: true,
+    })).toBe(false);
+    expect(sameProbeNormalizedErrorV1(error, {
+      ...error,
+      stage: "request",
+    })).toBe(false);
+  });
+
+  it("compares sample identities by every protocol field", () => {
+    const identity = validSample("full_invoke").identity;
+    const otherRunId = Effect.runSync(decodeProbeRunIdEffect("run_b"));
+    const negativeZeroOrdinal = Effect.runSync(decodeProbeOrdinalEffect(-0));
+    const otherOrdinal = Effect.runSync(decodeProbeOrdinalEffect(1));
+    const otherRun = Effect.runSync(
+      decodeProbeRunRequestV1Effect({ ...validRequest(), runId: otherRunId }),
+    );
+    const otherIdentity = probeSampleIdentityV1(
+      otherRun.runId,
+      otherRun.scenario,
+      otherRun.dimensions,
+      otherOrdinal,
+    );
+    const newCodeRun = Effect.runSync(
+      decodeProbeRunRequestV1Effect({
+        ...validRequest(),
+        repetitions: 2,
+        warmupRepetitions: 0,
+        dimensions: {
+          ...validRequest().dimensions,
+          codeMode: "new-code",
+        },
+      }),
+    );
+    const otherCodeIdentity = probeSampleIdentityV1(
+      newCodeRun.runId,
+      newCodeRun.scenario,
+      newCodeRun.dimensions,
+      otherOrdinal,
+    );
+    if (
+      identity.kind !== "facet-session" ||
+      otherIdentity.kind !== "facet-session" ||
+      otherCodeIdentity.kind !== "facet-session"
+    ) {
+      throw new Error("Expected facet-session identity fixtures.");
+    }
+
+    expect(sameProbeSampleIdentityV1(identity, { ...identity })).toBe(true);
+    expect(Object.is(negativeZeroOrdinal, -0)).toBe(true);
+    expect(sameProbeSampleIdentityV1(identity, {
+      ...identity,
+      sampleOrdinal: negativeZeroOrdinal,
+    })).toBe(true);
+    expect(sameProbeSampleIdentityV1(
+      identity,
+      validSample("session_echo").identity,
+    )).toBe(false);
+    expect(sameProbeSampleIdentityV1(identity, {
+      ...identity,
+      sampleOrdinal: otherIdentity.sampleOrdinal,
+    })).toBe(false);
+    expect(sameProbeSampleIdentityV1(identity, {
+      ...identity,
+      scopeId: otherIdentity.scopeId,
+    })).toBe(false);
+    expect(sameProbeSampleIdentityV1(identity, {
+      ...identity,
+      sessionId: otherIdentity.sessionId,
+    })).toBe(false);
+    expect(sameProbeSampleIdentityV1(identity, {
+      ...identity,
+      attemptId: otherIdentity.attemptId,
+    })).toBe(false);
+    expect(sameProbeSampleIdentityV1(identity, {
+      ...identity,
+      codeId: otherCodeIdentity.codeId,
+    })).toBe(false);
   });
 
   it.each([

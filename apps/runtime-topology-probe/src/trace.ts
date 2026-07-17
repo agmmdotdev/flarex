@@ -1,9 +1,9 @@
-import type {
-  ProbeNormalizedErrorV1,
-  ProbeSampleResultV1,
-  ProbeScenario,
-  ProbeSpanName,
-  ProbeTraceSpanV1,
+import {
+  sameProbeNormalizedErrorV1,
+  type ProbeSampleResultV1,
+  type ProbeScenario,
+  type ProbeSpanName,
+  type ProbeTraceSpanV1,
 } from "./protocol";
 
 type ExpectedSpan = readonly [
@@ -142,7 +142,9 @@ export function validateProbeTraceV1(
       : invalid("outcome_mismatch", null);
   }
   const sampleError = sample.outcome.error;
-  return spanErrors.some(error => sameError(error, sampleError))
+  return spanErrors.some(error =>
+    sameProbeNormalizedErrorV1(error, sampleError)
+  )
     ? { ok: true }
     : invalid("outcome_mismatch", null);
 }
@@ -162,15 +164,6 @@ function hasParentCycle(
         : spansById.get(current.parentSpanId);
   }
   return false;
-}
-
-function sameError(
-  left: ProbeNormalizedErrorV1,
-  right: ProbeNormalizedErrorV1,
-): boolean {
-  return left.code === right.code &&
-    left.retryable === right.retryable &&
-    left.stage === right.stage;
 }
 
 function invalid(
