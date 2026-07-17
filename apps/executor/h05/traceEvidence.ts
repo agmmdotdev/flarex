@@ -4,6 +4,7 @@ import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 
 import { decodeExactH05Scalar } from "./exactScalar";
+import { decodeExactH05StringTuple } from "./exactStringTuple";
 import { requireExactH05Record } from "./exactRecord";
 import { formatH05JsonDocument } from "./jsonDocument";
 import {
@@ -1000,10 +1001,11 @@ function decodeTrace(value: unknown, path: string): H05NormalizedTraceEvidence {
       startedAt: isoTimestamp(record.startedAt, `${path}.startedAt`),
       finishedAt: isoTimestamp(record.finishedAt, `${path}.finishedAt`),
       spanCount: positiveSafeInteger(record.spanCount, `${path}.spanCount`),
-      services: exactStringTuple(
+      services: decodeExactH05StringTuple(
         record.services,
         [h05ExecutorWorkerName, h05ProbeWorkerName],
         `${path}.services`,
+        fail,
       ),
       probe: decodeInvocation(record.probe, `${path}.probe`, "probe"),
       executor: decodeInvocation(
@@ -1044,10 +1046,11 @@ function decodeTrace(value: unknown, path: string): H05NormalizedTraceEvidence {
       startedAt: isoTimestamp(record.startedAt, `${path}.startedAt`),
       finishedAt: isoTimestamp(record.finishedAt, `${path}.finishedAt`),
       spanCount: positiveSafeInteger(record.spanCount, `${path}.spanCount`),
-      services: exactStringTuple(
+      services: decodeExactH05StringTuple(
         record.services,
         [h05ProbeWorkerName],
         `${path}.services`,
+        fail,
       ),
       probe: decodeInvocation(record.probe, `${path}.probe`, "probe"),
     };
@@ -1378,21 +1381,6 @@ function recordWithRequiredKeys(
     if (!Object.hasOwn(value, key)) failAt(path, `must contain ${key}.`);
   }
   return value;
-}
-
-function exactStringTuple<const Values extends readonly string[]>(
-  value: unknown,
-  expected: Values,
-  path: string,
-): Values {
-  if (
-    !Array.isArray(value) ||
-    value.length !== expected.length ||
-    value.some((entry, index) => entry !== expected[index])
-  ) {
-    failAt(path, `must equal ${JSON.stringify(expected)}.`);
-  }
-  return expected;
 }
 
 function sha256String(value: unknown, path: string): H05TraceSha256 {

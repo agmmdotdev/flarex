@@ -6,6 +6,7 @@ import {
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import { decodeExactH05Scalar } from "./exactScalar";
+import { decodeExactH05StringTuple } from "./exactStringTuple";
 import { formatH05JsonDocument } from "./jsonDocument";
 import {
   decodeH05ProofRunId,
@@ -859,10 +860,11 @@ function decodeVersion(
     return {
       versionId: common.versionId,
       compatibilityDate: common.compatibilityDate,
-      compatibilityFlags: exactStringTuple(
+      compatibilityFlags: decodeExactH05StringTuple(
         record.compatibilityFlags,
         ["nodejs_compat"] as const,
         `${path}.compatibilityFlags`,
+        fail,
       ),
       placementMode: literal(
         record.placementMode,
@@ -878,10 +880,11 @@ function decodeVersion(
   return {
     versionId: common.versionId,
     compatibilityDate: common.compatibilityDate,
-    compatibilityFlags: exactStringTuple(
+    compatibilityFlags: decodeExactH05StringTuple(
       record.compatibilityFlags,
       [] as const,
       `${path}.compatibilityFlags`,
+      fail,
     ),
     placementMode: literal(
       record.placementMode,
@@ -1090,10 +1093,11 @@ function decodePrivacySnapshot(
       unfilteredTotalCount: customDomainUnfilteredTotalCount,
     },
     zones: {
-      requestedTypes: exactStringTuple(
+      requestedTypes: decodeExactH05StringTuple(
         zonesRecord.requestedTypes,
         h05ZoneTypes,
         `${path}.zones.requestedTypes`,
+        fail,
       ),
       pageCount,
       unfilteredTotalCount: zoneUnfilteredTotalCount,
@@ -1204,21 +1208,6 @@ function exactRecord(
     );
   }
   return value;
-}
-
-function exactStringTuple<const Expected extends readonly string[]>(
-  value: unknown,
-  expected: Expected,
-  path: string,
-): Expected {
-  if (
-    !Array.isArray(value) ||
-    value.length !== expected.length ||
-    value.some((item, index) => item !== expected[index])
-  ) {
-    fail(`${path} must equal ${JSON.stringify(expected)}.`);
-  }
-  return expected;
 }
 
 function zoneIdArray(value: unknown, path: string): readonly string[] {
