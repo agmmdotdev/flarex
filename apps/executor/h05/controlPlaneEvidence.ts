@@ -11,6 +11,7 @@ import {
   h05ProofIdentity,
   type H05ProofIdentity,
 } from "./proofIdentity";
+import { requireOrderedH05Timestamps } from "./timestampOrder";
 import {
   h05ExecutorCompatibilityDate,
   h05ExecutorTokenName,
@@ -1334,9 +1335,7 @@ function httpsOrigin(value: unknown, path: string): string {
 }
 
 function assertTimestampOrder(first: string, second: string, path: string): void {
-  if (Date.parse(first) > Date.parse(second)) {
-    fail(`${path} timestamps are out of order.`);
-  }
+  requireOrderedH05Timestamps(first, second, path, fail);
 }
 
 function assertTimestampInWindow(

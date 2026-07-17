@@ -3,6 +3,7 @@ import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import { requireExactH05Record } from "./exactRecord";
 import { formatH05JsonDocument } from "./jsonDocument";
+import { requireOrderedH05Timestamps } from "./timestampOrder";
 import {
   decodeH05ControlPlaneEvidence,
   h05SourceEvidenceSha256,
@@ -444,9 +445,7 @@ function exactRecord<const Keys extends readonly string[]>(
 }
 
 function orderedTimestamps(earlier: string, later: string, path: string): void {
-  if (Date.parse(earlier) > Date.parse(later)) {
-    fail(`${path} timestamps are out of order.`);
-  }
+  requireOrderedH05Timestamps(earlier, later, path, fail);
 }
 
 function sha256String(value: unknown, path: string): H05HostedProofBundleSha256 {

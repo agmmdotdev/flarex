@@ -9,6 +9,7 @@ import {
   type H05ProofRunId,
 } from "./proofIdentity";
 import { h05ProbeEndpoint, h05ProbeHop } from "./probeProtocol";
+import { requireOrderedH05Timestamps } from "./timestampOrder";
 
 declare const sha256Brand: unique symbol;
 declare const gitCommitBrand: unique symbol;
@@ -948,9 +949,7 @@ function orderedTimestamps(
   second: IsoTimestamp,
   path: string,
 ): void {
-  if (Date.parse(first) > Date.parse(second)) {
-    fail(`${path} timestamps are out of order.`);
-  }
+  requireOrderedH05Timestamps(first, second, path, fail);
 }
 
 function fail(message: string): never {

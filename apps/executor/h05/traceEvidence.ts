@@ -15,6 +15,7 @@ import {
   type H05ProofRunId,
 } from "./proofIdentity";
 import { h05ProbeEndpoint } from "./probeProtocol";
+import { requireOrderedH05Timestamps } from "./timestampOrder";
 import {
   decodeH05DataPlaneEvidence,
   h05AuthorizedInvocationCount,
@@ -1337,9 +1338,7 @@ function orderedTimestamps(
   later: H05IsoTimestamp,
   path: string,
 ): void {
-  if (timestampMs(earlier) > timestampMs(later)) {
-    fail(`${path} timestamps are out of order.`);
-  }
+  requireOrderedH05Timestamps(earlier, later, path, fail);
 }
 
 function timestampInWindow(
