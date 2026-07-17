@@ -17,6 +17,7 @@ import {
   type H05ProofRunId,
 } from "./proofIdentity";
 import { h05ProbeEndpoint } from "./probeProtocol";
+import { isH05LowercaseSha256Digest } from "./sha256";
 import { requireOrderedH05Timestamps } from "./timestampOrder";
 import {
   decodeH05DataPlaneEvidence,
@@ -1384,7 +1385,7 @@ function recordWithRequiredKeys(
 }
 
 function sha256String(value: unknown, path: string): H05TraceSha256 {
-  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
+  if (!isH05LowercaseSha256Digest(value)) {
     failAt(path, "must be a lowercase SHA-256 digest.");
   }
   return value as H05TraceSha256;

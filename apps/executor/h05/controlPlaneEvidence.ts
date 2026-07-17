@@ -13,6 +13,7 @@ import {
   h05ProofIdentity,
   type H05ProofIdentity,
 } from "./proofIdentity";
+import { isH05LowercaseSha256Digest } from "./sha256";
 import { requireOrderedH05Timestamps } from "./timestampOrder";
 import {
   h05ExecutorCompatibilityDate,
@@ -1287,7 +1288,11 @@ function isoTimestamp(value: unknown, path: string): string {
 }
 
 function sha256String(value: unknown, path: string): string {
-  return patternString(value, /^[a-f0-9]{64}$/, path);
+  const decoded = nonEmptyString(value, path);
+  if (!isH05LowercaseSha256Digest(decoded)) {
+    fail(`${path} has an invalid format.`);
+  }
+  return decoded;
 }
 
 function cloudflareId(value: unknown, path: string): string {

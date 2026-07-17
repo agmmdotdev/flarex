@@ -41,6 +41,18 @@ describe("H05 hosted receipt-v2 summary", () => {
     });
   });
 
+  it("retains receipt-owned rejection of all-zero SHA-256 placeholders", () => {
+    const receipt = validReceipt();
+    nestedRecord(receipt, "inputs").dataPlaneEvidenceSha256 = "0".repeat(64);
+
+    expect(decodeH05HostedReceipt(receipt)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "inputs.dataPlaneEvidenceSha256 must not use an all-zero placeholder.",
+      ),
+    });
+  });
+
   it("retains canonical invocation and data-plane evidence contracts", () => {
     const dataPlane = validH05TraceDataPlaneEvidence();
     const invocation = recordClone(dataPlane.invocation);

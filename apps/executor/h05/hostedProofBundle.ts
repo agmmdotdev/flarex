@@ -14,6 +14,7 @@ import {
   verifyH05ProbeTeardownEvidenceDependencies,
   type H05ProbeTeardownEvidence,
 } from "./probeTeardownEvidence";
+import { isH05LowercaseSha256Digest } from "./sha256";
 import {
   decodeH05DataPlaneEvidence,
   decodeH05HostedReceipt,
@@ -449,7 +450,7 @@ function orderedTimestamps(earlier: string, later: string, path: string): void {
 }
 
 function sha256String(value: unknown, path: string): H05HostedProofBundleSha256 {
-  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
+  if (!isH05LowercaseSha256Digest(value)) {
     fail(`${path} must be a lowercase SHA-256 digest.`);
   }
   return value as H05HostedProofBundleSha256;

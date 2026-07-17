@@ -10,6 +10,7 @@ import {
   type H05ProofRunId,
 } from "./proofIdentity";
 import { h05ProbeEndpoint, h05ProbeHop } from "./probeProtocol";
+import { isH05LowercaseSha256Digest } from "./sha256";
 import { requireOrderedH05Timestamps } from "./timestampOrder";
 
 declare const sha256Brand: unique symbol;
@@ -52,7 +53,16 @@ const h05HopHeader = h05ProbeHop.header;
 const h05HopValue = h05ProbeHop.value;
 const h05SeedTimestamp = 10;
 
-const sha256Decoder = nonPlaceholderBrandedPattern<Sha256>(/^[a-f0-9]{64}$/);
+const sha256Decoder: Decoder<Sha256> = (value, path) => {
+  const decoded = nonEmptyString(value, path);
+  if (!isH05LowercaseSha256Digest(decoded)) {
+    fail(`${path} has an invalid format.`);
+  }
+  if (/^0+$/.test(decoded)) {
+    fail(`${path} must not use an all-zero placeholder.`);
+  }
+  return decoded as Sha256;
+};
 const gitCommitDecoder = nonPlaceholderBrandedPattern<GitCommit>(
   /^[a-f0-9]{40}$/,
 );
