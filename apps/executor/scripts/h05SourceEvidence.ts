@@ -1,7 +1,7 @@
-import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 
 import type { H05ControlPlaneSourceEvidence } from "../h05/controlPlaneEvidence";
+import { commandOutput } from "./commandOutput";
 export { h05SourceEvidenceSha256 } from "../h05/controlPlaneEvidence";
 
 export type H05SourceEvidenceErrorCode =
@@ -21,7 +21,7 @@ export class H05SourceEvidenceError extends Error {
 }
 
 export function readH05SourceEvidence(): H05ControlPlaneSourceEvidence {
-  const commit = commandOutput("git", ["rev-parse", "HEAD"]);
+  const commit = sourceEvidenceCommandOutput("git", ["rev-parse", "HEAD"]);
   if (!/^[a-f0-9]{40}$/.test(commit)) {
     throw new H05SourceEvidenceError(
       "invalid-commit",
@@ -29,7 +29,7 @@ export function readH05SourceEvidence(): H05ControlPlaneSourceEvidence {
     );
   }
   if (
-    commandOutput("git", [
+    sourceEvidenceCommandOutput("git", [
       "status",
       "--porcelain=v1",
       "--untracked-files=all",
@@ -40,7 +40,7 @@ export function readH05SourceEvidence(): H05ControlPlaneSourceEvidence {
       "H05 source evidence requires a clean worktree.",
     );
   }
-  const wranglerVersion = commandOutput(process.execPath, [
+  const wranglerVersion = sourceEvidenceCommandOutput(process.execPath, [
     "--no-warnings",
     createRequire(import.meta.url).resolve("wrangler"),
     "--version",
@@ -66,15 +66,12 @@ export function assertH05SourceEvidenceUnchanged(
   }
 }
 
-function commandOutput(executable: string, args: readonly string[]): string {
+function sourceEvidenceCommandOutput(
+  executable: string,
+  args: readonly string[],
+): string {
   try {
-    return execFileSync(executable, args, {
-      encoding: "utf8",
-      maxBuffer: 64 * 1024,
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 10_000,
-      windowsHide: true,
-    }).trim();
+    return commandOutput(executable, args);
   } catch {
     throw new H05SourceEvidenceError(
       "command-failed",

@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { realpath, stat } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { argv, env } from "node:process";
@@ -8,6 +7,7 @@ import {
   serializeH05ControlPlaneEvidence,
 } from "../h05/controlPlaneEvidence";
 import { createH05CloudflareReadApi } from "./cloudflareReadApi";
+import { commandOutput } from "./commandOutput";
 import {
   collectH05ControlPlaneEvidence,
   decodeH05ExpectedPostgresTarget,
@@ -103,13 +103,3 @@ await writeNewAtomicEvidenceFile(outputPath, serialized);
 console.log(
   `Collected H05 control-plane evidence for ${evidence.run.deploymentId}; matching privacy sweeps found no executor ingress across ${evidence.executor.privacy.closing.zones.zoneIds.length} operator-attested account zones.`,
 );
-
-function commandOutput(executable: string, args: readonly string[]): string {
-  return execFileSync(executable, args, {
-    encoding: "utf8",
-    maxBuffer: 64 * 1024,
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: 10_000,
-    windowsHide: true,
-  }).trim();
-}

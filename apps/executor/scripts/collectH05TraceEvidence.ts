@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { argv, env } from "node:process";
@@ -10,6 +9,7 @@ import {
   serializeH05TraceEvidence,
 } from "../h05/traceEvidence";
 import { createH05CloudflareTelemetryApi } from "./cloudflareTelemetryApi";
+import { commandOutput } from "./commandOutput";
 import { collectH05TraceEvidence } from "./h05TraceCollector";
 import {
   assertNewEvidencePath,
@@ -143,14 +143,4 @@ async function resolveOutsideWorktreeOutput(
     throw new Error("H05 trace evidence output must stay outside the Git worktree.");
   }
   return outputPath;
-}
-
-function commandOutput(executable: string, args: readonly string[]): string {
-  return execFileSync(executable, args, {
-    encoding: "utf8",
-    maxBuffer: 64 * 1024,
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: 10_000,
-    windowsHide: true,
-  }).trim();
 }

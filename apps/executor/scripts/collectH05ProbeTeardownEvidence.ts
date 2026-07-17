@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { argv, env } from "node:process";
@@ -14,6 +13,7 @@ import {
   h05ProbeWorkerName,
 } from "../h05/receipt";
 import { createH05CloudflareProbeTeardownApi } from "./cloudflareProbeTeardownApi";
+import { commandOutput } from "./commandOutput";
 import {
   assertNewEvidencePath,
   isPathInside,
@@ -151,14 +151,4 @@ async function resolveOutsideWorktreeOutput(
     );
   }
   return outputPath;
-}
-
-function commandOutput(executable: string, args: readonly string[]): string {
-  return execFileSync(executable, args, {
-    encoding: "utf8",
-    maxBuffer: 64 * 1024,
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: 10_000,
-    windowsHide: true,
-  }).trim();
 }

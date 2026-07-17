@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { realpath, stat } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { argv } from "node:process";
@@ -9,6 +8,7 @@ import {
   h05DataPlaneEvidenceFormat,
   serializeH05DataPlaneEvidence,
 } from "../h05/receipt";
+import { commandOutput } from "./commandOutput";
 import {
   assertNewEvidencePath,
   isPathInside,
@@ -72,16 +72,6 @@ await writeNewAtomicEvidenceFile(outputPath, dataPlaneEvidenceJson);
 console.log(
   `Collected H05 data-plane evidence for ${result.fixture.deploymentId}; PostgreSQL cleanup retained ${result.cleanup.proofRowsRemaining} rows.`,
 );
-
-function commandOutput(executable: string, args: readonly string[]): string {
-  return execFileSync(executable, args, {
-    encoding: "utf8",
-    maxBuffer: 64 * 1024,
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: 10_000,
-    windowsHide: true,
-  }).trim();
-}
 
 function readSourceCommit(): string {
   const commit = commandOutput("git", ["rev-parse", "HEAD"]);

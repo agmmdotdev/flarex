@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { argv } from "node:process";
@@ -13,6 +12,7 @@ import {
 import { decodeH05ProbeTeardownEvidenceJson } from "../h05/probeTeardownEvidence";
 import { decodeH05DataPlaneEvidenceJson } from "../h05/receipt";
 import { decodeH05TraceEvidenceJson } from "../h05/traceEvidence";
+import { commandOutput } from "./commandOutput";
 import {
   assertNewEvidencePath,
   isPathInside,
@@ -152,14 +152,4 @@ async function resolveOutsideWorktreeOutput(
     throw new Error("H05 hosted proof bundle output must stay outside the Git worktree.");
   }
   return outputPath;
-}
-
-function commandOutput(executable: string, args: readonly string[]): string {
-  return execFileSync(executable, args, {
-    encoding: "utf8",
-    maxBuffer: 64 * 1024,
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: 10_000,
-    windowsHide: true,
-  }).trim();
 }
