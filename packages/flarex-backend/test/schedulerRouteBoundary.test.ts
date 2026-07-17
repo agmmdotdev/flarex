@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodeSchedulerCleanupConnectionsRoutePayload,
@@ -21,6 +21,7 @@ import {
   SchedulerRoutePayloadError,
 } from "../src/scheduler/Requests";
 import {
+  continuationNextRunAtFromStorage,
   decodePendingConnectionCleanupFromStorage,
   decodePendingDeliveryReconcileFromStorage,
   decodePendingRerunFromStorage,
@@ -479,16 +480,35 @@ describe("scheduler route boundary", () => {
       decodePendingDeliveryReconcileFromStorage(null),
       "pending live query delivery reconcile must be an object.",
     );
+    let deliveryLimitReads = 0;
+    await expectSchedulerPendingStateFailure(
+      decodePendingDeliveryReconcileFromStorage({
+        ...deliveryPending,
+        limit: 0,
+        get deliveryLimit() {
+          deliveryLimitReads += 1;
+          return 10;
+        },
+      }),
+      "pending delivery reconcile limit must be a positive integer.",
+    );
+    expect(deliveryLimitReads).toBe(0);
+
+    let deliveryCursorDeploymentIdReads = 0;
     await expectSchedulerPendingStateFailure(
       decodePendingDeliveryReconcileFromStorage({
         ...deliveryPending,
         cursor: {
           oldestCreatedAt: "not a date",
-          deploymentId: "deployment-a",
+          get deploymentId() {
+            deliveryCursorDeploymentIdReads += 1;
+            return "deployment-a";
+          },
         },
       }),
       "pending delivery reconcile cursor.oldestCreatedAt must be an ISO date string.",
     );
+    expect(deliveryCursorDeploymentIdReads).toBe(0);
 
     const cleanupPending: PendingLiveQueryConnectionCleanup = {
       expiredAt: "2026-06-23T00:00:00.000Z",
@@ -503,13 +523,35 @@ describe("scheduler route boundary", () => {
     await expect(Effect.runPromise(
       decodePendingConnectionCleanupFromStorage(cleanupPending),
     )).resolves.toEqual(cleanupPending);
+    let cleanupLimitReads = 0;
     await expectSchedulerPendingStateFailure(
       decodePendingConnectionCleanupFromStorage({
         ...cleanupPending,
         expiredAt: "not a date",
+        get limit() {
+          cleanupLimitReads += 1;
+          return 25;
+        },
       }),
       "pending connection cleanup expiredAt must be an ISO date string.",
     );
+    expect(cleanupLimitReads).toBe(0);
+
+    let cleanupCursorDeploymentIdReads = 0;
+    await expectSchedulerPendingStateFailure(
+      decodePendingConnectionCleanupFromStorage({
+        ...cleanupPending,
+        cursor: {
+          oldestExpiredAt: "not a date",
+          get deploymentId() {
+            cleanupCursorDeploymentIdReads += 1;
+            return "deployment-a";
+          },
+        },
+      }),
+      "pending connection cleanup cursor.oldestExpiredAt must be an ISO date string.",
+    );
+    expect(cleanupCursorDeploymentIdReads).toBe(0);
 
     const rerunPending: PendingLiveQueryRerun = {
       deploymentId: "deployment-a",
@@ -530,6 +572,35 @@ describe("scheduler route boundary", () => {
       }),
       "pending rerun limit must be a positive integer.",
     );
+    let rerunDeploymentIdReads = 0;
+    await expectSchedulerPendingStateFailure(
+      decodePendingRerunFromStorage({
+        ...rerunPending,
+        projectId: "",
+        get deploymentId() {
+          rerunDeploymentIdReads += 1;
+          return "";
+        },
+        limit: 0,
+      }),
+      "pending rerun projectId must be a non-empty string.",
+    );
+    expect(rerunDeploymentIdReads).toBe(0);
+  });
+
+  it("preserves scheduler continuation alarm-time fallback behavior", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    try {
+      expect(continuationNextRunAtFromStorage(undefined, 500)).toBeNull();
+      expect(continuationNextRunAtFromStorage(null, 500)).toBe(1_500);
+      expect(continuationNextRunAtFromStorage([], 500)).toBe(1_500);
+      expect(continuationNextRunAtFromStorage({}, 500)).toBe(1_500);
+      expect(continuationNextRunAtFromStorage({
+        nextRunAt: "2026-06-23T00:00:13.000Z",
+      }, 500)).toBe(Date.parse("2026-06-23T00:00:13.000Z"));
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("maps scheduler pending-state errors at the adapter boundary", () => {

@@ -140,6 +140,15 @@ Raw HTTP JSON readers return `unknown`. An unconstrained generic type argument
 or assertion does not validate a response body and must not let callers choose
 an arbitrary success type. Keep the domain-owned payload decoder as the sole
 authority that turns the raw body into a typed success value.
+When a pure recoverable decoder serves both a typed Effect API and an existing
+throwing compatibility API, keep one domain-local Effect v4 `Result`
+normalizer. Enter the Effect error channel once with `Effect.fromResult`, and
+use `Result.getOrThrow` only at the explicit unchecked compatibility boundary.
+Do not maintain a parallel ad-hoc result union or result-to-Effect adapter, and
+do not move the domain decoder into `@flarex/utils` merely to share those two
+boundary forms. Identify the concrete shipped or supported consumer before
+retaining that unchecked wrapper; code presence and a regression test do not
+create a compatibility obligation, and an unused wrapper should be deleted.
 When multiple Effect consumers call the same Promise-based protocol operation,
 prefer one protocol-owned Effect adapter that preserves its typed failures and
 routes unexpected causes to defects. Consumers may translate the typed error

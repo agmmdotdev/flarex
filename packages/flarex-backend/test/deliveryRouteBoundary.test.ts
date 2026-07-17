@@ -196,17 +196,36 @@ describe("delivery route boundary", () => {
       message: "Pending delivery drain state must be an object.",
     });
 
+    let cursorDeliveryIdReads = 0;
     const cursorFailure = await pendingDrainStateFailure({
       ...pending,
       cursor: {
         createdAt: "not-a-date",
-        deliveryId: "delivery-1",
+        get deliveryId() {
+          cursorDeliveryIdReads += 1;
+          return "delivery-1";
+        },
       },
     });
     expect(cursorFailure).toMatchObject({
       _tag: "DeliveryPendingDrainStateError",
       message: "pending delivery drain cursor.createdAt must be an ISO date string.",
     });
+    expect(cursorDeliveryIdReads).toBe(0);
+
+    let limitReads = 0;
+    const firstFailure = await pendingDrainStateFailure({
+      ...pending,
+      deploymentId: "",
+      get limit() {
+        limitReads += 1;
+        return 0;
+      },
+    });
+    expect(firstFailure.message).toBe(
+      "pending delivery drain deploymentId must be a non-empty string.",
+    );
+    expect(limitReads).toBe(0);
   });
 
   it("maps pending drain storage state errors at the adapter boundary", () => {

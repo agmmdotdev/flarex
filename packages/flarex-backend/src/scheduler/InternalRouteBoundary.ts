@@ -88,11 +88,10 @@ export function runSchedulerRoute(
 
 export const schedulerInternalRouteErrorToResponseEffect = Effect.fn(
   "SchedulerInternalRouteBoundary.errorToResponse",
-)(function* (
-  error: SchedulerInternalRouteError,
-): Effect.fn.Return<Response> {
-  return yield* Effect.succeed(errorResponse(schedulerInternalRouteErrorToHttpError(error)));
-});
+)(
+  (error: SchedulerInternalRouteError): Effect.Effect<Response> =>
+    Effect.succeed(errorResponse(schedulerInternalRouteErrorToHttpError(error))),
+);
 
 export function schedulerInternalRouteErrorToHttpError(
   error: SchedulerInternalRouteError,
@@ -133,8 +132,7 @@ function schedulerRouteErrorToHttpError(error: SchedulerRouteError): HttpError {
 
 export const schedulerInternalRouteErrorToHttpErrorEffect = Effect.fn(
   "SchedulerInternalRouteBoundary.errorToHttpError",
-)(function* (
-  error: SchedulerInternalRouteError,
-): Effect.fn.Return<never, HttpError> {
-  return yield* Effect.fail(schedulerInternalRouteErrorToHttpError(error));
-});
+)(
+  (error: SchedulerInternalRouteError): Effect.Effect<never, HttpError> =>
+    Effect.fail(schedulerInternalRouteErrorToHttpError(error)),
+);

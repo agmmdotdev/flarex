@@ -338,10 +338,13 @@ semantics.
   exact spelling, and this host policy stays out of `@flarex/utils`.
 - The Effect boundary checker rejects synchronous execution, hidden aliases,
   direct runtime imports, and unregistered production `runPromise` sites.
-- Pure protocol payload normalizers that intentionally retain validation as
-  data use Effect v4 `Result` and enter the Effect error channel once through
-  `Effect.fromResult`; they do not maintain parallel ad-hoc result unions and
-  result-to-Effect adapters.
+- Pure protocol payload and backend storage-state normalizers that intentionally
+  retain validation as data use one domain-local Effect v4 `Result` decoder.
+  They enter the Effect error channel once through `Effect.fromResult` and do
+  not maintain parallel ad-hoc result unions or result-to-Effect adapters.
+  Unused backend throwing wrappers were removed; `Result.getOrThrow` is reserved
+  for an explicit unchecked API with a concrete supported compatibility
+  consumer, not one inferred from existing code or tests.
 - `@flarex/utils/records` owns shallow non-null, non-array object narrowing as
   both a predicate and nullable adapter. It deliberately does not promise a
   plain prototype, JSON membership, symbol-key rejection, or runtime

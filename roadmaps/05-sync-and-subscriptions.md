@@ -1418,6 +1418,10 @@ Known limitations:
 
 - SchedulerDO still has separate response-body and route-operation failure
   boundaries; this checkpoint only moves persisted continuation-state decoding.
+- Persisted scheduler timestamp fields currently accept any string parsed by
+  JavaScript `Date` and normalize it with `toISOString()`. They do not yet
+  require the canonical UTC spelling written by Flarex, so tightening corrupt
+  or timezone-sensitive inputs needs a separate storage trust-contract slice.
 - Delivery wake failure aggregation, executor maintenance response decoders,
   and PartitionDO SQL/OCC logic are unchanged.
 
@@ -1454,8 +1458,10 @@ Effect channel while preserving continuation, retry, and alarm behavior.
 
 Known limitations:
 
-- SchedulerDO pending continuation state still has its own remaining storage
-  validation surface.
+- Persisted delivery cursor timestamps currently accept any string parsed by
+  JavaScript `Date` and normalize it with `toISOString()`. They do not yet
+  require the canonical UTC spelling written by Flarex, so tightening corrupt
+  or timezone-sensitive inputs needs a separate storage trust-contract slice.
 - Delivery target validation and claim/fanout/ack failure aggregation are
   unchanged.
 - PartitionDO SQL/OCC logic is unchanged.

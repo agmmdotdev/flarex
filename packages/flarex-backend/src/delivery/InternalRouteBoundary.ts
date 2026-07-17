@@ -39,11 +39,10 @@ export function deliveryInternalRouteErrorToResponse(
 
 export const deliveryInternalRouteErrorToResponseEffect = Effect.fn(
   "DeliveryInternalRouteBoundary.errorToResponse",
-)(function* (
-  error: DeliveryInternalRouteError,
-): Effect.fn.Return<Response> {
-  return yield* Effect.succeed(deliveryInternalRouteErrorToResponse(error));
-});
+)(
+  (error: DeliveryInternalRouteError): Effect.Effect<Response> =>
+    Effect.succeed(deliveryInternalRouteErrorToResponse(error)),
+);
 
 export function deliveryInternalRouteErrorToHttpError(
   error: Exclude<DeliveryInternalRouteError, DeliveryDrainFailureLike>,
@@ -69,11 +68,11 @@ function deliveryWakeRouteErrorToHttpError(error: DeliveryWakeRouteError): HttpE
 
 export const deliveryInternalRouteErrorToHttpErrorEffect = Effect.fn(
   "DeliveryInternalRouteBoundary.errorToHttpError",
-)(function* (
-  error: Exclude<DeliveryInternalRouteError, DeliveryDrainFailureLike>,
-): Effect.fn.Return<never, HttpError> {
-  return yield* Effect.fail(deliveryInternalRouteErrorToHttpError(error));
-});
+)(
+  (
+    error: Exclude<DeliveryInternalRouteError, DeliveryDrainFailureLike>,
+  ): Effect.Effect<never, HttpError> => Effect.fail(deliveryInternalRouteErrorToHttpError(error)),
+);
 
 function isDeliveryDrainFailure(
   error: DeliveryInternalRouteError,
