@@ -5,6 +5,7 @@ import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { decodeExactH05Scalar } from "./exactScalar";
 import { formatH05JsonDocument } from "./jsonDocument";
 import { isH05FullLowercaseGitCommit } from "./gitCommit";
+import { isH05CanonicalIsoTimestamp } from "./isoTimestamp";
 import {
   decodeH05ProofRunId,
   h05ProofIdentity,
@@ -898,8 +899,7 @@ function positiveSafeInteger(value: unknown, path: string): number {
 
 function isoTimestampDecoder(value: unknown, path: string): IsoTimestamp {
   const decoded = nonEmptyString(value, path);
-  const parsed = Date.parse(decoded);
-  if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== decoded) {
+  if (!isH05CanonicalIsoTimestamp(decoded)) {
     fail(`${path} must be a canonical UTC ISO timestamp.`);
   }
   return decoded as IsoTimestamp;

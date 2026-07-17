@@ -45,6 +45,15 @@ interface FixtureOverrides {
 }
 
 describe("H05 Cloudflare control-plane collector", () => {
+  it("retains the collector canonical timestamp diagnostic", async () => {
+    const fixture = fixtureApi();
+
+    await expect(collectH05ControlPlaneEvidence({
+      ...collectorOptions(fixture.api),
+      now: () => "2026-07-11T10:00:00.000+00:00",
+    })).rejects.toThrow("must be a canonical UTC ISO timestamp");
+  });
+
   it("projects a complete sanitized preflight and paginates every visible zone", async () => {
     const fixture = fixtureApi();
     const evidence = await collectH05ControlPlaneEvidence(

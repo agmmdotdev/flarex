@@ -43,6 +43,24 @@ interface FixtureApi {
 }
 
 describe("H05 trace collector", () => {
+  it("retains the collector canonical timestamp diagnostic", async () => {
+    const fixture = fixtureApi();
+
+    await expect(collectH05TraceEvidence({
+      accountId: h05TraceFixtureAccountId,
+      api: fixture.api,
+      controlPlaneBefore: validH05TraceControlPlaneEvidence("before"),
+      dataPlane: validH05TraceDataPlaneEvidence(),
+      controlPlaneAfter: validH05TraceControlPlaneEvidence("after"),
+      maximumAttempts: 2,
+      now: () => "2026-07-11T10:01:04.000+00:00",
+      settleDelayMs: 1,
+      sleep: async () => undefined,
+    })).rejects.toThrow(
+      "H05 trace collection startedAt must be a canonical ISO timestamp.",
+    );
+  });
+
   it("collects two stable redacted sweeps and compiles the pre/post join", async () => {
     const fixture = fixtureApi();
     const sleeps: number[] = [];

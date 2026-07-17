@@ -56,6 +56,23 @@ describe("H05 probe teardown evidence contract", () => {
     });
   });
 
+  it("retains the teardown canonical timestamp diagnostic", () => {
+    const collection = validCollection();
+    nestedRecord(collection, "window").startedAt =
+      "2026-07-11T10:03:08.000+00:00";
+
+    expect(compileH05ProbeTeardownEvidence(
+      validH05TraceDataPlaneEvidence(),
+      validH05TraceControlPlaneEvidence("after"),
+      collection,
+    )).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "window.startedAt must be a canonical UTC ISO timestamp.",
+      ),
+    });
+  });
+
   it("supports an idempotent already-absent retry", () => {
     const collection = validCollection();
     collection.deletion = {

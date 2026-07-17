@@ -8,6 +8,7 @@ import { decodeExactH05StringTuple } from "./exactStringTuple";
 import { requireExactH05Record } from "./exactRecord";
 import { formatH05JsonDocument } from "./jsonDocument";
 import { isH05FullLowercaseGitCommit } from "./gitCommit";
+import { isH05CanonicalIsoTimestamp } from "./isoTimestamp";
 import {
   decodeH05ControlPlaneEvidence,
   type H05ControlPlaneEvidence,
@@ -1411,8 +1412,7 @@ function wranglerVersion(value: unknown, path: string): string {
 
 function isoTimestamp(value: unknown, path: string): H05IsoTimestamp {
   if (typeof value !== "string") failAt(path, "must be an ISO timestamp.");
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== value) {
+  if (!isH05CanonicalIsoTimestamp(value)) {
     failAt(path, "must be a canonical ISO timestamp.");
   }
   return value as H05IsoTimestamp;

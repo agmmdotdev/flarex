@@ -10,6 +10,7 @@ import {
   h05CloudflareAccountIdSha256,
   type H05ControlPlaneEvidence,
 } from "../h05/controlPlaneEvidence";
+import { isH05CanonicalIsoTimestamp } from "../h05/isoTimestamp";
 import { h05ProbeEndpoint } from "../h05/probeProtocol";
 import {
   decodeH05DataPlaneEvidence,
@@ -983,8 +984,7 @@ function providerRecord(
 }
 
 function canonicalIsoTimestamp(value: string, context: string): H05IsoTimestamp {
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== value) {
+  if (!isH05CanonicalIsoTimestamp(value)) {
     throw new Error(`H05 ${context} must be a canonical ISO timestamp.`);
   }
   return value as H05IsoTimestamp;

@@ -49,6 +49,20 @@ describe("H05 trace evidence contract", () => {
     });
   });
 
+  it("retains the trace canonical timestamp diagnostic", () => {
+    const evidence = recordClone(validCompiledEvidence());
+    const window = nestedRecord(evidence, "window");
+    nestedRecord(window, "collection").startedAt =
+      "2026-07-11T10:01:04.000+00:00";
+
+    expect(decodeH05TraceEvidence(evidence)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "window.collection.startedAt must be a canonical ISO timestamp.",
+      ),
+    });
+  });
+
   it("persists hashes rather than raw telemetry identifiers", () => {
     const compiled = validCompiledEvidence();
     const serialized = serializeH05TraceEvidence(compiled);

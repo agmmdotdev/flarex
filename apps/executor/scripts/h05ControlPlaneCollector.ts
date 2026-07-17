@@ -26,6 +26,7 @@ import {
   type H05TraceSettingsEvidence,
   type H05WorkerVersionEvidence,
 } from "../h05/controlPlaneEvidence";
+import { isH05CanonicalIsoTimestamp } from "../h05/isoTimestamp";
 import {
   h05ExecutorWorkerName,
   h05ProbeWorkerName,
@@ -1141,8 +1142,7 @@ function decodeUrlComponent(value: string, path: string): string {
 }
 
 function canonicalTimestamp(value: string, path: string): string {
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== value) {
+  if (!isH05CanonicalIsoTimestamp(value)) {
     throw new Error(`${path} must be a canonical UTC ISO timestamp.`);
   }
   return value;

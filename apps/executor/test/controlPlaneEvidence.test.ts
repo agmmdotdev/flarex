@@ -29,6 +29,24 @@ describe("H05 control-plane evidence contract", () => {
     expect(compiled.value.evidenceSha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it("retains the control-plane canonical timestamp diagnostic", () => {
+    const payload = validPayload();
+    const compiled = compileH05ControlPlaneEvidence({
+      ...payload,
+      window: {
+        ...payload.window,
+        startedAt: "2026-07-11T10:00:00.000+00:00",
+      },
+    });
+
+    expect(compiled).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "window.startedAt must be a canonical UTC ISO timestamp.",
+      ),
+    });
+  });
+
   it("rejects a tampered outer hash and non-canonical JSON", () => {
     const compiled = compileH05ControlPlaneEvidence(validPayload());
     if (!compiled.ok) throw new Error(compiled.message);

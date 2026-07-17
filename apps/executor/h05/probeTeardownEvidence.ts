@@ -6,6 +6,7 @@ import { decodeExactH05Scalar } from "./exactScalar";
 import { requireExactH05Record } from "./exactRecord";
 import { formatH05JsonDocument } from "./jsonDocument";
 import { isH05FullLowercaseGitCommit } from "./gitCommit";
+import { isH05CanonicalIsoTimestamp } from "./isoTimestamp";
 import {
   decodeH05ControlPlaneEvidence,
   type H05ControlPlaneEvidence,
@@ -865,8 +866,7 @@ function isoTimestamp(
   path: string,
 ): H05ProbeTeardownIsoTimestamp {
   if (typeof value !== "string") failAt(path, "must be a string.");
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed) || new Date(parsed).toISOString() !== value) {
+  if (!isH05CanonicalIsoTimestamp(value)) {
     failAt(path, "must be a canonical UTC ISO timestamp.");
   }
   return value as H05ProbeTeardownIsoTimestamp;
