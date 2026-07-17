@@ -114,6 +114,10 @@ Do not move Effect Schema options, typed errors, authority or cryptographic
 logic, persistence codecs, canonical protocol encodings, universal deep-freeze
 logic, or legacy compatibility into `@flarex/utils`. Those concerns stay with
 their protocol, domain, persistence, host, or temporary migration owner.
+An algorithm that derives serialized Flarex metadata remains a protocol
+contract even when its implementation looks like generic string manipulation.
+Centralize such derivation with the protocol owner while keeping consumer
+validation messages and domain failure mapping local.
 
 Expose generic utilities through intentional subpath exports. Do not add a
 package-root catch-all barrel unless its public surface has been deliberately

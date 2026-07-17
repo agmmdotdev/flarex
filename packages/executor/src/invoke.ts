@@ -1,4 +1,5 @@
 import { asNonArrayRecord } from "@flarex/utils/records";
+import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
 
 import {
   DeploymentSchemaMetadataUnavailableError,
@@ -429,20 +430,6 @@ export function tableForName(
     throw new PartitionValidationError(`Unknown table: ${tableName}.`);
   }
   return table;
-}
-
-function selectorNameForPartitionField(field: string): string {
-  if (field === "_id") return "byId";
-  const suffix = field
-    .split(/[^A-Za-z0-9]+/)
-    .filter(part => part.length > 0)
-    .map(capitalize)
-    .join("");
-  return suffix.length === 0 ? "byPartition" : `by${suffix}`;
-}
-
-function capitalize(value: string): string {
-  return value.length === 0 ? value : `${value[0]!.toUpperCase()}${value.slice(1)}`;
 }
 
 export function encodeFlarexId(tableId: number, documentId: string = crypto.randomUUID()): string {

@@ -372,6 +372,11 @@ semantics.
   typed policy error while treating unexpected Promise causes as defects;
   issuer and verifier consumers reuse that adapter and translate only its typed
   error channel.
+- Partition-selector naming is serialized Flarex routing metadata, not a
+  generic casing utility. `flarex-protocol/partition-selector` owns the current
+  `_id` special case, ASCII segment normalization, and empty-suffix fallback;
+  analysis, codegen, backend validation, and executor invocation share that
+  derivation while retaining their own validation errors and messages.
 - Total unpadded Base64URL encoding reuses Effect `Encoding` rather than adding
   another Flarex utility implementation. Protocol canonicality checks still
   re-encode and compare at their owning boundary, while input limits, branded

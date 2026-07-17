@@ -3,6 +3,7 @@ import {
   decodeActiveDeploymentStatusEffect,
   DeploymentRoute,
 } from "flarex-protocol/deployment";
+import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
 import { HttpError, readResponseJsonEffect } from "./http";
 import {
   indexBoundsForExpressions,
@@ -710,20 +711,6 @@ function partitionValidationFailure(
   status: 400 | 500 = 400,
 ): Effect.Effect<never, InvokePartitionValidationError> {
   return Effect.fail(new InvokePartitionValidationError({ message, status }));
-}
-
-function selectorNameForPartitionField(field: string): string {
-  if (field === "_id") return "byId";
-  const suffix = field
-    .split(/[^A-Za-z0-9]+/)
-    .filter(part => part.length > 0)
-    .map(capitalize)
-    .join("");
-  return suffix.length === 0 ? "byPartition" : `by${suffix}`;
-}
-
-function capitalize(value: string): string {
-  return value.length === 0 ? value : `${value[0]!.toUpperCase()}${value.slice(1)}`;
 }
 
 export function invokeErrorResponse(error: unknown): Response {

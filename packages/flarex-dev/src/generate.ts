@@ -8,6 +8,7 @@ import {
 import type {
   DeploymentAnalysis as BackendDeploymentAnalysis,
 } from "flarex-backend/types";
+import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
 import {
   listFunctionModules,
   type AnalyzedFunction,
@@ -401,20 +402,6 @@ function partitionRootForTable(
     return partitionRootForTable(table.placement.table, tableByName, seen);
   }
   return null;
-}
-
-function selectorNameForPartitionField(field: string): string {
-  if (field === "_id") return "byId";
-  const suffix = field
-    .split(/[^A-Za-z0-9]+/)
-    .filter(part => part.length > 0)
-    .map(capitalize)
-    .join("");
-  return suffix.length === 0 ? "byPartition" : `by${suffix}`;
-}
-
-function capitalize(value: string): string {
-  return value.length === 0 ? value : `${value[0]!.toUpperCase()}${value.slice(1)}`;
 }
 
 function propertyKey(value: string): string {

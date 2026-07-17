@@ -25,6 +25,7 @@
     "./live-query": "./src/live-query.ts",
     "./ordered-index": "./src/ordered-index.ts",
     "./partition": "./src/partition.ts",
+    "./partition-selector": "./src/partition-selector.ts",
     "./point-mutation-start": "./src/point-mutation-start.ts",
     "./registry": "./src/registry.ts",
     "./scheduler": "./src/scheduler.ts",

@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { decodeAnalyzerProtocolSuccessResponseEffect } from "@flarex/analysis";
 import { decodeAuthConfigEffect } from "flarex-protocol/auth";
 import type { AnalyzedStartPushRequest as ProtocolAnalyzedStartPushRequest } from "flarex-protocol/deployment";
+import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
 import {
   decodeDeploymentStorageCodegenAnalysisJson,
   decodeDeploymentStorageDiagnosticsJson,
@@ -866,20 +867,6 @@ const decodeFunctionPartitionPolicy = Effect.fn("DeploymentValidation.decodeFunc
   }
   return yield* deploymentValidationFailureEffect(`${path}: Invalid partition policy.`);
 });
-
-function selectorNameForPartitionField(field: string): string {
-  if (field === "_id") return "byId";
-  const suffix = field
-    .split(/[^A-Za-z0-9]+/)
-    .filter(part => part.length > 0)
-    .map(capitalize)
-    .join("");
-  return suffix.length === 0 ? "byPartition" : `by${suffix}`;
-}
-
-function capitalize(value: string): string {
-  return value.length === 0 ? value : `${value[0]!.toUpperCase()}${value.slice(1)}`;
-}
 
 function validatorHasRequiredField(validator: ValidatorJson | null, field: string): boolean {
   return (
