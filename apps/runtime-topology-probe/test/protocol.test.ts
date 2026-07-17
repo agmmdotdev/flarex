@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,6 +6,7 @@ import {
   decodeProbeRunIdEffect,
 } from "../src/identity";
 import {
+  boundedProbeIntegerSchema,
   decodeProbeRunRequestV1Effect,
   decodeProbeSampleResultV1Effect,
   probeSampleIdentityV1,
@@ -20,6 +21,24 @@ import { runEffectTestSync } from "./effectTest";
 const runId = Effect.runSync(decodeProbeRunIdEffect("run_a"));
 
 describe("runtime topology probe protocol", () => {
+  it("builds the shared bounded-integer protocol Schema", () => {
+    const decode = Schema.decodeUnknownSync(
+      boundedProbeIntegerSchema(0, 4, "probe count"),
+    );
+
+    expect(decode(0)).toBe(0);
+    expect(decode(4)).toBe(4);
+    const negativeZero = decode(-0);
+    expect(Object.is(negativeZero, -0)).toBe(true);
+    expect(() => decode(-1)).toThrow(
+      "probe count must be an integer from 0 through 4",
+    );
+    expect(() => decode(5)).toThrow(
+      "probe count must be an integer from 0 through 4",
+    );
+    expect(() => decode(2.5)).toThrow();
+  });
+
   it("decodes one exact bounded run request", () => {
     const decoded = Effect.runSync(
       decodeProbeRunRequestV1Effect(validRequest()),

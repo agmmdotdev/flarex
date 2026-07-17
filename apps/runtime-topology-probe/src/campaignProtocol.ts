@@ -13,6 +13,7 @@ import {
   probeRunBudgetPlanV1,
 } from "./runProtocol";
 import {
+  boundedProbeIntegerSchema,
   PROBE_LIMITS_V1,
   ProbeProtocolVersionV1Schema,
   ProbeRunRequestV1Schema,
@@ -35,50 +36,37 @@ export const PROBE_CAMPAIGN_LIMITS_V1 = {
   purgeTasksPerStep: 16,
 } as const;
 
-const boundedInteger = (
-  minimum: number,
-  maximum: number,
-  label: string,
-) =>
-  Schema.Int.check(
-    Schema.makeFilter((value: number) =>
-      value >= minimum && value <= maximum
-        ? undefined
-        : `${label} must be an integer from ${minimum} through ${maximum}`
-    ),
-  );
-
-const RunCountSchema = boundedInteger(
+const RunCountSchema = boundedProbeIntegerSchema(
   0,
   PROBE_CAMPAIGN_LIMITS_V1.runCells,
   "campaign run count",
 );
-const SampleExecutionCountSchema = boundedInteger(
+const SampleExecutionCountSchema = boundedProbeIntegerSchema(
   0,
   PROBE_CAMPAIGN_LIMITS_V1.sampleExecutions,
   "campaign sample execution count",
 );
-const PayloadBudgetSchema = boundedInteger(
+const PayloadBudgetSchema = boundedProbeIntegerSchema(
   0,
   PROBE_CAMPAIGN_LIMITS_V1.payloadBytes,
   "campaign payload byte budget",
 );
-const JournalBudgetSchema = boundedInteger(
+const JournalBudgetSchema = boundedProbeIntegerSchema(
   0,
   PROBE_CAMPAIGN_LIMITS_V1.journalEntries,
   "campaign journal entry budget",
 );
-const CodeBudgetSchema = boundedInteger(
+const CodeBudgetSchema = boundedProbeIntegerSchema(
   0,
   PROBE_CAMPAIGN_LIMITS_V1.uniqueCodeIds,
   "campaign unique code ID budget",
 );
-const CollectorConcurrencySchema = boundedInteger(
+const CollectorConcurrencySchema = boundedProbeIntegerSchema(
   1,
   PROBE_CAMPAIGN_LIMITS_V1.collectorConcurrency,
   "collector concurrency",
 );
-const PurgeStepSizeSchema = boundedInteger(
+const PurgeStepSizeSchema = boundedProbeIntegerSchema(
   1,
   PROBE_CAMPAIGN_LIMITS_V1.purgeTasksPerStep,
   "purge step size",
@@ -126,7 +114,7 @@ export const ProbeCampaignStateV1Schema = Schema.Literals([
 ]);
 export type ProbeCampaignStateV1 = typeof ProbeCampaignStateV1Schema.Type;
 
-const CampaignTaskCountSchema = boundedInteger(
+const CampaignTaskCountSchema = boundedProbeIntegerSchema(
   0,
   PROBE_CAMPAIGN_LIMITS_V1.sampleExecutions * 3,
   "campaign task count",

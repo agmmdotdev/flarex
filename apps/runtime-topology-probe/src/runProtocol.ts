@@ -7,6 +7,7 @@ import {
   ProbeRunIdSchema,
 } from "./identity";
 import {
+  boundedProbeIntegerSchema,
   PROBE_LIMITS_V1,
   ProbeDurationMsSchema,
   ProbeProtocolVersionV1Schema,
@@ -37,32 +38,32 @@ export const PROBE_RUN_BUDGET_LIMITS_V1 = {
   uniqueCodeIds: PROBE_LIMITS_V1.maxNewCodeRepetitions,
 } as const;
 
-const SampleCountSchema = boundedInteger(
+const SampleCountSchema = boundedProbeIntegerSchema(
   0,
   PROBE_RUN_BUDGET_LIMITS_V1.sampleClaims,
   "sample count",
 );
-const PayloadBudgetSchema = boundedInteger(
+const PayloadBudgetSchema = boundedProbeIntegerSchema(
   0,
   PROBE_RUN_BUDGET_LIMITS_V1.payloadBytes,
   "payload byte budget",
 );
-const JournalBudgetSchema = boundedInteger(
+const JournalBudgetSchema = boundedProbeIntegerSchema(
   0,
   PROBE_RUN_BUDGET_LIMITS_V1.journalEntries,
   "journal entry budget",
 );
-const CodeBudgetSchema = boundedInteger(
+const CodeBudgetSchema = boundedProbeIntegerSchema(
   0,
   PROBE_RUN_BUDGET_LIMITS_V1.uniqueCodeIds,
   "unique code ID budget",
 );
-const ConcurrencyCountSchema = boundedInteger(
+const ConcurrencyCountSchema = boundedProbeIntegerSchema(
   0,
   PROBE_LIMITS_V1.maxConcurrency,
   "outstanding claim count",
 );
-const ObservedOutstandingClaimsSchema = boundedInteger(
+const ObservedOutstandingClaimsSchema = boundedProbeIntegerSchema(
   1,
   PROBE_LIMITS_V1.maxConcurrency,
   "observed outstanding claims",
@@ -300,7 +301,7 @@ export const ProbeRunControlReceiptV1Schema = Schema.Union([
 export type ProbeRunControlReceiptV1 =
   typeof ProbeRunControlReceiptV1Schema.Type;
 
-const EvidencePageLimitSchema = boundedInteger(
+const EvidencePageLimitSchema = boundedProbeIntegerSchema(
   1,
   100,
   "evidence page limit",
@@ -822,14 +823,4 @@ function sameBudgetValues(
     left.payloadBytes === right.payloadBytes &&
     left.journalEntries === right.journalEntries &&
     left.uniqueCodeIds === right.uniqueCodeIds;
-}
-
-function boundedInteger(minimum: number, maximum: number, label: string) {
-  return Schema.Int.check(
-    Schema.makeFilter((value: number) =>
-      value >= minimum && value <= maximum
-        ? undefined
-        : `${label} must be an integer from ${minimum} through ${maximum}`
-    ),
-  );
 }

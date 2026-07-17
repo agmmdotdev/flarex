@@ -97,18 +97,19 @@ export const ProbeErrorStageSchema = Schema.Union([
 ]);
 export type ProbeErrorStage = typeof ProbeErrorStageSchema.Type;
 
-const boundedInteger = (
+export function boundedProbeIntegerSchema(
   minimum: number,
   maximum: number,
   label: string,
-) =>
-  Schema.Int.check(
+): Schema.Codec<number> {
+  return Schema.Int.check(
     Schema.makeFilter((value: number) =>
       value >= minimum && value <= maximum
         ? undefined
         : `${label} must be an integer from ${minimum} through ${maximum}`
     ),
   );
+}
 
 export const ProbeDurationMsSchema = Schema.Number.check(
   Schema.makeFilter((value: number) =>
@@ -119,27 +120,27 @@ export const ProbeDurationMsSchema = Schema.Number.check(
 ).pipe(Schema.brand("Flarex/RuntimeTopologyProbeDurationMsV1"));
 export type ProbeDurationMs = typeof ProbeDurationMsSchema.Type;
 
-const RepetitionsSchema = boundedInteger(
+const RepetitionsSchema = boundedProbeIntegerSchema(
   1,
   PROBE_LIMITS_V1.maxRepetitions,
   "repetitions",
 );
-const WarmupRepetitionsSchema = boundedInteger(
+const WarmupRepetitionsSchema = boundedProbeIntegerSchema(
   0,
   PROBE_LIMITS_V1.maxWarmupRepetitions,
   "warmupRepetitions",
 );
-const ConcurrencySchema = boundedInteger(
+const ConcurrencySchema = boundedProbeIntegerSchema(
   1,
   PROBE_LIMITS_V1.maxConcurrency,
   "concurrency",
 );
-const PayloadBytesSchema = boundedInteger(
+const PayloadBytesSchema = boundedProbeIntegerSchema(
   0,
   PROBE_LIMITS_V1.maxPayloadBytes,
   "payloadBytes",
 );
-const JournalEntriesSchema = boundedInteger(
+const JournalEntriesSchema = boundedProbeIntegerSchema(
   0,
   PROBE_LIMITS_V1.maxJournalEntries,
   "journalEntries",
