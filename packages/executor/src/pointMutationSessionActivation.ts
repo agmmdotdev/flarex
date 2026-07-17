@@ -29,6 +29,7 @@ import {
   decodeTransactionAttemptFence,
 } from "flarex-protocol/transaction-session";
 
+import { isPlainRecord } from "./plainRecord";
 import {
   inspectAdmittedPointMutationStartV1,
   type AdmittedPointMutationStartV1,
@@ -304,16 +305,6 @@ function decodePointMutationSessionAttemptSelectorV1(
       cause,
     });
   }
-}
-
-function isPlainRecord(
-  value: unknown,
-): value is Readonly<Record<string, unknown>> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
 }
 
 function readSelectorString(

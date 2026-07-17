@@ -35,6 +35,7 @@ import {
   type LoadedPointMutationSessionAttemptInspectionV1,
   type LoadedPointMutationSessionAttemptV1,
 } from "./pointMutationSessionActivation";
+import { isPlainRecord } from "./plainRecord";
 
 const pointMutationJournalAttemptBrand: unique symbol = Symbol(
   "FlarexExecutor/PointMutationJournalAttemptV1",
@@ -373,7 +374,7 @@ function immutableAttemptPinsEqual(
 }
 
 function decodePointOperation(input: unknown): SessionJournalPointOperationV1 {
-  if (!isPlainObject(input)) {
+  if (!isPlainRecord(input)) {
     throw new UnsupportedPointMutationJournalOperationV1Error({
       reason: "notPlainObject",
     });
@@ -497,16 +498,6 @@ function readDataProperty(
     });
   }
   return descriptor.value;
-}
-
-function isPlainObject(
-  value: unknown,
-): value is Readonly<Record<string, unknown>> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
 }
 
 function mapPersistenceFailure(
