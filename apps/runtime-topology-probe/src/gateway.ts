@@ -75,6 +75,8 @@ import {
   ProbeDurationMsSchema,
   ProbeTraceSpanV1Schema,
   sameProbeDimensionsV1,
+  sameProbeNormalizedErrorV1,
+  sameProbeSampleIdentityV1,
   type ProbeNormalizedErrorV1,
   type ProbeRunRequestV1,
   type ProbeStartupObservationsV1,
@@ -989,12 +991,7 @@ function sameProbeGatewaySample(
     left.sampleId === right.sampleId &&
     left.scenario === right.scenario &&
     sameProbeDimensionsV1(left.dimensions, right.dimensions) &&
-    left.identity.kind === right.identity.kind &&
-    left.identity.sampleOrdinal === right.identity.sampleOrdinal &&
-    left.identity.scopeId === right.identity.scopeId &&
-    left.identity.sessionId === right.identity.sessionId &&
-    left.identity.attemptId === right.identity.attemptId &&
-    left.identity.codeId === right.identity.codeId &&
+    sameProbeSampleIdentityV1(left.identity, right.identity) &&
     left.startup.workerLoader === right.startup.workerLoader &&
     left.startup.facet === right.startup.facet &&
     left.edgeColo === right.edgeColo &&
@@ -1017,9 +1014,7 @@ function sameProbeOutcome(
 ): boolean {
   if (left.kind !== right.kind) return false;
   if (left.kind === "ok" || right.kind === "ok") return true;
-  return left.error.code === right.error.code &&
-    left.error.retryable === right.error.retryable &&
-    left.error.stage === right.error.stage;
+  return sameProbeNormalizedErrorV1(left.error, right.error);
 }
 
 function sameSyncWakeObservation(
