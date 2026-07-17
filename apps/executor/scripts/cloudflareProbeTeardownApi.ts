@@ -4,6 +4,7 @@ import {
 } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
+import { isH05CloudflareHexId } from "../h05/cloudflareHexId";
 import {
   decodeH05ProofRunId,
   type H05ProofRunId,
@@ -288,7 +289,7 @@ class H05ResponseSizeError extends Error {
 }
 
 function cloudflareAccountId(value: string): string {
-  if (!/^[a-f0-9]{32}$/.test(value)) {
+  if (!isH05CloudflareHexId(value)) {
     throw new Error(
       "CLOUDFLARE_ACCOUNT_ID must be 32 lowercase hexadecimal characters.",
     );

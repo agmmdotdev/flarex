@@ -7,6 +7,7 @@ import {
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 
+import { isH05CloudflareHexId } from "../h05/cloudflareHexId";
 import {
   compileH05ControlPlaneEvidence,
   h05CloudflareAccountIdSha256,
@@ -1036,7 +1037,7 @@ function domainHash(domain: string, value: string): string {
 }
 
 function cloudflareAccountId(value: string): string {
-  if (!/^[a-f0-9]{32}$/.test(value)) {
+  if (!isH05CloudflareHexId(value)) {
     throw new Error("CLOUDFLARE_ACCOUNT_ID must be 32 lowercase hexadecimal characters.");
   }
   return value;
@@ -1050,14 +1051,14 @@ function hyperdriveName(value: string): string {
 }
 
 function exactHyperdriveId(value: unknown): string {
-  if (typeof value !== "string" || !/^[a-f0-9]{32}$/.test(value)) {
+  if (typeof value !== "string" || !isH05CloudflareHexId(value)) {
     throw new Error("The H05 Hyperdrive ID must be 32 lowercase hexadecimal characters.");
   }
   return value;
 }
 
 function zoneId(value: unknown, path: string): string {
-  if (typeof value !== "string" || !/^[a-f0-9]{32}$/.test(value)) {
+  if (typeof value !== "string" || !isH05CloudflareHexId(value)) {
     throw new Error(`${path} must be 32 lowercase hexadecimal characters.`);
   }
   return value;

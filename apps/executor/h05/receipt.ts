@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
+import { isH05CloudflareHexId } from "./cloudflareHexId";
 import {
   isH05ControlPlaneCloudflareResourceId,
 } from "./controlPlaneCloudflareResourceId";
@@ -89,7 +90,14 @@ const cloudflareResourceIdDecoder: Decoder<CloudflareResourceId> = (
   }
   return decoded as CloudflareResourceId;
 };
-const hyperdriveIdDecoder = nonPlaceholderPattern(/^[a-f0-9]{32}$/);
+const hyperdriveIdDecoder: Decoder<string> = (value, path) => {
+  const decoded = nonEmptyString(value, path);
+  if (!isH05CloudflareHexId(decoded)) fail(`${path} has an invalid format.`);
+  if (/^0+$/.test(decoded)) {
+    fail(`${path} must not use an all-zero placeholder.`);
+  }
+  return decoded;
+};
 const hyperdriveNameDecoder = patternString(/^[a-z0-9][a-z0-9_-]{0,62}$/);
 const wranglerVersionDecoder: Decoder<string> = (value, path) => {
   const decoded = nonEmptyString(value, path);
@@ -870,17 +878,6 @@ function patternString(pattern: RegExp): Decoder<string> {
   return (value, path) => {
     const decoded = nonEmptyString(value, path);
     if (!pattern.test(decoded)) fail(`${path} has an invalid format.`);
-    return decoded;
-  };
-}
-
-function nonPlaceholderPattern(pattern: RegExp): Decoder<string> {
-  const decode = patternString(pattern);
-  return (value, path) => {
-    const decoded = decode(value, path);
-    if (/^0+$/.test(decoded)) {
-      fail(`${path} must not use an all-zero placeholder.`);
-    }
     return decoded;
   };
 }

@@ -46,6 +46,20 @@ interface FixtureOverrides {
 }
 
 describe("H05 Cloudflare control-plane collector", () => {
+  it("retains the collector Cloudflare account ID diagnostic", async () => {
+    const fixture = fixtureApi();
+
+    await expect(
+      collectH05ControlPlaneEvidence({
+        ...collectorOptions(fixture.api),
+        accountId: "A".repeat(32),
+      }),
+    ).rejects.toThrow(
+      "CLOUDFLARE_ACCOUNT_ID must be 32 lowercase hexadecimal characters.",
+    );
+    expect(fixture.calls).toHaveLength(0);
+  });
+
   it("retains the collector canonical timestamp diagnostic", async () => {
     const fixture = fixtureApi();
 

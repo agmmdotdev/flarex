@@ -5,6 +5,7 @@ import {
 } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
+import { isH05CloudflareHexId } from "./cloudflareHexId";
 import {
   isH05ControlPlaneCloudflareResourceId,
 } from "./controlPlaneCloudflareResourceId";
@@ -241,7 +242,7 @@ export function compileH05ControlPlaneEvidence(
 }
 
 export function h05CloudflareAccountIdSha256(accountId: string): string {
-  if (!/^[a-f0-9]{32}$/.test(accountId)) {
+  if (!isH05CloudflareHexId(accountId)) {
     throw new Error(
       "CLOUDFLARE_ACCOUNT_ID must be 32 lowercase hexadecimal characters.",
     );
@@ -576,7 +577,7 @@ function decodeHyperdriveSnapshot(
     `${path}.tlsMode`,
   );
   return {
-    id: patternString(record.id, /^[a-f0-9]{32}$/, `${path}.id`),
+    id: cloudflareHexId(record.id, `${path}.id`),
     name: patternString(
       record.name,
       /^[a-z0-9][a-z0-9_-]{0,62}$/,
@@ -936,7 +937,7 @@ function decodeBinding(value: unknown, path: string): H05BindingEvidence {
     return {
       type,
       name: nonEmptyString(record.name, `${path}.name`),
-      id: patternString(record.id, /^[a-f0-9]{32}$/, `${path}.id`),
+      id: cloudflareHexId(record.id, `${path}.id`),
     };
   }
   if (type === "secret_text") {
@@ -1219,8 +1220,14 @@ function exactRecord(
 function zoneIdArray(value: unknown, path: string): readonly string[] {
   if (!Array.isArray(value)) fail(`${path} must be an array.`);
   return value.map((item, index) =>
-    patternString(item, /^[a-f0-9]{32}$/, `${path}[${index}]`),
+    cloudflareHexId(item, `${path}[${index}]`),
   );
+}
+
+function cloudflareHexId(value: unknown, path: string): string {
+  const decoded = nonEmptyString(value, path);
+  if (!isH05CloudflareHexId(decoded)) fail(`${path} has an invalid format.`);
+  return decoded;
 }
 
 function literal<const Value extends string | number | boolean>(

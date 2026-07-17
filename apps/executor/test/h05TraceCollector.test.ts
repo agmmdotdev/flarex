@@ -43,6 +43,27 @@ interface FixtureApi {
 }
 
 describe("H05 trace collector", () => {
+  it("retains the collector Cloudflare account ID diagnostic", async () => {
+    const fixture = fixtureApi();
+
+    await expect(
+      collectH05TraceEvidence({
+        accountId: "A".repeat(32),
+        api: fixture.api,
+        controlPlaneBefore: validH05TraceControlPlaneEvidence("before"),
+        dataPlane: validH05TraceDataPlaneEvidence(),
+        controlPlaneAfter: validH05TraceControlPlaneEvidence("after"),
+        maximumAttempts: 2,
+        now: fixtureClock(),
+        settleDelayMs: 1,
+        sleep: async () => undefined,
+      }),
+    ).rejects.toThrow(
+      "CLOUDFLARE_ACCOUNT_ID must be 32 lowercase hexadecimal characters.",
+    );
+    expect(fixture.calls).toHaveLength(0);
+  });
+
   it("retains the collector canonical timestamp diagnostic", async () => {
     const fixture = fixtureApi();
 

@@ -78,6 +78,18 @@ describe("H05 hosted receipt-v2 summary", () => {
     });
   });
 
+  it("retains receipt-owned rejection of all-zero Hyperdrive IDs", () => {
+    const receipt = validReceipt();
+    nestedRecord(receipt, "hyperdrive").id = "0".repeat(32);
+
+    expect(decodeH05HostedReceipt(receipt)).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "hyperdrive.id must not use an all-zero placeholder.",
+      ),
+    });
+  });
+
   it("retains receipt-owned rejection of all-zero SHA-256 placeholders", () => {
     const receipt = validReceipt();
     nestedRecord(receipt, "inputs").dataPlaneEvidenceSha256 = "0".repeat(64);

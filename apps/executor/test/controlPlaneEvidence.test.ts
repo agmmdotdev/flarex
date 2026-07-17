@@ -4,6 +4,7 @@ import {
   compileH05ControlPlaneEvidence,
   decodeH05ControlPlaneEvidence,
   decodeH05ControlPlaneEvidenceJson,
+  h05CloudflareAccountIdSha256,
   h05ControlPlaneEvidenceFormat,
   h05ZoneTypes,
   serializeH05ControlPlaneEvidence,
@@ -18,6 +19,12 @@ import {
 import { decodeH05ProofRunId, h05ProofIdentity } from "../h05/proofIdentity";
 
 describe("H05 control-plane evidence contract", () => {
+  it("retains the Cloudflare account ID diagnostic", () => {
+    expect(() => h05CloudflareAccountIdSha256("A".repeat(32))).toThrow(
+      "CLOUDFLARE_ACCOUNT_ID must be 32 lowercase hexadecimal characters.",
+    );
+  });
+
   it("compiles, hashes, serializes, and verifies one canonical artifact", () => {
     const compiled = compileH05ControlPlaneEvidence(validPayload());
     expect(compiled.ok).toBe(true);
@@ -79,6 +86,24 @@ describe("H05 control-plane evidence contract", () => {
       ok: false,
       message: expect.stringContaining(
         "executor.deploymentBefore.deploymentId must be a bounded opaque Cloudflare identifier.",
+      ),
+    });
+  });
+
+  it("retains the control-plane Hyperdrive ID diagnostic", () => {
+    const payload = validPayload();
+    const compiled = compileH05ControlPlaneEvidence({
+      ...payload,
+      hyperdrive: {
+        ...payload.hyperdrive,
+        opening: { ...payload.hyperdrive.opening, id: "A".repeat(32) },
+      },
+    });
+
+    expect(compiled).toMatchObject({
+      ok: false,
+      message: expect.stringContaining(
+        "hyperdrive.opening.id has an invalid format.",
       ),
     });
   });

@@ -5,6 +5,7 @@ import {
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 
+import { isH05CloudflareHexId } from "../h05/cloudflareHexId";
 import {
   decodeH05ControlPlaneEvidence,
   h05CloudflareAccountIdSha256,
@@ -999,7 +1000,7 @@ function nowIso(now: () => string): string {
 }
 
 function cloudflareAccountId(value: string): string {
-  if (!/^[a-f0-9]{32}$/.test(value)) {
+  if (!isH05CloudflareHexId(value)) {
     throw new Error(
       "CLOUDFLARE_ACCOUNT_ID must be 32 lowercase hexadecimal characters.",
     );
