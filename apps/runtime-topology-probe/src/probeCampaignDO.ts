@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 
 import {
   canonicalProbeCampaignManifestV1,
@@ -638,10 +639,10 @@ function insertPurgeTasks(
 
   let order = 0;
   const sortedSessions = [...sessions.entries()]
-    .sort(([left], [right]) => left.localeCompare(right));
+    .sort(([left], [right]) => compareUtf16Strings(left, right));
   for (const [sessionId, attempts] of sortedSessions) {
     const facets = [...attempts.entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareUtf16Strings(left, right))
       .map(([attemptId, codeId]) => ({
         attemptId: ProbeAttemptIdSchema.make(attemptId),
         codeId: ProbeCodeIdSchema.make(codeId),
@@ -654,7 +655,7 @@ function insertPurgeTasks(
     insertPurgeTask(sql, order, "session", sessionId, request);
     order += 1;
   }
-  for (const scopeId of [...syncScopes].sort()) {
+  for (const scopeId of [...syncScopes].sort(compareUtf16Strings)) {
     const request = ProbeSyncPurgeRequestV1Schema.make({
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,
       scopeId: ProbeScopeIdSchema.make(scopeId),

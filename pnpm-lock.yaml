@@ -138,6 +138,9 @@ importers:
 
   apps/runtime-topology-probe:
     dependencies:
+      '@flarex/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.90
@@ -145,9 +148,6 @@ importers:
       '@cloudflare/workers-types':
         specifier: 'catalog:'
         version: 4.20260613.1
-      '@flarex/utils':
-        specifier: workspace:*
-        version: link:../../packages/utils
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.2

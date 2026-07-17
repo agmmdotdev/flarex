@@ -1,3 +1,4 @@
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect, Schema } from "effect";
 
 import { strictSchemaValueOrNullDecoder } from "./effectBoundary";
@@ -489,7 +490,10 @@ function campaignManifestIssueV1(
       return "campaign scenario/dimension cells must be unique";
     }
     cells.add(cell);
-    if (previousRunId !== undefined && previousRunId.localeCompare(run.runId) >= 0) {
+    if (
+      previousRunId !== undefined &&
+      compareUtf16Strings(previousRunId, run.runId) >= 0
+    ) {
       return "campaign runs must use ascending run ID order";
     }
     previousRunId = run.runId;

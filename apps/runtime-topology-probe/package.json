@@ -22,11 +22,11 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@flarex/utils": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
-    "@flarex/utils": "workspace:*",
     "@types/node": "catalog:",
     "miniflare": "catalog:",
     "tsx": "catalog:",

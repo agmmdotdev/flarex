@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 
 import {
   copyCloudflareRpcRecord,
@@ -244,7 +245,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       facets.set(row.facet_name, trackedFacet);
     }
     const orderedFacets = [...facets.values()].sort((left, right) =>
-      left.attemptId.localeCompare(right.attemptId)
+      compareUtf16Strings(left.attemptId, right.attemptId)
     );
     if (orderedFacets.length > 600) {
       throw new Error("probe session purge facet budget exceeded");

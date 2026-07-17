@@ -1,3 +1,4 @@
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Schema } from "effect";
 
 import {
@@ -173,7 +174,7 @@ export function summarizeProbeSamples(
     }
   }
   return [...cohorts.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => compareUtf16Strings(left, right))
     .map(([, cohort]) => ({
       cohort: cohort.cohort,
       latency: summarizeProbeMeasurements(cohort.measurements),

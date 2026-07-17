@@ -1,3 +1,4 @@
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Schema } from "effect";
 
 import {
@@ -1377,6 +1378,6 @@ function compareExternalCompletions(
   left: ProbeExternalCompletionRequestV1,
   right: ProbeExternalCompletionRequestV1,
 ): number {
-  return left.runId.localeCompare(right.runId) ||
+  return compareUtf16Strings(left.runId, right.runId) ||
     left.sampleOrdinal - right.sampleOrdinal;
 }

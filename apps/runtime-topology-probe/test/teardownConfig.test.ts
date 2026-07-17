@@ -2,6 +2,7 @@ import {
   isNonArrayRecord,
   type UnknownRecord,
 } from "@flarex/utils/records";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
@@ -81,7 +82,7 @@ describe("production teardown configuration", () => {
     );
     const teardownScripts = Object.entries(scripts)
       .filter(([name]) => name.includes("teardown"))
-      .sort(([left], [right]) => left.localeCompare(right));
+      .sort(([left], [right]) => compareUtf16Strings(left, right));
 
     expect(teardownScripts).toStrictEqual([
       [

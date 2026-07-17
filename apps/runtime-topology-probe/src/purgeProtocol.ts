@@ -1,3 +1,4 @@
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Schema } from "effect";
 
 import { strictSchemaValueOrNullDecoder } from "./effectBoundary";
@@ -49,7 +50,7 @@ export const ProbeSessionPurgeRequestV1Schema =
         if (
           previous !== undefined &&
           current !== undefined &&
-          previous.localeCompare(current) >= 0
+          compareUtf16Strings(previous, current) >= 0
         ) {
           return "session purge facet attempts must be sorted";
         }

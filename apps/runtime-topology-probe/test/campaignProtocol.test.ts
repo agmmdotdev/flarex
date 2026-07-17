@@ -68,6 +68,22 @@ describe("campaign protocol", () => {
     ).toBeNull();
   });
 
+  it("validates campaign run order by UTF-16 code units", () => {
+    const digit = run("a0", "edge_echo");
+    const underscore = run("a_", "edge_echo", { payloadBytes: 1 });
+
+    expect(
+      decodeProbeCampaignManifestV1OrNull(
+        rawManifest([digit, underscore]),
+      ),
+    ).not.toBeNull();
+    expect(
+      decodeProbeCampaignManifestV1OrNull(
+        rawManifest([underscore, digit]),
+      ),
+    ).toBeNull();
+  });
+
   it("rejects a valid per-run set whose aggregate sample budget is too large", () => {
     const runs = Array.from({ length: 4 }, (_, index) =>
       run(`overflow_0${index + 1}`, "edge_echo", {
