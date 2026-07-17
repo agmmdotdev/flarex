@@ -1,11 +1,9 @@
-import {
-  isNonNegativeSafeInteger,
-  isPositiveSafeInteger,
-} from "@flarex/utils/numbers";
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import { isH05CloudflareApiToken } from "../h05/cloudflareApiToken";
 import { isH05HttpsOriginUrl } from "../h05/httpsOrigin";
+import { readH05BoundedResponseBody } from "./h05BoundedResponseBody";
 
 export interface H05CloudflareReadApi {
   get(
@@ -172,42 +170,11 @@ async function readBoundedBody(
   response: Response,
   maximumResponseBytes: number,
 ): Promise<Uint8Array> {
-  const contentLength = response.headers.get("content-length");
-  if (contentLength !== null) {
-    const parsed = Number(contentLength);
-    if (!isNonNegativeSafeInteger(parsed) || parsed > maximumResponseBytes) {
-      throw new H05ResponseSizeError();
-    }
-  }
-  if (response.body === null) return new Uint8Array();
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      length += next.value.byteLength;
-      if (length > maximumResponseBytes) {
-        try {
-          await reader.cancel();
-        } catch {
-          // Preserve the bounded-size failure and never surface a stream error.
-        }
-        throw new H05ResponseSizeError();
-      }
-      chunks.push(next.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
+  return readH05BoundedResponseBody(
+    response,
+    maximumResponseBytes,
+    () => new H05ResponseSizeError(),
+  );
 }
 
 class H05ResponseSizeError extends Error {
