@@ -2,6 +2,7 @@ import {
   bytesEqualFullScan as bytesEqual,
   copyBytes,
 } from "@flarex/utils/bytes";
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { JsonObject } from "flarex-protocol/json";
 import {
@@ -462,10 +463,10 @@ function validSessionScalars(session: SessionSizeRow): boolean {
     validByteLength(session.validatedArgsSha256, 32) &&
     validByteLength(session.authorizationGrantSha256, 32) &&
     validByteLength(session.requestSha256, 32) &&
-    positiveSafeInteger(
+    isPositiveSafeInteger(
       parseLength(session.validatedArgsCanonicalByteLengthText),
     ) &&
-    positiveSafeInteger(
+    isPositiveSafeInteger(
       parseLength(session.authorizationGrantCanonicalByteLengthText),
     );
 }
@@ -533,8 +534,8 @@ function validRootScalars(root: RootScalarRow): boolean {
     root.sealedResultByteLengthText !== null &&
     root.sealedResultSha256 !== null &&
     root.sealedAt !== null &&
-    positiveSafeInteger(parseLength(root.sealedJournalByteLengthText)) &&
-    positiveSafeInteger(parseLength(root.sealedResultByteLengthText)) &&
+    isPositiveSafeInteger(parseLength(root.sealedJournalByteLengthText)) &&
+    isPositiveSafeInteger(parseLength(root.sealedResultByteLengthText)) &&
     validByteLength(root.sealedJournalSha256, 32) &&
     validByteLength(root.sealedResultSha256, 32) &&
     validDate(root.createdAt) &&
@@ -800,7 +801,7 @@ function utf8ByteLength(value: string): number {
 function decodeDatabaseNow(value: string | undefined): number | undefined {
   if (typeof value !== "string") return undefined;
   const milliseconds = Number(value);
-  return Number.isSafeInteger(milliseconds) && milliseconds > 0
+  return isPositiveSafeInteger(milliseconds)
     ? milliseconds
     : undefined;
 }
@@ -811,10 +812,6 @@ function validDate(value: Date): boolean {
 
 function validByteLength(value: Uint8Array, length: number): boolean {
   return value instanceof Uint8Array && value.byteLength === length;
-}
-
-function positiveSafeInteger(value: number | undefined): value is number {
-  return value !== undefined && Number.isSafeInteger(value) && value > 0;
 }
 
 function isJsonObject(value: unknown): value is JsonObject {

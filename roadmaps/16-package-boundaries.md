@@ -369,6 +369,11 @@ semantics.
   stored-attempt verification, and persistence journal canonicalization paths,
   while narrower ordered-index comparators retain their domain-significant
   names.
+- `@flarex/utils/numbers` owns the total positive-safe-integer predicate used
+  across independent executor/H05 and persistence owners. Domain decoders keep
+  their own error messages, inclusive or exclusive zero policy, upper bounds,
+  timestamps and durations, brands, and typed failures; sharing the primitive
+  does not make those numeric contracts interchangeable.
 - `@flarex/utils/bytes` owns tested defensive copying into an owned
   `Uint8Array` or fresh exactly-sized `ArrayBuffer`, ordinary early-exit byte
   equality, a separately named equal-length full-scan comparison, and lowercase

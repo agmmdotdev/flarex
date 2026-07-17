@@ -1,3 +1,4 @@
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 export interface H05CloudflareReadApi {
@@ -243,7 +244,7 @@ function safePath(path: string): string {
 }
 
 function positiveSafeInteger(value: number, name: string): number {
-  if (!Number.isSafeInteger(value) || value <= 0) {
+  if (!isPositiveSafeInteger(value)) {
     throw new Error(`${name} must be a positive safe integer.`);
   }
   return value;

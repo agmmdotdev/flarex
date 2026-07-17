@@ -1,4 +1,5 @@
 import { copyBytes } from "@flarex/utils/bytes";
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, asc, eq, sql } from "drizzle-orm";
 
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
@@ -662,8 +663,8 @@ function materializeStoredAttemptEvidenceUnsafe(
     !validByteLength(session.validatedArgsSha256, 32) ||
     !validByteLength(session.authorizationGrantSha256, 32) ||
     !validByteLength(session.requestSha256, 32) ||
-    !positiveSafeInteger(session.validatedArgsCanonicalByteLength) ||
-    !positiveSafeInteger(session.authorizationGrantCanonicalByteLength)
+    !isPositiveSafeInteger(session.validatedArgsCanonicalByteLength) ||
+    !isPositiveSafeInteger(session.authorizationGrantCanonicalByteLength)
   ) {
     return corrupt("sessionRecordInvalid");
   }
@@ -920,7 +921,7 @@ function decodeDatabaseNow(value: string | undefined): number | undefined {
     return undefined;
   }
   const milliseconds = Number(value);
-  if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) {
+  if (!isPositiveSafeInteger(milliseconds)) {
     return undefined;
   }
   return milliseconds;
@@ -932,10 +933,6 @@ function validDate(value: Date): boolean {
 
 function validByteLength(value: Uint8Array, length: number): boolean {
   return value instanceof Uint8Array && value.byteLength === length;
-}
-
-function positiveSafeInteger(value: number): boolean {
-  return Number.isSafeInteger(value) && value > 0;
 }
 
 function authorityMismatch(

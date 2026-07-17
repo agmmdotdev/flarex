@@ -1,3 +1,4 @@
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { and, asc, desc, gt, lte, sql } from "drizzle-orm";
 
@@ -306,8 +307,7 @@ async function verifyBootstrapFrontier(
 
 function validateBootstrapBatchLimit(limit: number): void {
   if (
-    !Number.isSafeInteger(limit) ||
-    limit <= 0 ||
+    !isPositiveSafeInteger(limit) ||
     limit > MAX_SHARED_SCOPE_AUTHORITY_BOOTSTRAP_BATCH_SIZE
   ) {
     throw new InvalidSharedScopeAuthorityBootstrapBatchLimitError(limit);

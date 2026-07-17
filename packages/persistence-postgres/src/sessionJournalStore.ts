@@ -1,4 +1,5 @@
 import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
@@ -3069,8 +3070,7 @@ async function readDatabaseNowForSeal(
   const milliseconds = Number(text);
   const date = new Date(milliseconds);
   if (
-    !Number.isSafeInteger(milliseconds) ||
-    milliseconds <= 0 ||
+    !isPositiveSafeInteger(milliseconds) ||
     !isFiniteDate(date)
   ) {
     throw corruption(attempt, "databaseClockInvalid");

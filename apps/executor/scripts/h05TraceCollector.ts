@@ -1,3 +1,4 @@
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import {
@@ -1096,7 +1097,9 @@ function optionalNonNegativeSafeInteger(
 
 function positiveSafeInteger(value: unknown, context: string): number {
   const decoded = nonNegativeSafeInteger(value, context);
-  if (decoded === 0) throw new Error(`H05 ${context} must be positive.`);
+  if (!isPositiveSafeInteger(decoded)) {
+    throw new Error(`H05 ${context} must be positive.`);
+  }
   return decoded;
 }
 
@@ -1118,7 +1121,7 @@ function boundedPositiveInteger(
   maximum: number,
   context: string,
 ): number {
-  if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
+  if (!isPositiveSafeInteger(value) || value > maximum) {
     throw new Error(`H05 ${context} must be between 1 and ${maximum}.`);
   }
   return value;

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import {
@@ -1480,7 +1481,7 @@ function boundedPath(value: unknown, path: string): string {
 }
 
 function positiveSafeInteger(value: unknown, path: string): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+  if (!isPositiveSafeInteger(value)) {
     failAt(path, "must be a positive safe integer.");
   }
   return value;

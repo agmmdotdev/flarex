@@ -1,3 +1,4 @@
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { asc, eq, gt } from "drizzle-orm";
 import {
   ScopeIdSchema,
@@ -159,8 +160,7 @@ export async function listScopeMetadata(
   input: ListScopeMetadataInput,
 ): Promise<ListScopeMetadataResult> {
   if (
-    !Number.isSafeInteger(input.limit) ||
-    input.limit <= 0 ||
+    !isPositiveSafeInteger(input.limit) ||
     input.limit > MAX_SCOPE_METADATA_LIST_LIMIT
   ) {
     throw new InvalidScopeMetadataListLimitError(input.limit);

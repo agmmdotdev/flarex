@@ -1,4 +1,5 @@
 import { bytesEqual } from "@flarex/utils/bytes";
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, asc, eq, sql } from "drizzle-orm";
 
 import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
@@ -1686,8 +1687,7 @@ async function readDatabaseNow(
   const epochMilliseconds = Number(epochMillisecondsText);
   const databaseNow = new Date(epochMilliseconds);
   if (
-    !Number.isSafeInteger(epochMilliseconds) ||
-    epochMilliseconds <= 0 ||
+    !isPositiveSafeInteger(epochMilliseconds) ||
     !isValidDate(databaseNow)
   ) {
     throw corruptionError(scopeId, "databaseClockInvalid");
@@ -1951,7 +1951,7 @@ function isAttemptTerminalizationTarget(
 }
 
 function requireLeaseDuration(value: number): number {
-  if (!Number.isSafeInteger(value) || value <= 0) {
+  if (!isPositiveSafeInteger(value)) {
     throw new PointMutationSessionActivationConfigurationV1Error({
       reason: "invalidLeaseDuration",
     });

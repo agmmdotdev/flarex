@@ -1,3 +1,4 @@
+import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import {
@@ -339,7 +340,7 @@ function httpStatus(value: number, path: string): number {
 }
 
 function positiveSafeInteger(value: number, name: string): number {
-  if (!Number.isSafeInteger(value) || value <= 0) {
+  if (!isPositiveSafeInteger(value)) {
     throw new Error(`${name} must be a positive safe integer.`);
   }
   return value;
