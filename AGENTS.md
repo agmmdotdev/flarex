@@ -118,6 +118,13 @@ An algorithm that derives serialized Flarex metadata remains a protocol
 contract even when its implementation looks like generic string manipulation.
 Centralize such derivation with the protocol owner while keeping consumer
 validation messages and domain failure mapping local.
+Platform limits become protocol policy when they bound a shared domain value;
+do not publish them as generic numeric utilities merely because their source is
+the JavaScript runtime. Bound the predicate to the protocol's exact wire
+representation rather than a broader host capability. Keep caller-specific
+configuration errors local while sharing the predicate and inclusive bounds.
+Validate the numeric representation before relational comparisons so unknown
+JavaScript inputs are rejected without invoking caller-controlled coercion.
 
 Expose generic utilities through intentional subpath exports. Do not add a
 package-root catch-all barrel unless its public surface has been deliberately

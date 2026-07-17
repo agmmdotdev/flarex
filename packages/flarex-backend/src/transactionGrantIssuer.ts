@@ -18,8 +18,10 @@ import {
   canonicalizeTransactionGrantPayloadV1,
   canonicalizeTransactionGrantProtectedHeaderV1,
   createTransactionGrantSigningInputV1,
-  deriveInertTransactionGrantEvidenceV1,
+  deriveInertTransactionGrantEvidenceV1Effect,
   encodeTransactionGrantEd25519SignatureV1,
+  isPositiveTransactionGrantDurationMillisecondsV1,
+  isTransactionGrantEpochMillisecondsV1,
   type InertTransactionGrantEvidenceV1,
   type TransactionGrantDeploymentIdV1,
   type TransactionGrantInertAuthV1,
@@ -44,8 +46,6 @@ import {
   inspectIssuerPreparedPointMutationStartV1,
   type IssuerPreparedPointMutationStartV1,
 } from "./pointMutationGrantPreparation";
-
-const MAX_ECMASCRIPT_DATE_EPOCH_MILLISECONDS = 8_640_000_000_000_000;
 
 export type TransactionGrantSigningKeyStateV1 =
   | "activeSigner"
@@ -189,7 +189,9 @@ export function makePointMutationTransactionGrantIssuerV1(
   PointMutationTransactionGrantIssuerV1,
   TransactionGrantIssuerConfigurationV1Error
 > {
-  if (!isPositiveSafeInteger(input.maximumGrantLifetimeMilliseconds)) {
+  if (!isPositiveTransactionGrantDurationMillisecondsV1(
+    input.maximumGrantLifetimeMilliseconds,
+  )) {
     return Effect.fail(
       new TransactionGrantIssuerConfigurationV1Error({
         issue: "invalidMaximumGrantLifetime",
@@ -221,7 +223,7 @@ export function makePointMutationTransactionGrantIssuerV1(
         request.authentication,
       );
       const nowEpochMilliseconds = yield* runtime.currentTimeMillis;
-      if (!isValidEpochMilliseconds(nowEpochMilliseconds)) {
+      if (!isTransactionGrantEpochMillisecondsV1(nowEpochMilliseconds)) {
         return yield* Effect.fail(
           new TransactionGrantIssuanceV1Error({
             issue: "invalidClockReading",
@@ -237,7 +239,7 @@ export function makePointMutationTransactionGrantIssuerV1(
       );
       const configuredExpiry =
         nowEpochMilliseconds + maximumGrantLifetimeMilliseconds;
-      if (!isValidEpochMilliseconds(configuredExpiry)) {
+      if (!isTransactionGrantEpochMillisecondsV1(configuredExpiry)) {
         return yield* Effect.fail(
           new TransactionGrantIssuanceV1Error({
             issue: "timestampOutOfRange",
@@ -328,13 +330,11 @@ export function makePointMutationTransactionGrantIssuerV1(
       const signature = yield* protocolSync(() =>
         encodeTransactionGrantEd25519SignatureV1(signatureBytes),
       );
-      return yield* protocolPromise(() =>
-        deriveInertTransactionGrantEvidenceV1({
-          protected: header.base64url,
-          payload: payload.base64url,
-          signature,
-        }),
-      );
+      return yield* deriveInertTransactionGrantEvidenceV1Effect({
+        protected: header.base64url,
+        payload: payload.base64url,
+        signature,
+      });
     });
 
   return Effect.succeed(Object.freeze({ issue }));
@@ -412,7 +412,9 @@ const resolveGrantAuthentication = Effect.fn(
     evidence.credentialExpiresAtEpochSeconds * 1_000,
   );
   if (
-    !isValidEpochMilliseconds(credentialExpiresAtEpochMilliseconds) ||
+    !isTransactionGrantEpochMillisecondsV1(
+      credentialExpiresAtEpochMilliseconds,
+    ) ||
     credentialExpiresAtEpochMilliseconds <= nowEpochMilliseconds
   ) {
     return yield* Effect.fail(
@@ -600,11 +602,12 @@ function isValidKeyWindow(
   const issuanceEnd = key.issuedAtExclusiveEpochMilliseconds;
   const verificationEnd =
     key.verificationEndsAtExclusiveEpochMilliseconds;
-  return isValidEpochMilliseconds(start) &&
+  return isTransactionGrantEpochMillisecondsV1(start) &&
     (issuanceEnd === undefined ||
-      (isValidEpochMilliseconds(issuanceEnd) && issuanceEnd > start)) &&
+      (isTransactionGrantEpochMillisecondsV1(issuanceEnd) &&
+        issuanceEnd > start)) &&
     (verificationEnd === undefined ||
-      (isValidEpochMilliseconds(verificationEnd) &&
+      (isTransactionGrantEpochMillisecondsV1(verificationEnd) &&
         verificationEnd > start &&
         (issuanceEnd === undefined || verificationEnd >= issuanceEnd)));
 }
@@ -623,44 +626,26 @@ function canonicalTimestamp(
 
 function protocolPromise<T>(
   operation: () => Promise<T>,
-): Effect.Effect<
-  T,
-  TransactionGrantProtocolV1Error | TransactionGrantIssuanceV1Error
-> {
+): Effect.Effect<T, TransactionGrantProtocolV1Error> {
   return Effect.tryPromise({
     try: operation,
-    catch: cause =>
-      cause instanceof TransactionGrantProtocolV1Error
-        ? cause
-        : new TransactionGrantIssuanceV1Error({
-            issue: "protocolOperationFailed",
-          }),
-  });
+    catch: (cause): unknown => cause,
+  }).pipe(Effect.catch(protocolFailureOrDefect));
 }
 
 function protocolSync<T>(
   operation: () => T,
-): Effect.Effect<
-  T,
-  TransactionGrantProtocolV1Error | TransactionGrantIssuanceV1Error
-> {
+): Effect.Effect<T, TransactionGrantProtocolV1Error> {
   return Effect.try({
     try: operation,
-    catch: cause =>
-      cause instanceof TransactionGrantProtocolV1Error
-        ? cause
-        : new TransactionGrantIssuanceV1Error({
-            issue: "protocolOperationFailed",
-          }),
-  });
+    catch: (cause): unknown => cause,
+  }).pipe(Effect.catch(protocolFailureOrDefect));
 }
 
-function isPositiveSafeInteger(value: number): boolean {
-  return Number.isSafeInteger(value) && value > 0 &&
-    value <= MAX_ECMASCRIPT_DATE_EPOCH_MILLISECONDS;
-}
-
-function isValidEpochMilliseconds(value: number): boolean {
-  return Number.isSafeInteger(value) &&
-    Math.abs(value) <= MAX_ECMASCRIPT_DATE_EPOCH_MILLISECONDS;
+function protocolFailureOrDefect(
+  cause: unknown,
+): Effect.Effect<never, TransactionGrantProtocolV1Error> {
+  return cause instanceof TransactionGrantProtocolV1Error
+    ? Effect.fail(cause)
+    : Effect.die(cause);
 }

@@ -23,6 +23,7 @@ import {
   type ReplacementScopeIdV1,
 } from "flarex-protocol/storage-authority";
 import {
+  MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1,
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
   TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
   TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
@@ -336,13 +337,26 @@ describe("transaction-grant verifier", () => {
     }
 
     const configurationKey = await activeVerificationKey();
-    for (const badLifetime of [0, -1, 1.5, NaN]) {
+    for (const badLifetime of [
+      0,
+      -1,
+      1.5,
+      MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1 + 1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+    ]) {
       expect(() => createVerifier({
         namespace: createNamespace([configurationKey]),
         maximumGrantLifetimeMilliseconds: badLifetime,
       })).toThrow(TransactionGrantAuthorityConfigurationV1Error);
     }
-    for (const badSkew of [-1, 1.5, NaN]) {
+    for (const badSkew of [
+      -1,
+      1.5,
+      MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1 + 1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+    ]) {
       expect(() => createVerifier({
         namespace: createNamespace([configurationKey]),
         maximumFutureIssuedAtSkewMilliseconds: badSkew,

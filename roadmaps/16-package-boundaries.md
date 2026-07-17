@@ -372,11 +372,22 @@ semantics.
   typed policy error while treating unexpected Promise causes as defects;
   issuer and verifier consumers reuse that adapter and translate only its typed
   error channel.
+- Inert transaction-grant evidence derivation follows the same protocol-owned
+  adapter rule: issuer and verifier reuse its Effect operation, consumers may
+  translate the typed protocol failure, and unexpected causes remain defects.
 - Partition-selector naming is serialized Flarex routing metadata, not a
   generic casing utility. `flarex-protocol/partition-selector` owns the current
   `_id` special case, ASCII segment normalization, and empty-suffix fallback;
   analysis, codegen, backend validation, and executor invocation share that
   derivation while retaining their own validation errors and messages.
+- The transaction-grant protocol owns the inclusive epoch bounds representable
+  by its four-digit-year canonical timestamp wire format, plus the epoch,
+  positive-duration, and non-negative-duration predicates used by issuance and
+  verification. Applying those bounds to grant clocks, lifetimes, and skew is
+  domain policy rather than a generic numeric utility; issuer and verifier
+  configuration errors remain with their consumers. The shared predicates
+  reject non-numbers before relational comparisons and therefore do not invoke
+  caller-controlled coercion.
 - Total unpadded Base64URL encoding reuses Effect `Encoding` rather than adding
   another Flarex utility implementation. Protocol canonicality checks still
   re-encode and compare at their owning boundary, while input limits, branded

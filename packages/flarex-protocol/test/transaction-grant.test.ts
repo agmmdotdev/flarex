@@ -4,9 +4,9 @@ import {
   copyBytesToArrayBuffer,
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
-import { Effect, Encoding } from "effect";
+import { Effect, Encoding, Schema } from "effect";
 import { Miniflare } from "miniflare";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import * as protocolRoot from "../src/index";
 import * as transactionGrantProtocol from "../src/transaction-grant";
@@ -14,16 +14,19 @@ import {
   MAX_TRANSACTION_GRANT_CANONICAL_BYTES_V1,
   MAX_TRANSACTION_GRANT_CLAIM_FIELDS_V1,
   MAX_TRANSACTION_GRANT_CLAIMS_JSON_UTF8_BYTES_V1,
+  MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1,
   MAX_TRANSACTION_GRANT_KEY_ID_UTF8_BYTES_V1,
   MAX_TRANSACTION_GRANT_PAYLOAD_CANONICAL_BYTES_V1,
   MAX_TRANSACTION_GRANT_PROTECTED_HEADER_BYTES_V1,
   MAX_TRANSACTION_GRANT_TEXT_UTF8_BYTES_V1,
+  MIN_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1,
   TRANSACTION_GRANT_ED25519_SIGNATURE_BYTES_V1,
   TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
   TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
   TransactionGrantIdentityAccessPolicySha256HexV1Schema,
   TransactionGrantProtocolV1Error,
   TransactionGrantRequestSha256HexV1Schema,
+  TransactionGrantTimestampV1Schema,
   TransactionGrantValidatedArgsSha256HexV1Schema,
   canonicalizeTransactionGrantIdentityAccessPolicyV1,
   canonicalizeTransactionGrantIdentityAccessPolicyV1Effect,
@@ -31,7 +34,11 @@ import {
   canonicalizeTransactionGrantProtectedHeaderV1,
   createTransactionGrantSigningInputV1,
   deriveInertTransactionGrantEvidenceV1,
+  deriveInertTransactionGrantEvidenceV1Effect,
   encodeTransactionGrantEd25519SignatureV1,
+  isNonNegativeTransactionGrantDurationMillisecondsV1,
+  isPositiveTransactionGrantDurationMillisecondsV1,
+  isTransactionGrantEpochMillisecondsV1,
   transactionGrantIdentityAccessPolicySha256BytesV1FromHex,
   transactionGrantIdentityAccessPolicySha256HexV1FromBytes,
   transactionGrantRequestSha256BytesV1FromHex,
@@ -125,6 +132,85 @@ export default {
 `;
 
 describe("transaction-grant protocol", () => {
+  it("pins epoch and duration numeric boundaries", () => {
+    const minimum = MIN_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1;
+    const maximum = MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1;
+    const decodeTimestamp = Schema.decodeUnknownSync(
+      TransactionGrantTimestampV1Schema,
+    );
+
+    for (const value of [minimum, -0, 0, maximum]) {
+      expect(isTransactionGrantEpochMillisecondsV1(value)).toBe(true);
+      expect(decodeTimestamp(new Date(value).toISOString())).toBe(
+        new Date(value).toISOString(),
+      );
+    }
+    for (const value of [
+      minimum - 1,
+      maximum + 1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+    ]) {
+      expect(isTransactionGrantEpochMillisecondsV1(value)).toBe(false);
+    }
+    for (const value of [minimum - 1, maximum + 1]) {
+      expect(() => decodeTimestamp(new Date(value).toISOString())).toThrow();
+    }
+
+    for (const value of [1, maximum]) {
+      expect(isPositiveTransactionGrantDurationMillisecondsV1(value)).toBe(
+        true,
+      );
+    }
+    for (const value of [
+      -1,
+      -0,
+      0,
+      1.5,
+      maximum + 1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+    ]) {
+      expect(isPositiveTransactionGrantDurationMillisecondsV1(value)).toBe(
+        false,
+      );
+    }
+
+    for (const value of [-0, 0, 1, maximum]) {
+      expect(isNonNegativeTransactionGrantDurationMillisecondsV1(value)).toBe(
+        true,
+      );
+    }
+    for (const value of [
+      -1,
+      1.5,
+      maximum + 1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+    ]) {
+      expect(isNonNegativeTransactionGrantDurationMillisecondsV1(value)).toBe(
+        false,
+      );
+    }
+
+    const coercionDefect = new Error("numeric coercion must not run");
+    const coercionCapableValue = {
+      valueOf(): never {
+        throw coercionDefect;
+      },
+    };
+    for (const predicate of [
+      isTransactionGrantEpochMillisecondsV1,
+      isPositiveTransactionGrantDurationMillisecondsV1,
+      isNonNegativeTransactionGrantDurationMillisecondsV1,
+    ]) {
+      expect(
+        Reflect.apply(predicate, undefined, [coercionCapableValue]),
+      ).toBe(false);
+    }
+  });
+
   it("pins domain-separated point-mutation policy evidence", async () => {
     const anonymous = await canonicalizeTransactionGrantIdentityAccessPolicyV1({
       capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
@@ -271,10 +357,14 @@ describe("transaction-grant protocol", () => {
   it("projects exact branded S07 evidence without creating authority", async () => {
     const fixture = await signedFixture();
     const repeated = await deriveInertTransactionGrantEvidenceV1(fixture.jws);
+    const repeatedEffect = await Effect.runPromise(
+      deriveInertTransactionGrantEvidenceV1Effect(fixture.jws),
+    );
 
     expect(repeated.authorizationGrantId).toBe(
       "grant_018f22e2-58cc-7b2a-91d8-f3f3401a0874",
     );
+    expect(repeatedEffect).toEqual(repeated);
     expect(repeated.authorizationGrantExpiresAt).toBe(
       "2026-07-14T10:05:00.000Z",
     );
@@ -310,6 +400,21 @@ describe("transaction-grant protocol", () => {
       .not.toMatchTypeOf<CanonicalTransactionGrantPayloadBase64UrlV1>();
     expectTypeOf<Record<string, unknown>>()
       .not.toMatchTypeOf<TransactionGrantJwsV1>();
+  });
+
+  it("preserves unexpected evidence canonicalization defects", async () => {
+    const fixture = await signedFixture();
+    const defect = new Error("transaction grant digest defect");
+    const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(defect);
+    try {
+      await expect(deriveInertTransactionGrantEvidenceV1(fixture.jws))
+        .rejects.toBe(defect);
+      await expect(Effect.runPromise(Effect.result(
+        deriveInertTransactionGrantEvidenceV1Effect(fixture.jws),
+      ))).rejects.toThrow("transaction grant digest defect");
+    } finally {
+      digest.mockRestore();
+    }
   });
 
   it("keeps every redundant evidence projection immutable and copy-on-read", async () => {
@@ -446,6 +551,11 @@ describe("transaction-grant protocol", () => {
       await expect(deriveInertTransactionGrantEvidenceV1(invalid))
         .rejects.toBeInstanceOf(TransactionGrantProtocolV1Error);
     }
+    await expect(
+      Effect.runPromise(Effect.flip(
+        deriveInertTransactionGrantEvidenceV1Effect({}),
+      )),
+    ).resolves.toBeInstanceOf(TransactionGrantProtocolV1Error);
 
     const noncanonicalOrUnsupportedHeaders = [
       '{"typ":"flarex-transaction-grant+jws","kid":"grant-key-2026-07","alg":"Ed25519"}',

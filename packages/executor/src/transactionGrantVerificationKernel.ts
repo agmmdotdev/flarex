@@ -8,14 +8,13 @@ import {
   TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
   TransactionGrantTimestampV1Schema,
   canonicalizeTransactionGrantIdentityAccessPolicyV1Effect,
-  deriveInertTransactionGrantEvidenceV1,
+  deriveInertTransactionGrantEvidenceV1Effect,
+  isTransactionGrantEpochMillisecondsV1,
   type InertTransactionGrantEvidenceV1,
   type TransactionGrantDeploymentIdV1,
   type TransactionGrantKeyIdV1,
   type TransactionGrantPayloadV1,
 } from "flarex-protocol/transaction-grant";
-
-const MAX_ECMASCRIPT_DATE_EPOCH_MILLISECONDS = 8_640_000_000_000_000;
 
 export type ExpectedTransactionGrantLogicalPinsV1 =
   PointMutationGrantLogicalPinsV1;
@@ -132,10 +131,11 @@ export function createTransactionGrantVerificationKernelV1(
         return yield* Effect.fail(pinMismatch("deploymentId"));
       }
 
-      const evidence = yield* Effect.tryPromise({
-        try: () => deriveInertTransactionGrantEvidenceV1(input.jws),
-        catch: () => verificationFailure("malformedEvidence"),
-      });
+      const evidence = yield* deriveInertTransactionGrantEvidenceV1Effect(
+        input.jws,
+      ).pipe(
+        Effect.mapError(() => verificationFailure("malformedEvidence")),
+      );
       const key = config.keysById.get(evidence.protectedHeader.kid);
       if (key === undefined) {
         return yield* Effect.fail(verificationFailure("unknownKey"));
@@ -159,7 +159,7 @@ export function createTransactionGrantVerificationKernelV1(
       }
 
       const nowEpochMilliseconds = yield* input.trustedNowEpochMilliseconds;
-      if (!isValidEpochMilliseconds(nowEpochMilliseconds)) {
+      if (!isTransactionGrantEpochMillisecondsV1(nowEpochMilliseconds)) {
         return yield* Effect.fail(verificationFailure("invalidClockReading"));
       }
       const verifiedAt = yield* Effect.try({
@@ -332,9 +332,4 @@ function pinMismatch(
   return new TransactionGrantVerificationV1Error({
     issue: { reason: "pinMismatch", field },
   });
-}
-
-function isValidEpochMilliseconds(value: number): boolean {
-  return Number.isSafeInteger(value) &&
-    Math.abs(value) <= MAX_ECMASCRIPT_DATE_EPOCH_MILLISECONDS;
 }

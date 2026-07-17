@@ -82,6 +82,30 @@ export const MAX_TRANSACTION_GRANT_TEXT_UTF8_BYTES_V1 = 1_024;
 export const MAX_TRANSACTION_GRANT_CLAIM_FIELDS_V1 = 32;
 export const MAX_TRANSACTION_GRANT_CLAIMS_JSON_UTF8_BYTES_V1 = 16_384;
 export const TRANSACTION_GRANT_ED25519_SIGNATURE_BYTES_V1 = 64;
+export const MIN_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1 =
+  -62_167_219_200_000;
+export const MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1 =
+  253_402_300_799_999;
+
+export function isTransactionGrantEpochMillisecondsV1(
+  value: number,
+): boolean {
+  return Number.isSafeInteger(value) &&
+    value >= MIN_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1 &&
+    value <= MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1;
+}
+
+export function isPositiveTransactionGrantDurationMillisecondsV1(
+  value: number,
+): boolean {
+  return isTransactionGrantEpochMillisecondsV1(value) && value > 0;
+}
+
+export function isNonNegativeTransactionGrantDurationMillisecondsV1(
+  value: number,
+): boolean {
+  return isTransactionGrantEpochMillisecondsV1(value) && value >= 0;
+}
 
 const MAX_TRANSACTION_GRANT_PROTECTED_HEADER_BASE64URL_CHARACTERS_V1 =
   base64UrlMaximumCharacters(MAX_TRANSACTION_GRANT_PROTECTED_HEADER_BYTES_V1);
@@ -757,8 +781,8 @@ export async function canonicalizeTransactionGrantPayloadV1(
   let canonical;
   try {
     canonical = await canonicalizeFlarexValueV1(encoded);
-  } catch {
-    throw invalidSchema("payload");
+  } catch (cause) {
+    throw valueCodecFailureOrDefect(cause, "payload");
   }
   assertEvidenceSize(
     "payload",
@@ -856,8 +880,8 @@ export async function deriveInertTransactionGrantEvidenceV1(
     canonicalEnvelope = await canonicalizeFlarexValueV1(
       authorizationGrantJson,
     );
-  } catch {
-    throw invalidSchema("jws");
+  } catch (cause) {
+    throw valueCodecFailureOrDefect(cause, "jws");
   }
   assertEvidenceSize(
     "jws",
@@ -908,6 +932,25 @@ export async function deriveInertTransactionGrantEvidenceV1(
   } satisfies InertTransactionGrantEvidenceV1);
 }
 
+export const deriveInertTransactionGrantEvidenceV1Effect = Effect.fn(
+  "TransactionGrant.deriveInertEvidenceV1",
+)((
+  input: unknown,
+): Effect.Effect<
+  InertTransactionGrantEvidenceV1,
+  TransactionGrantProtocolV1Error
+> =>
+  Effect.tryPromise({
+    try: () => deriveInertTransactionGrantEvidenceV1(input),
+    catch: (cause): unknown => cause,
+  }).pipe(
+    Effect.catch((cause: unknown) =>
+      cause instanceof TransactionGrantProtocolV1Error
+        ? Effect.fail(cause)
+        : Effect.die(cause)
+    ),
+  ));
+
 function decodeCanonicalProtectedHeader(
   value: UnverifiedTransactionGrantProtectedHeaderBase64UrlV1,
 ): CanonicalTransactionGrantProtectedHeaderV1 {
@@ -943,8 +986,8 @@ async function decodeCanonicalPayload(
   let canonical;
   try {
     canonical = await canonicalizeFlarexValueJsonV1(envelope.value);
-  } catch {
-    throw invalidSchema("payload");
+  } catch (cause) {
+    throw valueCodecFailureOrDefect(cause, "payload");
   }
   if (!bytesEqual(canonical.canonicalBytes, bytes)) {
     throw new TransactionGrantProtocolV1Error({
@@ -1084,6 +1127,14 @@ function invalidSchema(
       field,
     },
   });
+}
+
+function valueCodecFailureOrDefect(
+  cause: unknown,
+  field: TransactionGrantProtocolV1Field,
+): TransactionGrantProtocolV1Error {
+  if (cause instanceof FlarexValueCodecV1Error) return invalidSchema(field);
+  throw cause;
 }
 
 function invalidBase64Url(

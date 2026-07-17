@@ -2,6 +2,9 @@ import { Effect } from "effect";
 
 import {
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
+  isNonNegativeTransactionGrantDurationMillisecondsV1,
+  isPositiveTransactionGrantDurationMillisecondsV1,
+  isTransactionGrantEpochMillisecondsV1,
   type TransactionGrantDeploymentIdV1,
   type TransactionGrantKeyIdV1,
   type TransactionGrantPayloadV1,
@@ -30,8 +33,6 @@ export {
   type TransactionGrantVerificationV1Issue,
   type VerifiedTransactionGrantInspectionV1,
 } from "./transactionGrantVerificationKernel";
-
-const MAX_ECMASCRIPT_DATE_EPOCH_MILLISECONDS = 8_640_000_000_000_000;
 
 export interface TransactionGrantVerificationClockV1 {
   readonly now: () => Date;
@@ -472,12 +473,14 @@ export function createTransactionGrantVerificationKeyNamespaceV1(
 export function createTransactionGrantVerifierV1(
   config: TransactionGrantVerifierV1Config,
 ): TransactionGrantVerifierV1 {
-  if (!isPositiveSafeInteger(config.maximumGrantLifetimeMilliseconds)) {
+  if (!isPositiveTransactionGrantDurationMillisecondsV1(
+    config.maximumGrantLifetimeMilliseconds,
+  )) {
     throw new TransactionGrantAuthorityConfigurationV1Error(
       "invalidMaximumGrantLifetime",
     );
   }
-  if (!isNonNegativeSafeInteger(
+  if (!isNonNegativeTransactionGrantDurationMillisecondsV1(
     config.maximumFutureIssuedAtSkewMilliseconds,
   )) {
     throw new TransactionGrantAuthorityConfigurationV1Error(
@@ -625,11 +628,12 @@ function isValidIssuedAtWindow(
   issuanceEnd: number | undefined,
   verificationEnd: number | undefined,
 ): boolean {
-  return isValidEpochMilliseconds(start) &&
+  return isTransactionGrantEpochMillisecondsV1(start) &&
     (issuanceEnd === undefined ||
-      (isValidEpochMilliseconds(issuanceEnd) && issuanceEnd > start)) &&
+      (isTransactionGrantEpochMillisecondsV1(issuanceEnd) &&
+        issuanceEnd > start)) &&
     (verificationEnd === undefined ||
-      (isValidEpochMilliseconds(verificationEnd) &&
+      (isTransactionGrantEpochMillisecondsV1(verificationEnd) &&
         verificationEnd > start &&
         (issuanceEnd === undefined || verificationEnd >= issuanceEnd)));
 }
@@ -638,19 +642,4 @@ function currentEpochAdmissionFailure(
   issue: CurrentEpochTransactionGrantAdmissionV1Issue,
 ): CurrentEpochTransactionGrantAdmissionV1Error {
   return new CurrentEpochTransactionGrantAdmissionV1Error(issue);
-}
-
-function isPositiveSafeInteger(value: number): boolean {
-  return Number.isSafeInteger(value) && value > 0 &&
-    value <= MAX_ECMASCRIPT_DATE_EPOCH_MILLISECONDS;
-}
-
-function isNonNegativeSafeInteger(value: number): boolean {
-  return Number.isSafeInteger(value) && value >= 0 &&
-    value <= MAX_ECMASCRIPT_DATE_EPOCH_MILLISECONDS;
-}
-
-function isValidEpochMilliseconds(value: number): boolean {
-  return Number.isSafeInteger(value) &&
-    Math.abs(value) <= MAX_ECMASCRIPT_DATE_EPOCH_MILLISECONDS;
 }

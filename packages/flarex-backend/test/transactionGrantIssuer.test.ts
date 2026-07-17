@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import type { AuthConfig } from "flarex-protocol/auth";
 import { ReplacementScopeIdV1Schema } from "flarex-protocol/storage-authority";
 import {
+  MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1,
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
   TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
   TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
@@ -232,7 +233,14 @@ describe("point-mutation transaction-grant issuer", () => {
   });
 
   it("requires explicit valid lifetime configuration and exposes no caller authority fields", async () => {
-    for (const maximumGrantLifetimeMilliseconds of [0, -1, 1.5, NaN]) {
+    for (const maximumGrantLifetimeMilliseconds of [
+      0,
+      -1,
+      1.5,
+      MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1 + 1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+    ]) {
       await expect(runTestEffect(
         makePointMutationTransactionGrantIssuerV1({
           maximumGrantLifetimeMilliseconds,
