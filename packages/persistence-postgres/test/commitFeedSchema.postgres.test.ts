@@ -68,11 +68,7 @@ describePostgres("real Postgres S08 commit/change-feed schema", () => {
             ),
           ).rejects.toThrow();
 
-          await writeFile(
-            temporaryJournal,
-            await readFile(currentJournal, "utf8"),
-            "utf8",
-          );
+          await writeJournalThrough0029(currentJournal, temporaryJournal);
           const realMigration = await readFile(copiedMigration, "utf8");
           await writeFile(
             copiedMigration,
@@ -273,6 +269,22 @@ async function writeJournalThrough0028(
   }
   parsed.entries = parsed.entries.filter(
     (entry) => typeof entry.idx === "number" && entry.idx < 29,
+  );
+  await writeFile(targetJournal, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+}
+
+async function writeJournalThrough0029(
+  currentJournal: string,
+  targetJournal: string,
+): Promise<void> {
+  const parsed = JSON.parse(await readFile(currentJournal, "utf8")) as {
+    entries?: Array<{ idx?: number }>;
+  };
+  if (!Array.isArray(parsed.entries)) {
+    throw new Error("Current Drizzle journal is missing its entries array.");
+  }
+  parsed.entries = parsed.entries.filter(
+    (entry) => typeof entry.idx === "number" && entry.idx < 30,
   );
   await writeFile(targetJournal, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
 }

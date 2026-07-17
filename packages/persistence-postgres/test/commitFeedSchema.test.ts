@@ -96,10 +96,9 @@ describe("S08 commit/change-feed schema", () => {
         previous.query(`select oldest_available_commit_seq from fx_system_scope_clock`),
       ).rejects.toThrow();
 
-      await writeFile(
+      await writeJournalThrough0029(
+        resolve(currentMigrationsFolder, "meta/_journal.json"),
         temporaryJournal,
-        await readFile(resolve(currentMigrationsFolder, "meta/_journal.json"), "utf8"),
-        "utf8",
       );
       const current = await createPGlitePersistence({ db, migrationsFolder });
       await expect(current.migrate()).resolves.toBeUndefined();
@@ -153,7 +152,7 @@ describe("S08 commit/change-feed schema", () => {
       const previous = await createPGlitePersistence({ db, migrationsFolder });
       await previous.migrate();
       await insertScope(previous, SCOPE_A, EPOCH_A, "0");
-      await writeFile(temporaryJournal, await readFile(currentJournal, "utf8"), "utf8");
+      await writeJournalThrough0029(currentJournal, temporaryJournal);
 
       const migration = await readFile(copiedMigration, "utf8");
       await writeFile(
@@ -406,6 +405,22 @@ async function writeJournalThrough0028(
   }
   parsed.entries = parsed.entries.filter(
     (entry) => typeof entry.idx === "number" && entry.idx < 29,
+  );
+  await writeFile(targetJournal, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+}
+
+async function writeJournalThrough0029(
+  currentJournal: string,
+  targetJournal: string,
+): Promise<void> {
+  const parsed = JSON.parse(await readFile(currentJournal, "utf8")) as {
+    entries?: Array<{ idx?: number }>;
+  };
+  if (!Array.isArray(parsed.entries)) {
+    throw new Error("Current Drizzle journal is missing its entries array.");
+  }
+  parsed.entries = parsed.entries.filter(
+    (entry) => typeof entry.idx === "number" && entry.idx < 30,
   );
   await writeFile(targetJournal, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
 }

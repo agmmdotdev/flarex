@@ -21,9 +21,10 @@ C02's host-neutral logical journal/result/envelope protocol, C03's first
 trusted Postgres point-journal consumer, and C04A's private stored-attempt
 authentication gate, C04B1's private commit-authority gate, and C04B2's private
 C07 final-document/result proof are complete. Corrected C04C1 database-free
-logical point planning and S08's native commit/change-feed schema plus bounded
-package-private reader are complete. The retained-history floor is physically
-present but fixed at zero until O11; C04C2 remains conditional and unapproved.
+logical point planning, S08's native commit/change-feed schema plus bounded
+package-private reader, and S09-A's private committed-success result DDL are
+complete. The retained-history floor is physically present but fixed at zero
+until O11; S09-B remains pending and C04C2 remains conditional and unapproved.
 B2b2 renewal is
 a conditional
 operational extension outside the current
@@ -32,7 +33,7 @@ bounded attempt must outlive its initial lease.
 
 | Stream | Current status |
 | --- | --- |
-| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, and S08's native commit/change-feed DDL plus inert retained floor complete |
+| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, and S09-A's private committed-success result DDL complete; S09-B remains pending |
 | OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads with typed present/qualified-missing dependencies, and `O05` pure point-OCC validation are complete; standalone `O01` retired before implementation, while B2b2 renewal, operational revocation, and hosted adapters remain consumer-triggered deferred gates |
 | Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, private-C07 final-value proof `C04B2`, and corrected private logical point planner `C04C1` complete; `C04C2` is conditional and unapproved |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
@@ -171,7 +172,8 @@ Fixed cross-adapter rules:
   preflighted authoritative outcome/terminal-fence protocol permits it;
 - callers cannot author physical tables, locks, sequences, index/unique/edge
   rows, change atoms, or system outbox rows;
-- `(scope_id, request_key)` idempotency is generation independent;
+- `(scope_uuid, request_key)` idempotency is generation independent; the current
+  key is a server-prepared internal request identity, not a public namespace;
 - clean target requests start in the target namespace. Legacy namespace sealing,
   outcome import, tombstones, and unknown-key rejection apply only if shipped
   legacy request keys are discovered;
@@ -285,8 +287,8 @@ types and ports are introduced by the gates that first consume them.
     planning that introduces private `PreparedPointCommitV1`, preserves every
     protocol dependency, and carries at most one final logical row intent.
     `C04C2` is not an automatic follow-up: it remains conditional until the
-    S08/S09/O06/O07 consumers prove a separate physical/change/outbox lowering
-    capability useful.
+    S08/S09-A/S09-B/O06/O07 consumers prove a separate physical/change/outbox
+    lowering capability useful.
 
 The proposed C01 compatibility-wrapper work is not carried forward. C03 introduces
 only the `SessionJournalStore` required by its first real Postgres-backed
@@ -331,17 +333,22 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
    checked typed app-row changes; package-private bounded contiguous
    `listAfter`; retained-history floor physically present but fixed at `0`
    until O11. Header allocation remains an O06/O07 decision.
-2. `S09`: result-bearing idempotency and leased-outbox DDL.
-3. `O06`: private non-routable scope-local commit transaction harness.
-4. `O07`: atomic result, outcome, data, commit/change atoms, and outbox.
-5. `C05`: one point mutation through the complete primitive.
-6. `O08`: separate OCC reruns, safe SQL retries, and uncertain-outcome lookup.
-7. `C06`: idempotent finish and lost-outcome recovery through `/invoke/*`.
-8. `C07`: PGlite plus real-Postgres correctness gate.
+2. `S09-A` (complete): private scope-lifetime committed-success result DDL,
+   keyed by the server-prepared internal request identity and deliberately
+   decoupled from compactable S08 headers.
+3. `S09-B`: leased outbox, delivery state, and outbox-retention DDL.
+4. `O06`: private non-routable scope-local commit transaction harness.
+5. `O07`: atomic result, outcome, data, commit/change atoms, and outbox.
+6. `C05`: one point mutation through the complete primitive.
+7. `O08`: separate OCC reruns, safe SQL retries, and uncertain-outcome lookup.
+8. `C06`: idempotent finish and lost-outcome recovery through `/invoke/*`.
+9. `C07`: PGlite plus real-Postgres correctness gate.
 
-After O07 and before C05, introduce C04C2 only if the frozen S08/S09/O06/O07
-first-consumer contracts prove that a separate physical/change/outbox lowering
-capability is necessary. The step is not part of the mandatory order today.
+This S09-A/S09-B split refines one existing Wave 2 outcome; it does not reorder
+the wave. After O07 and before C05, introduce C04C2 only if the frozen
+S08/S09-A/S09-B/O06/O07 first-consumer contracts prove that a separate
+physical/change/outbox lowering capability is necessary. The step is not part
+of the mandatory order today.
 
 `C07` is the first end-to-end replacement milestone, but it proves only a
 private test-generation point-mutation kernel. It does not authorize canary or

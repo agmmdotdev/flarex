@@ -1292,14 +1292,14 @@ revalidation; the identity/policy digest and legacy FNV fingerprint are not
 standalone authorization.
 
 S07 adds no normalized dependency table, syscall sequence, journal digest,
-result/error, committed token, or public idempotency authority. S07-A adds the
+committed-result evidence, token, or S09-A idempotency authority. S07-A adds the
 scope-wide revocation column and storage primitive; O03-A supplies signed-grant
 semantics; O03-B owns atomic activation and basic exact-fence lease mechanics;
 O04 owns point dependencies; C02 owns the journal protocol; C05 introduces the
 private exact-fence transition to `finishing`; C06 orchestrates it through the
-finish endpoint; C03 rejects late syscalls; O07 deletes the exact lease and
-stores committed state plus durable outcome/idempotency; O08 owns retry
-replacement.
+finish endpoint; C03 rejects late syscalls; S09-A supplies the private success-
+receipt shape; O07 deletes the exact lease and stores committed state plus that
+durable outcome; O08 owns retry replacement.
 
 `fx_system_scope_clock` is locked only during short trusted authority
 transactions such as revocation-epoch advance, O03-B session activation, and
@@ -1308,42 +1308,47 @@ hooks, Medusa workflow steps, network calls, or long actions are running.
 
 ## Idempotency And Client Watermarks
 
-Stable mutation IDs prevent duplicate application after retries.
+Stable internal request keys prevent duplicate application after retries.
+S09-A supersedes the earlier text-scope, generic-status sketch with this
+private committed-success inventory:
 
 ```sql
 fx_system_idempotency (
-  scope_id text not null,
-  actor_fingerprint text not null,
+  scope_uuid uuid not null,
   request_key text not null,
-  function_ref text not null,
-  request_hash text not null,
-  result_json jsonb,
-  error_json jsonb,
-  log_metadata_json jsonb,
-  epoch text,
-  commit_seq bigint,
-  status text not null,
-  created_at timestamptz not null,
-  attempt_expires_at timestamptz,
-  result_expires_at timestamptz,
-  primary key (scope_id, request_key)
+  identity_access_policy_sha256 bytea not null,
+  function_path text not null,
+  request_sha256 bytea not null,
+  epoch_uuid uuid not null,
+  commit_seq bigint not null,
+  result_state text not null, -- available | expired
+  result_value_codec_version integer,
+  result_semantic_bytes integer,
+  result_bytes bytea,
+  result_sha256 bytea,
+  result_expired_at timestamptz,
+  created_at timestamptz not null default now(),
+  primary key (scope_uuid, request_key),
+  foreign key (scope_uuid) references fx_system_scope_clock(scope_uuid)
 )
 ```
 
-The successful result and commit token are written in the same transaction as
-the authoritative data, commit row, and outbox. A matching key with a different
-identity, function, or request hash fails instead of replaying the wrong result.
-Only `committed` is a replayable terminal outcome. `in_progress` may coordinate
-one active attempt, while OCC conflicts, SQL serialization/deadlock rollbacks,
-and transport uncertainty remain recoverable states and must not be stored as a
-replayable failure. Diagnostic failures expire without masquerading as a
-committed mutation result.
-Committed keys never become reusable. After `result_expires_at`, large
-result/log payloads may be cleared, but a compact key,
-identity/function/request hash, status, and commit-token tombstone remains for
-the scope lifetime. Late retries receive `CommittedResultExpired` rather than
-reapplying the mutation. Tombstones can be compacted only with proof that the
-client request namespace is permanently retired.
+The current internal key is nonblank PostgreSQL text bounded to 1,024 UTF-8
+bytes, not yet a public client key. Match digests are exactly 32 bytes, the
+function path is nonblank, and the commit sequence is positive. `available`
+retains strict Value Codec V1 result evidence within the accepted semantic and
+canonical-byte ceilings; `expired` removes all result evidence and records a
+finite database-owned expiry time. Both states denote the same committed
+success. There is no in-progress, error, log, claim, or attempt-expiry state.
+
+O07 later writes this receipt in the same transaction as authoritative data,
+the S08 commit header, committed session state, and S09-B outbox. The receipt's
+commit token intentionally has no foreign key to `fx_system_commit`: O11 may
+compact pre-floor feed history, while the scope-lifetime key remains
+non-reusable and unambiguous. Result-payload expiration and feed/outbox
+retention are separate policies. The previous `actor_fingerprint`, JSON
+result/error/log, generic status, and attempt-expiry columns are superseded and
+are neither migration inputs nor alternate target DDL.
 
 Optional advanced local-first/offline sequencing can use client watermarks:
 
@@ -1709,7 +1714,7 @@ Client mutation(args, mutationId)
   -> derives and writes app rows and sidecars
   -> writes relation edges and required indexes
   -> writes fx_system_commit and fx_system_outbox
-  -> writes successful result-bearing idempotency outcome
+  -> writes the private successful result-only idempotency receipt
   -> commits
   -> wakes DeploymentSyncDO with summary
 ```

@@ -7,8 +7,8 @@ result, and finish-envelope protocol, C03's first trusted Postgres point-
 journal consumer, C04A's private stored-attempt authentication, and C04B1's
 private commit-authority authentication are complete. C04B2's private-C07
 final-document/result proof is also complete. Corrected C04C1 private logical
-point planning is complete; C04C2 remains conditional and
-unapproved.
+point planning, S08 commit/feed DDL, and S09-A private committed-success DDL are
+complete; S09-B remains pending and C04C2 remains conditional and unapproved.
 
 This plan owns the bounded Flarex app-data path from logical session operations
 through a private logical point plan to an atomic commit. It does not make a
@@ -180,8 +180,8 @@ Introduce each boundary only at its real owner:
   revocation/schema authority capture and its private capability. C04B2 alone
   owns final value/return validation and `VerifiedCommitInput`; C04C1 owns the
   concrete process-local logical `PreparedPointCommitV1` capability. C04C2 is
-  conditional on S08/S09/O06/O07 proving a separate physical/change/outbox
-  lowering capability useful.
+  conditional on S08/S09-A/S09-B/O06/O07 proving a separate physical/change/
+  outbox lowering capability useful.
 - O06/O07 own the exact atomic persistence capability; C05 is its first
   complete planner/executor composition consumer.
 - C06 owns `PostCommitWake`, after durable commit and outbox evidence make its
@@ -203,7 +203,7 @@ Outcome:
   `SessionJournalV1`, separate `SuccessfulResultEvidenceV1`, and
   `CommitEnvelopeV1` contracts. Private logical `PreparedPointCommitV1` is
   deferred to C04C1. Physical revision/current rows, locks, change atoms, and
-  outbox records remain with their S08/S09/O06/O07 consumers.
+  outbox records remain with their S08/S09-A/S09-B/O06/O07 consumers.
 - Define attempt fence, canonical final syscall sequence, protocol versions,
   canonical journal/result evidence, and SHA-256 integrity digests. C03 owns
   operational monotonic sequencing and append rejection.
@@ -458,10 +458,11 @@ Outcome:
 
 ### [ ] C04C2 — Conditional Consumer-Driven Physical Lowering
 
-Do not introduce this gate unless the frozen S08/S09/O06/O07 first-consumer
-contracts prove that a distinct physical/change/outbox lowering capability is
-useful. O06/O07 own actual SQL locks, physical revision/current lowering,
-sequence/time allocation, and publication; O09 owns multi-row/unique ordering.
+Do not introduce this gate unless the frozen S08/S09-A/S09-B/O06/O07 first-
+consumer contracts prove that a distinct physical/change/outbox lowering
+capability is useful. O06/O07 own actual SQL locks, physical revision/current
+lowering, sequence/time allocation, and publication; O09 owns multi-row/unique
+ordering.
 
 ### [ ] C05 — Execute One Atomic Point Mutation
 

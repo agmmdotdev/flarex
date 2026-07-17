@@ -94,7 +94,7 @@ Convex-first implementation references include:
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
 | Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. S06 is its first replacement-row consumer; no replacement route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
-| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, the required non-routing mutation-session authority core, private exact-snapshot semantic point reads with typed dependencies, C03's bounded exact-attempt point journal/overlay/seal, C04A/C04B1/C04B2 authenticated verification, corrected C04C1 logical point planning, and S08's native commit/change-feed schema plus bounded private reader are implemented. Atomic commit publication, reconnect retention/retained-floor advancement, result-bearing idempotency, replacement outbox, index sidecars, edges, target-native readiness, routing, and prototype retirement are not implemented; C04C2 and long-running-attempt renewal remain conditional on proven consumers. |
+| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, the required non-routing mutation-session authority core, private exact-snapshot semantic point reads with typed dependencies, C03's bounded exact-attempt point journal/overlay/seal, C04A/C04B1/C04B2 authenticated verification, corrected C04C1 logical point planning, S08's native commit/change-feed schema plus bounded private reader, and S09-A's private committed-success result storage are implemented. Atomic commit publication, S09-A lookup/replay/expiry behavior, reconnect retention/retained-floor advancement, S09-B replacement outbox, index sidecars, edges, target-native readiness, routing, and prototype retirement are not implemented; C04C2 and long-running-attempt renewal remain conditional on proven consumers. |
 
 Existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, and
 subscription tables remain an internal prototype behavior baseline. They are
@@ -550,8 +550,8 @@ Non-goals:
   remains deferred to O03-B2b2; finish/commit/retry/retention stay
   with their later consumers;
 - no journal, syscall sequence, journal digest, dependency, or OCC behavior;
-- no result/error, public idempotency, committed outcome, commit feed, outbox,
-  routing, executor wiring, backfill, or generation activation.
+- no committed result, S09-A idempotency receipt, committed outcome, commit
+  feed, outbox, routing, executor wiring, backfill, or generation activation.
 
 Exit gates:
 
@@ -677,22 +677,53 @@ Exit gates:
 - no gap-producing allocator, floor writer, retention/reset policy, generic
   change summary, legacy bridge, or S09/O06/O07 behavior exists.
 
-### [ ] S09 — Add Idempotency And Leased-Outbox DDL
+### [x] S09-A — Add Committed-Success Idempotency DDL
 
 Outcome:
 
-- Add result-bearing idempotency keyed by `(scope_id, request_key)`.
-- Add independently ordered scope outbox rows with claim fence, attempts,
-  retry time, state, and dead-letter metadata.
-- Add required-consumer cursor and delivery-idempotency retention state.
+- Migration 0030 adds private `fx_system_idempotency`, keyed by native
+  `(scope_uuid, request_key)` with only a restrictive scope-clock foreign key.
+  The current server-prepared internal key is nonblank PostgreSQL text bounded
+  to 1,024 UTF-8 bytes; no public client-key mapping is activated.
+- Every row binds exact 32-byte identity/access-policy and canonical-request
+  digests, a nonblank mutation function path, and immutable epoch plus positive
+  scope-lifetime commit sequence. The commit-token audit index is intentionally
+  not a foreign key to compactable S08 headers.
+- `available` retains strict Value Codec V1 successful-result evidence within
+  the 16 MiB semantic and 64 MiB canonical-evidence ceilings. `expired` retains
+  no payload evidence and records a finite database-owned expiry timestamp not
+  earlier than creation. Both states denote one committed success.
+- Keep the table package-private and additive. It defines no writer, lookup or
+  replay API, expiry transition, GC, error/log outcome, in-progress claim,
+  outbox, O07 integration, legacy bridge, import, or dual write.
 
 Exit gates:
 
-- uniqueness prevents duplicate request rows while trusted logic validates
-  identity/function/request-hash reuse;
-- all commit/outcome/outbox keys are scope safe; and
-- pending/claimed rows are never GCed, while delivered rows wait for consumer
-  progress and idempotency retention.
+- fresh install, 0029 upgrade, replay, injected-failure recovery, non-public
+  schema parity, strict state/byte/time constraints, scope ownership, header
+  deletion independence, and Drizzle consistency pass;
+- PGlite and isolated real Postgres prove same-key one-winner behavior,
+  mismatch non-overwrite, cross-scope independence, atomic rollback,
+  compaction-race/corruption classification, bounded query plans, and exact/
+  plus-one result limits; and
+- legacy `commits`, `documents`, `leases`, and `outbox` remain unchanged as
+  unshipped replacement evidence.
+
+### [ ] S09-B — Add Leased-Outbox DDL
+
+Outcome:
+
+- Add the first consumer-driven transactional wake/outbox contract with its
+  independently ordered scope rows, claim fence, attempts, retry time, state,
+  and dead-letter metadata.
+- Freeze delivery retention and idempotency only with its actual consumer; do
+  not infer generic consumer groups or reconnect policy from S09-A or O11.
+
+Exit gates:
+
+- all outbox keys and claims are scope safe and restart recoverable; and
+- pending/claimed rows are never GCed, while delivered rows wait for the
+  accepted consumer progress and delivery-idempotency retention contract.
 
 ### [ ] S10 — Add Index Revision And Current Sidecars
 

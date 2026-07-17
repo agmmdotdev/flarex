@@ -84,6 +84,7 @@ describe("createPGlitePersistence", () => {
       "fx_control_table",
       "fx_system_commit",
       "fx_system_commit_app_row_change",
+      "fx_system_idempotency",
       "fx_system_index_build_state",
       "fx_system_scope_clock",
       "fx_system_snapshot_lease",
@@ -1160,7 +1161,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "30" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "31" }]);
     } finally {
       try {
         await db.close();
@@ -1354,7 +1355,7 @@ describe("createPGlitePersistence", () => {
       const recoveredReceipts = await recoveredPersistence.query<{
         count: string;
       }>(`select count(*)::text as count from drizzle.__drizzle_migrations`);
-      expect(recoveredReceipts.rows).toEqual([{ count: "30" }]);
+      expect(recoveredReceipts.rows).toEqual([{ count: "31" }]);
     } finally {
       try {
         await db.close();

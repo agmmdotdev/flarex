@@ -164,6 +164,7 @@ work continues.
 | --- | --- | --- |
 | Existing `documents`, `indexes`, invoke sessions, Postgres live-query registry, and delivery outbox | Implemented prototype baseline | Keep only as bounded internal behavior evidence until equivalent target paths and tests exist. Do not extend it or treat it as a shipped migration obligation. |
 | Typed app row JSON with revision/current, declared index, edge, and unique sidecars | Partially implemented accepted target | S06 implements the internal, non-routing row revision/current kernel. Index, edge, and unique sidecars plus target-native index population/build and routing consumers remain planned behind the storage-generation boundary. |
+| Native commit feed and internal committed-success outcomes | Partially implemented accepted target | S08 implements native commit/change-feed storage and its bounded private reader. S09-A implements only the private scope-lifetime committed-success result receipt; allocation, outcome lookup/replay, payload expiry, publication, and the S09-B leased outbox remain pending. |
 | SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | Prove the Postgres-backed point path through the real-Postgres gate, then immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
 | Payload adapter | Staged target | Start with reserved logical collections and scalar CRUD/transaction conformance; add relations, versions/drafts, globals, auth, locks, and hooks incrementally. |
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
@@ -914,8 +915,8 @@ PreparedPointCommitV1 (introduced by C04C1)
   final logical row intent; it contains no SQL or publication authority
 
 Conditional physical lowering (C04C2)
-  introduced only if the first S08/S09/O06/O07 consumers prove that a distinct
-  physical/change/outbox lowering capability is useful
+  introduced only if the first S08/S09-A/S09-B/O06/O07 consumers prove that a
+  distinct physical/change/outbox lowering capability is useful
 
 CommitExecutor
   authorization, actual SQL locks, OCC, constraints, sequence/time allocation,
@@ -1191,7 +1192,7 @@ only deletion of a snapshot-present row yields a logical delete intent. The
 plan claims no physical rows, SQL lock order, sequence/time, change atoms, or
 outbox authority. Any
 separate C04C2 physical/change/outbox lowering remains conditional on the first
-S08/S09/O06/O07 consumers. SHA-256 proves byte integrity only; authenticating the
+S08/S09-A/S09-B/O06/O07 consumers. SHA-256 proves byte integrity only; authenticating the
 Postgres session/fence does not authenticate arbitrary inline journal bytes.
 C03 seals while the session remains `running`, and that sealed root rejects
 later syscalls. C05 later locks and revalidates the detached scalar seal
@@ -1199,9 +1200,10 @@ identity before the exact-fence `running` to `finishing` transition; a recovery
 path may rerun C04A from `finishing + sealed`. C06 later orchestrates finish
 idempotently through the endpoint.
 O07 atomically deletes the exact current lease and stores committed state with
-public idempotency identity, result/error outcome, committed token, data, feed,
-and outbox. O08 owns retry replacement; O11 first consumes active floors for
-history retention.
+the server-prepared internal request identity, committed-success result receipt,
+committed token, data, feed, and S09-B outbox. Failed or rolled-back executions
+create no S09-A outcome. O08 owns retry replacement; O11 first consumes active
+floors for history retention.
 
 SessionDO SQLite may hold the read/write journal, but it is temporary. It must
 not supply physical scope, table names, lock targets, unique-key rows,
@@ -1338,22 +1340,37 @@ cannot see the DO journal.
 
 ## Idempotency And Retry Classes
 
-The idempotency record is written atomically with the data, commit, and outbox.
-Its lookup/uniqueness key is `(scope_id, request_key)`. The stored row contains
-the identity fingerprint, function reference, and canonical argument/request
-hash, plus the successful result and commit token.
+S09-A owns one private committed-success record keyed by
+`(scope_uuid, request_key)`. The current `request_key` is the nonblank,
+at-most-1,024-UTF-8-byte server-prepared `TransactionRequestKeyV1`; it is not a
+public client idempotency namespace. The row binds exact 32-byte identity/access-
+policy and canonical-request digests, the exact mutation function path, and an
+immutable positive `(epoch_uuid, commit_seq)` receipt.
 
-Reusing the same request key with a different identity, function, or request
-hash is an error. A lost response is resolved by reading and replaying the
-stored outcome.
+Every S09-A row denotes a committed success. `available` retains Value Codec V1,
+the bounded semantic byte count, canonical successful-result bytes, and their
+digest. `expired` clears all result evidence and retains a finite database-owned
+expiry timestamp plus the same request match evidence and commit token. There is
+no `in_progress` row, error outcome, diagnostic failure, attempt lease, or log
+record in this table. Convex likewise records only successful mutations, but the
+private C07 proof deliberately retains result evidence without Convex log lines;
+public key mapping and log-replay parity require a later activation/API
+preflight.
 
-`in_progress` attempt leases expire. A committed request key does not become
-reusable: after the result replay window, Flarex may clear the large result/log
-payload but retains a compact tombstone containing key, identity/function/hash,
-and commit token for the scope lifetime. A late retry then returns
-`CommittedResultExpired` rather than reapplying the mutation. Future watermark
-compaction may remove tombstones only when it can prove the client request
-namespace is permanently retired.
+O07 must insert the successful outcome atomically with data, session state, the
+S08 commit header, and S09-B outbox evidence. Reusing a key with different
+identity, function, or request evidence fails, and a lost response is resolved
+from the stored outcome. S09-A defines the physical states only: C06/O07 later
+own lookup/replay, and a future retention consumer owns the one-way
+`available -> expired` transition.
+
+The immutable commit token deliberately has no foreign key to the compactable
+S08 commit header. O07 proves both in one transaction; O11 may later delete
+pre-floor commit/change history without deleting the scope-lifetime receipt or
+making its request key reusable. A late retry after payload expiry returns
+`CommittedResultExpired` rather than reapplying the mutation. Result-payload,
+committed-key, commit-feed, outbox-delivery, reconnect, and Payload-version
+retention are separate policies.
 
 If shipped legacy request keys are discovered, storage-generation cutover must
 fence their namespace. Recoverable committed keys are imported with outcomes;

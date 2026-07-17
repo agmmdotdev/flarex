@@ -1063,8 +1063,9 @@ uses it only for the private C07 final-document/result proof; production
 function-validator authority remains part of the later coherent activation-
 fenced snapshot, and syscall-time validation parity remains unresolved. C04C
 owns the pure prepared plan. A matching digest does not authenticate
-caller-supplied inline bytes. S09/O07 own public idempotency, result/error,
-committed token, and uncertain-outcome recovery.
+caller-supplied inline bytes. S09-A owns only the private committed-success
+result receipt, S09-B owns leased-outbox DDL, and O07/C06 later own atomic
+publication and uncertain-outcome recovery.
 Snapshot leases prevent engine-history GC from passing a live attempt.
 
 ### `fx_outbox`: keep
@@ -1103,38 +1104,28 @@ Non-negotiable.
 
 Without idempotency, client retries can double-apply mutations.
 
-Database uniqueness/lookup key:
+S09-A's database key is `(scope_uuid, request_key)`. The current request key is
+the private server-prepared `TransactionRequestKeyV1`, constrained to nonblank
+PostgreSQL text and at most 1,024 UTF-8 bytes. Mapping a future public client
+mutation ID into that namespace is outside the private C07 proof.
 
-```text
-scope_id
-client mutation id / idempotency key
-```
+Each row binds exact identity/access-policy and canonical-request SHA-256
+evidence, the mutation function path, and an immutable positive
+`(epoch_uuid, commit_seq)` receipt. An `available` row retains Value Codec V1
+canonical successful-result bytes, their digest, and semantic size. An
+`expired` row has no result evidence and retains a finite database-owned expiry
+timestamp. There is no `in_progress`, error, diagnostic-failure, log, claim, or
+attempt-expiry state in this table; unsuccessful or rolled-back executions
+create no row.
 
-Stored match fields:
-
-```text
-identity/access-policy fingerprint
-function reference
-canonical argument/request hash
-```
-
-Stored result:
-
-```text
-in_progress / committed
-epoch + commit_seq
-result_json
-error_json
-```
-
-The successful result is written atomically with data, commit atoms, and
-outbox. Reusing the key for another identity, function, or request hash is an
-error.
-Only `committed` is replayable. OCC conflicts, SQL serialization/deadlock
-rollbacks, and transport uncertainty are not terminal replayable failures.
-Only the in-progress attempt lease expires. A committed key is never reusable:
-after the result replay window, retain a compact identity/function/request-hash
-and commit-token tombstone and return `CommittedResultExpired` to late retries.
+O07 later writes the successful receipt atomically with data, committed session
+state, the S08 header, and S09-B outbox evidence. The receipt has no foreign key
+to the compactable commit header: O07 proves the matching token in one
+transaction, while O11 may remove pre-floor feed history without deleting or
+making ambiguous the scope-lifetime committed key. Result-payload expiry,
+committed-key retention, feed retention, and outbox retention are independent.
+The older client-key/`in_progress`/`result_json`/`error_json` sketch is
+superseded, not an alternate target or migration input.
 
 ### Payload-specific physical tables: defer
 
@@ -1240,7 +1231,8 @@ fx_outbox:
   notify live-query/search/cache/event workers
 
 fx_idempotency:
-  store mutation result keyed by client mutation id
+  store the successful result under the server-prepared internal request key
+  (public client-mutation-ID mapping remains deferred)
 ```
 
 No `fx_field`, no `fx_relation_def`, no `fx_edge_rev`, and no dedicated Payload tables are required for this first version.
@@ -1355,8 +1347,8 @@ commerce writes/deletes should go through ctx.commerce / trusted commerce adapte
 8. Implement O03-A signed transaction-grant authority, then O03-B atomic
    session activation and basic exact-fence lease mechanics.
 9. Add exact point dependencies and point OCC.
-10. Add commit atoms, result-bearing idempotency, and leased outbox through their
-   separate S08/S09 and O06/O07 gates.
+10. Add commit atoms, committed-success idempotency, and leased outbox through
+    their separate S08/S09-A/S09-B and O06/O07 gates.
 11. Prove the narrow point-mutation path on PGlite and real Postgres.
 12. Bootstrap clean target state, verify target invariants, switch internal
     callers, and remove prototype storage. Use an evidence-triggered migration

@@ -119,7 +119,7 @@ Introduce later contracts only at their real owners: row revisions at `S06`,
 current revocation storage at `S07-A`, grant semantics at `O03-A`, initial
 session authority at `S07`/`O03-B`, point dependencies at `O04`, point conflict
 decisions at `O05`, commit/feed capabilities at `S08`/`O06`, and committed
-outcomes at `S09`/`O07`. A row revision derives from `CommitSeq`; it never owns
+outcomes at `S09-A`/`O07`. A row revision derives from `CommitSeq`; it never owns
 another sequence. The legacy adapter never treats wall-clock `ts` as a
 replacement commit sequence.
 
@@ -726,7 +726,8 @@ Deferred ownership after the required O03-B core:
   trusted OCC rerun classification, journal discard, backoff, SQL retry, and
   uncertain-outcome lookup; and
 - `O11` first introduces the active-floor query and engine-history cleanup
-  consumer. Terminal-anchor retention remains aligned with S09 outcomes.
+  consumer. S09-A committed-key lifetime and result-payload expiry remain
+  separate from engine/feed, reconnect, and S09-B outbox retention.
 
 ### [x] O04 — Implement Exact-Snapshot Point Reads
 
@@ -864,11 +865,15 @@ Outcome:
   accepts only the immutable prepared point plan. C05 is its first compiler
   consumer; this target capability never wraps or promotes legacy
   `commitInvokeSessionWrites`.
-- Lock/claim `(scope_id, request_key)` and bind it to identity fingerprint,
-  function reference, and canonical request hash.
-- Store the successful encoded result, commit token, data, commit/change atoms,
-  outbox rows, exact-current-lease deletion, and committed session state in the
-  same transaction.
+- Consume S09-A through a fast committed-outcome lookup before entering the
+  transaction. A matching stored success is replayable; mismatched identity/
+  policy, function, or canonical-request evidence fails. S09-A has no
+  `in_progress` claim row.
+- Insert the successful encoded result and immutable commit token only in the
+  same transaction as data, the S08 header/change atoms, S09-B outbox rows,
+  exact-current-lease deletion, and committed session state. Failed, aborted,
+  OCC-conflicted, serialization-rolled-back, and diagnostic-error attempts
+  create no committed outcome.
 - O06/O07 own actual SQL lock acquisition, sequence/time allocation, physical
   revision/current lowering, and atomic result/change/outbox publication.
   C04C1's numeric table/row ordering is canonical logical evidence ordering
@@ -878,14 +883,13 @@ Outcome:
 All authoritative writers use one lock order:
 
 ```text
-fast committed-outcome lookup outside the transaction
+fast S09-A committed-outcome lookup outside the transaction
   -> begin transaction
   -> lock data-plane scope clock/generation fence
   -> lock exact session row and exact current lease
   -> recheck lifecycle/fence/snapshot/expiry/grant/current revocation epoch
-  -> lock or insert idempotency row
-  -> compare identity/function/request hash
   -> validate and publish
+  -> insert the S09-A success receipt together with S08/S09-B evidence
 ```
 
 Any future O03-B2b2 renewal, O03-B2b1 abort/expiry, and O08 retry replacement
@@ -989,8 +993,9 @@ Outcome:
   make snapshots at the floor incorrect.
 - Advance the global floor only after row, index, commit/change, and required
   dependency histories are mutually safe at that floor.
-- Keep engine revision retention, Payload user-visible versions, and outbox
-  retention as separate policies.
+- Keep engine revision retention, S09-A result-payload expiry, scope-lifetime
+  committed-key retention, Payload user-visible versions, S09-B outbox
+  delivery retention, and roadmap-21 reconnect retention as separate policies.
 - Return an explicit reset/out-of-retention outcome for a token below the floor
   or from another epoch.
 

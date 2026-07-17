@@ -120,8 +120,8 @@ authenticates current stored argument/grant/revocation/schema authority into a
 second same-factory process-local capability. C04B2 now mints private
 same-factory `VerifiedCommitInputV1` after zero-I/O final-value/result proof;
 corrected private `PreparedPointCommitV1` planning belongs to the approved
-C04C1 gate. Physical/change/outbox lowering remains with S08/S09/O06/O07 unless
-those first consumers later justify conditional C04C2.
+C04C1 gate. Physical/change/outbox lowering remains with S08/S09-A/S09-B/O06/
+O07 unless those first consumers later justify conditional C04C2.
 
 ### Accepted replacement boundary
 
@@ -197,15 +197,15 @@ digests; C03 owns operational sequencing, accounting, and the first trusted
 stored attempt journal; C04A owns exact stored-evidence authentication, C04B1
 owns current commit-authority authentication, C04B2 owns final value/return
 verification and `VerifiedCommitInput`, and C04C1 owns only concrete private
-logical `PreparedPointCommitV1`. Conditional C04C2 exists only if S08/S09/O06/
-O07 later prove a separate physical lowering capability useful. C03 seals while
+logical `PreparedPointCommitV1`. Conditional C04C2 exists only if S08/S09-A/
+S09-B/O06/O07 later prove a separate physical lowering capability useful. C03 seals while
 the attempt is `running`, and
 the sealed root rejects late syscalls. C05 locks and revalidates the scalar seal
 identity before the private exact-fence transition to `finishing`; C06
 orchestrates it idempotently through the finish endpoint. O07 atomically
-deletes the exact lease and stores committed state plus
-public idempotency/outcomes, O08 owns retry replacement, and O11 first consumes
-active floors.
+deletes the exact lease and stores committed state plus the internal S09-A
+committed-success receipt and S09-B outbox, O08 owns retry replacement, and O11
+first consumes active floors.
 
 Temporary journal placement does not change this anchor. Reloading it
 authenticates the exact Postgres attempt and fences stale attempts; it does not
@@ -368,16 +368,17 @@ syscall-time/catchable-failure parity. Roadmap 17 plus S03-D4/S04 continue to
 own the coherent activation-fenced package/artifact/source/function-validator/
 schema snapshot.
 
-The short commit transaction then:
+The commit path then:
 
 ```text
-lock scope commit lane and look up authoritative outcome
+fast S09-A committed-outcome lookup outside SQL
+  -> begin transaction and lock scope commit lane
   -> recheck session, attempt, generation, epoch, and authority
   -> validate typed dependencies and constraints
   -> allocate commit/outbox sequences
   -> publish row revisions/current rows and derived sidecars
-  -> store result-bearing idempotency outcome
-  -> write commit/change atoms and system outbox
+  -> insert the S09-A successful receipt
+  -> write S08 commit/change atoms and S09-B system outbox
   -> mark session committed
   -> commit
 ```
@@ -465,22 +466,32 @@ hosted transport guarantee. The final canonical journal retains its independent
 
 ## Idempotency And Recovery Contract
 
-The authoritative uniqueness key is:
+S09-A defines the private uniqueness key `(scope_uuid, request_key)`. The
+current `request_key` is the server-prepared internal
+`TransactionRequestKeyV1`, not the final public client namespace. It is
+nonblank and bounded to 1,024 UTF-8 bytes. Each committed-success row binds the
+exact identity/access-policy and canonical-request SHA-256 evidence, mutation
+function path, and immutable positive `(epoch_uuid, commit_seq)` receipt.
 
-```text
-(scope_id, request_key)
-```
+`available` retains strict Value Codec V1 successful-result bytes, digest, and
+semantic size; `expired` retains no result evidence and records a finite
+database-owned expiry timestamp. There is no in-progress, error, diagnostic-
+failure, log, claim, or attempt-expiry row. This matches Convex's success-only
+recording but deliberately omits Convex log-line replay in the private C07
+proof. Public key mapping and log parity require a later preflight.
 
-The outcome also binds identity/access fingerprint, function reference, and
-canonical argument/request hash. Successful result, commit token, and relevant
-log metadata are stored atomically with data, commit/change rows, outbox, and
-committed session state.
+O07 later inserts the outcome atomically with data, committed session state,
+the S08 header/change atoms, and S09-B outbox. Reusing a key for another
+identity, function, or request fails. Repeated finish and lost-response lookup
+remain C06/O07 behavior, not S09-A schema behavior. After payload expiry the
+compact committed receipt remains for the scope lifetime; late retries return
+`CommittedResultExpired` and never rerun the mutation.
 
-Repeated finish returns the stored outcome. Reusing a request key for another
-identity, function, or request hash fails. After the replay window, large
-result/log payloads may be removed, but a compact committed tombstone remains
-for the scope lifetime; late retries return `CommittedResultExpired` and never
-rerun the mutation.
+The commit token has no foreign key to compactable S08 feed history. O07 proves
+the same token while publishing both records; O11 may remove pre-floor headers
+without deleting the receipt or making replay ambiguous. Result-payload,
+committed-key, feed, outbox-delivery, reconnect, and Payload-version retention
+remain separate policies.
 
 If shipped legacy request keys are discovered, their storage-generation cutover
 imports recoverable outcomes, creates permanent tombstones for known commits
@@ -532,8 +543,9 @@ commit transaction.
     partial success is not a committed mutation.
 11. **Retry meaning is explicit.** OCC, safe SQL retry, and uncertain outcome
     never share one generic rerun rule.
-12. **Committed request keys are never reusable.** Expiry applies only to an
-    in-progress lease, not committed idempotency identity.
+12. **Committed request keys are never reusable.** Attempt leases and committed-
+    result payloads may expire under separate owners, but the S09-A committed
+    request identity, match evidence, and commit token remain non-reusable.
 13. **Journal cleanup is bounded and privacy aware.** Aborted, expired, and
     committed temporary values have explicit TTL/cleanup behavior.
 14. **Host placement cannot change semantics.** Postgres-backed and optional
@@ -677,7 +689,7 @@ carriage, or conditional C04C2 active.
   process-local attempt/table capabilities, but no production route consumes it
   and no compatibility bridge targets the legacy engine.
 - A private same-factory `VerifiedCommitInputV1` now exists for the C07 proof;
-  corrected C04C1 is adding only private logical `PreparedPointCommitV1`. No
+  corrected C04C1 provides only private logical `PreparedPointCommitV1`. No
   production-authoritative validator binding, physical lowering capability, or
   replacement `CommitExecutor` integration exists.
 - Current `commitInvokeSessionWrites` combines planning, OCC, timestamp
@@ -685,14 +697,16 @@ carriage, or conditional C04C2 active.
   session completion.
 - Current retry coordination reruns whole attempts for prototype OCC but
   does not implement the final three-class outcome protocol.
-- The final `(scope_id, request_key)` result-bearing idempotency row,
-  committed-outcome replay, expiry tombstone, and target-generation activation
-  rules are not implemented. Legacy outcome import remains conditional.
+- S09-A's final `(scope_uuid, request_key)` committed-success table and
+  available/expired state constraints are implemented. Its writer, outcome
+  lookup/replay, expiry transition, public key mapping, and target-generation
+  activation remain unimplemented; legacy outcome import remains conditional.
 - Replacement app-row revision/current and physical transaction-session/
   snapshot-lease tables plus the private O04 point-read kernel and O05 pure
   point-OCC validator exist internally. Production syscall/session composition,
-  commit-time point-OCC integration/serialization, commit/change, idempotency,
-  leased outbox, and compiler composition remain prerequisites.
+  commit-time point-OCC integration/serialization, commit/change, S09-A
+  consumption, S09-B leased outbox, and compiler composition remain
+  prerequisites.
 - Exact range/relation/pagination overlays and phantom tests are incomplete.
 - Payload and Medusa adapter conformance remain separate future domains.
 - The scope-local commit lane may become a throughput bottleneck and must be
@@ -738,9 +752,10 @@ required session-authority core. O04 private exact-snapshot point reads and
 typed dependencies and O05 pure OCC validation are complete. Standalone C01
 was retired before implementation; C02's inert logical protocol, C03's
 operational point-journal consumer, and C04A's private stored-attempt
-authentication plus C04B1's current commit-authority authentication and C04B2's
-private-C07 final-value proof are complete. Corrected C04C1 is complete; C04C2
-remains conditional and unapproved.
+ authentication plus C04B1's current commit-authority authentication and C04B2's
+ private-C07 final-value proof are complete. Corrected C04C1, S08 commit/feed
+ DDL, and S09-A private committed-success DDL are complete; S09-B is the next
+ schema gate and C04C2 remains conditional and unapproved.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
 retention consumer proves that a bounded attempt must outlive its initial lease.
@@ -786,8 +801,8 @@ The remaining compiler gates are:
    deterministic logical point planner and private process-local
    `PreparedPointCommitV1`, preserving every protocol dependency and at most
    one material logical row intent.
-   `C04C2` remains conditional on S08/S09/O06/O07 proving that a separate
-   physical/change/outbox lowering capability is useful.
+   `C04C2` remains conditional on S08/S09-A/S09-B/O06/O07 proving that a
+   separate physical/change/outbox lowering capability is useful.
 7. `C05`: execute one replacement point mutation through the complete atomic
    OCC/outcome/commit/outbox primitive.
 8. `C06`: add fenced idempotent finish, duplicate/concurrent finish behavior,

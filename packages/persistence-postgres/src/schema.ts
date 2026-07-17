@@ -28,6 +28,7 @@ import {
   MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
   MAX_COMMIT_WRITE_OPERATIONS_V1,
   MAX_COMMIT_WRITE_SEMANTIC_BYTES_V1,
+  type CanonicalSuccessfulResultBytesV1,
   type CommitFinalSyscallSequenceV1,
   type CommitMaterialWriteEventEvidenceBytesV1,
   type CommitProtocolV1LimitDimension,
@@ -132,6 +133,8 @@ type TransactionJournalDependencyKindV1 =
   | "present"
   | "missing_no_visible_revision"
   | "missing_tombstone";
+
+type IdempotencyResultState = "available" | "expired";
 
 export const bytea = customType<{
   data: Uint8Array;
@@ -752,6 +755,128 @@ export const fxSystemCommits = pgTable(
     check(
       "fx_system_commit_committed_at_finite_check",
       sql`isfinite(${table.committedAt})`,
+    ),
+  ],
+);
+
+/**
+ * Scope-lifetime committed-success request outcomes. The commit token is an
+ * immutable receipt, not a foreign-key pointer to compactable feed history.
+ */
+export const fxSystemIdempotency = pgTable(
+  "fx_system_idempotency",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    requestKey: text("request_key")
+      .$type<TransactionRequestKeyV1>()
+      .notNull(),
+    identityAccessPolicySha256: bytea("identity_access_policy_sha256")
+      .$type<TransactionIdentityAccessPolicySha256V1>()
+      .notNull(),
+    functionPath: text("function_path")
+      .$type<TransactionFunctionPathV1>()
+      .notNull(),
+    requestSha256: bytea("request_sha256")
+      .$type<TransactionRequestSha256V1>()
+      .notNull(),
+    epochUuid: uuid("epoch_uuid").$type<ScopeEpochUuidV1>().notNull(),
+    commitSeq: bigint("commit_seq", { mode: "bigint" })
+      .$type<CommitSeq>()
+      .notNull(),
+    resultState: text("result_state")
+      .$type<IdempotencyResultState>()
+      .notNull(),
+    resultValueCodecVersion: integer("result_value_codec_version").$type<
+      FlarexValueCodecVersion
+    >(),
+    resultSemanticBytes: integer("result_semantic_bytes"),
+    resultBytes: bytea("result_bytes").$type<
+      CanonicalSuccessfulResultBytesV1
+    >(),
+    resultSha256: bytea("result_sha256").$type<FlarexValueSha256V1>(),
+    resultExpiredAt: timestamp("result_expired_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scopeUuid, table.requestKey] }),
+    foreignKey({
+      name: "fx_system_idempotency_scope_clock_fk",
+      columns: [table.scopeUuid],
+      foreignColumns: [fxSystemScopeClocks.scopeUuid],
+    })
+      .onUpdate("restrict")
+      .onDelete("restrict"),
+    index("fx_system_idempotency_commit_token_idx").on(
+      table.scopeUuid,
+      table.commitSeq,
+      table.epochUuid,
+    ),
+    check(
+      "fx_system_idempotency_request_key_check",
+      sql`
+        ${nonBlankText(table.requestKey)}
+        and octet_length(${table.requestKey}) <= ${sql.raw(
+          String(MAX_TRANSACTION_REQUEST_KEY_UTF8_BYTES_V1),
+        )}
+      `,
+    ),
+    check(
+      "fx_system_idempotency_identity_hash_check",
+      sql`octet_length(${table.identityAccessPolicySha256}) = 32`,
+    ),
+    check(
+      "fx_system_idempotency_function_path_check",
+      nonBlankText(table.functionPath),
+    ),
+    check(
+      "fx_system_idempotency_request_hash_check",
+      sql`octet_length(${table.requestSha256}) = 32`,
+    ),
+    check(
+      "fx_system_idempotency_commit_seq_check",
+      sql`${table.commitSeq} >= 1`,
+    ),
+    check(
+      "fx_system_idempotency_result_state_check",
+      sql`${table.resultState} in ('available', 'expired')`,
+    ),
+    check(
+      "fx_system_idempotency_result_evidence_check",
+      sql`
+        (
+          ${table.resultState} = 'available'
+          and ${table.resultValueCodecVersion} is not null
+          and ${table.resultValueCodecVersion} = 1
+          and ${table.resultSemanticBytes} is not null
+          and ${table.resultSemanticBytes} between 0 and ${sql.raw(
+            String(MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1),
+          )}
+          and ${table.resultBytes} is not null
+          and octet_length(${table.resultBytes}) between 1 and ${sql.raw(
+            String(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1),
+          )}
+          and ${table.resultSha256} is not null
+          and octet_length(${table.resultSha256}) = 32
+          and ${table.resultExpiredAt} is null
+        )
+        or
+        (
+          ${table.resultState} = 'expired'
+          and ${table.resultValueCodecVersion} is null
+          and ${table.resultSemanticBytes} is null
+          and ${table.resultBytes} is null
+          and ${table.resultSha256} is null
+          and ${table.resultExpiredAt} is not null
+          and isfinite(${table.resultExpiredAt})
+          and ${table.resultExpiredAt} >= ${table.createdAt}
+        )
+      `,
+    ),
+    check(
+      "fx_system_idempotency_created_at_check",
+      sql`isfinite(${table.createdAt})`,
     ),
   ],
 );

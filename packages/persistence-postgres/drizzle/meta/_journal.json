@@ -211,6 +211,13 @@
       "when": 1784267455188,
       "tag": "0029_mysterious_namora",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1784279203096,
+      "tag": "0030_absurd_vanisher",
+      "breakpoints": true
     }
   ]
 }
