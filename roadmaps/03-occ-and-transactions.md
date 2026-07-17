@@ -18,9 +18,10 @@ supplies a private exact-snapshot revision-history read with immutable present
 or qualified-missing point dependencies. It deliberately does not treat a
 loaded attempt as continuing authorization; C03 first composes fresh exact-
 attempt validation, the O04 reader, and staged read-your-writes. O05 pure point-
-OCC validation is complete; standalone C01 was retired before implementation,
-C02's inert logical journal/result/envelope protocol is complete, and C03 is
-next in the master order. C05 introduces the
+OCC validation, C03's bounded journal, C04's private authentication/planning
+chain, S08/S09 storage, and O06's reusable rollback-proven point-commit kernel
+are complete; standalone C01 was retired before implementation. O07 durable
+publication is next in the master order. C05 introduces the
 private exact-fence transition to `finishing`,
 C06 orchestrates it idempotently through the finish endpoint, C03 rejects late
 syscalls, O07 atomically deletes the exact lease and stores committed state plus
@@ -190,8 +191,9 @@ How Flarex differs:
 Known limitations:
 
 - This adds no commit-sequence allocator, request transaction guard, snapshot,
-  read-set, mutation, or OCC behavior. O06 and later OCC turns retain those
-  responsibilities.
+  read-set, mutation, or OCC behavior. O06 now owns the rollback-proven
+  revalidation/OCC kernel; O07 retains durable sequence allocation and
+  publication.
 - `ready` records completed initialization, not an immutable clock snapshot.
   S02-D must read the current located clock because generation, fence,
   counters, and epoch may advance after publication.
@@ -366,8 +368,9 @@ Known limitations:
 
 - The bootstrap and parity APIs remain unreachable from executor deployment
   creation until C3.
-- O06/O07 remain the only owners of sequence allocation, OCC validation,
-  outcome/idempotency, commit/change, and outbox publication.
+- O06 owns the reusable revalidation/OCC/tentative-lowering kernel. O07 alone
+  owns durable sequence allocation, outcome/idempotency, commit/change, and
+  outbox publication.
 - No application transaction semantics or lock order changed in C2.
 
 Verification:
@@ -421,8 +424,9 @@ Known limitations:
 - The primitive is unreachable from executor deployment creation until C3.
 - C2 proves resumable point-in-time inventory through a captured frontier; C3
   must fence ongoing creation and rerun it before global readiness is claimed.
-- O06/O07 remain the only owners of sequence allocation, OCC validation,
-  result/idempotency, commit/change, and outbox publication.
+- O06 owns the reusable revalidation/OCC/tentative-lowering kernel. O07 alone
+  owns durable sequence allocation, result/idempotency, commit/change, and
+  outbox publication.
 
 Verification:
 
@@ -457,8 +461,9 @@ Why it changed:
 
 The clock's row-lock and rollback behavior must be proven before later OCC code
 depends on it, but allocating a sequence without atomic commit/change/outcome/
-outbox publication would create gaps or false committed frontiers. O06 retains
-ownership of that complete primitive.
+outbox publication would create gaps or false committed frontiers. O06 now
+proves only the reusable kernel under forced rollback; O07 retains ownership of
+the complete durable primitive.
 
 Convex references inspected:
 
@@ -477,10 +482,10 @@ How Flarex differs:
 
 Known limitations:
 
-- The private transaction capability is structurally defined by Drizzle's
-  transaction-only rollback/configuration methods and rejects the ordinary
-  database type. It remains a proof seam; O06 must replace it with the bounded
-  commit primitive.
+- The earlier Drizzle-only rollback seam has been superseded by O06's bounded
+  reusable point-commit kernel and same-factory test-only forced-rollback
+  adapter. O07 must extend that kernel rather than create a parallel transaction
+  primitive.
 - PGlite proves rollback and SQL shape. The focused lock test also passed on an
   isolated PostgreSQL 18 cluster, proving same-scope exclusion and independent
   scope progress. The broader package Postgres lane still has one unchanged

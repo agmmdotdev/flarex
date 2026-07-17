@@ -1,5 +1,10 @@
 import { Effect, Encoding, Result, Schema } from "effect";
 import {
+  PointCommitCorruptionV1Error,
+  type PointCommitRollbackProofPortV1,
+  type PointCommitTransactionCommandV1,
+} from "@flarex/persistence-postgres/point-commit-transaction";
+import {
   AppCreationTimeV1Schema,
   canonicalizeAppDocumentV1,
 } from "flarex-protocol/app-document";
@@ -86,6 +91,8 @@ import type { AuthenticatedCommitAuthorityV1 as ForbiddenCommitAuthority } from 
 import type { VerifiedCommitInputV1 as ForbiddenVerifiedCommitInput } from "../src/index";
 // @ts-expect-error C04C1 capability types must remain absent from the package root.
 import type { PreparedPointCommitV1 as ForbiddenPreparedPointCommit } from "../src/index";
+// @ts-expect-error O06 proof capability types must remain absent from the package root.
+import type { StoredPointCommitRollbackProofV1 as ForbiddenPointCommitProof } from "../src/index";
 import {
   createPointMutationSessionAttemptLoadingV1,
   type PointMutationSessionAttemptSelectorWireV1,
@@ -101,6 +108,7 @@ import {
   CommitSuccessfulResultValidationV1Error,
   InvalidAuthenticatedCommitAuthorityV1Error,
   InvalidAuthenticatedStoredAttemptV1Error,
+  InvalidPreparedPointCommitV1Error,
   InvalidVerifiedCommitInputV1Error,
   StoredCommitAuthorityCorruptionV1Error,
   StoredCommitAuthorityConfigurationV1Error,
@@ -1315,6 +1323,105 @@ describe("C04A stored-attempt authentication", () => {
     expect(second.countsAfterVerification()).toEqual(secondCounts);
   });
 
+  it("runs O06 only from a genuine same-factory plan without exposing provenance", async () => {
+    type RootLeak = Extract<
+      keyof typeof executorRoot,
+      | "StoredPointCommitRollbackProofV1"
+      | "provePointCommitRollback"
+      | "PointCommitTransactionCommandV1"
+    >;
+    expectTypeOf<RootLeak>().toEqualTypeOf<never>();
+    expect("provePointCommitRollback" in executorRoot).toBe(false);
+
+    const commands: PointCommitTransactionCommandV1[] = [];
+    let outcome: "success" | "failure" | "defect" = "success";
+    const typedFailure = new PointCommitCorruptionV1Error({
+      reason: "journalRootInvalid",
+    });
+    const defect = new Error("O06 persistence defect sentinel");
+    const port: PointCommitRollbackProofPortV1 = Object.freeze({
+      prove: Effect.fn("TestPointCommit.prove")(function* (command) {
+        commands.push(command);
+        switch (outcome) {
+          case "success":
+            return Object.freeze({ kind: "wouldCommit" as const });
+          case "failure":
+            return yield* Effect.fail(typedFailure);
+          case "defect":
+            return yield* Effect.die(defect);
+        }
+      }),
+    });
+    const o06Fixture = await emptyFixture("o06");
+    Object.assign(o06Fixture.evidence.session, { lifecycle: "finishing" });
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: o06Fixture,
+      returnsValidator: { type: "string" },
+    });
+    const first = await pointCommitRollbackFixture(current, port);
+    const result = await runEffect(
+      first.authentication.provePointCommitRollback(first.prepared),
+    );
+    expect(result).toEqual({ kind: "wouldCommit" });
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(commands).toHaveLength(1);
+    const command = commands[0];
+    if (command === undefined) throw new Error("Missing captured O06 command.");
+    expect(Object.hasOwn(command, "successfulResult")).toBe(false);
+    expect(command.session.lifecycle).toBe("finishing");
+    expect(command.authorityPins.snapshotToken).toEqual(SNAPSHOT);
+    expect(command.session.identityAccessPolicySha256).not.toEqual(
+      new Uint8Array(32),
+    );
+
+    const callCount = commands.length;
+    const forgedFailure = await runFailure(
+      first.authentication.provePointCommitRollback({ ...first.prepared }),
+    );
+    expect(forgedFailure).toBeInstanceOf(InvalidPreparedPointCommitV1Error);
+    expect(commands).toHaveLength(callCount);
+
+    const second = await pointCommitRollbackFixture(current, port);
+    const crossFactoryFailure = await runFailure(
+      second.authentication.provePointCommitRollback(first.prepared),
+    );
+    expect(crossFactoryFailure).toBeInstanceOf(
+      InvalidPreparedPointCommitV1Error,
+    );
+    expect(commands).toHaveLength(callCount);
+
+    current.fixture.evidence.session.identityAccessPolicySha256.fill(0);
+    current.fixture.evidence.root.journalSha256.fill(0);
+    await runEffect(
+      first.authentication.provePointCommitRollback(first.prepared),
+    );
+    const detached = commands.at(-1);
+    if (detached === undefined) throw new Error("Missing detached O06 command.");
+    expect(detached.session.identityAccessPolicySha256).not.toEqual(
+      new Uint8Array(32),
+    );
+    expect(detached.sealIdentity.journalSha256).not.toEqual(
+      new Uint8Array(32),
+    );
+
+    outcome = "failure";
+    expect(await runFailure(
+      first.authentication.provePointCommitRollback(first.prepared),
+    )).toBe(typedFailure);
+
+    outcome = "defect";
+    let rejection: unknown;
+    try {
+      await runEffect(
+        first.authentication.provePointCommitRollback(first.prepared),
+      );
+    } catch (cause) {
+      rejection = cause;
+    }
+    expect(rejection).not.toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(String(rejection)).toContain(defect.message);
+  });
+
   it("composes every current point outcome through C04C1 without new I/O", async () => {
     const nameDocument = {
       type: "object",
@@ -1892,6 +1999,45 @@ async function verifyCommitInputFixture(current: CommitAuthorityFixture) {
     countsBeforeVerification,
     countsAfterVerification: authenticated.counts,
   };
+}
+
+async function pointCommitRollbackFixture(
+  current: CommitAuthorityFixture,
+  pointCommit: PointCommitRollbackProofPortV1,
+) {
+  const authentication = createStoredAttemptAuthenticationV1(
+    {
+      load: async () => loaded(current.fixture.evidence),
+    },
+    {
+      evidenceLoader: {
+        load: async () => ({
+          kind: "loaded" as const,
+          evidence: current.commitEvidence,
+        }),
+      },
+      transactionGrantVerifier: current.verifier,
+      functionMetadata: {
+        load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+      },
+      pointCommit,
+    },
+  );
+  const authority = await deriveAuthority(authentication);
+  const storedAttempt = await runEffect(authentication.authenticate(
+    authority,
+    encodeEnvelope(current.fixture.envelope),
+  ));
+  const commitAuthority = await runEffect(
+    authentication.authenticateCommitAuthority(storedAttempt),
+  );
+  const verifiedCommitInput = await runEffect(
+    authentication.verifyCommitInput(commitAuthority),
+  );
+  const prepared = await runEffect(
+    authentication.planPointCommit(verifiedCommitInput),
+  );
+  return { authentication, prepared };
 }
 
 function commitInputSourceForTest(

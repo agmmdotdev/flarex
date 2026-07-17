@@ -9,8 +9,9 @@ private commit-authority authentication are complete. C04B2's private-C07
 final-document/result proof is also complete. Corrected C04C1 private logical
 point planning, S08 commit/feed DDL, and S09-A private committed-success DDL are
 complete. S09-B's fixed-kind private commit-wake DDL and fenced repository are
-also complete; O07 production and C06 dispatch remain pending, while C04C2
-remains conditional and unapproved.
+also complete. O06's reusable private point-commit transaction kernel and
+forced-rollback proof are complete; O07 durable production and C06 dispatch
+remain pending, while C04C2 remains conditional and unapproved.
 
 This plan owns the bounded Flarex app-data path from logical session operations
 through a private logical point plan to an atomic commit. It does not make a
@@ -121,9 +122,13 @@ PreparedPointCommitV1 (introduced by C04C1)
   internal immutable dependencies, successful result, and at most one final
   logical row intent; no SQL or publication authority
              |
-CommitExecutor
-  authority/fence checks, actual SQL locks, OCC, physical lowering, sequence/
-  time allocation, and atomic publication/outcome
+O06 point-commit transaction kernel
+  same-factory unwrapping, closed persistence command, current authority locks,
+  scalar revalidation, O05, tentative physical row lowering, forced rollback
+             |
+O07 CommitExecutor
+  reuse of the O06 kernel plus sequence/time allocation and atomic durable
+  data/outcome/feed/outbox/session publication
 ```
 
 The journal/envelope cannot author:
@@ -142,9 +147,10 @@ never arrives over `/invoke/*` and contains only the authenticated authority and
 seal link, successful result, every logical point dependency, and at most one
 net material logical row intent. It contains no physical table or column name,
 allocated commit/outbox sequence, generated outbox ID, database timestamp,
-transaction handle, SQL lock fact, change atom, or outbox template. O06/O07
-adapt the authenticated logical evidence and derive their physical transaction
-inputs inside the authoritative SQL boundary.
+transaction handle, SQL lock fact, change atom, or outbox template. O06 adapts
+the authenticated logical evidence into a detached closed command and derives
+tentative row operations inside the authoritative SQL boundary; O07 extends
+that same kernel with durable publication atoms.
 
 ## V1 Read-Your-Writes Matrix
 
@@ -184,8 +190,9 @@ Introduce each boundary only at its real owner:
   concrete process-local logical `PreparedPointCommitV1` capability. C04C2 is
   conditional on S08/S09-A/S09-B/O06/O07 proving a separate physical/change/
   outbox lowering capability useful.
-- O06/O07 own the exact atomic persistence capability; C05 is its first
-  complete planner/executor composition consumer.
+- O06 owns the reusable rollback-proven transaction kernel; O07 owns the first
+  exact durable atomic persistence capability. C05 is their first complete
+  planner/production-executor composition consumer.
 - C06 owns `PostCommitWake`, after durable commit and outbox evidence make its
   ordering meaningful.
 
@@ -462,8 +469,9 @@ Outcome:
 
 Do not introduce this gate unless the frozen S08/S09-A/S09-B/O06/O07 first-
 consumer contracts prove that a distinct physical/change/outbox lowering
-capability is useful. O06/O07 own actual SQL locks, physical revision/current
-lowering, sequence/time allocation, and publication; O09 owns multi-row/unique
+capability is useful. O06 already owns the reusable authority locks,
+revalidation, O05 adaptation, and tentative revision/current lowering. O07 owns
+sequence/time allocation and durable publication; O09 owns multi-row/unique
 ordering.
 
 ### [ ] C05 — Execute One Atomic Point Mutation
@@ -477,11 +485,11 @@ Outcome:
   This is not yet a stable endpoint; C06 later adds idempotent orchestration and
   lost-outcome recovery. Recovery may rerun C04A from `finishing + sealed`
   before reconstructing the same verified plan.
-- Consume the O06/O07-owned private `CommitExecutor` capability with
-  `PreparedPointCommitV1`. O06 adapts logical dependency evidence to O05, loads
-  the authoritative head, and performs physical lowering in the short
-  transaction. This target capability must not wrap or promote legacy
-  `commitInvokeSessionWrites`.
+- Consume the O07-owned private production `CommitExecutor` capability with
+  `PreparedPointCommitV1`. O07 reuses the O06 kernel, which already adapts
+  logical dependency evidence to O05, loads the authoritative head, and
+  exercises tentative physical lowering in the short transaction. This target
+  capability must not wrap or promote legacy `commitInvokeSessionWrites`.
 - Inside the transaction, recheck session/fence/authority/epoch, validate point
   dependencies, allocate the commit sequence, publish row revision/current,
   write successful result/idempotency outcome, commit/change atoms and outbox,

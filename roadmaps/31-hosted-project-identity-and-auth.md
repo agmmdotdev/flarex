@@ -106,8 +106,9 @@ V1 inert-auth bounds. Grant-incompatible issuer/subject text fails typed
 projection without changing the existing `ExecutionIdentity` result.
 
 O03-B owns session admission after O03-A. C04 verifies authority before
-planning, and O06/O07 revalidate it in the final transaction that records the
-committed outcome. A2b signature verification and A2c preliminary epoch
+planning, O06 revalidates it in the rollback-proven transaction kernel, and O07
+must reuse that revalidation in the final transaction that records the committed
+outcome. A2b signature verification and A2c preliminary epoch
 admission are private authority kernels, not production request admission.
 Production prepared starts still require roadmap 17 plus S03-D4/S04 to publish
 one coherent active package/artifact/source/function-validator/schema snapshot

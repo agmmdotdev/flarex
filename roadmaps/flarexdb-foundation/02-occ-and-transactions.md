@@ -17,8 +17,9 @@ point-OCC validation is also complete. Standalone C01 was retired before
 implementation; C02's inert logical protocol, C03's trusted point journal, and
 C04A's private stored-attempt authentication and C04B1's private current
 commit-authority authentication and C04B2's private-C07 final-value proof are
-complete. Corrected C04C1 private logical point planning is complete; C04C2
-remains conditional and unapproved.
+complete. Corrected C04C1 private logical point planning and O06's reusable
+rollback-proven point-commit transaction kernel are complete; O07 durable
+publication remains pending, and C04C2 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
 does not block the private C02-C07 proof.
@@ -820,48 +821,63 @@ Exit gate:
 - real-Postgres conflict serialization remains an O06 exit gate rather than a
   false requirement for this pure kernel.
 
-### [ ] O06 — Build The Private Atomic Point-Commit Harness
+### [x] O06 — Prove The Reusable Private Point-Commit Transaction Kernel
 
 Outcome:
 
-- Add the short trusted transaction primitive that accepts only C04C1's typed,
-  immutable `PreparedPointCommitV1`. At this transaction boundary, adapt the
-  authenticated protocol-owned logical dependency losslessly into O05's
-  persistence input and load the authoritative row head; C04C1 neither imports
-  nor duplicates `AppRowPointDependencyV1`.
-- Inside one transaction: lock the data-plane scope clock that owns the active
-  generation/fence, then lock the exact session and current lease. Recheck
-  scope/epoch/generation/fence, attempt fence, lifecycle, snapshot, grant and
-  hard expiry, lease expiry, and current authorization-revocation epoch before
-  validating point dependencies, allocating the sequence, writing row revision
-  and current state, writing commit/change atoms, advancing the clock, and
-  committing.
-- Treat S07's `committing` literal as transaction-local/reserved in V1, not a
-  separately durable state. A conflict or rollback leaves the durable session
-  at `finishing`; a successful O07 publication ends at `committed`.
-- Inject failures at each publication step to prove rollback.
-- Keep this harness private and unreachable from storage-generation routing,
-  HTTP, artifacts, or user mutations until O07 adds atomic outcome/idempotency/
-  outbox and C05 consumes the complete primitive.
+- The executor authentication/planning factory alone unwraps a genuine same-
+  factory `PreparedPointCommitV1` and passes one detached, closed command over
+  the explicit persistence subpath. Persistence imports no executor type and
+  cannot authenticate a structural imitation.
+- The reusable internal kernel configures PostgreSQL `READ COMMITTED` before
+  its first statement, owns one short transaction, and follows the canonical
+  scope clock -> exact session -> exact lease -> sealed root order. It freshly
+  revalidates the complete scalar authority/seal identity, loads only bounded
+  authoritative row heads, adapts logical dependencies losslessly into O05,
+  and exercises tentative live/delete revision/current lowering through the
+  same internal row functions O07 can extend.
+- O06 publishes nothing. A package-private same-factory proof adapter throws one
+  private sentinel out of the transaction callback so the driver rolls back;
+  only that exact sentinel becomes a frozen non-authoritative `wouldCommit`
+  observation, and only after the transaction promise and rollback settle.
+  Foreign SQL failures, typed stale authority/OCC/resource failures, and defects
+  retain their distinct channels. Effect interruption remains masked until the
+  transaction settles.
+- No clock advance, row revision/current state, S08 header/change, S09-A result,
+  S09-B wake, session transition, or lease deletion becomes durable, and no
+  tentative commit sequence is exposed. The proof seam is package-private and
+  non-routable; O07 is the first durable publisher.
 
 Required real-Postgres cases:
 
-- two writers from one snapshot change the same row: exactly one commits;
-- disjoint writes commit with unique contiguous sequences;
-- independent scopes progress concurrently;
-- injected failure leaves no row, commit atom, or clock advancement.
+- forced rollback leaves tentative insert/delete lowering, the scope clock,
+  session/lease/root authority, and every publication table unchanged;
+- a waiting same-scope attempt serializes behind the clock lock, while an
+  independent scope progresses;
+- authority/revocation drift that wins before the lock is reported as typed
+  stale authority, and a competing committed row is reported as an O05
+  conflict after the O06 transaction acquires the lock;
+- running rather than finishing lifecycle is stale authority, not corruption;
+  interruption is not observed until the Promise-native transaction rollback
+  settles; and bounded head-query plans remain index-backed.
 
 Exit gate:
 
-- the real-Postgres lane passes; PGlite alone cannot close this turn;
-- untrusted journals cannot call the primitive with physical identifiers;
-- no externally routable mutation can commit through this incomplete harness.
+- focused PGlite and isolated real-Postgres rollback/serialization/race lanes
+  pass; PGlite alone cannot close this turn;
+- same-factory and structural-forgery tests prove untrusted journals cannot call
+  the primitive or supply physical authority;
+- the production kernel is reusable by O07, while the forced-rollback adapter
+  remains test/proof-only and no externally routable mutation can commit through
+  O06; and
+- O07/C07 retain the durable exactly-one-winner, contiguous-sequence, atomic
+  header/change/outcome/wake, and uncertain-outcome exit gates.
 
 ### [ ] O07 — Add Atomic Outcome, Idempotency, And Outbox
 
 Outcome:
 
-- Complete the O06 harness as the private `CommitExecutor` capability that
+- Reuse and extend the O06 kernel as the private `CommitExecutor` capability that
   accepts only the immutable prepared point plan. C05 is its first compiler
   consumer; this target capability never wraps or promotes legacy
   `commitInvokeSessionWrites`.
@@ -874,8 +890,9 @@ Outcome:
   exact-current-lease deletion, and committed session state. Failed, aborted,
   OCC-conflicted, serialization-rolled-back, and diagnostic-error attempts
   create no committed outcome.
-- O06/O07 own actual SQL lock acquisition, sequence/time allocation, physical
-  revision/current lowering, and atomic result/change/outbox publication.
+- O06 owns the reusable actual authority-lock, revalidation, O05, and tentative
+  revision/current-lowering kernel. O07 owns sequence/time allocation and the
+  first durable result/data/change/outbox publication through that kernel.
   C04C1's numeric table/row ordering is canonical logical evidence ordering
   only, not SQL lock authority.
 - Retain a compact non-reusable committed tombstone after result payload expiry.

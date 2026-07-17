@@ -1,6 +1,13 @@
 import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
 import { Data, Effect, Encoding, Schema } from "effect";
 
+import type {
+  PointCommitRollbackProofPortV1,
+  PointCommitRollbackProofV1Error,
+  PointCommitTransactionCommandV1,
+  PointCommitWouldCommitV1,
+} from "@flarex/persistence-postgres/point-commit-transaction";
+
 import {
   AppDocumentSystemFieldV1Error,
   canonicalizeAppDocumentV1,
@@ -67,6 +74,7 @@ import {
 import {
   TransactionArtifactIdV1Schema,
   TransactionArtifactRuntimeV1Schema,
+  TransactionAuthorizationGrantIdV1Schema,
   TransactionArgumentsSha256V1Schema,
   TransactionAuthorizationRevocationEpochSchema,
   TransactionExecutionModuleV1Schema,
@@ -74,6 +82,7 @@ import {
   TransactionFunctionPathV1Schema,
   TransactionIdentityAccessPolicySha256V1Schema,
   TransactionPackageIdV1Schema,
+  TransactionPolicyVersionV1Schema,
   TransactionRequestKeyV1Schema,
   TransactionRequestSha256V1Schema,
   TransactionSourcePackageSha256HexV1Schema,
@@ -203,6 +212,9 @@ const authenticatedStoredAttemptBrand: unique symbol = Symbol(
 );
 
 const PROCESS_LOCAL_CAPABILITY: true = true;
+const decodeTransactionArtifactRuntimeV1 = Schema.decodeUnknownSync(
+  TransactionArtifactRuntimeV1Schema,
+);
 
 export interface AuthenticatedStoredAttemptV1 {
   readonly [authenticatedStoredAttemptBrand]: true;
@@ -234,6 +246,12 @@ const preparedPointCommitBrand: unique symbol = Symbol(
 export interface PreparedPointCommitV1 {
   readonly [preparedPointCommitBrand]: true;
 }
+
+export class InvalidPreparedPointCommitV1Error extends Data.TaggedError(
+  "InvalidPreparedPointCommitV1Error",
+)<{
+  readonly reason: "notSameFactory";
+}> {}
 
 export class InvalidStoredAttemptAuthorityV1Error extends Data.TaggedError(
   "InvalidStoredAttemptAuthorityV1Error",
@@ -602,6 +620,21 @@ export interface AuthenticatedCommitAuthorityStateV1 {
   readonly functionMetadata: PointMutationTargetFunctionMetadataV1;
 }
 
+interface PointCommitScalarProvenanceV1 {
+  readonly authority: Readonly<StoredAttemptAuthorityStateV1>;
+  readonly session: Readonly<StoredAttemptSessionScalarsPortV1>;
+}
+
+interface VerifiedCommitCapabilityStateV1 {
+  readonly input: VerifiedCommitInputStateV1;
+  readonly provenance: PointCommitScalarProvenanceV1;
+}
+
+interface PreparedPointCommitCapabilityStateV1 {
+  readonly plan: PreparedPointCommitStateV1;
+  readonly provenance: PointCommitScalarProvenanceV1;
+}
+
 export interface StoredCommitInputVerificationV1
   extends StoredCommitAuthorityAuthenticationV1 {
   readonly verifyCommitInput: (
@@ -639,17 +672,46 @@ export interface StoredPointCommitPlanningV1
   ) => boolean;
 }
 
+export interface StoredPointCommitRollbackProofConfigV1
+  extends StoredCommitAuthorityAuthenticationConfigV1 {
+  readonly pointCommit: PointCommitRollbackProofPortV1;
+}
+
+export type PointCommitRollbackV1Error =
+  | InvalidPreparedPointCommitV1Error
+  | PointCommitRollbackProofV1Error;
+
+export interface StoredPointCommitRollbackProofV1
+  extends StoredPointCommitPlanningV1 {
+  readonly provePointCommitRollback: (
+    input: PreparedPointCommitV1,
+  ) => Effect.Effect<
+    PointCommitWouldCommitV1,
+    PointCommitRollbackV1Error,
+    never
+  >;
+}
+
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
 ): StoredAttemptAuthenticationV1;
+export function createStoredAttemptAuthenticationV1(
+  loader: StoredAttemptEvidenceLoaderPortV1,
+  commitAuthority: StoredPointCommitRollbackProofConfigV1,
+): StoredPointCommitRollbackProofV1;
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
   commitAuthority: StoredCommitAuthorityAuthenticationConfigV1,
 ): StoredPointCommitPlanningV1;
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
-  commitAuthority?: StoredCommitAuthorityAuthenticationConfigV1,
-): StoredAttemptAuthenticationV1 | StoredPointCommitPlanningV1 {
+  commitAuthority?:
+    | StoredCommitAuthorityAuthenticationConfigV1
+    | StoredPointCommitRollbackProofConfigV1,
+):
+  | StoredAttemptAuthenticationV1
+  | StoredPointCommitPlanningV1
+  | StoredPointCommitRollbackProofV1 {
   const authorityStates = new WeakMap<object, StoredAttemptAuthorityStateV1>();
   const authenticatedStates = new WeakMap<
     object,
@@ -661,12 +723,16 @@ export function createStoredAttemptAuthenticationV1(
   >();
   const verifiedCommitInputStates = new WeakMap<
     object,
-    VerifiedCommitInputStateV1
+    VerifiedCommitCapabilityStateV1
   >();
   const preparedPointCommitStates = new WeakMap<
     object,
-    PreparedPointCommitStateV1
+    PreparedPointCommitCapabilityStateV1
   >();
+  const pointCommit = commitAuthority !== undefined &&
+      "pointCommit" in commitAuthority
+    ? commitAuthority.pointCommit
+    : undefined;
   const grantKernel = commitAuthority === undefined
     ? undefined
     : findTransactionGrantVerificationKernelV1(
@@ -837,7 +903,12 @@ export function createStoredAttemptAuthenticationV1(
         const handle: VerifiedCommitInputV1 = Object.freeze({
           [verifiedCommitInputBrand]: PROCESS_LOCAL_CAPABILITY,
         });
-        verifiedCommitInputStates.set(handle, verified);
+        verifiedCommitInputStates.set(handle, Object.freeze({
+          input: verified,
+          provenance: capturePointCommitScalarProvenance(
+            state.storedAttempt,
+          ),
+        } satisfies VerifiedCommitCapabilityStateV1));
         return handle;
       },
     );
@@ -854,16 +925,21 @@ export function createStoredAttemptAuthenticationV1(
             reason: "notSameFactory",
           }));
         }
-        const planned = yield* Effect.fromResult(planPointCommitStateV1(state));
+        const planned = yield* Effect.fromResult(
+          planPointCommitStateV1(state.input),
+        );
         const handle: PreparedPointCommitV1 = Object.freeze({
           [preparedPointCommitBrand]: PROCESS_LOCAL_CAPABILITY,
         });
-        preparedPointCommitStates.set(handle, planned);
+        preparedPointCommitStates.set(handle, Object.freeze({
+          plan: planned,
+          provenance: state.provenance,
+        } satisfies PreparedPointCommitCapabilityStateV1));
         return handle;
       },
     );
 
-  return Object.freeze({
+  const planning = Object.freeze({
     ...base,
     authenticateCommitAuthority,
     verifyCommitInput,
@@ -896,9 +972,9 @@ export function createStoredAttemptAuthenticationV1(
         verifiedCommitInputStates,
         value,
       );
-      const before = serializeVerifiedCommitInputStateForTest(state);
+      const before = serializeVerifiedCommitInputStateForTest(state.input);
       action();
-      return before === serializeVerifiedCommitInputStateForTest(state);
+      return before === serializeVerifiedCommitInputStateForTest(state.input);
     },
     isPointCommitPrepared: (value: unknown): boolean =>
       typeof value === "object" &&
@@ -918,10 +994,34 @@ export function createStoredAttemptAuthenticationV1(
       );
       return leftState !== undefined &&
         rightState !== undefined &&
-        serializePreparedPointCommitStateForTest(leftState) ===
-          serializePreparedPointCommitStateForTest(rightState);
+        serializePreparedPointCommitStateForTest(leftState.plan) ===
+          serializePreparedPointCommitStateForTest(rightState.plan);
     },
   } satisfies StoredPointCommitPlanningV1);
+  if (pointCommit === undefined) return planning;
+
+  const provePointCommitRollback:
+    StoredPointCommitRollbackProofV1["provePointCommitRollback"] = Effect.fn(
+      "StoredAttemptAuthentication.provePointCommitRollback",
+    )(function* (input) {
+      const state = lookupPreparedPointCommitState(
+        preparedPointCommitStates,
+        input,
+      );
+      if (state === undefined) {
+        return yield* Effect.fail(new InvalidPreparedPointCommitV1Error({
+          reason: "notSameFactory",
+        }));
+      }
+      return yield* pointCommit.prove(
+        capturePointCommitTransactionCommand(state),
+      );
+    });
+
+  return Object.freeze({
+    ...planning,
+    provePointCommitRollback,
+  } satisfies StoredPointCommitRollbackProofV1);
 }
 
 function captureCommitAuthorityPort(
@@ -969,9 +1069,9 @@ function lookupCommitAuthorityState(
 }
 
 function requireVerifiedCommitInputState(
-  states: WeakMap<object, VerifiedCommitInputStateV1>,
+  states: WeakMap<object, VerifiedCommitCapabilityStateV1>,
   value: VerifiedCommitInputV1,
-): VerifiedCommitInputStateV1 {
+): VerifiedCommitCapabilityStateV1 {
   const state = typeof value === "object" && value !== null
     ? states.get(value)
     : undefined;
@@ -984,18 +1084,18 @@ function requireVerifiedCommitInputState(
 }
 
 function lookupVerifiedCommitInputState(
-  states: WeakMap<object, VerifiedCommitInputStateV1>,
+  states: WeakMap<object, VerifiedCommitCapabilityStateV1>,
   value: VerifiedCommitInputV1,
-): VerifiedCommitInputStateV1 | undefined {
+): VerifiedCommitCapabilityStateV1 | undefined {
   return typeof value === "object" && value !== null
     ? states.get(value)
     : undefined;
 }
 
 function lookupPreparedPointCommitState(
-  states: WeakMap<object, PreparedPointCommitStateV1>,
+  states: WeakMap<object, PreparedPointCommitCapabilityStateV1>,
   value: PreparedPointCommitV1,
-): PreparedPointCommitStateV1 | undefined {
+): PreparedPointCommitCapabilityStateV1 | undefined {
   return typeof value === "object" && value !== null
     ? states.get(value)
     : undefined;
@@ -1016,6 +1116,131 @@ function deepDetachCommitAuthorityState(
     stableBindings: Object.freeze(structuredClone(evidence.stableBindings)),
     functionMetadata: Object.freeze(structuredClone(functionMetadata)),
   });
+}
+
+function capturePointCommitScalarProvenance(
+  storedAttempt: AuthenticatedStoredAttemptStateV1,
+): PointCommitScalarProvenanceV1 {
+  const session = storedAttempt.session;
+  return Object.freeze({
+    authority: Object.freeze({
+      ...storedAttempt.authority,
+      snapshotToken: Object.freeze({
+        ...storedAttempt.authority.snapshotToken,
+      }),
+    }),
+    session: Object.freeze({
+      ...session,
+      identityAccessPolicySha256:
+        new Uint8Array(session.identityAccessPolicySha256),
+      validatedArgsSha256: new Uint8Array(session.validatedArgsSha256),
+      authorizationGrantSha256:
+        new Uint8Array(session.authorizationGrantSha256),
+      requestSha256: new Uint8Array(session.requestSha256),
+    }),
+  });
+}
+
+function capturePointCommitTransactionCommand(
+  state: PreparedPointCommitCapabilityStateV1,
+): PointCommitTransactionCommandV1 {
+  const pins = state.plan.authorityPins;
+  const provenance = state.provenance;
+  const session = provenance.session;
+  const seal = state.plan.sealIdentity;
+  const dependencies = Object.freeze(state.plan.dependencies.map(
+    (dependency) => Object.freeze({
+      documentId: dependency.documentId,
+      tableId: dependency.tableId,
+      rowId: dependency.rowId,
+      dependency: Object.freeze(structuredClone(dependency.dependency)),
+    }),
+  ));
+  const rowIntent = state.plan.rowIntent === null
+    ? null
+    : state.plan.rowIntent.kind === "deleted"
+      ? Object.freeze({
+          documentId: state.plan.rowIntent.documentId,
+          tableId: state.plan.rowIntent.tableId,
+          rowId: state.plan.rowIntent.rowId,
+          dependency: Object.freeze(structuredClone(
+            state.plan.rowIntent.dependency,
+          )),
+          kind: "deleted" as const,
+        })
+      : Object.freeze({
+          documentId: state.plan.rowIntent.documentId,
+          tableId: state.plan.rowIntent.tableId,
+          rowId: state.plan.rowIntent.rowId,
+          dependency: Object.freeze(structuredClone(
+            state.plan.rowIntent.dependency,
+          )),
+          kind: "live" as const,
+          creationTime: state.plan.rowIntent.creationTime,
+          value: state.plan.rowIntent.value,
+          canonicalBytes: new Uint8Array(
+            state.plan.rowIntent.canonicalBytes,
+          ),
+          semanticSizeBytes: state.plan.rowIntent.semanticSizeBytes,
+        });
+  return Object.freeze({
+    authorityPins: Object.freeze({
+      deploymentId: TransactionGrantDeploymentIdV1Schema.make(
+        pins.deploymentId,
+      ),
+      scopeId: ReplacementScopeIdV1Schema.make(pins.scopeId),
+      sessionId: pins.sessionId,
+      attemptFence: pins.attemptFence,
+      storageGeneration: pins.storageGeneration,
+      storageGenerationFence: pins.storageGenerationFence,
+      snapshotToken: Object.freeze({ ...pins.snapshotToken }),
+      schemaVersionId: CatalogSchemaVersionIdSchema.make(
+        pins.schemaVersionId,
+      ),
+      packageId: TransactionPackageIdV1Schema.make(pins.packageId),
+      artifactRuntime: decodeTransactionArtifactRuntimeV1(
+        pins.artifactRuntime,
+      ),
+      artifactId: TransactionArtifactIdV1Schema.make(pins.artifactId),
+      sourcePackageHash: TransactionSourcePackageSha256HexV1Schema.make(
+        pins.sourcePackageHash,
+      ),
+      executionModule: TransactionExecutionModuleV1Schema.make(
+        pins.executionModule,
+      ),
+      functionPath: TransactionFunctionPathV1Schema.make(
+        pins.functionPath,
+      ),
+      functionKind: pins.functionKind,
+      policyVersion: TransactionPolicyVersionV1Schema.make(
+        pins.policyVersion,
+      ),
+      authorizationRevocationEpoch:
+        TransactionAuthorizationRevocationEpochSchema.make(
+          pins.authorizationRevocationEpoch,
+        ),
+      requestKey: TransactionRequestKeyV1Schema.make(pins.requestKey),
+    }),
+    session: Object.freeze({
+      ...session,
+      authorizationGrantId: TransactionAuthorizationGrantIdV1Schema.make(
+        session.authorizationGrantId,
+      ),
+      identityAccessPolicySha256:
+        new Uint8Array(session.identityAccessPolicySha256),
+      validatedArgsSha256: new Uint8Array(session.validatedArgsSha256),
+      authorizationGrantSha256:
+        new Uint8Array(session.authorizationGrantSha256),
+      requestSha256: new Uint8Array(session.requestSha256),
+    }),
+    sealIdentity: Object.freeze({
+      ...seal,
+      journalSha256: new Uint8Array(seal.journalSha256),
+      resultSha256: new Uint8Array(seal.resultSha256),
+    }),
+    dependencies,
+    rowIntent,
+  } satisfies PointCommitTransactionCommandV1);
 }
 
 function serializeCommitAuthorityStateForTest(

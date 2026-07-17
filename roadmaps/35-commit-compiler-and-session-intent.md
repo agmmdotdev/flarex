@@ -8,8 +8,9 @@ journal/result/envelope protocol, C03's first trusted Postgres point-journal
 consumer, and C04A's private exact stored-attempt authentication are complete;
 C04B1's same-factory current commit-authority authentication and C04B2's
 private-C07 final-document/result proof are also complete. Corrected C04C1
-private logical point planning is complete; C04C2 remains
-conditional and unapproved.
+private logical point planning and O06's reusable rollback-proven point-commit
+transaction kernel are complete; O07 durable publication remains pending, and
+C04C2 remains conditional and unapproved.
 
 This roadmap owns the durable direction for:
 
@@ -155,9 +156,13 @@ PointCommitPlannerV1 (introduced by C04C1)
 PreparedPointCommitV1 (introduced by C04C1)
   internal immutable logical capability; never serialized over /invoke/*
              |
-CommitExecutor
-  authority/fence checks, actual SQL locks, OCC, physical revision/current
-  lowering, sequence/time allocation, atomic publication, outcome, feed/outbox
+O06 point-commit transaction kernel
+  same-factory unwrapping, detached closed command, current authority locks,
+  scalar revalidation, O05, tentative revision/current lowering, forced rollback
+             |
+O07 CommitExecutor
+  reuse of the O06 kernel plus sequence/time allocation and atomic durable
+  data/outcome/feed/outbox/session publication
 ```
 
 The compiler is a lowering boundary, not a new authority. User code and the
@@ -165,9 +170,11 @@ journal describe logical operations only. C04C1 retains authenticated logical
 dependencies, net final logical row intent, and successful result evidence. An
 insert followed by delete keeps its qualified-missing dependency but produces
 no row intent; only deletion of a snapshot-present row produces a logical
-delete. O06/O07 later derive and publish physical rows, locks, change atoms,
-and system outbox records under current transaction authority; O09 owns
-multi-row/unique ordering.
+delete. O06 derives and exercises tentative physical row operations under
+current transaction authority but forces rollback and publishes nothing. O07
+extends that same kernel with sequence/time allocation, change atoms, system
+outbox records, and the first durable publication; O09 owns multi-row/unique
+ordering.
 
 ### Authoritative session anchor
 
@@ -429,7 +436,8 @@ hosted transport guarantee. The final canonical journal retains its independent
   active-schema pointer is never consulted, while C04B1 reauthenticates the
   complete pinned schema and stable bindings, C04B2 retains final value/return
   validation, and C04C1 retains only final logical point/dependency planning.
-  O06/O07 retain physical revision/current lowering and publication.
+  O06 retains the reusable rollback-proven physical row-lowering kernel; O07
+  retains durable publication.
 - Initial activation creates the exact-attempt root with database time as its
   `_creationTime` seed/cursor. Insert draws exactly one server UUIDv4 only after
   replay classification, uses the current binary64 time, and atomically advances
@@ -505,10 +513,11 @@ The replacement keeps three classes separate:
 
 1. **OCC conflict:** discard the journal and rerun user code at a new exact
    snapshot.
-2. **Known pre-decision SQL serialization/deadlock:** retry the same immutable
-   O06/O07-owned physical SQL operation plan within a strict bound, including
-   PostgreSQL `40001` and `40P01` where supported. C04C1's logical
-   `PreparedPointCommitV1` does not claim that physical retry authority.
+2. **Known pre-decision SQL serialization/deadlock:** retry the same
+   authenticated `PreparedPointCommitV1` through O07's closed internal command
+   within a strict bound, including PostgreSQL `40001` and `40P01` where
+   supported. O06 proves transaction settlement and rollback; neither O06 nor
+   C04C1 exposes an immutable physical SQL operation plan.
 3. **Uncertain commit outcome:** look up the authoritative idempotency/session
    outcome before rerunning anything.
 
@@ -689,9 +698,10 @@ carriage, or conditional C04C2 active.
   process-local attempt/table capabilities, but no production route consumes it
   and no compatibility bridge targets the legacy engine.
 - A private same-factory `VerifiedCommitInputV1` now exists for the C07 proof;
-  corrected C04C1 provides only private logical `PreparedPointCommitV1`. No
-  production-authoritative validator binding, physical lowering capability, or
-  replacement `CommitExecutor` integration exists.
+  corrected C04C1 provides only private logical `PreparedPointCommitV1`. O06
+  provides the private rollback-proven transaction kernel and tentative point-
+  row lowering, but no production-authoritative validator binding or durable
+  replacement `CommitExecutor` exists.
 - Current `commitInvokeSessionWrites` combines planning, OCC, timestamp
   allocation, physical publication, index maintenance, commit/outbox, and
   session completion.
@@ -706,10 +716,10 @@ carriage, or conditional C04C2 active.
   dispatch, the deterministic sync sink, and delivery retention/GC remain
   unimplemented; S08 is still the canonical recovery authority.
 - Replacement app-row revision/current and physical transaction-session/
-  snapshot-lease tables plus the private O04 point-read kernel and O05 pure
-  point-OCC validator exist internally. Production syscall/session composition,
-  commit-time point-OCC integration/serialization, commit/change, S09-A
-  consumption, O07 wake production, and compiler composition remain
+  snapshot-lease tables plus the private O04 point-read kernel, O05 pure point-
+  OCC validator, and O06 rollback-proven transaction integration exist
+  internally. Production syscall/session composition, durable commit/change,
+  S09-A consumption, O07 wake production, and compiler composition remain
   prerequisites.
 - Exact range/relation/pagination overlays and phantom tests are incomplete.
 - Payload and Medusa adapter conformance remain separate future domains.
@@ -731,7 +741,8 @@ trusted preparation and exact SnapshotToken
   -> C04B2 verified compiler input
   -> C04C1 pure deterministic logical PreparedPointCommitV1
   -> locked scalar seal revalidation and finishing CAS
-  -> O06/O07 short authoritative Postgres OCC/physical/publication transaction
+  -> O06 reusable short Postgres authority/OCC/tentative-lowering kernel
+  -> O07 durable publication through the same transaction kernel
   -> atomic result, idempotency outcome, rows/sidecars,
      commit/change feed, outbox, and committed session
   -> replayable finish response and post-commit sync wake
@@ -758,9 +769,10 @@ was retired before implementation; C02's inert logical protocol, C03's
 operational point-journal consumer, and C04A's private stored-attempt
  authentication plus C04B1's current commit-authority authentication and C04B2's
  private-C07 final-value proof are complete. Corrected C04C1, S08 commit/feed
- DDL, S09-A private committed-success DDL, and S09-B private commit-wake DDL
- and fenced repository are complete. O06 is the next Wave 2 prerequisite and
- C04C2 remains conditional and unapproved.
+ DDL, S09-A private committed-success DDL, S09-B private commit-wake DDL and
+ fenced repository, and O06's rollback-proven transaction kernel are complete.
+ O07 is the next Wave 2 prerequisite and C04C2 remains conditional and
+ unapproved.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
 retention consumer proves that a bounded attempt must outlive its initial lease.
@@ -775,10 +787,12 @@ compatibility-wrapper work is dropped rather than redistributed: C03
 introduces its first required journal-store boundary, C04A owns exact stored-
 evidence authentication, C04B1 owns current argument/grant/revocation/schema
 authority, C04B2 owns final value/return verification and verified input, and
-C04C1 owns the concrete private logical prepared-point capability. O06/O07 own
-actual locks, physical lowering, sequence/time allocation, and atomic execution
-with C05 as the first compiler consumer; O09 owns multi-row/unique ordering, and C06
-owns post-commit wake after durable evidence exists.
+C04C1 owns the concrete private logical prepared-point capability. O06 owns
+actual authority locks, fresh scalar revalidation, O05 integration, and
+tentative point-row lowering under forced rollback. O07 extends that kernel with
+sequence/time allocation and atomic durable execution, with C05 as the first
+compiler consumer; O09 owns multi-row/unique ordering, and C06 owns post-commit
+wake after durable evidence exists.
 
 The remaining compiler gates are:
 

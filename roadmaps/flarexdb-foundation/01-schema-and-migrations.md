@@ -94,7 +94,7 @@ Convex-first implementation references include:
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
 | Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. S06 is its first replacement-row consumer; no replacement route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
-| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, the required non-routing mutation-session authority core, private exact-snapshot semantic point reads with typed dependencies, C03's bounded exact-attempt point journal/overlay/seal, C04A/C04B1/C04B2 authenticated verification, corrected C04C1 logical point planning, S08's native commit/change-feed schema plus bounded private reader, S09-A's private committed-success result storage, and S09-B's fixed-kind private commit-wake schema/repository are implemented. Atomic commit publication, S09-A lookup/replay/expiry behavior, O07 outbox production, C06 dispatch, reconnect retention/retained-floor advancement, index sidecars, edges, target-native readiness, routing, and prototype retirement are not implemented; C04C2 and long-running-attempt renewal remain conditional on proven consumers. |
+| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, the required non-routing mutation-session authority core, private exact-snapshot semantic point reads with typed dependencies, C03's bounded exact-attempt point journal/overlay/seal, C04A/C04B1/C04B2 authenticated verification, corrected C04C1 logical point planning, S08's native commit/change-feed schema plus bounded private reader, S09-A's private committed-success result storage, S09-B's fixed-kind private commit-wake schema/repository, and O06's rollback-proven private point-commit transaction kernel are implemented. Atomic commit publication, S09-A lookup/replay/expiry behavior, O07 outbox production, C06 dispatch, reconnect retention/retained-floor advancement, index sidecars, edges, target-native readiness, routing, and prototype retirement are not implemented; C04C2 and long-running-attempt renewal remain conditional on proven consumers. |
 
 Existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, and
 subscription tables remain an internal prototype behavior baseline. They are
@@ -656,7 +656,7 @@ Outcome:
   `0` with no writer until O11 owns retention advancement. S08 fails closed on
   a nonzero floor and defines no reconnect/reset behavior.
 - Keep zero-child headers representable while deferring their allocation policy
-  and every clock advance to O06/O07. Sequence, not `committed_at`, orders the
+  and every clock advance to O07. Sequence, not `committed_at`, orders the
   feed; the clock may never advance without its corresponding header.
 - Keep the reader package-private. `listAfter` captures clock, floor, headers,
   and children in one read-only repeatable-read snapshot and returns the
@@ -674,8 +674,9 @@ Exit gates:
 - fresh install, upgrade/replay/failure recovery, non-public schema parity,
   FK/restrict behavior, query plans, and PGlite/real-Postgres boundaries pass;
   and
-- no gap-producing allocator, floor writer, retention/reset policy, generic
-  change summary, legacy bridge, or S09/O06/O07 behavior exists.
+- S08 itself adds no gap-producing allocator, floor writer, retention/reset
+  policy, generic change summary, legacy bridge, S09 writer, or O07 publication
+  behavior.
 
 ### [x] S09-A — Add Committed-Success Idempotency DDL
 

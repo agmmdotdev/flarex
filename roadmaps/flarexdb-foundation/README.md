@@ -24,9 +24,10 @@ C07 final-document/result proof are complete. Corrected C04C1 database-free
 logical point planning, S08's native commit/change-feed schema plus bounded
 package-private reader, and S09-A's private committed-success result DDL are
 complete. S09-B's fixed-kind private commit-wake schema and fenced repository
-are also complete. The retained-history floor is physically present but fixed
-at zero until O11; O07 production and C06 dispatch remain pending, and C04C2
-remains conditional and unapproved.
+are also complete. O06's reusable private point-commit transaction kernel and
+forced-rollback proof are complete. The retained-history floor is physically
+present but fixed at zero until O11; O07 durable production and C06 dispatch
+remain pending, and C04C2 remains conditional and unapproved.
 B2b2 renewal is
 a conditional
 operational extension outside the current
@@ -297,10 +298,12 @@ only the `SessionJournalStore` required by its first real Postgres-backed
 journal consumer; C04A owns exact stored-evidence authentication, C04B1 owns
 current commit-authority authentication, C04B2 owns final value/return
 validation and `VerifiedCommitInput`, and C04C1 owns only private logical
-`PreparedPointCommitV1`; O06/O07 own authoritative head loading, actual SQL
-locks, physical revision/current lowering, sequence/time allocation, and atomic
+`PreparedPointCommitV1`; O06 owns the reusable short transaction kernel,
+authoritative head loading, actual authority locks, O05 validation, tentative
+physical revision/current lowering, and its exact forced-rollback proof. O07
+reuses and extends that kernel with sequence/time allocation and atomic durable
 publication. O09 owns later multi-row/unique ordering. C05 is the first complete
-planner/executor composition consumer; C06 owns
+planner/production-executor composition consumer; C06 owns
 `PostCommitWake` after durable commit/outbox evidence exists.
 
 `O03-B1` establishes atomic activation and exact active-anchor replay;
@@ -334,7 +337,7 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
 1. `S08` (complete): native scope-local commit headers and epoch-provenance-
    checked typed app-row changes; package-private bounded contiguous
    `listAfter`; retained-history floor physically present but fixed at `0`
-   until O11. Header allocation remains an O06/O07 decision.
+   until O11. Header allocation remains an O07 decision.
 2. `S09-A` (complete): private scope-lifetime committed-success result DDL,
    keyed by the server-prepared internal request identity and deliberately
    decoupled from compactable S08 headers.
@@ -343,8 +346,12 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
    owner/fence CAS and snapshot-consistent inclusive-floor/header correlation;
    old-epoch rows remain eligible. There is no allocator, O07 writer, C06 host,
    generic consumer/cursor, GC, redrive, or sink implementation.
-4. `O06`: private non-routable scope-local commit transaction harness.
-5. `O07`: atomic result, outcome, data, commit/change atoms, and outbox.
+4. `O06` (complete): reusable private non-routable point-commit transaction
+   kernel plus a test-only forced-rollback proof adapter. It revalidates current
+   authority, loads authoritative heads, applies O05, and exercises tentative
+   physical row lowering without publishing a sequence or durable mutation.
+5. `O07`: extend the O06 kernel with atomic result, outcome, data,
+   commit/change atoms, outbox, session/lease completion, and clock advance.
 6. `C05`: one point mutation through the complete primitive.
 7. `O08`: separate OCC reruns, safe SQL retries, and uncertain-outcome lookup.
 8. `C06`: idempotent finish and lost-outcome recovery through `/invoke/*`.

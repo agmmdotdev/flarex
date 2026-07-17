@@ -89,6 +89,8 @@ import {
 } from "./schema";
 import {
   RESOLVE_PINNED_POINT_TABLE_ID_V1,
+  LocatedReadCommittedTransactionFailureV1,
+  RUN_LOCATED_READ_COMMITTED_V1,
   RUN_LOCATED_REPEATABLE_READ_V1,
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1,
   type ExactRunningAttemptKernelContextV1,
@@ -686,6 +688,31 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       });
       return work(tx);
     }),
+    [RUN_LOCATED_READ_COMMITTED_V1]: <Result>(
+      work: (tx: AppRowTransaction) => Promise<Result>,
+    ): Promise<Result> => {
+      let callbackRejected = false;
+      let callbackCause: unknown;
+      const run = db.transaction(async (tx) => {
+        await tx.setTransaction({ isolationLevel: "read committed" });
+        try {
+          return await work(tx);
+        } catch (cause) {
+          callbackRejected = true;
+          callbackCause = cause;
+          throw cause;
+        }
+      });
+      return run.catch((cause: unknown) => {
+        if (callbackRejected && cause === callbackCause) {
+          throw cause;
+        }
+        throw new LocatedReadCommittedTransactionFailureV1(
+          cause,
+          callbackRejected ? callbackCause : undefined,
+        );
+      });
+    },
     terminalizeExactPointMutationSessionAttempt: (
       input: LocatedPointMutationSessionAttemptTerminalizationInputV1,
     ) => db.transaction((tx) =>

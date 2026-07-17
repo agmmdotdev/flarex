@@ -136,6 +136,21 @@ export type AppendAppRowRevisionV1Input =
   | AppendLiveAppRowRevisionV1Input
   | AppendTombstoneAppRowRevisionV1Input;
 
+export interface AppendPreparedLiveAppRowRevisionV1Input
+  extends AppendAppRowRevisionV1Base {
+  readonly kind: "live";
+  readonly document: CanonicalFlarexValueV1;
+}
+
+export interface AppendPreparedTombstoneAppRowRevisionV1Input
+  extends AppendAppRowRevisionV1Base {
+  readonly kind: "tombstone";
+}
+
+export type AppendPreparedAppRowRevisionV1Input =
+  | AppendPreparedLiveAppRowRevisionV1Input
+  | AppendPreparedTombstoneAppRowRevisionV1Input;
+
 interface AppRowRevisionV1Base extends AppRowIdentityV1 {
   readonly scopeUuid: ScopeUuidV1;
   readonly writeEpochUuid: ScopeEpochUuidV1;
@@ -381,6 +396,46 @@ export async function appendAppRowRevisionAndAdvanceCurrentInTransaction(
   input: AppendAppRowRevisionV1Input,
 ): Promise<AppRowRevisionV1> {
   const decoded = await decodeAppendInput(tx, input);
+  return appendDecodedAppRowRevisionAndAdvanceCurrentInTransaction(
+    tx,
+    decoded,
+  );
+}
+
+/**
+ * Internal O06/O07 lowering primitive. Canonical document verification must
+ * already have completed before the transaction starts.
+ */
+export async function appendPreparedAppRowRevisionAndAdvanceCurrentInTransaction(
+  tx: AppRowTransaction,
+  input: AppendPreparedAppRowRevisionV1Input,
+): Promise<AppRowRevisionV1> {
+  const decoded = await decodePreparedAppendInput(tx, input);
+  return appendDecodedAppRowRevisionAndAdvanceCurrentInTransaction(
+    tx,
+    decoded,
+  );
+}
+
+type DecodedAppendAppRowRevisionV1 =
+  | (AppendAppRowRevisionV1Base & {
+      readonly kind: "live";
+      readonly identity: AppRowIdentityV1;
+      readonly scopeUuid: ScopeUuidV1;
+      readonly writeEpochUuid: ScopeEpochUuidV1;
+      readonly document: CanonicalFlarexValueV1;
+    })
+  | (AppendAppRowRevisionV1Base & {
+      readonly kind: "tombstone";
+      readonly identity: AppRowIdentityV1;
+      readonly scopeUuid: ScopeUuidV1;
+      readonly writeEpochUuid: ScopeEpochUuidV1;
+    });
+
+async function appendDecodedAppRowRevisionAndAdvanceCurrentInTransaction(
+  tx: AppRowTransaction,
+  decoded: DecodedAppendAppRowRevisionV1,
+): Promise<AppRowRevisionV1> {
   const inserted = await tx
     .insert(fxAppRowRevisions)
     .values({
@@ -606,21 +661,7 @@ function decodeIdentity(input: AppRowIdentityV1): AppRowIdentityV1 {
 async function decodeAppendInput(
   tx: AppRowTransaction,
   input: AppendAppRowRevisionV1Input,
-): Promise<
-  | (AppendAppRowRevisionV1Base & {
-      readonly kind: "live";
-      readonly identity: AppRowIdentityV1;
-      readonly scopeUuid: ScopeUuidV1;
-      readonly writeEpochUuid: ScopeEpochUuidV1;
-      readonly document: CanonicalFlarexValueV1;
-    })
-  | (AppendAppRowRevisionV1Base & {
-      readonly kind: "tombstone";
-      readonly identity: AppRowIdentityV1;
-      readonly scopeUuid: ScopeUuidV1;
-      readonly writeEpochUuid: ScopeEpochUuidV1;
-    })
-> {
+): Promise<DecodedAppendAppRowRevisionV1> {
   const identity = decodeIdentity(input);
   const scopeUuid = await requireScopeUuidInTransaction(tx, identity.scopeId);
   const commitSeq = requirePositiveCommitSeq(input.commitSeq);
@@ -663,6 +704,43 @@ async function decodeAppendInput(
     sha256: input.value.sha256,
   });
   return Object.freeze({ ...base, kind: "live", document });
+}
+
+async function decodePreparedAppendInput(
+  tx: AppRowTransaction,
+  input: AppendPreparedAppRowRevisionV1Input,
+): Promise<DecodedAppendAppRowRevisionV1> {
+  const identity = decodeIdentity(input);
+  const scopeUuid = await requireScopeUuidInTransaction(tx, identity.scopeId);
+  const commitSeq = requirePositiveCommitSeq(input.commitSeq);
+  const prevCommitSeq = input.prevCommitSeq === null
+    ? null
+    : requirePreviousCommitSeq(input.prevCommitSeq, commitSeq);
+  const writeEpochUuid = projectScopeEpochUuidV1(input.writeEpoch).epochUuid;
+  const schemaVersionId = decodeCatalogSchemaVersionId(input.schemaVersionId);
+  const creationTime = decodeAppCreationTimeV1(input.creationTime);
+  if (prevCommitSeq !== null) {
+    await requireImmutableCreationTime(
+      tx,
+      identity,
+      scopeUuid,
+      prevCommitSeq,
+      creationTime,
+    );
+  }
+  const base = {
+    ...input,
+    identity,
+    scopeUuid,
+    writeEpochUuid,
+    commitSeq,
+    prevCommitSeq,
+    schemaVersionId,
+    creationTime,
+  };
+  return input.kind === "tombstone"
+    ? Object.freeze({ ...base, kind: "tombstone" })
+    : Object.freeze({ ...base, kind: "live", document: input.document });
 }
 
 async function requireImmutableCreationTime(

@@ -165,7 +165,7 @@ work continues.
 | Existing `documents`, `indexes`, invoke sessions, Postgres live-query registry, and delivery outbox | Implemented prototype baseline | Keep only as bounded internal behavior evidence until equivalent target paths and tests exist. Do not extend it or treat it as a shipped migration obligation. |
 | Typed app row JSON with revision/current, declared index, edge, and unique sidecars | Partially implemented accepted target | S06 implements the internal, non-routing row revision/current kernel. Index, edge, and unique sidecars plus target-native index population/build and routing consumers remain planned behind the storage-generation boundary. |
 | Native commit feed, committed-success outcomes, and commit wakes | Partially implemented accepted target | S08 implements native commit/change-feed storage and its bounded private reader. S09-A implements the private scope-lifetime committed-success result receipt. S09-B implements the fixed-kind private commit-wake table and fenced claim/settlement repository. O07 atomic production, C06 dispatch, outcome lookup/replay, payload expiry, sync activation, and retention advancement remain pending. |
-| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | Prove the Postgres-backed point path through the real-Postgres gate, then immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
+| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | The Postgres-backed point path now has C04C1's private logical plan and O06's reusable rollback-proven transaction kernel; O07 remains the first durable publication. After the complete point path passes its real-Postgres gate, immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
 | Payload adapter | Staged target | Start with reserved logical collections and scalar CRUD/transaction conformance; add relations, versions/drafts, globals, auth, locks, and hooks incrementally. |
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
 | DeploymentSyncDO | Accepted v1 coordination target | One deterministic instance per scope, durable SQLite cursor/query/dependency state, Postgres catch-up. |
@@ -855,8 +855,8 @@ commit_seq)`, carries its write `epoch_uuid`, exact typed-app-row
 `change_count`, and finite database-owned `committed_at`, and exposes a unique
 `(scope_uuid, epoch_uuid, commit_seq)` projection for its children. Sequence is
 the feed order; timestamp is metadata only. Zero-change headers are physically
-representable, but S08 does not decide whether O06/O07 allocate one for a
-read-only or otherwise change-free transaction.
+  representable, but S08 does not decide whether O07 allocates one for a
+  read-only or otherwise change-free transaction.
 
 Each `fx_system_commit_app_row_change` child is an ordered pointer to one
 authoritative app-row revision, not a generic JSON summary or duplicated
@@ -918,10 +918,18 @@ Conditional physical lowering (C04C2)
   introduced only if the first S08/S09-A/S09-B/O06/O07 consumers prove that a
   distinct physical/change/outbox lowering capability is useful
 
-CommitExecutor
-  authorization, actual SQL locks, OCC, constraints, sequence/time allocation,
+O06 point-commit transaction kernel
+  executor-owned same-factory capability unwrapping; a detached closed
+  persistence command; READ COMMITTED clock/session/lease/sealed-root locking;
+  fresh scalar authority revalidation; authoritative point-head loading and
+  O05 validation; tentative physical revision/current lowering; and an exact
+  forced-rollback proof. It exposes no tentative sequence or published state.
+
+O07 CommitExecutor
+  reuses and extends the O06 kernel with sequence/time allocation, durable
   physical revision/current writes, idempotency outcome, commit/change records,
-  freshness atoms, and outbox; O09 later owns multi-row/unique ordering
+  freshness atoms, outbox, lease deletion, committed session state, and clock
+  advance; O09 later owns multi-row/unique ordering
 ```
 
 S07 implements a small located Postgres transaction-session anchor containing:
@@ -1285,8 +1293,10 @@ running or finishing -> aborted | expired
 The S07 `created` and `committing` literals are reserved for intra-transaction
 construction and compatibility. Neither is a durable externally observable
 active state in V1: O03-B1 commits the new anchor as `running` with its exact
-current lease, while the O06/O07 publication transaction either commits the
-terminal outcome or rolls back to the durable `finishing` state.
+  current lease. C05's exact-fence transition leaves the durable attempt at
+  `finishing`; O06 proves the reusable short transaction kernel only through
+  forced rollback, and O07 either commits the terminal outcome or rolls back to
+  that durable `finishing` state.
 
 Requirements:
 

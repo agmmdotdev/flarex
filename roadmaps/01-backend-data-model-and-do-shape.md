@@ -885,8 +885,9 @@ Known limitations:
   application read/write.
 - Resolution is intentionally read-only and cannot make the control/target
   reads one distributed snapshot. O02 selects the authority, O03-B durably
-  binds it only after an in-transaction clock recheck, and O06 must revalidate
-  its epoch/generation fence inside the final transaction.
+  binds it only after an in-transaction clock recheck. O06 now revalidates its
+  epoch/generation fence inside the rollback-proven kernel; O07 must repeat that
+  same revalidation inside the first durable publication transaction.
 - Live Cloudflare/Hyperdrive activation is deferred. H05-B remains required
   before production executor routing is enabled, but is not required for this
   host-neutral resolver or the next additive core schema turns.
@@ -1338,8 +1339,9 @@ Known limitations:
   locator/clock authority. No migration DML creates clock rows.
 - S02-D/E still own fail-closed runtime resolution, stale-fence checks, trusted
   scope guards, and pooled-connection isolation.
-- O06/O07 still own sequence advancement with OCC, commit/change publication,
-  outcomes, idempotency, and outbox in one final transaction.
+- O06 now owns the reusable revalidation/OCC/tentative-lowering kernel under
+  forced rollback. O07 still owns sequence advancement, commit/change
+  publication, outcomes, idempotency, and outbox in one durable transaction.
 - The focused real-Postgres test passed against an isolated PostgreSQL 18
   cluster, proving exact same-scope blocking, independent-scope progress, and
   rollback visibility. The broader seven-test Postgres lane ran six tests

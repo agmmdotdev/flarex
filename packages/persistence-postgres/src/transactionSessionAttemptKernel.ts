@@ -54,6 +54,21 @@ export const RUN_LOCATED_REPEATABLE_READ_V1: unique symbol = Symbol(
   "FlarexDB/runLocatedRepeatableReadV1",
 );
 
+export const RUN_LOCATED_READ_COMMITTED_V1: unique symbol = Symbol(
+  "FlarexDB/runLocatedReadCommittedV1",
+);
+
+export class LocatedReadCommittedTransactionFailureV1 extends Error {
+  readonly name = "LocatedReadCommittedTransactionFailureV1";
+
+  constructor(
+    readonly cause: unknown,
+    readonly callbackCause: unknown | undefined,
+  ) {
+    super("Located READ COMMITTED transaction infrastructure failed.");
+  }
+}
+
 export interface LocatedExactRunningAttemptKernelV1
   extends LocatedScopeClockReader {
   readonly [RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1]: <Result>(
@@ -68,6 +83,9 @@ export interface LocatedExactRunningAttemptKernelV1
   readonly [RUN_LOCATED_REPEATABLE_READ_V1]: <Result>(
     work: (tx: AppRowTransaction) => Promise<Result>,
   ) => Promise<Result>;
+  readonly [RUN_LOCATED_READ_COMMITTED_V1]: <Result>(
+    work: (tx: AppRowTransaction) => Promise<Result>,
+  ) => Promise<Result>;
 }
 
 /**
@@ -79,6 +97,24 @@ export interface LocatedRepeatableReadAttemptTargetV1
   readonly [RUN_LOCATED_REPEATABLE_READ_V1]: <Result>(
     work: (tx: AppRowTransaction) => Promise<Result>,
   ) => Promise<Result>;
+}
+
+/**
+ * Package-internal writer-transaction capability. The caller remains inside
+ * persistence-postgres and receives no authority to escape the transaction.
+ */
+export interface LocatedReadCommittedAttemptTargetV1
+  extends LocatedScopeClockReader {
+  readonly [RUN_LOCATED_READ_COMMITTED_V1]: <Result>(
+    work: (tx: AppRowTransaction) => Promise<Result>,
+  ) => Promise<Result>;
+}
+
+export function isLocatedReadCommittedAttemptTargetV1(
+  target: LocatedScopeClockReader,
+): target is LocatedReadCommittedAttemptTargetV1 {
+  return typeof Reflect.get(target, RUN_LOCATED_READ_COMMITTED_V1) ===
+    "function";
 }
 
 export function isLocatedRepeatableReadAttemptTargetV1(
@@ -98,5 +134,6 @@ export function isLocatedExactRunningAttemptKernelV1(
     ) === "function" &&
     typeof Reflect.get(target, RESOLVE_PINNED_POINT_TABLE_ID_V1) === "function"
     && typeof Reflect.get(target, RUN_LOCATED_REPEATABLE_READ_V1) === "function"
+    && typeof Reflect.get(target, RUN_LOCATED_READ_COMMITTED_V1) === "function"
   );
 }

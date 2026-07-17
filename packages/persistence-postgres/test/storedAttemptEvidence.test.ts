@@ -1,4 +1,13 @@
-import { Effect, Schema } from "effect";
+import { Effect, Fiber, Schema } from "effect";
+import {
+  canonicalizeAppDocumentV1,
+  decodeAppCreationTimeV1,
+} from "flarex-protocol/app-document";
+import {
+  appDocumentIdV1FromRowIdentity,
+  decodeAppRowIdHexV1,
+} from "flarex-protocol/app-document-id";
+import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import {
   CommitEnvelopeV1Schema,
   CommitSyscallSequenceV1Schema,
@@ -30,6 +39,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
+  MAX_PERSISTED_SIGNED_INT64_V1,
   ScopeEpochSchema,
   SnapshotTokenSchema,
   StorageGenerationFenceSchema,
@@ -43,7 +53,10 @@ import {
   TransactionRequestKeyV1Schema,
   type TransactionSessionLifecycleV1,
 } from "flarex-protocol/transaction-session";
-import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
+import {
+  FLAREX_VALUE_CODEC_VERSION_V1,
+  canonicalizeFlarexValueV1,
+} from "flarex-protocol/value";
 import {
   beforeAll,
   describe,
@@ -65,6 +78,10 @@ import {
   createTransactionGrantVerifierV1,
 } from "../../executor/src/transactionGrant";
 import * as persistenceRoot from "../src";
+import {
+  appendAppRowRevisionAndAdvanceCurrentInTransaction,
+  type AppRowTransaction,
+} from "../src/appRows";
 import {
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGlitePersistence,
@@ -96,6 +113,23 @@ import {
   type PointMutationSessionAttemptSelectorV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
 } from "../src/transactionSessionActivation";
+import {
+  LocatedReadCommittedTransactionFailureV1,
+  RUN_LOCATED_READ_COMMITTED_V1,
+  isLocatedReadCommittedAttemptTargetV1,
+} from "../src/transactionSessionAttemptKernel";
+import {
+  createPointCommitRollbackProofPortV1,
+  PointCommitConflictV1Error,
+  PointCommitCorruptionV1Error,
+  PointCommitResourceExhaustionV1Error,
+  PointCommitSqlErrorV1,
+  PointCommitStaleAuthorityV1Error,
+  type PointCommitTransactionCommandV1,
+} from "../src/pointCommitTransaction";
+import {
+  pointCommitCommandFromStoredAttemptV1,
+} from "./pointCommitTransactionTestSupport";
 import {
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
@@ -511,6 +545,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcome: { kind: "inserted" },
     });
     const envelope = await seal(current);
+    const loadedAttempt = await current.loading.load({
+      deploymentId: current.anchor.deploymentId,
+      scopeId: current.anchor.scopeId,
+      sessionId: current.anchor.sessionId,
+      attemptFence: current.anchor.attemptFence.toString(),
+    });
+    await setLifecycle(current.anchor.sessionId, "finishing");
     const storedEvidence = await current.loader.load(current.authority);
     if (storedEvidence.kind !== "loaded") {
       throw new Error("Expected stored insert/delete evidence to load.");
@@ -527,12 +568,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       }),
     ]));
     storedSqlClosed = false;
-    const loadedAttempt = await current.loading.load({
-      deploymentId: current.anchor.deploymentId,
-      scopeId: current.anchor.scopeId,
-      sessionId: current.anchor.sessionId,
-      attemptFence: current.anchor.attemptFence.toString(),
-    });
     let authoritySqlClosed = false;
     let schemaDecodeAfterSqlClose = false;
     let metadataAfterSqlClose = false;
@@ -552,6 +587,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
       },
     );
+    const pointCommitSteps: string[] = [];
     const authentication = createStoredAttemptAuthenticationV1(
       current.loader,
       {
@@ -564,6 +600,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             return Effect.succeed(structuredClone(current.functionSnapshot));
           },
         },
+        pointCommit: createPointCommitRollbackProofPortV1(
+          resolutionPorts(persistence),
+          {
+            afterTransactionStep: (event) => {
+              pointCommitSteps.push(event.step);
+              return Promise.resolve();
+            },
+          },
+        ),
       },
     );
     const authority = await runEffect(
@@ -583,6 +628,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const prepared = await runEffect(
       authentication.planPointCommit(verified),
     );
+    const rollbackProof = await runEffect(
+      authentication.provePointCommitRollback(prepared),
+    );
 
     expect(storedSqlClosed).toBe(true);
     expect(authoritySqlClosed).toBe(true);
@@ -591,6 +639,453 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(authentication.isCommitInputVerified(verified)).toBe(true);
     expect(authentication.isPointCommitPrepared(prepared)).toBe(true);
     expect({ authorityQueries, metadataLoads }).toEqual(beforeVerification);
+    expect(rollbackProof).toEqual({ kind: "wouldCommit" });
+    expect(pointCommitSteps).toContain("tentativeRowWritten");
+    const durable = await persistence.query<{
+      revisions: string;
+      current_rows: string;
+      last_commit_seq: string;
+    }>(
+      `
+        select
+          (select count(*)::text from fx_app_row_rev
+            where scope_uuid = $1) as revisions,
+          (select count(*)::text from fx_app_row_current
+            where scope_uuid = $1) as current_rows,
+          last_commit_seq::text
+        from fx_system_scope_clock
+        where scope_uuid = $1
+      `,
+      [storedEvidence.evidence.scopeUuid],
+    );
+    expect(durable.rows[0]).toEqual({
+      revisions: "0",
+      current_rows: "0",
+      last_commit_seq: "0",
+    });
+  });
+
+  it("rolls back live, delete, and insert-delete point lowering", async () => {
+    const live = await prepareO06Scenario(
+      "o06_live_rollback",
+      async (current, table) => {
+        await expect(current.store.runPointOperation(table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "live" },
+        })).resolves.toMatchObject({
+          kind: "completed",
+          outcome: { kind: "inserted" },
+        });
+      },
+    );
+    const liveBefore = await o06DurableState(live.evidence.scopeUuid);
+    const liveSteps: string[] = [];
+    const liveResult = await runEffect(
+      createPointCommitRollbackProofPortV1(resolutionPorts(persistence), {
+        afterTransactionStep: (event) => {
+          liveSteps.push(event.step);
+          return Promise.resolve();
+        },
+      }).prove(live.command),
+    );
+    expect(liveResult).toEqual({ kind: "wouldCommit" });
+    expect(Object.isFrozen(liveResult)).toBe(true);
+    expect(liveSteps).toEqual([
+      "clockLocked",
+      "sessionLocked",
+      "leaseLocked",
+      "journalRootLocked",
+      "dependenciesValidated",
+      "tentativeRowWritten",
+      "beforeRollback",
+    ]);
+    expect(await o06DurableState(live.evidence.scopeUuid)).toEqual(liveBefore);
+
+    const deleted = await prepareO06Scenario(
+      "o06_delete_rollback",
+      async (current, table) => {
+        if (current.seededDocumentId === null) {
+          throw new Error("Missing seeded delete document.");
+        }
+        await expect(current.store.runPointOperation(table, {
+          kind: "delete",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          documentId: current.seededDocumentId,
+        })).resolves.toMatchObject({
+          kind: "completed",
+          outcome: { kind: "unit" },
+        });
+      },
+      true,
+    );
+    const deleteBefore = await o06DurableState(deleted.evidence.scopeUuid);
+    const deleteSteps: string[] = [];
+    await runEffect(
+      createPointCommitRollbackProofPortV1(resolutionPorts(persistence), {
+        afterTransactionStep: (event) => {
+          deleteSteps.push(event.step);
+          return Promise.resolve();
+        },
+      }).prove(deleted.command),
+    );
+    expect(deleteSteps).toContain("tentativeRowWritten");
+    expect(await o06DurableState(deleted.evidence.scopeUuid)).toEqual(
+      deleteBefore,
+    );
+
+    const noMaterial = await prepareO06Scenario(
+      "o06_insert_delete_rollback",
+      async (current, table) => {
+        const inserted = await current.store.runPointOperation(table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "transient" },
+        });
+        if (
+          inserted.kind !== "completed" ||
+          inserted.outcome.kind !== "inserted"
+        ) {
+          throw new Error("Expected transient O06 insert.");
+        }
+        await current.store.runPointOperation(table, {
+          kind: "delete",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
+          documentId: inserted.outcome.documentId,
+        });
+      },
+    );
+    const noMaterialSteps: string[] = [];
+    await runEffect(
+      createPointCommitRollbackProofPortV1(resolutionPorts(persistence), {
+        afterTransactionStep: (event) => {
+          noMaterialSteps.push(event.step);
+          return Promise.resolve();
+        },
+      }).prove(noMaterial.command),
+    );
+    expect(noMaterial.command.dependencies).toHaveLength(1);
+    expect(noMaterial.command.rowIntent).toBeNull();
+    expect(noMaterialSteps).not.toContain("tentativeRowWritten");
+    expect(noMaterialSteps.at(-1)).toBe("beforeRollback");
+  });
+
+  it("keeps lifecycle, preliminary authority, and target failures typed", async () => {
+    const current = await prepareO06Scenario(
+      "o06_typed_authority",
+      async (scenario, table) => {
+        await scenario.store.runPointOperation(table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "typed" },
+        });
+      },
+    );
+    let authorityReads = 0;
+    const runningFailure = await runFailure(
+      createPointCommitRollbackProofPortV1({
+        ...resolutionPorts(persistence),
+        scopeMetadata: {
+          getScopeMetadataByDeploymentId: async () => {
+            authorityReads += 1;
+            throw new Error("Running input must fail before authority I/O.");
+          },
+        },
+      }).prove(Object.freeze({
+        ...current.command,
+        session: Object.freeze({
+          ...current.command.session,
+          lifecycle: "running",
+        }),
+        sealIdentity: Object.freeze({
+          ...current.command.sealIdentity,
+          lifecycle: "running",
+        }),
+      })),
+    );
+    expect(runningFailure).toMatchObject({
+      _tag: "PointCommitStaleAuthorityV1Error",
+      reason: "lifecycleChanged",
+    });
+    expect(authorityReads).toBe(0);
+
+    await persistence.query(
+      `
+        update fx_system_scope_clock
+        set storage_generation_fence = storage_generation_fence + 1
+        where scope_uuid = $1
+      `,
+      [current.evidence.scopeUuid],
+    );
+    const generationFailure = await runFailure(
+      createPointCommitRollbackProofPortV1(
+        resolutionPorts(persistence),
+      ).prove(current.command),
+    );
+    expect(generationFailure).toBeInstanceOf(
+      PointCommitStaleAuthorityV1Error,
+    );
+    expect(generationFailure).toMatchObject({ reason: "generationChanged" });
+
+    const mismatchedScopeId = decodeReplacementScopeIdV1(
+      "scope_99000000-0000-4000-8000-000000000001",
+    );
+    const invalidClockFailure = await runFailure(
+      createPointCommitRollbackProofPortV1({
+        ...resolutionPorts(persistence),
+        scopeSessionTargets: {
+          resolve: async (physicalLocator) => {
+            const target =
+              createPGliteLocatedPointMutationSessionActivationTargetV1(
+                persistence,
+                physicalLocator,
+              );
+            return Object.freeze({
+              physicalLocator: target.physicalLocator,
+              getCurrentClock: async (
+                scopeId: Parameters<
+                  LocatedScopeClockReader["getCurrentClock"]
+                >[0],
+              ) => {
+                const clock = await target.getCurrentClock(scopeId);
+                if (clock === null) return null;
+                return Object.freeze({
+                  ...clock,
+                  scopeId: mismatchedScopeId,
+                });
+              },
+            } satisfies LocatedScopeClockReader);
+          },
+        },
+      }).prove(current.command),
+    );
+    expect(invalidClockFailure).toBeInstanceOf(
+      PointCommitCorruptionV1Error,
+    );
+    expect(invalidClockFailure).toMatchObject({ reason: "scopeClockInvalid" });
+
+    const targetFailure = Object.assign(new Error("target offline"), {
+      code: "57P01",
+    });
+    const sqlFailure = await runFailure(
+      createPointCommitRollbackProofPortV1({
+        ...resolutionPorts(persistence),
+        scopeSessionTargets: {
+          resolve: async () => {
+            throw targetFailure;
+          },
+        },
+      }).prove(current.command),
+    );
+    expect(sqlFailure).toBeInstanceOf(PointCommitSqlErrorV1);
+    expect(sqlFailure).toMatchObject({
+      operation: "resolveAuthority",
+      sqlState: "57P01",
+      retryable: false,
+    });
+  });
+
+  it("classifies OCC conflicts and commit-sequence exhaustion without writes", async () => {
+    const conflict = await prepareO06Scenario(
+      "o06_occ_conflict",
+      async (current, table) => {
+        await current.store.runPointOperation(table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "planned" },
+        });
+      },
+    );
+    await commitCompetingPointRow(conflict.command);
+    const conflictBefore = await o06DurableState(conflict.evidence.scopeUuid);
+    const conflictFailure = await runFailure(
+      createPointCommitRollbackProofPortV1(
+        resolutionPorts(persistence),
+      ).prove(conflict.command),
+    );
+    expect(conflictFailure).toBeInstanceOf(PointCommitConflictV1Error);
+    expect(await o06DurableState(conflict.evidence.scopeUuid)).toEqual(
+      conflictBefore,
+    );
+
+    const exhausted = await prepareO06Scenario(
+      "o06_sequence_exhaustion",
+      async (current, table) => {
+        await current.store.runPointOperation(table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "exhausted" },
+        });
+      },
+    );
+    await persistence.query(
+      `
+        update fx_system_scope_clock
+        set last_commit_seq = $2
+        where scope_uuid = $1
+      `,
+      [exhausted.evidence.scopeUuid, MAX_PERSISTED_SIGNED_INT64_V1],
+    );
+    const exhaustedFailure = await runFailure(
+      createPointCommitRollbackProofPortV1(
+        resolutionPorts(persistence),
+      ).prove(exhausted.command),
+    );
+    expect(exhaustedFailure).toBeInstanceOf(
+      PointCommitResourceExhaustionV1Error,
+    );
+    expect(exhaustedFailure).toMatchObject({ dimension: "commitSequence" });
+  });
+
+  it("does not observe interruption until forced rollback settles", async () => {
+    const current = await prepareO06Scenario(
+      "o06_interruption",
+      async (scenario, table) => {
+        await scenario.store.runPointOperation(table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "interrupt" },
+        });
+      },
+    );
+    const entered = deferredSignal();
+    const release = deferredSignal();
+    let interruptionSettled = false;
+    const port = createPointCommitRollbackProofPortV1(
+      resolutionPorts(persistence),
+      {
+        afterTransactionStep: async (event) => {
+          if (event.step !== "beforeRollback") return;
+          entered.resolve();
+          await release.promise;
+        },
+      },
+    );
+    const fiber = Effect.runFork(port.prove(current.command));
+    await entered.promise;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+      interruptionSettled = true;
+      return exit;
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    expect(interruptionSettled).toBe(false);
+    release.resolve();
+    await interruption;
+    expect(interruptionSettled).toBe(true);
+    expect(await o06DurableState(current.evidence.scopeUuid)).toMatchObject({
+      revisions: "0",
+      current_rows: "0",
+      last_commit_seq: "0",
+    });
+  });
+
+  it("fails closed when rollback infrastructure or its sentinel contract fails", async () => {
+    const current = await prepareO06Scenario(
+      "o06_rollback_contract_failures",
+      async (scenario, table) => {
+        await scenario.store.runPointOperation(table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "rollback-contract" },
+        });
+      },
+    );
+    const before = await o06DurableState(current.evidence.scopeUuid);
+    const rollbackCause = new Error("rollback infrastructure failed");
+    const rollbackFailure = await runFailure(
+      createPointCommitRollbackProofPortV1({
+        ...resolutionPorts(persistence),
+        scopeSessionTargets: {
+          resolve: async (physicalLocator) => {
+            const target =
+              createPGliteLocatedPointMutationSessionActivationTargetV1(
+                persistence,
+                physicalLocator,
+              );
+            if (!isLocatedReadCommittedAttemptTargetV1(target)) {
+              throw new Error("Expected the PGlite READ COMMITTED target.");
+            }
+            const proxyBase = Object.freeze({
+              physicalLocator: target.physicalLocator,
+              getCurrentClock: target.getCurrentClock,
+            }) satisfies LocatedScopeClockReader;
+            return new Proxy(proxyBase, {
+              get: (subject, property, receiver) => {
+                if (property !== RUN_LOCATED_READ_COMMITTED_V1) {
+                  return Reflect.get(subject, property, receiver);
+                }
+                return async (
+                  work: (tx: AppRowTransaction) => Promise<unknown>,
+                ) => {
+                  try {
+                    return await target[RUN_LOCATED_READ_COMMITTED_V1](work);
+                  } catch (callbackCause) {
+                    throw new LocatedReadCommittedTransactionFailureV1(
+                      rollbackCause,
+                      callbackCause,
+                    );
+                  }
+                };
+              },
+            });
+          },
+        },
+      }).prove(current.command),
+    );
+    expect(rollbackFailure).toBeInstanceOf(PointCommitSqlErrorV1);
+    if (!(rollbackFailure instanceof PointCommitSqlErrorV1)) {
+      throw new Error("Expected the rollback infrastructure SQL failure.");
+    }
+    expect(rollbackFailure).toMatchObject({ operation: "beginOrRollback" });
+    expect(rollbackFailure.cause).toBeInstanceOf(
+      LocatedReadCommittedTransactionFailureV1,
+    );
+    if (
+      !(rollbackFailure.cause instanceof
+        LocatedReadCommittedTransactionFailureV1)
+    ) {
+      throw new Error("Expected the located transaction failure wrapper.");
+    }
+    expect(rollbackFailure.cause.cause).toBe(rollbackCause);
+    expect(rollbackFailure.cause.callbackCause).toMatchObject({
+      kind: "pointCommitRollbackSentinel",
+    });
+    expect(await o06DurableState(current.evidence.scopeUuid)).toEqual(before);
+
+    const missingSentinelFailure = await runFailure(
+      createPointCommitRollbackProofPortV1({
+        ...resolutionPorts(persistence),
+        scopeSessionTargets: {
+          resolve: async (physicalLocator) => {
+            const target =
+              createPGliteLocatedPointMutationSessionActivationTargetV1(
+                persistence,
+                physicalLocator,
+              );
+            if (!isLocatedReadCommittedAttemptTargetV1(target)) {
+              throw new Error("Expected the PGlite READ COMMITTED target.");
+            }
+            const proxyBase = Object.freeze({
+              physicalLocator: target.physicalLocator,
+              getCurrentClock: target.getCurrentClock,
+            }) satisfies LocatedScopeClockReader;
+            return new Proxy(proxyBase, {
+              get: (subject, property, receiver) =>
+                property === RUN_LOCATED_READ_COMMITTED_V1
+                  ? async () => undefined
+                  : Reflect.get(subject, property, receiver),
+            });
+          },
+        },
+      }).prove(current.command),
+    );
+    expect(missingSentinelFailure).toBeInstanceOf(
+      PointCommitCorruptionV1Error,
+    );
+    expect(missingSentinelFailure).toMatchObject({
+      reason: "rollbackSentinelMissing",
+    });
+    expect(await o06DurableState(current.evidence.scopeUuid)).toEqual(before);
   });
 
   it("decodes malformed schema evidence only after repeatable read closes", async () => {
@@ -820,6 +1315,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   async function c04b2Scenario(
     label: string,
     loaderOptions: ScenarioOptions = {},
+    seedRow = false,
   ) {
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       `deployment_stored_attempt_${label}`,
@@ -847,6 +1343,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       tables: [usersTable],
       indexes: [],
     });
+    const seededDocumentId = seedRow
+      ? await seedCommittedUser(scopeId, schemaVersionId)
+      : null;
     const target = decodeActivePointMutationTargetMetadataV1({
       format: "flarex.point-mutation-target-metadata",
       version: 1,
@@ -1035,7 +1534,164 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         schemaVersionId,
         functionMetadata: structuredClone(functionMetadata),
       }),
+      seededDocumentId,
     });
+  }
+
+  async function seedCommittedUser(
+    scopeId: ReturnType<typeof decodeReplacementScopeIdV1>,
+    schemaVersionId: ReturnType<typeof CatalogSchemaVersionIdSchema.make>,
+  ) {
+    const tableId = decodeCatalogTableId(1);
+    const rowId = decodeAppRowIdHexV1("11".repeat(16));
+    const creationTime = decodeAppCreationTimeV1(1);
+    const clock = await persistence.getScopeClock(scopeId);
+    if (clock === null) throw new Error("Missing O06 seed scope clock.");
+    const document = await canonicalizeAppDocumentV1({
+      tableId,
+      rowId,
+      creationTime,
+      fields: { name: "seeded" },
+    });
+    await persistence.drizzle.transaction((tx) =>
+      appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId,
+        tableId,
+        rowId,
+        writeEpoch: clock.epoch,
+        commitSeq: CommitSeqSchema.make(1n),
+        prevCommitSeq: null,
+        schemaVersionId,
+        creationTime,
+        value: {
+          codecVersion: document.codecVersion,
+          valueJson: document.valueJson,
+          canonicalBytes: document.canonicalBytes,
+          sha256: document.sha256,
+        },
+      })
+    );
+    await persistence.query(
+      `
+        update fx_system_scope_clock
+        set last_commit_seq = 1
+        where scope_id = $1
+      `,
+      [scopeId],
+    );
+    return appDocumentIdV1FromRowIdentity({ tableId, rowId });
+  }
+
+  async function prepareO06Scenario(
+    label: string,
+    operation: (
+      current: Awaited<ReturnType<typeof c04b2Scenario>>,
+      table: Awaited<ReturnType<
+        Awaited<ReturnType<typeof c04b2Scenario>>["store"]["resolvePointTable"]
+      >>,
+    ) => Promise<void>,
+    seedRow = false,
+  ) {
+    const current = await c04b2Scenario(label, {}, seedRow);
+    const table = await current.store.resolvePointTable(
+      current.attempt,
+      "users",
+    );
+    await operation(current, table);
+    await seal(current);
+    await setLifecycle(current.anchor.sessionId, "finishing");
+    const loaded = await current.loader.load(current.authority);
+    if (loaded.kind !== "loaded") {
+      throw new Error(`Expected O06 evidence, received ${loaded.kind}.`);
+    }
+    return Object.freeze({
+      current,
+      evidence: loaded.evidence,
+      command: await pointCommitCommandFromStoredAttemptV1(
+        current.authority,
+        loaded.evidence,
+      ),
+    });
+  }
+
+  async function commitCompetingPointRow(
+    command: PointCommitTransactionCommandV1,
+  ): Promise<void> {
+    const intent = command.rowIntent;
+    if (intent === null || intent.kind !== "live") {
+      throw new Error("O06 conflict fixture requires a live row intent.");
+    }
+    const clock = await persistence.getScopeClock(command.authorityPins.scopeId);
+    if (clock === null) throw new Error("Missing O06 conflict scope clock.");
+    const document = await canonicalizeFlarexValueV1(
+      intent.value,
+      "appDocument",
+    );
+    await persistence.drizzle.transaction((tx) =>
+      appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+        kind: "live",
+        scopeId: command.authorityPins.scopeId,
+        tableId: intent.tableId,
+        rowId: intent.rowId,
+        writeEpoch: clock.epoch,
+        commitSeq: CommitSeqSchema.make(1n),
+        prevCommitSeq: null,
+        schemaVersionId: command.authorityPins.schemaVersionId,
+        creationTime: intent.creationTime,
+        value: {
+          codecVersion: document.codecVersion,
+          valueJson: document.valueJson,
+          canonicalBytes: document.canonicalBytes,
+          sha256: document.sha256,
+        },
+      })
+    );
+    await persistence.query(
+      `
+        update fx_system_scope_clock
+        set last_commit_seq = 1
+        where scope_uuid = $1
+      `,
+      [command.sealIdentity.scopeUuid],
+    );
+  }
+
+  async function o06DurableState(scopeUuid: string) {
+    const result = await persistence.query<{
+      revisions: string;
+      current_rows: string;
+      commit_headers: string;
+      commit_changes: string;
+      outcomes: string;
+      wakes: string;
+      last_commit_seq: string;
+      last_outbox_seq: string;
+    }>(
+      `
+        select
+          (select count(*)::text from fx_app_row_rev
+            where scope_uuid = $1) as revisions,
+          (select count(*)::text from fx_app_row_current
+            where scope_uuid = $1) as current_rows,
+          (select count(*)::text from fx_system_commit
+            where scope_uuid = $1) as commit_headers,
+          (select count(*)::text from fx_system_commit_app_row_change
+            where scope_uuid = $1) as commit_changes,
+          (select count(*)::text from fx_system_idempotency
+            where scope_uuid = $1) as outcomes,
+          (select count(*)::text from fx_system_outbox
+            where scope_uuid = $1) as wakes,
+          last_commit_seq::text,
+          last_outbox_seq::text
+        from fx_system_scope_clock
+        where scope_uuid = $1
+      `,
+      [scopeUuid],
+    );
+    const row = result.rows[0];
+    if (row === undefined) throw new Error("Missing O06 durable state.");
+    return row;
   }
 
   function nextUuid(): string {
@@ -1205,4 +1861,22 @@ function appTable(
 
 function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
   return Effect.runPromise(effect);
+}
+
+function runFailure<A, E>(effect: Effect.Effect<A, E>): Promise<E> {
+  return Effect.runPromise(Effect.flip(effect));
+}
+
+function deferredSignal(): Readonly<{
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+}> {
+  let resolver: (() => void) | undefined;
+  const promise = new Promise<void>((resolve) => {
+    resolver = resolve;
+  });
+  return Object.freeze({
+    promise,
+    resolve: () => resolver?.(),
+  });
 }
