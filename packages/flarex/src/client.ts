@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
 import {
   TRUSTED_EXECUTION_IDENTITY_HEADER,
   TRUSTED_EXECUTION_IDENTITY_TOKEN_HEADER,
@@ -386,12 +387,12 @@ export function resolvePartitionKey(
   const partition = reference._partition;
   const name = getFunctionName(reference);
   if (partition?.type === "partition") {
-    if (typeof args !== "object" || args === null || Array.isArray(args)) {
+    if (!isNonArrayRecord(args)) {
       throw new Error(
         `partitionKey for ${name} must be inferred from object args.${partition.argField}.`,
       );
     }
-    const value = (args as Record<string, unknown>)[partition.argField];
+    const value = args[partition.argField];
     if (typeof value !== "string" || value.length === 0) {
       throw new Error(
         `partitionKey for ${name} must be inferred from non-empty string args.${partition.argField}.`,

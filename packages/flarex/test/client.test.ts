@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { FlarexClient } from "../src/client";
+import { FlarexClient, resolvePartitionKey } from "../src/client";
 import type { FunctionReference } from "../src/api";
 import type { UserIdentity } from "../src/auth";
 
@@ -137,6 +137,20 @@ describe("FlarexClient", () => {
         }),
       }),
     );
+  });
+
+  it("requires record args when inferring generated partitions", () => {
+    const reference = {
+      _path: "lessons:list",
+      _kind: "query",
+      _partition: userPartition,
+    } satisfies FunctionReference;
+
+    for (const args of [null, [], "user-1"]) {
+      expect(() => resolvePartitionKey(reference, args)).toThrow(
+        "partitionKey for lessons:list must be inferred from object args.userId.",
+      );
+    }
   });
 
   it("sends bearer auth from setAuth on one-shot HTTP invokes", async () => {

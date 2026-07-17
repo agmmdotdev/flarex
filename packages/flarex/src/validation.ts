@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
 import type {
   GenericValidator,
   PropertyValidators,
@@ -100,7 +101,7 @@ function validateJson(
       validateObject(validator.value, value, path, options);
       return;
     case "record":
-      expect(isPlainObject(value), "Expected an object.", path);
+      expect(isNonArrayRecord(value), "Expected an object.", path);
       for (const [key, entry] of Object.entries(value)) {
         validateJson(validator.keys, key, `${path}.${key} (key)`, options);
         validateJson(validator.values, entry, `${path}.${key}`, options);
@@ -126,7 +127,7 @@ function validateObject(
   path: string,
   options: ValidationOptions,
 ): void {
-  expect(isPlainObject(value), "Expected an object.", path);
+  expect(isNonArrayRecord(value), "Expected an object.", path);
   for (const [name, field] of Object.entries(fields)) {
     if (!Object.hasOwn(value, name)) {
       if (!field.optional) throw new ValidationError("Required field is missing.", `${path}.${name}`);
@@ -143,10 +144,6 @@ function validateObject(
 
 function expect(condition: boolean, message: string, path: string): asserts condition {
   if (!condition) throw new ValidationError(message, path);
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export { assertValidatorJson } from "./validatorJson.ts";

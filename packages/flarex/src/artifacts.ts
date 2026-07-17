@@ -1,4 +1,5 @@
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import type { AuthConfig } from "flarex-protocol/auth";
 
 export type ArtifactSourceModule = {
@@ -169,22 +170,22 @@ export function stableSourcePackageManifest(sourcePackage: ArtifactSourcePackage
       ? null
       : canonicalValue(sourcePackage.authConfig),
     authConfigModule: sourcePackage.authConfigModule ?? null,
-    functions: [...sourcePackage.functions].sort(),
+    functions: [...sourcePackage.functions].sort(compareUtf16Strings),
     modules: [...sourcePackage.modules]
       .map(module => ({
         path: module.path,
         environment: module.environment,
         sha256: module.sha256,
       }))
-      .sort((left, right) => left.path.localeCompare(right.path)),
+      .sort((left, right) => compareUtf16Strings(left.path, right.path)),
   });
 }
 
 export function validateExecutionArtifactRef(value: unknown): ExecutionArtifactRef {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isNonArrayRecord(value)) {
     throw new Error("Stored execution artifact reference is invalid.");
   }
-  const ref = value as Partial<ExecutionArtifactRef>;
+  const ref = value;
   if (ref.runtime !== "dynamic-worker") {
     throw new Error("Stored execution artifact reference has an invalid runtime.");
   }
@@ -210,10 +211,10 @@ export function validateExecutionArtifactRef(value: unknown): ExecutionArtifactR
 
 function canonicalValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalValue);
-  if (typeof value !== "object" || value === null) return value;
+  if (!isNonArrayRecord(value)) return value;
   return Object.fromEntries(
     Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareUtf16Strings(left, right))
       .map(([key, item]) => [key, canonicalValue(item)]),
   );
 }

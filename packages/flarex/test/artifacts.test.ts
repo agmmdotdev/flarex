@@ -7,6 +7,7 @@ import {
   executionArtifactRefsEqual,
   executionArtifactSourcePackageKey,
   stableSourcePackageManifest,
+  validateExecutionArtifactRef,
   validateStoredExecutionArtifactManifest,
   type ArtifactSourcePackage,
   type MaterializedArtifactSourcePackage,
@@ -64,6 +65,22 @@ describe("execution artifact refs", () => {
     expect(stableSourcePackageManifest(reordered)).toBe(stableSourcePackageManifest(first));
   });
 
+  it("orders module and function names by UTF-16 code units", () => {
+    const manifest: unknown = JSON.parse(stableSourcePackageManifest({
+      ...sourcePackage(),
+      modules: [
+        { path: "\uE000.js", environment: "isolate", sha256: "3".repeat(64) },
+        { path: "😀.js", environment: "isolate", sha256: "4".repeat(64) },
+      ],
+      functions: ["\uE000.js", "😀.js"],
+    }));
+
+    expect(manifest).toMatchObject({
+      modules: [{ path: "😀.js" }, { path: "\uE000.js" }],
+      functions: ["😀.js", "\uE000.js"],
+    });
+  });
+
   it("compares execution artifact ref fields that can differ between typed refs", async () => {
     const ref = await executionArtifactRefForSourcePackage(sourcePackage());
 
@@ -104,6 +121,15 @@ describe("execution artifact refs", () => {
         package_,
       ),
     ).rejects.toThrow(`Execution artifact ref does not match source package: ${ref.artifactId}`);
+  });
+
+  it("validates stored artifact refs from unknown input", async () => {
+    const ref = await executionArtifactRefForSourcePackage(sourcePackage());
+
+    expect(validateExecutionArtifactRef(ref)).toEqual(ref);
+    expect(() => validateExecutionArtifactRef([])).toThrow(
+      "Stored execution artifact reference is invalid.",
+    );
   });
 });
 

@@ -1,3 +1,7 @@
+import {
+  isNonArrayRecord,
+  type UnknownRecord,
+} from "@flarex/utils/records";
 import type { ValidatorJSON } from "./values.ts";
 
 export function assertValidatorJson(
@@ -85,8 +89,8 @@ function assertObject(
   value: unknown,
   message: string,
   path: string,
-): asserts value is Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+): asserts value is UnknownRecord {
+  if (!isNonArrayRecord(value)) {
     throw new Error(`${path}: ${message}`);
   }
 }

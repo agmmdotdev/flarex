@@ -62,6 +62,20 @@ describe("runtime validation", () => {
     ).toThrowError(ValidationError);
   });
 
+  it("preserves domain errors at generic record boundaries", () => {
+    for (const value of [null, []]) {
+      expect(() => validateValue(v.object({}), value)).toThrow(
+        "$: Expected an object.",
+      );
+      expect(() => validateValue(v.record(v.string(), v.any()), value)).toThrow(
+        "$: Expected an object.",
+      );
+    }
+    expect(() => assertValidatorJson([], "$custom")).toThrow(
+      "$custom: Expected validator object.",
+    );
+  });
+
   it("delegates ID table checks to an optional resolver", () => {
     const validator = v.object({ userId: v.id("users") });
     const tableIds = new Map([
