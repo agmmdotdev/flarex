@@ -5,6 +5,7 @@ import {
   isPositiveSafeInteger,
 } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 
 import {
   compileH05ControlPlaneEvidence,
@@ -586,7 +587,7 @@ function projectBindings(value: unknown, path: string): readonly H05BindingEvide
     throw new Error(`${bindingPath} uses an unsupported binding type.`);
   });
   return projected.sort((left, right) =>
-    compareCanonicalStrings(bindingKey(left), bindingKey(right)),
+    compareUtf16Strings(bindingKey(left), bindingKey(right)),
   );
 }
 
@@ -657,7 +658,7 @@ async function collectSecrets(
     },
   );
   return secrets.sort((left, right) =>
-    compareCanonicalStrings(left.name, right.name),
+    compareUtf16Strings(left.name, right.name),
   );
 }
 
@@ -1028,10 +1029,6 @@ function domainHash(domain: string, value: string): string {
   return createHash("sha256")
     .update(`flarex-h05-${domain}-v1\0${value}`)
     .digest("hex");
-}
-
-function compareCanonicalStrings(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function cloudflareAccountId(value: string): string {

@@ -3,6 +3,7 @@ import {
   isPositiveSafeInteger,
 } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 
 import {
   decodeH05ControlPlaneEvidence,
@@ -297,7 +298,7 @@ async function collectSweep(options: {
     );
   }
   normalizedTraces.sort((left, right) =>
-    left.traceIdSha256.localeCompare(right.traceIdSha256),
+    compareUtf16Strings(left.traceIdSha256, right.traceIdSha256),
   );
   const traces: readonly H05NormalizedTraceEvidence[] = normalizedTraces;
   const normalizedEvidenceSha256 = h05NormalizedTraceEvidenceSha256(traces);

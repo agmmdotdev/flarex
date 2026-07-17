@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 
 import {
   decodeH05ControlPlaneEvidence,
@@ -433,7 +434,7 @@ export function h05TraceIdHashSetSha256(
   validateTraceFacts(decoded);
   const traceIdHashes = decoded
     .map((trace) => trace.traceIdSha256)
-    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+    .sort(compareUtf16Strings);
   if (new Set(traceIdHashes).size !== traceIdHashes.length) {
     throw new Error("H05 trace ID hashes must be unique.");
   }
