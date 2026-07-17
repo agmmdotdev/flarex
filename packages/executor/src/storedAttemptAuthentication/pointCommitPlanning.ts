@@ -1,4 +1,7 @@
-import { compareBytesLexicographically } from "@flarex/utils/bytes";
+import {
+  compareBytesLexicographically,
+  copyBytes,
+} from "@flarex/utils/bytes";
 import { Data, Result } from "effect";
 
 import {
@@ -255,14 +258,14 @@ function captureRowIntent(
   const point = candidate.point;
   switch (point.kind) {
     case "live": {
-      const stableBytes = new Uint8Array(point.canonicalBytes);
+      const stableBytes = copyBytes(point.canonicalBytes);
       return Object.freeze({
         ...candidate.dependency,
         kind: "live",
         creationTime: point.creationTime,
         value: point.value,
         get canonicalBytes(): Uint8Array {
-          return new Uint8Array(stableBytes);
+          return copyBytes(stableBytes);
         },
         semanticSizeBytes: point.semanticSizeBytes,
       });
@@ -306,15 +309,15 @@ function captureAuthorityPins(
 function captureSealIdentity(
   seal: VerifiedCommitInputStateV1["sealIdentity"],
 ): VerifiedCommitInputStateV1["sealIdentity"] {
-  const stableJournalSha256 = new Uint8Array(seal.journalSha256);
-  const stableResultSha256 = new Uint8Array(seal.resultSha256);
+  const stableJournalSha256 = copyBytes(seal.journalSha256);
+  const stableResultSha256 = copyBytes(seal.resultSha256);
   return Object.freeze({
     ...seal,
     get journalSha256(): Uint8Array {
-      return new Uint8Array(stableJournalSha256);
+      return copyBytes(stableJournalSha256);
     },
     get resultSha256(): Uint8Array {
-      return new Uint8Array(stableResultSha256);
+      return copyBytes(stableResultSha256);
     },
   });
 }
@@ -322,13 +325,13 @@ function captureSealIdentity(
 function captureSuccessfulResult(
   result: VerifiedSuccessfulResultV1,
 ): Readonly<VerifiedSuccessfulResultV1> {
-  const stableBytes = new Uint8Array(result.canonicalBytes);
+  const stableBytes = copyBytes(result.canonicalBytes);
   return Object.freeze({
     valueCodecVersion: result.valueCodecVersion,
     value: result.value,
     get canonicalBytes(): VerifiedSuccessfulResultV1["canonicalBytes"] {
       return CanonicalSuccessfulResultBytesV1Schema.make(
-        new Uint8Array(stableBytes),
+        copyBytes(stableBytes),
       );
     },
     semanticSizeBytes: result.semanticSizeBytes,

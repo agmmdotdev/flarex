@@ -1,5 +1,6 @@
 import {
   bytesEqualFullScan as bytesEqual,
+  copyBytes,
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
@@ -313,7 +314,7 @@ export const verifyCommitInputStateEffect = Effect.fn(
     );
   }
 
-  const stableResultBytes = new Uint8Array(canonicalResult.canonicalBytes);
+  const stableResultBytes = copyBytes(canonicalResult.canonicalBytes);
   const stableJournal = Object.freeze(structuredClone(source.journal));
   const stableSchemaManifest = Object.freeze(
     structuredClone(source.schemaManifest),
@@ -328,7 +329,7 @@ export const verifyCommitInputStateEffect = Effect.fn(
       value: source.successfulResult.value,
       get canonicalBytes(): CanonicalSuccessfulResultBytesV1 {
         return CanonicalSuccessfulResultBytesV1Schema.make(
-          new Uint8Array(stableResultBytes),
+          copyBytes(stableResultBytes),
         );
       },
       semanticSizeBytes: canonicalResult.semanticSizeBytes,
@@ -438,14 +439,14 @@ function captureVerifiedLivePoint(
   canonicalBytes: Uint8Array,
   semanticSizeBytes: number,
 ): Extract<VerifiedCommitPointV1, { readonly kind: "live" }> {
-  const stableCanonicalBytes = new Uint8Array(canonicalBytes);
+  const stableCanonicalBytes = copyBytes(canonicalBytes);
   return Object.freeze({
     ...base,
     kind: "live",
     creationTime,
     value,
     get canonicalBytes(): Uint8Array {
-      return new Uint8Array(stableCanonicalBytes);
+      return copyBytes(stableCanonicalBytes);
     },
     semanticSizeBytes,
   });
@@ -456,8 +457,8 @@ function detachSealIdentity(
 ): Readonly<StoredAttemptSealIdentityPortV1> {
   return Object.freeze({
     ...seal,
-    journalSha256: new Uint8Array(seal.journalSha256),
-    resultSha256: new Uint8Array(seal.resultSha256),
+    journalSha256: copyBytes(seal.journalSha256),
+    resultSha256: copyBytes(seal.resultSha256),
   });
 }
 

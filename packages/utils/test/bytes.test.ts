@@ -25,6 +25,24 @@ describe("copyBytes", () => {
     copy.fill(6);
     expect(source).toEqual(new Uint8Array([7, 7]));
   });
+
+  it("preserves the native detached-view failure contract", () => {
+    const buffer = new ArrayBuffer(2);
+    const bytes = new Uint8Array(buffer);
+    structuredClone(buffer, { transfer: [buffer] });
+
+    expect(() => copyBytes(bytes)).toThrow(TypeError);
+  });
+
+  it("copies intrinsic bytes instead of a caller-overridden iterator", () => {
+    const bytes = new Uint8Array([1, 2]);
+    Object.defineProperty(bytes, Symbol.iterator, {
+      value: () => [9][Symbol.iterator](),
+    });
+
+    expect([...bytes]).toEqual([9]);
+    expect(copyBytes(bytes)).toEqual(new Uint8Array([1, 2]));
+  });
 });
 
 describe("copyBytesToArrayBuffer", () => {

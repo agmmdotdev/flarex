@@ -1,3 +1,4 @@
+import { copyBytes } from "@flarex/utils/bytes";
 import { Data, Effect } from "effect";
 
 import type {
@@ -149,8 +150,8 @@ export function createTransactionGrantVerificationKernelV1(
 
       const signatureValid = yield* Effect.tryPromise({
         try: () => key.verify(
-          new Uint8Array(evidence.signingInput),
-          new Uint8Array(evidence.signatureBytes),
+          copyBytes(evidence.signingInput),
+          copyBytes(evidence.signatureBytes),
         ),
         catch: () => verificationFailure("cryptographicVerificationFailed"),
       });

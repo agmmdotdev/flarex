@@ -1,5 +1,6 @@
 import {
   bytesEqualFullScan as bytesEqual,
+  copyBytes,
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
 import { Data, Effect, Encoding, Schema } from "effect";
@@ -1135,11 +1136,11 @@ function capturePointCommitScalarProvenance(
     session: Object.freeze({
       ...session,
       identityAccessPolicySha256:
-        new Uint8Array(session.identityAccessPolicySha256),
-      validatedArgsSha256: new Uint8Array(session.validatedArgsSha256),
+        copyBytes(session.identityAccessPolicySha256),
+      validatedArgsSha256: copyBytes(session.validatedArgsSha256),
       authorizationGrantSha256:
-        new Uint8Array(session.authorizationGrantSha256),
-      requestSha256: new Uint8Array(session.requestSha256),
+        copyBytes(session.authorizationGrantSha256),
+      requestSha256: copyBytes(session.requestSha256),
     }),
   });
 }
@@ -1181,9 +1182,7 @@ function capturePointCommitTransactionCommand(
           kind: "live" as const,
           creationTime: state.plan.rowIntent.creationTime,
           value: state.plan.rowIntent.value,
-          canonicalBytes: new Uint8Array(
-            state.plan.rowIntent.canonicalBytes,
-          ),
+          canonicalBytes: copyBytes(state.plan.rowIntent.canonicalBytes),
           semanticSizeBytes: state.plan.rowIntent.semanticSizeBytes,
         });
   return Object.freeze({
@@ -1230,16 +1229,16 @@ function capturePointCommitTransactionCommand(
         session.authorizationGrantId,
       ),
       identityAccessPolicySha256:
-        new Uint8Array(session.identityAccessPolicySha256),
-      validatedArgsSha256: new Uint8Array(session.validatedArgsSha256),
+        copyBytes(session.identityAccessPolicySha256),
+      validatedArgsSha256: copyBytes(session.validatedArgsSha256),
       authorizationGrantSha256:
-        new Uint8Array(session.authorizationGrantSha256),
-      requestSha256: new Uint8Array(session.requestSha256),
+        copyBytes(session.authorizationGrantSha256),
+      requestSha256: copyBytes(session.requestSha256),
     }),
     sealIdentity: Object.freeze({
       ...seal,
-      journalSha256: new Uint8Array(seal.journalSha256),
-      resultSha256: new Uint8Array(seal.resultSha256),
+      journalSha256: copyBytes(seal.journalSha256),
+      resultSha256: copyBytes(seal.resultSha256),
     }),
     dependencies,
     rowIntent,
@@ -1353,7 +1352,7 @@ const verifyStoredEvidenceEffect = Effect.fn(
     return yield* Effect.fail(authorityMismatch);
   }
   const journal = yield* decodeCanonicalSessionJournalV1Effect({
-    canonicalBytes: new Uint8Array(evidence.root.journalBytes),
+    canonicalBytes: copyBytes(evidence.root.journalBytes),
     expectedSha256Hex: scalarEvidence.journalSha256Hex,
   }).pipe(
     Effect.mapError((cause) => new StoredAttemptStorageCorruptionV1Error({
@@ -1694,7 +1693,7 @@ const verifyPointEffect = Effect.fn(function* (
     overlayKind: "live",
     overlayCreationTime,
     overlayValue: document.value,
-    overlayBytes: new Uint8Array(document.canonicalBytes),
+    overlayBytes: copyBytes(document.canonicalBytes),
     overlaySemanticBytes: row.overlaySemanticBytes,
   });
 });
@@ -2016,11 +2015,11 @@ function captureAuthenticatedState(
       journalProtocolVersion: journal.protocolVersion,
       journalValueCodecVersion: journal.valueCodecVersion,
       journalByteLength: root.journalBytes.byteLength,
-      journalSha256: new Uint8Array(root.journalSha256),
+      journalSha256: copyBytes(root.journalSha256),
       resultValueCodecVersion: root.resultValueCodecVersion,
       resultSemanticBytes: root.resultSemanticBytes,
       resultByteLength: root.resultBytes.byteLength,
-      resultSha256: new Uint8Array(root.resultSha256),
+      resultSha256: copyBytes(root.resultSha256),
       readDocuments: root.readDocuments,
       readSemanticBytes: root.readSemanticBytes,
       pointDependencyCount: root.pointDependencyCount,
@@ -2033,7 +2032,7 @@ function captureAuthenticatedState(
     successfulResult: Object.freeze({
       value: successfulResultValue,
       valueJson: structuredClone(successfulResult.valueJson),
-      canonicalBytes: new Uint8Array(successfulResult.canonicalBytes),
+      canonicalBytes: copyBytes(successfulResult.canonicalBytes),
       semanticSizeBytes: successfulResult.semanticSizeBytes,
       sha256Hex: successfulResult.evidence.sha256Hex,
     }),
@@ -2054,7 +2053,7 @@ function detachAuthenticatedPoint(
     overlayValue: point.overlayValue,
     overlayBytes: point.overlayBytes === null
       ? null
-      : new Uint8Array(point.overlayBytes),
+      : copyBytes(point.overlayBytes),
     overlaySemanticBytes: point.overlaySemanticBytes,
   });
 }
