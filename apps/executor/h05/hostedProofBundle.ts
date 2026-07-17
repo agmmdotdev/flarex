@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import { requireExactH05Record } from "./exactRecord";
@@ -15,6 +14,7 @@ import {
   type H05ProbeTeardownEvidence,
 } from "./probeTeardownEvidence";
 import { isH05LowercaseSha256Digest } from "./sha256";
+import { h05Sha256Utf8 } from "./sha256Utf8";
 import {
   decodeH05DataPlaneEvidence,
   decodeH05HostedReceipt,
@@ -457,9 +457,9 @@ function sha256String(value: unknown, path: string): H05HostedProofBundleSha256 
 }
 
 function bundleSha256(value: string): H05HostedProofBundleSha256 {
-  return createHash("sha256")
-    .update(`flarex-h05-hosted-proof-bundle-payload-v1\0${value}`)
-    .digest("hex") as H05HostedProofBundleSha256;
+  return h05Sha256Utf8(
+    `flarex-h05-hosted-proof-bundle-payload-v1\0${value}`,
+  ) as H05HostedProofBundleSha256;
 }
 
 function errorMessage(error: unknown): string {

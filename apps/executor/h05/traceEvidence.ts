@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
@@ -20,6 +19,7 @@ import {
 } from "./proofIdentity";
 import { h05ProbeEndpoint } from "./probeProtocol";
 import { isH05LowercaseSha256Digest } from "./sha256";
+import { h05Sha256Utf8 } from "./sha256Utf8";
 import { requireOrderedH05Timestamps } from "./timestampOrder";
 import { isH05SupportedWranglerVersion } from "./wranglerVersion";
 import {
@@ -1517,7 +1517,7 @@ function exactValue(
 }
 
 function sha256(value: string): H05TraceSha256 {
-  return createHash("sha256").update(value).digest("hex") as H05TraceSha256;
+  return h05Sha256Utf8(value) as H05TraceSha256;
 }
 
 function decodeFailure(error: unknown): H05TraceEvidenceDecode {

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   isNonNegativeSafeInteger,
   isPositiveSafeInteger,
@@ -21,6 +20,7 @@ import {
   type H05ProofIdentity,
 } from "./proofIdentity";
 import { isH05LowercaseSha256Digest } from "./sha256";
+import { h05Sha256Utf8 } from "./sha256Utf8";
 import { requireOrderedH05Timestamps } from "./timestampOrder";
 import { isH05SupportedWranglerVersion } from "./wranglerVersion";
 import {
@@ -1361,7 +1361,7 @@ function assertTimestampInWindow(
 }
 
 function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
+  return h05Sha256Utf8(value);
 }
 
 function decodeFailure(error: unknown): { readonly ok: false; readonly message: string } {

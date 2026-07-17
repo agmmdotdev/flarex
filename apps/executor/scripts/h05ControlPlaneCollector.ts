@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import {
   isNonNegativeSafeInteger,
@@ -31,6 +30,7 @@ import {
   isH05ControlPlaneCloudflareResourceId,
 } from "../h05/controlPlaneCloudflareResourceId";
 import { isH05CanonicalIsoTimestamp } from "../h05/isoTimestamp";
+import { h05Sha256Utf8 } from "../h05/sha256Utf8";
 import {
   h05ExecutorWorkerName,
   h05ProbeWorkerName,
@@ -1031,9 +1031,7 @@ function bindingKey(binding: H05BindingEvidence): string {
 }
 
 function domainHash(domain: string, value: string): string {
-  return createHash("sha256")
-    .update(`flarex-h05-${domain}-v1\0${value}`)
-    .digest("hex");
+  return h05Sha256Utf8(`flarex-h05-${domain}-v1\0${value}`);
 }
 
 function cloudflareAccountId(value: string): string {

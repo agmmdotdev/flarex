@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
@@ -18,6 +17,7 @@ import {
 } from "./proofIdentity";
 import { h05ProbeEndpoint, h05ProbeHop } from "./probeProtocol";
 import { isH05LowercaseSha256Digest } from "./sha256";
+import { h05Sha256Utf8 } from "./sha256Utf8";
 import { requireOrderedH05Timestamps } from "./timestampOrder";
 import { isH05SupportedWranglerVersion } from "./wranglerVersion";
 
@@ -748,7 +748,7 @@ function validateInvocationReceipt(invocation: H05InvocationReceipt): void {
 }
 
 function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
+  return h05Sha256Utf8(value);
 }
 
 function validateInvocationRelationships(

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
@@ -20,6 +19,7 @@ import {
 } from "./proofIdentity";
 import { h05ProbeEndpoint } from "./probeProtocol";
 import { isH05LowercaseSha256Digest } from "./sha256";
+import { h05Sha256Utf8 } from "./sha256Utf8";
 import {
   decodeH05DataPlaneEvidence,
   h05ProbeWorkerName,
@@ -968,7 +968,7 @@ function timestampMs(value: string): number {
 }
 
 function sha256(value: string): H05ProbeTeardownSha256 {
-  return createHash("sha256").update(value).digest("hex") as H05ProbeTeardownSha256;
+  return h05Sha256Utf8(value) as H05ProbeTeardownSha256;
 }
 
 function errorMessage(error: unknown): string {
