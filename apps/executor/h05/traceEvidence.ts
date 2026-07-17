@@ -3,6 +3,7 @@ import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 
+import { formatH05JsonDocument } from "./jsonDocument";
 import {
   decodeH05ControlPlaneEvidence,
   type H05ControlPlaneEvidence,
@@ -402,7 +403,7 @@ export function serializeH05TraceEvidence(
 ): string {
   const decoded = decodeH05TraceEvidence(evidence);
   if (!decoded.ok) throw new Error(decoded.message);
-  return `${JSON.stringify(decoded.value, null, 2)}\n`;
+  return formatH05JsonDocument(decoded.value);
 }
 
 export function serializeH05TraceEvidencePayload(
@@ -410,7 +411,7 @@ export function serializeH05TraceEvidencePayload(
 ): string {
   const decoded = decodeTracePayload(payload, "$payload");
   validateTracePayload(decoded);
-  return `${JSON.stringify(decoded, null, 2)}\n`;
+  return formatH05JsonDocument(decoded);
 }
 
 export function serializeH05NormalizedTraceEvidence(
@@ -418,7 +419,7 @@ export function serializeH05NormalizedTraceEvidence(
 ): string {
   const decoded = decodeTraces(traces, "$traces");
   validateTraceFacts(decoded);
-  return `${JSON.stringify(decoded, null, 2)}\n`;
+  return formatH05JsonDocument(decoded);
 }
 
 export function h05NormalizedTraceEvidenceSha256(

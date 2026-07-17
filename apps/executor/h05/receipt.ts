@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
+import { formatH05JsonDocument } from "./jsonDocument";
 import {
   decodeH05ProofRunId,
   h05ProofIdentity,
@@ -450,7 +451,7 @@ export function serializeH05DataPlaneEvidence(
 ): string {
   const decoded = decodeH05DataPlaneEvidence(evidence);
   if (!decoded.ok) throw new Error(decoded.message);
-  return `${JSON.stringify(decoded.value, null, 2)}\n`;
+  return formatH05JsonDocument(decoded.value);
 }
 
 export function serializeH05DataPlaneEvidencePayload(
@@ -458,7 +459,7 @@ export function serializeH05DataPlaneEvidencePayload(
 ): string {
   const decoded = decodeH05DataPlaneEvidencePayload(payload);
   if (!decoded.ok) throw new Error(decoded.message);
-  return `${JSON.stringify(decoded.value, null, 2)}\n`;
+  return formatH05JsonDocument(decoded.value);
 }
 
 export function serializeH05InvocationEvidence(
@@ -466,7 +467,7 @@ export function serializeH05InvocationEvidence(
 ): string {
   const decoded = decodeH05InvocationEvidence(evidence);
   if (!decoded.ok) throw new Error(decoded.message);
-  return `${JSON.stringify(decoded.value, null, 2)}\n`;
+  return formatH05JsonDocument(decoded.value);
 }
 
 export function decodeH05HostedReceiptJson(
@@ -494,7 +495,7 @@ export function decodeH05HostedReceiptJson(
 }
 
 export function serializeH05HostedReceipt(receipt: H05HostedReceipt): string {
-  return `${JSON.stringify(receipt, null, 2)}\n`;
+  return formatH05JsonDocument(receipt);
 }
 
 function validateReceiptRelationships(receipt: H05HostedReceipt): void {

@@ -5,6 +5,7 @@ import {
 } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
+import { formatH05JsonDocument } from "./jsonDocument";
 import {
   decodeH05ProofRunId,
   h05ProofIdentity,
@@ -243,7 +244,7 @@ export function h05SourceEvidenceSha256(
 ): string {
   const decoded = decodeSource(source, "source");
   return sha256(
-    `flarex-h05-source-evidence-v1\0${canonicalJson(decoded)}`,
+    `flarex-h05-source-evidence-v1\0${formatH05JsonDocument(decoded)}`,
   );
 }
 
@@ -307,7 +308,7 @@ export function serializeH05ControlPlaneEvidence(
 ): string {
   const decoded = decodeH05ControlPlaneEvidence(evidence);
   if (!decoded.ok) throw new Error(decoded.message);
-  return canonicalJson(decoded.value);
+  return formatH05JsonDocument(decoded.value);
 }
 
 export function serializeH05ControlPlanePayload(
@@ -315,7 +316,7 @@ export function serializeH05ControlPlanePayload(
 ): string {
   const decoded = decodeH05ControlPlaneEvidencePayload(payload);
   if (!decoded.ok) throw new Error(decoded.message);
-  return canonicalJson(decoded.value);
+  return formatH05JsonDocument(decoded.value);
 }
 
 function decodeH05ControlPlaneEvidencePayload(
@@ -1347,10 +1348,6 @@ function assertTimestampInWindow(
   if (value < Date.parse(window.startedAt) || value > Date.parse(window.finishedAt)) {
     fail(`${path} must fall inside the collection window.`);
   }
-}
-
-function canonicalJson(value: unknown): string {
-  return `${JSON.stringify(value, null, 2)}\n`;
 }
 
 function sha256(value: string): string {

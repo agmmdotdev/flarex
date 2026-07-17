@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
+import { formatH05JsonDocument } from "./jsonDocument";
 import {
   decodeH05ControlPlaneEvidence,
   h05SourceEvidenceSha256,
@@ -157,13 +158,13 @@ export function serializeH05HostedProofBundle(
 ): string {
   const decoded = decodeH05HostedProofBundle(bundle);
   if (!decoded.ok) throw new Error(decoded.message);
-  return canonicalJson(decoded.value);
+  return formatH05JsonDocument(decoded.value);
 }
 
 export function serializeH05HostedProofBundlePayload(
   payload: H05HostedProofBundlePayload,
 ): string {
-  return canonicalJson(decodePayload(payload, "$payload"));
+  return formatH05JsonDocument(decodePayload(payload, "$payload"));
 }
 
 function decodePayload(
@@ -467,10 +468,6 @@ function bundleSha256(value: string): H05HostedProofBundleSha256 {
   return createHash("sha256")
     .update(`flarex-h05-hosted-proof-bundle-payload-v1\0${value}`)
     .digest("hex") as H05HostedProofBundleSha256;
-}
-
-function canonicalJson(value: unknown): string {
-  return `${JSON.stringify(value, null, 2)}\n`;
 }
 
 function errorMessage(error: unknown): string {

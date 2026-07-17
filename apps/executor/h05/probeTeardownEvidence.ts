@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
+import { formatH05JsonDocument } from "./jsonDocument";
 import {
   decodeH05ControlPlaneEvidence,
   type H05ControlPlaneEvidence,
@@ -273,7 +274,7 @@ export function serializeH05ProbeTeardownEvidence(
 ): string {
   const decoded = decodeH05ProbeTeardownEvidence(evidence);
   if (!decoded.ok) throw new Error(decoded.message);
-  return `${JSON.stringify(decoded.value, null, 2)}\n`;
+  return formatH05JsonDocument(decoded.value);
 }
 
 export function serializeH05ProbeTeardownPayload(
@@ -281,7 +282,7 @@ export function serializeH05ProbeTeardownPayload(
 ): string {
   const decoded = decodePayload(payload, "$payload");
   validatePayload(decoded);
-  return `${JSON.stringify(decoded, null, 2)}\n`;
+  return formatH05JsonDocument(decoded);
 }
 
 export function validateH05ProbeTeardownDependencies(
