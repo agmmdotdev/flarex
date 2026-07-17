@@ -1,4 +1,5 @@
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Effect } from "effect";
 import { decodeAnalyzerProtocolSuccessResponseEffect } from "@flarex/analysis";
 import { decodeAuthConfigEffect } from "flarex-protocol/auth";
@@ -99,7 +100,7 @@ export const decodeSourcePackage = Effect.fn("DeploymentValidation.decodeSourceP
         ...(module.sourceMap === undefined ? {} : { sourceMap: module.sourceMap }),
       });
     }
-    modules.sort((left, right) => left.path.localeCompare(right.path));
+    modules.sort((left, right) => compareUtf16Strings(left.path, right.path));
     if (!seen.has(sourcePackage.execution)) {
       return yield* deploymentValidationFailureEffect(
         `Source package execution module ${sourcePackage.execution} is missing.`,
@@ -358,10 +359,12 @@ export function codegenAnalysisFromDeploymentAnalysis(
       .map(module => ({
         ...module,
         functions: module.functions.sort((left, right) =>
-          left.exportName.localeCompare(right.exportName),
+          compareUtf16Strings(left.exportName, right.exportName),
         ),
       }))
-      .sort((left, right) => left.moduleName.localeCompare(right.moduleName)),
+      .sort((left, right) =>
+        compareUtf16Strings(left.moduleName, right.moduleName)
+      ),
   };
 }
 
@@ -976,7 +979,7 @@ function canonicalValue(value: unknown): unknown {
   if (!isRecord(value)) return value;
   return Object.fromEntries(
     Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareUtf16Strings(left, right))
       .map(([key, item]) => [key, canonicalValue(item)]),
   );
 }

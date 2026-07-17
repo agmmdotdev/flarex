@@ -47,6 +47,25 @@ describe("deployment validation", () => {
     expect(normalized.functions).toEqual(["functions/list.ts"]);
   });
 
+  it("orders source package paths by UTF-16 code units", () => {
+    const normalized = validateSourcePackage({
+      modules: [
+        sourceModule("convex/_generated/server.ts"),
+        sourceModule("\uE000.ts"),
+        sourceModule("😀.ts"),
+      ],
+      functions: ["\uE000.ts", "😀.ts"],
+      execution: "convex/_generated/server.ts",
+    });
+
+    expect(normalized.modules.map(module => module.path)).toEqual([
+      "convex/_generated/server.ts",
+      "😀.ts",
+      "\uE000.ts",
+    ]);
+    expect(normalized.functions).toEqual(["😀.ts", "\uE000.ts"]);
+  });
+
   it("normalizes source package auth config metadata", () => {
     const normalized = validateSourcePackage({
       modules: [
@@ -1365,6 +1384,32 @@ describe("deployment validation", () => {
         ],
       },
     ]);
+  });
+
+  it("orders generated modules and exports by UTF-16 code units", () => {
+    const analysis = validateAnalysis({
+      schema: simpleSchema(),
+      functions: {
+        functions: [
+          { path: "shared:\uE000", kind: "query" },
+          { path: "shared:😀", kind: "query" },
+          { path: "\uE000:list", kind: "query" },
+          { path: "😀:list", kind: "query" },
+        ],
+      },
+    });
+
+    const generated = codegenAnalysisFromDeploymentAnalysis(analysis);
+
+    expect(generated.functions.map(module => module.moduleName)).toEqual([
+      "shared",
+      "😀",
+      "\uE000",
+    ]);
+    expect(
+      generated.functions.find(module => module.moduleName === "shared")
+        ?.functions.map(fn => fn.exportName),
+    ).toEqual(["😀", "\uE000"]);
   });
 
   it("normalizes stored push rows with generated codegen fallback", () => {
