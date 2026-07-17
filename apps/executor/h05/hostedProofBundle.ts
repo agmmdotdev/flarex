@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
+import { requireExactH05Record } from "./exactRecord";
 import { formatH05JsonDocument } from "./jsonDocument";
 import {
   decodeH05ControlPlaneEvidence,
@@ -439,16 +440,7 @@ function exactRecord<const Keys extends readonly string[]>(
   path: string,
   keys: Keys,
 ): Readonly<Record<string, unknown>> {
-  if (!isRecord(value)) fail(`${path} must be an object.`);
-  const actualKeys = Object.keys(value).sort();
-  const expectedKeys = [...keys].sort();
-  if (
-    actualKeys.length !== expectedKeys.length ||
-    actualKeys.some((key, index) => key !== expectedKeys[index])
-  ) {
-    fail(`${path} must contain exactly: ${expectedKeys.join(", ")}.`);
-  }
-  return value;
+  return requireExactH05Record(value, path, keys, failAt);
 }
 
 function orderedTimestamps(earlier: string, later: string, path: string): void {
@@ -483,4 +475,8 @@ function failure(message: string): { readonly ok: false; readonly message: strin
 
 function fail(message: string): never {
   throw new Error(message);
+}
+
+function failAt(path: string, message: string): never {
+  return fail(`${path} ${message}`);
 }

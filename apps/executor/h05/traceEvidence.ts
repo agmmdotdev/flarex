@@ -3,6 +3,7 @@ import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 
+import { requireExactH05Record } from "./exactRecord";
 import { formatH05JsonDocument } from "./jsonDocument";
 import {
   decodeH05ControlPlaneEvidence,
@@ -1364,16 +1365,7 @@ function exactRecord(
   path: string,
   expectedKeys: readonly string[],
 ): Readonly<Record<string, unknown>> {
-  if (!isRecord(value)) failAt(path, "must be an object.");
-  const actualKeys = Object.keys(value).sort();
-  const expected = [...expectedKeys].sort();
-  if (
-    actualKeys.length !== expected.length ||
-    actualKeys.some((key, index) => key !== expected[index])
-  ) {
-    failAt(path, `must contain exactly: ${expected.join(", ")}.`);
-  }
-  return value;
+  return requireExactH05Record(value, path, expectedKeys, failAt);
 }
 
 function recordWithRequiredKeys(
