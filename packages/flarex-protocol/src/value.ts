@@ -3,10 +3,10 @@ import {
   copyBytes,
   copyBytesToArrayBuffer,
 } from "@flarex/utils/bytes";
-import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Schema } from "effect";
 
+import { isCanonicalArrayIndex } from "./canonical-array-index";
 import {
   encodeCanonicalJson,
   isJson,
@@ -1293,12 +1293,6 @@ function limitsForProfile(profile: FlarexValueProfileV1): FlarexValueLimitsV1 {
 
 function isUnknownArray(value: unknown): value is ReadonlyArray<unknown> {
   return Array.isArray(value);
-}
-
-function isCanonicalArrayIndex(key: string, length: number): boolean {
-  if (!/^(?:0|[1-9][0-9]*)$/.test(key)) return false;
-  const index = Number(key);
-  return isNonNegativeSafeInteger(index) && index < length;
 }
 
 function compareDataProperties(left: DataProperty, right: DataProperty): number {
