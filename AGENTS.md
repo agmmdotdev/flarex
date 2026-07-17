@@ -55,18 +55,20 @@ same slice when focused validation is available; do not expand into an
 unapproved migration or contract, trust, transaction, or lifecycle change.
 
 Choose pipelines, generator composition, and collection combinators by
-evaluation semantics. Use `pipe` for a short linear flow; use the installed
-`gen` when several success values are needed or later calls must not occur
-after an earlier absence or failure; use `all` only for independent members
-whose ordering, failure, concurrency, interruption, and allocation behavior
-matches the contract. Array and record member expressions passed to
-`Option.all` or `Result.all` are evaluated before the combinator inspects them;
-a lazy iterable can instead defer member creation and stop consumption at the
-first `None` or failure. `Effect` values remain lazy, but JavaScript used to
-construct their collection is not, and execution and cancellation policy must
-still be deliberate. Keep `Exit` at a boundary that owns its full `Cause`. Do
-not inspect an outcome merely to rebuild the same absence or failure, and
-preserve call-level short-circuiting when refactoring.
+evaluation semantics, not by a universal style rule. For eager `Option` and
+`Result` values, use `map` / `flatMap` pipelines for a short linear flow, the
+installed `gen` for several dependent successes or call-level short-circuiting,
+and `all` only for independent members. Array and record member expressions
+passed to `Option.all` or `Result.all` are evaluated before the combinator
+inspects them; a lazy iterable can instead defer member creation and stop
+consumption at the first `None` or failure. For `Effect`, pipelines and
+`Effect.gen` both preserve lazy execution; choose by dependency and readability,
+and use `Effect.all` only when its ordering, concurrency, failure, interruption,
+and cancellation policy matches the contract. Ordinary JavaScript used to
+construct an Effect collection still runs eagerly. Do not treat `Exit` as an
+ordinary sequencing abstraction: transform or fold it only at a boundary that
+owns its full `Cause`. Do not inspect an outcome merely to rebuild the same
+absence or failure, and preserve call-level short-circuiting when refactoring.
 
 Refactor the whole composition shape rather than mechanically replacing every
 failure or absence guard with its own pipeline. One transformation or dependent

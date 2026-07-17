@@ -53,6 +53,9 @@ Flarex currently installs Effect v4 beta.90. Re-check the lockfile and exports
 when the dependency changes.
 
 - Use `Result`, not v3 `Either`, and `Effect.result`, not `Effect.either`.
+- Beta.90 provides `Option.gen`, `Result.gen`, and `Effect.gen`. Its `Exit`
+  module has `map` and `match`, but no `gen`, `all`, or `flatMap`; keep ordinary
+  sequencing in `Effect` and retain `Exit` for completed-outcome boundaries.
 - `Result.gen` and `Option.gen` short-circuit before later yielded decoder calls.
   Array and record member expressions are evaluated before `Result.all` or
   `Option.all` inspects their input, while a lazy iterable can defer member
@@ -149,11 +152,14 @@ when the dependency changes.
 - Use `pipe` for short linear transformation, recovery, timeout, retry, and
   observability chains. Do not create one-combinator generators or nested
   pipelines that obscure success, failure, or lifecycle flow.
-- Use the installed generator form when several success values are needed or
-  later calls must not occur after an earlier `None` or failure. Use `all` only
-  for independent members after checking eager construction for `Option` and
-  `Result`, and execution order, concurrency, failure, and interruption for
-  `Effect`. Preserve full-Cause ownership when composing `Exit` values.
+- For `Option` and `Result`, use a short `map` / `flatMap` pipeline for one
+  linear transformation, the installed generator form when several success
+  values are needed or later calls must not occur after an earlier `None` or
+  failure, and `all` only for independent members after checking eager member
+  construction. For `Effect`, choose a pipeline or `Effect.gen` by dependency
+  and readability, and use `Effect.all` only after checking execution order,
+  concurrency, failure, interruption, and cancellation. Preserve full-Cause
+  ownership when transforming or folding `Exit` values.
 - Review the whole composition shape rather than asking for a separate pipeline
   around every propagation guard. Prefer a short `map` / `flatMap` pipeline for
   one linear transformation or dependent step, and the installed `gen` for
