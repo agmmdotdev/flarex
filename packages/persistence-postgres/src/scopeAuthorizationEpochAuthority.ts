@@ -22,6 +22,7 @@ import {
   ScopeClockNotFoundError,
 } from "./scopeClock";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
+import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
 
 export interface LocatedScopeAuthorizationEpochTarget
   extends LocatedScopeClockReader {
@@ -155,7 +156,7 @@ export function createLocatedScopeAuthorizationEpochTarget(
   db: FlarexMetadataDatabase,
   physicalLocator: ScopePhysicalLocator,
 ): LocatedScopeAuthorizationEpochTarget {
-  const capturedLocator = capturePhysicalLocator(physicalLocator);
+  const capturedLocator = captureScopePhysicalLocator(physicalLocator);
   return Object.freeze({
     physicalLocator: capturedLocator,
     getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
@@ -164,19 +165,4 @@ export function createLocatedScopeAuthorizationEpochTarget(
         requireScopeAuthorizationRevocationEpochInTransaction(tx, scopeId),
       ),
   }) satisfies LocatedScopeAuthorizationEpochTarget;
-}
-
-function capturePhysicalLocator(
-  physicalLocator: ScopePhysicalLocator,
-): ScopePhysicalLocator {
-  switch (physicalLocator.kind) {
-    case "shared_database":
-    case "schema_per_scope":
-    case "database_per_scope":
-      return Object.freeze({
-        kind: physicalLocator.kind,
-        databaseKey: physicalLocator.databaseKey,
-        schemaName: physicalLocator.schemaName,
-      });
-  }
 }

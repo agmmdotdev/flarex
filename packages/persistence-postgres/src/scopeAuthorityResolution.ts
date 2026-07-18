@@ -10,7 +10,10 @@ import type {
   ScopePhysicalLocator,
   SplitScopePhysicalLocator,
 } from "./scopeMetadataTypes";
-import { scopePhysicalLocatorsEqual } from "./scopePhysicalLocator";
+import {
+  captureScopePhysicalLocator,
+  scopePhysicalLocatorsEqual,
+} from "./scopePhysicalLocator";
 
 export interface ScopeMetadataReader {
   getScopeMetadataByDeploymentId(
@@ -252,7 +255,7 @@ async function resolveSplitScopeAuthority<
       actualState: receipt.state,
     });
   }
-  const receiptLocator = captureSplitPhysicalLocator(receipt.physicalLocator);
+  const receiptLocator = captureScopePhysicalLocator(receipt.physicalLocator);
   if (!scopePhysicalLocatorsEqual(expectedLocator, receiptLocator)) {
     throw resolutionError({
       reason: "splitProvisioningReceiptPlacementMismatch",
@@ -356,7 +359,7 @@ function captureScopeAuthorityIntent(
   return Object.freeze({
     deploymentId: scope.deploymentId,
     scopeId: scope.scopeId,
-    physicalLocator: capturePhysicalLocator(scope.physicalLocator),
+    physicalLocator: captureScopePhysicalLocator(scope.physicalLocator),
   }) satisfies ScopeAuthorityIntent;
 }
 
@@ -444,50 +447,6 @@ function hasGetCurrentClock(
   value: Readonly<Record<string, unknown>>,
 ): value is Readonly<Record<string, unknown>> & UnknownLocatedScopeClockReader {
   return typeof value.getCurrentClock === "function";
-}
-
-function capturePhysicalLocator(
-  locator: ScopePhysicalLocator,
-): ScopePhysicalLocator {
-  switch (locator.kind) {
-    case "shared_database":
-      return Object.freeze({
-        kind: locator.kind,
-        databaseKey: locator.databaseKey,
-        schemaName: locator.schemaName,
-      });
-    case "schema_per_scope":
-      return Object.freeze({
-        kind: locator.kind,
-        databaseKey: locator.databaseKey,
-        schemaName: locator.schemaName,
-      });
-    case "database_per_scope":
-      return Object.freeze({
-        kind: locator.kind,
-        databaseKey: locator.databaseKey,
-        schemaName: locator.schemaName,
-      });
-  }
-}
-
-function captureSplitPhysicalLocator(
-  locator: SplitScopePhysicalLocator,
-): SplitScopePhysicalLocator {
-  switch (locator.kind) {
-    case "schema_per_scope":
-      return Object.freeze({
-        kind: locator.kind,
-        databaseKey: locator.databaseKey,
-        schemaName: locator.schemaName,
-      });
-    case "database_per_scope":
-      return Object.freeze({
-        kind: locator.kind,
-        databaseKey: locator.databaseKey,
-        schemaName: locator.schemaName,
-      });
-  }
 }
 
 function trustedScopeAuthorityResolutionFailureMessage(

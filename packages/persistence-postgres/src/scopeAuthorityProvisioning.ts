@@ -19,7 +19,10 @@ import {
   type ScopeMetadataRecord,
 } from "./scopeMetadata";
 import type { SharedDatabaseScopePhysicalLocator } from "./scopeMetadataTypes";
-import { scopePhysicalLocatorsEqual } from "./scopePhysicalLocator";
+import {
+  captureScopePhysicalLocator,
+  scopePhysicalLocatorsEqual,
+} from "./scopePhysicalLocator";
 import { getScopeClock, type ScopeClockRecord } from "./scopeClock";
 import {
   insertInitialScopeClockInTransaction,
@@ -211,12 +214,21 @@ type ScopeAuthorityBootstrapTransaction = FlarexMetadataDatabase & {
 export function captureSharedScopePhysicalLocator(
   locator: SharedDatabaseScopePhysicalLocator,
 ): SharedDatabaseScopePhysicalLocator {
-  validateSharedPhysicalLocator(locator);
-  return Object.freeze({
-    kind: locator.kind,
-    databaseKey: locator.databaseKey,
-    schemaName: locator.schemaName,
-  }) satisfies SharedDatabaseScopePhysicalLocator;
+  const kind: string = locator.kind;
+  if (kind !== "shared_database") {
+    throw new UnsupportedScopeAuthorityProvisioningTopologyError(String(kind));
+  }
+  const databaseKey = locator.databaseKey;
+  if (databaseKey.trim().length === 0) {
+    throw new InvalidScopeMetadataInputError(
+      "physicalLocator.databaseKey",
+    );
+  }
+  const schemaName = locator.schemaName;
+  if (schemaName.trim().length === 0) {
+    throw new InvalidScopeMetadataInputError("physicalLocator.schemaName");
+  }
+  return captureScopePhysicalLocator({ kind, databaseKey, schemaName });
 }
 
 interface EnsureDeploymentResult {
@@ -517,24 +529,6 @@ function requirePhysicalLocatorMatch(
     });
   }
   return scope;
-}
-
-function validateSharedPhysicalLocator(
-  locator: SharedDatabaseScopePhysicalLocator,
-): void {
-  if (locator.kind !== "shared_database") {
-    throw new UnsupportedScopeAuthorityProvisioningTopologyError(
-      String(locator.kind),
-    );
-  }
-  if (locator.databaseKey.trim().length === 0) {
-    throw new InvalidScopeMetadataInputError(
-      "physicalLocator.databaseKey",
-    );
-  }
-  if (locator.schemaName.trim().length === 0) {
-    throw new InvalidScopeMetadataInputError("physicalLocator.schemaName");
-  }
 }
 
 function provisioningStatus(

@@ -35,7 +35,10 @@ import {
   fxControlScopes,
 } from "./schema";
 import type { SplitScopePhysicalLocator } from "./scopeMetadataTypes";
-import { scopePhysicalLocatorsEqual } from "./scopePhysicalLocator";
+import {
+  captureScopePhysicalLocator,
+  scopePhysicalLocatorsEqual,
+} from "./scopePhysicalLocator";
 
 export type ScopeAuthorityProvisioningReceiptConflict =
   | {
@@ -567,28 +570,19 @@ export function captureSplitScopePhysicalLocator(
 ): SplitScopePhysicalLocator {
   const kind: string = locator.kind;
   if (kind !== "schema_per_scope" && kind !== "database_per_scope") {
-    throw new UnsupportedSplitScopeAuthorityProvisioningTopologyError(kind);
+    throw new UnsupportedSplitScopeAuthorityProvisioningTopologyError(
+      String(kind),
+    );
   }
+  const databaseKey = locator.databaseKey;
   requireNonBlankInput(
-    locator.databaseKey,
+    databaseKey,
     "physicalLocator.databaseKey",
   );
-  requireNonBlankInput(locator.schemaName, "physicalLocator.schemaName");
+  const schemaName = locator.schemaName;
+  requireNonBlankInput(schemaName, "physicalLocator.schemaName");
 
-  switch (kind) {
-    case "schema_per_scope":
-      return Object.freeze({
-        kind,
-        databaseKey: locator.databaseKey,
-        schemaName: locator.schemaName,
-      });
-    case "database_per_scope":
-      return Object.freeze({
-        kind,
-        databaseKey: locator.databaseKey,
-        schemaName: locator.schemaName,
-      });
-  }
+  return captureScopePhysicalLocator({ kind, databaseKey, schemaName });
 }
 
 function decodeSplitScopePhysicalLocator(

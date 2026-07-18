@@ -87,6 +87,7 @@ import {
   type TrustedScopeAuthority,
 } from "./scopeAuthorityResolution";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
+import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
 import { resolvePinnedPointTableIdV1 } from "./pinnedPointTableResolution";
 import {
   fxSystemScopeClocks,
@@ -660,7 +661,7 @@ export function createLocatedPointMutationSessionActivationTargetV1(
   physicalLocator: ScopePhysicalLocator,
   options: LocatedPointMutationSessionActivationTargetOptionsV1 = {},
 ): LocatedScopeClockReader {
-  const capturedLocator = capturePhysicalLocator(physicalLocator);
+  const capturedLocator = captureScopePhysicalLocator(physicalLocator);
   const afterWrite = options.afterWrite;
   const afterLoadLock = options.afterLoadLock;
   const afterTerminalizationEvent = options.afterTerminalizationEvent;
@@ -2252,19 +2253,4 @@ function cloneJson(value: Json): Json {
     return cloneJsonObject(value);
   }
   return value;
-}
-
-function capturePhysicalLocator(
-  physicalLocator: ScopePhysicalLocator,
-): ScopePhysicalLocator {
-  switch (physicalLocator.kind) {
-    case "shared_database":
-    case "schema_per_scope":
-    case "database_per_scope":
-      return Object.freeze({
-        kind: physicalLocator.kind,
-        databaseKey: physicalLocator.databaseKey,
-        schemaName: physicalLocator.schemaName,
-      });
-  }
 }
