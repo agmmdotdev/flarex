@@ -355,38 +355,45 @@ function validateAndCaptureInput(
   ) {
     return inputFailure("recordInvalid");
   }
-  const scopeUuid = decodeScopeUuidResult(dataPropertyValue(input, "scopeUuid"));
-  if (Result.isFailure(scopeUuid)) return inputFailure("scopeUuidInvalid");
-  const requestKey = decodeRequestKeyResult(dataPropertyValue(input, "requestKey"));
-  if (Result.isFailure(requestKey)) return inputFailure("requestKeyInvalid");
-  const identitySha256 = decodeIdentitySha256Result(
-    dataPropertyValue(input, "expectedIdentityAccessPolicySha256"),
-  );
-  if (Result.isFailure(identitySha256)) {
-    return inputFailure("identityAccessPolicySha256Invalid");
-  }
-  const functionPath = decodeFunctionPathResult(
-    dataPropertyValue(input, "expectedFunctionPath"),
-  );
-  if (Result.isFailure(functionPath)) return inputFailure("functionPathInvalid");
-  const requestSha256 = decodeRequestSha256Result(
-    dataPropertyValue(input, "expectedRequestSha256"),
-  );
-  if (Result.isFailure(requestSha256)) {
-    return inputFailure("requestSha256Invalid");
-  }
-  return Result.succeed(Object.freeze({
-    scopeUuid: scopeUuid.success,
-    requestKey: requestKey.success,
-    expectedIdentityAccessPolicySha256:
-      TransactionIdentityAccessPolicySha256V1Schema.make(
-        copyBytes(identitySha256.success),
+  return Result.gen(function* () {
+    const scopeUuid = yield* decodeScopeUuidResult(
+      dataPropertyValue(input, "scopeUuid"),
+    ).pipe(
+      Result.mapError(() => inputError("scopeUuidInvalid")),
+    );
+    const requestKey = yield* decodeRequestKeyResult(
+      dataPropertyValue(input, "requestKey"),
+    ).pipe(
+      Result.mapError(() => inputError("requestKeyInvalid")),
+    );
+    const identitySha256 = yield* decodeIdentitySha256Result(
+      dataPropertyValue(input, "expectedIdentityAccessPolicySha256"),
+    ).pipe(
+      Result.mapError(() => inputError("identityAccessPolicySha256Invalid")),
+    );
+    const functionPath = yield* decodeFunctionPathResult(
+      dataPropertyValue(input, "expectedFunctionPath"),
+    ).pipe(
+      Result.mapError(() => inputError("functionPathInvalid")),
+    );
+    const requestSha256 = yield* decodeRequestSha256Result(
+      dataPropertyValue(input, "expectedRequestSha256"),
+    ).pipe(
+      Result.mapError(() => inputError("requestSha256Invalid")),
+    );
+    return Object.freeze({
+      scopeUuid,
+      requestKey,
+      expectedIdentityAccessPolicySha256:
+        TransactionIdentityAccessPolicySha256V1Schema.make(
+          copyBytes(identitySha256),
+        ),
+      expectedFunctionPath: functionPath,
+      expectedRequestSha256: TransactionRequestSha256V1Schema.make(
+        copyBytes(requestSha256),
       ),
-    expectedFunctionPath: functionPath.success,
-    expectedRequestSha256: TransactionRequestSha256V1Schema.make(
-      copyBytes(requestSha256.success),
-    ),
-  }));
+    });
+  });
 }
 
 const INVALID_DATA_PROPERTY = Symbol("InvalidCommittedOutcomeDataProperty");
@@ -406,7 +413,13 @@ function dataPropertyValue(
 function inputFailure(
   reason: CommittedPointOutcomeInputFailureReasonV1,
 ): Result.Result<never, CommittedPointOutcomeInputErrorV1> {
-  return Result.fail(new CommittedPointOutcomeInputErrorV1({ reason }));
+  return Result.fail(inputError(reason));
+}
+
+function inputError(
+  reason: CommittedPointOutcomeInputFailureReasonV1,
+): CommittedPointOutcomeInputErrorV1 {
+  return new CommittedPointOutcomeInputErrorV1({ reason });
 }
 
 function buildOutcomeQuery(
@@ -588,170 +601,198 @@ function validateCapturedOutcome(
   CommittedPointOutcomeRequestKeyReuseErrorV1 |
     CommittedPointOutcomeCorruptionErrorV1
 > {
-  if (rows.length === 0) return Result.succeed(null);
-  if (rows.length !== 1) return corruption(input, "duplicateOutcome");
-  const row = rows[0];
-  if (
-    row === undefined ||
-    row.outcomeScopeUuid !== input.scopeUuid ||
-    row.outcomeRequestKey !== input.requestKey ||
-    row.identityHashByteLength !== 32 ||
-    row.requestHashByteLength !== 32 ||
-    row.functionPathValid !== true ||
-    typeof row.identityMatches !== "boolean" ||
-    typeof row.functionPathMatches !== "boolean" ||
-    typeof row.requestMatches !== "boolean"
-  ) {
-    return corruption(input, "outcomeRowInvalid");
-  }
-  if (row.clockScopeUuid === null) {
-    if (row.lastCommitSeq !== null || row.oldestAvailableCommitSeq !== null) {
-      return corruption(input, "scopeClockInvalid");
+  return Result.gen(function* () {
+    if (rows.length === 0) return null;
+    if (rows.length !== 1) {
+      return yield* corruption(input, "duplicateOutcome");
     }
-    return corruption(input, "scopeClockMissing");
-  }
-  if (
-    row.clockScopeUuid !== input.scopeUuid ||
-    typeof row.lastCommitSeq !== "bigint" ||
-    row.lastCommitSeq < 0n ||
-    row.lastCommitSeq > MAX_PERSISTED_SIGNED_INT64_V1 ||
-    typeof row.oldestAvailableCommitSeq !== "bigint" ||
-    row.oldestAvailableCommitSeq < 0n ||
-    row.oldestAvailableCommitSeq > row.lastCommitSeq
-  ) {
-    return corruption(input, "scopeClockInvalid");
-  }
-  const epochUuid = decodeEpochUuidResult(row.epochUuid);
-  if (
-    Result.isFailure(epochUuid) ||
-    typeof row.commitSeq !== "bigint" ||
-    row.commitSeq < 1n ||
-    row.commitSeq > MAX_PERSISTED_SIGNED_INT64_V1
-  ) {
-    return corruption(input, "commitTokenInvalid");
-  }
-  const commitSeq = CommitSeqSchema.make(row.commitSeq);
-  if (commitSeq > row.lastCommitSeq) {
-    return corruption(input, "commitTokenAheadOfClock", commitSeq);
-  }
-  const token = Object.freeze({
-    scopeUuid: input.scopeUuid,
-    epochUuid: epochUuid.success,
-    commitSeq,
-  } satisfies CommittedPointOutcomeTokenV1);
-
-  const headerAbsent =
-    row.retainedHeaderScopeUuid === null &&
-    row.retainedHeaderEpochUuid === null &&
-    row.retainedHeaderCommitSeq === null;
-  if (headerAbsent) {
+    const row = rows[0];
     if (
-      row.oldestAvailableCommitSeq === 0n ||
-      commitSeq >= row.oldestAvailableCommitSeq
+      row === undefined ||
+      row.outcomeScopeUuid !== input.scopeUuid ||
+      row.outcomeRequestKey !== input.requestKey ||
+      row.identityHashByteLength !== 32 ||
+      row.requestHashByteLength !== 32 ||
+      row.functionPathValid !== true ||
+      typeof row.identityMatches !== "boolean" ||
+      typeof row.functionPathMatches !== "boolean" ||
+      typeof row.requestMatches !== "boolean"
     ) {
-      return corruption(input, "missingRetainedHeader", commitSeq);
+      return yield* corruption(input, "outcomeRowInvalid");
     }
-  } else {
-    const headerEpoch = decodeEpochUuidResult(row.retainedHeaderEpochUuid);
+    if (row.clockScopeUuid === null) {
+      if (row.lastCommitSeq !== null || row.oldestAvailableCommitSeq !== null) {
+        return yield* corruption(input, "scopeClockInvalid");
+      }
+      return yield* corruption(input, "scopeClockMissing");
+    }
     if (
-      row.retainedHeaderScopeUuid !== input.scopeUuid ||
-      row.retainedHeaderCommitSeq !== commitSeq ||
-      Result.isFailure(headerEpoch)
+      row.clockScopeUuid !== input.scopeUuid ||
+      typeof row.lastCommitSeq !== "bigint" ||
+      row.lastCommitSeq < 0n ||
+      row.lastCommitSeq > MAX_PERSISTED_SIGNED_INT64_V1 ||
+      typeof row.oldestAvailableCommitSeq !== "bigint" ||
+      row.oldestAvailableCommitSeq < 0n ||
+      row.oldestAvailableCommitSeq > row.lastCommitSeq
     ) {
-      return corruption(input, "retainedHeaderInvalid", commitSeq);
+      return yield* corruption(input, "scopeClockInvalid");
     }
-    if (headerEpoch.success !== token.epochUuid) {
-      return corruption(input, "retainedHeaderEpochMismatch", commitSeq);
-    }
-  }
-
-  const createdAtMilliseconds = finiteDateMilliseconds(row.createdAt);
-  if (createdAtMilliseconds === undefined) {
-    return corruption(input, "outcomeRowInvalid", commitSeq);
-  }
-  if (row.resultState !== "available" && row.resultState !== "expired") {
-    return corruption(input, "resultStateInvalid", commitSeq);
-  }
-  const resultSemanticBytes = row.resultSemanticBytes;
-  const resultByteLength = row.resultByteLength;
-  const resultExpiredAtMilliseconds = finiteDateMilliseconds(
-    row.resultExpiredAt,
-  );
-  const availableScalarsValid =
-    row.resultValueCodecVersion === 1 &&
-    typeof resultSemanticBytes === "number" &&
-    Number.isInteger(resultSemanticBytes) &&
-    resultSemanticBytes >= 0 &&
-    resultSemanticBytes <=
-      MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1 &&
-    typeof resultByteLength === "number" &&
-    Number.isInteger(resultByteLength) &&
-    resultByteLength >= 1 &&
-    resultByteLength <=
-      MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 &&
-    row.resultSha256ByteLength === 32 &&
-    row.resultExpiredAt === null;
-  const expiredScalarsValid =
-    row.resultValueCodecVersion === null &&
-    row.resultSemanticBytes === null &&
-    row.resultByteLength === null &&
-    row.resultSha256ByteLength === null &&
-    resultExpiredAtMilliseconds !== undefined &&
-    resultExpiredAtMilliseconds >= createdAtMilliseconds;
-  if (
-    (row.resultState === "available" && !availableScalarsValid) ||
-    (row.resultState === "expired" && !expiredScalarsValid)
-  ) {
-    return corruption(
-      input,
-      row.resultState === "available"
-        ? "availableResultEvidenceInvalid"
-        : "expiredResultEvidenceInvalid",
-      commitSeq,
+    const epochUuid = yield* decodeEpochUuidResult(row.epochUuid).pipe(
+      Result.mapError(() => corruptionError(input, "commitTokenInvalid")),
     );
-  }
-
-  const mismatches: CommittedPointOutcomeMismatchV1[] = [];
-  if (!row.identityMatches) mismatches.push("identityAccessPolicySha256");
-  if (!row.functionPathMatches) mismatches.push("functionPath");
-  if (!row.requestMatches) mismatches.push("requestSha256");
-  if (mismatches.length > 0) {
-    return Result.fail(new CommittedPointOutcomeRequestKeyReuseErrorV1({
-      scopeUuid: input.scopeUuid,
-      mismatches: Object.freeze(mismatches),
-    }));
-  }
-
-  if (row.resultState === "expired") {
     if (
-      row.boundedResultBytes !== null ||
-      row.boundedResultSha256 !== null
+      typeof row.commitSeq !== "bigint" ||
+      row.commitSeq < 1n ||
+      row.commitSeq > MAX_PERSISTED_SIGNED_INT64_V1
     ) {
-      return corruption(input, "expiredResultEvidenceInvalid", commitSeq);
+      return yield* corruption(input, "commitTokenInvalid");
     }
-    return Result.succeed(Object.freeze({
+    const commitSeq = CommitSeqSchema.make(row.commitSeq);
+    if (commitSeq > row.lastCommitSeq) {
+      return yield* corruption(input, "commitTokenAheadOfClock", commitSeq);
+    }
+    const token = Object.freeze({
+      scopeUuid: input.scopeUuid,
+      epochUuid,
+      commitSeq,
+    } satisfies CommittedPointOutcomeTokenV1);
+
+    const headerAbsent =
+      row.retainedHeaderScopeUuid === null &&
+      row.retainedHeaderEpochUuid === null &&
+      row.retainedHeaderCommitSeq === null;
+    if (headerAbsent) {
+      if (
+        row.oldestAvailableCommitSeq === 0n ||
+        commitSeq >= row.oldestAvailableCommitSeq
+      ) {
+        return yield* corruption(input, "missingRetainedHeader", commitSeq);
+      }
+    } else {
+      const headerEpoch = yield* decodeEpochUuidResult(
+        row.retainedHeaderEpochUuid,
+      ).pipe(
+        Result.mapError(() =>
+          corruptionError(input, "retainedHeaderInvalid", commitSeq),
+        ),
+      );
+      if (
+        row.retainedHeaderScopeUuid !== input.scopeUuid ||
+        row.retainedHeaderCommitSeq !== commitSeq
+      ) {
+        return yield* corruption(input, "retainedHeaderInvalid", commitSeq);
+      }
+      if (headerEpoch !== token.epochUuid) {
+        return yield* corruption(
+          input,
+          "retainedHeaderEpochMismatch",
+          commitSeq,
+        );
+      }
+    }
+
+    const createdAtMilliseconds = finiteDateMilliseconds(row.createdAt);
+    if (createdAtMilliseconds === undefined) {
+      return yield* corruption(input, "outcomeRowInvalid", commitSeq);
+    }
+    if (row.resultState !== "available" && row.resultState !== "expired") {
+      return yield* corruption(input, "resultStateInvalid", commitSeq);
+    }
+    const resultSemanticBytes = row.resultSemanticBytes;
+    const resultByteLength = row.resultByteLength;
+    const resultExpiredAtMilliseconds = finiteDateMilliseconds(
+      row.resultExpiredAt,
+    );
+    const availableScalarsValid =
+      row.resultValueCodecVersion === 1 &&
+      typeof resultSemanticBytes === "number" &&
+      Number.isInteger(resultSemanticBytes) &&
+      resultSemanticBytes >= 0 &&
+      resultSemanticBytes <=
+        MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1 &&
+      typeof resultByteLength === "number" &&
+      Number.isInteger(resultByteLength) &&
+      resultByteLength >= 1 &&
+      resultByteLength <=
+        MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 &&
+      row.resultSha256ByteLength === 32 &&
+      row.resultExpiredAt === null;
+    const expiredScalarsValid =
+      row.resultValueCodecVersion === null &&
+      row.resultSemanticBytes === null &&
+      row.resultByteLength === null &&
+      row.resultSha256ByteLength === null &&
+      resultExpiredAtMilliseconds !== undefined &&
+      resultExpiredAtMilliseconds >= createdAtMilliseconds;
+    if (
+      (row.resultState === "available" && !availableScalarsValid) ||
+      (row.resultState === "expired" && !expiredScalarsValid)
+    ) {
+      return yield* corruption(
+        input,
+        row.resultState === "available"
+          ? "availableResultEvidenceInvalid"
+          : "expiredResultEvidenceInvalid",
+        commitSeq,
+      );
+    }
+
+    const mismatches: CommittedPointOutcomeMismatchV1[] = [];
+    if (!row.identityMatches) mismatches.push("identityAccessPolicySha256");
+    if (!row.functionPathMatches) mismatches.push("functionPath");
+    if (!row.requestMatches) mismatches.push("requestSha256");
+    if (mismatches.length > 0) {
+      return yield* Result.fail(
+        new CommittedPointOutcomeRequestKeyReuseErrorV1({
+          scopeUuid: input.scopeUuid,
+          mismatches: Object.freeze(mismatches),
+        }),
+      );
+    }
+
+    if (row.resultState === "expired") {
+      if (
+        row.boundedResultBytes !== null ||
+        row.boundedResultSha256 !== null
+      ) {
+        return yield* corruption(
+          input,
+          "expiredResultEvidenceInvalid",
+          commitSeq,
+        );
+      }
+      return Object.freeze({
+        token,
+        state: "expired",
+      } satisfies ValidatedExpiredOutcomeRowV1);
+    }
+    if (
+      !(row.boundedResultBytes instanceof Uint8Array) ||
+      row.boundedResultBytes.byteLength !== resultByteLength ||
+      !(row.boundedResultSha256 instanceof Uint8Array) ||
+      row.boundedResultSha256.byteLength !== 32
+    ) {
+      return yield* corruption(
+        input,
+        "availableResultEvidenceInvalid",
+        commitSeq,
+      );
+    }
+    if (typeof resultSemanticBytes !== "number") {
+      return yield* corruption(
+        input,
+        "availableResultEvidenceInvalid",
+        commitSeq,
+      );
+    }
+    return Object.freeze({
       token,
-      state: "expired",
-    }));
-  }
-  if (
-    !(row.boundedResultBytes instanceof Uint8Array) ||
-    row.boundedResultBytes.byteLength !== resultByteLength ||
-    !(row.boundedResultSha256 instanceof Uint8Array) ||
-    row.boundedResultSha256.byteLength !== 32
-  ) {
-    return corruption(input, "availableResultEvidenceInvalid", commitSeq);
-  }
-  if (typeof resultSemanticBytes !== "number") {
-    return corruption(input, "availableResultEvidenceInvalid", commitSeq);
-  }
-  return Result.succeed(Object.freeze({
-    token,
-    state: "available",
-    resultSemanticBytes,
-    boundedResultBytes: row.boundedResultBytes,
-    boundedResultSha256: row.boundedResultSha256,
-  }));
+      state: "available",
+      resultSemanticBytes,
+      boundedResultBytes: row.boundedResultBytes,
+      boundedResultSha256: row.boundedResultSha256,
+    } satisfies ValidatedAvailableOutcomeRowV1);
+  });
 }
 
 const verifyCanonicalResult = Effect.fn(
@@ -794,11 +835,7 @@ function corruption<A = never>(
   reason: CommittedPointOutcomeCorruptionReasonV1,
   commitSeq?: CommitSeq,
 ): Result.Result<A, CommittedPointOutcomeCorruptionErrorV1> {
-  return Result.fail(new CommittedPointOutcomeCorruptionErrorV1({
-    scopeUuid: input.scopeUuid,
-    reason,
-    ...(commitSeq === undefined ? {} : { commitSeq }),
-  }));
+  return Result.fail(corruptionError(input, reason, commitSeq));
 }
 
 function corruptionEffect(
@@ -806,9 +843,17 @@ function corruptionEffect(
   reason: CommittedPointOutcomeCorruptionReasonV1,
   commitSeq?: CommitSeq,
 ): Effect.Effect<never, CommittedPointOutcomeCorruptionErrorV1> {
-  return Effect.fail(new CommittedPointOutcomeCorruptionErrorV1({
+  return Effect.fail(corruptionError(input, reason, commitSeq));
+}
+
+function corruptionError(
+  input: ValidatedLookupInputV1,
+  reason: CommittedPointOutcomeCorruptionReasonV1,
+  commitSeq?: CommitSeq,
+): CommittedPointOutcomeCorruptionErrorV1 {
+  return new CommittedPointOutcomeCorruptionErrorV1({
     scopeUuid: input.scopeUuid,
     reason,
     ...(commitSeq === undefined ? {} : { commitSeq }),
-  }));
+  });
 }

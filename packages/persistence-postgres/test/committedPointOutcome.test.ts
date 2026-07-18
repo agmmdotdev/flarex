@@ -77,22 +77,53 @@ describe("O07-A committed point outcome resolver", () => {
     }
     expect(statementCount).toBe(0);
 
-    for (const malformed of [
-      { ...outcomeLookup("invalid"), scopeUuid: "not-a-uuid" },
-      { ...outcomeLookup("invalid"), requestKey: " " },
+    for (const { malformed, reason } of [
       {
-        ...outcomeLookup("invalid"),
-        expectedIdentityAccessPolicySha256: new Uint8Array(31),
+        malformed: {
+          ...outcomeLookup("invalid"),
+          scopeUuid: "not-a-uuid",
+          requestKey: " ",
+        },
+        reason: "scopeUuidInvalid",
       },
-      { ...outcomeLookup("invalid"), expectedFunctionPath: " " },
       {
-        ...outcomeLookup("invalid"),
-        expectedRequestSha256: new Uint8Array(31),
+        malformed: {
+          ...outcomeLookup("invalid"),
+          requestKey: " ",
+          expectedIdentityAccessPolicySha256: new Uint8Array(31),
+        },
+        reason: "requestKeyInvalid",
+      },
+      {
+        malformed: {
+          ...outcomeLookup("invalid"),
+          expectedIdentityAccessPolicySha256: new Uint8Array(31),
+          expectedFunctionPath: " ",
+        },
+        reason: "identityAccessPolicySha256Invalid",
+      },
+      {
+        malformed: {
+          ...outcomeLookup("invalid"),
+          expectedFunctionPath: " ",
+          expectedRequestSha256: new Uint8Array(31),
+        },
+        reason: "functionPathInvalid",
+      },
+      {
+        malformed: {
+          ...outcomeLookup("invalid"),
+          expectedRequestSha256: new Uint8Array(31),
+        },
+        reason: "requestSha256Invalid",
       },
     ]) {
       await expect(
         runEffect(resolver.resolve(malformed as never)),
-      ).rejects.toBeInstanceOf(CommittedPointOutcomeInputErrorV1);
+      ).rejects.toMatchObject({
+        _tag: "CommittedPointOutcomeInputErrorV1",
+        reason,
+      });
     }
     const accessorInput = { ...outcomeLookup("invalid") };
     Object.defineProperty(accessorInput, "scopeUuid", {
@@ -260,8 +291,14 @@ describe("O07-A committed point outcome resolver", () => {
       persistence.drizzle,
       { beforeResultVerification: () => { verificationStarted = true; } },
     );
+    const mismatchedLookup = outcomeLookup("blank-function-path", {
+      expectedIdentityAccessPolicySha256:
+        TransactionIdentityAccessPolicySha256V1Schema.make(
+          new Uint8Array(32).fill(OUTCOME_IDENTITY_BYTE + 1),
+        ),
+    });
     await expectCorruption(
-      resolve(resolver, "blank-function-path"),
+      runEffect(resolver.resolve(mismatchedLookup)),
       "outcomeRowInvalid",
     );
     expect(verificationStarted).toBe(false);
