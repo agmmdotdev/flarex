@@ -2,10 +2,12 @@
 
 This is the Flarex-specific overlay for the global
 `C:\Users\Admin\.codex\skills\effect-ts-patterns\SKILL.md`. Any agent that
-implements, refactors, or reviews code importing Effect modules or changing an
-Effect, Option, Result, Exit, Match, Schema, Config, Context service, Layer,
-Scope, Fiber, runtime bridge, Effect HTTP flow, or Effect-based test must read
-the global skill and this file before acting.
+implements or refactors code importing Effect modules or changing an Effect,
+Option, Result, Exit, Match, Schema, Config, Context service, Layer, Scope,
+Fiber, runtime bridge, Effect HTTP flow, or Effect-based test must read the
+global skill and this file before acting. During standing checkpoint review,
+that same requirement applies to the TypeScript reviewer, which solely owns
+Effect implementation-quality review.
 
 The global skill owns reusable construct selection, workflow, examples, and
 active touched-flow improvement. This overlay owns Flarex's installed-version
@@ -104,7 +106,12 @@ when the dependency changes.
 - Use `Exit` only when the complete Cause is part of the owning boundary.
 - Fold outcome values with `Option.match`, `Result.match`, or `Exit.match` when
   both cases are plain data. Direct local discriminant guards remain valid when
-  clearer.
+  clearer. A guard that checks `Result.isFailure(value)` and later projects
+  `value.success`, or checks `Result.isSuccess(value)` and later projects
+  `value.failure`, is manual unwrapping rather than a simple predicate. Inspect
+  the whole flow; repeated or dependent cases normally belong in `Result.map`,
+  `Result.flatMap`, or `Result.gen` with the same validation order and
+  first-failure behavior.
 - Use `Match.typeTags`, `Match.valueTags`, or an exhaustive `switch` plus
   `never` for tagged unions when future variants must be compile errors. Keep a
   simple Boolean guard simple.
@@ -212,30 +219,30 @@ when the dependency changes.
 
 ## Reviewer Ownership
 
-The TypeScript reviewer owns precise `A`, `E`, and `R`; public and service
-contract agreement; return-type stabilization; Layer dependency closure;
-Schema decoded/encoded agreement; database row/parameter type agreement;
-tagged-error shapes; unsafe widening and assertions; precision loss; compile-
-time versus runtime immutability agreement; caller/owned value types; service
-contract versus adapter type ownership; package dependency direction; and reuse
-of stable repo types.
+The TypeScript reviewer owns all Effect implementation-quality review alongside
+its general TypeScript responsibilities: precise `A`, `E`, and `R`; public and
+service contract agreement; return-type stabilization; `fn` / `fnUntraced` /
+`gen` / pipeline choice; Option, Result, Exit, Match, and conditional flow;
+error provenance and retry; Schema decoded/encoded agreement and compiler
+placement; database row/parameter type agreement; tagged-error shapes; Effect
+HTTP composition; observability and redaction; Scope, fibers, Layer and runtime
+lifecycle; state and collection ownership; mutation isolation; compile-time
+versus runtime immutability; domain/module and composition-root responsibility;
+Effect test style; unsafe widening and assertions; package dependency direction;
+and reuse of stable repo types.
 
-The code-quality reviewer owns `fn` / `fnUntraced` / `gen` / pipeline choice;
-Option, Result, Exit, Match, and conditional-flow choice; error provenance and
-retry; HTTP composition; observability and redaction; Scope, fibers, Layer and
-runtime lifecycle; Schema compiler placement; state and collection ownership;
-mutation isolation; freeze depth and performance; domain/module responsibility;
-Layer construction versus business effects; composition-root placement; and
-Effect test style.
-
-Both reviewers retain their broader correctness responsibilities. The Effect
-standard adds to, rather than replaces, behavioral, security, transaction,
-compatibility, performance, operability, and test-quality review.
+The code-quality reviewer does not apply this overlay as an Effect style or API
+checklist. It retains independent ownership of behavioral and data correctness,
+trust boundaries, transactions and concurrency, reliability, performance,
+operability, general maintainability degradation, obvious defects, plausible
+failure modes, and test adequacy in all code. When an Effect implementation has
+a concrete systems consequence, that reviewer reports the consequence without
+duplicating Effect-pattern analysis.
 
 ## Coverage And Finding Calibration
 
-When Effect is in scope, each reviewer reports one compact line covering
-changed constructs and the directly connected touched flow:
+When Effect is in scope, the TypeScript reviewer reports one compact line
+covering changed constructs and the directly connected touched flow:
 
 ```text
 Effect coverage: 3 functions, 1 service/Layer, 2 schemas, 1 runtime edge, 4 tests; one fnUntraced exception inspected.

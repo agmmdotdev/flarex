@@ -16,12 +16,13 @@ that materially alter coverage or expectations.
 
 The two standing reviewers are risk-adaptive. The TypeScript reviewer owns
 type soundness, public API compatibility, runtime contract agreement, typed
-errors, and reusable types. The code-quality reviewer owns behavioral and data
-correctness, trust boundaries, transactions and concurrency, reliability,
-performance, operability, maintainability, and test quality. Both reviewers
-apply Effect-specific guidance when the diff touches Effect services, Layers,
-Schema contracts, typed errors, runtime boundaries, or Effect-based tests.
-There is no separate Effect migration reviewer.
+errors, reusable types, and all Effect implementation-quality review. The
+code-quality reviewer owns behavioral and data correctness, trust boundaries,
+transactions and concurrency, reliability, performance, operability, general
+maintainability degradation, obvious defects, plausible failure modes, and test
+quality. It reviews concrete system consequences in any TypeScript code, but
+does not duplicate Effect pattern or API-style review. There is no separate
+Effect migration reviewer.
 
 Do not require reviewer subagents for docs-only commits, planning/roadmap
 updates, formatting-only changes, generated-file refreshes, or minor mechanical
@@ -35,8 +36,8 @@ Reviewer subagent behavior is defined in `.codex/agents/`. Treat those files
 as the source of truth for reviewer scope, read-only boundaries, TypeScript
 skill usage, validation expectations, and response format.
 
-Any agent implementing, refactoring, or reviewing Effect code must read and
-apply the global
+Any agent implementing or refactoring Effect code, and the TypeScript reviewer
+when reviewing Effect code, must read and apply the global
 `C:\Users\Admin\.codex\skills\effect-ts-patterns\SKILL.md` plus the Flarex
 overlay in `.codex/agents/effect-review-guide.md` before acting. Trigger this
 rule when a touched flow imports or should use Effect, Option, Result, Exit,
@@ -85,15 +86,20 @@ transaction, Worker, and Durable Object lifetimes, and do not force dynamic
 multi-instance values into singleton Context tags. Follow
 `roadmaps/effect-native-guidance/14-domain-services-layers-and-composition.md`.
 
-When a diff touches Effect code, both standing reviewers must read the same
-global skill and Flarex overlay completely and report their actual Effect
-coverage. The global skill owns reusable workflow and examples; the checked-in
-overlay owns Flarex's installed-version facts, public contracts, trust
-boundaries, Cloudflare differences, and reviewer responsibility split.
+When a diff touches Effect code, the TypeScript reviewer must read the global
+skill and Flarex overlay completely and report its actual Effect coverage. The
+global skill owns reusable workflow and examples; the checked-in overlay owns
+Flarex's installed-version facts, public contracts, trust boundaries,
+Cloudflare differences, and reviewer responsibility split. The code-quality
+reviewer continues to inspect behavioral, data, security, transaction,
+reliability, performance, operability, maintainability, and test consequences,
+but does not review Effect idioms merely because the implementation uses
+Effect.
 
-Effect review includes the smallest semantically connected operation, service
-or Layer, runtime boundary, and direct call path around the changed code. A
-reviewer must report a concrete, actionable pre-existing guide violation when
+TypeScript Effect review includes the smallest semantically connected
+operation, service or Layer, runtime boundary, and direct call path around the
+changed code. The TypeScript reviewer must report a concrete, actionable
+pre-existing guide violation when
 the diff calls, extends, copies, or materially relies on it, even if the
 offending line itself did not change. Label it as touched-flow debt, recommend
 the smallest bounded improvement, and normally treat style-only debt as P3. Do

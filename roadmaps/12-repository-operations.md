@@ -24,10 +24,11 @@ correctness and the quality of TypeScript/Effect implementation.
   `typescript-diff-reviewer` and `code-quality-diff-reviewer`. Docs-only,
   formatting-only, generated refresh, and minor mechanical changes do not
   require them.
-- Effect implementation and review use the global `effect-ts-patterns` skill
-  plus `.codex/agents/effect-review-guide.md`. The skill owns reusable workflow
-  and curated examples; the checked-in overlay owns Flarex's version-specific
-  APIs, contracts, Cloudflare boundaries, and reviewer responsibility split.
+- Effect implementation and TypeScript review use the global
+  `effect-ts-patterns` skill plus
+  `.codex/agents/effect-review-guide.md`. The skill owns reusable workflow and
+  curated examples; the checked-in overlay owns Flarex's version-specific APIs,
+  contracts, Cloudflare boundaries, and reviewer responsibility split.
 - [`effect-native-guidance/`](./effect-native-guidance/README.md) records the
   current repository-wide pattern evidence and target direction for boundaries,
   failures, persistence, services/Layers, data types, tests, and incremental
@@ -36,28 +37,32 @@ correctness and the quality of TypeScript/Effect implementation.
   review. Neighboring inconsistent code is not precedent, and bounded
   behavior-preserving touched-flow debt is corrected in the approved slice
   when focused validation exists.
-- Effect review includes the smallest connected operation, service/Layer,
-  runtime boundary, and direct call path. Concrete pre-existing debt may be
-  reported when the diff materially exercises or relies on it, but reviewers
-  do not roam unrelated files or turn checkpoints into package-wide migrations.
+- TypeScript Effect review includes the smallest connected operation,
+  service/Layer, runtime boundary, and direct call path. Concrete pre-existing
+  debt may be reported when the diff materially exercises or relies on it, but
+  the reviewer does not roam unrelated files or turn checkpoints into
+  package-wide migrations.
 
 ## Standing Reviewer Responsibilities
 
 The TypeScript reviewer owns static/runtime contract agreement, public API
 compatibility, exact success/failure/requirement channels, Schema and encoded
 shape agreement, service and Layer dependency types, tagged errors, type
-soundness, and reuse of stable repo-owned types.
+soundness, reuse of stable repo-owned types, and all Effect
+implementation-quality review, including composition, services/Layers,
+lifecycles, errors, HTTP, state ownership, and tests.
 
 The code-quality reviewer owns behavioral and data correctness, trust and
 transaction boundaries, reliability, lifecycle and concurrency, performance,
-operability, maintainability, test quality, and idiomatic Effect composition.
+operability, general maintainability degradation, obvious defects, plausible
+failure modes, and test quality. It reports concrete system consequences in
+Effect code without duplicating Effect idiom, API-selection, or pattern review.
 
-Both reviewers remain risk-adaptive. Effect-specific checks add to rather than
-replace their broader responsibilities. An explicit Effect guide violation
-introduced by the diff or pre-existing in its materially touched flow must be
-reported when it is concrete and actionable, normally as a low-severity defect
-when it has not yet caused a runtime failure. Pre-existing findings are labeled
-touched-flow debt and must explain the connection to the change. Higher
+Both reviewers remain risk-adaptive. The TypeScript reviewer reports an explicit
+Effect guide violation introduced by the diff or pre-existing in its materially
+touched flow when it is concrete and actionable, normally as a low-severity
+defect when it has not yet caused a runtime failure. Pre-existing findings are
+labeled touched-flow debt and must explain the connection to the change. Higher
 severity still requires evidence of real correctness, security, data-loss,
 compatibility, reliability, or operational impact.
 
