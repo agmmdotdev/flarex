@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
+import { encodeFlarexId, parseFlarexId } from "flarex/ids";
 import { errorResponse, HttpError, json, RequestJsonError } from "./http";
-import { encodeFlarexId, parseFlarexId } from "./ids";
 import { indexKeyForDocument } from "./indexKeys";
 import { findReadSetConflict, isOccConflict } from "./occ";
 import {

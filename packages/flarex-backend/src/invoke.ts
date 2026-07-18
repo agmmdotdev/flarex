@@ -1,5 +1,10 @@
 import { Data, Effect, Schema } from "effect";
 import {
+  encodeFlarexId,
+  isFlarexIdForTable,
+  parseFlarexId,
+} from "flarex/ids";
+import {
   decodeActiveDeploymentStatusEffect,
   DeploymentRoute,
 } from "flarex-protocol/deployment";
@@ -10,7 +15,6 @@ import {
   indexBoundsForExpressions,
   type IndexRangeExpression,
 } from "./indexKeys";
-import { encodeFlarexId, isFlarexIdForTable, parseFlarexId } from "./ids";
 import { deploymentObjectName } from "./routing";
 import {
   PartitionRequestError,

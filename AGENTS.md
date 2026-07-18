@@ -209,6 +209,11 @@ constructors, retains its domain owner and may delegate to those primitives.
 Retain narrow local wrappers when their names communicate an important domain
 invariant. Never centralize a legacy path just because it is duplicated;
 removal can be the correct reuse strategy.
+When accepted design intentionally keeps a permissive compatibility facade
+beside a stricter replacement codec, do not merge their contracts merely to
+deduplicate code. Remove duplicate implementations within each surface, keep
+authoritative replacement paths on the strict owner, and keep compatibility
+consumers on the named facade until its recorded retirement gate.
 Before consolidating equality helpers, pin their treatment of negative zero,
 key order, sparse or invalid containers, unknown non-JSON inputs, allocation,
 and failure behavior; the same helper name does not prove the same contract.

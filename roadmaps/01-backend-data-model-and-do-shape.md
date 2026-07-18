@@ -2409,16 +2409,21 @@ corepack pnpm --filter @flarex/backend typecheck
 corepack pnpm --filter @flarex/backend test
 ```
 
-## Canonical ID Codec Update
+## Legacy SDK ID Facade And Replacement ID Contract
 
-Added a canonical Flarex document ID codec with this format:
+The legacy SDK compatibility facade uses this permissive format:
 
 ```txt
 {tableId}:{documentId}
 ```
 
-The authoritative backend now uses codec helpers instead of ad hoc string
-splitting in:
+`flarex/ids` owns that non-versioned facade. It accepts a non-negative integer
+table prefix and any non-empty suffix. Legacy backend and executor paths reuse
+that owner rather than maintaining private copies. This facade remains distinct
+from `flarex-protocol/app-document-id`, which owns strict replacement Document
+ID V1: a positive `CatalogTableId` plus one canonical lowercase UUID.
+
+Current legacy paths use the facade instead of ad hoc string splitting in:
 
 - `SingleShardTransaction.insert`
 - `PartitionDO.applyDocumentWrite`
@@ -2426,8 +2431,10 @@ splitting in:
 - `/invoke` document lookup, write validation, and `v.id("table")`
   validation
 
-This keeps the storage model aligned with the table metadata already owned by
-`DeploymentSchema.tables`.
+Do not use the permissive facade to validate or materialize replacement rows.
+Replacement persistence and transaction flows must use the branded protocol
+codec so arbitrary suffixes, table zero, unsafe numeric spellings, and
+non-canonical UUIDs cannot enter authoritative row identity.
 
 Convex reference:
 
@@ -2435,20 +2442,9 @@ Convex reference:
   - `Validator::Id` decodes the developer document ID and resolves the table
     before accepting a value for `v.id("table")`.
 
-Cloudflare difference:
-
-- Flarex currently uses a small TypeScript codec in both the backend and SDK
-  packages. This duplication exists because `@flarex/backend` is still kept as
-  an isolated Cloudflare backend package. The likely future shape is a
-  runtime-neutral `flarex-core` package shared by the backend, SDK, generator,
-  and Dynamic Worker bridge.
-
-Verified with:
-
-```sh
-corepack pnpm typecheck
-corepack pnpm test
-```
+Cloudflare hosting does not require another ID codec. Both the legacy facade and
+strict replacement protocol codec are runtime-neutral and importable by Worker,
+executor, generated, and SDK consumers.
 
 ## Execution Session Data Path
 

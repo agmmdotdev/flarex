@@ -1,8 +1,8 @@
 import { Data, Effect } from "effect";
+import { encodeFlarexId, isFlarexIdForTable } from "flarex/ids";
 import { isWritableJsonObject } from "flarex-protocol/json";
 import { readResponseJsonOrNullEffect } from "./http";
 import { partitionObjectName } from "./routing";
-import { encodeFlarexId, isFlarexIdForTable } from "./ids";
 import type {
   BeginResponse,
   CommitRequest,

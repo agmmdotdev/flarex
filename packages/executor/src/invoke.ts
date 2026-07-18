@@ -1,4 +1,5 @@
 import { asNonArrayRecord } from "@flarex/utils/records";
+import { encodeFlarexId } from "flarex/ids";
 import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
 
 import {
@@ -430,16 +431,6 @@ export function tableForName(
     throw new PartitionValidationError(`Unknown table: ${tableName}.`);
   }
   return table;
-}
-
-export function encodeFlarexId(tableId: number, documentId: string = crypto.randomUUID()): string {
-  if (!Number.isInteger(tableId) || tableId < 0) {
-    throw new Error(`Flarex table id must be a non-negative integer, got ${tableId}.`);
-  }
-  if (documentId.length === 0) {
-    throw new Error("Flarex document id suffix must not be empty.");
-  }
-  return `${tableId}:${documentId}`;
 }
 
 function invalidSchemaMetadata(

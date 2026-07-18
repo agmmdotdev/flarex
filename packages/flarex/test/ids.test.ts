@@ -7,7 +7,7 @@ import {
 } from "../src/ids";
 
 describe("Flarex IDs", () => {
-  it("encodes and parses canonical numeric table IDs", () => {
+  it("encodes and parses legacy numeric table IDs", () => {
     const id = encodeFlarexId<"users">(1, "ada");
 
     expect(id).toBe("1:ada");
@@ -15,6 +15,16 @@ describe("Flarex IDs", () => {
     expect(requireFlarexId(id)).toEqual({ tableId: 1, documentId: "ada" });
     expect(isFlarexIdForTable(id, 1)).toBe(true);
     expect(isFlarexIdForTable(id, 2)).toBe(false);
+  });
+
+  it("preserves the permissive legacy facade separately from Document ID V1", () => {
+    const id = encodeFlarexId<"legacy">(0, "arbitrary:suffix");
+
+    expect(id).toBe("0:arbitrary:suffix");
+    expect(parseFlarexId(id)).toEqual({
+      tableId: 0,
+      documentId: "arbitrary:suffix",
+    });
   });
 
   it("rejects malformed IDs", () => {

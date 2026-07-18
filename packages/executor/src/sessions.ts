@@ -31,6 +31,7 @@ import {
 import type {
   LegacyV1AppDataEngine,
 } from "@flarex/persistence-postgres/legacy-v1-app-data-engine";
+import { encodeFlarexId } from "flarex/ids";
 import { isWritableJsonObject } from "flarex-protocol/json";
 
 import {
@@ -38,11 +39,7 @@ import {
   type AppDataEngineRegistry,
 } from "./appDataEngines";
 import { prepareInvoke } from "./invoke";
-import {
-  deploymentSchemaFromAnalysis,
-  encodeFlarexId,
-  tableForName,
-} from "./invoke";
+import { deploymentSchemaFromAnalysis, tableForName } from "./invoke";
 import {
   DeploymentNotFoundError,
   DeploymentPackageNotFoundError,
