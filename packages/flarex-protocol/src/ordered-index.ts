@@ -3,6 +3,7 @@ import {
   encodeBytesToLowercaseHex,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
+import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Schema } from "effect";
 
 import {
@@ -1766,13 +1767,10 @@ function isCanonicalFlarexValueArray(
   return Array.isArray(value);
 }
 
-function compareHexByteStrings(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
-function compareAsciiStrings(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
+// Canonical lowercase hex and validated ASCII fields preserve their byte order
+// under ECMAScript's UTF-16 code-unit comparison.
+const compareHexByteStrings = compareUtf16Strings;
+const compareAsciiStrings = compareUtf16Strings;
 
 function bytesToHex(values: Iterable<number>): string {
   let result = "";
