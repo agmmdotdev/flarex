@@ -125,6 +125,7 @@ import {
   StoredCommitAuthorityCorruptionV1Error,
   StoredCommitAuthorityConfigurationV1Error,
   StoredCommitAuthorityMismatchV1Error,
+  StoredCommitAuthorityPersistenceV1Error,
   InvalidStoredAttemptAuthorityV1Error,
   StoredAttemptAlreadyCommittedV1Error,
   StoredAttemptAuthorityMismatchV1Error,
@@ -633,10 +634,10 @@ describe("C04A stored-attempt authentication", () => {
       { load: async () => loaded(current.fixture.evidence) },
       {
         evidenceLoader: {
-          load: async () => {
+          loadEffect: () => Effect.sync(() => {
             authorityLoads += 1;
             return { kind: "loaded", evidence: current.commitEvidence };
-          },
+          }),
         },
         transactionGrantVerifier: current.verifier,
         functionMetadata: {
@@ -684,10 +685,10 @@ describe("C04A stored-attempt authentication", () => {
       { load: async () => loaded(current.fixture.evidence) },
       {
         evidenceLoader: {
-          load: async () => {
+          loadEffect: () => Effect.sync(() => {
             authorityLoads += 1;
             return { kind: "loaded", evidence: current.commitEvidence };
-          },
+          }),
         },
         transactionGrantVerifier: current.verifier,
         functionMetadata: {
@@ -706,6 +707,43 @@ describe("C04A stored-attempt authentication", () => {
     );
     expect(authorityLoads).toBe(1);
     expect(metadataLoads).toBe(1);
+  });
+
+  it("maps commit-authority persistence failures once and stops", async () => {
+    const current = await commitAuthorityFixture();
+    const cause = new Error("commit-authority persistence sentinel");
+    let metadataLoads = 0;
+    const authentication = createStoredAttemptAuthenticationV1(
+      { load: async () => loaded(current.fixture.evidence) },
+      {
+        evidenceLoader: {
+          loadEffect: () => Effect.fail({
+            _tag: "StoredCommitAuthorityEvidencePersistenceV1Error",
+            cause,
+          }),
+        },
+        transactionGrantVerifier: current.verifier,
+        functionMetadata: {
+          load: () => {
+            metadataLoads += 1;
+            return Effect.succeed(current.functionSnapshot);
+          },
+        },
+      },
+    );
+    const authority = await deriveAuthority(authentication);
+    const stored = await runEffect(authentication.authenticate(
+      authority,
+      encodeEnvelope(current.fixture.envelope),
+    ));
+
+    const failure = await runFailure(
+      authentication.authenticateCommitAuthority(stored),
+    );
+
+    expect(failure).toBeInstanceOf(StoredCommitAuthorityPersistenceV1Error);
+    expect(failure).toMatchObject({ cause });
+    expect(metadataLoads).toBe(0);
   });
 
   it("fails C04B1 closed for revocation, argument, and metadata drift", async () => {
@@ -746,7 +784,7 @@ describe("C04A stored-attempt authentication", () => {
         { load: async () => loaded(current.fixture.evidence) },
         {
           evidenceLoader: {
-            load: async () => ({ kind: "loaded", evidence }),
+            loadEffect: () => Effect.succeed({ kind: "loaded", evidence }),
           },
           transactionGrantVerifier: current.verifier,
           functionMetadata: { load: () => Effect.succeed(metadata) },
@@ -775,7 +813,8 @@ describe("C04A stored-attempt authentication", () => {
       { load: async () => loaded(current.fixture.evidence) },
       {
         evidenceLoader: {
-          load: async () => ({ kind: "loaded", evidence: expiredEvidence }),
+          loadEffect: () =>
+            Effect.succeed({ kind: "loaded", evidence: expiredEvidence }),
         },
         transactionGrantVerifier: current.verifier,
         functionMetadata: {
@@ -802,7 +841,7 @@ describe("C04A stored-attempt authentication", () => {
         { load: async () => loaded(current.fixture.evidence) },
         {
           evidenceLoader: {
-            load: async () => ({
+            loadEffect: () => Effect.succeed({
               kind: "loaded",
               evidence: current.commitEvidence,
             }),
@@ -837,7 +876,7 @@ describe("C04A stored-attempt authentication", () => {
       { load: async () => loaded(current.fixture.evidence) },
       {
         evidenceLoader: {
-          load: async () => ({
+          loadEffect: () => Effect.succeed({
             kind: "loaded",
             evidence: current.commitEvidence,
           }),
@@ -867,7 +906,7 @@ describe("C04A stored-attempt authentication", () => {
       { load: async () => loaded(current.fixture.evidence) },
       {
         evidenceLoader: {
-          load: async () => ({
+          loadEffect: () => Effect.succeed({
             kind: "loaded",
             evidence: oversizedEvidence,
           }),
@@ -918,7 +957,7 @@ describe("C04A stored-attempt authentication", () => {
         { load: async () => loaded(current.fixture.evidence) },
         {
           evidenceLoader: {
-            load: async () => ({ kind: "loaded", evidence }),
+            loadEffect: () => Effect.succeed({ kind: "loaded", evidence }),
           },
           transactionGrantVerifier: current.verifier,
           functionMetadata: {
@@ -946,7 +985,7 @@ describe("C04A stored-attempt authentication", () => {
         { load: async () => loaded(current.fixture.evidence) },
         {
           evidenceLoader: {
-            load: async () => ({
+            loadEffect: () => Effect.succeed({
               kind: "loaded",
               evidence: current.commitEvidence,
             }),
@@ -2390,10 +2429,10 @@ async function authenticateCommitAuthorityFixture(
     },
     {
       evidenceLoader: {
-        load: async () => {
+        loadEffect: () => Effect.sync(() => {
           authorityEvidenceLoads += 1;
           return { kind: "loaded", evidence: current.commitEvidence };
-        },
+        }),
       },
       transactionGrantVerifier: current.verifier,
       functionMetadata: {
@@ -2451,7 +2490,7 @@ async function pointCommitRollbackFixture(
     },
     {
       evidenceLoader: {
-        load: async () => ({
+        loadEffect: () => Effect.succeed({
           kind: "loaded" as const,
           evidence: current.commitEvidence,
         }),
@@ -2490,7 +2529,7 @@ async function pointCommitPublisherFixture(
     },
     {
       evidenceLoader: {
-        load: async () => ({
+        loadEffect: () => Effect.succeed({
           kind: "loaded" as const,
           evidence: current.commitEvidence,
         }),
@@ -2530,7 +2569,7 @@ async function pointCommitFinishingFixture(
     },
     {
       evidenceLoader: {
-        load: async () => ({
+        loadEffect: () => Effect.succeed({
           kind: "loaded" as const,
           evidence: current.commitEvidence,
         }),

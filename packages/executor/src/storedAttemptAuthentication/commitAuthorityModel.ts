@@ -156,10 +156,18 @@ export type StoredCommitAuthorityEvidenceLoadResultPortV1 =
       readonly cause?: unknown;
     }>;
 
+export interface StoredCommitAuthorityEvidencePersistencePortErrorV1 {
+  readonly _tag: "StoredCommitAuthorityEvidencePersistenceV1Error";
+  readonly cause: unknown;
+}
+
 export interface StoredCommitAuthorityEvidenceLoaderPortV1 {
-  readonly load: (
+  readonly loadEffect: (
     authority: StoredCommitAuthorityEvidenceAuthorityPortV1,
-  ) => Promise<StoredCommitAuthorityEvidenceLoadResultPortV1>;
+  ) => Effect.Effect<
+    StoredCommitAuthorityEvidenceLoadResultPortV1,
+    StoredCommitAuthorityEvidencePersistencePortErrorV1
+  >;
 }
 
 export interface PinnedPointMutationFunctionMetadataSelectorV1 {

@@ -73,11 +73,10 @@ consumers.
 Stored commit-authority loading now owns an Effect-native `loadEffect`
 operation, typed persistence failures, Effect-native detached
 materialization, and an interruption-masked repeatable-read Promise edge. Its
-`load` method is a temporary Promise/runtime compatibility bridge for the
-executor commit-authority port and unwraps the typed persistence cause to
-preserve that port's prior rejection identity. Delete `load` when the executor
-port consumes `loadEffect` directly; new persistence consumers must use
-`loadEffect`.
+executor port consumes that operation directly and translates the source
+persistence error once to preserve the existing executor error contract. The
+temporary `load` Promise/runtime compatibility bridge and its audited runtime
+boundary have been deleted.
 
 The existing Drizzle point-operation transaction still owns a temporary
 throwing compatibility surface: its Promise-native latest-receipt verifier and

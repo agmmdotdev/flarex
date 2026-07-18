@@ -164,13 +164,6 @@ export interface StoredCommitAuthorityEvidenceLoaderV1 {
     StoredCommitAuthorityEvidenceLoadResultV1,
     StoredCommitAuthorityEvidencePersistenceV1Error
   >;
-  /**
-   * Temporary compatibility boundary for the executor commit-authority port.
-   * Delete it when that port consumes `loadEffect` directly.
-   */
-  readonly load: (
-    authority: StoredCommitAuthorityEvidenceAuthorityV1,
-  ) => Promise<StoredCommitAuthorityEvidenceLoadResultV1>;
 }
 
 export function authorityMismatch(

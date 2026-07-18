@@ -73,7 +73,6 @@ import {
 import {
   createStoredAttemptAuthenticationV1,
   type StoredAttemptEvidenceLoaderPortV1,
-  type StoredCommitAuthorityEvidenceLoaderPortV1,
 } from "../../executor/src/storedAttemptAuthentication";
 import {
   createTransactionGrantVerificationKeyNamespaceV1,
@@ -501,7 +500,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
       },
     );
-    const executorPort: StoredCommitAuthorityEvidenceLoaderPortV1 = loader;
     const result = await runEffect(loader.loadEffect(authority));
 
     expect(transactionClosed).toBe(true);
@@ -521,7 +519,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       { logicalName: "users", tableId: 1 },
     ]);
     result.evidence.session.validatedArgsCanonicalBytes.fill(0);
-    const second = await executorPort.load(authority);
+    const second = await runEffect(loader.loadEffect(authority));
     if (second.kind !== "loaded") throw new Error("Expected detached reload.");
     expect(
       second.evidence.session.validatedArgsCanonicalBytes.some(
@@ -592,7 +590,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const loader = createStoredCommitAuthorityEvidenceLoaderV1(
       resolutionPorts(persistence),
     );
-    await expect(loader.load(authority)).resolves.toMatchObject({
+    await expect(runEffect(loader.loadEffect(authority))).resolves.toMatchObject({
       kind: "corrupt",
       reason: "sessionEvidenceInvalid",
     });
@@ -1518,7 +1516,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       },
     );
 
-    await expect(loader.load(authority)).resolves.toMatchObject({
+    await expect(runEffect(loader.loadEffect(authority))).resolves.toMatchObject({
       kind: "corrupt",
       reason: "schemaArtifactInvalid",
     });
@@ -1555,7 +1553,6 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       operation: "beforeSchemaArtifactDecode",
       cause: defect,
     });
-    await expect(loader.load(authority)).rejects.toBe(defect);
   });
 
   it("accepts the exact 64 MiB aggregate and skips every payload at +1", async () => {
@@ -1619,7 +1616,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       resolutionPorts(persistence),
       { observeQuery: (query) => exactQueries.push(query.name) },
     );
-    await expect(exactLoader.load(exactAuthority)).resolves.toMatchObject({
+    await expect(runEffect(exactLoader.loadEffect(exactAuthority))).resolves
+      .toMatchObject({
       kind: "loaded",
     });
     expect(exactQueries).toContain("authorityPayload");
@@ -1645,7 +1643,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       resolutionPorts(persistence),
       { observeQuery: (query) => overflowQueries.push(query.name) },
     );
-    await expect(overflowLoader.load(overflowAuthority)).resolves
+    await expect(runEffect(overflowLoader.loadEffect(overflowAuthority))).resolves
       .toMatchObject({ kind: "corrupt", reason: "evidenceLimitExceeded" });
     expect(overflowQueries).not.toContain("authorityPayload");
     expect(overflowQueries).not.toContain("schemaPayload");

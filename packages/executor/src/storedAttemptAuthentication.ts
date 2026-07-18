@@ -149,6 +149,7 @@ import {
   type StoredCommitAuthorityEvidenceAuthorityPortV1,
   type StoredCommitAuthorityEvidenceLoaderPortV1,
   type StoredCommitAuthorityEvidenceLoadResultPortV1,
+  type StoredCommitAuthorityEvidencePersistencePortErrorV1,
   type StoredCommitAuthorityEvidencePortV1,
   type StoredCommitAuthoritySchemaEvidencePortV1,
   type StoredCommitAuthoritySessionEvidencePortV1,
@@ -195,6 +196,7 @@ export type {
   StoredCommitAuthorityEvidenceAuthorityPortV1,
   StoredCommitAuthorityEvidenceLoaderPortV1,
   StoredCommitAuthorityEvidenceLoadResultPortV1,
+  StoredCommitAuthorityEvidencePersistencePortErrorV1,
   StoredCommitAuthorityEvidencePortV1,
   StoredCommitAuthoritySchemaEvidencePortV1,
   StoredCommitAuthoritySessionEvidencePortV1,
@@ -947,12 +949,11 @@ export function createStoredAttemptAuthenticationV1(
         }),
       );
     }
-    const loadResult = yield* Effect.tryPromise({
-      try: () => commitAuthority.evidenceLoader.load(
+    const loadResult = yield* commitAuthority.evidenceLoader.loadEffect(
         captureCommitAuthorityPort(storedAttempt),
-      ),
-      catch: (cause) => new StoredCommitAuthorityPersistenceV1Error({ cause }),
-    });
+      ).pipe(Effect.mapError((error) =>
+        new StoredCommitAuthorityPersistenceV1Error({ cause: error.cause })
+      ));
     const evidence = yield* requireLoadedCommitAuthorityEvidenceEffect(
       loadResult,
     );

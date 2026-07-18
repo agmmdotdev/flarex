@@ -160,12 +160,6 @@ export function createStoredCommitAuthorityEvidenceLoaderV1(
 
   return Object.freeze({
     loadEffect,
-    load: (
-      input: StoredCommitAuthorityEvidenceAuthorityV1,
-    ): Promise<StoredCommitAuthorityEvidenceLoadResultV1> =>
-      Effect.runPromise(loadEffect(input).pipe(
-        Effect.mapError((error) => error.cause),
-      )),
   });
 }
 

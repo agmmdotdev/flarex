@@ -274,7 +274,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
           return originalDigest(algorithm, data);
         },
       );
-      const loadPromise = loader.load(authority);
+      const loadPromise = runEffect(loader.loadEffect(authority));
       await digestEntered.promise;
 
       const locker = await persistence.pool.connect();
@@ -384,14 +384,14 @@ describePostgres("real Postgres stored-attempt authority", () => {
         },
       );
       try {
-        await expect(racingLoader.load(racingAuthority)).resolves
+        await expect(runEffect(racingLoader.loadEffect(racingAuthority))).resolves
           .toMatchObject({ kind: "loaded" });
         expect(revocationCommitted).toBe(true);
-        await expect(
+        await expect(runEffect(
           createStoredCommitAuthorityEvidenceLoaderV1(
             resolutionPorts(persistence),
-          ).load(racingAuthority),
-        ).resolves.toMatchObject({
+          ).loadEffect(racingAuthority),
+        )).resolves.toMatchObject({
           kind: "authorityMismatch",
           reason: "revocationEpochChanged",
         });
@@ -417,11 +417,11 @@ describePostgres("real Postgres stored-attempt authority", () => {
         `,
         [expired.anchor.sessionId],
       );
-      await expect(
+      await expect(runEffect(
         createStoredCommitAuthorityEvidenceLoaderV1(
           resolutionPorts(persistence),
-        ).load(expiredAuthority),
-      ).resolves.toMatchObject({ kind: "notPlannable", reason: "expired" });
+        ).loadEffect(expiredAuthority),
+      )).resolves.toMatchObject({ kind: "notPlannable", reason: "expired" });
     });
   }, 120_000);
 });
