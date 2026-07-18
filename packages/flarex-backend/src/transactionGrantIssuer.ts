@@ -2,6 +2,7 @@ import { Data, Effect } from "effect";
 import {
   AuthProtocolValidationError,
   decodeAuthConfigEffect,
+  isCustomJwtAuthProvider,
   type AuthProvider,
   type CustomJwtAuthProvider,
   type OidcAuthProvider,
@@ -471,10 +472,10 @@ function sameProviderConfiguration(
   expected: VerifiedAuthProviderEvidence,
 ): boolean {
   if (expected.type === "customJwt") {
-    return isCustomJwtProvider(current) &&
+    return isCustomJwtAuthProvider(current) &&
       sameCustomJwtProvider(current, expected.configuration);
   }
-  return !isCustomJwtProvider(current) &&
+  return !isCustomJwtAuthProvider(current) &&
     sameOidcProvider(current, expected.configuration);
 }
 
@@ -495,12 +496,6 @@ function sameOidcProvider(
 ): boolean {
   return current.domain === expected.domain &&
     current.applicationID === expected.applicationID;
-}
-
-function isCustomJwtProvider(
-  provider: AuthProvider,
-): provider is CustomJwtAuthProvider {
-  return "type" in provider && provider.type === "customJwt";
 }
 
 function selectActiveSigner(

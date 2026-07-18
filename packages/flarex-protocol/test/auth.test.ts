@@ -1,8 +1,9 @@
 import { Effect, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   AuthConfigSchema,
   AuthProtocolValidationError,
+  type AuthProvider,
   AuthProviderSchema,
   decodeAuthConfigEffect,
   decodeAuthProviderEffect,
@@ -10,6 +11,7 @@ import {
   decodeUserIdentityEffect,
   executionIdentityFingerprint,
   ExecutionIdentitySchema,
+  isCustomJwtAuthProvider,
   UserIdentitySchema,
 } from "../src/auth";
 
@@ -20,6 +22,12 @@ const decodeAuthConfig = Schema.decodeUnknownSync(AuthConfigSchema);
 
 describe("auth protocol schemas", () => {
   it("decodes OIDC and custom JWT auth provider config", async () => {
+    expectTypeOf<{
+      readonly domain: string;
+      readonly applicationID: string;
+      readonly type: "customJwt";
+    }>().not.toMatchTypeOf<AuthProvider>();
+
     const oidc = {
       domain: "https://auth.example.com",
       applicationID: "app-123",
@@ -52,6 +60,8 @@ describe("auth protocol schemas", () => {
       .resolves.toEqual(config);
     expect(decodeAuthProvider(oidc)).toEqual(oidc);
     expect(decodeAuthConfig(config)).toEqual(config);
+    expect(isCustomJwtAuthProvider(decodeAuthProvider(oidc))).toBe(false);
+    expect(isCustomJwtAuthProvider(decodeAuthProvider(customJwt))).toBe(true);
   });
 
   it("rejects malformed auth provider config", async () => {

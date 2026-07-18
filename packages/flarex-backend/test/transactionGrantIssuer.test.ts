@@ -1,6 +1,9 @@
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import { Effect } from "effect";
-import type { AuthConfig } from "flarex-protocol/auth";
+import type {
+  AuthConfig,
+  CustomJwtAuthProvider,
+} from "flarex-protocol/auth";
 import { ReplacementScopeIdV1Schema } from "flarex-protocol/storage-authority";
 import {
   MAX_TRANSACTION_GRANT_EPOCH_MILLISECONDS_V1,
@@ -139,11 +142,12 @@ describe("point-mutation transaction-grant issuer", () => {
 
   it("rejects provider removal, changed configuration, and exact credential expiry", async () => {
     const verified = await verifiedAuthenticationFixture();
+    const changedProvider: CustomJwtAuthProvider = {
+      ...verified.matchedProvider,
+      algorithm: "ES256",
+    };
     const changedConfig: AuthConfig = {
-      providers: [{
-        ...verified.matchedProvider,
-        algorithm: "ES256",
-      }],
+      providers: [changedProvider],
     };
 
     for (const currentAuthConfig of [

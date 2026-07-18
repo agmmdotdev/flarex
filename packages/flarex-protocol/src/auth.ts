@@ -35,6 +35,7 @@ export type AuthConfig = {
 export type AuthProvider = OidcAuthProvider | CustomJwtAuthProvider;
 
 export type OidcAuthProvider = {
+  readonly type?: never;
   readonly domain: string;
   readonly applicationID: string;
 };
@@ -48,6 +49,12 @@ export type CustomJwtAuthProvider = {
   readonly algorithm: CustomJwtAlgorithm;
   readonly applicationID?: string;
 };
+
+export function isCustomJwtAuthProvider(
+  provider: AuthProvider,
+): provider is CustomJwtAuthProvider {
+  return "type" in provider && provider.type === "customJwt";
+}
 
 export type ExecutionIdentity =
   | { readonly kind: "anonymous" }
@@ -186,7 +193,9 @@ function isAuthConfig(value: unknown): value is AuthConfig {
 
 function isAuthProvider(value: unknown): value is AuthProvider {
   if (!isRecord(value)) return false;
-  if (value.type === "customJwt") return isCustomJwtAuthProvider(value);
+  if (value.type === "customJwt") {
+    return isCustomJwtAuthProviderFromUnknown(value);
+  }
   return isOidcAuthProvider(value);
 }
 
@@ -202,7 +211,7 @@ function isOidcAuthProvider(
   );
 }
 
-function isCustomJwtAuthProvider(
+function isCustomJwtAuthProviderFromUnknown(
   value: Readonly<Record<string, unknown>>,
 ): value is CustomJwtAuthProvider {
   if (

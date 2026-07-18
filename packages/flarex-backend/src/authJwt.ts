@@ -1,6 +1,7 @@
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { Data, Effect, Schema } from "effect";
+import { isCustomJwtAuthProvider } from "flarex-protocol/auth";
 import type {
   AuthConfig,
   AuthProvider,
@@ -441,7 +442,7 @@ function selectProvider(
 ): VerifiedProvider {
   for (const [providerIndex, configuredProvider] of providers.entries()) {
     if (!providerMatchesPayload(configuredProvider, payload)) continue;
-    if (isCustomJwtProvider(configuredProvider)) {
+    if (isCustomJwtAuthProvider(configuredProvider)) {
       const provider = freezeCustomJwtProvider(configuredProvider);
       const evidence = Object.freeze({
         type: "customJwt" as const,
@@ -485,7 +486,7 @@ function providerMatchesPayload(provider: AuthProvider, payload: JwtPayload): bo
     return false;
   }
   const issuer =
-    isCustomJwtProvider(provider)
+    isCustomJwtAuthProvider(provider)
       ? provider.issuer
       : provider.domain;
   return normalizedIssuer(payload.issuer) === normalizedIssuer(issuer);
@@ -928,10 +929,6 @@ function failJwtAuth(
   message: string,
 ): Effect.Effect<never, JwtAuthError> {
   return Effect.fail(new JwtAuthError({ reason, message }));
-}
-
-function isCustomJwtProvider(provider: AuthProvider): provider is CustomJwtAuthProvider {
-  return "type" in provider && provider.type === "customJwt";
 }
 
 const standardJwtClaims = new Set([

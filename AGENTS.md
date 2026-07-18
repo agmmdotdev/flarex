@@ -148,6 +148,13 @@ fixture or domain flow must write through the value, establish ownership with
 an explicit local copy and reattach copied nested records before mutation. Keep
 fixture-mutation helpers with their test owner rather than publishing them from
 `@flarex/utils`.
+For a decoded domain union, keep reusable typed discriminators with the union
+owner. Do not make consumers repeat structural checks, and do not confuse a
+typed discriminator with an unknown-input validator; retain a separately named
+`FromUnknown` validator when the complete wire or domain shape must be proven.
+Keep the union members structurally exclusive at the discriminant so a public
+type predicate cannot accept a compile-time-valid value that the owning decoder
+rejects.
 When a value is already typed as Flarex `Json` or `WritableJson`, use the
 protocol-owned `isJsonObject` or `isWritableJsonObject` discriminator instead
 of rediscovering that union member with the generic unknown-record predicate.
