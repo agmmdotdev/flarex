@@ -13,6 +13,21 @@ import { isJson, type Json } from "./json";
 
 const INVALID_INVOKE_PAYLOAD_MESSAGE = "Invalid execution artifact invoke payload.";
 
+/**
+ * Reads the conventional `error` member from an execution-artifact HTTP body.
+ *
+ * This is a shallow protocol discriminator. It does not validate a complete
+ * response payload or suppress failures raised while reading or stringifying
+ * a caller-owned member.
+ */
+export function executionArtifactErrorBodyMessage(
+  value: unknown,
+): string | undefined {
+  if (!Array.isArray(value) && !isNonArrayRecord(value)) return undefined;
+  if (!("error" in value)) return undefined;
+  return String(Reflect.get(value, "error"));
+}
+
 export type ExecutionArtifactInvokeRequest = {
   path: string;
   args: Json;

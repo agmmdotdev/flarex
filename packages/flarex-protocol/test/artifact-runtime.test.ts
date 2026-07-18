@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   decodeExecutionArtifactInvokePayloadBodyEffect,
+  executionArtifactErrorBodyMessage,
   executionArtifactInvokePayload,
   ExecutionArtifactInvokePayloadError,
   materializedExecutionArtifactInvokePayload,
@@ -9,6 +10,41 @@ import {
 } from "../src/artifact-runtime";
 
 describe("artifact runtime protocol payload decoders", () => {
+  it("reads conventional execution artifact error bodies", () => {
+    const inherited = Object.create({ error: "inherited failure" }) as object;
+    const arrayBody: unknown[] = [];
+    Object.assign(arrayBody, { error: "array failure" });
+
+    expect(executionArtifactErrorBodyMessage({ error: "artifact failed" }))
+      .toBe("artifact failed");
+    expect(executionArtifactErrorBodyMessage({ error: 0 })).toBe("0");
+    expect(executionArtifactErrorBodyMessage(inherited)).toBe("inherited failure");
+    expect(executionArtifactErrorBodyMessage(arrayBody)).toBe("array failure");
+    expect(executionArtifactErrorBodyMessage({ message: "not conventional" }))
+      .toBeUndefined();
+    expect(executionArtifactErrorBodyMessage([])).toBeUndefined();
+    expect(executionArtifactErrorBodyMessage(null)).toBeUndefined();
+  });
+
+  it("does not hide unexpected error-body member failures", () => {
+    const body = Object.defineProperty({}, "error", {
+      get(): never {
+        throw new Error("hostile error getter");
+      },
+    });
+
+    expect(() => executionArtifactErrorBodyMessage(body))
+      .toThrow("hostile error getter");
+    expect(() => executionArtifactErrorBodyMessage({
+      error: Object.create(null),
+    })).toThrow(TypeError);
+    expect(() => executionArtifactErrorBodyMessage(new Proxy({}, {
+      has(): never {
+        throw new Error("hostile error membership");
+      },
+    }))).toThrow("hostile error membership");
+  });
+
   it("decodes execution artifact invoke payloads", async () => {
     const payload = testPayload();
 

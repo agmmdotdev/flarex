@@ -8,6 +8,7 @@ import {
   isJsonObjectFromUnknown,
   isWritableJsonObject,
   isWritableJsonObjectFromUnknown,
+  isWritableJsonFromUnknown,
   jsonEqual,
   Json as JsonSchema,
   JsonValue,
@@ -51,6 +52,12 @@ function expectUnknownWritableJsonObjectNarrowing(value: unknown): void {
   }
 }
 
+function expectUnknownWritableJsonNarrowing(value: unknown): void {
+  if (isWritableJsonFromUnknown(value)) {
+    expectTypeOf(value).toEqualTypeOf<WritableJson>();
+  }
+}
+
 function expectUnknownJsonObjectNarrowing(value: unknown): void {
   if (isJsonObjectFromUnknown(value)) {
     expectTypeOf(value).toEqualTypeOf<JsonObject>();
@@ -83,6 +90,9 @@ describe("protocol JSON", () => {
     expectTypeOf(writable).toMatchTypeOf<WritableJson>();
     expectTypeOf<WritableJson>().toMatchTypeOf<Json>();
     expectWritableJsonObjectNarrowing(writable);
+    expectUnknownWritableJsonNarrowing(writable);
+    expect(isWritableJsonFromUnknown(writable)).toBe(true);
+    expect(isWritableJsonFromUnknown(Number.NaN)).toBe(false);
   });
 
   it("accepts finite plain JSON values", () => {

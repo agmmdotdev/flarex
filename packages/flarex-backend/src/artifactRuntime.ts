@@ -51,6 +51,7 @@ export {
 } from "./artifactRuntime/HostKit.ts";
 import { Data, Effect, Schema } from "effect";
 import {
+  executionArtifactErrorBodyMessage,
   executionArtifactInvokePayload,
   type ExecutionArtifactInvokePayloadFor,
   materializedExecutionArtifactInvokePayload,
@@ -474,7 +475,8 @@ function serviceBindingExecutionArtifactRuntimeErrorMessage(
   body: unknown,
   status: number,
 ): string {
-  return errorBodyMessage(body) ?? `Execution artifact runtime failed with status ${status}`;
+  return executionArtifactErrorBodyMessage(body) ??
+    `Execution artifact runtime failed with status ${status}`;
 }
 
 function materializedExecutionArtifactInvokeErrorMessage(
@@ -482,16 +484,8 @@ function materializedExecutionArtifactInvokeErrorMessage(
   fallbackMessage: string,
   status: number,
 ): string {
-  return errorBodyMessage(body) ?? `${fallbackMessage} with status ${status}`;
-}
-
-function errorBodyMessage(value: unknown): string | undefined {
-  if (!hasErrorBody(value)) return undefined;
-  return String(value.error);
-}
-
-function hasErrorBody(value: unknown): value is { readonly error: unknown } {
-  return typeof value === "object" && value !== null && "error" in value;
+  return executionArtifactErrorBodyMessage(body) ??
+    `${fallbackMessage} with status ${status}`;
 }
 
 function serviceBindingExecutionArtifactRuntimeErrorToHttpError(

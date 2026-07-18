@@ -255,6 +255,17 @@ export function isJson(value: unknown): value is Json {
   return true;
 }
 
+/**
+ * Validates unknown input against the complete JSON contract before exposing
+ * the writable compatibility shape. This type narrowing does not promise
+ * runtime mutability.
+ */
+export function isWritableJsonFromUnknown(
+  value: unknown,
+): value is WritableJson {
+  return isJson(value);
+}
+
 type JsonValidationFrame =
   | Readonly<{ readonly kind: "value"; readonly value: unknown }>
   | Readonly<{

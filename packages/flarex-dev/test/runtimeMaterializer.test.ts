@@ -54,7 +54,7 @@ describe("runtime materializer", () => {
 
   it("decodes materialized artifact responses through typed Effect failures", async () => {
     await expect(Effect.runPromise(
-      decodeMaterializedArtifactResponse<{ value: { ok: true } }>(
+      decodeMaterializedArtifactResponse(
         Response.json({ value: { ok: true } }),
         "Materialized execution artifact failed",
       ),
@@ -81,6 +81,36 @@ describe("runtime materializer", () => {
       _tag: "MaterializedArtifactResponseError",
       status: 502,
       message: "Materialized execution artifact failed with status 502",
+      body: null,
+    } satisfies Partial<MaterializedArtifactResponseError>);
+
+    await expect(Effect.runPromise(
+      decodeMaterializedArtifactResponse(
+        {
+          ok: true,
+          status: 200,
+          async json(): Promise<unknown> {
+            return { value: Number.NaN };
+          },
+        },
+        "Materialized execution artifact failed",
+      ),
+    )).rejects.toMatchObject({
+      _tag: "MaterializedArtifactResponseError",
+      status: 500,
+      message: "Materialized execution artifact failed: response body must be valid Flarex JSON.",
+      body: { value: Number.NaN },
+    } satisfies Partial<MaterializedArtifactResponseError>);
+
+    await expect(Effect.runPromise(
+      decodeMaterializedArtifactResponse(
+        new Response("not json"),
+        "Materialized execution artifact failed",
+      ),
+    )).rejects.toMatchObject({
+      _tag: "MaterializedArtifactResponseError",
+      status: 500,
+      message: "Materialized execution artifact failed: response body must be valid Flarex JSON.",
       body: null,
     } satisfies Partial<MaterializedArtifactResponseError>);
   });

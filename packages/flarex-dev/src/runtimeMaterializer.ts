@@ -1,6 +1,8 @@
 import { Miniflare } from "miniflare";
 import { Data, Effect } from "effect";
 import type { RunLiveQuerySubscriptionWithInvokeInput } from "@flarex/executor";
+import { executionArtifactErrorBodyMessage } from "flarex-protocol/artifact-runtime";
+import { isWritableJsonFromUnknown } from "flarex-protocol/json";
 import {
   decodeMaterializedExecutionArtifactInvokeResponse,
   executionArtifactInternalInvokeRequest,
@@ -16,7 +18,10 @@ import type {
   ExecutionArtifactWorkerExecutorTransport,
 } from "flarex-backend/artifact-runtime";
 import type { InvokeResponse, Json } from "flarex-backend/types";
-import { readDevResponseJsonOrNullEffect } from "./responseJson.ts";
+import {
+  readDevResponseJsonEffect,
+  readDevResponseJsonOrNullEffect,
+} from "./responseJson.ts";
 
 export type RuntimeBackendDispatcher = (request: Request) => Response | Promise<Response>;
 
@@ -171,7 +176,7 @@ class LocalMiniflareMaterializedExecutionArtifact implements MaterializedExecuti
     );
     // Deliberate runtime bridge: materialized worker query API returns Promise.
     return await Effect.runPromise(
-      decodeMaterializedArtifactResponse<Json>(
+      decodeMaterializedArtifactResponse(
         response,
         "Materialized execution artifact failed",
       ).pipe(
@@ -188,23 +193,50 @@ class LocalMiniflareMaterializedExecutionArtifact implements MaterializedExecuti
 export const decodeMaterializedArtifactResponse = Effect.fn(
   "LocalMiniflareMaterializedExecutionArtifact.decodeResponse",
 )(
-  function* <A>(response: MaterializedArtifactHttpResponse, fallbackMessage: string) {
-    const body = yield* readMaterializedArtifactResponseJson(response);
+  function* (
+    response: MaterializedArtifactHttpResponse,
+    fallbackMessage: string,
+  ): Effect.fn.Return<Json, MaterializedArtifactResponseError> {
     if (!response.ok) {
+      const body = yield* readDevResponseJsonOrNullEffect(response);
       return yield* Effect.fail(new MaterializedArtifactResponseError({
         status: response.status,
         message: materializedArtifactErrorMessage(body, fallbackMessage, response.status),
         body,
       }));
     }
-    return body as A;
+    const body = yield* readMaterializedArtifactResponseJson(
+      response,
+      fallbackMessage,
+    );
+    if (!isWritableJsonFromUnknown(body)) {
+      return yield* Effect.fail(new MaterializedArtifactResponseError({
+        status: 500,
+        message: invalidMaterializedArtifactResponseMessage(fallbackMessage),
+        body,
+      }));
+    }
+    return body;
   },
 );
 
 function readMaterializedArtifactResponseJson(
   response: MaterializedArtifactHttpResponse,
-): Effect.Effect<unknown> {
-  return readDevResponseJsonOrNullEffect(response);
+  fallbackMessage: string,
+): Effect.Effect<unknown, MaterializedArtifactResponseError> {
+  return readDevResponseJsonEffect(response).pipe(
+    Effect.mapError(() => new MaterializedArtifactResponseError({
+      status: 500,
+      message: invalidMaterializedArtifactResponseMessage(fallbackMessage),
+      body: null,
+    })),
+  );
+}
+
+function invalidMaterializedArtifactResponseMessage(
+  fallbackMessage: string,
+): string {
+  return `${fallbackMessage}: response body must be valid Flarex JSON.`;
 }
 
 function materializedArtifactErrorMessage(
@@ -212,16 +244,8 @@ function materializedArtifactErrorMessage(
   fallbackMessage: string,
   status: number,
 ): string {
-  return errorBodyMessage(body) ?? `${fallbackMessage} with status ${status}`;
-}
-
-function errorBodyMessage(value: unknown): string | undefined {
-  if (!hasErrorBody(value)) return undefined;
-  return String(value.error);
-}
-
-function hasErrorBody(value: unknown): value is { readonly error: unknown } {
-  return typeof value === "object" && value !== null && "error" in value;
+  return executionArtifactErrorBodyMessage(body) ??
+    `${fallbackMessage} with status ${status}`;
 }
 
 function materializedArtifactResponseErrorToError(
