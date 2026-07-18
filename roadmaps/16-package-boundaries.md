@@ -405,6 +405,17 @@ semantics.
   boundary already required. Iterable or number-array adapters retain their
   local representation owner, and Flarex canonical decoders retain length,
   case, re-encoding, branding, and typed failure policy.
+- Ordered-index key encoding is a serialized FlarexDB protocol contract, not a
+  generic byte or collection utility. `flarex-protocol/ordered-index` is the
+  accepted `flarexdb_v1` owner for physical specs, Flarex-value lowering,
+  bounded canonical keys and bounds, and separate row identity. The similar
+  encoders in backend `PartitionDO`, persistence `indexEntries`, and the
+  executor's `legacy_v1` overlay are isolated unshipped-prototype behavior
+  evidence. Do not extract or bridge them through `@flarex/utils`, and do not
+  make the target codec accept their weaker shapes merely to deduplicate code.
+  Port still-intended tests and behavior to the target path, then delete those
+  prototype implementations at their recorded retirement gate; reclassify only
+  if evidence of a shipped compatibility obligation appears.
 - Promise compatibility for identity-access-policy canonicalization remains a
   protocol contract. Its protocol-owned Effect adapter preserves the existing
   typed policy error while treating unexpected Promise causes as defects;
