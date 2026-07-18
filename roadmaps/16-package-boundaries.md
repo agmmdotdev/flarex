@@ -446,6 +446,11 @@ semantics.
   JSON Schema. The persistence journal reuses that exact Schema while retaining
   its stored syscall envelope, database corruption mapping, and row-validation
   boundary; this domain contract does not belong in `@flarex/utils`.
+- `flarex-protocol/value` owns the strict Value Codec V1 envelope type, guard,
+  and Schema. Commit-result and transaction-grant decoding reuse that
+  structural contract while retaining their own byte ceilings, canonical-byte
+  comparison, digest evidence, and typed protocol errors. The envelope remains
+  a protocol codec contract rather than a generic utility.
 - `flarex-protocol/json` owns the canonical readonly JSON shape, its finite
   plain-value guard and Schema, and one documented writable compatibility
   shape. The SDK aliases its readonly `JSONValue` to that owner; live-query,

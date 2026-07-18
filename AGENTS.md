@@ -221,6 +221,11 @@ Do not move Effect Schema options, typed errors, authority or cryptographic
 logic, persistence codecs, canonical protocol encodings, universal deep-freeze
 logic, or legacy compatibility into `@flarex/utils`. Those concerns stay with
 their protocol, domain, persistence, host, or temporary migration owner.
+When several protocol operations consume one codec envelope, the codec module
+owns its structural type, guard, and Schema. Consumers reuse that contract but
+retain their own byte limits, canonical byte comparisons, digest checks, and
+typed failure mapping. Do not redeclare a weaker envelope merely because a
+consumer immediately performs stronger canonicalization afterward.
 An algorithm that derives serialized Flarex metadata remains a protocol
 contract even when its implementation looks like generic string manipulation.
 Centralize such derivation with the protocol owner while keeping consumer

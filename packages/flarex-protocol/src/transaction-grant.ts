@@ -40,6 +40,7 @@ import {
 } from "./transaction-session";
 import {
   FLAREX_VALUE_CODEC_VERSION_V1,
+  FlarexValueEnvelopeV1Schema,
   FlarexValueCodecV1Error,
   FlarexValueCodecVersionSchema,
   canonicalizeFlarexValueJsonV1,
@@ -655,12 +656,6 @@ const TransactionGrantJwsV1Schema = Schema.Struct({
 );
 export type TransactionGrantJwsV1 = typeof TransactionGrantJwsV1Schema.Type;
 
-const FlarexValueEnvelopeV1Schema = Schema.Struct({
-  format: Schema.Literal("flarex-value"),
-  value: Schema.Unknown,
-  valueCodecVersion: Schema.Literal(1),
-}).annotate(StrictStructOptions);
-
 export type TransactionGrantProtocolV1Field =
   | "jws"
   | "protected"
@@ -989,11 +984,13 @@ async function decodeCanonicalPayload(
     MAX_TRANSACTION_GRANT_PAYLOAD_CANONICAL_BYTES_V1,
   );
   const parsed = parseJson(bytes, "payload");
-  const envelope = decodeSchemaOrProtocolError(
-    FlarexValueEnvelopeV1Schema,
-    parsed,
-    "payload",
-  );
+  const envelope = {
+    ...decodeSchemaOrProtocolError(
+      FlarexValueEnvelopeV1Schema,
+      parsed,
+      "payload",
+    ),
+  };
   let canonical;
   try {
     canonical = await canonicalizeFlarexValueJsonV1(envelope.value);

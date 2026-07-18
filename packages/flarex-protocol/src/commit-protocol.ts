@@ -37,6 +37,7 @@ import {
 } from "./transaction-session";
 import {
   FLAREX_VALUE_CODEC_VERSION_V1,
+  FlarexValueEnvelopeV1Schema,
   FlarexValueCodecV1Error,
   FlarexValueCodecVersionSchema,
   MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1,
@@ -1136,12 +1137,6 @@ const createCanonicalSuccessfulResultV1Effect = Effect.fn(function* (
   } satisfies CanonicalSuccessfulResultV1);
 });
 
-const FlarexValueEnvelopeV1Schema = Schema.Struct({
-  format: Schema.Literal("flarex-value"),
-  value: JsonValue,
-  valueCodecVersion: Schema.Literal(1),
-}).annotate(StrictStructOptions);
-
 const decodeUnknownFlarexValueEnvelopeV1 = Schema.decodeUnknownEffect(
   FlarexValueEnvelopeV1Schema,
   StrictParseOptions,
@@ -1149,6 +1144,7 @@ const decodeUnknownFlarexValueEnvelopeV1 = Schema.decodeUnknownEffect(
 
 const decodeFlarexValueEnvelopeEffect = Effect.fn((input: unknown) =>
   decodeUnknownFlarexValueEnvelopeV1(input).pipe(
+    Effect.map((envelope) => ({ ...envelope })),
     Effect.mapError(() => invalidSchemaError("successfulResult")),
   ));
 

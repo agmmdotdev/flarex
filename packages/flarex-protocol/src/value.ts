@@ -9,7 +9,6 @@ import { Data, Schema } from "effect";
 import { isCanonicalArrayIndex } from "./canonical-array-index";
 import {
   encodeCanonicalJson,
-  isJson,
   isJsonArray,
   isJsonObject,
   isJsonObjectFromUnknown,
@@ -119,6 +118,23 @@ export const decodeFlarexValueCodecVersion = Schema.decodeUnknownSync(
 );
 export const FLAREX_VALUE_CODEC_VERSION_V1 =
   decodeFlarexValueCodecVersion(1);
+
+export interface FlarexValueEnvelopeV1 {
+  readonly format: "flarex-value";
+  readonly value: Json;
+  readonly valueCodecVersion: 1;
+}
+
+/**
+ * The strict structural contract for a Value Codec V1 JSON envelope.
+ * Canonical byte spelling is proved separately by byte-for-byte comparison.
+ */
+export const FlarexValueEnvelopeV1Schema =
+  Schema.declare<FlarexValueEnvelopeV1>(isFlarexValueEnvelopeV1, {
+    title: "FlarexValueEnvelopeV1",
+    description:
+      "A strict Flarex Value Codec V1 envelope containing a validated JSON value.",
+  });
 
 export const CanonicalFlarexValueBytesV1Schema = Schema.Uint8Array.check(
   Schema.isMinLength(1),
@@ -422,7 +438,7 @@ export async function decodeCanonicalFlarexValueEvidenceV1(
       },
     });
   }
-  if (!isCanonicalValueEnvelope(parsed)) {
+  if (!isFlarexValueEnvelopeV1(parsed)) {
     throw new FlarexValueEvidenceV1Error({
       issue: {
         reason: "invalidCanonicalBytes",
@@ -447,13 +463,9 @@ export async function decodeCanonicalFlarexValueEvidenceV1(
   return canonical;
 }
 
-function isCanonicalValueEnvelope(
+export function isFlarexValueEnvelopeV1(
   value: unknown,
-): value is Readonly<{
-  readonly format: "flarex-value";
-  readonly value: Json;
-  readonly valueCodecVersion: 1;
-}> {
+): value is FlarexValueEnvelopeV1 {
   if (!isJsonObjectFromUnknown(value)) {
     return false;
   }
@@ -465,8 +477,7 @@ function isCanonicalValueEnvelope(
     keys[1] === "value" &&
     keys[2] === "valueCodecVersion" &&
     record.format === "flarex-value" &&
-    record.valueCodecVersion === 1 &&
-    isJson(record.value)
+    record.valueCodecVersion === 1
   );
 }
 

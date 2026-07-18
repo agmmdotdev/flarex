@@ -1,13 +1,41 @@
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+  FlarexValueEnvelopeV1Schema,
   canonicalizeFlarexValueV1,
   decodeCanonicalFlarexValueEvidenceV1,
+  isFlarexValueEnvelopeV1,
 } from "../src/value";
 
 const TEXT_ENCODER = new TextEncoder();
 
 describe("canonical Flarex value evidence", () => {
+  it("uses one strict structural contract for Value Codec V1 envelopes", () => {
+    const decodeEnvelope = Schema.decodeUnknownSync(
+      FlarexValueEnvelopeV1Schema,
+    );
+    const envelope = {
+      format: "flarex-value",
+      value: { answer: 42 },
+      valueCodecVersion: 1,
+    } as const;
+
+    const decoded = decodeEnvelope(envelope);
+    expect(decoded).toBe(envelope);
+    expect(isFlarexValueEnvelopeV1(envelope)).toBe(true);
+    expect(isFlarexValueEnvelopeV1({ ...envelope, unexpected: true })).toBe(
+      false,
+    );
+    expect(() => decodeEnvelope({ ...envelope, unexpected: true })).toThrow();
+    expect(isFlarexValueEnvelopeV1({
+      ...envelope,
+      value: { answer: Number.POSITIVE_INFINITY },
+    })).toBe(false);
+    expect(isFlarexValueEnvelopeV1(Object.assign(new class {}(), envelope)))
+      .toBe(false);
+  });
+
   it("round-trips exact canonical bytes and digest", async () => {
     const canonical = await canonicalizeFlarexValueV1({
       z: "last",
