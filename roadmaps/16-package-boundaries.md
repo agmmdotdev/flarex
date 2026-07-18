@@ -342,7 +342,10 @@ semantics.
   labels, byte ceilings, and diagnostics. H05 Cloudflare REST adapters also
   share one host-local pure decoder for the provider success envelope while
   retaining endpoint result validation, redacted messages, and public result
-  projections in each adapter.
+  projections in each adapter. H05 manual evidence decoders share the exact
+  two-timestamp window traversal while retaining format-owned record policy,
+  timestamp brands, diagnostics, first-failure order, and serialized key
+  order; Schema-composed receipt decoding remains on its Schema boundary.
 - The Effect boundary checker rejects synchronous execution, hidden aliases,
   direct runtime imports, and unregistered production `runPromise` sites.
 - Postgres and PGlite adapters share one persistence-owned resolver for the

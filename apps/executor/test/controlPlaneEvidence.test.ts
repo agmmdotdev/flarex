@@ -55,6 +55,10 @@ describe("H05 control-plane evidence contract", () => {
     expect(serialized.endsWith("\n")).toBe(true);
     expect(decodeH05ControlPlaneEvidenceJson(serialized)).toEqual(compiled);
     expect(compiled.value.evidenceSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(Object.keys(compiled.value.window)).toEqual([
+      "startedAt",
+      "finishedAt",
+    ]);
   });
 
   it("retains the control-plane canonical timestamp diagnostic", () => {

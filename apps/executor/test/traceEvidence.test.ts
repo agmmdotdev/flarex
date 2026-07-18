@@ -46,6 +46,14 @@ describe("H05 trace evidence contract", () => {
         after,
       ),
     ).toEqual({ ok: true });
+    expect(Object.keys(compiled.value.window.collection)).toEqual([
+      "finishedAt",
+      "startedAt",
+    ]);
+    expect(Object.keys(compiled.value.window.dataPlane)).toEqual([
+      "finishedAt",
+      "startedAt",
+    ]);
     expect(compiled.value.traces).toHaveLength(15);
     expect(compiled.value.traces.filter((trace) => trace.kind === "authorized")).toHaveLength(14);
     expect(compiled.value.window.observed).toEqual({

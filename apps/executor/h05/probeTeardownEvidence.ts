@@ -3,6 +3,7 @@ import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
 import { decodeExactH05Scalar } from "./exactScalar";
 import { requireExactH05Record } from "./exactRecord";
+import { decodeH05EvidenceWindow } from "./evidenceWindow";
 import { formatH05JsonDocument } from "./jsonDocument";
 import { isH05FullLowercaseGitCommit } from "./gitCommit";
 import { isH05HttpsOriginUrl } from "./httpsOrigin";
@@ -740,11 +741,13 @@ function decodeWindow(
   value: unknown,
   path: string,
 ): H05ProbeTeardownCollectionEvidence["window"] {
-  const record = exactRecord(value, path, ["finishedAt", "startedAt"]);
-  return {
-    finishedAt: isoTimestamp(record.finishedAt, `${path}.finishedAt`),
-    startedAt: isoTimestamp(record.startedAt, `${path}.startedAt`),
-  };
+  return decodeH05EvidenceWindow(
+    value,
+    path,
+    exactRecord,
+    isoTimestamp,
+    "finishedAtFirst",
+  );
 }
 
 function validatePayload(payload: H05ProbeTeardownEvidencePayload): void {

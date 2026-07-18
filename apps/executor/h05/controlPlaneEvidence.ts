@@ -10,6 +10,7 @@ import {
 } from "./controlPlaneCloudflareResourceId";
 import { decodeExactH05Scalar } from "./exactScalar";
 import { decodeExactH05StringTuple } from "./exactStringTuple";
+import { decodeH05EvidenceWindow } from "./evidenceWindow";
 import { formatH05JsonDocument } from "./jsonDocument";
 import { isH05FullLowercaseGitCommit } from "./gitCommit";
 import { isH05HttpsOriginUrl } from "./httpsOrigin";
@@ -534,11 +535,13 @@ function decodeWindow(
   value: unknown,
   path: string,
 ): H05ControlPlaneWindowEvidence {
-  const record = exactRecord(value, path, ["finishedAt", "startedAt"]);
-  return {
-    startedAt: isoTimestamp(record.startedAt, `${path}.startedAt`),
-    finishedAt: isoTimestamp(record.finishedAt, `${path}.finishedAt`),
-  };
+  return decodeH05EvidenceWindow(
+    value,
+    path,
+    exactRecord,
+    isoTimestamp,
+    "startedAtFirst",
+  );
 }
 
 function decodeHyperdrive(

@@ -163,6 +163,13 @@ adapter retains its endpoint result validation, optional metadata projection,
 redacted messages, and public projection. Do not move this foreign-provider
 contract into `@flarex/utils` or make endpoint-specific result requirements
 part of the shared envelope.
+When H05 evidence formats share the exact two-timestamp window structure,
+centralize its record and field-traversal mechanics with the H05 owner. Retain
+each format's record policy, timestamp brand, diagnostic callback, decoder
+order, and object key insertion order; those orders affect first-failure
+behavior and may affect serialized evidence. Keep Schema-composed receipt
+decoding on its Schema boundary instead of forcing every consumer through the
+manual decoder.
 
 Before adding a local utility, inspect the installed platform and dependency
 APIs for an exact portable owner. Reuse a total encoder such as Effect

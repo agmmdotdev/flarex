@@ -41,6 +41,10 @@ describe("H05 probe teardown evidence contract", () => {
         controlPlaneAfter,
       ),
     ).toEqual({ ok: true });
+    expect(Object.keys(compiled.value.window)).toEqual([
+      "finishedAt",
+      "startedAt",
+    ]);
     expect(compiled.value).toMatchObject({
       accountAccess: { selection: "fixed-tag-filter", status: 200 },
       deletion: {

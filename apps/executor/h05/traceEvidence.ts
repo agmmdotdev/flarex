@@ -5,6 +5,7 @@ import { compareUtf16Strings } from "@flarex/utils/strings";
 import { decodeExactH05Scalar } from "./exactScalar";
 import { decodeExactH05StringTuple } from "./exactStringTuple";
 import { requireExactH05Record } from "./exactRecord";
+import { decodeH05EvidenceWindow } from "./evidenceWindow";
 import { formatH05JsonDocument } from "./jsonDocument";
 import { isH05FullLowercaseGitCommit } from "./gitCommit";
 import { isH05CanonicalIsoTimestamp } from "./isoTimestamp";
@@ -1316,11 +1317,13 @@ function decodeWindow(
   value: unknown,
   path: string,
 ): { readonly finishedAt: H05IsoTimestamp; readonly startedAt: H05IsoTimestamp } {
-  const record = exactRecord(value, path, ["finishedAt", "startedAt"]);
-  return {
-    finishedAt: isoTimestamp(record.finishedAt, `${path}.finishedAt`),
-    startedAt: isoTimestamp(record.startedAt, `${path}.startedAt`),
-  };
+  return decodeH05EvidenceWindow(
+    value,
+    path,
+    exactRecord,
+    isoTimestamp,
+    "finishedAtFirst",
+  );
 }
 
 function decodeObservedWindow(
