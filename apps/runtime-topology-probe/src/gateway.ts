@@ -29,9 +29,8 @@ import {
 } from "./dynamicProtocol";
 import {
   decodeProbeFacetSessionResponseV1Effect,
-  probeFacetJournalSealDigest,
+  probeFacetReceiptMatchesRequest,
   ProbeFacetInvokeRequestV1Schema,
-  type ProbeFacetInvokeRequestV1,
   type ProbeFacetSessionResponseV1,
 } from "./facetProtocol";
 import {
@@ -866,7 +865,7 @@ async function executeFacetScenario(
   const decoded = body.ok ? await decodeFacetSessionResponse(body.value) : null;
   if (
     decoded === null ||
-    !(await sameFacetSessionReceipt(decoded, internalRequest))
+    !(await probeFacetReceiptMatchesRequest(decoded, internalRequest))
   ) {
     const error = runtimeError(
       "gateway_session_rtt",
@@ -1855,25 +1854,6 @@ function sameDirectReceipt(
     response.codeMode === request.codeMode &&
     response.codeId === request.codeId &&
     response.payloadBytes === request.payload.length;
-}
-
-async function sameFacetSessionReceipt(
-  response: ProbeFacetSessionResponseV1,
-  request: ProbeFacetInvokeRequestV1,
-): Promise<boolean> {
-  return response.protocolVersion === request.protocolVersion &&
-    response.runId === request.runId &&
-    response.sampleId === request.sampleId &&
-    response.sampleOrdinal === request.sampleOrdinal &&
-    response.scenario === request.scenario &&
-    response.sessionId === request.sessionId &&
-    response.sessionMode === request.sessionMode &&
-    response.attemptId === request.attemptId &&
-    response.codeMode === request.codeMode &&
-    response.codeId === request.codeId &&
-    response.journalEntries === request.journalEntries &&
-    response.payloadBytes === request.payload.length &&
-    response.sealDigest === await probeFacetJournalSealDigest(request);
 }
 
 function sameMockFinishReceipt(

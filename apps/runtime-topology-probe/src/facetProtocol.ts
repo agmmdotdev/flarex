@@ -132,6 +132,25 @@ export async function probeFacetJournalSealDigest(
   return await sha256Hex(canonicalJournalSeal(request, payloadDigest));
 }
 
+export async function probeFacetReceiptMatchesRequest(
+  response: ProbeFacetWorkerResponseV1 | ProbeFacetSessionResponseV1,
+  request: ProbeFacetInvokeRequestV1,
+): Promise<boolean> {
+  return response.protocolVersion === request.protocolVersion &&
+    response.runId === request.runId &&
+    response.sampleId === request.sampleId &&
+    response.sampleOrdinal === request.sampleOrdinal &&
+    response.scenario === request.scenario &&
+    response.sessionId === request.sessionId &&
+    response.sessionMode === request.sessionMode &&
+    response.attemptId === request.attemptId &&
+    response.codeMode === request.codeMode &&
+    response.codeId === request.codeId &&
+    response.journalEntries === request.journalEntries &&
+    response.payloadBytes === request.payload.length &&
+    response.sealDigest === await probeFacetJournalSealDigest(request);
+}
+
 export const ProbeFacetLifecycleOperationSchema = Schema.Literals([
   "abort",
   "append",

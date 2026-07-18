@@ -102,6 +102,25 @@ export const ProbeRerunFacetResponseV1Schema =
 export type ProbeRerunFacetResponseV1 =
   typeof ProbeRerunFacetResponseV1Schema.Type;
 
+export function probeRerunFacetReceiptMatchesRequest(
+  response: ProbeRerunFacetResponseV1,
+  request: ProbeRuntimeRerunRequestV1,
+): boolean {
+  return response.protocolVersion === request.protocolVersion &&
+    response.runId === request.runId &&
+    response.sampleId === request.sampleId &&
+    response.sampleOrdinal === request.sampleOrdinal &&
+    response.scopeId === request.scopeId &&
+    response.scenario === request.scenario &&
+    response.sessionId === request.sessionId &&
+    response.sessionMode === request.sessionMode &&
+    response.attemptId === request.attemptId &&
+    response.codeMode === request.codeMode &&
+    response.codeId === request.codeId &&
+    response.reentryDepth === request.reentryDepth &&
+    response.payloadBytes === request.payload.length;
+}
+
 const ProbeRerunSessionResponseV1Shape = Schema.Struct({
   facet: ProbeRerunFacetResponseV1Schema,
   facetDurationMs: ProbeDurationMsSchema,

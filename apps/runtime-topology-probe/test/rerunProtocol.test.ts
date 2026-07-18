@@ -17,6 +17,7 @@ import {
   decodeProbeRuntimeRerunResponseV1Effect,
   decodeProbeSyncRerunReceiptV1Effect,
   decodeProbeSyncRerunRequestV1Effect,
+  probeRerunFacetReceiptMatchesRequest,
   probeRerunWorkerCode,
   PROBE_RERUN_WORKER_MAIN_MODULE,
 } from "../src/rerunProtocol";
@@ -82,6 +83,15 @@ describe("P06 sync-rerun protocol", () => {
     await expect(
       runEffectTest(decodeProbeSyncRerunReceiptV1Effect(chain.receipt)),
     ).resolves.toEqual(chain.receipt);
+    expect(
+      probeRerunFacetReceiptMatchesRequest(chain.facet, chain.request),
+    ).toBe(true);
+    expect(
+      probeRerunFacetReceiptMatchesRequest(
+        { ...chain.facet, payloadBytes: chain.facet.payloadBytes + 1 },
+        chain.request,
+      ),
+    ).toBe(false);
   });
 
   it("rejects a successful receipt that did not start a fresh attempt facet", async () => {
@@ -170,6 +180,7 @@ function rerunChain() {
     terminalAck: true,
   } as const;
   return {
+    request,
     facet,
     session,
     runtime,

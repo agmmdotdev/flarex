@@ -16,7 +16,7 @@ import {
   decodeProbeFacetLifecycleRequestV1Effect,
   decodeProbeFacetLifecycleWorkerResponseV1Effect,
   decodeProbeFacetWorkerResponseV1Effect,
-  probeFacetJournalSealDigest,
+  probeFacetReceiptMatchesRequest,
   probeFacetWorkerCode,
   PROBE_FACET_CLASS_NAME,
   ProbeFacetLifecycleSessionResponseV1Schema,
@@ -73,10 +73,10 @@ import {
 import {
   decodeProbeRerunFacetResponseV1OrNull,
   decodeProbeRuntimeRerunRequestV1OrNull,
+  probeRerunFacetReceiptMatchesRequest,
   probeRerunWorkerCode,
   PROBE_RERUN_FACET_CLASS_NAME,
   ProbeRerunSessionResponseV1Schema,
-  type ProbeRerunFacetResponseV1,
   type ProbeRuntimeRerunRequestV1,
 } from "./rerunProtocol";
 
@@ -537,7 +537,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       : null;
     if (
       decoded === null ||
-      !(await sameFacetReceipt(decoded, request))
+      !(await probeFacetReceiptMatchesRequest(decoded, request))
     ) {
       return internalError("facet_receipt_mismatch", 502);
     }
@@ -814,7 +814,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       : null;
     if (
       facetReceipt === null ||
-      !sameRerunFacetReceipt(facetReceipt, request)
+      !probeRerunFacetReceiptMatchesRequest(facetReceipt, request)
     ) {
       return internalError("facet_receipt_mismatch", 502);
     }
@@ -1166,44 +1166,6 @@ function decodeMockFinishResponse(
   value: unknown,
 ): ProbeMockFinishResponseV1 | null {
   return decodeProbeMockFinishResponseV1OrNull(value);
-}
-
-function sameRerunFacetReceipt(
-  response: ProbeRerunFacetResponseV1,
-  request: ProbeRuntimeRerunRequestV1,
-): boolean {
-  return response.protocolVersion === request.protocolVersion &&
-    response.runId === request.runId &&
-    response.sampleId === request.sampleId &&
-    response.sampleOrdinal === request.sampleOrdinal &&
-    response.scopeId === request.scopeId &&
-    response.scenario === request.scenario &&
-    response.sessionId === request.sessionId &&
-    response.sessionMode === request.sessionMode &&
-    response.attemptId === request.attemptId &&
-    response.codeMode === request.codeMode &&
-    response.codeId === request.codeId &&
-    response.reentryDepth === request.reentryDepth &&
-    response.payloadBytes === request.payload.length;
-}
-
-async function sameFacetReceipt(
-  response: ProbeFacetWorkerResponseV1,
-  request: ProbeFacetInvokeRequestV1,
-): Promise<boolean> {
-  return response.protocolVersion === request.protocolVersion &&
-    response.runId === request.runId &&
-    response.sampleId === request.sampleId &&
-    response.sampleOrdinal === request.sampleOrdinal &&
-    response.scenario === request.scenario &&
-    response.sessionId === request.sessionId &&
-    response.sessionMode === request.sessionMode &&
-    response.attemptId === request.attemptId &&
-    response.codeMode === request.codeMode &&
-    response.codeId === request.codeId &&
-    response.journalEntries === request.journalEntries &&
-    response.payloadBytes === request.payload.length &&
-    response.sealDigest === await probeFacetJournalSealDigest(request);
 }
 
 async function sameFullInvokeFacetReceipt(

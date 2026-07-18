@@ -7,8 +7,8 @@ import {
   decodeProbeRerunSessionResponseV1OrNull,
   decodeProbeRuntimeRerunRequestV1OrNull,
   decodeProbeRuntimeRerunResponseV1OrNull,
+  probeRerunFacetReceiptMatchesRequest,
   ProbeRuntimeRerunResponseV1Schema,
-  type ProbeRerunFacetResponseV1,
   type ProbeRuntimeRerunRequestV1,
   type ProbeRuntimeRerunResponseV1,
 } from "./rerunProtocol";
@@ -74,7 +74,7 @@ export class ProbeRuntimeRerunEntrypoint
       : null;
     if (
       sessionReceipt === null ||
-      !sameRerunSessionReceipt(sessionReceipt.facet, request)
+      !probeRerunFacetReceiptMatchesRequest(sessionReceipt.facet, request)
     ) {
       throw new Error("invalid runtime rerun session receipt");
     }
@@ -86,23 +86,4 @@ export class ProbeRuntimeRerunEntrypoint
       terminalAck: true,
     });
   }
-}
-
-function sameRerunSessionReceipt(
-  response: ProbeRerunFacetResponseV1,
-  request: ProbeRuntimeRerunRequestV1,
-): boolean {
-  return response.protocolVersion === request.protocolVersion &&
-    response.runId === request.runId &&
-    response.sampleId === request.sampleId &&
-    response.sampleOrdinal === request.sampleOrdinal &&
-    response.scopeId === request.scopeId &&
-    response.scenario === request.scenario &&
-    response.sessionId === request.sessionId &&
-    response.sessionMode === request.sessionMode &&
-    response.attemptId === request.attemptId &&
-    response.codeMode === request.codeMode &&
-    response.codeId === request.codeId &&
-    response.reentryDepth === request.reentryDepth &&
-    response.payloadBytes === request.payload.length;
 }

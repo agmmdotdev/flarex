@@ -6,9 +6,12 @@ import {
   decodeProbeFacetLifecycleRequestV1Effect,
   decodeProbeFacetLifecycleSessionResponseV1Effect,
   probeFacetJournalSealDigest,
+  probeFacetReceiptMatchesRequest,
   probeFacetWorkerCode,
   PROBE_FACET_WORKER_MAIN_MODULE,
   ProbeFacetInvokeRequestV1Schema,
+  ProbeFacetSessionResponseV1Schema,
+  ProbeFacetWorkerResponseV1Schema,
 } from "../src/facetProtocol";
 import {
   decodeProbeOrdinalEffect,
@@ -18,7 +21,10 @@ import {
   probeSampleId,
   probeSessionId,
 } from "../src/identity";
-import { PROBE_PROTOCOL_VERSION_V1 } from "../src/protocol";
+import {
+  PROBE_PROTOCOL_VERSION_V1,
+  ProbeDurationMsSchema,
+} from "../src/protocol";
 
 const runId = Effect.runSync(decodeProbeRunIdEffect("p04_protocol"));
 const zero = Effect.runSync(decodeProbeOrdinalEffect(0));
@@ -93,6 +99,49 @@ describe("Durable Object facet protocol", () => {
     );
     expect(new Set([baseline, payloadChange, countChange, attemptChange]).size)
       .toBe(4);
+  });
+
+  it("correlates worker and session receipts with their exact request", async () => {
+    const request = ProbeFacetInvokeRequestV1Schema.make(facetRequest());
+    const { payload: _payload, ...identity } = request;
+    const receipt = {
+      ...identity,
+      payloadBytes: request.payload.length,
+      journalDurationMs: ProbeDurationMsSchema.make(1),
+      sealDigest: await probeFacetJournalSealDigest(request),
+    };
+    const workerReceipt = ProbeFacetWorkerResponseV1Schema.make(receipt);
+    const sessionReceipt = ProbeFacetSessionResponseV1Schema.make({
+      ...receipt,
+      facetDurationMs: ProbeDurationMsSchema.make(2),
+      workerLoaderCallbackRan: true,
+      facetStartupCallbackRan: true,
+    });
+
+    await expect(
+      probeFacetReceiptMatchesRequest(workerReceipt, request),
+    ).resolves.toBe(true);
+    await expect(
+      probeFacetReceiptMatchesRequest(sessionReceipt, request),
+    ).resolves.toBe(true);
+    await expect(
+      probeFacetReceiptMatchesRequest(
+        ProbeFacetWorkerResponseV1Schema.make({
+          ...receipt,
+          payloadBytes: request.payload.length + 1,
+        }),
+        request,
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      probeFacetReceiptMatchesRequest(
+        ProbeFacetWorkerResponseV1Schema.make({
+          ...receipt,
+          sealDigest: "0".repeat(64),
+        }),
+        request,
+      ),
+    ).resolves.toBe(false);
   });
 
   it("keeps lifecycle controls canonical and attempt-bound", () => {
