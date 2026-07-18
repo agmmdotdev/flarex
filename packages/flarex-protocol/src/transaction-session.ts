@@ -1,4 +1,5 @@
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
+import { isNonBlankString } from "@flarex/utils/strings";
 import { Schema } from "effect";
 
 import { isCanonicalUuidTextV1 } from "./canonical-uuid";
@@ -10,7 +11,7 @@ import {
 
 const NonBlankPostgresText = Schema.String.check(
   Schema.makeFilter((value) => {
-    if (value.trim().length === 0) return "Expected non-blank text";
+    if (!isNonBlankString(value)) return "Expected non-blank text";
     if (value.includes("\u0000")) {
       return "PostgreSQL text cannot contain a null byte";
     }

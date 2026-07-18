@@ -1,6 +1,7 @@
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { asNonArrayRecord, isNonArrayRecord } from "@flarex/utils/records";
+import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { Data, Effect, Option, Result, Schema } from "effect";
 
@@ -531,8 +532,7 @@ function validateFailureSummary(
 ): Result.Result<string | undefined, CommitWakeInputErrorV1> {
   if (value === undefined) return Result.succeed(undefined);
   if (
-    typeof value !== "string" ||
-    value.trim().length === 0 ||
+    !isNonBlankString(value) ||
     UTF8_ENCODER.encode(value).byteLength >
       MAX_COMMIT_WAKE_FAILURE_SUMMARY_UTF8_BYTES_V1
   ) {
@@ -1422,7 +1422,7 @@ function decodeFailureEvidence(
     !isFailureCode(code) ||
     failedAtEpochMilliseconds === null ||
     (summary !== null &&
-      (summary.trim().length === 0 ||
+      (!isNonBlankString(summary) ||
         UTF8_ENCODER.encode(summary).byteLength >
           MAX_COMMIT_WAKE_FAILURE_SUMMARY_UTF8_BYTES_V1))
   ) {

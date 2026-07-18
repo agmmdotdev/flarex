@@ -1,3 +1,4 @@
+import { isNonBlankString } from "@flarex/utils/strings";
 import {
   decodeCatalogSchemaVersion,
   decodeCatalogSchemaVersionId,
@@ -269,7 +270,7 @@ function validateAndSnapshotInput(
   }
 
   const deploymentId = input.deploymentId;
-  if (typeof deploymentId !== "string" || deploymentId.trim().length === 0) {
+  if (!isNonBlankString(deploymentId)) {
     throw invalidField("deploymentId");
   }
 

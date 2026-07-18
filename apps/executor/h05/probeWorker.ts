@@ -1,5 +1,6 @@
 import { bytesEqualFullScan } from "@flarex/utils/bytes";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+import { isNonBlankString } from "@flarex/utils/strings";
 
 import {
   decodeH05ProofRunId,
@@ -227,7 +228,7 @@ function decodeProbeConfiguration(
 }
 
 function isConfiguredSecret(value: string | undefined): value is string {
-  return value !== undefined && value.trim().length > 0;
+  return isNonBlankString(value);
 }
 
 async function hasExactBearerCapability(

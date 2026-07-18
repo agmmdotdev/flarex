@@ -1,5 +1,6 @@
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { isNonBlankString } from "@flarex/utils/strings";
 import { asc, eq, gt } from "drizzle-orm";
 import {
   ScopeIdSchema,
@@ -198,12 +199,12 @@ type ScopeMetadataRow = typeof fxControlScopes.$inferSelect;
 function decodeScopeMetadataRecord(
   row: ScopeMetadataRow,
 ): ScopeMetadataRecord {
-  if (row.scopeId.trim().length === 0) {
+  if (!isNonBlankString(row.scopeId)) {
     throw new ScopeMetadataCorruptionError(row.scopeId, "scope ID is empty");
   }
   if (
     row.activeSchemaVersionId !== null &&
-    row.activeSchemaVersionId.trim().length === 0
+    !isNonBlankString(row.activeSchemaVersionId)
   ) {
     throw new ScopeMetadataCorruptionError(
       row.scopeId,
@@ -275,10 +276,8 @@ function decodeScopePhysicalLocator(
     );
   }
   if (
-    typeof value.databaseKey !== "string" ||
-    value.databaseKey.trim().length === 0 ||
-    typeof value.schemaName !== "string" ||
-    value.schemaName.trim().length === 0
+    !isNonBlankString(value.databaseKey) ||
+    !isNonBlankString(value.schemaName)
   ) {
     throw new ScopeMetadataCorruptionError(
       scopeId,
@@ -317,7 +316,7 @@ function requireNonBlankInput(
   value: string,
   field: InvalidScopeMetadataInputField,
 ): void {
-  if (value.trim().length === 0) {
+  if (!isNonBlankString(value)) {
     throw new InvalidScopeMetadataInputError(field);
   }
 }

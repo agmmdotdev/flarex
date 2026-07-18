@@ -1,3 +1,4 @@
+import { isNonBlankString } from "@flarex/utils/strings";
 import { eq } from "drizzle-orm";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
@@ -219,13 +220,13 @@ export function captureSharedScopePhysicalLocator(
     throw new UnsupportedScopeAuthorityProvisioningTopologyError(String(kind));
   }
   const databaseKey = locator.databaseKey;
-  if (databaseKey.trim().length === 0) {
+  if (!isNonBlankString(databaseKey)) {
     throw new InvalidScopeMetadataInputError(
       "physicalLocator.databaseKey",
     );
   }
   const schemaName = locator.schemaName;
-  if (schemaName.trim().length === 0) {
+  if (!isNonBlankString(schemaName)) {
     throw new InvalidScopeMetadataInputError("physicalLocator.schemaName");
   }
   return captureScopePhysicalLocator({ kind, databaseKey, schemaName });

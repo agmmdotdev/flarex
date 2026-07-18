@@ -1,4 +1,5 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
+import { isNonBlankString } from "@flarex/utils/strings";
 import { and, desc, eq } from "drizzle-orm";
 import {
   decodeCatalogIndexDefinitionId,
@@ -1449,7 +1450,7 @@ function decodeStoredAccess(
 }
 
 function decodeDeploymentId(value: unknown): string {
-  if (typeof value !== "string" || value.trim().length === 0) {
+  if (!isNonBlankString(value)) {
     throw new InvalidAppIndexDefinitionBindingInputError({
       reason: "invalidDeploymentId",
     });
@@ -1515,7 +1516,7 @@ function decodeLogicalSpecInput(
 }
 
 function decodeStoredDeploymentId(value: unknown): string {
-  if (typeof value !== "string" || value.trim().length === 0) {
+  if (!isNonBlankString(value)) {
     throw new AppIndexDefinitionCatalogCorruptionError(
       typeof value === "string" ? value : "<invalid>",
       "definition deployment ID is invalid",

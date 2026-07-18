@@ -1,4 +1,5 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
+import { isNonBlankString } from "@flarex/utils/strings";
 import { eq, sql } from "drizzle-orm";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
@@ -219,10 +220,10 @@ type ScopeClockRecordRow = Pick<
 export function decodeScopeClockRecord(
   row: ScopeClockRecordRow,
 ): ScopeClockRecord {
-  if (row.scopeId.trim().length === 0) {
+  if (!isNonBlankString(row.scopeId)) {
     throw new ScopeClockCorruptionError(row.scopeId, "scope ID is empty");
   }
-  if (row.epoch.trim().length === 0) {
+  if (!isNonBlankString(row.epoch)) {
     throw new ScopeClockCorruptionError(row.scopeId, "epoch is empty");
   }
   if (row.storageGenerationFence < 1n) {

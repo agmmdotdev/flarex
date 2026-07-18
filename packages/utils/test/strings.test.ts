@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { compareUtf16Strings } from "@flarex/utils/strings";
+import {
+  compareUtf16Strings,
+  isNonBlankString,
+} from "@flarex/utils/strings";
 
 describe("compareUtf16Strings", () => {
   it("returns zero for equal strings", () => {
@@ -18,5 +21,23 @@ describe("compareUtf16Strings", () => {
 
   it("compares UTF-16 code units rather than Unicode code points", () => {
     expect(compareUtf16Strings("\u{1f600}", "\ue000")).toBe(-1);
+  });
+});
+
+describe("isNonBlankString", () => {
+  it("rejects non-string values and ECMAScript whitespace-only strings", () => {
+    expect(isNonBlankString(undefined)).toBe(false);
+    expect(isNonBlankString(null)).toBe(false);
+    expect(isNonBlankString(1)).toBe(false);
+    expect(isNonBlankString("")).toBe(false);
+    expect(isNonBlankString(" \t\r\n")).toBe(false);
+    expect(isNonBlankString("\u00a0\ufeff")).toBe(false);
+  });
+
+  it("accepts strings without normalizing or imposing domain text policy", () => {
+    expect(isNonBlankString("value")).toBe(true);
+    expect(isNonBlankString("  value  ")).toBe(true);
+    expect(isNonBlankString("\u200b")).toBe(true);
+    expect(isNonBlankString("\u0000")).toBe(true);
   });
 });

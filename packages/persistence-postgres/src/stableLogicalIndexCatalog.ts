@@ -1,4 +1,5 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
+import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
 import {
   decodeCatalogIndexId,
@@ -95,7 +96,7 @@ function validateNonBlank(
   value: string,
   field: "deploymentId" | "descriptor",
 ): void {
-  if (typeof value !== "string" || value.trim().length === 0) {
+  if (!isNonBlankString(value)) {
     throw new InvalidStableLogicalIndexIdentityInputError(field);
   }
 }
@@ -147,13 +148,13 @@ function decodeStoredTableId(
 function decodeStableLogicalIndexIdentity(
   row: typeof fxControlIndexes.$inferSelect,
 ): StableLogicalIndexIdentity {
-  if (row.deploymentId.trim().length === 0) {
+  if (!isNonBlankString(row.deploymentId)) {
     throw new StableLogicalIndexCatalogCorruptionError(
       row.deploymentId,
       "deployment ID is blank",
     );
   }
-  if (row.descriptor.trim().length === 0) {
+  if (!isNonBlankString(row.descriptor)) {
     throw new StableLogicalIndexCatalogCorruptionError(
       row.deploymentId,
       "descriptor is blank",

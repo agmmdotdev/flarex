@@ -190,6 +190,15 @@ Raw HTTP JSON readers return `unknown`. An unconstrained generic type argument
 or assertion does not validate a response body and must not let callers choose
 an arbitrary success type. Keep the domain-owned payload decoder as the sole
 authority that turns the raw body into a typed success value.
+Use `@flarex/utils/strings` to classify an unknown value as a primitive
+nonblank string only when the contract is exactly "at least one code unit
+remains after ECMAScript `trim`". The predicate does not return a normalized
+spelling and deliberately does not reject null bytes or zero-width characters,
+impose Unicode normalization or byte limits, prove PostgreSQL/JSON safety, or
+establish a domain identifier or secret policy. Keep those stronger checks,
+their order, messages, and brands with their owner. When a boundary needs the
+trimmed spelling itself, normalize once locally instead of validating and then
+trimming again through a generic predicate.
 Use `@flarex/utils/numbers` to classify an unknown value as a positive or
 non-negative JavaScript safe integer. The non-negative predicate deliberately
 accepts JavaScript negative zero, matching `Number.isSafeInteger(value)` plus

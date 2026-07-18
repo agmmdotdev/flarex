@@ -1,3 +1,4 @@
+import { isNonBlankString } from "@flarex/utils/strings";
 import { Schema } from "effect";
 
 import { isCanonicalArrayIndex } from "./canonical-array-index";
@@ -33,7 +34,7 @@ export const MAX_SCHEMA_MANIFEST_APP_INDEX_DECLARED_FIELDS = 15;
 
 const NonBlankPostgresText = Schema.String.check(
   Schema.makeFilter((value) =>
-    value.trim().length > 0 && isPostgresJsonString(value)
+    isNonBlankString(value) && isPostgresJsonString(value)
       ? undefined
       : "Expected nonblank PostgreSQL-safe text",
   ),

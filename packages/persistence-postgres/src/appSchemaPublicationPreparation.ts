@@ -1,3 +1,4 @@
+import { isNonBlankString } from "@flarex/utils/strings";
 import {
   compileAppSchemaCatalogRequirementsV1,
   type CompiledAppSchemaCatalogRequirementsV1,
@@ -264,7 +265,7 @@ function validateAndSnapshotInput(
     input.indexes,
   );
   const deploymentId = input.deploymentId;
-  if (typeof deploymentId !== "string" || deploymentId.trim().length === 0) {
+  if (!isNonBlankString(deploymentId)) {
     throw invalidField("deploymentId");
   }
 

@@ -1,4 +1,5 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
+import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
@@ -188,7 +189,7 @@ function validateNonBlank(
   value: string,
   field: "deploymentId" | "logicalName",
 ): void {
-  if (typeof value !== "string" || value.trim().length === 0) {
+  if (!isNonBlankString(value)) {
     throw new InvalidStableTableIdentityInputError(field);
   }
 }
@@ -219,13 +220,13 @@ function decodeStableTableIdentity(
       `invalid namespace: ${String(row.namespace)}`,
     );
   }
-  if (row.deploymentId.trim().length === 0) {
+  if (!isNonBlankString(row.deploymentId)) {
     throw new StableTableCatalogCorruptionError(
       row.deploymentId,
       "deployment ID is blank",
     );
   }
-  if (row.logicalName.trim().length === 0) {
+  if (!isNonBlankString(row.logicalName)) {
     throw new StableTableCatalogCorruptionError(
       row.deploymentId,
       "logical name is blank",

@@ -1,3 +1,5 @@
+import { isNonBlankString } from "@flarex/utils/strings";
+
 export interface ExecutorDatabaseClient {
   connect(): Promise<unknown>;
   end(): Promise<void>;
@@ -126,7 +128,7 @@ export function createRequestScopedExecutorWorker<
 }
 
 function hasConfiguredValue(value: string | undefined): value is string {
-  return value !== undefined && value.trim().length > 0;
+  return isNonBlankString(value);
 }
 
 function hasBearerCapability(

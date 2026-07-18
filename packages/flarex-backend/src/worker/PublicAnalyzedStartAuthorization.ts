@@ -1,3 +1,4 @@
+import { isNonBlankString } from "@flarex/utils/strings";
 import { Data, Effect } from "effect";
 import { HttpError } from "../http";
 import type { Env } from "../types";
@@ -15,28 +16,34 @@ export class PublicDeploymentPushAuthorizationError
 type PublicDeploymentPushAuthorizationEnv = Pick<Env, "FLAREX_ANALYZED_START_TOKEN">;
 type PublicAnalyzedStartAuthorizationEnv = PublicDeploymentPushAuthorizationEnv;
 
+const authorizePublicDeploymentPush = Effect.fn(
+  "PublicDeploymentPush.authorize",
+)(function* (
+  request: Request,
+  env: PublicDeploymentPushAuthorizationEnv,
+) {
+  const token = env.FLAREX_ANALYZED_START_TOKEN;
+  if (!isNonBlankString(token)) {
+    return yield* new PublicDeploymentPushAuthorizationError();
+  }
+  const expected = `Bearer ${token}`;
+  if (request.headers.get("authorization") !== expected) {
+    return yield* new PublicDeploymentPushAuthorizationError();
+  }
+});
+
 export function authorizePublicAnalyzedStartRequest(
   request: Request,
   env: PublicAnalyzedStartAuthorizationEnv,
 ): Effect.Effect<void, PublicAnalyzedStartAuthorizationError> {
-  return authorizePublicDeploymentPushMutationRequest(request, env);
+  return authorizePublicDeploymentPush(request, env);
 }
 
 export function authorizePublicDeploymentPushMutationRequest(
   request: Request,
   env: PublicDeploymentPushAuthorizationEnv,
 ): Effect.Effect<void, PublicDeploymentPushAuthorizationError> {
-  return Effect.suspend(() => {
-    const token = env.FLAREX_ANALYZED_START_TOKEN;
-    if (token === undefined || token.trim() === "") {
-      return Effect.fail(new PublicDeploymentPushAuthorizationError());
-    }
-    const expected = `Bearer ${token}`;
-    if (request.headers.get("authorization") === expected) {
-      return Effect.void;
-    }
-    return Effect.fail(new PublicDeploymentPushAuthorizationError());
-  });
+  return authorizePublicDeploymentPush(request, env);
 }
 
 export function publicAnalyzedStartAuthorizationErrorToHttpError(

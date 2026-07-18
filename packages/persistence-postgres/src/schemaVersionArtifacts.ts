@@ -1,6 +1,7 @@
 import { bytesEqual } from "@flarex/utils/bytes";
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
@@ -406,7 +407,7 @@ function validateEnsureInput(
 }
 
 function validateDeploymentId(deploymentId: string): void {
-  if (typeof deploymentId !== "string" || deploymentId.trim().length === 0) {
+  if (!isNonBlankString(deploymentId)) {
     throw new InvalidSchemaVersionArtifactInputError("deploymentId");
   }
 }
@@ -525,7 +526,7 @@ async function decodeSchemaVersionArtifactRow(
 function decodeStoredSchemaVersionArtifactRow(
   row: SchemaVersionArtifactRow,
 ): StoredSchemaVersionArtifact {
-  if (row.deploymentId.trim().length === 0) {
+  if (!isNonBlankString(row.deploymentId)) {
     throw new SchemaVersionArtifactCorruptionError(
       row.deploymentId,
       "deployment ID is blank",

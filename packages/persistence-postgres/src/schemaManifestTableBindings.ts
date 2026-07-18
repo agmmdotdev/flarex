@@ -1,3 +1,4 @@
+import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   decodeCatalogTableId,
@@ -260,7 +261,7 @@ export async function applySchemaManifestAppTableBindingsV1InTransaction(
 }
 
 function validateDeploymentId(deploymentId: string): string {
-  if (typeof deploymentId !== "string" || deploymentId.trim().length === 0) {
+  if (!isNonBlankString(deploymentId)) {
     throw new InvalidSchemaManifestTableBindingInputError({
       reason: "invalidDeploymentId",
     });

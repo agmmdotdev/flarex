@@ -6,6 +6,7 @@ import {
   isNonNegativeSafeInteger,
   isPositiveSafeInteger,
 } from "@flarex/utils/numbers";
+import { isNonBlankString } from "@flarex/utils/strings";
 import { Data, Effect, Encoding, Result, Schema } from "effect";
 
 import type { Json, JsonObject } from "./json";
@@ -273,7 +274,7 @@ export function transactionGrantRequestSha256BytesV1FromHex(
 
 const TransactionGrantClaimNameV1Schema = Schema.String.check(
   Schema.makeFilter((value) => {
-    if (value.trim().length === 0 || value.includes("\u0000")) {
+    if (!isNonBlankString(value) || value.includes("\u0000")) {
       return "Expected a nonblank claim name without null bytes";
     }
     return TEXT_ENCODER.encode(value).byteLength <= 128
@@ -1086,7 +1087,7 @@ function transactionGrantBase64UrlDecodeError(
 }
 
 function validateBoundedGrantText(value: string): string | undefined {
-  if (value.trim().length === 0) return "Expected nonblank grant text";
+  if (!isNonBlankString(value)) return "Expected nonblank grant text";
   if (value.includes("\u0000")) return "Grant text cannot contain a null byte";
   return TEXT_ENCODER.encode(value).byteLength <=
     MAX_TRANSACTION_GRANT_TEXT_UTF8_BYTES_V1

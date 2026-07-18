@@ -1,5 +1,6 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
+import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
@@ -479,7 +480,7 @@ function requireReadyReceipt(
 function decodeScopeAuthorityProvisioningReceipt(
   row: ScopeAuthorityProvisioningReceiptRow,
 ): SplitScopeAuthorityProvisioningReceipt {
-  if (row.scopeId.trim().length === 0) {
+  if (!isNonBlankString(row.scopeId)) {
     throw new ScopeAuthorityProvisioningReceiptCorruptionError(
       row.scopeId,
       "scope ID is empty",
@@ -494,7 +495,7 @@ function decodeScopeAuthorityProvisioningReceipt(
       "protocol version is unsupported",
     );
   }
-  if (row.initialEpoch.trim().length === 0) {
+  if (!isNonBlankString(row.initialEpoch)) {
     throw new ScopeAuthorityProvisioningReceiptCorruptionError(
       row.scopeId,
       "initial epoch is empty",
@@ -608,10 +609,8 @@ function decodeSplitScopePhysicalLocator(
     );
   }
   if (
-    typeof value.databaseKey !== "string" ||
-    value.databaseKey.trim().length === 0 ||
-    typeof value.schemaName !== "string" ||
-    value.schemaName.trim().length === 0
+    !isNonBlankString(value.databaseKey) ||
+    !isNonBlankString(value.schemaName)
   ) {
     throw new ScopeAuthorityProvisioningReceiptCorruptionError(
       scopeId,
@@ -659,7 +658,7 @@ function requireNonBlankInput(
   value: string,
   field: InvalidScopeAuthorityProvisioningReceiptInputField,
 ): void {
-  if (value.trim().length === 0) {
+  if (!isNonBlankString(value)) {
     throw new InvalidScopeAuthorityProvisioningReceiptInputError(field);
   }
 }
