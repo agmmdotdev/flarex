@@ -2,8 +2,25 @@ import { describe, expect, it } from "vitest";
 
 import {
   storedAuthorityCorruptionResult,
+  storedAuthorityMismatchResult,
   type StoredAuthorityCorruptionResult,
+  type StoredAuthorityMismatchResult,
 } from "../src/storedAuthorityLoadResult";
+
+describe("storedAuthorityMismatchResult", () => {
+  it("returns a fresh frozen mismatch result", () => {
+    const result: StoredAuthorityMismatchResult<"scopeChanged"> =
+      storedAuthorityMismatchResult("scopeChanged");
+    const second = storedAuthorityMismatchResult("scopeChanged");
+
+    expect(result).toEqual({
+      kind: "authorityMismatch",
+      reason: "scopeChanged",
+    });
+    expect(second).not.toBe(result);
+    expect(Object.isFrozen(result)).toBe(true);
+  });
+});
 
 describe("storedAuthorityCorruptionResult", () => {
   it("returns a frozen corruption result and omits an undefined cause", () => {

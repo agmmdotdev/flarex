@@ -28,7 +28,9 @@ import type { FlarexValueCodecVersion } from "flarex-protocol/value";
 
 import {
   storedAuthorityCorruptionResult,
+  storedAuthorityMismatchResult,
   type StoredAuthorityCorruptionResult,
+  type StoredAuthorityMismatchResult,
 } from "../storedAuthorityLoadResult";
 
 export const MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1 =
@@ -126,9 +128,7 @@ export type StoredCommitAuthorityEvidenceLoadResultV1 =
       readonly kind: "notPlannable";
       readonly reason: "lifecycle" | "rootNotSealed" | "expired";
     }>
-  | Readonly<{
-      readonly kind: "authorityMismatch";
-      readonly reason:
+  | StoredAuthorityMismatchResult<
         | "placementChanged"
         | "scopeChanged"
         | "attemptMissing"
@@ -138,8 +138,8 @@ export type StoredCommitAuthorityEvidenceLoadResultV1 =
         | "snapshotChanged"
         | "schemaChanged"
         | "revocationEpochChanged"
-        | "sealChanged";
-    }>
+        | "sealChanged"
+    >
   | StoredAuthorityCorruptionResult<StoredCommitAuthorityCorruptionReasonV1>;
 
 export type StoredCommitAuthorityEvidencePersistenceOperationV1 =
@@ -173,7 +173,7 @@ export function authorityMismatch(
     { readonly kind: "authorityMismatch" }
   >["reason"],
 ): StoredCommitAuthorityEvidenceLoadResultV1 {
-  return Object.freeze({ kind: "authorityMismatch", reason });
+  return storedAuthorityMismatchResult(reason);
 }
 
 export function corrupt(

@@ -77,7 +77,9 @@ import {
 } from "./schema";
 import {
   storedAuthorityCorruptionResult,
+  storedAuthorityMismatchResult,
   type StoredAuthorityCorruptionResult,
+  type StoredAuthorityMismatchResult,
 } from "./storedAuthorityLoadResult";
 import {
   RUN_LOCATED_REPEATABLE_READ_V1,
@@ -240,10 +242,7 @@ export type StoredAttemptEvidenceLoadResultV1 =
       readonly lifecycle?: TransactionSessionLifecycleV1;
       readonly rootState?: JournalRootRow["state"];
     }>
-  | Readonly<{
-      readonly kind: "authorityMismatch";
-      readonly reason: StoredAttemptAuthorityMismatchReasonV1;
-    }>
+  | StoredAuthorityMismatchResult<StoredAttemptAuthorityMismatchReasonV1>
   | StoredAuthorityCorruptionResult<StoredAttemptCorruptionReasonV1>;
 
 export interface StoredAttemptEvidenceLoaderV1 {
@@ -1104,7 +1103,7 @@ function decodeDatabaseNow(value: string | undefined): number | undefined {
 function authorityMismatch(
   reason: StoredAttemptAuthorityMismatchReasonV1,
 ): StoredAttemptEvidenceLoadResultV1 {
-  return Object.freeze({ kind: "authorityMismatch", reason });
+  return storedAuthorityMismatchResult(reason);
 }
 
 function corrupt(
