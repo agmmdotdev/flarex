@@ -7,7 +7,10 @@ import {
   cloudflareApiToken,
   positiveSafeInteger,
 } from "./cloudflareApiConfiguration";
-import { readH05BoundedResponseBody } from "./h05BoundedResponseBody";
+import {
+  discardH05BoundedResponseBody,
+  readH05BoundedResponseBody,
+} from "./h05BoundedResponseBody";
 
 export type H05TelemetryView = "events" | "traces";
 
@@ -103,7 +106,7 @@ export function createH05CloudflareTelemetryApi(
         throw new Error("Cloudflare telemetry query failed before a response was returned.");
       }
       if (response.status !== 200) {
-        await discardBoundedBody(response, maximumResponseBytes);
+        await discardH05BoundedResponseBody(response, maximumResponseBytes);
         throw new Error(
           `Cloudflare telemetry query returned HTTP ${response.status}.`,
         );
@@ -145,17 +148,6 @@ async function readBoundedJson(
     return JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     throw new Error("Cloudflare telemetry query returned invalid JSON.");
-  }
-}
-
-async function discardBoundedBody(
-  response: Response,
-  maximumResponseBytes: number,
-): Promise<void> {
-  try {
-    await readBoundedBody(response, maximumResponseBytes);
-  } catch {
-    // The status is the only retained error evidence. Never surface a body.
   }
 }
 

@@ -7,7 +7,10 @@ import {
   cloudflareApiToken,
   positiveSafeInteger,
 } from "./cloudflareApiConfiguration";
-import { readH05BoundedResponseBody } from "./h05BoundedResponseBody";
+import {
+  discardH05BoundedResponseBody,
+  readH05BoundedResponseBody,
+} from "./h05BoundedResponseBody";
 
 export interface H05CloudflareReadApi {
   get(
@@ -63,7 +66,7 @@ export function createH05CloudflareReadApi(
         throw new Error(`Cloudflare API read failed for ${safePath(path)}.`);
       }
       if (response.status !== 200) {
-        await discardBoundedBody(response, maximumResponseBytes);
+        await discardH05BoundedResponseBody(response, maximumResponseBytes);
         throw new Error(
           `Cloudflare API read returned HTTP ${response.status} for ${safePath(path)}.`,
         );
@@ -84,7 +87,7 @@ export function createH05CloudflareReadApi(
       } catch {
         throw new Error("H05 direct public Worker check failed before a status was returned.");
       }
-      await discardBoundedBody(response, maximumResponseBytes);
+      await discardH05BoundedResponseBody(response, maximumResponseBytes);
       return response.status;
     },
   };
@@ -154,17 +157,6 @@ async function readBoundedJson(
     return JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     throw new Error(`Cloudflare API returned invalid JSON for ${safePath(path)}.`);
-  }
-}
-
-async function discardBoundedBody(
-  response: Response,
-  maximumResponseBytes: number,
-): Promise<void> {
-  try {
-    await readBoundedBody(response, maximumResponseBytes);
-  } catch {
-    // The status is the only retained public/error evidence. Never surface a body.
   }
 }
 

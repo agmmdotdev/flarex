@@ -15,7 +15,10 @@ import {
   cloudflareApiToken,
   positiveSafeInteger,
 } from "./cloudflareApiConfiguration";
-import { readH05BoundedResponseBody } from "./h05BoundedResponseBody";
+import {
+  discardH05BoundedResponseBody,
+  readH05BoundedResponseBody,
+} from "./h05BoundedResponseBody";
 
 export type H05CloudflareProbeDeletionResult =
   | { readonly outcome: "deleted"; readonly status: 200 }
@@ -85,7 +88,7 @@ export function createH05CloudflareProbeTeardownApi(
         timeoutMs,
       );
       if (response.status !== 200) {
-        await discardBoundedBody(response, maximumResponseBytes);
+        await discardH05BoundedResponseBody(response, maximumResponseBytes);
         throw new Error(
           `Cloudflare Scripts account access check returned HTTP ${response.status}.`,
         );
@@ -103,11 +106,11 @@ export function createH05CloudflareProbeTeardownApi(
         timeoutMs,
       );
       if (response.status === 404) {
-        await discardBoundedBody(response, maximumResponseBytes);
+        await discardH05BoundedResponseBody(response, maximumResponseBytes);
         return { outcome: "already-absent", status: 404 };
       }
       if (response.status !== 200) {
-        await discardBoundedBody(response, maximumResponseBytes);
+        await discardH05BoundedResponseBody(response, maximumResponseBytes);
         throw new Error(
           `Cloudflare probe deletion returned HTTP ${response.status}.`,
         );
@@ -124,7 +127,7 @@ export function createH05CloudflareProbeTeardownApi(
         apiToken,
         timeoutMs,
       );
-      await discardBoundedBody(response, maximumResponseBytes);
+      await discardH05BoundedResponseBody(response, maximumResponseBytes);
       if (response.status === 200 || response.status === 404) {
         return response.status;
       }
@@ -147,7 +150,7 @@ export function createH05CloudflareProbeTeardownApi(
           "H05 public probe teardown check failed before a status was returned.",
         );
       }
-      await discardBoundedBody(response, maximumResponseBytes);
+      await discardH05BoundedResponseBody(response, maximumResponseBytes);
       return httpStatus(response.status, "public probe status");
     },
   };
@@ -228,17 +231,6 @@ async function validateDeleteSuccess(
     value.errors.length !== 0
   ) {
     throw new Error("Cloudflare probe deletion returned an invalid response.");
-  }
-}
-
-async function discardBoundedBody(
-  response: Response,
-  maximumResponseBytes: number,
-): Promise<void> {
-  try {
-    await readBoundedBody(response, maximumResponseBytes);
-  } catch {
-    // Only the status is evidence. Never retain or surface provider/public bodies.
   }
 }
 

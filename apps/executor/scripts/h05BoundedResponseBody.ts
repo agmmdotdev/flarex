@@ -1,5 +1,20 @@
 import { isNonNegativeSafeInteger } from "@flarex/utils/numbers";
 
+export async function discardH05BoundedResponseBody(
+  response: Response,
+  maximumResponseBytes: number,
+): Promise<void> {
+  try {
+    await readH05BoundedResponseBody(
+      response,
+      maximumResponseBytes,
+      () => new Error("Discarded H05 response exceeded its size limit."),
+    );
+  } catch {
+    // The status is the only retained evidence. Never surface body details.
+  }
+}
+
 export async function readH05BoundedResponseBody(
   response: Response,
   maximumResponseBytes: number,
@@ -9,6 +24,13 @@ export async function readH05BoundedResponseBody(
   if (contentLength !== null) {
     const parsed = Number(contentLength);
     if (!isNonNegativeSafeInteger(parsed) || parsed > maximumResponseBytes) {
+      if (response.body !== null) {
+        try {
+          await response.body.cancel();
+        } catch {
+          // Preserve the declared-size failure and never surface body details.
+        }
+      }
       throw createSizeError();
     }
   }
