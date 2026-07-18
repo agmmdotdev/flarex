@@ -70,6 +70,9 @@ import {
 import type { FlarexMetadataDatabase } from "./deployments";
 import type { AppRowTransaction } from "./appRows";
 import {
+  createCommittedPointOutcomeResolverV1,
+} from "./committedPointOutcome";
+import {
   getScopeClock,
   decodeScopeClockRecord,
   ScopeClockNotFoundError,
@@ -93,6 +96,7 @@ import {
 } from "./schema";
 import {
   RESOLVE_PINNED_POINT_TABLE_ID_V1,
+  RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
   LocatedReadCommittedTransactionFailureV1,
   RUN_LOCATED_READ_COMMITTED_V1,
   RUN_LOCATED_REPEATABLE_READ_V1,
@@ -101,6 +105,7 @@ import {
   type ExactRunningAttemptKernelInputV1,
   type ExactRunningAttemptWorkV1,
   type LocatedExactRunningAttemptKernelV1,
+  type LocatedPointCommitPublicationTargetV1,
 } from "./transactionSessionAttemptKernel";
 
 const UUID_V4_PATTERN =
@@ -490,7 +495,8 @@ interface LocatedPointMutationSessionTargetV1
   extends LocatedPointMutationSessionActivationTargetV1,
     LocatedPointMutationSessionAttemptLoadTargetV1,
     LocatedPointMutationSessionAttemptTerminalizationTargetV1,
-    LocatedExactRunningAttemptKernelV1 {}
+    LocatedExactRunningAttemptKernelV1,
+    LocatedPointCommitPublicationTargetV1 {}
 
 interface LocatedPointMutationSessionActivationInputV1 {
   readonly prepared: PreparedPointMutationSessionActivationV1;
@@ -658,6 +664,7 @@ export function createLocatedPointMutationSessionActivationTargetV1(
   const afterWrite = options.afterWrite;
   const afterLoadLock = options.afterLoadLock;
   const afterTerminalizationEvent = options.afterTerminalizationEvent;
+  const committedOutcomeResolver = createCommittedPointOutcomeResolverV1(db);
   const target = Object.freeze({
     physicalLocator: capturedLocator,
     getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
@@ -717,6 +724,8 @@ export function createLocatedPointMutationSessionActivationTargetV1(
         );
       });
     },
+    [RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1]:
+      committedOutcomeResolver.resolve,
     terminalizeExactPointMutationSessionAttempt: (
       input: LocatedPointMutationSessionAttemptTerminalizationInputV1,
     ) => db.transaction((tx) =>

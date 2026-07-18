@@ -9,6 +9,7 @@ import {
 } from "flarex-protocol/app-document-id";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import {
+  CanonicalSuccessfulResultBytesV1Schema,
   CommitEnvelopeV1Schema,
   CommitSyscallSequenceV1Schema,
   SESSION_JOURNAL_FORMAT_V1,
@@ -44,6 +45,7 @@ import {
   SnapshotTokenSchema,
   StorageGenerationFenceSchema,
   decodeReplacementScopeIdV1,
+  projectScopeIdUuidV1,
 } from "flarex-protocol/storage-authority";
 import {
   TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
@@ -119,6 +121,7 @@ import {
   isLocatedReadCommittedAttemptTargetV1,
 } from "../src/transactionSessionAttemptKernel";
 import {
+  createPointCommitPublisherPortV1,
   createPointCommitRollbackProofPortV1,
   PointCommitConflictV1Error,
   PointCommitCorruptionV1Error,
@@ -126,7 +129,11 @@ import {
   PointCommitSqlErrorV1,
   PointCommitStaleAuthorityV1Error,
   type PointCommitTransactionCommandV1,
+  type PointCommitTransactionProofOptionsV1,
 } from "../src/pointCommitTransaction";
+import {
+  CommittedPointOutcomeRequestKeyReuseErrorV1,
+} from "../src/committedPointOutcome";
 import {
   pointCommitCommandFromStoredAttemptV1,
 } from "./pointCommitTransactionTestSupport";
@@ -691,6 +698,313 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       revisions: "0",
       current_rows: "0",
       last_commit_seq: "0",
+    });
+  });
+
+  it("publishes one point mutation atomically and replays it without authority", async () => {
+    const prepared = await prepareO07BScenario(
+      "o07b_publish_replay",
+      async (current, table) => {
+        await expect(current.store.runPointOperation(table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "published" },
+        })).resolves.toMatchObject({
+          kind: "completed",
+          outcome: { kind: "inserted" },
+        });
+      },
+    );
+    const published = await runEffect(
+      prepared.authentication.publishPointCommit(prepared.plan),
+    );
+    expect(published).toMatchObject({
+      kind: "published",
+      token: { scopeUuid: prepared.scopeUuid, commitSeq: 1n },
+      successfulResult: { valueJson: { ok: true } },
+    });
+    expect(await o06DurableState(prepared.scopeUuid)).toEqual({
+      revisions: "1",
+      current_rows: "1",
+      commit_headers: "1",
+      commit_changes: "1",
+      outcomes: "1",
+      wakes: "1",
+      last_commit_seq: "1",
+      last_outbox_seq: "1",
+    });
+    const terminal = await o07bTerminalState(
+      prepared.scopeUuid,
+      prepared.current.anchor.sessionId,
+    );
+    expect(terminal).toEqual({
+      lifecycle: "committed",
+      leases: "0",
+      journals: "0",
+      receipts: "0",
+      points: "0",
+      write_events: "0",
+    });
+
+    if (published.kind !== "published") {
+      throw new Error("Expected the initial O07-B publication.");
+    }
+    const callerBytes = published.successfulResult.canonicalBytes;
+    callerBytes.fill(0);
+    const replayed = await runEffect(
+      prepared.authentication.publishPointCommit(prepared.plan),
+    );
+    expect(replayed).toMatchObject({
+      kind: "replayed",
+      token: published.token,
+      successfulResult: { valueJson: { ok: true } },
+    });
+    expect(replayed.kind === "replayed"
+      ? replayed.successfulResult.canonicalBytes
+      : new Uint8Array()).not.toEqual(callerBytes);
+    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
+      revisions: "1",
+      commit_headers: "1",
+      outcomes: "1",
+      wakes: "1",
+      last_commit_seq: "1",
+      last_outbox_seq: "1",
+    });
+  });
+
+  it("publishes a successful zero-row mutation as one zero-change commit", async () => {
+    const prepared = await prepareO07BScenario("o07b_zero_row");
+    const published = await runEffect(
+      prepared.authentication.publishPointCommit(prepared.plan),
+    );
+    expect(published).toMatchObject({
+      kind: "published",
+      token: { scopeUuid: prepared.scopeUuid, commitSeq: 1n },
+    });
+    expect(await o06DurableState(prepared.scopeUuid)).toEqual({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "1",
+      commit_changes: "0",
+      outcomes: "1",
+      wakes: "1",
+      last_commit_seq: "1",
+      last_outbox_seq: "1",
+    });
+    const header = await persistence.query<{
+      change_count: number;
+      delivery_state: string;
+      attempt_count: string;
+      claim_fence: string;
+      same_initial_time: boolean;
+    }>(
+      `
+        select commit.change_count, wake.delivery_state,
+          wake.attempt_count::text, wake.claim_fence::text,
+          wake.created_at = wake.next_attempt_at as same_initial_time
+        from fx_system_commit as commit
+        join fx_system_outbox as wake
+          on wake.scope_uuid = commit.scope_uuid
+          and wake.commit_seq = commit.commit_seq
+        where commit.scope_uuid = $1
+      `,
+      [prepared.scopeUuid],
+    );
+    expect(header.rows[0]).toEqual({
+      change_count: 0,
+      delivery_state: "pending",
+      attempt_count: "0",
+      claim_fence: "0",
+      same_initial_time: true,
+    });
+  });
+
+  it("rejects malformed successful-result evidence before database I/O", async () => {
+    const prepared = await prepareO06Scenario(
+      "o07b_result_evidence",
+      () => Promise.resolve(),
+    );
+    const result = await runEffect(
+      canonicalizeSuccessfulResultV1Effect({ ok: true }),
+    );
+    const observedQueries: string[] = [];
+    const publisher = createPointCommitPublisherPortV1(
+      resolutionPorts(persistence),
+      { observeQuery: (query) => observedQueries.push(query.name) },
+    );
+    const failure = await runFailure(publisher.publish(Object.freeze({
+      ...prepared.command,
+      successfulResult: Object.freeze({
+        valueCodecVersion: result.evidence.valueCodecVersion,
+        value: result.valueJson,
+        canonicalBytes: CanonicalSuccessfulResultBytesV1Schema.make(
+          new Uint8Array(result.canonicalBytes.byteLength + 1),
+        ),
+        semanticSizeBytes: result.semanticSizeBytes,
+        sha256Hex: result.evidence.sha256Hex,
+      }),
+    })));
+    expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(failure).toMatchObject({ reason: "successfulResultInvalid" });
+    expect(observedQueries).toEqual([]);
+    expect(await o06DurableState(prepared.evidence.scopeUuid)).toEqual({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "0",
+      commit_changes: "0",
+      outcomes: "0",
+      wakes: "0",
+      last_commit_seq: "0",
+      last_outbox_seq: "0",
+    });
+  });
+
+  it("captures result insertion bytes once before locking the scope clock", async () => {
+    const prepared = await prepareO06Scenario(
+      "o07b_result_capture",
+      () => Promise.resolve(),
+    );
+    const result = await runEffect(
+      canonicalizeSuccessfulResultV1Effect({ ok: true }),
+    );
+    let clockLocked = false;
+    let byteReads = 0;
+    const publisher = createPointCommitPublisherPortV1(
+      resolutionPorts(persistence),
+      {
+        afterTransactionStep: (event) => {
+          if (event.step === "clockLocked") clockLocked = true;
+          return Promise.resolve();
+        },
+      },
+    );
+    const published = await runEffect(publisher.publish(Object.freeze({
+      ...prepared.command,
+      successfulResult: Object.freeze({
+        valueCodecVersion: result.evidence.valueCodecVersion,
+        value: result.valueJson,
+        get canonicalBytes() {
+          if (clockLocked) {
+            throw new Error("Result bytes were read after the scope lock.");
+          }
+          byteReads += 1;
+          return CanonicalSuccessfulResultBytesV1Schema.make(
+            new Uint8Array(result.canonicalBytes),
+          );
+        },
+        semanticSizeBytes: result.semanticSizeBytes,
+        sha256Hex: result.evidence.sha256Hex,
+      }),
+    })));
+    expect(published.kind).toBe("published");
+    expect(clockLocked).toBe(true);
+    expect(byteReads).toBe(1);
+  });
+
+  it("replays across epoch rollover, but a missing old receipt is stale", async () => {
+    const prepared = await prepareO07BScenario("o07b_epoch_replay");
+    const published = await runEffect(
+      prepared.authentication.publishPointCommit(prepared.plan),
+    );
+    expect(published.kind).toBe("published");
+    const nextEpoch = ScopeEpochSchema.make(
+      "epoch_94000000-0000-4000-8000-000000000001",
+    );
+    await persistence.query(
+      `
+        update fx_system_scope_clock
+        set epoch = $2, updated_at = clock_timestamp()
+        where scope_uuid = $1
+      `,
+      [
+        prepared.scopeUuid,
+        nextEpoch,
+      ],
+    );
+    await expect(runEffect(
+      prepared.authentication.publishPointCommit(prepared.plan),
+    )).resolves.toMatchObject({ kind: "replayed", token: { commitSeq: 1n } });
+
+    await persistence.query(
+      `delete from fx_system_idempotency where scope_uuid = $1`,
+      [prepared.scopeUuid],
+    );
+    const missingFailure = await runFailure(
+      prepared.authentication.publishPointCommit(prepared.plan),
+    );
+    expect(missingFailure).toBeInstanceOf(PointCommitStaleAuthorityV1Error);
+    expect(missingFailure).toMatchObject({ reason: "epochChanged" });
+  });
+
+  it("rolls back every publication atom when a late invariant fails", async () => {
+    const prepared = await prepareO07BScenario(
+      "o07b_late_rollback",
+      async (current, table) => {
+        await current.store.runPointOperation(table, {
+          kind: "insert",
+          syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+          fields: { name: "rolled back" },
+        });
+      },
+      {
+        afterTransactionStep: (event) => {
+          if (event.step === "wakeWritten") {
+            throw new PointCommitCorruptionV1Error({
+              reason: "publicationInvariantInvalid",
+            });
+          }
+          return Promise.resolve();
+        },
+      },
+    );
+    const failure = await runFailure(
+      prepared.authentication.publishPointCommit(prepared.plan),
+    );
+    expect(failure).toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(await o06DurableState(prepared.scopeUuid)).toEqual({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "0",
+      commit_changes: "0",
+      outcomes: "0",
+      wakes: "0",
+      last_commit_seq: "0",
+      last_outbox_seq: "0",
+    });
+    expect(await o07bTerminalState(
+      prepared.scopeUuid,
+      prepared.current.anchor.sessionId,
+    )).toMatchObject({
+      lifecycle: "finishing",
+      leases: "1",
+      journals: "1",
+    });
+  });
+
+  it("reports exact request-key evidence reuse before stale session checks", async () => {
+    const prepared = await prepareO07BScenario("o07b_reuse_conflict");
+    await runEffect(prepared.authentication.publishPointCommit(prepared.plan));
+    await persistence.query(
+      `
+        update fx_system_idempotency
+        set identity_access_policy_sha256 = decode(repeat('aa', 32), 'hex')
+        where scope_uuid = $1
+      `,
+      [prepared.scopeUuid],
+    );
+    const failure = await runFailure(
+      prepared.authentication.publishPointCommit(prepared.plan),
+    );
+    expect(failure).toBeInstanceOf(
+      CommittedPointOutcomeRequestKeyReuseErrorV1,
+    );
+    expect(failure).toMatchObject({
+      mismatches: ["identityAccessPolicySha256"],
+    });
+    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
+      commit_headers: "1",
+      outcomes: "1",
+      wakes: "1",
     });
   });
 
@@ -1644,6 +1958,69 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   }
 
+  async function prepareO07BScenario(
+    label: string,
+    operation?: (
+      current: Awaited<ReturnType<typeof c04b2Scenario>>,
+      table: Awaited<ReturnType<
+        Awaited<ReturnType<typeof c04b2Scenario>>["store"]["resolvePointTable"]
+      >>,
+    ) => Promise<void>,
+    options: PointCommitTransactionProofOptionsV1 = {},
+  ) {
+    const current = await c04b2Scenario(label);
+    const table = await current.store.resolvePointTable(
+      current.attempt,
+      "users",
+    );
+    await operation?.(current, table);
+    const envelope = await seal(current);
+    const loadedAttempt = await current.loading.load({
+      deploymentId: current.anchor.deploymentId,
+      scopeId: current.anchor.scopeId,
+      sessionId: current.anchor.sessionId,
+      attemptFence: current.anchor.attemptFence.toString(),
+    });
+    await setLifecycle(current.anchor.sessionId, "finishing");
+    const authentication = createStoredAttemptAuthenticationV1(
+      current.loader,
+      {
+        evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(
+          resolutionPorts(persistence),
+        ),
+        transactionGrantVerifier: current.verifier,
+        functionMetadata: {
+          load: () =>
+            Effect.succeed(structuredClone(current.functionSnapshot)),
+        },
+        pointCommit: createPointCommitPublisherPortV1(
+          resolutionPorts(persistence),
+          options,
+        ),
+      },
+    );
+    const authority = await runEffect(
+      authentication.deriveAuthority(loadedAttempt),
+    );
+    const stored = await runEffect(authentication.authenticate(
+      authority,
+      encodeEnvelope(envelope),
+    ));
+    const commitAuthority = await runEffect(
+      authentication.authenticateCommitAuthority(stored),
+    );
+    const verified = await runEffect(
+      authentication.verifyCommitInput(commitAuthority),
+    );
+    const plan = await runEffect(authentication.planPointCommit(verified));
+    return Object.freeze({
+      current,
+      authentication,
+      plan,
+      scopeUuid: projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
+    });
+  }
+
   async function commitCompetingPointRow(
     command: PointCommitTransactionCommandV1,
   ): Promise<void> {
@@ -1720,6 +2097,40 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     const row = result.rows[0];
     if (row === undefined) throw new Error("Missing O06 durable state.");
+    return row;
+  }
+
+  async function o07bTerminalState(
+    scopeUuid: string,
+    sessionId: string,
+  ) {
+    const result = await persistence.query<{
+      lifecycle: string;
+      leases: string;
+      journals: string;
+      receipts: string;
+      points: string;
+      write_events: string;
+    }>(
+      `
+        select session.lifecycle,
+          (select count(*)::text from fx_system_snapshot_lease
+            where scope_uuid = $1 and session_id = $2) as leases,
+          (select count(*)::text from fx_system_tx_journal
+            where scope_uuid = $1 and session_id = $2) as journals,
+          (select count(*)::text from fx_system_tx_journal_latest_receipt
+            where scope_uuid = $1 and session_id = $2) as receipts,
+          (select count(*)::text from fx_system_tx_journal_point
+            where scope_uuid = $1 and session_id = $2) as points,
+          (select count(*)::text from fx_system_tx_journal_write_event
+            where scope_uuid = $1 and session_id = $2) as write_events
+        from fx_system_tx_session as session
+        where session.scope_uuid = $1 and session.session_id = $2
+      `,
+      [scopeUuid, sessionId],
+    );
+    const row = result.rows[0];
+    if (row === undefined) throw new Error("Missing O07-B session state.");
     return row;
   }
 

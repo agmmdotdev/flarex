@@ -1,6 +1,8 @@
 import { Effect, Encoding, Result, Schema } from "effect";
 import {
   PointCommitCorruptionV1Error,
+  type PointCommitPublicationCommandV1,
+  type PointCommitPublisherPortV1,
   type PointCommitRollbackProofPortV1,
   type PointCommitTransactionCommandV1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
@@ -96,6 +98,8 @@ import type { VerifiedCommitInputV1 as ForbiddenVerifiedCommitInput } from "../s
 import type { PreparedPointCommitV1 as ForbiddenPreparedPointCommit } from "../src/index";
 // @ts-expect-error O06 proof capability types must remain absent from the package root.
 import type { StoredPointCommitRollbackProofV1 as ForbiddenPointCommitProof } from "../src/index";
+// @ts-expect-error O07-B publisher capability types must remain absent from the package root.
+import type { StoredPointCommitPublisherV1 as ForbiddenPointCommitPublisher } from "../src/index";
 import {
   createPointMutationSessionAttemptLoadingV1,
   type PointMutationSessionAttemptSelectorWireV1,
@@ -1425,6 +1429,90 @@ describe("C04A stored-attempt authentication", () => {
     expect(String(rejection)).toContain(defect.message);
   });
 
+  it("publishes O07-B only from a genuine same-factory plan with owned result evidence", async () => {
+    type RootLeak = Extract<
+      keyof typeof executorRoot,
+      | "StoredPointCommitPublisherV1"
+      | "publishPointCommit"
+      | "PointCommitPublicationCommandV1"
+    >;
+    expectTypeOf<RootLeak>().toEqualTypeOf<never>();
+    expect("publishPointCommit" in executorRoot).toBe(false);
+
+    const commands: PointCommitPublicationCommandV1[] = [];
+    const typedFailure = new PointCommitCorruptionV1Error({
+      reason: "publicationInvariantInvalid",
+    });
+    const port: PointCommitPublisherPortV1 = Object.freeze({
+      prove: Effect.fn("TestPointCommit.provePublisherRollback")(
+        () => Effect.succeed(Object.freeze({ kind: "wouldCommit" as const })),
+      ),
+      publish: Effect.fn("TestPointCommit.publish")(function* (command) {
+        commands.push(command);
+        return yield* Effect.fail(typedFailure);
+      }),
+    });
+    const fixture = await emptyFixture("o07b");
+    Object.assign(fixture.evidence.session, { lifecycle: "finishing" });
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture,
+      returnsValidator: { type: "string" },
+    });
+    const first = await pointCommitPublisherFixture(current, port);
+
+    expect(await runFailure(
+      first.authentication.publishPointCommit(first.prepared),
+    )).toBe(typedFailure);
+    expect(commands).toHaveLength(1);
+    const command = commands[0];
+    if (command === undefined) {
+      throw new Error("Missing captured O07-B publication command.");
+    }
+    expect(command.successfulResult.value).toBe("o07b");
+    expect(command.successfulResult.semanticSizeBytes).toBe(
+      fixture.result.semanticSizeBytes,
+    );
+    expect(command.successfulResult.sha256Hex).toBe(
+      fixture.result.evidence.sha256Hex,
+    );
+    expect(command.successfulResult.canonicalBytes).toEqual(
+      fixture.result.canonicalBytes,
+    );
+    expect(command.successfulResult.canonicalBytes).not.toBe(
+      fixture.result.canonicalBytes,
+    );
+
+    const calls = commands.length;
+    const forged = await runFailure(
+      first.authentication.publishPointCommit({ ...first.prepared }),
+    );
+    expect(forged).toBeInstanceOf(InvalidPreparedPointCommitV1Error);
+    expect(commands).toHaveLength(calls);
+
+    const second = await pointCommitPublisherFixture(current, port);
+    const crossFactory = await runFailure(
+      second.authentication.publishPointCommit(first.prepared),
+    );
+    expect(crossFactory).toBeInstanceOf(InvalidPreparedPointCommitV1Error);
+    expect(commands).toHaveLength(calls);
+
+    fixture.evidence.root.resultBytes.fill(0);
+    fixture.evidence.root.resultSha256.fill(0);
+    expect(await runFailure(
+      first.authentication.publishPointCommit(first.prepared),
+    )).toBe(typedFailure);
+    const detached = commands.at(-1);
+    if (detached === undefined) {
+      throw new Error("Missing detached O07-B publication command.");
+    }
+    expect(detached.successfulResult.canonicalBytes).not.toEqual(
+      new Uint8Array(detached.successfulResult.canonicalBytes.byteLength),
+    );
+    expect(detached.sealIdentity.resultSha256).not.toEqual(
+      new Uint8Array(32),
+    );
+  });
+
   it("composes every current point outcome through C04C1 without new I/O", async () => {
     const nameDocument = {
       type: "object",
@@ -2037,6 +2125,45 @@ async function verifyCommitInputFixture(current: CommitAuthorityFixture) {
 async function pointCommitRollbackFixture(
   current: CommitAuthorityFixture,
   pointCommit: PointCommitRollbackProofPortV1,
+) {
+  const authentication = createStoredAttemptAuthenticationV1(
+    {
+      load: async () => loaded(current.fixture.evidence),
+    },
+    {
+      evidenceLoader: {
+        load: async () => ({
+          kind: "loaded" as const,
+          evidence: current.commitEvidence,
+        }),
+      },
+      transactionGrantVerifier: current.verifier,
+      functionMetadata: {
+        load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+      },
+      pointCommit,
+    },
+  );
+  const authority = await deriveAuthority(authentication);
+  const storedAttempt = await runEffect(authentication.authenticate(
+    authority,
+    encodeEnvelope(current.fixture.envelope),
+  ));
+  const commitAuthority = await runEffect(
+    authentication.authenticateCommitAuthority(storedAttempt),
+  );
+  const verifiedCommitInput = await runEffect(
+    authentication.verifyCommitInput(commitAuthority),
+  );
+  const prepared = await runEffect(
+    authentication.planPointCommit(verifiedCommitInput),
+  );
+  return { authentication, prepared };
+}
+
+async function pointCommitPublisherFixture(
+  current: CommitAuthorityFixture,
+  pointCommit: PointCommitPublisherPortV1,
 ) {
   const authentication = createStoredAttemptAuthenticationV1(
     {

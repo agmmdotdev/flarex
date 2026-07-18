@@ -164,8 +164,8 @@ work continues.
 | --- | --- | --- |
 | Existing `documents`, `indexes`, invoke sessions, Postgres live-query registry, and delivery outbox | Implemented prototype baseline | Keep only as bounded internal behavior evidence until equivalent target paths and tests exist. Do not extend it or treat it as a shipped migration obligation. |
 | Typed app row JSON with revision/current, declared index, edge, and unique sidecars | Partially implemented accepted target | S06 implements the internal, non-routing row revision/current kernel. Index, edge, and unique sidecars plus target-native index population/build and routing consumers remain planned behind the storage-generation boundary. |
-| Native commit feed, committed-success outcomes, and commit wakes | Partially implemented accepted target | S08 implements native commit/change-feed storage and its bounded private reader. S09-A implements the private scope-lifetime committed-success result receipt. S09-B implements the fixed-kind private commit-wake table and fenced claim/settlement repository. O07-A implements the private read-only committed-outcome resolver. O07-B atomic production, C06 replay orchestration/dispatch, payload expiry, sync activation, and retention advancement remain pending. |
-| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | The Postgres-backed point path now has C04C1's private logical plan and O06's reusable rollback-proven transaction kernel; O07-B remains the first durable publication. After the complete point path passes its real-Postgres gate, immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
+| Native commit feed, committed-success outcomes, and commit wakes | Partially implemented accepted target | S08 implements native commit/change-feed storage and its bounded private reader. S09-A implements the private scope-lifetime committed-success result receipt. S09-B implements the fixed-kind private commit-wake table and fenced claim/settlement repository. O07-A implements the private read-only committed-outcome resolver, and O07-B atomically publishes point rows, feed evidence, success receipts, and wakes. C06 replay orchestration/dispatch, payload expiry, sync activation, and retention advancement remain pending. |
+| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | The Postgres-backed point path now has C04C1's private logical plan, O06's reusable rollback-proven transaction kernel, and O07-B's first private durable publication. After the complete point path passes its real-Postgres gate, immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
 | Payload adapter | Staged target | Start with reserved logical collections and scalar CRUD/transaction conformance; add relations, versions/drafts, globals, auth, locks, and hooks incrementally. |
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
 | DeploymentSyncDO | Accepted v1 coordination target | One deterministic instance per scope, durable SQLite cursor/query/dependency state, Postgres catch-up. |
@@ -854,9 +854,10 @@ reader. A scope-local commit header is keyed by native `(scope_uuid,
 commit_seq)`, carries its write `epoch_uuid`, exact typed-app-row
 `change_count`, and finite database-owned `committed_at`, and exposes a unique
 `(scope_uuid, epoch_uuid, commit_seq)` projection for its children. Sequence is
-the feed order; timestamp is metadata only. Zero-change headers are physically
-  representable, but S08 does not decide whether O07-B allocates one for a
-  read-only or otherwise change-free transaction.
+the feed order; timestamp is metadata only. O07-B allocates a zero-child header
+for every successful point mutation with no material row intent because the
+successful result receipt and wake still require one dense immutable commit
+token.
 
 Each `fx_system_commit_app_row_change` child is an ordered pointer to one
 authoritative app-row revision, not a generic JSON summary or duplicated
@@ -1404,7 +1405,7 @@ to `(scope_uuid, event_kind, commit_seq)`. `last_outbox_seq` remains the sole
 scope-lifetime allocation head; S09-B adds no allocator or writer. The row has
 only a restrictive scope-clock foreign key. It deliberately has no foreign key
 to compactable S08 headers, arbitrary payload, consumer group, generic cursor,
-or global surrogate identity. O07-B must later insert the exact wake and advance
+or global surrogate identity. O07-B inserts the exact wake and advances
 the clock atomically with the data, result, outcome, and S08 header.
 
 Claims use database time, a monotonic claim fence equal to the attempt count,

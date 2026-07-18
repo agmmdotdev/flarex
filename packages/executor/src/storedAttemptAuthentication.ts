@@ -4,9 +4,14 @@ import {
   encodeBytesToLowercaseHex,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Effect, Encoding, Schema } from "effect";
 
 import type {
+  PointCommitPublicationCommandV1,
+  PointCommitPublicationResultV1,
+  PointCommitPublicationV1Error,
+  PointCommitPublisherPortV1,
   PointCommitRollbackProofPortV1,
   PointCommitRollbackProofV1Error,
   PointCommitTransactionCommandV1,
@@ -29,6 +34,7 @@ import {
 } from "flarex-protocol/app-document-id";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
+  CanonicalSuccessfulResultBytesV1Schema,
   decodeCanonicalSessionJournalV1Effect,
   decodeCommitEnvelopeV1Effect,
   requireStoredForSessionAttemptCommitEnvelopeV1Effect,
@@ -683,6 +689,11 @@ export interface StoredPointCommitRollbackProofConfigV1
   readonly pointCommit: PointCommitRollbackProofPortV1;
 }
 
+export interface StoredPointCommitPublisherConfigV1
+  extends StoredCommitAuthorityAuthenticationConfigV1 {
+  readonly pointCommit: PointCommitPublisherPortV1;
+}
+
 export type PointCommitRollbackV1Error =
   | InvalidPreparedPointCommitV1Error
   | PointCommitRollbackProofV1Error;
@@ -698,9 +709,41 @@ export interface StoredPointCommitRollbackProofV1
   >;
 }
 
+export type PointCommitPublicationExecutionV1Error =
+  | InvalidPreparedPointCommitV1Error
+  | PointCommitPublicationV1Error;
+
+export interface StoredPointCommitPublisherV1
+  extends StoredPointCommitRollbackProofV1 {
+  readonly publishPointCommit: (
+    input: PreparedPointCommitV1,
+  ) => Effect.Effect<
+    PointCommitPublicationResultV1,
+    PointCommitPublicationExecutionV1Error,
+    never
+  >;
+}
+
+function isPointCommitRollbackProofPortV1(
+  value: unknown,
+): value is PointCommitRollbackProofPortV1 {
+  return isNonArrayRecord(value) && typeof value.prove === "function";
+}
+
+function isPointCommitPublisherPortV1(
+  value: unknown,
+): value is PointCommitPublisherPortV1 {
+  return isPointCommitRollbackProofPortV1(value) &&
+    typeof Reflect.get(value, "publish") === "function";
+}
+
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
 ): StoredAttemptAuthenticationV1;
+export function createStoredAttemptAuthenticationV1(
+  loader: StoredAttemptEvidenceLoaderPortV1,
+  commitAuthority: StoredPointCommitPublisherConfigV1,
+): StoredPointCommitPublisherV1;
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
   commitAuthority: StoredPointCommitRollbackProofConfigV1,
@@ -713,11 +756,13 @@ export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
   commitAuthority?:
     | StoredCommitAuthorityAuthenticationConfigV1
-    | StoredPointCommitRollbackProofConfigV1,
+    | StoredPointCommitRollbackProofConfigV1
+    | StoredPointCommitPublisherConfigV1,
 ):
   | StoredAttemptAuthenticationV1
   | StoredPointCommitPlanningV1
-  | StoredPointCommitRollbackProofV1 {
+  | StoredPointCommitRollbackProofV1
+  | StoredPointCommitPublisherV1 {
   const authorityStates = new WeakMap<object, StoredAttemptAuthorityStateV1>();
   const authenticatedStates = new WeakMap<
     object,
@@ -735,10 +780,18 @@ export function createStoredAttemptAuthenticationV1(
     object,
     PreparedPointCommitCapabilityStateV1
   >();
-  const pointCommit = commitAuthority !== undefined &&
+  const pointCommitCandidate: unknown = commitAuthority !== undefined &&
       "pointCommit" in commitAuthority
     ? commitAuthority.pointCommit
     : undefined;
+  const pointCommit:
+    | PointCommitRollbackProofPortV1
+    | PointCommitPublisherPortV1
+    | undefined = isPointCommitPublisherPortV1(pointCommitCandidate)
+      ? pointCommitCandidate
+      : isPointCommitRollbackProofPortV1(pointCommitCandidate)
+        ? pointCommitCandidate
+        : undefined;
   const grantKernel = commitAuthority === undefined
     ? undefined
     : findTransactionGrantVerificationKernelV1(
@@ -1024,10 +1077,36 @@ export function createStoredAttemptAuthenticationV1(
       );
     });
 
+  if (!isPointCommitPublisherPortV1(pointCommit)) {
+    return Object.freeze({
+      ...planning,
+      provePointCommitRollback,
+    } satisfies StoredPointCommitRollbackProofV1);
+  }
+
+  const publishPointCommit:
+    StoredPointCommitPublisherV1["publishPointCommit"] = Effect.fn(
+      "StoredAttemptAuthentication.publishPointCommit",
+    )(function* (input) {
+      const state = lookupPreparedPointCommitState(
+        preparedPointCommitStates,
+        input,
+      );
+      if (state === undefined) {
+        return yield* Effect.fail(new InvalidPreparedPointCommitV1Error({
+          reason: "notSameFactory",
+        }));
+      }
+      return yield* pointCommit.publish(
+        capturePointCommitPublicationCommand(state),
+      );
+    });
+
   return Object.freeze({
     ...planning,
     provePointCommitRollback,
-  } satisfies StoredPointCommitRollbackProofV1);
+    publishPointCommit,
+  } satisfies StoredPointCommitPublisherV1);
 }
 
 function captureCommitAuthorityPort(
@@ -1245,6 +1324,30 @@ function capturePointCommitTransactionCommand(
     dependencies,
     rowIntent,
   } satisfies PointCommitTransactionCommandV1);
+}
+
+function capturePointCommitPublicationCommand(
+  state: PreparedPointCommitCapabilityStateV1,
+): PointCommitPublicationCommandV1 {
+  const command = capturePointCommitTransactionCommand(state);
+  const result = state.plan.successfulResult;
+  const stableBytes = copyBytes(result.canonicalBytes);
+  return Object.freeze({
+    ...command,
+    successfulResult: Object.freeze({
+      valueCodecVersion: result.valueCodecVersion,
+      value: structuredClone(result.value),
+      get canonicalBytes(): PointCommitPublicationCommandV1[
+        "successfulResult"
+      ]["canonicalBytes"] {
+        return CanonicalSuccessfulResultBytesV1Schema.make(
+          copyBytes(stableBytes),
+        );
+      },
+      semanticSizeBytes: result.semanticSizeBytes,
+      sha256Hex: result.sha256Hex,
+    }),
+  } satisfies PointCommitPublicationCommandV1);
 }
 
 function serializeCommitAuthorityStateForTest(

@@ -1,5 +1,7 @@
 import {
   bytesEqualFullScan as bytesEqual,
+  copyBytes,
+  encodeBytesToLowercaseHex,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
@@ -28,16 +30,20 @@ import {
   type CatalogTableId,
 } from "flarex-protocol/catalog";
 import {
+  CanonicalSuccessfulResultBytesV1Schema,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
   SESSION_JOURNAL_FORMAT_V1,
+  canonicalizeSuccessfulResultV1Effect,
   type CommitFinalSyscallSequenceV1,
   type CommitMaterialWriteEventEvidenceBytesV1,
   type LogicalReadDependencyV1,
+  type SuccessfulResultSha256HexV1,
 } from "flarex-protocol/commit-protocol";
 import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
 import {
   MAX_PERSISTED_SIGNED_INT64_V1,
   CommitSeqSchema,
+  OutboxSeqSchema,
   decodeScopeEpochUuidV1,
   decodeScopeUuidV1,
   projectScopeEpochUuidV1,
@@ -45,6 +51,7 @@ import {
   replacementScopeEpochV1FromUuid,
   type CommitSeq,
   type FlarexDbV1StorageGeneration,
+  type OutboxSeq,
   type ReplacementScopeIdV1,
   type ScopeEpoch,
   type ScopeUuidV1,
@@ -55,6 +62,8 @@ import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction
 import {
   TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
   TransactionAuthorizationRevocationEpochSchema,
+  TransactionIdentityAccessPolicySha256V1Schema,
+  TransactionRequestSha256V1Schema,
   type TransactionArtifactIdV1,
   type TransactionArtifactRuntimeV1,
   type TransactionAttemptFence,
@@ -71,6 +80,7 @@ import {
 } from "flarex-protocol/transaction-session";
 import {
   FLAREX_VALUE_CODEC_VERSION_V1,
+  FlarexValueSha256V1Schema,
   FlarexValueCodecV1Error,
   canonicalizeFlarexValueV1,
   isCanonicalFlarexRuntimeObjectV1,
@@ -96,6 +106,18 @@ import {
   type AppRowPointHeadObservationV1,
 } from "./appRowPointOcc";
 import {
+  CommittedPointOutcomeCorruptionErrorV1,
+  CommittedPointOutcomeInputErrorV1,
+  CommittedPointOutcomeRequestKeyReuseErrorV1,
+  CommittedPointOutcomeSqlErrorV1,
+  type CommittedPointOutcomeResolutionV1,
+  type CommittedPointOutcomeTokenV1,
+  type CommittedPointSuccessfulResultV1,
+  type ResolveCommittedPointOutcomeErrorV1,
+  type ResolveCommittedPointOutcomeInputV1,
+} from "./committedPointOutcome";
+import { COMMIT_WAKE_OUTBOX_EVENT_KIND_V1 } from "./commitWakeOutbox";
+import {
   decodeScopeClockRecord,
   ScopeClockCorruptionError,
   ScopeClockNotFoundError,
@@ -108,16 +130,23 @@ import {
 import {
   fxAppRowCurrent,
   fxAppRowRevisions,
+  fxSystemCommitAppRowChanges,
+  fxSystemCommits,
+  fxSystemIdempotency,
+  fxSystemOutbox,
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
   fxSystemTransactionJournals,
   fxSystemTransactionSessions,
 } from "./schema";
 import {
+  isLocatedPointCommitPublicationTargetV1,
   isLocatedReadCommittedAttemptTargetV1,
   LocatedReadCommittedTransactionFailureV1,
+  RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
   RUN_LOCATED_READ_COMMITTED_V1,
   type LocatedReadCommittedAttemptTargetV1,
+  type LocatedPointCommitPublicationTargetV1,
 } from "./transactionSessionAttemptKernel";
 import type {
   PointMutationSessionAuthorityResolutionPortsV1,
@@ -234,6 +263,20 @@ export interface PointCommitTransactionCommandV1 {
   readonly rowIntent: PointCommitRowIntentV1 | null;
 }
 
+export interface PointCommitSuccessfulResultV1 {
+  readonly valueCodecVersion: FlarexValueCodecVersion;
+  readonly value: CanonicalFlarexRuntimeValueV1;
+  readonly canonicalBytes:
+    typeof CanonicalSuccessfulResultBytesV1Schema.Type;
+  readonly semanticSizeBytes: number;
+  readonly sha256Hex: SuccessfulResultSha256HexV1;
+}
+
+export interface PointCommitPublicationCommandV1
+  extends PointCommitTransactionCommandV1 {
+  readonly successfulResult: PointCommitSuccessfulResultV1;
+}
+
 export interface PointCommitWouldCommitV1 {
   readonly kind: "wouldCommit";
 }
@@ -281,6 +324,10 @@ export type PointCommitCorruptionReasonV1 =
   | "occEvidenceInvalid"
   | "rowTransitionInvalid"
   | "rowWriteInvalid"
+  | "successfulResultInvalid"
+  | "committedOutcomeMissing"
+  | "publishedOutcomeInvalid"
+  | "publicationInvariantInvalid"
   | "rollbackSentinelMissing";
 
 export class PointCommitCorruptionV1Error extends Data.TaggedError(
@@ -292,7 +339,7 @@ export class PointCommitCorruptionV1Error extends Data.TaggedError(
 export class PointCommitResourceExhaustionV1Error extends Data.TaggedError(
   "PointCommitResourceExhaustionV1Error",
 )<{
-  readonly dimension: "commitSequence";
+  readonly dimension: "commitSequence" | "outboxSequence";
   readonly maximum: bigint;
 }> {}
 
@@ -305,7 +352,16 @@ export type PointCommitSqlOperationV1 =
   | "lockJournalRoot"
   | "readDatabaseTime"
   | "loadRowHeads"
-  | "writeTentativeRow";
+  | "writeTentativeRow"
+  | "recheckOutcome"
+  | "writeCommitHeader"
+  | "writeCommitChange"
+  | "writeOutcome"
+  | "writeWake"
+  | "deleteJournal"
+  | "deleteLease"
+  | "commitSession"
+  | "advanceScopeClock";
 
 export class PointCommitSqlErrorV1 extends Data.TaggedError(
   "PointCommitSqlErrorV1",
@@ -333,6 +389,35 @@ export interface PointCommitRollbackProofPortV1 {
   >;
 }
 
+export type PointCommitPublicationV1Error =
+  | PointCommitRollbackProofV1Error
+  | CommittedPointOutcomeInputErrorV1
+  | CommittedPointOutcomeRequestKeyReuseErrorV1
+  | CommittedPointOutcomeCorruptionErrorV1
+  | CommittedPointOutcomeSqlErrorV1;
+
+export type PointCommitPublicationResultV1 =
+  | Readonly<{
+      readonly kind: "published" | "replayed";
+      readonly token: CommittedPointOutcomeTokenV1;
+      readonly successfulResult: CommittedPointSuccessfulResultV1;
+    }>
+  | Readonly<{
+      readonly kind: "expired";
+      readonly token: CommittedPointOutcomeTokenV1;
+    }>;
+
+export interface PointCommitPublisherPortV1
+  extends PointCommitRollbackProofPortV1 {
+  readonly publish: (
+    command: PointCommitPublicationCommandV1,
+  ) => Effect.Effect<
+    PointCommitPublicationResultV1,
+    PointCommitPublicationV1Error,
+    never
+  >;
+}
+
 export type PointCommitTransactionProofStepV1 =
   | "clockLocked"
   | "sessionLocked"
@@ -340,6 +425,16 @@ export type PointCommitTransactionProofStepV1 =
   | "journalRootLocked"
   | "dependenciesValidated"
   | "tentativeRowWritten"
+  | "outcomeRechecked"
+  | "commitHeaderWritten"
+  | "commitChangeWritten"
+  | "outcomeWritten"
+  | "wakeWritten"
+  | "journalDeleted"
+  | "leaseDeleted"
+  | "sessionCommitted"
+  | "clockAdvanced"
+  | "beforeCommit"
   | "beforeRollback";
 
 export interface PointCommitTransactionProofOptionsV1 {
@@ -372,6 +467,18 @@ interface PreparedPointCommitTransactionCommandV1
   extends Omit<PointCommitTransactionCommandV1, "rowIntent"> {
   readonly rowIntent: PreparedPointCommitRowIntentV1 | null;
 }
+
+interface PreparedPointCommitPublicationCommandV1
+  extends PreparedPointCommitTransactionCommandV1 {
+  readonly successfulResult: Readonly<
+    Omit<PointCommitSuccessfulResultV1, "canonicalBytes"> & {
+      readonly canonicalBytes:
+        typeof CanonicalSuccessfulResultBytesV1Schema.Type;
+    }
+  >;
+}
+
+type PointCommitTransactionModeV1 = "rollbackProof" | "publish";
 
 const WOULD_COMMIT = Object.freeze({
   kind: "wouldCommit",
@@ -439,6 +546,106 @@ export function createPointCommitRollbackProofPortV1(
   return Object.freeze({ prove });
 }
 
+export function createPointCommitPublisherPortV1(
+  ports: PointMutationSessionAuthorityResolutionPortsV1,
+  options: PointCommitTransactionProofOptionsV1 = {},
+): PointCommitPublisherPortV1 {
+  const rollback = createPointCommitRollbackProofPortV1(ports, options);
+
+  const resolveOutcome = Effect.fn(
+    "PointCommitTransaction.resolveCommittedOutcome",
+  )((
+    target: LocatedPointCommitPublicationTargetV1,
+    input: ResolveCommittedPointOutcomeInputV1,
+  ): Effect.Effect<
+    CommittedPointOutcomeResolutionV1,
+    ResolveCommittedPointOutcomeErrorV1
+  > => target[RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1](input));
+
+  const publish: PointCommitPublisherPortV1["publish"] = Effect.fn(
+    "PointCommitTransaction.publish",
+  )(function* (input) {
+    const command = yield* preparePointCommitPublicationCommand(input);
+    const located = yield* Effect.tryPromise({
+      try: () => resolveLocatedTrustedScopeAuthority(
+        command.authorityPins.deploymentId,
+        {
+          scopeMetadata: ports.scopeMetadata,
+          provisioningReceipts: ports.provisioningReceipts,
+          scopeClockTargets: ports.scopeSessionTargets,
+        },
+      ),
+      catch: mapAuthorityResolutionFailure,
+    });
+    const target = isLocatedPointCommitPublicationTargetV1(located.target)
+      ? located.target
+      : null;
+    if (target === null) {
+      return yield* Effect.fail(corruption(
+        "readCommittedCapabilityMissing",
+      ));
+    }
+    const lookup = captureCommittedOutcomeLookup(command);
+    const existing = yield* resolveOutcome(target, lookup);
+    if (existing.kind !== "missing") {
+      return yield* publicationResultFromOutcomeEffect(existing, "replayed");
+    }
+
+    const preliminaryFailure = preliminaryAuthorityFailure(
+      command,
+      located.authority,
+    );
+    if (preliminaryFailure !== null) {
+      return yield* Effect.fail(preliminaryFailure);
+    }
+
+    const runPublication = Effect.uninterruptible(Effect.tryPromise({
+      try: () => runPointCommitPublication(
+        target,
+        located.authority,
+        command,
+        options,
+      ),
+      catch: mapTransactionFailure,
+    }));
+    const decision: PointCommitPublicationRunDecisionV1 = yield*
+      runPublication.pipe(
+        Effect.catchTag("PointCommitSqlErrorV1", (error) =>
+          resolveOutcome(target, lookup).pipe(
+            Effect.flatMap((recovered): Effect.Effect<
+              PointCommitPublicationRunDecisionV1,
+              PointCommitSqlErrorV1
+            > =>
+              recovered.kind === "missing"
+                ? Effect.fail(error)
+                : Effect.succeed(Object.freeze({
+                    kind: "recovered" as const,
+                    outcome: recovered,
+                  }))
+            ),
+          )),
+      );
+    if (decision.kind === "recovered") {
+      return yield* publicationResultFromOutcomeEffect(
+        decision.outcome,
+        "replayed",
+      );
+    }
+
+    const resolved = yield* resolveOutcome(target, lookup);
+    if (decision.kind === "existing") {
+      return yield* publicationResultFromOutcomeEffect(resolved, "replayed");
+    }
+    return yield* publicationResultFromOutcomeEffect(
+      resolved,
+      "published",
+      decision.token,
+    );
+  });
+
+  return Object.freeze({ ...rollback, publish });
+}
+
 async function preparePointCommitCommand(
   input: PointCommitTransactionCommandV1,
 ): Promise<PreparedPointCommitTransactionCommandV1> {
@@ -475,6 +682,122 @@ async function preparePointCommitCommand(
       creationTime: rowIntent.creationTime,
       document,
     } satisfies PreparedLivePointCommitRowIntentV1),
+  });
+}
+
+const preparePointCommitPublicationCommand = Effect.fn(
+  "PointCommitTransaction.preparePublicationCommand",
+)(function* (
+  input: PointCommitPublicationCommandV1,
+): Effect.fn.Return<
+  PreparedPointCommitPublicationCommandV1,
+  PointCommitCorruptionV1Error | PointCommitStaleAuthorityV1Error
+> {
+  const command = yield* Effect.tryPromise({
+    try: () => preparePointCommitCommand(input),
+    catch: mapCommandPreparationFailure,
+  });
+  const successfulResult = yield* Effect.try({
+    try: () => captureSuccessfulResult(
+      input.successfulResult,
+      command.sealIdentity.resultByteLength,
+    ),
+    catch: mapCommandPreparationFailure,
+  });
+  const canonical = yield* canonicalizeSuccessfulResultV1Effect(
+    successfulResult.value,
+  ).pipe(
+    Effect.mapError(() => corruption("successfulResultInvalid")),
+  );
+  const seal = command.sealIdentity;
+  if (
+    successfulResult.valueCodecVersion !== FLAREX_VALUE_CODEC_VERSION_V1 ||
+    canonical.evidence.valueCodecVersion !==
+      successfulResult.valueCodecVersion ||
+    !bytesEqual(canonical.canonicalBytes, successfulResult.canonicalBytes) ||
+    canonical.semanticSizeBytes !== successfulResult.semanticSizeBytes ||
+    canonical.evidence.sha256Hex !== successfulResult.sha256Hex ||
+    canonical.canonicalBytes.byteLength !== seal.resultByteLength ||
+    canonical.semanticSizeBytes !== seal.resultSemanticBytes ||
+    canonical.evidence.sha256Hex !==
+      encodeBytesToLowercaseHex(seal.resultSha256)
+  ) {
+    return yield* Effect.fail(corruption("successfulResultInvalid"));
+  }
+  const stableBytes = copyBytes(canonical.canonicalBytes);
+  return Object.freeze({
+    ...command,
+    successfulResult: Object.freeze({
+      valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+      value: successfulResult.value,
+      canonicalBytes: CanonicalSuccessfulResultBytesV1Schema.make(stableBytes),
+      semanticSizeBytes: canonical.semanticSizeBytes,
+      sha256Hex: canonical.evidence.sha256Hex,
+    }),
+  });
+});
+
+function captureSuccessfulResult(
+  input: PointCommitSuccessfulResultV1,
+  expectedByteLength: number,
+): Readonly<PointCommitSuccessfulResultV1> {
+  let stableBytes: Uint8Array;
+  let stableValue: CanonicalFlarexRuntimeValueV1;
+  let valueCodecVersion: PointCommitSuccessfulResultV1["valueCodecVersion"];
+  let semanticSizeBytes: PointCommitSuccessfulResultV1["semanticSizeBytes"];
+  let sha256Hex: PointCommitSuccessfulResultV1["sha256Hex"];
+  try {
+    const canonicalBytes = input.canonicalBytes;
+    if (
+      !isNonArrayRecord(input) ||
+      !isUint8ArrayWithByteLength(canonicalBytes, expectedByteLength)
+    ) {
+      throw new TypeError("Canonical result bytes are not a Uint8Array.");
+    }
+    stableBytes = copyBytes(canonicalBytes);
+    stableValue = structuredClone(input.value);
+    valueCodecVersion = input.valueCodecVersion;
+    semanticSizeBytes = input.semanticSizeBytes;
+    sha256Hex = input.sha256Hex;
+  } catch {
+    throw corruption("successfulResultInvalid");
+  }
+  if (
+    valueCodecVersion !== FLAREX_VALUE_CODEC_VERSION_V1 ||
+    stableBytes.byteLength < 1 ||
+    !isNonNegativeSafeInteger(semanticSizeBytes) ||
+    typeof sha256Hex !== "string" ||
+    !/^[0-9a-f]{64}$/.test(sha256Hex)
+  ) {
+    throw corruption("successfulResultInvalid");
+  }
+  return Object.freeze({
+    valueCodecVersion,
+    value: stableValue,
+    get canonicalBytes(): PointCommitSuccessfulResultV1["canonicalBytes"] {
+      return CanonicalSuccessfulResultBytesV1Schema.make(
+        copyBytes(stableBytes),
+      );
+    },
+    semanticSizeBytes,
+    sha256Hex,
+  });
+}
+
+function captureCommittedOutcomeLookup(
+  command: PreparedPointCommitPublicationCommandV1,
+): ResolveCommittedPointOutcomeInputV1 {
+  return Object.freeze({
+    scopeUuid: command.sealIdentity.scopeUuid,
+    requestKey: command.authorityPins.requestKey,
+    expectedIdentityAccessPolicySha256:
+      TransactionIdentityAccessPolicySha256V1Schema.make(copyBytes(
+        command.session.identityAccessPolicySha256,
+      )),
+    expectedFunctionPath: command.authorityPins.functionPath,
+    expectedRequestSha256: TransactionRequestSha256V1Schema.make(copyBytes(
+      command.session.requestSha256,
+    )),
   });
 }
 
@@ -850,9 +1173,32 @@ interface LoadedPointCommitHeadV1 {
   readonly creationTime: AppCreationTimeV1 | null;
 }
 
-interface PointCommitKernelResultV1 {
-  readonly tentativeCommitSeq: CommitSeq | null;
-}
+type PointCommitKernelResultV1 =
+  | Readonly<{ readonly kind: "existing" }>
+  | Readonly<{
+      readonly kind: "ready";
+      readonly clock: LockedPointCommitClockV1;
+      readonly commitSeq: CommitSeq | null;
+      readonly outboxSeq: OutboxSeq | null;
+      readonly publicationTimeMilliseconds: number | null;
+    }>;
+
+type PointCommitPublicationDecisionV1 =
+  | Readonly<{ readonly kind: "existing" }>
+  | Readonly<{
+      readonly kind: "published";
+      readonly token: CommittedPointOutcomeTokenV1;
+    }>;
+
+type PointCommitPublicationRunDecisionV1 =
+  | PointCommitPublicationDecisionV1
+  | Readonly<{
+      readonly kind: "recovered";
+      readonly outcome: Exclude<
+        CommittedPointOutcomeResolutionV1,
+        Readonly<{ readonly kind: "missing" }>
+      >;
+    }>;
 
 async function runRollbackProof(
   target: LocatedReadCommittedAttemptTargetV1,
@@ -867,6 +1213,7 @@ async function runRollbackProof(
         preliminaryAuthority,
         command,
         options,
+        "rollbackProof",
       );
       await emitTransactionStep(options, command, "beforeRollback");
       throw ROLLBACK_SENTINEL;
@@ -878,22 +1225,82 @@ async function runRollbackProof(
   throw corruption("rollbackSentinelMissing");
 }
 
+async function runPointCommitPublication(
+  target: LocatedPointCommitPublicationTargetV1,
+  preliminaryAuthority: TrustedScopeAuthority,
+  command: PreparedPointCommitPublicationCommandV1,
+  options: PointCommitTransactionProofOptionsV1,
+): Promise<PointCommitPublicationDecisionV1> {
+  return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
+    const kernel = await runPointCommitTransactionKernel(
+      tx,
+      preliminaryAuthority,
+      command,
+      options,
+      "publish",
+    );
+    if (kernel.kind === "existing") return kernel;
+    if (
+      kernel.commitSeq === null ||
+      kernel.outboxSeq === null ||
+      kernel.publicationTimeMilliseconds === null
+    ) {
+      throw corruption("publicationInvariantInvalid");
+    }
+    const ready = Object.freeze({
+      ...kernel,
+      commitSeq: kernel.commitSeq,
+      outboxSeq: kernel.outboxSeq,
+      publicationTimeMilliseconds: kernel.publicationTimeMilliseconds,
+    });
+    await publishPointCommitInTransaction(
+      tx,
+      command,
+      ready,
+      options,
+    );
+    await emitTransactionStep(options, command, "beforeCommit");
+    return Object.freeze({
+      kind: "published",
+      token: Object.freeze({
+        scopeUuid: ready.clock.scopeUuid,
+        epochUuid: ready.clock.epochUuid,
+        commitSeq: ready.commitSeq,
+      }),
+    });
+  });
+}
+
 /**
- * The reusable O06 transaction body. O07 will add publication atoms around
- * this exact locked validation/lowering path and will be the first caller
- * allowed to return normally from the transaction.
+ * The reusable O06/O07-B transaction body. Rollback-proof mode exits through
+ * the private sentinel after this exact validation/lowering path; publication
+ * mode continues to the O07-B atoms and is the first durable caller allowed to
+ * return normally from the transaction.
  */
 async function runPointCommitTransactionKernel(
   tx: AppRowTransaction,
   preliminaryAuthority: TrustedScopeAuthority,
   command: PreparedPointCommitTransactionCommandV1,
   options: PointCommitTransactionProofOptionsV1,
+  mode: PointCommitTransactionModeV1,
 ): Promise<PointCommitKernelResultV1> {
   const clock = await lockPointCommitClock(tx, command, options);
   await emitTransactionStep(options, command, "clockLocked");
+  if (
+    mode === "publish" &&
+    await committedOutcomeExistsInTransaction(tx, command, options)
+  ) {
+    await emitTransactionStep(options, command, "outcomeRechecked");
+    return Object.freeze({ kind: "existing" });
+  }
   requireLockedClockAuthority(clock, preliminaryAuthority, command);
 
-  const session = await lockPointCommitSession(tx, command, options);
+  const session = await lockPointCommitSession(
+    tx,
+    command,
+    options,
+    mode,
+  );
   await emitTransactionStep(options, command, "sessionLocked");
   const lease = await lockPointCommitLease(tx, command, options);
   await emitTransactionStep(options, command, "leaseLocked");
@@ -916,8 +1323,14 @@ async function runPointCommitTransactionKernel(
   validatePointCommitDependencies(command, loadedHeads);
   await emitTransactionStep(options, command, "dependenciesValidated");
 
-  if (command.rowIntent === null) {
-    return Object.freeze({ tentativeCommitSeq: null });
+  if (mode === "rollbackProof" && command.rowIntent === null) {
+    return Object.freeze({
+      kind: "ready",
+      clock,
+      commitSeq: null,
+      outboxSeq: null,
+      publicationTimeMilliseconds: null,
+    });
   }
   const preWriteDatabaseNowMilliseconds = await readPointCommitDatabaseTime(
     tx,
@@ -931,18 +1344,38 @@ async function runPointCommitTransactionKernel(
       maximum: MAX_SIGNED_COMMIT_SEQ,
     });
   }
+  if (
+    mode === "publish" &&
+    clock.record.lastOutboxSeq >= MAX_PERSISTED_SIGNED_INT64_V1
+  ) {
+    throw new PointCommitResourceExhaustionV1Error({
+      dimension: "outboxSequence",
+      maximum: MAX_PERSISTED_SIGNED_INT64_V1,
+    });
+  }
   const tentativeCommitSeq = CommitSeqSchema.make(
     clock.record.lastCommitSeq + 1n,
   );
-  await lowerTentativePointCommitRow(
-    tx,
-    clock.record.epoch,
-    tentativeCommitSeq,
-    command,
-    loadedHeads,
-  );
-  await emitTransactionStep(options, command, "tentativeRowWritten");
-  return Object.freeze({ tentativeCommitSeq });
+  const rowIntent = command.rowIntent;
+  if (rowIntent !== null) {
+    await lowerTentativePointCommitRow(
+      tx,
+      clock.record.epoch,
+      tentativeCommitSeq,
+      command,
+      loadedHeads,
+    );
+    await emitTransactionStep(options, command, "tentativeRowWritten");
+  }
+  return Object.freeze({
+    kind: "ready",
+    clock,
+    commitSeq: tentativeCommitSeq,
+    outboxSeq: mode === "publish"
+      ? OutboxSeqSchema.make(clock.record.lastOutboxSeq + 1n)
+      : null,
+    publicationTimeMilliseconds: preWriteDatabaseNowMilliseconds,
+  });
 }
 
 async function lockPointCommitClock(
@@ -991,6 +1424,30 @@ async function lockPointCommitClock(
   }
 }
 
+async function committedOutcomeExistsInTransaction(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitTransactionCommandV1,
+  options: PointCommitTransactionProofOptionsV1,
+): Promise<boolean> {
+  const query = tx
+    .select({ scopeUuid: fxSystemIdempotency.scopeUuid })
+    .from(fxSystemIdempotency)
+    .where(and(
+      eq(fxSystemIdempotency.scopeUuid, command.sealIdentity.scopeUuid),
+      eq(fxSystemIdempotency.requestKey, command.authorityPins.requestKey),
+    ))
+    .limit(2);
+  observeDrizzleQuery("recheckOutcome", query, options);
+  const rows = await sqlCall("recheckOutcome", () => query);
+  if (rows.length > 1) throw corruption("publicationInvariantInvalid");
+  const row = rows[0];
+  if (row === undefined) return false;
+  if (row.scopeUuid !== command.sealIdentity.scopeUuid) {
+    throw corruption("publicationInvariantInvalid");
+  }
+  return true;
+}
+
 function requireLockedClockAuthority(
   clock: LockedPointCommitClockV1,
   preliminary: TrustedScopeAuthority,
@@ -1036,6 +1493,7 @@ async function lockPointCommitSession(
   tx: AppRowTransaction,
   command: PreparedPointCommitTransactionCommandV1,
   options: PointCommitTransactionProofOptionsV1,
+  mode: PointCommitTransactionModeV1,
 ): Promise<LockedPointCommitSessionV1> {
   const query = tx
     .select({
@@ -1105,7 +1563,12 @@ async function lockPointCommitSession(
   if (row.attemptFence !== command.authorityPins.attemptFence) {
     throw stale("attemptReplaced");
   }
-  if (row.lifecycle !== "finishing") throw stale("lifecycleChanged");
+  if (row.lifecycle !== "finishing") {
+    if (mode === "publish" && row.lifecycle === "committed") {
+      throw corruption("committedOutcomeMissing");
+    }
+    throw stale("lifecycleChanged");
+  }
   const expected = command.session;
   const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
     row.authorizationGrantExpiresAt,
@@ -1541,6 +2004,204 @@ function validatePointCommitDependencies(
   }
 }
 
+async function publishPointCommitInTransaction(
+  tx: AppRowTransaction,
+  command: PreparedPointCommitPublicationCommandV1,
+  kernel: Extract<PointCommitKernelResultV1, { readonly kind: "ready" }> & {
+    readonly commitSeq: CommitSeq;
+    readonly outboxSeq: OutboxSeq;
+    readonly publicationTimeMilliseconds: number;
+  },
+  options: PointCommitTransactionProofOptionsV1,
+): Promise<void> {
+  const publicationTime = new Date(kernel.publicationTimeMilliseconds);
+  const scopeUuid = kernel.clock.scopeUuid;
+  const epochUuid = kernel.clock.epochUuid;
+  const commitSeq = kernel.commitSeq;
+  const outboxSeq = kernel.outboxSeq;
+  const changeCount = command.rowIntent === null ? 0 : 1;
+
+  const header = await sqlCall("writeCommitHeader", () =>
+    tx.insert(fxSystemCommits).values({
+      scopeUuid,
+      epochUuid,
+      commitSeq,
+      changeCount,
+      committedAt: publicationTime,
+    }).returning({ commitSeq: fxSystemCommits.commitSeq }));
+  requireSinglePublicationWrite(header, commitSeq);
+  await emitTransactionStep(options, command, "commitHeaderWritten");
+
+  const rowIntent = command.rowIntent;
+  if (rowIntent !== null) {
+    const change = await sqlCall("writeCommitChange", () =>
+      tx.insert(fxSystemCommitAppRowChanges).values({
+        scopeUuid,
+        epochUuid,
+        commitSeq,
+        changeOrdinal: 0,
+        tableId: rowIntent.tableId,
+        rowId: appRowIdHexV1ToBytes(rowIntent.rowId),
+      }).returning({ commitSeq: fxSystemCommitAppRowChanges.commitSeq }));
+    requireSinglePublicationWrite(change, commitSeq);
+    await emitTransactionStep(options, command, "commitChangeWritten");
+  }
+
+  const outcome = await sqlCall("writeOutcome", () =>
+    tx.insert(fxSystemIdempotency).values({
+      scopeUuid,
+      requestKey: command.authorityPins.requestKey,
+      identityAccessPolicySha256:
+        TransactionIdentityAccessPolicySha256V1Schema.make(copyBytes(
+          command.session.identityAccessPolicySha256,
+        )),
+      functionPath: command.authorityPins.functionPath,
+      requestSha256: TransactionRequestSha256V1Schema.make(copyBytes(
+        command.session.requestSha256,
+      )),
+      epochUuid,
+      commitSeq,
+      resultState: "available",
+      resultValueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+      resultSemanticBytes: command.successfulResult.semanticSizeBytes,
+      resultBytes: command.successfulResult.canonicalBytes,
+      resultSha256: FlarexValueSha256V1Schema.make(copyBytes(
+        command.sealIdentity.resultSha256,
+      )),
+      resultExpiredAt: null,
+      createdAt: publicationTime,
+    }).returning({ commitSeq: fxSystemIdempotency.commitSeq }));
+  requireSinglePublicationWrite(outcome, commitSeq);
+  await emitTransactionStep(options, command, "outcomeWritten");
+
+  const wake = await sqlCall("writeWake", () =>
+    tx.insert(fxSystemOutbox).values({
+      scopeUuid,
+      outboxSeq,
+      epochUuid,
+      commitSeq,
+      eventKind: COMMIT_WAKE_OUTBOX_EVENT_KIND_V1,
+      deliveryState: "pending",
+      createdAt: publicationTime,
+      nextAttemptAt: publicationTime,
+      attemptCount: 0n,
+      claimFence: 0n,
+      claimOwner: null,
+      claimedAt: null,
+      claimExpiresAt: null,
+      lastFailureCode: null,
+      lastFailureSummary: null,
+      lastFailedAt: null,
+      deliveredAt: null,
+      deadLetteredAt: null,
+    }).returning({ outboxSeq: fxSystemOutbox.outboxSeq }));
+  if (wake.length !== 1 || wake[0]?.outboxSeq !== outboxSeq) {
+    throw corruption("publicationInvariantInvalid");
+  }
+  await emitTransactionStep(options, command, "wakeWritten");
+
+  const journal = await sqlCall("deleteJournal", () =>
+    tx.delete(fxSystemTransactionJournals).where(and(
+      eq(fxSystemTransactionJournals.scopeUuid, scopeUuid),
+      eq(
+        fxSystemTransactionJournals.sessionId,
+        command.authorityPins.sessionId,
+      ),
+      eq(
+        fxSystemTransactionJournals.attemptFence,
+        command.authorityPins.attemptFence,
+      ),
+    )).returning({ sessionId: fxSystemTransactionJournals.sessionId }));
+  if (
+    journal.length !== 1 ||
+    journal[0]?.sessionId !== command.authorityPins.sessionId
+  ) {
+    throw corruption("publicationInvariantInvalid");
+  }
+  await emitTransactionStep(options, command, "journalDeleted");
+
+  const lease = await sqlCall("deleteLease", () =>
+    tx.delete(fxSystemSnapshotLeases).where(and(
+      eq(fxSystemSnapshotLeases.scopeUuid, scopeUuid),
+      eq(
+        fxSystemSnapshotLeases.sessionId,
+        command.authorityPins.sessionId,
+      ),
+      eq(
+        fxSystemSnapshotLeases.attemptFence,
+        command.authorityPins.attemptFence,
+      ),
+    )).returning({ sessionId: fxSystemSnapshotLeases.sessionId }));
+  if (
+    lease.length !== 1 ||
+    lease[0]?.sessionId !== command.authorityPins.sessionId
+  ) {
+    throw corruption("publicationInvariantInvalid");
+  }
+  await emitTransactionStep(options, command, "leaseDeleted");
+
+  const session = await sqlCall("commitSession", () =>
+    tx.update(fxSystemTransactionSessions).set({
+      lifecycle: "committed",
+      updatedAt: publicationTime,
+    }).where(and(
+      eq(fxSystemTransactionSessions.scopeUuid, scopeUuid),
+      eq(
+        fxSystemTransactionSessions.sessionId,
+        command.authorityPins.sessionId,
+      ),
+      eq(
+        fxSystemTransactionSessions.attemptFence,
+        command.authorityPins.attemptFence,
+      ),
+      eq(fxSystemTransactionSessions.lifecycle, "finishing"),
+    )).returning({ sessionId: fxSystemTransactionSessions.sessionId }));
+  if (
+    session.length !== 1 ||
+    session[0]?.sessionId !== command.authorityPins.sessionId
+  ) {
+    throw corruption("publicationInvariantInvalid");
+  }
+  await emitTransactionStep(options, command, "sessionCommitted");
+
+  const clock = await sqlCall("advanceScopeClock", () =>
+    tx.update(fxSystemScopeClocks).set({
+      lastCommitSeq: commitSeq,
+      lastOutboxSeq: outboxSeq,
+      updatedAt: publicationTime,
+    }).where(and(
+      eq(fxSystemScopeClocks.scopeUuid, scopeUuid),
+      eq(
+        fxSystemScopeClocks.lastCommitSeq,
+        kernel.clock.record.lastCommitSeq,
+      ),
+      eq(
+        fxSystemScopeClocks.lastOutboxSeq,
+        kernel.clock.record.lastOutboxSeq,
+      ),
+    )).returning({
+      lastCommitSeq: fxSystemScopeClocks.lastCommitSeq,
+      lastOutboxSeq: fxSystemScopeClocks.lastOutboxSeq,
+    }));
+  if (
+    clock.length !== 1 ||
+    clock[0]?.lastCommitSeq !== commitSeq ||
+    clock[0]?.lastOutboxSeq !== outboxSeq
+  ) {
+    throw corruption("publicationInvariantInvalid");
+  }
+  await emitTransactionStep(options, command, "clockAdvanced");
+}
+
+function requireSinglePublicationWrite(
+  rows: ReadonlyArray<Readonly<{ readonly commitSeq: CommitSeq }>>,
+  expected: CommitSeq,
+): void {
+  if (rows.length !== 1 || rows[0]?.commitSeq !== expected) {
+    throw corruption("publicationInvariantInvalid");
+  }
+}
+
 function adaptPointDependency(
   scopeId: ReplacementScopeIdV1,
   input: PointCommitDependencyV1,
@@ -1776,6 +2437,58 @@ function mapCommandPreparationFailure(
     return corruption("commandInvalid");
   }
   throw cause;
+}
+
+function publicationResultFromOutcome(
+  outcome: CommittedPointOutcomeResolutionV1,
+  disposition: "published" | "replayed",
+  expectedToken?: CommittedPointOutcomeTokenV1,
+): PointCommitPublicationResultV1 {
+  if (outcome.kind === "missing") {
+    throw corruption("committedOutcomeMissing");
+  }
+  if (
+    expectedToken !== undefined &&
+    (
+      outcome.token.scopeUuid !== expectedToken.scopeUuid ||
+      outcome.token.epochUuid !== expectedToken.epochUuid ||
+      outcome.token.commitSeq !== expectedToken.commitSeq
+    )
+  ) {
+    throw corruption("publishedOutcomeInvalid");
+  }
+  if (outcome.kind === "expired") {
+    if (disposition === "published") {
+      throw corruption("publishedOutcomeInvalid");
+    }
+    return Object.freeze({ kind: "expired", token: outcome.token });
+  }
+  return Object.freeze({
+    kind: disposition,
+    token: outcome.token,
+    successfulResult: outcome.successfulResult,
+  });
+}
+
+function publicationResultFromOutcomeEffect(
+  outcome: CommittedPointOutcomeResolutionV1,
+  disposition: "published" | "replayed",
+  expectedToken?: CommittedPointOutcomeTokenV1,
+): Effect.Effect<
+  PointCommitPublicationResultV1,
+  PointCommitCorruptionV1Error
+> {
+  return Effect.try({
+    try: () => publicationResultFromOutcome(
+      outcome,
+      disposition,
+      expectedToken,
+    ),
+    catch: (cause) => {
+      if (cause instanceof PointCommitCorruptionV1Error) return cause;
+      throw cause;
+    },
+  });
 }
 
 function mapAuthorityResolutionFailure(

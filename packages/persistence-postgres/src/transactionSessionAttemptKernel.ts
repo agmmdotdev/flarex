@@ -17,6 +17,9 @@ import type {
   PointMutationSessionAttemptExecutionPinV1,
   PointMutationSessionAttemptSelectorV1,
 } from "./transactionSessionActivation";
+import type {
+  CommittedPointOutcomeResolverV1,
+} from "./committedPointOutcome";
 
 type TransactionJournalRootRowV1 =
   typeof fxSystemTransactionJournals.$inferSelect;
@@ -57,6 +60,9 @@ export const RUN_LOCATED_REPEATABLE_READ_V1: unique symbol = Symbol(
 export const RUN_LOCATED_READ_COMMITTED_V1: unique symbol = Symbol(
   "FlarexDB/runLocatedReadCommittedV1",
 );
+
+export const RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1: unique symbol =
+  Symbol("FlarexDB/resolveLocatedCommittedPointOutcomeV1");
 
 export class LocatedReadCommittedTransactionFailureV1 extends Error {
   readonly name = "LocatedReadCommittedTransactionFailureV1";
@@ -110,11 +116,31 @@ export interface LocatedReadCommittedAttemptTargetV1
   ) => Promise<Result>;
 }
 
+/**
+ * Package-internal O07 target capability. It resolves only the bounded S09-A
+ * receipt for the exact located database and cannot expose a database handle.
+ */
+export interface LocatedPointCommitPublicationTargetV1
+  extends LocatedReadCommittedAttemptTargetV1 {
+  readonly [RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1]:
+    CommittedPointOutcomeResolverV1["resolve"];
+}
+
 export function isLocatedReadCommittedAttemptTargetV1(
   target: LocatedScopeClockReader,
 ): target is LocatedReadCommittedAttemptTargetV1 {
   return typeof Reflect.get(target, RUN_LOCATED_READ_COMMITTED_V1) ===
     "function";
+}
+
+export function isLocatedPointCommitPublicationTargetV1(
+  target: LocatedScopeClockReader,
+): target is LocatedPointCommitPublicationTargetV1 {
+  return isLocatedReadCommittedAttemptTargetV1(target) &&
+    typeof Reflect.get(
+      target,
+      RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
+    ) === "function";
 }
 
 export function isLocatedRepeatableReadAttemptTargetV1(

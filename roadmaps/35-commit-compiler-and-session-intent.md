@@ -9,9 +9,9 @@ consumer, and C04A's private exact stored-attempt authentication are complete;
 C04B1's same-factory current commit-authority authentication and C04B2's
 private-C07 final-document/result proof are also complete. Corrected C04C1
 private logical point planning and O06's reusable rollback-proven point-commit
-transaction kernel and O07-A private read-only committed-outcome resolver are
-complete; O07-B durable publication remains pending, and C04C2 remains
-conditional and unapproved.
+transaction kernel, O07-A private read-only committed-outcome resolver, and
+O07-B private durable point publication are complete. C05 is next, and C04C2
+remains conditional and unapproved.
 
 This roadmap owns the durable direction for:
 
@@ -499,7 +499,7 @@ same-factory provenance. Old-epoch receipts remain valid, floor equality
 requires a retained exact header, and canonical result verification runs after
 SQL. C06/O08 still own replay and uncertain-outcome orchestration.
 
-O07-B later inserts the outcome atomically with data, committed session state,
+O07-B inserts the outcome atomically with data, committed session state,
 the S08 header/change atoms, and S09-B outbox. Reusing a key for another
 identity, function, or request fails. Repeated finish and lost-response lookup
 remain C06/O08 behavior, not S09-A schema behavior. After payload expiry the
@@ -724,15 +724,15 @@ carriage, or conditional C04C2 active.
   mapping, and target-generation activation remain unimplemented; legacy
   outcome import remains conditional.
 - S09-B's fixed-kind, scope-local commit-wake table and package-private fenced
-  claim/settlement repository are implemented. O07-B atomic production, C06 host
-  dispatch, the deterministic sync sink, and delivery retention/GC remain
-  unimplemented; S08 is still the canonical recovery authority.
+  claim/settlement repository are implemented, and O07-B atomically produces
+  the wake with each successful point commit. C06 host dispatch, the
+  deterministic sync sink, and delivery retention/GC remain unimplemented; S08
+  is still the canonical recovery authority.
 - Replacement app-row revision/current and physical transaction-session/
   snapshot-lease tables plus the private O04 point-read kernel, O05 pure point-
-  OCC validator, and O06 rollback-proven transaction integration exist
-  internally. Production syscall/session composition, durable commit/change,
-  S09-A outcome production, O07-B wake production, and compiler composition remain
-  prerequisites.
+  OCC validator, O06 rollback-proven transaction integration, and O07-B atomic
+  commit/change/outcome/wake publication exist internally. Production syscall/
+  session and compiler composition remain prerequisites.
 - Exact range/relation/pagination overlays and phantom tests are incomplete.
 - Payload and Medusa adapter conformance remain separate future domains.
 - The scope-local commit lane may become a throughput bottleneck and must be
@@ -782,9 +782,9 @@ operational point-journal consumer, and C04A's private stored-attempt
  authentication plus C04B1's current commit-authority authentication and C04B2's
  private-C07 final-value proof are complete. Corrected C04C1, S08 commit/feed
  DDL, S09-A private committed-success DDL, S09-B private commit-wake DDL and
- fenced repository, and O06's rollback-proven transaction kernel are complete.
- O07-B is the next Wave 2 prerequisite and C04C2 remains conditional and
- unapproved.
+ fenced repository, O06's rollback-proven transaction kernel, and O07-B's
+ private durable point publication are complete. C05 is the next Wave 2
+ prerequisite, and C04C2 remains conditional and unapproved.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
 retention consumer proves that a bounded attempt must outlive its initial lease.

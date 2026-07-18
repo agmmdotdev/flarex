@@ -27,8 +27,9 @@ complete. S09-B's fixed-kind private commit-wake schema and fenced repository
 are also complete. O06's reusable private point-commit transaction kernel and
 forced-rollback proof are complete. The retained-history floor is physically
 present but fixed at zero until O11. O07-A's private read-only committed-
-outcome resolver is complete; O07-B durable production and C06 dispatch remain
-pending, and C04C2 remains conditional and unapproved.
+outcome resolver and O07-B's private durable point publication are complete.
+C05 is next; C06 dispatch remains pending, and C04C2 remains conditional and
+unapproved.
 B2b2 renewal is
 a conditional
 operational extension outside the current
@@ -340,15 +341,17 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
 1. `S08` (complete): native scope-local commit headers and epoch-provenance-
    checked typed app-row changes; package-private bounded contiguous
    `listAfter`; retained-history floor physically present but fixed at `0`
-   until O11. Header allocation remains an O07-B decision.
+   until O11. O07-B now allocates one dense header for every successful point
+   mutation, including a zero-child header when there is no material row intent.
 2. `S09-A` (complete): private scope-lifetime committed-success result DDL,
    keyed by the server-prepared internal request identity and deliberately
    decoupled from compactable S08 headers.
 3. `S09-B` (complete): fixed-kind private commit-wake DDL and package-private
    database-time claim/retry/deliver/dead-letter repository. Claims use exact
    owner/fence CAS and snapshot-consistent inclusive-floor/header correlation;
-   old-epoch rows remain eligible. There is no allocator, O07-B writer, C06 host,
-   generic consumer/cursor, GC, redrive, or sink implementation.
+   old-epoch rows remain eligible. The repository owns no allocator; O07-B is
+   the sole current writer. There is no C06 host, generic consumer/cursor, GC,
+   redrive, or sink implementation.
 4. `O06` (complete): reusable private non-routable point-commit transaction
    kernel plus a test-only forced-rollback proof adapter. It revalidates current
    authority, loads authoritative heads, applies O05, and exercises tentative
@@ -356,8 +359,11 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
 5. `O07-A` (complete): private read-only committed-outcome resolver with one
    bounded statement and post-SQL canonical result verification. Its closed
    structural input is not commit authority; O08/C06 later own recovery policy.
-6. `O07-B`: extend the O06 kernel with atomic result, outcome, data,
-   commit/change atoms, outbox, session/lease completion, and clock advance.
+6. `O07-B` (complete): extends the O06 kernel with atomic result, outcome, data,
+   commit/change atoms, fixed-kind outbox wake, session/lease completion, and
+   paired commit/outbox clock advance. The transaction rechecks the request key
+   after locking the scope clock, so concurrent preflight misses converge on one
+   stored outcome.
 7. `C05`: one point mutation through the complete primitive.
 8. `O08`: separate OCC reruns, safe SQL retries, and uncertain-outcome policy
    using O07-A rather than reimplementing lookup.
@@ -365,10 +371,9 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
 10. `C07`: PGlite plus real-Postgres correctness gate.
 
 This S09-A/S09-B split refines one existing Wave 2 outcome; it does not reorder
-the wave. After O07-B and before C05, introduce C04C2 only if the frozen
-S08/S09-A/S09-B/O06/O07-B first-consumer contracts prove that a separate
-physical/change/outbox lowering capability is necessary. The step is not part
-of the mandatory order today.
+the wave. The completed S08/S09-A/S09-B/O06/O07-B first-consumer contracts do
+not currently establish a need for separate physical/change/outbox lowering,
+so C04C2 remains conditional and outside the mandatory order. C05 is next.
 
 `C07` is the first end-to-end replacement milestone, but it proves only a
 private test-generation point-mutation kernel. It does not authorize canary or

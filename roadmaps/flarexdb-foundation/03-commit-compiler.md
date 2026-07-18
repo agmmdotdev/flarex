@@ -10,9 +10,9 @@ final-document/result proof is also complete. Corrected C04C1 private logical
 point planning, S08 commit/feed DDL, and S09-A private committed-success DDL are
 complete. S09-B's fixed-kind private commit-wake DDL and fenced repository are
 also complete. O06's reusable private point-commit transaction kernel and
-forced-rollback proof and O07-A private read-only committed-outcome resolver are
-complete; O07-B durable production and C06 dispatch remain pending, while
-C04C2 remains conditional and unapproved.
+forced-rollback proof, O07-A private read-only committed-outcome resolver, and
+O07-B private durable point publication are complete. C05 is next; C06 dispatch
+remains pending, while C04C2 remains conditional and unapproved.
 
 This plan owns the bounded Flarex app-data path from logical session operations
 through a private logical point plan to an atomic commit. It does not make a

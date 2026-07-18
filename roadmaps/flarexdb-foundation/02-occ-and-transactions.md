@@ -18,9 +18,9 @@ implementation; C02's inert logical protocol, C03's trusted point journal, and
 C04A's private stored-attempt authentication and C04B1's private current
 commit-authority authentication and C04B2's private-C07 final-value proof are
 complete. Corrected C04C1 private logical point planning and O06's reusable
-rollback-proven point-commit transaction kernel and O07-A private read-only
-committed-outcome resolver are complete; O07-B durable publication remains
-pending, and C04C2 remains conditional and unapproved.
+rollback-proven point-commit transaction kernel, O07-A private read-only
+committed-outcome resolver, and O07-B private durable point publication are
+complete. C05 is next, and C04C2 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
 does not block the private C02-C07 proof.
@@ -871,8 +871,10 @@ Exit gate:
 - the production kernel is reusable by O07-B, while the forced-rollback adapter
   remains test/proof-only and no externally routable mutation can commit through
   O06; and
-- O07-B/C07 retain the durable exactly-one-winner, contiguous-sequence, atomic
-  header/change/outcome/wake, and uncertain-outcome exit gates.
+- O07-B proves private exactly-one-winner publication, dense sequence allocation,
+  and atomic header/change/outcome/wake settlement. C06/O08 retain routed finish
+  orchestration and uncertain-outcome retry policy, and C07 retains the first
+  complete end-to-end gate.
 
 ### [x] O07-A — Resolve Committed Point Outcomes
 
@@ -906,7 +908,7 @@ Exit gate:
   behavior, post-SQL verification, and index-backed bounded plans; and
 - the resolver stays absent from package roots and all host/public routes.
 
-### [ ] O07-B — Add Atomic Outcome, Idempotency, And Outbox
+### [x] O07-B — Add Atomic Outcome, Idempotency, And Outbox
 
 Outcome:
 
@@ -917,7 +919,9 @@ Outcome:
 - Consume S09-A through a fast committed-outcome lookup before entering the
   transaction. A matching stored success is replayable; mismatched identity/
   policy, function, or canonical-request evidence fails. S09-A has no
-  `in_progress` claim row.
+  `in_progress` claim row. After locking the scope clock, recheck the exact
+  request key before session/lease validation so two concurrent preflight
+  misses converge on the stored winner rather than treating it as stale.
 - Insert the successful encoded result and immutable commit token only in the
   same transaction as data, the S08 header/change atoms, S09-B outbox rows,
   exact-current-lease deletion, and committed session state. Failed, aborted,
@@ -936,6 +940,10 @@ All authoritative writers use one lock order:
 O07-A committed-outcome lookup outside the transaction
   -> begin transaction
   -> lock data-plane scope clock/generation fence
+  -> recheck the exact S09-A request key
+     -> matching stored success: replay
+     -> mismatched evidence: typed request-key reuse
+     -> missing: continue
   -> lock exact session row and exact current lease
   -> recheck lifecycle/fence/snapshot/expiry/grant/current revocation epoch
   -> validate and publish
@@ -948,7 +956,8 @@ authorities.
 
 Exit gate:
 
-- repeated finish returns the same outcome;
+- repeated private publication returns the same outcome; routed repeated finish
+  remains C06 work;
 - mismatched request-key reuse fails;
 - concurrent duplicates apply once;
 - an uncertain response resolves from the stored outcome;
