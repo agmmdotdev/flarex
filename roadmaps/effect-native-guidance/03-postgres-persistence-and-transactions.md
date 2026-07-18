@@ -178,6 +178,12 @@ now follow the same Result-first contract, including exact returned-row
 cardinality. Its one throwing projection likewise remains only at the current
 Drizzle transaction callback so a typed verification failure rolls both
 catalog inserts back.
+Logical-index planning reads now also separate raw Drizzle row acquisition from
+one pure `Result` decoder. The decoder preserves deployment and table-ID
+validation before requested-descriptor filtering, ignores unrelated descriptors
+on a requested table, and short-circuits duplicate or corrupt requested rows.
+One throwing projection remains at the Promise-based planner/revalidation seam
+until that complete chain owns an Effect failure channel and rollback policy.
 
 Fenced index build-state reads are now Effect-native at the exported
 persistence boundary. Unknown input and stored clock/build rows compose through

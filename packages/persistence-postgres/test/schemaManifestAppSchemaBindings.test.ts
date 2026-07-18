@@ -21,6 +21,7 @@ import {
 import { createPGlitePersistence } from "../src/pglite";
 import {
   applySchemaManifestAppSchemaBindingsV1InTransaction,
+  decodeSchemaManifestAppIndexBindingRowsResult,
   InvalidPreparedSchemaManifestAppSchemaBindingsError,
   InvalidSchemaManifestAppSchemaBindingInputError,
   prepareSchemaManifestAppSchemaBindingsV1,
@@ -62,6 +63,133 @@ describe("schema manifest app-schema bindings", () => {
     expectTypeOf<
       PreparedSchemaManifestAppSchemaBindingsV1["manifest"]
     >().toEqualTypeOf<SchemaManifestAppSchemaV1>();
+  });
+
+  it("decodes requested logical-index rows through Result without capturing defects", () => {
+    const deploymentId = "deployment_app_schema_read_result";
+    const tableId = CatalogTableIdSchema.make(1);
+    const logicalIndexId = CatalogIndexIdSchema.make(1);
+    const requested = [{ tableId, descriptor: "by_name" }];
+    const row = {
+      deploymentId,
+      tableId,
+      descriptor: "by_name",
+      logicalIndexId,
+    } satisfies SchemaManifestAppIndexBindingRow;
+
+    const decoded = decodeSchemaManifestAppIndexBindingRowsResult(
+      deploymentId,
+      requested,
+      [
+        row,
+        {
+          ...row,
+          descriptor: "by_unrequested",
+          logicalIndexId: "invalid-but-unrequested",
+        },
+      ],
+    );
+    expect(Result.getOrThrow(decoded).get("1\u0000by_name")).toBe(
+      logicalIndexId,
+    );
+
+    const crossDeploymentRow = new Proxy(row, {
+      get(target, property, receiver) {
+        if (property === "deploymentId") return "another_deployment";
+        if (property === "tableId") {
+          throw new Error("table ID must not be read after deployment failure");
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const crossDeployment = decodeSchemaManifestAppIndexBindingRowsResult(
+      deploymentId,
+      requested,
+      [crossDeploymentRow],
+    );
+    expect(Result.isFailure(crossDeployment)).toBe(true);
+    if (Result.isFailure(crossDeployment)) {
+      expect(crossDeployment.failure).toMatchObject({
+        _tag: "StableLogicalIndexCatalogCorruptionError",
+        detail: "cross-deployment row returned for another_deployment",
+      });
+    }
+
+    const invalidTableRow = new Proxy(row, {
+      get(target, property, receiver) {
+        return property === "tableId"
+          ? "invalid-table-id"
+          : Reflect.get(target, property, receiver);
+      },
+    });
+    const unreachedRow = new Proxy(row, {
+      get() {
+        throw new Error("later logical-index row must not be inspected");
+      },
+    });
+    const invalidTable = decodeSchemaManifestAppIndexBindingRowsResult(
+      deploymentId,
+      requested,
+      [invalidTableRow, unreachedRow],
+    );
+    expect(Result.isFailure(invalidTable)).toBe(true);
+    if (Result.isFailure(invalidTable)) {
+      expect(invalidTable.failure.detail).toBe(
+        "invalid table ID: invalid-table-id",
+      );
+    }
+
+    const invalidIndexRow = new Proxy(row, {
+      get(target, property, receiver) {
+        return property === "logicalIndexId"
+          ? "invalid-logical-index-id"
+          : Reflect.get(target, property, receiver);
+      },
+    });
+    const invalidIndex = decodeSchemaManifestAppIndexBindingRowsResult(
+      deploymentId,
+      requested,
+      [invalidIndexRow, unreachedRow],
+    );
+    expect(Result.isFailure(invalidIndex)).toBe(true);
+    if (Result.isFailure(invalidIndex)) {
+      expect(invalidIndex.failure.detail).toBe(
+        "invalid logical index ID: invalid-logical-index-id",
+      );
+    }
+
+    const duplicateRow = new Proxy(row, {
+      get(target, property, receiver) {
+        if (property === "logicalIndexId") {
+          throw new Error("duplicate logical index ID must not be decoded");
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const duplicate = decodeSchemaManifestAppIndexBindingRowsResult(
+      deploymentId,
+      requested,
+      [row, duplicateRow],
+    );
+    expect(Result.isFailure(duplicate)).toBe(true);
+    if (Result.isFailure(duplicate)) {
+      expect(duplicate.failure.detail).toBe(
+        "duplicate logical identity for table 1 descriptor by_name",
+      );
+    }
+
+    const defect = new Error("logical-index descriptor accessor failed");
+    const throwingRow = new Proxy(row, {
+      get(target, property, receiver) {
+        if (property === "descriptor") throw defect;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(() => decodeSchemaManifestAppIndexBindingRowsResult(
+      deploymentId,
+      requested,
+      [throwingRow],
+    )).toThrow(defect);
   });
 
   it("verifies inserted logical-index rows through Result before rollback projection", () => {

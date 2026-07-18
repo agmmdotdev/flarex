@@ -36,9 +36,7 @@ import {
   StableLogicalIndexCatalogCorruptionError,
 } from "./stableLogicalIndexCatalogAllocation";
 import {
-  decodeStableLogicalIndexCatalogIndexId as decodeStoredIndexId,
   decodeStableLogicalIndexCatalogIndexIdResult as decodeStoredIndexIdResult,
-  decodeStableLogicalIndexCatalogTableId as decodeStoredTableId,
   decodeStableLogicalIndexCatalogTableIdResult as decodeStoredTableIdResult,
 } from "./stableLogicalIndexCatalogDecoding";
 import type { StableTableCatalogTransaction } from "./stableTableCatalog";
@@ -392,15 +390,47 @@ function compareResolvedIndexes(
       : 0;
 }
 
+export interface SchemaManifestAppIndexBindingRow {
+  readonly deploymentId: string;
+  readonly logicalIndexId: unknown;
+  readonly tableId: unknown;
+  readonly descriptor: string;
+}
+
 async function readAppIndexBindings(
   db: FlarexMetadataDatabase,
   deploymentId: string,
   indexes: ReadonlyArray<ResolvedAppIndexDeclaration>,
 ): Promise<ReadonlyMap<string, CatalogIndexId>> {
-  if (indexes.length === 0) return new Map();
+  const rows = await selectSchemaManifestAppIndexBindingRows(
+    db,
+    deploymentId,
+    indexes,
+  );
+  // Temporary throwing projection for the Promise-based schema planner and
+  // transaction revalidation. Delete it when those consumers own an Effect
+  // failure channel with explicit transaction rollback semantics.
+  return Result.getOrThrow(
+    decodeSchemaManifestAppIndexBindingRowsResult(
+      deploymentId,
+      indexes,
+      rows,
+    ),
+  );
+}
+
+/** Package-internal raw row acquisition; callers own stored-row decoding. */
+export async function selectSchemaManifestAppIndexBindingRows(
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+  indexes: ReadonlyArray<{
+    readonly tableId: CatalogTableId;
+    readonly descriptor: string;
+  }>,
+): Promise<ReadonlyArray<SchemaManifestAppIndexBindingRow>> {
+  if (indexes.length === 0) return [];
   const tableIds = [...new Set(indexes.map((index) => index.tableId))];
-  const requested = new Set(indexes.map(indexIdentityKey));
-  const rows = await db
+  return db
     .select({
       deploymentId: fxControlIndexes.deploymentId,
       logicalIndexId: fxControlIndexes.logicalIndexId,
@@ -414,32 +444,56 @@ async function readAppIndexBindings(
         inArray(fxControlIndexes.tableId, tableIds),
       ),
     );
-  const bindings = new Map<string, CatalogIndexId>();
-  for (const row of rows) {
-    if (row.deploymentId !== deploymentId) {
-      throw new StableLogicalIndexCatalogCorruptionError(
+}
+
+/** Pure recoverable decoder for rows acquired from the logical-index catalog. */
+export function decodeSchemaManifestAppIndexBindingRowsResult(
+  deploymentId: string,
+  indexes: ReadonlyArray<{
+    readonly tableId: CatalogTableId;
+    readonly descriptor: string;
+  }>,
+  rows: ReadonlyArray<SchemaManifestAppIndexBindingRow>,
+): Result.Result<
+  ReadonlyMap<string, CatalogIndexId>,
+  StableLogicalIndexCatalogCorruptionError
+> {
+  return Result.gen(function* () {
+    const requested = new Set(indexes.map(indexIdentityKey));
+    const bindings = new Map<string, CatalogIndexId>();
+    for (const row of rows) {
+      if (row.deploymentId !== deploymentId) {
+        return yield* Result.fail(
+          new StableLogicalIndexCatalogCorruptionError(
+            deploymentId,
+            `cross-deployment row returned for ${row.deploymentId}`,
+          ),
+        );
+      }
+      const tableId = yield* decodeStoredTableIdResult(
         deploymentId,
-        `cross-deployment row returned for ${row.deploymentId}`,
+        row.tableId,
+      );
+      const key = indexIdentityKey({
+        tableId,
+        descriptor: row.descriptor,
+      });
+      if (!requested.has(key)) continue;
+      if (bindings.has(key)) {
+        return yield* Result.fail(
+          new StableLogicalIndexCatalogCorruptionError(
+            deploymentId,
+            `duplicate logical identity for table ${tableId} descriptor ${row.descriptor}`,
+          ),
+        );
+      }
+      bindings.set(
+        key,
+        yield* decodeStoredIndexIdResult(deploymentId, row.logicalIndexId),
       );
     }
-    const tableId = decodeStoredTableId(deploymentId, row.tableId);
-    const key = indexIdentityKey({
-      tableId,
-      descriptor: row.descriptor,
-    });
-    if (!requested.has(key)) continue;
-    if (bindings.has(key)) {
-      throw new StableLogicalIndexCatalogCorruptionError(
-        deploymentId,
-        `duplicate logical identity for table ${tableId} descriptor ${row.descriptor}`,
-      );
-    }
-    bindings.set(
-      key,
-      decodeStoredIndexId(deploymentId, row.logicalIndexId),
-    );
-  }
-  return bindings;
+    return bindings;
+  });
 }
 
 function planIndexBindings(
@@ -618,13 +672,6 @@ async function insertPlannedAppIndexBindings(
     indexes,
     rows,
   ));
-}
-
-export interface SchemaManifestAppIndexBindingRow {
-  readonly deploymentId: string;
-  readonly logicalIndexId: unknown;
-  readonly tableId: unknown;
-  readonly descriptor: string;
 }
 
 /** Pure post-insert verification; the transaction boundary owns rollback. */
