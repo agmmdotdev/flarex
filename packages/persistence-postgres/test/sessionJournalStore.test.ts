@@ -48,8 +48,9 @@ import {
   expect,
   expectTypeOf,
   it,
+  vi,
 } from "vitest";
-import { Effect, Fiber } from "effect";
+import { Cause, Effect, Exit, Fiber } from "effect";
 
 import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
@@ -71,6 +72,7 @@ import {
   SessionJournalIdentityGenerationV1Error,
   SessionJournalPersistenceV1Error,
   SessionJournalSealV1Error,
+  SessionJournalStorageCorruptionV1Error,
   createSessionJournalStorePersistenceV1,
   type PinnedPointTableV1,
   type RunSessionJournalPointOperationV1Result,
@@ -1209,6 +1211,97 @@ describe("C03 Postgres SessionJournalStore", () => {
     await expect(prepareSeal(current.store, current.attempt)).rejects.toMatchObject({
       reason: "materialWriteEventEvidenceBytesMismatch",
     });
+  });
+
+  it("maps malformed receipt, overlay, and write evidence at their Effect adapters", async () => {
+    const invalidDigest = new Uint8Array(32);
+    const receipt = await scenario("seal_invalid_receipt_evidence");
+    await runPointOperation(receipt.store, receipt.table, {
+      kind: "get",
+      syscallSequence: syscallSequence(1n),
+      documentId: documentId(receipt.tableId, 402),
+    });
+    await persistence.query(
+      `
+        update fx_system_tx_journal_latest_receipt
+        set request_sha256 = $2
+        where session_id = $1
+      `,
+      [receipt.anchor.sessionId, invalidDigest],
+    );
+    await expect(runFailure(receipt.store.prepareSealEffect(
+      receipt.attempt,
+    ))).resolves.toMatchObject({
+      reason: "latestReceiptEvidenceInvalid",
+    } satisfies Partial<SessionJournalStorageCorruptionV1Error>);
+
+    const overlay = await scenario("seal_invalid_overlay_evidence");
+    await runPointOperation(overlay.store, overlay.table, {
+      kind: "insert",
+      syscallSequence: syscallSequence(1n),
+      fields: { name: "overlay" },
+    });
+    await persistence.query(
+      `
+        update fx_system_tx_journal_point
+        set overlay_value_sha256 = $2
+        where session_id = $1
+      `,
+      [overlay.anchor.sessionId, invalidDigest],
+    );
+    await expect(runFailure(overlay.store.prepareSealEffect(
+      overlay.attempt,
+    ))).resolves.toMatchObject({
+      reason: "liveOverlaySemanticBytesMismatch",
+    } satisfies Partial<SessionJournalStorageCorruptionV1Error>);
+
+    const write = await scenario("seal_invalid_write_evidence");
+    await runPointOperation(write.store, write.table, {
+      kind: "insert",
+      syscallSequence: syscallSequence(1n),
+      fields: { name: "write" },
+    });
+    await persistence.query(
+      `
+        update fx_system_tx_journal_write_event
+        set event_sha256 = $2
+        where session_id = $1
+      `,
+      [write.anchor.sessionId, invalidDigest],
+    );
+    await expect(runFailure(write.store.prepareSealEffect(
+      write.attempt,
+    ))).resolves.toMatchObject({
+      reason: "logicalWriteEventInvalid",
+    } satisfies Partial<SessionJournalStorageCorruptionV1Error>);
+  });
+
+  it("preserves an unexpected evidence-hashing rejection as a defect", async () => {
+    const current = await scenario("seal_evidence_hash_defect");
+    await runPointOperation(current.store, current.table, {
+      kind: "get",
+      syscallSequence: syscallSequence(1n),
+      documentId: documentId(current.tableId, 403),
+    });
+    const defect = new Error("seal evidence hashing unavailable");
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest")
+      .mockRejectedValue(defect);
+    try {
+      const exit = await Effect.runPromiseExit(
+        current.store.prepareSealEffect(current.attempt),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(exit.cause.reasons).toHaveLength(1);
+        const reason = exit.cause.reasons[0];
+        expect(reason !== undefined && Cause.isDieReason(reason)).toBe(true);
+        if (reason !== undefined && Cause.isDieReason(reason)) {
+          expect(reason.defect).toBe(defect);
+        }
+      }
+    } finally {
+      digest.mockRestore();
+    }
   });
 
   it("collects only max+1 child rows and rejects cardinality before decoding corrupt evidence", async () => {

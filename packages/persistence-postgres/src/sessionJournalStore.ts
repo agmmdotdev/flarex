@@ -671,22 +671,28 @@ type SessionJournalStoredOutcomeV1 =
 const encodeStoredRequest = Schema.encodeSync(
   SessionJournalStoredRequestV1Schema,
 );
-const decodeStoredRequest = Schema.decodeUnknownSync(
+const decodeStoredRequestResult = Schema.decodeUnknownResult(
   SessionJournalStoredRequestV1Schema,
   { onExcessProperty: "error" },
 );
+const decodeStoredRequest = (input: unknown): SessionJournalStoredRequestV1 =>
+  Result.getOrThrow(decodeStoredRequestResult(input));
 const encodeStoredOutcome = Schema.encodeSync(
   SessionJournalStoredOutcomeV1Schema,
 );
-const decodeStoredOutcome = Schema.decodeUnknownSync(
+const decodeStoredOutcomeResult = Schema.decodeUnknownResult(
   SessionJournalStoredOutcomeV1Schema,
   { onExcessProperty: "error" },
 );
+const decodeStoredOutcome = (input: unknown): SessionJournalStoredOutcomeV1 =>
+  Result.getOrThrow(decodeStoredOutcomeResult(input));
 const encodeLogicalAppWrite = Schema.encodeSync(LogicalAppWriteV1Schema);
-const decodeLogicalAppWrite = Schema.decodeUnknownSync(
+const decodeLogicalAppWriteResult = Schema.decodeUnknownResult(
   LogicalAppWriteV1Schema,
   { onExcessProperty: "error" },
 );
+const decodeLogicalAppWrite = (input: unknown): LogicalAppWriteV1 =>
+  Result.getOrThrow(decodeLogicalAppWriteResult(input));
 const encodeSessionJournal = Schema.encodeSync(SessionJournalV1Schema);
 const decodeSchemaManifestAppTableNameEffect = Schema.decodeUnknownEffect(
   SchemaManifestAppTableNameSchema,
@@ -2156,6 +2162,16 @@ function decodePointDependency(
   attempt: SessionJournalAttemptStateV1,
   row: typeof fxSystemTransactionJournalPoints.$inferSelect,
 ): AppRowPointDependencyV1 {
+  return Result.getOrThrow(decodePointDependencyResult(attempt, row));
+}
+
+function decodePointDependencyResult(
+  attempt: SessionJournalAttemptStateV1,
+  row: typeof fxSystemTransactionJournalPoints.$inferSelect,
+): Result.Result<
+  AppRowPointDependencyV1,
+  SessionJournalStorageCorruptionV1Error
+> {
   const rowId = appRowIdHexV1FromBytes(row.rowId);
   const identity = Object.freeze({
     scopeId: attempt.selector.scopeId,
@@ -2165,29 +2181,38 @@ function decodePointDependency(
   switch (row.dependencyKind) {
     case "present":
       if (row.dependencyRevisionCommitSeq === null) {
-        throw corruption(attempt, "presentDependencyRevisionMissing");
+        return Result.fail(corruption(
+          attempt,
+          "presentDependencyRevisionMissing",
+        ));
       }
-      return Object.freeze({
+      return Result.succeed(Object.freeze({
         kind: "present",
         identity,
         revisionCommitSeq: CommitSeqSchema.make(
           row.dependencyRevisionCommitSeq,
         ),
-      });
+      }));
     case "missing_no_visible_revision":
       if (row.dependencyRevisionCommitSeq !== null) {
-        throw corruption(attempt, "missingDependencyUnexpectedRevision");
+        return Result.fail(corruption(
+          attempt,
+          "missingDependencyUnexpectedRevision",
+        ));
       }
-      return Object.freeze({
+      return Result.succeed(Object.freeze({
         kind: "missing",
         identity,
         basis: Object.freeze({ kind: "noVisibleRevision" }),
-      });
+      }));
     case "missing_tombstone":
       if (row.dependencyRevisionCommitSeq === null) {
-        throw corruption(attempt, "tombstoneDependencyRevisionMissing");
+        return Result.fail(corruption(
+          attempt,
+          "tombstoneDependencyRevisionMissing",
+        ));
       }
-      return Object.freeze({
+      return Result.succeed(Object.freeze({
         kind: "missing",
         identity,
         basis: Object.freeze({
@@ -2196,7 +2221,7 @@ function decodePointDependency(
             row.dependencyRevisionCommitSeq,
           ),
         }),
-      });
+      }));
   }
 }
 
@@ -2375,6 +2400,16 @@ function decodeJournalCounters(
   attempt: SessionJournalAttemptStateV1,
   root: typeof fxSystemTransactionJournals.$inferSelect,
 ): SessionJournalCountersV1 {
+  return Result.getOrThrow(decodeJournalCountersResult(attempt, root));
+}
+
+function decodeJournalCountersResult(
+  attempt: SessionJournalAttemptStateV1,
+  root: typeof fxSystemTransactionJournals.$inferSelect,
+): Result.Result<
+  SessionJournalCountersV1,
+  SessionJournalStorageCorruptionV1Error
+> {
   const counters = {
     readDocuments: root.readDocuments,
     readSemanticBytes: root.readSemanticBytes,
@@ -2412,9 +2447,9 @@ function decodeJournalCounters(
   ];
   if (limits.some(([value, maximum]) =>
     !isNonNegativeSafeInteger(value) || value > maximum)) {
-    throw corruption(attempt, "journalCountersInvalid");
+    return Result.fail(corruption(attempt, "journalCountersInvalid"));
   }
-  return Object.freeze(counters);
+  return Result.succeed(Object.freeze(counters));
 }
 
 async function loadLatestReceipt(
@@ -2454,17 +2489,34 @@ function requireReceiptCardinality(
   receipt: typeof fxSystemTransactionJournalLatestReceipts.$inferSelect |
     undefined,
 ): void {
+  Result.getOrThrow(validateReceiptCardinalityResult(
+    attempt,
+    lastSequence,
+    receipt,
+  ));
+}
+
+function validateReceiptCardinalityResult(
+  attempt: SessionJournalAttemptStateV1,
+  lastSequence: CommitFinalSyscallSequenceV1,
+  receipt: typeof fxSystemTransactionJournalLatestReceipts.$inferSelect |
+    undefined,
+): Result.Result<void, SessionJournalStorageCorruptionV1Error> {
   if (lastSequence === 0n && receipt !== undefined) {
-    throw corruption(attempt, "zeroSequenceHasReceipt");
+    return Result.fail(corruption(attempt, "zeroSequenceHasReceipt"));
   }
   if (lastSequence > 0n) {
     if (
       receipt === undefined ||
       BigInt(receipt.lastSyscallSequence) !== BigInt(lastSequence)
     ) {
-      throw corruption(attempt, "latestReceiptSequenceMismatch");
+      return Result.fail(corruption(
+        attempt,
+        "latestReceiptSequenceMismatch",
+      ));
     }
   }
+  return Result.succeed(undefined);
 }
 
 async function decodeAndVerifyLatestReceipt(
@@ -2501,6 +2553,92 @@ async function decodeAndVerifyLatestReceipt(
   }
 }
 
+const decodeStoredEvidenceEffect = Effect.fn((
+  attempt: SessionJournalAttemptStateV1,
+  reason: "latestReceiptEvidenceInvalid" | "logicalWriteEventInvalid",
+  canonicalBytes: unknown,
+  sha256: unknown,
+): Effect.Effect<
+  CanonicalFlarexValueV1,
+  SessionJournalStorageCorruptionV1Error
+> =>
+  Effect.tryPromise({
+    try: () => decodeCanonicalFlarexValueEvidenceV1({
+      canonicalBytes,
+      sha256,
+    }),
+    catch: (cause): unknown => cause,
+  }).pipe(
+    Effect.catch((cause) =>
+      cause instanceof FlarexValueCodecV1Error ||
+        cause instanceof FlarexValueEvidenceV1Error
+        ? Effect.fail(corruption(attempt, reason, cause))
+        : Effect.die(cause)
+    ),
+  ));
+
+const decodeAndVerifyLatestReceiptEffect = Effect.fn(function* (
+  attempt: SessionJournalAttemptStateV1,
+  receipt: typeof fxSystemTransactionJournalLatestReceipts.$inferSelect,
+  expectedRequest: SessionJournalStoredRequestV1 | undefined,
+): Effect.fn.Return<
+  SessionJournalStoredOutcomeV1,
+  SessionJournalStorageCorruptionV1Error
+> {
+  const requestEvidence = yield* decodeStoredEvidenceEffect(
+    attempt,
+    "latestReceiptEvidenceInvalid",
+    receipt.requestBytes,
+    receipt.requestSha256,
+  );
+  const request = yield* Effect.fromResult(
+    decodeStoredRequestResult(requestEvidence.valueJson).pipe(
+      Result.mapError((cause) => corruption(
+        attempt,
+        "latestReceiptEvidenceInvalid",
+        cause,
+      )),
+    ),
+  );
+  if (
+    request.kind !== receipt.operationKind ||
+    BigInt(request.syscallSequence) !== BigInt(receipt.lastSyscallSequence) ||
+    (expectedRequest !== undefined &&
+      !storedRequestsEqual(request, expectedRequest))
+  ) {
+    return yield* Effect.fail(corruption(
+      attempt,
+      "latestReceiptEvidenceInvalid",
+    ));
+  }
+
+  const outcomeEvidence = yield* decodeStoredEvidenceEffect(
+    attempt,
+    "latestReceiptEvidenceInvalid",
+    receipt.outcomeBytes,
+    receipt.outcomeSha256,
+  );
+  const outcome = yield* Effect.fromResult(
+    decodeStoredOutcomeResult(outcomeEvidence.valueJson).pipe(
+      Result.mapError((cause) => corruption(
+        attempt,
+        "latestReceiptEvidenceInvalid",
+        cause,
+      )),
+    ),
+  );
+  if (
+    outcome.kind !== receipt.outcomeKind ||
+    !requestOutcomeCorrelates(request, outcome)
+  ) {
+    return yield* Effect.fail(corruption(
+      attempt,
+      "latestReceiptEvidenceInvalid",
+    ));
+  }
+  return outcome;
+});
+
 function storedRequestsEqual(
   left: SessionJournalStoredRequestV1,
   right: SessionJournalStoredRequestV1,
@@ -2514,13 +2652,21 @@ function requireRequestOutcomeCorrelation(
   request: SessionJournalStoredRequestV1,
   outcome: SessionJournalStoredOutcomeV1,
 ): void {
+  if (requestOutcomeCorrelates(request, outcome)) return;
+  throw new Error("Latest receipt request/outcome variants do not correlate.");
+}
+
+function requestOutcomeCorrelates(
+  request: SessionJournalStoredRequestV1,
+  outcome: SessionJournalStoredOutcomeV1,
+): boolean {
   switch (request.kind) {
     case "get":
       if (
         outcome.kind === "missing" ||
         outcome.kind === "present" ||
         isLimitOutcome(outcome)
-      ) return;
+      ) return true;
       break;
     case "insert":
       if (
@@ -2529,7 +2675,7 @@ function requireRequestOutcomeCorrelation(
           (outcome.reason === "documentIdCollision" ||
             outcome.reason === "invalidDocument" ||
             outcome.reason === "limitExceeded"))
-      ) return;
+      ) return true;
       break;
     case "patch":
     case "replace":
@@ -2542,10 +2688,10 @@ function requireRequestOutcomeCorrelation(
             (outcome.reason === "invalidDocument" &&
               outcome.operation === request.kind) ||
             outcome.reason === "limitExceeded"))
-      ) return;
+      ) return true;
       break;
   }
-  throw new Error("Latest receipt request/outcome variants do not correlate.");
+  return false;
 }
 
 function isLimitOutcome(
@@ -2562,9 +2708,24 @@ function requireReceiptOutcomeMatchesJournalRoot(
   root: typeof fxSystemTransactionJournals.$inferSelect,
   outcome: SessionJournalStoredOutcomeV1,
 ): void {
+  Result.getOrThrow(validateReceiptOutcomeMatchesJournalRootResult(
+    attempt,
+    root,
+    outcome,
+  ));
+}
+
+function validateReceiptOutcomeMatchesJournalRootResult(
+  attempt: SessionJournalAttemptStateV1,
+  root: typeof fxSystemTransactionJournals.$inferSelect,
+  outcome: SessionJournalStoredOutcomeV1,
+): Result.Result<void, SessionJournalStorageCorruptionV1Error> {
   if (root.state === "failed") {
     if (root.failureDimension === null) {
-      throw corruption(attempt, "failedJournalEvidenceInvalid");
+      return Result.fail(corruption(
+        attempt,
+        "failedJournalEvidenceInvalid",
+      ));
     }
     const expectedMaximum =
       SESSION_JOURNAL_INCREMENTAL_LIMIT_MAXIMUMS_V1[root.failureDimension];
@@ -2574,13 +2735,20 @@ function requireReceiptOutcomeMatchesJournalRoot(
       outcome.maximum !== expectedMaximum ||
       outcome.observed <= outcome.maximum
     ) {
-      throw corruption(attempt, "failedJournalReceiptInvalid");
+      return Result.fail(corruption(
+        attempt,
+        "failedJournalReceiptInvalid",
+      ));
     }
-    return;
+    return Result.succeed(undefined);
   }
   if (isLimitOutcome(outcome)) {
-    throw corruption(attempt, "journalReceiptStateMismatch");
+    return Result.fail(corruption(
+      attempt,
+      "journalReceiptStateMismatch",
+    ));
   }
+  return Result.succeed(undefined);
 }
 
 interface PersistAcceptedOperationRootStateV1 {
@@ -3061,65 +3229,72 @@ async function captureSealRowsInRepeatableRead(
 
 const materializeSealCandidateEffect = Effect.fn(
   "SessionJournalStore.materializeSealCandidate",
-)((
+)(function* (
   attempt: SessionJournalAttemptStateV1,
   snapshot: SessionJournalSealRowsV1,
-): Effect.Effect<
+): Effect.fn.Return<
   SessionJournalSealCandidateV1,
   SessionJournalSealV1Error | SessionJournalStorageCorruptionV1Error
-> =>
-  Effect.tryPromise({
-    try: () => materializeSealCandidate(attempt, snapshot),
-    catch: (cause): unknown => cause,
-  }).pipe(
-    Effect.catch((cause) =>
-      cause instanceof SessionJournalSealV1Error ||
-        cause instanceof SessionJournalStorageCorruptionV1Error
-        ? Effect.fail(cause)
-        : Effect.die(cause)
-    ),
-  ));
-
-async function materializeSealCandidate(
-  attempt: SessionJournalAttemptStateV1,
-  snapshot: SessionJournalSealRowsV1,
-): Promise<SessionJournalSealCandidateV1> {
+> {
   const root = snapshot.root;
   if (root.state === "failed") {
-    throw new SessionJournalSealV1Error({ reason: "journalFailed" });
+    return yield* Effect.fail(
+      new SessionJournalSealV1Error({ reason: "journalFailed" }),
+    );
   }
   if (root.state !== "open" && root.state !== "sealed") {
-    throw corruption(attempt, "journalStateInvalid");
+    return yield* Effect.fail(corruption(attempt, "journalStateInvalid"));
   }
   if (snapshot.points.length > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1) {
-    throw corruption(attempt, "pointDependencyCountMismatch");
+    return yield* Effect.fail(corruption(
+      attempt,
+      "pointDependencyCountMismatch",
+    ));
   }
   if (snapshot.events.length > MAX_COMMIT_WRITE_OPERATIONS_V1) {
-    throw corruption(attempt, "writeOperationCountMismatch");
+    return yield* Effect.fail(corruption(
+      attempt,
+      "writeOperationCountMismatch",
+    ));
   }
-  const counters = decodeJournalCounters(attempt, root);
+  const counters = yield* Effect.fromResult(
+    decodeJournalCountersResult(attempt, root),
+  );
   const lastSyscallSequence = CommitFinalSyscallSequenceV1Schema.make(
     root.lastSyscallSequence,
   );
   const receipt = snapshot.receipt;
-  requireReceiptCardinality(attempt, lastSyscallSequence, receipt);
+  yield* Effect.fromResult(validateReceiptCardinalityResult(
+    attempt,
+    lastSyscallSequence,
+    receipt,
+  ));
   if (receipt !== undefined) {
-    const outcome = await decodeAndVerifyLatestReceipt(
+    const outcome = yield* decodeAndVerifyLatestReceiptEffect(
       attempt,
       receipt,
       undefined,
     );
-    requireReceiptOutcomeMatchesJournalRoot(attempt, root, outcome);
+    yield* Effect.fromResult(validateReceiptOutcomeMatchesJournalRootResult(
+      attempt,
+      root,
+      outcome,
+    ));
   }
 
   const pointRows = snapshot.points;
   if (pointRows.length !== counters.pointDependencyCount) {
-    throw corruption(attempt, "pointDependencyCountMismatch");
+    return yield* Effect.fail(corruption(
+      attempt,
+      "pointDependencyCountMismatch",
+    ));
   }
   const dependencies: LogicalReadDependencyV1[] = [];
   for (const point of pointRows) {
-    const dependency = decodePointDependency(attempt, point);
-    await verifyPointOverlayEvidence(attempt, point);
+    const dependency = yield* Effect.fromResult(
+      decodePointDependencyResult(attempt, point),
+    );
+    yield* verifyPointOverlayEvidenceEffect(attempt, point);
     dependencies.push(logicalDependencyFromPoint(dependency));
   }
   dependencies.sort((left, right) =>
@@ -3127,7 +3302,10 @@ async function materializeSealCandidate(
 
   const eventRows = snapshot.events;
   if (eventRows.length !== counters.writeOperations) {
-    throw corruption(attempt, "writeOperationCountMismatch");
+    return yield* Effect.fail(corruption(
+      attempt,
+      "writeOperationCountMismatch",
+    ));
   }
   const writes: LogicalAppWriteV1[] = [];
   let computedWriteSemanticBytes = 0;
@@ -3139,11 +3317,20 @@ async function materializeSealCandidate(
       computedMaterialWriteEventEvidenceBytes >
         MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1
     ) {
-      throw corruption(attempt, "materialWriteEventEvidenceBytesMismatch");
+      return yield* Effect.fail(corruption(
+        attempt,
+        "materialWriteEventEvidenceBytesMismatch",
+      ));
     }
-    const write = await decodeAndVerifyLogicalWriteEvent(attempt, event);
+    const write = yield* decodeAndVerifyLogicalWriteEventEffect(
+      attempt,
+      event,
+    );
     if (write.syscallSequence > lastSyscallSequence) {
-      throw corruption(attempt, "writeSequenceBeyondJournalFinalSequence");
+      return yield* Effect.fail(corruption(
+        attempt,
+        "writeSequenceBeyondJournalFinalSequence",
+      ));
     }
     computedWriteSemanticBytes += write.kind === "delete"
       ? 0
@@ -3151,13 +3338,19 @@ async function materializeSealCandidate(
     writes.push(write);
   }
   if (computedWriteSemanticBytes !== counters.writeSemanticBytes) {
-    throw corruption(attempt, "writeSemanticBytesMismatch");
+    return yield* Effect.fail(corruption(
+      attempt,
+      "writeSemanticBytesMismatch",
+    ));
   }
   if (
     computedMaterialWriteEventEvidenceBytes !==
       counters.materialWriteEventEvidenceBytes
   ) {
-    throw corruption(attempt, "materialWriteEventEvidenceBytesMismatch");
+    return yield* Effect.fail(corruption(
+      attempt,
+      "materialWriteEventEvidenceBytesMismatch",
+    ));
   }
 
   const journal = Object.freeze(SessionJournalV1Schema.make({
@@ -3178,7 +3371,7 @@ async function materializeSealCandidate(
   }));
   const rootUpdatedAtMilliseconds = finiteDateMilliseconds(root.updatedAt);
   if (rootUpdatedAtMilliseconds === undefined) {
-    throw corruption(attempt, "journalStateInvalid");
+    return yield* Effect.fail(corruption(attempt, "journalStateInvalid"));
   }
   return Object.freeze({
     lastSyscallSequence,
@@ -3187,7 +3380,7 @@ async function materializeSealCandidate(
     rootUpdatedAtMilliseconds,
     journal,
   });
-}
+});
 
 interface RepeatableReadAttemptAuthorityV1 {
   readonly scopeUuid: ScopeUuidV1;
@@ -3411,10 +3604,10 @@ async function loadLatestReceiptReadOnly(
   return rows[0];
 }
 
-async function verifyPointOverlayEvidence(
+const verifyPointOverlayEvidenceEffect = Effect.fn(function* (
   attempt: SessionJournalAttemptStateV1,
   point: typeof fxSystemTransactionJournalPoints.$inferSelect,
-): Promise<void> {
+): Effect.fn.Return<void, SessionJournalStorageCorruptionV1Error> {
   if (point.overlayKind !== "live") return;
   if (
     point.overlayCreationTime === null ||
@@ -3424,35 +3617,49 @@ async function verifyPointOverlayEvidence(
     point.overlayValueSha256 === null ||
     point.overlaySemanticBytes === null
   ) {
-    throw corruption(attempt, "liveOverlayEvidenceMissing");
+    return yield* Effect.fail(corruption(
+      attempt,
+      "liveOverlayEvidenceMissing",
+    ));
   }
-  let document: Awaited<ReturnType<typeof verifyAppDocumentEvidenceV1>>;
-  try {
-    document = await verifyAppDocumentEvidenceV1({
+  const overlayCreationTime = point.overlayCreationTime;
+  const overlayValueCodecVersion = point.overlayValueCodecVersion;
+  const overlayValueJson = point.overlayValueJson;
+  const overlayValueBytes = point.overlayValueBytes;
+  const overlayValueSha256 = point.overlayValueSha256;
+  const document = yield* Effect.tryPromise({
+    try: () => verifyAppDocumentEvidenceV1({
       tableId: point.tableId,
       rowId: appRowIdHexV1FromBytes(point.rowId),
-      creationTime: point.overlayCreationTime,
-      codecVersion: point.overlayValueCodecVersion,
-      valueJson: point.overlayValueJson,
-      canonicalBytes: point.overlayValueBytes,
-      sha256: point.overlayValueSha256,
-    });
-  } catch (cause) {
-    if (
+      creationTime: overlayCreationTime,
+      codecVersion: overlayValueCodecVersion,
+      valueJson: overlayValueJson,
+      canonicalBytes: overlayValueBytes,
+      sha256: overlayValueSha256,
+    }),
+    catch: (cause): unknown => cause,
+  }).pipe(
+    Effect.catch((cause) =>
       cause instanceof AppDocumentIdV1Error ||
       cause instanceof AppDocumentSystemFieldV1Error ||
       cause instanceof FlarexValueCodecV1Error ||
       cause instanceof FlarexValueEvidenceV1Error ||
       Schema.isSchemaError(cause)
-    ) {
-      throw corruption(attempt, "liveOverlaySemanticBytesMismatch", cause);
-    }
-    throw cause;
-  }
+        ? Effect.fail(corruption(
+            attempt,
+            "liveOverlaySemanticBytesMismatch",
+            cause,
+          ))
+        : Effect.die(cause)
+    ),
+  );
   if (document.semanticSizeBytes !== point.overlaySemanticBytes) {
-    throw corruption(attempt, "liveOverlaySemanticBytesMismatch");
+    return yield* Effect.fail(corruption(
+      attempt,
+      "liveOverlaySemanticBytesMismatch",
+    ));
   }
-}
+});
 
 function logicalDependencyFromPoint(
   dependency: AppRowPointDependencyV1,
@@ -3480,29 +3687,41 @@ function logicalDependencyFromPoint(
       });
 }
 
-async function decodeAndVerifyLogicalWriteEvent(
+const decodeAndVerifyLogicalWriteEventEffect = Effect.fn(function* (
   attempt: SessionJournalAttemptStateV1,
   event: typeof fxSystemTransactionJournalWriteEvents.$inferSelect,
-): Promise<LogicalAppWriteV1> {
-  try {
-    const evidence = await decodeCanonicalFlarexValueEvidenceV1({
-      canonicalBytes: event.eventBytes,
-      sha256: event.eventSha256,
-    });
-    const write = decodeLogicalAppWrite(evidence.valueJson);
-    const encoded = requireJson(encodeLogicalAppWrite(write));
-    if (
-      write.kind !== event.writeKind ||
-      write.syscallSequence !== event.syscallSequence ||
-      !jsonEqual(encoded, event.eventJson)
-    ) {
-      throw new Error("Logical write event projection is inconsistent.");
-    }
-    return write;
-  } catch (cause) {
-    throw corruption(attempt, "logicalWriteEventInvalid", cause);
+): Effect.fn.Return<
+  LogicalAppWriteV1,
+  SessionJournalStorageCorruptionV1Error
+> {
+  const evidence = yield* decodeStoredEvidenceEffect(
+    attempt,
+    "logicalWriteEventInvalid",
+    event.eventBytes,
+    event.eventSha256,
+  );
+  const write = yield* Effect.fromResult(
+    decodeLogicalAppWriteResult(evidence.valueJson).pipe(
+      Result.mapError((cause) => corruption(
+        attempt,
+        "logicalWriteEventInvalid",
+        cause,
+      )),
+    ),
+  );
+  const encoded = requireJson(encodeLogicalAppWrite(write));
+  if (
+    write.kind !== event.writeKind ||
+    write.syscallSequence !== event.syscallSequence ||
+    !jsonEqual(encoded, event.eventJson)
+  ) {
+    return yield* Effect.fail(corruption(
+      attempt,
+      "logicalWriteEventInvalid",
+    ));
   }
-}
+  return write;
+});
 
 interface CanonicalSealInputsSnapshotV1 {
   readonly journal: SessionJournalV1;

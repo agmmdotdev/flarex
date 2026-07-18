@@ -36,11 +36,22 @@ continues toward an unknown commit outcome.
 Persistence tests enter these operations through the shared explicit test
 runtime, so the Promise point-operation and sealing facades, former Promise
 table resolver, and synchronous attempt opener have been removed. The sealing
-materializer still contains Promise-native protocol-verification internals
-behind one adapter that preserves its two owned typed failures and turns an
-unexpected rejection into a defect. Porting that internal planner is a later
-bounded cleanup; it is not a public Promise boundary. Precise transaction
-begin/commit/rollback failure ownership also remains a later slice.
+materializer now uses Effect-native dependent orchestration and pure `Result`
+validation. Receipt, live-overlay, and logical-write protocol evidence each
+enter through their own narrow Promise adapter; known codec or Schema failures
+become their existing stored-corruption errors, while unexpected crypto or
+runtime failures remain defects.
+
+The existing Drizzle point-operation transaction still owns a temporary
+throwing compatibility surface: its Promise-native latest-receipt verifier and
+seven `Result.getOrThrow` projections for stored requests/outcomes, logical
+writes, point dependencies, journal counters, receipt cardinality, and
+receipt/root correlation. Their concrete consumers are
+`runPointOperationInTransaction` and the directly called Promise-native point
+read/write helpers. Delete these wrappers when that transaction body receives
+its own Effect-native transaction slice rather than introducing a nested
+runtime in this checkpoint. Precise transaction begin/commit/rollback failure
+ownership also remains a later slice.
 
 ## Target Boundary
 
