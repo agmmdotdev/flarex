@@ -697,9 +697,11 @@ semantics, a narrow pinned-manifest table capability, the trusted bounded
 Postgres journal store, and the staged read-your-writes overlay. C04B1 adds
 only the private current-authority capability. Its exact stored-session scalar
 shape and equality policy are owned by `flarex-protocol/transaction-session`;
-the persistence materializer and executor authority port retain domain names as
-aliases rather than separate contracts. C04B2 adds the private-C07 final value/
-result proof, and corrected C04C1 is the approved private logical point planner.
+the stored-attempt loader, commit-authority materializer, and executor authority
+port derive their domain views from that shared shape rather than defining
+separate complete contracts. Persistence retains its stronger decoded-row
+refinements. C04B2 adds the private-C07 final value/result proof, and corrected
+C04C1 is the approved private logical point planner.
 None of these makes committed publication, production routing, inline carriage,
 or conditional C04C2 active.
 

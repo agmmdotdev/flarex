@@ -36,6 +36,7 @@ import {
   TransactionAttemptFenceSchema,
   TransactionAuthorizationRevocationEpochSchema,
   TransactionSessionIdV1Schema,
+  type StoredTransactionSessionScalarsV1,
   type TransactionAttemptFence,
   type TransactionSessionIdV1,
   type TransactionSessionLifecycleV1,
@@ -115,44 +116,36 @@ export type StoredAttemptCorruptionReasonV1 =
   | "pointEvidenceOverflow"
   | "pointEvidenceInvalid";
 
-export interface StoredAttemptSessionScalarsV1 {
-  readonly lifecycle: Extract<
-    TransactionSessionLifecycleV1,
-    "running" | "finishing"
+type StoredAttemptSessionRowScalarFieldV1 =
+  | "storageGeneration"
+  | "storageGenerationFence"
+  | "packageId"
+  | "artifactRuntime"
+  | "artifactId"
+  | "sourcePackageHash"
+  | "executionModule"
+  | "functionPath"
+  | "functionKind"
+  | "schemaVersionId"
+  | "policyVersion"
+  | "validatedArgsValueCodecVersion"
+  | "authorizationGrantId"
+  | "authorizationGrantValueCodecVersion"
+  | "authorizationRevocationEpoch"
+  | "requestKey"
+  | "protocolVersion";
+
+/** Protocol-owned comparison shape plus persistence-decoded row refinements. */
+export type StoredAttemptSessionScalarsV1 =
+  StoredTransactionSessionScalarsV1 &
+  Readonly<
+    Pick<TransactionSessionRow, StoredAttemptSessionRowScalarFieldV1> & {
+      readonly lifecycle: Extract<
+        TransactionSessionLifecycleV1,
+        "running" | "finishing"
+      >;
+    }
   >;
-  readonly storageGeneration: TransactionSessionRow["storageGeneration"];
-  readonly storageGenerationFence:
-    TransactionSessionRow["storageGenerationFence"];
-  readonly packageId: TransactionSessionRow["packageId"];
-  readonly artifactRuntime: TransactionSessionRow["artifactRuntime"];
-  readonly artifactId: TransactionSessionRow["artifactId"];
-  readonly sourcePackageHash: TransactionSessionRow["sourcePackageHash"];
-  readonly executionModule: TransactionSessionRow["executionModule"];
-  readonly functionPath: TransactionSessionRow["functionPath"];
-  readonly functionKind: TransactionSessionRow["functionKind"];
-  readonly schemaVersionId: TransactionSessionRow["schemaVersionId"];
-  readonly policyVersion: TransactionSessionRow["policyVersion"];
-  readonly identityAccessPolicySha256: Uint8Array;
-  readonly validatedArgsValueCodecVersion:
-    TransactionSessionRow["validatedArgsValueCodecVersion"];
-  readonly validatedArgsCanonicalByteLength: number;
-  readonly validatedArgsSha256: Uint8Array;
-  readonly authorizationGrantId:
-    TransactionSessionRow["authorizationGrantId"];
-  readonly authorizationGrantValueCodecVersion:
-    TransactionSessionRow["authorizationGrantValueCodecVersion"];
-  readonly authorizationGrantCanonicalByteLength: number;
-  readonly authorizationGrantSha256: Uint8Array;
-  readonly authorizationRevocationEpoch:
-    TransactionSessionRow["authorizationRevocationEpoch"];
-  readonly authorizationGrantExpiresAtMilliseconds: number;
-  readonly requestKey: TransactionSessionRow["requestKey"];
-  readonly requestSha256: Uint8Array;
-  readonly protocolVersion: TransactionSessionRow["protocolVersion"];
-  readonly hardExpiresAtMilliseconds: number;
-  readonly createdAtMilliseconds: number;
-  readonly updatedAtMilliseconds: number;
-}
 
 export interface StoredAttemptLeaseScalarsV1 {
   readonly snapshotToken: SnapshotToken;
