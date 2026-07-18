@@ -1,7 +1,6 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
-import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
   decodeCatalogTableId,
   decodeCatalogTableNamespace,
@@ -10,6 +9,7 @@ import {
 } from "flarex-protocol/catalog";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { deployments, fxControlTables } from "./schema";
 import {
   nextStableTableCatalogId,
@@ -48,10 +48,7 @@ export type EnsureStableTableIdentityResult =
       readonly table: StableTableIdentity;
     };
 
-export type StableTableCatalogTransaction = FlarexMetadataDatabase & {
-  rollback(): never;
-  setTransaction(config: PgTransactionConfig): Promise<void>;
-};
+export type StableTableCatalogTransaction = FlarexMetadataTransaction;
 
 export class InvalidStableTableIdentityInputError extends Error {
   constructor(

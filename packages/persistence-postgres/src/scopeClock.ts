@@ -1,7 +1,6 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { eq, sql } from "drizzle-orm";
-import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
@@ -24,6 +23,7 @@ import {
 } from "flarex-protocol/transaction-session";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { fxSystemScopeClocks } from "./schema";
 
 export interface ScopeClockRecord {
@@ -199,10 +199,7 @@ async function lockScopeClockRowForUpdateInTransaction(
   return clock;
 }
 
-type ScopeClockTransaction = FlarexMetadataDatabase & {
-  rollback(): never;
-  setTransaction(config: PgTransactionConfig): Promise<void>;
-};
+type ScopeClockTransaction = FlarexMetadataTransaction;
 
 export type ScopeClockRow = typeof fxSystemScopeClocks.$inferSelect;
 

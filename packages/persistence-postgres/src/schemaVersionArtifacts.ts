@@ -3,7 +3,6 @@ import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
-import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
   canonicalizeSchemaManifestV1,
   decodeCanonicalSchemaManifestBytes,
@@ -22,6 +21,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { deployments, fxControlSchemaVersions } from "./schema";
 
 export interface SchemaVersionArtifactIdentity {
@@ -69,10 +69,7 @@ export type EnsureSchemaVersionArtifactResult =
       readonly artifact: SchemaVersionArtifact;
     };
 
-export type SchemaVersionArtifactTransaction = FlarexMetadataDatabase & {
-  rollback(): never;
-  setTransaction(config: PgTransactionConfig): Promise<void>;
-};
+export type SchemaVersionArtifactTransaction = FlarexMetadataTransaction;
 
 const forbiddenInputFields = [
   "manifestCodecVersion",

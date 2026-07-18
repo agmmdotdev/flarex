@@ -1,5 +1,4 @@
 import { and, desc, eq, lte } from "drizzle-orm";
-import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
   decodeAppCreationTimeV1,
   verifyAppDocumentEvidenceV1,
@@ -41,17 +40,14 @@ import {
   type FlarexValueSha256V1,
 } from "flarex-protocol/value";
 
-import type { FlarexMetadataDatabase } from "./deployments";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import {
   fxAppRowCurrent,
   fxAppRowRevisions,
   fxSystemScopeClocks,
 } from "./schema";
 
-export type AppRowTransaction = FlarexMetadataDatabase & {
-  rollback(): never;
-  setTransaction(config: PgTransactionConfig): Promise<void>;
-};
+export type AppRowTransaction = FlarexMetadataTransaction;
 
 export interface AppRowIdentityV1 {
   readonly scopeId: ScopeId;

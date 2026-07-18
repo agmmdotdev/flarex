@@ -245,6 +245,13 @@ When multiple Effect consumers call the same Promise-based protocol operation,
 prefer one protocol-owned Effect adapter that preserves its typed failures and
 routes unexpected causes to defects. Consumers may translate the typed error
 channel for their domain, but must not turn defects into ordinary failures.
+Within persistence, reuse the package-local transaction capability type for
+operations that require Drizzle transaction-only methods such as `rollback`
+or `setTransaction`. Keep domain aliases when they communicate the owning
+operation, but do not redeclare the structural capability and do not accept
+the top-level autocommit database for a lock whose lifetime must span later
+work. This transaction marker is a persistence contract, not `@flarex/utils`
+material and not automatically a public package export.
 
 Do not move Effect Schema options, typed errors, authority or cryptographic
 logic, persistence codecs, canonical protocol encodings, universal deep-freeze
