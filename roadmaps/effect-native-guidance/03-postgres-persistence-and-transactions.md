@@ -62,14 +62,22 @@ unexpected epoch-reader rejection is retained in the tagged port error
 channel. The unused high-level Promise resolver was deleted; the Worker and
 tests own their explicit runtime boundaries.
 
-The `resolveLocatedTrustedScopeAuthority` facade is the one temporary
-Promise/runtime compatibility bridge for transaction activation,
-stored-attempt evidence, and stored commit-authority loading. Delete it after
-those concrete consumers move to
+The `resolveLocatedTrustedScopeAuthority` facade is a temporary
+Promise/runtime compatibility bridge for transaction activation and
+stored-attempt evidence. Delete it after those concrete consumers move to
 `resolveLocatedTrustedScopeAuthorityEffect`; new consumers must use the Effect
 operation directly. The compatibility bridge unwraps only the new port error
 to preserve the original Promise rejection identity expected by those legacy
 consumers.
+
+Stored commit-authority loading now owns an Effect-native `loadEffect`
+operation, typed persistence failures, Effect-native detached
+materialization, and an interruption-masked repeatable-read Promise edge. Its
+`load` method is a temporary Promise/runtime compatibility bridge for the
+executor commit-authority port and unwraps the typed persistence cause to
+preserve that port's prior rejection identity. Delete `load` when the executor
+port consumes `loadEffect` directly; new persistence consumers must use
+`loadEffect`.
 
 The existing Drizzle point-operation transaction still owns a temporary
 throwing compatibility surface: its Promise-native latest-receipt verifier and

@@ -8,6 +8,7 @@ import {
   isNonNegativeSafeInteger,
   isPositiveSafeInteger,
 } from "@flarex/utils/numbers";
+import { Effect, Result } from "effect";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
   isJsonObjectFromUnknown,
@@ -53,6 +54,7 @@ import {
   type StoredCommitAuthorityCorruptionReasonV1,
   type StoredCommitAuthorityEvidenceAuthorityV1,
   type StoredCommitAuthorityEvidenceLoadResultV1,
+  StoredCommitAuthorityEvidencePersistenceV1Error,
   type StoredCommitAuthoritySealIdentityV1,
   type StoredCommitAuthoritySessionScalarsV1,
 } from "./model";
@@ -142,21 +144,17 @@ export interface RootScalarRow extends Omit<
 
 const UTF8_ENCODER = new TextEncoder();
 
-export async function materialize(
+export const materializeEffect = Effect.fn(
+  "StoredCommitAuthority.materialize",
+)(function* (
   expected: StoredCommitAuthorityEvidenceAuthorityV1,
   preliminary: TrustedScopeAuthority,
   captured: CapturedRowsV1,
   options: StoredCommitAuthorityMaterializationOptionsV1 = {},
-): Promise<StoredCommitAuthorityEvidenceLoadResultV1> {
-  return materializeUnsafe(expected, preliminary, captured, options);
-}
-
-async function materializeUnsafe(
-  expected: StoredCommitAuthorityEvidenceAuthorityV1,
-  preliminary: TrustedScopeAuthority,
-  captured: CapturedRowsV1,
-  options: StoredCommitAuthorityMaterializationOptionsV1,
-): Promise<StoredCommitAuthorityEvidenceLoadResultV1> {
+): Effect.fn.Return<
+  StoredCommitAuthorityEvidenceLoadResultV1,
+  StoredCommitAuthorityEvidencePersistenceV1Error
+> {
   if (captured.skipReason !== undefined) {
     return corrupt(captured.skipReason);
   }
@@ -371,8 +369,13 @@ async function materializeUnsafe(
   if (schemaRow === undefined) {
     return corrupt("schemaArtifactMissingOrDuplicate");
   }
-  await options.beforeSchemaArtifactDecode?.();
-  const manifest = await verifySchemaArtifact(
+  if (options.beforeSchemaArtifactDecode !== undefined) {
+    yield* runMaterializationPromise(
+      "beforeSchemaArtifactDecode",
+      async () => options.beforeSchemaArtifactDecode?.(),
+    );
+  }
+  const manifest = yield* verifySchemaArtifactEffect(
     expected,
     schemaSize,
     schemaRow,
@@ -420,50 +423,47 @@ async function materializeUnsafe(
       }),
     }),
   });
-}
+});
 
 function decodeClockAuthority(row: ClockRow) {
-  try {
-    return Object.freeze({
+  return Result.getOrUndefined(Result.try({
+    try: () => Object.freeze({
       clock: decodeScopeClockRecord(row),
       scopeUuid: decodeScopeUuidV1(row.scopeUuid),
       epochUuid: decodeScopeEpochUuidV1(row.epochUuid),
       revocationEpoch: TransactionAuthorizationRevocationEpochSchema.make(
         row.authorizationRevocationEpoch,
       ),
-    });
-  } catch {
-    return undefined;
-  }
+    }),
+    catch: () => undefined,
+  }));
 }
 
 function decodeSessionIdentity(session: SessionSizeRow) {
-  try {
-    return Object.freeze({
+  return Result.getOrUndefined(Result.try({
+    try: () => Object.freeze({
       sessionId: TransactionSessionIdV1Schema.make(session.sessionId),
       attemptFence: TransactionAttemptFenceSchema.make(session.attemptFence),
       storageGenerationFence: StorageGenerationFenceSchema.make(
         session.storageGenerationFence,
       ),
-    });
-  } catch {
-    return undefined;
-  }
+    }),
+    catch: () => undefined,
+  }));
 }
 
 function decodeLeaseSnapshot(
   expected: StoredCommitAuthorityEvidenceAuthorityV1,
   lease: LeaseRow,
 ) {
-  try {
-    return SnapshotTokenSchema.make({
+  return Result.getOrUndefined(Result.try({
+    try: () => SnapshotTokenSchema.make({
       scopeId: expected.scopeId,
       epoch: replacementScopeEpochV1FromUuid(lease.snapshotEpochUuid),
       commitSeq: CommitSeqSchema.make(lease.snapshotCommitSeq),
-    });
-  } catch {
-    return undefined;
-  }
+    }),
+    catch: () => undefined,
+  }));
 }
 
 function validSessionScalars(session: SessionSizeRow): boolean {
@@ -639,11 +639,16 @@ function sameSealIdentity(
       root.materialWriteEventEvidenceBytes;
 }
 
-async function verifySchemaArtifact(
+const verifySchemaArtifactEffect = Effect.fn(
+  "StoredCommitAuthority.verifySchemaArtifact",
+)(function* (
   expected: StoredCommitAuthorityEvidenceAuthorityV1,
   size: SchemaSizeRow,
   row: SchemaPayloadRow,
-): Promise<SchemaManifestAppSchemaV1 | undefined> {
+): Effect.fn.Return<
+  SchemaManifestAppSchemaV1 | undefined,
+  StoredCommitAuthorityEvidencePersistenceV1Error
+> {
   const sizeCreatedAtMilliseconds = finiteDateMilliseconds(size.createdAt);
   const rowCreatedAtMilliseconds = finiteDateMilliseconds(row.createdAt);
   if (
@@ -671,7 +676,10 @@ async function verifySchemaArtifact(
   ) {
     return undefined;
   }
-  const canonical = await canonicalizeSchemaManifestV1(decoded.json);
+  const canonical = yield* runMaterializationPromise(
+    "schemaManifestCanonicalization",
+    () => canonicalizeSchemaManifestV1(decoded.json),
+  );
   if (
     decoded.codecVersion !== canonical.codecVersion ||
     !bytesEqual(decoded.canonicalBytes, canonical.canonicalBytes) ||
@@ -680,28 +688,26 @@ async function verifySchemaArtifact(
     return undefined;
   }
   return decodeAppSchema(canonical.manifestJson);
-}
+});
 
 function decodeStoredSchemaArtifact(row: SchemaPayloadRow) {
-  try {
-    return Object.freeze({
+  return Result.getOrUndefined(Result.try({
+    try: () => Object.freeze({
       schemaVersionId: decodeCatalogSchemaVersionId(row.schemaVersionId),
       codecVersion: decodeSchemaManifestCodecVersion(row.manifestCodecVersion),
       json: decodeSchemaManifestJson(parseJsonText(row.manifestJsonText)),
       canonicalBytes: decodeCanonicalSchemaManifestBytes(row.manifestBytes),
       sha256: decodeSchemaManifestSha256(row.manifestSha256),
-    });
-  } catch {
-    return undefined;
-  }
+    }),
+    catch: () => undefined,
+  }));
 }
 
 function decodeAppSchema(value: unknown): SchemaManifestAppSchemaV1 | undefined {
-  try {
-    return decodeSchemaManifestAppSchemaV1(value);
-  } catch {
-    return undefined;
-  }
+  return Result.getOrUndefined(Result.try({
+    try: () => decodeSchemaManifestAppSchemaV1(value),
+    catch: () => undefined,
+  }));
 }
 
 function materializeBindings(
@@ -795,13 +801,26 @@ function parseJsonText(value: string): unknown {
 }
 
 function parseJsonObjectText(value: string): JsonObject | undefined {
-  let parsed: unknown;
-  try {
-    parsed = parseJsonText(value);
-  } catch {
-    return undefined;
-  }
+  const parsed = Result.getOrUndefined(Result.try({
+    try: () => parseJsonText(value),
+    catch: () => undefined,
+  }));
   return isJsonObjectFromUnknown(parsed) ? parsed : undefined;
+}
+
+function runMaterializationPromise<A>(
+  operation:
+    | "beforeSchemaArtifactDecode"
+    | "schemaManifestCanonicalization",
+  run: () => PromiseLike<A>,
+): Effect.Effect<A, StoredCommitAuthorityEvidencePersistenceV1Error> {
+  return Effect.tryPromise({
+    try: run,
+    catch: (cause) => new StoredCommitAuthorityEvidencePersistenceV1Error({
+      operation,
+      cause,
+    }),
+  });
 }
 
 function utf8ByteLength(value: string): number {

@@ -1,4 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
+import { Effect } from "effect";
 
 import {
   MAX_SCHEMA_MANIFEST_APP_TABLES,
@@ -13,8 +14,7 @@ import type {
 
 import type { AppRowTransaction } from "../appRows";
 import {
-  resolveLocatedTrustedScopeAuthority,
-  TrustedScopeAuthorityResolutionError,
+  resolveLocatedTrustedScopeAuthorityEffect,
 } from "../scopeAuthorityResolution";
 import {
   fxControlSchemaVersions,
@@ -29,7 +29,7 @@ import {
 } from "../transactionSessionAttemptKernel";
 import type { PointMutationSessionAuthorityResolutionPortsV1 } from "../transactionSessionActivation";
 import {
-  materialize,
+  materializeEffect,
   parseLength,
   type CapturedRowsV1,
   type ClockRow,
@@ -46,6 +46,7 @@ import {
   type StoredCommitAuthorityEvidenceAuthorityV1,
   type StoredCommitAuthorityEvidenceLoadResultV1,
   type StoredCommitAuthorityEvidenceLoaderV1,
+  StoredCommitAuthorityEvidencePersistenceV1Error,
 } from "./model";
 
 export interface StoredCommitAuthorityEvidenceQueryV1 {
@@ -78,52 +79,93 @@ export function createStoredCommitAuthorityEvidenceLoaderV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
   options: StoredCommitAuthorityEvidenceLoaderOptionsV1 = {},
 ): StoredCommitAuthorityEvidenceLoaderV1 {
-  return Object.freeze({
-    load: async (
-      input: StoredCommitAuthorityEvidenceAuthorityV1,
-    ): Promise<StoredCommitAuthorityEvidenceLoadResultV1> => {
-      const authority = captureAuthority(input);
-      let located: Awaited<
-        ReturnType<typeof resolveLocatedTrustedScopeAuthority>
-      >;
-      try {
-        located = await resolveLocatedTrustedScopeAuthority(
-          authority.deploymentId,
-          {
-            scopeMetadata: ports.scopeMetadata,
-            provisioningReceipts: ports.provisioningReceipts,
-            scopeClockTargets: ports.scopeSessionTargets,
-          },
-        );
-      } catch (cause) {
-        if (cause instanceof TrustedScopeAuthorityResolutionError) {
-          return authorityMismatch("placementChanged");
-        }
-        throw cause;
-      }
-      if (located.authority.scopeId !== authority.scopeId) {
-        return authorityMismatch("scopeChanged");
-      }
-      if (
-        located.authority.storageGeneration !== authority.storageGeneration ||
-        located.authority.storageGenerationFence !==
-          authority.storageGenerationFence
-      ) {
-        return authorityMismatch("generationChanged");
-      }
-      if (located.authority.epoch !== authority.snapshotToken.epoch) {
-        return authorityMismatch("epochChanged");
-      }
-      if (!isLocatedRepeatableReadAttemptTargetV1(located.target)) {
-        return corrupt("repeatableReadCapabilityMissing");
-      }
+  const loadEffect = Effect.fn("StoredCommitAuthority.load")(function* (
+    input: StoredCommitAuthorityEvidenceAuthorityV1,
+  ): Effect.fn.Return<
+    StoredCommitAuthorityEvidenceLoadResultV1,
+    StoredCommitAuthorityEvidencePersistenceV1Error
+  > {
+    const authority = captureAuthority(input);
+    const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+      authority.deploymentId,
+      {
+        scopeMetadata: ports.scopeMetadata,
+        provisioningReceipts: ports.provisioningReceipts,
+        scopeClockTargets: ports.scopeSessionTargets,
+      },
+    ).pipe(
+      Effect.catchTag(
+        "TrustedScopeAuthorityResolutionError",
+        () => Effect.succeed(null),
+      ),
+      Effect.mapError((error) =>
+        new StoredCommitAuthorityEvidencePersistenceV1Error({
+          operation: error.operation,
+          cause: error.cause,
+        })
+      ),
+    );
+    if (located === null) {
+      return authorityMismatch("placementChanged");
+    }
+    if (located.authority.scopeId !== authority.scopeId) {
+      return authorityMismatch("scopeChanged");
+    }
+    if (
+      located.authority.storageGeneration !== authority.storageGeneration ||
+      located.authority.storageGenerationFence !==
+        authority.storageGenerationFence
+    ) {
+      return authorityMismatch("generationChanged");
+    }
+    if (located.authority.epoch !== authority.snapshotToken.epoch) {
+      return authorityMismatch("epochChanged");
+    }
+    const repeatableReadTarget = isLocatedRepeatableReadAttemptTargetV1(
+      located.target,
+    )
+      ? located.target
+      : null;
+    if (repeatableReadTarget === null) {
+      return corrupt("repeatableReadCapabilityMissing");
+    }
 
-      const captured = await located.target[RUN_LOCATED_REPEATABLE_READ_V1](
+    const captured = yield* Effect.uninterruptible(Effect.tryPromise({
+      try: () => repeatableReadTarget[RUN_LOCATED_REPEATABLE_READ_V1](
         (tx) => captureRows(tx, authority, options),
-      );
-      await options.afterRepeatableRead?.();
-      return materialize(authority, located.authority, captured, options);
-    },
+      ),
+      catch: (cause) =>
+        new StoredCommitAuthorityEvidencePersistenceV1Error({
+          operation: "repeatableRead",
+          cause,
+        }),
+    }));
+    if (options.afterRepeatableRead !== undefined) {
+      yield* Effect.tryPromise({
+        try: async () => options.afterRepeatableRead?.(),
+        catch: (cause) =>
+          new StoredCommitAuthorityEvidencePersistenceV1Error({
+            operation: "afterRepeatableRead",
+            cause,
+          }),
+      });
+    }
+    return yield* materializeEffect(
+      authority,
+      located.authority,
+      captured,
+      options,
+    );
+  });
+
+  return Object.freeze({
+    loadEffect,
+    load: (
+      input: StoredCommitAuthorityEvidenceAuthorityV1,
+    ): Promise<StoredCommitAuthorityEvidenceLoadResultV1> =>
+      Effect.runPromise(loadEffect(input).pipe(
+        Effect.mapError((error) => error.cause),
+      )),
   });
 }
 

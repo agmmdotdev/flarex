@@ -1,5 +1,6 @@
 export {
   MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1,
+  StoredCommitAuthorityEvidencePersistenceV1Error,
 } from "./storedCommitAuthority/model";
 
 export type {
@@ -7,6 +8,7 @@ export type {
   StoredCommitAuthorityEvidenceAuthorityV1,
   StoredCommitAuthorityEvidenceLoadResultV1,
   StoredCommitAuthorityEvidenceLoaderV1,
+  StoredCommitAuthorityEvidencePersistenceOperationV1,
   StoredCommitAuthorityEvidenceV1,
   StoredCommitAuthoritySealIdentityV1,
   StoredCommitAuthoritySessionEvidenceV1,

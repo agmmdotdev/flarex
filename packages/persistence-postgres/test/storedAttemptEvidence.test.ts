@@ -1,4 +1,4 @@
-import { Effect, Fiber, Schema } from "effect";
+import { Effect, Exit, Fiber, Schema } from "effect";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -101,6 +101,7 @@ import {
 import {
   createStoredCommitAuthorityEvidenceLoaderV1,
   MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1,
+  StoredCommitAuthorityEvidencePersistenceV1Error,
   type StoredCommitAuthorityEvidenceAuthorityV1,
   type StoredCommitAuthorityEvidenceQueryV1,
 } from "../src/storedCommitAuthorityEvidence";
@@ -501,7 +502,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       },
     );
     const executorPort: StoredCommitAuthorityEvidenceLoaderPortV1 = loader;
-    const result = await executorPort.load(authority);
+    const result = await runEffect(loader.loadEffect(authority));
 
     expect(transactionClosed).toBe(true);
     expect(result.kind).toBe("loaded");
@@ -527,6 +528,45 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         (byte) => byte !== 0,
       ),
     ).toBe(true);
+  });
+
+  it("does not observe interruption until authority capture settles", async () => {
+    const current = await scenario("commit_authority_interruption");
+    await seal(current);
+    const authenticatedEvidence = await current.loader.load(current.authority);
+    if (authenticatedEvidence.kind !== "loaded") {
+      throw new Error("Expected C04A evidence.");
+    }
+    const authority = commitAuthorityFromStoredEvidence(
+      current.authority,
+      authenticatedEvidence.evidence,
+    );
+    const entered = deferredSignal();
+    const release = deferredSignal();
+    let interruptionSettled = false;
+    const loader = createStoredCommitAuthorityEvidenceLoaderV1(
+      resolutionPorts(persistence),
+      {
+        afterSizeProjection: async () => {
+          entered.resolve();
+          await release.promise;
+        },
+      },
+    );
+
+    const fiber = Effect.runFork(loader.loadEffect(authority));
+    await entered.promise;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+      interruptionSettled = true;
+      return exit;
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    expect(interruptionSettled).toBe(false);
+    release.resolve();
+    await interruption;
+    expect(interruptionSettled).toBe(true);
+    const exit = await runEffect(Fiber.await(fiber));
+    expect(Exit.hasInterrupts(exit)).toBe(true);
   });
 
   it("rejects stored JSON text whose parsed value leaves the JSON domain", async () => {
@@ -1507,6 +1547,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       },
     );
 
+    const failure = await runFailure(loader.loadEffect(authority));
+    expect(failure).toBeInstanceOf(
+      StoredCommitAuthorityEvidencePersistenceV1Error,
+    );
+    expect(failure).toMatchObject({
+      operation: "beforeSchemaArtifactDecode",
+      cause: defect,
+    });
     await expect(loader.load(authority)).rejects.toBe(defect);
   });
 

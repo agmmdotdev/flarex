@@ -1,3 +1,4 @@
+import { Data, Effect } from "effect";
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type {
@@ -140,7 +141,33 @@ export type StoredCommitAuthorityEvidenceLoadResultV1 =
       readonly cause?: unknown;
     }>;
 
+export type StoredCommitAuthorityEvidencePersistenceOperationV1 =
+  | "scopeMetadataRead"
+  | "provisioningReceiptRead"
+  | "scopeClockRead"
+  | "repeatableRead"
+  | "afterRepeatableRead"
+  | "beforeSchemaArtifactDecode"
+  | "schemaManifestCanonicalization";
+
+export class StoredCommitAuthorityEvidencePersistenceV1Error
+  extends Data.TaggedError("StoredCommitAuthorityEvidencePersistenceV1Error")<{
+    readonly operation:
+      StoredCommitAuthorityEvidencePersistenceOperationV1;
+    readonly cause: unknown;
+  }> {}
+
 export interface StoredCommitAuthorityEvidenceLoaderV1 {
+  readonly loadEffect: (
+    authority: StoredCommitAuthorityEvidenceAuthorityV1,
+  ) => Effect.Effect<
+    StoredCommitAuthorityEvidenceLoadResultV1,
+    StoredCommitAuthorityEvidencePersistenceV1Error
+  >;
+  /**
+   * Temporary compatibility boundary for the executor commit-authority port.
+   * Delete it when that port consumes `loadEffect` directly.
+   */
   readonly load: (
     authority: StoredCommitAuthorityEvidenceAuthorityV1,
   ) => Promise<StoredCommitAuthorityEvidenceLoadResultV1>;
