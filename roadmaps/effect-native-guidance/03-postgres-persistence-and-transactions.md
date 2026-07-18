@@ -185,6 +185,14 @@ on a requested table, and short-circuits duplicate or corrupt requested rows.
 One throwing projection remains at the Promise-based planner/revalidation seam
 until that complete chain owns an Effect failure channel and rollback policy.
 
+The package-root stable logical-index identity readers are now Effect-native.
+Input and stored-row validation enter through pure `Result`, while each reader
+owns one interruption-masked Drizzle Promise edge and maps only query rejection
+to its tagged persistence failure. Stored catalog corruption remains distinct,
+and unexpected access or runtime failures remain defects. The former Promise
+exports were deleted because the repository has no production compatibility
+consumer; persistence tests own the explicit runtime bridge.
+
 Fenced index build-state reads are now Effect-native at the exported
 persistence boundary. Unknown input and stored clock/build rows compose through
 typed `Result` validation, the single Drizzle read is an interruption-masked

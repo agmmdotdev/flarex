@@ -339,10 +339,12 @@ export {
   type StableTableIdentityName,
 } from "./stableTableCatalog";
 export {
-  getStableLogicalIndexIdentityById,
-  getStableLogicalIndexIdentityByName,
+  getStableLogicalIndexIdentityByIdEffect,
+  getStableLogicalIndexIdentityByNameEffect,
   InvalidStableLogicalIndexIdentityInputError,
   StableLogicalIndexCatalogCorruptionError,
+  StableLogicalIndexIdentityPersistenceError,
+  type GetStableLogicalIndexIdentityError,
   type StableLogicalIndexIdentity,
   type StableLogicalIndexIdentityName,
 } from "./stableLogicalIndexCatalog";

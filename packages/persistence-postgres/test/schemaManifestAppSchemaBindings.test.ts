@@ -14,8 +14,8 @@ import { Result } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
-  getStableLogicalIndexIdentityById,
-  getStableLogicalIndexIdentityByName,
+  getStableLogicalIndexIdentityByIdEffect,
+  getStableLogicalIndexIdentityByNameEffect,
   type FlarexPersistence,
 } from "../src";
 import { createPGlitePersistence } from "../src/pglite";
@@ -39,6 +39,7 @@ import {
   ensureStableTableIdentityInTransaction,
   StableTableCatalogDeploymentNotFoundError,
 } from "../src/stableTableCatalog";
+import { runEffect } from "./effectTestRuntime";
 
 type PublicMutationMethod = Extract<
   keyof FlarexPersistence,
@@ -394,17 +395,21 @@ describe("schema manifest app-schema bindings", () => {
       },
     ]);
     await expect(
-      getStableLogicalIndexIdentityByName(persistence.drizzle, {
-        deploymentId,
-        tableId: CatalogTableIdSchema.make(2),
-        descriptor: "by_email",
-      }),
+      runEffect(
+        getStableLogicalIndexIdentityByNameEffect(persistence.drizzle, {
+          deploymentId,
+          tableId: CatalogTableIdSchema.make(2),
+          descriptor: "by_email",
+        }),
+      ),
     ).resolves.toMatchObject({ logicalIndexId: 2 });
     await expect(
-      getStableLogicalIndexIdentityById(
-        persistence.drizzle,
-        deploymentId,
-        CatalogIndexIdSchema.make(1),
+      runEffect(
+        getStableLogicalIndexIdentityByIdEffect(
+          persistence.drizzle,
+          deploymentId,
+          CatalogIndexIdSchema.make(1),
+        ),
       ),
     ).resolves.toMatchObject({ tableId: 1, descriptor: "by_sku" });
 
