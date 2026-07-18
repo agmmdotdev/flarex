@@ -20,6 +20,10 @@ import {
   validH05TraceDataPlaneEvidence,
   validH05TraceEvidence,
 } from "./h05TraceFixtures";
+import {
+  cloneFixtureRecord as recordClone,
+  mutableNestedFixtureRecord as nestedRecord,
+} from "./mutableRecordFixture";
 
 describe("H05 hosted receipt-v2 summary", () => {
   it("accepts the compiler-derived compact receipt", () => {
@@ -293,23 +297,4 @@ function validReceipt(): Record<string, unknown> {
   );
   if (!bundle.ok) throw new Error(bundle.message);
   return recordClone(bundle.value.receipt);
-}
-
-function nestedRecord(
-  record: Readonly<Record<string, unknown>>,
-  key: string,
-): Record<string, unknown> {
-  const value = record[key];
-  if (!isRecord(value)) throw new Error(`fixture ${key} must be an object`);
-  return value;
-}
-
-function recordClone(value: unknown): Record<string, unknown> {
-  const cloned: unknown = structuredClone(value);
-  if (!isRecord(cloned)) throw new Error("fixture clone must be an object");
-  return cloned;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

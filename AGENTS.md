@@ -133,6 +133,11 @@ asserting a mutable `Record`. Its result is readonly and does not establish a
 plain prototype, JSON membership, symbol-key policy, or a domain shape. Retain
 a local domain guard when it checks those additional invariants, but delegate
 only its exact shallow-record step to the generic primitive.
+Do not widen that readonly verdict into a mutable-record assertion. When a test
+fixture or domain flow must write through the value, establish ownership with
+an explicit local copy and reattach copied nested records before mutation. Keep
+fixture-mutation helpers with their test owner rather than publishing them from
+`@flarex/utils`.
 When a value is already typed as Flarex `Json` or `WritableJson`, use the
 protocol-owned `isJsonObject` or `isWritableJsonObject` discriminator instead
 of rediscovering that union member with the generic unknown-record predicate.

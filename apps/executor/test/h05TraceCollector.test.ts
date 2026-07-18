@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -19,6 +20,7 @@ import {
   validH05TraceControlPlaneEvidence,
   validH05TraceDataPlaneEvidence,
 } from "./h05TraceFixtures";
+import { mutableFixtureRecord } from "./mutableRecordFixture";
 
 interface FixtureOverrides {
   readonly brokenParent?: boolean;
@@ -285,11 +287,16 @@ function fixtureApi(overrides: FixtureOverrides = {}): FixtureApi {
           discovery.push(extraDiscoveryEvent());
         }
         if (overrides.duplicateDiscoveryEvent === true) {
-          const duplicate = structuredClone(discovery[1]);
-          if (!isRecord(duplicate)) throw new Error("fixture duplicate is invalid");
-          const metadata = duplicate["$metadata"];
-          if (!isRecord(metadata)) throw new Error("fixture metadata is invalid");
+          const duplicate = mutableFixtureRecord(
+            structuredClone(discovery[1]),
+            "fixture duplicate is invalid",
+          );
+          const metadata = mutableFixtureRecord(
+            duplicate["$metadata"],
+            "fixture metadata is invalid",
+          );
           metadata.id = "event-duplicate-probe-span";
+          duplicate["$metadata"] = metadata;
           discovery.push(duplicate);
         }
         return eventResult(request, overrides, discovery);
@@ -574,7 +581,7 @@ function runRecord(
 
 function eventId(event: Readonly<Record<string, unknown>>): string {
   const metadata = event["$metadata"];
-  if (!isRecord(metadata) || typeof metadata.id !== "string") {
+  if (!isNonArrayRecord(metadata) || typeof metadata.id !== "string") {
     throw new Error("fixture event ID missing");
   }
   return metadata.id;
@@ -622,8 +629,4 @@ function fixtureClock(): () => string {
 
 function exactFilter(key: string, value: string): H05TelemetryFilter {
   return { key, kind: "filter", operation: "eq", type: "string", value };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

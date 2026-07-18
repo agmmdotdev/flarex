@@ -115,6 +115,31 @@ describe("auth protocol schemas", () => {
     expect(decodeUserIdentity(identity)).toEqual(identity);
   });
 
+  it("retains the auth-owned plain-record and symbol-key policy", async () => {
+    const nullPrototypeIdentity: Record<string, unknown> = Object.assign(
+      Object.create(null),
+      {
+        tokenIdentifier: "issuer|user-1",
+        subject: "user-1",
+        issuer: "https://auth.example.com",
+      },
+    );
+    const decoded = await Effect.runPromise(
+      decodeUserIdentityEffect(nullPrototypeIdentity),
+    );
+    expect(decoded.subject).toBe("user-1");
+
+    const symbolBearingIdentity = {
+      tokenIdentifier: "issuer|user-1",
+      subject: "user-1",
+      issuer: "https://auth.example.com",
+      [Symbol("private")]: true,
+    };
+    await expect(
+      Effect.runPromise(decodeUserIdentityEffect(symbolBearingIdentity)),
+    ).rejects.toBeInstanceOf(AuthProtocolValidationError);
+  });
+
   it("decodes anonymous and user execution identities", async () => {
     await expect(Effect.runPromise(decodeExecutionIdentityEffect({
       kind: "anonymous",

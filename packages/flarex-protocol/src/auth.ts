@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Effect, Schema } from "effect";
 import { isJson, type Json } from "./json";
 
@@ -109,10 +110,10 @@ const decodeUnknownAuthConfig = Schema.decodeUnknownEffect(AuthConfigSchema);
 
 export const decodeUserIdentityEffect = Effect.fn(
   "AuthProtocol.decodeUserIdentity",
-)(function* (
+)(function (
   value: unknown,
-): Effect.fn.Return<UserIdentity, AuthProtocolValidationError> {
-  return yield* decodeUnknownUserIdentity(value).pipe(
+): Effect.Effect<UserIdentity, AuthProtocolValidationError> {
+  return decodeUnknownUserIdentity(value).pipe(
     Effect.mapError(cause =>
       new AuthProtocolValidationError({
         schema: "UserIdentity",
@@ -126,10 +127,10 @@ export const decodeUserIdentityEffect = Effect.fn(
 
 export const decodeExecutionIdentityEffect = Effect.fn(
   "AuthProtocol.decodeExecutionIdentity",
-)(function* (
+)(function (
   value: unknown,
-): Effect.fn.Return<ExecutionIdentity, AuthProtocolValidationError> {
-  return yield* decodeUnknownExecutionIdentity(value).pipe(
+): Effect.Effect<ExecutionIdentity, AuthProtocolValidationError> {
+  return decodeUnknownExecutionIdentity(value).pipe(
     Effect.mapError(cause =>
       new AuthProtocolValidationError({
         schema: "ExecutionIdentity",
@@ -143,10 +144,10 @@ export const decodeExecutionIdentityEffect = Effect.fn(
 
 export const decodeAuthProviderEffect = Effect.fn(
   "AuthProtocol.decodeAuthProvider",
-)(function* (
+)(function (
   value: unknown,
-): Effect.fn.Return<AuthProvider, AuthProtocolValidationError> {
-  return yield* decodeUnknownAuthProvider(value).pipe(
+): Effect.Effect<AuthProvider, AuthProtocolValidationError> {
+  return decodeUnknownAuthProvider(value).pipe(
     Effect.mapError(cause =>
       new AuthProtocolValidationError({
         schema: "AuthProvider",
@@ -160,10 +161,10 @@ export const decodeAuthProviderEffect = Effect.fn(
 
 export const decodeAuthConfigEffect = Effect.fn(
   "AuthProtocol.decodeAuthConfig",
-)(function* (
+)(function (
   value: unknown,
-): Effect.fn.Return<AuthConfig, AuthProtocolValidationError> {
-  return yield* decodeUnknownAuthConfig(value).pipe(
+): Effect.Effect<AuthConfig, AuthProtocolValidationError> {
+  return decodeUnknownAuthConfig(value).pipe(
     Effect.mapError(cause =>
       new AuthProtocolValidationError({
         schema: "AuthConfig",
@@ -189,7 +190,9 @@ function isAuthProvider(value: unknown): value is AuthProvider {
   return isOidcAuthProvider(value);
 }
 
-function isOidcAuthProvider(value: Record<string, unknown>): value is OidcAuthProvider {
+function isOidcAuthProvider(
+  value: Readonly<Record<string, unknown>>,
+): value is OidcAuthProvider {
   return (
     hasOnlyKeys(value, ["applicationID", "domain"]) &&
     typeof value.applicationID === "string" &&
@@ -200,7 +203,7 @@ function isOidcAuthProvider(value: Record<string, unknown>): value is OidcAuthPr
 }
 
 function isCustomJwtAuthProvider(
-  value: Record<string, unknown>,
+  value: Readonly<Record<string, unknown>>,
 ): value is CustomJwtAuthProvider {
   if (
     !hasOnlyKeys(value, ["algorithm", "applicationID", "issuer", "jwks", "type"]) ||
@@ -233,7 +236,7 @@ function isExecutionIdentity(value: unknown): value is ExecutionIdentity {
 }
 
 function hasOnlyKeys(
-  value: Record<string, unknown>,
+  value: Readonly<Record<string, unknown>>,
   allowedKeys: ReadonlyArray<string>,
 ): boolean {
   const allowed = new Set(allowedKeys);
@@ -291,10 +294,10 @@ function isKnownBooleanClaim(key: string): boolean {
   return key === "emailVerified" || key === "phoneNumberVerified";
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
+function isRecord(
+  value: unknown,
+): value is Readonly<Record<string, unknown>> {
+  if (!isNonArrayRecord(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) return false;
   return Object.getOwnPropertySymbols(value).length === 0;

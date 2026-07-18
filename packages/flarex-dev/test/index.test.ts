@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -11,19 +12,15 @@ import {
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 function packageBinPath(packageJson: unknown, binName: string): string | undefined {
-  if (!isRecord(packageJson)) {
+  if (!isNonArrayRecord(packageJson)) {
     return undefined;
   }
   if (!("bin" in packageJson)) {
     return undefined;
   }
   const bin = packageJson.bin;
-  if (!isRecord(bin)) {
+  if (!isNonArrayRecord(bin)) {
     return undefined;
   }
   const value = bin[binName];

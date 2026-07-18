@@ -16,6 +16,11 @@ import {
   validH05TraceControlPlaneEvidence,
   validH05TraceDataPlaneEvidence,
 } from "./h05TraceFixtures";
+import {
+  cloneFixtureRecord as recordClone,
+  mutableFixtureRecord,
+  mutableNestedFixtureRecord as nestedRecord,
+} from "./mutableRecordFixture";
 
 describe("H05 trace evidence contract", () => {
   it("joins both control fences and the data plane into one canonical artifact", () => {
@@ -285,29 +290,14 @@ function collectionWithTraces(
     if (!Array.isArray(observations)) {
       throw new Error("fixture observations missing");
     }
-    for (const observation of observations) {
-      if (!isRecord(observation)) throw new Error("fixture observation invalid");
-      observation.normalizedEvidenceSha256 = hash;
-    }
+    collection.observations = observations.map(observation => {
+      const mutableObservation = mutableFixtureRecord(
+        observation,
+        "fixture observation invalid",
+      );
+      mutableObservation.normalizedEvidenceSha256 = hash;
+      return mutableObservation;
+    });
   }
   return collection;
-}
-
-function recordClone(value: unknown): Record<string, unknown> {
-  const cloned: unknown = structuredClone(value);
-  if (!isRecord(cloned)) throw new Error("fixture clone must be an object");
-  return cloned;
-}
-
-function nestedRecord(
-  record: Readonly<Record<string, unknown>>,
-  key: string,
-): Record<string, unknown> {
-  const value = record[key];
-  if (!isRecord(value)) throw new Error(`fixture ${key} must be an object`);
-  return value;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -14,6 +14,11 @@ import {
   validH05TraceControlPlaneEvidence,
   validH05TraceDataPlaneEvidence,
 } from "./h05TraceFixtures";
+import {
+  cloneFixtureRecord as recordClone,
+  mutableNestedFixtureRecord as nestedRecord,
+  mutableNestedFixtureRecordArray as nestedArray,
+} from "./mutableRecordFixture";
 
 describe("H05 probe teardown evidence contract", () => {
   it("compiles a canonical, dependency-bound absence artifact", () => {
@@ -317,35 +322,4 @@ function observation(attempt: number, checkedAt: string): Record<string, unknown
       status: 404,
     },
   };
-}
-
-function nestedArray(
-  record: Readonly<Record<string, unknown>>,
-  objectKey: string,
-  arrayKey: string,
-): Record<string, unknown>[] {
-  const value = nestedRecord(record, objectKey)[arrayKey];
-  if (!Array.isArray(value) || !value.every(isRecord)) {
-    throw new Error(`fixture ${arrayKey} must be an object array`);
-  }
-  return value;
-}
-
-function nestedRecord(
-  record: Readonly<Record<string, unknown>>,
-  key: string,
-): Record<string, unknown> {
-  const value = record[key];
-  if (!isRecord(value)) throw new Error(`fixture ${key} must be an object`);
-  return value;
-}
-
-function recordClone(value: unknown): Record<string, unknown> {
-  const cloned: unknown = structuredClone(value);
-  if (!isRecord(cloned)) throw new Error("fixture clone must be an object");
-  return cloned;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
