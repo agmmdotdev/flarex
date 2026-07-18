@@ -1,4 +1,3 @@
-import { eq } from "drizzle-orm";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
 import {
@@ -14,6 +13,7 @@ import {
   MAX_SCOPE_AUTHORITY_ID_GENERATION_ATTEMPTS,
   ScopeAuthorityIdGenerationExhaustedError,
 } from "./scopeAuthorityIds";
+import { lockDeploymentForAuthority } from "./scopeAuthorityDeploymentLock";
 import {
   captureSplitScopePhysicalLocator,
   getScopeAuthorityProvisioningReceipt,
@@ -47,7 +47,6 @@ import {
   type LocatedSplitScopeClockTarget,
   SplitScopeInitialClockConflictError,
 } from "./splitScopeClockTarget";
-import { deployments } from "./schema";
 
 export interface EnsureSplitScopeAuthorityInput {
   readonly deploymentId: string;
@@ -645,19 +644,6 @@ async function requireFinalScope(
   const splitScope = requireSplitScopeMetadata(scope);
   requireScopeIdentity(expected, splitScope);
   return splitScope;
-}
-
-async function lockDeploymentForAuthority(
-  tx: FlarexMetadataDatabase,
-  deploymentId: string,
-): Promise<DeploymentMetadataRecord | null> {
-  const rows = await tx
-    .select()
-    .from(deployments)
-    .where(eq(deployments.deploymentId, deploymentId))
-    .limit(1)
-    .for("share");
-  return rows[0] ?? null;
 }
 
 function requireProjectMatch(

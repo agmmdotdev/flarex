@@ -2,7 +2,6 @@ import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq, sql } from "drizzle-orm";
-import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
   ScopeEpochSchema,
   ScopeIdSchema,
@@ -11,6 +10,7 @@ import {
 } from "flarex-protocol/storage-authority";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { getScopeMetadata } from "./scopeMetadata";
 import type {
   ScopeMetadataRecord,
@@ -326,10 +326,7 @@ async function lockExactReceiptInTransaction(
 }
 
 export type ScopeAuthorityProvisioningReceiptTransaction =
-  FlarexMetadataDatabase & {
-    rollback(): never;
-    setTransaction(config: PgTransactionConfig): Promise<void>;
-  };
+  FlarexMetadataTransaction;
 
 type ScopeAuthorityProvisioningReceiptRow =
   typeof fxControlScopeProvisioning.$inferSelect;

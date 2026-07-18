@@ -1,6 +1,5 @@
 import { isNonBlankString } from "@flarex/utils/strings";
 import { eq } from "drizzle-orm";
-import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
   type ScopeId,
 } from "flarex-protocol/storage-authority";
@@ -19,6 +18,7 @@ import {
   ScopeMetadataAlreadyExistsError,
   type ScopeMetadataRecord,
 } from "./scopeMetadata";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import type { SharedDatabaseScopePhysicalLocator } from "./scopeMetadataTypes";
 import {
   captureScopePhysicalLocator,
@@ -37,6 +37,7 @@ import {
   MAX_SCOPE_AUTHORITY_ID_GENERATION_ATTEMPTS,
   ScopeAuthorityIdGenerationExhaustedError,
 } from "./scopeAuthorityIds";
+import { lockDeploymentForAuthority } from "./scopeAuthorityDeploymentLock";
 
 export {
   InvalidGeneratedScopeAuthorityIdError,
@@ -207,10 +208,7 @@ export async function bootstrapExistingSharedScopeAuthorityInTransaction(
   } satisfies BootstrapExistingSharedScopeAuthorityResult;
 }
 
-type ScopeAuthorityBootstrapTransaction = FlarexMetadataDatabase & {
-  rollback(): never;
-  setTransaction(config: PgTransactionConfig): Promise<void>;
-};
+type ScopeAuthorityBootstrapTransaction = FlarexMetadataTransaction;
 
 export function captureSharedScopePhysicalLocator(
   locator: SharedDatabaseScopePhysicalLocator,
@@ -251,7 +249,7 @@ interface EnsureInitialBootstrapClockResult extends EnsureClockResult {
 }
 
 async function ensureSharedScopeAuthorityInTransaction(
-  tx: FlarexMetadataDatabase,
+  tx: FlarexMetadataTransaction,
   input: EnsureSharedScopeAuthorityInput,
   physicalLocator: SharedDatabaseScopePhysicalLocator,
   randomUuid: () => string,
@@ -283,7 +281,7 @@ async function ensureSharedScopeAuthorityInTransaction(
 }
 
 async function ensureDeployment(
-  tx: FlarexMetadataDatabase,
+  tx: FlarexMetadataTransaction,
   input: EnsureSharedScopeAuthorityInput,
 ): Promise<EnsureDeploymentResult> {
   const existing = await lockDeploymentForAuthority(
@@ -311,19 +309,6 @@ async function ensureDeployment(
       created: false,
     };
   }
-}
-
-async function lockDeploymentForAuthority(
-  tx: FlarexMetadataDatabase,
-  deploymentId: string,
-): Promise<DeploymentMetadataRecord | null> {
-  const rows = await tx
-    .select()
-    .from(deployments)
-    .where(eq(deployments.deploymentId, deploymentId))
-    .limit(1)
-    .for("share");
-  return rows[0] ?? null;
 }
 
 async function requireExistingBootstrapDeployment(
