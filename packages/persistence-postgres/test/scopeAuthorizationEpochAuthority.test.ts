@@ -1,3 +1,6 @@
+import { setTimeout as delay } from "node:timers/promises";
+
+import { Effect, Fiber } from "effect";
 import {
   TransactionGrantDeploymentIdV1Schema,
 } from "flarex-protocol/transaction-grant";
@@ -15,9 +18,11 @@ import type { ScopeAuthorizationEpochTargetResolver as RootScopeAuthorizationEpo
 
 import {
   CurrentScopeAuthorizationEpochResolutionError,
+  CurrentScopeAuthorizationEpochPortError,
   ScopeClockCorruptionError,
   TrustedScopeAuthorityResolutionError,
-  resolveCurrentScopeAuthorizationEpoch,
+  resolveCurrentScopeAuthorizationEpochEffect,
+  type CurrentScopeAuthorizationEpoch,
   type CurrentScopeAuthorizationEpochResolutionPorts,
 } from "../src";
 import {
@@ -35,6 +40,7 @@ import {
 import type {
   SharedDatabaseScopePhysicalLocator,
 } from "../src/scopeMetadataTypes";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 const sharedLocator = Object.freeze({
   kind: "shared_database",
@@ -46,10 +52,15 @@ type PublicLocatedAuthorityFunction = Extract<
   keyof typeof import("../src"),
   "resolveLocatedTrustedScopeAuthority"
 >;
+type PublicPromiseEpochFunction = Extract<
+  keyof typeof import("../src"),
+  "resolveCurrentScopeAuthorizationEpoch"
+>;
 
 describe("located scope authorization epoch authority", () => {
   it("keeps located target capabilities behind the high-level package API", () => {
     expectTypeOf<PublicLocatedAuthorityFunction>().toEqualTypeOf<never>();
+    expectTypeOf<PublicPromiseEpochFunction>().toEqualTypeOf<never>();
   });
 
   it("reads the exact target epoch and observes a completed private test bump", async () => {
@@ -202,6 +213,47 @@ describe("located scope authorization epoch authority", () => {
     ).rejects.toBeInstanceOf(ScopeClockCorruptionError);
   });
 
+  it("preserves corruption from the preliminary located-clock read", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
+      "deployment_epoch_located_clock_corrupt",
+    );
+    const provisioned = await createPGliteSharedScopeAuthorityProvisioner(
+      persistence,
+      {
+        physicalLocator: sharedLocator,
+        randomUuid: uuidSequence(
+          "40000000-0000-4000-8000-000000000071",
+          "40000000-0000-4000-8000-000000000072",
+        ),
+      },
+    ).ensure({
+      deploymentId,
+      projectId: "project_epoch_located_clock_corrupt",
+    });
+    await persistence.exec(`
+      alter table fx_system_scope_clock
+        drop constraint fx_system_scope_clock_last_commit_seq_non_negative_check,
+        drop constraint fx_system_scope_clock_oldest_available_commit_seq_check
+    `);
+    await persistence.query(
+      `
+        update fx_system_scope_clock
+        set last_commit_seq = $1
+        where scope_id = $2
+      `,
+      [-1n, provisioned.scope.scopeId],
+    );
+
+    await expect(
+      resolveCurrentScopeAuthorizationEpoch(
+        deploymentId,
+        resolutionPorts(persistence),
+      ),
+    ).rejects.toBeInstanceOf(ScopeClockCorruptionError);
+  });
+
   it("rejects malformed richer target capabilities through a typed boundary", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
@@ -313,6 +365,106 @@ describe("located scope authorization epoch authority", () => {
     } satisfies Partial<CurrentScopeAuthorizationEpochResolutionError>);
   });
 
+  it("keeps an unexpected epoch-reader rejection in the typed port channel", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
+      "deployment_epoch_port_failure",
+    );
+    await createPGliteSharedScopeAuthorityProvisioner(
+      persistence,
+      {
+        physicalLocator: sharedLocator,
+        randomUuid: uuidSequence(
+          "40000000-0000-4000-8000-000000000061",
+          "40000000-0000-4000-8000-000000000062",
+        ),
+      },
+    ).ensure({
+      deploymentId,
+      projectId: "project_epoch_port_failure",
+    });
+    const cause = new Error("epoch reader unavailable");
+    const ports = {
+      ...resolutionPorts(persistence),
+      scopeEpochTargets: {
+        resolve: async () => ({
+          ...createPGliteLocatedScopeAuthorizationEpochTarget(
+            persistence,
+            sharedLocator,
+          ),
+          requireCurrentAuthorizationRevocationEpoch: async () => {
+            throw cause;
+          },
+        }),
+      },
+    } satisfies CurrentScopeAuthorizationEpochResolutionPorts;
+
+    const failure = await runEffectFailure(
+      resolveCurrentScopeAuthorizationEpochEffect(deploymentId, ports),
+    );
+    expect(failure).toBeInstanceOf(CurrentScopeAuthorizationEpochPortError);
+    expect(failure).toMatchObject({
+      operation: "authorizationEpochRead",
+      cause,
+    });
+  });
+
+  it("waits for the epoch transaction Promise to settle after interruption", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+    const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
+      "deployment_epoch_interruption",
+    );
+    await createPGliteSharedScopeAuthorityProvisioner(
+      persistence,
+      {
+        physicalLocator: sharedLocator,
+        randomUuid: uuidSequence(
+          "40000000-0000-4000-8000-000000000081",
+          "40000000-0000-4000-8000-000000000082",
+        ),
+      },
+    ).ensure({
+      deploymentId,
+      projectId: "project_epoch_interruption",
+    });
+    const entered = deferred<void>();
+    const release = deferred<
+      ReturnType<typeof TransactionAuthorizationRevocationEpochSchema.make>
+    >();
+    const ports = {
+      ...resolutionPorts(persistence),
+      scopeEpochTargets: {
+        resolve: async () => ({
+          ...createPGliteLocatedScopeAuthorizationEpochTarget(
+            persistence,
+            sharedLocator,
+          ),
+          requireCurrentAuthorizationRevocationEpoch: async () => {
+            entered.resolve();
+            return release.promise;
+          },
+        }),
+      },
+    } satisfies CurrentScopeAuthorizationEpochResolutionPorts;
+    const fiber = Effect.runFork(
+      resolveCurrentScopeAuthorizationEpochEffect(deploymentId, ports),
+    );
+    await entered.promise;
+
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+      interruptionSettled = true;
+      return exit;
+    });
+    await delay(25);
+    expect(interruptionSettled).toBe(false);
+    release.resolve(TransactionAuthorizationRevocationEpochSchema.make(0n));
+    await interruption;
+    expect(interruptionSettled).toBe(true);
+  });
+
   it("preserves the exact signed-bigint epoch value", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
@@ -370,6 +522,17 @@ function resolutionPorts(
   } satisfies CurrentScopeAuthorizationEpochResolutionPorts;
 }
 
+function resolveCurrentScopeAuthorizationEpoch(
+  deploymentId: Parameters<
+    typeof resolveCurrentScopeAuthorizationEpochEffect
+  >[0],
+  ports: CurrentScopeAuthorizationEpochResolutionPorts,
+): Promise<CurrentScopeAuthorizationEpoch> {
+  return runEffect(
+    resolveCurrentScopeAuthorizationEpochEffect(deploymentId, ports),
+  );
+}
+
 function uuidSequence(...values: readonly string[]): () => string {
   let index = 0;
   return () => {
@@ -379,5 +542,19 @@ function uuidSequence(...values: readonly string[]): () => string {
       throw new Error("UUID test sequence exhausted.");
     }
     return value;
+  };
+}
+
+function deferred<Value>(): Readonly<{
+  promise: Promise<Value>;
+  resolve: (value: Value) => void;
+}> {
+  let resolvePromise: ((value: Value) => void) | undefined;
+  const promise = new Promise<Value>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return {
+    promise,
+    resolve: (value) => resolvePromise?.(value),
   };
 }

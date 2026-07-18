@@ -29,9 +29,10 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
-  resolveCurrentScopeAuthorizationEpoch,
+  resolveCurrentScopeAuthorizationEpochEffect,
   type FlarexPersistence,
 } from "../src";
+import { runEffect } from "./effectTestRuntime";
 import {
   createPostgresLocatedScopeAuthorizationEpochTarget,
   createPostgresPersistence,
@@ -238,7 +239,9 @@ describePostgres("real Postgres scope clock locking", () => {
       };
 
       await expect(
-        resolveCurrentScopeAuthorizationEpoch(deploymentId, ports),
+        runEffect(
+          resolveCurrentScopeAuthorizationEpochEffect(deploymentId, ports),
+        ),
       ).resolves.toMatchObject({
         deploymentId,
         scopeId,
@@ -248,7 +251,9 @@ describePostgres("real Postgres scope clock locking", () => {
         advanceScopeAuthorizationRevocationEpochInTransaction(tx, scopeId),
       );
       await expect(
-        resolveCurrentScopeAuthorizationEpoch(deploymentId, ports),
+        runEffect(
+          resolveCurrentScopeAuthorizationEpochEffect(deploymentId, ports),
+        ),
       ).resolves.toMatchObject({ authorizationRevocationEpoch: 1n });
     });
   });

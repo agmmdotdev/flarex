@@ -2,7 +2,7 @@
 
 import { copyBytesToArrayBuffer } from "@flarex/utils/bytes";
 import {
-  resolveCurrentScopeAuthorizationEpoch,
+  resolveCurrentScopeAuthorizationEpochEffect,
 } from "@flarex/persistence-postgres";
 import {
   createPGliteLocatedScopeAuthorizationEpochTarget,
@@ -47,6 +47,7 @@ import {
   type TransactionAuthorizationRevocationEpoch,
   type TransactionRequestKeyV1,
 } from "flarex-protocol/transaction-session";
+import { Effect } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
@@ -66,6 +67,7 @@ import {
   inspectAdmittedPointMutationStartV1,
   inspectCurrentEpochVerifiedTransactionGrantV1,
   inspectVerifiedTransactionGrantV1,
+  type AdmittedPointMutationStartV1,
   type ActiveTransactionGrantVerificationKeyV1,
   type TransactionGrantVerificationKeyV1,
   type TransactionGrantVerifierV1,
@@ -200,14 +202,14 @@ describe("transaction-grant verifier", () => {
     input.expectedStart = replacementStart;
     releaseSignature?.();
     const verified = await pending;
-    const admitted = await createPointMutationStartAdmissionV1({
-      resolveCurrent: async () => ({
+    const admitted = await runEffect(createPointMutationStartAdmissionV1({
+      resolveCurrent: () => Effect.succeed({
         deploymentId: DEPLOYMENT_ID,
         scopeId: fixture.evidence.payload.scopeId,
         authorizationRevocationEpoch:
           fixture.evidence.payload.authorizationRevocationEpoch,
       }),
-    }).admit(verified);
+    }).admit(verified));
     const admittedInspection = inspectAdmittedPointMutationStartV1(admitted);
 
     expect(admittedInspection.preparedStart.logicalPins).toEqual(
@@ -541,15 +543,22 @@ describe("current-epoch transaction-grant admission", () => {
       expectedStart: fixture.preparedStart,
     });
     const admission = createPointMutationStartAdmissionV1({
-      resolveCurrent: async () => ({
+      resolveCurrent: () => Effect.succeed({
         deploymentId: DEPLOYMENT_ID,
         scopeId: fixture.evidence.payload.scopeId,
         authorizationRevocationEpoch:
           fixture.evidence.payload.authorizationRevocationEpoch,
       }),
     });
+    expectTypeOf<ReturnType<typeof admission.admit>>().toEqualTypeOf<
+      Effect.Effect<
+        AdmittedPointMutationStartV1,
+        | CurrentEpochTransactionGrantAdmissionV1Error
+        | TransactionGrantVerificationV1Error
+      >
+    >();
 
-    const admitted = await admission.admit(verified);
+    const admitted = await runEffect(admission.admit(verified));
     const inspection = inspectAdmittedPointMutationStartV1(admitted);
     expect(JSON.stringify(admitted)).toBe("{}");
     expect(Object.isFrozen(admitted)).toBe(true);
@@ -579,18 +588,18 @@ describe("current-epoch transaction-grant admission", () => {
     });
     const resolvedDeployments: string[] = [];
     const admission = createCurrentEpochTransactionGrantAdmissionV1({
-      resolveCurrent: async (deploymentId) => {
+      resolveCurrent: (deploymentId) => {
         resolvedDeployments.push(deploymentId);
-        return {
+        return Effect.succeed({
           deploymentId,
           scopeId: fixture.evidence.payload.scopeId,
           authorizationRevocationEpoch:
             fixture.evidence.payload.authorizationRevocationEpoch,
-        };
+        });
       },
     });
 
-    const admittedGrant = await admission.admit(verifiedGrant);
+    const admittedGrant = await runEffect(admission.admit(verifiedGrant));
     const inspection =
       inspectCurrentEpochVerifiedTransactionGrantV1(admittedGrant);
 
@@ -618,6 +627,21 @@ describe("current-epoch transaction-grant admission", () => {
       expect(() => inspectCurrentEpochVerifiedTransactionGrantV1(forged))
         .toThrow(InvalidCurrentEpochVerifiedTransactionGrantV1Error);
     }
+  });
+
+  it("propagates a typed current-authority resolver failure unchanged", async () => {
+    const fixture = await signedFixture();
+    const verifiedGrant = await (await verifierFixture()).verify({
+      jws: fixture.jws,
+      expectedStart: fixture.preparedStart,
+    });
+    const resolverFailure = new Error("current authority unavailable");
+    const admission = createCurrentEpochTransactionGrantAdmissionV1({
+      resolveCurrent: () => Effect.fail(resolverFailure),
+    });
+
+    const failure = await runEffectFailure(admission.admit(verifiedGrant));
+    expect(failure).toBe(resolverFailure);
   });
 
   it("fails closed on independently located deployment, scope, or epoch drift", async () => {
@@ -659,9 +683,9 @@ describe("current-epoch transaction-grant admission", () => {
 
     for (const admissionCase of cases) {
       const admission = createCurrentEpochTransactionGrantAdmissionV1({
-        resolveCurrent: async () => admissionCase.authority,
+        resolveCurrent: () => Effect.succeed(admissionCase.authority),
       });
-      const rejectedAdmission = admission.admit(verifiedGrant);
+      const rejectedAdmission = runEffect(admission.admit(verifiedGrant));
       await expect(rejectedAdmission).rejects.toMatchObject({
         issue: { reason: admissionCase.reason },
       });
@@ -679,16 +703,16 @@ describe("current-epoch transaction-grant admission", () => {
     });
     let currentEpoch = oldFixture.evidence.payload.authorizationRevocationEpoch;
     const admission = createCurrentEpochTransactionGrantAdmissionV1({
-      resolveCurrent: async (deploymentId) => ({
+      resolveCurrent: (deploymentId) => Effect.succeed({
         deploymentId,
         scopeId: oldFixture.evidence.payload.scopeId,
         authorizationRevocationEpoch: currentEpoch,
       }),
     });
 
-    await expect(admission.admit(oldGrant)).resolves.toBeDefined();
+    await expect(runEffect(admission.admit(oldGrant))).resolves.toBeDefined();
     currentEpoch = TransactionAuthorizationRevocationEpochSchema.make(8n);
-    await expect(admission.admit(oldGrant)).rejects.toMatchObject({
+    await expect(runEffect(admission.admit(oldGrant))).rejects.toMatchObject({
       issue: { reason: "authorizationRevocationEpochMismatch" },
     });
 
@@ -700,7 +724,7 @@ describe("current-epoch transaction-grant admission", () => {
       jws: newFixture.jws,
       expectedStart: newFixture.preparedStart,
     });
-    await expect(admission.admit(newGrant)).resolves.toBeDefined();
+    await expect(runEffect(admission.admit(newGrant))).resolves.toBeDefined();
   });
 
   it("composes signed admission with the located PGlite epoch authority", async () => {
@@ -726,7 +750,7 @@ describe("current-epoch transaction-grant admission", () => {
     });
     const admission = createCurrentEpochTransactionGrantAdmissionV1({
       resolveCurrent: (deploymentId) =>
-        resolveCurrentScopeAuthorizationEpoch(deploymentId, {
+        resolveCurrentScopeAuthorizationEpochEffect(deploymentId, {
           scopeMetadata: persistence,
           provisioningReceipts: {
             getScopeAuthorityProvisioningReceipt: async () => {
@@ -760,14 +784,14 @@ describe("current-epoch transaction-grant admission", () => {
     expect(provisioned.scope.scopeId).toBe(
       oldFixture.evidence.payload.scopeId,
     );
-    await expect(admission.admit(oldGrant)).resolves.toBeDefined();
+    await expect(runEffect(admission.admit(oldGrant))).resolves.toBeDefined();
     await persistence.drizzle.transaction((tx) =>
       advanceScopeAuthorizationRevocationEpochInTransaction(
         tx,
         provisioned.scope.scopeId,
       ),
     );
-    await expect(admission.admit(oldGrant)).rejects.toMatchObject({
+    await expect(runEffect(admission.admit(oldGrant))).rejects.toMatchObject({
       issue: { reason: "authorizationRevocationEpochMismatch" },
     });
 
@@ -783,7 +807,7 @@ describe("current-epoch transaction-grant admission", () => {
       jws: newFixture.jws,
       expectedStart: newFixture.preparedStart,
     });
-    await expect(admission.admit(newGrant)).resolves.toBeDefined();
+    await expect(runEffect(admission.admit(newGrant))).resolves.toBeDefined();
   });
 
   it("activates only the final admitted handle and returns private session authority", async () => {
@@ -835,7 +859,7 @@ describe("current-epoch transaction-grant admission", () => {
     });
     const admission = createPointMutationStartAdmissionV1({
       resolveCurrent: (deploymentId) =>
-        resolveCurrentScopeAuthorizationEpoch(deploymentId, {
+        resolveCurrentScopeAuthorizationEpochEffect(deploymentId, {
           scopeMetadata: persistence,
           provisioningReceipts: {
             getScopeAuthorityProvisioningReceipt: async () => {
@@ -853,7 +877,7 @@ describe("current-epoch transaction-grant admission", () => {
           },
         }),
     });
-    const admitted = await admission.admit(verifiedGrant);
+    const admitted = await runEffect(admission.admit(verifiedGrant));
     const sessionResolutionPorts = {
       scopeMetadata: persistence,
       provisioningReceipts: {
@@ -1003,7 +1027,7 @@ describePostgres(
             });
           const admission = createCurrentEpochTransactionGrantAdmissionV1({
             resolveCurrent: (deploymentId) =>
-              resolveCurrentScopeAuthorizationEpoch(deploymentId, {
+              resolveCurrentScopeAuthorizationEpochEffect(deploymentId, {
                 scopeMetadata: persistence,
                 provisioningReceipts: {
                   getScopeAuthorityProvisioningReceipt: async () => {
@@ -1038,14 +1062,16 @@ describePostgres(
           expect(provisioned.scope.scopeId).toBe(
             oldFixture.evidence.payload.scopeId,
           );
-          await expect(admission.admit(oldGrant)).resolves.toBeDefined();
+          await expect(runEffect(admission.admit(oldGrant)))
+            .resolves.toBeDefined();
           await persistence.drizzle.transaction((tx) =>
             advanceScopeAuthorizationRevocationEpochInTransaction(
               tx,
               provisioned.scope.scopeId,
             ),
           );
-          await expect(admission.admit(oldGrant)).rejects.toMatchObject({
+          await expect(runEffect(admission.admit(oldGrant)))
+            .rejects.toMatchObject({
             issue: { reason: "authorizationRevocationEpochMismatch" },
           });
 
@@ -1062,7 +1088,8 @@ describePostgres(
             jws: newFixture.jws,
             expectedStart: newFixture.preparedStart,
           });
-          await expect(admission.admit(newGrant)).resolves.toBeDefined();
+          await expect(runEffect(admission.admit(newGrant)))
+            .resolves.toBeDefined();
         },
       );
     });
@@ -1335,6 +1362,14 @@ async function generateEd25519Keys(): Promise<CryptoKeyPair> {
 
 function decodeBase64(value: string): Uint8Array {
   return Uint8Array.from(atob(value), character => character.charCodeAt(0));
+}
+
+function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
+  return Effect.runPromise(effect);
+}
+
+function runEffectFailure<A, E>(effect: Effect.Effect<A, E>): Promise<E> {
+  return Effect.runPromise(Effect.flip(effect));
 }
 
 function flipBase64UrlCharacter(value: string): string {

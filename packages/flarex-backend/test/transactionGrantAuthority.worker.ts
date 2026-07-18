@@ -24,6 +24,7 @@ import {
   TransactionFunctionPathV1Schema,
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
+import { Effect } from "effect";
 
 const TEST_PUBLIC_KEY_SPKI_BASE64 =
   "MCowBQYDK2VwAyEAno+3aYSLpdF45q6y9wrLdVOEWJLjvbGTDmfTVRqLEZ8=";
@@ -135,9 +136,11 @@ export default {
       jws: body.jws,
       expectedStart,
     });
-    const admitted = await createPointMutationStartAdmissionV1({
-      resolveCurrent: async () => TEST_CURRENT_SCOPE_AUTHORITY,
-    }).admit(verified);
+    const admitted = await Effect.runPromise(
+      createPointMutationStartAdmissionV1({
+        resolveCurrent: () => Effect.succeed(TEST_CURRENT_SCOPE_AUTHORITY),
+      }).admit(verified),
+    );
     const inspection = inspectVerifiedTransactionGrantV1(verified);
     inspectAdmittedPointMutationStartV1(admitted);
     return Response.json({

@@ -43,6 +43,8 @@ export class ScopeClockNotFoundError extends Error {
 }
 
 export class ScopeClockCorruptionError extends Error {
+  readonly _tag = "ScopeClockCorruptionError" as const;
+
   constructor(
     readonly scopeId: string,
     readonly reason: string,

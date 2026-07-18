@@ -298,9 +298,11 @@ export {
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
 export {
+  CurrentScopeAuthorizationEpochPortError,
   CurrentScopeAuthorizationEpochResolutionError,
-  resolveCurrentScopeAuthorizationEpoch,
+  resolveCurrentScopeAuthorizationEpochEffect,
   type CurrentScopeAuthorizationEpoch,
+  type CurrentScopeAuthorizationEpochError,
   type CurrentScopeAuthorizationEpochResolutionFailure,
   type CurrentScopeAuthorizationEpochResolutionPorts,
 } from "./scopeAuthorizationEpochAuthority";

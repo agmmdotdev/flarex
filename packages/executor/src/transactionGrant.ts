@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 
 import {
   TRANSACTION_GRANT_KEY_PURPOSE_V1,
@@ -23,6 +23,7 @@ import {
   createTransactionGrantVerificationKernelV1,
   registerTransactionGrantVerificationKernelV1,
   verificationFailure,
+  type TransactionGrantVerificationV1Error,
   type VerifiedTransactionGrantInspectionV1,
 } from "./transactionGrantVerificationKernel";
 
@@ -156,6 +157,7 @@ export class TransactionGrantAuthorityConfigurationV1Error extends Error {
 }
 
 export class InvalidVerifiedTransactionGrantV1Error extends Error {
+  readonly _tag = "InvalidVerifiedTransactionGrantV1Error" as const;
   readonly name = "InvalidVerifiedTransactionGrantV1Error";
 
   constructor() {
@@ -187,10 +189,12 @@ export interface CurrentScopeAuthorizationEpochV1 {
     TransactionGrantPayloadV1["authorizationRevocationEpoch"];
 }
 
-export interface CurrentScopeAuthorizationEpochResolverV1 {
+export interface CurrentScopeAuthorizationEpochResolverV1<
+  ResolverError = never,
+> {
   readonly resolveCurrent: (
     deploymentId: TransactionGrantDeploymentIdV1,
-  ) => Promise<CurrentScopeAuthorizationEpochV1>;
+  ) => Effect.Effect<CurrentScopeAuthorizationEpochV1, ResolverError>;
 }
 
 export type CurrentEpochTransactionGrantAdmissionV1Issue =
@@ -213,6 +217,7 @@ export type CurrentEpochTransactionGrantAdmissionV1Issue =
     };
 
 export class CurrentEpochTransactionGrantAdmissionV1Error extends Error {
+  readonly _tag = "CurrentEpochTransactionGrantAdmissionV1Error" as const;
   readonly name = "CurrentEpochTransactionGrantAdmissionV1Error";
 
   constructor(readonly issue: CurrentEpochTransactionGrantAdmissionV1Issue) {
@@ -246,10 +251,17 @@ const currentEpochVerifiedTransactionGrantInspectionByHandle = new WeakMap<
   CurrentEpochVerifiedTransactionGrantInspectionV1
 >();
 
-export interface CurrentEpochTransactionGrantAdmissionV1 {
+export interface CurrentEpochTransactionGrantAdmissionV1<
+  ResolverError = never,
+> {
   readonly admit: (
     verifiedGrant: VerifiedTransactionGrantV1,
-  ) => Promise<CurrentEpochVerifiedTransactionGrantV1>;
+  ) => Effect.Effect<
+    CurrentEpochVerifiedTransactionGrantV1,
+    | ResolverError
+    | InvalidVerifiedTransactionGrantV1Error
+    | CurrentEpochTransactionGrantAdmissionV1Error
+  >;
 }
 
 /**
@@ -257,20 +269,21 @@ export interface CurrentEpochTransactionGrantAdmissionV1 {
  * returned capability is preliminary: O03-B must recheck the epoch inside its
  * short session-activation transaction before creating durable authority.
  */
-export function createCurrentEpochTransactionGrantAdmissionV1(
-  resolver: CurrentScopeAuthorizationEpochResolverV1,
-): CurrentEpochTransactionGrantAdmissionV1 {
+export function createCurrentEpochTransactionGrantAdmissionV1<ResolverError>(
+  resolver: CurrentScopeAuthorizationEpochResolverV1<ResolverError>,
+): CurrentEpochTransactionGrantAdmissionV1<ResolverError> {
   const resolveCurrent = resolver.resolveCurrent;
-
-  return Object.freeze({
-    admit: async (
-      verifiedGrant: VerifiedTransactionGrantV1,
-    ): Promise<CurrentEpochVerifiedTransactionGrantV1> => {
-      const verifiedGrantInspection =
-        inspectVerifiedTransactionGrantV1(verifiedGrant);
+  const admit: CurrentEpochTransactionGrantAdmissionV1<ResolverError>["admit"] =
+    Effect.fn("TransactionGrant.admitCurrentEpoch")(function* (
+      verifiedGrant,
+    ) {
+      const verifiedGrantInspection = yield* Effect.fromResult(
+        inspectVerifiedTransactionGrantResultV1(verifiedGrant),
+      );
       const payload = verifiedGrantInspection.evidence.payload;
-      const unresolvedCurrentAuthority =
-        await resolveCurrent(payload.deploymentId);
+      const unresolvedCurrentAuthority = yield* resolveCurrent(
+        payload.deploymentId,
+      );
       const currentAuthority = Object.freeze({
         deploymentId: unresolvedCurrentAuthority.deploymentId,
         scopeId: unresolvedCurrentAuthority.scopeId,
@@ -279,28 +292,28 @@ export function createCurrentEpochTransactionGrantAdmissionV1(
       }) satisfies CurrentScopeAuthorizationEpochV1;
 
       if (currentAuthority.deploymentId !== payload.deploymentId) {
-        throw currentEpochAdmissionFailure({
+        return yield* Effect.fail(currentEpochAdmissionFailure({
           reason: "locatedDeploymentMismatch",
           expected: payload.deploymentId,
           actual: currentAuthority.deploymentId,
-        });
+        }));
       }
       if (currentAuthority.scopeId !== payload.scopeId) {
-        throw currentEpochAdmissionFailure({
+        return yield* Effect.fail(currentEpochAdmissionFailure({
           reason: "locatedScopeMismatch",
           expected: payload.scopeId,
           actual: currentAuthority.scopeId,
-        });
+        }));
       }
       if (
         currentAuthority.authorizationRevocationEpoch !==
           payload.authorizationRevocationEpoch
       ) {
-        throw currentEpochAdmissionFailure({
+        return yield* Effect.fail(currentEpochAdmissionFailure({
           reason: "authorizationRevocationEpochMismatch",
           expected: payload.authorizationRevocationEpoch,
           actual: currentAuthority.authorizationRevocationEpoch,
-        });
+        }));
       }
 
       const inspection = Object.freeze({
@@ -315,8 +328,9 @@ export function createCurrentEpochTransactionGrantAdmissionV1(
         inspection,
       );
       return handle;
-    },
-  });
+    });
+
+  return Object.freeze({ admit });
 }
 
 export function inspectCurrentEpochVerifiedTransactionGrantV1(
@@ -361,31 +375,48 @@ export class InvalidAdmittedPointMutationStartV1Error extends Error {
   }
 }
 
-export interface PointMutationStartAdmissionV1 {
+export interface PointMutationStartAdmissionV1<ResolverError = never> {
   readonly admit: (
     verifiedGrant: VerifiedTransactionGrantV1,
-  ) => Promise<AdmittedPointMutationStartV1>;
+  ) => Effect.Effect<
+    AdmittedPointMutationStartV1,
+    | ResolverError
+    | CurrentEpochTransactionGrantAdmissionV1Error
+    | TransactionGrantVerificationV1Error
+  >;
 }
 
-export function createPointMutationStartAdmissionV1(
-  resolver: CurrentScopeAuthorizationEpochResolverV1,
-): PointMutationStartAdmissionV1 {
+export function createPointMutationStartAdmissionV1<ResolverError>(
+  resolver: CurrentScopeAuthorizationEpochResolverV1<ResolverError>,
+): PointMutationStartAdmissionV1<ResolverError> {
   const currentEpochAdmission =
     createCurrentEpochTransactionGrantAdmissionV1(resolver);
-  return Object.freeze({
-    admit: async (
-      verifiedGrant: VerifiedTransactionGrantV1,
-    ): Promise<AdmittedPointMutationStartV1> => {
+  const admit: PointMutationStartAdmissionV1<ResolverError>["admit"] =
+    Effect.fn("TransactionGrant.admitPointMutationStart")(function* (
+      verifiedGrant,
+    ) {
       const expectedStart =
         expectedStartByVerifiedTransactionGrantHandle.get(verifiedGrant);
       if (expectedStart === undefined) {
-        throw verificationFailure("invalidPreparedStart");
+        return yield* Effect.fail(verificationFailure("invalidPreparedStart"));
       }
-      const currentEpochGrant = await currentEpochAdmission.admit(
+      const currentEpochGrant = yield* currentEpochAdmission.admit(
         verifiedGrant,
+      ).pipe(
+        Effect.catchTag(
+          "InvalidVerifiedTransactionGrantV1Error",
+          Effect.die,
+        ),
       );
       const currentEpochInspection =
-        inspectCurrentEpochVerifiedTransactionGrantV1(currentEpochGrant);
+        currentEpochVerifiedTransactionGrantInspectionByHandle.get(
+          currentEpochGrant,
+        );
+      if (currentEpochInspection === undefined) {
+        return yield* Effect.die(
+          new InvalidCurrentEpochVerifiedTransactionGrantV1Error(),
+        );
+      }
       const inspection = Object.freeze({
         preparedStart: inspectExecutorPreparedPointMutationStartV1(
           expectedStart,
@@ -398,8 +429,8 @@ export function createPointMutationStartAdmissionV1(
       });
       admittedPointMutationStartInspectionByHandle.set(handle, inspection);
       return handle;
-    },
-  });
+    });
+  return Object.freeze({ admit });
 }
 
 export function inspectAdmittedPointMutationStartV1(
@@ -548,14 +579,23 @@ export function createTransactionGrantVerifierV1(
 export function inspectVerifiedTransactionGrantV1(
   value: unknown,
 ): VerifiedTransactionGrantInspectionV1 {
+  return Result.getOrThrow(inspectVerifiedTransactionGrantResultV1(value));
+}
+
+function inspectVerifiedTransactionGrantResultV1(
+  value: unknown,
+): Result.Result<
+  VerifiedTransactionGrantInspectionV1,
+  InvalidVerifiedTransactionGrantV1Error
+> {
   if (typeof value !== "object" || value === null) {
-    throw new InvalidVerifiedTransactionGrantV1Error();
+    return Result.fail(new InvalidVerifiedTransactionGrantV1Error());
   }
   const inspection = verifiedTransactionGrantInspectionByHandle.get(value);
   if (inspection === undefined) {
-    throw new InvalidVerifiedTransactionGrantV1Error();
+    return Result.fail(new InvalidVerifiedTransactionGrantV1Error());
   }
-  return inspection;
+  return Result.succeed(inspection);
 }
 
 function copyAndValidateKey(

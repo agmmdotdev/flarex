@@ -52,11 +52,20 @@ authority contract. The session journal consumes the Effect operation directly
 and translates it once to its existing persistence error. Point-commit
 finishing, rollback proof, and publication now share one Effect-native
 authority-resolution operation and preserve their existing stale, corruption,
-SQL, and defect classification. The
-`resolveLocatedTrustedScopeAuthority` facade is the one temporary
+SQL, and defect classification. The located current-authorization-epoch
+resolver and the directly connected
+executor grant-admission operations are now Effect-native. Target capability
+validation is a pure `Result`, the epoch transaction remains the one narrow
+Promise edge and masks interruption until that transaction settles. Authority
+and clock corruption failures remain typed, and an
+unexpected epoch-reader rejection is retained in the tagged port error
+channel. The unused high-level Promise resolver was deleted; the Worker and
+tests own their explicit runtime boundaries.
+
+The `resolveLocatedTrustedScopeAuthority` facade is the one temporary
 Promise/runtime compatibility bridge for transaction activation,
-authorization-epoch resolution, stored-attempt evidence, and stored
-commit-authority loading. Delete it after those concrete consumers move to
+stored-attempt evidence, and stored commit-authority loading. Delete it after
+those concrete consumers move to
 `resolveLocatedTrustedScopeAuthorityEffect`; new consumers must use the Effect
 operation directly. The compatibility bridge unwraps only the new port error
 to preserve the original Promise rejection identity expected by those legacy

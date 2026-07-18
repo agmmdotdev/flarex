@@ -7,18 +7,22 @@ import type {
 import type {
   TransactionAuthorizationRevocationEpoch,
 } from "flarex-protocol/transaction-session";
+import { Data, Effect, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
-  resolveLocatedTrustedScopeAuthority,
+  resolveLocatedTrustedScopeAuthorityEffect,
+  TrustedScopeAuthorityPortError,
   type LocatedScopeClockReader,
   type ScopeClockTargetReaderResolver,
   type ScopeMetadataReader,
   type ScopeProvisioningReceiptReader,
+  type TrustedScopeAuthorityError,
 } from "./scopeAuthorityResolution";
 import {
   getScopeClock,
   requireScopeAuthorizationRevocationEpochInTransaction,
+  ScopeClockCorruptionError,
   ScopeClockNotFoundError,
 } from "./scopeClock";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
@@ -59,6 +63,8 @@ export type CurrentScopeAuthorizationEpochResolutionFailure =
     };
 
 export class CurrentScopeAuthorizationEpochResolutionError extends Error {
+  readonly _tag = "CurrentScopeAuthorizationEpochResolutionError" as const;
+
   constructor(
     readonly failure: CurrentScopeAuthorizationEpochResolutionFailure,
   ) {
@@ -67,63 +73,116 @@ export class CurrentScopeAuthorizationEpochResolutionError extends Error {
   }
 }
 
+export class CurrentScopeAuthorizationEpochPortError extends Data.TaggedError(
+  "CurrentScopeAuthorizationEpochPortError",
+)<{
+  readonly operation: "authorizationEpochRead";
+  readonly cause: unknown;
+}> {}
+
+export type CurrentScopeAuthorizationEpochError =
+  | TrustedScopeAuthorityError
+  | CurrentScopeAuthorizationEpochResolutionError
+  | CurrentScopeAuthorizationEpochPortError
+  | ScopeClockCorruptionError;
+
 /**
  * Resolves deployment -> scope -> verified physical target before reading the
  * private S07-A epoch from that exact target. The result is a point-in-time
  * authority snapshot; O03-B must recheck it inside session activation.
  */
-export async function resolveCurrentScopeAuthorizationEpoch(
+export const resolveCurrentScopeAuthorizationEpochEffect = Effect.fn(
+  "ScopeAuthorizationEpoch.resolveCurrent",
+)(function* (
   deploymentId: TransactionGrantDeploymentIdV1,
   ports: CurrentScopeAuthorizationEpochResolutionPorts,
-): Promise<CurrentScopeAuthorizationEpoch> {
-  const located = await resolveLocatedTrustedScopeAuthority(deploymentId, {
-    scopeMetadata: ports.scopeMetadata,
-    provisioningReceipts: ports.provisioningReceipts,
-    scopeClockTargets: ports.scopeEpochTargets,
-  });
-  const target = requireScopeAuthorizationEpochTarget(
-    located.target,
-    located.authority.scopeId,
-    located.authority.physicalLocator,
+): Effect.fn.Return<
+  CurrentScopeAuthorizationEpoch,
+  CurrentScopeAuthorizationEpochError
+> {
+  const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+    deploymentId,
+    {
+      scopeMetadata: ports.scopeMetadata,
+      provisioningReceipts: ports.provisioningReceipts,
+      scopeClockTargets: ports.scopeEpochTargets,
+    },
+  ).pipe(
+    Effect.catchTag(
+      "TrustedScopeAuthorityPortError",
+      preserveLocatedClockCorruption,
+    ),
   );
-  let authorizationRevocationEpoch: TransactionAuthorizationRevocationEpoch;
-  try {
-    authorizationRevocationEpoch =
-      await target.requireCurrentAuthorizationRevocationEpoch(
+  const target = yield* Effect.fromResult(
+    requireScopeAuthorizationEpochTargetResult(
+      located.target,
+      located.authority.scopeId,
+      located.authority.physicalLocator,
+    ),
+  );
+  const authorizationRevocationEpoch = yield* Effect.uninterruptible(
+    Effect.tryPromise({
+      try: () => target.requireCurrentAuthorizationRevocationEpoch(
         located.authority.scopeId,
-      );
-  } catch (error) {
-    if (error instanceof ScopeClockNotFoundError) {
-      throw currentEpochResolutionError({
-        reason: "scopeAuthorizationEpochMissing",
-        scopeId: located.authority.scopeId,
-        physicalLocator: located.authority.physicalLocator,
-      });
-    }
-    throw error;
-  }
+      ),
+      catch: (cause) => {
+        if (cause instanceof ScopeClockNotFoundError) {
+          return currentEpochResolutionError({
+            reason: "scopeAuthorizationEpochMissing",
+            scopeId: located.authority.scopeId,
+            physicalLocator: located.authority.physicalLocator,
+          });
+        }
+        if (cause instanceof ScopeClockCorruptionError) {
+          return cause;
+        }
+        return new CurrentScopeAuthorizationEpochPortError({
+          operation: "authorizationEpochRead",
+          cause,
+        });
+      },
+    }),
+  );
 
   return Object.freeze({
     deploymentId,
     scopeId: located.authority.scopeId,
     authorizationRevocationEpoch,
   }) satisfies CurrentScopeAuthorizationEpoch;
+});
+
+function preserveLocatedClockCorruption(
+  failure: TrustedScopeAuthorityPortError,
+): Effect.Effect<
+  never,
+  TrustedScopeAuthorityPortError | ScopeClockCorruptionError
+> {
+  if (
+    failure.operation === "scopeClockRead" &&
+    failure.cause instanceof ScopeClockCorruptionError
+  ) {
+    return Effect.fail(failure.cause);
+  }
+  return Effect.fail(failure);
 }
 
-function requireScopeAuthorizationEpochTarget(
+function requireScopeAuthorizationEpochTargetResult(
   target: LocatedScopeClockReader,
   scopeId: ScopeId,
   physicalLocator: ScopePhysicalLocator,
-): LocatedScopeAuthorizationEpochTarget {
+): Result.Result<
+  LocatedScopeAuthorizationEpochTarget,
+  CurrentScopeAuthorizationEpochResolutionError
+> {
   if (!hasCurrentAuthorizationRevocationEpochReader(target)) {
-    throw currentEpochResolutionError({
+    return Result.fail(currentEpochResolutionError({
       reason: "scopeAuthorizationEpochTargetInvalid",
       scopeId,
       physicalLocator,
       invalidReason: "requireCurrentAuthorizationRevocationEpochMissing",
-    });
+    }));
   }
-  return target;
+  return Result.succeed(target);
 }
 
 function hasCurrentAuthorizationRevocationEpochReader(
