@@ -86,6 +86,8 @@ import {
   type PointMutationSessionAuthorityResolutionPortsV1,
 } from "../src/transactionSessionActivation";
 import {
+  completeSessionJournalSeal as completeSeal,
+  prepareSessionJournalSeal as prepareSeal,
   runEffect,
   runEffectFailure as runFailure,
   runSessionJournalPointOperation as runPointOperation,
@@ -558,7 +560,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       outcome: { kind: "present", document: { name: "overlay" } },
     });
 
-    const prepared = await current.store.prepareSeal(current.attempt);
+    const prepared = await prepareSeal(current.store, current.attempt);
     expect(prepared.journal.readDependencies).toEqual([{
       kind: "appRowPoint",
       documentId,
@@ -655,7 +657,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       nextCreationTime(nextCreationTime(firstCreationTime)),
     );
 
-    const prepared = await current.store.prepareSeal(current.attempt);
+    const prepared = await prepareSeal(current.store, current.attempt);
     expect(prepared.journal.finalSyscallSequence).toBe(10n);
     expect(prepared.journal.readDependencies).toMatchObject([
       {
@@ -1005,7 +1007,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     await expect(runPointOperation(current.store, current.table,
       request,
     )).rejects.toMatchObject({ reason: "journalReceiptStateMismatch" });
-    await expect(current.store.prepareSeal(current.attempt)).rejects
+    await expect(prepareSeal(current.store, current.attempt)).rejects
       .toMatchObject({ reason: "journalReceiptStateMismatch" });
   });
 
@@ -1084,7 +1086,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         MAX_COMMIT_MATERIAL_WRITE_EVENT_EVIDENCE_BYTES_V1,
     });
 
-    const prepared = await exact.store.prepareSeal(exact.attempt);
+    const prepared = await prepareSeal(exact.store, exact.attempt);
     const canonicalJournal = await runEffect(
       canonicalizeSessionJournalV1Effect(prepared.journal),
     );
@@ -1193,7 +1195,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
       material_write_event_evidence_bytes: eventBytes,
     });
-    await expect(current.store.prepareSeal(current.attempt)).resolves.toBeDefined();
+    await expect(prepareSeal(current.store, current.attempt)).resolves.toBeDefined();
 
     await persistence.query(
       `
@@ -1204,7 +1206,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       `,
       [current.anchor.sessionId],
     );
-    await expect(current.store.prepareSeal(current.attempt)).rejects.toMatchObject({
+    await expect(prepareSeal(current.store, current.attempt)).rejects.toMatchObject({
       reason: "materialWriteEventEvidenceBytesMismatch",
     });
   });
@@ -1258,7 +1260,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       ],
     );
     await expect(
-      excessPoints.store.prepareSeal(excessPoints.attempt),
+      prepareSeal(excessPoints.store, excessPoints.attempt),
     ).rejects.toMatchObject({ reason: "pointDependencyCountMismatch" });
 
     const excessEvents = await scenario("seal_excess_events");
@@ -1293,7 +1295,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       [excessEvents.anchor.sessionId, MAX_COMMIT_WRITE_OPERATIONS_V1 + 1],
     );
     await expect(
-      excessEvents.store.prepareSeal(excessEvents.attempt),
+      prepareSeal(excessEvents.store, excessEvents.attempt),
     ).rejects.toMatchObject({ reason: "writeOperationCountMismatch" });
   }, 60_000);
 
@@ -1347,7 +1349,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       fields: { name: "seal" },
     });
     const documentId = requireInsertedDocumentId(inserted);
-    const stale = await current.store.prepareSeal(current.attempt);
+    const stale = await prepareSeal(current.store, current.attempt);
     const staleJournal = await runEffect(
       canonicalizeSessionJournalV1Effect(stale.journal),
     );
@@ -1360,15 +1362,15 @@ describe("C03 Postgres SessionJournalStore", () => {
       syscallSequence: syscallSequence(2n),
       documentId,
     });
-    await expect(current.store.completeSeal(
+    await expect(runFailure(current.store.completeSealEffect(
       stale.preparation,
       staleJournal,
       successfulResult,
-    )).rejects.toMatchObject({
+    ))).resolves.toMatchObject({
       reason: "stalePreparation",
     } satisfies Partial<SessionJournalSealV1Error>);
 
-    const callerMutablePreparation = await current.store.prepareSeal(
+    const callerMutablePreparation = await prepareSeal(current.store,
       current.attempt,
     );
     const callerVisibleWrite = callerMutablePreparation.journal.writes[0];
@@ -1379,7 +1381,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     const callerMutatedJournal = await runEffect(
       canonicalizeSessionJournalV1Effect(callerMutablePreparation.journal),
     );
-    await expect(current.store.completeSeal(
+    await expect(completeSeal(current.store,
       callerMutablePreparation.preparation,
       callerMutatedJournal,
       successfulResult,
@@ -1387,7 +1389,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       reason: "canonicalJournalMismatch",
     } satisfies Partial<SessionJournalSealV1Error>);
 
-    const malformedResultPreparation = await current.store.prepareSeal(
+    const malformedResultPreparation = await prepareSeal(current.store,
       current.attempt,
     );
     const journalForMalformedResult = await runEffect(
@@ -1397,7 +1399,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     );
     const malformedResult = structuredClone(successfulResult);
     Reflect.set(malformedResult.evidence, "unexpected", true);
-    await expect(current.store.completeSeal(
+    await expect(completeSeal(current.store,
       malformedResultPreparation.preparation,
       journalForMalformedResult,
       malformedResult,
@@ -1405,12 +1407,12 @@ describe("C03 Postgres SessionJournalStore", () => {
       reason: "canonicalResultMismatch",
     } satisfies Partial<SessionJournalSealV1Error>);
 
-    const prepared = await current.store.prepareSeal(current.attempt);
+    const prepared = await prepareSeal(current.store, current.attempt);
     const canonicalJournal = await runEffect(
       canonicalizeSessionJournalV1Effect(prepared.journal),
     );
     const mutableSuccessfulResult = structuredClone(successfulResult);
-    const envelopePromise = current.store.completeSeal(
+    const envelopePromise = completeSeal(current.store,
       prepared.preparation,
       canonicalJournal,
       mutableSuccessfulResult,
@@ -1438,11 +1440,11 @@ describe("C03 Postgres SessionJournalStore", () => {
       issue: { reason: "journalSealed" },
     });
 
-    const replayPreparation = await current.store.prepareSeal(current.attempt);
+    const replayPreparation = await prepareSeal(current.store, current.attempt);
     const replayJournal = await runEffect(
       canonicalizeSessionJournalV1Effect(replayPreparation.journal),
     );
-    await expect(current.store.completeSeal(
+    await expect(completeSeal(current.store,
       replayPreparation.preparation,
       replayJournal,
       successfulResult,
@@ -1450,6 +1452,59 @@ describe("C03 Postgres SessionJournalStore", () => {
     expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
       state: "sealed",
       last_syscall_sequence: "2",
+    });
+  });
+
+  it("waits for seal completion to settle after direct Effect interruption", async () => {
+    const entered = deferredSignal();
+    const release = deferredSignal();
+    let pauseCompletion = false;
+    const current = await scenario("seal_effect_interruption_settlement", {
+      targetOptions: {
+        afterLoadLock: async (step) => {
+          if (step !== "journalRootLocked" || !pauseCompletion) return;
+          pauseCompletion = false;
+          entered.resolve();
+          await release.promise;
+        },
+      },
+    });
+    await runPointOperation(current.store, current.table, {
+      kind: "get",
+      syscallSequence: syscallSequence(1n),
+      documentId: documentId(current.tableId, 204),
+    });
+    const prepared = await prepareSeal(current.store, current.attempt);
+    const canonicalJournal = await runEffect(
+      canonicalizeSessionJournalV1Effect(prepared.journal),
+    );
+    const successfulResult = await runEffect(
+      canonicalizeSuccessfulResultV1Effect({ ok: true }),
+    );
+    pauseCompletion = true;
+    const fiber = Effect.runFork(current.store.completeSealEffect(
+      prepared.preparation,
+      canonicalJournal,
+      successfulResult,
+    ));
+
+    await entered.promise;
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+      interruptionSettled = true;
+      return exit;
+    });
+    try {
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      release.resolve();
+    }
+    await interruption;
+    expect(interruptionSettled).toBe(true);
+    expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
+      state: "sealed",
+      last_syscall_sequence: "1",
     });
   });
 
@@ -1464,14 +1519,14 @@ describe("C03 Postgres SessionJournalStore", () => {
       syscallSequence: syscallSequence(1n),
       fields: { name: "sealed" },
     });
-    const prepared = await sealed.store.prepareSeal(sealed.attempt);
+    const prepared = await prepareSeal(sealed.store, sealed.attempt);
     const canonicalJournal = await runEffect(
       canonicalizeSessionJournalV1Effect(prepared.journal),
     );
     const successfulResult = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
     );
-    await sealed.store.completeSeal(
+    await completeSeal(sealed.store,
       prepared.preparation,
       canonicalJournal,
       successfulResult,

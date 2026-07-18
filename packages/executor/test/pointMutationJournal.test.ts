@@ -709,28 +709,37 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
         }),
       });
     },
-    prepareSeal: async (attempt: unknown) => {
-      if (options.prepareSeal !== undefined) {
-        return options.prepareSeal(attempt);
-      }
-      return Object.freeze({
-        preparation: Object.freeze({ kind: "test-seal-preparation" }),
-        journal: emptyJournal(0n),
-      });
-    },
-    completeSeal: async (
+    prepareSealEffect: (attempt: unknown) => Effect.tryPromise({
+      try: () => options.prepareSeal !== undefined
+        ? options.prepareSeal(attempt)
+        : Promise.resolve(Object.freeze({
+          preparation: Object.freeze({ kind: "test-seal-preparation" }),
+          journal: emptyJournal(0n),
+        })),
+      catch: (cause) => new SessionJournalPersistenceV1Error({
+        operation: "prepareSealSnapshot",
+        cause,
+      }),
+    }),
+    completeSealEffect: (
       preparation: unknown,
       journal: CanonicalSessionJournalV1,
       result: CanonicalSuccessfulResultV1,
-    ): Promise<StoredForSessionAttemptCommitEnvelopeV1> => {
-      completeSealCalls += 1;
-      completedJournal = journal;
-      completedResult = result;
-      if (options.completeSeal !== undefined) {
-        return options.completeSeal(preparation, journal, result);
-      }
-      return storedEnvelope(journal, result);
-    },
+    ) => Effect.tryPromise({
+      try: async (): Promise<StoredForSessionAttemptCommitEnvelopeV1> => {
+        completeSealCalls += 1;
+        completedJournal = journal;
+        completedResult = result;
+        if (options.completeSeal !== undefined) {
+          return options.completeSeal(preparation, journal, result);
+        }
+        return storedEnvelope(journal, result);
+      },
+      catch: (cause) => new SessionJournalPersistenceV1Error({
+        operation: "completeSealTransaction",
+        cause,
+      }),
+    }),
   });
 
   // The persistence package deliberately hides capability brands. Reflection

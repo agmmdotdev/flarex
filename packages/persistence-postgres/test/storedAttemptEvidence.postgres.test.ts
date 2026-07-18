@@ -56,6 +56,8 @@ import {
   withTemporaryPostgresPersistence,
 } from "./postgresHelpers";
 import {
+  completeSessionJournalSeal as completeSeal,
+  prepareSessionJournalSeal as prepareSeal,
   runEffect,
 } from "./effectTestRuntime";
 import {
@@ -78,14 +80,14 @@ describePostgres("real Postgres stored-attempt authority", () => {
           observedQueries.set(query.name, query);
         },
       });
-      const prepared = await current.store.prepareSeal(current.attempt);
+      const prepared = await prepareSeal(current.store, current.attempt);
       const journal = await runEffect(
         canonicalizeSessionJournalV1Effect(prepared.journal),
       );
       const result = await runEffect(
         canonicalizeSuccessfulResultV1Effect({ ok: true }),
       );
-      const envelope = await current.store.completeSeal(
+      const envelope = await completeSeal(current.store,
         prepared.preparation,
         journal,
         result,
@@ -175,7 +177,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
   it("linearizes seal/load and treats detached success as non-authoritative", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const racing = await scenario(persistence, "seal_load_race");
-      const prepared = await racing.store.prepareSeal(racing.attempt);
+      const prepared = await prepareSeal(racing.store, racing.attempt);
       const journal = await runEffect(
         canonicalizeSessionJournalV1Effect(prepared.journal),
       );
@@ -184,7 +186,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
       );
       const [loadResult, envelope] = await Promise.all([
         racing.loader.load(racing.authority),
-        racing.store.completeSeal(prepared.preparation, journal, result),
+        completeSeal(racing.store, prepared.preparation, journal, result),
       ]);
       expect(["loaded", "notPlannable"]).toContain(loadResult.kind);
       if (loadResult.kind === "loaded") {
@@ -232,14 +234,14 @@ describePostgres("real Postgres stored-attempt authority", () => {
   it("captures C04B1 authority coherently and closes SQL before schema hashing", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const current = await scenario(persistence, "commit_authority_rr");
-      const prepared = await current.store.prepareSeal(current.attempt);
+      const prepared = await prepareSeal(current.store, current.attempt);
       const journal = await runEffect(
         canonicalizeSessionJournalV1Effect(prepared.journal),
       );
       const result = await runEffect(
         canonicalizeSuccessfulResultV1Effect({ ok: true }),
       );
-      await current.store.completeSeal(
+      await completeSeal(current.store,
         prepared.preparation,
         journal,
         result,
@@ -512,14 +514,14 @@ async function scenario(
 }
 
 async function sealScenario(current: Scenario): Promise<void> {
-  const prepared = await current.store.prepareSeal(current.attempt);
+  const prepared = await prepareSeal(current.store, current.attempt);
   const journal = await runEffect(
     canonicalizeSessionJournalV1Effect(prepared.journal),
   );
   const result = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: true }),
   );
-  await current.store.completeSeal(prepared.preparation, journal, result);
+  await completeSeal(current.store, prepared.preparation, journal, result);
 }
 
 function resolutionPorts(

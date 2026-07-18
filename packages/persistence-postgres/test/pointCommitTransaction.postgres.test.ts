@@ -73,6 +73,8 @@ import {
   withTemporaryPostgresPersistence,
 } from "./postgresHelpers";
 import {
+  completeSessionJournalSeal as completeSeal,
+  prepareSessionJournalSeal as prepareSeal,
   runEffect,
   runEffectFailure as runFailure,
   runSessionJournalPointOperation as runPointOperation,
@@ -714,14 +716,14 @@ async function createAttempt(
       fields: { name: label },
     });
   }
-  const prepared = await store.prepareSeal(attempt);
+  const prepared = await prepareSeal(store, attempt);
   const journal = await runEffect(
     canonicalizeSessionJournalV1Effect(prepared.journal),
   );
   const result = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: true }),
   );
-  await store.completeSeal(prepared.preparation, journal, result);
+  await completeSeal(store, prepared.preparation, journal, result);
   await persistence.query(
     `
       update fx_system_tx_session

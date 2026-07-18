@@ -65,6 +65,8 @@ import {
   withTemporaryPostgresSchema,
 } from "./postgresHelpers";
 import {
+  completeSessionJournalSeal as completeSeal,
+  prepareSessionJournalSeal as prepareSeal,
   runEffect,
   runSessionJournalPointOperation as runPointOperation,
 } from "./effectTestRuntime";
@@ -519,7 +521,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
           return originalDigest(algorithm, data);
         },
       );
-      const preparePromise = current.store.prepareSeal(current.attempt);
+      const preparePromise = prepareSeal(current.store, current.attempt);
       await digestEntered.promise;
       const evidenceLocker = await persistence.pool.connect();
       let evidenceLockOpen = false;
@@ -608,7 +610,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         locker.release();
       }
 
-      const envelope = await current.store.completeSeal(
+      const envelope = await completeSeal(current.store,
         prepared.preparation,
         canonicalJournal,
         successfulResult,
@@ -716,8 +718,8 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         syscallSequence: syscallSequence(1n),
         fields: { name: "sealed" },
       });
-      const prepared = await sealed.store.prepareSeal(sealed.attempt);
-      await sealed.store.completeSeal(
+      const prepared = await prepareSeal(sealed.store, sealed.attempt);
+      await completeSeal(sealed.store,
         prepared.preparation,
         await runEffect(canonicalizeSessionJournalV1Effect(prepared.journal)),
         await runEffect(canonicalizeSuccessfulResultV1Effect({ ok: true })),

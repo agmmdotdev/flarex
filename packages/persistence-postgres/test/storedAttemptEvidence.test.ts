@@ -139,6 +139,8 @@ import {
   pointCommitCommandFromStoredAttemptV1,
 } from "./pointCommitTransactionTestSupport";
 import {
+  completeSessionJournalSeal as completeSeal,
+  prepareSessionJournalSeal as prepareSeal,
   runEffect,
   runEffectFailure as runFailure,
   runSessionJournalPointOperation as runPointOperation,
@@ -2169,14 +2171,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   }
 
   async function seal(current: Scenario) {
-    const prepared = await current.store.prepareSeal(current.attempt);
+    const prepared = await prepareSeal(current.store, current.attempt);
     const journal = await runEffect(
       canonicalizeSessionJournalV1Effect(prepared.journal),
     );
     const result = await runEffect(
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
     );
-    return current.store.completeSeal(prepared.preparation, journal, result);
+    return completeSeal(current.store, prepared.preparation, journal, result);
   }
 
   async function setLifecycle(

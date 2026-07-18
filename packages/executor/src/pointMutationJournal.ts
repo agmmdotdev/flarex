@@ -330,24 +330,20 @@ export function createPointMutationJournalV1(
       });
       return yield* state.coordinator.semaphore.withPermit(
         Effect.uninterruptible(Effect.gen(function* () {
-          const prepared = yield* Effect.tryPromise({
-            try: () => persistence.prepareSeal(state.persistenceAttempt),
-            catch: mapPersistenceFailure,
-          });
+          const prepared = yield* persistence.prepareSealEffect(
+            state.persistenceAttempt,
+          ).pipe(Effect.mapError(mapPersistenceFailure));
           const journal = yield* canonicalizeSessionJournalV1Effect(
             prepared.journal,
           );
           const result = yield* canonicalizeSuccessfulResultV1Effect(
             successfulResult,
           );
-          return yield* Effect.tryPromise({
-            try: () => persistence.completeSeal(
-              prepared.preparation,
-              journal,
-              result,
-            ),
-            catch: mapPersistenceFailure,
-          });
+          return yield* persistence.completeSealEffect(
+            prepared.preparation,
+            journal,
+            result,
+          ).pipe(Effect.mapError(mapPersistenceFailure));
         })),
       );
     },

@@ -19,6 +19,7 @@ import {
   type AppCreationTimeV1,
 } from "flarex-protocol/app-document";
 import {
+  AppDocumentIdV1Error,
   AppDocumentIdV1Schema,
   appDocumentIdV1FromRowIdentity,
   appRowIdHexV1FromBytes,
@@ -100,6 +101,7 @@ import {
 import {
   FLAREX_VALUE_CODEC_VERSION_V1,
   FlarexValueCodecV1Error,
+  FlarexValueEvidenceV1Error,
   MAX_FLAREX_VALUE_OBJECT_FIELDS_V1,
   canonicalizeFlarexValueJsonV1,
   copyCanonicalFlarexValueBytesV1,
@@ -356,14 +358,20 @@ export interface SessionJournalStorePersistenceV1 {
     RunSessionJournalPointOperationV1Result,
     SessionJournalRunPointOperationV1Error
   >;
-  readonly prepareSeal: (
+  readonly prepareSealEffect: (
     attempt: SessionJournalAttemptV1,
-  ) => Promise<PreparedSessionJournalSealResultV1>;
-  readonly completeSeal: (
+  ) => Effect.Effect<
+    PreparedSessionJournalSealResultV1,
+    SessionJournalPrepareSealV1Error
+  >;
+  readonly completeSealEffect: (
     preparation: PreparedSessionJournalSealV1,
     journal: CanonicalSessionJournalV1,
     successfulResult: CanonicalSuccessfulResultV1,
-  ) => Promise<StoredForSessionAttemptCommitEnvelopeV1>;
+  ) => Effect.Effect<
+    StoredForSessionAttemptCommitEnvelopeV1,
+    SessionJournalCompleteSealV1Error
+  >;
 }
 
 export interface SessionJournalStorePersistenceOptionsV1 {
@@ -405,6 +413,9 @@ export class SessionJournalPersistenceV1Error extends Data.TaggedError(
 )<{
   readonly operation:
     | "canonicalizePointRequest"
+    | "completeSealTransaction"
+    | "hashSealJournal"
+    | "prepareSealSnapshot"
     | "resolveJournalTarget"
     | "resolvePinnedPointTable"
     | "runPointOperation";
@@ -425,6 +436,21 @@ export type SessionJournalRunPointOperationV1Error =
   | SessionJournalAttemptUnavailableV1Error
   | SessionJournalIdentityGenerationV1Error
   | SessionJournalPersistenceV1Error
+  | SessionJournalStorageCorruptionV1Error
+  | SessionJournalTargetUnavailableV1Error;
+
+export type SessionJournalPrepareSealV1Error =
+  | InvalidSessionJournalCapabilityV1Error
+  | SessionJournalPersistenceV1Error
+  | SessionJournalSealV1Error
+  | SessionJournalStorageCorruptionV1Error
+  | SessionJournalTargetUnavailableV1Error;
+
+export type SessionJournalCompleteSealV1Error =
+  | InvalidSessionJournalCapabilityV1Error
+  | SessionJournalAttemptUnavailableV1Error
+  | SessionJournalPersistenceV1Error
+  | SessionJournalSealV1Error
   | SessionJournalStorageCorruptionV1Error
   | SessionJournalTargetUnavailableV1Error;
 
@@ -690,20 +716,6 @@ export function createSessionJournalStorePersistenceV1(
     PreparedSessionJournalSealStateV1
   >();
 
-  const requireAttempt = (
-    value: SessionJournalAttemptV1,
-  ): SessionJournalAttemptStateV1 => {
-    const state = typeof value === "object" && value !== null
-      ? attemptStates.get(value)
-      : undefined;
-    if (state === undefined) {
-      throw new InvalidSessionJournalCapabilityV1Error({
-        capability: "attempt",
-      });
-    }
-    return state;
-  };
-
   const createAttemptHandle = (
     state: SessionJournalAttemptStateV1,
   ): SessionJournalAttemptV1 => {
@@ -842,83 +854,96 @@ export function createSessionJournalStorePersistenceV1(
     return projectPointOperationResult(applied);
   });
 
+  const prepareSealEffect: SessionJournalStorePersistenceV1[
+    "prepareSealEffect"
+  ] = Effect.fn("SessionJournalStore.prepareSeal")(function* (attempt) {
+    const attemptState = typeof attempt === "object" && attempt !== null
+      ? attemptStates.get(attempt)
+      : undefined;
+    if (attemptState === undefined) {
+      return yield* Effect.fail(new InvalidSessionJournalCapabilityV1Error({
+        capability: "attempt",
+      }));
+    }
+    const resolved = yield* resolveJournalTargetEffect(attemptState);
+    const snapshot = yield* Effect.uninterruptible(
+      Effect.tryPromise({
+        try: () => resolved.target[RUN_LOCATED_REPEATABLE_READ_V1](
+          (tx) => captureSealRowsInRepeatableRead(
+            tx,
+            attemptState,
+            resolved.authority,
+          ),
+        ),
+        catch: mapPrepareSealSnapshotFailure,
+      }),
+    );
+    const candidate = detachSealCandidate(
+      yield* materializeSealCandidateEffect(attemptState, snapshot),
+    );
+    const handle = Object.freeze({
+      [preparedSessionJournalSealBrand]: true as const,
+    });
+    sealStates.set(handle, Object.freeze({
+      attempt: attemptState,
+      candidate,
+    }));
+    return Object.freeze({
+      preparation: handle,
+      journal: structuredClone(candidate.journal),
+    });
+  });
+
+  const completeSealEffect: SessionJournalStorePersistenceV1[
+    "completeSealEffect"
+  ] = Effect.fn("SessionJournalStore.completeSeal")(function* (
+    preparation,
+    journal,
+    successfulResult,
+  ) {
+    const prepared = typeof preparation === "object" && preparation !== null
+      ? sealStates.get(preparation)
+      : undefined;
+    if (prepared === undefined) {
+      return yield* Effect.fail(new InvalidSessionJournalCapabilityV1Error({
+        capability: "sealPreparation",
+      }));
+    }
+    const sealedEvidence = yield* validateCanonicalSealEvidenceEffect(
+      prepared.candidate,
+      journal,
+      successfulResult,
+    );
+    const resolved = yield* resolveJournalTargetEffect(prepared.attempt);
+    return yield* Effect.uninterruptible(Effect.gen(function* () {
+      const envelope = yield* Effect.tryPromise({
+        try: () => resolved.target[
+          RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1
+        ](
+          {
+            selector: prepared.attempt.selector,
+            preliminaryAuthority: resolved.authority,
+          },
+          (tx, context) => completeSealInTransaction(
+            tx,
+            context,
+            prepared,
+            sealedEvidence,
+          ),
+        ),
+        catch: mapCompleteSealTransactionFailure,
+      });
+      sealStates.delete(preparation);
+      return envelope;
+    }));
+  });
+
   return Object.freeze({
     openAttemptEffect,
     resolvePointTableEffect,
     runPointOperationEffect,
-    prepareSeal: async (
-      attempt: SessionJournalAttemptV1,
-    ): Promise<PreparedSessionJournalSealResultV1> => {
-      const attemptState = requireAttempt(attempt);
-      const resolved = await resolveJournalTarget(ports, attemptState);
-      const snapshot = await resolved.target[RUN_LOCATED_REPEATABLE_READ_V1](
-        (tx) => captureSealRowsInRepeatableRead(
-          tx,
-          attemptState,
-          resolved.authority,
-        ),
-      );
-      const candidate = detachSealCandidate(
-        await materializeSealCandidate(attemptState, snapshot),
-      );
-      const handle = Object.freeze({
-        [preparedSessionJournalSealBrand]: true as const,
-      });
-      sealStates.set(handle, Object.freeze({
-        attempt: attemptState,
-        candidate,
-      }));
-      return Object.freeze({
-        preparation: handle,
-        journal: structuredClone(candidate.journal),
-      });
-    },
-    completeSeal: async (
-      preparation: PreparedSessionJournalSealV1,
-      journal: CanonicalSessionJournalV1,
-      successfulResult: CanonicalSuccessfulResultV1,
-    ): Promise<StoredForSessionAttemptCommitEnvelopeV1> => {
-      const prepared = typeof preparation === "object" && preparation !== null
-        ? sealStates.get(preparation)
-        : undefined;
-      if (prepared === undefined) {
-        throw new InvalidSessionJournalCapabilityV1Error({
-          capability: "sealPreparation",
-        });
-      }
-      const sealedEvidence = await validateCanonicalSealEvidence(
-        prepared.candidate,
-        journal,
-        successfulResult,
-        (evidence) =>
-          Effect.runPromise(
-            verifySuccessfulResultEvidenceV1Effect(evidence).pipe(
-              Effect.mapError(() =>
-                new SessionJournalSealV1Error({
-                  reason: "canonicalResultMismatch",
-                })
-              ),
-            ),
-          ),
-      );
-      const resolved = await resolveJournalTarget(ports, prepared.attempt);
-      const envelope = await resolved.target[
-        RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1
-      ](
-        {
-          selector: prepared.attempt.selector,
-          preliminaryAuthority: resolved.authority,
-        },
-        (tx, context) => completeSealInTransaction(
-          tx,
-          context,
-          prepared,
-          sealedEvidence,
-        ),
-      );
-      sealStates.delete(preparation);
-      return envelope;
-    },
+    prepareSealEffect,
+    completeSealEffect,
   });
 }
 
@@ -935,6 +960,47 @@ function mapPointTableResolutionFailure(
       operation: "resolvePinnedPointTable",
       cause,
     });
+}
+
+function mapPrepareSealSnapshotFailure(
+  cause: unknown,
+): SessionJournalPrepareSealV1Error {
+  if (
+    cause instanceof SessionJournalPersistenceV1Error ||
+    cause instanceof SessionJournalSealV1Error ||
+    cause instanceof SessionJournalStorageCorruptionV1Error ||
+    cause instanceof SessionJournalTargetUnavailableV1Error
+  ) {
+    return cause;
+  }
+  return new SessionJournalPersistenceV1Error({
+    operation: "prepareSealSnapshot",
+    cause,
+  });
+}
+
+function mapCompleteSealTransactionFailure(
+  cause: unknown,
+): SessionJournalCompleteSealV1Error {
+  if (cause instanceof PointMutationSessionAttemptLoadV1Error) {
+    return new SessionJournalAttemptUnavailableV1Error({
+      issue: cause.issue,
+    });
+  }
+  if (
+    cause instanceof InvalidSessionJournalCapabilityV1Error ||
+    cause instanceof SessionJournalAttemptUnavailableV1Error ||
+    cause instanceof SessionJournalPersistenceV1Error ||
+    cause instanceof SessionJournalSealV1Error ||
+    cause instanceof SessionJournalStorageCorruptionV1Error ||
+    cause instanceof SessionJournalTargetUnavailableV1Error
+  ) {
+    return cause;
+  }
+  return new SessionJournalPersistenceV1Error({
+    operation: "completeSealTransaction",
+    cause,
+  });
 }
 
 interface ResolvedJournalTargetV1 {
@@ -1024,32 +1090,6 @@ function invalidAttemptPins(cause: unknown): InvalidSessionJournalInputV1Error {
     operation: "openAttempt",
     reason: "invalidAttemptPins",
     cause,
-  });
-}
-
-async function resolveJournalTarget(
-  ports: PointMutationSessionAuthorityResolutionPortsV1,
-  attempt: SessionJournalAttemptStateV1,
-): Promise<ResolvedJournalTargetV1> {
-  const located = await resolveLocatedTrustedScopeAuthority(
-    attempt.selector.deploymentId,
-    {
-      scopeMetadata: ports.scopeMetadata,
-      provisioningReceipts: ports.provisioningReceipts,
-      scopeClockTargets: ports.scopeSessionTargets,
-    },
-  );
-  if (
-    located.authority.scopeId !== attempt.selector.scopeId ||
-    !isLocatedExactRunningAttemptKernelV1(located.target)
-  ) {
-    throw new SessionJournalTargetUnavailableV1Error({
-      scopeId: attempt.selector.scopeId,
-    });
-  }
-  return Object.freeze({
-    target: located.target,
-    authority: located.authority,
   });
 }
 
@@ -3019,6 +3059,27 @@ async function captureSealRowsInRepeatableRead(
   });
 }
 
+const materializeSealCandidateEffect = Effect.fn(
+  "SessionJournalStore.materializeSealCandidate",
+)((
+  attempt: SessionJournalAttemptStateV1,
+  snapshot: SessionJournalSealRowsV1,
+): Effect.Effect<
+  SessionJournalSealCandidateV1,
+  SessionJournalSealV1Error | SessionJournalStorageCorruptionV1Error
+> =>
+  Effect.tryPromise({
+    try: () => materializeSealCandidate(attempt, snapshot),
+    catch: (cause): unknown => cause,
+  }).pipe(
+    Effect.catch((cause) =>
+      cause instanceof SessionJournalSealV1Error ||
+        cause instanceof SessionJournalStorageCorruptionV1Error
+        ? Effect.fail(cause)
+        : Effect.die(cause)
+    ),
+  ));
+
 async function materializeSealCandidate(
   attempt: SessionJournalAttemptStateV1,
   snapshot: SessionJournalSealRowsV1,
@@ -3365,15 +3426,29 @@ async function verifyPointOverlayEvidence(
   ) {
     throw corruption(attempt, "liveOverlayEvidenceMissing");
   }
-  const document = await verifyAppDocumentEvidenceV1({
-    tableId: point.tableId,
-    rowId: appRowIdHexV1FromBytes(point.rowId),
-    creationTime: point.overlayCreationTime,
-    codecVersion: point.overlayValueCodecVersion,
-    valueJson: point.overlayValueJson,
-    canonicalBytes: point.overlayValueBytes,
-    sha256: point.overlayValueSha256,
-  });
+  let document: Awaited<ReturnType<typeof verifyAppDocumentEvidenceV1>>;
+  try {
+    document = await verifyAppDocumentEvidenceV1({
+      tableId: point.tableId,
+      rowId: appRowIdHexV1FromBytes(point.rowId),
+      creationTime: point.overlayCreationTime,
+      codecVersion: point.overlayValueCodecVersion,
+      valueJson: point.overlayValueJson,
+      canonicalBytes: point.overlayValueBytes,
+      sha256: point.overlayValueSha256,
+    });
+  } catch (cause) {
+    if (
+      cause instanceof AppDocumentIdV1Error ||
+      cause instanceof AppDocumentSystemFieldV1Error ||
+      cause instanceof FlarexValueCodecV1Error ||
+      cause instanceof FlarexValueEvidenceV1Error ||
+      Schema.isSchemaError(cause)
+    ) {
+      throw corruption(attempt, "liveOverlaySemanticBytesMismatch", cause);
+    }
+    throw cause;
+  }
   if (document.semanticSizeBytes !== point.overlaySemanticBytes) {
     throw corruption(attempt, "liveOverlaySemanticBytesMismatch");
   }
@@ -3441,65 +3516,60 @@ interface CanonicalSealInputsSnapshotV1 {
   readonly resultEvidence: unknown;
 }
 
-function captureCanonicalSealInputs(
+function captureCanonicalSealInputsResult(
   journal: CanonicalSessionJournalV1,
   successfulResult: CanonicalSuccessfulResultV1,
-): CanonicalSealInputsSnapshotV1 {
-  let capturedJournal: Readonly<{
-    readonly journal: SessionJournalV1;
-    readonly journalCanonicalText: string;
-    readonly journalBytes: Uint8Array;
-    readonly journalSha256Hex: CanonicalSessionJournalV1["sha256Hex"];
-  }>;
-  try {
-    capturedJournal = Object.freeze({
-      journal: structuredClone(journal.journal),
-      journalCanonicalText: journal.canonicalText,
-      journalBytes: new Uint8Array(journal.canonicalBytes),
-      journalSha256Hex: journal.sha256Hex,
+): Result.Result<CanonicalSealInputsSnapshotV1, SessionJournalSealV1Error> {
+  return Result.gen(function* () {
+    const capturedJournal = yield* Result.try({
+      try: () => Object.freeze({
+        journal: structuredClone(journal.journal),
+        journalCanonicalText: journal.canonicalText,
+        journalBytes: new Uint8Array(journal.canonicalBytes),
+        journalSha256Hex: journal.sha256Hex,
+      }),
+      catch: () => sealMismatch("canonicalJournalMismatch"),
     });
-  } catch {
-    throw new SessionJournalSealV1Error({
-      reason: "canonicalJournalMismatch",
+    return yield* Result.try({
+      try: () => Object.freeze({
+        ...capturedJournal,
+        resultValueJson: structuredClone(successfulResult.valueJson),
+        resultSemanticBytes: successfulResult.semanticSizeBytes,
+        resultCanonicalText: successfulResult.canonicalText,
+        resultBytes: new Uint8Array(successfulResult.canonicalBytes),
+        resultEvidence: structuredClone(successfulResult.evidence),
+      }),
+      catch: () => sealMismatch("canonicalResultMismatch"),
     });
-  }
-  try {
-    return Object.freeze({
-      ...capturedJournal,
-      resultValueJson: structuredClone(successfulResult.valueJson),
-      resultSemanticBytes: successfulResult.semanticSizeBytes,
-      resultCanonicalText: successfulResult.canonicalText,
-      resultBytes: new Uint8Array(successfulResult.canonicalBytes),
-      resultEvidence: structuredClone(successfulResult.evidence),
-    });
-  } catch {
-    throw new SessionJournalSealV1Error({
-      reason: "canonicalResultMismatch",
-    });
-  }
+  });
 }
 
-async function validateCanonicalSealEvidence(
+const validateCanonicalSealEvidenceEffect = Effect.fn(
+  "SessionJournalStore.validateCanonicalSealEvidence",
+)(function* (
   candidate: SessionJournalSealCandidateV1,
   journal: CanonicalSessionJournalV1,
   successfulResult: CanonicalSuccessfulResultV1,
-  verifySuccessfulResult: (
-    evidence: unknown,
-  ) => Promise<CanonicalSuccessfulResultV1>,
-): Promise<ValidatedCanonicalSealEvidenceV1> {
-  const supplied = captureCanonicalSealInputs(journal, successfulResult);
+): Effect.fn.Return<
+  ValidatedCanonicalSealEvidenceV1,
+  SessionJournalPersistenceV1Error | SessionJournalSealV1Error
+> {
+  const supplied = yield* Effect.fromResult(
+    captureCanonicalSealInputsResult(journal, successfulResult),
+  );
   const expectedJournalJson = requireJson(
     encodeSessionJournal(candidate.journal),
   );
-  const suppliedJournalJson = requireJson(
-    encodeSessionJournal(supplied.journal),
+  const suppliedJournalJson = yield* Effect.fromResult(
+    sealInputValidationResult("canonicalJournalMismatch", () =>
+      requireJson(encodeSessionJournal(supplied.journal))),
   );
   const expectedJournalText = encodeCanonicalJson(
     expectedJournalJson,
     () => {
-      throw new SessionJournalSealV1Error({
-        reason: "canonicalJournalMismatch",
-      });
+      throw new Error(
+        "Materialized session journal violated canonical JSON invariants.",
+      );
     },
   );
   if (
@@ -3510,22 +3580,25 @@ async function validateCanonicalSealEvidence(
       TEXT_ENCODER.encode(expectedJournalText),
     )
   ) {
-    throw new SessionJournalSealV1Error({
-      reason: "canonicalJournalMismatch",
-    });
+    return yield* Effect.fail(sealMismatch("canonicalJournalMismatch"));
   }
-  const journalDigest = await sha256(supplied.journalBytes);
+  const journalDigest = yield* Effect.tryPromise({
+    try: () => sha256(supplied.journalBytes),
+    catch: (cause) => new SessionJournalPersistenceV1Error({
+      operation: "hashSealJournal",
+      cause,
+    }),
+  });
   if (
     encodeBytesToLowercaseHex(journalDigest) !== supplied.journalSha256Hex ||
     supplied.journal.finalSyscallSequence !== candidate.lastSyscallSequence
   ) {
-    throw new SessionJournalSealV1Error({
-      reason: "canonicalJournalMismatch",
-    });
+    return yield* Effect.fail(sealMismatch("canonicalJournalMismatch"));
   }
 
-  const normalizedResult = normalizeFlarexValueJsonV1(
-    supplied.resultValueJson,
+  const normalizedResult = yield* Effect.fromResult(
+    sealInputValidationResult("canonicalResultMismatch", () =>
+      normalizeFlarexValueJsonV1(supplied.resultValueJson)),
   );
   const expectedResultText = encodeCanonicalJson(
     {
@@ -3534,12 +3607,16 @@ async function validateCanonicalSealEvidence(
       valueCodecVersion: 1,
     },
     () => {
-      throw new SessionJournalSealV1Error({
-        reason: "canonicalResultMismatch",
-      });
+      throw new Error(
+        "Normalized successful result violated canonical JSON invariants.",
+      );
     },
   );
-  const verifiedResult = await verifySuccessfulResult(supplied.resultEvidence);
+  const verifiedResult = yield* verifySuccessfulResultEvidenceV1Effect(
+    supplied.resultEvidence,
+  ).pipe(
+    Effect.mapError(() => sealMismatch("canonicalResultMismatch")),
+  );
   const verifiedResultBytes = verifiedResult.canonicalBytes;
   if (
     supplied.resultSemanticBytes !== normalizedResult.semanticSizeBytes ||
@@ -3553,12 +3630,10 @@ async function validateCanonicalSealEvidence(
     ) ||
     !bytesEqual(verifiedResultBytes, supplied.resultBytes)
   ) {
-    throw new SessionJournalSealV1Error({
-      reason: "canonicalResultMismatch",
-    });
+    return yield* Effect.fail(sealMismatch("canonicalResultMismatch"));
   }
-  const resultDigest = decodeLowercaseSha256Hex(
-    verifiedResult.evidence.sha256Hex,
+  const resultDigest = yield* Effect.fromResult(
+    decodeLowercaseSha256HexResult(verifiedResult.evidence.sha256Hex),
   );
   return Object.freeze({
     finalSyscallSequence: candidate.lastSyscallSequence,
@@ -3571,6 +3646,22 @@ async function validateCanonicalSealEvidence(
     resultSha256: resultDigest,
     successfulResult: Object.freeze({ ...verifiedResult.evidence }),
   });
+});
+
+function sealInputValidationResult<A>(
+  reason: "canonicalJournalMismatch" | "canonicalResultMismatch",
+  validate: () => A,
+): Result.Result<A, SessionJournalSealV1Error> {
+  return Result.try({
+    try: validate,
+    catch: () => sealMismatch(reason),
+  });
+}
+
+function sealMismatch(
+  reason: "canonicalJournalMismatch" | "canonicalResultMismatch",
+): SessionJournalSealV1Error {
+  return new SessionJournalSealV1Error({ reason });
 }
 
 async function completeSealInTransaction(
@@ -3701,15 +3792,15 @@ async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", copy.buffer));
 }
 
-function decodeLowercaseSha256Hex(value: string): Uint8Array {
+function decodeLowercaseSha256HexResult(
+  value: string,
+): Result.Result<Uint8Array, SessionJournalSealV1Error> {
   if (!/^[0-9a-f]{64}$/.test(value)) {
-    throw new SessionJournalSealV1Error({
-      reason: "canonicalResultMismatch",
-    });
+    return Result.fail(sealMismatch("canonicalResultMismatch"));
   }
   const bytes = new Uint8Array(32);
   for (let index = 0; index < bytes.length; index += 1) {
     bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
   }
-  return bytes;
+  return Result.succeed(bytes);
 }

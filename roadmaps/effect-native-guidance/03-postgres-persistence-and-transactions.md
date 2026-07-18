@@ -16,21 +16,31 @@ model still lives outside Effect.
 ## Current Migration Status
 
 The first bounded vertical slices port session-journal attempt opening, table
-resolution, and point-operation orchestration. The persistence contract now
-exposes Effect-native operations with explicit domain and persistence failures,
-and the executor consumes them directly instead of placing a broad
-`tryPromise` adapter around the persistence call. Point-operation input capture
-uses a pure `Result` boundary, while request hashing, authority resolution, and
-the Drizzle transaction remain narrow foreign Promise edges. Once the point
-operation enters its transaction Promise edge, interruption waits for that
-Promise to settle so a direct persistence caller cannot observe cancellation
-while the transaction continues toward an unknown commit outcome.
+resolution, point-operation orchestration, and two-phase sealing. The
+persistence contract exposes Effect-native operations with explicit domain and
+persistence failures, and the executor consumes them directly instead of
+placing broad `tryPromise` adapters around persistence calls. Point-operation
+input capture and pure sealing validation use `Result`; request hashing,
+authority resolution, cryptographic hashing, and Drizzle transactions remain
+narrow foreign Promise edges.
 
-Persistence tests now enter point operations through the shared explicit test
-runtime, so the Promise point-operation facade, former Promise table resolver,
-and synchronous attempt opener have been removed. Precise transaction
-begin/commit/rollback failure ownership and session-journal sealing remain
-later slices; this checkpoint does not claim those migrations are complete.
+Sealing preserves its existing transaction shape: preparation captures a short
+repeatable-read snapshot, releases locks before materializing and canonicalizing
+the potentially large journal, and completion performs the exact-attempt write
+transaction. The former nested runtime used to verify successful-result
+evidence has been removed. Once a point operation or sealing phase enters a
+transaction Promise edge, interruption waits for that Promise to settle so a
+direct persistence caller cannot observe cancellation while the transaction
+continues toward an unknown commit outcome.
+
+Persistence tests enter these operations through the shared explicit test
+runtime, so the Promise point-operation and sealing facades, former Promise
+table resolver, and synchronous attempt opener have been removed. The sealing
+materializer still contains Promise-native protocol-verification internals
+behind one adapter that preserves its two owned typed failures and turns an
+unexpected rejection into a defect. Porting that internal planner is a later
+bounded cleanup; it is not a public Promise boundary. Precise transaction
+begin/commit/rollback failure ownership also remains a later slice.
 
 ## Target Boundary
 
