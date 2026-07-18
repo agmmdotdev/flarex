@@ -176,8 +176,12 @@ Representative evidence:
   helper restricted to already-decoded table declarations, index declarations,
   and complete app-schema manifests. It establishes ownership with
   `structuredClone` before recursively freezing those plain-data shapes.
-  Protocol codecs retain their own canonical-value freezing, and neither owner
-  exposes a universal deep-freeze utility.
+- Protocol keeps separate internal ownership mechanisms: a detached snapshot
+  for strictly decoded acyclic plain data, and an in-place recursive freezer
+  for acyclic projections the caller already owns. The in-place path preserves
+  mutable byte storage for its dedicated copy boundary and must not receive
+  caller-owned metadata. Neither protocol nor persistence exposes a universal
+  deep-freeze utility.
 - Existing tests that assert `Object.isFrozen` prove that some runtime freezes
   are deliberate contracts. Other freezes on tiny private return records may
   be removable ceremony, but only after their callers and mutation tests are

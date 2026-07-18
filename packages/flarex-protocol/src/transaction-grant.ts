@@ -11,6 +11,7 @@ import { Data, Effect, Encoding, Result, Schema } from "effect";
 
 import type { Json, JsonObject } from "./json";
 import { JsonValue } from "./json";
+import { freezeOwnedProtocolProjection } from "./owned-protocol-projection";
 import {
   UnpaddedBase64UrlTextSchema,
   canonicalBase64UrlEncodedLength,
@@ -451,7 +452,7 @@ export async function canonicalizeTransactionGrantIdentityAccessPolicyV1(
   }
 
   const stableCanonicalBytes = new Uint8Array(canonical.canonicalBytes);
-  const immutablePolicy = deepFreezeTransactionGrantProjection(policy);
+  const immutablePolicy = freezeOwnedProtocolProjection(policy);
   return Object.freeze({
     policy: immutablePolicy,
     get canonicalBytes(): Uint8Array {
@@ -755,7 +756,7 @@ export function canonicalizeTransactionGrantProtectedHeaderV1(
       },
     });
   }
-  const immutableHeader = deepFreezeTransactionGrantProjection(header);
+  const immutableHeader = freezeOwnedProtocolProjection(header);
   const stableCanonicalBytes = new Uint8Array(canonicalBytes);
   const base64url = TransactionGrantProtectedHeaderBase64UrlV1Schema.make(
     Encoding.encodeBase64Url(stableCanonicalBytes),
@@ -803,10 +804,10 @@ export async function canonicalizeTransactionGrantPayloadV1(
   const stableCanonicalBytes = CanonicalTransactionGrantPayloadBytesV1Schema.make(
     new Uint8Array(canonical.canonicalBytes),
   );
-  const immutablePayload = deepFreezeTransactionGrantProjection(
+  const immutablePayload = freezeOwnedProtocolProjection(
     detachedPayload,
   );
-  const immutablePayloadJson = deepFreezeTransactionGrantProjection(
+  const immutablePayloadJson = freezeOwnedProtocolProjection(
     canonical.valueJson,
   );
   const base64url = CanonicalTransactionGrantPayloadBase64UrlV1Schema.make(
@@ -865,7 +866,7 @@ export async function deriveInertTransactionGrantEvidenceV1(
   const signature = TransactionGrantEd25519SignatureBase64UrlV1Schema.make(
     wireJws.signature,
   );
-  const jws = deepFreezeTransactionGrantProjection(
+  const jws = freezeOwnedProtocolProjection(
     TransactionGrantJwsV1Schema.make({
       protected: canonicalHeader.base64url,
       payload: canonicalPayload.base64url,
@@ -876,7 +877,7 @@ export async function deriveInertTransactionGrantEvidenceV1(
     protected: canonicalHeader.base64url,
     payload: canonicalPayload.base64url,
   });
-  const authorizationGrantJson = deepFreezeTransactionGrantProjection({
+  const authorizationGrantJson = freezeOwnedProtocolProjection({
     protected: jws.protected,
     payload: jws.payload,
     signature: jws.signature,
@@ -1007,8 +1008,8 @@ async function decodeCanonicalPayload(
     canonical.value,
     "payload",
   );
-  const immutablePayload = deepFreezeTransactionGrantProjection(payload);
-  const immutablePayloadJson = deepFreezeTransactionGrantProjection(
+  const immutablePayload = freezeOwnedProtocolProjection(payload);
+  const immutablePayloadJson = freezeOwnedProtocolProjection(
     canonical.valueJson,
   );
   const stableCanonicalBytes = CanonicalTransactionGrantPayloadBytesV1Schema.make(
@@ -1162,19 +1163,6 @@ function assertEvidenceSize(
       maximumBytes,
     },
   });
-}
-
-function deepFreezeTransactionGrantProjection<T>(value: T): T {
-  if (value === null || typeof value !== "object") return value;
-  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value;
-  for (const key of Reflect.ownKeys(value)) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (descriptor !== undefined && "value" in descriptor) {
-      deepFreezeTransactionGrantProjection(descriptor.value);
-    }
-  }
-  Object.freeze(value);
-  return value;
 }
 
 function decodeLowercaseHex(value: string): Uint8Array {

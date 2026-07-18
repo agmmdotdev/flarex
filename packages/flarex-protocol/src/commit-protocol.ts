@@ -12,6 +12,7 @@ import {
   AppDocumentIdV1Schema,
   type AppDocumentIdV1,
 } from "./app-document-id";
+import { freezeOwnedProtocolProjection } from "./owned-protocol-projection";
 import {
   encodeCanonicalJson,
   isJsonArray,
@@ -586,7 +587,7 @@ export const canonicalizeSessionJournalV1Effect = Effect.fn(
   );
   const stableCanonicalBytes = new Uint8Array(rawBytes);
   const sha256Hex = yield* sha256HexEffect(stableCanonicalBytes, "journal");
-  const stableJournal = deepFreezeCommitProjection(journal);
+  const stableJournal = freezeOwnedProtocolProjection(journal);
   return Object.freeze({
     journal: stableJournal,
     canonicalText,
@@ -700,7 +701,7 @@ export const makeCommitEnvelopeV1Effect = Effect.fn(
     Effect.mapError(() => invalidSchemaError("envelope")),
   );
   yield* validateEnvelopeEvidenceBudgetEffect(envelope);
-  return deepFreezeCommitProjection(envelope);
+  return freezeOwnedProtocolProjection(envelope);
 });
 
 export const decodeCommitEnvelopeV1Effect = Effect.fn(
@@ -717,7 +718,7 @@ export const decodeCommitEnvelopeV1Effect = Effect.fn(
     Effect.mapError(() => invalidSchemaError("envelope")),
   );
   yield* validateEnvelopeEvidenceBudgetEffect(envelope);
-  return deepFreezeCommitProjection(envelope);
+  return freezeOwnedProtocolProjection(envelope);
 });
 
 /**
@@ -882,7 +883,7 @@ const normalizeSessionJournalV1Effect = Effect.fn(function* (
     return yield* protocolFailureEffect({ reason: "sequenceMismatch" });
   }
 
-  return deepFreezeCommitProjection({
+  return freezeOwnedProtocolProjection({
     format: SESSION_JOURNAL_FORMAT_V1,
     protocolVersion: journal.protocolVersion,
     valueCodecVersion: journal.valueCodecVersion,
@@ -1114,7 +1115,7 @@ const createCanonicalSuccessfulResultV1Effect = Effect.fn(function* (
     MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1,
   );
   const stableCanonicalBytes = new Uint8Array(canonical.canonicalBytes);
-  const evidence = deepFreezeCommitProjection({
+  const evidence = freezeOwnedProtocolProjection({
     valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
     canonicalValueBase64Url:
       CanonicalSuccessfulResultBase64UrlV1Schema.make(
@@ -1124,7 +1125,7 @@ const createCanonicalSuccessfulResultV1Effect = Effect.fn(function* (
       encodeBytesToLowercaseHex(canonical.sha256),
     ),
   } satisfies SuccessfulResultEvidenceV1);
-  const stableValueJson = deepFreezeCommitProjection(canonical.valueJson);
+  const stableValueJson = freezeOwnedProtocolProjection(canonical.valueJson);
 
   return Object.freeze({
     valueJson: stableValueJson,
@@ -1603,19 +1604,6 @@ function commitJsonEncodingInvariantFailure(
 
 function base64UrlDecodedLength(value: string): number {
   return Math.floor((value.length * 3) / 4);
-}
-
-function deepFreezeCommitProjection<T>(value: T): T {
-  if (value === null || typeof value !== "object") return value;
-  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value;
-  for (const key of Reflect.ownKeys(value)) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (descriptor !== undefined && "value" in descriptor) {
-      deepFreezeCommitProjection(descriptor.value);
-    }
-  }
-  Object.freeze(value);
-  return value;
 }
 
 function assertNever(value: never): never {

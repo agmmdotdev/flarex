@@ -6,7 +6,9 @@ import {
   requireAppDocumentIdentityV1ForTable,
 } from "./app-document-id";
 import type { CatalogTableId } from "./catalog";
+import { snapshotDecodedProtocolPlainData } from "./decoded-protocol-snapshot";
 import { isJsonObject, type JsonObject } from "./json";
+import { freezeOwnedProtocolProjection } from "./owned-protocol-projection";
 import {
   CatalogSchemaVersionIdSchema,
   SchemaManifestAppSchemaV1Schema,
@@ -284,7 +286,9 @@ export async function preparePointMutationStartEvidenceV1(
     logicalPins,
     validatedArguments,
     requestEvidence,
-    returnsValidator: deepFreezeProjection(targetFunction.returnsValidator),
+    returnsValidator: snapshotDecodedProtocolPlainData(
+      targetFunction.returnsValidator,
+    ),
   } satisfies PreparedPointMutationStartEvidenceV1);
 }
 
@@ -339,7 +343,7 @@ export async function canonicalizePointMutationArgumentsV1(
   const stableSha256 = TransactionArgumentsSha256V1Schema.make(
     new Uint8Array(canonical.sha256),
   );
-  const stableValueJson = deepFreezeProjection(canonical.valueJson);
+  const stableValueJson = freezeOwnedProtocolProjection(canonical.valueJson);
   return Object.freeze({
     valueJson: stableValueJson,
     get canonicalBytes(): CanonicalTransactionArgumentsBytesV1 {
@@ -434,19 +438,6 @@ function isRuntimeObject(
     value !== null &&
     !Array.isArray(value) &&
     !(value instanceof ArrayBuffer);
-}
-
-function deepFreezeProjection<T>(value: T): T {
-  if (value === null || typeof value !== "object") return value;
-  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return value;
-  for (const key of Reflect.ownKeys(value)) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (descriptor !== undefined && "value" in descriptor) {
-      deepFreezeProjection(descriptor.value);
-    }
-  }
-  Object.freeze(value);
-  return value;
 }
 
 export { ValidatorValueErrorV1 };

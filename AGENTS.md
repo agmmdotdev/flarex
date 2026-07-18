@@ -256,6 +256,13 @@ through a persistence-local helper whose accepted input is restricted to those
 plain-data manifest shapes. Establish ownership before freezing, preserve the
 caller's original values, and do not widen that helper into a generic unknown-
 object deep freeze or move it into `@flarex/utils`.
+Do not collapse an ownership-establishing snapshot and an in-place projection
+freezer merely because both recurse. A snapshot clones validated acyclic plain
+data before freezing it. An in-place freezer may receive only an acyclic
+projection already owned by its caller, must preserve its deliberate byte-view
+handling, and must never freeze caller-owned metadata. Copy the selected
+caller-owned subtree at its capture boundary instead. Keep both mechanisms
+domain-local and name their ownership contract explicitly.
 When several protocol operations consume one codec envelope, the codec module
 owns its structural type, guard, and Schema. Consumers reuse that contract but
 retain their own byte limits, canonical byte comparisons, digest checks, and

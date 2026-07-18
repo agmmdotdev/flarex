@@ -63,8 +63,20 @@ describe("point-mutation preparation evidence", () => {
 
   it("derives complete pins from checked metadata and canonical arguments", async () => {
     const mutableBytes = new Uint8Array([1, 2, 3, 4]).buffer;
+    const returnsValidator = {
+      type: "object" as const,
+      value: {
+        status: {
+          fieldType: { type: "string" as const },
+          optional: false,
+        },
+      },
+    };
+    const metadata = targetMetadata({
+      functions: [targetFunction({ returnsValidator })],
+    });
     const first = await preparePointMutationStartEvidenceV1(
-      targetMetadata(),
+      metadata,
       {
         deploymentId: DEPLOYMENT_ID,
         functionPath: FUNCTION_PATH,
@@ -114,7 +126,26 @@ describe("point-mutation preparation evidence", () => {
     expect(first.validatedArguments.canonicalBytes).toEqual(
       second.validatedArguments.canonicalBytes,
     );
-    expect(first.returnsValidator).toEqual({ type: "string" });
+    expect(first.returnsValidator).toEqual({
+      type: "object",
+      value: {
+        status: {
+          fieldType: { type: "string" },
+          optional: false,
+        },
+      },
+    });
+    expect(Object.isFrozen(metadata)).toBe(false);
+    expect(Object.isFrozen(returnsValidator)).toBe(false);
+    expect(Object.isFrozen(returnsValidator.value)).toBe(false);
+    expect(Object.isFrozen(first.returnsValidator)).toBe(true);
+    if (first.returnsValidator?.type !== "object") {
+      throw new Error("Expected object returns validator evidence.");
+    }
+    expect(Object.isFrozen(first.returnsValidator.value)).toBe(true);
+
+    returnsValidator.value.status.optional = true;
+    expect(first.returnsValidator.value.status?.optional).toBe(false);
   });
 
   it("fails closed for missing, duplicate, wrong-kind, and internal functions", async () => {
