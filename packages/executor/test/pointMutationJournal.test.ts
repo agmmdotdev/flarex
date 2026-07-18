@@ -63,6 +63,10 @@ import {
   type LoadedPointMutationSessionAttemptV1,
   type PointMutationSessionAttemptSelectorWireV1,
 } from "../src/pointMutationSessionActivation";
+import {
+  runEffect,
+  runEffectFailure as runFailure,
+} from "./effectTestRuntime";
 
 const DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
   "deployment_point_journal",
@@ -274,7 +278,7 @@ describe("C03 executor point-mutation journal boundary", () => {
     const harness = createHarness();
     const firstLoaded = await loadedAttempt();
     const conflictingLoading = createPointMutationSessionAttemptLoadingV1({
-      load: async (selector) => {
+      loadEffect: (selector) => Effect.sync(() => {
         const result = loadResult(selector);
         return Object.freeze({
           ...result,
@@ -287,9 +291,9 @@ describe("C03 executor point-mutation journal boundary", () => {
             }),
           }),
         });
-      },
+      }),
     });
-    const conflictingLoaded = await conflictingLoading.load(SELECTOR);
+    const conflictingLoaded = await runEffect(conflictingLoading.load(SELECTOR));
 
     await runEffect(harness.journal.openAttempt(firstLoaded));
     const failure = await runFailure(
@@ -787,9 +791,9 @@ async function openResolvedTable(journal: PointMutationJournalV1) {
 
 async function loadedAttempt(): Promise<LoadedPointMutationSessionAttemptV1> {
   const loading = createPointMutationSessionAttemptLoadingV1({
-    load: async (selector) => loadResult(selector),
+    loadEffect: (selector) => Effect.succeed(loadResult(selector)),
   });
-  return loading.load(SELECTOR);
+  return runEffect(loading.load(SELECTOR));
 }
 
 function loadResult(
@@ -900,12 +904,4 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 
 async function yieldToScheduler(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
-}
-
-function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
-  return Effect.runPromise(effect);
-}
-
-function runFailure<A, E>(effect: Effect.Effect<A, E>): Promise<E> {
-  return Effect.runPromise(Effect.flip(effect));
 }

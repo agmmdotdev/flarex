@@ -153,6 +153,10 @@ import {
   planPointCommitStateV1,
   type PreparedPointCommitStateV1,
 } from "../src/storedAttemptAuthentication/pointCommitPlanning";
+import {
+  runEffect,
+  runEffectFailure as runFailure,
+} from "./effectTestRuntime";
 
 const DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
   "deployment_c04a_executor",
@@ -3437,7 +3441,7 @@ function emptyJournal(): SessionJournalV1 {
 
 async function deriveAuthority(authentication: StoredAttemptAuthenticationV1) {
   const loading = createPointMutationSessionAttemptLoadingV1({
-    load: async (selector) => ({
+    loadEffect: (selector) => Effect.succeed({
       status: "loaded",
       anchor: {
         deploymentId: selector.deploymentId,
@@ -3457,7 +3461,7 @@ async function deriveAuthority(authentication: StoredAttemptAuthenticationV1) {
       executionPin: { schemaVersionId: SCHEMA_VERSION_ID },
     }),
   });
-  const loadedAttempt = await loading.load(SELECTOR);
+  const loadedAttempt = await runEffect(loading.load(SELECTOR));
   return runEffect(authentication.deriveAuthority(loadedAttempt));
 }
 
@@ -3486,12 +3490,4 @@ function hexBytes(value: string): Uint8Array {
     bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
   }
   return bytes;
-}
-
-function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
-  return Effect.runPromise(effect);
-}
-
-function runFailure<A, E>(effect: Effect.Effect<A, E>): Promise<E> {
-  return Effect.runPromise(Effect.flip(effect));
 }

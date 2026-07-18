@@ -92,6 +92,10 @@ import {
   postgresUrl,
   withTemporaryPostgresExecutorPersistence,
 } from "./postgresHelpers";
+import {
+  runEffect,
+  runEffectFailure,
+} from "./effectTestRuntime";
 
 const TEST_PRIVATE_KEY_PKCS8_BASE64 =
   "MC4CAQAwBQYDK2VwBCIEICpBSuNq0N9DHmrl/kDt7u4bsHa9Um6KjyBQ98WSfc+J";
@@ -977,7 +981,9 @@ describe("current-epoch transaction-grant admission", () => {
     const restartedLoading = createPointMutationSessionAttemptLoadingV1(
       attemptLoadPersistence,
     );
-    const loaded = await restartedLoading.load(JSON.parse(serializedSelector));
+    const loaded = await runEffect(
+      restartedLoading.load(JSON.parse(serializedSelector)),
+    );
     const loadedInspection = inspectLoadedPointMutationSessionAttemptV1(loaded);
 
     expectTypeOf<RootSessionAttemptLoadingExport>().toEqualTypeOf<never>();
@@ -1399,14 +1405,6 @@ async function generateEd25519Keys(): Promise<CryptoKeyPair> {
 
 function decodeBase64(value: string): Uint8Array {
   return Uint8Array.from(atob(value), character => character.charCodeAt(0));
-}
-
-function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
-  return Effect.runPromise(effect);
-}
-
-function runEffectFailure<A, E>(effect: Effect.Effect<A, E>): Promise<E> {
-  return Effect.runPromise(Effect.flip(effect));
 }
 
 function flipBase64UrlCharacter(value: string): string {

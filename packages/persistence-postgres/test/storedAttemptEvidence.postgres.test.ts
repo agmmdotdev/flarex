@@ -101,9 +101,9 @@ describePostgres("real Postgres stored-attempt authority", () => {
         journal,
         result,
       );
-      const loadedAttempt = await current.loading.load(selectorWire(
+      const loadedAttempt = await runEffect(current.loading.load(selectorWire(
         current.anchor,
-      ));
+      )));
       const authentication = createStoredAttemptAuthenticationV1(
         current.loader,
       );
@@ -320,9 +320,9 @@ describePostgres("real Postgres stored-attempt authority", () => {
         });
       }
 
-      const loadedAttempt = await racing.loading.load(selectorWire(
+      const loadedAttempt = await runEffect(racing.loading.load(selectorWire(
         racing.anchor,
-      ));
+      )));
       const authentication = createStoredAttemptAuthenticationV1(
         racing.loader,
       );

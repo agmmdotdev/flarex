@@ -31,6 +31,7 @@ import {
 import { runEffectFailure as runFailure } from "./effectTestRuntime";
 import {
   activatePointMutationSession,
+  loadPointMutationSessionAttempt,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
@@ -265,8 +266,8 @@ describePostgres("real Postgres O03-B session authority", () => {
       });
 
       const results = await Promise.all([
-        loader.load(selector),
-        loader.load(Object.freeze({ ...selector })),
+        loadPointMutationSessionAttempt(loader, selector),
+        loadPointMutationSessionAttempt(loader, Object.freeze({ ...selector })),
       ]);
 
       expect(results[0]).toEqual(results[1]);
@@ -326,13 +327,16 @@ describePostgres("real Postgres O03-B session authority", () => {
         },
       });
       const loaderB = createLoadPersistence(persistence);
-      const pendingA = loaderA.load(selectorFromAnchor(anchorA));
+      const pendingA = loadPointMutationSessionAttempt(
+        loaderA,
+        selectorFromAnchor(anchorA),
+      );
       await entered.promise;
 
       let resultB;
       try {
         resultB = await Promise.race([
-          loaderB.load(selectorFromAnchor(anchorB)),
+          loadPointMutationSessionAttempt(loaderB, selectorFromAnchor(anchorB)),
           delay(5_000).then(() => {
             throw new Error("Independent-scope attempt reload timed out.");
           }),
@@ -379,7 +383,10 @@ describePostgres("real Postgres O03-B session authority", () => {
         },
       });
 
-      await expect(loader.load(selectorFromAnchor(anchor)))
+      await expect(loadPointMutationSessionAttempt(
+        loader,
+        selectorFromAnchor(anchor),
+      ))
         .rejects.toMatchObject({
           issue: { reason: "activeAttemptExpired" },
         } satisfies Partial<PointMutationSessionAttemptLoadV1Error>);
@@ -431,7 +438,10 @@ describePostgres("real Postgres O03-B session authority", () => {
       } satisfies PointMutationSessionActivationResolutionPortsV1;
       const loader = createPointMutationSessionAttemptLoadPersistenceV1(ports);
 
-      await expect(loader.load(selectorFromAnchor(anchor)))
+      await expect(loadPointMutationSessionAttempt(
+        loader,
+        selectorFromAnchor(anchor),
+      ))
         .rejects.toMatchObject({
           issue: { reason: "storageGenerationFenceChanged" },
         } satisfies Partial<PointMutationSessionAttemptLoadV1Error>);

@@ -730,12 +730,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       outcome: { kind: "inserted" },
     });
     const envelope = await seal(current);
-    const loadedAttempt = await current.loading.load({
+    const loadedAttempt = await runEffect(current.loading.load({
       deploymentId: current.anchor.deploymentId,
       scopeId: current.anchor.scopeId,
       sessionId: current.anchor.sessionId,
       attemptFence: current.anchor.attemptFence.toString(),
-    });
+    }));
     const storedEvidence = await runEffect(
       current.loader.loadEffect(current.authority),
     );
@@ -2267,12 +2267,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     await operation?.(current, table);
     const envelope = await seal(current);
-    const loadedAttempt = await current.loading.load({
+    const loadedAttempt = await runEffect(current.loading.load({
       deploymentId: current.anchor.deploymentId,
       scopeId: current.anchor.scopeId,
       sessionId: current.anchor.sessionId,
       attemptFence: current.anchor.attemptFence.toString(),
-    });
+    }));
     const authentication = createO07BAuthentication(current, options);
     const authority = await runEffect(
       authentication.deriveAuthority(loadedAttempt),

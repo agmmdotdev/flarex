@@ -26,6 +26,9 @@ import type { FlarexSqlClient } from "../src";
 import type {
   PointMutationSessionActivationPersistenceV1,
   PointMutationSessionActivationResultV1,
+  PointMutationSessionAttemptLoadPersistenceV1,
+  PointMutationSessionAttemptLoadResultV1,
+  PointMutationSessionAttemptSelectorV1,
   PreparedPointMutationSessionActivationV1,
 } from "../src/transactionSessionActivation";
 import { runEffect } from "./effectTestRuntime";
@@ -44,6 +47,14 @@ export function activatePointMutationSession(
   input: PreparedPointMutationSessionActivationV1,
 ): Promise<PointMutationSessionActivationResultV1> {
   return runEffect(persistence.activateEffect(input));
+}
+
+/** Explicit test runtime boundary for the Effect-native attempt-load port. */
+export function loadPointMutationSessionAttempt(
+  persistence: PointMutationSessionAttemptLoadPersistenceV1,
+  selector: PointMutationSessionAttemptSelectorV1,
+): Promise<PointMutationSessionAttemptLoadResultV1> {
+  return runEffect(persistence.loadEffect(selector));
 }
 
 export function pointMutationSessionActivationFixture(

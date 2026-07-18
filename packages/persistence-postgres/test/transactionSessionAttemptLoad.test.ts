@@ -8,6 +8,7 @@ import {
   TransactionAttemptFenceSchema,
   TransactionSessionIdV1Schema,
 } from "flarex-protocol/transaction-session";
+import { Effect, Exit, Fiber } from "effect";
 import { beforeAll, describe, expect, expectTypeOf, it } from "vitest";
 
 import {
@@ -25,6 +26,7 @@ import {
 } from "../src/schema";
 import {
   PointMutationSessionAttemptLoadV1Error,
+  PointMutationSessionAttemptLoadPersistenceV1Error,
   PointMutationSessionAttemptTerminalizationV1Error,
   PointMutationSessionAuthorityCorruptionV1Error,
   createPointMutationSessionActivationPersistenceV1,
@@ -37,9 +39,14 @@ import {
 } from "../src/transactionSessionActivation";
 import {
   activatePointMutationSession,
+  loadPointMutationSessionAttempt,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
+import {
+  runEffect,
+  runEffectFailure as runFailure,
+} from "./effectTestRuntime";
 
 const sharedLocator = Object.freeze({
   kind: "shared_database",
@@ -150,13 +157,17 @@ describe("O03-B exact point-mutation attempt authority", () => {
     const firstLoader = createPointMutationSessionAttemptLoadPersistenceV1(
       ports,
     );
+    expect(targetResolutions).toBe(0);
 
-    const first = await firstLoader.load(selector);
+    const first = await loadPointMutationSessionAttempt(firstLoader, selector);
     const afterFirst = await rowState(persistence, context.scopeId);
     const restartedLoader = createPointMutationSessionAttemptLoadPersistenceV1(
       ports,
     );
-    const second = await restartedLoader.load(Object.freeze({ ...selector }));
+    const second = await loadPointMutationSessionAttempt(
+      restartedLoader,
+      Object.freeze({ ...selector }),
+    );
 
     expect(first).toEqual({
       status: "loaded",
@@ -185,8 +196,92 @@ describe("O03-B exact point-mutation attempt authority", () => {
       `update fx_system_scope_clock set last_commit_seq = 7 where scope_id = $1`,
       [context.scopeId],
     );
-    const afterCommitAdvance = await restartedLoader.load(selector);
+    const afterCommitAdvance = await loadPointMutationSessionAttempt(
+      restartedLoader,
+      selector,
+    );
     expect(afterCommitAdvance.anchor.snapshotToken.commitSeq).toBe(0n);
+  });
+
+  it("maps authority and transaction rejection into the typed Effect channel", async () => {
+    const context = await provisionContext("typed_failures");
+    const anchor = (await activate(context)).anchor;
+    const selector = selectorFromAnchor(anchor);
+    const cause = new Error("attempt load metadata unavailable");
+    const basePorts = resolutionPorts(persistence);
+    const authorityFailure = createPointMutationSessionAttemptLoadPersistenceV1({
+      ...basePorts,
+      scopeMetadata: {
+        getScopeMetadataByDeploymentId: async () => {
+          throw cause;
+        },
+      },
+    });
+
+    const metadataFailure = await runFailure(
+      authorityFailure.loadEffect(selector),
+    );
+    expect(metadataFailure).toBeInstanceOf(
+      PointMutationSessionAttemptLoadPersistenceV1Error,
+    );
+    expect(metadataFailure).toMatchObject({
+      _tag: "PointMutationSessionAttemptLoadPersistenceV1Error",
+      operation: "scopeMetadataRead",
+      cause,
+    });
+
+    const transactionCause = new Error("attempt load transaction unavailable");
+    const transactionFailure = createPointMutationSessionAttemptLoadPersistenceV1(
+      resolutionPorts(persistence, {
+        afterLoadLock: (step) => {
+          if (step === "journalRootLocked") throw transactionCause;
+        },
+      }),
+    );
+    const failure = await runFailure(transactionFailure.loadEffect(selector));
+    expect(failure).toBeInstanceOf(
+      PointMutationSessionAttemptLoadPersistenceV1Error,
+    );
+    expect(failure).toMatchObject({
+      _tag: "PointMutationSessionAttemptLoadPersistenceV1Error",
+      operation: "attemptLoadTransaction",
+      cause: transactionCause,
+    });
+  });
+
+  it("does not observe interruption until the load transaction settles", async () => {
+    const context = await provisionContext("transaction_interruption");
+    const anchor = (await activate(context)).anchor;
+    const before = await rowState(persistence, context.scopeId);
+    const entered = deferredSignal();
+    const release = deferredSignal();
+    let interruptionSettled = false;
+    const loader = createPointMutationSessionAttemptLoadPersistenceV1(
+      resolutionPorts(persistence, {
+        afterLoadLock: async (step) => {
+          if (step !== "sessionLocked") return;
+          entered.resolve();
+          await release.promise;
+        },
+      }),
+    );
+
+    const fiber = Effect.runFork(loader.loadEffect(selectorFromAnchor(anchor)));
+    await entered.promise;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+      interruptionSettled = true;
+      return exit;
+    });
+    try {
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      release.resolve();
+    }
+    await interruption;
+    expect(interruptionSettled).toBe(true);
+    expect(Exit.hasInterrupts(await runEffect(Fiber.await(fiber)))).toBe(true);
+    expect(await rowState(persistence, context.scopeId)).toEqual(before);
   });
 
   it("rejects selector identity, lifecycle, expiry, and authority failures", async () => {
@@ -198,19 +293,19 @@ describe("O03-B exact point-mutation attempt authority", () => {
       resolutionPorts(persistence),
     );
 
-    await expect(loader.load({
+    await expect(loadPointMutationSessionAttempt(loader, {
       ...selector,
       scopeId: other.scopeId,
     })).rejects.toMatchObject({
       issue: { reason: "selectorScopeMismatch" },
     } satisfies Partial<PointMutationSessionAttemptLoadV1Error>);
-    await expect(loader.load({
+    await expect(loadPointMutationSessionAttempt(loader, {
       ...selector,
       deploymentId: other.deploymentId,
     })).rejects.toMatchObject({
       issue: { reason: "selectorScopeMismatch" },
     } satisfies Partial<PointMutationSessionAttemptLoadV1Error>);
-    await expect(loader.load({
+    await expect(loadPointMutationSessionAttempt(loader, {
       ...selector,
       sessionId: TransactionSessionIdV1Schema.make(
         "72000000-0000-4000-8000-999999999999",
@@ -218,7 +313,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
     })).rejects.toMatchObject({
       issue: { reason: "sessionMissing" },
     } satisfies Partial<PointMutationSessionAttemptLoadV1Error>);
-    await expect(loader.load({
+    await expect(loadPointMutationSessionAttempt(loader, {
       ...selector,
       attemptFence: TransactionAttemptFenceSchema.make(2n),
     })).rejects.toMatchObject({
@@ -235,7 +330,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
       `update fx_system_tx_session set lifecycle = 'aborted' where session_id = $1`,
       [terminalAnchor.sessionId],
     );
-    await expect(loader.load(selectorFromAnchor(terminalAnchor)))
+    await expect(loadPointMutationSessionAttempt(
+      loader,
+      selectorFromAnchor(terminalAnchor),
+    ))
       .rejects.toMatchObject({
         issue: { reason: "attemptNotRunning", lifecycle: "aborted" },
       } satisfies Partial<PointMutationSessionAttemptLoadV1Error>);
@@ -246,7 +344,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
       `delete from fx_system_snapshot_lease where session_id = $1`,
       [missingLeaseAnchor.sessionId],
     );
-    await expect(loader.load(selectorFromAnchor(missingLeaseAnchor)))
+    await expect(loadPointMutationSessionAttempt(
+      loader,
+      selectorFromAnchor(missingLeaseAnchor),
+    ))
       .rejects.toMatchObject({
         issue: "snapshotLeaseMissing",
       } satisfies Partial<PointMutationSessionAuthorityCorruptionV1Error>);
@@ -261,7 +362,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
       `,
       [expiredAnchor.sessionId],
     );
-    await expect(loader.load(selectorFromAnchor(expiredAnchor)))
+    await expect(loadPointMutationSessionAttempt(
+      loader,
+      selectorFromAnchor(expiredAnchor),
+    ))
       .rejects.toMatchObject({
         issue: { reason: "activeAttemptExpired" },
       } satisfies Partial<PointMutationSessionAttemptLoadV1Error>);
@@ -276,7 +380,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
       `,
       [fenceDrift.scopeId],
     );
-    await expect(loader.load(selectorFromAnchor(fenceDriftAnchor)))
+    await expect(loadPointMutationSessionAttempt(
+      loader,
+      selectorFromAnchor(fenceDriftAnchor),
+    ))
       .rejects.toMatchObject({
         issue: { reason: "storageGenerationFenceChanged" },
       } satisfies Partial<PointMutationSessionAttemptLoadV1Error>);
@@ -291,7 +398,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
       `,
       [revocationDrift.scopeId],
     );
-    await expect(loader.load(selectorFromAnchor(revocationAnchor)))
+    await expect(loadPointMutationSessionAttempt(
+      loader,
+      selectorFromAnchor(revocationAnchor),
+    ))
       .rejects.toMatchObject({
         issue: { reason: "authorizationRevocationEpochChanged" },
       } satisfies Partial<PointMutationSessionAttemptLoadV1Error>);
@@ -306,7 +416,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
       `,
       [snapshotAheadAnchor.sessionId],
     );
-    await expect(loader.load(selectorFromAnchor(snapshotAheadAnchor)))
+    await expect(loadPointMutationSessionAttempt(
+      loader,
+      selectorFromAnchor(snapshotAheadAnchor),
+    ))
       .rejects.toMatchObject({
         issue: "snapshotAheadOfScopeClock",
       } satisfies Partial<PointMutationSessionAuthorityCorruptionV1Error>);
@@ -745,4 +858,18 @@ async function rowState(
   const row = result.rows[0];
   if (row === undefined) throw new Error(`Missing attempt row for ${scopeId}.`);
   return row;
+}
+
+function deferredSignal(): Readonly<{
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+}> {
+  let resolver: (() => void) | undefined;
+  const promise = new Promise<void>((resolve) => {
+    resolver = resolve;
+  });
+  return Object.freeze({
+    promise,
+    resolve: () => resolver?.(),
+  });
 }

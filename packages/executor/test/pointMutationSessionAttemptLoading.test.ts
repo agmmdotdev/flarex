@@ -7,6 +7,9 @@ import type {
   PointMutationSessionTerminalizedLifecycleV1,
 } from "@flarex/persistence-postgres/transaction-session-activation";
 import {
+  PointMutationSessionAttemptLoadV1Error,
+} from "@flarex/persistence-postgres/transaction-session-activation";
+import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
   ReplacementScopeIdV1Schema,
@@ -21,6 +24,7 @@ import {
   TransactionRequestKeyV1Schema,
   TransactionSessionIdV1Schema,
 } from "flarex-protocol/transaction-session";
+import { Effect } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
@@ -33,6 +37,7 @@ import {
   inspectLoadedPointMutationSessionAttemptV1,
   type PointMutationSessionAttemptSelectorWireV1,
 } from "../src/pointMutationSessionActivation";
+import { runEffect } from "./effectTestRuntime";
 
 const DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
   "deployment_attempt_loading",
@@ -71,21 +76,24 @@ describe("O03-B2a point-mutation attempt loading", () => {
     expectTypeOf<RootAttemptLoadingExport>().toEqualTypeOf<never>();
     let persistenceCalls = 0;
     const loading = createPointMutationSessionAttemptLoadingV1({
-      load: async (selector) => {
+      loadEffect: (selector) => Effect.sync(() => {
         persistenceCalls += 1;
         return loadResult(selector);
-      },
+      }),
     });
     const serialized = JSON.stringify(SELECTOR);
+    expect(persistenceCalls).toBe(0);
 
-    const first = await loading.load(JSON.parse(serialized));
+    const first = await runEffect(loading.load(JSON.parse(serialized)));
     const restartedLoading = createPointMutationSessionAttemptLoadingV1({
-      load: async (selector) => {
+      loadEffect: (selector) => Effect.sync(() => {
         persistenceCalls += 1;
         return loadResult(selector);
-      },
+      }),
     });
-    const second = await restartedLoading.load(JSON.parse(serialized));
+    const second = await runEffect(
+      restartedLoading.load(JSON.parse(serialized)),
+    );
 
     expect(persistenceCalls).toBe(2);
     expect(first).not.toBe(second);
@@ -127,10 +135,10 @@ describe("O03-B2a point-mutation attempt loading", () => {
   it("rejects non-canonical or authority-shaped selectors before persistence", async () => {
     let persistenceCalls = 0;
     const loading = createPointMutationSessionAttemptLoadingV1({
-      load: async (selector) => {
+      loadEffect: (selector) => Effect.sync(() => {
         persistenceCalls += 1;
         return loadResult(selector);
-      },
+      }),
     });
     const getterSelector = { ...SELECTOR };
     Object.defineProperty(getterSelector, "attemptFence", {
@@ -172,39 +180,72 @@ describe("O03-B2a point-mutation attempt loading", () => {
     ];
 
     for (const selector of invalidSelectors) {
-      await expect(loading.load(selector)).rejects.toBeInstanceOf(
+      await expect(runEffect(loading.load(selector))).rejects.toBeInstanceOf(
         InvalidPointMutationSessionAttemptSelectorV1Error,
       );
     }
     expect(persistenceCalls).toBe(0);
   });
 
-  it("rejects persistence authority that does not match the decoded selector", async () => {
-    const loading = createPointMutationSessionAttemptLoadingV1({
-      load: async (selector) => ({
-        status: "loaded",
+  it("rejects malformed persistence authority before minting a capability", async () => {
+    const valid = loadResult(typedSelector());
+    const invalidResults: readonly unknown[] = [
+      {
+        ...valid,
         anchor: {
-          ...anchor(selector),
-          sessionId: TransactionSessionIdV1Schema.make(
-            "70000000-0000-4000-8000-000000000099",
-          ),
+          ...valid.anchor,
+          sessionId: "70000000-0000-4000-8000-000000000099",
         },
-        executionPin: { schemaVersionId: SCHEMA_VERSION_ID },
-      }),
-    });
+      },
+      {
+        ...valid,
+        anchor: { ...valid.anchor, storageGeneration: "legacy" },
+      },
+      {
+        ...valid,
+        anchor: { ...valid.anchor, storageGenerationFence: -1n },
+      },
+    ];
 
-    await expect(loading.load(SELECTOR)).rejects.toBeInstanceOf(
-      PointMutationSessionAttemptLoadContractV1Error,
+    for (const invalidResult of invalidResults) {
+      const loading = Reflect.apply(
+        createPointMutationSessionAttemptLoadingV1,
+        undefined,
+        [{ loadEffect: () => Effect.succeed(invalidResult) }],
+      );
+      await expect(runEffect(loading.load(SELECTOR))).rejects.toBeInstanceOf(
+        PointMutationSessionAttemptLoadContractV1Error,
+      );
+    }
+  });
+
+  it("preserves typed persistence failures and does not recover defects", async () => {
+    const expectedFailure = new PointMutationSessionAttemptLoadV1Error({
+      reason: "sessionMissing",
+    });
+    const failing = createPointMutationSessionAttemptLoadingV1({
+      loadEffect: () => Effect.fail(expectedFailure),
+    });
+    await expect(runEffect(failing.load(SELECTOR))).rejects.toBe(
+      expectedFailure,
     );
+
+    const defect = new Error("attempt-load persistence defect");
+    const defective = createPointMutationSessionAttemptLoadingV1({
+      loadEffect: () => Effect.die(defect),
+    });
+    await expect(runEffect(defective.load(SELECTOR))).rejects.toBe(defect);
   });
 });
 
 describe("O03-B2b1 point-mutation attempt terminalization", () => {
   it("keeps terminalization private and requires a genuine loaded capability for abort", async () => {
     expectTypeOf<RootAttemptTerminalizationExport>().toEqualTypeOf<never>();
-    const loaded = await createPointMutationSessionAttemptLoadingV1({
-      load: async (selector) => loadResult(selector),
-    }).load(SELECTOR);
+    const loaded = await runEffect(
+      createPointMutationSessionAttemptLoadingV1({
+        loadEffect: (selector) => Effect.succeed(loadResult(selector)),
+      }).load(SELECTOR),
+    );
     let abortCalls = 0;
     const terminalization = createPointMutationSessionAttemptTerminalizationV1({
       abort: async (input) => {

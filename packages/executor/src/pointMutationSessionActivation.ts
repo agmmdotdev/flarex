@@ -2,6 +2,7 @@ import type {
   PointMutationSessionActivationPersistenceV1,
   PointMutationSessionActivationEffectErrorV1,
   PointMutationSessionActivationResultV1,
+  PointMutationSessionAttemptLoadEffectErrorV1,
   PointMutationSessionAttemptLoadPersistenceV1,
   PointMutationSessionAttemptLoadResultV1,
   PointMutationSessionAttemptSelectorV1,
@@ -14,7 +15,9 @@ import {
   transactionGrantIdentityAccessPolicySha256BytesV1FromHex,
 } from "flarex-protocol/transaction-grant";
 import {
+  FlarexDbV1StorageGenerationSchema,
   SnapshotTokenSchema,
+  StorageGenerationFenceSchema,
   type FlarexDbV1StorageGeneration,
   type SnapshotToken,
   type StorageGenerationFence,
@@ -25,11 +28,12 @@ import {
 } from "flarex-protocol/schema-manifest";
 import { TransactionSessionIdV1Schema } from
   "flarex-protocol/transaction-session";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 
 import { isPlainRecord } from "./plainRecord";
 import {
   decodePointMutationSessionAttemptSelectorV1,
+  decodePointMutationSessionAttemptSelectorV1Result,
   InvalidPointMutationSessionAttemptSelectorV1Error,
   type PointMutationSessionAttemptSelectorIssueV1,
 } from "./pointMutationSessionAttemptSelector";
@@ -110,6 +114,7 @@ export class InvalidLoadedPointMutationSessionAttemptV1Error extends Error {
 }
 
 export class PointMutationSessionAttemptLoadContractV1Error extends Error {
+  readonly _tag = "PointMutationSessionAttemptLoadContractV1Error" as const;
   readonly name = "PointMutationSessionAttemptLoadContractV1Error";
 
   constructor() {
@@ -152,8 +157,16 @@ export type PointMutationSessionActivationExecutionV1Error =
 export interface PointMutationSessionAttemptLoadingV1 {
   readonly load: (
     selector: unknown,
-  ) => Promise<LoadedPointMutationSessionAttemptV1>;
+  ) => Effect.Effect<
+    LoadedPointMutationSessionAttemptV1,
+    PointMutationSessionAttemptLoadingExecutionV1Error
+  >;
 }
+
+export type PointMutationSessionAttemptLoadingExecutionV1Error =
+  | InvalidPointMutationSessionAttemptSelectorV1Error
+  | PointMutationSessionAttemptLoadEffectErrorV1
+  | PointMutationSessionAttemptLoadContractV1Error;
 
 export interface PointMutationSessionAttemptTerminalizationV1 {
   readonly abort: (
@@ -191,20 +204,29 @@ export function createPointMutationSessionActivationV1(
 export function createPointMutationSessionAttemptLoadingV1(
   persistence: PointMutationSessionAttemptLoadPersistenceV1,
 ): PointMutationSessionAttemptLoadingV1 {
-  return Object.freeze({
-    load: async (
+  const load = Effect.fn("ExecutorPointMutationSessionAttemptLoading.load")(
+    function* (
       input: unknown,
-    ): Promise<LoadedPointMutationSessionAttemptV1> => {
-      const selector = decodePointMutationSessionAttemptSelectorV1(input);
-      const result = await persistence.load(selector);
-      const inspection = captureLoadedAttemptInspection(selector, result);
+    ): Effect.fn.Return<
+      LoadedPointMutationSessionAttemptV1,
+      PointMutationSessionAttemptLoadingExecutionV1Error
+    > {
+      const selector = yield* Effect.fromResult(
+        decodePointMutationSessionAttemptSelectorV1Result(input),
+      );
+      const result = yield* persistence.loadEffect(selector);
+      const inspection = yield* Effect.fromResult(
+        captureLoadedAttemptInspection(selector, result),
+      );
       const handle = Object.freeze({
         [loadedPointMutationSessionAttemptBrand]: true as const,
       });
       loadedAttemptInspectionByHandle.set(handle, inspection);
       return handle;
     },
-  });
+  );
+
+  return Object.freeze({ load });
 }
 
 export function createPointMutationSessionAttemptTerminalizationV1(
@@ -275,32 +297,47 @@ export function inspectLoadedPointMutationSessionAttemptV1(
 function captureLoadedAttemptInspection(
   selector: PointMutationSessionAttemptSelectorV1,
   result: PointMutationSessionAttemptLoadResultV1,
-): LoadedPointMutationSessionAttemptInspectionV1 {
-  const anchor = result.anchor;
-  if (
-    result.status !== "loaded" ||
-    anchor.deploymentId !== selector.deploymentId ||
-    anchor.scopeId !== selector.scopeId ||
-    anchor.sessionId !== selector.sessionId ||
-    anchor.attemptFence !== selector.attemptFence ||
-    anchor.snapshotToken.scopeId !== selector.scopeId
-  ) {
-    throw new PointMutationSessionAttemptLoadContractV1Error();
-  }
-  return Object.freeze({
-    selector,
-    storageGeneration: anchor.storageGeneration,
-    storageGenerationFence: anchor.storageGenerationFence,
-    snapshotToken: Object.freeze(
-      SnapshotTokenSchema.make({
-        scopeId: anchor.snapshotToken.scopeId,
-        epoch: anchor.snapshotToken.epoch,
-        commitSeq: anchor.snapshotToken.commitSeq,
-      }),
-    ),
-    schemaVersionId: decodeCatalogSchemaVersionId(
-      result.executionPin.schemaVersionId,
-    ),
+): Result.Result<
+  LoadedPointMutationSessionAttemptInspectionV1,
+  PointMutationSessionAttemptLoadContractV1Error
+> {
+  return Result.try({
+    try: () => {
+      const anchor = result.anchor;
+      if (
+        result.status !== "loaded" ||
+        anchor.deploymentId !== selector.deploymentId ||
+        anchor.scopeId !== selector.scopeId ||
+        anchor.sessionId !== selector.sessionId ||
+        anchor.attemptFence !== selector.attemptFence ||
+        anchor.snapshotToken.scopeId !== selector.scopeId
+      ) {
+        throw new PointMutationSessionAttemptLoadContractV1Error();
+      }
+      return Object.freeze({
+        selector,
+        storageGeneration: FlarexDbV1StorageGenerationSchema.make(
+          anchor.storageGeneration,
+        ),
+        storageGenerationFence: StorageGenerationFenceSchema.make(
+          anchor.storageGenerationFence,
+        ),
+        snapshotToken: Object.freeze(
+          SnapshotTokenSchema.make({
+            scopeId: anchor.snapshotToken.scopeId,
+            epoch: anchor.snapshotToken.epoch,
+            commitSeq: anchor.snapshotToken.commitSeq,
+          }),
+        ),
+        schemaVersionId: decodeCatalogSchemaVersionId(
+          result.executionPin.schemaVersionId,
+        ),
+      });
+    },
+    catch: (cause) => cause instanceof
+        PointMutationSessionAttemptLoadContractV1Error
+      ? cause
+      : new PointMutationSessionAttemptLoadContractV1Error(),
   });
 }
 
