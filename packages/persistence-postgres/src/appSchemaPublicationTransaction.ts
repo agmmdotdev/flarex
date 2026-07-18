@@ -2,6 +2,7 @@ import type {
   CatalogIndexDefinitionId,
   CatalogIndexId,
 } from "flarex-protocol/catalog";
+import { Effect } from "effect";
 import type {
   CatalogSchemaVersionId,
   SchemaManifestAppSchemaV1,
@@ -100,7 +101,9 @@ export async function publishPreparedAppSchemaV1InTransaction(
   > = [];
   for (const token of creationTimeTokens) {
     const ensured =
-      await ensureAppCreationTimeIndexDefinitionV1InTransaction(tx, token);
+      await runCreationTimeIndexDefinitionEffect(
+        ensureAppCreationTimeIndexDefinitionV1InTransaction(tx, token),
+      );
     creationTimeIndexDefinitions.push(ensured.definition);
   }
 
@@ -135,6 +138,15 @@ export async function publishPreparedAppSchemaV1InTransaction(
     ),
     schemaVersionIndexBindings,
   } satisfies AppSchemaPublicationV1Result);
+}
+
+// Drizzle 0.45 still requires a Promise transaction callback. Keep this
+// projection at the D2c owner, rather than below the stable-table boundary,
+// until the complete publication transaction composes through Effect.
+function runCreationTimeIndexDefinitionEffect<Result, Failure>(
+  effect: Effect.Effect<Result, Failure>,
+): Promise<Result> {
+  return Effect.runPromise(effect);
 }
 
 function verifyExactSchemaVersionBindings(

@@ -18,7 +18,6 @@ import {
   decodeStableTableIdentityResult,
   ensureStableTableIdentityEffect,
   getStableTableIdentityByIdEffect,
-  getStableTableIdentityByIdForPromiseTransaction,
   getStableTableIdentityByNameEffect,
   InvalidStableTableIdentityInputError,
   StableTableCatalogAllocationPersistenceError,
@@ -59,6 +58,11 @@ type PublicAllocatorExport = Extract<
   "ensureStableTableIdentityEffect" | "ensureStableTableIdentityInTransaction"
 >;
 
+type InternalPromiseReaderExport = Extract<
+  keyof typeof import("../src/stableTableCatalog"),
+  "getStableTableIdentityByIdForPromiseTransaction"
+>;
+
 describe("stable table catalog", () => {
   it("keeps allocation internal and analyzer ordinals out of input", () => {
     expectTypeOf<AnalyzerOrdinalAccepted>().toEqualTypeOf<false>();
@@ -67,10 +71,7 @@ describe("stable table catalog", () => {
     expectTypeOf<PublicAllocatorExport>().toEqualTypeOf<never>();
     expectTypeOf<Parameters<typeof ensureStableTableIdentityEffect>[0]>()
       .toEqualTypeOf<FlarexMetadataDatabase>();
-    expectTypeOf<FlarexMetadataDatabase>()
-      .not.toMatchTypeOf<
-        Parameters<typeof getStableTableIdentityByIdForPromiseTransaction>[0]
-      >();
+    expectTypeOf<InternalPromiseReaderExport>().toEqualTypeOf<never>();
     expectTypeOf<StableTableIdentity["tableId"]>()
       .toEqualTypeOf<CatalogTableId>();
   });

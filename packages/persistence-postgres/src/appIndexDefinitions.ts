@@ -1,6 +1,7 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, desc, eq } from "drizzle-orm";
+import { Effect, Result } from "effect";
 import {
   decodeCatalogIndexDefinitionId,
   decodeCatalogIndexId,
@@ -50,7 +51,11 @@ import {
 } from "./appSchemaPublicationPreparation";
 import type { FlarexMetadataDatabase } from "./deployments";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
-import { lockSchemaManifestBindingDeployment } from "./schemaManifestTableBindings";
+import {
+  lockSchemaManifestBindingDeployment,
+  lockSchemaManifestBindingDeploymentEffect,
+  type SchemaManifestTableBindingPersistenceError,
+} from "./schemaManifestTableBindings";
 import {
   fxControlIndexDefinitions,
   fxControlIndexes,
@@ -58,8 +63,11 @@ import {
   fxControlSchemaVersions,
 } from "./schema";
 import {
-  getStableTableIdentityByIdForPromiseTransaction,
+  getStableTableIdentityByValidatedIdEffect,
+  type StableTableCatalogCorruptionError,
+  type StableTableCatalogDeploymentNotFoundError,
   type StableTableCatalogTransaction,
+  type StableTableIdentityPersistenceError,
 } from "./stableTableCatalog";
 
 const PREPARE_INPUT_KEYS = Object.freeze([
@@ -175,6 +183,8 @@ export class InvalidPreparedAppIndexDefinitionBindingError extends Error {
 }
 
 export class InvalidPreparedAppCreationTimeIndexDefinitionError extends Error {
+  readonly _tag = "InvalidPreparedAppCreationTimeIndexDefinitionError" as const;
+
   constructor() {
     super(
       "App creation-time index definition was not prepared from an authenticated app-schema publication.",
@@ -294,6 +304,8 @@ export class AppIndexDefinitionParentError extends Error {
 }
 
 export class AppIndexDefinitionIdExhaustedError extends Error {
+  readonly _tag = "AppIndexDefinitionIdExhaustedError" as const;
+
   constructor(readonly deploymentId: string) {
     super(
       `Physical index definition identity space is exhausted for deployment: ${deploymentId}`,
@@ -303,6 +315,8 @@ export class AppIndexDefinitionIdExhaustedError extends Error {
 }
 
 export class AppIndexDefinitionCatalogCorruptionError extends Error {
+  readonly _tag = "AppIndexDefinitionCatalogCorruptionError" as const;
+
   constructor(
     readonly deploymentId: string,
     readonly detail: string,
@@ -331,6 +345,9 @@ export class AppIndexDefinitionChecksumCollisionError extends Error {
 
 export class AppCreationTimeIndexDefinitionChecksumCollisionError
   extends Error {
+  readonly _tag =
+    "AppCreationTimeIndexDefinitionChecksumCollisionError" as const;
+
   constructor(
     readonly deploymentId: string,
     readonly tableId: CatalogTableId,
@@ -352,6 +369,8 @@ export type AppCreationTimeIndexDefinitionParentIssue =
     };
 
 export class AppCreationTimeIndexDefinitionParentError extends Error {
+  readonly _tag = "AppCreationTimeIndexDefinitionParentError" as const;
+
   constructor(
     readonly deploymentId: string,
     readonly tableId: CatalogTableId,
@@ -364,6 +383,35 @@ export class AppCreationTimeIndexDefinitionParentError extends Error {
     this.name = "AppCreationTimeIndexDefinitionParentError";
   }
 }
+
+export class AppCreationTimeIndexDefinitionPersistenceError extends Error {
+  readonly _tag = "AppCreationTimeIndexDefinitionPersistenceError" as const;
+
+  constructor(
+    readonly operation:
+      | "findExistingDefinition"
+      | "readDefinitionHighWater"
+      | "insertDefinition",
+    readonly cause: unknown,
+  ) {
+    super(`Failed to ${creationTimePersistenceOperationMessage(operation)}.`, {
+      cause,
+    });
+    this.name = "AppCreationTimeIndexDefinitionPersistenceError";
+  }
+}
+
+export type EnsureAppCreationTimeIndexDefinitionV1Error =
+  | InvalidPreparedAppCreationTimeIndexDefinitionError
+  | StableTableCatalogDeploymentNotFoundError
+  | SchemaManifestTableBindingPersistenceError
+  | StableTableCatalogCorruptionError
+  | StableTableIdentityPersistenceError
+  | AppCreationTimeIndexDefinitionParentError
+  | AppCreationTimeIndexDefinitionPersistenceError
+  | AppIndexDefinitionCatalogCorruptionError
+  | AppIndexDefinitionIdExhaustedError
+  | AppCreationTimeIndexDefinitionChecksumCollisionError;
 
 export class AppSchemaVersionIndexBindingConflictError extends Error {
   constructor(
@@ -731,30 +779,40 @@ export async function ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
  * definition lookup or allocation. This helper never creates a stable table,
  * schema binding, build row, lifecycle state, or transaction commit.
  */
-export async function ensureAppCreationTimeIndexDefinitionV1InTransaction(
+export const ensureAppCreationTimeIndexDefinitionV1InTransaction = Effect.fn(
+  "AppIndexDefinitions.ensureCreationTimeInTransaction",
+)(function* (
   tx: StableTableCatalogTransaction,
   prepared: PreparedAppCreationTimeIndexDefinitionV1,
-): Promise<EnsureAppCreationTimeIndexDefinitionV1Result> {
+): Effect.fn.Return<
+  EnsureAppCreationTimeIndexDefinitionV1Result,
+  EnsureAppCreationTimeIndexDefinitionV1Error
+> {
   const state = preparedCreationTimeDefinitionStates.get(prepared);
   if (state === undefined) {
-    throw new InvalidPreparedAppCreationTimeIndexDefinitionError();
+    return yield* Effect.fail(
+      new InvalidPreparedAppCreationTimeIndexDefinitionError(),
+    );
   }
 
-  await lockSchemaManifestBindingDeployment(tx, state.deploymentId);
-  await verifyCreationTimeTableParent(tx, state);
-  const existingDefinition = await findExistingDefinition(tx, state);
+  yield* lockSchemaManifestBindingDeploymentEffect(tx, state.deploymentId);
+  yield* verifyCreationTimeTableParentEffect(tx, state);
+  const existingDefinition = yield* findExistingCreationTimeDefinitionEffect(
+    tx,
+    state,
+  );
   if (existingDefinition !== null) {
     return Object.freeze({
       definitionStatus: "existing",
       definition: existingDefinition,
     } satisfies EnsureAppCreationTimeIndexDefinitionV1Result);
   }
-  const created = await insertDefinition(tx, state);
+  const created = yield* insertCreationTimeDefinitionEffect(tx, state);
   return Object.freeze({
     definitionStatus: created.status,
     definition: created.definition,
   } satisfies EnsureAppCreationTimeIndexDefinitionV1Result);
-}
+});
 
 export async function getAppIndexDefinitionById(
   db: FlarexMetadataDatabase,
@@ -927,39 +985,52 @@ async function verifyParents(
   }
 }
 
-async function verifyCreationTimeTableParent(
+const verifyCreationTimeTableParentEffect = Effect.fn(
+  "AppIndexDefinitions.verifyCreationTimeTableParent",
+)(function* (
   tx: StableTableCatalogTransaction,
   state: PreparedCreationTimeDefinitionState,
-): Promise<void> {
-  const current = await getStableTableIdentityByIdForPromiseTransaction(
+): Effect.fn.Return<
+  void,
+  | StableTableCatalogCorruptionError
+  | StableTableIdentityPersistenceError
+  | AppCreationTimeIndexDefinitionParentError
+> {
+  const current = yield* getStableTableIdentityByValidatedIdEffect(
     tx,
-    state.deploymentId,
-    state.tableId,
+    {
+      deploymentId: state.deploymentId,
+      tableId: state.tableId,
+    },
   );
   if (current === null) {
-    throw new AppCreationTimeIndexDefinitionParentError(
-      state.deploymentId,
-      state.tableId,
-      state.expectedLogicalName,
-      { reason: "tableNotFound" },
+    return yield* Effect.fail(
+      new AppCreationTimeIndexDefinitionParentError(
+        state.deploymentId,
+        state.tableId,
+        state.expectedLogicalName,
+        { reason: "tableNotFound" },
+      ),
     );
   }
   if (
     current.namespace !== "app" ||
     current.logicalName !== state.expectedLogicalName
   ) {
-    throw new AppCreationTimeIndexDefinitionParentError(
-      state.deploymentId,
-      state.tableId,
-      state.expectedLogicalName,
-      {
-        reason: "tableBindingChanged",
-        currentNamespace: current.namespace,
-        currentLogicalName: current.logicalName,
-      },
+    return yield* Effect.fail(
+      new AppCreationTimeIndexDefinitionParentError(
+        state.deploymentId,
+        state.tableId,
+        state.expectedLogicalName,
+        {
+          reason: "tableBindingChanged",
+          currentNamespace: current.namespace,
+          currentLogicalName: current.logicalName,
+        },
+      ),
     );
   }
-}
+});
 
 async function findExistingDefinition<
   Kind extends AppPhysicalIndexAccessKindV1,
@@ -967,7 +1038,19 @@ async function findExistingDefinition<
   tx: StableTableCatalogTransaction,
   state: PreparedPhysicalDefinitionState<Kind>,
 ): Promise<AppIndexDefinitionRecordForAccessKindV1<Kind> | null> {
-  const existingRows = await tx
+  const existingRows = await selectExistingDefinitionRows(tx, state);
+  const existingRow = existingRows[0];
+  if (existingRow === undefined) return null;
+  return decodeStoredDefinitionAgainstPrepared(existingRow, state);
+}
+
+function selectExistingDefinitionRows<
+  Kind extends AppPhysicalIndexAccessKindV1,
+>(
+  tx: StableTableCatalogTransaction,
+  state: PreparedPhysicalDefinitionState<Kind>,
+) {
+  return tx
     .select()
     .from(fxControlIndexDefinitions)
     .where(
@@ -990,9 +1073,140 @@ async function findExistingDefinition<
       ),
     )
     .limit(1);
-  const existingRow = existingRows[0];
-  if (existingRow === undefined) return null;
-  return decodeStoredDefinitionAgainstPrepared(existingRow, state);
+}
+
+const findExistingCreationTimeDefinitionEffect = Effect.fn(
+  "AppIndexDefinitions.findExistingCreationTimeDefinition",
+)(function* (
+  tx: StableTableCatalogTransaction,
+  state: PreparedCreationTimeDefinitionState,
+): Effect.fn.Return<
+  AppIndexDefinitionRecordForAccessKindV1<"by_creation_time"> | null,
+  | AppCreationTimeIndexDefinitionPersistenceError
+  | AppIndexDefinitionCatalogCorruptionError
+  | AppCreationTimeIndexDefinitionChecksumCollisionError
+> {
+  const query = selectExistingDefinitionRows(tx, state);
+  const rows = yield* readCreationTimeDefinitionRowsEffect(
+    "findExistingDefinition",
+    query,
+  );
+  const row = rows[0];
+  return row === undefined
+    ? null
+    : yield* Effect.fromResult(decodeCreationTimeDefinitionResult(() =>
+      decodeStoredDefinitionAgainstPrepared(row, state)
+    ));
+});
+
+const insertCreationTimeDefinitionEffect = Effect.fn(
+  "AppIndexDefinitions.insertCreationTimeDefinition",
+)(function* (
+  tx: StableTableCatalogTransaction,
+  state: PreparedCreationTimeDefinitionState,
+): Effect.fn.Return<
+  {
+    readonly status: "created";
+    readonly definition:
+      AppIndexDefinitionRecordForAccessKindV1<"by_creation_time">;
+  },
+  | AppCreationTimeIndexDefinitionPersistenceError
+  | AppIndexDefinitionCatalogCorruptionError
+  | AppIndexDefinitionIdExhaustedError
+  | AppCreationTimeIndexDefinitionChecksumCollisionError
+> {
+  const highWaterQuery = selectDefinitionHighWaterRows(
+    tx,
+    state.deploymentId,
+  );
+  const highWaterRows = yield* readCreationTimeDefinitionRowsEffect(
+    "readDefinitionHighWater",
+    highWaterQuery,
+  );
+  const highWaterValue = highWaterRows[0]?.indexDefinitionId;
+  const currentHighWater = highWaterValue === undefined
+    ? null
+    : yield* Effect.fromResult(
+      decodeCreationTimeDefinitionAllocationResult(() =>
+        decodeStoredDefinitionId(state.deploymentId, highWaterValue)
+      ),
+    );
+  const indexDefinitionId = yield* Effect.fromResult(
+    decodeCreationTimeDefinitionAllocationResult(() =>
+      nextDefinitionId(state.deploymentId, currentHighWater)
+    ),
+  );
+  const insertQuery = insertDefinitionRows(tx, state, indexDefinitionId);
+  const rows = yield* readCreationTimeDefinitionRowsEffect(
+    "insertDefinition",
+    insertQuery,
+  );
+  const row = rows[0];
+  if (row === undefined) {
+    return yield* Effect.fail(new AppIndexDefinitionCatalogCorruptionError(
+      state.deploymentId,
+      "definition insert returned no row",
+    ));
+  }
+  const definition = yield* Effect.fromResult(
+    decodeCreationTimeDefinitionResult(() =>
+      decodeStoredDefinitionAgainstPrepared(row, state)
+    ),
+  );
+  return Object.freeze({ status: "created", definition });
+});
+
+const readCreationTimeDefinitionRowsEffect = Effect.fn(<Row>(
+  operation: AppCreationTimeIndexDefinitionPersistenceError["operation"],
+  query: PromiseLike<ReadonlyArray<Row>>,
+): Effect.Effect<
+  ReadonlyArray<Row>,
+  AppCreationTimeIndexDefinitionPersistenceError
+> => Effect.uninterruptible(Effect.tryPromise({
+    try: () => query,
+    catch: (cause) =>
+      new AppCreationTimeIndexDefinitionPersistenceError(operation, cause),
+  })));
+
+type CreationTimeDefinitionDecodeFailure =
+  | AppIndexDefinitionCatalogCorruptionError
+  | AppCreationTimeIndexDefinitionChecksumCollisionError;
+
+function decodeCreationTimeDefinitionResult<Value>(
+  evaluate: () => Value,
+): Result.Result<Value, CreationTimeDefinitionDecodeFailure> {
+  return Result.try({
+    try: evaluate,
+    catch: (cause) => {
+      if (
+        cause instanceof AppIndexDefinitionCatalogCorruptionError ||
+        cause instanceof AppCreationTimeIndexDefinitionChecksumCollisionError
+      ) {
+        return cause;
+      }
+      throw cause;
+    },
+  });
+}
+
+function decodeCreationTimeDefinitionAllocationResult<Value>(
+  evaluate: () => Value,
+): Result.Result<
+  Value,
+  AppIndexDefinitionCatalogCorruptionError | AppIndexDefinitionIdExhaustedError
+> {
+  return Result.try({
+    try: evaluate,
+    catch: (cause) => {
+      if (
+        cause instanceof AppIndexDefinitionCatalogCorruptionError ||
+        cause instanceof AppIndexDefinitionIdExhaustedError
+      ) {
+        return cause;
+      }
+      throw cause;
+    },
+  });
 }
 
 async function insertDefinition<
@@ -1012,7 +1226,26 @@ async function insertDefinition<
     state.deploymentId,
     currentHighWater,
   );
-  const rows = await tx
+  const rows = await insertDefinitionRows(tx, state, indexDefinitionId);
+  const row = rows[0];
+  if (row === undefined) {
+    throw new AppIndexDefinitionCatalogCorruptionError(
+      state.deploymentId,
+      "definition insert returned no row",
+    );
+  }
+  return Object.freeze({
+    status: "created",
+    definition: decodeStoredDefinitionAgainstPrepared(row, state),
+  });
+}
+
+function insertDefinitionRows<Kind extends AppPhysicalIndexAccessKindV1>(
+  tx: StableTableCatalogTransaction,
+  state: PreparedPhysicalDefinitionState<Kind>,
+  indexDefinitionId: CatalogIndexDefinitionId,
+) {
+  return tx
     .insert(fxControlIndexDefinitions)
     .values({
       deploymentId: state.deploymentId,
@@ -1031,17 +1264,6 @@ async function insertDefinition<
       ),
     })
     .returning();
-  const row = rows[0];
-  if (row === undefined) {
-    throw new AppIndexDefinitionCatalogCorruptionError(
-      state.deploymentId,
-      "definition insert returned no row",
-    );
-  }
-  return Object.freeze({
-    status: "created",
-    definition: decodeStoredDefinitionAgainstPrepared(row, state),
-  });
 }
 
 async function readExistingBinding(
@@ -1101,7 +1323,18 @@ async function readDefinitionHighWater(
   db: FlarexMetadataDatabase,
   deploymentId: string,
 ): Promise<CatalogIndexDefinitionId | null> {
-  const rows = await db
+  const rows = await selectDefinitionHighWaterRows(db, deploymentId);
+  const value = rows[0]?.indexDefinitionId;
+  return value === undefined
+    ? null
+    : decodeStoredDefinitionId(deploymentId, value);
+}
+
+function selectDefinitionHighWaterRows(
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+) {
+  return db
     .select({
       indexDefinitionId: fxControlIndexDefinitions.indexDefinitionId,
     })
@@ -1109,10 +1342,6 @@ async function readDefinitionHighWater(
     .where(eq(fxControlIndexDefinitions.deploymentId, deploymentId))
     .orderBy(desc(fxControlIndexDefinitions.indexDefinitionId))
     .limit(1);
-  const value = rows[0]?.indexDefinitionId;
-  return value === undefined
-    ? null
-    : decodeStoredDefinitionId(deploymentId, value);
 }
 
 function nextDefinitionId(
@@ -1625,6 +1854,19 @@ function creationTimeParentIssueMessage(
       return "bound app table does not exist";
     case "tableBindingChanged":
       return `table now belongs to ${issue.currentNamespace}/${issue.currentLogicalName}`;
+  }
+}
+
+function creationTimePersistenceOperationMessage(
+  operation: AppCreationTimeIndexDefinitionPersistenceError["operation"],
+): string {
+  switch (operation) {
+    case "findExistingDefinition":
+      return "read the existing creation-time index definition";
+    case "readDefinitionHighWater":
+      return "read the creation-time index definition high-water mark";
+    case "insertDefinition":
+      return "insert the creation-time index definition";
   }
 }
 

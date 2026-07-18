@@ -201,12 +201,18 @@ defects, and rollback evidence as a full `Cause`, and waits for transaction
 settlement under interruption. Its reconciliation mechanics share one
 package-local full-`Cause` policy with the exact-attempt transaction boundary,
 while each domain retains its own transaction error and rollback sentinel. The
-old Promise allocator and name-lookup
-transaction projection were deleted. The ID lookup projection remains only
-for creation-time index-definition verification. High-water Promise and
-throwing allocation projections remain temporary for the schema-binding
-planner/revalidation chains and are deleted when those chains become
-Effect-native.
+old Promise allocator and name-lookup transaction projection were deleted.
+Creation-time index-definition writes now compose their deployment lock,
+stable parent verification, replay lookup, high-water allocation, insert, and
+prepared-row validation through one typed Effect operation. Its SQL awaits are
+interruption-masked foreign Drizzle edges with operation-specific persistence
+failures, while unexpected synchronous defects remain outside the typed error
+channel. The low-level stable-ID Promise projection was deleted. One temporary
+D2c runtime projection remains at the owning Promise transaction callback and
+is deleted when the complete app-schema publication transaction becomes
+Effect-native. High-water Promise and throwing allocation projections remain
+temporary for the schema-binding planner/revalidation chains and are deleted
+when those chains become Effect-native.
 
 The package-root stable logical-index identity readers are now Effect-native.
 Input and stored-row validation enter through pure `Result`, while each reader

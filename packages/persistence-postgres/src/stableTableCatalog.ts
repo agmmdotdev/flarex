@@ -241,6 +241,19 @@ export const getStableTableIdentityByIdEffect = Effect.fn(
   const input = yield* Effect.fromResult(
     decodeStableTableIdentityByIdInputResult(deploymentId, tableId),
   );
+  return yield* getStableTableIdentityByValidatedIdEffect(db, input);
+});
+
+export const getStableTableIdentityByValidatedIdEffect = Effect.fn(function* (
+  db: FlarexMetadataDatabase,
+  input: Readonly<{
+    deploymentId: string;
+    tableId: CatalogTableId;
+  }>,
+): Effect.fn.Return<
+  StableTableIdentity | null,
+  StableTableCatalogCorruptionError | StableTableIdentityPersistenceError
+> {
   const query = selectStableTableIdentityById(db, input);
   const rows = yield* readStableTableIdentityRowsEffect("getById", query);
   const row = rows[0];
@@ -248,26 +261,6 @@ export const getStableTableIdentityByIdEffect = Effect.fn(
     ? null
     : yield* Effect.fromResult(decodeStableTableIdentityResult(row));
 });
-
-/**
- * Temporary Promise projection for the current app-index-definition Drizzle
- * transaction callback. Delete it when that transaction chain becomes
- * Effect-native; it is intentionally not exported from the package root.
- */
-export async function getStableTableIdentityByIdForPromiseTransaction(
-  db: StableTableCatalogTransaction,
-  deploymentId: string,
-  tableId: CatalogTableId,
-): Promise<StableTableIdentity | null> {
-  const input = Result.getOrThrow(
-    decodeStableTableIdentityByIdInputResult(deploymentId, tableId),
-  );
-  const rows = await selectStableTableIdentityById(db, input);
-  const row = rows[0];
-  return row === undefined
-    ? null
-    : Result.getOrThrow(decodeStableTableIdentityResult(row));
-}
 
 function selectStableTableIdentityById(
   db: FlarexMetadataDatabase,

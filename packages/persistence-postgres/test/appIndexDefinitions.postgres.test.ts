@@ -28,6 +28,7 @@ import {
   type PreparedAppDeveloperIndexDefinitionBindingV1,
 } from "../src/appIndexDefinitions";
 import type { PostgresFlarexPersistence } from "../src/postgres";
+import { runEffect } from "./effectTestRuntime";
 import {
   applySchemaManifestAppSchemaBindingsV1InTransaction,
   prepareSchemaManifestAppSchemaBindingsV1,
@@ -392,7 +393,9 @@ function ensureCreationTimePrepared(
   prepared: PreparedAppCreationTimeIndexDefinitionV1,
 ) {
   return persistence.drizzle.transaction((tx) =>
-    ensureAppCreationTimeIndexDefinitionV1InTransaction(tx, prepared)
+    runEffect(
+      ensureAppCreationTimeIndexDefinitionV1InTransaction(tx, prepared),
+    )
   );
 }
 

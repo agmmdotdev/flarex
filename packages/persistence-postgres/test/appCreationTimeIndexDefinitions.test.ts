@@ -9,6 +9,7 @@ import {
   CatalogSchemaVersionSchema,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
+import { Cause, Effect, Exit, Fiber } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 // @ts-expect-error D2b prepared tokens must remain absent from the package root.
@@ -20,10 +21,12 @@ import {
   prepareAppSchemaPublicationV1,
 } from "../src/appSchemaPublicationPreparation";
 import {
+  AppCreationTimeIndexDefinitionPersistenceError,
   AppCreationTimeIndexDefinitionChecksumCollisionError,
   ensureAppCreationTimeIndexDefinitionV1InTransaction,
   InvalidPreparedAppCreationTimeIndexDefinitionError,
   prepareAppCreationTimeIndexDefinitionsV1,
+  type EnsureAppCreationTimeIndexDefinitionV1Error,
   type EnsureAppCreationTimeIndexDefinitionV1Result,
   type PreparedAppCreationTimeIndexDefinitionV1,
 } from "../src/appIndexDefinitions";
@@ -31,6 +34,8 @@ import { createPGlitePersistence } from "../src/pglite";
 import {
   applySchemaManifestAppSchemaBindingsV1InTransaction,
 } from "../src/schemaManifestAppSchemaBindings";
+import type { StableTableCatalogTransaction } from "../src/stableTableCatalog";
+import { runEffect } from "./effectTestRuntime";
 
 type PublicD2bMethod = Extract<
   keyof FlarexPersistence,
@@ -59,6 +64,12 @@ describe("table-owned app creation-time index definitions", () => {
     expectTypeOf<
       EnsureAppCreationTimeIndexDefinitionV1Result["definition"]["access"]["kind"]
     >().toEqualTypeOf<"by_creation_time">();
+    expectTypeOf<
+      ReturnType<typeof ensureAppCreationTimeIndexDefinitionV1InTransaction>
+    >().toEqualTypeOf<Effect.Effect<
+      EnsureAppCreationTimeIndexDefinitionV1Result,
+      EnsureAppCreationTimeIndexDefinitionV1Error
+    >>();
     expectTypeOf<FlarexPersistence>()
       .not.toMatchTypeOf<
         Parameters<
@@ -157,10 +168,12 @@ describe("table-owned app creation-time index definitions", () => {
     const forgedToken = { ...requiredToken(fixture.tokens, 0) };
     await expect(
       persistence.drizzle.transaction((tx) =>
-        Reflect.apply(
-          ensureAppCreationTimeIndexDefinitionV1InTransaction,
-          undefined,
-          [tx, forgedToken],
+        runEffect(
+          Reflect.apply(
+            ensureAppCreationTimeIndexDefinitionV1InTransaction,
+            undefined,
+            [tx, forgedToken],
+          ),
         )
       ),
     ).rejects.toBeInstanceOf(
@@ -239,6 +252,118 @@ describe("table-owned app creation-time index definitions", () => {
     await expect(definitionCount(persistence, deploymentId)).resolves.toBe(1);
   });
 
+  it("labels rejected replay reads and rejects the caller-owned transaction", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_creation_time_sql_failure";
+    const fixture = await prepareFixture(
+      persistence,
+      deploymentId,
+      [appTable("users")],
+    );
+    const rejection = new Error("creation-time replay query rejected");
+    const tx = creationTimeReadTransaction((selectCall) => {
+      switch (selectCall) {
+        case 1:
+          return Promise.resolve([{ deploymentId }]);
+        case 2:
+          return Promise.resolve([stableTableRow(deploymentId)]);
+        case 3:
+          return Promise.reject(rejection);
+        default:
+          throw new Error(`Unexpected select call: ${selectCall}.`);
+      }
+    });
+    const transaction = callerOwnedEffectTransaction(
+      ensureAppCreationTimeIndexDefinitionV1InTransaction(
+        tx,
+        requiredToken(fixture.tokens, 0),
+      ),
+    );
+
+    await expect(transaction.promise).rejects.toBeInstanceOf(
+      AppCreationTimeIndexDefinitionPersistenceError,
+    );
+    await expect(transaction.promise).rejects.toMatchObject({
+      _tag: "AppCreationTimeIndexDefinitionPersistenceError",
+      operation: "findExistingDefinition",
+      cause: rejection,
+    });
+    expect(transaction.committed()).toBe(false);
+    expect(transaction.rolledBack()).toBe(true);
+  });
+
+  it("preserves synchronous lock-query construction failures as defects", async () => {
+    const persistence = await migratedPersistence();
+    const fixture = await prepareFixture(
+      persistence,
+      "deployment_creation_time_construction_defect",
+      [appTable("users")],
+    );
+    const defect = new Error("creation-time lock query construction defect");
+    const tx = {
+      select() {
+        throw defect;
+      },
+    } as unknown as StableTableCatalogTransaction;
+    const exit = await Effect.runPromiseExit(
+      ensureAppCreationTimeIndexDefinitionV1InTransaction(
+        tx,
+        requiredToken(fixture.tokens, 0),
+      ),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
+
+  it("waits for a pending deployment lock before interruption completes", async () => {
+    const persistence = await migratedPersistence();
+    const fixture = await prepareFixture(
+      persistence,
+      "deployment_creation_time_interruption",
+      [appTable("users")],
+    );
+    const entered = deferredValue<void>();
+    const query = deferredValue<ReadonlyArray<unknown>>();
+    const tx = creationTimeReadTransaction((selectCall) => {
+      if (selectCall !== 1) {
+        throw new Error(`Unexpected select call: ${selectCall}.`);
+      }
+      entered.resolve(undefined);
+      return query.promise;
+    });
+    const fiber = Effect.runFork(
+      ensureAppCreationTimeIndexDefinitionV1InTransaction(
+        tx,
+        requiredToken(fixture.tokens, 0),
+      ),
+    );
+
+    await entered.promise;
+    const completion = runEffect(Fiber.await(fiber));
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then(() => {
+      interruptionSettled = true;
+    });
+    try {
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      query.resolve([]);
+    }
+
+    await interruption;
+    const exit = await completion;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    }
+  });
+
   it("rolls allocation back and reuses the deployment-wide next identity", async () => {
     const persistence = await migratedPersistence();
     const deploymentId = "deployment_creation_time_rollback";
@@ -259,7 +384,9 @@ describe("table-owned app creation-time index definitions", () => {
     await expect(
       persistence.drizzle.transaction(async (tx) => {
         const result =
-          await ensureAppCreationTimeIndexDefinitionV1InTransaction(tx, second);
+          await runEffect(
+            ensureAppCreationTimeIndexDefinitionV1InTransaction(tx, second),
+          );
         rolledBackId = result.definition.indexDefinitionId;
         throw new Error("injected creation-time definition rollback");
       }),
@@ -333,7 +460,9 @@ function ensurePrepared(
   prepared: PreparedAppCreationTimeIndexDefinitionV1,
 ) {
   return persistence.drizzle.transaction((tx) =>
-    ensureAppCreationTimeIndexDefinitionV1InTransaction(tx, prepared)
+    runEffect(
+      ensureAppCreationTimeIndexDefinitionV1InTransaction(tx, prepared),
+    )
   );
 }
 
@@ -344,6 +473,93 @@ function requiredToken(
   const token = tokens[index];
   if (token === undefined) throw new Error(`Missing token at index ${index}.`);
   return token;
+}
+
+interface CreationTimeQueryStub extends PromiseLike<ReadonlyArray<unknown>> {
+  from(): CreationTimeQueryStub;
+  where(): CreationTimeQueryStub;
+  limit(): CreationTimeQueryStub;
+  for(): CreationTimeQueryStub;
+}
+
+function creationTimeReadTransaction(
+  runSelect: (selectCall: number) => Promise<ReadonlyArray<unknown>>,
+): StableTableCatalogTransaction {
+  let selectCall = 0;
+  return {
+    select() {
+      selectCall += 1;
+      const promise = runSelect(selectCall);
+      const query: CreationTimeQueryStub = {
+        from: () => query,
+        where: () => query,
+        limit: () => query,
+        for: () => query,
+        then: (onFulfilled, onRejected) =>
+          promise.then(onFulfilled, onRejected),
+      };
+      return query;
+    },
+  } as unknown as StableTableCatalogTransaction;
+}
+
+function stableTableRow(deploymentId: string) {
+  return Object.freeze({
+    deploymentId,
+    tableId: 1,
+    namespace: "app",
+    logicalName: "users",
+    createdAt: new Date("2026-07-19T00:00:00.000Z"),
+  });
+}
+
+function callerOwnedEffectTransaction<Value, Failure>(
+  effect: Effect.Effect<Value, Failure>,
+): Readonly<{
+  promise: Promise<Value>;
+  committed(): boolean;
+  rolledBack(): boolean;
+}> {
+  let committed = false;
+  let rolledBack = false;
+  const promise = runEffect(effect).then(
+    (value) => {
+      committed = true;
+      return value;
+    },
+    (cause: unknown) => {
+      rolledBack = true;
+      throw cause;
+    },
+  );
+  return Object.freeze({
+    promise,
+    committed: () => committed,
+    rolledBack: () => rolledBack,
+  });
+}
+
+function deferredValue<Value>(): Readonly<{
+  promise: Promise<Value>;
+  resolve(value: Value): void;
+}> {
+  let resolvePromise: ((value: Value) => void) | undefined;
+  const promise = new Promise<Value>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return Object.freeze({
+    promise,
+    resolve(value: Value) {
+      if (resolvePromise === undefined) {
+        throw new Error("Deferred value was not initialized.");
+      }
+      resolvePromise(value);
+    },
+  });
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function appTable(

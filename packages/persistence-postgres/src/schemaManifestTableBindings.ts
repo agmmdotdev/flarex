@@ -1,6 +1,6 @@
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq, inArray } from "drizzle-orm";
-import { Result } from "effect";
+import { Effect, Result } from "effect";
 import {
   decodeCatalogTableId,
   type CatalogTableId,
@@ -300,15 +300,56 @@ export async function lockSchemaManifestBindingDeployment(
   tx: StableTableCatalogTransaction,
   deploymentId: string,
 ): Promise<void> {
-  const rows = await tx
+  const rows = await selectLockedSchemaManifestBindingDeployment(
+    tx,
+    deploymentId,
+  );
+  if (rows[0] === undefined) {
+    throw new StableTableCatalogDeploymentNotFoundError(deploymentId);
+  }
+}
+
+export class SchemaManifestTableBindingPersistenceError extends Error {
+  readonly _tag = "SchemaManifestTableBindingPersistenceError" as const;
+
+  constructor(readonly cause: unknown) {
+    super("Failed to lock the schema-manifest binding deployment.", { cause });
+    this.name = "SchemaManifestTableBindingPersistenceError";
+  }
+}
+
+export const lockSchemaManifestBindingDeploymentEffect = Effect.fn(
+  "SchemaManifestTableBindings.lockDeployment",
+)(function* (
+  tx: StableTableCatalogTransaction,
+  deploymentId: string,
+): Effect.fn.Return<
+  void,
+  | StableTableCatalogDeploymentNotFoundError
+  | SchemaManifestTableBindingPersistenceError
+> {
+  const query = selectLockedSchemaManifestBindingDeployment(tx, deploymentId);
+  const rows = yield* Effect.uninterruptible(Effect.tryPromise({
+    try: () => query,
+    catch: (cause) => new SchemaManifestTableBindingPersistenceError(cause),
+  }));
+  if (rows[0] === undefined) {
+    return yield* Effect.fail(
+      new StableTableCatalogDeploymentNotFoundError(deploymentId),
+    );
+  }
+});
+
+function selectLockedSchemaManifestBindingDeployment(
+  tx: StableTableCatalogTransaction,
+  deploymentId: string,
+) {
+  return tx
     .select({ deploymentId: deployments.deploymentId })
     .from(deployments)
     .where(eq(deployments.deploymentId, deploymentId))
     .limit(1)
     .for("update");
-  if (rows[0] === undefined) {
-    throw new StableTableCatalogDeploymentNotFoundError(deploymentId);
-  }
 }
 
 export async function readSchemaManifestAppTableBindings(

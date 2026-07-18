@@ -81,6 +81,7 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/flarex-dev/src/runtimeMaterializer.ts", "LocalMiniflareMaterializedExecutionArtifact.executeQuerySession"), 1],
   [siteKey("packages/flarex-dev/src/runtimeMaterializer.ts", "LocalMiniflareMaterializedExecutionArtifact.invoke"), 1],
   [siteKey("packages/flarex-protocol/src/auth.ts", "decodeAuthConfigPromise"), 1],
+  [siteKey("packages/persistence-postgres/src/appSchemaPublicationTransaction.ts", "runCreationTimeIndexDefinitionEffect"), 1],
   [siteKey("packages/persistence-postgres/src/postgresRuntime.ts", "runPostgresTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/stableTableCatalog.ts", "runStableTableCatalogEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/transactionSessionActivation.ts", "runExactRunningAttemptEffectTransaction"), 1],
