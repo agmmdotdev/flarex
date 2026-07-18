@@ -29,7 +29,7 @@ import {
   verifyInsertedSchemaManifestAppTableBindingRowsResult,
 } from "../src/schemaManifestTableBindings";
 import {
-  ensureStableTableIdentityInTransaction,
+  ensureStableTableIdentityEffect,
   getStableTableIdentityByNameEffect,
   StableTableCatalogDeploymentNotFoundError,
 } from "../src/stableTableCatalog";
@@ -633,9 +633,7 @@ function apply(
 
 function ensureTable(
   persistence: PGlitePersistence,
-  input: Parameters<typeof ensureStableTableIdentityInTransaction>[1],
+  input: Parameters<typeof ensureStableTableIdentityEffect>[1],
 ) {
-  return persistence.drizzle.transaction((tx) =>
-    ensureStableTableIdentityInTransaction(tx, input),
-  );
+  return runEffect(ensureStableTableIdentityEffect(persistence.drizzle, input));
 }

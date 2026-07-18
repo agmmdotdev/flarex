@@ -55,6 +55,10 @@ allowed boundary categories are:
   - `packages/flarex-backend/src/partitionDO.ts`
   - `packages/flarex-backend/src/deliveryDO.ts`
   - `packages/flarex-backend/src/schedulerDO.ts`
+- Postgres driver and Drizzle transaction callbacks that require Promises:
+  - `packages/persistence-postgres/src/postgresRuntime.ts`
+  - `packages/persistence-postgres/src/stableTableCatalog.ts`
+  - `packages/persistence-postgres/src/transactionSessionActivation.ts`
 - Local development, analyzer, artifact materializer, executor HTTP, and
   backend push adapter APIs:
   - `packages/flarex-dev/src/analyze.ts`

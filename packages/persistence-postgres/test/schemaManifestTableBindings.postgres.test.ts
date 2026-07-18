@@ -12,7 +12,7 @@ import {
   SchemaManifestTableBindingPlanStaleError,
 } from "../src/schemaManifestTableBindings";
 import {
-  ensureStableTableIdentityInTransaction,
+  ensureStableTableIdentityEffect,
   getStableTableIdentityByNameEffect,
 } from "../src/stableTableCatalog";
 import { runEffect } from "./effectTestRuntime";
@@ -140,8 +140,8 @@ describePostgres("real Postgres schema manifest table bindings", () => {
         persistence,
         deploymentId,
       );
-      const allocation = persistence.drizzle.transaction((tx) =>
-        ensureStableTableIdentityInTransaction(tx, {
+      const allocation = runEffect(
+        ensureStableTableIdentityEffect(persistence.drizzle, {
           deploymentId,
           namespace: "app",
           logicalName: "users",

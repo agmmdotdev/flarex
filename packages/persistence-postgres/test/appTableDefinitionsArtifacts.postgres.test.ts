@@ -22,7 +22,7 @@ import {
   prepareSchemaVersionArtifact,
 } from "../src/schemaVersionArtifacts";
 import {
-  ensureStableTableIdentityInTransaction,
+  ensureStableTableIdentityEffect,
   getStableTableIdentityByNameEffect,
 } from "../src/stableTableCatalog";
 import { runEffect } from "./effectTestRuntime";
@@ -107,8 +107,8 @@ describePostgres("real Postgres table-definitions artifact compatibility", () =>
         persistence,
         deploymentId,
       );
-      const allocation = persistence.drizzle.transaction((tx) =>
-        ensureStableTableIdentityInTransaction(tx, {
+      const allocation = runEffect(
+        ensureStableTableIdentityEffect(persistence.drizzle, {
           deploymentId,
           namespace: "payload",
           logicalName: "allocator_winner",
@@ -208,8 +208,8 @@ describePostgres("real Postgres table-definitions artifact compatibility", () =>
           }),
         ),
       ).resolves.toBeNull();
-      const next = await persistence.drizzle.transaction((tx) =>
-        ensureStableTableIdentityInTransaction(tx, {
+      const next = await runEffect(
+        ensureStableTableIdentityEffect(persistence.drizzle, {
           deploymentId,
           namespace: "payload",
           logicalName: "after_failed_publication",

@@ -31,7 +31,8 @@ import {
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import { applySchemaManifestAppSchemaBindingsV1InTransaction } from "../src/schemaManifestAppSchemaBindings";
 import { ensureSchemaVersionArtifactInTransaction } from "../src/schemaVersionArtifacts";
-import { ensureStableTableIdentityInTransaction } from "../src/stableTableCatalog";
+import { ensureStableTableIdentityEffect } from "../src/stableTableCatalog";
+import { runEffect } from "./effectTestRuntime";
 import {
   acquirePostgresDeploymentLock,
   postgresUrl,
@@ -166,14 +167,13 @@ describePostgres("real Postgres app-schema V1 publication", () => {
         await queueTwoBehindDeploymentLock(
           persistence,
           deploymentId,
-          () =>
-            persistence.drizzle.transaction((tx) =>
-              ensureStableTableIdentityInTransaction(tx, {
+          () => runEffect(
+            ensureStableTableIdentityEffect(persistence.drizzle, {
                 deploymentId,
                 namespace: "payload",
                 logicalName: "allocator_winner",
-              })
-            ),
+              }),
+          ),
           () => persistence.publishAppSchemaV1(input),
         );
       const allocation = fulfilledResult(allocationAttempt);

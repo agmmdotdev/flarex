@@ -3,6 +3,8 @@ import type { CatalogTableId } from "flarex-protocol/catalog";
 import type { ScopeUuidV1 } from "flarex-protocol/storage-authority";
 
 import type { AppRowTransaction } from "./appRows";
+import { reconcileEffectTransactionFailure } from
+  "./effectTransactionFailure";
 import type {
   ResolvePinnedPointTableIdV1Error,
   ResolvePinnedPointTableIdV1Input,
@@ -89,16 +91,11 @@ export function reconcileExactRunningAttemptTransactionFailureV1<Failure>(
   callbackCause: Cause.Cause<Failure> | undefined,
   rollbackSignal: unknown,
 ): Effect.Effect<never, Failure | ExactRunningAttemptTransactionV1Error> {
-  if (callbackCause !== undefined && failure.cause === rollbackSignal) {
-    return Effect.failCause(callbackCause);
-  }
-  if (
-    callbackCause !== undefined
-    && (Cause.hasDies(callbackCause) || Cause.hasInterrupts(callbackCause))
-  ) {
-    return Effect.failCause(Cause.combine(callbackCause, Cause.die(failure)));
-  }
-  return Effect.fail(failure);
+  return reconcileEffectTransactionFailure(
+    failure,
+    callbackCause,
+    rollbackSignal,
+  );
 }
 
 export interface LocatedExactRunningAttemptKernelV1

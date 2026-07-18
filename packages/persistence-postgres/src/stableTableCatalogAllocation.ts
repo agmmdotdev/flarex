@@ -3,44 +3,126 @@ import {
   MAX_CATALOG_TABLE_ID,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
+import { Effect, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { fxControlTables } from "./schema";
-import { decodeStableTableCatalogId } from "./stableTableCatalogDecoding";
+import {
+  decodeStableTableCatalogId,
+  decodeStableTableCatalogIdResult,
+} from "./stableTableCatalogDecoding";
+import { StableTableCatalogCorruptionError } from
+  "./stableTableCatalogError";
 
-export { StableTableCatalogCorruptionError } from "./stableTableCatalogError";
+export { StableTableCatalogCorruptionError };
 
 export class StableTableCatalogIdExhaustedError extends Error {
+  readonly _tag = "StableTableCatalogIdExhaustedError" as const;
+
   constructor(readonly deploymentId: string) {
     super(`Stable table identity space is exhausted for deployment: ${deploymentId}`);
     this.name = "StableTableCatalogIdExhaustedError";
   }
 }
 
+export class StableTableCatalogAllocationPersistenceError extends Error {
+  readonly _tag = "StableTableCatalogAllocationPersistenceError" as const;
+
+  constructor(
+    readonly operation: "lockDeployment" | "readHighWater" | "insert",
+    readonly cause: unknown,
+  ) {
+    super(`Stable table catalog allocation ${operation} failed.`, { cause });
+    this.name = "StableTableCatalogAllocationPersistenceError";
+  }
+}
+
+export const runStableTableCatalogAllocationQueryEffect = Effect.fn(<A>(
+  operation: StableTableCatalogAllocationPersistenceError["operation"],
+  query: PromiseLike<A>,
+): Effect.Effect<A, StableTableCatalogAllocationPersistenceError> =>
+  Effect.uninterruptible(Effect.tryPromise({
+    try: () => query,
+    catch: (cause) => new StableTableCatalogAllocationPersistenceError(
+      operation,
+      cause,
+    ),
+  })));
+
+export const readStableTableCatalogHighWaterEffect = Effect.fn(
+  "StableTableCatalog.readHighWater",
+)(function* (
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+): Effect.fn.Return<
+  CatalogTableId | null,
+  StableTableCatalogAllocationPersistenceError | StableTableCatalogCorruptionError
+> {
+  const query = selectStableTableCatalogHighWater(db, deploymentId);
+  const rows = yield* runStableTableCatalogAllocationQueryEffect(
+    "readHighWater",
+    query,
+  );
+  const value = rows[0]?.tableId;
+  return value === undefined
+    ? null
+    : yield* Effect.fromResult(
+      decodeStableTableCatalogIdResult(deploymentId, value),
+    );
+});
+
+/**
+ * Temporary Promise projection for the schema-binding planners that still
+ * prepare and revalidate through Promise transaction callbacks. Delete it
+ * when those planner chains consume the Effect operation directly.
+ */
 export async function readStableTableCatalogHighWater(
   db: FlarexMetadataDatabase,
   deploymentId: string,
 ): Promise<CatalogTableId | null> {
-  const rows = await db
-    .select({ tableId: fxControlTables.tableId })
-    .from(fxControlTables)
-    .where(eq(fxControlTables.deploymentId, deploymentId))
-    .orderBy(desc(fxControlTables.tableId))
-    .limit(1);
+  const rows = await selectStableTableCatalogHighWater(db, deploymentId);
   const value = rows[0]?.tableId;
   return value === undefined
     ? null
     : decodeStableTableCatalogId(deploymentId, value);
 }
 
+function selectStableTableCatalogHighWater(
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+) {
+  return db
+    .select({ tableId: fxControlTables.tableId })
+    .from(fxControlTables)
+    .where(eq(fxControlTables.deploymentId, deploymentId))
+    .orderBy(desc(fxControlTables.tableId))
+    .limit(1);
+}
+
+/**
+ * Temporary throwing projection for the Promise schema-binding planner.
+ * Delete it when that planner owns a Result or Effect failure channel.
+ */
 export function nextStableTableCatalogId(
   deploymentId: string,
   currentHighWater: CatalogTableId | null,
 ): CatalogTableId {
+  return Result.getOrThrow(
+    nextStableTableCatalogIdResult(deploymentId, currentHighWater),
+  );
+}
+
+export function nextStableTableCatalogIdResult(
+  deploymentId: string,
+  currentHighWater: CatalogTableId | null,
+): Result.Result<
+  CatalogTableId,
+  StableTableCatalogCorruptionError | StableTableCatalogIdExhaustedError
+> {
   if (currentHighWater === MAX_CATALOG_TABLE_ID) {
-    throw new StableTableCatalogIdExhaustedError(deploymentId);
+    return Result.fail(new StableTableCatalogIdExhaustedError(deploymentId));
   }
-  return decodeStableTableCatalogId(
+  return decodeStableTableCatalogIdResult(
     deploymentId,
     currentHighWater === null ? 1 : currentHighWater + 1,
   );

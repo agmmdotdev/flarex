@@ -40,7 +40,7 @@ import {
   SchemaVersionArtifactConflictError,
 } from "../src/schemaVersionArtifacts";
 import {
-  ensureStableTableIdentityInTransaction,
+  ensureStableTableIdentityEffect,
   getStableTableIdentityByNameEffect,
 } from "../src/stableTableCatalog";
 import { runEffect } from "./effectTestRuntime";
@@ -53,7 +53,7 @@ type PublicInternalCompatibilityExport = Extract<
   | "runAppTableDefinitionsArtifactV1Attempts"
   | "prepareSchemaVersionArtifact"
   | "ensureSchemaVersionArtifactInTransaction"
-  | "ensureStableTableIdentityInTransaction"
+  | "ensureStableTableIdentityEffect"
 >;
 
 type PublicCompatibilityMethod = Extract<
@@ -493,11 +493,9 @@ function publicationRepository(
 
 function ensureTable(
   persistence: PGlitePersistence,
-  input: Parameters<typeof ensureStableTableIdentityInTransaction>[1],
+  input: Parameters<typeof ensureStableTableIdentityEffect>[1],
 ) {
-  return persistence.drizzle.transaction((tx) =>
-    ensureStableTableIdentityInTransaction(tx, input),
-  );
+  return runEffect(ensureStableTableIdentityEffect(persistence.drizzle, input));
 }
 
 async function ensureArtifact(

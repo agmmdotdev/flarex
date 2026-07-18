@@ -191,11 +191,22 @@ correct separation between invalid caller values and corrupt stored values.
 Both reads share one interruption-masked Drizzle Promise adapter with a tagged
 operation-specific persistence failure; synchronous construction and accessor
 failures remain defects. The old package-root Promise exports were deleted.
-Two explicitly named, transaction-typed Promise projections remain for their
-current Drizzle callback owners: ID lookup for creation-time index-definition
-verification and name lookup for stable-table allocation. Each is deleted when
-its complete transaction chain becomes Effect-native; the multi-statement
-allocator is the next stable-table transaction boundary.
+Stable-table allocation is now an internal Effect-native operation that owns
+its short Drizzle transaction. Caller validation completes through `Result`
+before the transaction opens; the deployment lock, name replay, high-water
+read, allocation, insert, and returned-row verification retain their exact
+order and typed failure distinctions. One audited runtime bridge exists only
+at Drizzle 0.45's Promise transaction callback, preserves callback failures,
+defects, and rollback evidence as a full `Cause`, and waits for transaction
+settlement under interruption. Its reconciliation mechanics share one
+package-local full-`Cause` policy with the exact-attempt transaction boundary,
+while each domain retains its own transaction error and rollback sentinel. The
+old Promise allocator and name-lookup
+transaction projection were deleted. The ID lookup projection remains only
+for creation-time index-definition verification. High-water Promise and
+throwing allocation projections remain temporary for the schema-binding
+planner/revalidation chains and are deleted when those chains become
+Effect-native.
 
 The package-root stable logical-index identity readers are now Effect-native.
 Input and stored-row validation enter through pure `Result`, while each reader

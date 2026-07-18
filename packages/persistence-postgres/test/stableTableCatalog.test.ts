@@ -7,19 +7,22 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type {
   EnsureStableTableIdentityInput,
+  EnsureStableTableIdentityResult,
   FlarexPersistence,
   StableTableIdentity,
 } from "../src";
 import {
   decodeStableTableIdentityByIdInputResult,
+  decodeEnsureStableTableIdentityInputResult,
   decodeStableTableIdentityNameResult,
   decodeStableTableIdentityResult,
-  ensureStableTableIdentityInTransaction,
+  ensureStableTableIdentityEffect,
   getStableTableIdentityByIdEffect,
   getStableTableIdentityByIdForPromiseTransaction,
   getStableTableIdentityByNameEffect,
-  getStableTableIdentityByNameForPromiseTransaction,
   InvalidStableTableIdentityInputError,
+  StableTableCatalogAllocationPersistenceError,
+  StableTableCatalogAllocationTransactionError,
   StableTableCatalogCorruptionError,
   StableTableCatalogDeploymentNotFoundError,
   StableTableCatalogIdExhaustedError,
@@ -51,22 +54,22 @@ type PublicPromiseReaderExport = Extract<
   "getStableTableIdentityById" | "getStableTableIdentityByName"
 >;
 
+type PublicAllocatorExport = Extract<
+  keyof typeof import("../src"),
+  "ensureStableTableIdentityEffect" | "ensureStableTableIdentityInTransaction"
+>;
+
 describe("stable table catalog", () => {
-  it("keeps allocation transaction-only and analyzer ordinals out of input", () => {
+  it("keeps allocation internal and analyzer ordinals out of input", () => {
     expectTypeOf<AnalyzerOrdinalAccepted>().toEqualTypeOf<false>();
     expectTypeOf<PublicAllocatorMethod>().toEqualTypeOf<never>();
     expectTypeOf<PublicPromiseReaderExport>().toEqualTypeOf<never>();
-    expectTypeOf<FlarexMetadataDatabase>()
-      .not.toMatchTypeOf<
-        Parameters<typeof ensureStableTableIdentityInTransaction>[0]
-      >();
+    expectTypeOf<PublicAllocatorExport>().toEqualTypeOf<never>();
+    expectTypeOf<Parameters<typeof ensureStableTableIdentityEffect>[0]>()
+      .toEqualTypeOf<FlarexMetadataDatabase>();
     expectTypeOf<FlarexMetadataDatabase>()
       .not.toMatchTypeOf<
         Parameters<typeof getStableTableIdentityByIdForPromiseTransaction>[0]
-      >();
-    expectTypeOf<FlarexMetadataDatabase>()
-      .not.toMatchTypeOf<
-        Parameters<typeof getStableTableIdentityByNameForPromiseTransaction>[0]
       >();
     expectTypeOf<StableTableIdentity["tableId"]>()
       .toEqualTypeOf<CatalogTableId>();
@@ -197,6 +200,21 @@ describe("stable table catalog", () => {
     }
   });
 
+  it("rejects caller-supplied table IDs before other allocator input", () => {
+    const invalid = decodeEnsureStableTableIdentityInputResult({
+      deploymentId: " ",
+      namespace: "app",
+      logicalName: "",
+      // @ts-expect-error Exercises the importable JavaScript boundary.
+      tableId: 17,
+    });
+
+    expect(Result.isFailure(invalid)).toBe(true);
+    if (Result.isFailure(invalid)) {
+      expect(invalid.failure).toMatchObject({ field: "tableId" });
+    }
+  });
+
   it("decodes stored identities with an owned Date snapshot", () => {
     const storedDate = new Date("2026-07-19T00:00:00.000Z");
     const decoded = Result.getOrThrow(decodeStableTableIdentityResult({
@@ -244,6 +262,128 @@ describe("stable table catalog", () => {
       operation: "getByName",
       cause: rejection,
     });
+  });
+
+  it("maps rejected allocator queries once and rolls back", async () => {
+    const rejection = new Error("deployment lock rejected");
+    const transaction = stableTableAllocationDatabase({
+      rejection: { operation: "lockDeployment", cause: rejection },
+    });
+
+    const failure = await runEffectFailure(ensureStableTableIdentityEffect(
+      transaction.db,
+      {
+        deploymentId: "deployment_catalog_allocation_sql_failure",
+        namespace: "app",
+        logicalName: "users",
+      },
+    ));
+
+    expect(failure).toBeInstanceOf(
+      StableTableCatalogAllocationPersistenceError,
+    );
+    expect(failure).toMatchObject({
+      _tag: "StableTableCatalogAllocationPersistenceError",
+      operation: "lockDeployment",
+      cause: rejection,
+    });
+    expect(transaction.committed()).toBe(false);
+    expect(transaction.rolledBack()).toBe(true);
+  });
+
+  it("distinguishes transaction infrastructure rejection", async () => {
+    const rejection = new Error("transaction begin rejected");
+    const db = {
+      transaction: () => Promise.reject(rejection),
+    } as unknown as FlarexMetadataDatabase;
+
+    const failure = await runEffectFailure(ensureStableTableIdentityEffect(
+      db,
+      {
+        deploymentId: "deployment_catalog_transaction_failure",
+        namespace: "app",
+        logicalName: "users",
+      },
+    ));
+
+    expect(failure).toBeInstanceOf(
+      StableTableCatalogAllocationTransactionError,
+    );
+    expect(failure).toMatchObject({
+      _tag: "StableTableCatalogAllocationTransactionError",
+      cause: rejection,
+      callbackCause: undefined,
+    });
+  });
+
+  it("preserves allocator query-construction failures as defects", async () => {
+    const defect = new Error("deployment lock construction defect");
+    const transaction = stableTableAllocationDatabase({
+      constructionDefect: { operation: "lockDeployment", cause: defect },
+    });
+
+    const exit = await Effect.runPromiseExit(ensureStableTableIdentityEffect(
+      transaction.db,
+      {
+        deploymentId: "deployment_catalog_allocation_defect",
+        namespace: "app",
+        logicalName: "users",
+      },
+    ));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+    expect(transaction.committed()).toBe(false);
+    expect(transaction.rolledBack()).toBe(true);
+  });
+
+  it("waits for the allocator transaction before interruption completes", async () => {
+    const entered = deferredValue<void>();
+    const transaction = deferredValue<EnsureStableTableIdentityResult>();
+    const db = {
+      transaction() {
+        entered.resolve(undefined);
+        return transaction.promise;
+      },
+    } as unknown as FlarexMetadataDatabase;
+    const fiber = Effect.runFork(ensureStableTableIdentityEffect(db, {
+      deploymentId: "deployment_catalog_allocation_interruption",
+      namespace: "app",
+      logicalName: "users",
+    }));
+
+    await entered.promise;
+    const completion = runEffect(Fiber.await(fiber));
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then(() => {
+      interruptionSettled = true;
+    });
+    try {
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      transaction.resolve({
+        status: "created",
+        table: {
+          deploymentId: "deployment_catalog_allocation_interruption",
+          namespace: "app",
+          logicalName: "users",
+          tableId: CatalogTableIdSchema.make(1),
+          createdAt: new Date("2026-07-19T00:00:00.000Z"),
+        },
+      });
+    }
+
+    await interruption;
+    const exit = await completion;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    }
   });
 
   it("preserves unexpected name-input accessor failures as defects", async () => {
@@ -406,59 +546,70 @@ describe("stable table catalog", () => {
       }),
     ).rejects.toBeInstanceOf(InvalidStableTableIdentityInputError);
 
-    await expect(
-      persistence.drizzle.transaction((tx) =>
-        ensureStableTableIdentityInTransaction(tx, {
+    await expect(runEffect(
+      ensureStableTableIdentityEffect(persistence.drizzle, {
           deploymentId: "deployment_invalid_name",
           namespace: "app",
           logicalName: "analyzer_ordinal",
           // @ts-expect-error Analyzer ordinals are forbidden allocator input.
           tableId: 17,
         }),
-      ),
-    ).rejects.toMatchObject({
+    )).rejects.toMatchObject({
       name: "InvalidStableTableIdentityInputError",
       field: "tableId",
     });
   });
 
-  it("does not consume an identity when the owning transaction rolls back", async () => {
-    const persistence = await createPGlitePersistence();
-    await persistence.migrate();
-    await persistence.insertDeploymentMetadata({
-      deploymentId: "deployment_catalog_rollback",
-      projectId: "project_catalog_rollback",
+  it("rolls back when post-insert verification returns typed corruption", async () => {
+    const transaction = stableTableAllocationDatabase({ insertedRows: [] });
+
+    const failure = await runEffectFailure(ensureStableTableIdentityEffect(
+      transaction.db,
+      {
+        deploymentId: "deployment_catalog_rollback",
+        namespace: "app",
+        logicalName: "rolled_back",
+      },
+    ));
+
+    expect(failure).toBeInstanceOf(StableTableCatalogCorruptionError);
+    expect(failure).toMatchObject({ detail: "insert returned no row" });
+    expect(transaction.committed()).toBe(false);
+    expect(transaction.rolledBack()).toBe(true);
+  });
+
+  it("retains callback failure when transaction rollback fails differently", async () => {
+    const rollbackFailure = new Error("allocator rollback failed");
+    const transaction = stableTableAllocationDatabase({
+      insertedRows: [],
+      rollbackFailure,
     });
 
-    await expect(
-      persistence.drizzle.transaction(async (tx) => {
-        await ensureStableTableIdentityInTransaction(tx, {
-          deploymentId: "deployment_catalog_rollback",
-          namespace: "app",
-          logicalName: "rolled_back",
-        });
-        throw new Error("injected rollback");
-      }),
-    ).rejects.toThrow("injected rollback");
+    const failure = await runEffectFailure(ensureStableTableIdentityEffect(
+      transaction.db,
+      {
+        deploymentId: "deployment_catalog_rollback_failure",
+        namespace: "app",
+        logicalName: "rolled_back",
+      },
+    ));
 
-    const committed = await ensure(persistence, {
-      deploymentId: "deployment_catalog_rollback",
-      namespace: "app",
-      logicalName: "committed",
-    });
-    expect(committed).toMatchObject({
-      status: "created",
-      table: { tableId: 1 },
-    });
-    await expect(
-      runEffect(
-        getStableTableIdentityByNameEffect(persistence.drizzle, {
-          deploymentId: "deployment_catalog_rollback",
-          namespace: "app",
-          logicalName: "rolled_back",
-        }),
-      ),
-    ).resolves.toBeNull();
+    expect(failure).toBeInstanceOf(
+      StableTableCatalogAllocationTransactionError,
+    );
+    expect(failure).toMatchObject({ cause: rollbackFailure });
+    if (failure instanceof StableTableCatalogAllocationTransactionError) {
+      const callbackCause = failure.callbackCause;
+      if (callbackCause === undefined) {
+        throw new Error("Expected the transaction error to retain callback Cause.");
+      }
+      expect(Cause.hasFails(callbackCause)).toBe(true);
+      expect(callbackCause.toString()).toContain(
+        "insert returned no row",
+      );
+    }
+    expect(transaction.committed()).toBe(false);
+    expect(transaction.rolledBack()).toBe(true);
   });
 
   it("enforces catalog constraints below the typed API", async () => {
@@ -520,9 +671,7 @@ function ensure(
   persistence: PGlitePersistence,
   input: EnsureStableTableIdentityInput,
 ) {
-  return persistence.drizzle.transaction((tx) =>
-    ensureStableTableIdentityInTransaction(tx, input),
-  );
+  return runEffect(ensureStableTableIdentityEffect(persistence.drizzle, input));
 }
 
 function stableTableReadDatabase(
@@ -534,6 +683,116 @@ function stableTableReadDatabase(
     limit: () => run(),
   };
   return { select: () => query } as unknown as FlarexMetadataDatabase;
+}
+
+type StableTableAllocationOperation =
+  StableTableCatalogAllocationPersistenceError["operation"];
+
+interface StableTableAllocationDatabaseOptions {
+  readonly insertedRows?: readonly unknown[];
+  readonly rollbackFailure?: unknown;
+  readonly rejection?: Readonly<{
+    operation: StableTableAllocationOperation;
+    cause: unknown;
+  }>;
+  readonly constructionDefect?: Readonly<{
+    operation: StableTableAllocationOperation;
+    cause: unknown;
+  }>;
+}
+
+function stableTableAllocationDatabase(
+  options: StableTableAllocationDatabaseOptions = {},
+): Readonly<{
+  db: FlarexMetadataDatabase;
+  committed(): boolean;
+  rolledBack(): boolean;
+}> {
+  let committed = false;
+  let rolledBack = false;
+  let selectCount = 0;
+  const row = {
+    deploymentId: "deployment_catalog_rollback",
+    namespace: "app",
+    logicalName: "rolled_back",
+    tableId: CatalogTableIdSchema.make(1),
+    createdAt: new Date("2026-07-19T00:00:00.000Z"),
+  } as const;
+
+  const query = (
+    operation: StableTableAllocationOperation | "getByName",
+    rows: readonly unknown[],
+  ) => {
+    if (
+      options.constructionDefect !== undefined
+      && options.constructionDefect.operation === operation
+    ) {
+      throw options.constructionDefect.cause;
+    }
+    const run = () =>
+      options.rejection !== undefined
+        && options.rejection.operation === operation
+        ? Promise.reject(options.rejection.cause)
+        : Promise.resolve(rows);
+    const builder = {
+      from: () => builder,
+      where: () => builder,
+      limit: () => builder,
+      orderBy: () => builder,
+      for: () => run(),
+      then: <Success, Failure = never>(
+        onSuccess?: ((value: readonly unknown[]) => Success | PromiseLike<Success>)
+          | null,
+        onFailure?: ((reason: unknown) => Failure | PromiseLike<Failure>) | null,
+      ) => run().then(onSuccess, onFailure),
+    };
+    return builder;
+  };
+
+  const tx = {
+    select() {
+      selectCount += 1;
+      if (selectCount === 1) {
+        return query("lockDeployment", [{
+          deploymentId: "deployment_catalog_rollback",
+        }]);
+      }
+      if (selectCount === 2) {
+        return query("getByName", []);
+      }
+      return query("readHighWater", []);
+    },
+    insert() {
+      const builder = {
+        values: () => builder,
+        returning: () => query("insert", options.insertedRows ?? [row]),
+      };
+      return builder;
+    },
+  };
+  const db = {
+    async transaction(
+      run: (transaction: typeof tx) => Promise<unknown>,
+    ): Promise<unknown> {
+      try {
+        const value = await run(tx);
+        committed = true;
+        return value;
+      } catch (cause) {
+        rolledBack = true;
+        if (options.rollbackFailure !== undefined) {
+          throw options.rollbackFailure;
+        }
+        throw cause;
+      }
+    },
+  } as unknown as FlarexMetadataDatabase;
+
+  return Object.freeze({
+    db,
+    committed: () => committed,
+    rolledBack: () => rolledBack,
+  });
 }
 
 function queryConstructionDefectDatabase(

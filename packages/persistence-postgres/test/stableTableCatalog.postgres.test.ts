@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { EnsureStableTableIdentityInput } from "../src";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import {
-  ensureStableTableIdentityInTransaction,
+  ensureStableTableIdentityEffect,
   getStableTableIdentityByIdEffect,
   getStableTableIdentityByNameEffect,
 } from "../src/stableTableCatalog";
@@ -141,7 +141,5 @@ function ensure(
   persistence: PostgresFlarexPersistence,
   input: EnsureStableTableIdentityInput,
 ) {
-  return persistence.drizzle.transaction((tx) =>
-    ensureStableTableIdentityInTransaction(tx, input),
-  );
+  return runEffect(ensureStableTableIdentityEffect(persistence.drizzle, input));
 }

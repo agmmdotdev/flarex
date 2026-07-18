@@ -7,22 +7,27 @@ import {
   type CatalogTableId,
   type CatalogTableNamespace,
 } from "flarex-protocol/catalog";
-import { Effect, Result } from "effect";
+import { Cause, Effect, Exit, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import { reconcileEffectTransactionFailure } from
+  "./effectTransactionFailure";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { deployments, fxControlTables } from "./schema";
 import {
   decodeStableTableCatalogIdResult as decodeTableIdResult,
 } from "./stableTableCatalogDecoding";
 import {
-  nextStableTableCatalogId,
-  readStableTableCatalogHighWater,
+  nextStableTableCatalogIdResult,
+  readStableTableCatalogHighWaterEffect,
+  runStableTableCatalogAllocationQueryEffect,
+  StableTableCatalogAllocationPersistenceError,
   StableTableCatalogCorruptionError,
   StableTableCatalogIdExhaustedError,
 } from "./stableTableCatalogAllocation";
 
 export {
+  StableTableCatalogAllocationPersistenceError,
   StableTableCatalogCorruptionError,
   StableTableCatalogIdExhaustedError,
 } from "./stableTableCatalogAllocation";
@@ -89,38 +94,102 @@ export type GetStableTableIdentityError =
   | StableTableIdentityPersistenceError;
 
 export class StableTableCatalogDeploymentNotFoundError extends Error {
+  readonly _tag = "StableTableCatalogDeploymentNotFoundError" as const;
+
   constructor(readonly deploymentId: string) {
     super(`Cannot allocate a table identity for missing deployment: ${deploymentId}`);
     this.name = "StableTableCatalogDeploymentNotFoundError";
   }
 }
 
+export class StableTableCatalogAllocationTransactionError extends Error {
+  readonly _tag = "StableTableCatalogAllocationTransactionError" as const;
+
+  constructor(
+    readonly cause: unknown,
+    readonly callbackCause: Cause.Cause<unknown> | undefined,
+  ) {
+    super("Stable table catalog allocation transaction failed.", { cause });
+    this.name = "StableTableCatalogAllocationTransactionError";
+  }
+}
+
+export type EnsureStableTableIdentityError =
+  | InvalidStableTableIdentityInputError
+  | StableTableCatalogAllocationPersistenceError
+  | StableTableCatalogAllocationTransactionError
+  | StableTableCatalogCorruptionError
+  | StableTableCatalogDeploymentNotFoundError
+  | StableTableCatalogIdExhaustedError
+  | StableTableIdentityPersistenceError;
+
 /**
  * Allocate or replay one deployment-scoped logical table identity.
  *
- * The caller must use a short database transaction. Locking the owning
+ * The operation owns a short database transaction. Locking the owning
  * deployment serializes the append-only numeric allocation without holding a
  * transaction open across analyzer or user-code execution.
  */
-export async function ensureStableTableIdentityInTransaction(
-  tx: StableTableCatalogTransaction,
+export const ensureStableTableIdentityEffect = Effect.fn(
+  "StableTableCatalog.ensure",
+)(function* (
+  db: FlarexMetadataDatabase,
   input: EnsureStableTableIdentityInput,
-): Promise<EnsureStableTableIdentityResult> {
+): Effect.fn.Return<
+  EnsureStableTableIdentityResult,
+  EnsureStableTableIdentityError
+> {
+  const name = yield* Effect.fromResult(
+    decodeEnsureStableTableIdentityInputResult(input),
+  );
+  return yield* runStableTableCatalogEffectTransaction(
+    db,
+    (tx) => ensureStableTableIdentityInTransactionEffect(tx, name),
+  );
+});
+
+export function decodeEnsureStableTableIdentityInputResult(
+  input: EnsureStableTableIdentityInput,
+): Result.Result<
+  StableTableIdentityName,
+  InvalidStableTableIdentityInputError
+> {
   if (Object.hasOwn(input, "tableId")) {
-    throw new InvalidStableTableIdentityInputError("tableId");
+    return Result.fail(new InvalidStableTableIdentityInputError("tableId"));
   }
-  const name = Result.getOrThrow(decodeStableTableIdentityNameResult(input));
-  const deploymentRows = await tx
+  return decodeStableTableIdentityNameResult(input);
+}
+
+const ensureStableTableIdentityInTransactionEffect = Effect.fn(
+  "StableTableCatalog.ensureInTransaction",
+)(function* (
+  tx: StableTableCatalogTransaction,
+  name: StableTableIdentityName,
+): Effect.fn.Return<
+  EnsureStableTableIdentityResult,
+  Exclude<
+    EnsureStableTableIdentityError,
+    InvalidStableTableIdentityInputError
+      | StableTableCatalogAllocationTransactionError
+  >
+> {
+  const deploymentQuery = tx
     .select({ deploymentId: deployments.deploymentId })
     .from(deployments)
     .where(eq(deployments.deploymentId, name.deploymentId))
     .limit(1)
     .for("update");
+  const deploymentRows = yield* runStableTableCatalogAllocationQueryEffect(
+    "lockDeployment",
+    deploymentQuery,
+  );
   if (deploymentRows[0] === undefined) {
-    throw new StableTableCatalogDeploymentNotFoundError(name.deploymentId);
+    return yield* Effect.fail(
+      new StableTableCatalogDeploymentNotFoundError(name.deploymentId),
+    );
   }
 
-  const existing = await getStableTableIdentityByNameForPromiseTransaction(
+  const existing = yield* getStableTableIdentityByValidatedNameEffect(
     tx,
     name,
   );
@@ -128,28 +197,36 @@ export async function ensureStableTableIdentityInTransaction(
     return { status: "existing", table: existing };
   }
 
-  const latestTableId = await readStableTableCatalogHighWater(
+  const latestTableId = yield* readStableTableCatalogHighWaterEffect(
     tx,
     name.deploymentId,
   );
-  const tableId = nextStableTableCatalogId(name.deploymentId, latestTableId);
-  const inserted = await tx
+  const tableId = yield* Effect.fromResult(
+    nextStableTableCatalogIdResult(name.deploymentId, latestTableId),
+  );
+  const insertQuery = tx
     .insert(fxControlTables)
     .values({ ...name, tableId })
     .returning();
+  const inserted = yield* runStableTableCatalogAllocationQueryEffect(
+    "insert",
+    insertQuery,
+  );
   const row = inserted[0];
   if (row === undefined) {
-    throw new StableTableCatalogCorruptionError(
-      name.deploymentId,
-      "insert returned no row",
+    return yield* Effect.fail(
+      new StableTableCatalogCorruptionError(
+        name.deploymentId,
+        "insert returned no row",
+      ),
     );
   }
 
   return {
     status: "created",
-    table: decodeStableTableIdentity(row),
+    table: yield* Effect.fromResult(decodeStableTableIdentityResult(row)),
   } satisfies EnsureStableTableIdentityResult;
-}
+});
 
 export const getStableTableIdentityByIdEffect = Effect.fn(
   "StableTableCatalog.getById",
@@ -223,6 +300,16 @@ export const getStableTableIdentityByNameEffect = Effect.fn(
   const name = yield* Effect.fromResult(
     decodeStableTableIdentityNameResult(input),
   );
+  return yield* getStableTableIdentityByValidatedNameEffect(db, name);
+});
+
+const getStableTableIdentityByValidatedNameEffect = Effect.fn(function* (
+  db: FlarexMetadataDatabase,
+  name: StableTableIdentityName,
+): Effect.fn.Return<
+  StableTableIdentity | null,
+  StableTableCatalogCorruptionError | StableTableIdentityPersistenceError
+> {
   const query = selectStableTableIdentityByName(db, name);
   const rows = yield* readStableTableIdentityRowsEffect("getByName", query);
   const row = rows[0];
@@ -230,24 +317,6 @@ export const getStableTableIdentityByNameEffect = Effect.fn(
     ? null
     : yield* Effect.fromResult(decodeStableTableIdentityResult(row));
 });
-
-/**
- * Temporary Promise projection for the current stable-table allocation
- * Drizzle transaction callback. Delete it when that complete allocator
- * transaction becomes Effect-native; it is intentionally not exported from
- * the package root.
- */
-export async function getStableTableIdentityByNameForPromiseTransaction(
-  db: StableTableCatalogTransaction,
-  input: StableTableIdentityName,
-): Promise<StableTableIdentity | null> {
-  const name = Result.getOrThrow(decodeStableTableIdentityNameResult(input));
-  const rows = await selectStableTableIdentityByName(db, name);
-  const row = rows[0];
-  return row === undefined
-    ? null
-    : Result.getOrThrow(decodeStableTableIdentityResult(row));
-}
 
 function selectStableTableIdentityByName(
   db: FlarexMetadataDatabase,
@@ -348,12 +417,6 @@ const readStableTableIdentityRowsEffect = Effect.fn((
   catch: (cause) => new StableTableIdentityPersistenceError(operation, cause),
 })));
 
-function decodeStableTableIdentity(
-  row: typeof fxControlTables.$inferSelect,
-): StableTableIdentity {
-  return Result.getOrThrow(decodeStableTableIdentityResult(row));
-}
-
 export function decodeStableTableIdentityResult(
   row: typeof fxControlTables.$inferSelect,
 ): Result.Result<StableTableIdentity, StableTableCatalogCorruptionError> {
@@ -389,6 +452,49 @@ export function decodeStableTableIdentityResult(
       logicalName: row.logicalName,
       createdAt,
     } satisfies StableTableIdentity;
+  });
+}
+
+// Keep this driver-callback runner as a plain named boundary so the workspace
+// runtime audit attributes its sole Effect.runPromise call exactly here.
+function runStableTableCatalogEffectTransaction<ResultValue, Failure>(
+  db: FlarexMetadataDatabase,
+  work: (
+    tx: StableTableCatalogTransaction,
+  ) => Effect.Effect<ResultValue, Failure>,
+): Effect.Effect<
+  ResultValue,
+  Failure | StableTableCatalogAllocationTransactionError
+> {
+  return Effect.suspend(() => {
+    let callbackCause: Cause.Cause<Failure> | undefined;
+    const rollbackSignal = new Error(
+      "Stable table catalog Effect work failed; roll back the transaction.",
+    );
+    return Effect.uninterruptible(
+      Effect.tryPromise({
+        try: () => db.transaction(async (tx): Promise<ResultValue> => {
+          const exit = await Effect.runPromise(Effect.exit(
+            Effect.suspend(() => work(tx)),
+          ));
+          if (Exit.isFailure(exit)) {
+            callbackCause = exit.cause;
+            throw rollbackSignal;
+          }
+          return exit.value;
+        }),
+        catch: (cause) => new StableTableCatalogAllocationTransactionError(
+          cause,
+          callbackCause,
+        ),
+      }).pipe(
+        Effect.catch((failure) => reconcileEffectTransactionFailure(
+          failure,
+          callbackCause,
+          rollbackSignal,
+        )),
+      ),
+    );
   });
 }
 

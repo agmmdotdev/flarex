@@ -31,8 +31,9 @@ import {
 } from "../src/appSchemaPublication";
 import { createPGlitePersistence } from "../src/pglite";
 import { SchemaManifestAppSchemaBindingPlanStaleError } from "../src/schemaManifestAppSchemaBindings";
-import { ensureStableTableIdentityInTransaction } from "../src/stableTableCatalog";
+import { ensureStableTableIdentityEffect } from "../src/stableTableCatalog";
 import type { StableTableCatalogTransaction } from "../src/stableTableCatalog";
+import { runEffect } from "./effectTestRuntime";
 
 describe("app-schema V1 publication facade", () => {
   it("publishes and exactly replays the complete projection", async () => {
@@ -111,12 +112,12 @@ describe("app-schema V1 publication facade", () => {
           }
           replaceOwnDataProperty(firstTable, "logicalName", "mutatedAfterCall");
           replaceOwnDataProperty(firstIndex.fields, 0, "mutatedAfterCall");
-          await persistence.drizzle.transaction((tx) =>
-            ensureStableTableIdentityInTransaction(tx, {
+          await runEffect(
+            ensureStableTableIdentityEffect(persistence.drizzle, {
               deploymentId,
               namespace: "payload",
               logicalName: "allocator_winner",
-            })
+            }),
           );
         }
         return persistence.drizzle.transaction(run);

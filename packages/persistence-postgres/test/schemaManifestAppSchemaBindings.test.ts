@@ -36,7 +36,7 @@ import {
 import { StableLogicalIndexCatalogIdExhaustedError } from "../src/stableLogicalIndexCatalogAllocation";
 import { StableLogicalIndexCatalogCorruptionError } from "../src/stableLogicalIndexCatalogError";
 import {
-  ensureStableTableIdentityInTransaction,
+  ensureStableTableIdentityEffect,
   StableTableCatalogDeploymentNotFoundError,
 } from "../src/stableTableCatalog";
 import { runEffect } from "./effectTestRuntime";
@@ -898,11 +898,9 @@ function apply(
 
 function ensureTable(
   persistence: PGlitePersistence,
-  input: Parameters<typeof ensureStableTableIdentityInTransaction>[1],
+  input: Parameters<typeof ensureStableTableIdentityEffect>[1],
 ) {
-  return persistence.drizzle.transaction((tx) =>
-    ensureStableTableIdentityInTransaction(tx, input),
-  );
+  return runEffect(ensureStableTableIdentityEffect(persistence.drizzle, input));
 }
 
 async function insertRawIndex(
