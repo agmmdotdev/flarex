@@ -1,5 +1,6 @@
 import { asNonArrayRecord } from "@flarex/utils/records";
 import { encodeFlarexId } from "flarex/ids";
+import { isWritableJsonObject } from "flarex-protocol/json";
 import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
 
 import {
@@ -406,7 +407,7 @@ function partitionKeyFromArgs(
   field: string,
   label: string,
 ): string {
-  if (typeof request.args !== "object" || request.args === null || Array.isArray(request.args)) {
+  if (!isWritableJsonObject(request.args)) {
     throw new PartitionValidationError(
       `${request.path} ${label} requires object arguments.`,
     );

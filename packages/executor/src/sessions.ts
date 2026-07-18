@@ -1013,7 +1013,7 @@ function queryRequest(value: PersistenceJson): {
   cursor?: string;
   order?: "asc" | "desc";
 } {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isWritableJsonObject(value)) {
     throw new InvokeQueryRequestError("request must be an object.");
   }
   const table = value.table;
@@ -1051,7 +1051,7 @@ function queryRequest(value: PersistenceJson): {
 
 function queryRange(value: PersistenceJson | undefined): IndexRangeExpression[] {
   if (value === undefined) return [];
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isWritableJsonObject(value)) {
     throw new InvokeQueryRequestError("request.range must be an object.");
   }
   const expressions = value.expressions;
@@ -1060,7 +1060,7 @@ function queryRange(value: PersistenceJson | undefined): IndexRangeExpression[] 
     throw new InvokeQueryRequestError("request.range.expressions must be an array.");
   }
   return expressions.map((expression, index) => {
-    if (typeof expression !== "object" || expression === null || Array.isArray(expression)) {
+    if (!isWritableJsonObject(expression)) {
       throw new InvokeQueryRequestError(
         `request.range.expressions[${index}] must be an object.`,
       );

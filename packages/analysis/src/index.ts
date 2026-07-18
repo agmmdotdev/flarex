@@ -471,11 +471,9 @@ export const backendCodegenAnalysisFromCodegenAnalysisEffect = Effect.fn(
 export function normalizeAnalyzerDiagnostics(value: unknown): AnalyzerDiagnostic[] {
   if (!Array.isArray(value)) return [];
   return value.slice(-100).flatMap(diagnostic => {
-    if (typeof diagnostic !== "object" || diagnostic === null || Array.isArray(diagnostic)) {
-      return [];
-    }
-    const level = (diagnostic as Partial<AnalyzerDiagnostic>).level;
-    const message = (diagnostic as Partial<AnalyzerDiagnostic>).message;
+    if (!isRecord(diagnostic)) return [];
+    const level = diagnostic.level;
+    const message = diagnostic.message;
     if ((level !== "log" && level !== "warn" && level !== "error") || typeof message !== "string") {
       return [];
     }

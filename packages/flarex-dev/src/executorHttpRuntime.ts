@@ -3,6 +3,7 @@ import {
   createFlarexHttpHandler,
   type FlarexHttpAppConfig,
 } from "@flarex/executor-http";
+import { isNonArrayRecord } from "@flarex/utils/records";
 import type {
   FlarexExecutor,
   FlarexExecutorConfig,
@@ -240,10 +241,10 @@ async function validateMaterializableSourcePackage(
     throw new Error(`Deployment package ${packageId} is missing source modules.`);
   }
   const modules: PushSourcePackage["modules"] = value.modules.map((module, index) => {
-    if (typeof module !== "object" || module === null || Array.isArray(module)) {
+    if (!isNonArrayRecord(module)) {
       throw new Error(`Deployment package ${packageId} has an invalid module at ${index}.`);
     }
-    const candidate = module as Record<string, unknown>;
+    const candidate = module;
     if (
       typeof candidate.path !== "string" ||
       candidate.environment !== "isolate" ||

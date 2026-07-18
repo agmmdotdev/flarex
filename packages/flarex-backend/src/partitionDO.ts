@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { encodeFlarexId, parseFlarexId } from "flarex/ids";
+import { isWritableJsonObject } from "flarex-protocol/json";
 import {
   badRequestErrorToHttpError,
   errorResponse,
@@ -571,7 +572,7 @@ export class PartitionDO extends DurableObject<Env> {
     if (partitionKey === null) {
       return Effect.fail(partitionDomainValidationError("Partition placement validation requires a cached partitionKey."));
     }
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    if (!isWritableJsonObject(value)) {
       return Effect.fail(partitionDomainValidationError(
         `PlacementValidationError: $document(${tableName}) must be an object for placement validation.`,
       ));
@@ -1431,7 +1432,7 @@ function rootOwnerFieldForPlacement(placement: TablePlacement): string | null {
 }
 
 function documentOwnerValue(tableName: string, ownerField: string, value: Json): string {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (!isWritableJsonObject(value)) {
     throw partitionDomainValidationError(
       `PlacementValidationError: $document(${tableName}) must be an object for placement validation.`,
     );

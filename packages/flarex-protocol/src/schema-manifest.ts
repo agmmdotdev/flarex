@@ -1,3 +1,4 @@
+import { isNonArrayRecord } from "@flarex/utils/records";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { Schema } from "effect";
 
@@ -11,6 +12,7 @@ import {
 import {
   encodeCanonicalJson,
   isJsonArray,
+  isJsonObject,
   type CanonicalJsonEncodingInvariantIssue,
   type Json,
 } from "./json";
@@ -469,16 +471,11 @@ export async function canonicalizeSchemaManifestV1(
 export function isSchemaManifestJson(
   value: unknown,
 ): value is SchemaManifestJson {
-  return isCanonicalJsonValue(value, 0, new WeakSet()) &&
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value);
+  return isCanonicalJsonValue(value, 0, new WeakSet()) && isJsonObject(value);
 }
 
 function preflightSchemaManifestTableDefinitions(value: unknown): void {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return;
-  }
+  if (!isNonArrayRecord(value)) return;
   const descriptor = Object.getOwnPropertyDescriptor(value, "tables");
   if (descriptor !== undefined && "value" in descriptor) {
     preflightSchemaManifestAppTableArray(descriptor.value);
@@ -492,9 +489,7 @@ function preflightSchemaManifestAppTableArray(value: unknown): void {
 }
 
 function preflightSchemaManifestAppSchema(value: unknown): void {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return;
-  }
+  if (!isNonArrayRecord(value)) return;
   const tableDefinitions = Object.getOwnPropertyDescriptor(
     value,
     "tableDefinitions",
@@ -509,9 +504,7 @@ function preflightSchemaManifestAppSchema(value: unknown): void {
 }
 
 function preflightSchemaManifestIndexBindings(value: unknown): void {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return;
-  }
+  if (!isNonArrayRecord(value)) return;
   const descriptor = Object.getOwnPropertyDescriptor(value, "indexes");
   if (descriptor !== undefined && "value" in descriptor) {
     preflightSchemaManifestAppIndexArray(descriptor.value);
@@ -530,9 +523,7 @@ function preflightSchemaManifestAppIndexArray(value: unknown): void {
 }
 
 function preflightSchemaManifestAppIndexFields(value: unknown): void {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return;
-  }
+  if (!isNonArrayRecord(value)) return;
   const directFields = Object.getOwnPropertyDescriptor(value, "fields");
   if (directFields !== undefined && "value" in directFields) {
     preflightSchemaManifestAppIndexFieldArray(directFields.value);
@@ -541,9 +532,7 @@ function preflightSchemaManifestAppIndexFields(value: unknown): void {
   if (
     spec !== undefined &&
     "value" in spec &&
-    spec.value !== null &&
-    typeof spec.value === "object" &&
-    !Array.isArray(spec.value)
+    isNonArrayRecord(spec.value)
   ) {
     const specFields = Object.getOwnPropertyDescriptor(spec.value, "fields");
     if (specFields !== undefined && "value" in specFields) {
