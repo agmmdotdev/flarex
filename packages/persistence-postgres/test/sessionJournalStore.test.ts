@@ -49,6 +49,7 @@ import {
   expectTypeOf,
   it,
 } from "vitest";
+import { Effect, Fiber } from "effect";
 
 import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
@@ -66,6 +67,7 @@ import {
   InvalidSessionJournalInputV1Error,
   PinnedPointTableCorruptionV1Error,
   PinnedPointTableNotFoundV1Error,
+  SessionJournalAttemptUnavailableV1Error,
   SessionJournalIdentityGenerationV1Error,
   SessionJournalPersistenceV1Error,
   SessionJournalSealV1Error,
@@ -77,8 +79,8 @@ import {
   type SessionJournalStorePersistenceV1,
 } from "../src/sessionJournalStore";
 import {
-  PointMutationSessionAttemptLoadV1Error,
   createPointMutationSessionActivationPersistenceV1,
+  type LocatedPointMutationSessionActivationTargetOptionsV1,
   type PointMutationSessionAnchorV1,
   type PointMutationSessionAttemptSelectorV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
@@ -86,6 +88,7 @@ import {
 import {
   runEffect,
   runEffectFailure as runFailure,
+  runSessionJournalPointOperation as runPointOperation,
 } from "./effectTestRuntime";
 import {
   pointMutationSessionActivationFixture,
@@ -106,6 +109,7 @@ const SEEDED_CREATION_TIME = decodeAppCreationTimeV1(1_725_000_000_000.25);
 interface ScenarioOptions {
   readonly randomUuid?: () => string;
   readonly seedFields?: unknown;
+  readonly targetOptions?: LocatedPointMutationSessionActivationTargetOptionsV1;
 }
 
 interface JournalScenario {
@@ -229,7 +233,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         options.seedFields,
       );
 
-    const ports = resolutionPorts(persistence);
+    const ports = resolutionPorts(persistence, options.targetOptions);
     const activation = await createPointMutationSessionActivationPersistenceV1(
       ports,
       {
@@ -384,12 +388,15 @@ describe("C03 Postgres SessionJournalStore", () => {
       operation: "resolveJournalTarget",
       cause: resolutionCause,
     } satisfies Partial<SessionJournalPersistenceV1Error>);
-    await expect(current.store.runPointOperation(current.table, {
-      kind: "patch",
-      syscallSequence: syscallSequence(1n),
-      documentId: documentId(current.tableId, 999),
-      patch: { ["r".repeat(1_025)]: undefined },
-    })).rejects.toBeInstanceOf(InvalidSessionJournalInputV1Error);
+    await expect(runFailure(current.store.runPointOperationEffect(
+      current.table,
+      {
+        kind: "patch",
+        syscallSequence: syscallSequence(1n),
+        documentId: documentId(current.tableId, 999),
+        patch: { ["r".repeat(1_025)]: undefined },
+      },
+    ))).resolves.toBeInstanceOf(InvalidSessionJournalInputV1Error);
     expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
       state: "open",
       last_syscall_sequence: "0",
@@ -432,20 +439,23 @@ describe("C03 Postgres SessionJournalStore", () => {
     } satisfies SessionJournalPointOperationV1);
 
     await expect(
-      current.store.runPointOperation(current.table, firstRequest),
+      runEffect(current.store.runPointOperationEffect(
+        current.table,
+        firstRequest,
+      )),
     ).resolves.toEqual({
       kind: "completed",
       delivery: "executed",
       outcome: { kind: "missing", document: null },
     });
     await expect(
-      current.store.runPointOperation(current.table, firstRequest),
+      runPointOperation(current.store, current.table, firstRequest),
     ).resolves.toEqual({
       kind: "completed",
       delivery: "replayed",
       outcome: { kind: "missing", document: null },
     });
-    await expect(current.store.runPointOperation(current.table, {
+    await expect(runPointOperation(current.store, current.table, {
       kind: "get",
       syscallSequence: syscallSequence(1n),
       documentId: secondDocumentId,
@@ -453,7 +463,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       kind: "sequenceRejected",
       issue: { reason: "requestMismatch", syscallSequence: 1n },
     });
-    await expect(current.store.runPointOperation(current.table, {
+    await expect(runPointOperation(current.store, current.table, {
       kind: "get",
       syscallSequence: syscallSequence(3n),
       documentId: secondDocumentId,
@@ -461,7 +471,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       kind: "sequenceRejected",
       issue: { reason: "sequenceGap", actual: 3n, expectedNext: 2n },
     });
-    await expect(current.store.runPointOperation(current.table, {
+    await expect(runPointOperation(current.store, current.table, {
       kind: "get",
       syscallSequence: syscallSequence(2n),
       documentId: secondDocumentId,
@@ -471,7 +481,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       outcome: { kind: "missing" },
     });
     await expect(
-      current.store.runPointOperation(current.table, firstRequest),
+      runPointOperation(current.store, current.table, firstRequest),
     ).resolves.toMatchObject({
       kind: "sequenceRejected",
       issue: { reason: "staleSequence", actual: 1n, lastAccepted: 2n },
@@ -502,7 +512,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     });
     const documentId = requireSeededDocumentId(current);
 
-    await expect(current.store.runPointOperation(current.table, {
+    await expect(runPointOperation(current.store, current.table, {
       kind: "get",
       syscallSequence: syscallSequence(1n),
       documentId,
@@ -510,7 +520,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       kind: "completed",
       outcome: { kind: "present", document: { name: "database" } },
     });
-    await expect(current.store.runPointOperation(current.table, {
+    await expect(runPointOperation(current.store, current.table, {
       kind: "patch",
       syscallSequence: syscallSequence(2n),
       documentId,
@@ -539,7 +549,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       [current.anchor.sessionId],
     );
 
-    await expect(current.store.runPointOperation(current.table, {
+    await expect(runPointOperation(current.store, current.table, {
       kind: "get",
       syscallSequence: syscallSequence(3n),
       documentId,
@@ -570,7 +580,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       randomUuid: generated,
     });
 
-    const inserted = await current.store.runPointOperation(current.table, {
+    const inserted = await runPointOperation(current.store, current.table, {
       kind: "insert",
       syscallSequence: syscallSequence(1n),
       fields: { name: "created", keep: true },
@@ -578,7 +588,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     const firstDocumentId = requireInsertedDocumentId(inserted);
     const firstCreationTime = requireInsertedCreationTime(inserted);
 
-    await expect(current.store.runPointOperation(current.table, {
+    await expect(runPointOperation(current.store, current.table, {
       kind: "get",
       syscallSequence: syscallSequence(2n),
       documentId: firstDocumentId,
@@ -586,30 +596,30 @@ describe("C03 Postgres SessionJournalStore", () => {
       kind: "completed",
       outcome: { kind: "present", document: { name: "created", keep: true } },
     });
-    await expect(current.store.runPointOperation(current.table, {
+    await expect(runPointOperation(current.store, current.table, {
       kind: "patch",
       syscallSequence: syscallSequence(3n),
       documentId: firstDocumentId,
       patch: { name: "patched", keep: undefined },
     })).resolves.toMatchObject({ kind: "completed" });
-    await expect(current.store.runPointOperation(current.table, {
+    await expect(runPointOperation(current.store, current.table, {
       kind: "patch",
       syscallSequence: syscallSequence(4n),
       documentId: firstDocumentId,
       patch: { name: "patched" },
     })).resolves.toMatchObject({ kind: "completed" });
-    await expect(current.store.runPointOperation(current.table, {
+    await expect(runPointOperation(current.store, current.table, {
       kind: "replace",
       syscallSequence: syscallSequence(5n),
       documentId: firstDocumentId,
       fields: { name: "replaced" },
     })).resolves.toMatchObject({ kind: "completed" });
-    await expect(current.store.runPointOperation(current.table, {
+    await expect(runPointOperation(current.store, current.table, {
       kind: "delete",
       syscallSequence: syscallSequence(6n),
       documentId: firstDocumentId,
     })).resolves.toMatchObject({ kind: "completed" });
-    await expect(current.store.runPointOperation(current.table, {
+    await expect(runPointOperation(current.store, current.table, {
       kind: "get",
       syscallSequence: syscallSequence(7n),
       documentId: firstDocumentId,
@@ -617,7 +627,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       kind: "completed",
       outcome: { kind: "missing" },
     });
-    await expect(current.store.runPointOperation(current.table, {
+    await expect(runPointOperation(current.store, current.table, {
       kind: "patch",
       syscallSequence: syscallSequence(8n),
       documentId: firstDocumentId,
@@ -626,7 +636,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       kind: "rejected",
       issue: { reason: "documentNotFound", operation: "patch" },
     });
-    await expect(current.store.runPointOperation(current.table, {
+    await expect(runPointOperation(current.store, current.table, {
       kind: "insert",
       syscallSequence: syscallSequence(9n),
       fields: { name: "collision" },
@@ -634,7 +644,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       kind: "rejected",
       issue: { reason: "documentIdCollision", documentId: firstDocumentId },
     });
-    const secondInsert = await current.store.runPointOperation(current.table, {
+    const secondInsert = await runPointOperation(current.store, current.table, {
       kind: "insert",
       syscallSequence: syscallSequence(10n),
       fields: { name: "second" },
@@ -718,8 +728,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       fields: { name: "stable" },
     } satisfies SessionJournalPointOperationV1);
 
-    const created = await current.store.runPointOperation(
-      current.table,
+    const created = await runPointOperation(current.store, current.table,
       request,
     );
     const creationTime = requireInsertedCreationTime(created);
@@ -751,7 +760,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       restartedStore.resolvePointTableEffect(restartedAttempt, "users"),
     );
     await expect(
-      restartedStore.runPointOperation(restartedTable, request),
+      runPointOperation(restartedStore, restartedTable, request),
     ).resolves.toMatchObject({
       kind: "completed",
       delivery: "replayed",
@@ -762,7 +771,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     const invalid = await scenario("invalid_uuid", {
       randomUuid: () => "not-a-v4-uuid",
     });
-    await expect(invalid.store.runPointOperation(invalid.table, {
+    await expect(runPointOperation(invalid.store, invalid.table, {
       kind: "insert",
       syscallSequence: syscallSequence(1n),
       fields: { name: "invalid" },
@@ -839,8 +848,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         [current.anchor.sessionId, limit.maximum],
       );
 
-      const first = await current.store.runPointOperation(
-        current.table,
+      const first = await runPointOperation(current.store, current.table,
         limit.operation(current, 1n),
       );
       expect(first).toMatchObject({
@@ -865,8 +873,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         expect(first.issue.observed).toBe(limit.maximum + 1);
       }
 
-      await expect(current.store.runPointOperation(
-        current.table,
+      await expect(runPointOperation(current.store, current.table,
         limit.operation(current, 2n),
       )).resolves.toMatchObject({
         kind: "rejected",
@@ -944,8 +951,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         `,
         [current.anchor.sessionId, MAX_COMMIT_READ_DOCUMENTS_V1],
       );
-      await expect(current.store.runPointOperation(
-        current.table,
+      await expect(runPointOperation(current.store, current.table,
         failedRequest,
       )).resolves.toMatchObject({
         kind: "rejected",
@@ -960,13 +966,12 @@ describe("C03 Postgres SessionJournalStore", () => {
         corrupt.outcome,
       );
 
-      await expect(current.store.runPointOperation(
-        current.table,
+      await expect(runPointOperation(current.store, current.table,
         failedRequest,
       )).rejects.toMatchObject({
         reason: "failedJournalReceiptInvalid",
       });
-      await expect(current.store.runPointOperation(current.table, {
+      await expect(runPointOperation(current.store, current.table, {
         kind: "get",
         syscallSequence: syscallSequence(2n),
         documentId,
@@ -983,8 +988,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       syscallSequence: syscallSequence(1n),
       documentId: documentId(current.tableId, 401),
     } satisfies SessionJournalPointOperationV1);
-    await expect(current.store.runPointOperation(
-      current.table,
+    await expect(runPointOperation(current.store, current.table,
       request,
     )).resolves.toMatchObject({
       kind: "completed",
@@ -998,8 +1002,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       maximum: MAX_COMMIT_READ_DOCUMENTS_V1,
     });
 
-    await expect(current.store.runPointOperation(
-      current.table,
+    await expect(runPointOperation(current.store, current.table,
       request,
     )).rejects.toMatchObject({ reason: "journalReceiptStateMismatch" });
     await expect(current.store.prepareSeal(current.attempt)).rejects
@@ -1017,7 +1020,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     });
     const probeDocumentId = requireSeededDocumentId(probe);
     for (let index = 1; index <= operationCount; index += 1) {
-      await expect(probe.store.runPointOperation(probe.table, {
+      await expect(runPointOperation(probe.store, probe.table, {
         kind: "patch",
         syscallSequence: syscallSequence(BigInt(index)),
         documentId: probeDocumentId,
@@ -1056,7 +1059,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       const fieldBytes = index === operationCount
         ? finalFieldBytes
         : baseFieldBytes;
-      await expect(exact.store.runPointOperation(exact.table, {
+      await expect(runPointOperation(exact.store, exact.table, {
         kind: "patch",
         syscallSequence: syscallSequence(BigInt(index)),
         documentId: exactDocumentId,
@@ -1097,7 +1100,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     const documentId = requireSeededDocumentId(current);
     const removalFieldCount = 1_023;
     const removalFieldBytes = removalFieldCapacityBytes(removalFieldCount);
-    await expect(current.store.runPointOperation(current.table, {
+    await expect(runPointOperation(current.store, current.table, {
       kind: "patch",
       syscallSequence: syscallSequence(1n),
       documentId,
@@ -1134,7 +1137,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     } satisfies SessionJournalPointOperationV1);
 
     await expect(
-      current.store.runPointOperation(current.table, secondRequest),
+      runPointOperation(current.store, current.table, secondRequest),
     ).resolves.toEqual({
       kind: "rejected",
       delivery: "executed",
@@ -1160,7 +1163,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       overlayBefore,
     );
     await expect(
-      current.store.runPointOperation(current.table, secondRequest),
+      runPointOperation(current.store, current.table, secondRequest),
     ).resolves.toMatchObject({
       kind: "rejected",
       delivery: "replayed",
@@ -1178,7 +1181,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         "86000000-0000-4000-8000-000000000099",
       ),
     });
-    await current.store.runPointOperation(current.table, {
+    await runPointOperation(current.store, current.table, {
       kind: "insert",
       syscallSequence: syscallSequence(1n),
       fields: { name: "recompute" },
@@ -1300,13 +1303,13 @@ describe("C03 Postgres SessionJournalStore", () => {
         "86000000-0000-4000-8000-000000000001",
       ),
     });
-    const inserted = await current.store.runPointOperation(current.table, {
+    const inserted = await runPointOperation(current.store, current.table, {
       kind: "insert",
       syscallSequence: syscallSequence(1n),
       fields: { name: "temporary" },
     });
     const documentId = requireInsertedDocumentId(inserted);
-    await current.store.runPointOperation(current.table, {
+    await runPointOperation(current.store, current.table, {
       kind: "get",
       syscallSequence: syscallSequence(2n),
       documentId,
@@ -1338,7 +1341,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         "87000000-0000-4000-8000-000000000001",
       ),
     });
-    const inserted = await current.store.runPointOperation(current.table, {
+    const inserted = await runPointOperation(current.store, current.table, {
       kind: "insert",
       syscallSequence: syscallSequence(1n),
       fields: { name: "seal" },
@@ -1352,7 +1355,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       canonicalizeSuccessfulResultV1Effect({ ok: true }),
     );
 
-    await current.store.runPointOperation(current.table, {
+    await runPointOperation(current.store, current.table, {
       kind: "get",
       syscallSequence: syscallSequence(2n),
       documentId,
@@ -1426,7 +1429,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       journalSha256Hex: canonicalJournal.sha256Hex,
       successfulResult: successfulResult.evidence,
     });
-    await expect(current.store.runPointOperation(current.table, {
+    await expect(runPointOperation(current.store, current.table, {
       kind: "get",
       syscallSequence: syscallSequence(3n),
       documentId,
@@ -1456,7 +1459,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         "88000000-0000-4000-8000-000000000001",
       ),
     });
-    await sealed.store.runPointOperation(sealed.table, {
+    await runPointOperation(sealed.store, sealed.table, {
       kind: "insert",
       syscallSequence: syscallSequence(1n),
       fields: { name: "sealed" },
@@ -1494,7 +1497,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     const point = await scenario("nullable_checks_point", {
       seedFields: { name: "point" },
     });
-    await point.store.runPointOperation(point.table, {
+    await runPointOperation(point.store, point.table, {
       kind: "get",
       syscallSequence: syscallSequence(1n),
       documentId: requireSeededDocumentId(point),
@@ -1508,7 +1511,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       `,
       [point.anchor.sessionId],
     )).rejects.toThrow();
-    await point.store.runPointOperation(point.table, {
+    await runPointOperation(point.store, point.table, {
       kind: "patch",
       syscallSequence: syscallSequence(2n),
       documentId: requireSeededDocumentId(point),
@@ -1589,13 +1592,16 @@ describe("C03 Postgres SessionJournalStore", () => {
       `,
       [terminal.anchor.sessionId],
     );
-    await expect(terminal.store.runPointOperation(terminal.table, {
-      kind: "get",
-      syscallSequence: syscallSequence(1n),
-      documentId: documentId(terminal.tableId, 201),
-    })).rejects.toMatchObject({
+    await expect(runFailure(terminal.store.runPointOperationEffect(
+      terminal.table,
+      {
+        kind: "get",
+        syscallSequence: syscallSequence(1n),
+        documentId: documentId(terminal.tableId, 201),
+      },
+    ))).resolves.toMatchObject({
       issue: { reason: "attemptNotRunning", lifecycle: "finishing" },
-    } satisfies Partial<PointMutationSessionAttemptLoadV1Error>);
+    } satisfies Partial<SessionJournalAttemptUnavailableV1Error>);
     expect(await journalRoot(terminal.anchor.sessionId)).toMatchObject({
       state: "open",
       last_syscall_sequence: "0",
@@ -1610,13 +1616,16 @@ describe("C03 Postgres SessionJournalStore", () => {
       `,
       [expired.anchor.sessionId],
     );
-    await expect(expired.store.runPointOperation(expired.table, {
-      kind: "get",
-      syscallSequence: syscallSequence(1n),
-      documentId: documentId(expired.tableId, 202),
-    })).rejects.toMatchObject({
+    await expect(runFailure(expired.store.runPointOperationEffect(
+      expired.table,
+      {
+        kind: "get",
+        syscallSequence: syscallSequence(1n),
+        documentId: documentId(expired.tableId, 202),
+      },
+    ))).resolves.toMatchObject({
       issue: { reason: "activeAttemptExpired" },
-    } satisfies Partial<PointMutationSessionAttemptLoadV1Error>);
+    } satisfies Partial<SessionJournalAttemptUnavailableV1Error>);
     expect(await journalCounts(expired.anchor.sessionId)).toMatchObject({
       receipts: 0,
       points: 0,
@@ -1624,8 +1633,52 @@ describe("C03 Postgres SessionJournalStore", () => {
     });
   });
 
+  it("waits for the transaction Promise to settle after direct Effect interruption", async () => {
+    const entered = deferredSignal();
+    const release = deferredSignal();
+    let pauseJournalRootLock = true;
+    const current = await scenario("effect_interruption_settlement", {
+      targetOptions: {
+        afterLoadLock: async (step) => {
+          if (step !== "journalRootLocked" || !pauseJournalRootLock) return;
+          pauseJournalRootLock = false;
+          entered.resolve();
+          await release.promise;
+        },
+      },
+    });
+    const fiber = Effect.runFork(current.store.runPointOperationEffect(
+      current.table,
+      {
+        kind: "get",
+        syscallSequence: syscallSequence(1n),
+        documentId: documentId(current.tableId, 203),
+      },
+    ));
+
+    await entered.promise;
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+      interruptionSettled = true;
+      return exit;
+    });
+    try {
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      release.resolve();
+    }
+    await interruption;
+    expect(interruptionSettled).toBe(true);
+    expect(await journalCounts(current.anchor.sessionId)).toMatchObject({
+      receipts: 1,
+      points: 1,
+    });
+  });
+
   function resolutionPorts(
     selectedPersistence: PGliteFlarexPersistence,
+    targetOptions: LocatedPointMutationSessionActivationTargetOptionsV1 = {},
   ): PointMutationSessionAuthorityResolutionPortsV1 {
     return {
       scopeMetadata: selectedPersistence,
@@ -1641,6 +1694,7 @@ describe("C03 Postgres SessionJournalStore", () => {
           createPGliteLocatedPointMutationSessionActivationTargetV1(
             selectedPersistence,
             physicalLocator,
+            targetOptions,
           ),
       },
     };
@@ -2006,4 +2060,27 @@ function removalFieldPrefixes(fieldCount: number): ReadonlyArray<string> {
     { length: fieldCount },
     (_, index) => `r${index.toString(36).padStart(6, "0")}_`,
   );
+}
+
+function deferredSignal(): Readonly<{
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+}> {
+  let resolveSignal: (() => void) | undefined;
+  const promise = new Promise<void>((resolve) => {
+    resolveSignal = resolve;
+  });
+  return Object.freeze({
+    promise,
+    resolve: () => {
+      if (resolveSignal === undefined) {
+        throw new Error("Deferred signal was not initialized.");
+      }
+      resolveSignal();
+    },
+  });
+}
+
+async function delay(milliseconds: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }

@@ -15,13 +15,22 @@ model still lives outside Effect.
 
 ## Current Migration Status
 
-The first bounded vertical slices port session-journal table resolution and
-attempt opening. The persistence contract now exposes Effect-native operations
-with exact domain and persistence failures, and the executor consumes those
-operations directly. Persistence tests now enter both operations through one
-explicit test runtime bridge; the former Promise table resolver and synchronous
-attempt opener have been removed. Point operations, sealing, and transaction
-ownership remain outside these slices.
+The first bounded vertical slices port session-journal attempt opening, table
+resolution, and point-operation orchestration. The persistence contract now
+exposes Effect-native operations with explicit domain and persistence failures,
+and the executor consumes them directly instead of placing a broad
+`tryPromise` adapter around the persistence call. Point-operation input capture
+uses a pure `Result` boundary, while request hashing, authority resolution, and
+the Drizzle transaction remain narrow foreign Promise edges. Once the point
+operation enters its transaction Promise edge, interruption waits for that
+Promise to settle so a direct persistence caller cannot observe cancellation
+while the transaction continues toward an unknown commit outcome.
+
+Persistence tests now enter point operations through the shared explicit test
+runtime, so the Promise point-operation facade, former Promise table resolver,
+and synchronous attempt opener have been removed. Precise transaction
+begin/commit/rollback failure ownership and session-journal sealing remain
+later slices; this checkpoint does not claim those migrations are complete.
 
 ## Target Boundary
 

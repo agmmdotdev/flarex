@@ -146,9 +146,11 @@ import {
   type ExactRunningAttemptKernelContextV1,
   type LocatedExactRunningAttemptKernelV1,
 } from "./transactionSessionAttemptKernel";
-import type {
-  PointMutationSessionAttemptSelectorV1,
-  PointMutationSessionAuthorityResolutionPortsV1,
+import {
+  PointMutationSessionAttemptLoadV1Error,
+  type PointMutationSessionAttemptLoadIssueV1,
+  type PointMutationSessionAttemptSelectorV1,
+  type PointMutationSessionAuthorityResolutionPortsV1,
 } from "./transactionSessionActivation";
 
 const StrictStructOptions: {
@@ -347,10 +349,13 @@ export interface SessionJournalStorePersistenceV1 {
     PinnedPointTableV1,
     SessionJournalResolvePointTableV1Error
   >;
-  readonly runPointOperation: (
+  readonly runPointOperationEffect: (
     table: PinnedPointTableV1,
     operation: SessionJournalPointOperationV1,
-  ) => Promise<RunSessionJournalPointOperationV1Result>;
+  ) => Effect.Effect<
+    RunSessionJournalPointOperationV1Result,
+    SessionJournalRunPointOperationV1Error
+  >;
   readonly prepareSeal: (
     attempt: SessionJournalAttemptV1,
   ) => Promise<PreparedSessionJournalSealResultV1>;
@@ -389,10 +394,20 @@ export class SessionJournalTargetUnavailableV1Error extends Data.TaggedError(
   readonly scopeId: ScopeId;
 }> {}
 
+export class SessionJournalAttemptUnavailableV1Error extends Data.TaggedError(
+  "SessionJournalAttemptUnavailableV1Error",
+)<{
+  readonly issue: PointMutationSessionAttemptLoadIssueV1;
+}> {}
+
 export class SessionJournalPersistenceV1Error extends Data.TaggedError(
   "SessionJournalPersistenceV1Error",
 )<{
-  readonly operation: "resolveJournalTarget" | "resolvePinnedPointTable";
+  readonly operation:
+    | "canonicalizePointRequest"
+    | "resolveJournalTarget"
+    | "resolvePinnedPointTable"
+    | "runPointOperation";
   readonly cause: unknown;
 }> {}
 
@@ -402,6 +417,15 @@ export type SessionJournalResolvePointTableV1Error =
   | PinnedPointTableCorruptionV1Error
   | PinnedPointTableNotFoundV1Error
   | SessionJournalPersistenceV1Error
+  | SessionJournalTargetUnavailableV1Error;
+
+export type SessionJournalRunPointOperationV1Error =
+  | InvalidSessionJournalCapabilityV1Error
+  | InvalidSessionJournalInputV1Error
+  | SessionJournalAttemptUnavailableV1Error
+  | SessionJournalIdentityGenerationV1Error
+  | SessionJournalPersistenceV1Error
+  | SessionJournalStorageCorruptionV1Error
   | SessionJournalTargetUnavailableV1Error;
 
 type SessionJournalStorageCorruptionReasonV1 =
@@ -697,6 +721,40 @@ export function createSessionJournalStorePersistenceV1(
     return createAttemptHandle(state);
   });
 
+  const resolveJournalTargetEffect = Effect.fn(
+    "SessionJournalStore.resolveJournalTarget",
+  )(function* (attempt: SessionJournalAttemptStateV1): Effect.fn.Return<
+    ResolvedJournalTargetV1,
+    SessionJournalPersistenceV1Error | SessionJournalTargetUnavailableV1Error
+  > {
+    const located = yield* Effect.tryPromise({
+      try: () => resolveLocatedTrustedScopeAuthority(
+        attempt.selector.deploymentId,
+        {
+          scopeMetadata: ports.scopeMetadata,
+          provisioningReceipts: ports.provisioningReceipts,
+          scopeClockTargets: ports.scopeSessionTargets,
+        },
+      ),
+      catch: (cause) => new SessionJournalPersistenceV1Error({
+        operation: "resolveJournalTarget",
+        cause,
+      }),
+    });
+    if (
+      located.authority.scopeId !== attempt.selector.scopeId ||
+      !isLocatedExactRunningAttemptKernelV1(located.target)
+    ) {
+      return yield* Effect.fail(new SessionJournalTargetUnavailableV1Error({
+        scopeId: attempt.selector.scopeId,
+      }));
+    }
+    return Object.freeze({
+      target: located.target,
+      authority: located.authority,
+    });
+  });
+
   const resolvePointTableEffect: SessionJournalStorePersistenceV1[
     "resolvePointTableEffect"
   ] = Effect.fn("SessionJournalStore.resolvePointTable")(function* (
@@ -720,31 +778,9 @@ export function createSessionJournalStorePersistenceV1(
         cause,
       })),
     );
-    const located = yield* Effect.tryPromise({
-      try: () => resolveLocatedTrustedScopeAuthority(
-        attemptState.selector.deploymentId,
-        {
-          scopeMetadata: ports.scopeMetadata,
-          provisioningReceipts: ports.provisioningReceipts,
-          scopeClockTargets: ports.scopeSessionTargets,
-        },
-      ),
-      catch: (cause) => new SessionJournalPersistenceV1Error({
-        operation: "resolveJournalTarget",
-        cause,
-      }),
-    });
-    const target = located.authority.scopeId === attemptState.selector.scopeId &&
-        isLocatedExactRunningAttemptKernelV1(located.target)
-      ? located.target
-      : undefined;
-    if (target === undefined) {
-      return yield* Effect.fail(new SessionJournalTargetUnavailableV1Error({
-        scopeId: attemptState.selector.scopeId,
-      }));
-    }
+    const resolved = yield* resolveJournalTargetEffect(attemptState);
     const tableId = yield* Effect.tryPromise({
-      try: () => target[RESOLVE_PINNED_POINT_TABLE_ID_V1]({
+      try: () => resolved.target[RESOLVE_PINNED_POINT_TABLE_ID_V1]({
         deploymentId: attemptState.selector.deploymentId,
         schemaVersionId: attemptState.schemaVersionId,
         tableName,
@@ -763,42 +799,53 @@ export function createSessionJournalStorePersistenceV1(
     return handle;
   });
 
+  const runPointOperationEffect: SessionJournalStorePersistenceV1[
+    "runPointOperationEffect"
+  ] = Effect.fn("SessionJournalStore.runPointOperation")(function* (
+    table,
+    operation,
+  ) {
+    const tableState = typeof table === "object" && table !== null
+      ? tableStates.get(table)
+      : undefined;
+    if (tableState === undefined) {
+      return yield* Effect.fail(new InvalidSessionJournalCapabilityV1Error({
+        capability: "pointTable",
+      }));
+    }
+    const request = yield* Effect.fromResult(
+      captureStoredRequestResult(tableState, operation),
+    );
+    const requestEvidence = yield* canonicalizeStoredRequestEffect(request);
+    const resolved = yield* resolveJournalTargetEffect(tableState.attempt);
+    const applied = yield* Effect.uninterruptible(
+      Effect.tryPromise({
+        try: () => resolved.target[
+          RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1
+        ](
+          {
+            selector: tableState.attempt.selector,
+            preliminaryAuthority: resolved.authority,
+          },
+          (tx, context) => runPointOperationInTransaction(
+            tx,
+            context,
+            tableState,
+            request,
+            requestEvidence,
+            randomUuid,
+          ),
+        ),
+        catch: mapRunPointOperationFailure,
+      }),
+    );
+    return projectPointOperationResult(applied);
+  });
+
   return Object.freeze({
     openAttemptEffect,
     resolvePointTableEffect,
-    runPointOperation: async (
-      table: PinnedPointTableV1,
-      operation: SessionJournalPointOperationV1,
-    ): Promise<RunSessionJournalPointOperationV1Result> => {
-      const tableState = typeof table === "object" && table !== null
-        ? tableStates.get(table)
-        : undefined;
-      if (tableState === undefined) {
-        throw new InvalidSessionJournalCapabilityV1Error({
-          capability: "pointTable",
-        });
-      }
-      const request = captureStoredRequest(tableState, operation);
-      const requestEvidence = await canonicalizeStoredRequest(request);
-      const resolved = await resolveJournalTarget(ports, tableState.attempt);
-      const applied = await resolved.target[
-        RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1
-      ](
-        {
-          selector: tableState.attempt.selector,
-          preliminaryAuthority: resolved.authority,
-        },
-        (tx, context) => runPointOperationInTransaction(
-          tx,
-          context,
-          tableState,
-          request,
-          requestEvidence,
-          randomUuid,
-        ),
-      );
-      return projectPointOperationResult(applied);
-    },
+    runPointOperationEffect,
     prepareSeal: async (
       attempt: SessionJournalAttemptV1,
     ): Promise<PreparedSessionJournalSealResultV1> => {
@@ -1006,94 +1053,98 @@ async function resolveJournalTarget(
   });
 }
 
-function captureStoredRequest(
+function captureStoredRequestResult(
   table: PinnedPointTableStateV1,
   operation: SessionJournalPointOperationV1,
-): SessionJournalStoredRequestV1 {
-  try {
-    const syscallSequence = CommitSyscallSequenceV1Schema.make(
-      operation.syscallSequence,
-    );
-    switch (operation.kind) {
-      case "get": {
-        const identity = requireAppDocumentIdentityV1ForTable(
-          operation.documentId,
-          table.tableId,
-        );
-        return Object.freeze({
-          format: "flarex.session-journal-syscall",
-          codecVersion: 1,
-          kind: "get",
-          syscallSequence,
-          tableId: table.tableId,
-          documentId: identity.id,
-        });
+): Result.Result<
+  SessionJournalStoredRequestV1,
+  InvalidSessionJournalInputV1Error
+> {
+  return Result.try({
+    try: () => {
+      const syscallSequence = CommitSyscallSequenceV1Schema.make(
+        operation.syscallSequence,
+      );
+      switch (operation.kind) {
+        case "get": {
+          const identity = requireAppDocumentIdentityV1ForTable(
+            operation.documentId,
+            table.tableId,
+          );
+          return Object.freeze({
+            format: "flarex.session-journal-syscall",
+            codecVersion: 1,
+            kind: "get",
+            syscallSequence,
+            tableId: table.tableId,
+            documentId: identity.id,
+          });
+        }
+        case "insert":
+          return Object.freeze({
+            format: "flarex.session-journal-syscall",
+            codecVersion: 1,
+            kind: "insert",
+            syscallSequence,
+            tableId: table.tableId,
+            fieldsValueJson: captureDeveloperFieldsValueJson(
+              operation.fields,
+            ),
+          });
+        case "patch": {
+          const identity = requireAppDocumentIdentityV1ForTable(
+            operation.documentId,
+            table.tableId,
+          );
+          return Object.freeze({
+            format: "flarex.session-journal-syscall",
+            codecVersion: 1,
+            kind: "patch",
+            syscallSequence,
+            tableId: table.tableId,
+            documentId: identity.id,
+            changes: capturePatchChanges(operation.patch),
+          });
+        }
+        case "replace": {
+          const identity = requireAppDocumentIdentityV1ForTable(
+            operation.documentId,
+            table.tableId,
+          );
+          return Object.freeze({
+            format: "flarex.session-journal-syscall",
+            codecVersion: 1,
+            kind: "replace",
+            syscallSequence,
+            tableId: table.tableId,
+            documentId: identity.id,
+            fieldsValueJson: captureDeveloperFieldsValueJson(
+              operation.fields,
+            ),
+          });
+        }
+        case "delete": {
+          const identity = requireAppDocumentIdentityV1ForTable(
+            operation.documentId,
+            table.tableId,
+          );
+          return Object.freeze({
+            format: "flarex.session-journal-syscall",
+            codecVersion: 1,
+            kind: "delete",
+            syscallSequence,
+            tableId: table.tableId,
+            documentId: identity.id,
+          });
+        }
       }
-      case "insert":
-        return Object.freeze({
-          format: "flarex.session-journal-syscall",
-          codecVersion: 1,
-          kind: "insert",
-          syscallSequence,
-          tableId: table.tableId,
-          fieldsValueJson: captureDeveloperFieldsValueJson(
-            operation.fields,
-          ),
-        });
-      case "patch": {
-        const identity = requireAppDocumentIdentityV1ForTable(
-          operation.documentId,
-          table.tableId,
-        );
-        return Object.freeze({
-          format: "flarex.session-journal-syscall",
-          codecVersion: 1,
-          kind: "patch",
-          syscallSequence,
-          tableId: table.tableId,
-          documentId: identity.id,
-          changes: capturePatchChanges(operation.patch),
-        });
-      }
-      case "replace": {
-        const identity = requireAppDocumentIdentityV1ForTable(
-          operation.documentId,
-          table.tableId,
-        );
-        return Object.freeze({
-          format: "flarex.session-journal-syscall",
-          codecVersion: 1,
-          kind: "replace",
-          syscallSequence,
-          tableId: table.tableId,
-          documentId: identity.id,
-          fieldsValueJson: captureDeveloperFieldsValueJson(
-            operation.fields,
-          ),
-        });
-      }
-      case "delete": {
-        const identity = requireAppDocumentIdentityV1ForTable(
-          operation.documentId,
-          table.tableId,
-        );
-        return Object.freeze({
-          format: "flarex.session-journal-syscall",
-          codecVersion: 1,
-          kind: "delete",
-          syscallSequence,
-          tableId: table.tableId,
-          documentId: identity.id,
-        });
-      }
-    }
-  } catch (cause) {
-    throw new InvalidSessionJournalInputV1Error({
+    },
+    catch: (cause) => new InvalidSessionJournalInputV1Error({
       operation: operation.kind,
       reason: "invalidOperation",
       cause,
-    });
-  }
+    }),
+  });
 }
 
 function captureDeveloperFieldsValueJson(input: unknown): JsonObject {
@@ -1167,11 +1218,50 @@ function capturePatchChanges(input: unknown): ReadonlyArray<LogicalPatchFieldV1>
   return Object.freeze(changes);
 }
 
-async function canonicalizeStoredRequest(
+const canonicalizeStoredRequestEffect = Effect.fn(
+  "SessionJournalStore.canonicalizeStoredRequest",
+)(function* (
   request: SessionJournalStoredRequestV1,
-): Promise<CanonicalFlarexValueV1> {
+): Effect.fn.Return<
+  CanonicalFlarexValueV1,
+  SessionJournalPersistenceV1Error
+> {
   const encoded = encodeStoredRequest(request);
-  return canonicalizeFlarexValueJsonV1(requireJson(encoded));
+  const json = requireJson(encoded);
+  return yield* Effect.tryPromise({
+    try: () => canonicalizeFlarexValueJsonV1(json),
+    catch: (cause) => new SessionJournalPersistenceV1Error({
+      operation: "canonicalizePointRequest",
+      cause,
+    }),
+  });
+});
+
+function mapRunPointOperationFailure(
+  cause: unknown,
+): SessionJournalRunPointOperationV1Error {
+  if (
+    cause instanceof PointMutationSessionAttemptLoadV1Error
+  ) {
+    return new SessionJournalAttemptUnavailableV1Error({
+      issue: cause.issue,
+    });
+  }
+  if (
+    cause instanceof InvalidSessionJournalCapabilityV1Error ||
+    cause instanceof InvalidSessionJournalInputV1Error ||
+    cause instanceof SessionJournalAttemptUnavailableV1Error ||
+    cause instanceof SessionJournalIdentityGenerationV1Error ||
+    cause instanceof SessionJournalPersistenceV1Error ||
+    cause instanceof SessionJournalStorageCorruptionV1Error ||
+    cause instanceof SessionJournalTargetUnavailableV1Error
+  ) {
+    return cause;
+  }
+  return new SessionJournalPersistenceV1Error({
+    operation: "runPointOperation",
+    cause,
+  });
 }
 
 async function canonicalizeStoredOutcome(

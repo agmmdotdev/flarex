@@ -10,7 +10,9 @@ import {
   InvalidSessionJournalInputV1Error,
   PinnedPointTableCorruptionV1Error,
   PinnedPointTableNotFoundV1Error,
+  SessionJournalAttemptUnavailableV1Error,
   SessionJournalIdentityGenerationV1Error,
+  SessionJournalPersistenceV1Error,
   SessionJournalSealV1Error,
   SessionJournalStorageCorruptionV1Error,
   SessionJournalTargetUnavailableV1Error,
@@ -84,11 +86,17 @@ export class PointMutationJournalAttemptPinsV1Error extends Data.TaggedError(
   readonly reason: "immutablePinsMismatch";
 }> {}
 
+export class PointMutationJournalAttemptUnavailableV1Error
+  extends Data.TaggedError("PointMutationJournalAttemptUnavailableV1Error")<{
+    readonly issue: SessionJournalAttemptUnavailableV1Error["issue"];
+  }> {}
+
 export type PointMutationJournalBoundaryV1Error =
   | InvalidPointMutationJournalCapabilityV1Error
   | InvalidLoadedPointMutationSessionAttemptV1Error
   | UnsupportedPointMutationJournalOperationV1Error
   | PointMutationJournalAttemptPinsV1Error
+  | PointMutationJournalAttemptUnavailableV1Error
   | PointMutationJournalPersistenceV1Error
   | InvalidSessionJournalCapabilityV1Error
   | InvalidSessionJournalInputV1Error
@@ -300,13 +308,14 @@ export function createPointMutationJournalV1(
           catch: mapPersistenceFailure,
         });
         return yield* captured.state.attempt.coordinator.semaphore.withPermit(
-          Effect.uninterruptible(Effect.tryPromise({
-            try: () => persistence.runPointOperation(
+          Effect.uninterruptible(
+            persistence.runPointOperationEffect(
               captured.state.persistenceTable,
               captured.operation,
+            ).pipe(
+              Effect.mapError(mapPersistenceFailure),
             ),
-            catch: mapPersistenceFailure,
-          })),
+          ),
         );
       },
     );
@@ -508,6 +517,16 @@ function readDataProperty(
 function mapPersistenceFailure(
   cause: unknown,
 ): PointMutationJournalBoundaryV1Error {
+  if (cause instanceof SessionJournalAttemptUnavailableV1Error) {
+    return new PointMutationJournalAttemptUnavailableV1Error({
+      issue: cause.issue,
+    });
+  }
+  if (cause instanceof SessionJournalPersistenceV1Error) {
+    return new PointMutationJournalPersistenceV1Error({
+      cause: cause.cause,
+    });
+  }
   if (
     cause instanceof InvalidLoadedPointMutationSessionAttemptV1Error ||
     cause instanceof InvalidPointMutationJournalCapabilityV1Error ||

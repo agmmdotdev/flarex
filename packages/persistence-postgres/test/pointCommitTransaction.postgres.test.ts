@@ -75,6 +75,7 @@ import {
 import {
   runEffect,
   runEffectFailure as runFailure,
+  runSessionJournalPointOperation as runPointOperation,
 } from "./effectTestRuntime";
 import {
   pointMutationSessionActivationFixture,
@@ -707,7 +708,7 @@ async function createAttempt(
     const table = await runEffect(
       store.resolvePointTableEffect(attempt, "users"),
     );
-    await store.runPointOperation(table, {
+    await runPointOperation(store, table, {
       kind: "insert",
       syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
       fields: { name: label },

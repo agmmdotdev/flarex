@@ -141,6 +141,7 @@ import {
 import {
   runEffect,
   runEffectFailure as runFailure,
+  runSessionJournalPointOperation as runPointOperation,
 } from "./effectTestRuntime";
 import {
   pointMutationSessionActivationFixture,
@@ -444,7 +445,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const table = await runEffect(
       current.store.resolvePointTableEffect(current.attempt, "users"),
     );
-    await current.store.runPointOperation(table, {
+    await runPointOperation(current.store, table, {
       kind: "insert",
       syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
       fields: { name: "detached" },
@@ -565,7 +566,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const table = await runEffect(
       current.store.resolvePointTableEffect(current.attempt, "users"),
     );
-    const insertedThenDeleted = await current.store.runPointOperation(table, {
+    const insertedThenDeleted = await runPointOperation(current.store, table, {
       kind: "insert",
       syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
       fields: { name: "transient" },
@@ -576,12 +577,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     ) {
       throw new Error("Expected the transient insert to complete.");
     }
-    await expect(current.store.runPointOperation(table, {
+    await expect(runPointOperation(current.store, table, {
       kind: "delete",
       syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
       documentId: insertedThenDeleted.outcome.documentId,
     })).resolves.toMatchObject({ kind: "completed" });
-    await expect(current.store.runPointOperation(table, {
+    await expect(runPointOperation(current.store, table, {
       kind: "insert",
       syscallSequence: CommitSyscallSequenceV1Schema.make(3n),
       fields: { name: "material" },
@@ -714,7 +715,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const prepared = await prepareO07BScenario(
       "o07b_publish_replay",
       async (current, table) => {
-        await expect(current.store.runPointOperation(table, {
+        await expect(runPointOperation(current.store, table, {
           kind: "insert",
           syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
           fields: { name: "published" },
@@ -949,7 +950,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const prepared = await prepareO07BScenario(
       "o07b_late_rollback",
       async (current, table) => {
-        await current.store.runPointOperation(table, {
+        await runPointOperation(current.store, table, {
           kind: "insert",
           syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
           fields: { name: "rolled back" },
@@ -1021,7 +1022,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const live = await prepareO06Scenario(
       "o06_live_rollback",
       async (current, table) => {
-        await expect(current.store.runPointOperation(table, {
+        await expect(runPointOperation(current.store, table, {
           kind: "insert",
           syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
           fields: { name: "live" },
@@ -1060,7 +1061,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         if (current.seededDocumentId === null) {
           throw new Error("Missing seeded delete document.");
         }
-        await expect(current.store.runPointOperation(table, {
+        await expect(runPointOperation(current.store, table, {
           kind: "delete",
           syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
           documentId: current.seededDocumentId,
@@ -1089,7 +1090,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const noMaterial = await prepareO06Scenario(
       "o06_insert_delete_rollback",
       async (current, table) => {
-        const inserted = await current.store.runPointOperation(table, {
+        const inserted = await runPointOperation(current.store, table, {
           kind: "insert",
           syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
           fields: { name: "transient" },
@@ -1100,7 +1101,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         ) {
           throw new Error("Expected transient O06 insert.");
         }
-        await current.store.runPointOperation(table, {
+        await runPointOperation(current.store, table, {
           kind: "delete",
           syscallSequence: CommitSyscallSequenceV1Schema.make(2n),
           documentId: inserted.outcome.documentId,
@@ -1126,7 +1127,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const current = await prepareO06Scenario(
       "o06_typed_authority",
       async (scenario, table) => {
-        await scenario.store.runPointOperation(table, {
+        await runPointOperation(scenario.store, table, {
           kind: "insert",
           syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
           fields: { name: "typed" },
@@ -1241,7 +1242,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const conflict = await prepareO06Scenario(
       "o06_occ_conflict",
       async (current, table) => {
-        await current.store.runPointOperation(table, {
+        await runPointOperation(current.store, table, {
           kind: "insert",
           syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
           fields: { name: "planned" },
@@ -1263,7 +1264,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const exhausted = await prepareO06Scenario(
       "o06_sequence_exhaustion",
       async (current, table) => {
-        await current.store.runPointOperation(table, {
+        await runPointOperation(current.store, table, {
           kind: "insert",
           syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
           fields: { name: "exhausted" },
@@ -1293,7 +1294,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const current = await prepareO06Scenario(
       "o06_interruption",
       async (scenario, table) => {
-        await scenario.store.runPointOperation(table, {
+        await runPointOperation(scenario.store, table, {
           kind: "insert",
           syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
           fields: { name: "interrupt" },
@@ -1335,7 +1336,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const current = await prepareO06Scenario(
       "o06_rollback_contract_failures",
       async (scenario, table) => {
-        await scenario.store.runPointOperation(table, {
+        await runPointOperation(scenario.store, table, {
           kind: "insert",
           syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
           fields: { name: "rollback-contract" },

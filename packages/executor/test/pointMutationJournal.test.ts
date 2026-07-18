@@ -5,12 +5,13 @@ import type {
 import {
   InvalidSessionJournalInputV1Error,
   PinnedPointTableNotFoundV1Error,
+  SessionJournalAttemptUnavailableV1Error,
   SessionJournalPersistenceV1Error,
 } from "@flarex/persistence-postgres/session-journal-store";
-import type {
-  PointMutationSessionAnchorV1,
-  PointMutationSessionAttemptLoadResultV1,
-  PointMutationSessionAttemptSelectorV1,
+import {
+  type PointMutationSessionAnchorV1,
+  type PointMutationSessionAttemptLoadResultV1,
+  type PointMutationSessionAttemptSelectorV1,
 } from "@flarex/persistence-postgres/transaction-session-activation";
 import { Effect, Fiber } from "effect";
 import {
@@ -50,6 +51,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   InvalidPointMutationJournalCapabilityV1Error,
+  PointMutationJournalAttemptUnavailableV1Error,
   PointMutationJournalAttemptPinsV1Error,
   PointMutationJournalPersistenceV1Error,
   UnsupportedPointMutationJournalOperationV1Error,
@@ -522,6 +524,33 @@ describe("C03 executor point-mutation journal boundary", () => {
     expect(wrappedFailure).toMatchObject({ cause: rawFailure });
   });
 
+  it("preserves exact-attempt lifecycle failures as executor-domain failures", async () => {
+    const issues = [
+      Object.freeze({
+        reason: "attemptNotRunning",
+        lifecycle: "finishing",
+      }),
+      Object.freeze({ reason: "activeAttemptExpired" }),
+    ] satisfies ReadonlyArray<SessionJournalAttemptUnavailableV1Error["issue"]>;
+
+    for (const issue of issues) {
+      const harness = createHarness({
+        runPointOperationEffect: () => Effect.fail(
+          new SessionJournalAttemptUnavailableV1Error({ issue }),
+        ),
+      });
+      const { table } = await openResolvedTable(harness.journal);
+      const failure = await runFailure(
+        harness.journal.runPointOperation(table, getOperation(1n)),
+      );
+
+      expect(failure).toBeInstanceOf(
+        PointMutationJournalAttemptUnavailableV1Error,
+      );
+      expect(failure).toMatchObject({ issue });
+    }
+  });
+
   it("waits for the in-flight syscall, then prepares, canonicalizes, and completes the seal", async () => {
     const operationDurable = deferred<void>();
     const events: string[] = [];
@@ -604,6 +633,13 @@ interface HarnessOptions {
     persistenceTable: unknown,
     operation: SessionJournalPointOperationV1,
   ) => Promise<RunSessionJournalPointOperationV1Result>;
+  readonly runPointOperationEffect?: (
+    persistenceTable: unknown,
+    operation: SessionJournalPointOperationV1,
+  ) => Effect.Effect<
+    RunSessionJournalPointOperationV1Result,
+    SessionJournalAttemptUnavailableV1Error
+  >;
   readonly prepareSeal?: (persistenceAttempt: unknown) => Promise<Readonly<{
     readonly preparation: unknown;
     readonly journal: SessionJournalV1;
@@ -630,6 +666,15 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
   let completeSealCalls = 0;
   let completedJournal: CanonicalSessionJournalV1 | undefined;
   let completedResult: CanonicalSuccessfulResultV1 | undefined;
+  const runPointOperation = async (
+    table: unknown,
+    operation: SessionJournalPointOperationV1,
+  ): Promise<RunSessionJournalPointOperationV1Result> => {
+    operations.push(operation);
+    return options.runPointOperation === undefined
+      ? EXECUTED_MISSING
+      : options.runPointOperation(table, operation);
+  };
   const persistence = Object.freeze({
     openAttemptEffect: () => options.openAttemptFailure === undefined
       ? Effect.succeed(persistenceAttempt)
@@ -648,14 +693,21 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
           cause,
         }),
     }),
-    runPointOperation: async (
+    runPointOperationEffect: (
       table: unknown,
       operation: SessionJournalPointOperationV1,
-    ): Promise<RunSessionJournalPointOperationV1Result> => {
-      operations.push(operation);
-      return options.runPointOperation === undefined
-        ? EXECUTED_MISSING
-        : options.runPointOperation(table, operation);
+    ) => {
+      if (options.runPointOperationEffect !== undefined) {
+        operations.push(operation);
+        return options.runPointOperationEffect(table, operation);
+      }
+      return Effect.tryPromise({
+        try: () => runPointOperation(table, operation),
+        catch: (cause) => new SessionJournalPersistenceV1Error({
+          operation: "runPointOperation",
+          cause,
+        }),
+      });
     },
     prepareSeal: async (attempt: unknown) => {
       if (options.prepareSeal !== undefined) {

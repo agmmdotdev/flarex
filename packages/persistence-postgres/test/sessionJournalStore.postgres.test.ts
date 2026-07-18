@@ -66,6 +66,7 @@ import {
 } from "./postgresHelpers";
 import {
   runEffect,
+  runSessionJournalPointOperation as runPointOperation,
 } from "./effectTestRuntime";
 import {
   pointMutationSessionActivationFixture,
@@ -240,8 +241,8 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       } satisfies SessionJournalPointOperationV1);
 
       const sameResults = await Promise.all([
-        same.store.runPointOperation(same.table, sameRequest),
-        same.store.runPointOperation(same.table, sameRequest),
+        runPointOperation(same.store, same.table, sameRequest),
+        runPointOperation(same.store, same.table, sameRequest),
       ]);
 
       expect(sameResults.map(requireCompletedDelivery).sort()).toEqual([
@@ -272,7 +273,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
           },
         },
       });
-      const firstPromise = adjacent.store.runPointOperation(adjacent.table, {
+      const firstPromise = runPointOperation(adjacent.store, adjacent.table, {
         kind: "get",
         syscallSequence: syscallSequence(1n),
         documentId: documentId(adjacent.tableId, 2),
@@ -283,8 +284,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
           5_000,
           "First adjacent syscall did not acquire the journal root lock.",
         );
-        const secondPromise = adjacent.store.runPointOperation(
-          adjacent.table,
+        const secondPromise = runPointOperation(adjacent.store, adjacent.table,
           {
             kind: "get",
             syscallSequence: syscallSequence(2n),
@@ -328,8 +328,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         fields: { name: "durable" },
       } satisfies SessionJournalPointOperationV1);
 
-      const executed = await current.store.runPointOperation(
-        current.table,
+      const executed = await runPointOperation(current.store, current.table,
         request,
       );
       expect(executed).toMatchObject({
@@ -359,8 +358,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       const restartedTable = await runEffect(
         restartedStore.resolvePointTableEffect(restartedAttempt, "users"),
       );
-      const replayed = await restartedStore.runPointOperation(
-        restartedTable,
+      const replayed = await runPointOperation(restartedStore, restartedTable,
         request,
       );
 
@@ -379,7 +377,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       const current = await scenario(persistence, "abort_cleanup", {
         randomUuid: () => "94000000-0000-4000-8000-000000000001",
       });
-      await current.store.runPointOperation(current.table, {
+      await runPointOperation(current.store, current.table, {
         kind: "insert",
         syscallSequence: syscallSequence(1n),
         fields: { name: "temporary" },
@@ -435,7 +433,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         .toBe(current.tableId);
 
       const pinnedDocumentId = documentId(current.tableId, 4);
-      await expect(current.store.runPointOperation(competingTable, {
+      await expect(runPointOperation(current.store, competingTable, {
         kind: "get",
         syscallSequence: syscallSequence(1n),
         documentId: pinnedDocumentId,
@@ -443,7 +441,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         kind: "completed",
         outcome: { kind: "missing" },
       });
-      await expect(current.store.runPointOperation(current.table, {
+      await expect(runPointOperation(current.store, current.table, {
         kind: "insert",
         syscallSequence: syscallSequence(2n),
         fields: { name: "plan" },
@@ -500,7 +498,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
           },
         },
       });
-      await current.store.runPointOperation(current.table, {
+      await runPointOperation(current.store, current.table, {
         kind: "insert",
         syscallSequence: syscallSequence(1n),
         fields: { name: "seal" },
@@ -652,7 +650,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       const point = await scenario(persistence, "nullable_point", {
         randomUuid: () => "96000000-0000-4000-8000-000000000001",
       });
-      await point.store.runPointOperation(point.table, {
+      await runPointOperation(point.store, point.table, {
         kind: "insert",
         syscallSequence: syscallSequence(1n),
         fields: { name: "point" },
@@ -713,7 +711,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       const sealed = await scenario(persistence, "nullable_sealed", {
         randomUuid: () => "96000000-0000-4000-8000-000000000002",
       });
-      await sealed.store.runPointOperation(sealed.table, {
+      await runPointOperation(sealed.store, sealed.table, {
         kind: "insert",
         syscallSequence: syscallSequence(1n),
         fields: { name: "sealed" },
