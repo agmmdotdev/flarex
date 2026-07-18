@@ -58,7 +58,7 @@ export class R2ExecutionArtifactStore implements DurableExecutionArtifactStore {
 
   async put(ref: ExecutionArtifactRef, sourcePackage: SourcePackage): Promise<void> {
     await assertExecutionArtifactRefMatchesSourcePackage(ref, sourcePackage);
-    const sourcePackagePath = sourcePackageKey(ref);
+    const sourcePackagePath = executionArtifactSourcePackageKey(ref);
     const manifest: StoredExecutionArtifactManifest = {
       version: 1,
       ref,
@@ -66,12 +66,14 @@ export class R2ExecutionArtifactStore implements DurableExecutionArtifactStore {
     };
     await Promise.all([
       this.putJson(sourcePackagePath, sourcePackage),
-      this.putJson(manifestKey(ref), manifest),
+      this.putJson(executionArtifactManifestKey(ref), manifest),
     ]);
   }
 
   async get(ref: ExecutionArtifactRef): Promise<SourcePackage> {
-    const manifest = await this.getJson<unknown>(manifestKey(ref));
+    const manifest = await this.getJson<unknown>(
+      executionArtifactManifestKey(ref),
+    );
     if (manifest === null) {
       throw new Error(`Unknown execution artifact: ${ref.artifactId}`);
     }
@@ -85,7 +87,10 @@ export class R2ExecutionArtifactStore implements DurableExecutionArtifactStore {
   }
 
   async delete(ref: ExecutionArtifactRef): Promise<void> {
-    await this.bucket.delete([manifestKey(ref), sourcePackageKey(ref)]);
+    await this.bucket.delete([
+      executionArtifactManifestKey(ref),
+      executionArtifactSourcePackageKey(ref),
+    ]);
   }
 
   private putJson(key: string, value: unknown): Promise<unknown> {
@@ -98,12 +103,4 @@ export class R2ExecutionArtifactStore implements DurableExecutionArtifactStore {
     const object = await this.bucket.get(key);
     return object === null ? null : object.json<T>();
   }
-}
-
-export function manifestKey(ref: ExecutionArtifactRef): string {
-  return executionArtifactManifestKey(ref);
-}
-
-export function sourcePackageKey(ref: ExecutionArtifactRef): string {
-  return executionArtifactSourcePackageKey(ref);
 }

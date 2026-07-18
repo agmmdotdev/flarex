@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
+import {
+  executionArtifactManifestKey,
+  executionArtifactRefForSourcePackage,
+  executionArtifactSourcePackageKey,
+} from "flarex/artifacts";
 import {
   LocalInMemoryExecutionArtifactStore,
-  manifestKey,
   R2ExecutionArtifactStore,
-  sourcePackageKey,
 } from "../src/executionArtifactStore";
 import type { SourcePackage } from "../src/sourcePackage";
 
@@ -61,9 +63,16 @@ describe("local execution artifact store", () => {
 
     await store.put(ref, sourcePackage);
 
-    expect(bucket.keys()).toEqual([manifestKey(ref), sourcePackageKey(ref)]);
-    expect(bucket.contentType(manifestKey(ref))).toBe("application/json");
-    expect(bucket.contentType(sourcePackageKey(ref))).toBe("application/json");
+    expect(bucket.keys()).toEqual([
+      executionArtifactManifestKey(ref),
+      executionArtifactSourcePackageKey(ref),
+    ]);
+    expect(bucket.contentType(executionArtifactManifestKey(ref))).toBe(
+      "application/json",
+    );
+    expect(bucket.contentType(executionArtifactSourcePackageKey(ref))).toBe(
+      "application/json",
+    );
     await expect(store.get(ref)).resolves.toEqual(sourcePackage);
   });
 
@@ -89,10 +98,10 @@ describe("local execution artifact store", () => {
     await expect(store.get(ref)).rejects.toThrow(`Unknown execution artifact: ${ref.artifactId}`);
 
     await store.put(ref, sourcePackage);
-    await bucket.put(manifestKey(ref), JSON.stringify({
+    await bucket.put(executionArtifactManifestKey(ref), JSON.stringify({
       version: 1,
       ref: { ...ref, sourcePackageHash: "0".repeat(64) },
-      sourcePackagePath: sourcePackageKey(ref),
+      sourcePackagePath: executionArtifactSourcePackageKey(ref),
     }));
 
     await expect(store.get(ref)).rejects.toThrow(

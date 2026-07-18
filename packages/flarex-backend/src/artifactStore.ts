@@ -30,7 +30,7 @@ export class R2BackendExecutionArtifactStore implements BackendExecutionArtifact
 
   async put(sourcePackage: PushSourcePackage): Promise<ExecutionArtifactRef> {
     const ref = await executionArtifactRefForSourcePackage(sourcePackage);
-    const sourcePackagePath = sourcePackageKey(ref);
+    const sourcePackagePath = executionArtifactSourcePackageKey(ref);
     const manifest: StoredExecutionArtifactManifest = {
       version: 1,
       ref,
@@ -38,13 +38,15 @@ export class R2BackendExecutionArtifactStore implements BackendExecutionArtifact
     };
     await Promise.all([
       this.putJson(sourcePackagePath, sourcePackage),
-      this.putJson(manifestKey(ref), manifest),
+      this.putJson(executionArtifactManifestKey(ref), manifest),
     ]);
     return ref;
   }
 
   async get(ref: ExecutionArtifactRef): Promise<PushSourcePackage> {
-    const manifest = await this.getJson<unknown>(manifestKey(ref));
+    const manifest = await this.getJson<unknown>(
+      executionArtifactManifestKey(ref),
+    );
     if (manifest === null) {
       throw new Error(`Unknown execution artifact: ${ref.artifactId}`);
     }
@@ -58,7 +60,10 @@ export class R2BackendExecutionArtifactStore implements BackendExecutionArtifact
   }
 
   async delete(ref: ExecutionArtifactRef): Promise<void> {
-    await this.bucket.delete([manifestKey(ref), sourcePackageKey(ref)]);
+    await this.bucket.delete([
+      executionArtifactManifestKey(ref),
+      executionArtifactSourcePackageKey(ref),
+    ]);
   }
 
   private putJson(key: string, value: unknown): Promise<unknown> {
@@ -71,12 +76,4 @@ export class R2BackendExecutionArtifactStore implements BackendExecutionArtifact
     const object = await this.bucket.get(key);
     return object === null ? null : object.json<T>();
   }
-}
-
-export function manifestKey(ref: ExecutionArtifactRef): string {
-  return executionArtifactManifestKey(ref);
-}
-
-export function sourcePackageKey(ref: ExecutionArtifactRef): string {
-  return executionArtifactSourcePackageKey(ref);
 }

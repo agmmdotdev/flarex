@@ -1,10 +1,10 @@
-import { executionArtifactRefForSourcePackage } from "flarex/artifacts";
-import { describe, expect, it } from "vitest";
 import {
-  manifestKey,
-  R2BackendExecutionArtifactStore,
-  sourcePackageKey,
-} from "../src/artifactStore";
+  executionArtifactManifestKey,
+  executionArtifactRefForSourcePackage,
+  executionArtifactSourcePackageKey,
+} from "flarex/artifacts";
+import { describe, expect, it } from "vitest";
+import { R2BackendExecutionArtifactStore } from "../src/artifactStore";
 import type { PushSourcePackage } from "../src/types";
 
 describe("backend execution artifact store", () => {
@@ -15,9 +15,16 @@ describe("backend execution artifact store", () => {
     const ref = await store.put(sourcePackage);
 
     expect(ref).toEqual(await executionArtifactRefForSourcePackage(sourcePackage));
-    expect(bucket.keys()).toEqual([manifestKey(ref), sourcePackageKey(ref)]);
-    expect(bucket.contentType(manifestKey(ref))).toBe("application/json");
-    expect(bucket.contentType(sourcePackageKey(ref))).toBe("application/json");
+    expect(bucket.keys()).toEqual([
+      executionArtifactManifestKey(ref),
+      executionArtifactSourcePackageKey(ref),
+    ]);
+    expect(bucket.contentType(executionArtifactManifestKey(ref))).toBe(
+      "application/json",
+    );
+    expect(bucket.contentType(executionArtifactSourcePackageKey(ref))).toBe(
+      "application/json",
+    );
     await expect(store.get(ref)).resolves.toEqual(sourcePackage);
   });
 
@@ -35,7 +42,10 @@ describe("backend execution artifact store", () => {
     const store = new R2BackendExecutionArtifactStore(bucket);
     const sourcePackage = testSourcePackage();
     const ref = await store.put(sourcePackage);
-    await bucket.put(sourcePackageKey(ref), JSON.stringify(testSourcePackage("f".repeat(64))));
+    await bucket.put(
+      executionArtifactSourcePackageKey(ref),
+      JSON.stringify(testSourcePackage("f".repeat(64))),
+    );
 
     await expect(store.get(ref)).rejects.toThrow(
       `Execution artifact ref does not match source package: ${ref.artifactId}`,
@@ -47,10 +57,10 @@ describe("backend execution artifact store", () => {
     const store = new R2BackendExecutionArtifactStore(bucket);
     const sourcePackage = testSourcePackage();
     const ref = await store.put(sourcePackage);
-    await bucket.put(manifestKey(ref), JSON.stringify({
+    await bucket.put(executionArtifactManifestKey(ref), JSON.stringify({
       version: 1,
       ref: { ...ref, sourcePackageHash: "0".repeat(64) },
-      sourcePackagePath: sourcePackageKey(ref),
+      sourcePackagePath: executionArtifactSourcePackageKey(ref),
     }));
 
     await expect(store.get(ref)).rejects.toThrow(

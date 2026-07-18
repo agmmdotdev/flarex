@@ -100,9 +100,7 @@ export type {
 } from "./runtimeMaterializer.ts";
 export {
   LocalInMemoryExecutionArtifactStore,
-  manifestKey,
   R2ExecutionArtifactStore,
-  sourcePackageKey,
 } from "./executionArtifactStore.ts";
 export type {
   DurableExecutionArtifactStore,
