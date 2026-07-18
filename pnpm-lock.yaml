@@ -113,6 +113,9 @@ importers:
       '@flarex/utils':
         specifier: workspace:*
         version: link:../../packages/utils
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.90
       pg:
         specifier: ^8.22.0
         version: 8.22.0

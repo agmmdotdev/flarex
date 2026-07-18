@@ -11,6 +11,7 @@ import {
   discardH05BoundedResponseBody,
   readH05BoundedResponseBody,
 } from "./h05BoundedResponseBody";
+import { decodeH05JsonBytesOrThrow } from "./h05JsonBytes";
 
 export interface H05CloudflareReadApi {
   get(
@@ -153,11 +154,13 @@ async function readBoundedJson(
       `Cloudflare API response body could not be read for ${safePath(path)}.`,
     );
   }
-  try {
-    return JSON.parse(new TextDecoder().decode(bytes));
-  } catch {
-    throw new Error(`Cloudflare API returned invalid JSON for ${safePath(path)}.`);
-  }
+  return decodeH05JsonBytesOrThrow(
+    bytes,
+    () =>
+      new Error(
+        `Cloudflare API returned invalid JSON for ${safePath(path)}.`,
+      ),
+  );
 }
 
 async function readBoundedBody(

@@ -19,6 +19,7 @@ import {
   discardH05BoundedResponseBody,
   readH05BoundedResponseBody,
 } from "./h05BoundedResponseBody";
+import { decodeH05JsonBytesOrThrow } from "./h05JsonBytes";
 
 export type H05CloudflareProbeDeletionResult =
   | { readonly outcome: "deleted"; readonly status: 200 }
@@ -167,12 +168,13 @@ async function validateAccountAccess(
     if (error instanceof H05ResponseSizeError) throw error;
     throw new Error("Cloudflare Scripts account access response could not be read.");
   }
-  let value: unknown;
-  try {
-    value = JSON.parse(new TextDecoder().decode(bytes));
-  } catch {
-    throw new Error("Cloudflare Scripts account access returned an invalid response.");
-  }
+  const value = decodeH05JsonBytesOrThrow(
+    bytes,
+    () =>
+      new Error(
+        "Cloudflare Scripts account access returned an invalid response.",
+      ),
+  );
   if (
     !isRecord(value) ||
     value.success !== true ||
@@ -218,12 +220,10 @@ async function validateDeleteSuccess(
     throw new Error("Cloudflare probe deletion response could not be read.");
   }
   if (bytes.byteLength === 0) return;
-  let value: unknown;
-  try {
-    value = JSON.parse(new TextDecoder().decode(bytes));
-  } catch {
-    throw new Error("Cloudflare probe deletion returned an invalid response.");
-  }
+  const value = decodeH05JsonBytesOrThrow(
+    bytes,
+    () => new Error("Cloudflare probe deletion returned an invalid response."),
+  );
   if (
     !isRecord(value) ||
     value.success !== true ||

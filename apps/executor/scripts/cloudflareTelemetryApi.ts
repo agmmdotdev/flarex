@@ -11,6 +11,7 @@ import {
   discardH05BoundedResponseBody,
   readH05BoundedResponseBody,
 } from "./h05BoundedResponseBody";
+import { decodeH05JsonBytesOrThrow } from "./h05JsonBytes";
 
 export type H05TelemetryView = "events" | "traces";
 
@@ -144,11 +145,10 @@ async function readBoundedJson(
     if (error instanceof H05TelemetryResponseSizeError) throw error;
     throw new Error("Cloudflare telemetry response body could not be read.");
   }
-  try {
-    return JSON.parse(new TextDecoder().decode(bytes));
-  } catch {
-    throw new Error("Cloudflare telemetry query returned invalid JSON.");
-  }
+  return decodeH05JsonBytesOrThrow(
+    bytes,
+    () => new Error("Cloudflare telemetry query returned invalid JSON."),
+  );
 }
 
 async function readBoundedBody(

@@ -109,6 +109,24 @@ describe("fixed H05 Cloudflare probe teardown API", () => {
       "deletion returned an invalid response",
     );
 
+    const invalidUtf8Deletion = validApi(
+      async () =>
+        new Response(Uint8Array.of(0xc3, 0x28), { status: 200 }),
+    );
+    await expect(invalidUtf8Deletion.deleteProbe()).rejects.toThrow(
+      "deletion returned an invalid response",
+    );
+
+    const invalidUtf8AccountAccess = validApi(
+      async () =>
+        new Response(Uint8Array.of(0xc3, 0x28), { status: 200 }),
+    );
+    await expect(
+      invalidUtf8AccountAccess.verifyAccountAccess(),
+    ).rejects.toThrow(
+      "Scripts account access returned an invalid response",
+    );
+
     const unsuccessful = validApi(
       async () =>
         Response.json({

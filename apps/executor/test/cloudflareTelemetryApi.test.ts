@@ -126,6 +126,11 @@ describe("bounded H05 Cloudflare telemetry API", () => {
       apiToken,
       fetch: async () => new Response("not-json", { status: 200 }),
     });
+    const invalidUtf8 = createH05CloudflareTelemetryApi({
+      apiToken,
+      fetch: async () =>
+        new Response(Uint8Array.of(0xc3, 0x28), { status: 200 }),
+    });
     const malformed = createH05CloudflareTelemetryApi({
       apiToken,
       fetch: async () =>
@@ -136,6 +141,9 @@ describe("bounded H05 Cloudflare telemetry API", () => {
     });
 
     await expect(invalidJson.query(accountId, validRequest())).rejects.toThrow(
+      "invalid JSON",
+    );
+    await expect(invalidUtf8.query(accountId, validRequest())).rejects.toThrow(
       "invalid JSON",
     );
     await expect(malformed.query(accountId, validRequest())).rejects.toThrow(

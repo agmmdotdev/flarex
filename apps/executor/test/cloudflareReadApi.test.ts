@@ -116,6 +116,18 @@ describe("bounded H05 Cloudflare read API", () => {
     );
   });
 
+  it("rejects malformed UTF-8 through the redacted JSON boundary", async () => {
+    const api = createH05CloudflareReadApi({
+      apiToken,
+      fetch: async () =>
+        new Response(Uint8Array.of(0xc3, 0x28), { status: 200 }),
+    });
+
+    await expect(api.get("/accounts/account/workers")).rejects.toThrow(
+      "Cloudflare API returned invalid JSON for /accounts/account/workers.",
+    );
+  });
+
   it("stops reading an unbounded response stream", async () => {
     const marker = "LEAK_FROM_CANCEL";
     const api = createH05CloudflareReadApi({
