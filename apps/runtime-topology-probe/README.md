@@ -7,10 +7,9 @@ and teardown requirements live in [`PLAN.md`](./PLAN.md).
 
 ## Current Slice
 
-`P07B` is complete locally and has not been deployed. The app wraps the P02-P06
-communication shapes in
-durable per-cell and deployment-wide campaign coordination without introducing
-a real executor, transaction, or sync engine. The current app owns:
+`P09` is complete in production. The app wraps the P02-P06 communication
+shapes in durable per-cell and deployment-wide campaign coordination without
+introducing a real executor, transaction, or sync engine. The current app owns:
 
 - bearer-protected run creation, run status, and compact per-sample commands
   with bounded streaming JSON reads;
@@ -87,21 +86,22 @@ a real executor, transaction, or sync engine. The current app owns:
 - resumable SessionDO facet cleanup, mock-to-sync cleanup, RunDO cleanup, and a
   retained campaign/session/sync tombstone proving the terminal cleanup fence.
 
-This slice has complete local evidence and one sanitized production-eligibility
-attempt. The app-local
+This slice has complete local evidence, one cleaned-up eligibility failure, and
+one successful production smoke. The app-local
 [`P08-PRODUCTION-PREFLIGHT.md`](./P08-PRODUCTION-PREFLIGHT.md) freezes the
 isolated resources, budget, corrected one-campaign smoke/measurement flow,
-evidence destination, and teardown order. The first target rejected the gateway
-before creation because it was not Workers Paid; the private sync and mock
-Workers were removed and no sample ran. The sanitized result and final absence
-proof are in
-[`P09-PRODUCTION-ATTEMPT-1.md`](./P09-PRODUCTION-ATTEMPT-1.md). A Standard
-default usage-model setting is not Paid-subscription evidence. `P07B` does not
+evidence destination, and teardown order. The first attempt was removed after
+the target rejected Worker Loader as ineligible; its absence proof is in
+[`P09-PRODUCTION-ATTEMPT-1.md`](./P09-PRODUCTION-ATTEMPT-1.md). After the owner
+upgraded the target, all eight P09 scenarios completed and the production
+campaign remained running. The sanitized result, single-sample durations,
+Dynamic Worker counts, trace configuration, and retained-state boundary are in
+[`P09-PRODUCTION-SMOKE.md`](./P09-PRODUCTION-SMOKE.md). `P07B` does not
 make a lost JavaScript call stack resumable: it seals the run and records the
 claim as `abandoned`. SessionDO cleanup explicitly deletes facet databases,
 removes supervisor probe rows, and retains one exact completion/fence tombstone;
-final namespace and Worker Loader code-cache teardown after a successful run
-remains a `P11` responsibility.
+final namespace and Worker Loader code-cache teardown after the retained P10
+run remains a `P11` responsibility.
 
 All durations are caller-local monotonic round trips. The protocol never
 subtracts absolute timestamps created by different isolates.

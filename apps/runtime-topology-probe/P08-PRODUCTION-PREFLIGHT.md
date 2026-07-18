@@ -1,7 +1,8 @@
 # P08 Production Deployment Preflight
 
-Status: local evidence complete; first authenticated target proven ineligible
-for Dynamic Workers; failed deployment attempt cleaned up.
+Status: preparation complete. The first authenticated attempt was ineligible
+and cleaned up; after the owner upgraded the target, the P09 production smoke
+passed. See `P09-PRODUCTION-SMOKE.md` for the current retained state.
 
 This record freezes the production target, budget, run order, evidence path,
 and teardown requirements for the isolated runtime-topology experiment. It is
@@ -16,29 +17,37 @@ workers.dev subdomain, and absence of all three isolated Worker names. The
 owner also authorized the incremental-cost boundary below. The subsequent
 gateway upload was rejected with Cloudflare API code `10195`, which requires
 switching to Workers Paid before using Dynamic Workers. That direct capability
-response proves that the selected account is not eligible.
+response proved that the selected account was not eligible at that time.
 
 The private sync and mock Workers created before that rejection were removed
 through the checked-in teardown path. The gateway never existed, no bearer
 secret or route was installed, no campaign or facet ran, all three script names
-are absent, the account namespace result is empty, and current Dynamic Worker
-usage remains zero. The sanitized sequence is recorded in
+were absent, the account namespace result was empty, and Dynamic Worker usage
+remained zero. The sanitized sequence is recorded in
 [`P09-PRODUCTION-ATTEMPT-1.md`](./P09-PRODUCTION-ATTEMPT-1.md). The exact
 account identifier, email, subdomain, OAuth token, current usage values, and
 account resource inventory remain deliberately outside Git.
 
+The owner subsequently upgraded the same isolated target. On 2026-07-18,
+Cloudflare accepted the gateway's Worker Loader upload and P09 passed. The
+retained inventory is now three probe Workers and four probe Durable Object
+namespaces; the same-day Dynamic Worker delta is 5 requests, 4 identities, and
+7,502 microseconds of CPU time. The sanitized current receipt is
+[`P09-PRODUCTION-SMOKE.md`](./P09-PRODUCTION-SMOKE.md).
+
 Recheck authentication and all three names immediately before every production
 deployment. A Standard default usage-model setting is a Worker configuration
 choice, not proof of a Workers Paid subscription or Dynamic Worker eligibility.
-A future target must provide direct Paid-plan evidence, such as an authenticated
-billing/subscription receipt or dashboard confirmation, before any upload.
+For attempt 2, the owner confirmed the upgrade and the accepted Worker Loader
+upload provided direct runtime capability proof. Future redeployments must
+still recheck eligibility before upload.
 Do not deploy if `whoami` identifies zero or multiple accounts, direct Paid
 eligibility is missing, a name is unexpectedly owned, or a required read-only
 check fails.
 
-The remaining P08 stop condition is an eligible Workers Paid target. The
-approved USD 2 incremental experiment ceiling does not authorize purchasing or
-changing a subscription.
+The prior P08 eligibility stop condition is closed. The approved USD 2
+incremental experiment ceiling did not authorize purchasing or changing a
+subscription; the owner performed that account change independently.
 
 ## Frozen Isolated Resource Graph
 

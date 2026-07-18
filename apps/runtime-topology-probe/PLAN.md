@@ -1,8 +1,9 @@
 # Runtime Topology Probe Turn Plan
 
-Status: experimental evidence plan; `P00` through `P07B` complete locally.
-The first production target failed the P08 Paid-eligibility gate before P09
-smoke execution and was fully cleaned up; P10 and P11 evidence remain pending.
+Status: experimental evidence plan; `P00` through `P09` complete. The first
+production attempt failed the Paid-eligibility gate and was cleaned up; after
+the owner upgraded the same isolated target, P09 passed in production. The
+running campaign and deployment are retained for P10, which remains pending.
 
 This file owns a bounded production probe for measuring Cloudflare runtime
 communication. It is local to `apps/runtime-topology-probe`; it is not an
@@ -181,7 +182,8 @@ version before the production matrix is registered.
   session, and unique Dynamic Worker code IDs at the server boundary.
 - Gates `P02` through `P07B` are local and dry-run-only. `P07B` closes the local
   bounded-orchestration, evidence, reconciliation, and resumable-purge gates;
-  production deployment remains blocked on the separate `P08` preflight.
+  production deployment required the separate `P08` preflight. P09 has now
+  passed, and P10 remains separately gated.
   `P07A` budgets only one immutable run/cell; the fixed `P07B` coordinator owns
   the deployment-wide creation limit for this isolated probe.
 - Set `globalOutbound: null` for loaded code. Pass only the narrow mock syscall
@@ -514,8 +516,9 @@ local matrix, schema-valid export, typecheck, tests, and deployment dry-runs.
 
 ### P08 - Production Deployment Preflight
 
-Status: local evidence complete; first authenticated target proven ineligible
-and cleaned up; eligible Workers Paid target pending.
+Status: complete. The first authenticated attempt proved the target ineligible
+and was cleaned up. The owner later upgraded it, and P09 directly proved the
+new eligibility when Cloudflare accepted the Worker Loader deployment.
 
 This is a discussion/evidence gate before external state changes.
 
@@ -524,9 +527,8 @@ teardown are recorded in `P08-PRODUCTION-PREFLIGHT.md`. Authentication,
 workers.dev subdomain, resource ownership, and the USD 2 incremental-cost
 ceiling were proven. The first gateway upload returned Cloudflare code `10195`:
 the account's Standard default usage-model setting did not prove a Workers Paid
-subscription. The remaining exit condition is direct Paid-plan evidence for an
-already eligible target; purchasing or changing a plan is outside the current
-authorization.
+subscription. That former blocker is closed: the owner changed the subscription
+outside the probe, and the experiment itself did not purchase or alter a plan.
 The future P11 namespace-removal configs and Worker-deletion commands are
 checked in and locally dry-run validated; they do not authorize or perform an
 external deletion.
@@ -546,11 +548,13 @@ scope would expand.
 
 ### P09 - Deploy And Smoke The Isolated Probe
 
-Status: attempt 1 stopped before gateway creation; cleanup complete; no smoke
-or latency evidence. A future attempt awaits an eligible Workers Paid target.
+Status: complete. Attempt 1 stopped before gateway creation and was cleaned up.
+Attempt 2 passed all eight production scenarios and left the campaign running
+for the separately approved P10 resume.
 
-The sanitized attempt and absence proof are recorded in
-`P09-PRODUCTION-ATTEMPT-1.md`.
+The failed-attempt absence proof is recorded in
+`P09-PRODUCTION-ATTEMPT-1.md`; the successful smoke, latency, usage, trace
+configuration, and retained-state receipt is in `P09-PRODUCTION-SMOKE.md`.
 
 Deliver:
 
@@ -610,13 +614,11 @@ teardown are complete.
 
 - Active goal: build and validate the isolated production runtime-topology
   probe through separately approved gates.
-- Current gate: `P08` is blocked on an eligible Workers Paid target. The first
-  authenticated target rejected the gateway with code `10195`; its prior
-  Standard usage-model setting was insufficient evidence. All scripts and
-  namespaces created by that attempt are absent.
-- Next action: identify an already eligible Workers Paid target within the
-  existing USD 2 incremental ceiling, prove that subscription directly, then
-  restart P09 from the same clean app checkpoint and fresh resource names. A
-  subscription purchase or plan change requires new user authorization.
+- Current gate: `P09` passed on the now-paid target. The campaign is `running`,
+  eight ordinal-zero completions are checkpointed, and the three Workers plus
+  four probe namespaces are intentionally retained.
+- Next action: review and explicitly approve the current P10 preflight before
+  resuming the same campaign for the remaining ordinals. P10 must not create a
+  second campaign or purge before verified evidence is persisted.
 - Goal completion condition: production evidence and analysis are recorded and
   the approved cleanup/retention action is verified.
