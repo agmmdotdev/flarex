@@ -1,5 +1,5 @@
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import {
   isNonArrayRecord,
   type UnknownRecord,
@@ -44,9 +44,7 @@ import {
   ExecutorHttpJsonBodyError,
 } from "./errors";
 
-type ExecutorHttpParseResult<A> =
-  | { value: A }
-  | { error: BadRequestBody };
+type ExecutorHttpParseResult<A> = Result.Result<A, BadRequestBody>;
 
 export type ExecutorHttpBodyDecoder<A> = (
   body: unknown,
@@ -84,9 +82,9 @@ export function readExecutorHttpJsonBody(
 function decodeExecutorHttpValidationResult<A>(
   result: ExecutorHttpParseResult<A>,
 ): ExecutorHttpBodyValidationEffect<A> {
-  return "error" in result
-    ? Effect.fail(new ExecutorHttpBodyValidationError({ body: result.error }))
-    : Effect.succeed(result.value);
+  return Effect.fromResult(result).pipe(
+    Effect.mapError(body => new ExecutorHttpBodyValidationError({ body })),
+  );
 }
 
 export const decodePrepareInvokeBody = Effect.fn("ExecutorHttp.decodePrepareInvokeBody")(
@@ -393,1190 +391,790 @@ function parseLiveQueryStuckDeliveriesMaintenanceBody(
 // route-facing decoders expose tagged Effect failures.
 function parsePrepareInvokeBodyResult(
   body: unknown,
-):
-  | { value: PrepareInvokeInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<PrepareInvokeInput> {
   return parseInvokeBodyResult(body, { includeIdempotencyKey: false });
 }
 
 function parseBeginInvokeSessionBodyResult(
   body: unknown,
-):
-  | { value: BeginInvokeSessionInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<BeginInvokeSessionInput> {
   return parseInvokeBodyResult(body, { includeIdempotencyKey: true });
 }
 
 function parseInvokeBodyResult(
   body: unknown,
   options: { includeIdempotencyKey: false },
-):
-  | { value: PrepareInvokeInput }
-  | { error: { error: "bad_request"; message: string } };
+): ExecutorHttpParseResult<PrepareInvokeInput>;
 function parseInvokeBodyResult(
   body: unknown,
   options: { includeIdempotencyKey: true },
-):
-  | { value: BeginInvokeSessionInput }
-  | { error: { error: "bad_request"; message: string } };
+): ExecutorHttpParseResult<BeginInvokeSessionInput>;
 function parseInvokeBodyResult(
   body: unknown,
   options: { includeIdempotencyKey: boolean },
-):
-  | {
-      value: BeginInvokeSessionInput;
-    }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<BeginInvokeSessionInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const projectId = requiredString(record, "projectId");
-  if ("error" in projectId) return projectId;
-  const path = requiredString(record, "path");
-  if ("error" in path) return path;
-  const kind = optionalInvokableKind(record.kind);
-  if ("error" in kind) return kind;
-  const visibility = optionalFunctionVisibility(record.visibility);
-  if ("error" in visibility) return visibility;
-  const args = jsonValue(record.args, "args");
-  if ("error" in args) return args;
-  const partitionKey = optionalString(record.partitionKey, "partitionKey");
-  if ("error" in partitionKey) return partitionKey;
-  const idempotencyKey = optionalString(record.idempotencyKey, "idempotencyKey");
-  if ("error" in idempotencyKey) return idempotencyKey;
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const projectId = yield* requiredString(record, "projectId");
+    const path = yield* requiredString(record, "path");
+    const kind = yield* optionalInvokableKind(record.kind);
+    const visibility = yield* optionalFunctionVisibility(record.visibility);
+    const args = yield* jsonValue(record.args, "args");
+    const partitionKey = yield* optionalString(record.partitionKey, "partitionKey");
+    const idempotencyKey = yield* optionalString(
+      record.idempotencyKey,
+      "idempotencyKey",
+    );
 
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      projectId: projectId.value,
-      path: path.value,
-      ...(kind.value === undefined ? {} : { kind: kind.value }),
-      ...(visibility.value === undefined ? {} : { visibility: visibility.value }),
-      args: args.value,
-      ...(partitionKey.value === undefined
+    return {
+      deploymentId,
+      projectId,
+      path,
+      ...(kind === undefined ? {} : { kind }),
+      ...(visibility === undefined ? {} : { visibility }),
+      args,
+      ...(partitionKey === undefined
         ? {}
-        : { partitionKey: partitionKey.value }),
-      ...(options.includeIdempotencyKey && idempotencyKey.value !== undefined
-        ? { idempotencyKey: idempotencyKey.value }
+        : { partitionKey }),
+      ...(options.includeIdempotencyKey && idempotencyKey !== undefined
+        ? { idempotencyKey }
         : {}),
-    },
-  };
+    };
+  });
 }
 
 function parseInvokeSyscallBodyResult(
   body: unknown,
-):
-  | { value: InvokeSyscallInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<InvokeSyscallInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const projectId = requiredString(record, "projectId");
-  if ("error" in projectId) return projectId;
-  const sessionId = requiredString(record, "sessionId");
-  if ("error" in sessionId) return sessionId;
-  const syscall = parseSyscallRequest(record);
-  if ("error" in syscall) return syscall;
-
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      projectId: projectId.value,
-      sessionId: sessionId.value,
-      syscall: syscall.value,
-    },
-  };
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const projectId = yield* requiredString(record, "projectId");
+    const sessionId = yield* requiredString(record, "sessionId");
+    const syscall = yield* parseSyscallRequest(record);
+    return { deploymentId, projectId, sessionId, syscall };
+  });
 }
 
 function parseInvokeFinishBodyResult(
   body: unknown,
-):
-  | { value: FinishInvokeSessionInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<FinishInvokeSessionInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const projectId = requiredString(record, "projectId");
-  if ("error" in projectId) return projectId;
-  const sessionId = requiredString(record, "sessionId");
-  if ("error" in sessionId) return sessionId;
-  const value = jsonValue(record.value, "value");
-  if ("error" in value) return value;
-
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      projectId: projectId.value,
-      sessionId: sessionId.value,
-      value: value.value,
-    },
-  };
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const projectId = yield* requiredString(record, "projectId");
+    const sessionId = yield* requiredString(record, "sessionId");
+    const value = yield* jsonValue(record.value, "value");
+    return { deploymentId, projectId, sessionId, value };
+  });
 }
 
 function parseInvokeAbortBodyResult(
   body: unknown,
-):
-  | { value: AbortInvokeSessionInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<AbortInvokeSessionInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const projectId = requiredString(record, "projectId");
-  if ("error" in projectId) return projectId;
-  const sessionId = requiredString(record, "sessionId");
-  if ("error" in sessionId) return sessionId;
-
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      projectId: projectId.value,
-      sessionId: sessionId.value,
-    },
-  };
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const projectId = yield* requiredString(record, "projectId");
+    const sessionId = yield* requiredString(record, "sessionId");
+    return { deploymentId, projectId, sessionId };
+  });
 }
 
 function parseInvokeAbortStaleBodyResult(
   body: unknown,
-):
-  | { value: AbortStaleInvokeSessionsInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<AbortStaleInvokeSessionsInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const projectId = requiredString(record, "projectId");
-  if ("error" in projectId) return projectId;
-  const olderThan = requiredDate(record, "olderThan");
-  if ("error" in olderThan) return olderThan;
-  const maxSessions = optionalPositiveInteger(record, "maxSessions");
-  if ("error" in maxSessions) return maxSessions;
-
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      projectId: projectId.value,
-      olderThan: olderThan.value,
-      ...(maxSessions.value === undefined
-        ? {}
-        : { limit: maxSessions.value }),
-    },
-  };
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const projectId = yield* requiredString(record, "projectId");
+    const olderThan = yield* requiredDate(record, "olderThan");
+    const maxSessions = yield* optionalPositiveInteger(record, "maxSessions");
+    return {
+      deploymentId,
+      projectId,
+      olderThan,
+      ...(maxSessions === undefined ? {} : { limit: maxSessions }),
+    };
+  });
 }
 
 function parseInvokeSessionMaintenanceBodyResult(
   body: unknown,
-):
-  | { value: RunInvokeSessionMaintenanceInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<RunInvokeSessionMaintenanceInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const projectId = requiredString(record, "projectId");
-  if ("error" in projectId) return projectId;
-  const staleAfterMs = requiredPositiveInteger(record, "staleAfterMs");
-  if ("error" in staleAfterMs) return staleAfterMs;
-  const maxSessions = optionalPositiveInteger(record, "maxSessions");
-  if ("error" in maxSessions) return maxSessions;
-
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      projectId: projectId.value,
-      staleAfterMs: staleAfterMs.value,
-      ...(maxSessions.value === undefined
-        ? {}
-        : { maxSessions: maxSessions.value }),
-    },
-  };
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const projectId = yield* requiredString(record, "projectId");
+    const staleAfterMs = yield* requiredPositiveInteger(record, "staleAfterMs");
+    const maxSessions = yield* optionalPositiveInteger(record, "maxSessions");
+    return {
+      deploymentId,
+      projectId,
+      staleAfterMs,
+      ...(maxSessions === undefined ? {} : { maxSessions }),
+    };
+  });
 }
 
 function parseLiveQueryRerunMaintenanceBodyResult(
   body: unknown,
-):
-  | { value: { deploymentId: string; projectId: string; limit?: number } }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<LiveQueryRerunMaintenanceBody> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const projectId = requiredString(record, "projectId");
-  if ("error" in projectId) return projectId;
-  const limit = optionalPositiveInteger(record, "limit");
-  if ("error" in limit) return limit;
-
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      projectId: projectId.value,
-      ...(limit.value === undefined ? {} : { limit: limit.value }),
-    },
-  };
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const projectId = yield* requiredString(record, "projectId");
+    const limit = yield* optionalPositiveInteger(record, "limit");
+    return {
+      deploymentId,
+      projectId,
+      ...(limit === undefined ? {} : { limit }),
+    };
+  });
 }
 
 function parseLiveQueryDeliveryMaintenanceBodyResult(
   body: unknown,
-):
-  | { value: { deploymentId: string; limit?: number } }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<LiveQueryDeliveryMaintenanceBody> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const limit = optionalPositiveInteger(record, "limit");
-  if ("error" in limit) return limit;
-
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      ...(limit.value === undefined ? {} : { limit: limit.value }),
-    },
-  };
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const limit = yield* optionalPositiveInteger(record, "limit");
+    return {
+      deploymentId,
+      ...(limit === undefined ? {} : { limit }),
+    };
+  });
 }
 
 function parseLiveQuerySubscriptionRecordBodyResult(
   body: unknown,
-):
-  | { value: RecordLiveQuerySubscriptionInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<RecordLiveQuerySubscriptionInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const projectId = requiredString(record, "projectId");
-  if ("error" in projectId) return projectId;
-  const connectionId = requiredString(record, "connectionId");
-  if ("error" in connectionId) return connectionId;
-  const queryId = requiredNonNegativeInteger(record, "queryId");
-  if ("error" in queryId) return queryId;
-  const functionPath = requiredString(record, "functionPath");
-  if ("error" in functionPath) return functionPath;
-  const argsJson = jsonValue(record.argsJson, "argsJson");
-  if ("error" in argsJson) return argsJson;
-  const partitionKey = optionalNullableString(record.partitionKey, "partitionKey");
-  if ("error" in partitionKey) return partitionKey;
-  const beginTs = requiredNonNegativeInteger(record, "beginTs");
-  if ("error" in beginTs) return beginTs;
-  const readSet = requiredFreshnessReadSet(record.readSet, "readSet");
-  if ("error" in readSet) return readSet;
-  const resultJson = jsonValue(record.resultJson, "resultJson");
-  if ("error" in resultJson) return resultJson;
-  const updatedAt = optionalDate(record.updatedAt, "updatedAt");
-  if ("error" in updatedAt) return updatedAt;
-
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      projectId: projectId.value,
-      connectionId: connectionId.value,
-      queryId: queryId.value,
-      functionPath: functionPath.value,
-      argsJson: argsJson.value,
-      ...(partitionKey.value === undefined
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const projectId = yield* requiredString(record, "projectId");
+    const connectionId = yield* requiredString(record, "connectionId");
+    const queryId = yield* requiredNonNegativeInteger(record, "queryId");
+    const functionPath = yield* requiredString(record, "functionPath");
+    const argsJson = yield* jsonValue(record.argsJson, "argsJson");
+    const partitionKey = yield* optionalNullableString(
+      record.partitionKey,
+      "partitionKey",
+    );
+    const beginTs = yield* requiredNonNegativeInteger(record, "beginTs");
+    const readSet = yield* requiredFreshnessReadSet(record.readSet, "readSet");
+    const resultJson = yield* jsonValue(record.resultJson, "resultJson");
+    const updatedAt = yield* optionalDate(record.updatedAt, "updatedAt");
+    return {
+      deploymentId,
+      projectId,
+      connectionId,
+      queryId,
+      functionPath,
+      argsJson,
+      ...(partitionKey === undefined
         ? {}
-        : { partitionKey: partitionKey.value }),
-      beginTs: beginTs.value,
-      readSet: readSet.value,
-      resultJson: resultJson.value,
-      ...(updatedAt.value === undefined ? {} : { updatedAt: updatedAt.value }),
-    },
-  };
+        : { partitionKey }),
+      beginTs,
+      readSet,
+      resultJson,
+      ...(updatedAt === undefined ? {} : { updatedAt }),
+    };
+  });
 }
 
 function parseLiveQuerySubscriptionRemoveBodyResult(
   body: unknown,
-):
-  | { value: RemoveLiveQuerySubscriptionInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<RemoveLiveQuerySubscriptionInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const projectId = requiredString(record, "projectId");
-  if ("error" in projectId) return projectId;
-  const connectionId = requiredString(record, "connectionId");
-  if ("error" in connectionId) return connectionId;
-  const queryId = requiredNonNegativeInteger(record, "queryId");
-  if ("error" in queryId) return queryId;
-
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      projectId: projectId.value,
-      connectionId: connectionId.value,
-      queryId: queryId.value,
-    },
-  };
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const projectId = yield* requiredString(record, "projectId");
+    const connectionId = yield* requiredString(record, "connectionId");
+    const queryId = yield* requiredNonNegativeInteger(record, "queryId");
+    return { deploymentId, projectId, connectionId, queryId };
+  });
 }
 
 function parseLiveQueryConnectionTouchBodyResult(
   body: unknown,
-):
-  | { value: TouchLiveQueryConnectionInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<TouchLiveQueryConnectionInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const projectId = requiredString(record, "projectId");
-  if ("error" in projectId) return projectId;
-  const connectionId = requiredString(record, "connectionId");
-  if ("error" in connectionId) return connectionId;
-  const leaseDurationMs = optionalPositiveInteger(record, "leaseDurationMs");
-  if ("error" in leaseDurationMs) return leaseDurationMs;
-
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      projectId: projectId.value,
-      connectionId: connectionId.value,
-      ...(leaseDurationMs.value === undefined
-        ? {}
-        : { leaseDurationMs: leaseDurationMs.value }),
-    },
-  };
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const projectId = yield* requiredString(record, "projectId");
+    const connectionId = yield* requiredString(record, "connectionId");
+    const leaseDurationMs = yield* optionalPositiveInteger(
+      record,
+      "leaseDurationMs",
+    );
+    return {
+      deploymentId,
+      projectId,
+      connectionId,
+      ...(leaseDurationMs === undefined ? {} : { leaseDurationMs }),
+    };
+  });
 }
 
 function parseLiveQuerySubscriptionRemoveConnectionBodyResult(
   body: unknown,
-):
-  | { value: RemoveLiveQuerySubscriptionsForConnectionInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<RemoveLiveQuerySubscriptionsForConnectionInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const projectId = requiredString(record, "projectId");
-  if ("error" in projectId) return projectId;
-  const connectionId = requiredString(record, "connectionId");
-  if ("error" in connectionId) return connectionId;
-
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      projectId: projectId.value,
-      connectionId: connectionId.value,
-    },
-  };
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const projectId = yield* requiredString(record, "projectId");
+    const connectionId = yield* requiredString(record, "connectionId");
+    return { deploymentId, projectId, connectionId };
+  });
 }
 
 function parseLiveQueryConnectionCleanupBodyResult(
   body: unknown,
-):
-  | { value: RemoveExpiredLiveQuerySubscriptionsInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<RemoveExpiredLiveQuerySubscriptionsInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const projectId = requiredString(record, "projectId");
-  if ("error" in projectId) return projectId;
-  const expiredAt = optionalDate(record.expiredAt, "expiredAt");
-  if ("error" in expiredAt) return expiredAt;
-
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      projectId: projectId.value,
-      ...(expiredAt.value === undefined ? {} : { expiredAt: expiredAt.value }),
-    },
-  };
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const projectId = yield* requiredString(record, "projectId");
+    const expiredAt = yield* optionalDate(record.expiredAt, "expiredAt");
+    return {
+      deploymentId,
+      projectId,
+      ...(expiredAt === undefined ? {} : { expiredAt }),
+    };
+  });
 }
 
 function parseLiveQueryClaimMaintenanceBodyResult(
   body: unknown,
-):
-  | { value: ClaimLiveQueryDeliveryBatchInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<ClaimLiveQueryDeliveryBatchInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const limit = optionalPositiveInteger(record, "limit");
-  if ("error" in limit) return limit;
-  const leaseDurationMs = optionalPositiveInteger(record, "leaseDurationMs");
-  if ("error" in leaseDurationMs) return leaseDurationMs;
-  const claimOwner = optionalString(record.claimOwner, "claimOwner");
-  if ("error" in claimOwner) return claimOwner;
-  const cursor = optionalLiveQueryDeliveryCursor(record.cursor);
-  if ("error" in cursor) return cursor;
-
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      ...(limit.value === undefined ? {} : { limit: limit.value }),
-      ...(leaseDurationMs.value === undefined
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const limit = yield* optionalPositiveInteger(record, "limit");
+    const leaseDurationMs = yield* optionalPositiveInteger(
+      record,
+      "leaseDurationMs",
+    );
+    const claimOwner = yield* optionalString(record.claimOwner, "claimOwner");
+    const cursor = yield* optionalLiveQueryDeliveryCursor(record.cursor);
+    return {
+      deploymentId,
+      ...(limit === undefined ? {} : { limit }),
+      ...(leaseDurationMs === undefined
         ? {}
-        : { leaseDurationMs: leaseDurationMs.value }),
-      ...(claimOwner.value === undefined ? {} : { claimOwner: claimOwner.value }),
-      ...(cursor.value === undefined ? {} : { cursor: cursor.value }),
-    },
-  };
+        : { leaseDurationMs }),
+      ...(claimOwner === undefined ? {} : { claimOwner }),
+      ...(cursor === undefined ? {} : { cursor }),
+    };
+  });
 }
 
 function parseLiveQueryAckMaintenanceBodyResult(
   body: unknown,
-):
-  | { value: AckLiveQueryDeliveriesInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<AckLiveQueryDeliveriesInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const deliveryIds = requiredStringArray(record.deliveryIds, "deliveryIds");
-  if ("error" in deliveryIds) return deliveryIds;
-  const deliveredAt = optionalDate(record.deliveredAt, "deliveredAt");
-  if ("error" in deliveredAt) return deliveredAt;
-  const claimOwner = optionalString(record.claimOwner, "claimOwner");
-  if ("error" in claimOwner) return claimOwner;
-
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      deliveryIds: deliveryIds.value,
-      ...(deliveredAt.value === undefined ? {} : { deliveredAt: deliveredAt.value }),
-      ...(claimOwner.value === undefined ? {} : { claimOwner: claimOwner.value }),
-    },
-  };
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const deliveryIds = yield* requiredStringArray(
+      record.deliveryIds,
+      "deliveryIds",
+    );
+    const deliveredAt = yield* optionalDate(record.deliveredAt, "deliveredAt");
+    const claimOwner = yield* optionalString(record.claimOwner, "claimOwner");
+    return {
+      deploymentId,
+      deliveryIds,
+      ...(deliveredAt === undefined ? {} : { deliveredAt }),
+      ...(claimOwner === undefined ? {} : { claimOwner }),
+    };
+  });
 }
 
 function parseLiveQueryFailureMaintenanceBodyResult(
   body: unknown,
-):
-  | { value: RecordLiveQueryDeliveryFailureInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<RecordLiveQueryDeliveryFailureInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const deliveryIds = requiredStringArray(record.deliveryIds, "deliveryIds");
-  if ("error" in deliveryIds) return deliveryIds;
-  const stage = requiredLiveQueryDeliveryFailureStage(record.stage);
-  if ("error" in stage) return stage;
-  const error = requiredString(record, "error");
-  if ("error" in error) return error;
-  const failedAt = requiredDate(record, "failedAt");
-  if ("error" in failedAt) return failedAt;
-  const claimOwner = optionalString(record.claimOwner, "claimOwner");
-  if ("error" in claimOwner) return claimOwner;
-
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      deliveryIds: deliveryIds.value,
-      stage: stage.value,
-      error: error.value,
-      failedAt: failedAt.value,
-      ...(claimOwner.value === undefined ? {} : { claimOwner: claimOwner.value }),
-    },
-  };
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const deliveryIds = yield* requiredStringArray(
+      record.deliveryIds,
+      "deliveryIds",
+    );
+    const stage = yield* requiredLiveQueryDeliveryFailureStage(record.stage);
+    const error = yield* requiredString(record, "error");
+    const failedAt = yield* requiredDate(record, "failedAt");
+    const claimOwner = yield* optionalString(record.claimOwner, "claimOwner");
+    return {
+      deploymentId,
+      deliveryIds,
+      stage,
+      error,
+      failedAt,
+      ...(claimOwner === undefined ? {} : { claimOwner }),
+    };
+  });
 }
 
 function parseLiveQueryDeadLetterMaintenanceBodyResult(
   body: unknown,
-):
-  | { value: MarkLiveQueryDeliveriesDeadLetteredInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<MarkLiveQueryDeliveriesDeadLetteredInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const deliveryIds = requiredStringArray(record.deliveryIds, "deliveryIds");
-  if ("error" in deliveryIds) return deliveryIds;
-  const reason = requiredString(record, "reason");
-  if ("error" in reason) return reason;
-  const deadLetteredAt = requiredDate(record, "deadLetteredAt");
-  if ("error" in deadLetteredAt) return deadLetteredAt;
-  const claimOwner = optionalString(record.claimOwner, "claimOwner");
-  if ("error" in claimOwner) return claimOwner;
-
-  return {
-    value: {
-      deploymentId: deploymentId.value,
-      deliveryIds: deliveryIds.value,
-      reason: reason.value,
-      deadLetteredAt: deadLetteredAt.value,
-      ...(claimOwner.value === undefined ? {} : { claimOwner: claimOwner.value }),
-    },
-  };
+  return Result.gen(function* () {
+    const deploymentId = yield* requiredString(record, "deploymentId");
+    const deliveryIds = yield* requiredStringArray(
+      record.deliveryIds,
+      "deliveryIds",
+    );
+    const reason = yield* requiredString(record, "reason");
+    const deadLetteredAt = yield* requiredDate(record, "deadLetteredAt");
+    const claimOwner = yield* optionalString(record.claimOwner, "claimOwner");
+    return {
+      deploymentId,
+      deliveryIds,
+      reason,
+      deadLetteredAt,
+      ...(claimOwner === undefined ? {} : { claimOwner }),
+    };
+  });
 }
 
 function parseLiveQueryDeadLetterStuckMaintenanceBodyResult(
   body: unknown,
-):
-  | { value: DeadLetterStuckLiveQueryDeliveriesInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<DeadLetterStuckLiveQueryDeliveriesInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = optionalString(record.deploymentId, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const olderThan = requiredDate(record, "olderThan");
-  if ("error" in olderThan) return olderThan;
-  const minAttempts = optionalPositiveInteger(record, "minAttempts");
-  if ("error" in minAttempts) return minAttempts;
-  const limit = optionalPositiveInteger(record, "limit");
-  if ("error" in limit) return limit;
-  const reason = requiredString(record, "reason");
-  if ("error" in reason) return reason;
-  const deadLetteredAt = optionalDate(record.deadLetteredAt, "deadLetteredAt");
-  if ("error" in deadLetteredAt) return deadLetteredAt;
-  const cursor = optionalStuckLiveQueryDeliveryCursor(record.cursor);
-  if ("error" in cursor) return cursor;
-
-  return {
-    value: {
-      olderThan: olderThan.value,
-      reason: reason.value,
-      ...(deploymentId.value === undefined
+  return Result.gen(function* () {
+    const deploymentId = yield* optionalString(
+      record.deploymentId,
+      "deploymentId",
+    );
+    const olderThan = yield* requiredDate(record, "olderThan");
+    const minAttempts = yield* optionalPositiveInteger(record, "minAttempts");
+    const limit = yield* optionalPositiveInteger(record, "limit");
+    const reason = yield* requiredString(record, "reason");
+    const deadLetteredAt = yield* optionalDate(
+      record.deadLetteredAt,
+      "deadLetteredAt",
+    );
+    const cursor = yield* optionalStuckLiveQueryDeliveryCursor(record.cursor);
+    return {
+      olderThan,
+      reason,
+      ...(deploymentId === undefined
         ? {}
-        : { deploymentId: deploymentId.value }),
-      ...(minAttempts.value === undefined
+        : { deploymentId }),
+      ...(minAttempts === undefined
         ? {}
-        : { minAttempts: minAttempts.value }),
-      ...(limit.value === undefined ? {} : { limit: limit.value }),
-      ...(deadLetteredAt.value === undefined
+        : { minAttempts }),
+      ...(limit === undefined ? {} : { limit }),
+      ...(deadLetteredAt === undefined
         ? {}
-        : { deadLetteredAt: deadLetteredAt.value }),
-      ...(cursor.value === undefined ? {} : { cursor: cursor.value }),
-    },
-  };
+        : { deadLetteredAt }),
+      ...(cursor === undefined ? {} : { cursor }),
+    };
+  });
 }
 
 function parseLiveQueryPendingDeploymentsMaintenanceBodyResult(
   body: unknown,
-):
-  | { value: ListPendingLiveQueryDeliveryDeploymentsInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<ListPendingLiveQueryDeliveryDeploymentsInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const limit = optionalPositiveInteger(record, "limit");
-  if ("error" in limit) return limit;
-  const cursor = optionalPendingLiveQueryDeliveryDeploymentCursor(record.cursor);
-  if ("error" in cursor) return cursor;
-
-  return {
-    value: {
-      limit: limit.value ?? 100,
-      ...(cursor.value === undefined ? {} : { cursor: cursor.value }),
-    },
-  };
+  return Result.gen(function* () {
+    const limit = yield* optionalPositiveInteger(record, "limit");
+    const cursor = yield* optionalPendingLiveQueryDeliveryDeploymentCursor(
+      record.cursor,
+    );
+    return {
+      limit: limit ?? 100,
+      ...(cursor === undefined ? {} : { cursor }),
+    };
+  });
 }
 
 function parseLiveQueryExpiredConnectionDeploymentsMaintenanceBodyResult(
   body: unknown,
-):
-  | { value: ListExpiredLiveQueryConnectionDeploymentsInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<ListExpiredLiveQueryConnectionDeploymentsInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const expiredAt = optionalDate(record.expiredAt, "expiredAt");
-  if ("error" in expiredAt) return expiredAt;
-  const limit = optionalPositiveInteger(record, "limit");
-  if ("error" in limit) return limit;
-  const cursor = optionalExpiredLiveQueryConnectionDeploymentCursor(record.cursor);
-  if ("error" in cursor) return cursor;
-
-  return {
-    value: {
-      ...(expiredAt.value === undefined ? {} : { expiredAt: expiredAt.value }),
-      ...(limit.value === undefined ? {} : { limit: limit.value }),
-      ...(cursor.value === undefined ? {} : { cursor: cursor.value }),
-    },
-  };
+  return Result.gen(function* () {
+    const expiredAt = yield* optionalDate(record.expiredAt, "expiredAt");
+    const limit = yield* optionalPositiveInteger(record, "limit");
+    const cursor = yield* optionalExpiredLiveQueryConnectionDeploymentCursor(
+      record.cursor,
+    );
+    return {
+      ...(expiredAt === undefined ? {} : { expiredAt }),
+      ...(limit === undefined ? {} : { limit }),
+      ...(cursor === undefined ? {} : { cursor }),
+    };
+  });
 }
 
 function parseLiveQueryStuckDeliveriesMaintenanceBodyResult(
   body: unknown,
-):
-  | { value: ListStuckLiveQueryDeliveriesInput }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<ListStuckLiveQueryDeliveriesInput> {
   if (!isNonArrayRecord(body)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "Request body must be a JSON object.",
-      },
-    };
+    return badRequest("Request body must be a JSON object.");
   }
   const record = body;
-  const deploymentId = optionalString(record.deploymentId, "deploymentId");
-  if ("error" in deploymentId) return deploymentId;
-  const olderThan = requiredDate(record, "olderThan");
-  if ("error" in olderThan) return olderThan;
-  const minAttempts = optionalPositiveInteger(record, "minAttempts");
-  if ("error" in minAttempts) return minAttempts;
-  const limit = optionalPositiveInteger(record, "limit");
-  if ("error" in limit) return limit;
-  const cursor = optionalStuckLiveQueryDeliveryCursor(record.cursor);
-  if ("error" in cursor) return cursor;
-
-  return {
-    value: {
-      olderThan: olderThan.value,
-      limit: limit.value ?? 100,
-      ...(deploymentId.value === undefined
+  return Result.gen(function* () {
+    const deploymentId = yield* optionalString(
+      record.deploymentId,
+      "deploymentId",
+    );
+    const olderThan = yield* requiredDate(record, "olderThan");
+    const minAttempts = yield* optionalPositiveInteger(record, "minAttempts");
+    const limit = yield* optionalPositiveInteger(record, "limit");
+    const cursor = yield* optionalStuckLiveQueryDeliveryCursor(record.cursor);
+    return {
+      olderThan,
+      limit: limit ?? 100,
+      ...(deploymentId === undefined
         ? {}
-        : { deploymentId: deploymentId.value }),
-      ...(minAttempts.value === undefined
+        : { deploymentId }),
+      ...(minAttempts === undefined
         ? {}
-        : { minAttempts: minAttempts.value }),
-      ...(cursor.value === undefined ? {} : { cursor: cursor.value }),
-    },
-  };
+        : { minAttempts }),
+      ...(cursor === undefined ? {} : { cursor }),
+    };
+  });
 }
 
 function requiredLiveQueryDeliveryFailureStage(
   value: unknown,
-):
-  | { value: "fanout" | "ack" }
-  | { error: { error: "bad_request"; message: string } } {
-  if (value === "fanout" || value === "ack") return { value };
-  return {
-    error: {
-      error: "bad_request",
-      message: "stage must be fanout or ack.",
-    },
-  };
+): ExecutorHttpParseResult<"fanout" | "ack"> {
+  return value === "fanout" || value === "ack"
+    ? Result.succeed(value)
+    : badRequest("stage must be fanout or ack.");
 }
 
 function optionalStuckLiveQueryDeliveryCursor(
   value: unknown,
-):
-  | { value?: { lastAttemptedAt: Date; deploymentId: string; deliveryId: string } }
-  | { error: { error: "bad_request"; message: string } } {
-  if (value === undefined) return {};
+): ExecutorHttpParseResult<
+  { lastAttemptedAt: Date; deploymentId: string; deliveryId: string } | undefined
+> {
+  if (value === undefined) return Result.succeed(undefined);
   if (!isNonArrayRecord(value)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "cursor must be an object.",
-      },
-    };
+    return badRequest("cursor must be an object.");
   }
   const record = value;
-  const lastAttemptedAt = optionalDate(
-    record.lastAttemptedAt,
-    "cursor.lastAttemptedAt",
-  );
-  if ("error" in lastAttemptedAt) return lastAttemptedAt;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "cursor.deploymentId must be a non-empty string.",
-      },
-    };
-  }
-  const deliveryId = requiredString(record, "deliveryId");
-  if ("error" in deliveryId) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "cursor.deliveryId must be a non-empty string.",
-      },
-    };
-  }
-  if (lastAttemptedAt.value === undefined) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "cursor.lastAttemptedAt must be an ISO timestamp string.",
-      },
-    };
-  }
-  return {
-    value: {
-      lastAttemptedAt: lastAttemptedAt.value,
-      deploymentId: deploymentId.value,
-      deliveryId: deliveryId.value,
-    },
-  };
+  return Result.gen(function* () {
+    const lastAttemptedAt = yield* optionalDate(
+      record.lastAttemptedAt,
+      "cursor.lastAttemptedAt",
+    );
+    const deploymentId = yield* prefixBadRequest(
+      requiredString(record, "deploymentId"),
+      "cursor.",
+    );
+    const deliveryId = yield* prefixBadRequest(
+      requiredString(record, "deliveryId"),
+      "cursor.",
+    );
+    if (lastAttemptedAt === undefined) {
+      return yield* badRequest(
+        "cursor.lastAttemptedAt must be an ISO timestamp string.",
+      );
+    }
+    return { lastAttemptedAt, deploymentId, deliveryId };
+  });
 }
 
 function parseSyscallRequest(
   record: UnknownRecord,
-):
-  | { value: InvokeSyscallRequest }
-  | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<InvokeSyscallRequest> {
   if (record.op === "get") {
-    const id = requiredString(record, "id");
-    if ("error" in id) return id;
-    return { value: { op: "get", id: id.value } };
+    return requiredString(record, "id").pipe(
+      Result.map(id => ({ op: "get" as const, id })),
+    );
   }
   if (record.op === "query") {
-    const request = jsonValue(record.request, "request");
-    if ("error" in request) return request;
-    return { value: { op: "query", request: request.value } };
+    return jsonValue(record.request, "request").pipe(
+      Result.map(request => ({ op: "query" as const, request })),
+    );
   }
   if (record.op === "insert") {
-    const table = requiredString(record, "table");
-    if ("error" in table) return table;
-    const value = jsonValue(record.value, "value");
-    if ("error" in value) return value;
-    const id = optionalString(record.id, "id");
-    if ("error" in id) return id;
-    return {
-      value: {
+    return Result.gen(function* () {
+      const table = yield* requiredString(record, "table");
+      const value = yield* jsonValue(record.value, "value");
+      const id = yield* optionalString(record.id, "id");
+      return {
         op: "insert",
-        table: table.value,
-        value: value.value,
-        ...(id.value === undefined ? {} : { id: id.value }),
-      },
-    };
+        table,
+        value,
+        ...(id === undefined ? {} : { id }),
+      };
+    });
   }
   if (record.op === "patch") {
-    const id = requiredString(record, "id");
-    if ("error" in id) return id;
-    const value = jsonValue(record.value, "value");
-    if ("error" in value) return value;
-    return { value: { op: "patch", id: id.value, value: value.value } };
+    return Result.gen(function* () {
+      const id = yield* requiredString(record, "id");
+      const value = yield* jsonValue(record.value, "value");
+      return { op: "patch" as const, id, value };
+    });
   }
   if (record.op === "replace") {
-    const id = requiredString(record, "id");
-    if ("error" in id) return id;
-    const value = jsonValue(record.value, "value");
-    if ("error" in value) return value;
-    return { value: { op: "replace", id: id.value, value: value.value } };
+    return Result.gen(function* () {
+      const id = yield* requiredString(record, "id");
+      const value = yield* jsonValue(record.value, "value");
+      return { op: "replace" as const, id, value };
+    });
   }
   if (record.op === "delete") {
-    const id = requiredString(record, "id");
-    if ("error" in id) return id;
-    return { value: { op: "delete", id: id.value } };
+    return requiredString(record, "id").pipe(
+      Result.map(id => ({ op: "delete" as const, id })),
+    );
   }
-  return {
-    error: {
-      error: "bad_request",
-      message: "op must be get, query, insert, patch, replace, or delete.",
-    },
-  };
+  return badRequest(
+    "op must be get, query, insert, patch, replace, or delete.",
+  );
 }
 
 function requiredString(
   record: UnknownRecord,
   field: string,
-): { value: string } | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<string> {
   const value = record[field];
   if (typeof value !== "string" || value.length === 0) {
-    return {
-      error: {
-        error: "bad_request",
-        message: `${field} must be a non-empty string.`,
-      },
-    };
+    return badRequest(`${field} must be a non-empty string.`);
   }
-  return { value };
+  return Result.succeed(value);
 }
 
 function optionalInvokableKind(
   value: unknown,
-):
-  | { value?: InvokableFunctionKind }
-  | { error: { error: "bad_request"; message: string } } {
-  if (value === undefined) return {};
-  if (value === "query" || value === "mutation") return { value };
-  return {
-    error: {
-      error: "bad_request",
-      message: "kind must be query or mutation.",
-    },
-  };
+): ExecutorHttpParseResult<InvokableFunctionKind | undefined> {
+  if (value === undefined) return Result.succeed(undefined);
+  if (value === "query" || value === "mutation") return Result.succeed(value);
+  return badRequest("kind must be query or mutation.");
 }
 
 function optionalFunctionVisibility(
   value: unknown,
-):
-  | { value?: FunctionVisibility }
-  | { error: { error: "bad_request"; message: string } } {
-  if (value === undefined) return {};
-  if (value === "public" || value === "internal") return { value };
-  return {
-    error: {
-      error: "bad_request",
-      message: "visibility must be public or internal.",
-    },
-  };
+): ExecutorHttpParseResult<FunctionVisibility | undefined> {
+  if (value === undefined) return Result.succeed(undefined);
+  if (value === "public" || value === "internal") {
+    return Result.succeed(value);
+  }
+  return badRequest("visibility must be public or internal.");
 }
 
 function optionalString(
   value: unknown,
   field: string,
-): { value?: string } | { error: { error: "bad_request"; message: string } } {
-  if (value === undefined) return {};
-  if (typeof value === "string" && value.length > 0) return { value };
-  return {
-    error: {
-      error: "bad_request",
-      message: `${field} must be a non-empty string.`,
-    },
-  };
+): ExecutorHttpParseResult<string | undefined> {
+  if (value === undefined) return Result.succeed(undefined);
+  if (typeof value === "string" && value.length > 0) {
+    return Result.succeed(value);
+  }
+  return badRequest(`${field} must be a non-empty string.`);
 }
 
 function optionalNullableString(
   value: unknown,
   field: string,
-):
-  | { value?: string | null }
-  | { error: { error: "bad_request"; message: string } } {
-  if (value === undefined) return {};
-  if (value === null) return { value: null };
-  if (typeof value === "string" && value.length > 0) return { value };
-  return {
-    error: {
-      error: "bad_request",
-      message: `${field} must be a non-empty string or null.`,
-    },
-  };
+): ExecutorHttpParseResult<string | null | undefined> {
+  if (value === undefined) return Result.succeed(undefined);
+  if (value === null) return Result.succeed(null);
+  if (typeof value === "string" && value.length > 0) {
+    return Result.succeed(value);
+  }
+  return badRequest(`${field} must be a non-empty string or null.`);
 }
 
 function requiredDate(
   record: UnknownRecord,
   field: string,
-): { value: Date } | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<Date> {
   const value = record[field];
   if (typeof value !== "string" || value.length === 0) {
-    return {
-      error: {
-        error: "bad_request",
-        message: `${field} must be an ISO timestamp string.`,
-      },
-    };
+    return badRequest(`${field} must be an ISO timestamp string.`);
   }
   const date = new Date(value);
   if (finiteDateMilliseconds(date) === undefined) {
-    return {
-      error: {
-        error: "bad_request",
-        message: `${field} must be an ISO timestamp string.`,
-      },
-    };
+    return badRequest(`${field} must be an ISO timestamp string.`);
   }
-  return { value: date };
+  return Result.succeed(date);
 }
 
 function optionalDate(
   value: unknown,
   field: string,
-): { value?: Date } | { error: { error: "bad_request"; message: string } } {
-  if (value === undefined) return {};
+): ExecutorHttpParseResult<Date | undefined> {
+  if (value === undefined) return Result.succeed(undefined);
   if (typeof value !== "string" || value.length === 0) {
-    return {
-      error: {
-        error: "bad_request",
-        message: `${field} must be an ISO timestamp string.`,
-      },
-    };
+    return badRequest(`${field} must be an ISO timestamp string.`);
   }
   const date = new Date(value);
   if (finiteDateMilliseconds(date) === undefined) {
-    return {
-      error: {
-        error: "bad_request",
-        message: `${field} must be an ISO timestamp string.`,
-      },
-    };
+    return badRequest(`${field} must be an ISO timestamp string.`);
   }
-  return { value: date };
+  return Result.succeed(date);
 }
 
 function requiredStringArray(
   value: unknown,
   field: string,
-): { value: string[] } | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<string[]> {
   if (
     Array.isArray(value) &&
     value.every(item => typeof item === "string" && item.length > 0)
   ) {
-    return { value };
+    return Result.succeed(value);
   }
-  return {
-    error: {
-      error: "bad_request",
-      message: `${field} must be an array of non-empty strings.`,
-    },
-  };
+  return badRequest(`${field} must be an array of non-empty strings.`);
 }
 
 function optionalLiveQueryDeliveryCursor(
   value: unknown,
-):
-  | { value?: { createdAt: Date; deliveryId: string } }
-  | { error: { error: "bad_request"; message: string } } {
-  if (value === undefined) return {};
+): ExecutorHttpParseResult<
+  { createdAt: Date; deliveryId: string } | undefined
+> {
+  if (value === undefined) return Result.succeed(undefined);
   if (!isNonArrayRecord(value)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "cursor must be an object.",
-      },
-    };
+    return badRequest("cursor must be an object.");
   }
   const record = value;
-  const createdAt = optionalDate(record.createdAt, "cursor.createdAt");
-  if ("error" in createdAt) return createdAt;
-  const deliveryId = requiredString(record, "deliveryId");
-  if ("error" in deliveryId) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "cursor.deliveryId must be a non-empty string.",
-      },
-    };
-  }
-  if (createdAt.value === undefined) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "cursor.createdAt must be an ISO timestamp string.",
-      },
-    };
-  }
-  return {
-    value: {
-      createdAt: createdAt.value,
-      deliveryId: deliveryId.value,
-    },
-  };
+  return Result.gen(function* () {
+    const createdAt = yield* optionalDate(
+      record.createdAt,
+      "cursor.createdAt",
+    );
+    const deliveryId = yield* prefixBadRequest(
+      requiredString(record, "deliveryId"),
+      "cursor.",
+    );
+    if (createdAt === undefined) {
+      return yield* badRequest(
+        "cursor.createdAt must be an ISO timestamp string.",
+      );
+    }
+    return { createdAt, deliveryId };
+  });
 }
 
 function optionalPendingLiveQueryDeliveryDeploymentCursor(
   value: unknown,
-):
-  | { value?: { oldestCreatedAt: Date; deploymentId: string } }
-  | { error: { error: "bad_request"; message: string } } {
-  if (value === undefined) return {};
+): ExecutorHttpParseResult<
+  { oldestCreatedAt: Date; deploymentId: string } | undefined
+> {
+  if (value === undefined) return Result.succeed(undefined);
   if (!isNonArrayRecord(value)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "cursor must be an object.",
-      },
-    };
+    return badRequest("cursor must be an object.");
   }
   const record = value;
-  const oldestCreatedAt = optionalDate(
-    record.oldestCreatedAt,
-    "cursor.oldestCreatedAt",
-  );
-  if ("error" in oldestCreatedAt) return oldestCreatedAt;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "cursor.deploymentId must be a non-empty string.",
-      },
-    };
-  }
-  if (oldestCreatedAt.value === undefined) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "cursor.oldestCreatedAt must be an ISO timestamp string.",
-      },
-    };
-  }
-  return {
-    value: {
-      oldestCreatedAt: oldestCreatedAt.value,
-      deploymentId: deploymentId.value,
-    },
-  };
+  return Result.gen(function* () {
+    const oldestCreatedAt = yield* optionalDate(
+      record.oldestCreatedAt,
+      "cursor.oldestCreatedAt",
+    );
+    const deploymentId = yield* prefixBadRequest(
+      requiredString(record, "deploymentId"),
+      "cursor.",
+    );
+    if (oldestCreatedAt === undefined) {
+      return yield* badRequest(
+        "cursor.oldestCreatedAt must be an ISO timestamp string.",
+      );
+    }
+    return { oldestCreatedAt, deploymentId };
+  });
 }
 
 function optionalExpiredLiveQueryConnectionDeploymentCursor(
   value: unknown,
-):
-  | { value?: NonNullable<ListExpiredLiveQueryConnectionDeploymentsInput["cursor"]> }
-  | { error: { error: "bad_request"; message: string } } {
-  if (value === undefined) return {};
+): ExecutorHttpParseResult<
+  NonNullable<ListExpiredLiveQueryConnectionDeploymentsInput["cursor"]> |
+    undefined
+> {
+  if (value === undefined) return Result.succeed(undefined);
   if (!isNonArrayRecord(value)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "cursor must be an object.",
-      },
-    };
+    return badRequest("cursor must be an object.");
   }
   const record = value;
-  const oldestExpiredAt = optionalDate(
-    record.oldestExpiredAt,
-    "cursor.oldestExpiredAt",
-  );
-  if ("error" in oldestExpiredAt) return oldestExpiredAt;
-  const deploymentId = requiredString(record, "deploymentId");
-  if ("error" in deploymentId) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "cursor.deploymentId must be a non-empty string.",
-      },
-    };
-  }
-  if (oldestExpiredAt.value === undefined) {
-    return {
-      error: {
-        error: "bad_request",
-        message: "cursor.oldestExpiredAt must be an ISO timestamp string.",
-      },
-    };
-  }
-  return {
-    value: {
-      oldestExpiredAt: oldestExpiredAt.value,
-      deploymentId: deploymentId.value,
-    },
-  };
+  return Result.gen(function* () {
+    const oldestExpiredAt = yield* optionalDate(
+      record.oldestExpiredAt,
+      "cursor.oldestExpiredAt",
+    );
+    const deploymentId = yield* prefixBadRequest(
+      requiredString(record, "deploymentId"),
+      "cursor.",
+    );
+    if (oldestExpiredAt === undefined) {
+      return yield* badRequest(
+        "cursor.oldestExpiredAt must be an ISO timestamp string.",
+      );
+    }
+    return { oldestExpiredAt, deploymentId };
+  });
 }
 
 function requiredPositiveInteger(
   record: UnknownRecord,
   field: string,
-): { value: number } | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<number> {
   const value = record[field];
   if (
     typeof value !== "number" ||
@@ -1584,221 +1182,16 @@ function requiredPositiveInteger(
     !Number.isInteger(value) ||
     value <= 0
   ) {
-    return {
-      error: {
-        error: "bad_request",
-        message: `${field} must be a positive integer.`,
-      },
-    };
+    return badRequest(`${field} must be a positive integer.`);
   }
-  return { value };
+  return Result.succeed(value);
 }
 
 function requiredNonNegativeInteger(
   record: UnknownRecord,
   field: string,
-): { value: number } | { error: { error: "bad_request"; message: string } } {
+): ExecutorHttpParseResult<number> {
   const value = record[field];
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    !Number.isInteger(value) ||
-    value < 0
-  ) {
-    return {
-      error: {
-        error: "bad_request",
-        message: `${field} must be a non-negative integer.`,
-      },
-    };
-  }
-  return { value };
-}
-
-function optionalPositiveInteger(
-  record: UnknownRecord,
-  field: string,
-):
-  | { value?: number }
-  | { error: { error: "bad_request"; message: string } } {
-  if (record[field] === undefined) return {};
-  return requiredPositiveInteger(record, field);
-}
-
-function jsonValue(
-  value: unknown,
-  field: string,
-): { value: Json } | { error: { error: "bad_request"; message: string } } {
-  if (!isJson(value)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: `${field} must be a JSON value.`,
-      },
-    };
-  }
-  return { value };
-}
-
-function requiredJsonObject(
-  value: unknown,
-  field: string,
-):
-  | { value: JsonObject }
-  | { error: { error: "bad_request"; message: string } } {
-  const parsed = jsonValue(value, field);
-  if ("error" in parsed) return parsed;
-  if (!isJsonObject(parsed.value)) {
-    return {
-      error: {
-        error: "bad_request",
-        message: `${field} must be a JSON object.`,
-      },
-    };
-  }
-  return { value: parsed.value };
-}
-
-function requiredFreshnessReadSet(
-  value: unknown,
-  field: string,
-):
-  | { value: RecordLiveQuerySubscriptionInput["readSet"] }
-  | { error: { error: "bad_request"; message: string } } {
-  const parsed = requiredJsonObject(value, field);
-  if ("error" in parsed) return parsed;
-  const documents = optionalDocumentReadSet(parsed.value.documents, `${field}.documents`);
-  if ("error" in documents) return documents;
-  const tables = optionalTableReadSet(parsed.value.tables, `${field}.tables`);
-  if ("error" in tables) return tables;
-  const indexes = optionalIndexReadSet(parsed.value.indexes, `${field}.indexes`);
-  if ("error" in indexes) return indexes;
-  return {
-    value: {
-      ...(documents.value === undefined ? {} : { documents: documents.value }),
-      ...(tables.value === undefined ? {} : { tables: tables.value }),
-      ...(indexes.value === undefined ? {} : { indexes: indexes.value }),
-    },
-  };
-}
-
-function optionalDocumentReadSet(
-  value: unknown,
-  field: string,
-):
-  | { value?: NonNullable<RecordLiveQuerySubscriptionInput["readSet"]["documents"]> }
-  | { error: { error: "bad_request"; message: string } } {
-  if (value === undefined) return {};
-  if (!Array.isArray(value)) return badRequest(`${field} must be an array.`);
-  const documents: NonNullable<RecordLiveQuerySubscriptionInput["readSet"]["documents"]> = [];
-  for (const [index, item] of value.entries()) {
-    const record = itemRecord(item, `${field}[${index}]`);
-    if ("error" in record) return record;
-    const tableId = requiredNonNegativeInteger(record.value, "tableId");
-    if ("error" in tableId) return prefixBadRequest(tableId, `${field}[${index}].`);
-    const id = requiredString(record.value, "id");
-    if ("error" in id) return prefixBadRequest(id, `${field}[${index}].`);
-    const observedTs = optionalObservedTs(record.value.observedTs, `${field}[${index}].observedTs`);
-    if ("error" in observedTs) return observedTs;
-    documents.push({
-      tableId: tableId.value,
-      id: id.value,
-      ...(observedTs.value === undefined ? {} : { observedTs: observedTs.value }),
-    });
-  }
-  return { value: documents };
-}
-
-function optionalTableReadSet(
-  value: unknown,
-  field: string,
-):
-  | { value?: NonNullable<RecordLiveQuerySubscriptionInput["readSet"]["tables"]> }
-  | { error: { error: "bad_request"; message: string } } {
-  if (value === undefined) return {};
-  if (!Array.isArray(value)) return badRequest(`${field} must be an array.`);
-  const tables: NonNullable<RecordLiveQuerySubscriptionInput["readSet"]["tables"]> = [];
-  for (const [index, item] of value.entries()) {
-    const record = itemRecord(item, `${field}[${index}]`);
-    if ("error" in record) return record;
-    const tableId = requiredNonNegativeInteger(record.value, "tableId");
-    if ("error" in tableId) return prefixBadRequest(tableId, `${field}[${index}].`);
-    const observedTs = optionalNonNegativeInteger(
-      record.value.observedTs,
-      `${field}[${index}].observedTs`,
-    );
-    if ("error" in observedTs) return observedTs;
-    tables.push({
-      tableId: tableId.value,
-      ...(observedTs.value === undefined ? {} : { observedTs: observedTs.value }),
-    });
-  }
-  return { value: tables };
-}
-
-function optionalIndexReadSet(
-  value: unknown,
-  field: string,
-):
-  | { value?: NonNullable<RecordLiveQuerySubscriptionInput["readSet"]["indexes"]> }
-  | { error: { error: "bad_request"; message: string } } {
-  if (value === undefined) return {};
-  if (!Array.isArray(value)) return badRequest(`${field} must be an array.`);
-  const indexes: NonNullable<RecordLiveQuerySubscriptionInput["readSet"]["indexes"]> = [];
-  for (const [index, item] of value.entries()) {
-    const record = itemRecord(item, `${field}[${index}]`);
-    if ("error" in record) return record;
-    const indexId = requiredNonNegativeInteger(record.value, "indexId");
-    if ("error" in indexId) return prefixBadRequest(indexId, `${field}[${index}].`);
-    const observedTs = optionalNonNegativeInteger(
-      record.value.observedTs,
-      `${field}[${index}].observedTs`,
-    );
-    if ("error" in observedTs) return observedTs;
-    const lower = optionalString(record.value.lower, `${field}[${index}].lower`);
-    if ("error" in lower) return lower;
-    const upper = optionalString(record.value.upper, `${field}[${index}].upper`);
-    if ("error" in upper) return upper;
-    indexes.push({
-      indexId: indexId.value,
-      ...(observedTs.value === undefined ? {} : { observedTs: observedTs.value }),
-      ...(lower.value === undefined ? {} : { lower: lower.value }),
-      ...(upper.value === undefined ? {} : { upper: upper.value }),
-    });
-  }
-  return { value: indexes };
-}
-
-function itemRecord(
-  value: unknown,
-  field: string,
-):
-  | { value: UnknownRecord }
-  | { error: { error: "bad_request"; message: string } } {
-  if (isNonArrayRecord(value)) {
-    return { value };
-  }
-  return badRequest(`${field} must be an object.`);
-}
-
-function optionalObservedTs(
-  value: unknown,
-  field: string,
-):
-  | { value?: number | null }
-  | { error: { error: "bad_request"; message: string } } {
-  if (value === undefined) return {};
-  if (value === null) return { value: null };
-  return optionalNonNegativeInteger(value, field);
-}
-
-function optionalNonNegativeInteger(
-  value: unknown,
-  field: string,
-):
-  | { value?: number }
-  | { error: { error: "bad_request"; message: string } } {
-  if (value === undefined) return {};
   if (
     typeof value !== "number" ||
     !Number.isFinite(value) ||
@@ -1807,18 +1200,223 @@ function optionalNonNegativeInteger(
   ) {
     return badRequest(`${field} must be a non-negative integer.`);
   }
-  return { value };
+  return Result.succeed(value);
 }
 
-function badRequest(message: string): { error: { error: "bad_request"; message: string } } {
-  return { error: { error: "bad_request", message } };
+function optionalPositiveInteger(
+  record: UnknownRecord,
+  field: string,
+): ExecutorHttpParseResult<number | undefined> {
+  if (record[field] === undefined) return Result.succeed(undefined);
+  return requiredPositiveInteger(record, field);
 }
 
-function prefixBadRequest(
-  result: { error: { error: "bad_request"; message: string } },
+function jsonValue(
+  value: unknown,
+  field: string,
+): ExecutorHttpParseResult<Json> {
+  if (!isJson(value)) {
+    return badRequest(`${field} must be a JSON value.`);
+  }
+  return Result.succeed(value);
+}
+
+function requiredJsonObject(
+  value: unknown,
+  field: string,
+): ExecutorHttpParseResult<JsonObject> {
+  return jsonValue(value, field).pipe(
+    Result.flatMap(parsed =>
+      isJsonObject(parsed)
+        ? Result.succeed(parsed)
+        : badRequest(`${field} must be a JSON object.`)
+    ),
+  );
+}
+
+function requiredFreshnessReadSet(
+  value: unknown,
+  field: string,
+): ExecutorHttpParseResult<RecordLiveQuerySubscriptionInput["readSet"]> {
+  return Result.gen(function* () {
+    const parsed = yield* requiredJsonObject(value, field);
+    const documents = yield* optionalDocumentReadSet(
+      parsed.documents,
+      `${field}.documents`,
+    );
+    const tables = yield* optionalTableReadSet(
+      parsed.tables,
+      `${field}.tables`,
+    );
+    const indexes = yield* optionalIndexReadSet(
+      parsed.indexes,
+      `${field}.indexes`,
+    );
+    return {
+      ...(documents === undefined ? {} : { documents }),
+      ...(tables === undefined ? {} : { tables }),
+      ...(indexes === undefined ? {} : { indexes }),
+    };
+  });
+}
+
+function optionalDocumentReadSet(
+  value: unknown,
+  field: string,
+): ExecutorHttpParseResult<
+  NonNullable<RecordLiveQuerySubscriptionInput["readSet"]["documents"]> |
+    undefined
+> {
+  if (value === undefined) return Result.succeed(undefined);
+  if (!Array.isArray(value)) return badRequest(`${field} must be an array.`);
+  return Result.gen(function* () {
+    const documents: NonNullable<
+      RecordLiveQuerySubscriptionInput["readSet"]["documents"]
+    > = [];
+    for (const [index, item] of value.entries()) {
+      const itemPath = `${field}[${index}]`;
+      const record = yield* itemRecord(item, itemPath);
+      const tableId = yield* prefixBadRequest(
+        requiredNonNegativeInteger(record, "tableId"),
+        `${itemPath}.`,
+      );
+      const id = yield* prefixBadRequest(
+        requiredString(record, "id"),
+        `${itemPath}.`,
+      );
+      const observedTs = yield* optionalObservedTs(
+        record.observedTs,
+        `${itemPath}.observedTs`,
+      );
+      documents.push({
+        tableId,
+        id,
+        ...(observedTs === undefined ? {} : { observedTs }),
+      });
+    }
+    return documents;
+  });
+}
+
+function optionalTableReadSet(
+  value: unknown,
+  field: string,
+): ExecutorHttpParseResult<
+  NonNullable<RecordLiveQuerySubscriptionInput["readSet"]["tables"]> |
+    undefined
+> {
+  if (value === undefined) return Result.succeed(undefined);
+  if (!Array.isArray(value)) return badRequest(`${field} must be an array.`);
+  return Result.gen(function* () {
+    const tables: NonNullable<
+      RecordLiveQuerySubscriptionInput["readSet"]["tables"]
+    > = [];
+    for (const [index, item] of value.entries()) {
+      const itemPath = `${field}[${index}]`;
+      const record = yield* itemRecord(item, itemPath);
+      const tableId = yield* prefixBadRequest(
+        requiredNonNegativeInteger(record, "tableId"),
+        `${itemPath}.`,
+      );
+      const observedTs = yield* optionalNonNegativeInteger(
+        record.observedTs,
+        `${itemPath}.observedTs`,
+      );
+      tables.push({
+        tableId,
+        ...(observedTs === undefined ? {} : { observedTs }),
+      });
+    }
+    return tables;
+  });
+}
+
+function optionalIndexReadSet(
+  value: unknown,
+  field: string,
+): ExecutorHttpParseResult<
+  NonNullable<RecordLiveQuerySubscriptionInput["readSet"]["indexes"]> |
+    undefined
+> {
+  if (value === undefined) return Result.succeed(undefined);
+  if (!Array.isArray(value)) return badRequest(`${field} must be an array.`);
+  return Result.gen(function* () {
+    const indexes: NonNullable<
+      RecordLiveQuerySubscriptionInput["readSet"]["indexes"]
+    > = [];
+    for (const [index, item] of value.entries()) {
+      const itemPath = `${field}[${index}]`;
+      const record = yield* itemRecord(item, itemPath);
+      const indexId = yield* prefixBadRequest(
+        requiredNonNegativeInteger(record, "indexId"),
+        `${itemPath}.`,
+      );
+      const observedTs = yield* optionalNonNegativeInteger(
+        record.observedTs,
+        `${itemPath}.observedTs`,
+      );
+      const lower = yield* optionalString(record.lower, `${itemPath}.lower`);
+      const upper = yield* optionalString(record.upper, `${itemPath}.upper`);
+      indexes.push({
+        indexId,
+        ...(observedTs === undefined ? {} : { observedTs }),
+        ...(lower === undefined ? {} : { lower }),
+        ...(upper === undefined ? {} : { upper }),
+      });
+    }
+    return indexes;
+  });
+}
+
+function itemRecord(
+  value: unknown,
+  field: string,
+): ExecutorHttpParseResult<UnknownRecord> {
+  if (isNonArrayRecord(value)) {
+    return Result.succeed(value);
+  }
+  return badRequest(`${field} must be an object.`);
+}
+
+function optionalObservedTs(
+  value: unknown,
+  field: string,
+): ExecutorHttpParseResult<number | null | undefined> {
+  if (value === undefined) return Result.succeed(undefined);
+  if (value === null) return Result.succeed(null);
+  return optionalNonNegativeInteger(value, field);
+}
+
+function optionalNonNegativeInteger(
+  value: unknown,
+  field: string,
+): ExecutorHttpParseResult<number | undefined> {
+  if (value === undefined) return Result.succeed(undefined);
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    !Number.isInteger(value) ||
+    value < 0
+  ) {
+    return badRequest(`${field} must be a non-negative integer.`);
+  }
+  return Result.succeed(value);
+}
+
+function badRequest<A = never>(message: string): ExecutorHttpParseResult<A> {
+  return Result.fail({ error: "bad_request", message });
+}
+
+function prefixBadRequest<A>(
+  result: ExecutorHttpParseResult<A>,
   prefix: string,
-): { error: { error: "bad_request"; message: string } } {
-  return badRequest(`${prefix}${result.error.message}`);
+): ExecutorHttpParseResult<A> {
+  return result.pipe(
+    Result.mapError(body => ({
+      ...body,
+      message: `${prefix}${body.message}`,
+    })),
+  );
 }
 
 function isJson(value: unknown): value is Json {

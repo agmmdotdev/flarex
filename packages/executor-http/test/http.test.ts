@@ -505,6 +505,38 @@ describe("executor HTTP live query body decoders", () => {
       message: "limit must be a positive integer.",
     });
   });
+
+  it("short-circuits before reading fields after the first failure", async () => {
+    const reads: string[] = [];
+    const body = {};
+    Object.defineProperties(body, {
+      deploymentId: {
+        enumerable: true,
+        get() {
+          reads.push("deploymentId");
+          return 1;
+        },
+      },
+      projectId: {
+        enumerable: true,
+        get() {
+          reads.push("projectId");
+          throw new Error("projectId must not be read");
+        },
+      },
+    });
+
+    const failure = await Effect.runPromise(
+      decodeLiveQueryRerunMaintenanceBody(body).pipe(Effect.flip),
+    );
+
+    expect(failure).toBeInstanceOf(ExecutorHttpBodyValidationError);
+    expect(failure.body).toEqual({
+      error: "bad_request",
+      message: "deploymentId must be a non-empty string.",
+    });
+    expect(reads).toEqual(["deploymentId"]);
+  });
 });
 
 describe("createFlarexHttpApp", () => {
