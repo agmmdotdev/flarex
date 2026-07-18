@@ -328,7 +328,7 @@ export {
 } from "./schemaVersionArtifacts";
 export {
   getStableTableIdentityByIdEffect,
-  getStableTableIdentityByName,
+  getStableTableIdentityByNameEffect,
   InvalidStableTableIdentityInputError,
   StableTableCatalogCorruptionError,
   StableTableCatalogDeploymentNotFoundError,
@@ -336,7 +336,7 @@ export {
   StableTableIdentityPersistenceError,
   type EnsureStableTableIdentityInput,
   type EnsureStableTableIdentityResult,
-  type GetStableTableIdentityByIdError,
+  type GetStableTableIdentityError,
   type StableTableIdentity,
   type StableTableIdentityName,
 } from "./stableTableCatalog";

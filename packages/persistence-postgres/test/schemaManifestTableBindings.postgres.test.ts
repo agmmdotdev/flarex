@@ -13,8 +13,9 @@ import {
 } from "../src/schemaManifestTableBindings";
 import {
   ensureStableTableIdentityInTransaction,
-  getStableTableIdentityByName,
+  getStableTableIdentityByNameEffect,
 } from "../src/stableTableCatalog";
+import { runEffect } from "./effectTestRuntime";
 import {
   acquirePostgresDeploymentLock,
   postgresUrl,
@@ -193,11 +194,13 @@ describePostgres("real Postgres schema manifest table bindings", () => {
         },
       });
       await expect(
-        getStableTableIdentityByName(persistence.drizzle, {
-          deploymentId,
-          namespace: "app",
-          logicalName: "products",
-        }),
+        runEffect(
+          getStableTableIdentityByNameEffect(persistence.drizzle, {
+            deploymentId,
+            namespace: "app",
+            logicalName: "products",
+          }),
+        ),
       ).resolves.toBeNull();
     });
   }, 30_000);

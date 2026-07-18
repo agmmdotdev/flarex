@@ -23,8 +23,9 @@ import {
 } from "../src/schemaVersionArtifacts";
 import {
   ensureStableTableIdentityInTransaction,
-  getStableTableIdentityByName,
+  getStableTableIdentityByNameEffect,
 } from "../src/stableTableCatalog";
+import { runEffect } from "./effectTestRuntime";
 import {
   acquirePostgresDeploymentLock,
   postgresUrl,
@@ -199,11 +200,13 @@ describePostgres("real Postgres table-definitions artifact compatibility", () =>
         },
       });
       await expect(
-        getStableTableIdentityByName(persistence.drizzle, {
-          deploymentId,
-          namespace: "app",
-          logicalName: "users",
-        }),
+        runEffect(
+          getStableTableIdentityByNameEffect(persistence.drizzle, {
+            deploymentId,
+            namespace: "app",
+            logicalName: "users",
+          }),
+        ),
       ).resolves.toBeNull();
       const next = await persistence.drizzle.transaction((tx) =>
         ensureStableTableIdentityInTransaction(tx, {

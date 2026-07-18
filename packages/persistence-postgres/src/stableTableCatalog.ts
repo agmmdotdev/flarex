@@ -73,15 +73,17 @@ export class StableTableIdentityPersistenceError extends Error {
   readonly _tag = "StableTableIdentityPersistenceError" as const;
 
   constructor(
-    readonly operation: "getById",
+    readonly operation: "getById" | "getByName",
     readonly cause: unknown,
   ) {
-    super("Failed to read stable table identity by ID.", { cause });
+    super(`Failed to read stable table identity by ${
+      operation === "getById" ? "ID" : "name"
+    }.`, { cause });
     this.name = "StableTableIdentityPersistenceError";
   }
 }
 
-export type GetStableTableIdentityByIdError =
+export type GetStableTableIdentityError =
   | InvalidStableTableIdentityInputError
   | StableTableCatalogCorruptionError
   | StableTableIdentityPersistenceError;
@@ -107,7 +109,7 @@ export async function ensureStableTableIdentityInTransaction(
   if (Object.hasOwn(input, "tableId")) {
     throw new InvalidStableTableIdentityInputError("tableId");
   }
-  const name = validateIdentityName(input);
+  const name = Result.getOrThrow(decodeStableTableIdentityNameResult(input));
   const deploymentRows = await tx
     .select({ deploymentId: deployments.deploymentId })
     .from(deployments)
@@ -118,7 +120,10 @@ export async function ensureStableTableIdentityInTransaction(
     throw new StableTableCatalogDeploymentNotFoundError(name.deploymentId);
   }
 
-  const existing = await getStableTableIdentityByName(tx, name);
+  const existing = await getStableTableIdentityByNameForPromiseTransaction(
+    tx,
+    name,
+  );
   if (existing !== null) {
     return { status: "existing", table: existing };
   }
@@ -154,19 +159,13 @@ export const getStableTableIdentityByIdEffect = Effect.fn(
   tableId: CatalogTableId,
 ): Effect.fn.Return<
   StableTableIdentity | null,
-  GetStableTableIdentityByIdError
+  GetStableTableIdentityError
 > {
   const input = yield* Effect.fromResult(
     decodeStableTableIdentityByIdInputResult(deploymentId, tableId),
   );
   const query = selectStableTableIdentityById(db, input);
-  const rows = yield* Effect.uninterruptible(Effect.tryPromise({
-    try: () => query,
-    catch: (cause) => new StableTableIdentityPersistenceError(
-      "getById",
-      cause,
-    ),
-  }));
+  const rows = yield* readStableTableIdentityRowsEffect("getById", query);
   const row = rows[0];
   return row === undefined
     ? null
@@ -212,49 +211,79 @@ function selectStableTableIdentityById(
     .limit(1);
 }
 
-export async function getStableTableIdentityByName(
+export const getStableTableIdentityByNameEffect = Effect.fn(
+  "StableTableCatalog.getByName",
+)(function* (
   db: FlarexMetadataDatabase,
   input: StableTableIdentityName,
+): Effect.fn.Return<
+  StableTableIdentity | null,
+  GetStableTableIdentityError
+> {
+  const name = yield* Effect.fromResult(
+    decodeStableTableIdentityNameResult(input),
+  );
+  const query = selectStableTableIdentityByName(db, name);
+  const rows = yield* readStableTableIdentityRowsEffect("getByName", query);
+  const row = rows[0];
+  return row === undefined
+    ? null
+    : yield* Effect.fromResult(decodeStableTableIdentityResult(row));
+});
+
+/**
+ * Temporary Promise projection for the current stable-table allocation
+ * Drizzle transaction callback. Delete it when that complete allocator
+ * transaction becomes Effect-native; it is intentionally not exported from
+ * the package root.
+ */
+export async function getStableTableIdentityByNameForPromiseTransaction(
+  db: StableTableCatalogTransaction,
+  input: StableTableIdentityName,
 ): Promise<StableTableIdentity | null> {
-  const name = validateIdentityName(input);
-  const rows = await db
+  const name = Result.getOrThrow(decodeStableTableIdentityNameResult(input));
+  const rows = await selectStableTableIdentityByName(db, name);
+  const row = rows[0];
+  return row === undefined
+    ? null
+    : Result.getOrThrow(decodeStableTableIdentityResult(row));
+}
+
+function selectStableTableIdentityByName(
+  db: FlarexMetadataDatabase,
+  input: StableTableIdentityName,
+) {
+  return db
     .select()
     .from(fxControlTables)
     .where(
       and(
-        eq(fxControlTables.deploymentId, name.deploymentId),
-        eq(fxControlTables.namespace, name.namespace),
-        eq(fxControlTables.logicalName, name.logicalName),
+        eq(fxControlTables.deploymentId, input.deploymentId),
+        eq(fxControlTables.namespace, input.namespace),
+        eq(fxControlTables.logicalName, input.logicalName),
       ),
     )
     .limit(1);
-  const row = rows[0];
-  return row === undefined ? null : decodeStableTableIdentity(row);
 }
 
-function validateIdentityName(
+export function decodeStableTableIdentityNameResult(
   input: StableTableIdentityName,
-): StableTableIdentityName {
-  validateNonBlank(input.deploymentId, "deploymentId");
-  validateNonBlank(input.logicalName, "logicalName");
-  let namespace: CatalogTableNamespace;
-  try {
-    namespace = decodeCatalogTableNamespace(input.namespace);
-  } catch {
-    throw new InvalidStableTableIdentityInputError("namespace");
-  }
-  return {
-    deploymentId: input.deploymentId,
-    namespace,
-    logicalName: input.logicalName,
-  } satisfies StableTableIdentityName;
-}
-
-function validateNonBlank(
-  value: string,
-  field: "deploymentId" | "logicalName",
-): void {
-  Result.getOrThrow(validateNonBlankResult(value, field));
+): Result.Result<
+  StableTableIdentityName,
+  InvalidStableTableIdentityInputError
+> {
+  return Result.gen(function* () {
+    const deploymentId = yield* validateNonBlankResult(
+      input.deploymentId,
+      "deploymentId",
+    );
+    const logicalName = yield* validateNonBlankResult(
+      input.logicalName,
+      "logicalName",
+    );
+    const namespace = yield* decodeInputNamespaceResult(input.namespace);
+    return { deploymentId, namespace, logicalName };
+  });
 }
 
 function validateNonBlankResult(
@@ -293,6 +322,31 @@ function decodeInputTableIdResult(
     catch: () => new InvalidStableTableIdentityInputError("tableId"),
   });
 }
+
+function decodeInputNamespaceResult(
+  value: unknown,
+): Result.Result<
+  CatalogTableNamespace,
+  InvalidStableTableIdentityInputError
+> {
+  return Result.try({
+    try: () => decodeCatalogTableNamespace(value),
+    catch: () => new InvalidStableTableIdentityInputError("namespace"),
+  });
+}
+
+type StableTableIdentityRow = typeof fxControlTables.$inferSelect;
+
+const readStableTableIdentityRowsEffect = Effect.fn((
+  operation: StableTableIdentityPersistenceError["operation"],
+  query: PromiseLike<ReadonlyArray<StableTableIdentityRow>>,
+): Effect.Effect<
+  ReadonlyArray<StableTableIdentityRow>,
+  StableTableIdentityPersistenceError
+> => Effect.uninterruptible(Effect.tryPromise({
+  try: () => query,
+  catch: (cause) => new StableTableIdentityPersistenceError(operation, cause),
+})));
 
 function decodeStableTableIdentity(
   row: typeof fxControlTables.$inferSelect,

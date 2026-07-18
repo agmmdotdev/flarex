@@ -12,11 +12,13 @@ import type {
 } from "../src";
 import {
   decodeStableTableIdentityByIdInputResult,
+  decodeStableTableIdentityNameResult,
   decodeStableTableIdentityResult,
   ensureStableTableIdentityInTransaction,
   getStableTableIdentityByIdEffect,
   getStableTableIdentityByIdForPromiseTransaction,
-  getStableTableIdentityByName,
+  getStableTableIdentityByNameEffect,
+  getStableTableIdentityByNameForPromiseTransaction,
   InvalidStableTableIdentityInputError,
   StableTableCatalogCorruptionError,
   StableTableCatalogDeploymentNotFoundError,
@@ -44,16 +46,16 @@ type PublicAllocatorMethod = Extract<
   "ensureStableTableIdentity" | "allocateStableTableIdentity"
 >;
 
-type PublicPromiseIdReaderExport = Extract<
+type PublicPromiseReaderExport = Extract<
   keyof typeof import("../src"),
-  "getStableTableIdentityById"
+  "getStableTableIdentityById" | "getStableTableIdentityByName"
 >;
 
 describe("stable table catalog", () => {
   it("keeps allocation transaction-only and analyzer ordinals out of input", () => {
     expectTypeOf<AnalyzerOrdinalAccepted>().toEqualTypeOf<false>();
     expectTypeOf<PublicAllocatorMethod>().toEqualTypeOf<never>();
-    expectTypeOf<PublicPromiseIdReaderExport>().toEqualTypeOf<never>();
+    expectTypeOf<PublicPromiseReaderExport>().toEqualTypeOf<never>();
     expectTypeOf<FlarexMetadataDatabase>()
       .not.toMatchTypeOf<
         Parameters<typeof ensureStableTableIdentityInTransaction>[0]
@@ -61,6 +63,10 @@ describe("stable table catalog", () => {
     expectTypeOf<FlarexMetadataDatabase>()
       .not.toMatchTypeOf<
         Parameters<typeof getStableTableIdentityByIdForPromiseTransaction>[0]
+      >();
+    expectTypeOf<FlarexMetadataDatabase>()
+      .not.toMatchTypeOf<
+        Parameters<typeof getStableTableIdentityByNameForPromiseTransaction>[0]
       >();
     expectTypeOf<StableTableIdentity["tableId"]>()
       .toEqualTypeOf<CatalogTableId>();
@@ -114,11 +120,13 @@ describe("stable table catalog", () => {
       ),
     ).resolves.toEqual(users.table);
     await expect(
-      getStableTableIdentityByName(persistence.drizzle, {
-        deploymentId: "deployment_catalog_a",
-        namespace: "payload",
-        logicalName: "users",
-      }),
+      runEffect(
+        getStableTableIdentityByNameEffect(persistence.drizzle, {
+          deploymentId: "deployment_catalog_a",
+          namespace: "payload",
+          logicalName: "users",
+        }),
+      ),
     ).resolves.toEqual(payloadUsers.table);
     await expect(
       runEffect(
@@ -157,6 +165,38 @@ describe("stable table catalog", () => {
     }
   });
 
+  it("keeps name input validation ordered and pure", () => {
+    const invalidDeployment = decodeStableTableIdentityNameResult({
+      deploymentId: " ",
+      namespace: "app",
+      logicalName: "",
+    });
+    const invalidLogicalName = decodeStableTableIdentityNameResult({
+      deploymentId: "deployment_catalog_name_input",
+      namespace: "app",
+      logicalName: "\t\n",
+    });
+    const invalidNamespace = decodeStableTableIdentityNameResult({
+      deploymentId: "deployment_catalog_name_input",
+      // @ts-expect-error Exercises the importable JavaScript boundary.
+      namespace: "commerce",
+      logicalName: "users",
+    });
+
+    expect(Result.isFailure(invalidDeployment)).toBe(true);
+    if (Result.isFailure(invalidDeployment)) {
+      expect(invalidDeployment.failure.field).toBe("deploymentId");
+    }
+    expect(Result.isFailure(invalidLogicalName)).toBe(true);
+    if (Result.isFailure(invalidLogicalName)) {
+      expect(invalidLogicalName.failure.field).toBe("logicalName");
+    }
+    expect(Result.isFailure(invalidNamespace)).toBe(true);
+    if (Result.isFailure(invalidNamespace)) {
+      expect(invalidNamespace.failure.field).toBe("namespace");
+    }
+  });
+
   it("decodes stored identities with an owned Date snapshot", () => {
     const storedDate = new Date("2026-07-19T00:00:00.000Z");
     const decoded = Result.getOrThrow(decodeStableTableIdentityResult({
@@ -174,7 +214,7 @@ describe("stable table catalog", () => {
   it("maps rejected ID reads once at the Drizzle boundary", async () => {
     const rejection = new Error("stable table ID query rejected");
     const failure = await runEffectFailure(getStableTableIdentityByIdEffect(
-      stableTableIdReadDatabase(() => Promise.reject(rejection)),
+      stableTableReadDatabase(() => Promise.reject(rejection)),
       "deployment_catalog_sql_failure",
       CatalogTableIdSchema.make(1),
     ));
@@ -187,9 +227,58 @@ describe("stable table catalog", () => {
     });
   });
 
+  it("maps rejected name reads once at the shared Drizzle boundary", async () => {
+    const rejection = new Error("stable table name query rejected");
+    const failure = await runEffectFailure(getStableTableIdentityByNameEffect(
+      stableTableReadDatabase(() => Promise.reject(rejection)),
+      {
+        deploymentId: "deployment_catalog_name_sql_failure",
+        namespace: "app",
+        logicalName: "users",
+      },
+    ));
+
+    expect(failure).toBeInstanceOf(StableTableIdentityPersistenceError);
+    expect(failure).toMatchObject({
+      _tag: "StableTableIdentityPersistenceError",
+      operation: "getByName",
+      cause: rejection,
+    });
+  });
+
+  it("preserves unexpected name-input accessor failures as defects", async () => {
+    const defect = new Error("stable table name accessor defect");
+    const input = new Proxy(
+      {
+        deploymentId: "deployment_catalog_name_defect",
+        namespace: "app" as const,
+        logicalName: "users",
+      },
+      {
+        get(target, property, receiver) {
+          if (property === "logicalName") throw defect;
+          return Reflect.get(target, property, receiver);
+        },
+      },
+    );
+    const exit = await Effect.runPromiseExit(
+      getStableTableIdentityByNameEffect(
+        queryConstructionDefectDatabase(new Error("query should not run")),
+        input,
+      ),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
+
   it("reports malformed stored ID rows as typed catalog corruption", async () => {
     const failure = await runEffectFailure(getStableTableIdentityByIdEffect(
-      stableTableIdReadDatabase(() => Promise.resolve([{
+      stableTableReadDatabase(() => Promise.resolve([{
         deploymentId: "deployment_catalog_corruption",
         tableId: CatalogTableIdSchema.make(1),
         namespace: "app",
@@ -210,7 +299,7 @@ describe("stable table catalog", () => {
   it("waits for a pending ID read before interruption completes", async () => {
     const entered = deferredValue<void>();
     const query = deferredValue<readonly []>();
-    const db = stableTableIdReadDatabase(() => {
+    const db = stableTableReadDatabase(() => {
       entered.resolve(undefined);
       return query.promise;
     });
@@ -362,11 +451,13 @@ describe("stable table catalog", () => {
       table: { tableId: 1 },
     });
     await expect(
-      getStableTableIdentityByName(persistence.drizzle, {
-        deploymentId: "deployment_catalog_rollback",
-        namespace: "app",
-        logicalName: "rolled_back",
-      }),
+      runEffect(
+        getStableTableIdentityByNameEffect(persistence.drizzle, {
+          deploymentId: "deployment_catalog_rollback",
+          namespace: "app",
+          logicalName: "rolled_back",
+        }),
+      ),
     ).resolves.toBeNull();
   });
 
@@ -434,7 +525,7 @@ function ensure(
   );
 }
 
-function stableTableIdReadDatabase(
+function stableTableReadDatabase(
   run: () => Promise<readonly unknown[]>,
 ): FlarexMetadataDatabase {
   const query = {

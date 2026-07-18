@@ -30,9 +30,10 @@ import {
 } from "../src/schemaManifestTableBindings";
 import {
   ensureStableTableIdentityInTransaction,
-  getStableTableIdentityByName,
+  getStableTableIdentityByNameEffect,
   StableTableCatalogDeploymentNotFoundError,
 } from "../src/stableTableCatalog";
+import { runEffect } from "./effectTestRuntime";
 
 type PublicBindingMethod = Extract<
   keyof FlarexPersistence,
@@ -336,7 +337,7 @@ describe("schema manifest app table bindings", () => {
 
     await apply(persistence, plan);
     await expect(
-      getStableTableIdentityByName(persistence.drizzle, {
+      readStableTableIdentityByName(persistence.drizzle, {
         deploymentId,
         namespace: "app",
         logicalName: "products",
@@ -367,7 +368,7 @@ describe("schema manifest app table bindings", () => {
       }),
     ).rejects.toBeInstanceOf(InvalidSchemaManifestTableBindingInputError);
     await expect(
-      getStableTableIdentityByName(persistence.drizzle, {
+      readStableTableIdentityByName(persistence.drizzle, {
         deploymentId,
         namespace: "app",
         logicalName: "users",
@@ -395,7 +396,7 @@ describe("schema manifest app table bindings", () => {
       stale: { reason: "catalogHighWaterChanged" },
     });
     await expect(
-      getStableTableIdentityByName(persistence.drizzle, {
+      readStableTableIdentityByName(persistence.drizzle, {
         deploymentId,
         namespace: "app",
         logicalName: "users",
@@ -457,7 +458,7 @@ describe("schema manifest app table bindings", () => {
       stale: { reason: "partiallyApplied" },
     });
     await expect(
-      getStableTableIdentityByName(persistence.drizzle, {
+      readStableTableIdentityByName(persistence.drizzle, {
         deploymentId,
         namespace: "app",
         logicalName: "users",
@@ -481,7 +482,7 @@ describe("schema manifest app table bindings", () => {
       }),
     ).rejects.toThrow("injected rollback");
     await expect(
-      getStableTableIdentityByName(persistence.drizzle, {
+      readStableTableIdentityByName(persistence.drizzle, {
         deploymentId,
         namespace: "app",
         logicalName: "users",
@@ -518,14 +519,14 @@ describe("schema manifest app table bindings", () => {
       SchemaManifestTableBindingCorruptionError,
     );
     await expect(
-      getStableTableIdentityByName(persistence.drizzle, {
+      readStableTableIdentityByName(persistence.drizzle, {
         deploymentId,
         namespace: "app",
         logicalName: "users",
       }),
     ).resolves.toBeNull();
     await expect(
-      getStableTableIdentityByName(persistence.drizzle, {
+      readStableTableIdentityByName(persistence.drizzle, {
         deploymentId,
         namespace: "app",
         logicalName: "users_corrupt",
@@ -612,6 +613,13 @@ function tableIdentities(
     logicalName: table.logicalName,
     tableId: table.tableId,
   }));
+}
+
+function readStableTableIdentityByName(
+  db: Parameters<typeof getStableTableIdentityByNameEffect>[0],
+  input: Parameters<typeof getStableTableIdentityByNameEffect>[1],
+) {
+  return runEffect(getStableTableIdentityByNameEffect(db, input));
 }
 
 function apply(

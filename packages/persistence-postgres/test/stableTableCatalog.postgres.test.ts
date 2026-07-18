@@ -6,6 +6,7 @@ import type { PostgresFlarexPersistence } from "../src/postgres";
 import {
   ensureStableTableIdentityInTransaction,
   getStableTableIdentityByIdEffect,
+  getStableTableIdentityByNameEffect,
 } from "../src/stableTableCatalog";
 import { runEffect } from "./effectTestRuntime";
 import {
@@ -38,6 +39,22 @@ describePostgres("real Postgres stable table catalog", () => {
         persistence.drizzle,
         deploymentId,
         CatalogTableIdSchema.make(2),
+      ))).resolves.toBeNull();
+      await expect(runEffect(getStableTableIdentityByNameEffect(
+        persistence.drizzle,
+        {
+          deploymentId,
+          namespace: "app",
+          logicalName: "users",
+        },
+      ))).resolves.toEqual(created.table);
+      await expect(runEffect(getStableTableIdentityByNameEffect(
+        persistence.drizzle,
+        {
+          deploymentId,
+          namespace: "app",
+          logicalName: "missing",
+        },
       ))).resolves.toBeNull();
     });
   }, 30_000);

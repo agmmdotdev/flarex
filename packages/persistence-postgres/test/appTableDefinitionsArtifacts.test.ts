@@ -41,8 +41,9 @@ import {
 } from "../src/schemaVersionArtifacts";
 import {
   ensureStableTableIdentityInTransaction,
-  getStableTableIdentityByName,
+  getStableTableIdentityByNameEffect,
 } from "../src/stableTableCatalog";
+import { runEffect } from "./effectTestRuntime";
 
 type PublicInternalCompatibilityExport = Extract<
   keyof typeof import("../src"),
@@ -170,11 +171,13 @@ describe("table-only app definitions artifact compatibility", () => {
       conflict: { reason: "artifactMismatch" },
     });
     await expect(
-      getStableTableIdentityByName(persistence.drizzle, {
-        deploymentId,
-        namespace: "app",
-        logicalName: "users",
-      }),
+      runEffect(
+        getStableTableIdentityByNameEffect(persistence.drizzle, {
+          deploymentId,
+          namespace: "app",
+          logicalName: "users",
+        }),
+      ),
     ).resolves.toBeNull();
 
     const next = await ensureTable(persistence, {
