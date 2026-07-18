@@ -21,6 +21,7 @@ import {
   type Json,
   type JsonObject,
 } from "./json";
+import { canonicalBase64UrlEncodedLength } from "./canonical-base64url";
 import {
   CanonicalNonNegativePostgresBigIntFromString,
   CanonicalPositivePostgresBigIntFromString,
@@ -130,7 +131,7 @@ export const COMMIT_PROTOCOL_OPERATIONAL_LIMITS_V1 = Object.freeze({
 } satisfies CommitProtocolOperationalLimitsV1);
 
 const MAX_COMMIT_CANONICAL_EVIDENCE_BASE64URL_CHARACTERS_V1 =
-  base64UrlMaximumCharacters(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1);
+  canonicalBase64UrlEncodedLength(MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1);
 const MAX_COMMIT_CANDIDATE_ARRAY_ITEMS_V1 = Math.max(
   MAX_COMMIT_WRITE_OPERATIONS_V1,
   MAX_FLAREX_VALUE_ARRAY_ITEMS_V1,
@@ -1600,10 +1601,6 @@ function commitJsonEncodingInvariantFailure(
   issue: CanonicalJsonEncodingInvariantIssue,
 ): never {
   throw new Error(COMMIT_JSON_ENCODING_INVARIANT_MESSAGES[issue.reason]);
-}
-
-function base64UrlMaximumCharacters(byteLength: number): number {
-  return Math.ceil((byteLength * 4) / 3);
 }
 
 function base64UrlDecodedLength(value: string): number {

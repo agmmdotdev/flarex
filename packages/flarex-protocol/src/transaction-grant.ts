@@ -10,6 +10,7 @@ import { Data, Effect, Encoding, Schema } from "effect";
 
 import type { Json, JsonObject } from "./json";
 import { JsonValue } from "./json";
+import { canonicalBase64UrlEncodedLength } from "./canonical-base64url";
 import { CatalogSchemaVersionIdSchema } from "./schema-manifest";
 import { ReplacementScopeIdV1Schema } from "./storage-authority";
 import {
@@ -114,13 +115,17 @@ export function isNonNegativeTransactionGrantDurationMillisecondsV1(
 }
 
 const MAX_TRANSACTION_GRANT_PROTECTED_HEADER_BASE64URL_CHARACTERS_V1 =
-  base64UrlMaximumCharacters(MAX_TRANSACTION_GRANT_PROTECTED_HEADER_BYTES_V1);
+  canonicalBase64UrlEncodedLength(
+    MAX_TRANSACTION_GRANT_PROTECTED_HEADER_BYTES_V1,
+  );
 const MAX_TRANSACTION_GRANT_PAYLOAD_BASE64URL_CHARACTERS_V1 =
-  base64UrlMaximumCharacters(
+  canonicalBase64UrlEncodedLength(
     MAX_TRANSACTION_GRANT_PAYLOAD_CANONICAL_BYTES_V1,
   );
 const TRANSACTION_GRANT_ED25519_SIGNATURE_BASE64URL_CHARACTERS_V1 =
-  base64UrlMaximumCharacters(TRANSACTION_GRANT_ED25519_SIGNATURE_BYTES_V1);
+  canonicalBase64UrlEncodedLength(
+    TRANSACTION_GRANT_ED25519_SIGNATURE_BYTES_V1,
+  );
 
 const BoundedGrantText = Schema.String.check(
   Schema.makeFilter((value) => validateBoundedGrantText(value)),
@@ -1084,10 +1089,6 @@ function decodeBase64Url(
     throw invalidBase64Url(field, "Expected one canonical Base64url spelling");
   }
   return bytes;
-}
-
-function base64UrlMaximumCharacters(byteLength: number): number {
-  return Math.ceil((byteLength * 4) / 3);
 }
 
 function validateBoundedGrantText(value: string): string | undefined {
