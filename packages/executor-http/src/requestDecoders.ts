@@ -1,3 +1,4 @@
+import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { Effect } from "effect";
 import {
   isNonArrayRecord,
@@ -1386,7 +1387,7 @@ function requiredDate(
     };
   }
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
+  if (finiteDateMilliseconds(date) === undefined) {
     return {
       error: {
         error: "bad_request",
@@ -1411,7 +1412,7 @@ function optionalDate(
     };
   }
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
+  if (finiteDateMilliseconds(date) === undefined) {
     return {
       error: {
         error: "bad_request",

@@ -3,6 +3,7 @@ import {
   copyBytes,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
+import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import {
   isNonNegativeSafeInteger,
   isPositiveSafeInteger,
@@ -235,9 +236,12 @@ async function materializeUnsafe(
   if (!validSessionScalars(session)) {
     return corrupt("sessionEvidenceInvalid");
   }
+  const sessionScalars = captureSessionScalars(session);
+  if (sessionScalars === undefined) return corrupt("sessionEvidenceInvalid");
   if (
-    session.authorizationGrantExpiresAt.getTime() <= databaseNowMilliseconds ||
-    session.hardExpiresAt.getTime() <= databaseNowMilliseconds
+    sessionScalars.authorizationGrantExpiresAtMilliseconds <=
+      databaseNowMilliseconds ||
+    sessionScalars.hardExpiresAtMilliseconds <= databaseNowMilliseconds
   ) {
     return Object.freeze({ kind: "notPlannable", reason: "expired" });
   }
@@ -251,12 +255,15 @@ async function materializeUnsafe(
   }
   const leaseSnapshot = decodeLeaseSnapshot(expected, lease);
   if (leaseSnapshot === undefined) return corrupt("snapshotLeaseInvalid");
+  const leaseExpiresAtMilliseconds = finiteDateMilliseconds(
+    lease.leaseExpiresAt,
+  );
   if (
     lease.scopeUuid !== scopeUuid ||
     lease.sessionId !== expected.sessionId ||
     lease.attemptFence !== expected.attemptFence ||
-    !validDate(lease.leaseExpiresAt) ||
-    lease.leaseExpiresAt.getTime() > session.hardExpiresAt.getTime() ||
+    leaseExpiresAtMilliseconds === undefined ||
+    leaseExpiresAtMilliseconds > sessionScalars.hardExpiresAtMilliseconds ||
     leaseSnapshot.commitSeq > clock.lastCommitSeq
   ) {
     return corrupt("snapshotLeaseInvalid");
@@ -268,7 +275,7 @@ async function materializeUnsafe(
   ) {
     return authorityMismatch("snapshotChanged");
   }
-  if (lease.leaseExpiresAt.getTime() <= databaseNowMilliseconds) {
+  if (leaseExpiresAtMilliseconds <= databaseNowMilliseconds) {
     return Object.freeze({ kind: "notPlannable", reason: "expired" });
   }
 
@@ -284,8 +291,6 @@ async function materializeUnsafe(
     return corrupt("journalRootInvalid");
   }
 
-  const sessionScalars = captureSessionScalars(session);
-  if (sessionScalars === undefined) return corrupt("sessionEvidenceInvalid");
   if (!sameSessionScalars(sessionScalars, expected.session)) {
     return authorityMismatch("sealChanged");
   }
@@ -458,14 +463,21 @@ function decodeLeaseSnapshot(
 }
 
 function validSessionScalars(session: SessionSizeRow): boolean {
+  const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.authorizationGrantExpiresAt,
+  );
+  const hardExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.hardExpiresAt,
+  );
+  const createdAtMilliseconds = finiteDateMilliseconds(session.createdAt);
+  const updatedAtMilliseconds = finiteDateMilliseconds(session.updatedAt);
   return session.protocolVersion === TRANSACTION_SESSION_PROTOCOL_VERSION_V1 &&
-    validDate(session.authorizationGrantExpiresAt) &&
-    validDate(session.hardExpiresAt) &&
-    validDate(session.createdAt) &&
-    validDate(session.updatedAt) &&
-    session.hardExpiresAt.getTime() ===
-      session.authorizationGrantExpiresAt.getTime() &&
-    session.updatedAt.getTime() >= session.createdAt.getTime() &&
+    authorizationGrantExpiresAtMilliseconds !== undefined &&
+    hardExpiresAtMilliseconds !== undefined &&
+    createdAtMilliseconds !== undefined &&
+    updatedAtMilliseconds !== undefined &&
+    hardExpiresAtMilliseconds === authorizationGrantExpiresAtMilliseconds &&
+    updatedAtMilliseconds >= createdAtMilliseconds &&
     isUint8ArrayWithByteLength(session.identityAccessPolicySha256, 32) &&
     isUint8ArrayWithByteLength(session.validatedArgsSha256, 32) &&
     isUint8ArrayWithByteLength(session.authorizationGrantSha256, 32) &&
@@ -490,7 +502,22 @@ function captureSessionScalars(
   const grantLength = parseLength(
     session.authorizationGrantCanonicalByteLengthText,
   );
-  if (argsLength === undefined || grantLength === undefined) {
+  const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.authorizationGrantExpiresAt,
+  );
+  const hardExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.hardExpiresAt,
+  );
+  const createdAtMilliseconds = finiteDateMilliseconds(session.createdAt);
+  const updatedAtMilliseconds = finiteDateMilliseconds(session.updatedAt);
+  if (
+    argsLength === undefined ||
+    grantLength === undefined ||
+    authorizationGrantExpiresAtMilliseconds === undefined ||
+    hardExpiresAtMilliseconds === undefined ||
+    createdAtMilliseconds === undefined ||
+    updatedAtMilliseconds === undefined
+  ) {
     return undefined;
   }
   return Object.freeze({
@@ -519,18 +546,20 @@ function captureSessionScalars(
     authorizationGrantCanonicalByteLength: grantLength,
     authorizationGrantSha256: copyBytes(session.authorizationGrantSha256),
     authorizationRevocationEpoch: session.authorizationRevocationEpoch,
-    authorizationGrantExpiresAtMilliseconds:
-      session.authorizationGrantExpiresAt.getTime(),
+    authorizationGrantExpiresAtMilliseconds,
     requestKey: session.requestKey,
     requestSha256: copyBytes(session.requestSha256),
     protocolVersion: session.protocolVersion,
-    hardExpiresAtMilliseconds: session.hardExpiresAt.getTime(),
-    createdAtMilliseconds: session.createdAt.getTime(),
-    updatedAtMilliseconds: session.updatedAt.getTime(),
+    hardExpiresAtMilliseconds,
+    createdAtMilliseconds,
+    updatedAtMilliseconds,
   });
 }
 
 function validRootScalars(root: RootScalarRow): boolean {
+  const createdAtMilliseconds = finiteDateMilliseconds(root.createdAt);
+  const updatedAtMilliseconds = finiteDateMilliseconds(root.updatedAt);
+  const sealedAtMilliseconds = finiteDateMilliseconds(root.sealedAt);
   return root.failureDimension === null &&
     root.sealedFinalSyscallSequence !== null &&
     root.sealedFinalSyscallSequence === root.lastSyscallSequence &&
@@ -545,11 +574,11 @@ function validRootScalars(root: RootScalarRow): boolean {
     isPositiveSafeInteger(parseLength(root.sealedResultByteLengthText)) &&
     isUint8ArrayWithByteLength(root.sealedJournalSha256, 32) &&
     isUint8ArrayWithByteLength(root.sealedResultSha256, 32) &&
-    validDate(root.createdAt) &&
-    validDate(root.updatedAt) &&
-    validDate(root.sealedAt) &&
-    root.updatedAt.getTime() >= root.createdAt.getTime() &&
-    root.sealedAt.getTime() >= root.createdAt.getTime();
+    createdAtMilliseconds !== undefined &&
+    updatedAtMilliseconds !== undefined &&
+    sealedAtMilliseconds !== undefined &&
+    updatedAtMilliseconds >= createdAtMilliseconds &&
+    sealedAtMilliseconds >= createdAtMilliseconds;
 }
 
 function sameSessionScalars(
@@ -602,6 +631,15 @@ function sameSealIdentity(
   root: RootScalarRow,
   scopeUuid: ScopeUuidV1,
 ): boolean {
+  const sessionUpdatedAtMilliseconds = finiteDateMilliseconds(
+    session.updatedAt,
+  );
+  const leaseExpiresAtMilliseconds = finiteDateMilliseconds(
+    lease.leaseExpiresAt,
+  );
+  const rootCreatedAtMilliseconds = finiteDateMilliseconds(root.createdAt);
+  const rootUpdatedAtMilliseconds = finiteDateMilliseconds(root.updatedAt);
+  const sealedAtMilliseconds = finiteDateMilliseconds(root.sealedAt);
   const journalLength = root.sealedJournalByteLengthText === null
     ? undefined
     : parseLength(root.sealedJournalByteLengthText);
@@ -616,11 +654,11 @@ function sameSealIdentity(
     root.sealedResultSha256 !== null &&
     expected.scopeUuid === scopeUuid &&
     expected.lifecycle === session.lifecycle &&
-    expected.sessionUpdatedAtMilliseconds === session.updatedAt.getTime() &&
-    expected.leaseExpiresAtMilliseconds === lease.leaseExpiresAt.getTime() &&
-    expected.rootCreatedAtMilliseconds === root.createdAt.getTime() &&
-    expected.rootUpdatedAtMilliseconds === root.updatedAt.getTime() &&
-    expected.sealedAtMilliseconds === root.sealedAt.getTime() &&
+    expected.sessionUpdatedAtMilliseconds === sessionUpdatedAtMilliseconds &&
+    expected.leaseExpiresAtMilliseconds === leaseExpiresAtMilliseconds &&
+    expected.rootCreatedAtMilliseconds === rootCreatedAtMilliseconds &&
+    expected.rootUpdatedAtMilliseconds === rootUpdatedAtMilliseconds &&
+    expected.sealedAtMilliseconds === sealedAtMilliseconds &&
     expected.finalSyscallSequence === root.sealedFinalSyscallSequence &&
     expected.creationTimeSeed === root.creationTimeSeed &&
     expected.nextCreationTime === root.nextCreationTime &&
@@ -645,6 +683,8 @@ async function verifySchemaArtifact(
   size: SchemaSizeRow,
   row: SchemaPayloadRow,
 ): Promise<SchemaManifestAppSchemaV1 | undefined> {
+  const sizeCreatedAtMilliseconds = finiteDateMilliseconds(size.createdAt);
+  const rowCreatedAtMilliseconds = finiteDateMilliseconds(row.createdAt);
   if (
     row.deploymentId !== expected.deploymentId ||
     row.schemaVersionId !== expected.schemaVersionId ||
@@ -653,12 +693,13 @@ async function verifySchemaArtifact(
     size.version !== row.version ||
     size.manifestCodecVersion !== row.manifestCodecVersion ||
     !bytesEqual(size.manifestSha256, row.manifestSha256) ||
-    size.createdAt.getTime() !== row.createdAt.getTime() ||
+    sizeCreatedAtMilliseconds === undefined ||
+    rowCreatedAtMilliseconds === undefined ||
+    sizeCreatedAtMilliseconds !== rowCreatedAtMilliseconds ||
     parseLength(size.manifestJsonByteLengthText) !==
       utf8ByteLength(row.manifestJsonText) ||
     parseLength(size.manifestCanonicalByteLengthText) !==
-      row.manifestBytes.byteLength ||
-    !validDate(row.createdAt)
+    row.manifestBytes.byteLength
   ) {
     return undefined;
   }
@@ -812,8 +853,4 @@ function decodeDatabaseNow(value: string | undefined): number | undefined {
   return isPositiveSafeInteger(milliseconds)
     ? milliseconds
     : undefined;
-}
-
-function validDate(value: Date): boolean {
-  return value instanceof Date && Number.isFinite(value.getTime());
 }

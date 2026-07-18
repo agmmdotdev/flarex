@@ -1,3 +1,4 @@
+import { copyFiniteDate } from "@flarex/utils/dates";
 import { and, eq } from "drizzle-orm";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
@@ -230,7 +231,8 @@ function decodeStableTableIdentity(
       "logical name is blank",
     );
   }
-  if (!(row.createdAt instanceof Date) || Number.isNaN(row.createdAt.getTime())) {
+  const createdAt = copyFiniteDate(row.createdAt);
+  if (createdAt === undefined) {
     throw new StableTableCatalogCorruptionError(
       row.deploymentId,
       "created timestamp is invalid",
@@ -241,6 +243,6 @@ function decodeStableTableIdentity(
     tableId: decodeTableId(row.deploymentId, row.tableId),
     namespace,
     logicalName: row.logicalName,
-    createdAt: row.createdAt,
+    createdAt,
   } satisfies StableTableIdentity;
 }

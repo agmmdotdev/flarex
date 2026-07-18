@@ -1,4 +1,5 @@
 import { bytesEqual, copyBytes } from "@flarex/utils/bytes";
+import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { and, asc, eq, gt, gte, lte } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
 
@@ -396,8 +397,7 @@ function selectHeadersForChildCapture(
       !Number.isInteger(header.changeCount) ||
       header.changeCount < 0 ||
       header.changeCount > MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1 ||
-      !(header.committedAt instanceof Date) ||
-      !Number.isFinite(header.committedAt.getTime())
+      finiteDateMilliseconds(header.committedAt) === undefined
     ) {
       return null;
     }
@@ -491,6 +491,12 @@ function materializeCommitFeedPage(
   const commits: CommitFeedCommitV1[] = [];
   let childIndex = 0;
   for (const header of selectedHeaders) {
+    const committedAtMilliseconds = finiteDateMilliseconds(
+      header.committedAt,
+    );
+    if (committedAtMilliseconds === undefined) {
+      return corruption(input, "commitHeaderInvalid", header.commitSeq);
+    }
     const appRowChanges: CommitFeedAppRowChangeV1[] = [];
     for (let ordinal = 0; ordinal < header.changeCount; ordinal += 1) {
       const row = captured.appRowChangeRows[childIndex];
@@ -515,7 +521,7 @@ function materializeCommitFeedPage(
       scopeUuid: input.scopeUuid,
       epochUuid: header.epochUuid,
       commitSeq: CommitSeqSchema.make(header.commitSeq),
-      committedAtMilliseconds: header.committedAt.getTime(),
+      committedAtMilliseconds,
       appRowChanges: Object.freeze(appRowChanges),
     }));
   }
@@ -567,8 +573,7 @@ function validateCommitHeaders(
       !Number.isInteger(row.changeCount) ||
       row.changeCount < 0 ||
       row.changeCount > MAX_COMMIT_FEED_PAGE_APP_ROW_CHANGES_V1 ||
-      !(row.committedAt instanceof Date) ||
-      !Number.isFinite(row.committedAt.getTime())
+      finiteDateMilliseconds(row.committedAt) === undefined
     ) {
       return corruption(input, "commitHeaderInvalid");
     }

@@ -2,6 +2,7 @@ import {
   copyBytes,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
+import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, asc, eq, sql } from "drizzle-orm";
 
@@ -653,15 +654,22 @@ function materializeStoredAttemptEvidenceUnsafe(
   if (session.authorizationRevocationEpoch !== revocationEpoch) {
     return authorityMismatch("revocationEpochChanged");
   }
+  const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.authorizationGrantExpiresAt,
+  );
+  const hardExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.hardExpiresAt,
+  );
+  const createdAtMilliseconds = finiteDateMilliseconds(session.createdAt);
+  const updatedAtMilliseconds = finiteDateMilliseconds(session.updatedAt);
   if (
     session.protocolVersion !== TRANSACTION_SESSION_PROTOCOL_VERSION_V1 ||
-    !validDate(session.authorizationGrantExpiresAt) ||
-    !validDate(session.hardExpiresAt) ||
-    !validDate(session.createdAt) ||
-    !validDate(session.updatedAt) ||
-    session.hardExpiresAt.getTime() !==
-      session.authorizationGrantExpiresAt.getTime() ||
-    session.updatedAt.getTime() < session.createdAt.getTime() ||
+    authorizationGrantExpiresAtMilliseconds === undefined ||
+    hardExpiresAtMilliseconds === undefined ||
+    createdAtMilliseconds === undefined ||
+    updatedAtMilliseconds === undefined ||
+    hardExpiresAtMilliseconds !== authorizationGrantExpiresAtMilliseconds ||
+    updatedAtMilliseconds < createdAtMilliseconds ||
     !isUint8ArrayWithByteLength(session.identityAccessPolicySha256, 32) ||
     !isUint8ArrayWithByteLength(session.validatedArgsSha256, 32) ||
     !isUint8ArrayWithByteLength(session.authorizationGrantSha256, 32) ||
@@ -674,7 +682,7 @@ function materializeStoredAttemptEvidenceUnsafe(
   if (session.lifecycle === "committed") {
     return Object.freeze({
       kind: "alreadyCommitted",
-      updatedAtMilliseconds: session.updatedAt.getTime(),
+      updatedAtMilliseconds,
     });
   }
   if (session.lifecycle !== "running" && session.lifecycle !== "finishing") {
@@ -685,8 +693,8 @@ function materializeStoredAttemptEvidenceUnsafe(
     });
   }
   if (
-    session.authorizationGrantExpiresAt.getTime() <= databaseNowMilliseconds ||
-    session.hardExpiresAt.getTime() <= databaseNowMilliseconds
+    authorizationGrantExpiresAtMilliseconds <= databaseNowMilliseconds ||
+    hardExpiresAtMilliseconds <= databaseNowMilliseconds
   ) {
     return Object.freeze({ kind: "notPlannable", reason: "expired" });
   }
@@ -703,12 +711,15 @@ function materializeStoredAttemptEvidenceUnsafe(
     epoch: replacementScopeEpochV1FromUuid(lease.snapshotEpochUuid),
     commitSeq: CommitSeqSchema.make(lease.snapshotCommitSeq),
   });
+  const leaseExpiresAtMilliseconds = finiteDateMilliseconds(
+    lease.leaseExpiresAt,
+  );
   if (
     lease.scopeUuid !== scopeUuid ||
     lease.sessionId !== expected.sessionId ||
     lease.attemptFence !== expected.attemptFence ||
-    !validDate(lease.leaseExpiresAt) ||
-    lease.leaseExpiresAt.getTime() > session.hardExpiresAt.getTime() ||
+    leaseExpiresAtMilliseconds === undefined ||
+    leaseExpiresAtMilliseconds > hardExpiresAtMilliseconds ||
     leaseSnapshot.commitSeq > clock.lastCommitSeq
   ) {
     return corrupt("snapshotLeaseInvalid");
@@ -720,7 +731,7 @@ function materializeStoredAttemptEvidenceUnsafe(
   ) {
     return authorityMismatch("snapshotChanged");
   }
-  if (lease.leaseExpiresAt.getTime() <= databaseNowMilliseconds) {
+  if (leaseExpiresAtMilliseconds <= databaseNowMilliseconds) {
     return Object.freeze({ kind: "notPlannable", reason: "expired" });
   }
 
@@ -767,10 +778,15 @@ function materializeStoredAttemptEvidenceUnsafe(
       sessionId: expected.sessionId,
       attemptFence: expected.attemptFence,
       databaseNowMilliseconds,
-      session: captureSessionScalars(session),
+      session: captureSessionScalars(session, {
+        authorizationGrantExpiresAtMilliseconds,
+        hardExpiresAtMilliseconds,
+        createdAtMilliseconds,
+        updatedAtMilliseconds,
+      }),
       lease: Object.freeze({
         snapshotToken: Object.freeze({ ...leaseSnapshot }),
-        leaseExpiresAtMilliseconds: lease.leaseExpiresAt.getTime(),
+        leaseExpiresAtMilliseconds,
       }),
       root: sealedRoot,
       points,
@@ -780,6 +796,12 @@ function materializeStoredAttemptEvidenceUnsafe(
 
 function captureSessionScalars(
   session: StoredAttemptSessionProjectionV1,
+  timestamps: Readonly<{
+    authorizationGrantExpiresAtMilliseconds: number;
+    hardExpiresAtMilliseconds: number;
+    createdAtMilliseconds: number;
+    updatedAtMilliseconds: number;
+  }>,
 ): StoredAttemptSessionScalarsV1 {
   if (session.lifecycle !== "running" && session.lifecycle !== "finishing") {
     throw new Error("Stored attempt session is not active.");
@@ -811,19 +833,22 @@ function captureSessionScalars(
     authorizationGrantSha256: copyBytes(session.authorizationGrantSha256),
     authorizationRevocationEpoch: session.authorizationRevocationEpoch,
     authorizationGrantExpiresAtMilliseconds:
-      session.authorizationGrantExpiresAt.getTime(),
+      timestamps.authorizationGrantExpiresAtMilliseconds,
     requestKey: session.requestKey,
     requestSha256: copyBytes(session.requestSha256),
     protocolVersion: session.protocolVersion,
-    hardExpiresAtMilliseconds: session.hardExpiresAt.getTime(),
-    createdAtMilliseconds: session.createdAt.getTime(),
-    updatedAtMilliseconds: session.updatedAt.getTime(),
+    hardExpiresAtMilliseconds: timestamps.hardExpiresAtMilliseconds,
+    createdAtMilliseconds: timestamps.createdAtMilliseconds,
+    updatedAtMilliseconds: timestamps.updatedAtMilliseconds,
   });
 }
 
 function captureSealedRoot(
   root: JournalRootRow,
 ): StoredAttemptSealedRootV1 | undefined {
+  const createdAtMilliseconds = finiteDateMilliseconds(root.createdAt);
+  const updatedAtMilliseconds = finiteDateMilliseconds(root.updatedAt);
+  const sealedAtMilliseconds = finiteDateMilliseconds(root.sealedAt);
   if (
     root.failureDimension !== null ||
     root.sealedFinalSyscallSequence === null ||
@@ -835,11 +860,11 @@ function captureSealedRoot(
     root.sealedResultSha256 === null ||
     root.sealedAt === null ||
     root.sealedFinalSyscallSequence !== root.lastSyscallSequence ||
-    !validDate(root.createdAt) ||
-    !validDate(root.updatedAt) ||
-    !validDate(root.sealedAt) ||
-    root.updatedAt.getTime() < root.createdAt.getTime() ||
-    root.sealedAt.getTime() < root.createdAt.getTime() ||
+    createdAtMilliseconds === undefined ||
+    updatedAtMilliseconds === undefined ||
+    sealedAtMilliseconds === undefined ||
+    updatedAtMilliseconds < createdAtMilliseconds ||
+    sealedAtMilliseconds < createdAtMilliseconds ||
     !isUint8ArrayWithByteLength(root.sealedJournalSha256, 32) ||
     !isUint8ArrayWithByteLength(root.sealedResultSha256, 32)
   ) {
@@ -862,9 +887,9 @@ function captureSealedRoot(
     resultSemanticBytes: root.sealedResultSemanticBytes,
     resultBytes: copyBytes(root.sealedResultBytes),
     resultSha256: copyBytes(root.sealedResultSha256),
-    createdAtMilliseconds: root.createdAt.getTime(),
-    updatedAtMilliseconds: root.updatedAt.getTime(),
-    sealedAtMilliseconds: root.sealedAt.getTime(),
+    createdAtMilliseconds,
+    updatedAtMilliseconds,
+    sealedAtMilliseconds,
   });
 }
 
@@ -876,13 +901,15 @@ function capturePoints(
 ): ReadonlyArray<StoredAttemptPointEvidenceV1> | undefined {
   const points: StoredAttemptPointEvidenceV1[] = [];
   for (const row of rows) {
+    const createdAtMilliseconds = finiteDateMilliseconds(row.createdAt);
+    const updatedAtMilliseconds = finiteDateMilliseconds(row.updatedAt);
     if (
       row.scopeUuid !== scopeUuid ||
       row.sessionId !== sessionId ||
       row.attemptFence !== attemptFence ||
-      !validDate(row.createdAt) ||
-      !validDate(row.updatedAt) ||
-      row.updatedAt.getTime() < row.createdAt.getTime()
+      createdAtMilliseconds === undefined ||
+      updatedAtMilliseconds === undefined ||
+      updatedAtMilliseconds < createdAtMilliseconds
     ) {
       return undefined;
     }
@@ -912,8 +939,8 @@ function capturePoints(
       overlayValueBytes,
       overlayValueSha256,
       overlaySemanticBytes: row.overlaySemanticBytes,
-      createdAtMilliseconds: row.createdAt.getTime(),
-      updatedAtMilliseconds: row.updatedAt.getTime(),
+      createdAtMilliseconds,
+      updatedAtMilliseconds,
     }));
   }
   return Object.freeze(points);
@@ -928,10 +955,6 @@ function decodeDatabaseNow(value: string | undefined): number | undefined {
     return undefined;
   }
   return milliseconds;
-}
-
-function validDate(value: Date): boolean {
-  return value instanceof Date && Number.isFinite(value.getTime());
 }
 
 function authorityMismatch(

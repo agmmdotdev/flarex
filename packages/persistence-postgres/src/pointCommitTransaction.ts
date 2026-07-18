@@ -2,6 +2,7 @@ import {
   bytesEqualFullScan as bytesEqual,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
+import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import {
   isNonNegativeSafeInteger,
   isPositiveSafeInteger,
@@ -1106,6 +1107,12 @@ async function lockPointCommitSession(
   }
   if (row.lifecycle !== "finishing") throw stale("lifecycleChanged");
   const expected = command.session;
+  const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
+    row.authorizationGrantExpiresAt,
+  );
+  const hardExpiresAtMilliseconds = finiteDateMilliseconds(row.hardExpiresAt);
+  const createdAtMilliseconds = finiteDateMilliseconds(row.createdAt);
+  const updatedAtMilliseconds = finiteDateMilliseconds(row.updatedAt);
   if (
     row.scopeUuid !== command.sealIdentity.scopeUuid ||
     row.sessionId !== command.authorityPins.sessionId ||
@@ -1143,22 +1150,21 @@ async function lockPointCommitSession(
     row.requestKey !== expected.requestKey ||
     !bytesEqual(row.requestSha256, expected.requestSha256) ||
     row.protocolVersion !== expected.protocolVersion ||
-    !validDate(row.authorizationGrantExpiresAt) ||
-    !validDate(row.hardExpiresAt) ||
-    !validDate(row.createdAt) ||
-    !validDate(row.updatedAt) ||
-    row.authorizationGrantExpiresAt.getTime() !==
+    authorizationGrantExpiresAtMilliseconds === undefined ||
+    hardExpiresAtMilliseconds === undefined ||
+    createdAtMilliseconds === undefined ||
+    updatedAtMilliseconds === undefined ||
+    authorizationGrantExpiresAtMilliseconds !==
       expected.authorizationGrantExpiresAtMilliseconds ||
-    row.hardExpiresAt.getTime() !== expected.hardExpiresAtMilliseconds ||
-    row.createdAt.getTime() !== expected.createdAtMilliseconds ||
-    row.updatedAt.getTime() !== expected.updatedAtMilliseconds
+    hardExpiresAtMilliseconds !== expected.hardExpiresAtMilliseconds ||
+    createdAtMilliseconds !== expected.createdAtMilliseconds ||
+    updatedAtMilliseconds !== expected.updatedAtMilliseconds
   ) {
     throw corruption("sessionInvalid");
   }
   return Object.freeze({
-    authorizationGrantExpiresAtMilliseconds:
-      row.authorizationGrantExpiresAt.getTime(),
-    hardExpiresAtMilliseconds: row.hardExpiresAt.getTime(),
+    authorizationGrantExpiresAtMilliseconds,
+    hardExpiresAtMilliseconds,
   });
 }
 
@@ -1194,20 +1200,23 @@ async function lockPointCommitLease(
   } catch {
     throw corruption("leaseInvalid");
   }
+  const leaseExpiresAtMilliseconds = finiteDateMilliseconds(
+    row.leaseExpiresAt,
+  );
   if (
     row.scopeUuid !== command.sealIdentity.scopeUuid ||
     row.sessionId !== command.authorityPins.sessionId ||
     snapshotEpoch !== command.authorityPins.snapshotToken.epoch ||
     row.snapshotCommitSeq !== command.authorityPins.snapshotToken.commitSeq ||
-    !validDate(row.leaseExpiresAt) ||
-    row.leaseExpiresAt.getTime() !==
+    leaseExpiresAtMilliseconds === undefined ||
+    leaseExpiresAtMilliseconds !==
       command.sealIdentity.leaseExpiresAtMilliseconds ||
-    row.leaseExpiresAt.getTime() > command.session.hardExpiresAtMilliseconds
+    leaseExpiresAtMilliseconds > command.session.hardExpiresAtMilliseconds
   ) {
     throw corruption("leaseInvalid");
   }
   return Object.freeze({
-    expiresAtMilliseconds: row.leaseExpiresAt.getTime(),
+    expiresAtMilliseconds: leaseExpiresAtMilliseconds,
   });
 }
 
@@ -1282,6 +1291,9 @@ async function lockPointCommitJournalRoot(
     throw corruption("journalRootMissingOrDuplicate");
   }
   const expected = command.sealIdentity;
+  const createdAtMilliseconds = finiteDateMilliseconds(row.createdAt);
+  const updatedAtMilliseconds = finiteDateMilliseconds(row.updatedAt);
+  const sealedAtMilliseconds = finiteDateMilliseconds(row.sealedAt);
   if (
     row.scopeUuid !== expected.scopeUuid ||
     row.sessionId !== command.authorityPins.sessionId ||
@@ -1313,12 +1325,12 @@ async function lockPointCommitJournalRoot(
     row.sealedResultSemanticBytes !== expected.resultSemanticBytes ||
     row.sealedResultByteLength !== expected.resultByteLength ||
     !bytesEqual(row.sealedResultSha256, expected.resultSha256) ||
-    !validDate(row.createdAt) ||
-    !validDate(row.updatedAt) ||
-    !validDate(row.sealedAt) ||
-    row.createdAt.getTime() !== expected.rootCreatedAtMilliseconds ||
-    row.updatedAt.getTime() !== expected.rootUpdatedAtMilliseconds ||
-    row.sealedAt.getTime() !== expected.sealedAtMilliseconds
+    createdAtMilliseconds === undefined ||
+    updatedAtMilliseconds === undefined ||
+    sealedAtMilliseconds === undefined ||
+    createdAtMilliseconds !== expected.rootCreatedAtMilliseconds ||
+    updatedAtMilliseconds !== expected.rootUpdatedAtMilliseconds ||
+    sealedAtMilliseconds !== expected.sealedAtMilliseconds
   ) {
     throw corruption("journalRootInvalid");
   }
@@ -1876,10 +1888,6 @@ function validHash(value: unknown): value is Uint8Array {
 
 function validEpochMilliseconds(value: unknown): value is number {
   return isPositiveSafeInteger(value);
-}
-
-function validDate(value: unknown): value is Date {
-  return value instanceof Date && Number.isFinite(value.getTime());
 }
 
 function corruption(

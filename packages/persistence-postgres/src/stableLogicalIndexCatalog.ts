@@ -1,3 +1,4 @@
+import { copyFiniteDate } from "@flarex/utils/dates";
 import { and, eq } from "drizzle-orm";
 import {
   decodeCatalogIndexId,
@@ -158,7 +159,8 @@ function decodeStableLogicalIndexIdentity(
       "descriptor is blank",
     );
   }
-  if (!(row.createdAt instanceof Date) || Number.isNaN(row.createdAt.getTime())) {
+  const createdAt = copyFiniteDate(row.createdAt);
+  if (createdAt === undefined) {
     throw new StableLogicalIndexCatalogCorruptionError(
       row.deploymentId,
       "created timestamp is invalid",
@@ -172,6 +174,6 @@ function decodeStableLogicalIndexIdentity(
     ),
     tableId: decodeStoredTableId(row.deploymentId, row.tableId),
     descriptor: row.descriptor,
-    createdAt: row.createdAt,
+    createdAt,
   } satisfies StableLogicalIndexIdentity;
 }

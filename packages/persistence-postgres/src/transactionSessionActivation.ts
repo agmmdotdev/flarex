@@ -1,4 +1,8 @@
 import { bytesEqual } from "@flarex/utils/bytes";
+import {
+  copyFiniteDate,
+  finiteDateMilliseconds,
+} from "@flarex/utils/dates";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, asc, eq, sql } from "drizzle-orm";
 
@@ -836,7 +840,11 @@ async function createSession(
   });
   await afterWrite?.("leaseInserted");
 
-  const creationTimeSeed = decodeAppCreationTimeV1(databaseNow.getTime());
+  const databaseNowMilliseconds = finiteDateMilliseconds(databaseNow);
+  if (databaseNowMilliseconds === undefined) {
+    throw corruptionError(input.prepared.scopeId, "databaseClockInvalid");
+  }
+  const creationTimeSeed = decodeAppCreationTimeV1(databaseNowMilliseconds);
   await tx.insert(fxSystemTransactionJournals).values({
     scopeUuid: clock.scopeUuid,
     sessionId: input.candidateSessionId,
@@ -1039,10 +1047,24 @@ async function loadLockedRunningAttempt(
   }
 
   const databaseNow = await readDatabaseNow(tx, input.scopeId);
+  const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.authorizationGrantExpiresAt,
+  );
+  const hardExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.hardExpiresAt,
+  );
+  const databaseNowMilliseconds = finiteDateMilliseconds(databaseNow);
   if (
-    session.authorizationGrantExpiresAt.getTime() <= databaseNow.getTime() ||
-    session.hardExpiresAt.getTime() <= databaseNow.getTime() ||
-    locked.lease.leaseExpiresAt.getTime() <= databaseNow.getTime()
+    authorizationGrantExpiresAtMilliseconds === undefined ||
+    hardExpiresAtMilliseconds === undefined ||
+    databaseNowMilliseconds === undefined
+  ) {
+    throw corruptionError(input.scopeId, "sessionRecordInvalid");
+  }
+  if (
+    authorizationGrantExpiresAtMilliseconds <= databaseNowMilliseconds ||
+    hardExpiresAtMilliseconds <= databaseNowMilliseconds ||
+    locked.leaseExpiresAtMilliseconds <= databaseNowMilliseconds
   ) {
     throw input.failures.activeAttemptExpired();
   }
@@ -1134,6 +1156,7 @@ type LockedPointMutationSessionAttemptStructureV1 =
   | (LockedPointMutationSessionAttemptStructureBaseV1 & {
       readonly leaseState: "present";
       readonly lease: SnapshotLeaseRow;
+      readonly leaseExpiresAtMilliseconds: number;
       readonly snapshotEpoch: ScopeEpoch;
       readonly snapshotCommitSeq: CommitSeq;
     });
@@ -1165,13 +1188,18 @@ async function lockPointMutationSessionAttemptStructure(
   ) {
     throw input.failures.authorizationRevocationEpochChanged();
   }
+  const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.authorizationGrantExpiresAt,
+  );
+  const hardExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.hardExpiresAt,
+  );
   if (
-    !isValidDate(session.authorizationGrantExpiresAt) ||
-    !isValidDate(session.hardExpiresAt) ||
-    !isValidDate(session.createdAt) ||
-    !isValidDate(session.updatedAt) ||
-    session.hardExpiresAt.getTime() !==
-      session.authorizationGrantExpiresAt.getTime()
+    authorizationGrantExpiresAtMilliseconds === undefined ||
+    hardExpiresAtMilliseconds === undefined ||
+    finiteDateMilliseconds(session.createdAt) === undefined ||
+    finiteDateMilliseconds(session.updatedAt) === undefined ||
+    hardExpiresAtMilliseconds !== authorizationGrantExpiresAtMilliseconds
   ) {
     throw corruptionError(input.scopeId, "sessionRecordInvalid");
   }
@@ -1218,10 +1246,13 @@ async function lockPointMutationSessionAttemptStructure(
     } satisfies LockedPointMutationSessionAttemptStructureV1);
   }
   await input.afterLeaseLock?.("leaseLocked");
+  const leaseExpiresAtMilliseconds = finiteDateMilliseconds(
+    lease.leaseExpiresAt,
+  );
   if (
     lease.attemptFence !== attemptFence ||
-    !isValidDate(lease.leaseExpiresAt) ||
-    lease.leaseExpiresAt.getTime() > session.hardExpiresAt.getTime()
+    leaseExpiresAtMilliseconds === undefined ||
+    leaseExpiresAtMilliseconds > hardExpiresAtMilliseconds
   ) {
     throw corruptionError(input.scopeId, "snapshotLeaseInvalid");
   }
@@ -1251,6 +1282,7 @@ async function lockPointMutationSessionAttemptStructure(
     attemptFence,
     storageGenerationFence,
     lease,
+    leaseExpiresAtMilliseconds,
     snapshotEpoch,
     snapshotCommitSeq,
   } satisfies LockedPointMutationSessionAttemptStructureV1);
@@ -1383,16 +1415,30 @@ async function terminalizeAttemptInTransaction(
     throw corruptionError(selector.scopeId, "attemptSnapshotChanged");
   }
 
+  const hardExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.hardExpiresAt,
+  );
+  const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.authorizationGrantExpiresAt,
+  );
+  const databaseNowMilliseconds = finiteDateMilliseconds(databaseNow);
+  if (
+    hardExpiresAtMilliseconds === undefined ||
+    authorizationGrantExpiresAtMilliseconds === undefined ||
+    databaseNowMilliseconds === undefined
+  ) {
+    throw corruptionError(selector.scopeId, "sessionRecordInvalid");
+  }
   const effectiveExpiryMilliseconds = Math.min(
-    locked.lease.leaseExpiresAt.getTime(),
-    session.hardExpiresAt.getTime(),
-    session.authorizationGrantExpiresAt.getTime(),
+    locked.leaseExpiresAtMilliseconds,
+    hardExpiresAtMilliseconds,
+    authorizationGrantExpiresAtMilliseconds,
   );
   const effectiveExpiresAt = new Date(effectiveExpiryMilliseconds);
-  if (!isValidDate(effectiveExpiresAt)) {
+  if (finiteDateMilliseconds(effectiveExpiresAt) === undefined) {
     throw corruptionError(selector.scopeId, "snapshotLeaseInvalid");
   }
-  const isExpired = effectiveExpiryMilliseconds <= databaseNow.getTime();
+  const isExpired = effectiveExpiryMilliseconds <= databaseNowMilliseconds;
   if (input.operation === "expire" && !isExpired) {
     throw attemptTerminalizationError({
       reason: "attemptStillLive",
@@ -1450,11 +1496,12 @@ async function terminalizeAttemptInTransaction(
       updatedAt: fxSystemTransactionSessions.updatedAt,
     });
   const terminal = updated[0];
+  const terminalUpdatedAt = copyFiniteDate(terminal?.updatedAt);
   if (
     updated.length !== 1 ||
     terminal === undefined ||
     terminal.lifecycle !== lifecycle ||
-    !isValidDate(terminal.updatedAt)
+    terminalUpdatedAt === undefined
   ) {
     throw corruptionError(selector.scopeId, "terminalizationWriteMismatch");
   }
@@ -1464,7 +1511,7 @@ async function terminalizeAttemptInTransaction(
     "terminalized",
     selector,
     lifecycle,
-    terminal.updatedAt,
+    terminalUpdatedAt,
   );
 }
 
@@ -1715,7 +1762,7 @@ async function readDatabaseNow(
   const databaseNow = new Date(epochMilliseconds);
   if (
     !isPositiveSafeInteger(epochMilliseconds) ||
-    !isValidDate(databaseNow)
+    finiteDateMilliseconds(databaseNow) === undefined
   ) {
     throw corruptionError(scopeId, "databaseClockInvalid");
   }
@@ -1727,8 +1774,14 @@ function deriveInitialLeaseExpiry(
   hardExpiresAt: Date,
   leaseDurationMilliseconds: number,
 ): Date {
-  const databaseNowMilliseconds = databaseNow.getTime();
-  const hardExpiryMilliseconds = hardExpiresAt.getTime();
+  const databaseNowMilliseconds = finiteDateMilliseconds(databaseNow);
+  const hardExpiryMilliseconds = finiteDateMilliseconds(hardExpiresAt);
+  if (
+    databaseNowMilliseconds === undefined ||
+    hardExpiryMilliseconds === undefined
+  ) {
+    throw activationError({ reason: "authorizationGrantExpired" });
+  }
   const remainingMilliseconds =
     hardExpiryMilliseconds - databaseNowMilliseconds;
   if (remainingMilliseconds <= 0) {
@@ -1738,7 +1791,11 @@ function deriveInitialLeaseExpiry(
     databaseNowMilliseconds +
       Math.min(leaseDurationMilliseconds, remainingMilliseconds),
   );
-  if (leaseExpiresAt.getTime() <= databaseNowMilliseconds) {
+  const leaseExpiresAtMilliseconds = finiteDateMilliseconds(leaseExpiresAt);
+  if (
+    leaseExpiresAtMilliseconds === undefined ||
+    leaseExpiresAtMilliseconds <= databaseNowMilliseconds
+  ) {
     throw activationError({ reason: "authorizationGrantExpired" });
   }
   return leaseExpiresAt;
@@ -1748,6 +1805,12 @@ function sessionEvidenceMatches(
   session: typeof fxSystemTransactionSessions.$inferSelect,
   expected: PreparedPointMutationSessionEvidenceV1,
 ): boolean {
+  const actualGrantExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.authorizationGrantExpiresAt,
+  );
+  const expectedGrantExpiresAtMilliseconds = finiteDateMilliseconds(
+    expected.authorizationGrantExpiresAt,
+  );
   return (
     session.packageId === expected.packageId &&
     session.artifactRuntime === expected.artifactRuntime &&
@@ -1787,8 +1850,8 @@ function sessionEvidenceMatches(
     ) &&
     session.authorizationRevocationEpoch ===
       expected.authorizationRevocationEpoch &&
-    session.authorizationGrantExpiresAt.getTime() ===
-      expected.authorizationGrantExpiresAt.getTime() &&
+    actualGrantExpiresAtMilliseconds !== undefined &&
+    actualGrantExpiresAtMilliseconds === expectedGrantExpiresAtMilliseconds &&
     session.requestKey === expected.requestKey &&
     bytesEqual(session.requestSha256, expected.requestSha256)
   );
@@ -2138,13 +2201,8 @@ function corruptionError(
 }
 
 function cloneValidDate(value: Date): Date {
-  if (!(value instanceof Date)) {
-    throw new PointMutationSessionActivationV1Error({
-      reason: "invalidPreparedEvidence",
-    });
-  }
-  const cloned = new Date(value.getTime());
-  if (!isValidDate(cloned)) {
+  const cloned = copyFiniteDate(value);
+  if (cloned === undefined) {
     throw new PointMutationSessionActivationV1Error({
       reason: "invalidPreparedEvidence",
     });
@@ -2153,18 +2211,11 @@ function cloneValidDate(value: Date): Date {
 }
 
 function cloneValidTerminalDate(value: Date, scopeId: ScopeId): Date {
-  if (!(value instanceof Date)) {
-    throw corruptionError(scopeId, "sessionRecordInvalid");
-  }
-  const cloned = new Date(value.getTime());
-  if (!isValidDate(cloned)) {
+  const cloned = copyFiniteDate(value);
+  if (cloned === undefined) {
     throw corruptionError(scopeId, "sessionRecordInvalid");
   }
   return cloned;
-}
-
-function isValidDate(value: Date): boolean {
-  return Number.isFinite(value.getTime());
 }
 
 function cloneJsonObject(value: JsonObject): JsonObject {

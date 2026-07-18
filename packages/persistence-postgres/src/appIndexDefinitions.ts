@@ -1,3 +1,4 @@
+import { copyFiniteDate } from "@flarex/utils/dates";
 import { and, desc, eq } from "drizzle-orm";
 import {
   decodeCatalogIndexDefinitionId,
@@ -1573,13 +1574,14 @@ function decodeStoredTimestamp(
   indexDefinitionId: CatalogIndexDefinitionId,
   value: unknown,
 ): Date {
-  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+  const timestamp = copyFiniteDate(value);
+  if (timestamp === undefined) {
     throw new AppIndexDefinitionCatalogCorruptionError(
       deploymentId,
       `definition ${indexDefinitionId} has an invalid created timestamp`,
     );
   }
-  return new Date(value.getTime());
+  return timestamp;
 }
 
 function invalidInputMessage(

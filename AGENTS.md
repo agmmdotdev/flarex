@@ -161,6 +161,16 @@ accepts JavaScript negative zero, matching `Number.isSafeInteger(value)` plus
 integer-but-not-safe contracts, signed ranges, time semantics, and branded or
 protocol numeric policy with their owning decoder; a shared predicate is not a
 shared range contract.
+Use `@flarex/utils/dates` only to read a finite intrinsic millisecond snapshot
+from an unknown same-realm JavaScript `Date`, or to copy that snapshot into an
+owned plain `Date`. The utilities never dispatch caller-controlled Date methods
+and return `undefined` for invalid Dates, Proxy receivers, and prototype
+impostors instead of leaking a native exception. At a trust boundary, consume
+the returned timestamp or owned copy; do not validate one read and then invoke
+a method on the caller-owned Date. These utilities do not parse text or prove
+canonical ISO spelling, time-zone policy, freshness, ordering, expiry, database
+clock authority, or a branded timestamp contract; those rules and their
+failures stay with the protocol, persistence, or host boundary.
 When a pure recoverable decoder serves both a typed Effect API and an existing
 throwing compatibility API, keep one domain-local Effect v4 `Result`
 normalizer. Enter the Effect error channel once with `Effect.fromResult`, and

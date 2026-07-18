@@ -2,6 +2,7 @@ import {
   bytesEqualFullScan as bytesEqual,
   encodeBytesToLowercaseHex,
 } from "@flarex/utils/bytes";
+import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import {
   isNonNegativeSafeInteger,
   isPositiveSafeInteger,
@@ -2686,10 +2687,6 @@ function corruption(
   });
 }
 
-function isFiniteDate(value: Date): boolean {
-  return value instanceof Date && Number.isFinite(value.getTime());
-}
-
 interface SessionJournalSealCandidateV1 {
   readonly lastSyscallSequence: CommitFinalSyscallSequenceV1;
   readonly nextCreationTime: AppCreationTimeV1;
@@ -2885,11 +2882,15 @@ async function materializeSealCandidate(
     }),
     writes: Object.freeze(writes),
   }));
+  const rootUpdatedAtMilliseconds = finiteDateMilliseconds(root.updatedAt);
+  if (rootUpdatedAtMilliseconds === undefined) {
+    throw corruption(attempt, "journalStateInvalid");
+  }
   return Object.freeze({
     lastSyscallSequence,
     nextCreationTime: decodeAppCreationTimeV1(root.nextCreationTime),
     counters,
-    rootUpdatedAtMilliseconds: root.updatedAt.getTime(),
+    rootUpdatedAtMilliseconds,
     journal,
   });
 }
@@ -2959,14 +2960,19 @@ async function requireRepeatableReadAttemptAuthority(
   } catch (cause) {
     throw corruption(attempt, "sessionRecordInvalid", cause);
   }
+  const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.authorizationGrantExpiresAt,
+  );
+  const hardExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.hardExpiresAt,
+  );
   if (
     session.protocolVersion !== TRANSACTION_SESSION_PROTOCOL_VERSION_V1 ||
-    !isFiniteDate(session.authorizationGrantExpiresAt) ||
-    !isFiniteDate(session.hardExpiresAt) ||
-    !isFiniteDate(session.createdAt) ||
-    !isFiniteDate(session.updatedAt) ||
-    session.hardExpiresAt.getTime() !==
-      session.authorizationGrantExpiresAt.getTime()
+    authorizationGrantExpiresAtMilliseconds === undefined ||
+    hardExpiresAtMilliseconds === undefined ||
+    finiteDateMilliseconds(session.createdAt) === undefined ||
+    finiteDateMilliseconds(session.updatedAt) === undefined ||
+    hardExpiresAtMilliseconds !== authorizationGrantExpiresAtMilliseconds
   ) {
     throw corruption(attempt, "sessionRecordInvalid");
   }
@@ -3003,9 +3009,12 @@ async function requireRepeatableReadAttemptAuthority(
   } catch (cause) {
     throw corruption(attempt, "snapshotLeaseInvalid", cause);
   }
+  const leaseExpiresAtMilliseconds = finiteDateMilliseconds(
+    lease.leaseExpiresAt,
+  );
   if (
-    !isFiniteDate(lease.leaseExpiresAt) ||
-    lease.leaseExpiresAt.getTime() > session.hardExpiresAt.getTime()
+    leaseExpiresAtMilliseconds === undefined ||
+    leaseExpiresAtMilliseconds > hardExpiresAtMilliseconds
   ) {
     throw corruption(attempt, "snapshotLeaseInvalid");
   }
@@ -3019,10 +3028,14 @@ async function requireRepeatableReadAttemptAuthority(
     throw new SessionJournalSealV1Error({ reason: "stalePreparation" });
   }
   const databaseNow = await readDatabaseNowForSeal(tx, attempt);
+  const databaseNowMilliseconds = finiteDateMilliseconds(databaseNow);
+  if (databaseNowMilliseconds === undefined) {
+    throw corruption(attempt, "databaseClockInvalid");
+  }
   if (
-    session.authorizationGrantExpiresAt.getTime() <= databaseNow.getTime() ||
-    session.hardExpiresAt.getTime() <= databaseNow.getTime() ||
-    lease.leaseExpiresAt.getTime() <= databaseNow.getTime()
+    authorizationGrantExpiresAtMilliseconds <= databaseNowMilliseconds ||
+    hardExpiresAtMilliseconds <= databaseNowMilliseconds ||
+    leaseExpiresAtMilliseconds <= databaseNowMilliseconds
   ) {
     throw new SessionJournalSealV1Error({ reason: "stalePreparation" });
   }
@@ -3067,7 +3080,7 @@ async function readDatabaseNowForSeal(
   const date = new Date(milliseconds);
   if (
     !isPositiveSafeInteger(milliseconds) ||
-    !isFiniteDate(date)
+    finiteDateMilliseconds(date) === undefined
   ) {
     throw corruption(attempt, "databaseClockInvalid");
   }
@@ -3390,6 +3403,7 @@ function requireSealCandidateStillCurrent(
   candidate: SessionJournalSealCandidateV1,
   root: typeof fxSystemTransactionJournals.$inferSelect,
 ): void {
+  const rootUpdatedAtMilliseconds = finiteDateMilliseconds(root.updatedAt);
   if (
     root.lastSyscallSequence !== candidate.lastSyscallSequence ||
     root.nextCreationTime !== candidate.nextCreationTime ||
@@ -3400,7 +3414,7 @@ function requireSealCandidateStillCurrent(
     root.writeSemanticBytes !== candidate.counters.writeSemanticBytes ||
     root.materialWriteEventEvidenceBytes !==
       candidate.counters.materialWriteEventEvidenceBytes ||
-    root.updatedAt.getTime() !== candidate.rootUpdatedAtMilliseconds
+    rootUpdatedAtMilliseconds !== candidate.rootUpdatedAtMilliseconds
   ) {
     throw new SessionJournalSealV1Error({ reason: "stalePreparation" });
   }

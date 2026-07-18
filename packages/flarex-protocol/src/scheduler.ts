@@ -1,3 +1,4 @@
+import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import {
   isNonArrayRecord,
   type UnknownRecord,
@@ -426,7 +427,7 @@ function dateString(value: unknown, field: string): SchedulerRoutePayloadValidat
   return nonEmptyString(value, field).pipe(
     Result.flatMap(text => {
       const date = new Date(text);
-      return !Number.isNaN(date.getTime())
+      return finiteDateMilliseconds(date) !== undefined
         ? Result.succeed(date.toISOString())
         : schedulerRoutePayloadValidationFailure(`${field} must be an ISO date string.`);
     }),

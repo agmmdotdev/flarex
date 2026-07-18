@@ -1,3 +1,4 @@
+import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import {
   isNonArrayRecord,
   type UnknownRecord,
@@ -282,7 +283,7 @@ function dateStringFromUnknown(
   return Effect.gen(function* () {
     const text = yield* stringFromUnknown(value, field);
     const date = new Date(text);
-    if (!Number.isNaN(date.getTime())) return date.toISOString();
+    if (finiteDateMilliseconds(date) !== undefined) return date.toISOString();
     return yield* failPayload("claim", `${field} must be an ISO date string.`);
   });
 }

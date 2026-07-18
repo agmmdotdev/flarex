@@ -1,3 +1,4 @@
+import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, sql } from "drizzle-orm";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
@@ -496,7 +497,11 @@ function decodeScopeAuthorityProvisioningReceipt(
       "initial epoch is empty",
     );
   }
-  requireValidDate(row.scopeId, row.reservedAt, "reserved timestamp");
+  const reservedAt = requireValidDate(
+    row.scopeId,
+    row.reservedAt,
+    "reserved timestamp",
+  );
   const scopeId = ScopeIdSchema.make(row.scopeId);
   const base = {
     scopeId,
@@ -507,7 +512,7 @@ function decodeScopeAuthorityProvisioningReceipt(
       row.scopeId,
     ),
     initialEpoch: ScopeEpochSchema.make(row.initialEpoch),
-    reservedAt: row.reservedAt,
+    reservedAt,
   } satisfies Omit<
     ReservedSplitScopeAuthorityProvisioningReceipt,
     "state" | "readyAt"
@@ -533,8 +538,12 @@ function decodeScopeAuthorityProvisioningReceipt(
           "a ready receipt has no ready timestamp",
         );
       }
-      requireValidDate(row.scopeId, row.readyAt, "ready timestamp");
-      if (row.readyAt.getTime() < row.reservedAt.getTime()) {
+      const readyAt = requireValidDate(
+        row.scopeId,
+        row.readyAt,
+        "ready timestamp",
+      );
+      if (readyAt.getTime() < reservedAt.getTime()) {
         throw new ScopeAuthorityProvisioningReceiptCorruptionError(
           row.scopeId,
           "ready timestamp precedes the reservation timestamp",
@@ -543,7 +552,7 @@ function decodeScopeAuthorityProvisioningReceipt(
       return {
         ...base,
         state: SplitScopeAuthorityProvisioningStates.ready,
-        readyAt: row.readyAt,
+        readyAt,
       } satisfies ReadySplitScopeAuthorityProvisioningReceipt;
     default:
       throw new ScopeAuthorityProvisioningReceiptCorruptionError(
@@ -641,13 +650,15 @@ function requireValidDate(
   scopeId: string,
   value: Date,
   field: string,
-): void {
-  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+): Date {
+  const timestamp = copyFiniteDate(value);
+  if (timestamp === undefined) {
     throw new ScopeAuthorityProvisioningReceiptCorruptionError(
       scopeId,
       `${field} is invalid`,
     );
   }
+  return timestamp;
 }
 
 function requireNonBlankInput(

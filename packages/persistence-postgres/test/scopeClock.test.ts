@@ -29,6 +29,7 @@ import type { FlarexMetadataDatabase } from "../src/deployments";
 import { createPGlitePersistence } from "../src/pglite";
 import {
   advanceScopeAuthorizationRevocationEpochInTransaction,
+  decodeScopeClockRecord,
   lockScopeClockForUpdateInTransaction,
   requireScopeAuthorizationRevocationEpochInTransaction,
   ScopeAuthorizationRevocationEpochExhaustedError,
@@ -79,6 +80,34 @@ describe("scope clock", () => {
           typeof advanceScopeAuthorizationRevocationEpochInTransaction
         >[0]
       >();
+  });
+
+  it("returns an owned Date without invoking stateful time methods", () => {
+    class StatefulDate extends Date {
+      calls = 0;
+
+      override getTime(): number {
+        this.calls += 1;
+        return this.calls === 1 ? 0 : Number.NaN;
+      }
+    }
+
+    const source = new StatefulDate(0);
+    const decoded = decodeScopeClockRecord({
+      scopeId: ScopeIdSchema.make("scope_clock_stateful_date"),
+      storageGeneration:
+        LegacyV1StorageGenerationSchema.make("legacy_v1"),
+      storageGenerationFence: StorageGenerationFenceSchema.make(1n),
+      lastCommitSeq: CommitSeqSchema.make(0n),
+      lastOutboxSeq: OutboxSeqSchema.make(0n),
+      epoch: ScopeEpochSchema.make("epoch-stateful-date"),
+      updatedAt: source,
+    });
+
+    expect(decoded.updatedAt).toEqual(new Date(0));
+    expect(decoded.updatedAt).not.toBe(source);
+    expect(Object.getPrototypeOf(decoded.updatedAt)).toBe(Date.prototype);
+    expect(source.calls).toBe(0);
   });
 
   it("reads independent scope clocks with exact bigint values", async () => {

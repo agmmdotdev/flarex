@@ -1,3 +1,4 @@
+import { copyFiniteDate } from "@flarex/utils/dates";
 import { and, eq } from "drizzle-orm";
 import {
   decodeCatalogIndexDefinitionId,
@@ -453,14 +454,15 @@ function decodeTimestamp(
   indexDefinitionId: CatalogIndexDefinitionId,
   field: "created" | "updated",
 ): Date {
-  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+  const timestamp = copyFiniteDate(value);
+  if (timestamp === undefined) {
     throw new IndexBuildStateCorruptionError(
       scopeId,
       indexDefinitionId,
       `${field} timestamp is invalid`,
     );
   }
-  return new Date(value.getTime());
+  return timestamp;
 }
 
 function invalidInputMessage(

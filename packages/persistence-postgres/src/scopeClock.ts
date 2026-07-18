@@ -1,3 +1,4 @@
+import { copyFiniteDate } from "@flarex/utils/dates";
 import { eq, sql } from "drizzle-orm";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
 import {
@@ -240,10 +241,8 @@ export function decodeScopeClockRecord(
       "last outbox sequence is negative",
     );
   }
-  if (
-    !(row.updatedAt instanceof Date) ||
-    Number.isNaN(row.updatedAt.getTime())
-  ) {
+  const updatedAt = copyFiniteDate(row.updatedAt);
+  if (updatedAt === undefined) {
     throw new ScopeClockCorruptionError(
       row.scopeId,
       "updated timestamp is invalid",
@@ -262,7 +261,7 @@ export function decodeScopeClockRecord(
     lastCommitSeq: CommitSeqSchema.make(row.lastCommitSeq),
     lastOutboxSeq: OutboxSeqSchema.make(row.lastOutboxSeq),
     epoch: ScopeEpochSchema.make(row.epoch),
-    updatedAt: row.updatedAt,
+    updatedAt,
   } satisfies ScopeClockRecord;
 }
 

@@ -1,3 +1,4 @@
+import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, sql, type SQL } from "drizzle-orm";
@@ -673,13 +674,18 @@ async function claimCapturedWakes(
     const claimedAt = row?.claimedAt;
     const claimExpiresAt = row?.claimExpiresAt;
     const lastFailedAt = row?.lastFailedAt;
+    const claimedAtEpochMilliseconds = finiteDateMilliseconds(claimedAt);
+    const claimExpiresAtEpochMilliseconds = finiteDateMilliseconds(
+      claimExpiresAt,
+    );
+    const lastFailedAtEpochMilliseconds = finiteDateMilliseconds(lastFailedAt);
     if (
       rows.length !== 1 ||
       row?.outboxSeq !== wake.outboxSeq ||
-      !isFiniteDate(claimedAt) ||
-      !isFiniteDate(claimExpiresAt) ||
-      claimExpiresAt.getTime() <= claimedAt.getTime() ||
-      (reclaimed && !isFiniteDate(lastFailedAt))
+      claimedAtEpochMilliseconds === undefined ||
+      claimExpiresAtEpochMilliseconds === undefined ||
+      claimExpiresAtEpochMilliseconds <= claimedAtEpochMilliseconds ||
+      (reclaimed && lastFailedAtEpochMilliseconds === undefined)
     ) {
       throw new CommitWakeRollbackSignal(corruption(
         operation,
@@ -690,15 +696,13 @@ async function claimCapturedWakes(
       ));
     }
 
-    const claimedAtEpochMilliseconds = claimedAt.getTime();
-    const claimExpiresAtEpochMilliseconds = claimExpiresAt.getTime();
     const nextFence = wake.claimFence + 1n;
     const previousFailure = reclaimed
       ? freezeFailureEvidence(
           "claim_lease_expired",
           null,
-          isFiniteDate(lastFailedAt)
-            ? lastFailedAt.getTime()
+          lastFailedAtEpochMilliseconds !== undefined
+            ? lastFailedAtEpochMilliseconds
             : claimedAtEpochMilliseconds,
         )
       : wake.lastFailure;
@@ -850,33 +854,45 @@ function materializeSettlementResult(
   }>,
 ): SettledCommitWakeV1 | null {
   switch (input.settlement.kind) {
-    case "delivered":
-      return isFiniteDate(row.deliveredAt)
+    case "delivered": {
+      const deliveredAtEpochMilliseconds = finiteDateMilliseconds(
+        row.deliveredAt,
+      );
+      return deliveredAtEpochMilliseconds !== undefined
         ? Object.freeze({
             state: "delivered",
             scopeUuid: input.scopeUuid,
             outboxSeq: input.outboxSeq,
-            deliveredAtEpochMilliseconds: row.deliveredAt.getTime(),
+            deliveredAtEpochMilliseconds,
           })
         : null;
-    case "retry":
-      return isFiniteDate(row.nextAttemptAt)
+    }
+    case "retry": {
+      const nextAttemptAtEpochMilliseconds = finiteDateMilliseconds(
+        row.nextAttemptAt,
+      );
+      return nextAttemptAtEpochMilliseconds !== undefined
         ? Object.freeze({
             state: "pending",
             scopeUuid: input.scopeUuid,
             outboxSeq: input.outboxSeq,
-            nextAttemptAtEpochMilliseconds: row.nextAttemptAt.getTime(),
+            nextAttemptAtEpochMilliseconds,
           })
         : null;
-    case "deadLettered":
-      return isFiniteDate(row.deadLetteredAt)
+    }
+    case "deadLettered": {
+      const deadLetteredAtEpochMilliseconds = finiteDateMilliseconds(
+        row.deadLetteredAt,
+      );
+      return deadLetteredAtEpochMilliseconds !== undefined
         ? Object.freeze({
             state: "dead_lettered",
             scopeUuid: input.scopeUuid,
             outboxSeq: input.outboxSeq,
-            deadLetteredAtEpochMilliseconds: row.deadLetteredAt.getTime(),
+            deadLetteredAtEpochMilliseconds,
           })
         : null;
+    }
   }
 }
 
@@ -1493,10 +1509,6 @@ function parseNullableEpochMilliseconds(
   if (value === undefined) return undefined;
   if (value === null) return null;
   return parseEpochMilliseconds(value) ?? undefined;
-}
-
-function isFiniteDate(value: unknown): value is Date {
-  return value instanceof Date && Number.isFinite(value.getTime());
 }
 
 function decodeNullableEpochUuid(

@@ -1,4 +1,8 @@
 import { copyBytes } from "@flarex/utils/bytes";
+import {
+  copyFiniteDate,
+  finiteDateMilliseconds,
+} from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, sql } from "drizzle-orm";
 import { Data, Effect, Result, Schema } from "effect";
@@ -570,7 +574,9 @@ function detachOutcomeRows(
 
 function detachDriverValue(value: unknown): unknown {
   if (value instanceof Uint8Array) return copyBytes(value);
-  if (value instanceof Date) return new Date(value.getTime());
+  if (value instanceof Date) {
+    return copyFiniteDate(value) ?? new Date(Number.NaN);
+  }
   return value;
 }
 
@@ -659,7 +665,8 @@ function validateCapturedOutcome(
     }
   }
 
-  if (!(row.createdAt instanceof Date) || !Number.isFinite(row.createdAt.getTime())) {
+  const createdAtMilliseconds = finiteDateMilliseconds(row.createdAt);
+  if (createdAtMilliseconds === undefined) {
     return corruption(input, "outcomeRowInvalid", commitSeq);
   }
   if (row.resultState !== "available" && row.resultState !== "expired") {
@@ -667,6 +674,9 @@ function validateCapturedOutcome(
   }
   const resultSemanticBytes = row.resultSemanticBytes;
   const resultByteLength = row.resultByteLength;
+  const resultExpiredAtMilliseconds = finiteDateMilliseconds(
+    row.resultExpiredAt,
+  );
   const availableScalarsValid =
     row.resultValueCodecVersion === 1 &&
     typeof resultSemanticBytes === "number" &&
@@ -686,9 +696,8 @@ function validateCapturedOutcome(
     row.resultSemanticBytes === null &&
     row.resultByteLength === null &&
     row.resultSha256ByteLength === null &&
-    row.resultExpiredAt instanceof Date &&
-    Number.isFinite(row.resultExpiredAt.getTime()) &&
-    row.resultExpiredAt.getTime() >= row.createdAt.getTime();
+    resultExpiredAtMilliseconds !== undefined &&
+    resultExpiredAtMilliseconds >= createdAtMilliseconds;
   if (
     (row.resultState === "available" && !availableScalarsValid) ||
     (row.resultState === "expired" && !expiredScalarsValid)

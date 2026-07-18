@@ -1,4 +1,5 @@
 import { bytesEqual } from "@flarex/utils/bytes";
+import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq } from "drizzle-orm";
 import type { PgTransactionConfig } from "drizzle-orm/pg-core";
@@ -374,8 +375,8 @@ async function insertSchemaVersionArtifact(
       manifestSha256: copySchemaManifestSha256(canonical.sha256),
     })
     .returning({ createdAt: fxControlSchemaVersions.createdAt });
-  const createdAt = rows[0]?.createdAt;
-  if (!isValidDate(createdAt)) {
+  const createdAt = copyFiniteDate(rows[0]?.createdAt);
+  if (createdAt === undefined) {
     throw new SchemaVersionArtifactCorruptionError(
       input.deploymentId,
       "insert returned no valid creation timestamp",
@@ -555,7 +556,8 @@ function decodeStoredSchemaVersionArtifactRow(
     "manifest SHA-256",
     () => decodeSchemaManifestSha256(row.manifestSha256),
   );
-  if (!isValidDate(row.createdAt)) {
+  const createdAt = copyFiniteDate(row.createdAt);
+  if (createdAt === undefined) {
     throw new SchemaVersionArtifactCorruptionError(
       row.deploymentId,
       "creation timestamp is invalid",
@@ -569,7 +571,7 @@ function decodeStoredSchemaVersionArtifactRow(
     manifestJson: row.manifestJson,
     manifestBytes,
     manifestSha256,
-    createdAt: row.createdAt,
+    createdAt,
   } satisfies StoredSchemaVersionArtifact;
 }
 
@@ -725,10 +727,6 @@ function jsonValuesEqual(left: unknown, right: unknown): boolean {
     if (!jsonValuesEqual(left[key], right[key])) return false;
   }
   return true;
-}
-
-function isValidDate(value: unknown): value is Date {
-  return value instanceof Date && !Number.isNaN(value.getTime());
 }
 
 function decodeStoredValue<Value>(

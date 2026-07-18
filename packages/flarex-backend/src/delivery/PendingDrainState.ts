@@ -1,3 +1,4 @@
+import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Effect, Result } from "effect";
 import { HttpError } from "../http";
@@ -124,7 +125,7 @@ function dateStringFromStorage(value: unknown, field: string): DeliveryPendingDr
   return storageString(value, field).pipe(
     Result.flatMap(text => {
       const date = new Date(text);
-      return !Number.isNaN(date.getTime())
+      return finiteDateMilliseconds(date) !== undefined
         ? Result.succeed(date.toISOString())
         : deliveryPendingDrainStateFailure(`${field} must be an ISO date string.`);
     }),
