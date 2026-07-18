@@ -25,7 +25,9 @@ import {
 } from "flarex-protocol/value";
 
 import type {
+  PointCommitAttemptScalarCommandV1,
   PointCommitDependencyV1,
+  PointCommitFinishingTransitionCommandV1,
   PointCommitRowIntentV1,
   PointCommitTransactionCommandV1,
 } from "../src/pointCommitTransaction";
@@ -39,13 +41,51 @@ export async function pointCommitCommandFromStoredAttemptV1(
   authority: StoredAttemptEvidenceAuthorityV1,
   evidence: StoredAttemptEvidenceV1,
 ): Promise<PointCommitTransactionCommandV1> {
+  return pointCommitCommandForLifecycleFromStoredAttemptV1(
+    authority,
+    evidence,
+    "finishing",
+  );
+}
+
+export async function pointCommitFinishingCommandFromStoredAttemptV1(
+  authority: StoredAttemptEvidenceAuthorityV1,
+  evidence: StoredAttemptEvidenceV1,
+): Promise<PointCommitFinishingTransitionCommandV1> {
+  const scalar = pointCommitScalarCommandForLifecycleFromStoredAttemptV1(
+    authority,
+    evidence,
+    "running",
+  );
+  return Object.freeze({
+    ...scalar,
+    session: Object.freeze({ ...scalar.session, lifecycle: "running" as const }),
+    sealIdentity: Object.freeze({
+      ...scalar.sealIdentity,
+      lifecycle: "running" as const,
+    }),
+  });
+}
+
+async function pointCommitCommandForLifecycleFromStoredAttemptV1(
+  authority: StoredAttemptEvidenceAuthorityV1,
+  evidence: StoredAttemptEvidenceV1,
+  lifecycle: "running" | "finishing",
+): Promise<PointCommitTransactionCommandV1> {
   if (
-    evidence.session.lifecycle !== "finishing" ||
+    evidence.session.lifecycle !== lifecycle ||
     evidence.session.storageGeneration !== "flarexdb_v1" ||
     evidence.session.functionKind !== "mutation"
   ) {
-    throw new Error("O06 test evidence is not a finishing mutation attempt.");
+    throw new Error(
+      `Point-commit test evidence is not a ${lifecycle} mutation attempt.`,
+    );
   }
+  const scalar = pointCommitScalarCommandForLifecycleFromStoredAttemptV1(
+    authority,
+    evidence,
+    lifecycle,
+  );
   const entries = await Promise.all(evidence.points.map(async (point) => {
     const dependency = pointDependency(point);
     const rowIntent = await pointRowIntent(point, dependency);
@@ -59,6 +99,27 @@ export async function pointCommitCommandFromStoredAttemptV1(
   );
   if (materialIntents.length > 1) {
     throw new Error("O06 point proof supports at most one net row intent.");
+  }
+  return Object.freeze({
+    ...scalar,
+    dependencies,
+    rowIntent: materialIntents[0] ?? null,
+  } satisfies PointCommitTransactionCommandV1);
+}
+
+function pointCommitScalarCommandForLifecycleFromStoredAttemptV1(
+  authority: StoredAttemptEvidenceAuthorityV1,
+  evidence: StoredAttemptEvidenceV1,
+  lifecycle: "running" | "finishing",
+): PointCommitAttemptScalarCommandV1 {
+  if (
+    evidence.session.lifecycle !== lifecycle ||
+    evidence.session.storageGeneration !== "flarexdb_v1" ||
+    evidence.session.functionKind !== "mutation"
+  ) {
+    throw new Error(
+      `Point-commit test evidence is not a ${lifecycle} mutation attempt.`,
+    );
   }
   const session = evidence.session;
   const root = evidence.root;
@@ -102,7 +163,7 @@ export async function pointCommitCommandFromStoredAttemptV1(
     }),
     session: Object.freeze({
       ...session,
-      lifecycle: "finishing",
+      lifecycle,
       authorizationGrantId: TransactionAuthorizationGrantIdV1Schema.make(
         session.authorizationGrantId,
       ),
@@ -115,7 +176,7 @@ export async function pointCommitCommandFromStoredAttemptV1(
     }),
     sealIdentity: Object.freeze({
       scopeUuid: evidence.scopeUuid,
-      lifecycle: "finishing",
+      lifecycle,
       sessionUpdatedAtMilliseconds: session.updatedAtMilliseconds,
       leaseExpiresAtMilliseconds: evidence.lease.leaseExpiresAtMilliseconds,
       rootCreatedAtMilliseconds: root.createdAtMilliseconds,
@@ -141,9 +202,7 @@ export async function pointCommitCommandFromStoredAttemptV1(
       materialWriteEventEvidenceBytes:
         root.materialWriteEventEvidenceBytes,
     }),
-    dependencies,
-    rowIntent: materialIntents[0] ?? null,
-  } satisfies PointCommitTransactionCommandV1);
+  });
 }
 
 function pointDependency(

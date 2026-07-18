@@ -236,6 +236,26 @@ export interface PointCommitSealIdentityV1 {
     CommitMaterialWriteEventEvidenceBytesV1;
 }
 
+export interface PointCommitAttemptScalarCommandV1 {
+  readonly authorityPins: PointCommitAuthorityPinsV1;
+  readonly session: PointCommitSessionScalarsV1;
+  readonly sealIdentity: PointCommitSealIdentityV1;
+}
+
+export interface PointCommitFinishingTransitionCommandV1
+  extends Omit<PointCommitAttemptScalarCommandV1, "session" | "sealIdentity"> {
+  readonly session: Readonly<
+    Omit<PointCommitSessionScalarsV1, "lifecycle"> & {
+      readonly lifecycle: "running";
+    }
+  >;
+  readonly sealIdentity: Readonly<
+    Omit<PointCommitSealIdentityV1, "lifecycle"> & {
+      readonly lifecycle: "running";
+    }
+  >;
+}
+
 export interface PointCommitDependencyV1 {
   readonly documentId: AppDocumentIdV1;
   readonly tableId: CatalogTableId;
@@ -255,10 +275,8 @@ export type PointCommitRowIntentV1 =
       readonly kind: "deleted";
     }>;
 
-export interface PointCommitTransactionCommandV1 {
-  readonly authorityPins: PointCommitAuthorityPinsV1;
-  readonly session: PointCommitSessionScalarsV1;
-  readonly sealIdentity: PointCommitSealIdentityV1;
+export interface PointCommitTransactionCommandV1
+  extends PointCommitAttemptScalarCommandV1 {
   readonly dependencies: ReadonlyArray<PointCommitDependencyV1>;
   readonly rowIntent: PointCommitRowIntentV1 | null;
 }
@@ -311,6 +329,7 @@ export class PointCommitStaleAuthorityV1Error extends Data.TaggedError(
 
 export type PointCommitCorruptionReasonV1 =
   | "commandInvalid"
+  | "finishingTransitionInvalid"
   | "readCommittedCapabilityMissing"
   | "scopeClockInvalid"
   | "sessionDuplicate"
@@ -336,6 +355,15 @@ export class PointCommitCorruptionV1Error extends Data.TaggedError(
   readonly reason: PointCommitCorruptionReasonV1;
 }> {}
 
+export type PointCommitFinishingTransitionResultV1 = Readonly<{
+  readonly kind: "transitioned" | "observed";
+  readonly scopeUuid: ScopeUuidV1;
+  readonly sessionId: TransactionSessionIdV1;
+  readonly attemptFence: TransactionAttemptFence;
+  readonly priorSessionUpdatedAtMilliseconds: number;
+  readonly finishingSessionUpdatedAtMilliseconds: number;
+}>;
+
 export class PointCommitResourceExhaustionV1Error extends Data.TaggedError(
   "PointCommitResourceExhaustionV1Error",
 )<{
@@ -351,6 +379,7 @@ export type PointCommitSqlOperationV1 =
   | "lockLease"
   | "lockJournalRoot"
   | "readDatabaseTime"
+  | "enterFinishing"
   | "loadRowHeads"
   | "writeTentativeRow"
   | "recheckOutcome"
@@ -371,6 +400,21 @@ export class PointCommitSqlErrorV1 extends Data.TaggedError(
   readonly retryable: boolean;
   readonly cause: unknown;
 }> {}
+
+export type PointCommitFinishingTransitionV1Error =
+  | PointCommitStaleAuthorityV1Error
+  | PointCommitCorruptionV1Error
+  | PointCommitSqlErrorV1;
+
+export interface PointCommitFinishingTransitionPortV1 {
+  readonly enterFinishing: (
+    command: PointCommitFinishingTransitionCommandV1,
+  ) => Effect.Effect<
+    PointCommitFinishingTransitionResultV1,
+    PointCommitFinishingTransitionV1Error,
+    never
+  >;
+}
 
 export type PointCommitRollbackProofV1Error =
   | PointCommitConflictV1Error
@@ -423,6 +467,7 @@ export type PointCommitTransactionProofStepV1 =
   | "sessionLocked"
   | "leaseLocked"
   | "journalRootLocked"
+  | "sessionEnteredFinishing"
   | "dependenciesValidated"
   | "tentativeRowWritten"
   | "outcomeRechecked"
@@ -463,8 +508,18 @@ type PreparedPointCommitRowIntentV1 =
   | PreparedLivePointCommitRowIntentV1
   | Extract<PointCommitRowIntentV1, { readonly kind: "deleted" }>;
 
+interface PreparedPointCommitFinishingTransitionCommandV1
+  extends PointCommitFinishingTransitionCommandV1 {}
+
+interface PreparedPointCommitAttemptScalarCommandV1
+  extends PointCommitAttemptScalarCommandV1 {}
+
 interface PreparedPointCommitTransactionCommandV1
-  extends Omit<PointCommitTransactionCommandV1, "rowIntent"> {
+  extends PreparedPointCommitAttemptScalarCommandV1,
+    Omit<
+      PointCommitTransactionCommandV1,
+      keyof PointCommitAttemptScalarCommandV1 | "rowIntent"
+    > {
   readonly rowIntent: PreparedPointCommitRowIntentV1 | null;
 }
 
@@ -479,6 +534,9 @@ interface PreparedPointCommitPublicationCommandV1
 }
 
 type PointCommitTransactionModeV1 = "rollbackProof" | "publish";
+type PointCommitSessionLockModeV1 =
+  | PointCommitTransactionModeV1
+  | "enterFinishing";
 
 const WOULD_COMMIT = Object.freeze({
   kind: "wouldCommit",
@@ -493,6 +551,59 @@ class PointCommitSqlFailureMarkerV1 {
     readonly operation: PointCommitSqlOperationV1,
     readonly cause: unknown,
   ) {}
+}
+
+export function createPointCommitFinishingTransitionPortV1(
+  ports: PointMutationSessionAuthorityResolutionPortsV1,
+  options: PointCommitTransactionProofOptionsV1 = {},
+): PointCommitFinishingTransitionPortV1 {
+  const enterFinishing: PointCommitFinishingTransitionPortV1[
+    "enterFinishing"
+  ] = Effect.fn(
+    "PointCommitTransaction.enterFinishing",
+  )(function* (input) {
+    const command = yield* Effect.try({
+      try: () => capturePointCommitFinishingTransitionCommand(input),
+      catch: mapCommandPreparationFailure,
+    });
+    const located = yield* Effect.tryPromise({
+      try: () => resolveLocatedTrustedScopeAuthority(
+        command.authorityPins.deploymentId,
+        {
+          scopeMetadata: ports.scopeMetadata,
+          provisioningReceipts: ports.provisioningReceipts,
+          scopeClockTargets: ports.scopeSessionTargets,
+        },
+      ),
+      catch: mapAuthorityResolutionFailure,
+    });
+    const preliminaryFailure = preliminaryAuthorityFailure(
+      command,
+      located.authority,
+    );
+    if (preliminaryFailure !== null) {
+      return yield* Effect.fail(preliminaryFailure);
+    }
+    const target = isLocatedReadCommittedAttemptTargetV1(located.target)
+      ? located.target
+      : null;
+    if (target === null) {
+      return yield* Effect.fail(corruption(
+        "readCommittedCapabilityMissing",
+      ));
+    }
+    return yield* Effect.uninterruptible(Effect.tryPromise({
+      try: () => runPointCommitFinishingTransition(
+        target,
+        located.authority,
+        command,
+        options,
+      ),
+      catch: mapFinishingTransitionFailure,
+    }));
+  });
+
+  return Object.freeze({ enterFinishing });
 }
 
 export function createPointCommitRollbackProofPortV1(
@@ -844,6 +955,29 @@ function capturePointCommitCommand(
   });
 }
 
+function capturePointCommitFinishingTransitionCommand(
+  input: PointCommitFinishingTransitionCommandV1,
+): PreparedPointCommitFinishingTransitionCommandV1 {
+  if (
+    input.session.lifecycle !== "running" ||
+    input.sealIdentity.lifecycle !== "running"
+  ) {
+    throw stale("lifecycleChanged");
+  }
+  const authorityPins = captureAuthorityPins(input.authorityPins);
+  const session = captureSessionScalars(input.session);
+  const sealIdentity = captureSealIdentity(input.sealIdentity);
+  requireCommandAuthorityConsistency(authorityPins, session, sealIdentity);
+  return Object.freeze({
+    authorityPins,
+    session: Object.freeze({ ...session, lifecycle: "running" as const }),
+    sealIdentity: Object.freeze({
+      ...sealIdentity,
+      lifecycle: "running" as const,
+    }),
+  });
+}
+
 function captureAuthorityPins(
   input: PointCommitAuthorityPinsV1,
 ): Readonly<PointCommitAuthorityPinsV1> {
@@ -1160,8 +1294,10 @@ interface LockedPointCommitClockV1 {
 }
 
 interface LockedPointCommitSessionV1 {
+  readonly lifecycle: "running" | "finishing";
   readonly authorizationGrantExpiresAtMilliseconds: number;
   readonly hardExpiresAtMilliseconds: number;
+  readonly updatedAtMilliseconds: number;
 }
 
 interface LockedPointCommitLeaseV1 {
@@ -1199,6 +1335,112 @@ type PointCommitPublicationRunDecisionV1 =
         Readonly<{ readonly kind: "missing" }>
       >;
     }>;
+
+async function runPointCommitFinishingTransition(
+  target: LocatedReadCommittedAttemptTargetV1,
+  preliminaryAuthority: TrustedScopeAuthority,
+  command: PreparedPointCommitFinishingTransitionCommandV1,
+  options: PointCommitTransactionProofOptionsV1,
+): Promise<PointCommitFinishingTransitionResultV1> {
+  return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
+    const clock = await lockPointCommitClock(tx, command, options);
+    await emitTransactionStep(options, command, "clockLocked");
+    requireLockedClockAuthority(clock, preliminaryAuthority, command);
+
+    const session = await lockPointCommitSession(
+      tx,
+      command,
+      options,
+      "enterFinishing",
+    );
+    await emitTransactionStep(options, command, "sessionLocked");
+    const lease = await lockPointCommitLease(tx, command, options);
+    await emitTransactionStep(options, command, "leaseLocked");
+    await lockPointCommitJournalRoot(tx, command, options);
+    await emitTransactionStep(options, command, "journalRootLocked");
+
+    const databaseNowMilliseconds = await readPointCommitDatabaseTime(
+      tx,
+      command.authorityPins.scopeId,
+      options,
+    );
+    requireAttemptIsLive(session, lease, databaseNowMilliseconds);
+    if (session.updatedAtMilliseconds > databaseNowMilliseconds) {
+      throw corruption("finishingTransitionInvalid");
+    }
+    const priorSessionUpdatedAtMilliseconds =
+      command.session.updatedAtMilliseconds;
+    if (session.lifecycle === "finishing") {
+      return finishingTransitionResult(
+        "observed",
+        command,
+        priorSessionUpdatedAtMilliseconds,
+        session.updatedAtMilliseconds,
+      );
+    }
+    const finishingUpdatedAt = new Date(databaseNowMilliseconds);
+    const query = tx
+      .update(fxSystemTransactionSessions)
+      .set({ lifecycle: "finishing", updatedAt: finishingUpdatedAt })
+      .where(and(
+        eq(
+          fxSystemTransactionSessions.scopeUuid,
+          command.sealIdentity.scopeUuid,
+        ),
+        eq(
+          fxSystemTransactionSessions.sessionId,
+          command.authorityPins.sessionId,
+        ),
+        eq(
+          fxSystemTransactionSessions.attemptFence,
+          command.authorityPins.attemptFence,
+        ),
+        eq(fxSystemTransactionSessions.lifecycle, "running"),
+      ))
+      .returning({
+        lifecycle: fxSystemTransactionSessions.lifecycle,
+        updatedAt: fxSystemTransactionSessions.updatedAt,
+      });
+    observeDrizzleQuery("enterFinishing", query, options);
+    const rows = await sqlCall("enterFinishing", () => query);
+    const updated = rows[0];
+    const updatedAtMilliseconds = updated === undefined
+      ? undefined
+      : finiteDateMilliseconds(updated.updatedAt);
+    if (
+      rows.length !== 1 ||
+      updated === undefined ||
+      updated.lifecycle !== "finishing" ||
+      updatedAtMilliseconds === undefined ||
+      updatedAtMilliseconds !== databaseNowMilliseconds
+    ) {
+      throw corruption("finishingTransitionInvalid");
+    }
+    await emitTransactionStep(options, command, "sessionEnteredFinishing");
+    return finishingTransitionResult(
+      "transitioned",
+      command,
+      priorSessionUpdatedAtMilliseconds,
+      updatedAtMilliseconds,
+    );
+  });
+}
+
+function finishingTransitionResult(
+  kind: PointCommitFinishingTransitionResultV1["kind"],
+  command: PreparedPointCommitFinishingTransitionCommandV1,
+  priorSessionUpdatedAtMilliseconds: number,
+  finishingSessionUpdatedAtMilliseconds: number,
+): PointCommitFinishingTransitionResultV1 {
+  return Object.freeze({
+    kind,
+    scopeUuid: command.sealIdentity.scopeUuid,
+    sessionId: command.authorityPins.sessionId,
+    attemptFence: command.authorityPins.attemptFence,
+    priorSessionUpdatedAtMilliseconds,
+    finishingSessionUpdatedAtMilliseconds,
+  });
+}
 
 async function runRollbackProof(
   target: LocatedReadCommittedAttemptTargetV1,
@@ -1380,7 +1622,7 @@ async function runPointCommitTransactionKernel(
 
 async function lockPointCommitClock(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: PreparedPointCommitAttemptScalarCommandV1,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<LockedPointCommitClockV1> {
   const query = tx
@@ -1451,7 +1693,7 @@ async function committedOutcomeExistsInTransaction(
 function requireLockedClockAuthority(
   clock: LockedPointCommitClockV1,
   preliminary: TrustedScopeAuthority,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: PreparedPointCommitAttemptScalarCommandV1,
 ): void {
   const pins = command.authorityPins;
   if (
@@ -1491,9 +1733,9 @@ function requireLockedClockAuthority(
 
 async function lockPointCommitSession(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: PreparedPointCommitAttemptScalarCommandV1,
   options: PointCommitTransactionProofOptionsV1,
-  mode: PointCommitTransactionModeV1,
+  mode: PointCommitSessionLockModeV1,
 ): Promise<LockedPointCommitSessionV1> {
   const query = tx
     .select({
@@ -1563,7 +1805,11 @@ async function lockPointCommitSession(
   if (row.attemptFence !== command.authorityPins.attemptFence) {
     throw stale("attemptReplaced");
   }
-  if (row.lifecycle !== "finishing") {
+  if (mode === "enterFinishing") {
+    if (row.lifecycle !== "running" && row.lifecycle !== "finishing") {
+      throw stale("lifecycleChanged");
+    }
+  } else if (row.lifecycle !== "finishing") {
     if (mode === "publish" && row.lifecycle === "committed") {
       throw corruption("committedOutcomeMissing");
     }
@@ -1621,19 +1867,27 @@ async function lockPointCommitSession(
       expected.authorizationGrantExpiresAtMilliseconds ||
     hardExpiresAtMilliseconds !== expected.hardExpiresAtMilliseconds ||
     createdAtMilliseconds !== expected.createdAtMilliseconds ||
-    updatedAtMilliseconds !== expected.updatedAtMilliseconds
+    (
+      mode === "enterFinishing"
+        ? row.lifecycle === "running"
+          ? updatedAtMilliseconds !== expected.updatedAtMilliseconds
+          : updatedAtMilliseconds < expected.updatedAtMilliseconds
+        : updatedAtMilliseconds !== expected.updatedAtMilliseconds
+    )
   ) {
     throw corruption("sessionInvalid");
   }
   return Object.freeze({
+    lifecycle: row.lifecycle,
     authorizationGrantExpiresAtMilliseconds,
     hardExpiresAtMilliseconds,
+    updatedAtMilliseconds,
   });
 }
 
 async function lockPointCommitLease(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: PreparedPointCommitAttemptScalarCommandV1,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<LockedPointCommitLeaseV1> {
   const query = tx
@@ -1685,7 +1939,7 @@ async function lockPointCommitLease(
 
 async function lockPointCommitJournalRoot(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: PreparedPointCommitAttemptScalarCommandV1,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<void> {
   const query = tx
@@ -2322,7 +2576,7 @@ function freezeRowIdentity(
 
 async function emitTransactionStep(
   options: PointCommitTransactionProofOptionsV1,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: PreparedPointCommitAttemptScalarCommandV1,
   step: PointCommitTransactionProofStepV1,
 ): Promise<void> {
   await options.afterTransactionStep?.(Object.freeze({
@@ -2332,7 +2586,7 @@ async function emitTransactionStep(
 }
 
 function preliminaryAuthorityFailure(
-  command: PreparedPointCommitTransactionCommandV1,
+  command: PreparedPointCommitAttemptScalarCommandV1,
   preliminary: TrustedScopeAuthority,
 ): PointCommitStaleAuthorityV1Error | null {
   const pins = command.authorityPins;
@@ -2527,6 +2781,35 @@ function mapAuthorityResolutionFailure(
 
 function unexpectedAuthorityResolutionFailure(failure: never): never {
   throw failure;
+}
+
+function mapFinishingTransitionFailure(
+  cause: unknown,
+): PointCommitFinishingTransitionV1Error {
+  if (
+    cause instanceof PointCommitStaleAuthorityV1Error ||
+    cause instanceof PointCommitCorruptionV1Error ||
+    cause instanceof PointCommitSqlErrorV1
+  ) {
+    return cause;
+  }
+  if (cause instanceof LocatedReadCommittedTransactionFailureV1) {
+    return sqlError("beginOrRollback", cause);
+  }
+  if (cause instanceof PointCommitSqlFailureMarkerV1) {
+    return sqlError(cause.operation, cause.cause);
+  }
+  if (
+    cause instanceof ScopeClockCorruptionError ||
+    cause instanceof ScopeClockNotFoundError
+  ) {
+    return corruption("scopeClockInvalid");
+  }
+  const sqlState = findSqlState(cause);
+  if (sqlState !== undefined) {
+    return sqlError("beginOrRollback", cause);
+  }
+  throw cause;
 }
 
 function mapTransactionFailure(

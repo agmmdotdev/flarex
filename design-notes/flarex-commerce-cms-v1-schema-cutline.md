@@ -2,8 +2,9 @@
 
 Status: accepted v1 implementation cutline; the internal S06 row kernel, S07
 transaction-session authority tables, O04/O05 point read/OCC semantics, C03
-trusted point journal, and private C04A/C04B1/C04B2 authentication and final-
-value proof gates are implemented, while physical commit planning/publication,
+trusted point journal, private C04A/C04B1/C04B2 authentication and final-value
+proof gates, C04C1 logical planning, O06/O07-B point publication, and C05-A's
+finishing barrier are implemented. C05-B complete compiler composition,
 sidecars, target activation, prototype
 retirement, and hosted routing remain incomplete; shipped-state migration
 remains conditional
@@ -1045,9 +1046,10 @@ O03-B2b2 renewal is conditional on a proven long-running-attempt consumer and
 does not block exact-snapshot reads or the private C07 proof. C03 seals while
 the attempt remains `running`, and that seal rejects later syscalls. C04A
 authenticates the detached seal for initial work or reconstructs it from
-`finishing + sealed`; C04B/C04C verify and plan. C05 locks and revalidates the
-scalar seal identity before the exact-fence transition to `finishing`, C06
-orchestrates the endpoint, O07 atomically deletes the exact lease and stores
+`finishing + sealed`; C04B/C04C verify and plan. C05-A locks and revalidates the
+scalar seal identity before the exact-fence transition to `finishing` and mints
+the same-factory continuation. C05-B owns the fresh-process finishing entry and
+complete publication composition, C06 orchestrates the endpoint, O07 atomically deletes the exact lease and stores
 committed state, O08 owns retry replacement, and O11 first consumes active
 snapshot floors for history retention.
 
@@ -1064,8 +1066,8 @@ function-validator authority remains part of the later coherent activation-
 fenced snapshot, and syscall-time validation parity remains unresolved. C04C
 owns the pure prepared plan. A matching digest does not authenticate
 caller-supplied inline bytes. S09-A owns only the private committed-success
-result receipt, S09-B owns leased-outbox DDL, and O07/C06 later own atomic
-publication and uncertain-outcome recovery.
+result receipt, S09-B owns leased-outbox DDL, O07-B owns atomic point
+publication, and C06/O08 later own uncertain-outcome recovery.
 Snapshot leases prevent engine-history GC from passing a live attempt.
 
 ### `fx_outbox`: keep

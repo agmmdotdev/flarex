@@ -10,8 +10,10 @@ C04B1's same-factory current commit-authority authentication and C04B2's
 private-C07 final-document/result proof are also complete. Corrected C04C1
 private logical point planning and O06's reusable rollback-proven point-commit
 transaction kernel, O07-A private read-only committed-outcome resolver, and
-O07-B private durable point publication are complete. C05 is next, and C04C2
-remains conditional and unapproved.
+O07-B private durable point publication are complete. C05-A's exact scalar-
+fenced finishing transition and same-factory continuation are complete. C05-B
+fresh-process reconstruction and full compiler/publisher composition are next;
+C04C2 remains conditional and unapproved.
 
 This roadmap owns the durable direction for:
 
@@ -211,9 +213,11 @@ verification and `VerifiedCommitInput`, and C04C1 owns only concrete private
 logical `PreparedPointCommitV1`. Conditional C04C2 exists only if S08/S09-A/
 S09-B/O06/O07-B later prove a separate physical lowering capability useful. C03 seals while
 the attempt is `running`, and
-the sealed root rejects late syscalls. C05 locks and revalidates the scalar seal
-identity before the private exact-fence transition to `finishing`; C06
-orchestrates it idempotently through the finish endpoint. O07-B atomically
+the sealed root rejects late syscalls. C05-A locks and revalidates scalar seal
+identity before the private exact-fence transition to `finishing`, returning a
+same-factory finishing continuation while leaving the running plan unchanged.
+C05-B owns fresh-process finishing reconstruction and complete O07-B
+composition; C06 orchestrates the stable finish endpoint. O07-B atomically
 deletes the exact lease and stores committed state plus the internal S09-A
 committed-success receipt and S09-B outbox, O08 owns retry replacement, and O11
 first consumes active floors.
@@ -310,8 +314,9 @@ O03-B2b2 renewal is conditional on a proven long-running-attempt consumer.
 S07's `created` literal is not a durable active state without a lease.
 S07's `committing` literal is
 also transaction-local/reserved in V1 rather than a separately durable state.
-C05 introduces the private exact-fence transition to `finishing`; C06
-orchestrates it idempotently through the finish endpoint, and C03 rejects late
+C05-A introduces the private exact-fence transition to `finishing` and its
+same-process continuation; C05-B owns fresh-process recovery and complete
+publication composition, C06 owns endpoint orchestration, and C03 rejects late
 syscalls. O07-B deletes the exact current lease and records `committed` only with
 atomic data/outcome publication. O08 keeps the same request anchor and storage
 generation during trusted OCC retry, increments the attempt fence, replaces
@@ -700,8 +705,8 @@ carriage, or conditional C04C2 active.
 - Standalone `C01` was retired before implementation; C02's protocol-only gate,
   C03's operational point-journal gate, C04A's private stored-attempt gate, and
   C04B1's private commit-authority gate and C04B2's private-C07 final-value gate
-  are complete. Corrected C04C1 is complete; C04C2 and C05-C09
-  remain unapproved or incomplete as their statuses state.
+  are complete. Corrected C04C1 and C05-A are complete; C04C2, C05-B, and
+  C06-C09 remain unapproved or incomplete as their statuses state.
 - Current invoke sessions use wall-clock `beginTs`, not authoritative
   `SnapshotToken` reads.
 - The legacy journal persists directly in broad Postgres invoke-session tables.
@@ -782,9 +787,9 @@ operational point-journal consumer, and C04A's private stored-attempt
  authentication plus C04B1's current commit-authority authentication and C04B2's
  private-C07 final-value proof are complete. Corrected C04C1, S08 commit/feed
  DDL, S09-A private committed-success DDL, S09-B private commit-wake DDL and
- fenced repository, O06's rollback-proven transaction kernel, and O07-B's
- private durable point publication are complete. C05 is the next Wave 2
- prerequisite, and C04C2 remains conditional and unapproved.
+  fenced repository, O06's rollback-proven transaction kernel, O07-B's private
+  durable point publication, and C05-A's finishing barrier are complete. C05-B
+  is the next Wave 2 prerequisite, and C04C2 remains conditional and unapproved.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
 retention consumer proves that a bounded attempt must outlive its initial lease.
@@ -801,9 +806,10 @@ evidence authentication, C04B1 owns current argument/grant/revocation/schema
 authority, C04B2 owns final value/return verification and verified input, and
 C04C1 owns the concrete private logical prepared-point capability. O06 owns
 actual authority locks, fresh scalar revalidation, O05 integration, and
-tentative point-row lowering under forced rollback. O07-B extends that kernel with
-sequence/time allocation and atomic durable execution, with C05 as the first
-compiler consumer; O09 owns multi-row/unique ordering, and C06 owns post-commit
+  tentative point-row lowering under forced rollback. O07-B extends that kernel with
+  sequence/time allocation and atomic durable execution. C05-A supplies the
+  finishing capability and C05-B is the first complete compiler consumer; O09
+  owns multi-row/unique ordering, and C06 owns post-commit
 wake after durable evidence exists.
 
 The remaining compiler gates are:
@@ -834,12 +840,15 @@ The remaining compiler gates are:
    one material logical row intent.
    `C04C2` remains conditional on S08/S09-A/S09-B/O06/O07-B proving that a
    separate physical/change/outbox lowering capability is useful.
-7. `C05`: execute one replacement point mutation through the complete atomic
-   OCC/outcome/commit/outbox primitive.
-8. `C06`: add fenced idempotent finish, duplicate/concurrent finish behavior,
+7. `C05-A` (complete): enter exact finishing under scalar locks and mint the
+   same-factory private continuation, including exact observed transition replay.
+8. `C05-B`: add fresh-process finishing reconstruction and execute one
+   replacement point mutation through the complete atomic OCC/outcome/commit/
+   outbox primitive.
+9. `C06`: add fenced idempotent finish, duplicate/concurrent finish behavior,
    restart, expiry, and lost-response outcome recovery through stable
    `/invoke/*` endpoints.
-9. `C07`: close PGlite and real-Postgres concurrency, rollback, serialization,
+10. `C07`: close PGlite and real-Postgres concurrency, rollback, serialization,
    deadlock, uncertain-outcome, and contiguous-sequence gates.
 10. `C07A`: immediately measure journal persistence and move only the temporary
    journal to a per-session supervisor/per-attempt facet if that path beats the

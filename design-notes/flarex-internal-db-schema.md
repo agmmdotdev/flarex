@@ -1295,9 +1295,11 @@ S07 adds no normalized dependency table, syscall sequence, journal digest,
 committed-result evidence, token, or S09-A idempotency authority. S07-A adds the
 scope-wide revocation column and storage primitive; O03-A supplies signed-grant
 semantics; O03-B owns atomic activation and basic exact-fence lease mechanics;
-O04 owns point dependencies; C02 owns the journal protocol; C05 introduces the
-private exact-fence transition to `finishing`; C06 orchestrates it through the
-finish endpoint; C03 rejects late syscalls; S09-A supplies the private success-
+O04 owns point dependencies; C02 owns the journal protocol; C05-A introduces
+the private exact-fence transition to `finishing` and its same-process
+continuation; C05-B owns fresh-process finishing reconstruction and complete
+publication composition; C06 orchestrates the finish endpoint; C03 rejects
+late syscalls; S09-A supplies the private success-
 receipt shape; O07 deletes the exact lease and stores committed state plus that
 durable outcome; O08 owns retry replacement.
 

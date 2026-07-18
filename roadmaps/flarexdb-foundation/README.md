@@ -28,8 +28,10 @@ are also complete. O06's reusable private point-commit transaction kernel and
 forced-rollback proof are complete. The retained-history floor is physically
 present but fixed at zero until O11. O07-A's private read-only committed-
 outcome resolver and O07-B's private durable point publication are complete.
-C05 is next; C06 dispatch remains pending, and C04C2 remains conditional and
-unapproved.
+C05-A's private scalar-fenced `running -> finishing` transition and same-factory
+continuation are complete. C05-B fresh-process reconstruction and full
+compiler/publisher composition are next; C06 dispatch remains pending, and
+C04C2 remains conditional and unapproved.
 B2b2 renewal is
 a conditional
 operational extension outside the current
@@ -305,12 +307,13 @@ authoritative head loading, actual authority locks, O05 validation, tentative
 physical revision/current lowering, and its exact forced-rollback proof. O07-A
 is the separate read-only committed-outcome recovery seam; O07-B reuses and
 extends that kernel with sequence/time allocation and atomic durable
-publication. O09 owns later multi-row/unique ordering. C05 is the first complete
-planner/production-executor composition consumer; C06 owns
+publication. O09 owns later multi-row/unique ordering. C05-A now supplies the
+exact finishing barrier and same-process continuation; C05-B is the first
+complete planner/production-executor composition consumer. C06 owns
 `PostCommitWake` after durable commit/outbox evidence exists.
 
 `O03-B1` establishes atomic activation and exact active-anchor replay;
-`O03-B2a` closes restart-safe exact-attempt reload; and `O03-B2b1` closes
+`O03-B2a` closes restart-safe exact-running-attempt reload; and `O03-B2b1` closes
 abort/expiry terminalization and the required active-session/current-lease
 invariant without guessing consumer-specific lifecycle APIs. `O03-B2b2` is
 retained outside the master order as a conditional long-running-attempt
@@ -318,11 +321,13 @@ renewal gate. Re-preflight it before the first runtime or retention consumer
 that proves a bounded attempt must outlive its initial lease; retire it without
 implementation if the initial lease can cover the maximum attempt plus safety
 margin. C03 seals while the exact attempt remains `running`, and the sealed
-root rejects later syscalls. C04A may authenticate that detached evidence
-before C05, or reconstruct it from `finishing + sealed` after a crash. `C05`,
-the first private commit consumer, locks and revalidates the scalar seal
-identity before the exact-fence transition to `finishing`; C06 orchestrates it
-idempotently through the finish endpoint. `O07-B`
+root rejects later syscalls. C04A may authenticate that detached evidence from
+`running + sealed` or `finishing + sealed`, but O03-B2a currently exposes only
+the running restart entry. `C05-A` locks and revalidates the scalar seal
+identity before the exact-fence transition to `finishing` and mints a fresh
+same-factory continuation without changing the original plan. `C05-B` must add
+fresh-process finishing reconstruction and complete O07-B composition; C06
+later orchestrates the stable finish endpoint. `O07-B`
 deletes the exact lease and stores `committed` only with the atomic data/outcome
 commit, `O08` introduces storage-level retry replacement together with the
 trusted retry coordinator while consuming O07-A for uncertain decisions, and
@@ -364,16 +369,20 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
    paired commit/outbox clock advance. The transaction rechecks the request key
    after locking the scope clock, so concurrent preflight misses converge on one
    stored outcome.
-7. `C05`: one point mutation through the complete primitive.
-8. `O08`: separate OCC reruns, safe SQL retries, and uncertain-outcome policy
+7. `C05-A` (complete): exact scalar-fenced `running -> finishing` transition,
+   lost-response observation from the same genuine running plan, and a private
+   same-factory finishing continuation.
+8. `C05-B`: fresh-process finishing reconstruction and one point mutation
+   through the complete O07-B primitive.
+9. `O08`: separate OCC reruns, safe SQL retries, and uncertain-outcome policy
    using O07-A rather than reimplementing lookup.
-9. `C06`: idempotent finish and lost-outcome recovery through `/invoke/*`.
-10. `C07`: PGlite plus real-Postgres correctness gate.
+10. `C06`: idempotent finish and lost-outcome recovery through `/invoke/*`.
+11. `C07`: PGlite plus real-Postgres correctness gate.
 
 This S09-A/S09-B split refines one existing Wave 2 outcome; it does not reorder
 the wave. The completed S08/S09-A/S09-B/O06/O07-B first-consumer contracts do
 not currently establish a need for separate physical/change/outbox lowering,
-so C04C2 remains conditional and outside the mandatory order. C05 is next.
+so C04C2 remains conditional and outside the mandatory order. C05-B is next.
 
 `C07` is the first end-to-end replacement milestone, but it proves only a
 private test-generation point-mutation kernel. It does not authorize canary or

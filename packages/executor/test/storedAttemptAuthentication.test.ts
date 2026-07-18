@@ -1,6 +1,9 @@
 import { Effect, Encoding, Result, Schema } from "effect";
 import {
   PointCommitCorruptionV1Error,
+  type PointCommitFinishingTransitionCommandV1,
+  type PointCommitFinishingTransitionPortV1,
+  type PointCommitFinishingTransitionResultV1,
   type PointCommitPublicationCommandV1,
   type PointCommitPublisherPortV1,
   type PointCommitRollbackProofPortV1,
@@ -100,6 +103,8 @@ import type { PreparedPointCommitV1 as ForbiddenPreparedPointCommit } from "../s
 import type { StoredPointCommitRollbackProofV1 as ForbiddenPointCommitProof } from "../src/index";
 // @ts-expect-error O07-B publisher capability types must remain absent from the package root.
 import type { StoredPointCommitPublisherV1 as ForbiddenPointCommitPublisher } from "../src/index";
+// @ts-expect-error C05-A continuation capability types must remain absent from the package root.
+import type { FinishingPreparedPointCommitV1 as ForbiddenFinishingPointCommit } from "../src/index";
 import {
   createPointMutationSessionAttemptLoadingV1,
   type PointMutationSessionAttemptSelectorWireV1,
@@ -1513,6 +1518,320 @@ describe("C04A stored-attempt authentication", () => {
     );
   });
 
+  it("mints C05-A finishing continuations only from genuine same-factory running plans", async () => {
+    type RootLeak = Extract<
+      keyof typeof executorRoot,
+      | "FinishingPreparedPointCommitV1"
+      | "StoredPointCommitFinishingTransitionV1"
+      | "enterPointCommitFinishing"
+    >;
+    expectTypeOf<RootLeak>().toEqualTypeOf<never>();
+    expect("enterPointCommitFinishing" in executorRoot).toBe(false);
+
+    const transitionCommands: PointCommitFinishingTransitionCommandV1[] = [];
+    const proofCommands: PointCommitTransactionCommandV1[] = [];
+    const publicationCommands: PointCommitPublicationCommandV1[] = [];
+    const transitionFailure = new PointCommitCorruptionV1Error({
+      reason: "journalRootInvalid",
+    });
+    const publicationFailure = new PointCommitCorruptionV1Error({
+      reason: "publicationInvariantInvalid",
+    });
+    const defect = new Error("C05-A transition defect sentinel");
+    let outcome: "success" | "observed" | "failure" | "defect" =
+      "success";
+    let receiptMutation:
+      | ((
+        receipt: PointCommitFinishingTransitionResultV1,
+        command: PointCommitFinishingTransitionCommandV1,
+      ) => unknown)
+      | undefined;
+    const pointCommitFinishing: PointCommitFinishingTransitionPortV1 =
+      Object.freeze({
+        enterFinishing: Effect.fn("TestPointCommit.enterFinishing")(
+          function* (command) {
+            transitionCommands.push(command);
+            if (outcome === "failure") {
+              return yield* Effect.fail(transitionFailure);
+            }
+            if (outcome === "defect") return yield* Effect.die(defect);
+            const prior = command.session.updatedAtMilliseconds;
+            const receipt = Object.freeze({
+              kind: outcome === "observed" ? "observed" as const :
+                "transitioned" as const,
+              scopeUuid: command.sealIdentity.scopeUuid,
+              sessionId: command.authorityPins.sessionId,
+              attemptFence: command.authorityPins.attemptFence,
+              priorSessionUpdatedAtMilliseconds: prior,
+              finishingSessionUpdatedAtMilliseconds: prior + 2,
+            });
+            return unsafeFinishingTransitionResultForTest(
+              receiptMutation?.(receipt, command) ?? receipt,
+            );
+          },
+        ),
+      });
+    const pointCommit: PointCommitPublisherPortV1 = Object.freeze({
+      prove: Effect.fn("TestPointCommit.proveC05ARollback")(
+        (command) => {
+          proofCommands.push(command);
+          return Effect.succeed(Object.freeze({ kind: "wouldCommit" as const }));
+        },
+      ),
+      publish: Effect.fn("TestPointCommit.publishC05A")(function* (command) {
+        publicationCommands.push(command);
+        return yield* Effect.fail(publicationFailure);
+      }),
+    });
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: await emptyFixture("c05a"),
+      returnsValidator: { type: "string" },
+    });
+    const first = await pointCommitFinishingFixture(
+      current,
+      pointCommit,
+      pointCommitFinishing,
+    );
+    await runEffect(
+      first.authentication.provePointCommitRollback(first.prepared),
+    );
+
+    // @ts-expect-error C05-A publication requires the finishing continuation.
+    const prematurePublicationEffect = first.authentication.publishPointCommit(first.prepared);
+    const prematurePublication = await runFailure(prematurePublicationEffect);
+    expect(prematurePublication).toBeInstanceOf(
+      InvalidPreparedPointCommitV1Error,
+    );
+    expect(prematurePublication).toMatchObject({ reason: "notFinishing" });
+    expect(publicationCommands).toHaveLength(0);
+
+    const continued = await runEffect(
+      first.authentication.enterPointCommitFinishing(first.prepared),
+    );
+    expect(continued).not.toBe(first.prepared);
+    expect(Object.isFrozen(continued)).toBe(true);
+    expect(JSON.stringify(continued)).toBe("{}");
+    expect(Reflect.ownKeys(continued)).toHaveLength(2);
+    expect(first.authentication.isPointCommitPrepared(first.prepared)).toBe(
+      true,
+    );
+    expect(first.authentication.isPointCommitPrepared(continued)).toBe(true);
+    const continuedTransitionCalls = transitionCommands.length;
+    expect(await runFailure(
+      first.authentication.enterPointCommitFinishing(continued),
+    )).toMatchObject({
+      _tag: "InvalidPreparedPointCommitV1Error",
+      reason: "alreadyFinishing",
+    });
+    expect(transitionCommands).toHaveLength(continuedTransitionCalls);
+    expect(first.authentication.arePreparedPointCommitStatesEquivalentForTest(
+      first.prepared,
+      continued,
+    )).toBe(false);
+    expect(transitionCommands).toHaveLength(1);
+    const transitionCommand = transitionCommands[0];
+    if (transitionCommand === undefined) {
+      throw new Error("Missing captured C05-A transition command.");
+    }
+    expect(Reflect.ownKeys(transitionCommand).sort()).toEqual([
+      "authorityPins",
+      "sealIdentity",
+      "session",
+    ]);
+    expect(transitionCommand.session.lifecycle).toBe("running");
+    expect(transitionCommand.sealIdentity.lifecycle).toBe("running");
+    expect(Object.hasOwn(transitionCommand, "dependencies")).toBe(false);
+    expect(Object.hasOwn(transitionCommand, "successfulResult")).toBe(false);
+
+    transitionCommand.session.identityAccessPolicySha256.fill(0);
+    transitionCommand.sealIdentity.journalSha256.fill(0);
+    expect(await runFailure(
+      first.authentication.publishPointCommit(continued),
+    )).toBe(publicationFailure);
+    const publicationCommand = publicationCommands[0];
+    if (publicationCommand === undefined) {
+      throw new Error("Missing captured C05-A publication command.");
+    }
+    expect(publicationCommand.session.lifecycle).toBe("finishing");
+    expect(publicationCommand.sealIdentity.lifecycle).toBe("finishing");
+    expect(publicationCommand.session.updatedAtMilliseconds).toBe(
+      transitionCommand.session.updatedAtMilliseconds + 2,
+    );
+    expect(publicationCommand.sealIdentity.sessionUpdatedAtMilliseconds).toBe(
+      publicationCommand.session.updatedAtMilliseconds,
+    );
+    expect(publicationCommand.session.identityAccessPolicySha256).not.toEqual(
+      new Uint8Array(32),
+    );
+    expect(publicationCommand.sealIdentity.journalSha256).not.toEqual(
+      new Uint8Array(32),
+    );
+    const baselineCommand = proofCommands[0];
+    if (baselineCommand === undefined) {
+      throw new Error("Missing captured C05-A baseline command.");
+    }
+    const { successfulResult: _successfulResult, ...publicationPlan } =
+      publicationCommand;
+    expect({
+      ...publicationPlan,
+      session: {
+        ...publicationPlan.session,
+        lifecycle: baselineCommand.session.lifecycle,
+        updatedAtMilliseconds: baselineCommand.session.updatedAtMilliseconds,
+      },
+      sealIdentity: {
+        ...publicationPlan.sealIdentity,
+        lifecycle: baselineCommand.sealIdentity.lifecycle,
+        sessionUpdatedAtMilliseconds:
+          baselineCommand.sealIdentity.sessionUpdatedAtMilliseconds,
+      },
+    }).toEqual(baselineCommand);
+
+    outcome = "observed";
+    await runEffect(
+      first.authentication.enterPointCommitFinishing(first.prepared),
+    );
+    expect(transitionCommands.at(-1)?.session.lifecycle).toBe("running");
+
+    const transitionCalls = transitionCommands.length;
+    const forged = await runFailure(
+      first.authentication.enterPointCommitFinishing({ ...first.prepared }),
+    );
+    expect(forged).toBeInstanceOf(InvalidPreparedPointCommitV1Error);
+    expect(transitionCommands).toHaveLength(transitionCalls);
+
+    const second = await pointCommitFinishingFixture(
+      current,
+      pointCommit,
+      pointCommitFinishing,
+    );
+    const crossFactory = await runFailure(
+      second.authentication.enterPointCommitFinishing(first.prepared),
+    );
+    expect(crossFactory).toBeInstanceOf(InvalidPreparedPointCommitV1Error);
+    expect(transitionCommands).toHaveLength(transitionCalls);
+
+    const crossFactoryPublication = await runFailure(
+      second.authentication.publishPointCommit(continued),
+    );
+    expect(crossFactoryPublication).toMatchObject({
+      _tag: "InvalidPreparedPointCommitV1Error",
+      reason: "notSameFactory",
+    });
+    expect(publicationCommands).toHaveLength(1);
+
+    outcome = "success";
+    const corruptReceipts: ReadonlyArray<Readonly<{
+      readonly name: string;
+      readonly mutate: NonNullable<typeof receiptMutation>;
+    }>> = [
+      {
+        name: "kind",
+        mutate: (receipt) => ({ ...receipt, kind: "invalid" }),
+      },
+      {
+        name: "scope",
+        mutate: (receipt) => ({
+          ...receipt,
+          scopeUuid: "00000000-0000-4000-8000-000000000000",
+        }),
+      },
+      {
+        name: "session",
+        mutate: (receipt) => ({ ...receipt, sessionId: "session_corrupt" }),
+      },
+      {
+        name: "fence",
+        mutate: (receipt) => ({
+          ...receipt,
+          attemptFence: receipt.attemptFence + 1n,
+        }),
+      },
+      {
+        name: "prior timestamp",
+        mutate: (receipt) => ({
+          ...receipt,
+          priorSessionUpdatedAtMilliseconds:
+            receipt.priorSessionUpdatedAtMilliseconds + 1,
+        }),
+      },
+      {
+        name: "zero finishing timestamp",
+        mutate: (receipt) => ({
+          ...receipt,
+          finishingSessionUpdatedAtMilliseconds: 0,
+        }),
+      },
+      {
+        name: "fractional finishing timestamp",
+        mutate: (receipt) => ({
+          ...receipt,
+          finishingSessionUpdatedAtMilliseconds:
+            receipt.priorSessionUpdatedAtMilliseconds + 0.5,
+        }),
+      },
+      {
+        name: "unsafe finishing timestamp",
+        mutate: (receipt) => ({
+          ...receipt,
+          finishingSessionUpdatedAtMilliseconds: Number.MAX_SAFE_INTEGER + 1,
+        }),
+      },
+      {
+        name: "regressed finishing timestamp",
+        mutate: (receipt) => ({
+          ...receipt,
+          finishingSessionUpdatedAtMilliseconds:
+            receipt.priorSessionUpdatedAtMilliseconds - 1,
+        }),
+      },
+      {
+        name: "lease-expiry finishing timestamp",
+        mutate: (receipt, command) => ({
+          ...receipt,
+          finishingSessionUpdatedAtMilliseconds:
+            command.sealIdentity.leaseExpiresAtMilliseconds,
+        }),
+      },
+    ];
+    for (const testCase of corruptReceipts) {
+      receiptMutation = testCase.mutate;
+      const publicationCalls = publicationCommands.length;
+      const invalidReceipt = await runFailure(
+        first.authentication.enterPointCommitFinishing(first.prepared),
+      );
+      expect(invalidReceipt, testCase.name).toBeInstanceOf(
+        PointCommitCorruptionV1Error,
+      );
+      expect(invalidReceipt, testCase.name).toMatchObject({
+        reason: "finishingTransitionInvalid",
+      });
+      expect(publicationCommands, testCase.name).toHaveLength(publicationCalls);
+    }
+    receiptMutation = undefined;
+    const recoveredAfterInvalidReceipts = await runEffect(
+      first.authentication.enterPointCommitFinishing(first.prepared),
+    );
+    expect(Object.isFrozen(recoveredAfterInvalidReceipts)).toBe(true);
+
+    outcome = "failure";
+    expect(await runFailure(
+      first.authentication.enterPointCommitFinishing(first.prepared),
+    )).toBe(transitionFailure);
+
+    outcome = "defect";
+    let rejection: unknown;
+    try {
+      await runEffect(
+        first.authentication.enterPointCommitFinishing(first.prepared),
+      );
+    } catch (cause) {
+      rejection = cause;
+    }
+    expect(rejection).not.toBeInstanceOf(PointCommitCorruptionV1Error);
+    expect(String(rejection)).toContain(defect.message);
+  });
+
   it("composes every current point outcome through C04C1 without new I/O", async () => {
     const nameDocument = {
       type: "object",
@@ -2198,6 +2517,53 @@ async function pointCommitPublisherFixture(
     authentication.planPointCommit(verifiedCommitInput),
   );
   return { authentication, prepared };
+}
+
+async function pointCommitFinishingFixture(
+  current: CommitAuthorityFixture,
+  pointCommit: PointCommitPublisherPortV1,
+  pointCommitFinishing: PointCommitFinishingTransitionPortV1,
+) {
+  const authentication = createStoredAttemptAuthenticationV1(
+    {
+      load: async () => loaded(current.fixture.evidence),
+    },
+    {
+      evidenceLoader: {
+        load: async () => ({
+          kind: "loaded" as const,
+          evidence: current.commitEvidence,
+        }),
+      },
+      transactionGrantVerifier: current.verifier,
+      functionMetadata: {
+        load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+      },
+      pointCommit,
+      pointCommitFinishing,
+    },
+  );
+  const authority = await deriveAuthority(authentication);
+  const storedAttempt = await runEffect(authentication.authenticate(
+    authority,
+    encodeEnvelope(current.fixture.envelope),
+  ));
+  const commitAuthority = await runEffect(
+    authentication.authenticateCommitAuthority(storedAttempt),
+  );
+  const verifiedCommitInput = await runEffect(
+    authentication.verifyCommitInput(commitAuthority),
+  );
+  const prepared = await runEffect(
+    authentication.planPointCommit(verifiedCommitInput),
+  );
+  return { authentication, prepared };
+}
+
+function unsafeFinishingTransitionResultForTest(
+  value: unknown,
+): PointCommitFinishingTransitionResultV1 {
+  return value as PointCommitFinishingTransitionResultV1;
 }
 
 function commitInputSourceForTest(

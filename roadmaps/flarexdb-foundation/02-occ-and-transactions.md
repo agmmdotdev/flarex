@@ -10,7 +10,7 @@ host-neutral authority checkpoint `O03-A2b` are complete. `O03-A2c` is complete
 as exactly two private boundaries: located-current-epoch admission and
 schema-neutral two-sided point-mutation preparation. Operational revocation and
 hosted Worker/key adapters are deferred to their first real consumers. O03-B1
-activation, O03-B2a restart-safe reload, and O03-B2b1 exact abort/expiry
+activation, O03-B2a restart-safe exact-running reload, and O03-B2b1 exact abort/expiry
 terminalization complete the required O03-B authority core. O04's private
 exact-snapshot point-read semantics and dependencies are complete; O05 pure
 point-OCC validation is also complete. Standalone C01 was retired before
@@ -20,7 +20,9 @@ commit-authority authentication and C04B2's private-C07 final-value proof are
 complete. Corrected C04C1 private logical point planning and O06's reusable
 rollback-proven point-commit transaction kernel, O07-A private read-only
 committed-outcome resolver, and O07-B private durable point publication are
-complete. C05 is next, and C04C2 remains conditional and unapproved.
+complete. C05-A's exact scalar-fenced finishing transition is complete; C05-B
+fresh-process finishing reconstruction and full composition are next. C04C2
+remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
 does not block the private C02-C07 proof.
@@ -512,7 +514,7 @@ Parent non-goals:
 ### [x] O03-B — Establish Active Session Authority
 
 Status: required pre-consumer authority core complete. `O03-B1` establishes one
-active request anchor atomically, `O03-B2a` reloads one exact active attempt
+active request anchor atomically, `O03-B2a` reloads one exact running attempt
 across trusted-process boundaries, and `O03-B2b1` supplies exact abort/expiry
 terminalization. O03-B2b2 is retained as a conditional operational extension;
 it is not an O05 prerequisite.
@@ -571,7 +573,7 @@ Exit gate:
 - no DDL, legacy session, `/invoke/*`, root export, route, or storage-generation
   activation changes.
 
-#### [x] O03-B2a — Reload One Exact Active Attempt
+#### [x] O03-B2a — Reload One Exact Running Attempt
 
 Status: complete as a private, non-routing, read-only exact-attempt reload. The
 JSON-safe selector is inert lookup identity; every load freshly resolves
@@ -718,10 +720,12 @@ Exit gate:
 Deferred ownership after the required O03-B core:
 
 - C03 seals while the attempt is `running`, and that sealed root rejects later
-  syscalls. C04A authenticates only a live `running + sealed` attempt for
-  initial planning or `finishing + sealed` for reconstruction. `C05` locks and
-  revalidates its scalar seal identity before the private exact-fence
-  transition to `finishing`; `C06` owns endpoint orchestration;
+  syscalls. C04A authenticates a live `running + sealed` attempt for initial
+  planning or `finishing + sealed` for reconstruction, while O03-B2a remains a
+  running-only restart entry. `C05-A` locks and revalidates scalar seal identity
+  before the private exact-fence transition to `finishing`; `C05-B` owns the
+  separate fresh-process finishing entry and full publication composition, and
+  `C06` owns endpoint orchestration;
 - `O07-B` atomically deletes the exact current lease and stores `committed` only
   inside the data/result/outcome/feed/outbox transaction;
 - `O08` introduces the checked delete/fence-advance/new-lease primitive with
@@ -913,8 +917,9 @@ Exit gate:
 Outcome:
 
 - Reuse and extend the O06 kernel as the private `CommitExecutor` capability that
-  accepts only the immutable prepared point plan. C05 is its first compiler
-  consumer; this target capability never wraps or promotes legacy
+  accepts only the immutable prepared point plan. C05-A supplies its exact
+  finishing capability and C05-B is its first complete compiler consumer; this
+  target capability never wraps or promotes legacy
   `commitInvokeSessionWrites`.
 - Consume S09-A through a fast committed-outcome lookup before entering the
   transaction. A matching stored success is replayable; mismatched identity/

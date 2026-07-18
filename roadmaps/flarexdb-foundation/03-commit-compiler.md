@@ -11,8 +11,10 @@ point planning, S08 commit/feed DDL, and S09-A private committed-success DDL are
 complete. S09-B's fixed-kind private commit-wake DDL and fenced repository are
 also complete. O06's reusable private point-commit transaction kernel and
 forced-rollback proof, O07-A private read-only committed-outcome resolver, and
-O07-B private durable point publication are complete. C05 is next; C06 dispatch
-remains pending, while C04C2 remains conditional and unapproved.
+  O07-B private durable point publication are complete. C05-A's private scalar-
+  fenced finishing transition and same-factory continuation are complete. C05-B
+  fresh-process reconstruction and full composition are next; C06 dispatch
+  remains pending, while C04C2 remains conditional and unapproved.
 
 This plan owns the bounded Flarex app-data path from logical session operations
 through a private logical point plan to an atomic commit. It does not make a
@@ -196,8 +198,9 @@ Introduce each boundary only at its real owner:
   conditional on S08/S09-A/S09-B/O06/O07-B proving a separate physical/change/
   outbox lowering capability useful.
 - O06 owns the reusable rollback-proven transaction kernel; O07-B owns the first
-  exact durable atomic persistence capability. C05 is their first complete
-  planner/production-executor composition consumer.
+  exact durable atomic persistence capability. C05-A owns the intervening
+  scalar-fenced finishing barrier; C05-B is their first complete planner/
+  production-executor composition consumer.
 - C06 owns `PostCommitWake`, after durable commit and outbox evidence make its
   ordering meaningful.
 
@@ -301,7 +304,7 @@ Outcome:
   and successful-result evidence detached from caller-visible objects, reject
   stale candidates, and never activate C02's dormant inline carriage.
 - Reject syscalls unless the exact current attempt remains `running`; in
-  particular, reject every late syscall after C05's finish transition enters
+  particular, reject every late syscall after C05-A's finish transition enters
   `finishing`.
 - Reject mutation table scans, unproven index/range/relation reads, Payload
   operations, and Medusa operations on the new generation.
@@ -480,36 +483,59 @@ revalidation, O05 adaptation, and tentative revision/current lowering. O07-B own
 sequence/time allocation and durable publication; O09 owns multi-row/unique
 ordering.
 
-### [ ] C05 — Execute One Atomic Point Mutation
+### [x] C05-A — Enter Finishing And Mint The Private Continuation
 
 Outcome:
 
-- Consume the C04A/C04B1/C04B2/C04C1 evidence and plan created while the exact
-  attempt is `running + sealed`. Inside the short trusted lane, lock and revalidate the
-  complete scalar seal identity before atomically changing the exact current
-  `running` attempt to `finishing`; no large evidence bytes are reread there.
-  This is not yet a stable endpoint; C06 later adds idempotent orchestration and
-  lost-outcome recovery. Recovery may rerun C04A from `finishing + sealed`
-  before reconstructing the same verified plan.
-- Consume the O07-B-owned private production `CommitExecutor` capability with
-  `PreparedPointCommitV1`. O07-B reuses the O06 kernel, which already adapts
-  logical dependency evidence to O05, loads the authoritative head, and
-  exercises tentative physical lowering in the short transaction. This target
-  capability must not wrap or promote legacy `commitInvokeSessionWrites`.
-- Inside the transaction, recheck session/fence/authority/epoch, validate point
-  dependencies, allocate the commit sequence, publish row revision/current,
-  write successful result/idempotency outcome, commit/change atoms and outbox,
-  delete the exact current snapshot lease, mark the session committed, and
-  advance the clock.
-- Keep user code outside the transaction.
+- Accept only a genuine same-factory `PreparedPointCommitV1` whose authenticated
+  session and seal are still `running`. Detach only scalar authority, session,
+  and sealed-root identity; do not cross the persistence boundary with journal,
+  result, dependency, row, or caller-owned byte evidence.
+- In one READ COMMITTED transaction, lock scope clock, exact session/fence,
+  exact lease, then sealed journal root. Revalidate every immutable scalar and
+  database-time expiry fact before changing only lifecycle and database-owned
+  `updated_at` from `running` to `finishing`.
+- A lost successful response may return `observed` only from the same genuine
+  running plan after the finishing attempt, lease, and complete sealed-root
+  identity still match. This is transition replay, not endpoint or uncertain-
+  publication recovery.
+- Mint a fresh frozen same-factory `FinishingPreparedPointCommitV1` without
+  mutating the running plan. The C05 surface permits O07-B publication only from
+  that finishing capability.
 
 Exit gate:
 
-- one executor-core/PGlite mutation can insert/get/patch/replace/delete;
-- conflict, constraint, stale fence, and failure-injection tests leave no
-  partial state;
-- unsupported declared indexes/unique/relation features cause preflight
-  rejection until their lowerers exist.
+- same/cross-factory and wrong-phase handles fail before persistence or
+  publication, while every transition-result scalar is correlated before a
+  continuation is minted;
+- PGlite proves the exact scalar-only mutation, database-time expiry, complete
+  mismatch rejection, observed transition, and post-update rollback; and
+- isolated real Postgres proves canonical lock order, distinct same-scope
+  serialization, independent-scope progress, transition-versus-abort/expiry,
+  interruption held through settlement, bounded projections, and index plans.
+
+### [ ] C05-B — Reconstruct Finishing Authority And Compose O07-B
+
+Outcome:
+
+- Add the separate fresh-process entry that can authenticate `finishing +
+  sealed` without widening C03's running-only syscall authority, then reproduce
+  the same private finishing capability through the C04 chain.
+- Compose C05-A transition/reconstruction with the O07-B-owned private
+  `CommitExecutor`. O07-B continues to own dependency adaptation, authoritative
+  head loading, O05, sequence/time allocation, rows, result/outcome, feed,
+  outbox, exact lease/journal cleanup, committed session state, and clock
+  advance. Do not wrap or promote legacy `commitInvokeSessionWrites`.
+
+Exit gate:
+
+- a genuine running plan reaches O07-B without raw lifecycle SQL, and a crash
+  after C05-A can reconstruct and publish the byte-equivalent finishing plan;
+- point CRUD and zero-row success, duplicate/concurrent publication, conflicts,
+  rollback, and unsupported index/unique/relation rejection pass on PGlite and
+  isolated real Postgres; and
+- publication failure leaves durable `finishing + sealed` authority for the
+  later C06/O08 recovery policy without rerunning user code.
 
 ### [ ] C06 — Add Idempotent Finish And Lost-Outcome Recovery
 
@@ -521,8 +547,8 @@ Outcome:
 
 - Compose the distributed lifecycle owners through the stable endpoint; do not
   introduce a second state machine in compiler code. C06 idempotently
-  orchestrates C05's exact-fence transition and existing commit/retry/outcome
-  primitives; C03 rejects later syscalls. O07-B owns exact-lease deletion plus
+  orchestrates C05-A transition, C05-B reconstruction/publication, and existing
+  retry/outcome primitives; C03 rejects later syscalls. O07-B owns exact-lease deletion plus
   the atomic `committed` transition, and O08 owns retry replacement:
 
 ```text

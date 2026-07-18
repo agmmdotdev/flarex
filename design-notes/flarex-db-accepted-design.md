@@ -165,7 +165,7 @@ work continues.
 | Existing `documents`, `indexes`, invoke sessions, Postgres live-query registry, and delivery outbox | Implemented prototype baseline | Keep only as bounded internal behavior evidence until equivalent target paths and tests exist. Do not extend it or treat it as a shipped migration obligation. |
 | Typed app row JSON with revision/current, declared index, edge, and unique sidecars | Partially implemented accepted target | S06 implements the internal, non-routing row revision/current kernel. Index, edge, and unique sidecars plus target-native index population/build and routing consumers remain planned behind the storage-generation boundary. |
 | Native commit feed, committed-success outcomes, and commit wakes | Partially implemented accepted target | S08 implements native commit/change-feed storage and its bounded private reader. S09-A implements the private scope-lifetime committed-success result receipt. S09-B implements the fixed-kind private commit-wake table and fenced claim/settlement repository. O07-A implements the private read-only committed-outcome resolver, and O07-B atomically publishes point rows, feed evidence, success receipts, and wakes. C06 replay orchestration/dispatch, payload expiry, sync activation, and retention advancement remain pending. |
-| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | The Postgres-backed point path now has C04C1's private logical plan, O06's reusable rollback-proven transaction kernel, and O07-B's first private durable publication. After the complete point path passes its real-Postgres gate, immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
+| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | The Postgres-backed point path now has C04C1's private logical plan, O06's reusable rollback-proven transaction kernel, O07-B's first private durable publication, and C05-A's exact scalar-fenced transition from a genuine running plan to a same-factory finishing continuation. C05-B fresh-process reconstruction and complete compiler/publisher composition remain pending. After the complete point path passes its real-Postgres gate, immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
 | Payload adapter | Staged target | Start with reserved logical collections and scalar CRUD/transaction conformance; add relations, versions/drafts, globals, auth, locks, and hooks incrementally. |
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
 | DeploymentSyncDO | Accepted v1 coordination target | One deterministic instance per scope, durable SQLite cursor/query/dependency state, Postgres catch-up. |
@@ -915,6 +915,11 @@ PreparedPointCommitV1 (introduced by C04C1)
   process-local authenticated dependencies, successful result, and at most one
   final logical row intent; it contains no SQL or publication authority
 
+FinishingPreparedPointCommitV1 (introduced by C05-A)
+  same-factory continuation minted only after the exact running attempt, lease,
+  and scalar sealed-root identity enter durable finishing under canonical locks;
+  it is the only C05 surface accepted by the existing O07-B publisher
+
 Conditional physical lowering (C04C2)
   introduced only if the first S08/S09-A/S09-B/O06/O07-B consumers prove that a
   distinct physical/change/outbox lowering capability is useful
@@ -1209,10 +1214,13 @@ separate C04C2 physical/change/outbox lowering remains conditional on the first
 S08/S09-A/S09-B/O06/O07-B consumers. SHA-256 proves byte integrity only; authenticating the
 Postgres session/fence does not authenticate arbitrary inline journal bytes.
 C03 seals while the session remains `running`, and that sealed root rejects
-later syscalls. C05 later locks and revalidates the detached scalar seal
-identity before the exact-fence `running` to `finishing` transition; a recovery
-path may rerun C04A from `finishing + sealed`. C06 later orchestrates finish
-idempotently through the endpoint.
+later syscalls. C05-A locks and revalidates the detached scalar seal identity,
+then changes only lifecycle and database-owned `updated_at` in the exact-fence
+`running` to `finishing` transition. A lost successful response can be observed
+from the same genuine running plan only after all immutable attempt, lease, and
+root facts still match. C05-B remains responsible for fresh-process
+`finishing + sealed` reconstruction and complete publisher composition; C06
+later owns endpoint and uncertain-outcome orchestration.
 O07-B atomically deletes the exact current lease and stores committed state with
 the server-prepared internal request identity, committed-success result receipt,
 committed token, data, feed, and S09-B outbox. Failed or rolled-back executions
@@ -1299,10 +1307,12 @@ running or finishing -> aborted | expired
 The S07 `created` and `committing` literals are reserved for intra-transaction
 construction and compatibility. Neither is a durable externally observable
 active state in V1: O03-B1 commits the new anchor as `running` with its exact
-  current lease. C05's exact-fence transition leaves the durable attempt at
-  `finishing`; O06 proves the reusable short transaction kernel only through
-  forced rollback, and O07-B either commits the terminal outcome or rolls back to
-  that durable `finishing` state.
+current lease. C05-A's exact-fence transition leaves the durable attempt at
+`finishing` and mints only a same-process finishing continuation; C05-B still
+owns fresh-process reconstruction and complete composition. O06 proves the
+reusable short transaction kernel only through forced rollback, and O07-B
+either commits the terminal outcome or rolls back to that durable `finishing`
+state.
 
 Requirements:
 
@@ -1331,10 +1341,10 @@ Requirements:
   C04B1 reauthenticates current stored argument/grant/revocation/schema facts
   into a second same-factory private capability, and private-proof C04B2
   validates final values/return evidence into `VerifiedCommitInputV1` without
-  widening production validator authority; C05 locks and
-  revalidates the seal's scalar identity before the private exact-fence
-  transition to `finishing`; reconstruction may authenticate the same sealed
-  attempt from `finishing`, while C06 owns endpoint orchestration;
+  widening production validator authority; C05-A locks and revalidates the
+  seal's scalar identity before the private exact-fence transition to
+  `finishing`, while C05-B owns fresh-process finishing reconstruction and
+  complete publication composition and C06 owns endpoint orchestration;
 - O07-B deletes the exact current lease and enters `committed` only in the atomic
   publication/outcome transaction;
 - O08 handles a trusted OCC retry from `finishing` by atomically entering `retrying`,
