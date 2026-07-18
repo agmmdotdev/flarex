@@ -173,6 +173,11 @@ through one pure `Result`; the writer projects its typed failure once because
 Drizzle requires callback rejection to roll the transaction back. These
 projections are deleted when the planning consumers and transaction owner
 receive Result or Effect failure channels with explicit rollback semantics.
+Logical-index ID decoding and post-insert table/index/descriptor correlation
+now follow the same Result-first contract, including exact returned-row
+cardinality. Its one throwing projection likewise remains only at the current
+Drizzle transaction callback so a typed verification failure rolls both
+catalog inserts back.
 
 Fenced index build-state reads are now Effect-native at the exported
 persistence boundary. Unknown input and stored clock/build rows compose through

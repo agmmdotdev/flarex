@@ -10,6 +10,7 @@ import type {
   SchemaManifestAppSchemaV1,
   SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
+import { Result } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
@@ -23,13 +24,16 @@ import {
   InvalidPreparedSchemaManifestAppSchemaBindingsError,
   InvalidSchemaManifestAppSchemaBindingInputError,
   prepareSchemaManifestAppSchemaBindingsV1,
+  type SchemaManifestAppIndexBindingRow,
   type PreparedSchemaManifestAppSchemaBindingsV1,
+  verifyInsertedSchemaManifestAppIndexBindingRowsResult,
 } from "../src/schemaManifestAppSchemaBindings";
 import {
   applySchemaManifestAppTableBindingsV1InTransaction,
   prepareSchemaManifestAppTableBindingsV1,
 } from "../src/schemaManifestTableBindings";
 import { StableLogicalIndexCatalogIdExhaustedError } from "../src/stableLogicalIndexCatalogAllocation";
+import { StableLogicalIndexCatalogCorruptionError } from "../src/stableLogicalIndexCatalogError";
 import {
   ensureStableTableIdentityInTransaction,
   StableTableCatalogDeploymentNotFoundError,
@@ -58,6 +62,152 @@ describe("schema manifest app-schema bindings", () => {
     expectTypeOf<
       PreparedSchemaManifestAppSchemaBindingsV1["manifest"]
     >().toEqualTypeOf<SchemaManifestAppSchemaV1>();
+  });
+
+  it("verifies inserted logical-index rows through Result before rollback projection", () => {
+    const deploymentId = "deployment_app_schema_insert_result";
+    const planned = [{
+      tableId: CatalogTableIdSchema.make(1),
+      descriptor: "by_name",
+      logicalIndexId: CatalogIndexIdSchema.make(1),
+    }];
+    const row = {
+      deploymentId,
+      tableId: CatalogTableIdSchema.make(1),
+      descriptor: "by_name",
+      logicalIndexId: CatalogIndexIdSchema.make(1),
+    } satisfies SchemaManifestAppIndexBindingRow;
+
+    expect(Result.isSuccess(
+      verifyInsertedSchemaManifestAppIndexBindingRowsResult(
+        deploymentId,
+        planned,
+        [row],
+      ),
+    )).toBe(true);
+
+    const crossDeployment =
+      verifyInsertedSchemaManifestAppIndexBindingRowsResult(
+        deploymentId,
+        planned,
+        [{ ...row, deploymentId: "another_deployment" }],
+      );
+    expect(Result.isFailure(crossDeployment)).toBe(true);
+    if (Result.isFailure(crossDeployment)) {
+      expect(crossDeployment.failure.detail).toBe(
+        "insert returned cross-deployment row for another_deployment",
+      );
+    }
+
+    const invalidTableRow = new Proxy(row, {
+      get(target, property, receiver) {
+        return property === "tableId"
+          ? "invalid-table-id"
+          : Reflect.get(target, property, receiver);
+      },
+    });
+    const invalidTable = verifyInsertedSchemaManifestAppIndexBindingRowsResult(
+      deploymentId,
+      planned,
+      [invalidTableRow],
+    );
+    expect(Result.isFailure(invalidTable)).toBe(true);
+    if (Result.isFailure(invalidTable)) {
+      expect(invalidTable.failure).toBeInstanceOf(
+        StableLogicalIndexCatalogCorruptionError,
+      );
+      expect(invalidTable.failure.detail).toBe(
+        "invalid table ID: invalid-table-id",
+      );
+    }
+
+    const invalidIndexRow = new Proxy(row, {
+      get(target, property, receiver) {
+        return property === "logicalIndexId"
+          ? "invalid-logical-index-id"
+          : Reflect.get(target, property, receiver);
+      },
+    });
+    const invalidIndex = verifyInsertedSchemaManifestAppIndexBindingRowsResult(
+      deploymentId,
+      planned,
+      [invalidIndexRow],
+    );
+    expect(Result.isFailure(invalidIndex)).toBe(true);
+    if (Result.isFailure(invalidIndex)) {
+      expect(invalidIndex.failure.detail).toBe(
+        "invalid logical index ID: invalid-logical-index-id",
+      );
+    }
+
+    const unreachedRow = new Proxy(row, {
+      get() {
+        throw new Error("later inserted index row must not be inspected");
+      },
+    });
+    expect(Result.isFailure(
+      verifyInsertedSchemaManifestAppIndexBindingRowsResult(
+        deploymentId,
+        planned,
+        [invalidIndexRow, unreachedRow],
+      ),
+    )).toBe(true);
+
+    const mismatch = verifyInsertedSchemaManifestAppIndexBindingRowsResult(
+      deploymentId,
+      planned,
+      [{ ...row, logicalIndexId: CatalogIndexIdSchema.make(2) }],
+    );
+    expect(Result.isFailure(mismatch)).toBe(true);
+    if (Result.isFailure(mismatch)) {
+      expect(mismatch.failure.detail).toBe(
+        "insert did not return planned binding 1/by_name/1",
+      );
+    }
+
+    const duplicate = verifyInsertedSchemaManifestAppIndexBindingRowsResult(
+      deploymentId,
+      planned,
+      [row, row],
+    );
+    expect(Result.isFailure(duplicate)).toBe(true);
+    if (Result.isFailure(duplicate)) {
+      expect(duplicate.failure.detail).toBe(
+        "insert returned duplicate logical identity for table 1 descriptor by_name",
+      );
+    }
+
+    const extra = verifyInsertedSchemaManifestAppIndexBindingRowsResult(
+      deploymentId,
+      planned,
+      [
+        row,
+        {
+          ...row,
+          descriptor: "by_email",
+          logicalIndexId: CatalogIndexIdSchema.make(2),
+        },
+      ],
+    );
+    expect(Result.isFailure(extra)).toBe(true);
+    if (Result.isFailure(extra)) {
+      expect(extra.failure.detail).toBe(
+        "insert returned an unexpected number of planned logical index bindings",
+      );
+    }
+
+    const cause = new Error("inserted index row accessor failed");
+    const throwingRow = new Proxy(row, {
+      get(target, property, receiver) {
+        if (property === "descriptor") throw cause;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(() => verifyInsertedSchemaManifestAppIndexBindingRowsResult(
+      deploymentId,
+      planned,
+      [throwingRow],
+    )).toThrow(cause);
   });
 
   it("allocates deterministically, replays exactly, and reuses identity when fields change", async () => {
@@ -376,6 +526,42 @@ describe("schema manifest app-schema bindings", () => {
     expect(await catalogCounts(persistence, deploymentId)).toEqual({
       tables: 1,
       indexes: 1,
+    });
+  });
+
+  it("rolls both catalogs back when Result verification rejects index RETURNING", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_app_schema_returning_rollback";
+    await insertDeployment(persistence, deploymentId);
+    const plan = await prepareSchemaManifestAppSchemaBindingsV1(
+      persistence.drizzle,
+      {
+        deploymentId,
+        tables: [appTable("users")],
+        indexes: [appIndex("users", "by_name", ["name"])],
+      },
+    );
+    await persistence.exec(`
+      create function fx_test_corrupt_index_binding_returning() returns trigger
+      language plpgsql
+      as $$
+      begin
+        new.descriptor := new.descriptor || '_corrupt';
+        return new;
+      end;
+      $$;
+
+      create trigger fx_test_corrupt_index_binding_returning
+      before insert on fx_control_index
+      for each row execute function fx_test_corrupt_index_binding_returning();
+    `);
+
+    await expect(apply(persistence, plan)).rejects.toBeInstanceOf(
+      StableLogicalIndexCatalogCorruptionError,
+    );
+    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+      tables: 0,
+      indexes: 0,
     });
   });
 

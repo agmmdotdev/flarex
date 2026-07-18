@@ -17,6 +17,7 @@ import {
   type SchemaManifestAppTableDeclarationV1,
   type SchemaManifestAppTableName,
 } from "flarex-protocol/schema-manifest";
+import { Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
@@ -36,7 +37,9 @@ import {
 } from "./stableLogicalIndexCatalogAllocation";
 import {
   decodeStableLogicalIndexCatalogIndexId as decodeStoredIndexId,
+  decodeStableLogicalIndexCatalogIndexIdResult as decodeStoredIndexIdResult,
   decodeStableLogicalIndexCatalogTableId as decodeStoredTableId,
+  decodeStableLogicalIndexCatalogTableIdResult as decodeStoredTableIdResult,
 } from "./stableLogicalIndexCatalogDecoding";
 import type { StableTableCatalogTransaction } from "./stableTableCatalog";
 import { readStableTableCatalogHighWater } from "./stableTableCatalogAllocation";
@@ -607,38 +610,84 @@ async function insertPlannedAppIndexBindings(
       tableId: fxControlIndexes.tableId,
       descriptor: fxControlIndexes.descriptor,
     });
-  const returned = new Map<string, CatalogIndexId>();
-  for (const row of rows) {
-    if (row.deploymentId !== state.deploymentId) {
-      throw new StableLogicalIndexCatalogCorruptionError(
-        state.deploymentId,
-        `insert returned cross-deployment row for ${row.deploymentId}`,
+  // Drizzle commits a resolved callback, so this projection must reject the
+  // current Promise transaction on typed verification failure. Delete it when
+  // the transaction owner can interpret the Effect failure channel as rollback.
+  Result.getOrThrow(verifyInsertedSchemaManifestAppIndexBindingRowsResult(
+    state.deploymentId,
+    indexes,
+    rows,
+  ));
+}
+
+export interface SchemaManifestAppIndexBindingRow {
+  readonly deploymentId: string;
+  readonly logicalIndexId: unknown;
+  readonly tableId: unknown;
+  readonly descriptor: string;
+}
+
+/** Pure post-insert verification; the transaction boundary owns rollback. */
+export function verifyInsertedSchemaManifestAppIndexBindingRowsResult(
+  deploymentId: string,
+  indexes: ReadonlyArray<{
+    readonly logicalIndexId: CatalogIndexId;
+    readonly tableId: CatalogTableId;
+    readonly descriptor: string;
+  }>,
+  rows: ReadonlyArray<SchemaManifestAppIndexBindingRow>,
+): Result.Result<void, StableLogicalIndexCatalogCorruptionError> {
+  return Result.gen(function* () {
+    const returned = new Map<string, CatalogIndexId>();
+    for (const row of rows) {
+      if (row.deploymentId !== deploymentId) {
+        return yield* Result.fail(
+          new StableLogicalIndexCatalogCorruptionError(
+            deploymentId,
+            `insert returned cross-deployment row for ${row.deploymentId}`,
+          ),
+        );
+      }
+      const tableId = yield* decodeStoredTableIdResult(
+        deploymentId,
+        row.tableId,
+      );
+      const key = indexIdentityKey({
+        tableId,
+        descriptor: row.descriptor,
+      });
+      if (returned.has(key)) {
+        return yield* Result.fail(
+          new StableLogicalIndexCatalogCorruptionError(
+            deploymentId,
+            `insert returned duplicate logical identity for table ${tableId} descriptor ${row.descriptor}`,
+          ),
+        );
+      }
+      returned.set(
+        key,
+        yield* decodeStoredIndexIdResult(deploymentId, row.logicalIndexId),
       );
     }
-    const tableId = decodeStoredTableId(state.deploymentId, row.tableId);
-    const key = indexIdentityKey({
-      tableId,
-      descriptor: row.descriptor,
-    });
-    if (returned.has(key)) {
-      throw new StableLogicalIndexCatalogCorruptionError(
-        state.deploymentId,
-        `insert returned duplicate logical identity for table ${tableId} descriptor ${row.descriptor}`,
+    if (returned.size !== indexes.length) {
+      return yield* Result.fail(
+        new StableLogicalIndexCatalogCorruptionError(
+          deploymentId,
+          "insert returned an unexpected number of planned logical index bindings",
+        ),
       );
     }
-    returned.set(
-      key,
-      decodeStoredIndexId(state.deploymentId, row.logicalIndexId),
-    );
-  }
-  for (const index of indexes) {
-    if (returned.get(indexIdentityKey(index)) !== index.logicalIndexId) {
-      throw new StableLogicalIndexCatalogCorruptionError(
-        state.deploymentId,
-        `insert did not return planned binding ${index.tableId}/${index.descriptor}/${index.logicalIndexId}`,
-      );
+    for (const index of indexes) {
+      if (returned.get(indexIdentityKey(index)) !== index.logicalIndexId) {
+        return yield* Result.fail(
+          new StableLogicalIndexCatalogCorruptionError(
+            deploymentId,
+            `insert did not return planned binding ${index.tableId}/${index.descriptor}/${index.logicalIndexId}`,
+          ),
+        );
+      }
     }
-  }
+  });
 }
 
 function indexIdentityKey(
