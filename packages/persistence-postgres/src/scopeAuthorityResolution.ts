@@ -1,4 +1,5 @@
 import { isNonArrayRecord as isUnknownRecord } from "@flarex/utils/records";
+import { Data, Effect, Result } from "effect";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
 import type {
@@ -140,11 +141,29 @@ export type TrustedScopeAuthorityResolutionFailure =
     };
 
 export class TrustedScopeAuthorityResolutionError extends Error {
+  readonly _tag = "TrustedScopeAuthorityResolutionError" as const;
+
   constructor(readonly failure: TrustedScopeAuthorityResolutionFailure) {
     super(trustedScopeAuthorityResolutionFailureMessage(failure));
     this.name = "TrustedScopeAuthorityResolutionError";
   }
 }
+
+export type TrustedScopeAuthorityPortOperation =
+  | "scopeMetadataRead"
+  | "provisioningReceiptRead"
+  | "scopeClockRead";
+
+export class TrustedScopeAuthorityPortError extends Data.TaggedError(
+  "TrustedScopeAuthorityPortError",
+)<{
+  readonly operation: TrustedScopeAuthorityPortOperation;
+  readonly cause: unknown;
+}> {}
+
+export type TrustedScopeAuthorityError =
+  | TrustedScopeAuthorityResolutionError
+  | TrustedScopeAuthorityPortError;
 
 interface ScopeAuthorityIntent {
   readonly deploymentId: ScopeMetadataRecord["deploymentId"];
@@ -156,29 +175,25 @@ interface UnknownLocatedScopeClockReader extends ScopeClockReader {
   readonly physicalLocator: unknown;
 }
 
-type PhysicalLocatorDecodeResult =
-  | {
-      readonly ok: true;
-      readonly value: ScopePhysicalLocator;
-    }
-  | {
-      readonly ok: false;
-      readonly invalidReason: InvalidScopeClockTargetReason;
-    };
-
 /**
  * Resolves current data-plane authority from persisted control metadata and
  * the located scope clock. Missing or inconsistent metadata never implies the
  * legacy storage generation.
  */
-export async function resolveTrustedScopeAuthority(
+export const resolveTrustedScopeAuthorityEffect = Effect.fn(
+  "ScopeAuthority.resolveTrusted",
+)(function* (
   deploymentId: string,
   ports: TrustedScopeAuthorityResolutionPorts,
-): Promise<TrustedScopeAuthority> {
-  return (
-    await resolveLocatedTrustedScopeAuthority(deploymentId, ports)
-  ).authority;
-}
+): Effect.fn.Return<
+  TrustedScopeAuthority,
+  TrustedScopeAuthorityError
+> {
+  return (yield* resolveLocatedTrustedScopeAuthorityEffect(
+    deploymentId,
+    ports,
+  )).authority;
+});
 
 /**
  * Resolves the same trusted authority while retaining the exact validated
@@ -186,156 +201,215 @@ export async function resolveTrustedScopeAuthority(
  * target capability can therefore perform a second authority read without
  * resolving or guessing the physical target again.
  */
-export async function resolveLocatedTrustedScopeAuthority<
-  Target extends LocatedScopeClockReader,
->(
+export const resolveLocatedTrustedScopeAuthorityEffect = Effect.fn(
+  "ScopeAuthority.resolveLocatedTrusted",
+)(function* <Target extends LocatedScopeClockReader>(
   deploymentId: string,
   ports: TrustedScopeAuthorityResolutionPorts<Target>,
-): Promise<LocatedTrustedScopeAuthority<Target>> {
-  const scope =
-    await ports.scopeMetadata.getScopeMetadataByDeploymentId(deploymentId);
+): Effect.fn.Return<
+  LocatedTrustedScopeAuthority<Target>,
+  TrustedScopeAuthorityError
+> {
+  const scope = yield* Effect.tryPromise({
+    try: () =>
+      ports.scopeMetadata.getScopeMetadataByDeploymentId(deploymentId),
+    catch: (cause) => new TrustedScopeAuthorityPortError({
+      operation: "scopeMetadataRead",
+      cause,
+    }),
+  });
   if (scope === null) {
-    throw resolutionError({ reason: "scopeMetadataMissing", deploymentId });
+    return yield* Effect.fail(
+      resolutionError({ reason: "scopeMetadataMissing", deploymentId }),
+    );
   }
   const intent = captureScopeAuthorityIntent(scope);
   if (intent.deploymentId !== deploymentId) {
-    throw resolutionError({
+    return yield* Effect.fail(resolutionError({
       reason: "scopeDeploymentMismatch",
       deploymentId,
       scopeId: intent.scopeId,
       actualDeploymentId: intent.deploymentId,
-    });
+    }));
   }
 
   switch (intent.physicalLocator.kind) {
     case "shared_database":
-      return resolveScopeAuthorityAtTarget(
+      return yield* resolveScopeAuthorityAtTarget(
         intent,
         intent.physicalLocator,
         ports,
       );
     case "schema_per_scope":
     case "database_per_scope":
-      return resolveSplitScopeAuthority(
+      return yield* resolveSplitScopeAuthority(
         intent,
         intent.physicalLocator,
         ports,
       );
   }
-}
+});
 
-async function resolveSplitScopeAuthority<
+/**
+ * Temporary Promise compatibility boundary for transaction activation,
+ * authorization-epoch resolution, point commit, stored-attempt evidence, and
+ * commit-authority loading. Delete it when those callers consume
+ * `resolveLocatedTrustedScopeAuthorityEffect` directly.
+ */
+export function resolveLocatedTrustedScopeAuthority<
   Target extends LocatedScopeClockReader,
 >(
+  deploymentId: string,
+  ports: TrustedScopeAuthorityResolutionPorts<Target>,
+): Promise<LocatedTrustedScopeAuthority<Target>> {
+  return Effect.runPromise(
+    resolveLocatedTrustedScopeAuthorityEffect(deploymentId, ports).pipe(
+      Effect.mapError((error) =>
+        error instanceof TrustedScopeAuthorityPortError
+          ? error.cause
+          : error
+      ),
+    ),
+  );
+}
+
+const resolveSplitScopeAuthority = Effect.fn(
+  "ScopeAuthority.resolveSplit",
+)(function* <Target extends LocatedScopeClockReader>(
   intent: ScopeAuthorityIntent,
   expectedLocator: SplitScopePhysicalLocator,
   ports: TrustedScopeAuthorityResolutionPorts<Target>,
-): Promise<LocatedTrustedScopeAuthority<Target>> {
-  const receipt =
-    await ports.provisioningReceipts.getScopeAuthorityProvisioningReceipt(
+): Effect.fn.Return<
+  LocatedTrustedScopeAuthority<Target>,
+  TrustedScopeAuthorityError
+> {
+  const receipt = yield* Effect.tryPromise({
+    try: () => ports.provisioningReceipts.getScopeAuthorityProvisioningReceipt(
       intent.scopeId,
-    );
+    ),
+    catch: (cause) => new TrustedScopeAuthorityPortError({
+      operation: "provisioningReceiptRead",
+      cause,
+    }),
+  });
   if (receipt === null) {
-    throw resolutionError({
+    return yield* Effect.fail(resolutionError({
       reason: "splitProvisioningReceiptMissing",
       scopeId: intent.scopeId,
-    });
+    }));
   }
   if (receipt.scopeId !== intent.scopeId) {
-    throw resolutionError({
+    return yield* Effect.fail(resolutionError({
       reason: "splitProvisioningReceiptScopeMismatch",
       scopeId: intent.scopeId,
       actualScopeId: receipt.scopeId,
-    });
+    }));
   }
   if (receipt.state !== "ready") {
-    throw resolutionError({
+    return yield* Effect.fail(resolutionError({
       reason: "splitProvisioningReceiptNotReady",
       scopeId: intent.scopeId,
       actualState: receipt.state,
-    });
+    }));
   }
   const receiptLocator = captureScopePhysicalLocator(receipt.physicalLocator);
   if (!scopePhysicalLocatorsEqual(expectedLocator, receiptLocator)) {
-    throw resolutionError({
+    return yield* Effect.fail(resolutionError({
       reason: "splitProvisioningReceiptPlacementMismatch",
       scopeId: intent.scopeId,
       expected: expectedLocator,
       actual: receiptLocator,
-    });
+    }));
   }
 
-  return resolveScopeAuthorityAtTarget(intent, expectedLocator, ports);
-}
+  return yield* resolveScopeAuthorityAtTarget(
+    intent,
+    expectedLocator,
+    ports,
+  );
+});
 
-async function resolveScopeAuthorityAtTarget<
-  Target extends LocatedScopeClockReader,
->(
+const resolveScopeAuthorityAtTarget = Effect.fn(
+  "ScopeAuthority.resolveAtTarget",
+)(function* <Target extends LocatedScopeClockReader>(
   intent: ScopeAuthorityIntent,
   expectedLocator: ScopePhysicalLocator,
   ports: TrustedScopeAuthorityResolutionPorts<Target>,
-): Promise<LocatedTrustedScopeAuthority<Target>> {
-  let unresolvedTarget: Target;
-  try {
-    unresolvedTarget = await ports.scopeClockTargets.resolve(expectedLocator);
-  } catch (resolutionCause) {
-    throw resolutionError({
+): Effect.fn.Return<
+  LocatedTrustedScopeAuthority<Target>,
+  TrustedScopeAuthorityError
+> {
+  const unresolvedTarget = yield* Effect.tryPromise({
+    try: () => ports.scopeClockTargets.resolve(expectedLocator),
+    catch: (resolutionCause) => resolutionError({
       reason: "scopeClockTargetResolutionFailed",
       scopeId: intent.scopeId,
       physicalLocator: expectedLocator,
       resolutionCause,
-    });
-  }
-  const target = requireScopeClockTarget(unresolvedTarget, intent.scopeId);
-  const decodedLocator = decodePhysicalLocator(target.physicalLocator);
-  if (!decodedLocator.ok) {
-    throw resolutionError({
+    }),
+  });
+  const target = yield* Effect.fromResult(
+    requireScopeClockTargetResult(unresolvedTarget, intent.scopeId),
+  );
+  const actualLocator = yield* Effect.fromResult(
+    decodePhysicalLocatorResult(target.physicalLocator),
+  ).pipe(
+    Effect.mapError((invalidReason) => resolutionError({
       reason: "scopeClockTargetInvalid",
       scopeId: intent.scopeId,
-      invalidReason: decodedLocator.invalidReason,
-    });
-  }
-  const actualLocator = decodedLocator.value;
+      invalidReason,
+    })),
+  );
   if (!scopePhysicalLocatorsEqual(expectedLocator, actualLocator)) {
-    throw resolutionError({
+    return yield* Effect.fail(resolutionError({
       reason: "scopeClockTargetPlacementMismatch",
       scopeId: intent.scopeId,
       expected: expectedLocator,
       actual: actualLocator,
-    });
+    }));
   }
 
+  const clock = yield* Effect.tryPromise({
+    try: () => target.getCurrentClock(intent.scopeId),
+    catch: (cause) => new TrustedScopeAuthorityPortError({
+      operation: "scopeClockRead",
+      cause,
+    }),
+  });
+  const authority = yield* Effect.fromResult(
+    trustedAuthorityResult(intent, expectedLocator, clock),
+  );
+
   return Object.freeze({
-    authority: trustedAuthority(
-      intent,
-      expectedLocator,
-      await target.getCurrentClock(intent.scopeId),
-    ),
+    authority,
     target,
   }) satisfies LocatedTrustedScopeAuthority<Target>;
-}
+});
 
-function trustedAuthority(
+function trustedAuthorityResult(
   intent: ScopeAuthorityIntent,
   physicalLocator: ScopePhysicalLocator,
   clock: ScopeClockRecord | null,
-): TrustedScopeAuthority {
+): Result.Result<
+  TrustedScopeAuthority,
+  TrustedScopeAuthorityResolutionError
+> {
   if (clock === null) {
-    throw resolutionError({
+    return Result.fail(resolutionError({
       reason: "scopeClockMissing",
       scopeId: intent.scopeId,
       physicalLocator,
-    });
+    }));
   }
   if (clock.scopeId !== intent.scopeId) {
-    throw resolutionError({
+    return Result.fail(resolutionError({
       reason: "scopeClockScopeMismatch",
       scopeId: intent.scopeId,
       actualScopeId: clock.scopeId,
       physicalLocator,
-    });
+    }));
   }
-  return Object.freeze({
+  return Result.succeed(Object.freeze({
     deploymentId: intent.deploymentId,
     scopeId: intent.scopeId,
     physicalLocator,
@@ -344,7 +418,7 @@ function trustedAuthority(
     epoch: clock.epoch,
     lastCommitSeq: clock.lastCommitSeq,
     lastOutboxSeq: clock.lastOutboxSeq,
-  }) satisfies TrustedScopeAuthority;
+  }) satisfies TrustedScopeAuthority);
 }
 
 function resolutionError(
@@ -363,30 +437,34 @@ function captureScopeAuthorityIntent(
   }) satisfies ScopeAuthorityIntent;
 }
 
-function requireScopeClockTarget<Target extends LocatedScopeClockReader>(
+function requireScopeClockTargetResult<
+  Target extends LocatedScopeClockReader,
+>(
   value: Target,
   scopeId: ScopeId,
-): Target {
+): Result.Result<Target, TrustedScopeAuthorityResolutionError> {
   if (!isUnknownRecord(value)) {
-    throw resolutionError({
+    return Result.fail(resolutionError({
       reason: "scopeClockTargetInvalid",
       scopeId,
       invalidReason: "targetNotObject",
-    });
+    }));
   }
   if (!hasGetCurrentClock(value)) {
-    throw resolutionError({
+    return Result.fail(resolutionError({
       reason: "scopeClockTargetInvalid",
       scopeId,
       invalidReason: "getCurrentClockMissing",
-    });
+    }));
   }
-  return value;
+  return Result.succeed(value);
 }
 
-function decodePhysicalLocator(value: unknown): PhysicalLocatorDecodeResult {
+function decodePhysicalLocatorResult(
+  value: unknown,
+): Result.Result<ScopePhysicalLocator, InvalidScopeClockTargetReason> {
   if (!isUnknownRecord(value)) {
-    return { ok: false, invalidReason: "locatorNotObject" };
+    return Result.fail("locatorNotObject");
   }
   const keys = Object.keys(value);
   if (
@@ -395,51 +473,48 @@ function decodePhysicalLocator(value: unknown): PhysicalLocatorDecodeResult {
     !keys.includes("databaseKey") ||
     !keys.includes("schemaName")
   ) {
-    return { ok: false, invalidReason: "locatorUnexpectedFields" };
+    return Result.fail("locatorUnexpectedFields");
   }
   if (
     typeof value.databaseKey !== "string" ||
     value.databaseKey.trim().length === 0
   ) {
-    return { ok: false, invalidReason: "locatorDatabaseKeyInvalid" };
+    return Result.fail("locatorDatabaseKeyInvalid");
   }
   if (
     typeof value.schemaName !== "string" ||
     value.schemaName.trim().length === 0
   ) {
-    return { ok: false, invalidReason: "locatorSchemaNameInvalid" };
+    return Result.fail("locatorSchemaNameInvalid");
   }
 
   switch (value.kind) {
     case "shared_database":
-      return {
-        ok: true,
-        value: Object.freeze({
+      return Result.succeed(
+        Object.freeze({
           kind: value.kind,
           databaseKey: value.databaseKey,
           schemaName: value.schemaName,
         }),
-      };
+      );
     case "schema_per_scope":
-      return {
-        ok: true,
-        value: Object.freeze({
+      return Result.succeed(
+        Object.freeze({
           kind: value.kind,
           databaseKey: value.databaseKey,
           schemaName: value.schemaName,
         }),
-      };
+      );
     case "database_per_scope":
-      return {
-        ok: true,
-        value: Object.freeze({
+      return Result.succeed(
+        Object.freeze({
           kind: value.kind,
           databaseKey: value.databaseKey,
           schemaName: value.schemaName,
         }),
-      };
+      );
     default:
-      return { ok: false, invalidReason: "locatorKindUnsupported" };
+      return Result.fail("locatorKindUnsupported");
   }
 }
 

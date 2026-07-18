@@ -2,10 +2,12 @@ import {
   SnapshotTokenSchema,
   type SnapshotToken,
 } from "flarex-protocol/storage-authority";
+import { Effect } from "effect";
 
 import {
-  resolveTrustedScopeAuthority,
+  resolveTrustedScopeAuthorityEffect,
   type TrustedScopeAuthority,
+  type TrustedScopeAuthorityError,
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";
 
@@ -28,7 +30,12 @@ export interface AppDataSnapshotResolver {
    * Resolves the current snapshot for a server-authorized deployment. The
    * caller must not derive deployment identity from untrusted request input.
    */
-  resolveCurrent(deploymentId: string): Promise<ResolvedAppDataSnapshot>;
+  readonly resolveCurrent: (
+    deploymentId: string,
+  ) => Effect.Effect<
+    ResolvedAppDataSnapshot,
+    TrustedScopeAuthorityError
+  >;
 }
 
 /**
@@ -40,8 +47,13 @@ export function createAppDataSnapshotResolver(
   ports: TrustedScopeAuthorityResolutionPorts,
 ): AppDataSnapshotResolver {
   return Object.freeze({
-    resolveCurrent: async (deploymentId: string) => {
-      const authority = await resolveTrustedScopeAuthority(
+    resolveCurrent: Effect.fn("AppDataSnapshot.resolveCurrent")(function* (
+      deploymentId: string,
+    ): Effect.fn.Return<
+      ResolvedAppDataSnapshot,
+      TrustedScopeAuthorityError
+    > {
+      const authority = yield* resolveTrustedScopeAuthorityEffect(
         deploymentId,
         ports,
       );
@@ -58,6 +70,6 @@ export function createAppDataSnapshotResolver(
         storageGeneration: authority.storageGeneration,
         storageGenerationFence: authority.storageGenerationFence,
       }) satisfies ResolvedAppDataSnapshot;
-    },
+    }),
   }) satisfies AppDataSnapshotResolver;
 }

@@ -28,6 +28,7 @@ import type {
   ScopePhysicalLocator,
   SharedDatabaseScopePhysicalLocator,
 } from "../src/scopeMetadataTypes";
+import { runEffect } from "./effectTestRuntime";
 
 const sharedLocator = Object.freeze({
   kind: "shared_database",
@@ -64,9 +65,9 @@ describe("app-data snapshot resolution", () => {
       sharedResolutionPorts(persistence),
     );
 
-    const resolved = await resolver.resolveCurrent(
+    const resolved = await runEffect(resolver.resolveCurrent(
       "deployment_snapshot_empty",
-    );
+    ));
 
     expect(resolved).toEqual({
       snapshotToken: {
@@ -118,8 +119,8 @@ describe("app-data snapshot resolution", () => {
     );
 
     const [firstSnapshot, secondSnapshot] = await Promise.all([
-      resolver.resolveCurrent(first.scope.deploymentId),
-      resolver.resolveCurrent(second.scope.deploymentId),
+      runEffect(resolver.resolveCurrent(first.scope.deploymentId)),
+      runEffect(resolver.resolveCurrent(second.scope.deploymentId)),
     ]);
 
     expect(firstSnapshot.snapshotToken).toMatchObject({
@@ -151,7 +152,9 @@ describe("app-data snapshot resolution", () => {
       fixturePorts({ getCurrentClock }),
     );
 
-    const resolved = await resolver.resolveCurrent("deployment_snapshot");
+    const resolved = await runEffect(
+      resolver.resolveCurrent("deployment_snapshot"),
+    );
 
     expect(resolved).toEqual({
       snapshotToken: {
@@ -192,7 +195,7 @@ describe("app-data snapshot resolution", () => {
     );
 
     await expect(
-      resolver.resolveCurrent("deployment_missing"),
+      runEffect(resolver.resolveCurrent("deployment_missing")),
     ).rejects.toMatchObject({
       name: "TrustedScopeAuthorityResolutionError",
       failure: {

@@ -126,7 +126,8 @@ import {
   PinnedPointTableNotFoundV1Error,
 } from "./pinnedPointTableResolution";
 import {
-  resolveLocatedTrustedScopeAuthority,
+  resolveLocatedTrustedScopeAuthorityEffect,
+  TrustedScopeAuthorityPortError,
   type TrustedScopeAuthority,
 } from "./scopeAuthorityResolution";
 import { decodeScopeClockRecord } from "./scopeClock";
@@ -745,20 +746,21 @@ export function createSessionJournalStorePersistenceV1(
     ResolvedJournalTargetV1,
     SessionJournalPersistenceV1Error | SessionJournalTargetUnavailableV1Error
   > {
-    const located = yield* Effect.tryPromise({
-      try: () => resolveLocatedTrustedScopeAuthority(
-        attempt.selector.deploymentId,
-        {
-          scopeMetadata: ports.scopeMetadata,
-          provisioningReceipts: ports.provisioningReceipts,
-          scopeClockTargets: ports.scopeSessionTargets,
-        },
-      ),
-      catch: (cause) => new SessionJournalPersistenceV1Error({
+    const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+      attempt.selector.deploymentId,
+      {
+        scopeMetadata: ports.scopeMetadata,
+        provisioningReceipts: ports.provisioningReceipts,
+        scopeClockTargets: ports.scopeSessionTargets,
+      },
+    ).pipe(
+      Effect.mapError((cause) => new SessionJournalPersistenceV1Error({
         operation: "resolveJournalTarget",
-        cause,
-      }),
-    });
+        cause: cause instanceof TrustedScopeAuthorityPortError
+          ? cause.cause
+          : cause,
+      })),
+    );
     if (
       located.authority.scopeId !== attempt.selector.scopeId ||
       !isLocatedExactRunningAttemptKernelV1(located.target)

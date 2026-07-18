@@ -42,6 +42,23 @@ enter through their own narrow Promise adapter; known codec or Schema failures
 become their existing stored-corruption errors, while unexpected crypto or
 runtime failures remain defects.
 
+Trusted scope-authority resolution and the private app-data snapshot resolver
+are now Effect-native. Missing or inconsistent authority remains a tagged
+`TrustedScopeAuthorityResolutionError`; metadata, provisioning-receipt, and
+located-clock Promise rejection is mapped once to the tagged
+`TrustedScopeAuthorityPortError`. The target-registry resolver retains its
+existing typed placement-resolution failure because that cause is part of the
+authority contract. The session journal consumes the Effect operation directly
+and translates it once to its existing persistence error. The
+`resolveLocatedTrustedScopeAuthority` facade is the one temporary
+Promise/runtime compatibility bridge for transaction activation,
+authorization-epoch resolution, point commit, stored-attempt evidence, and
+stored commit-authority loading. Delete it after those concrete consumers move to
+`resolveLocatedTrustedScopeAuthorityEffect`; new consumers must use the Effect
+operation directly. The compatibility bridge unwraps only the new port error
+to preserve the original Promise rejection identity expected by those legacy
+consumers.
+
 The existing Drizzle point-operation transaction still owns a temporary
 throwing compatibility surface: its Promise-native latest-receipt verifier and
 seven `Result.getOrThrow` projections for stored requests/outcomes, logical

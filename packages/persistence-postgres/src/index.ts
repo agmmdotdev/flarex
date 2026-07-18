@@ -282,7 +282,9 @@ export * from "./scopeMetadata";
 export * from "./scopeMetadataTypes";
 export {
   TrustedScopeAuthorityResolutionError,
-  resolveTrustedScopeAuthority,
+  TrustedScopeAuthorityPortError,
+  resolveLocatedTrustedScopeAuthorityEffect,
+  resolveTrustedScopeAuthorityEffect,
   type InvalidScopeClockTargetReason,
   type LocatedScopeClockReader,
   type ScopeClockReader,
@@ -290,6 +292,8 @@ export {
   type ScopeMetadataReader,
   type ScopeProvisioningReceiptReader,
   type TrustedScopeAuthority,
+  type TrustedScopeAuthorityError,
+  type TrustedScopeAuthorityPortOperation,
   type TrustedScopeAuthorityResolutionFailure,
   type TrustedScopeAuthorityResolutionPorts,
 } from "./scopeAuthorityResolution";

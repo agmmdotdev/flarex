@@ -15,6 +15,7 @@ import {
   postgresUrl,
   withTemporaryPostgresPersistence,
 } from "./postgresHelpers";
+import { runEffect } from "./effectTestRuntime";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
@@ -49,9 +50,9 @@ describePostgres("real Postgres app-data snapshot resolution", () => {
         sharedResolutionPorts(persistence),
       );
 
-      const first = await resolver.resolveCurrent(
+      const first = await runEffect(resolver.resolveCurrent(
         provisioned.scope.deploymentId,
-      );
+      ));
 
       expect(first).toEqual({
         snapshotToken: {
@@ -73,9 +74,9 @@ describePostgres("real Postgres app-data snapshot resolution", () => {
         provisioned.scope.scopeId,
         secondCommitSeq,
       );
-      const second = await resolver.resolveCurrent(
+      const second = await runEffect(resolver.resolveCurrent(
         provisioned.scope.deploymentId,
-      );
+      ));
 
       expect(first.snapshotToken.commitSeq).toBe(firstCommitSeq);
       expect(second.snapshotToken.commitSeq).toBe(secondCommitSeq);

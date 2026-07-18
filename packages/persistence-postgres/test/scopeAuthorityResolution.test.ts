@@ -21,7 +21,9 @@ import {
   type SplitScopeAuthorityProvisioningReceipt,
 } from "../src/scopeAuthorityProvisioningReceiptTypes";
 import {
-  resolveTrustedScopeAuthority,
+  resolveLocatedTrustedScopeAuthority,
+  resolveTrustedScopeAuthorityEffect,
+  TrustedScopeAuthorityPortError,
   TrustedScopeAuthorityResolutionError,
   type LocatedScopeClockReader,
   type TrustedScopeAuthorityResolutionFailure,
@@ -34,6 +36,14 @@ import type {
   SharedDatabaseScopePhysicalLocator,
   SplitScopePhysicalLocator,
 } from "../src/scopeMetadataTypes";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
+
+function resolveTrustedScopeAuthority(
+  deploymentId: string,
+  ports: TrustedScopeAuthorityResolutionPorts,
+) {
+  return runEffect(resolveTrustedScopeAuthorityEffect(deploymentId, ports));
+}
 
 const sharedLocator = Object.freeze({
   kind: "shared_database",
@@ -444,6 +454,65 @@ describe("trusted scope authority resolution", () => {
       physicalLocator: splitLocator,
     });
   });
+
+  it("maps a metadata-port rejection once at its foreign boundary", async () => {
+    const cause = new Error("scope metadata transport unavailable");
+    const fixture = resolutionFixture({ metadataCause: cause });
+
+    const failure = await runEffectFailure(
+      resolveTrustedScopeAuthorityEffect("deployment_split", fixture.ports),
+    );
+
+    expect(failure).toBeInstanceOf(TrustedScopeAuthorityPortError);
+    expect(failure).toMatchObject({
+      _tag: "TrustedScopeAuthorityPortError",
+      operation: "scopeMetadataRead",
+      cause,
+    });
+    expect(fixture.getProvisioningReceipt).not.toHaveBeenCalled();
+    expect(fixture.resolveClockTarget).not.toHaveBeenCalled();
+  });
+
+  it("preserves the original rejection identity at the temporary Promise facade", async () => {
+    const cause = new Error("legacy metadata rejection");
+    const fixture = resolutionFixture({ metadataCause: cause });
+
+    await expect(
+      resolveLocatedTrustedScopeAuthority("deployment_split", fixture.ports),
+    ).rejects.toBe(cause);
+  });
+
+  it("maps a split receipt-port rejection before target resolution", async () => {
+    const cause = new Error("receipt store unavailable");
+    const fixture = resolutionFixture({ receiptCause: cause });
+
+    const failure = await runEffectFailure(
+      resolveTrustedScopeAuthorityEffect("deployment_split", fixture.ports),
+    );
+
+    expect(failure).toMatchObject({
+      _tag: "TrustedScopeAuthorityPortError",
+      operation: "provisioningReceiptRead",
+      cause,
+    });
+    expect(fixture.resolveClockTarget).not.toHaveBeenCalled();
+  });
+
+  it("maps a located clock-port rejection after exact target resolution", async () => {
+    const cause = new Error("scope clock unavailable");
+    const fixture = resolutionFixture({ clockCause: cause });
+
+    const failure = await runEffectFailure(
+      resolveTrustedScopeAuthorityEffect("deployment_split", fixture.ports),
+    );
+
+    expect(failure).toMatchObject({
+      _tag: "TrustedScopeAuthorityPortError",
+      operation: "scopeClockRead",
+      cause,
+    });
+    expect(fixture.resolveClockTarget).toHaveBeenCalledOnce();
+  });
 });
 
 interface ResolutionFixtureOptions {
@@ -457,6 +526,9 @@ interface ResolutionFixtureOptions {
     readonly scopeId: ScopeId;
   };
   readonly resolutionCause?: unknown;
+  readonly metadataCause?: unknown;
+  readonly receiptCause?: unknown;
+  readonly clockCause?: unknown;
 }
 
 function resolutionFixture(options: ResolutionFixtureOptions = {}) {
@@ -471,10 +543,25 @@ function resolutionFixture(options: ResolutionFixtureOptions = {}) {
   const targetLocator =
     options.targetLocator ?? scope?.physicalLocator ?? splitLocator;
   const getScopeMetadataByDeploymentId = vi.fn(
-    async (_deploymentId: string) => scope,
+    async (_deploymentId: string) => {
+      if ("metadataCause" in options) {
+        throw options.metadataCause;
+      }
+      return scope;
+    },
   );
-  const getProvisioningReceipt = vi.fn(async (_scopeId: ScopeId) => receipt);
-  const getTargetClock = vi.fn(async (_scopeId: ScopeId) => targetClock);
+  const getProvisioningReceipt = vi.fn(async (_scopeId: ScopeId) => {
+    if ("receiptCause" in options) {
+      throw options.receiptCause;
+    }
+    return receipt;
+  });
+  const getTargetClock = vi.fn(async (_scopeId: ScopeId) => {
+    if ("clockCause" in options) {
+      throw options.clockCause;
+    }
+    return targetClock;
+  });
   const target = {
     physicalLocator: targetLocator,
     getCurrentClock: getTargetClock,
