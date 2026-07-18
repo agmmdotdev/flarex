@@ -327,14 +327,16 @@ export {
   type SchemaVersionArtifactIdentity,
 } from "./schemaVersionArtifacts";
 export {
-  getStableTableIdentityById,
+  getStableTableIdentityByIdEffect,
   getStableTableIdentityByName,
   InvalidStableTableIdentityInputError,
   StableTableCatalogCorruptionError,
   StableTableCatalogDeploymentNotFoundError,
   StableTableCatalogIdExhaustedError,
+  StableTableIdentityPersistenceError,
   type EnsureStableTableIdentityInput,
   type EnsureStableTableIdentityResult,
+  type GetStableTableIdentityByIdError,
   type StableTableIdentity,
   type StableTableIdentityName,
 } from "./stableTableCatalog";

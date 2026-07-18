@@ -58,7 +58,7 @@ import {
   fxControlSchemaVersions,
 } from "./schema";
 import {
-  getStableTableIdentityById,
+  getStableTableIdentityByIdForPromiseTransaction,
   type StableTableCatalogTransaction,
 } from "./stableTableCatalog";
 
@@ -931,7 +931,7 @@ async function verifyCreationTimeTableParent(
   tx: StableTableCatalogTransaction,
   state: PreparedCreationTimeDefinitionState,
 ): Promise<void> {
-  const current = await getStableTableIdentityById(
+  const current = await getStableTableIdentityByIdForPromiseTransaction(
     tx,
     state.deploymentId,
     state.tableId,

@@ -2,16 +2,19 @@ import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
 import {
+  decodeCatalogTableId,
   decodeCatalogTableNamespace,
   type CatalogTableId,
   type CatalogTableNamespace,
 } from "flarex-protocol/catalog";
+import { Effect, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { deployments, fxControlTables } from "./schema";
-import { decodeStableTableCatalogId as decodeTableId } from
-  "./stableTableCatalogDecoding";
+import {
+  decodeStableTableCatalogIdResult as decodeTableIdResult,
+} from "./stableTableCatalogDecoding";
 import {
   nextStableTableCatalogId,
   readStableTableCatalogHighWater,
@@ -52,6 +55,8 @@ export type EnsureStableTableIdentityResult =
 export type StableTableCatalogTransaction = FlarexMetadataTransaction;
 
 export class InvalidStableTableIdentityInputError extends Error {
+  readonly _tag = "InvalidStableTableIdentityInputError" as const;
+
   constructor(
     readonly field:
       | "deploymentId"
@@ -63,6 +68,23 @@ export class InvalidStableTableIdentityInputError extends Error {
     this.name = "InvalidStableTableIdentityInputError";
   }
 }
+
+export class StableTableIdentityPersistenceError extends Error {
+  readonly _tag = "StableTableIdentityPersistenceError" as const;
+
+  constructor(
+    readonly operation: "getById",
+    readonly cause: unknown,
+  ) {
+    super("Failed to read stable table identity by ID.", { cause });
+    this.name = "StableTableIdentityPersistenceError";
+  }
+}
+
+export type GetStableTableIdentityByIdError =
+  | InvalidStableTableIdentityInputError
+  | StableTableCatalogCorruptionError
+  | StableTableIdentityPersistenceError;
 
 export class StableTableCatalogDeploymentNotFoundError extends Error {
   constructor(readonly deploymentId: string) {
@@ -124,25 +146,70 @@ export async function ensureStableTableIdentityInTransaction(
   } satisfies EnsureStableTableIdentityResult;
 }
 
-export async function getStableTableIdentityById(
+export const getStableTableIdentityByIdEffect = Effect.fn(
+  "StableTableCatalog.getById",
+)(function* (
   db: FlarexMetadataDatabase,
   deploymentId: string,
   tableId: CatalogTableId,
+): Effect.fn.Return<
+  StableTableIdentity | null,
+  GetStableTableIdentityByIdError
+> {
+  const input = yield* Effect.fromResult(
+    decodeStableTableIdentityByIdInputResult(deploymentId, tableId),
+  );
+  const query = selectStableTableIdentityById(db, input);
+  const rows = yield* Effect.uninterruptible(Effect.tryPromise({
+    try: () => query,
+    catch: (cause) => new StableTableIdentityPersistenceError(
+      "getById",
+      cause,
+    ),
+  }));
+  const row = rows[0];
+  return row === undefined
+    ? null
+    : yield* Effect.fromResult(decodeStableTableIdentityResult(row));
+});
+
+/**
+ * Temporary Promise projection for the current app-index-definition Drizzle
+ * transaction callback. Delete it when that transaction chain becomes
+ * Effect-native; it is intentionally not exported from the package root.
+ */
+export async function getStableTableIdentityByIdForPromiseTransaction(
+  db: StableTableCatalogTransaction,
+  deploymentId: string,
+  tableId: CatalogTableId,
 ): Promise<StableTableIdentity | null> {
-  validateNonBlank(deploymentId, "deploymentId");
-  const decodedTableId = decodeTableId(deploymentId, tableId);
-  const rows = await db
+  const input = Result.getOrThrow(
+    decodeStableTableIdentityByIdInputResult(deploymentId, tableId),
+  );
+  const rows = await selectStableTableIdentityById(db, input);
+  const row = rows[0];
+  return row === undefined
+    ? null
+    : Result.getOrThrow(decodeStableTableIdentityResult(row));
+}
+
+function selectStableTableIdentityById(
+  db: FlarexMetadataDatabase,
+  input: Readonly<{
+    deploymentId: string;
+    tableId: CatalogTableId;
+  }>,
+) {
+  return db
     .select()
     .from(fxControlTables)
     .where(
       and(
-        eq(fxControlTables.deploymentId, deploymentId),
-        eq(fxControlTables.tableId, decodedTableId),
+        eq(fxControlTables.deploymentId, input.deploymentId),
+        eq(fxControlTables.tableId, input.tableId),
       ),
     )
     .limit(1);
-  const row = rows[0];
-  return row === undefined ? null : decodeStableTableIdentity(row);
 }
 
 export async function getStableTableIdentityByName(
@@ -187,47 +254,98 @@ function validateNonBlank(
   value: string,
   field: "deploymentId" | "logicalName",
 ): void {
+  Result.getOrThrow(validateNonBlankResult(value, field));
+}
+
+function validateNonBlankResult(
+  value: unknown,
+  field: "deploymentId" | "logicalName",
+): Result.Result<string, InvalidStableTableIdentityInputError> {
   if (!isNonBlankString(value)) {
-    throw new InvalidStableTableIdentityInputError(field);
+    return Result.fail(new InvalidStableTableIdentityInputError(field));
   }
+  return Result.succeed(value);
+}
+
+export function decodeStableTableIdentityByIdInputResult(
+  deploymentId: unknown,
+  tableId: unknown,
+): Result.Result<
+  { readonly deploymentId: string; readonly tableId: CatalogTableId },
+  InvalidStableTableIdentityInputError
+> {
+  return Result.gen(function* () {
+    return {
+      deploymentId: yield* validateNonBlankResult(
+        deploymentId,
+        "deploymentId",
+      ),
+      tableId: yield* decodeInputTableIdResult(tableId),
+    };
+  });
+}
+
+function decodeInputTableIdResult(
+  value: unknown,
+): Result.Result<CatalogTableId, InvalidStableTableIdentityInputError> {
+  return Result.try({
+    try: () => decodeCatalogTableId(value),
+    catch: () => new InvalidStableTableIdentityInputError("tableId"),
+  });
 }
 
 function decodeStableTableIdentity(
   row: typeof fxControlTables.$inferSelect,
 ): StableTableIdentity {
-  let namespace: CatalogTableNamespace;
-  try {
-    namespace = decodeCatalogTableNamespace(row.namespace);
-  } catch {
-    throw new StableTableCatalogCorruptionError(
+  return Result.getOrThrow(decodeStableTableIdentityResult(row));
+}
+
+export function decodeStableTableIdentityResult(
+  row: typeof fxControlTables.$inferSelect,
+): Result.Result<StableTableIdentity, StableTableCatalogCorruptionError> {
+  return Result.gen(function* () {
+    const namespace = yield* decodeStoredNamespaceResult(row);
+    if (!isNonBlankString(row.deploymentId)) {
+      return yield* Result.fail(new StableTableCatalogCorruptionError(
+        row.deploymentId,
+        "deployment ID is blank",
+      ));
+    }
+    if (!isNonBlankString(row.logicalName)) {
+      return yield* Result.fail(new StableTableCatalogCorruptionError(
+        row.deploymentId,
+        "logical name is blank",
+      ));
+    }
+    const createdAt = copyFiniteDate(row.createdAt);
+    if (createdAt === undefined) {
+      return yield* Result.fail(new StableTableCatalogCorruptionError(
+        row.deploymentId,
+        "created timestamp is invalid",
+      ));
+    }
+    const tableId = yield* decodeTableIdResult(
+      row.deploymentId,
+      row.tableId,
+    );
+    return {
+      deploymentId: row.deploymentId,
+      tableId,
+      namespace,
+      logicalName: row.logicalName,
+      createdAt,
+    } satisfies StableTableIdentity;
+  });
+}
+
+function decodeStoredNamespaceResult(
+  row: typeof fxControlTables.$inferSelect,
+): Result.Result<CatalogTableNamespace, StableTableCatalogCorruptionError> {
+  return Result.try({
+    try: () => decodeCatalogTableNamespace(row.namespace),
+    catch: () => new StableTableCatalogCorruptionError(
       row.deploymentId,
       `invalid namespace: ${String(row.namespace)}`,
-    );
-  }
-  if (!isNonBlankString(row.deploymentId)) {
-    throw new StableTableCatalogCorruptionError(
-      row.deploymentId,
-      "deployment ID is blank",
-    );
-  }
-  if (!isNonBlankString(row.logicalName)) {
-    throw new StableTableCatalogCorruptionError(
-      row.deploymentId,
-      "logical name is blank",
-    );
-  }
-  const createdAt = copyFiniteDate(row.createdAt);
-  if (createdAt === undefined) {
-    throw new StableTableCatalogCorruptionError(
-      row.deploymentId,
-      "created timestamp is invalid",
-    );
-  }
-  return {
-    deploymentId: row.deploymentId,
-    tableId: decodeTableId(row.deploymentId, row.tableId),
-    namespace,
-    logicalName: row.logicalName,
-    createdAt,
-  } satisfies StableTableIdentity;
+    ),
+  });
 }

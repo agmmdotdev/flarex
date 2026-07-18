@@ -185,6 +185,17 @@ on a requested table, and short-circuits duplicate or corrupt requested rows.
 One throwing projection remains at the Promise-based planner/revalidation seam
 until that complete chain owns an Effect failure channel and rollback policy.
 
+The package-root stable table identity lookup by ID is now Effect-native. Its
+caller input and stored-row materialization use pure `Result`, including the
+correct separation between an invalid caller table ID and a corrupt stored
+table ID. The unchanged Drizzle select is one interruption-masked Promise edge
+with a tagged persistence failure; synchronous construction failures remain
+defects. The old package-root Promise export was deleted. One explicitly named
+Promise projection remains only for creation-time index-definition verification
+inside the current Drizzle transaction callback and is deleted when that
+transaction chain becomes Effect-native. Name lookup and allocation remain the
+next separate stable-table migration boundary.
+
 The package-root stable logical-index identity readers are now Effect-native.
 Input and stored-row validation enter through pure `Result`, while each reader
 owns one interruption-masked Drizzle Promise edge and maps only query rejection

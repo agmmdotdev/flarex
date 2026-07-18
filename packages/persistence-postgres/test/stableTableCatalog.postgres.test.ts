@@ -1,8 +1,13 @@
+import { CatalogTableIdSchema } from "flarex-protocol/catalog";
 import { describe, expect, it } from "vitest";
 
 import type { EnsureStableTableIdentityInput } from "../src";
 import type { PostgresFlarexPersistence } from "../src/postgres";
-import { ensureStableTableIdentityInTransaction } from "../src/stableTableCatalog";
+import {
+  ensureStableTableIdentityInTransaction,
+  getStableTableIdentityByIdEffect,
+} from "../src/stableTableCatalog";
+import { runEffect } from "./effectTestRuntime";
 import {
   postgresUrl,
   withTemporaryPostgresPersistence,
@@ -11,6 +16,32 @@ import {
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 
 describePostgres("real Postgres stable table catalog", () => {
+  it("reads stable table identities by deployment-qualified ID", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const deploymentId = "deployment_catalog_id_read";
+      await persistence.insertDeploymentMetadata({
+        deploymentId,
+        projectId: "project_catalog_id_read",
+      });
+      const created = await ensure(persistence, {
+        deploymentId,
+        namespace: "app",
+        logicalName: "users",
+      });
+
+      await expect(runEffect(getStableTableIdentityByIdEffect(
+        persistence.drizzle,
+        deploymentId,
+        created.table.tableId,
+      ))).resolves.toEqual(created.table);
+      await expect(runEffect(getStableTableIdentityByIdEffect(
+        persistence.drizzle,
+        deploymentId,
+        CatalogTableIdSchema.make(2),
+      ))).resolves.toBeNull();
+    });
+  }, 30_000);
+
   it("serializes concurrent replays on the owning deployment", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       await persistence.insertDeploymentMetadata({
