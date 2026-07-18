@@ -530,8 +530,8 @@ describe("C05-A point-commit finishing transition", () => {
       ],
     );
     const authority = authorityFromAnchor(activation.anchor, schemaVersionId);
-    const loaded = await createStoredAttemptEvidenceLoaderV1(ports).load(
-      authority,
+    const loaded = await runEffect(
+      createStoredAttemptEvidenceLoaderV1(ports).loadEffect(authority),
     );
     if (loaded.kind !== "loaded") {
       throw new Error(`Expected running C05-A evidence, received ${loaded.kind}.`);

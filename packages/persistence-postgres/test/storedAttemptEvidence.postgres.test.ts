@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Exit, Fiber, Schema } from "effect";
 import { Client } from "pg";
 import {
   CommitEnvelopeV1Schema,
@@ -25,6 +25,9 @@ import {
   createStoredAttemptAuthenticationV1,
 } from "../../executor/src/storedAttemptAuthentication";
 import {
+  createPointCommitFinishingTransitionPortV1,
+} from "../src/pointCommitTransaction";
+import {
   createPostgresLocatedPointMutationSessionActivationTargetV1,
   createPostgresSharedScopeAuthorityProvisioner,
   type PostgresFlarexPersistence,
@@ -42,6 +45,8 @@ import {
 } from "../src/storedCommitAuthorityEvidence";
 import {
   createStoredAttemptEvidenceLoaderV1,
+  type StoredAttemptEvidenceAuthorityV1,
+  type StoredAttemptEvidenceLoadResultV1,
   type StoredAttemptEvidenceLoaderOptionsV1,
   type StoredAttemptEvidenceQueryV1,
 } from "../src/storedAttemptEvidence";
@@ -51,6 +56,9 @@ import {
   type PointMutationSessionAnchorV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
 } from "../src/transactionSessionActivation";
+import {
+  pointCommitFinishingCommandFromStoredAttemptV1,
+} from "./pointCommitTransactionTestSupport";
 import {
   postgresUrl,
   withTemporaryPostgresPersistence,
@@ -174,6 +182,119 @@ describePostgres("real Postgres stored-attempt authority", () => {
     });
   }, 120_000);
 
+  it("bootstraps finishing recovery through the same bounded indexed snapshot", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const current = await scenario(persistence, "finishing_recovery");
+      await sealScenario(current);
+      const running = await runEffect(
+        current.loader.loadEffect(current.authority),
+      );
+      if (running.kind !== "loaded") {
+        throw new Error(`Expected running evidence, received ${running.kind}.`);
+      }
+      await runEffect(
+        createPointCommitFinishingTransitionPortV1(
+          resolutionPorts(persistence),
+        ).enterFinishing(
+          await pointCommitFinishingCommandFromStoredAttemptV1(
+            current.authority,
+            running.evidence,
+          ),
+        ),
+      );
+
+      const observedQueries = new Map<
+        StoredAttemptEvidenceQueryV1["name"],
+        StoredAttemptEvidenceQueryV1
+      >();
+      const recoveryLoader = createStoredAttemptEvidenceLoaderV1(
+        resolutionPorts(persistence),
+        { observeQuery: (query) => observedQueries.set(query.name, query) },
+      );
+      const recovered = await runEffect(recoveryLoader.loadFinishingEffect({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        sessionId: current.anchor.sessionId,
+        attemptFence: current.anchor.attemptFence,
+      }));
+      expect(recovered).toMatchObject({
+        kind: "loaded",
+        evidence: { session: { lifecycle: "finishing" } },
+      });
+      expect([...observedQueries.keys()]).toEqual([
+        "clock",
+        "databaseTime",
+        "session",
+        "lease",
+        "root",
+        "points",
+      ]);
+      const plans = await lookupPlans(persistence, observedQueries);
+      expect(plans.session).toContain("Index Scan");
+      expect(plans.lease).toContain(
+        "fx_system_snapshot_lease_scope_uuid_session_id_pk",
+      );
+      expect(plans.root).toContain("fx_system_tx_journal_pk");
+      expect(plans.points).toContain("fx_system_tx_journal_point_pk");
+    });
+  }, 120_000);
+
+  it("holds interruption until the finishing-recovery snapshot settles", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const current = await scenario(persistence, "finishing_recovery_interrupt");
+      await sealScenario(current);
+      const running = await runEffect(
+        current.loader.loadEffect(current.authority),
+      );
+      if (running.kind !== "loaded") {
+        throw new Error(`Expected running evidence, received ${running.kind}.`);
+      }
+      await runEffect(
+        createPointCommitFinishingTransitionPortV1(
+          resolutionPorts(persistence),
+        ).enterFinishing(
+          await pointCommitFinishingCommandFromStoredAttemptV1(
+            current.authority,
+            running.evidence,
+          ),
+        ),
+      );
+
+      const entered = deferredSignal();
+      const release = deferredSignal();
+      let interruptionSettled = false;
+      const loader = createStoredAttemptEvidenceLoaderV1(
+        resolutionPorts(persistence),
+        {
+          beforeRepeatableReadClose: async () => {
+            entered.resolve();
+            await release.promise;
+          },
+        },
+      );
+      const fiber = Effect.runFork(loader.loadFinishingEffect({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        sessionId: current.anchor.sessionId,
+        attemptFence: current.anchor.attemptFence,
+      }));
+      await entered.promise;
+      const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+        interruptionSettled = true;
+        return exit;
+      });
+      try {
+        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+        expect(interruptionSettled).toBe(false);
+      } finally {
+        release.resolve();
+      }
+      await interruption;
+      expect(interruptionSettled).toBe(true);
+      expect(Exit.hasInterrupts(await runEffect(Fiber.await(fiber)))).toBe(true);
+    });
+  }, 120_000);
+
   it("linearizes seal/load and treats detached success as non-authoritative", async () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const racing = await scenario(persistence, "seal_load_race");
@@ -185,7 +306,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
         canonicalizeSuccessfulResultV1Effect(null),
       );
       const [loadResult, envelope] = await Promise.all([
-        racing.loader.load(racing.authority),
+        runEffect(racing.loader.loadEffect(racing.authority)),
         completeSeal(racing.store, prepared.preparation, journal, result),
       ]);
       expect(["loaded", "notPlannable"]).toContain(loadResult.kind);
@@ -222,7 +343,9 @@ describePostgres("real Postgres stored-attempt authority", () => {
         [racing.anchor.sessionId],
       );
       expect(authentication.isAuthenticated(authenticated)).toBe(true);
-      await expect(racing.loader.load(racing.authority)).resolves
+      await expect(runEffect(
+        racing.loader.loadEffect(racing.authority),
+      )).resolves
         .toMatchObject({
           kind: "notPlannable",
           reason: "lifecycle",
@@ -246,7 +369,9 @@ describePostgres("real Postgres stored-attempt authority", () => {
         journal,
         result,
       );
-      const stored = await current.loader.load(current.authority);
+      const stored = await runEffect(
+        current.loader.loadEffect(current.authority),
+      );
       if (stored.kind !== "loaded") throw new Error("Expected C04A evidence.");
       const authority = commitAuthorityFromStoredEvidence(
         current.authority,
@@ -339,7 +464,9 @@ describePostgres("real Postgres stored-attempt authority", () => {
     await withTemporaryPostgresPersistence(async (persistence) => {
       const racing = await scenario(persistence, "commit_authority_race");
       await sealScenario(racing);
-      const racingStored = await racing.loader.load(racing.authority);
+      const racingStored = await runEffect(
+        racing.loader.loadEffect(racing.authority),
+      );
       if (racingStored.kind !== "loaded") {
         throw new Error("Expected C04A racing evidence.");
       }
@@ -401,7 +528,9 @@ describePostgres("real Postgres stored-attempt authority", () => {
 
       const expired = await scenario(persistence, "commit_authority_expired");
       await sealScenario(expired);
-      const expiredStored = await expired.loader.load(expired.authority);
+      const expiredStored = await runEffect(
+        expired.loader.loadEffect(expired.authority),
+      );
       if (expiredStored.kind !== "loaded") {
         throw new Error("Expected C04A expiry evidence.");
       }
@@ -428,9 +557,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
 
 interface Scenario {
   readonly anchor: PointMutationSessionAnchorV1;
-  readonly authority: Parameters<
-    ReturnType<typeof createStoredAttemptEvidenceLoaderV1>["load"]
-  >[0];
+  readonly authority: StoredAttemptEvidenceAuthorityV1;
   readonly store: ReturnType<typeof createSessionJournalStorePersistenceV1>;
   readonly attempt: SessionJournalAttemptV1;
   readonly loader: ReturnType<typeof createStoredAttemptEvidenceLoaderV1>;
@@ -547,7 +674,7 @@ function resolutionPorts(
 function commitAuthorityFromStoredEvidence(
   authority: Scenario["authority"],
   evidence: Extract<
-    Awaited<ReturnType<Scenario["loader"]["load"]>>,
+    StoredAttemptEvidenceLoadResultV1,
     { readonly kind: "loaded" }
   >["evidence"],
 ): StoredCommitAuthorityEvidenceAuthorityV1 {

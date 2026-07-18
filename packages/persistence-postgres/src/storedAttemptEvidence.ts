@@ -5,6 +5,7 @@ import {
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, asc, eq, sql } from "drizzle-orm";
+import { Data, Effect, Schema } from "effect";
 
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { CatalogTableId } from "flarex-protocol/catalog";
@@ -14,11 +15,15 @@ import {
   type CommitMaterialWriteEventEvidenceBytesV1,
 } from "flarex-protocol/commit-protocol";
 import type { JsonObject } from "flarex-protocol/json";
-import type { CatalogSchemaVersionId } from "flarex-protocol/schema-manifest";
+import {
+  decodeCatalogSchemaVersionId,
+  type CatalogSchemaVersionId,
+} from "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
   SnapshotTokenSchema,
   StorageGenerationFenceSchema,
+  InvalidScopeAuthorityUuidProjectionV1Error,
   decodeScopeEpochUuidV1,
   decodeScopeUuidV1,
   projectScopeEpochUuidV1,
@@ -44,6 +49,7 @@ import {
 import {
   copyCanonicalFlarexValueBytesV1,
   copyFlarexValueSha256V1,
+  FlarexValueEvidenceV1Error,
   type CanonicalFlarexValueBytesV1,
   type FlarexValueCodecVersion,
   type FlarexValueSha256V1,
@@ -51,11 +57,14 @@ import {
 
 import type { AppRowTransaction } from "./appRows";
 import {
-  resolveLocatedTrustedScopeAuthority,
-  TrustedScopeAuthorityResolutionError,
+  resolveLocatedTrustedScopeAuthorityEffect,
   type TrustedScopeAuthority,
+  type TrustedScopeAuthorityPortOperation,
 } from "./scopeAuthorityResolution";
-import { decodeScopeClockRecord } from "./scopeClock";
+import {
+  decodeScopeClockRecord,
+  ScopeClockCorruptionError,
+} from "./scopeClock";
 import {
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
@@ -67,7 +76,10 @@ import {
   RUN_LOCATED_REPEATABLE_READ_V1,
   isLocatedRepeatableReadAttemptTargetV1,
 } from "./transactionSessionAttemptKernel";
-import type { PointMutationSessionAuthorityResolutionPortsV1 } from "./transactionSessionActivation";
+import type {
+  PointMutationSessionAttemptSelectorV1,
+  PointMutationSessionAuthorityResolutionPortsV1,
+} from "./transactionSessionActivation";
 
 type TransactionSessionRow =
   typeof fxSystemTransactionSessions.$inferSelect;
@@ -232,12 +244,39 @@ export type StoredAttemptEvidenceLoadResultV1 =
     }>;
 
 export interface StoredAttemptEvidenceLoaderV1 {
-  readonly load: (
+  readonly loadEffect: (
     authority: StoredAttemptEvidenceAuthorityV1,
-  ) => Promise<StoredAttemptEvidenceLoadResultV1>;
+  ) => Effect.Effect<
+    StoredAttemptEvidenceLoadResultV1,
+    StoredAttemptEvidencePersistenceV1Error
+  >;
 }
 
+export interface StoredAttemptFinishingEvidenceLoaderV1
+  extends StoredAttemptEvidenceLoaderV1 {
+  readonly loadFinishingEffect: (
+    selector: PointMutationSessionAttemptSelectorV1,
+  ) => Effect.Effect<
+    StoredAttemptEvidenceLoadResultV1,
+    StoredAttemptEvidencePersistenceV1Error
+  >;
+}
+
+export type StoredAttemptEvidencePersistenceOperationV1 =
+  | TrustedScopeAuthorityPortOperation
+  | "repeatableRead"
+  | "afterRepeatableRead";
+
+export class StoredAttemptEvidencePersistenceV1Error extends Data.TaggedError(
+  "StoredAttemptEvidencePersistenceV1Error",
+)<{
+  readonly operation: StoredAttemptEvidencePersistenceOperationV1;
+  readonly cause: unknown;
+}> {}
+
 export interface StoredAttemptEvidenceLoaderOptionsV1 {
+  /** Test-only: runs after rows are detached but before the RR callback exits. */
+  readonly beforeRepeatableReadClose?: () => void | Promise<void>;
   /** Test-only observation after the read-only transaction has settled. */
   readonly afterRepeatableRead?: () => void | Promise<void>;
   /** Test-only capture of the exact Drizzle statements executed by the loader. */
@@ -298,36 +337,57 @@ type StoredAttemptSessionProjectionV1 = Readonly<
   }
 >;
 
+type StoredAttemptEvidenceRequestV1 =
+  | Readonly<{
+      readonly kind: "expectedAuthority";
+      readonly authority: StoredAttemptEvidenceAuthorityV1;
+    }>
+  | Readonly<{
+      readonly kind: "finishingRecovery";
+      readonly selector: PointMutationSessionAttemptSelectorV1;
+    }>;
+
 export function createStoredAttemptEvidenceLoaderV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
   options: StoredAttemptEvidenceLoaderOptionsV1 = {},
-): StoredAttemptEvidenceLoaderV1 {
-  return Object.freeze({
-    load: async (
-      input: StoredAttemptEvidenceAuthorityV1,
-    ): Promise<StoredAttemptEvidenceLoadResultV1> => {
-      const authority = captureAuthority(input);
-      let located: Awaited<
-        ReturnType<typeof resolveLocatedTrustedScopeAuthority>
-      >;
-      try {
-        located = await resolveLocatedTrustedScopeAuthority(
-          authority.deploymentId,
-          {
-            scopeMetadata: ports.scopeMetadata,
-            provisioningReceipts: ports.provisioningReceipts,
-            scopeClockTargets: ports.scopeSessionTargets,
-          },
-        );
-      } catch (cause) {
-        if (cause instanceof TrustedScopeAuthorityResolutionError) {
-          return authorityMismatch("placementChanged");
-        }
-        throw cause;
-      }
-      if (located.authority.scopeId !== authority.scopeId) {
-        return authorityMismatch("scopeChanged");
-      }
+): StoredAttemptFinishingEvidenceLoaderV1 {
+  const loadRequestEffect = Effect.fn("StoredAttemptEvidence.load")(
+    function* (
+    request: StoredAttemptEvidenceRequestV1,
+    ): Effect.fn.Return<
+      StoredAttemptEvidenceLoadResultV1,
+      StoredAttemptEvidencePersistenceV1Error
+    > {
+    const selector = request.kind === "expectedAuthority"
+      ? request.authority
+      : request.selector;
+    const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+      selector.deploymentId,
+      {
+        scopeMetadata: ports.scopeMetadata,
+        provisioningReceipts: ports.provisioningReceipts,
+        scopeClockTargets: ports.scopeSessionTargets,
+      },
+    ).pipe(
+      Effect.catchTag(
+        "TrustedScopeAuthorityResolutionError",
+        () => Effect.succeed(null),
+      ),
+      Effect.mapError((error) =>
+        new StoredAttemptEvidencePersistenceV1Error({
+          operation: error.operation,
+          cause: error.cause,
+        })
+      ),
+    );
+    if (located === null) {
+      return authorityMismatch("placementChanged");
+    }
+    if (located.authority.scopeId !== selector.scopeId) {
+      return authorityMismatch("scopeChanged");
+    }
+    if (request.kind === "expectedAuthority") {
+      const authority = request.authority;
       if (
         located.authority.storageGeneration !== authority.storageGeneration ||
         located.authority.storageGenerationFence !==
@@ -338,24 +398,66 @@ export function createStoredAttemptEvidenceLoaderV1(
       if (located.authority.epoch !== authority.snapshotToken.epoch) {
         return authorityMismatch("epochChanged");
       }
-      if (!isLocatedRepeatableReadAttemptTargetV1(located.target)) {
-        return corrupt("repeatableReadCapabilityMissing");
-      }
+    }
+    const repeatableReadTarget = isLocatedRepeatableReadAttemptTargetV1(
+      located.target,
+    ) ? located.target : null;
+    if (repeatableReadTarget === null) {
+      return corrupt("repeatableReadCapabilityMissing");
+    }
 
-      const captured = await located.target[RUN_LOCATED_REPEATABLE_READ_V1](
-        (tx) => captureStoredAttemptRows(
+    const captured = yield* Effect.uninterruptible(Effect.tryPromise({
+      try: () => repeatableReadTarget[RUN_LOCATED_REPEATABLE_READ_V1](async (tx) => {
+        const rows = await captureStoredAttemptRows(
           tx,
-          authority,
+          selector,
           options.observeQuery,
-        ),
-      );
-      await options.afterRepeatableRead?.();
-      return materializeStoredAttemptEvidence(
-        authority,
-        located.authority,
-        captured,
-      );
-    },
+        );
+        await options.beforeRepeatableReadClose?.();
+        return rows;
+      }),
+      catch: (cause) => new StoredAttemptEvidencePersistenceV1Error({
+        operation: "repeatableRead",
+        cause,
+      }),
+    }));
+    if (options.afterRepeatableRead !== undefined) {
+      yield* Effect.tryPromise({
+        try: async () => options.afterRepeatableRead?.(),
+        catch: (cause) => new StoredAttemptEvidencePersistenceV1Error({
+          operation: "afterRepeatableRead",
+          cause,
+        }),
+      });
+    }
+    return materializeStoredAttemptEvidence(
+      request,
+      located.authority,
+      captured,
+    );
+  });
+
+  const loadEffect: StoredAttemptEvidenceLoaderV1["loadEffect"] = Effect.fn(
+    "StoredAttemptEvidence.loadExpectedAuthority",
+  )(function* (input) {
+    return yield* loadRequestEffect(Object.freeze({
+      kind: "expectedAuthority" as const,
+      authority: captureAuthority(input),
+    }));
+  });
+  const loadFinishingEffect:
+    StoredAttemptFinishingEvidenceLoaderV1["loadFinishingEffect"] = Effect.fn(
+      "StoredAttemptEvidence.loadFinishing",
+    )(function* (input) {
+      return yield* loadRequestEffect(Object.freeze({
+        kind: "finishingRecovery" as const,
+        selector: captureSelector(input),
+      }));
+    });
+
+  return Object.freeze({
+    loadEffect,
+    loadFinishingEffect,
   });
 }
 
@@ -374,15 +476,26 @@ function captureAuthority(
   });
 }
 
+function captureSelector(
+  input: PointMutationSessionAttemptSelectorV1,
+): PointMutationSessionAttemptSelectorV1 {
+  return Object.freeze({
+    deploymentId: input.deploymentId,
+    scopeId: input.scopeId,
+    sessionId: input.sessionId,
+    attemptFence: input.attemptFence,
+  });
+}
+
 async function captureStoredAttemptRows(
   tx: AppRowTransaction,
-  authority: StoredAttemptEvidenceAuthorityV1,
+  selector: PointMutationSessionAttemptSelectorV1,
   observeQuery: StoredAttemptEvidenceLoaderOptionsV1["observeQuery"],
 ): Promise<CapturedStoredAttemptRowsV1> {
   const clockQuery = tx
     .select()
     .from(fxSystemScopeClocks)
-    .where(eq(fxSystemScopeClocks.scopeId, authority.scopeId))
+    .where(eq(fxSystemScopeClocks.scopeId, selector.scopeId))
     .limit(2);
   observeStoredAttemptQuery("clock", clockQuery, observeQuery);
   const clockRows = await clockQuery;
@@ -393,7 +506,7 @@ async function captureStoredAttemptRows(
       `,
     })
     .from(fxSystemScopeClocks)
-    .where(eq(fxSystemScopeClocks.scopeId, authority.scopeId))
+    .where(eq(fxSystemScopeClocks.scopeId, selector.scopeId))
     .limit(1);
   observeStoredAttemptQuery("databaseTime", nowQuery, observeQuery);
   const nowRows = await nowQuery;
@@ -412,7 +525,7 @@ async function captureStoredAttemptRows(
   const sessionRows = await selectStoredAttemptSessionRows(
     tx,
     scopeUuid,
-    authority.sessionId,
+    selector.sessionId,
     observeQuery,
   );
   const leaseQuery = tx
@@ -420,7 +533,7 @@ async function captureStoredAttemptRows(
     .from(fxSystemSnapshotLeases)
     .where(and(
       eq(fxSystemSnapshotLeases.scopeUuid, scopeUuid),
-      eq(fxSystemSnapshotLeases.sessionId, authority.sessionId),
+      eq(fxSystemSnapshotLeases.sessionId, selector.sessionId),
     ))
     .limit(2);
   observeStoredAttemptQuery("lease", leaseQuery, observeQuery);
@@ -430,10 +543,10 @@ async function captureStoredAttemptRows(
     .from(fxSystemTransactionJournals)
     .where(and(
       eq(fxSystemTransactionJournals.scopeUuid, scopeUuid),
-      eq(fxSystemTransactionJournals.sessionId, authority.sessionId),
+      eq(fxSystemTransactionJournals.sessionId, selector.sessionId),
       eq(
         fxSystemTransactionJournals.attemptFence,
-        authority.attemptFence,
+        selector.attemptFence,
       ),
     ))
     .limit(2);
@@ -444,10 +557,10 @@ async function captureStoredAttemptRows(
     .from(fxSystemTransactionJournalPoints)
     .where(and(
       eq(fxSystemTransactionJournalPoints.scopeUuid, scopeUuid),
-      eq(fxSystemTransactionJournalPoints.sessionId, authority.sessionId),
+      eq(fxSystemTransactionJournalPoints.sessionId, selector.sessionId),
       eq(
         fxSystemTransactionJournalPoints.attemptFence,
-        authority.attemptFence,
+        selector.attemptFence,
       ),
     ))
     .orderBy(
@@ -547,26 +660,39 @@ function observeStoredAttemptQuery(
 }
 
 function materializeStoredAttemptEvidence(
-  expected: StoredAttemptEvidenceAuthorityV1,
+  request: StoredAttemptEvidenceRequestV1,
   preliminary: TrustedScopeAuthority,
   captured: CapturedStoredAttemptRowsV1,
 ): StoredAttemptEvidenceLoadResultV1 {
   try {
     return materializeStoredAttemptEvidenceUnsafe(
-      expected,
+      request,
       preliminary,
       captured,
     );
   } catch (cause) {
-    return corrupt("sessionRecordInvalid", cause);
+    if (isStoredAttemptEvidenceDecodeFailure(cause)) {
+      return corrupt("sessionRecordInvalid", cause);
+    }
+    throw cause;
   }
 }
 
+function isStoredAttemptEvidenceDecodeFailure(cause: unknown): boolean {
+  return cause instanceof ScopeClockCorruptionError ||
+    cause instanceof InvalidScopeAuthorityUuidProjectionV1Error ||
+    cause instanceof FlarexValueEvidenceV1Error ||
+    Schema.isSchemaError(cause);
+}
+
 function materializeStoredAttemptEvidenceUnsafe(
-  expected: StoredAttemptEvidenceAuthorityV1,
+  request: StoredAttemptEvidenceRequestV1,
   preliminary: TrustedScopeAuthority,
   captured: CapturedStoredAttemptRowsV1,
 ): StoredAttemptEvidenceLoadResultV1 {
+  const selector = request.kind === "expectedAuthority"
+    ? request.authority
+    : request.selector;
   if (captured.clockRows.length !== 1) {
     return corrupt("scopeClockMissingOrDuplicate");
   }
@@ -581,24 +707,33 @@ function materializeStoredAttemptEvidenceUnsafe(
     clockRow.authorizationRevocationEpoch,
   );
   if (
-    scopeUuid !== projectScopeIdUuidV1(expected.scopeId).scopeUuid ||
+    scopeUuid !== projectScopeIdUuidV1(selector.scopeId).scopeUuid ||
     epochUuid !== projectScopeEpochUuidV1(clock.epoch).epochUuid ||
-    clock.scopeId !== expected.scopeId ||
-    preliminary.scopeId !== expected.scopeId
+    clock.scopeId !== selector.scopeId ||
+    preliminary.scopeId !== selector.scopeId
   ) {
     return authorityMismatch("scopeChanged");
   }
+  const expectedStorageGeneration = request.kind === "expectedAuthority"
+    ? request.authority.storageGeneration
+    : clock.storageGeneration;
+  const expectedStorageGenerationFence = request.kind === "expectedAuthority"
+    ? request.authority.storageGenerationFence
+    : clock.storageGenerationFence;
   if (
-    clock.storageGeneration !== expected.storageGeneration ||
-    clock.storageGenerationFence !== expected.storageGenerationFence ||
-    preliminary.storageGeneration !== expected.storageGeneration ||
-    preliminary.storageGenerationFence !== expected.storageGenerationFence
+    clock.storageGeneration !== expectedStorageGeneration ||
+    clock.storageGenerationFence !== expectedStorageGenerationFence ||
+    preliminary.storageGeneration !== expectedStorageGeneration ||
+    preliminary.storageGenerationFence !== expectedStorageGenerationFence
   ) {
     return authorityMismatch("generationChanged");
   }
+  const expectedEpoch = request.kind === "expectedAuthority"
+    ? request.authority.snapshotToken.epoch
+    : clock.epoch;
   if (
-    clock.epoch !== expected.snapshotToken.epoch ||
-    preliminary.epoch !== expected.snapshotToken.epoch
+    clock.epoch !== expectedEpoch ||
+    preliminary.epoch !== expectedEpoch
   ) {
     return authorityMismatch("epochChanged");
   }
@@ -628,22 +763,25 @@ function materializeStoredAttemptEvidenceUnsafe(
   );
   if (
     session.scopeUuid !== scopeUuid ||
-    sessionId !== expected.sessionId
+    sessionId !== selector.sessionId
   ) {
     return authorityMismatch("attemptMissing");
   }
-  if (attemptFence !== expected.attemptFence) {
+  if (attemptFence !== selector.attemptFence) {
     return authorityMismatch("attemptReplaced");
   }
   if (
-    session.storageGeneration !== expected.storageGeneration ||
-    storageGenerationFence !== expected.storageGenerationFence
+    session.storageGeneration !== expectedStorageGeneration ||
+    storageGenerationFence !== expectedStorageGenerationFence
   ) {
     return authorityMismatch("generationChanged");
   }
-  if (session.schemaVersionId !== expected.schemaVersionId) {
-    return authorityMismatch("schemaChanged");
-  }
+  const schemaVersionId: CatalogSchemaVersionId =
+    decodeCatalogSchemaVersionId(session.schemaVersionId);
+  if (
+    request.kind === "expectedAuthority" &&
+    schemaVersionId !== request.authority.schemaVersionId
+  ) return authorityMismatch("schemaChanged");
   if (session.authorizationRevocationEpoch !== revocationEpoch) {
     return authorityMismatch("revocationEpochChanged");
   }
@@ -686,6 +824,16 @@ function materializeStoredAttemptEvidenceUnsafe(
     });
   }
   if (
+    request.kind === "finishingRecovery" &&
+    session.lifecycle !== "finishing"
+  ) {
+    return Object.freeze({
+      kind: "notPlannable",
+      reason: "lifecycle",
+      lifecycle: session.lifecycle,
+    });
+  }
+  if (
     authorizationGrantExpiresAtMilliseconds <= databaseNowMilliseconds ||
     hardExpiresAtMilliseconds <= databaseNowMilliseconds
   ) {
@@ -700,7 +848,7 @@ function materializeStoredAttemptEvidenceUnsafe(
     return corrupt("snapshotLeaseMissingOrDuplicate");
   }
   const leaseSnapshot = SnapshotTokenSchema.make({
-    scopeId: expected.scopeId,
+    scopeId: selector.scopeId,
     epoch: replacementScopeEpochV1FromUuid(lease.snapshotEpochUuid),
     commitSeq: CommitSeqSchema.make(lease.snapshotCommitSeq),
   });
@@ -709,18 +857,25 @@ function materializeStoredAttemptEvidenceUnsafe(
   );
   if (
     lease.scopeUuid !== scopeUuid ||
-    lease.sessionId !== expected.sessionId ||
-    lease.attemptFence !== expected.attemptFence ||
+    lease.sessionId !== selector.sessionId ||
+    lease.attemptFence !== selector.attemptFence ||
     leaseExpiresAtMilliseconds === undefined ||
     leaseExpiresAtMilliseconds > hardExpiresAtMilliseconds ||
     leaseSnapshot.commitSeq > clock.lastCommitSeq
   ) {
     return corrupt("snapshotLeaseInvalid");
   }
+  const expectedSnapshotToken = request.kind === "expectedAuthority"
+    ? request.authority.snapshotToken
+    : Object.freeze({
+        scopeId: selector.scopeId,
+        epoch: clock.epoch,
+        commitSeq: leaseSnapshot.commitSeq,
+      });
   if (
-    leaseSnapshot.scopeId !== expected.snapshotToken.scopeId ||
-    leaseSnapshot.epoch !== expected.snapshotToken.epoch ||
-    leaseSnapshot.commitSeq !== expected.snapshotToken.commitSeq
+    leaseSnapshot.scopeId !== expectedSnapshotToken.scopeId ||
+    leaseSnapshot.epoch !== expectedSnapshotToken.epoch ||
+    leaseSnapshot.commitSeq !== expectedSnapshotToken.commitSeq
   ) {
     return authorityMismatch("snapshotChanged");
   }
@@ -755,8 +910,8 @@ function materializeStoredAttemptEvidenceUnsafe(
   const points = capturePoints(
     captured.pointRows,
     scopeUuid,
-    expected.sessionId,
-    expected.attemptFence,
+    selector.sessionId,
+    selector.attemptFence,
   );
   if (points === undefined) {
     return corrupt("pointEvidenceInvalid");
@@ -765,11 +920,11 @@ function materializeStoredAttemptEvidenceUnsafe(
   return Object.freeze({
     kind: "loaded",
     evidence: Object.freeze({
-      deploymentId: expected.deploymentId,
-      scopeId: expected.scopeId,
+      deploymentId: selector.deploymentId,
+      scopeId: selector.scopeId,
       scopeUuid,
-      sessionId: expected.sessionId,
-      attemptFence: expected.attemptFence,
+      sessionId: selector.sessionId,
+      attemptFence: selector.attemptFence,
       databaseNowMilliseconds,
       session: captureSessionScalars(session, {
         authorizationGrantExpiresAtMilliseconds,
@@ -915,8 +1070,14 @@ function capturePoints(
       overlayValueSha256 = row.overlayValueSha256 === null
         ? null
         : copyFlarexValueSha256V1(row.overlayValueSha256);
-    } catch {
-      return undefined;
+    } catch (cause) {
+      if (
+        cause instanceof FlarexValueEvidenceV1Error ||
+        Schema.isSchemaError(cause)
+      ) {
+        return undefined;
+      }
+      throw cause;
     }
     points.push(Object.freeze({
       tableId: row.tableId,

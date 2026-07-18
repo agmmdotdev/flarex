@@ -107,7 +107,9 @@ import {
 import {
   createStoredAttemptEvidenceLoaderV1,
   type StoredAttemptEvidenceAuthorityV1,
+  type StoredAttemptEvidenceLoadResultV1,
   type StoredAttemptEvidenceLoaderV1,
+  type StoredAttemptFinishingEvidenceLoaderV1,
 } from "../src/storedAttemptEvidence";
 import {
   createPointMutationSessionActivationPersistenceV1,
@@ -122,6 +124,7 @@ import {
   isLocatedReadCommittedAttemptTargetV1,
 } from "../src/transactionSessionAttemptKernel";
 import {
+  createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1,
   createPointCommitRollbackProofPortV1,
   PointCommitConflictV1Error,
@@ -137,6 +140,7 @@ import {
 } from "../src/committedPointOutcome";
 import {
   pointCommitCommandFromStoredAttemptV1,
+  pointCommitFinishingCommandFromStoredAttemptV1,
 } from "./pointCommitTransactionTestSupport";
 import {
   completeSessionJournalSeal as completeSeal,
@@ -165,7 +169,7 @@ interface Scenario {
   >;
   readonly store: SessionJournalStorePersistenceV1;
   readonly attempt: SessionJournalAttemptV1;
-  readonly loader: StoredAttemptEvidenceLoaderV1;
+  readonly loader: StoredAttemptFinishingEvidenceLoaderV1;
   readonly authority: StoredAttemptEvidenceAuthorityV1;
 }
 
@@ -201,7 +205,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expectTypeOf(executorPort).toMatchTypeOf<
       StoredAttemptEvidenceLoaderPortV1
     >();
-    const result = await executorPort.load(current.authority);
+    const result = await runEffect(executorPort.loadEffect(current.authority));
 
     expect(afterRepeatableRead).toBe(true);
     expect(result.kind).toBe("loaded");
@@ -220,10 +224,24 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const finishing = await scenario("finishing_sealed");
     await seal(finishing);
     await setLifecycle(finishing.anchor.sessionId, "finishing");
-    const finishingResult = await finishing.loader.load(finishing.authority);
+    const finishingResult = await runEffect(
+      finishing.loader.loadFinishingEffect(
+        selectorFromAnchor(finishing.anchor),
+      ),
+    );
     expect(finishingResult).toMatchObject({
       kind: "loaded",
       evidence: { session: { lifecycle: "finishing" } },
+    });
+
+    const running = await scenario("running_recovery_rejected");
+    await seal(running);
+    await expect(runEffect(running.loader.loadFinishingEffect(
+      selectorFromAnchor(running.anchor),
+    ))).resolves.toMatchObject({
+      kind: "notPlannable",
+      reason: "lifecycle",
+      lifecycle: "running",
     });
 
     const committed = await scenario("committed_observation");
@@ -233,7 +251,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       "delete from fx_system_snapshot_lease where session_id = $1",
       [committed.anchor.sessionId],
     );
-    await expect(committed.loader.load(committed.authority)).resolves
+    await expect(runEffect(committed.loader.loadFinishingEffect(
+      selectorFromAnchor(committed.anchor),
+    ))).resolves
       .toMatchObject({ kind: "alreadyCommitted" });
 
     const otherLifecycles: ReadonlyArray<TransactionSessionLifecycleV1> = [
@@ -251,7 +271,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         "delete from fx_system_snapshot_lease where session_id = $1",
         [current.anchor.sessionId],
       );
-      await expect(current.loader.load(current.authority)).resolves
+      await expect(runEffect(current.loader.loadFinishingEffect(
+        selectorFromAnchor(current.anchor),
+      ))).resolves
         .toMatchObject({
           kind: "notPlannable",
           reason: "lifecycle",
@@ -279,7 +301,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             [current.anchor.sessionId],
           );
         }
-        await expect(current.loader.load(current.authority)).resolves
+        await expect(runEffect(
+          current.loader.loadEffect(current.authority),
+        )).resolves
           .toMatchObject({
             kind: "notPlannable",
             reason: "rootNotSealed",
@@ -296,7 +320,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       "delete from fx_system_snapshot_lease where session_id = $1",
       [missingLease.anchor.sessionId],
     );
-    await expect(missingLease.loader.load(missingLease.authority)).resolves
+    await expect(runEffect(
+      missingLease.loader.loadEffect(missingLease.authority),
+    )).resolves
       .toMatchObject({
         kind: "corrupt",
         reason: "snapshotLeaseMissingOrDuplicate",
@@ -308,7 +334,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       "delete from fx_system_tx_journal where session_id = $1",
       [missingRoot.anchor.sessionId],
     );
-    await expect(missingRoot.loader.load(missingRoot.authority)).resolves
+    await expect(runEffect(
+      missingRoot.loader.loadEffect(missingRoot.authority),
+    )).resolves
       .toMatchObject({
         kind: "corrupt",
         reason: "journalRootMissingOrDuplicate",
@@ -326,17 +354,17 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       `,
       [expired.anchor.sessionId],
     );
-    await expect(expired.loader.load(expired.authority)).resolves
+    await expect(runEffect(expired.loader.loadEffect(expired.authority))).resolves
       .toMatchObject({ kind: "notPlannable", reason: "expired" });
 
     const replaced = await scenario("attempt_replaced");
     await seal(replaced);
-    await expect(replaced.loader.load({
+    await expect(runEffect(replaced.loader.loadEffect({
       ...replaced.authority,
       attemptFence: TransactionAttemptFenceSchema.make(
         replaced.authority.attemptFence + 1n,
       ),
-    })).resolves.toMatchObject({
+    }))).resolves.toMatchObject({
       kind: "authorityMismatch",
       reason: "attemptReplaced",
     });
@@ -387,7 +415,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       },
     ];
     for (const stale of staleAuthorities) {
-      await expect(current.loader.load(stale.authority)).resolves
+      await expect(runEffect(
+        current.loader.loadEffect(stale.authority),
+      )).resolves
         .toMatchObject({ kind: "authorityMismatch", reason: stale.reason });
     }
 
@@ -396,7 +426,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       lastCommitSeq: current.anchor.snapshotToken.commitSeq,
       authorizationRevocationEpoch: 1n,
     });
-    await expect(current.loader.load(current.authority)).resolves
+    await expect(runEffect(
+      current.loader.loadEffect(current.authority),
+    )).resolves
       .toMatchObject({
         kind: "authorityMismatch",
         reason: "revocationEpochChanged",
@@ -438,7 +470,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       [current.anchor.sessionId],
     );
 
-    await expect(current.loader.load(current.authority)).resolves
+    await expect(runEffect(
+      current.loader.loadEffect(current.authority),
+    )).resolves
       .toMatchObject({ kind: "corrupt", reason: "pointEvidenceOverflow" });
   });
 
@@ -453,7 +487,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       fields: { name: "detached" },
     });
     await seal(current);
-    const first = await current.loader.load(current.authority);
+    const first = await runEffect(current.loader.loadEffect(current.authority));
     if (first.kind !== "loaded") throw new Error("Expected loaded evidence.");
     const firstPoint = first.evidence.points[0];
     if (firstPoint === undefined) throw new Error("Expected point evidence.");
@@ -462,7 +496,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     firstPoint.rowId.fill(0);
     firstPoint.overlayValueBytes?.fill(0);
 
-    const second = await current.loader.load(current.authority);
+    const second = await runEffect(
+      current.loader.loadEffect(current.authority),
+    );
     if (second.kind !== "loaded") throw new Error("Expected loaded evidence.");
     expect(second.evidence.root.journalBytes.some((byte) => byte !== 0)).toBe(
       true,
@@ -481,7 +517,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   it("size-projects C04B1 authority evidence before bounded payload transfer", async () => {
     const current = await scenario("commit_authority_capture");
     await seal(current);
-    const authenticatedEvidence = await current.loader.load(current.authority);
+    const authenticatedEvidence = await runEffect(
+      current.loader.loadEffect(current.authority),
+    );
     if (authenticatedEvidence.kind !== "loaded") {
       throw new Error("Expected C04A evidence.");
     }
@@ -531,7 +569,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   it("does not observe interruption until authority capture settles", async () => {
     const current = await scenario("commit_authority_interruption");
     await seal(current);
-    const authenticatedEvidence = await current.loader.load(current.authority);
+    const authenticatedEvidence = await runEffect(
+      current.loader.loadEffect(current.authority),
+    );
     if (authenticatedEvidence.kind !== "loaded") {
       throw new Error("Expected C04A evidence.");
     }
@@ -570,7 +610,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   it("rejects stored JSON text whose parsed value leaves the JSON domain", async () => {
     const current = await scenario("commit_authority_non_finite_json");
     await seal(current);
-    const authenticatedEvidence = await current.loader.load(current.authority);
+    const authenticatedEvidence = await runEffect(
+      current.loader.loadEffect(current.authority),
+    );
     if (authenticatedEvidence.kind !== "loaded") {
       throw new Error("Expected C04A evidence.");
     }
@@ -637,8 +679,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       sessionId: current.anchor.sessionId,
       attemptFence: current.anchor.attemptFence.toString(),
     });
-    await setLifecycle(current.anchor.sessionId, "finishing");
-    const storedEvidence = await current.loader.load(current.authority);
+    const storedEvidence = await runEffect(
+      current.loader.loadEffect(current.authority),
+    );
     if (storedEvidence.kind !== "loaded") {
       throw new Error("Expected stored insert/delete evidence to load.");
     }
@@ -686,7 +729,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             return Effect.succeed(structuredClone(current.functionSnapshot));
           },
         },
-        pointCommit: createPointCommitRollbackProofPortV1(
+        pointCommit: createPointCommitPublisherPortV1(
           resolutionPorts(persistence),
           {
             afterTransactionStep: (event) => {
@@ -694,6 +737,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
               return Promise.resolve();
             },
           },
+        ),
+        pointCommitFinishing: createPointCommitFinishingTransitionPortV1(
+          resolutionPorts(persistence),
         ),
       },
     );
@@ -714,8 +760,11 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const prepared = await runEffect(
       authentication.planPointCommit(verified),
     );
+    const finishing = await runEffect(
+      authentication.enterPointCommitFinishing(prepared),
+    );
     const rollbackProof = await runEffect(
-      authentication.provePointCommitRollback(prepared),
+      authentication.provePointCommitRollback(finishing),
     );
 
     expect(storedSqlClosed).toBe(true);
@@ -822,10 +871,69 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   });
 
+  it("reconstructs finishing evidence in fresh factories and converges on one publication", async () => {
+    const prepared = await prepareO07BScenario("c05b_fresh_recovery");
+    const createRecoveryExecutor = () =>
+      createO07BAuthentication(prepared.current);
+    const selector = {
+      deploymentId: prepared.current.anchor.deploymentId,
+      scopeId: prepared.current.anchor.scopeId,
+      sessionId: prepared.current.anchor.sessionId,
+      attemptFence: prepared.current.anchor.attemptFence.toString(),
+    };
+    const second = createRecoveryExecutor();
+    const secondHandle = await runEffect(
+      second.reconstructPointCommitFinishing(selector),
+    );
+    const first = createRecoveryExecutor();
+    const firstHandle = await runEffect(
+      first.reconstructPointCommitFinishing(selector),
+    );
+    const outcomes = await Promise.all([
+      runEffect(first.publishPointCommit(firstHandle)),
+      runEffect(second.publishPointCommit(secondHandle)),
+    ]);
+    expect(outcomes.map(({ kind }) => kind).sort()).toEqual([
+      "published",
+      "replayed",
+    ]);
+    expect(outcomes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "published",
+        token: expect.objectContaining({
+          scopeUuid: prepared.scopeUuid,
+          commitSeq: 1n,
+        }),
+      }),
+      expect.objectContaining({
+        kind: "replayed",
+        token: expect.objectContaining({
+          scopeUuid: prepared.scopeUuid,
+          commitSeq: 1n,
+        }),
+      }),
+    ]));
+    expect(await runFailure(
+      createRecoveryExecutor().resumePointCommit(selector),
+    )).toMatchObject({
+      _tag: "StoredAttemptAlreadyCommittedV1Error",
+    });
+    expect(await o06DurableState(prepared.scopeUuid)).toEqual({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "1",
+      commit_changes: "0",
+      outcomes: "1",
+      wakes: "1",
+      last_commit_seq: "1",
+      last_outbox_seq: "1",
+    });
+  });
+
   it("publishes a successful zero-row mutation as one zero-change commit", async () => {
-    const prepared = await prepareO07BScenario("o07b_zero_row");
+    const prepared = await prepareO07BRunningScenario("o07b_zero_row");
     const published = await runEffect(
-      prepared.authentication.publishPointCommit(prepared.plan),
+      prepared.authentication.finishPointCommit(prepared.runningPlan),
     );
     expect(published).toMatchObject({
       kind: "published",
@@ -1028,6 +1136,26 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       lifecycle: "finishing",
       leases: "1",
       journals: "1",
+    });
+
+    const recovered = createO07BAuthentication(prepared.current);
+    const published = await runEffect(recovered.resumePointCommit({
+      deploymentId: prepared.current.anchor.deploymentId,
+      scopeId: prepared.current.anchor.scopeId,
+      sessionId: prepared.current.anchor.sessionId,
+      attemptFence: prepared.current.anchor.attemptFence.toString(),
+    }));
+    expect(published).toMatchObject({
+      kind: "published",
+      token: { scopeUuid: prepared.scopeUuid, commitSeq: 1n },
+    });
+    expect(await o06DurableState(prepared.scopeUuid)).toMatchObject({
+      revisions: "1",
+      commit_headers: "1",
+      outcomes: "1",
+      wakes: "1",
+      last_commit_seq: "1",
+      last_outbox_seq: "1",
     });
   });
 
@@ -1484,7 +1612,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   it("decodes malformed schema evidence only after repeatable read closes", async () => {
     const current = await scenario("commit_authority_malformed_schema");
     await seal(current);
-    const authenticatedEvidence = await current.loader.load(current.authority);
+    const authenticatedEvidence = await runEffect(
+      current.loader.loadEffect(current.authority),
+    );
     if (authenticatedEvidence.kind !== "loaded") {
       throw new Error("Expected C04A evidence.");
     }
@@ -1527,7 +1657,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   it("does not disguise unexpected detached materialization defects as corruption", async () => {
     const current = await scenario("commit_authority_materialization_defect");
     await seal(current);
-    const authenticatedEvidence = await current.loader.load(current.authority);
+    const authenticatedEvidence = await runEffect(
+      current.loader.loadEffect(current.authority),
+    );
     if (authenticatedEvidence.kind !== "loaded") {
       throw new Error("Expected C04A evidence.");
     }
@@ -1558,7 +1690,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   it("accepts the exact 64 MiB aggregate and skips every payload at +1", async () => {
     const current = await scenario("commit_authority_limit");
     await seal(current);
-    const authenticatedEvidence = await current.loader.load(current.authority);
+    const authenticatedEvidence = await runEffect(
+      current.loader.loadEffect(current.authority),
+    );
     if (authenticatedEvidence.kind !== "loaded") {
       throw new Error("Expected C04A evidence.");
     }
@@ -2002,8 +2136,25 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
     await operation(current, table);
     await seal(current);
-    await setLifecycle(current.anchor.sessionId, "finishing");
-    const loaded = await current.loader.load(current.authority);
+    const running = await runEffect(
+      current.loader.loadEffect(current.authority),
+    );
+    if (running.kind !== "loaded") {
+      throw new Error(`Expected running O06 evidence, received ${running.kind}.`);
+    }
+    await runEffect(
+      createPointCommitFinishingTransitionPortV1(
+        resolutionPorts(persistence),
+      ).enterFinishing(
+        await pointCommitFinishingCommandFromStoredAttemptV1(
+          current.authority,
+          running.evidence,
+        ),
+      ),
+    );
+    const loaded = await runEffect(
+      current.loader.loadEffect(current.authority),
+    );
     if (loaded.kind !== "loaded") {
       throw new Error(`Expected O06 evidence, received ${loaded.kind}.`);
     }
@@ -2025,6 +2176,28 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     ) => Promise<void>,
     options: PointCommitTransactionProofOptionsV1 = {},
   ) {
+    const running = await prepareO07BRunningScenario(
+      label,
+      operation,
+      options,
+    );
+    const plan = await runEffect(
+      running.authentication.enterPointCommitFinishing(running.runningPlan),
+    );
+    return Object.freeze({
+      ...running,
+      plan,
+    });
+  }
+
+  async function prepareO07BRunningScenario(
+    label: string,
+    operation?: (
+      current: Awaited<ReturnType<typeof c04b2Scenario>>,
+      table: PinnedPointTableV1,
+    ) => Promise<void>,
+    options: PointCommitTransactionProofOptionsV1 = {},
+  ) {
     const current = await c04b2Scenario(label);
     const table = await runEffect(
       current.store.resolvePointTableEffect(current.attempt, "users"),
@@ -2037,8 +2210,36 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       sessionId: current.anchor.sessionId,
       attemptFence: current.anchor.attemptFence.toString(),
     });
-    await setLifecycle(current.anchor.sessionId, "finishing");
-    const authentication = createStoredAttemptAuthenticationV1(
+    const authentication = createO07BAuthentication(current, options);
+    const authority = await runEffect(
+      authentication.deriveAuthority(loadedAttempt),
+    );
+    const stored = await runEffect(authentication.authenticate(
+      authority,
+      encodeEnvelope(envelope),
+    ));
+    const commitAuthority = await runEffect(
+      authentication.authenticateCommitAuthority(stored),
+    );
+    const verified = await runEffect(
+      authentication.verifyCommitInput(commitAuthority),
+    );
+    const runningPlan = await runEffect(
+      authentication.planPointCommit(verified),
+    );
+    return Object.freeze({
+      current,
+      authentication,
+      runningPlan,
+      scopeUuid: projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
+    });
+  }
+
+  function createO07BAuthentication(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+    options: PointCommitTransactionProofOptionsV1 = {},
+  ) {
+    return createStoredAttemptAuthenticationV1(
       current.loader,
       {
         evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(
@@ -2053,28 +2254,11 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           resolutionPorts(persistence),
           options,
         ),
+        pointCommitFinishing: createPointCommitFinishingTransitionPortV1(
+          resolutionPorts(persistence),
+        ),
       },
     );
-    const authority = await runEffect(
-      authentication.deriveAuthority(loadedAttempt),
-    );
-    const stored = await runEffect(authentication.authenticate(
-      authority,
-      encodeEnvelope(envelope),
-    ));
-    const commitAuthority = await runEffect(
-      authentication.authenticateCommitAuthority(stored),
-    );
-    const verified = await runEffect(
-      authentication.verifyCommitInput(commitAuthority),
-    );
-    const plan = await runEffect(authentication.planPointCommit(verified));
-    return Object.freeze({
-      current,
-      authentication,
-      plan,
-      scopeUuid: projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
-    });
   }
 
   async function commitCompetingPointRow(
@@ -2263,7 +2447,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
 function commitAuthorityFromStoredEvidence(
   authority: StoredAttemptEvidenceAuthorityV1,
   evidence: Extract<
-    Awaited<ReturnType<StoredAttemptEvidenceLoaderV1["load"]>>,
+    StoredAttemptEvidenceLoadResultV1,
     { readonly kind: "loaded" }
   >["evidence"],
 ): StoredCommitAuthorityEvidenceAuthorityV1 {

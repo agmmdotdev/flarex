@@ -33,6 +33,7 @@ import {
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
 } from "../src/appRows";
 import {
+  createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1,
   createPointCommitRollbackProofPortV1,
   PointCommitConflictV1Error,
@@ -67,6 +68,7 @@ import {
 } from "../src/transactionSessionActivation";
 import {
   pointCommitCommandFromStoredAttemptV1,
+  pointCommitFinishingCommandFromStoredAttemptV1,
 } from "./pointCommitTransactionTestSupport";
 import {
   postgresUrl,
@@ -724,21 +726,29 @@ async function createAttempt(
     canonicalizeSuccessfulResultV1Effect({ ok: true }),
   );
   await completeSeal(store, prepared.preparation, journal, result);
-  await persistence.query(
-    `
-      update fx_system_tx_session
-      set lifecycle = 'finishing', updated_at = clock_timestamp()
-      where session_id = $1
-    `,
-    [activation.anchor.sessionId],
-  );
   const authority = authorityFromAnchor(
     activation.anchor,
     scope.schemaVersionId,
   );
-  const loaded = await createStoredAttemptEvidenceLoaderV1(
-    scope.ports,
-  ).load(authority);
+  const loader = createStoredAttemptEvidenceLoaderV1(scope.ports);
+  const running = await runEffect(loader.loadEffect(authority));
+  if (running.kind !== "loaded") {
+    throw new Error(`Expected running O06 evidence, received ${running.kind}.`);
+  }
+  await runEffect(
+    createPointCommitFinishingTransitionPortV1(scope.ports).enterFinishing(
+      await pointCommitFinishingCommandFromStoredAttemptV1(
+        authority,
+        running.evidence,
+      ),
+    ),
+  );
+  const loaded = await runEffect(loader.loadFinishingEffect({
+    deploymentId: activation.anchor.deploymentId,
+    scopeId: activation.anchor.scopeId,
+    sessionId: activation.anchor.sessionId,
+    attemptFence: activation.anchor.attemptFence,
+  }));
   if (loaded.kind !== "loaded") {
     throw new Error(`Expected O06 stored evidence, received ${loaded.kind}.`);
   }

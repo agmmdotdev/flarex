@@ -82,7 +82,7 @@ The repository contains two internal prototype paths plus the accepted target:
 | --- | --- |
 | Durable Object prototype | `PartitionDO` remains bound and reachable as an internal/public fallback, with authoritative Durable Object SQLite document/index/OCC state. It is unshipped legacy architecture, not a target storage generation. |
 | Initial Postgres prototype (`legacy_v1`) | `createFlarexExecutor` currently installs only `createLegacyV1AppDataEngine`, backed by the existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, subscription, and delivery tables. It supplies bounded prototype-regression evidence, not target authority or a supported migration obligation. |
-| Accepted FlarexDB target (`flarexdb_v1`) | Scope authority, scope clock including private current authorization-revocation storage and the inert retained floor, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, transaction-grant authority, the required private session core through activation/replay/reload/terminalization, private exact-snapshot point reads with typed dependencies, pure point-OCC validation, C04B2 verified logical input, corrected C04C1 private logical point planning, S08 native commit/change-feed storage with its bounded package-private reader, S09-A private committed-success result storage, S09-B fixed-kind private commit-wake storage and claim/settlement repository, O06's rollback-proven private point-commit transaction kernel, O07-A's private read-only committed-outcome resolver, O07-B's atomic point publication, and C05-A's scalar-fenced finishing transition exist. C05-B fresh-process reconstruction/full compiler composition, C06 dispatch/replay orchestration, outcome expiry, floor advancement/reset policy, target activation, and routing remain incomplete; attempt renewal and C04C2 are conditional on proven consumers. `v1` means the first intended shippable FlarexDB contract, not the first design attempt. |
+| Accepted FlarexDB target (`flarexdb_v1`) | Scope authority, scope clock including private current authorization-revocation storage and the inert retained floor, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, transaction-grant authority, the required private session core through activation/replay/reload/terminalization, private exact-snapshot point reads with typed dependencies, pure point-OCC validation, C04B2 verified logical input, corrected C04C1 private logical point planning, S08 native commit/change-feed storage with its bounded package-private reader, S09-A private committed-success result storage, S09-B fixed-kind private commit-wake storage and claim/settlement repository, O06's rollback-proven private point-commit transaction kernel, O07-A's private read-only committed-outcome resolver, O07-B's atomic point publication, C05-A's scalar-fenced finishing transition, and C05-B's fresh-process finishing reconstruction/private publisher composition exist. C06 dispatch/replay orchestration, O08 retry policy, outcome expiry, floor advancement/reset policy, target activation, and routing remain incomplete; attempt renewal and C04C2 are conditional on proven consumers. `v1` means the first intended shippable FlarexDB contract, not the first design attempt. |
 
 The existence of replacement catalog tables does not mean the replacement data
 path is active. The executor must not route a request into `flarexdb_v1` until
@@ -409,9 +409,9 @@ epoch-provenance constraints, inert retained floor, and bounded contiguous
   publishes no sequence or durable state. Conditional B2b2 renewal moves to its
   first proven long-running-attempt consumer. O07-A consumes S09-A through one
   private read-only resolver. C05-A now supplies the exact finishing barrier and
-  same-factory continuation; C05-B fresh-process reconstruction, C06 delivery/
-  replay orchestration, and the bounded compiler composition remain
-  unimplemented. The O04
+  same-factory continuation; C05-B supplies the fresh-process finishing entry
+  and composes both paths with the same O07-B publisher. C06 delivery/replay
+  orchestration and O08 retry policy remain unimplemented. The O04
   reader is not a routed syscall or continuing attempt authorization; C03 owns
   that first operational composition.
 - The current broad persistence interface and legacy invoke-session tables are
@@ -481,11 +481,13 @@ authority authentication are complete. C04B2's same-factory final-document/
 result validation is complete only for the private C07 proof; corrected C04C1
 logical point planning is complete. S08's additive native commit/change-feed
   schema and bounded private reader are complete, with the retained floor fixed
-  at zero and allocation/publication deferred. S09-A's private committed-success
+  at zero. O07-B now allocates and publishes dense S08 evidence; retained-floor
+  advancement and history retention remain deferred. S09-A's private committed-success
   schema and S09-B fixed-kind private commit-wake gate are complete. O06's
   rollback-proven reusable private point-commit kernel, O07-A's read-only
-  outcome resolver, O07-B's atomic point publication, and C05-A's finishing
-  barrier are complete; C05-B is the next Wave 2 prerequisite, while C04C2
+  outcome resolver, O07-B's atomic point publication, C05-A's finishing barrier,
+  and C05-B's verified fresh-process reconstruction/composition are complete;
+  O08 is the next Wave 2 prerequisite, while C04C2
   remains consumer-triggered and
   conditional. O03-B2b2
 renewal/race proof, operational revocation, and hosted Worker/key adapters are

@@ -29,8 +29,9 @@ forced-rollback proof are complete. The retained-history floor is physically
 present but fixed at zero until O11. O07-A's private read-only committed-
 outcome resolver and O07-B's private durable point publication are complete.
 C05-A's private scalar-fenced `running -> finishing` transition and same-factory
-continuation are complete. C05-B fresh-process reconstruction and full
-compiler/publisher composition are next; C06 dispatch remains pending, and
+continuation are complete. C05-B fresh-process reconstruction and private
+compiler/O07-B publisher composition are also complete; O08 and C06 remain
+pending, and
 C04C2 remains conditional and unapproved.
 B2b2 renewal is
 a conditional
@@ -309,7 +310,7 @@ is the separate read-only committed-outcome recovery seam; O07-B reuses and
 extends that kernel with sequence/time allocation and atomic durable
 publication. O09 owns later multi-row/unique ordering. C05-A now supplies the
 exact finishing barrier and same-process continuation; C05-B is the first
-complete planner/production-executor composition consumer. C06 owns
+complete private planner/O07-B publisher composition consumer. C06 owns
 `PostCommitWake` after durable commit/outbox evidence exists.
 
 `O03-B1` establishes atomic activation and exact active-anchor replay;
@@ -325,9 +326,11 @@ root rejects later syscalls. C04A may authenticate that detached evidence from
 `running + sealed` or `finishing + sealed`, but O03-B2a currently exposes only
 the running restart entry. `C05-A` locks and revalidates the scalar seal
 identity before the exact-fence transition to `finishing` and mints a fresh
-same-factory continuation without changing the original plan. `C05-B` must add
-fresh-process finishing reconstruction and complete O07-B composition; C06
-later orchestrates the stable finish endpoint. `O07-B`
+same-factory continuation without changing the original plan. `C05-B` now
+provides a separate strict selector-driven finishing entry without widening
+O03-B2a: it reuses C04A's bounded stored-evidence snapshot and evidence-first
+verifier, traverses C04B/C1, and invokes the same O07-B publisher. C06 later
+orchestrates the stable finish endpoint. `O07-B`
 deletes the exact lease and stores `committed` only with the atomic data/outcome
 commit, `O08` introduces storage-level retry replacement together with the
 trusted retry coordinator while consuming O07-A for uncertain decisions, and
@@ -372,8 +375,9 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
 7. `C05-A` (complete): exact scalar-fenced `running -> finishing` transition,
    lost-response observation from the same genuine running plan, and a private
    same-factory finishing continuation.
-8. `C05-B`: fresh-process finishing reconstruction and one point mutation
-   through the complete O07-B primitive.
+8. `C05-B` (complete): fresh-process finishing reconstruction and both normal
+   and reconstructed point mutation composition through the same O07-B
+   primitive, with failed publication retaining `finishing + sealed`.
 9. `O08`: separate OCC reruns, safe SQL retries, and uncertain-outcome policy
    using O07-A rather than reimplementing lookup.
 10. `C06`: idempotent finish and lost-outcome recovery through `/invoke/*`.
@@ -382,7 +386,7 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
 This S09-A/S09-B split refines one existing Wave 2 outcome; it does not reorder
 the wave. The completed S08/S09-A/S09-B/O06/O07-B first-consumer contracts do
 not currently establish a need for separate physical/change/outbox lowering,
-so C04C2 remains conditional and outside the mandatory order. C05-B is next.
+so C04C2 remains conditional and outside the mandatory order. O08 is next.
 
 `C07` is the first end-to-end replacement milestone, but it proves only a
 private test-generation point-mutation kernel. It does not authorize canary or

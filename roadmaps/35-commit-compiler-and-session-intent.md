@@ -12,7 +12,8 @@ private logical point planning and O06's reusable rollback-proven point-commit
 transaction kernel, O07-A private read-only committed-outcome resolver, and
 O07-B private durable point publication are complete. C05-A's exact scalar-
 fenced finishing transition and same-factory continuation are complete. C05-B
-fresh-process reconstruction and full compiler/publisher composition are next;
+fresh-process reconstruction and private compiler/publisher composition are
+also complete; O08 is next;
 C04C2 remains conditional and unapproved.
 
 This roadmap owns the durable direction for:
@@ -216,8 +217,9 @@ the attempt is `running`, and
 the sealed root rejects late syscalls. C05-A locks and revalidates scalar seal
 identity before the private exact-fence transition to `finishing`, returning a
 same-factory finishing continuation while leaving the running plan unchanged.
-C05-B owns fresh-process finishing reconstruction and complete O07-B
-composition; C06 orchestrates the stable finish endpoint. O07-B atomically
+C05-B now owns the separate finishing-only fresh-process entry, reuses the C04
+evidence/compiler chain, and composes both paths with the same O07-B publisher;
+C06 orchestrates the stable finish endpoint. O07-B atomically
 deletes the exact lease and stores committed state plus the internal S09-A
 committed-success receipt and S09-B outbox, O08 owns retry replacement, and O11
 first consumes active floors.
@@ -315,8 +317,9 @@ S07's `created` literal is not a durable active state without a lease.
 S07's `committing` literal is
 also transaction-local/reserved in V1 rather than a separately durable state.
 C05-A introduces the private exact-fence transition to `finishing` and its
-same-process continuation; C05-B owns fresh-process recovery and complete
-publication composition, C06 owns endpoint orchestration, and C03 rejects late
+same-process continuation; C05-B provides equivalent fresh-process recovery and
+composes both paths with the sole O07-B publisher, C06 owns endpoint
+orchestration, and C03 rejects late
 syscalls. O07-B deletes the exact current lease and records `committed` only with
 atomic data/outcome publication. O08 keeps the same request anchor and storage
 generation during trusted OCC retry, increments the attempt fence, replaces
@@ -328,10 +331,14 @@ session.
 
 Before planning, trusted code verifies in distinct authority stages:
 
-- C04A accepts `storedForSessionAttempt` carriage through C07, followed by an
-  exact opaque-authority reload of the C03-owned journal/result/point seal and
-  comparison of canonical bytes, digests, final syscall sequence, counters,
-  sibling result evidence, and the complete scalar seal identity;
+- C04A's normal path accepts `storedForSessionAttempt` carriage through C07,
+  followed by an exact opaque-authority reload of the C03-owned journal/result/
+  point seal and comparison of canonical bytes, digests, final syscall sequence,
+  counters, sibling result evidence, and the complete scalar seal identity.
+  C05-B's recovery path has no caller envelope: a strict selector locates the
+  attempt, the same bounded repeatable-read loader derives current authority,
+  and the evidence-first C04A core verifies it before C04B/C1. It never compares
+  trusted evidence with a projection fabricated from itself;
 - protocol versions and structural evidence. `inlineUntrusted` is rejected
   regardless of a matching digest until C07A proves its provenance boundary;
 - C04A accepts only a live `running + sealed` attempt for initial planning or
@@ -649,6 +656,8 @@ Flarex follows these Convex sources and patterns:
 - [`../../../crates/database/src/committer.rs`](../../../crates/database/src/committer.rs)
   for authoritative validation, deterministic derivation, and ordered
   publication;
+- [`../../../crates/function_runner/src/lib.rs`](../../../crates/function_runner/src/lib.rs)
+  for the in-process `FunctionFinalTransaction` carrier;
 - [`../../../crates/model/src/session_requests/types.rs`](../../../crates/model/src/session_requests/types.rs)
   for durable request outcomes; and
 - [`../../../crates/application/src/application_function_runner/mod.rs`](../../../crates/application/src/application_function_runner/mod.rs)
@@ -661,6 +670,7 @@ The necessary Flarex divergences are:
 | Placement | Function runner, transaction state, database, and committer are close together. | Dynamic Worker, private executor Worker, optional per-session supervisor/per-attempt facet, and Postgres are separate failure domains. |
 | Journal integrity and provenance | Transaction state is internal to the backend. | C02 binds canonical journal/result evidence with SHA-256 for integrity. Through C07, C04A authenticates provenance only by reloading the exact C03-owned Postgres attempt seal. C02's inline variant is dormant until C07A proves non-forgeable supervisor/facet provenance; session/fence plus digest alone is insufficient. |
 | Session recovery | Backend request state and outcome lookup share one hosted system. | Flarex retains an authoritative Postgres anchor/outcome so DO restart or a lost response cannot duplicate a mutation. |
+| Finishing recovery | Convex keeps `FunctionFinalTransaction` in process, checks committed mutation status before execution, and reruns known OCC conflicts. | C05-B reconstructs verified logical `finishing + sealed` evidence across Cloudflare/Postgres process loss. It does not resume a JavaScript call stack, rerun user code, or own retry/uncertain-outcome policy. |
 | Physical lowering | Convex's integrated backend derives storage writes directly. | Flarex makes the trusted planner/executor split explicit so host adapters and untrusted journals cannot author physical/system facts. |
 | Adapter lanes | Convex app transactions operate on Convex data. | Payload and Medusa retain separate compatibility/transaction contracts instead of entering one universal journal. |
 
@@ -701,18 +711,20 @@ the stored-attempt loader, commit-authority materializer, point-commit
 transaction boundary, and executor authority port derive their domain views
 from that shared shape rather than defining separate complete contracts.
 Persistence retains its stronger decoded-row and branded-grant refinements.
-C04B2 adds the private-C07 final value/result proof, and corrected C04C1 is the
-approved private logical point planner.
-None of these makes committed publication, production routing, inline carriage,
-or conditional C04C2 active.
+C04B2 adds the private-C07 final value/result proof, corrected C04C1 is the
+approved private logical point planner, O06/O07 provide the private transaction/
+publication path, and C05-A/B provide normal and fresh-process composition.
+These private replacement gates do not activate production routing, coherent
+production validator authority, inline carriage, or conditional C04C2.
 
 ## Known Gaps And Limitations
 
 - Standalone `C01` was retired before implementation; C02's protocol-only gate,
   C03's operational point-journal gate, C04A's private stored-attempt gate, and
   C04B1's private commit-authority gate and C04B2's private-C07 final-value gate
-  are complete. Corrected C04C1 and C05-A are complete; C04C2, C05-B, and
-  C06-C09 remain unapproved or incomplete as their statuses state.
+  are complete. Corrected C04C1, O06/O07, and C05-A/B are complete; C04C2,
+  O08, C06, C07, C08, and C09 remain conditional or incomplete as their
+  statuses state.
 - Current invoke sessions use wall-clock `beginTs`, not authoritative
   `SnapshotToken` reads.
 - The legacy journal persists directly in broad Postgres invoke-session tables.
@@ -720,10 +732,10 @@ or conditional C04C2 active.
   process-local attempt/table capabilities, but no production route consumes it
   and no compatibility bridge targets the legacy engine.
 - A private same-factory `VerifiedCommitInputV1` now exists for the C07 proof;
-  corrected C04C1 provides only private logical `PreparedPointCommitV1`. O06
-  provides the private rollback-proven transaction kernel and tentative point-
-  row lowering, but no production-authoritative validator binding or durable
-  replacement `CommitExecutor` exists.
+  corrected C04C1 provides only private logical `PreparedPointCommitV1`. O07-B
+  provides the private durable replacement `CommitExecutor`, and C05-B supplies
+  its first complete compiler consumer. Production validator authority, C06
+  endpoint/recovery orchestration, and target routing remain absent.
 - Current `commitInvokeSessionWrites` combines planning, OCC, timestamp
   allocation, physical publication, index maintenance, commit/outbox, and
   session completion.
@@ -794,16 +806,18 @@ operational point-journal consumer, and C04A's private stored-attempt
  private-C07 final-value proof are complete. Corrected C04C1, S08 commit/feed
  DDL, S09-A private committed-success DDL, S09-B private commit-wake DDL and
   fenced repository, O06's rollback-proven transaction kernel, O07-B's private
-  durable point publication, and C05-A's finishing barrier are complete. C05-B
-  is the next Wave 2 prerequisite, and C04C2 remains conditional and unapproved.
+  durable point publication, C05-A's finishing barrier, and C05-B's verified
+  fresh-process reconstruction/composition are complete. O08 is the next Wave 2
+  prerequisite, and C04C2 remains conditional and unapproved.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
 retention consumer proves that a bounded attempt must outlive its initial lease.
 Operational revocation and hosted Worker/key adapters are deferred and do not
 block the private C07 proof.
-Hosted compiler execution still waits for the required schema, exact-snapshot
-OCC, commit, target activation, target-only caller/recovery, and hosted
-prerequisites. Shipped-state migration prerequisites are conditional.
+Hosted compiler execution still waits for coherent production validator and
+activation authority, O08/C06/C07, the target-only caller and routing cutover,
+and the remaining hosted adapters. Shipped-state migration prerequisites are
+conditional.
 
 The former C01 standalone port-extraction gate is retired. Its proposed
 compatibility-wrapper work is dropped rather than redistributed: C03
@@ -814,7 +828,8 @@ C04C1 owns the concrete private logical prepared-point capability. O06 owns
 actual authority locks, fresh scalar revalidation, O05 integration, and
   tentative point-row lowering under forced rollback. O07-B extends that kernel with
   sequence/time allocation and atomic durable execution. C05-A supplies the
-  finishing capability and C05-B is the first complete compiler consumer; O09
+  same-process finishing capability and C05-B supplies fresh-process recovery as
+  the first complete compiler consumer; O09
   owns multi-row/unique ordering, and C06 owns post-commit
 wake after durable evidence exists.
 
@@ -829,9 +844,12 @@ The remaining compiler gates are:
    pinned-manifest table resolution, constant-cardinality replay, operational
    sequence/limit accounting, deterministic coalescing, exact point overlays,
    two-phase seal, and fail-closed unsupported shapes.
-3. `C04A` (complete): reject inline carriage before I/O, freshly reload and
-   compare the exact live `running + sealed` or `finishing + sealed` attempt,
-   and return only a private runtime-unforgeable
+3. `C04A` (complete): the normal path rejects inline carriage before I/O,
+   reloads the exact live `running + sealed` or `finishing + sealed` attempt,
+   and compares caller `storedForSessionAttempt` carriage with that trusted
+   evidence. C05-B recovery supplies no caller envelope and enters the same
+   evidence-first verifier from canonical-verified trusted stored evidence.
+   Both paths return only a private runtime-unforgeable
    `AuthenticatedStoredAttemptV1` after bounded detached verification.
 4. `C04B1` (complete): same-factory database-time authentication of stored
    arguments/grant, current revocation, pinned schema/stable bindings, and the
@@ -848,9 +866,9 @@ The remaining compiler gates are:
    separate physical/change/outbox lowering capability is useful.
 7. `C05-A` (complete): enter exact finishing under scalar locks and mint the
    same-factory private continuation, including exact observed transition replay.
-8. `C05-B`: add fresh-process finishing reconstruction and execute one
-   replacement point mutation through the complete atomic OCC/outcome/commit/
-   outbox primitive.
+8. `C05-B` (complete): reauthenticate exact live `finishing + sealed` evidence
+   in a fresh process and execute normal or reconstructed point mutations through
+   the same complete atomic OCC/outcome/commit/outbox primitive.
 9. `C06`: add fenced idempotent finish, duplicate/concurrent finish behavior,
    restart, expiry, and lost-response outcome recovery through stable
    `/invoke/*` endpoints.

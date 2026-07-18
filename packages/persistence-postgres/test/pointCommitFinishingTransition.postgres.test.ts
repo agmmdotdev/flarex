@@ -595,8 +595,8 @@ async function createAttempt(
     activation.anchor,
     scope.schemaVersionId,
   );
-  const loaded = await createStoredAttemptEvidenceLoaderV1(scope.ports).load(
-    authority,
+  const loaded = await runEffect(
+    createStoredAttemptEvidenceLoaderV1(scope.ports).loadEffect(authority),
   );
   if (loaded.kind !== "loaded") {
     throw new Error(`Expected running C05-A evidence, received ${loaded.kind}.`);

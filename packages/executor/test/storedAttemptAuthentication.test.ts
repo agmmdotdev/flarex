@@ -86,6 +86,7 @@ import {
 } from "flarex-protocol/transaction-session";
 import {
   FLAREX_VALUE_CODEC_VERSION_V1,
+  isCanonicalFlarexRuntimeObjectV1,
   normalizeFlarexValueJsonV1,
 } from "flarex-protocol/value";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
@@ -105,8 +106,11 @@ import type { StoredPointCommitRollbackProofV1 as ForbiddenPointCommitProof } fr
 import type { StoredPointCommitPublisherV1 as ForbiddenPointCommitPublisher } from "../src/index";
 // @ts-expect-error C05-A continuation capability types must remain absent from the package root.
 import type { FinishingPreparedPointCommitV1 as ForbiddenFinishingPointCommit } from "../src/index";
+// @ts-expect-error C05-B executor capability types must remain absent from the package root.
+import type { StoredPointCommitExecutorV1 as ForbiddenPointCommitExecutor } from "../src/index";
 import {
   createPointMutationSessionAttemptLoadingV1,
+  InvalidPointMutationSessionAttemptSelectorV1Error,
   type PointMutationSessionAttemptSelectorWireV1,
 } from "../src/pointMutationSessionActivation";
 import {
@@ -185,10 +189,10 @@ describe("C04A stored-attempt authentication", () => {
     const fixture = await emptyFixture();
     let loadCalls = 0;
     const authentication = createStoredAttemptAuthenticationV1({
-      load: async () => {
+      loadEffect: () => Effect.sync(() => {
         loadCalls += 1;
         return loaded(fixture.evidence);
-      },
+      }),
     });
     const authority = await deriveAuthority(authentication);
     const inline: CommitEnvelopeV1 = {
@@ -221,13 +225,13 @@ describe("C04A stored-attempt authentication", () => {
     const fixture = await emptyFixture();
     let loadCalls = 0;
     const first = createStoredAttemptAuthenticationV1({
-      load: async () => {
+      loadEffect: () => Effect.sync(() => {
         loadCalls += 1;
         return loaded(fixture.evidence);
-      },
+      }),
     });
     const second = createStoredAttemptAuthenticationV1({
-      load: async () => loaded(fixture.evidence),
+      loadEffect: () => Effect.succeed(loaded(fixture.evidence)),
     });
     const authority = await deriveAuthority(first);
 
@@ -261,7 +265,7 @@ describe("C04A stored-attempt authentication", () => {
 
     const fixture = await insertFixture({ name: "detached" });
     const authentication = createStoredAttemptAuthenticationV1({
-      load: async () => loaded(fixture.evidence),
+      loadEffect: () => Effect.succeed(loaded(fixture.evidence)),
     });
     const authority = await deriveAuthority(authentication);
     const authenticated = await runEffect(authentication.authenticate(
@@ -335,7 +339,7 @@ describe("C04A stored-attempt authentication", () => {
 
     for (const testCase of cases) {
       const authentication = createStoredAttemptAuthenticationV1({
-        load: async () => testCase.result,
+        loadEffect: () => Effect.succeed(testCase.result),
       });
       const authority = await deriveAuthority(authentication);
       const failure = await runFailure(authentication.authenticate(
@@ -458,7 +462,7 @@ describe("C04A stored-attempt authentication", () => {
       const envelope = structuredClone(fixture.envelope);
       testCase.mutate(evidence, envelope);
       const authentication = createStoredAttemptAuthenticationV1({
-        load: async () => loaded(evidence),
+        loadEffect: () => Effect.succeed(loaded(evidence)),
       });
       const authority = await deriveAuthority(authentication);
       const failure = await runFailure(authentication.authenticate(
@@ -475,7 +479,7 @@ describe("C04A stored-attempt authentication", () => {
   it("correlates exact insert and live overlay evidence", async () => {
     const fixture = await insertFixture({ name: "Ada", active: true });
     const authentication = createStoredAttemptAuthenticationV1({
-      load: async () => loaded(fixture.evidence),
+      loadEffect: () => Effect.succeed(loaded(fixture.evidence)),
     });
     const authority = await deriveAuthority(authentication);
 
@@ -491,7 +495,7 @@ describe("C04A stored-attempt authentication", () => {
       await deleteFixture(),
     ]) {
       const authentication = createStoredAttemptAuthenticationV1({
-        load: async () => loaded(fixture.evidence),
+        loadEffect: () => Effect.succeed(loaded(fixture.evidence)),
       });
       const authority = await deriveAuthority(authentication);
       await expect(runEffect(authentication.authenticate(
@@ -503,7 +507,7 @@ describe("C04A stored-attempt authentication", () => {
     const deleted = await deleteFixture();
     Object.assign(requirePoint(deleted.evidence), { overlayKind: "none" });
     const authentication = createStoredAttemptAuthenticationV1({
-      load: async () => loaded(deleted.evidence),
+      loadEffect: () => Effect.succeed(loaded(deleted.evidence)),
     });
     const authority = await deriveAuthority(authentication);
     await expect(runFailure(authentication.authenticate(
@@ -539,7 +543,7 @@ describe("C04A stored-attempt authentication", () => {
       const evidence = structuredClone(fixture.evidence);
       mutate(evidence);
       const authentication = createStoredAttemptAuthenticationV1({
-        load: async () => loaded(evidence),
+        loadEffect: () => Effect.succeed(loaded(evidence)),
       });
       const authority = await deriveAuthority(authentication);
       const failure = await runFailure(authentication.authenticate(
@@ -555,7 +559,7 @@ describe("C04A stored-attempt authentication", () => {
   it("checks terminal patch effects without pretending to own the base row", async () => {
     const fixture = await patchFixture("after");
     const authentication = createStoredAttemptAuthenticationV1({
-      load: async () => loaded(fixture.evidence),
+      loadEffect: () => Effect.succeed(loaded(fixture.evidence)),
     });
     const authority = await deriveAuthority(authentication);
     await runEffect(authentication.authenticate(
@@ -571,7 +575,7 @@ describe("C04A stored-attempt authentication", () => {
       structuredClone(forgedOverlay.evidence.points[0]),
     ]);
     const forgedAuthentication = createStoredAttemptAuthenticationV1({
-      load: async () => loaded(forgedEvidence),
+      loadEffect: () => Effect.succeed(loaded(forgedEvidence)),
     });
     const forgedAuthority = await deriveAuthority(forgedAuthentication);
     const failure = await runFailure(forgedAuthentication.authenticate(
@@ -585,7 +589,7 @@ describe("C04A stored-attempt authentication", () => {
   it("preserves unexpected point-evidence verifier failures as defects", async () => {
     const fixture = await insertFixture({ name: "defect-boundary" });
     const authentication = createStoredAttemptAuthenticationV1({
-      load: async () => loaded(fixture.evidence),
+      loadEffect: () => Effect.succeed(loaded(fixture.evidence)),
     });
     const authority = await deriveAuthority(authentication);
     const pointBytes = requirePoint(fixture.evidence).overlayValueBytes;
@@ -631,7 +635,7 @@ describe("C04A stored-attempt authentication", () => {
     let authorityLoads = 0;
     let metadataLoads = 0;
     const authentication = createStoredAttemptAuthenticationV1(
-      { load: async () => loaded(current.fixture.evidence) },
+      { loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)) },
       {
         evidenceLoader: {
           loadEffect: () => Effect.sync(() => {
@@ -682,7 +686,7 @@ describe("C04A stored-attempt authentication", () => {
     )).toBe(true);
 
     const second = createStoredAttemptAuthenticationV1(
-      { load: async () => loaded(current.fixture.evidence) },
+      { loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)) },
       {
         evidenceLoader: {
           loadEffect: () => Effect.sync(() => {
@@ -714,7 +718,7 @@ describe("C04A stored-attempt authentication", () => {
     const cause = new Error("commit-authority persistence sentinel");
     let metadataLoads = 0;
     const authentication = createStoredAttemptAuthenticationV1(
-      { load: async () => loaded(current.fixture.evidence) },
+      { loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)) },
       {
         evidenceLoader: {
           loadEffect: () => Effect.fail({
@@ -781,7 +785,7 @@ describe("C04A stored-attempt authentication", () => {
       testCase.mutateEvidence?.(evidence);
       testCase.mutateMetadata?.(metadata);
       const authentication = createStoredAttemptAuthenticationV1(
-        { load: async () => loaded(current.fixture.evidence) },
+        { loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)) },
         {
           evidenceLoader: {
             loadEffect: () => Effect.succeed({ kind: "loaded", evidence }),
@@ -810,7 +814,7 @@ describe("C04A stored-attempt authentication", () => {
         expiredEvidence.session.authorizationGrantExpiresAtMilliseconds,
     });
     const authentication = createStoredAttemptAuthenticationV1(
-      { load: async () => loaded(current.fixture.evidence) },
+      { loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)) },
       {
         evidenceLoader: {
           loadEffect: () =>
@@ -838,7 +842,7 @@ describe("C04A stored-attempt authentication", () => {
       createStoredAttemptAuthenticationV1,
       undefined,
       [
-        { load: async () => loaded(current.fixture.evidence) },
+        { loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)) },
         {
           evidenceLoader: {
             loadEffect: () => Effect.succeed({
@@ -873,7 +877,7 @@ describe("C04A stored-attempt authentication", () => {
       argumentsValidator,
     );
     const exactAuthentication = createStoredAttemptAuthenticationV1(
-      { load: async () => loaded(current.fixture.evidence) },
+      { loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)) },
       {
         evidenceLoader: {
           loadEffect: () => Effect.succeed({
@@ -903,7 +907,7 @@ describe("C04A stored-attempt authentication", () => {
       validatedArgsJson: { x: `${exactPayload}x` },
     });
     const oversizedAuthentication = createStoredAttemptAuthenticationV1(
-      { load: async () => loaded(current.fixture.evidence) },
+      { loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)) },
       {
         evidenceLoader: {
           loadEffect: () => Effect.succeed({
@@ -954,7 +958,7 @@ describe("C04A stored-attempt authentication", () => {
       const evidence = structuredClone(current.commitEvidence);
       mutate(evidence);
       const authentication = createStoredAttemptAuthenticationV1(
-        { load: async () => loaded(current.fixture.evidence) },
+        { loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)) },
         {
           evidenceLoader: {
             loadEffect: () => Effect.succeed({ kind: "loaded", evidence }),
@@ -982,7 +986,7 @@ describe("C04A stored-attempt authentication", () => {
       { ...current.functionSnapshot, unexpected: true },
     ]) {
       const authentication = createStoredAttemptAuthenticationV1(
-        { load: async () => loaded(current.fixture.evidence) },
+        { loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)) },
         {
           evidenceLoader: {
             loadEffect: () => Effect.succeed({
@@ -1871,6 +1875,233 @@ describe("C04A stored-attempt authentication", () => {
     expect(String(rejection)).toContain(defect.message);
   });
 
+  it("composes C05-A publication and fresh finishing recovery through one private publisher", async () => {
+    type RootLeak = Extract<
+      keyof typeof executorRoot,
+      | "StoredPointCommitExecutorV1"
+      | "finishPointCommit"
+      | "resumePointCommit"
+      | "reconstructPointCommitFinishing"
+    >;
+    expectTypeOf<RootLeak>().toEqualTypeOf<never>();
+    expect("resumePointCommit" in executorRoot).toBe(false);
+
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: await insertFixture({
+        name: "c05b",
+        nested: { label: "stable" },
+      }, "c05b"),
+      documentType: {
+        type: "object",
+        value: {
+          name: { optional: false, fieldType: { type: "string" } },
+          nested: {
+            optional: false,
+            fieldType: {
+              type: "object",
+              value: {
+                label: {
+                  optional: false,
+                  fieldType: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+      returnsValidator: { type: "string" },
+    });
+    const publicationFailure = new PointCommitCorruptionV1Error({
+      reason: "publicationInvariantInvalid",
+    });
+    const commands: PointCommitPublicationCommandV1[] = [];
+    const pointCommit: PointCommitPublisherPortV1 = Object.freeze({
+      prove: Effect.fn("TestC05B.prove")(
+        () => Effect.succeed(Object.freeze({ kind: "wouldCommit" as const })),
+      ),
+      publish: Effect.fn("TestC05B.publish")(function* (command) {
+        commands.push(command);
+        return yield* Effect.fail(publicationFailure);
+      }),
+    });
+    const pointCommitFinishing: PointCommitFinishingTransitionPortV1 =
+      Object.freeze({
+        enterFinishing: Effect.fn("TestC05B.enterFinishing")((command) =>
+          Effect.succeed(Object.freeze({
+            kind: "transitioned" as const,
+            scopeUuid: command.sealIdentity.scopeUuid,
+            sessionId: command.authorityPins.sessionId,
+            attemptFence: command.authorityPins.attemptFence,
+            priorSessionUpdatedAtMilliseconds:
+              command.session.updatedAtMilliseconds,
+            finishingSessionUpdatedAtMilliseconds:
+              command.session.updatedAtMilliseconds + 2,
+          }))),
+      });
+
+    const buildExecutor = (
+      storedEvidence: StoredAttemptEvidencePortV1,
+      authorityEvidence: StoredCommitAuthorityEvidencePortV1,
+      onFinishingLoad: () => void = () => undefined,
+    ) => createStoredAttemptAuthenticationV1(
+      {
+        loadEffect: () => Effect.succeed(loaded(storedEvidence)),
+        loadFinishingEffect: () => Effect.sync(() => {
+          onFinishingLoad();
+          return loaded(storedEvidence);
+        }),
+      },
+      {
+        evidenceLoader: {
+          loadEffect: () => Effect.succeed({
+            kind: "loaded" as const,
+            evidence: authorityEvidence,
+          }),
+        },
+        transactionGrantVerifier: current.verifier,
+        functionMetadata: {
+          load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+        },
+        pointCommit,
+        pointCommitFinishing,
+      },
+    );
+
+    const normal = buildExecutor(
+      current.fixture.evidence,
+      current.commitEvidence,
+    );
+    const authority = await deriveAuthority(normal);
+    const storedAttempt = await runEffect(normal.authenticate(
+      authority,
+      encodeEnvelope(current.fixture.envelope),
+    ));
+    const commitAuthority = await runEffect(
+      normal.authenticateCommitAuthority(storedAttempt),
+    );
+    const verifiedInput = await runEffect(
+      normal.verifyCommitInput(commitAuthority),
+    );
+    const prepared = await runEffect(normal.planPointCommit(verifiedInput));
+    expect(await runFailure(normal.finishPointCommit(prepared))).toBe(
+      publicationFailure,
+    );
+    const normalCommand = commands[0];
+    if (normalCommand === undefined) {
+      throw new Error("Missing normal C05-B publication command.");
+    }
+    if (
+      normalCommand.rowIntent === null ||
+      normalCommand.rowIntent.kind !== "live" ||
+      !isCanonicalFlarexRuntimeObjectV1(normalCommand.rowIntent.value)
+    ) {
+      throw new Error("Expected a live normal-path C05-B row intent.");
+    }
+    const nested = normalCommand.rowIntent.value.nested;
+    if (!isCanonicalFlarexRuntimeObjectV1(nested)) {
+      throw new Error("Expected a nested normal-path document object.");
+    }
+    expect(Reflect.set(nested, "label", "mutated")).toBe(false);
+    expect(await runFailure(normal.finishPointCommit(prepared))).toBe(
+      publicationFailure,
+    );
+    const retriedNormalCommand = commands[1];
+    if (retriedNormalCommand === undefined) {
+      throw new Error("Missing retried normal C05-B publication command.");
+    }
+    expect(retriedNormalCommand).toEqual(normalCommand);
+    expect(retriedNormalCommand.rowIntent).not.toBe(normalCommand.rowIntent);
+
+    const recoveredEvidence = structuredClone(current.fixture.evidence);
+    Object.assign(recoveredEvidence.session, {
+      lifecycle: "finishing",
+      updatedAtMilliseconds: normalCommand.session.updatedAtMilliseconds,
+    });
+    const recoveredAuthorityEvidence = structuredClone(current.commitEvidence);
+    Object.assign(recoveredAuthorityEvidence.session, {
+      lifecycle: "finishing",
+      updatedAtMilliseconds: normalCommand.session.updatedAtMilliseconds,
+    });
+    let finishingLoads = 0;
+    const recovered = buildExecutor(
+      recoveredEvidence,
+      recoveredAuthorityEvidence,
+      () => {
+        finishingLoads += 1;
+      },
+    );
+    const beforeInvalid = finishingLoads;
+    expect(await runFailure(recovered.resumePointCommit({
+      deploymentId: DEPLOYMENT_ID,
+    }))).toBeInstanceOf(InvalidPointMutationSessionAttemptSelectorV1Error);
+    expect(finishingLoads).toBe(beforeInvalid);
+
+    expect(await runFailure(recovered.resumePointCommit(SELECTOR))).toBe(
+      publicationFailure,
+    );
+    expect(finishingLoads).toBe(1);
+    const recoveredCommand = commands[2];
+    if (recoveredCommand === undefined) {
+      throw new Error("Missing recovered C05-B publication command.");
+    }
+    expect(recoveredCommand).toEqual(normalCommand);
+    expect(recoveredCommand).not.toBe(normalCommand);
+    expect(recoveredCommand.successfulResult.canonicalBytes).not.toBe(
+      normalCommand.successfulResult.canonicalBytes,
+    );
+    expect(recoveredCommand.sealIdentity.journalSha256).not.toBe(
+      normalCommand.sealIdentity.journalSha256,
+    );
+
+    const recoveredHandle = await runEffect(
+      recovered.reconstructPointCommitFinishing(SELECTOR),
+    );
+    expect(Object.isFrozen(recoveredHandle)).toBe(true);
+    expect(JSON.stringify(recoveredHandle)).toBe("{}");
+    const crossFactoryCalls = commands.length;
+    expect(await runFailure(
+      normal.publishPointCommit(recoveredHandle),
+    )).toMatchObject({
+      _tag: "InvalidPreparedPointCommitV1Error",
+      reason: "notSameFactory",
+    });
+    expect(commands).toHaveLength(crossFactoryCalls);
+
+    const running = buildExecutor(
+      current.fixture.evidence,
+      current.commitEvidence,
+    );
+    expect(await runFailure(running.resumePointCommit(SELECTOR))).toMatchObject({
+      _tag: "StoredAttemptNotPlannableV1Error",
+      reason: "lifecycle",
+      lifecycle: "running",
+    });
+
+    const defect = new Error("C05-B stored-evidence defect sentinel");
+    const defectiveEvidence = structuredClone(recoveredEvidence);
+    Object.assign(defectiveEvidence.root, {
+      resultBytes: new Proxy(defectiveEvidence.root.resultBytes, {
+        getPrototypeOf: () => {
+          throw defect;
+        },
+      }),
+    });
+    const defective = buildExecutor(
+      defectiveEvidence,
+      recoveredAuthorityEvidence,
+    );
+    let defectRejection: unknown;
+    try {
+      await runEffect(defective.reconstructPointCommitFinishing(SELECTOR));
+    } catch (cause) {
+      defectRejection = cause;
+    }
+    expect(defectRejection).not.toBeInstanceOf(
+      StoredAttemptStorageCorruptionV1Error,
+    );
+    expect(String(defectRejection)).toContain(defect.message);
+  });
+
   it("composes every current point outcome through C04C1 without new I/O", async () => {
     const nameDocument = {
       type: "object",
@@ -2422,10 +2653,10 @@ async function authenticateCommitAuthorityFixture(
   let metadataLoads = 0;
   const authentication = createStoredAttemptAuthenticationV1(
     {
-      load: async () => {
+      loadEffect: () => Effect.sync(() => {
         storedEvidenceLoads += 1;
         return loaded(current.fixture.evidence);
-      },
+      }),
     },
     {
       evidenceLoader: {
@@ -2486,7 +2717,7 @@ async function pointCommitRollbackFixture(
 ) {
   const authentication = createStoredAttemptAuthenticationV1(
     {
-      load: async () => loaded(current.fixture.evidence),
+      loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)),
     },
     {
       evidenceLoader: {
@@ -2525,7 +2756,7 @@ async function pointCommitPublisherFixture(
 ) {
   const authentication = createStoredAttemptAuthenticationV1(
     {
-      load: async () => loaded(current.fixture.evidence),
+      loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)),
     },
     {
       evidenceLoader: {
@@ -2565,7 +2796,7 @@ async function pointCommitFinishingFixture(
 ) {
   const authentication = createStoredAttemptAuthenticationV1(
     {
-      load: async () => loaded(current.fixture.evidence),
+      loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)),
     },
     {
       evidenceLoader: {

@@ -25,6 +25,9 @@ import type {
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import { PointCommitCorruptionV1Error } from
   "@flarex/persistence-postgres/point-commit-transaction";
+import type {
+  PointMutationSessionAttemptSelectorV1,
+} from "@flarex/persistence-postgres/transaction-session-activation";
 
 import {
   AppDocumentSystemFieldV1Error,
@@ -76,7 +79,10 @@ import {
 } from "flarex-protocol/point-mutation-start";
 import {
   CommitSeqSchema,
+  FlarexDbV1StorageGenerationSchema,
   ReplacementScopeIdV1Schema,
+  SnapshotTokenSchema,
+  StorageGenerationFenceSchema,
   type FlarexDbV1StorageGeneration,
   type ReplacementScopeIdV1,
   type ScopeUuidV1,
@@ -106,6 +112,8 @@ import {
   TransactionRequestKeyV1Schema,
   TransactionRequestSha256V1Schema,
   TransactionSourcePackageSha256HexV1Schema,
+  TransactionAttemptFenceSchema,
+  TransactionSessionIdV1Schema,
   type TransactionAttemptFence,
   type TransactionSessionIdV1,
   type TransactionSessionLifecycleV1,
@@ -127,6 +135,10 @@ import {
   inspectLoadedPointMutationSessionAttemptV1,
   type LoadedPointMutationSessionAttemptV1,
 } from "./pointMutationSessionActivation";
+import {
+  decodePointMutationSessionAttemptSelectorV1Result,
+  type InvalidPointMutationSessionAttemptSelectorV1Error,
+} from "./pointMutationSessionAttemptSelector";
 import type { TransactionGrantVerifierV1 } from "./transactionGrant";
 import {
   findTransactionGrantVerificationKernelV1,
@@ -274,7 +286,7 @@ const finishingPreparedPointCommitBrand: unique symbol = Symbol(
   "FlarexExecutor/FinishingPreparedPointCommitV1",
 );
 
-/** Private C05-A continuation; O07-B remains the sole publication consumer. */
+/** Private C05 continuation; C05-A/C05-B feed only the O07-B publisher. */
 export interface FinishingPreparedPointCommitV1
   extends PreparedPointCommitV1 {
   readonly [finishingPreparedPointCommitBrand]: true;
@@ -545,10 +557,28 @@ export type StoredAttemptEvidenceLoadResultPortV1 =
       readonly cause?: unknown;
     }>;
 
+export interface StoredAttemptEvidencePersistencePortErrorV1 {
+  readonly _tag: "StoredAttemptEvidencePersistenceV1Error";
+  readonly cause: unknown;
+}
+
 export interface StoredAttemptEvidenceLoaderPortV1 {
-  readonly load: (
+  readonly loadEffect: (
     authority: StoredAttemptEvidenceAuthorityPortV1,
-  ) => Promise<StoredAttemptEvidenceLoadResultPortV1>;
+  ) => Effect.Effect<
+    StoredAttemptEvidenceLoadResultPortV1,
+    StoredAttemptEvidencePersistencePortErrorV1
+  >;
+}
+
+export interface StoredAttemptFinishingEvidenceLoaderPortV1
+  extends StoredAttemptEvidenceLoaderPortV1 {
+  readonly loadFinishingEffect: (
+    selector: PointMutationSessionAttemptSelectorV1,
+  ) => Effect.Effect<
+    StoredAttemptEvidenceLoadResultPortV1,
+    StoredAttemptEvidencePersistencePortErrorV1
+  >;
 }
 
 export interface StoredAttemptAuthenticationV1 {
@@ -748,6 +778,51 @@ export interface StoredPointCommitFinishingTransitionV1
   >;
 }
 
+export type PointCommitFinishingCompositionV1Error =
+  | PointCommitFinishingExecutionV1Error
+  | PointCommitPublicationExecutionV1Error;
+
+export type PointCommitFinishingRecoveryV1Error =
+  | InvalidPointMutationSessionAttemptSelectorV1Error
+  | StoredAttemptAlreadyCommittedV1Error
+  | StoredAttemptNotPlannableV1Error
+  | StoredAttemptAuthorityMismatchV1Error
+  | StoredAttemptStorageCorruptionV1Error
+  | StoredAttemptPersistenceV1Error
+  | StoredCommitAuthorityAuthenticationV1Error
+  | CommitInputVerificationV1Error
+  | PointCommitPlanningV1Error
+  | InvalidPreparedPointCommitV1Error;
+
+export type PointCommitFinishingRecoveryExecutionV1Error =
+  | PointCommitFinishingRecoveryV1Error
+  | PointCommitPublicationExecutionV1Error;
+
+export interface StoredPointCommitExecutorV1
+  extends StoredPointCommitFinishingTransitionV1 {
+  readonly reconstructPointCommitFinishing: (
+    selector: unknown,
+  ) => Effect.Effect<
+    FinishingPreparedPointCommitV1,
+    PointCommitFinishingRecoveryV1Error,
+    never
+  >;
+  readonly finishPointCommit: (
+    input: PreparedPointCommitV1,
+  ) => Effect.Effect<
+    PointCommitPublicationResultV1,
+    PointCommitFinishingCompositionV1Error,
+    never
+  >;
+  readonly resumePointCommit: (
+    selector: unknown,
+  ) => Effect.Effect<
+    PointCommitPublicationResultV1,
+    PointCommitFinishingRecoveryExecutionV1Error,
+    never
+  >;
+}
+
 function isPointCommitRollbackProofPortV1(
   value: unknown,
 ): value is PointCommitRollbackProofPortV1 {
@@ -768,9 +843,19 @@ function isPointCommitFinishingTransitionPortV1(
     typeof value.enterFinishing === "function";
 }
 
+function isStoredAttemptFinishingEvidenceLoaderPortV1(
+  value: StoredAttemptEvidenceLoaderPortV1,
+): value is StoredAttemptFinishingEvidenceLoaderPortV1 {
+  return typeof Reflect.get(value, "loadFinishingEffect") === "function";
+}
+
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
 ): StoredAttemptAuthenticationV1;
+export function createStoredAttemptAuthenticationV1(
+  loader: StoredAttemptFinishingEvidenceLoaderPortV1,
+  commitAuthority: StoredPointCommitFinishingTransitionConfigV1,
+): StoredPointCommitExecutorV1;
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
   commitAuthority: StoredPointCommitFinishingTransitionConfigV1,
@@ -799,7 +884,8 @@ export function createStoredAttemptAuthenticationV1(
   | StoredPointCommitPlanningV1
   | StoredPointCommitRollbackProofV1
   | StoredPointCommitPublisherV1
-  | StoredPointCommitFinishingTransitionV1 {
+  | StoredPointCommitFinishingTransitionV1
+  | StoredPointCommitExecutorV1 {
   const authorityStates = new WeakMap<object, StoredAttemptAuthorityStateV1>();
   const authenticatedStates = new WeakMap<
     object,
@@ -818,6 +904,37 @@ export function createStoredAttemptAuthenticationV1(
     PreparedPointCommitCapabilityStateV1
   >();
   const finishingPreparedPointCommitStates = new WeakSet<object>();
+  const mintAuthenticatedStoredAttempt = (
+    state: AuthenticatedStoredAttemptStateV1,
+  ): AuthenticatedStoredAttemptV1 => {
+    const handle: AuthenticatedStoredAttemptV1 = Object.freeze({
+      [authenticatedStoredAttemptBrand]: PROCESS_LOCAL_CAPABILITY,
+    });
+    authenticatedStates.set(handle, state);
+    return handle;
+  };
+  const mintFinishingPreparedPointCommit = (
+    state: PreparedPointCommitCapabilityStateV1,
+  ): Result.Result<
+    FinishingPreparedPointCommitV1,
+    InvalidPreparedPointCommitV1Error
+  > => {
+    if (
+      state.provenance.session.lifecycle !== "finishing" ||
+      state.plan.sealIdentity.lifecycle !== "finishing"
+    ) {
+      return Result.fail(new InvalidPreparedPointCommitV1Error({
+        reason: "notFinishing",
+      }));
+    }
+    const handle: FinishingPreparedPointCommitV1 = Object.freeze({
+      [preparedPointCommitBrand]: PROCESS_LOCAL_CAPABILITY,
+      [finishingPreparedPointCommitBrand]: PROCESS_LOCAL_CAPABILITY,
+    });
+    preparedPointCommitStates.set(handle, state);
+    finishingPreparedPointCommitStates.add(handle);
+    return Result.succeed(handle);
+  };
   const pointCommitCandidate: unknown = commitAuthority !== undefined &&
       "pointCommit" in commitAuthority
     ? commitAuthority.pointCommit
@@ -839,6 +956,8 @@ export function createStoredAttemptAuthenticationV1(
     )
     ? pointCommitFinishingCandidate
     : undefined;
+  const finishingEvidenceLoader =
+    isStoredAttemptFinishingEvidenceLoaderPortV1(loader) ? loader : undefined;
   const grantKernel = commitAuthority === undefined
     ? undefined
     : findTransactionGrantVerificationKernelV1(
@@ -893,21 +1012,25 @@ export function createStoredAttemptAuthenticationV1(
             }),
           );
         }
-        const result = yield* Effect.tryPromise({
-          try: () => loader.load(captureAuthorityPort(authorityState)),
-          catch: (cause) => new StoredAttemptPersistenceV1Error({ cause }),
-        });
+        const result = yield* loader.loadEffect(
+          captureAuthorityPort(authorityState),
+        ).pipe(Effect.mapError((error) =>
+          new StoredAttemptPersistenceV1Error({ cause: error.cause })
+        ));
         const evidence = yield* requireLoadedEvidenceEffect(result);
-        const verified = yield* verifyStoredEvidenceEffect(
+        const verified = yield* verifyCanonicalStoredEvidenceEffect(
           authorityState,
-          envelope,
           evidence,
         );
-        const handle: AuthenticatedStoredAttemptV1 = Object.freeze({
-          [authenticatedStoredAttemptBrand]: PROCESS_LOCAL_CAPABILITY,
-        });
-        authenticatedStates.set(handle, verified);
-        return handle;
+        const envelopeMismatch = yield* compareCallerEnvelopeWithVerifiedState(
+          envelope,
+          evidence,
+          verified,
+        );
+        if (envelopeMismatch !== undefined) {
+          return yield* Effect.fail(envelopeMismatch);
+        }
+        return mintAuthenticatedStoredAttempt(verified);
       },
     );
 
@@ -1189,13 +1312,9 @@ export function createStoredAttemptAuthenticationV1(
       const continuedState = yield* Effect.fromResult(
         rebaseFinishingPreparedPointCommitState(state, result),
       );
-      const handle: FinishingPreparedPointCommitV1 = Object.freeze({
-        [preparedPointCommitBrand]: PROCESS_LOCAL_CAPABILITY,
-        [finishingPreparedPointCommitBrand]: PROCESS_LOCAL_CAPABILITY,
-      });
-      preparedPointCommitStates.set(handle, continuedState);
-      finishingPreparedPointCommitStates.add(handle);
-      return handle;
+      return yield* Effect.fromResult(
+        mintFinishingPreparedPointCommit(continuedState),
+      );
     });
 
   const publishFinishingPointCommit:
@@ -1216,11 +1335,76 @@ export function createStoredAttemptAuthenticationV1(
       return yield* publisher.publishPointCommit(input);
     });
 
-  return Object.freeze({
+  const finishingTransition = Object.freeze({
     ...publisher,
     enterPointCommitFinishing,
     publishPointCommit: publishFinishingPointCommit,
   } satisfies StoredPointCommitFinishingTransitionV1);
+  if (finishingEvidenceLoader === undefined) return finishingTransition;
+
+  const reconstructPointCommitFinishing:
+    StoredPointCommitExecutorV1["reconstructPointCommitFinishing"] = Effect.fn(
+      "StoredAttemptAuthentication.reconstructPointCommitFinishing",
+    )(function* (input) {
+      const selector = yield* Effect.fromResult(
+        decodePointMutationSessionAttemptSelectorV1Result(input),
+      );
+      const loadResult = yield* finishingEvidenceLoader.loadFinishingEffect(
+        selector,
+      ).pipe(Effect.mapError((error) =>
+        new StoredAttemptPersistenceV1Error({ cause: error.cause })
+      ));
+      const evidence = yield* requireLoadedEvidenceEffect(loadResult);
+      const authority = yield* captureRecoveredAuthorityEffect(
+        selector,
+        evidence,
+      );
+      const storedAttemptState = yield* verifyCanonicalStoredEvidenceEffect(
+        authority,
+        evidence,
+      );
+      const storedAttempt = mintAuthenticatedStoredAttempt(storedAttemptState);
+      const authenticatedAuthority = yield* authenticateCommitAuthority(
+        storedAttempt,
+      );
+      const verifiedInput = yield* verifyCommitInput(authenticatedAuthority);
+      const prepared = yield* planPointCommit(verifiedInput);
+      const preparedState = lookupPreparedPointCommitState(
+        preparedPointCommitStates,
+        prepared,
+      );
+      if (preparedState === undefined) {
+        return yield* Effect.fail(new InvalidPreparedPointCommitV1Error({
+          reason: "notSameFactory",
+        }));
+      }
+      return yield* Effect.fromResult(
+        mintFinishingPreparedPointCommit(preparedState),
+      );
+    });
+
+  const finishPointCommit: StoredPointCommitExecutorV1["finishPointCommit"] =
+    Effect.fn("StoredAttemptAuthentication.finishPointCommit")(
+      function* (input) {
+        const finishing = yield* enterPointCommitFinishing(input);
+        return yield* publishFinishingPointCommit(finishing);
+      },
+    );
+
+  const resumePointCommit: StoredPointCommitExecutorV1["resumePointCommit"] =
+    Effect.fn("StoredAttemptAuthentication.resumePointCommit")(
+      function* (selector) {
+        const finishing = yield* reconstructPointCommitFinishing(selector);
+        return yield* publishFinishingPointCommit(finishing);
+      },
+    );
+
+  return Object.freeze({
+    ...finishingTransition,
+    reconstructPointCommitFinishing,
+    finishPointCommit,
+    resumePointCommit,
+  } satisfies StoredPointCommitExecutorV1);
 }
 
 function captureCommitAuthorityPort(
@@ -1421,7 +1605,10 @@ function rebaseFinishingPreparedPointCommitState(
           dependency: Object.freeze(structuredClone(sourceIntent.dependency)),
           kind: "live" as const,
           creationTime: sourceIntent.creationTime,
-          value: structuredClone(sourceIntent.value),
+          value: normalizeFlarexValueV1(
+            sourceIntent.value,
+            "appDocument",
+          ).value,
           canonicalBytes: copyBytes(sourceIntent.canonicalBytes),
           semanticSizeBytes: sourceIntent.semanticSizeBytes,
         });
@@ -1573,7 +1760,10 @@ function capturePointCommitTransactionCommand(
           )),
           kind: "live" as const,
           creationTime: state.plan.rowIntent.creationTime,
-          value: state.plan.rowIntent.value,
+          value: normalizeFlarexValueV1(
+            state.plan.rowIntent.value,
+            "appDocument",
+          ).value,
           canonicalBytes: copyBytes(state.plan.rowIntent.canonicalBytes),
           semanticSizeBytes: state.plan.rowIntent.semanticSizeBytes,
         });
@@ -1677,16 +1867,68 @@ const requireLoadedEvidenceEffect = Effect.fn(
   }
 });
 
-const verifyStoredEvidenceEffect = Effect.fn(
-  "StoredAttemptAuthentication.verifyStoredEvidence",
+const captureRecoveredAuthorityEffect = Effect.fn(
+  "StoredAttemptAuthentication.captureRecoveredAuthority",
+)(function* (
+  selector: PointMutationSessionAttemptSelectorV1,
+  evidence: StoredAttemptEvidencePortV1,
+): Effect.fn.Return<
+  StoredAttemptAuthorityStateV1,
+  | StoredAttemptNotPlannableV1Error
+  | StoredAttemptAuthorityMismatchV1Error
+  | StoredAttemptStorageCorruptionV1Error
+> {
+  if (evidence.deploymentId !== selector.deploymentId) {
+    return yield* Effect.fail(authorityMismatchError("placementChanged"));
+  }
+  if (evidence.scopeId !== selector.scopeId) {
+    return yield* Effect.fail(authorityMismatchError("scopeChanged"));
+  }
+  if (evidence.sessionId !== selector.sessionId) {
+    return yield* Effect.fail(authorityMismatchError("attemptMissing"));
+  }
+  if (evidence.attemptFence !== selector.attemptFence) {
+    return yield* Effect.fail(authorityMismatchError("attemptReplaced"));
+  }
+  if (evidence.session.lifecycle !== "finishing") {
+    return yield* Effect.fail(new StoredAttemptNotPlannableV1Error({
+      reason: "lifecycle",
+      lifecycle: evidence.session.lifecycle,
+    }));
+  }
+  return yield* Effect.try({
+    try: () => Object.freeze({
+      deploymentId: TransactionGrantDeploymentIdV1Schema.make(
+        evidence.deploymentId,
+      ),
+      scopeId: ReplacementScopeIdV1Schema.make(evidence.scopeId),
+      sessionId: TransactionSessionIdV1Schema.make(evidence.sessionId),
+      attemptFence: TransactionAttemptFenceSchema.make(evidence.attemptFence),
+      storageGeneration: Schema.decodeUnknownSync(
+        FlarexDbV1StorageGenerationSchema,
+      )(evidence.session.storageGeneration),
+      storageGenerationFence: StorageGenerationFenceSchema.make(
+        evidence.session.storageGenerationFence,
+      ),
+      snapshotToken: SnapshotTokenSchema.make({
+        ...evidence.lease.snapshotToken,
+      }),
+      schemaVersionId: CatalogSchemaVersionIdSchema.make(
+        evidence.session.schemaVersionId,
+      ),
+    } satisfies StoredAttemptAuthorityStateV1),
+    catch: mapSynchronousStorageFailure,
+  });
+});
+
+const verifyCanonicalStoredEvidenceEffect = Effect.fn(
+  "StoredAttemptAuthentication.verifyCanonicalStoredEvidence",
 )(function* (
   authority: StoredAttemptAuthorityStateV1,
-  envelope: StoredForSessionAttemptCommitEnvelopeV1,
   evidence: StoredAttemptEvidencePortV1,
 ): Effect.fn.Return<
   AuthenticatedStoredAttemptStateV1,
   | StoredAttemptAuthorityMismatchV1Error
-  | StoredAttemptEnvelopeMismatchV1Error
   | StoredAttemptStorageCorruptionV1Error
 > {
   const scalarEvidence = yield* Effect.try({
@@ -1736,15 +1978,6 @@ const verifyStoredEvidenceEffect = Effect.fn(
   ) {
     return yield* corruptionEffect("resultSemanticBytesMismatch");
   }
-  const envelopeMismatch = storedEnvelopeMismatch(
-    envelope,
-    evidence,
-    scalarEvidence.journalSha256Hex,
-    successfulResult.evidence,
-  );
-  if (envelopeMismatch !== undefined) {
-    return yield* Effect.fail(envelopeMismatch);
-  }
   const counterMismatch = journalCounterMismatch(evidence, journal.journal);
   if (counterMismatch !== undefined) {
     return yield* Effect.fail(counterMismatch);
@@ -1768,6 +2001,36 @@ const verifyStoredEvidenceEffect = Effect.fn(
     catch: mapSynchronousStorageFailure,
   });
 });
+
+const compareCallerEnvelopeWithVerifiedState = Effect.fn(
+  "StoredAttemptAuthentication.compareCallerEnvelopeWithVerifiedState",
+)((
+  envelope: StoredForSessionAttemptCommitEnvelopeV1,
+  evidence: StoredAttemptEvidencePortV1,
+  verified: AuthenticatedStoredAttemptStateV1,
+): Effect.Effect<
+  StoredAttemptEnvelopeMismatchV1Error | undefined,
+  StoredAttemptStorageCorruptionV1Error
+> =>
+  Effect.try({
+    try: () => storedEnvelopeMismatch(
+      envelope,
+      evidence,
+      bytesToLowercaseHex(
+        verified.sealIdentity.journalSha256,
+        "journalDigestInvalid",
+      ),
+      Object.freeze({
+        valueCodecVersion:
+          verified.sealIdentity.resultValueCodecVersion,
+        canonicalValueBase64Url: base64UrlFromBytes(
+          verified.successfulResult.canonicalBytes,
+        ),
+        sha256Hex: verified.successfulResult.sha256Hex,
+      }),
+    ),
+    catch: mapSynchronousStorageFailure,
+  }));
 
 const normalizeAuthenticatedResultValueEffect = Effect.fn(
   "StoredAttemptAuthentication.normalizeAuthenticatedResultValue",
@@ -2509,10 +2772,13 @@ function mapSynchronousStorageFailure(
   if (cause instanceof StoredAttemptStorageCorruptionV1Error) {
     return cause;
   }
-  return new StoredAttemptStorageCorruptionV1Error({
-    reason: "storedEvidenceInvalid",
-    cause,
-  });
+  if (Schema.isSchemaError(cause)) {
+    return new StoredAttemptStorageCorruptionV1Error({
+      reason: "storedEvidenceInvalid",
+      cause,
+    });
+  }
+  throw cause;
 }
 
 function mapPointEvidenceFailure(

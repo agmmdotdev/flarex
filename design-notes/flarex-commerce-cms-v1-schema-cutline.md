@@ -3,9 +3,9 @@
 Status: accepted v1 implementation cutline; the internal S06 row kernel, S07
 transaction-session authority tables, O04/O05 point read/OCC semantics, C03
 trusted point journal, private C04A/C04B1/C04B2 authentication and final-value
-proof gates, C04C1 logical planning, O06/O07-B point publication, and C05-A's
-finishing barrier are implemented. C05-B complete compiler composition,
-sidecars, target activation, prototype
+proof gates, C04C1 logical planning, O06/O07-B point publication, C05-A's
+finishing barrier, and C05-B fresh-process reconstruction/private publisher
+composition are implemented. Sidecars, target activation, prototype
 retirement, and hosted routing remain incomplete; shipped-state migration
 remains conditional
 
@@ -1048,8 +1048,9 @@ the attempt remains `running`, and that seal rejects later syscalls. C04A
 authenticates the detached seal for initial work or reconstructs it from
 `finishing + sealed`; C04B/C04C verify and plan. C05-A locks and revalidates the
 scalar seal identity before the exact-fence transition to `finishing` and mints
-the same-factory continuation. C05-B owns the fresh-process finishing entry and
-complete publication composition, C06 orchestrates the endpoint, O07 atomically deletes the exact lease and stores
+the same-factory continuation. C05-B now reuses the bounded C04 stored-evidence
+loader/verifier for its separate fresh-process finishing entry and composes both
+paths with the same O07-B publisher. C06 orchestrates the endpoint, O07 atomically deletes the exact lease and stores
 committed state, O08 owns retry replacement, and O11 first consumes active
 snapshot floors for history retention.
 

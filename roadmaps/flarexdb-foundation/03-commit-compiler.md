@@ -13,7 +13,8 @@ also complete. O06's reusable private point-commit transaction kernel and
 forced-rollback proof, O07-A private read-only committed-outcome resolver, and
   O07-B private durable point publication are complete. C05-A's private scalar-
   fenced finishing transition and same-factory continuation are complete. C05-B
-  fresh-process reconstruction and full composition are next; C06 dispatch
+  fresh-process reconstruction and private compiler/publisher composition are
+  also complete; O08 is next and C06 dispatch
   remains pending, while C04C2 remains conditional and unapproved.
 
 This plan owns the bounded Flarex app-data path from logical session operations
@@ -199,8 +200,8 @@ Introduce each boundary only at its real owner:
   outbox lowering capability useful.
 - O06 owns the reusable rollback-proven transaction kernel; O07-B owns the first
   exact durable atomic persistence capability. C05-A owns the intervening
-  scalar-fenced finishing barrier; C05-B is their first complete planner/
-  production-executor composition consumer.
+  scalar-fenced finishing barrier; C05-B is their first complete private
+  planner/O07-B publisher composition consumer.
 - C06 owns `PostCommitWake`, after durable commit and outbox evidence make its
   ordering meaningful.
 
@@ -514,14 +515,18 @@ Exit gate:
   serialization, independent-scope progress, transition-versus-abort/expiry,
   interruption held through settlement, bounded projections, and index plans.
 
-### [ ] C05-B — Reconstruct Finishing Authority And Compose O07-B
+### [x] C05-B — Reconstruct Finishing Authority And Compose O07-B
 
 Outcome:
 
-- Add the separate fresh-process entry that can authenticate `finishing +
-  sealed` without widening C03's running-only syscall authority, then reproduce
-  the same private finishing capability through the C04 chain.
-- Compose C05-A transition/reconstruction with the O07-B-owned private
+- A separate strict four-scalar selector entry now authenticates exactly live
+  `finishing + sealed` without widening C03/O03-B2a running-only syscall
+  authority. The selector is a locator only. Recovery reuses C04A's bounded
+  repeatable-read capture/materializer and evidence-first canonical verifier,
+  with no caller envelope or fabricated self-comparison, before traversing the
+  existing C04B/C1 chain and minting the same private finishing capability.
+- The normal operation composes C05-A transition with O07-B, and the fresh-
+  process operation reconstructs then invokes that same O07-B-owned private
   `CommitExecutor`. O07-B continues to own dependency adaptation, authoritative
   head loading, O05, sequence/time allocation, rows, result/outcome, feed,
   outbox, exact lease/journal cleanup, committed session state, and clock

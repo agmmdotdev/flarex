@@ -20,8 +20,9 @@ commit-authority authentication and C04B2's private-C07 final-value proof are
 complete. Corrected C04C1 private logical point planning and O06's reusable
 rollback-proven point-commit transaction kernel, O07-A private read-only
 committed-outcome resolver, and O07-B private durable point publication are
-complete. C05-A's exact scalar-fenced finishing transition is complete; C05-B
-fresh-process finishing reconstruction and full composition are next. C04C2
+complete. C05-A's exact scalar-fenced finishing transition and C05-B's separate
+fresh-process finishing reconstruction/private publisher composition are
+complete. O08 is next. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
@@ -723,9 +724,10 @@ Deferred ownership after the required O03-B core:
   syscalls. C04A authenticates a live `running + sealed` attempt for initial
   planning or `finishing + sealed` for reconstruction, while O03-B2a remains a
   running-only restart entry. `C05-A` locks and revalidates scalar seal identity
-  before the private exact-fence transition to `finishing`; `C05-B` owns the
-  separate fresh-process finishing entry and full publication composition, and
-  `C06` owns endpoint orchestration;
+  before the private exact-fence transition to `finishing`; `C05-B` now reuses
+  the same bounded stored-evidence snapshot and C04 verifier for a separate
+  finishing-only fresh-process entry, traverses the existing compiler chain,
+  and invokes the same O07-B publisher. `C06` owns endpoint orchestration;
 - `O07-B` atomically deletes the exact current lease and stores `committed` only
   inside the data/result/outcome/feed/outbox transaction;
 - `O08` introduces the checked delete/fence-advance/new-lease primitive with
@@ -918,7 +920,8 @@ Outcome:
 
 - Reuse and extend the O06 kernel as the private `CommitExecutor` capability that
   accepts only the immutable prepared point plan. C05-A supplies its exact
-  finishing capability and C05-B is its first complete compiler consumer; this
+  same-process finishing capability and C05-B supplies equivalent fresh-process
+  reconstruction as its first complete compiler consumer; this
   target capability never wraps or promotes legacy
   `commitInvokeSessionWrites`.
 - Consume S09-A through a fast committed-outcome lookup before entering the
