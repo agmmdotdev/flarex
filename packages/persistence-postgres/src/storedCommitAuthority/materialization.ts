@@ -1,6 +1,7 @@
 import {
   bytesEqualFullScan as bytesEqual,
   copyBytes,
+  isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import {
   isNonNegativeSafeInteger,
@@ -465,10 +466,10 @@ function validSessionScalars(session: SessionSizeRow): boolean {
     session.hardExpiresAt.getTime() ===
       session.authorizationGrantExpiresAt.getTime() &&
     session.updatedAt.getTime() >= session.createdAt.getTime() &&
-    validByteLength(session.identityAccessPolicySha256, 32) &&
-    validByteLength(session.validatedArgsSha256, 32) &&
-    validByteLength(session.authorizationGrantSha256, 32) &&
-    validByteLength(session.requestSha256, 32) &&
+    isUint8ArrayWithByteLength(session.identityAccessPolicySha256, 32) &&
+    isUint8ArrayWithByteLength(session.validatedArgsSha256, 32) &&
+    isUint8ArrayWithByteLength(session.authorizationGrantSha256, 32) &&
+    isUint8ArrayWithByteLength(session.requestSha256, 32) &&
     isPositiveSafeInteger(
       parseLength(session.validatedArgsCanonicalByteLengthText),
     ) &&
@@ -542,8 +543,8 @@ function validRootScalars(root: RootScalarRow): boolean {
     root.sealedAt !== null &&
     isPositiveSafeInteger(parseLength(root.sealedJournalByteLengthText)) &&
     isPositiveSafeInteger(parseLength(root.sealedResultByteLengthText)) &&
-    validByteLength(root.sealedJournalSha256, 32) &&
-    validByteLength(root.sealedResultSha256, 32) &&
+    isUint8ArrayWithByteLength(root.sealedJournalSha256, 32) &&
+    isUint8ArrayWithByteLength(root.sealedResultSha256, 32) &&
     validDate(root.createdAt) &&
     validDate(root.updatedAt) &&
     validDate(root.sealedAt) &&
@@ -815,8 +816,4 @@ function decodeDatabaseNow(value: string | undefined): number | undefined {
 
 function validDate(value: Date): boolean {
   return value instanceof Date && Number.isFinite(value.getTime());
-}
-
-function validByteLength(value: Uint8Array, length: number): boolean {
-  return value instanceof Uint8Array && value.byteLength === length;
 }

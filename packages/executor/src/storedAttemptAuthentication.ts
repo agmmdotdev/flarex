@@ -2,6 +2,7 @@ import {
   bytesEqualFullScan as bytesEqual,
   copyBytes,
   encodeBytesToLowercaseHex,
+  isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { Data, Effect, Encoding, Schema } from "effect";
 
@@ -2122,7 +2123,7 @@ function bytesToLowercaseHex(
   bytes: Uint8Array,
   reason: StoredAttemptStorageCorruptionReasonV1,
 ): string {
-  if (!(bytes instanceof Uint8Array) || bytes.byteLength !== 32) {
+  if (!isUint8ArrayWithByteLength(bytes, 32)) {
     throw corruption(reason);
   }
   return encodeBytesToLowercaseHex(bytes);

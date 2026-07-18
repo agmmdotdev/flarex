@@ -1,4 +1,7 @@
-import { copyBytes } from "@flarex/utils/bytes";
+import {
+  copyBytes,
+  isUint8ArrayWithByteLength,
+} from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, asc, eq, sql } from "drizzle-orm";
 
@@ -659,10 +662,10 @@ function materializeStoredAttemptEvidenceUnsafe(
     session.hardExpiresAt.getTime() !==
       session.authorizationGrantExpiresAt.getTime() ||
     session.updatedAt.getTime() < session.createdAt.getTime() ||
-    !validByteLength(session.identityAccessPolicySha256, 32) ||
-    !validByteLength(session.validatedArgsSha256, 32) ||
-    !validByteLength(session.authorizationGrantSha256, 32) ||
-    !validByteLength(session.requestSha256, 32) ||
+    !isUint8ArrayWithByteLength(session.identityAccessPolicySha256, 32) ||
+    !isUint8ArrayWithByteLength(session.validatedArgsSha256, 32) ||
+    !isUint8ArrayWithByteLength(session.authorizationGrantSha256, 32) ||
+    !isUint8ArrayWithByteLength(session.requestSha256, 32) ||
     !isPositiveSafeInteger(session.validatedArgsCanonicalByteLength) ||
     !isPositiveSafeInteger(session.authorizationGrantCanonicalByteLength)
   ) {
@@ -837,8 +840,8 @@ function captureSealedRoot(
     !validDate(root.sealedAt) ||
     root.updatedAt.getTime() < root.createdAt.getTime() ||
     root.sealedAt.getTime() < root.createdAt.getTime() ||
-    !validByteLength(root.sealedJournalSha256, 32) ||
-    !validByteLength(root.sealedResultSha256, 32)
+    !isUint8ArrayWithByteLength(root.sealedJournalSha256, 32) ||
+    !isUint8ArrayWithByteLength(root.sealedResultSha256, 32)
   ) {
     return undefined;
   }
@@ -929,10 +932,6 @@ function decodeDatabaseNow(value: string | undefined): number | undefined {
 
 function validDate(value: Date): boolean {
   return value instanceof Date && Number.isFinite(value.getTime());
-}
-
-function validByteLength(value: Uint8Array, length: number): boolean {
-  return value instanceof Uint8Array && value.byteLength === length;
 }
 
 function authorityMismatch(

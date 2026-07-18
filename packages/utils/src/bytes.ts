@@ -1,3 +1,15 @@
+const TYPED_ARRAY_PROTOTYPE: object = Object.getPrototypeOf(
+  Uint8Array.prototype,
+);
+const TYPED_ARRAY_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  "byteLength",
+)?.get;
+const TYPED_ARRAY_TAG_GETTER = Object.getOwnPropertyDescriptor(
+  TYPED_ARRAY_PROTOTYPE,
+  Symbol.toStringTag,
+)?.get;
+
 /** Returns an owned byte array that does not share storage with the input. */
 export function copyBytes(value: Uint8Array): Uint8Array {
   return new Uint8Array(value);
@@ -8,6 +20,31 @@ export function copyBytesToArrayBuffer(value: Uint8Array): ArrayBuffer {
   const buffer = new ArrayBuffer(value.byteLength);
   new Uint8Array(buffer).set(value);
   return buffer;
+}
+
+/**
+ * Narrows an unknown value to a Uint8Array whose visible view has exactly the
+ * requested byte length.
+ */
+export function isUint8ArrayWithByteLength(
+  value: unknown,
+  expectedByteLength: number,
+): value is Uint8Array {
+  try {
+    if (
+      !(value instanceof Uint8Array) ||
+      TYPED_ARRAY_BYTE_LENGTH_GETTER === undefined ||
+      TYPED_ARRAY_TAG_GETTER === undefined
+    ) {
+      return false;
+    }
+    const typedArrayTag: unknown = TYPED_ARRAY_TAG_GETTER.call(value);
+    if (typedArrayTag !== "Uint8Array") return false;
+    const byteLength: unknown = TYPED_ARRAY_BYTE_LENGTH_GETTER.call(value);
+    return byteLength === expectedByteLength;
+  } catch {
+    return false;
+  }
 }
 
 /**

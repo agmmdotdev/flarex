@@ -1,6 +1,7 @@
 import {
   compareBytesLexicographically,
   encodeBytesToLowercaseHex,
+  isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { Data, Schema } from "effect";
 
@@ -473,7 +474,7 @@ export function orderedIndexValueFromFlarexValueV1(
 export function orderedIndexRowIdHexV1FromBytes(
   value: Uint8Array,
 ): OrderedIndexRowIdHexV1 {
-  if (!(value instanceof Uint8Array) || value.byteLength !== ORDERED_INDEX_ROW_ID_BYTES_V1) {
+  if (!isUint8ArrayWithByteLength(value, ORDERED_INDEX_ROW_ID_BYTES_V1)) {
     throw invalidValue(
       "$rowId",
       `row identity must contain exactly ${ORDERED_INDEX_ROW_ID_BYTES_V1} bytes`,

@@ -7,6 +7,7 @@ import {
   copyBytes,
   copyBytesToArrayBuffer,
   encodeBytesToLowercaseHex,
+  isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 
 describe("copyBytes", () => {
@@ -62,6 +63,95 @@ describe("copyBytesToArrayBuffer", () => {
 
     copy.fill(6);
     expect(source).toEqual(new Uint8Array([7, 7]));
+  });
+});
+
+describe("isUint8ArrayWithByteLength", () => {
+  it("narrows only Uint8Array views with the requested visible length", () => {
+    const backing = new Uint8Array([9, 1, 2, 8]);
+    const visible = backing.subarray(1, 3);
+
+    expect(isUint8ArrayWithByteLength(visible, 2)).toBe(true);
+    expect(isUint8ArrayWithByteLength(visible, backing.byteLength)).toBe(false);
+    expect(isUint8ArrayWithByteLength(new DataView(backing.buffer), 4))
+      .toBe(false);
+    expect(isUint8ArrayWithByteLength(backing.buffer, 4)).toBe(false);
+    expect(isUint8ArrayWithByteLength([9, 1, 2, 8], 4)).toBe(false);
+  });
+
+  it("preserves detached views as zero-length Uint8Array values", () => {
+    const buffer = new ArrayBuffer(2);
+    const bytes = new Uint8Array(buffer);
+    structuredClone(buffer, { transfer: [buffer] });
+
+    expect(isUint8ArrayWithByteLength(bytes, 0)).toBe(true);
+    expect(isUint8ArrayWithByteLength(bytes, 2)).toBe(false);
+  });
+
+  it("does not consult a caller-overridden iterator", () => {
+    const bytes = new Uint8Array([1, 2]);
+    Object.defineProperty(bytes, Symbol.iterator, {
+      value: () => [9][Symbol.iterator](),
+    });
+
+    expect([...bytes]).toEqual([9]);
+    expect(isUint8ArrayWithByteLength(bytes, 2)).toBe(true);
+  });
+
+  it("reads the intrinsic view length instead of an own spoofed property", () => {
+    const bytes = new Uint8Array([1]);
+    Object.defineProperty(bytes, "byteLength", { value: 32 });
+
+    expect(bytes.byteLength).toBe(32);
+    expect(isUint8ArrayWithByteLength(bytes, 1)).toBe(true);
+    expect(isUint8ArrayWithByteLength(bytes, 32)).toBe(false);
+  });
+
+  it("reads the intrinsic view length instead of a subclass override", () => {
+    class SpoofedByteLength extends Uint8Array {
+      override get byteLength(): number {
+        return 32;
+      }
+    }
+
+    const bytes = new SpoofedByteLength(1);
+    expect(bytes.byteLength).toBe(32);
+    expect(isUint8ArrayWithByteLength(bytes, 1)).toBe(true);
+    expect(isUint8ArrayWithByteLength(bytes, 32)).toBe(false);
+  });
+
+  it("rejects forwarding and revoked Proxies without throwing", () => {
+    const target = new Uint8Array([1]);
+    expect(isUint8ArrayWithByteLength(new Proxy(target, {}), 1)).toBe(false);
+
+    const forwarding = new Proxy(target, {
+      get(value, key) {
+        return Reflect.get(value, key, value);
+      },
+    });
+    expect(forwarding.byteLength).toBe(1);
+    expect(isUint8ArrayWithByteLength(forwarding, 1)).toBe(false);
+
+    const revocable = Proxy.revocable(new Uint8Array([1]), {});
+    revocable.revoke();
+    expect(isUint8ArrayWithByteLength(revocable.proxy, 1)).toBe(false);
+  });
+
+  it("rejects typed-array prototype impostors without throwing", () => {
+    const impostor: unknown = Object.create(Uint8Array.prototype);
+    expect(impostor instanceof Uint8Array).toBe(true);
+    expect(isUint8ArrayWithByteLength(impostor, 0)).toBe(false);
+
+    const forgedProxy: unknown = new Proxy({}, {
+      getPrototypeOf: () => Uint8Array.prototype,
+    });
+    expect(forgedProxy instanceof Uint8Array).toBe(true);
+    expect(isUint8ArrayWithByteLength(forgedProxy, 0)).toBe(false);
+
+    const wrongElementType = new Uint16Array([1]);
+    Object.setPrototypeOf(wrongElementType, Uint8Array.prototype);
+    expect(wrongElementType instanceof Uint8Array).toBe(true);
+    expect(isUint8ArrayWithByteLength(wrongElementType, 2)).toBe(false);
   });
 });
 

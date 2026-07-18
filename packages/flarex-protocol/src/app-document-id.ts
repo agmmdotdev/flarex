@@ -1,4 +1,7 @@
-import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
+import {
+  encodeBytesToLowercaseHex,
+  isUint8ArrayWithByteLength,
+} from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { Data, Schema } from "effect";
 
@@ -144,7 +147,7 @@ export function requireAppDocumentIdentityV1ForTable(
 }
 
 export function appRowIdHexV1FromBytes(value: unknown): AppRowIdHexV1 {
-  if (!(value instanceof Uint8Array) || value.byteLength !== APP_ROW_ID_BYTES_V1) {
+  if (!isUint8ArrayWithByteLength(value, APP_ROW_ID_BYTES_V1)) {
     throw new AppDocumentIdV1Error({
       issue: {
         reason: "invalidRowId",

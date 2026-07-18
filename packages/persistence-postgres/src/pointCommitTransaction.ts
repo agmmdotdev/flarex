@@ -1,4 +1,7 @@
-import { bytesEqualFullScan as bytesEqual } from "@flarex/utils/bytes";
+import {
+  bytesEqualFullScan as bytesEqual,
+  isUint8ArrayWithByteLength,
+} from "@flarex/utils/bytes";
 import {
   isNonNegativeSafeInteger,
   isPositiveSafeInteger,
@@ -1868,8 +1871,7 @@ function findSqlState(cause: unknown, depth = 0): string | undefined {
 }
 
 function validHash(value: unknown): value is Uint8Array {
-  return value instanceof Uint8Array &&
-    value.byteLength === HASH_BYTE_LENGTH;
+  return isUint8ArrayWithByteLength(value, HASH_BYTE_LENGTH);
 }
 
 function validEpochMilliseconds(value: unknown): value is number {

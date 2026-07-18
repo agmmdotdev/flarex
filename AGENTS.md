@@ -190,6 +190,18 @@ representation rather than a broader host capability. Keep caller-specific
 configuration errors local while sharing the predicate and inclusive bounds.
 Validate the numeric representation before relational comparisons so unknown
 JavaScript inputs are rejected without invoking caller-controlled coercion.
+Use `@flarex/utils/bytes` only for the shallow `Uint8Array` and visible-byte-
+length predicate when independent owners need that exact classification. The
+predicate reads the intrinsic typed-array kind and view length rather than
+trusting `instanceof` or an own caller-controlled `byteLength` property. Keep
+fixed digest or identity lengths, branded byte values, canonical encoding,
+validation messages, and domain failure mapping with their protocol,
+persistence, or executor owner. A detached `Uint8Array` has a visible byte
+length of zero under JavaScript and the shared predicate preserves that native
+classification. Proxy receivers and prototype impostors that fail the intrinsic
+typed-array brand check return `false` rather than leaking a native exception;
+domain boundaries that forbid detached or empty evidence must retain their own
+stronger invariant.
 
 Expose generic utilities through intentional subpath exports. Do not add a
 package-root catch-all barrel unless its public surface has been deliberately

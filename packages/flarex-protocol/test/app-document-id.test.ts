@@ -106,6 +106,23 @@ describe("replacement app document identity v1", () => {
     expect(() => appRowIdHexV1FromBytes(new Uint8Array(15))).toThrow(
       AppDocumentIdV1Error,
     );
+
+    const spoofedLength = new Uint8Array(1);
+    Object.defineProperty(spoofedLength, "byteLength", { value: 16 });
+    expect(spoofedLength.byteLength).toBe(16);
+    expect(() => appRowIdHexV1FromBytes(spoofedLength)).toThrow(
+      AppDocumentIdV1Error,
+    );
+
+    const proxied = new Proxy(new Uint8Array(16), {
+      get(value, key) {
+        return Reflect.get(value, key, value);
+      },
+    });
+    expect(proxied.byteLength).toBe(16);
+    expect(() => appRowIdHexV1FromBytes(proxied)).toThrow(
+      AppDocumentIdV1Error,
+    );
   });
 });
 

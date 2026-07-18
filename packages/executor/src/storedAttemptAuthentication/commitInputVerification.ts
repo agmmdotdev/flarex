@@ -2,6 +2,7 @@ import {
   bytesEqualFullScan as bytesEqual,
   copyBytes,
   encodeBytesToLowercaseHex,
+  isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { Data, Effect } from "effect";
@@ -491,7 +492,7 @@ function captureAuthorityPins(
 }
 
 function lowercaseHexOrUndefined(bytes: Uint8Array): string | undefined {
-  if (!(bytes instanceof Uint8Array) || bytes.byteLength !== 32) {
+  if (!isUint8ArrayWithByteLength(bytes, 32)) {
     return undefined;
   }
   return encodeBytesToLowercaseHex(bytes);
