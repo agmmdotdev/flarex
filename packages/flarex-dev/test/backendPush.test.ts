@@ -62,6 +62,66 @@ describe("backend push coordinator", () => {
     ]);
   });
 
+  it("preserves diagnostics while rejecting invalid local and HTTP push states", async () => {
+    const diagnostics = [{ level: "error", message: "invalid backend state" }] as const;
+    const backend = {
+      dispatchFetch: async () => Response.json({
+        pushId: "push1",
+        state: "toString",
+        diagnostics,
+      }),
+    } as unknown as Miniflare;
+    const coordinator = new LocalBackendPushCoordinator(backend, "deployment1");
+
+    const expectedError = {
+      message: "Backend push response state is invalid.",
+      diagnostics,
+    };
+    await expect(coordinator.start(testSourcePackage())).rejects.toMatchObject(expectedError);
+    await expect(coordinator.abandon("push1")).rejects.toMatchObject(expectedError);
+
+    const fetcher: typeof fetch = async () => Response.json({
+      pushId: "push1",
+      state: "toString",
+      diagnostics,
+    });
+    await expect(new HttpBackendPushCoordinator({
+      url: "https://flarex.example",
+      deploymentId: "deployment1",
+      fetch: fetcher,
+    }).start(testSourcePackage())).rejects.toMatchObject(expectedError);
+  });
+
+  it("preserves local non-OK status and text before payload decoding", async () => {
+    const backend = {
+      dispatchFetch: async () => new Response("service unavailable", {
+        status: 503,
+      }),
+    } as unknown as Miniflare;
+
+    await expect(
+      new LocalBackendPushCoordinator(backend, "deployment1").start(
+        testSourcePackage(),
+      ),
+    ).rejects.toThrow(
+      "Backend request /deployments/deployment1/push/start failed with status 503: service unavailable",
+    );
+  });
+
+  it("preserves local JSON syntax failure before domain decoding", async () => {
+    const backend = {
+      dispatchFetch: async () => new Response("{", {
+        headers: { "content-type": "application/json" },
+      }),
+    } as unknown as Miniflare;
+
+    await expect(
+      new LocalBackendPushCoordinator(backend, "deployment1").start(
+        testSourcePackage(),
+      ),
+    ).rejects.toThrow(SyntaxError);
+  });
+
   it("starts HTTP backend push and parses returned codegen analysis", async () => {
     const sourcePackage = testSourcePackage();
     const analysis = testAnalysis();
@@ -140,22 +200,6 @@ describe("backend push coordinator", () => {
       message: "Backend push request failed with status 503.",
       diagnostics: [],
     });
-  });
-
-  it("rejects inherited property names as HTTP backend push states", async () => {
-    const fetcher: typeof fetch = async () =>
-      Response.json({
-        pushId: "push1",
-        state: "toString",
-      });
-
-    await expect(new HttpBackendPushCoordinator({
-      url: "https://flarex.example",
-      deploymentId: "deployment1",
-      fetch: fetcher,
-    }).start(testSourcePackage())).rejects.toThrow(
-      "Backend push response state is invalid.",
-    );
   });
 
   it("preserves configured HTTP backend URL path prefixes", async () => {

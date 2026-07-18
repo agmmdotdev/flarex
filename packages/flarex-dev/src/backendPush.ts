@@ -235,7 +235,7 @@ export class LocalBackendPushCoordinator implements BackendPushCoordinator {
   }
 
   async start(sourcePackage: SourcePackage): Promise<DevPushStatus> {
-    return postBackend<DevPushStatus>(
+    return postLocalBackendPush(
       this.backend,
       `/deployments/${this.deploymentId}/push/start`,
       {
@@ -253,16 +253,16 @@ export class LocalBackendPushCoordinator implements BackendPushCoordinator {
       body: JSON.stringify({}),
     });
     // Deliberate runtime bridge: local backend finish API is Promise-based.
-    const payload = await Effect.runPromise(
+    return await Effect.runPromise(
       decodeLocalBackendFinishBody(response, path).pipe(
         Effect.mapError(localBackendFinishResponseErrorToError),
+        Effect.flatMap(parseDevFinishPushResponseEffect),
       ),
     );
-    return await Effect.runPromise(parseDevFinishPushResponseEffect(payload));
   }
 
   abandon(pushId: string, request: AbandonPushRequest = {}): Promise<DevPushStatus> {
-    return postBackend<DevPushStatus>(
+    return postLocalBackendPush(
       this.backend,
       `/deployments/${this.deploymentId}/push/${pushId}/abandon`,
       request,
@@ -316,12 +316,12 @@ export class HttpBackendPushCoordinator implements BackendPushCoordinator {
       body: JSON.stringify(body),
     });
     // Deliberate runtime bridge: HTTP backend push API is Promise-based.
-    const payload = await Effect.runPromise(
+    return await Effect.runPromise(
       decodeHttpBackendPushBody(response).pipe(
         Effect.mapError(backendPushResponseErrorToAnalysisError),
+        Effect.flatMap(parseDevPushStatusEffect),
       ),
     );
-    return await Effect.runPromise(parseDevPushStatusEffect(payload));
   }
 
   private async postFinish(path: string, body: unknown): Promise<DevFinishPushResponse> {
@@ -331,12 +331,12 @@ export class HttpBackendPushCoordinator implements BackendPushCoordinator {
       body: JSON.stringify(body),
     });
     // Deliberate runtime bridge: HTTP backend finish API is Promise-based.
-    const payload = await Effect.runPromise(
+    return await Effect.runPromise(
       decodeHttpBackendFinishBody(response).pipe(
         Effect.mapError(backendPushResponseErrorToAnalysisError),
+        Effect.flatMap(parseDevFinishPushResponseEffect),
       ),
     );
-    return await Effect.runPromise(parseDevFinishPushResponseEffect(payload));
   }
 }
 
@@ -670,99 +670,106 @@ function analysisFailure(
   return Effect.fail(new ExecutionArtifactAnalysisError(message, diagnostics));
 }
 
-function parseDevPushStatusEffect(
-  value: unknown,
-): Effect.Effect<DevPushStatus, ExecutionArtifactAnalysisError> {
-  if (!isRecord(value)) {
-    return analysisFailure("Backend push response body must be an object.", []);
-  }
-  if (typeof value.pushId !== "string" || value.pushId.length === 0) {
-    return analysisFailure("Backend push response pushId must be a non-empty string.", []);
-  }
-  if (!isPushState(value.state)) {
-    return analysisFailure("Backend push response state is invalid.", []);
-  }
-  const pushId = value.pushId;
-  const state = value.state;
-  const diagnostics = diagnosticsFromBody(value);
-  return Effect.gen(function* () {
-    const codegenAnalysis = "codegenAnalysis" in value
-      ? yield* parseCodegenAnalysisFromBodyEffect(value)
-      : undefined;
-    const backendAnalysis = "analysis" in value
-      ? yield* decodeProtocolDeploymentAnalysisEffect(value.analysis, diagnostics)
-      : undefined;
-    return {
-      pushId,
-      state,
-      ...(backendAnalysis === undefined ? {} : { analysis: backendAnalysis }),
-      ...(codegenAnalysis === undefined ? {} : { codegenAnalysis }),
-      ...(typeof value.error === "string" ? { error: value.error } : {}),
-      ...(diagnostics.length === 0 ? {} : { diagnostics }),
-    };
-  });
-}
-
-function parseDevFinishPushResponseEffect(
-  value: unknown,
-): Effect.Effect<DevFinishPushResponse, ExecutionArtifactAnalysisError> {
-  if (isFinishPushResponseEnvelope(value)) {
-    const diagnostics = diagnosticsFromBody(value);
-    if (!isRecord(value.push)) {
-      return analysisFailure("Backend finish response push must be an object.", diagnostics);
+const parseDevPushStatusEffect = Effect.fn("FlarexDev.parsePushStatus")(
+  function (
+    value: unknown,
+  ): Effect.Effect<DevPushStatus, ExecutionArtifactAnalysisError> {
+    if (!isRecord(value)) {
+      return analysisFailure("Backend push response body must be an object.", []);
     }
+    const diagnostics = diagnosticsFromBody(value);
+    if (typeof value.pushId !== "string" || value.pushId.length === 0) {
+      return analysisFailure(
+        "Backend push response pushId must be a non-empty string.",
+        diagnostics,
+      );
+    }
+    if (!isPushState(value.state)) {
+      return analysisFailure("Backend push response state is invalid.", diagnostics);
+    }
+    const pushId = value.pushId;
+    const state = value.state;
     return Effect.gen(function* () {
-      const push = yield* parseDevPushStatusEffect(value.push);
-      if (value.result === "activated") {
-        if (push.state !== "activated") {
+      const codegenAnalysis = "codegenAnalysis" in value
+        ? yield* parseCodegenAnalysisFromBodyEffect(value)
+        : undefined;
+      const backendAnalysis = "analysis" in value
+        ? yield* decodeProtocolDeploymentAnalysisEffect(value.analysis, diagnostics)
+        : undefined;
+      return {
+        pushId,
+        state,
+        ...(backendAnalysis === undefined ? {} : { analysis: backendAnalysis }),
+        ...(codegenAnalysis === undefined ? {} : { codegenAnalysis }),
+        ...(typeof value.error === "string" ? { error: value.error } : {}),
+        ...(diagnostics.length === 0 ? {} : { diagnostics }),
+      };
+    });
+  },
+);
+
+const parseDevFinishPushResponseEffect = Effect.fn("FlarexDev.parseFinishPushResponse")(
+  function (
+    value: unknown,
+  ): Effect.Effect<DevFinishPushResponse, ExecutionArtifactAnalysisError> {
+    if (isFinishPushResponseEnvelope(value)) {
+      const diagnostics = diagnosticsFromBody(value);
+      if (!isRecord(value.push)) {
+        return analysisFailure("Backend finish response push must be an object.", diagnostics);
+      }
+      return Effect.gen(function* () {
+        const push = yield* parseDevPushStatusEffect(value.push);
+        if (value.result === "activated") {
+          if (push.state !== "activated") {
+            return yield* analysisFailure(
+              "Backend finish response activated result must include an activated push.",
+              diagnostics,
+            );
+          }
+          const activatedPush: DevPushStatus & { state: "activated" } = {
+            ...push,
+            state: "activated",
+          };
+          return { result: "activated", push: activatedPush };
+        }
+        if (typeof value.error !== "string") {
           return yield* analysisFailure(
-            "Backend finish response activated result must include an activated push.",
+            "Backend rejected finish response must include an error.",
             diagnostics,
           );
         }
+        if (!isFinishPushRejectionCode(value.code)) {
+          return yield* analysisFailure(
+            "Backend rejected finish response code is invalid.",
+            diagnostics,
+          );
+        }
+        return {
+          result: "rejected",
+          push,
+          code: value.code,
+          error: value.error,
+          ...(diagnostics.length === 0 ? {} : { diagnostics }),
+        };
+      });
+    }
+
+    return Effect.gen(function* () {
+      const push = yield* parseDevPushStatusEffect(value);
+      if (push.state === "activated") {
         const activatedPush: DevPushStatus & { state: "activated" } = {
           ...push,
           state: "activated",
         };
         return { result: "activated", push: activatedPush };
       }
-      if (typeof value.error !== "string") {
-        return yield* analysisFailure(
-          "Backend rejected finish response must include an error.",
-          diagnostics,
-        );
-      }
-      if (!isFinishPushRejectionCode(value.code)) {
-        return yield* analysisFailure(
-          "Backend rejected finish response code is invalid.",
-          diagnostics,
-        );
-      }
-      return {
-        result: "rejected",
-        push,
-        code: value.code,
-        error: value.error,
-        ...(diagnostics.length === 0 ? {} : { diagnostics }),
-      };
+      return yield* analysisFailure(
+        "Legacy raw finish push status responses must be activated.",
+        push.diagnostics ?? [],
+      );
     });
-  }
-
-  return Effect.gen(function* () {
-    const push = yield* parseDevPushStatusEffect(value);
-    if (push.state === "activated") {
-      const activatedPush: DevPushStatus & { state: "activated" } = {
-        ...push,
-        state: "activated",
-      };
-      return { result: "activated", push: activatedPush };
-    }
-    return yield* analysisFailure(
-      "Legacy raw finish push status responses must be activated.",
-      push.diagnostics ?? [],
-    );
-  });
-}
+  },
+);
 
 function isFinishPushResponseEnvelope(value: unknown): value is {
   result: "activated" | "rejected";
@@ -832,12 +839,12 @@ function stableAnalysisJson(analysis: CodegenDeploymentAnalysis): string {
   return JSON.stringify(analysis);
 }
 
-async function postBackend<T>(
+async function postLocalBackendPush(
   backend: Miniflare,
   path: string,
   body: unknown,
   deployPushToken: string,
-): Promise<T> {
+): Promise<DevPushStatus> {
   const response = await backend.dispatchFetch(`http://flarex.backend${path}`, {
     method: "POST",
     headers: localBackendDeployHeaders(deployPushToken),
@@ -847,7 +854,8 @@ async function postBackend<T>(
     const text = await response.text();
     throw new Error(`Backend request ${path} failed with status ${response.status}: ${text}`);
   }
-  return response.json() as Promise<T>;
+  const payload: unknown = await response.json();
+  return await Effect.runPromise(parseDevPushStatusEffect(payload));
 }
 
 function localBackendDeployHeaders(deployPushToken: string): Record<string, string> {
