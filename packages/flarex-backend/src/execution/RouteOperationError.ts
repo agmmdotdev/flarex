@@ -1,5 +1,10 @@
 import { Data } from "effect";
-import { HttpError } from "../http";
+import type { HttpError } from "../http";
+import {
+  routeOperationErrorFields,
+  routeOperationErrorToHttpError as sharedRouteOperationErrorToHttpError,
+  type RouteOperationErrorFields,
+} from "../routeOperationError";
 import {
   isTransactionOperationError,
   PartitionRequestError,
@@ -14,12 +19,7 @@ export type ExecutionRouteOperation =
 
 export class ExecutionRouteOperationError extends Data.TaggedError(
   "ExecutionRouteOperationError",
-)<{
-  readonly operation: ExecutionRouteOperation;
-  readonly status: number;
-  readonly message: string;
-  readonly cause: unknown;
-}> {}
+)<RouteOperationErrorFields<ExecutionRouteOperation>> {}
 
 export function executionRouteOperationError(
   operation: ExecutionRouteOperation,
@@ -33,26 +33,15 @@ export function executionRouteOperationError(
       cause,
     });
   }
-  if (cause instanceof HttpError) {
-    return new ExecutionRouteOperationError({
-      operation,
-      status: cause.status,
-      message: cause.message,
-      cause,
-    });
-  }
-  return new ExecutionRouteOperationError({
-    operation,
-    status: 500,
-    message: cause instanceof Error ? cause.message : String(cause),
-    cause,
-  });
+  return new ExecutionRouteOperationError(
+    routeOperationErrorFields(operation, cause),
+  );
 }
 
 export function executionRouteOperationErrorToHttpError(
   error: ExecutionRouteOperationError,
 ): HttpError {
-  return new HttpError(error.status, error.message);
+  return sharedRouteOperationErrorToHttpError(error);
 }
 
 export function executionRouteOperationErrorToAdapterError(

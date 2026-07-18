@@ -321,6 +321,11 @@ semantics.
   points while keeping backend and persistence packages out of its dependency
   graph.
 - The backend Worker app is a thin export wrapper over `flarex-backend`.
+- Backend connection, delivery, scheduler, and execution route errors retain
+  domain-owned operation unions and tagged classes while sharing one
+  backend-local operation/status/message/cause facet, default foreign-cause
+  classification, and `HttpError` projection. Specialized transaction adapter
+  preservation and legacy partition routing remain local.
 - The private executor Worker composes the framework-neutral executor, Fetch
   adapter, Postgres client adapter, and Cloudflare request lifecycle.
 - The artifact-runtime Worker owns Worker Loader, R2, and executor service

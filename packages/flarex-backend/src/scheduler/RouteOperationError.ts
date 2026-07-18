@@ -1,5 +1,10 @@
 import { Data } from "effect";
-import { HttpError } from "../http";
+import type { HttpError } from "../http";
+import {
+  routeOperationErrorFields,
+  routeOperationErrorToHttpError as sharedRouteOperationErrorToHttpError,
+  type RouteOperationErrorFields,
+} from "../routeOperationError";
 
 export type SchedulerRouteOperation =
   | "delivery-reconcile"
@@ -13,35 +18,19 @@ export type SchedulerRouteOperation =
 
 export class SchedulerRouteOperationError extends Data.TaggedError(
   "SchedulerRouteOperationError",
-)<{
-  readonly operation: SchedulerRouteOperation;
-  readonly status: number;
-  readonly message: string;
-  readonly cause: unknown;
-}> {}
+)<RouteOperationErrorFields<SchedulerRouteOperation>> {}
 
 export function schedulerRouteOperationError(
   operation: SchedulerRouteOperation,
   cause: unknown,
 ): SchedulerRouteOperationError {
-  if (cause instanceof HttpError) {
-    return new SchedulerRouteOperationError({
-      operation,
-      status: cause.status,
-      message: cause.message,
-      cause,
-    });
-  }
-  return new SchedulerRouteOperationError({
-    operation,
-    status: 500,
-    message: cause instanceof Error ? cause.message : String(cause),
-    cause,
-  });
+  return new SchedulerRouteOperationError(
+    routeOperationErrorFields(operation, cause),
+  );
 }
 
 export function schedulerRouteOperationErrorToHttpError(
   error: SchedulerRouteOperationError,
 ): HttpError {
-  return new HttpError(error.status, error.message);
+  return sharedRouteOperationErrorToHttpError(error);
 }

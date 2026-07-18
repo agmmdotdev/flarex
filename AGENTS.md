@@ -136,6 +136,13 @@ package-local generic or factory. Let each consumer supply its operation,
 message, and typed failure constructor. Do not move that Effect adapter into
 `@flarex/utils`, and do not erase the domain error channel merely to make the
 helper look generic.
+When backend route domains use the exact same operation, status, message, and
+cause facet, share its foreign-cause classification and `HttpError` projection
+with the backend host owner. Retain each domain's operation union, tagged error
+class, named compatibility wrapper, and any specialized upstream-error
+preservation. Do not introduce a common tagged-error base, move host HTTP
+policy into `@flarex/utils`, or pull legacy partition routing into the shared
+contract merely because its fields look similar.
 Keep Node filesystem and path-boundary mechanics with their host or tooling
 owner. A host-local helper may centralize canonical path resolution,
 inside/outside-root checks, file-kind and byte-size inspection, bounded reads,

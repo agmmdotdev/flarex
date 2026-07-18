@@ -1,5 +1,10 @@
 import { Data, Effect } from "effect";
-import { HttpError } from "../http";
+import type { HttpError } from "../http";
+import {
+  routeOperationErrorFields,
+  routeOperationErrorToHttpError as sharedRouteOperationErrorToHttpError,
+  type RouteOperationErrorFields,
+} from "../routeOperationError";
 
 export type ConnectionRouteOperation =
   | "invalidate"
@@ -7,37 +12,21 @@ export type ConnectionRouteOperation =
 
 export class ConnectionRouteOperationError extends Data.TaggedError(
   "ConnectionRouteOperationError",
-)<{
-  readonly operation: ConnectionRouteOperation;
-  readonly status: number;
-  readonly message: string;
-  readonly cause: unknown;
-}> {}
+)<RouteOperationErrorFields<ConnectionRouteOperation>> {}
 
 export function connectionRouteOperationError(
   operation: ConnectionRouteOperation,
   cause: unknown,
 ): ConnectionRouteOperationError {
-  if (cause instanceof HttpError) {
-    return new ConnectionRouteOperationError({
-      operation,
-      status: cause.status,
-      message: cause.message,
-      cause,
-    });
-  }
-  return new ConnectionRouteOperationError({
-    operation,
-    status: 500,
-    message: cause instanceof Error ? cause.message : String(cause),
-    cause,
-  });
+  return new ConnectionRouteOperationError(
+    routeOperationErrorFields(operation, cause),
+  );
 }
 
 export function connectionRouteOperationErrorToHttpError(
   error: ConnectionRouteOperationError,
 ): HttpError {
-  return new HttpError(error.status, error.message);
+  return sharedRouteOperationErrorToHttpError(error);
 }
 
 export const connectionRouteOperationErrorToHttpErrorEffect = Effect.fn(
