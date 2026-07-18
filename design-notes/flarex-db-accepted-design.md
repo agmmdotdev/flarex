@@ -165,7 +165,7 @@ work continues.
 | Existing `documents`, `indexes`, invoke sessions, Postgres live-query registry, and delivery outbox | Implemented prototype baseline | Keep only as bounded internal behavior evidence until equivalent target paths and tests exist. Do not extend it or treat it as a shipped migration obligation. |
 | Typed app row JSON with revision/current, declared index, edge, and unique sidecars | Partially implemented accepted target | S06 implements the internal, non-routing row revision/current kernel. Index, edge, and unique sidecars plus target-native index population/build and routing consumers remain planned behind the storage-generation boundary. |
 | Native commit feed, committed-success outcomes, and commit wakes | Partially implemented accepted target | S08 implements native commit/change-feed storage and its bounded private reader. S09-A implements the private scope-lifetime committed-success result receipt. S09-B implements the fixed-kind private commit-wake table and fenced claim/settlement repository. O07-A implements the private read-only committed-outcome resolver, and O07-B atomically publishes point rows, feed evidence, success receipts, and wakes. C06 replay orchestration/dispatch, payload expiry, sync activation, and retention advancement remain pending. |
-| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | The Postgres-backed point path now has C04C1's private logical plan, O06's reusable rollback-proven transaction kernel, O07-B's first private durable publication, C05-A's exact scalar-fenced transition, and C05-B's fresh-process finishing reconstruction plus private compiler/publisher composition. C06/O08 orchestration, production validator authority, and target routing remain pending. After the complete point path passes its real-Postgres gate, immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
+| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | The Postgres-backed point path now has C04C1's private logical plan, O06's reusable rollback-proven transaction kernel, O07-B's first private durable publication, C05-A's exact scalar-fenced transition, C05-B's fresh-process finishing reconstruction plus private compiler/publisher composition, and O08-A's atomic exact-attempt replacement. O08-B trusted OCC rerun, O08-C known-settled SQL retry, O08-D uncertain-outcome policy, C06 orchestration, production validator authority, and target routing remain pending. After the complete point path passes its real-Postgres gate, immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
 | Payload adapter | Staged target | Start with reserved logical collections and scalar CRUD/transaction conformance; add relations, versions/drafts, globals, auth, locks, and hooks incrementally. |
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
 | DeploymentSyncDO | Accepted v1 coordination target | One deterministic instance per scope, durable SQLite cursor/query/dependency state, Postgres catch-up. |
@@ -774,13 +774,15 @@ abort records `aborted`; once database time reaches the earliest lease,
 hard, or grant expiry, abort and expiry canonically record `expired`. Restart-
 safe expiry uses the strict inert exact-attempt selector because live-only B2a
 loading correctly refuses expired authority. O03-B does not predeclare
-consumer-specific finish, commit, retry, or retention APIs. O08 introduces
-retry replacement when trusted OCC
-classification exists: it explicitly deletes the old lease, advances the
-parent fence, and inserts the new lease in one transaction. The foreign key
-restricts parent updates and deletes while the old lease remains; it does not
-cascade an old snapshot into a new attempt. S07 owns only the relational shape
-and migration proof.
+consumer-specific finish, commit, retry, or retention APIs. O08-A now provides
+only the persistence-owned exact-attempt replacement primitive after a trusted
+OCC classification: under the canonical locks it enters `retrying`, deletes the
+old journal root and cascading children, deletes the old lease, advances the
+parent fence, inserts the fresh lease and pristine open root, then returns the
+same request anchor to `running`. Both child foreign keys restrict the parent
+fence update, so root-before-lease deletion is part of the accepted mutation
+order. O08-B alone will authorize a user-code rerun. S07 owns only the
+relational shape and migration proof.
 
 The previously ordered O03-B2b2 renewal gate is a conditional operational
 extension, not an O04/O05 or private C02-C07 prerequisite. Convex bounds one
@@ -1109,8 +1111,9 @@ extends it. The same activation transaction creates the exact fence-1 C03
 journal root with that trusted database timestamp as both its creation-time
 seed and cursor. A running attempt without exactly one matching root is corrupt;
 abort or expiry deletes the root and its cascading temporary evidence before
-deleting the lease and terminalizing the session. O08 must create the next root
-atomically with every future attempt-fence/lease replacement.
+deleting the lease and terminalizing the session. O08-A creates the next root
+atomically with the attempt-fence and lease replacement, using a new trusted
+database-time creation seed and zero accounting.
 
 O03-B2a serializes only deployment, asserted scope, session, and canonical
 positive signed-int64 attempt-fence text. The asserted scope is an identity
@@ -1188,7 +1191,7 @@ projection is derived only after verification; `inlineUntrusted` cannot enter
 recovery. C04A accepts only live `running + sealed` for initial planning or live
 `finishing + sealed` for reconstruction and returns a runtime-unforgeable
 process-local `AuthenticatedStoredAttemptV1`. A committed observation is typed
-as already committed and non-plannable; O07-A owns lookup and C06/O08 own its
+as already committed and non-plannable; O07-A owns lookup and O08-D/C06 own its
 orchestration.
 C04B1 extends only that factory-local vault: a genuine same-factory C04A
 capability triggers one fresh bounded read-only repeatable-read capture of
@@ -1229,8 +1232,8 @@ root facts still match. C05-B now composes both paths through the same O07-B
 publisher: a genuine running plan enters C05-A first, while a fresh process
 reconstructs the same factory-local finishing capability through C04A/B/C1 from
 exact live `finishing + sealed` evidence. Publication failure leaves that
-durable evidence intact. C05-B adds no retry, outcome, or endpoint policy; C06
-and O08 retain that orchestration.
+durable evidence intact. C05-B adds no retry, outcome, or endpoint policy;
+O08-B/C/D and C06 retain that orchestration.
 
 Convex keeps `FunctionFinalTransaction` in process, checks committed mutation
 status before execution, and reruns user code after known OCC conflicts. Flarex's
@@ -1240,8 +1243,10 @@ a JavaScript call stack or rerun user code.
 O07-B atomically deletes the exact current lease and stores committed state with
 the server-prepared internal request identity, committed-success result receipt,
 committed token, data, feed, and S09-B outbox. Failed or rolled-back executions
-create no S09-A outcome. O08 owns retry replacement; O11 first consumes active
-floors for history retention.
+create no S09-A outcome. O08-A owns only atomic attempt replacement; O08-B owns
+trusted user-code rerun, O08-C owns known-settled SQL retry, and O08-D owns
+uncertain-outcome policy. O11 first consumes active floors for history
+retention.
 
 SessionDO SQLite may hold the read/write journal, but it is temporary. It must
 not supply physical scope, table names, lock targets, unique-key rows,
@@ -1365,13 +1370,14 @@ Requirements:
   O07-B publisher, while C06 owns endpoint orchestration;
 - O07-B deletes the exact current lease and enters `committed` only in the atomic
   publication/outcome transaction;
-- O08 handles a trusted OCC retry from `finishing` by atomically entering `retrying`,
-  incrementing the attempt fence, replacing the snapshot lease, discarding the
-  old journal, and returning the same request anchor to `running` without
-  changing storage generation;
+- O08-A handles only exact-attempt replacement from `finishing`: it atomically
+  enters `retrying`, deletes the journal root and lease in FK-safe order,
+  increments the attempt fence, installs a fresh lease and pristine open root,
+  and returns the same request anchor to `running` without changing storage
+  generation; its result is lifecycle evidence, not execution ownership;
 - canonical journal digest for integrity, never authentication by itself;
 - idempotent repeated `finish`;
-- O07-A committed-outcome lookup after a lost response, with C06/O08 still
+- O07-A committed-outcome lookup after a lost response, with O08-D/C06 still
   owning orchestration and retry policy;
 - temporary-evidence TTL and sensitive-data cleanup at their owning
   journal/outcome/retention gates. C02 defines no syscall-count, scan-count, or
@@ -1415,7 +1421,7 @@ correlated only with a retained exact header; a missing header is valid only
 strictly below a positive retained floor.
 
 O07-B must insert the successful outcome atomically with data, session state,
-the S08 commit header, and S09-B outbox evidence. C06/O08 later orchestrate
+the S08 commit header, and S09-B outbox evidence. O08-D/C06 later orchestrate
 replay and uncertain-outcome policy. A future retention consumer owns the one-way
 `available -> expired` transition.
 
@@ -1468,13 +1474,17 @@ executed after cutover. Under the current clean-replacement declaration there
 is no legacy request-key import; target requests start with a server-issued
 namespace inside the canonical `request_key`.
 
-Keep three retry classes separate:
+Keep the supporting replacement primitive and three coordinators separate:
 
-1. OCC conflict: discard the journal and rerun user code at a new snapshot.
-2. SQL serialization/deadlock before a known decision: retry the same
-   deterministic physical plan within a bound.
-3. Uncertain connection outcome: look up the idempotency/session result before
-   rerunning anything.
+1. O08-A atomically replaces only an exact conflicted attempt; it grants no
+   execution ownership.
+2. O08-B handles a trusted OCC conflict by acquiring a genuine rerun permit and
+   rerunning user code at a fresh snapshot.
+3. O08-C handles only known-settled pre-decision `40001`/`40P01` by retrying the
+   same authenticated logical/closed command within a bound; each transaction
+   freshly derives physical locks, rows, sequences, IDs, and timestamps.
+4. O08-D resolves an uncertain connection outcome through O07-A/C05-B before
+   any transaction retry or user-code rerun.
 
 All authoritative writers, including migrations, backfills, admin tools,
 Payload, and Medusa adapters, must acquire the scope-clock/commit-lane lock or

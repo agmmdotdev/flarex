@@ -1051,7 +1051,8 @@ scalar seal identity before the exact-fence transition to `finishing` and mints
 the same-factory continuation. C05-B now reuses the bounded C04 stored-evidence
 loader/verifier for its separate fresh-process finishing entry and composes both
 paths with the same O07-B publisher. C06 orchestrates the endpoint, O07 atomically deletes the exact lease and stores
-committed state, O08 owns retry replacement, and O11 first consumes active
+committed state, O08-A owns the completed FK-safe exact-attempt replacement
+primitive, O08-B/C/D retain rerun, SQL-retry, and uncertainty policy, and O11 first consumes active
 snapshot floors for history retention.
 
 C02 owns only the canonical syscall-sequence and journal/result/envelope
@@ -1068,7 +1069,8 @@ fenced snapshot, and syscall-time validation parity remains unresolved. C04C
 owns the pure prepared plan. A matching digest does not authenticate
 caller-supplied inline bytes. S09-A owns only the private committed-success
 result receipt, S09-B owns leased-outbox DDL, O07-B owns atomic point
-publication, and C06/O08 later own uncertain-outcome recovery.
+publication, and O08-D/C06 later own uncertain-outcome recovery. C04C1's
+prepared capability is logical; no immutable physical SQL plan exists.
 Snapshot leases prevent engine-history GC from passing a live attempt.
 
 ### `fx_outbox`: keep

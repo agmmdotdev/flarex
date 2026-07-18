@@ -14,7 +14,8 @@ forced-rollback proof, O07-A private read-only committed-outcome resolver, and
   O07-B private durable point publication are complete. C05-A's private scalar-
   fenced finishing transition and same-factory continuation are complete. C05-B
   fresh-process reconstruction and private compiler/publisher composition are
-  also complete; O08 is next and C06 dispatch
+  also complete. O08-A atomic exact-attempt replacement is complete; O08-B is
+  next, O08-C/O08-D remain pending, and C06 dispatch
   remains pending, while C04C2 remains conditional and unapproved.
 
 This plan owns the bounded Flarex app-data path from logical session operations
@@ -270,8 +271,8 @@ Outcome:
   C04B2 value/return validation.
 - Create one exact-attempt journal root eagerly with initial activation. Seed
   and advance insert `_creationTime` from trusted database time using exact
-  binary64 `nextUp`; future O08 attempt replacement must create a fresh root and
-  seed in the same transaction as its new fence and lease.
+  binary64 `nextUp`; O08-A creates a fresh zero-accounting root and seed in the
+  same transaction as its new fence and lease.
 - Persist exactly four bounded attempt tables: the root, one replace-in-place
   latest receipt, unique point dependency/overlay rows, and ordered material-
   write events. Child evidence cascades only through explicit root deletion;
@@ -340,8 +341,8 @@ Outcome:
   comparison, hashing, Schema validation, or point correlation.
 - Accept only live `running + sealed` for initial planning or
   `finishing + sealed` for reconstruction. Return committed as typed already-
-  committed/non-plannable; O07-A owns the read-only outcome lookup while C06/O08
-  later own recovery orchestration.
+  committed/non-plannable; O07-A owns the read-only outcome lookup while
+  O08-D/C06 later own recovery orchestration.
 - Bind the full detached scalar seal identity, canonical journal/result bytes,
   digests, final sequence, accounting counters, and strictly correlated point
   overlay evidence. The existing `sealed_at` and root `updated_at` identify the
@@ -540,12 +541,13 @@ Exit gate:
   rollback, and unsupported index/unique/relation rejection pass on PGlite and
   isolated real Postgres; and
 - publication failure leaves durable `finishing + sealed` authority for the
-  later C06/O08 recovery policy without rerunning user code.
+  later O08-B/C/D and C06 recovery policy without rerunning user code.
 
 ### [ ] C06 — Add Idempotent Finish And Lost-Outcome Recovery
 
-Prerequisite: `O08` has separated OCC reruns, bounded SQL-plan retries, and
-uncertain-outcome lookup. This endpoint composes those policies; it does not
+Prerequisite: `O08-B/C/D` have separated OCC reruns, bounded known-settled
+retries of the same authenticated logical/closed command, and uncertain-
+outcome lookup. This endpoint composes those policies; it does not
 define a competing retry coordinator.
 
 Outcome:
@@ -554,7 +556,8 @@ Outcome:
   introduce a second state machine in compiler code. C06 idempotently
   orchestrates C05-A transition, C05-B reconstruction/publication, and existing
   retry/outcome primitives; C03 rejects later syscalls. O07-B owns exact-lease deletion plus
-  the atomic `committed` transition, and O08 owns retry replacement:
+  the atomic `committed` transition. O08-A owns exact-attempt replacement;
+  O08-B/C/D own rerun, SQL-retry, and uncertainty policy:
 
 ```text
 atomic activation -> running -> finishing -> committed

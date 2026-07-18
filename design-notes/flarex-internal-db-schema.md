@@ -1281,8 +1281,9 @@ fx_system_snapshot_lease
 The session owns generation and request authority; the lease owns only the
 current attempt's snapshot-retention pin. The lease does not cascade through a
 parent update or delete. O03-B enforces that every active session has a current
-lease. O08, when the retry consumer exists, must delete the old lease, advance
-the parent fence, and insert the new lease explicitly in one transaction.
+lease. O08-A now enters `retrying`, deletes the exact journal root and its
+cascading children before the old lease, advances the parent fence, inserts the
+fresh lease and pristine root, and returns to `running` in one transaction.
 
 Package, artifact, schema, and policy pins may refer to control-plane records
 in another database, so trusted creation verifies them and stores copied pins
@@ -1301,7 +1302,8 @@ continuation; C05-B owns fresh-process finishing reconstruction and complete
 publication composition; C06 orchestrates the finish endpoint; C03 rejects
 late syscalls; S09-A supplies the private success-
 receipt shape; O07 deletes the exact lease and stores committed state plus that
-durable outcome; O08 owns retry replacement.
+durable outcome; O08-A owns exact-attempt replacement while O08-B/C/D retain
+the retry coordinators.
 
 `fx_system_scope_clock` is locked only during short trusted authority
 transactions such as revocation-epoch advance, O03-B session activation, and

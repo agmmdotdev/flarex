@@ -26,8 +26,9 @@ chain, S08/S09 storage, O06's reusable rollback-proven point-commit kernel, and
   reconstruction and full publication composition are next. C06 later owns
   stable endpoint and uncertain-outcome orchestration, C03 rejects late
 syscalls, O07 atomically deletes the exact lease and stores committed state plus
-outcome/idempotency, O08 owns explicit delete/fence-advance/new-lease retry
-replacement, O11 first consumes active floors, and reconnect retention belongs
+outcome/idempotency. O08-A owns the complete FK-safe exact-attempt replacement;
+O08-B/C/D retain rerun, known-settled SQL retry, and uncertainty policy. O11
+first consumes active floors, and reconnect retention belongs
 to roadmap 21. The prototype `invoke_sessions` model remains routed today but
 is a regression/removal input, not a supported migration obligation.
 
@@ -563,7 +564,8 @@ What changed:
   falling back to Postgres after a staged DO write.
 - Made successful results part of the same transaction as data, commit atoms,
   idempotency, and outbox.
-- Split OCC reruns, SQL plan retries, and uncertain-outcome recovery.
+- Split exact-attempt replacement, OCC reruns, closed-logical-command SQL
+  retries, and uncertain-outcome recovery.
 
 Why it changed:
 

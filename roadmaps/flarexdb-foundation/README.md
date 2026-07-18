@@ -30,8 +30,9 @@ present but fixed at zero until O11. O07-A's private read-only committed-
 outcome resolver and O07-B's private durable point publication are complete.
 C05-A's private scalar-fenced `running -> finishing` transition and same-factory
 continuation are complete. C05-B fresh-process reconstruction and private
-compiler/O07-B publisher composition are also complete; O08 and C06 remain
-pending, and
+compiler/O07-B publisher composition are also complete. O08-A's atomic exact-
+attempt replacement is complete; O08-B is next, while O08-C/O08-D and C06
+remain pending, and
 C04C2 remains conditional and unapproved.
 B2b2 renewal is
 a conditional
@@ -42,7 +43,7 @@ bounded attempt must outlive its initial lease.
 | Stream | Current status |
 | --- | --- |
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, S09-A's private committed-success result DDL, and S09-B's fixed-kind private commit-wake DDL complete |
-| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads with typed present/qualified-missing dependencies, and `O05` pure point-OCC validation are complete; standalone `O01` retired before implementation, while B2b2 renewal, operational revocation, and hosted adapters remain consumer-triggered deferred gates |
+| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, and O08-A exact-attempt replacement are complete; O08-B is next, while O08-C/D, C06, B2b2 renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
 | Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, private-C07 final-value proof `C04B2`, and corrected private logical point planner `C04C1` complete; `C04C2` is conditional and unapproved |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
@@ -332,9 +333,10 @@ O03-B2a: it reuses C04A's bounded stored-evidence snapshot and evidence-first
 verifier, traverses C04B/C1, and invokes the same O07-B publisher. C06 later
 orchestrates the stable finish endpoint. `O07-B`
 deletes the exact lease and stores `committed` only with the atomic data/outcome
-commit, `O08` introduces storage-level retry replacement together with the
-trusted retry coordinator while consuming O07-A for uncertain decisions, and
-`O11` first consumes active snapshot floors for
+commit. `O08-A` supplies only the FK-safe storage-level exact-attempt
+replacement; `O08-B` will own genuine OCC rerun authority, `O08-C` known-
+settled SQL retry, and `O08-D` uncertain decisions through O07-A/C05-B. `O11`
+first consumes active snapshot floors for
 history retention. `created` and `committing` remain transaction-local/reserved
 rather than separately durable V1 states. Completed `O04` remains a pure
 semantic kernel; C03 first composes it with current-attempt authorization and
@@ -366,7 +368,7 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
    physical row lowering without publishing a sequence or durable mutation.
 5. `O07-A` (complete): private read-only committed-outcome resolver with one
    bounded statement and post-SQL canonical result verification. Its closed
-   structural input is not commit authority; O08/C06 later own recovery policy.
+   structural input is not commit authority; O08-D/C06 later own recovery policy.
 6. `O07-B` (complete): extends the O06 kernel with atomic result, outcome, data,
    commit/change atoms, fixed-kind outbox wake, session/lease completion, and
    paired commit/outbox clock advance. The transaction rechecks the request key
@@ -378,15 +380,22 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
 8. `C05-B` (complete): fresh-process finishing reconstruction and both normal
    and reconstructed point mutation composition through the same O07-B
    primitive, with failed publication retaining `finishing + sealed`.
-9. `O08`: separate OCC reruns, safe SQL retries, and uncertain-outcome policy
-   using O07-A rather than reimplementing lookup.
+9. `O08` (partially complete):
+   - `O08-A` (complete): atomically replaces one exact conflicted finishing
+     attempt in FK-safe root/lease/fence order and returns lifecycle evidence
+     only;
+   - `O08-B` (next): genuine trusted OCC user-code rerun authority;
+   - `O08-C`: bounded known-settled pre-decision `40001`/`40P01` retry of the
+     same authenticated logical/closed command with fresh transaction facts;
+   - `O08-D`: uncertain-outcome resolution through O07-A/C05-B before retry or
+     rerun.
 10. `C06`: idempotent finish and lost-outcome recovery through `/invoke/*`.
 11. `C07`: PGlite plus real-Postgres correctness gate.
 
 This S09-A/S09-B split refines one existing Wave 2 outcome; it does not reorder
 the wave. The completed S08/S09-A/S09-B/O06/O07-B first-consumer contracts do
 not currently establish a need for separate physical/change/outbox lowering,
-so C04C2 remains conditional and outside the mandatory order. O08 is next.
+so C04C2 remains conditional and outside the mandatory order. O08-B is next.
 
 `C07` is the first end-to-end replacement milestone, but it proves only a
 private test-generation point-mutation kernel. It does not authorize canary or

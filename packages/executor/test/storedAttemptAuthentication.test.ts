@@ -8,6 +8,8 @@ import {
   type PointCommitPublisherPortV1,
   type PointCommitRollbackProofPortV1,
   type PointCommitTransactionCommandV1,
+  type PointMutationAttemptReplacementCommandV1,
+  type PointMutationAttemptReplacementPortV1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import {
   AppCreationTimeV1Schema,
@@ -108,6 +110,8 @@ import type { StoredPointCommitPublisherV1 as ForbiddenPointCommitPublisher } fr
 import type { FinishingPreparedPointCommitV1 as ForbiddenFinishingPointCommit } from "../src/index";
 // @ts-expect-error C05-B executor capability types must remain absent from the package root.
 import type { StoredPointCommitExecutorV1 as ForbiddenPointCommitExecutor } from "../src/index";
+// @ts-expect-error O08-A replacement authority must remain absent from the package root.
+import type { StoredPointMutationAttemptReplacementV1 as ForbiddenAttemptReplacement } from "../src/index";
 import {
   createPointMutationSessionAttemptLoadingV1,
   InvalidPointMutationSessionAttemptSelectorV1Error,
@@ -1879,6 +1883,167 @@ describe("C04A stored-attempt authentication", () => {
     expect(String(rejection)).toContain(defect.message);
   });
 
+  it("captures O08-A only from a genuine same-factory finishing plan", async () => {
+    type RootLeak = Extract<
+      keyof typeof executorRoot,
+      | "StoredPointMutationAttemptReplacementV1"
+      | "replaceConflictedPointMutationAttempt"
+    >;
+    expectTypeOf<RootLeak>().toEqualTypeOf<never>();
+    expect("replaceConflictedPointMutationAttempt" in executorRoot).toBe(false);
+
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: await insertFixture({ name: "o08a" }, "o08a"),
+      documentType: {
+        type: "object",
+        value: {
+          name: { optional: false, fieldType: { type: "string" } },
+        },
+      },
+      returnsValidator: { type: "string" },
+    });
+    const replacementCommands: PointMutationAttemptReplacementCommandV1[] = [];
+    const publicationFailure = new PointCommitCorruptionV1Error({
+      reason: "publicationInvariantInvalid",
+    });
+    const pointCommit: PointCommitPublisherPortV1 = Object.freeze({
+      prove: Effect.fn("TestO08A.prove")(
+        () => Effect.succeed(Object.freeze({ kind: "wouldCommit" as const })),
+      ),
+      publish: Effect.fn("TestO08A.publish")(
+        () => Effect.fail(publicationFailure),
+      ),
+    });
+    const pointCommitFinishing: PointCommitFinishingTransitionPortV1 =
+      Object.freeze({
+        enterFinishing: Effect.fn("TestO08A.enterFinishing")((command) =>
+          Effect.succeed(Object.freeze({
+            kind: "transitioned" as const,
+            scopeUuid: command.sealIdentity.scopeUuid,
+            sessionId: command.authorityPins.sessionId,
+            attemptFence: command.authorityPins.attemptFence,
+            priorSessionUpdatedAtMilliseconds:
+              command.session.updatedAtMilliseconds,
+            finishingSessionUpdatedAtMilliseconds:
+              command.session.updatedAtMilliseconds + 2,
+          }))),
+      });
+    const replacement: PointMutationAttemptReplacementPortV1 = Object.freeze({
+      replace: Effect.fn("TestO08A.replace")((command) => {
+        replacementCommands.push(command);
+        return Effect.succeed(Object.freeze({
+          kind: "replaced" as const,
+          scopeUuid: command.sealIdentity.scopeUuid,
+          sessionId: command.authorityPins.sessionId,
+          previousAttemptFence: command.authorityPins.attemptFence,
+          attemptFence: TransactionAttemptFenceSchema.make(
+            command.authorityPins.attemptFence + 1n,
+          ),
+        }));
+      }),
+    });
+    const first = await pointCommitReplacementFixture(
+      current,
+      pointCommit,
+      pointCommitFinishing,
+      replacement,
+    );
+    const finishing = await runEffect(
+      first.authentication.enterPointCommitFinishing(first.prepared),
+    );
+    const observation = await runEffect(
+      first.authentication.replaceConflictedPointMutationAttempt(finishing),
+    );
+    expect(Object.isFrozen(observation)).toBe(true);
+    expect(observation).toMatchObject({
+      kind: "replaced",
+      previousAttemptFence:
+        replacementCommands[0]?.authorityPins.attemptFence,
+      attemptFence:
+        (replacementCommands[0]?.authorityPins.attemptFence ?? 0n) + 1n,
+    });
+    expect(Reflect.ownKeys(observation).sort()).toEqual([
+      "attemptFence",
+      "kind",
+      "previousAttemptFence",
+      "scopeUuid",
+      "sessionId",
+    ]);
+    const command = replacementCommands[0];
+    if (command === undefined) throw new Error("Missing O08-A command.");
+    expect(Reflect.ownKeys(command).sort()).toEqual([
+      "authorityPins",
+      "dependencies",
+      "sealIdentity",
+      "session",
+    ]);
+    expect(Object.hasOwn(command, "rowIntent")).toBe(false);
+    expect(Object.hasOwn(command, "successfulResult")).toBe(false);
+    expect(Object.hasOwn(command, "journal")).toBe(false);
+    expect(command.dependencies).toHaveLength(1);
+
+    command.session.requestSha256.fill(0);
+    command.sealIdentity.journalSha256.fill(0);
+    await runEffect(
+      first.authentication.replaceConflictedPointMutationAttempt(finishing),
+    );
+    expect(replacementCommands[1]?.session.requestSha256).not.toEqual(
+      new Uint8Array(32),
+    );
+    expect(replacementCommands[1]?.sealIdentity.journalSha256).not.toEqual(
+      new Uint8Array(32),
+    );
+
+    const calls = replacementCommands.length;
+    const runningFailure = await runFailure(
+      first.authentication.replaceConflictedPointMutationAttempt(
+        // @ts-expect-error O08-A accepts only a finishing capability.
+        first.prepared,
+      ),
+    );
+    expect(runningFailure).toMatchObject({
+      _tag: "InvalidPreparedPointCommitV1Error",
+      reason: "notFinishing",
+    });
+    expect(replacementCommands).toHaveLength(calls);
+    const forged = await runFailure(
+      first.authentication.replaceConflictedPointMutationAttempt({
+        ...finishing,
+      }),
+    );
+    expect(forged).toMatchObject({
+      _tag: "InvalidPreparedPointCommitV1Error",
+      reason: "notSameFactory",
+    });
+    expect(replacementCommands).toHaveLength(calls);
+
+    const second = await pointCommitReplacementFixture(
+      current,
+      pointCommit,
+      pointCommitFinishing,
+      replacement,
+    );
+    const crossFactory = await runFailure(
+      second.authentication.replaceConflictedPointMutationAttempt(finishing),
+    );
+    expect(crossFactory).toMatchObject({
+      _tag: "InvalidPreparedPointCommitV1Error",
+      reason: "notSameFactory",
+    });
+    expect(replacementCommands).toHaveLength(calls);
+
+    const observationMisuse = await runFailure(
+      first.authentication.publishPointCommit(
+        // @ts-expect-error Observations are not publisher capabilities.
+        observation,
+      ),
+    );
+    expect(observationMisuse).toMatchObject({
+      _tag: "InvalidPreparedPointCommitV1Error",
+      reason: "notSameFactory",
+    });
+  });
+
   it("composes C05-A publication and fresh finishing recovery through one private publisher", async () => {
     type RootLeak = Extract<
       keyof typeof executorRoot,
@@ -2815,6 +2980,51 @@ async function pointCommitFinishingFixture(
       },
       pointCommit,
       pointCommitFinishing,
+    },
+  );
+  const authority = await deriveAuthority(authentication);
+  const storedAttempt = await runEffect(authentication.authenticate(
+    authority,
+    encodeEnvelope(current.fixture.envelope),
+  ));
+  const commitAuthority = await runEffect(
+    authentication.authenticateCommitAuthority(storedAttempt),
+  );
+  const verifiedCommitInput = await runEffect(
+    authentication.verifyCommitInput(commitAuthority),
+  );
+  const prepared = await runEffect(
+    authentication.planPointCommit(verifiedCommitInput),
+  );
+  return { authentication, prepared };
+}
+
+async function pointCommitReplacementFixture(
+  current: CommitAuthorityFixture,
+  pointCommit: PointCommitPublisherPortV1,
+  pointCommitFinishing: PointCommitFinishingTransitionPortV1,
+  pointMutationAttemptReplacement: PointMutationAttemptReplacementPortV1,
+) {
+  const authentication = createStoredAttemptAuthenticationV1(
+    {
+      loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)),
+      loadFinishingEffect: () =>
+        Effect.succeed(loaded(current.fixture.evidence)),
+    },
+    {
+      evidenceLoader: {
+        loadEffect: () => Effect.succeed({
+          kind: "loaded" as const,
+          evidence: current.commitEvidence,
+        }),
+      },
+      transactionGrantVerifier: current.verifier,
+      functionMetadata: {
+        load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+      },
+      pointCommit,
+      pointCommitFinishing,
+      pointMutationAttemptReplacement,
     },
   );
   const authority = await deriveAuthority(authentication);

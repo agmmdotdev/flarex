@@ -30,12 +30,29 @@ import type {
   PointCommitFinishingTransitionCommandV1,
   PointCommitRowIntentV1,
   PointCommitTransactionCommandV1,
+  PointMutationAttemptReplacementCommandV1,
 } from "../src/pointCommitTransaction";
 import type {
   StoredAttemptEvidenceAuthorityV1,
   StoredAttemptEvidenceV1,
   StoredAttemptPointEvidenceV1,
 } from "../src/storedAttemptEvidence";
+
+export async function pointMutationAttemptReplacementCommandFromStoredAttemptV1(
+  authority: StoredAttemptEvidenceAuthorityV1,
+  evidence: StoredAttemptEvidenceV1,
+): Promise<PointMutationAttemptReplacementCommandV1> {
+  const command = await pointCommitCommandFromStoredAttemptV1(
+    authority,
+    evidence,
+  );
+  return Object.freeze({
+    authorityPins: command.authorityPins,
+    session: command.session,
+    sealIdentity: command.sealIdentity,
+    dependencies: command.dependencies,
+  });
+}
 
 export async function pointCommitCommandFromStoredAttemptV1(
   authority: StoredAttemptEvidenceAuthorityV1,

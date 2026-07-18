@@ -11,7 +11,7 @@ import {
 } from "@flarex/utils/numbers";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, sql } from "drizzle-orm";
-import { Data, Effect } from "effect";
+import { Data, Effect, Result } from "effect";
 
 import {
   decodeAppCreationTimeV1,
@@ -31,7 +31,9 @@ import {
 } from "flarex-protocol/catalog";
 import {
   CanonicalSuccessfulResultBytesV1Schema,
+  MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1,
   MAX_COMMIT_POINT_READ_DEPENDENCIES_V1,
+  MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1,
   SESSION_JOURNAL_FORMAT_V1,
   canonicalizeSuccessfulResultV1Effect,
   type CommitFinalSyscallSequenceV1,
@@ -61,6 +63,8 @@ import {
 import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction-grant";
 import {
   TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
+  MAX_TRANSACTION_ATTEMPT_FENCE,
+  TransactionAttemptFenceSchema,
   TransactionAuthorizationRevocationEpochSchema,
   TransactionIdentityAccessPolicySha256V1Schema,
   TransactionRequestSha256V1Schema,
@@ -107,6 +111,7 @@ import {
   type AppRowPointHeadObservationV1,
 } from "./appRowPointOcc";
 import {
+  committedPointOutcomeRequestMismatchesV1,
   CommittedPointOutcomeCorruptionErrorV1,
   CommittedPointOutcomeInputErrorV1,
   CommittedPointOutcomeRequestKeyReuseErrorV1,
@@ -114,8 +119,12 @@ import {
   type CommittedPointOutcomeResolutionV1,
   type CommittedPointOutcomeTokenV1,
   type CommittedPointSuccessfulResultV1,
+  type CommittedPointOutcomeCorruptionReasonV1,
+  type CommittedPointOutcomeMismatchV1,
+  type CommittedPointOutcomeRequestEvidenceV1,
   type ResolveCommittedPointOutcomeErrorV1,
   type ResolveCommittedPointOutcomeInputV1,
+  validateCommittedPointOutcomeRequestEvidenceShapeV1,
 } from "./committedPointOutcome";
 import { COMMIT_WAKE_OUTBOX_EVENT_KIND_V1 } from "./commitWakeOutbox";
 import {
@@ -140,6 +149,9 @@ import {
   fxSystemOutbox,
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
+  fxSystemTransactionJournalLatestReceipts,
+  fxSystemTransactionJournalPoints,
+  fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionJournals,
   fxSystemTransactionSessions,
 } from "./schema";
@@ -155,6 +167,8 @@ import {
 import type {
   PointMutationSessionAuthorityResolutionPortsV1,
 } from "./transactionSessionActivation";
+import { buildFreshTransactionAttemptFacetV1 } from
+  "./transactionSessionAttemptFacet";
 
 const MAX_SIGNED_COMMIT_SEQ = MAX_PERSISTED_SIGNED_INT64_V1;
 const HASH_BYTE_LENGTH = 32;
@@ -259,6 +273,126 @@ export interface PointCommitTransactionCommandV1
   extends PointCommitAttemptScalarCommandV1 {
   readonly dependencies: ReadonlyArray<PointCommitDependencyV1>;
   readonly rowIntent: PointCommitRowIntentV1 | null;
+}
+
+/**
+ * O08-A correlation evidence only. Persistence re-resolves every authority
+ * fact and reproduces the OCC conflict; this detached record cannot authorize
+ * user-code execution or a later retry.
+ */
+export interface PointMutationAttemptReplacementCommandV1
+  extends PointCommitAttemptScalarCommandV1 {
+  readonly dependencies: ReadonlyArray<PointCommitDependencyV1>;
+}
+
+export class PointMutationAttemptReplacementCommittedOutcomeV1Error
+  extends Data.TaggedError(
+    "PointMutationAttemptReplacementCommittedOutcomeV1Error",
+  )<{
+    readonly reason:
+      | "committedOutcomeAvailable"
+      | "committedOutcomeExpired";
+    readonly commitSeq: CommitSeq;
+  }> {}
+
+export class PointMutationAttemptReplacementConflictNoLongerPresentV1Error
+  extends Data.TaggedError(
+    "PointMutationAttemptReplacementConflictNoLongerPresentV1Error",
+  )<{
+    readonly reason: "conflictNoLongerPresent";
+  }> {}
+
+export class PointMutationAttemptReplacementRequestKeyReuseV1Error
+  extends Data.TaggedError(
+    "PointMutationAttemptReplacementRequestKeyReuseV1Error",
+  )<{
+    readonly mismatches: ReadonlyArray<CommittedPointOutcomeMismatchV1>;
+  }> {}
+
+export type PointMutationAttemptReplacementCorruptionReasonV1 =
+  | PointCommitCorruptionReasonV1
+  | "committedOutcomeInvalid"
+  | "attemptFenceUpdateInvalid"
+  | "freshLeaseInvalid"
+  | "freshJournalRootInvalid"
+  | "replacementConvergenceInvalid"
+  | "replacementMutationInvalid";
+
+export class PointMutationAttemptReplacementCorruptionV1Error
+  extends Data.TaggedError(
+    "PointMutationAttemptReplacementCorruptionV1Error",
+  )<{
+    readonly reason: PointMutationAttemptReplacementCorruptionReasonV1;
+  }> {}
+
+export class PointMutationAttemptReplacementStaleAuthorityV1Error
+  extends Data.TaggedError(
+    "PointMutationAttemptReplacementStaleAuthorityV1Error",
+  )<{
+    readonly reason: PointCommitStaleAuthorityReasonV1;
+  }> {}
+
+export class PointMutationAttemptReplacementResourceExhaustionV1Error
+  extends Data.TaggedError(
+    "PointMutationAttemptReplacementResourceExhaustionV1Error",
+  )<{
+    readonly dimension: "attemptFence";
+    readonly maximum: bigint;
+  }> {}
+
+export type PointMutationAttemptReplacementSqlOperationV1 =
+  | PointCommitSqlOperationV1
+  | "enterRetrying"
+  | "deleteRetryJournal"
+  | "deleteRetryLease"
+  | "advanceAttemptFence"
+  | "insertRetryLease"
+  | "insertRetryJournalRoot"
+  | "enterRetryRunning"
+  | "validatePristineAttempt";
+
+export class PointMutationAttemptReplacementSqlErrorV1
+  extends Data.TaggedError("PointMutationAttemptReplacementSqlErrorV1")<{
+    readonly operation: PointMutationAttemptReplacementSqlOperationV1;
+    readonly cause: unknown;
+    readonly sqlState?: string;
+  }> {}
+
+export type PointMutationAttemptReplacementV1Error =
+  | PointMutationAttemptReplacementCommittedOutcomeV1Error
+  | PointMutationAttemptReplacementConflictNoLongerPresentV1Error
+  | PointMutationAttemptReplacementRequestKeyReuseV1Error
+  | PointMutationAttemptReplacementCorruptionV1Error
+  | PointMutationAttemptReplacementStaleAuthorityV1Error
+  | PointMutationAttemptReplacementResourceExhaustionV1Error
+  | PointMutationAttemptReplacementSqlErrorV1;
+
+/** Lifecycle correlation only; this result is never an execution permit. */
+export interface PointMutationAttemptReplacementObservationV1 {
+  readonly kind: "replaced" | "alreadyReplaced";
+  readonly scopeUuid: ScopeUuidV1;
+  readonly sessionId: TransactionSessionIdV1;
+  readonly previousAttemptFence: TransactionAttemptFence;
+  readonly attemptFence: TransactionAttemptFence;
+}
+
+export interface PointMutationAttemptReplacementPortV1 {
+  readonly replace: (
+    command: PointMutationAttemptReplacementCommandV1,
+  ) => Effect.Effect<
+    PointMutationAttemptReplacementObservationV1,
+    PointMutationAttemptReplacementV1Error,
+    never
+  >;
+}
+
+export class PointMutationAttemptReplacementConfigurationV1Error
+  extends Error {
+  readonly name = "PointMutationAttemptReplacementConfigurationV1Error";
+
+  constructor(readonly reason: "leaseDurationInvalid") {
+    super("O08-A requires a positive safe-integer lease duration.");
+  }
 }
 
 export interface PointCommitSuccessfulResultV1 {
@@ -478,6 +612,41 @@ export interface PointCommitTransactionProofOptionsV1 {
   ) => void;
 }
 
+export type PointMutationAttemptReplacementProofStepV1 =
+  | "clockLocked"
+  | "outcomeRechecked"
+  | "sessionLocked"
+  | "leaseLocked"
+  | "journalRootLocked"
+  | "dependenciesValidated"
+  | "sessionEnteredRetrying"
+  | "journalDeleted"
+  | "leaseDeleted"
+  | "attemptFenceAdvanced"
+  | "leaseInserted"
+  | "journalRootInserted"
+  | "sessionRunning"
+  | "beforeCommit";
+
+export interface PointMutationAttemptReplacementOptionsV1 {
+  readonly leaseDurationMilliseconds: number;
+  /** Test-only deterministic transaction pause/failure seam. */
+  readonly afterReplacementStep?: (
+    event: Readonly<{
+      readonly scopeId: ReplacementScopeIdV1;
+      readonly step: PointMutationAttemptReplacementProofStepV1;
+    }>,
+  ) => Promise<void>;
+  /** Test-only bounded query observation. */
+  readonly observeQuery?: (
+    query: Readonly<{
+      readonly name: PointMutationAttemptReplacementSqlOperationV1;
+      readonly sql: string;
+      readonly params: ReadonlyArray<unknown>;
+    }>,
+  ) => void;
+}
+
 interface PreparedLivePointCommitRowIntentV1
   extends Omit<Extract<PointCommitRowIntentV1, { readonly kind: "live" }>,
     "value" | "canonicalBytes" | "semanticSizeBytes"> {
@@ -513,10 +682,20 @@ interface PreparedPointCommitPublicationCommandV1
   >;
 }
 
+interface PreparedPointMutationAttemptReplacementCommandV1
+  extends PreparedPointCommitAttemptScalarCommandV1 {
+  readonly dependencies: ReadonlyArray<PointCommitDependencyV1>;
+}
+
+type PreparedPointCommitDependencyCommandV1 =
+  | PreparedPointCommitTransactionCommandV1
+  | PreparedPointMutationAttemptReplacementCommandV1;
+
 type PointCommitTransactionModeV1 = "rollbackProof" | "publish";
 type PointCommitSessionLockModeV1 =
   | PointCommitTransactionModeV1
-  | "enterFinishing";
+  | "enterFinishing"
+  | "replaceAttempt";
 
 const WOULD_COMMIT = Object.freeze({
   kind: "wouldCommit",
@@ -529,6 +708,13 @@ const ROLLBACK_SENTINEL = Object.freeze({
 class PointCommitSqlFailureMarkerV1 {
   constructor(
     readonly operation: PointCommitSqlOperationV1,
+    readonly cause: unknown,
+  ) {}
+}
+
+class PointMutationAttemptReplacementSqlFailureMarkerV1 {
+  constructor(
+    readonly operation: PointMutationAttemptReplacementSqlOperationV1,
     readonly cause: unknown,
   ) {}
 }
@@ -592,6 +778,64 @@ export function createPointCommitFinishingTransitionPortV1(
   });
 
   return Object.freeze({ enterFinishing });
+}
+
+export function createPointMutationAttemptReplacementPortV1(
+  ports: PointMutationSessionAuthorityResolutionPortsV1,
+  options: PointMutationAttemptReplacementOptionsV1,
+): PointMutationAttemptReplacementPortV1 {
+  if (!isPositiveSafeInteger(options.leaseDurationMilliseconds)) {
+    throw new PointMutationAttemptReplacementConfigurationV1Error(
+      "leaseDurationInvalid",
+    );
+  }
+  const proofOptions: PointCommitTransactionProofOptionsV1 = Object.freeze({
+    ...(options.observeQuery === undefined
+      ? {}
+      : { observeQuery: options.observeQuery }),
+  });
+
+  const replace: PointMutationAttemptReplacementPortV1["replace"] = Effect.fn(
+    "PointMutationAttemptReplacement.replace",
+  )(function* (input) {
+    const command = yield* Effect.try({
+      try: () => capturePointMutationAttemptReplacementCommand(input),
+      catch: mapPointMutationAttemptReplacementPreparationFailure,
+    });
+    const located = yield* resolvePointCommitAuthority(
+      command.authorityPins.deploymentId,
+      ports,
+    ).pipe(Effect.mapError(mapPointMutationAttemptReplacementSharedError));
+    const preliminaryFailure = preliminaryAuthorityFailure(
+      command,
+      located.authority,
+    );
+    if (preliminaryFailure !== null) {
+      return yield* Effect.fail(
+        mapPointMutationAttemptReplacementSharedError(preliminaryFailure),
+      );
+    }
+    const target = isLocatedReadCommittedAttemptTargetV1(located.target)
+      ? located.target
+      : null;
+    if (target === null) {
+      return yield* Effect.fail(replacementCorruption(
+        "readCommittedCapabilityMissing",
+      ));
+    }
+    return yield* Effect.uninterruptible(Effect.tryPromise({
+      try: () => runPointMutationAttemptReplacement(
+        target,
+        located.authority,
+        command,
+        options,
+        proofOptions,
+      ),
+      catch: mapPointMutationAttemptReplacementTransactionFailure,
+    }));
+  });
+
+  return Object.freeze({ replace });
 }
 
 export function createPointCommitRollbackProofPortV1(
@@ -691,7 +935,7 @@ export function createPointCommitPublisherPortV1(
         command,
         options,
       ),
-      catch: mapTransactionFailure,
+      catch: mapPublicationTransactionFailure,
     }));
     const decision: PointCommitPublicationRunDecisionV1 = yield*
       runPublication.pipe(
@@ -870,7 +1114,7 @@ function captureSuccessfulResult(
 }
 
 function captureCommittedOutcomeLookup(
-  command: PreparedPointCommitPublicationCommandV1,
+  command: PreparedPointCommitAttemptScalarCommandV1,
 ): ResolveCommittedPointOutcomeInputV1 {
   return Object.freeze({
     scopeUuid: command.sealIdentity.scopeUuid,
@@ -900,17 +1144,10 @@ function capturePointCommitCommand(
   const sealIdentity = captureSealIdentity(input.sealIdentity);
   requireCommandAuthorityConsistency(authorityPins, session, sealIdentity);
 
-  if (
-    !Array.isArray(input.dependencies) ||
-    input.dependencies.length > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 ||
-    input.dependencies.length !== sealIdentity.pointDependencyCount
-  ) {
-    throw corruption("commandInvalid");
-  }
-  const dependencies = Object.freeze(input.dependencies.map(
-    capturePointDependency,
-  ));
-  requireCanonicalDependencyOrder(dependencies);
+  const dependencies = capturePointCommitDependencies(
+    input.dependencies,
+    sealIdentity.pointDependencyCount,
+  );
   const rowIntent = input.rowIntent === null
     ? null
     : captureRowIntent(input.rowIntent);
@@ -927,6 +1164,46 @@ function capturePointCommitCommand(
     dependencies,
     rowIntent,
   });
+}
+
+function capturePointMutationAttemptReplacementCommand(
+  input: PointMutationAttemptReplacementCommandV1,
+): PreparedPointMutationAttemptReplacementCommandV1 {
+  if (
+    input.session.lifecycle !== "finishing" ||
+    input.sealIdentity.lifecycle !== "finishing"
+  ) {
+    throw stale("lifecycleChanged");
+  }
+  const authorityPins = captureAuthorityPins(input.authorityPins);
+  const session = captureSessionScalars(input.session);
+  const sealIdentity = captureSealIdentity(input.sealIdentity);
+  requireCommandAuthorityConsistency(authorityPins, session, sealIdentity);
+  return Object.freeze({
+    authorityPins,
+    session,
+    sealIdentity,
+    dependencies: capturePointCommitDependencies(
+      input.dependencies,
+      sealIdentity.pointDependencyCount,
+    ),
+  });
+}
+
+function capturePointCommitDependencies(
+  input: ReadonlyArray<PointCommitDependencyV1>,
+  expectedCount: number,
+): ReadonlyArray<PointCommitDependencyV1> {
+  if (
+    !Array.isArray(input) ||
+    input.length > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1 ||
+    input.length !== expectedCount
+  ) {
+    throw corruption("commandInvalid");
+  }
+  const dependencies = Object.freeze(input.map(capturePointDependency));
+  requireCanonicalDependencyOrder(dependencies);
+  return dependencies;
 }
 
 function capturePointCommitFinishingTransitionCommand(
@@ -1262,6 +1539,7 @@ function isCanonicalDocumentForIntent(
 
 interface LockedPointCommitClockV1 {
   readonly record: ReturnType<typeof decodeScopeClockRecord>;
+  readonly oldestAvailableCommitSeq: bigint;
   readonly scopeUuid: ScopeUuidV1;
   readonly epochUuid: ReturnType<typeof decodeScopeEpochUuidV1>;
   readonly authorizationRevocationEpoch: TransactionAuthorizationRevocationEpoch;
@@ -1269,9 +1547,15 @@ interface LockedPointCommitClockV1 {
 
 interface LockedPointCommitSessionV1 {
   readonly lifecycle: "running" | "finishing";
+  readonly attemptFence: TransactionAttemptFence;
   readonly authorizationGrantExpiresAtMilliseconds: number;
   readonly hardExpiresAtMilliseconds: number;
   readonly updatedAtMilliseconds: number;
+}
+
+interface LockedCommittedPointOutcomeV1 {
+  readonly state: "available" | "expired";
+  readonly commitSeq: CommitSeq;
 }
 
 interface LockedPointCommitLeaseV1 {
@@ -1309,6 +1593,476 @@ type PointCommitPublicationRunDecisionV1 =
         Readonly<{ readonly kind: "missing" }>
       >;
     }>;
+
+async function runPointMutationAttemptReplacement(
+  target: LocatedReadCommittedAttemptTargetV1,
+  preliminaryAuthority: TrustedScopeAuthority,
+  command: PreparedPointMutationAttemptReplacementCommandV1,
+  options: PointMutationAttemptReplacementOptionsV1,
+  sharedOptions: PointCommitTransactionProofOptionsV1,
+): Promise<PointMutationAttemptReplacementObservationV1> {
+  return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
+    const clock = await lockPointCommitClock(tx, command, sharedOptions);
+    await emitReplacementStep(options, command, "clockLocked");
+    const outcome = await inspectCommittedOutcomeInTransaction(
+      tx,
+      clock,
+      command,
+      sharedOptions,
+    );
+    await emitReplacementStep(options, command, "outcomeRechecked");
+    if (outcome !== null) {
+      throw new PointMutationAttemptReplacementCommittedOutcomeV1Error({
+        reason: outcome.state === "available"
+          ? "committedOutcomeAvailable"
+          : "committedOutcomeExpired",
+        commitSeq: outcome.commitSeq,
+      });
+    }
+    requireLockedClockAuthority(clock, preliminaryAuthority, command);
+
+    const session = await lockPointCommitSession(
+      tx,
+      command,
+      sharedOptions,
+      "replaceAttempt",
+    );
+    await emitReplacementStep(options, command, "sessionLocked");
+    if (session.attemptFence !== command.authorityPins.attemptFence) {
+      return observeReplacedPointMutationAttempt(
+        tx,
+        clock,
+        command,
+        session,
+        options,
+      );
+    }
+
+    const lease = await lockPointCommitLease(tx, command, sharedOptions);
+    await emitReplacementStep(options, command, "leaseLocked");
+    await lockPointCommitJournalRoot(tx, command, sharedOptions);
+    await emitReplacementStep(options, command, "journalRootLocked");
+    const databaseNowMilliseconds = await readPointCommitDatabaseTime(
+      tx,
+      command.authorityPins.scopeId,
+      sharedOptions,
+    );
+    requireAttemptIsLive(session, lease, databaseNowMilliseconds);
+
+    const heads = await loadPointCommitHeads(
+      tx,
+      clock,
+      command,
+      sharedOptions,
+    );
+    requireReproduciblePointCommitConflict(command, heads);
+    await emitReplacementStep(options, command, "dependenciesValidated");
+
+    const mutationTimeMilliseconds = await readPointCommitDatabaseTime(
+      tx,
+      command.authorityPins.scopeId,
+      sharedOptions,
+    );
+    requireAttemptIsLive(session, lease, mutationTimeMilliseconds);
+    if (
+      command.authorityPins.attemptFence >= MAX_TRANSACTION_ATTEMPT_FENCE
+    ) {
+      throw new PointMutationAttemptReplacementResourceExhaustionV1Error({
+        dimension: "attemptFence",
+        maximum: MAX_TRANSACTION_ATTEMPT_FENCE,
+      });
+    }
+    const replacementFence = TransactionAttemptFenceSchema.make(
+      command.authorityPins.attemptFence + 1n,
+    );
+    const freshFacetResult = buildFreshTransactionAttemptFacetV1({
+      scopeUuid: clock.scopeUuid,
+      sessionId: command.authorityPins.sessionId,
+      attemptFence: replacementFence,
+      snapshotEpochUuid: clock.epochUuid,
+      snapshotCommitSeq: clock.record.lastCommitSeq,
+      databaseNowMilliseconds: mutationTimeMilliseconds,
+      authorizationGrantExpiresAtMilliseconds:
+        session.authorizationGrantExpiresAtMilliseconds,
+      hardExpiresAtMilliseconds: session.hardExpiresAtMilliseconds,
+      leaseDurationMilliseconds: options.leaseDurationMilliseconds,
+    });
+    if (Result.isFailure(freshFacetResult)) {
+      if (freshFacetResult.failure === "authorityExpired") {
+        throw stale("expired");
+      }
+      throw replacementCorruption("freshLeaseInvalid");
+    }
+    const freshFacet = freshFacetResult.success;
+
+    const retrying = tx.update(fxSystemTransactionSessions).set({
+      lifecycle: "retrying",
+      updatedAt: freshFacet.sessionUpdatedAt,
+    }).where(and(
+      eq(fxSystemTransactionSessions.scopeUuid, clock.scopeUuid),
+      eq(
+        fxSystemTransactionSessions.sessionId,
+        command.authorityPins.sessionId,
+      ),
+      eq(
+        fxSystemTransactionSessions.attemptFence,
+        command.authorityPins.attemptFence,
+      ),
+      eq(fxSystemTransactionSessions.lifecycle, "finishing"),
+    )).returning({ lifecycle: fxSystemTransactionSessions.lifecycle });
+    observeReplacementQuery("enterRetrying", retrying, options);
+    const retryingRows = await replacementSqlCall(
+      "enterRetrying",
+      () => retrying,
+    );
+    if (retryingRows.length !== 1 || retryingRows[0]?.lifecycle !== "retrying") {
+      throw replacementCorruption("replacementMutationInvalid");
+    }
+    await emitReplacementStep(options, command, "sessionEnteredRetrying");
+
+    const journalDelete = tx.delete(fxSystemTransactionJournals).where(and(
+      eq(fxSystemTransactionJournals.scopeUuid, clock.scopeUuid),
+      eq(
+        fxSystemTransactionJournals.sessionId,
+        command.authorityPins.sessionId,
+      ),
+      eq(
+        fxSystemTransactionJournals.attemptFence,
+        command.authorityPins.attemptFence,
+      ),
+    )).returning({ attemptFence: fxSystemTransactionJournals.attemptFence });
+    observeReplacementQuery("deleteRetryJournal", journalDelete, options);
+    const deletedJournal = await replacementSqlCall(
+      "deleteRetryJournal",
+      () => journalDelete,
+    );
+    if (
+      deletedJournal.length !== 1 ||
+      deletedJournal[0]?.attemptFence !== command.authorityPins.attemptFence
+    ) {
+      throw replacementCorruption("replacementMutationInvalid");
+    }
+    await emitReplacementStep(options, command, "journalDeleted");
+
+    const leaseDelete = tx.delete(fxSystemSnapshotLeases).where(and(
+      eq(fxSystemSnapshotLeases.scopeUuid, clock.scopeUuid),
+      eq(
+        fxSystemSnapshotLeases.sessionId,
+        command.authorityPins.sessionId,
+      ),
+      eq(
+        fxSystemSnapshotLeases.attemptFence,
+        command.authorityPins.attemptFence,
+      ),
+    )).returning({ attemptFence: fxSystemSnapshotLeases.attemptFence });
+    observeReplacementQuery("deleteRetryLease", leaseDelete, options);
+    const deletedLease = await replacementSqlCall(
+      "deleteRetryLease",
+      () => leaseDelete,
+    );
+    if (
+      deletedLease.length !== 1 ||
+      deletedLease[0]?.attemptFence !== command.authorityPins.attemptFence
+    ) {
+      throw replacementCorruption("replacementMutationInvalid");
+    }
+    await emitReplacementStep(options, command, "leaseDeleted");
+
+    const fenceUpdate = tx.update(fxSystemTransactionSessions).set({
+      attemptFence: replacementFence,
+    }).where(and(
+      eq(fxSystemTransactionSessions.scopeUuid, clock.scopeUuid),
+      eq(
+        fxSystemTransactionSessions.sessionId,
+        command.authorityPins.sessionId,
+      ),
+      eq(
+        fxSystemTransactionSessions.attemptFence,
+        command.authorityPins.attemptFence,
+      ),
+      eq(fxSystemTransactionSessions.lifecycle, "retrying"),
+      eq(
+        fxSystemTransactionSessions.updatedAt,
+        freshFacet.sessionUpdatedAt,
+      ),
+    )).returning({ attemptFence: fxSystemTransactionSessions.attemptFence });
+    observeReplacementQuery("advanceAttemptFence", fenceUpdate, options);
+    const advanced = await replacementSqlCall(
+      "advanceAttemptFence",
+      () => fenceUpdate,
+    );
+    if (advanced.length !== 1 || advanced[0]?.attemptFence !== replacementFence) {
+      throw replacementCorruption("attemptFenceUpdateInvalid");
+    }
+    await emitReplacementStep(options, command, "attemptFenceAdvanced");
+
+    const leaseInsert = tx.insert(fxSystemSnapshotLeases)
+      .values(freshFacet.lease)
+      .returning({ attemptFence: fxSystemSnapshotLeases.attemptFence });
+    observeReplacementQuery("insertRetryLease", leaseInsert, options);
+    const insertedLease = await replacementSqlCall(
+      "insertRetryLease",
+      () => leaseInsert,
+    );
+    if (
+      insertedLease.length !== 1 ||
+      insertedLease[0]?.attemptFence !== replacementFence
+    ) {
+      throw replacementCorruption("freshLeaseInvalid");
+    }
+    await emitReplacementStep(options, command, "leaseInserted");
+
+    const rootInsert = tx.insert(fxSystemTransactionJournals)
+      .values(freshFacet.journalRoot)
+      .returning({ attemptFence: fxSystemTransactionJournals.attemptFence });
+    observeReplacementQuery("insertRetryJournalRoot", rootInsert, options);
+    const insertedRoot = await replacementSqlCall(
+      "insertRetryJournalRoot",
+      () => rootInsert,
+    );
+    if (
+      insertedRoot.length !== 1 ||
+      insertedRoot[0]?.attemptFence !== replacementFence
+    ) {
+      throw replacementCorruption("freshJournalRootInvalid");
+    }
+    await emitReplacementStep(options, command, "journalRootInserted");
+
+    const runningUpdate = tx.update(fxSystemTransactionSessions).set({
+      lifecycle: "running",
+    }).where(and(
+      eq(fxSystemTransactionSessions.scopeUuid, clock.scopeUuid),
+      eq(
+        fxSystemTransactionSessions.sessionId,
+        command.authorityPins.sessionId,
+      ),
+      eq(fxSystemTransactionSessions.attemptFence, replacementFence),
+      eq(fxSystemTransactionSessions.lifecycle, "retrying"),
+      eq(
+        fxSystemTransactionSessions.updatedAt,
+        freshFacet.sessionUpdatedAt,
+      ),
+    )).returning({ lifecycle: fxSystemTransactionSessions.lifecycle });
+    observeReplacementQuery("enterRetryRunning", runningUpdate, options);
+    const running = await replacementSqlCall(
+      "enterRetryRunning",
+      () => runningUpdate,
+    );
+    if (running.length !== 1 || running[0]?.lifecycle !== "running") {
+      throw replacementCorruption("replacementMutationInvalid");
+    }
+    await emitReplacementStep(options, command, "sessionRunning");
+    await emitReplacementStep(options, command, "beforeCommit");
+    return replacementObservation("replaced", command, replacementFence);
+  });
+}
+
+async function observeReplacedPointMutationAttempt(
+  tx: AppRowTransaction,
+  clock: LockedPointCommitClockV1,
+  command: PreparedPointMutationAttemptReplacementCommandV1,
+  session: LockedPointCommitSessionV1,
+  options: PointMutationAttemptReplacementOptionsV1,
+): Promise<PointMutationAttemptReplacementObservationV1> {
+  const expectedFence = command.authorityPins.attemptFence <
+      MAX_TRANSACTION_ATTEMPT_FENCE
+    ? TransactionAttemptFenceSchema.make(
+        command.authorityPins.attemptFence + 1n,
+      )
+    : null;
+  if (
+    expectedFence === null ||
+    session.attemptFence !== expectedFence ||
+    session.lifecycle !== "running"
+  ) {
+    throw replacementCorruption("replacementConvergenceInvalid");
+  }
+  const leaseQuery = tx.select().from(fxSystemSnapshotLeases).where(and(
+    eq(fxSystemSnapshotLeases.scopeUuid, clock.scopeUuid),
+    eq(
+      fxSystemSnapshotLeases.sessionId,
+      command.authorityPins.sessionId,
+    ),
+  )).limit(2).for("update");
+  observeReplacementQuery("validatePristineAttempt", leaseQuery, options);
+  const leaseRows = await replacementSqlCall(
+    "validatePristineAttempt",
+    () => leaseQuery,
+  );
+  const lease = leaseRows[0];
+  const leaseExpiresAtMilliseconds = lease === undefined
+    ? undefined
+    : finiteDateMilliseconds(lease.leaseExpiresAt);
+  if (
+    leaseRows.length !== 1 ||
+    lease === undefined ||
+    lease.scopeUuid !== clock.scopeUuid ||
+    lease.sessionId !== command.authorityPins.sessionId ||
+    lease.attemptFence !== expectedFence ||
+    lease.snapshotEpochUuid !== clock.epochUuid ||
+    lease.snapshotCommitSeq <= command.authorityPins.snapshotToken.commitSeq ||
+    lease.snapshotCommitSeq > clock.record.lastCommitSeq ||
+    leaseExpiresAtMilliseconds === undefined ||
+    leaseExpiresAtMilliseconds <= session.updatedAtMilliseconds ||
+    leaseExpiresAtMilliseconds >
+      session.authorizationGrantExpiresAtMilliseconds ||
+    leaseExpiresAtMilliseconds > session.hardExpiresAtMilliseconds
+  ) {
+    throw replacementCorruption("replacementConvergenceInvalid");
+  }
+  const expectedFacetResult = buildFreshTransactionAttemptFacetV1({
+    scopeUuid: clock.scopeUuid,
+    sessionId: command.authorityPins.sessionId,
+    attemptFence: expectedFence,
+    snapshotEpochUuid: lease.snapshotEpochUuid,
+    snapshotCommitSeq: lease.snapshotCommitSeq,
+    databaseNowMilliseconds: session.updatedAtMilliseconds,
+    authorizationGrantExpiresAtMilliseconds:
+      session.authorizationGrantExpiresAtMilliseconds,
+    hardExpiresAtMilliseconds: session.hardExpiresAtMilliseconds,
+    leaseDurationMilliseconds:
+      leaseExpiresAtMilliseconds - session.updatedAtMilliseconds,
+  });
+  if (Result.isFailure(expectedFacetResult)) {
+    throw replacementCorruption("replacementConvergenceInvalid");
+  }
+  const expectedFacet = expectedFacetResult.success;
+  if (
+    leaseExpiresAtMilliseconds !==
+      finiteDateMilliseconds(expectedFacet.leaseExpiresAt)
+  ) {
+    throw replacementCorruption("replacementConvergenceInvalid");
+  }
+  await emitReplacementStep(options, command, "leaseLocked");
+
+  const rootQuery = tx.select().from(fxSystemTransactionJournals).where(and(
+    eq(fxSystemTransactionJournals.scopeUuid, clock.scopeUuid),
+    eq(
+      fxSystemTransactionJournals.sessionId,
+      command.authorityPins.sessionId,
+    ),
+    eq(fxSystemTransactionJournals.attemptFence, expectedFence),
+  )).limit(2).for("update");
+  observeReplacementQuery("validatePristineAttempt", rootQuery, options);
+  const rootRows = await replacementSqlCall(
+    "validatePristineAttempt",
+    () => rootQuery,
+  );
+  const root = rootRows[0];
+  const expectedRoot = expectedFacet.journalRoot;
+  if (
+    rootRows.length !== 1 ||
+    root === undefined ||
+    root.scopeUuid !== clock.scopeUuid ||
+    root.sessionId !== command.authorityPins.sessionId ||
+    root.attemptFence !== expectedFence ||
+    root.state !== "open" ||
+    root.lastSyscallSequence !== 0n ||
+    root.creationTimeSeed !== expectedRoot.creationTimeSeed ||
+    root.nextCreationTime !== expectedRoot.nextCreationTime ||
+    root.readDocuments !== 0 ||
+    root.readSemanticBytes !== 0 ||
+    root.pointDependencyCount !== 0 ||
+    root.writeOperations !== 0 ||
+    root.writeSemanticBytes !== 0 ||
+    root.materialWriteEventEvidenceBytes !== 0 ||
+    root.failureDimension !== null ||
+    root.sealedFinalSyscallSequence !== null ||
+    root.sealedJournalBytes !== null ||
+    root.sealedJournalSha256 !== null ||
+    root.sealedResultValueCodecVersion !== null ||
+    root.sealedResultSemanticBytes !== null ||
+    root.sealedResultBytes !== null ||
+    root.sealedResultSha256 !== null ||
+    root.sealedAt !== null ||
+    finiteDateMilliseconds(root.createdAt) !== session.updatedAtMilliseconds ||
+    finiteDateMilliseconds(root.updatedAt) !== session.updatedAtMilliseconds
+  ) {
+    throw replacementCorruption("replacementConvergenceInvalid");
+  }
+  await emitReplacementStep(options, command, "journalRootLocked");
+
+  const childrenQuery = tx.select({
+    receiptExists: sql<boolean>`exists(
+      select 1 from ${fxSystemTransactionJournalLatestReceipts}
+      where ${fxSystemTransactionJournalLatestReceipts.scopeUuid} =
+        ${clock.scopeUuid}
+        and ${fxSystemTransactionJournalLatestReceipts.sessionId} =
+          ${command.authorityPins.sessionId}
+        and ${fxSystemTransactionJournalLatestReceipts.attemptFence} =
+          ${expectedFence}
+    )`,
+    pointExists: sql<boolean>`exists(
+      select 1 from ${fxSystemTransactionJournalPoints}
+      where ${fxSystemTransactionJournalPoints.scopeUuid} = ${clock.scopeUuid}
+        and ${fxSystemTransactionJournalPoints.sessionId} =
+          ${command.authorityPins.sessionId}
+        and ${fxSystemTransactionJournalPoints.attemptFence} =
+          ${expectedFence}
+    )`,
+    eventExists: sql<boolean>`exists(
+      select 1 from ${fxSystemTransactionJournalWriteEvents}
+      where ${fxSystemTransactionJournalWriteEvents.scopeUuid} =
+        ${clock.scopeUuid}
+        and ${fxSystemTransactionJournalWriteEvents.sessionId} =
+          ${command.authorityPins.sessionId}
+        and ${fxSystemTransactionJournalWriteEvents.attemptFence} =
+          ${expectedFence}
+    )`,
+  }).from(fxSystemScopeClocks).where(eq(
+    fxSystemScopeClocks.scopeId,
+    command.authorityPins.scopeId,
+  )).limit(1);
+  observeReplacementQuery("validatePristineAttempt", childrenQuery, options);
+  const children = await replacementSqlCall(
+    "validatePristineAttempt",
+    () => childrenQuery,
+  );
+  if (
+    children.length !== 1 ||
+    children[0]?.receiptExists !== false ||
+    children[0]?.pointExists !== false ||
+    children[0]?.eventExists !== false
+  ) {
+    throw replacementCorruption("replacementConvergenceInvalid");
+  }
+
+  const databaseNowMilliseconds = await readPointCommitDatabaseTime(
+    tx,
+    command.authorityPins.scopeId,
+    Object.freeze({
+      ...(options.observeQuery === undefined
+        ? {}
+        : { observeQuery: options.observeQuery }),
+    }),
+  );
+  if (session.updatedAtMilliseconds > databaseNowMilliseconds) {
+    throw replacementCorruption("replacementConvergenceInvalid");
+  }
+  requireAttemptIsLive(
+    session,
+    Object.freeze({
+      expiresAtMilliseconds:
+        finiteDateMilliseconds(expectedFacet.leaseExpiresAt) ?? 0,
+    }),
+    databaseNowMilliseconds,
+  );
+  return replacementObservation("alreadyReplaced", command, expectedFence);
+}
+
+function replacementObservation(
+  kind: PointMutationAttemptReplacementObservationV1["kind"],
+  command: PreparedPointMutationAttemptReplacementCommandV1,
+  attemptFence: TransactionAttemptFence,
+): PointMutationAttemptReplacementObservationV1 {
+  return Object.freeze({
+    kind,
+    scopeUuid: command.sealIdentity.scopeUuid,
+    sessionId: command.authorityPins.sessionId,
+    previousAttemptFence: command.authorityPins.attemptFence,
+    attemptFence,
+  });
+}
 
 async function runPointCommitFinishingTransition(
   target: LocatedReadCommittedAttemptTargetV1,
@@ -1504,7 +2258,8 @@ async function runPointCommitTransactionKernel(
   await emitTransactionStep(options, command, "clockLocked");
   if (
     mode === "publish" &&
-    await committedOutcomeExistsInTransaction(tx, command, options)
+    await inspectCommittedOutcomeInTransaction(tx, clock, command, options) !==
+      null
   ) {
     await emitTransactionStep(options, command, "outcomeRechecked");
     return Object.freeze({ kind: "existing" });
@@ -1622,12 +2377,16 @@ async function lockPointCommitClock(
     const epochUuid = decodeScopeEpochUuidV1(row.epochUuid);
     if (
       scopeUuid !== projectScopeIdUuidV1(record.scopeId).scopeUuid ||
-      epochUuid !== projectScopeEpochUuidV1(record.epoch).epochUuid
+      epochUuid !== projectScopeEpochUuidV1(record.epoch).epochUuid ||
+      typeof row.oldestAvailableCommitSeq !== "bigint" ||
+      row.oldestAvailableCommitSeq < 0n ||
+      row.oldestAvailableCommitSeq > record.lastCommitSeq
     ) {
       throw new Error("Native scope-clock projection mismatch.");
     }
     return Object.freeze({
       record,
+      oldestAvailableCommitSeq: row.oldestAvailableCommitSeq,
       scopeUuid,
       epochUuid,
       authorizationRevocationEpoch:
@@ -1640,14 +2399,66 @@ async function lockPointCommitClock(
   }
 }
 
-async function committedOutcomeExistsInTransaction(
+async function inspectCommittedOutcomeInTransaction(
   tx: AppRowTransaction,
-  command: PreparedPointCommitTransactionCommandV1,
+  clock: LockedPointCommitClockV1,
+  command: PreparedPointCommitAttemptScalarCommandV1,
   options: PointCommitTransactionProofOptionsV1,
-): Promise<boolean> {
+): Promise<LockedCommittedPointOutcomeV1 | null> {
+  const lookup = captureCommittedOutcomeLookup(command);
   const query = tx
-    .select({ scopeUuid: fxSystemIdempotency.scopeUuid })
+    .select({
+      outcomeScopeUuid: fxSystemIdempotency.scopeUuid,
+      outcomeRequestKey: fxSystemIdempotency.requestKey,
+      identityHashByteLength: sql<number>`
+        octet_length(${fxSystemIdempotency.identityAccessPolicySha256})
+      `,
+      identityMatches: sql<boolean>`
+        ${fxSystemIdempotency.identityAccessPolicySha256} =
+          ${lookup.expectedIdentityAccessPolicySha256}
+      `,
+      functionPathValid: sql<boolean>`
+        btrim(
+          ${fxSystemIdempotency.functionPath},
+          U&' \\0009\\000a\\000b\\000c\\000d\\00a0\\1680\\2000\\2001\\2002\\2003\\2004\\2005\\2006\\2007\\2008\\2009\\200a\\2028\\2029\\202f\\205f\\3000\\feff'
+        ) <> ''
+      `,
+      functionPathMatches: sql<boolean>`
+        ${fxSystemIdempotency.functionPath} = ${lookup.expectedFunctionPath}
+      `,
+      requestHashByteLength: sql<number>`
+        octet_length(${fxSystemIdempotency.requestSha256})
+      `,
+      requestMatches: sql<boolean>`
+        ${fxSystemIdempotency.requestSha256} = ${lookup.expectedRequestSha256}
+      `,
+      epochUuid: fxSystemIdempotency.epochUuid,
+      commitSeq: fxSystemIdempotency.commitSeq,
+      resultState: fxSystemIdempotency.resultState,
+      resultValueCodecVersion: fxSystemIdempotency.resultValueCodecVersion,
+      resultSemanticBytes: fxSystemIdempotency.resultSemanticBytes,
+      resultByteLength: sql<number | null>`
+        case when ${fxSystemIdempotency.resultBytes} is null then null
+          else octet_length(${fxSystemIdempotency.resultBytes}) end
+      `,
+      resultSha256ByteLength: sql<number | null>`
+        case when ${fxSystemIdempotency.resultSha256} is null then null
+          else octet_length(${fxSystemIdempotency.resultSha256}) end
+      `,
+      resultExpiredAt: fxSystemIdempotency.resultExpiredAt,
+      createdAt: fxSystemIdempotency.createdAt,
+      retainedHeaderScopeUuid: fxSystemCommits.scopeUuid,
+      retainedHeaderEpochUuid: fxSystemCommits.epochUuid,
+      retainedHeaderCommitSeq: fxSystemCommits.commitSeq,
+    })
     .from(fxSystemIdempotency)
+    .leftJoin(
+      fxSystemCommits,
+      and(
+        eq(fxSystemCommits.scopeUuid, fxSystemIdempotency.scopeUuid),
+        eq(fxSystemCommits.commitSeq, fxSystemIdempotency.commitSeq),
+      ),
+    )
     .where(and(
       eq(fxSystemIdempotency.scopeUuid, command.sealIdentity.scopeUuid),
       eq(fxSystemIdempotency.requestKey, command.authorityPins.requestKey),
@@ -1655,13 +2466,131 @@ async function committedOutcomeExistsInTransaction(
     .limit(2);
   observeDrizzleQuery("recheckOutcome", query, options);
   const rows = await sqlCall("recheckOutcome", () => query);
-  if (rows.length > 1) throw corruption("publicationInvariantInvalid");
-  const row = rows[0];
-  if (row === undefined) return false;
-  if (row.scopeUuid !== command.sealIdentity.scopeUuid) {
-    throw corruption("publicationInvariantInvalid");
+  if (rows.length > 1) {
+    throw committedOutcomeCorruption(lookup, "duplicateOutcome");
   }
-  return true;
+  const row = rows[0];
+  if (row === undefined) return null;
+  const requestEvidence: CommittedPointOutcomeRequestEvidenceV1 = row;
+  const shape = validateCommittedPointOutcomeRequestEvidenceShapeV1(
+    lookup,
+    requestEvidence,
+  );
+  if (Result.isFailure(shape)) throw shape.failure;
+
+  let epochUuid: LockedPointCommitClockV1["epochUuid"];
+  try {
+    epochUuid = decodeScopeEpochUuidV1(row.epochUuid);
+  } catch {
+    throw committedOutcomeCorruption(lookup, "commitTokenInvalid");
+  }
+  if (
+    typeof row.commitSeq !== "bigint" ||
+    row.commitSeq < 1n ||
+    row.commitSeq > MAX_SIGNED_COMMIT_SEQ
+  ) {
+    throw committedOutcomeCorruption(lookup, "commitTokenInvalid");
+  }
+  const commitSeq = CommitSeqSchema.make(row.commitSeq);
+  if (commitSeq > clock.record.lastCommitSeq) {
+    throw committedOutcomeCorruption(
+      lookup,
+      "commitTokenAheadOfClock",
+      commitSeq,
+    );
+  }
+  const headerAbsent = row.retainedHeaderScopeUuid === null &&
+    row.retainedHeaderEpochUuid === null &&
+    row.retainedHeaderCommitSeq === null;
+  if (headerAbsent) {
+    if (
+      clock.oldestAvailableCommitSeq === 0n ||
+      commitSeq >= clock.oldestAvailableCommitSeq
+    ) {
+      throw committedOutcomeCorruption(
+        lookup,
+        "missingRetainedHeader",
+        commitSeq,
+      );
+    }
+  } else {
+    let retainedEpoch: LockedPointCommitClockV1["epochUuid"];
+    try {
+      retainedEpoch = decodeScopeEpochUuidV1(row.retainedHeaderEpochUuid);
+    } catch {
+      throw committedOutcomeCorruption(
+        lookup,
+        "retainedHeaderInvalid",
+        commitSeq,
+      );
+    }
+    if (
+      row.retainedHeaderScopeUuid !== lookup.scopeUuid ||
+      row.retainedHeaderCommitSeq !== commitSeq
+    ) {
+      throw committedOutcomeCorruption(
+        lookup,
+        "retainedHeaderInvalid",
+        commitSeq,
+      );
+    }
+    if (retainedEpoch !== epochUuid) {
+      throw committedOutcomeCorruption(
+        lookup,
+        "retainedHeaderEpochMismatch",
+        commitSeq,
+      );
+    }
+  }
+
+  const createdAtMilliseconds = finiteDateMilliseconds(row.createdAt);
+  const resultExpiredAtMilliseconds = finiteDateMilliseconds(
+    row.resultExpiredAt,
+  );
+  if (createdAtMilliseconds === undefined) {
+    throw committedOutcomeCorruption(lookup, "outcomeRowInvalid", commitSeq);
+  }
+  if (row.resultState !== "available" && row.resultState !== "expired") {
+    throw committedOutcomeCorruption(lookup, "resultStateInvalid", commitSeq);
+  }
+  const availableScalarsValid =
+    row.resultValueCodecVersion === FLAREX_VALUE_CODEC_VERSION_V1 &&
+    isNonNegativeSafeInteger(row.resultSemanticBytes) &&
+    row.resultSemanticBytes <= MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1 &&
+    isPositiveSafeInteger(row.resultByteLength) &&
+    row.resultByteLength <= MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1 &&
+    row.resultSha256ByteLength === HASH_BYTE_LENGTH &&
+    row.resultExpiredAt === null;
+  const expiredScalarsValid =
+    row.resultValueCodecVersion === null &&
+    row.resultSemanticBytes === null &&
+    row.resultByteLength === null &&
+    row.resultSha256ByteLength === null &&
+    resultExpiredAtMilliseconds !== undefined &&
+    resultExpiredAtMilliseconds >= createdAtMilliseconds;
+  if (
+    (row.resultState === "available" && !availableScalarsValid) ||
+    (row.resultState === "expired" && !expiredScalarsValid)
+  ) {
+    throw committedOutcomeCorruption(
+      lookup,
+      row.resultState === "available"
+        ? "availableResultEvidenceInvalid"
+        : "expiredResultEvidenceInvalid",
+      commitSeq,
+    );
+  }
+
+  const mismatches = committedPointOutcomeRequestMismatchesV1(
+    requestEvidence,
+  );
+  if (mismatches.length > 0) {
+    throw new CommittedPointOutcomeRequestKeyReuseErrorV1({
+      scopeUuid: lookup.scopeUuid,
+      mismatches,
+    });
+  }
+  return Object.freeze({ state: row.resultState, commitSeq });
 }
 
 function requireLockedClockAuthority(
@@ -1776,10 +2705,25 @@ async function lockPointCommitSession(
   if (rows.length !== 1) throw corruption("sessionDuplicate");
   const row = rows[0];
   if (row === undefined) throw corruption("sessionDuplicate");
-  if (row.attemptFence !== command.authorityPins.attemptFence) {
+  const expectedAttemptFence = command.authorityPins.attemptFence;
+  const replacementAttemptFence = expectedAttemptFence <
+      MAX_TRANSACTION_ATTEMPT_FENCE
+    ? TransactionAttemptFenceSchema.make(expectedAttemptFence + 1n)
+    : null;
+  const observesReplacement = mode === "replaceAttempt" &&
+    replacementAttemptFence !== null &&
+    row.attemptFence === replacementAttemptFence;
+  if (row.attemptFence !== expectedAttemptFence && !observesReplacement) {
     throw stale("attemptReplaced");
   }
-  if (mode === "enterFinishing") {
+  if (mode === "replaceAttempt") {
+    if (
+      (observesReplacement && row.lifecycle !== "running") ||
+      (!observesReplacement && row.lifecycle !== "finishing")
+    ) {
+      throw stale("lifecycleChanged");
+    }
+  } else if (mode === "enterFinishing") {
     if (row.lifecycle !== "running" && row.lifecycle !== "finishing") {
       throw stale("lifecycleChanged");
     }
@@ -1842,7 +2786,9 @@ async function lockPointCommitSession(
     hardExpiresAtMilliseconds !== expected.hardExpiresAtMilliseconds ||
     createdAtMilliseconds !== expected.createdAtMilliseconds ||
     (
-      mode === "enterFinishing"
+      mode === "replaceAttempt" && observesReplacement
+        ? updatedAtMilliseconds < expected.updatedAtMilliseconds
+        : mode === "enterFinishing"
         ? row.lifecycle === "running"
           ? updatedAtMilliseconds !== expected.updatedAtMilliseconds
           : updatedAtMilliseconds < expected.updatedAtMilliseconds
@@ -1851,8 +2797,12 @@ async function lockPointCommitSession(
   ) {
     throw corruption("sessionInvalid");
   }
+  if (row.lifecycle !== "running" && row.lifecycle !== "finishing") {
+    throw corruption("sessionInvalid");
+  }
   return Object.freeze({
     lifecycle: row.lifecycle,
+    attemptFence: TransactionAttemptFenceSchema.make(row.attemptFence),
     authorizationGrantExpiresAtMilliseconds,
     hardExpiresAtMilliseconds,
     updatedAtMilliseconds,
@@ -2072,7 +3022,7 @@ function requireAttemptIsLive(
 async function loadPointCommitHeads(
   tx: AppRowTransaction,
   clock: LockedPointCommitClockV1,
-  command: PreparedPointCommitTransactionCommandV1,
+  command: PreparedPointCommitDependencyCommandV1,
   options: PointCommitTransactionProofOptionsV1,
 ): Promise<ReadonlyArray<LoadedPointCommitHeadV1>> {
   if (command.dependencies.length === 0) return Object.freeze([]);
@@ -2197,12 +3147,24 @@ function decodePointCommitHead(
 }
 
 function validatePointCommitDependencies(
-  command: PreparedPointCommitTransactionCommandV1,
+  command: PreparedPointCommitDependencyCommandV1,
   heads: ReadonlyArray<LoadedPointCommitHeadV1>,
 ): void {
+  const conflict = findPointCommitConflictAfterEvidenceValidation(
+    command,
+    heads,
+  );
+  if (conflict !== null) throw conflict;
+}
+
+function findPointCommitConflictAfterEvidenceValidation(
+  command: PreparedPointCommitDependencyCommandV1,
+  heads: ReadonlyArray<LoadedPointCommitHeadV1>,
+): PointCommitConflictV1Error | null {
   if (heads.length !== command.dependencies.length) {
     throw corruption("dependencySetInvalid");
   }
+  let firstConflict: PointCommitConflictV1Error | null = null;
   for (let index = 0; index < command.dependencies.length; index += 1) {
     const dependency = command.dependencies[index];
     const loaded = heads[index];
@@ -2221,15 +3183,31 @@ function validatePointCommitDependencies(
       case "valid":
         break;
       case "conflict":
-        throw new PointCommitConflictV1Error({
+        firstConflict ??= new PointCommitConflictV1Error({
           documentId: dependency.documentId,
           snapshotCommitSeq: validation.conflict.snapshotCommitSeq,
           currentCommitSeq: validation.conflict.currentState.revisionCommitSeq,
         });
+        break;
       case "invalidEvidence":
         throw corruption("occEvidenceInvalid");
     }
   }
+  return firstConflict;
+}
+
+function requireReproduciblePointCommitConflict(
+  command: PreparedPointMutationAttemptReplacementCommandV1,
+  heads: ReadonlyArray<LoadedPointCommitHeadV1>,
+): void {
+  const conflict = findPointCommitConflictAfterEvidenceValidation(
+    command,
+    heads,
+  );
+  if (conflict !== null) return;
+  throw new PointMutationAttemptReplacementConflictNoLongerPresentV1Error({
+    reason: "conflictNoLongerPresent",
+  });
 }
 
 async function publishPointCommitInTransaction(
@@ -2559,6 +3537,17 @@ async function emitTransactionStep(
   }));
 }
 
+async function emitReplacementStep(
+  options: PointMutationAttemptReplacementOptionsV1,
+  command: PreparedPointMutationAttemptReplacementCommandV1,
+  step: PointMutationAttemptReplacementProofStepV1,
+): Promise<void> {
+  await options.afterReplacementStep?.(Object.freeze({
+    scopeId: command.authorityPins.scopeId,
+    step,
+  }));
+}
+
 function preliminaryAuthorityFailure(
   command: PreparedPointCommitAttemptScalarCommandV1,
   preliminary: TrustedScopeAuthority,
@@ -2601,6 +3590,55 @@ function observeDrizzleQuery(
   }));
 }
 
+function observeReplacementQuery(
+  name: PointMutationAttemptReplacementSqlOperationV1,
+  query: Readonly<{
+    toSQL: () => Readonly<{
+      sql: string;
+      params: ReadonlyArray<unknown>;
+    }>;
+  }>,
+  options: PointMutationAttemptReplacementOptionsV1,
+): void {
+  if (options.observeQuery === undefined) return;
+  const compiled = query.toSQL();
+  options.observeQuery(Object.freeze({
+    name,
+    sql: compiled.sql,
+    params: Object.freeze(structuredClone(compiled.params)),
+  }));
+}
+
+async function replacementSqlCall<Value>(
+  operation: PointMutationAttemptReplacementSqlOperationV1,
+  call: () => PromiseLike<Value>,
+): Promise<Value> {
+  try {
+    return await call();
+  } catch (cause) {
+    if (
+      cause instanceof PointMutationAttemptReplacementCommittedOutcomeV1Error ||
+      cause instanceof PointMutationAttemptReplacementConflictNoLongerPresentV1Error ||
+      cause instanceof PointMutationAttemptReplacementRequestKeyReuseV1Error ||
+      cause instanceof PointMutationAttemptReplacementCorruptionV1Error ||
+      cause instanceof PointMutationAttemptReplacementStaleAuthorityV1Error ||
+      cause instanceof PointMutationAttemptReplacementResourceExhaustionV1Error ||
+      cause instanceof PointCommitConflictV1Error ||
+      cause instanceof PointCommitStaleAuthorityV1Error ||
+      cause instanceof PointCommitCorruptionV1Error ||
+      cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1 ||
+      cause instanceof CommittedPointOutcomeCorruptionErrorV1 ||
+      isAppRowInvariantFailure(cause)
+    ) {
+      throw cause;
+    }
+    throw new PointMutationAttemptReplacementSqlFailureMarkerV1(
+      operation,
+      cause,
+    );
+  }
+}
+
 async function sqlCall<Value>(
   operation: PointCommitSqlOperationV1,
   call: () => PromiseLike<Value>,
@@ -2613,6 +3651,8 @@ async function sqlCall<Value>(
       cause instanceof PointCommitStaleAuthorityV1Error ||
       cause instanceof PointCommitCorruptionV1Error ||
       cause instanceof PointCommitResourceExhaustionV1Error ||
+      cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1 ||
+      cause instanceof CommittedPointOutcomeCorruptionErrorV1 ||
       isAppRowInvariantFailure(cause)
     ) {
       throw cause;
@@ -2665,6 +3705,39 @@ function mapCommandPreparationFailure(
     return corruption("commandInvalid");
   }
   throw cause;
+}
+
+function mapPointMutationAttemptReplacementPreparationFailure(
+  cause: unknown,
+): PointMutationAttemptReplacementV1Error {
+  if (
+    cause instanceof PointCommitStaleAuthorityV1Error ||
+    cause instanceof PointCommitCorruptionV1Error ||
+    cause instanceof PointCommitSqlErrorV1
+  ) {
+    return mapPointMutationAttemptReplacementSharedError(cause);
+  }
+  if (cause instanceof FlarexValueCodecV1Error) {
+    return replacementCorruption("commandInvalid");
+  }
+  throw cause;
+}
+
+function mapPointMutationAttemptReplacementSharedError(
+  cause:
+    | PointCommitStaleAuthorityV1Error
+    | PointCommitCorruptionV1Error
+    | PointCommitSqlErrorV1,
+): PointMutationAttemptReplacementV1Error {
+  if (cause instanceof PointCommitStaleAuthorityV1Error) {
+    return new PointMutationAttemptReplacementStaleAuthorityV1Error({
+      reason: cause.reason,
+    });
+  }
+  if (cause instanceof PointCommitCorruptionV1Error) {
+    return replacementCorruption(cause.reason);
+  }
+  return replacementSqlError(cause.operation, cause.cause);
 }
 
 function publicationResultFromOutcome(
@@ -2788,6 +3861,63 @@ function mapFinishingTransitionFailure(
   throw cause;
 }
 
+function mapPointMutationAttemptReplacementTransactionFailure(
+  cause: unknown,
+): PointMutationAttemptReplacementV1Error {
+  if (
+    cause instanceof PointMutationAttemptReplacementCommittedOutcomeV1Error ||
+    cause instanceof PointMutationAttemptReplacementConflictNoLongerPresentV1Error ||
+    cause instanceof PointMutationAttemptReplacementRequestKeyReuseV1Error ||
+    cause instanceof PointMutationAttemptReplacementCorruptionV1Error ||
+    cause instanceof PointMutationAttemptReplacementStaleAuthorityV1Error ||
+    cause instanceof PointMutationAttemptReplacementResourceExhaustionV1Error ||
+    cause instanceof PointMutationAttemptReplacementSqlErrorV1
+  ) {
+    return cause;
+  }
+  if (cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1) {
+    return new PointMutationAttemptReplacementRequestKeyReuseV1Error({
+      mismatches: Object.freeze([...cause.mismatches]),
+    });
+  }
+  if (cause instanceof CommittedPointOutcomeCorruptionErrorV1) {
+    return replacementCorruption("committedOutcomeInvalid");
+  }
+  if (
+    cause instanceof PointCommitStaleAuthorityV1Error ||
+    cause instanceof PointCommitCorruptionV1Error ||
+    cause instanceof PointCommitSqlErrorV1
+  ) {
+    return mapPointMutationAttemptReplacementSharedError(cause);
+  }
+  if (cause instanceof PointCommitConflictV1Error) {
+    return replacementCorruption("occEvidenceInvalid");
+  }
+  if (cause instanceof LocatedReadCommittedTransactionFailureV1) {
+    return replacementSqlError("beginOrRollback", cause);
+  }
+  if (cause instanceof PointMutationAttemptReplacementSqlFailureMarkerV1) {
+    return replacementSqlError(cause.operation, cause.cause);
+  }
+  if (cause instanceof PointCommitSqlFailureMarkerV1) {
+    return replacementSqlError(cause.operation, cause.cause);
+  }
+  if (
+    cause instanceof ScopeClockCorruptionError ||
+    cause instanceof ScopeClockNotFoundError
+  ) {
+    return replacementCorruption("scopeClockInvalid");
+  }
+  if (isAppRowInvariantFailure(cause)) {
+    return replacementCorruption("rowHeadInvalid");
+  }
+  const sqlState = findSqlState(cause);
+  if (sqlState !== undefined) {
+    return replacementSqlError("beginOrRollback", cause);
+  }
+  throw cause;
+}
+
 function mapTransactionFailure(
   cause: unknown,
 ): PointCommitRollbackProofV1Error {
@@ -2820,6 +3950,18 @@ function mapTransactionFailure(
     return sqlError("beginOrRollback", cause);
   }
   throw cause;
+}
+
+function mapPublicationTransactionFailure(
+  cause: unknown,
+): PointCommitPublicationV1Error {
+  if (
+    cause instanceof CommittedPointOutcomeRequestKeyReuseErrorV1 ||
+    cause instanceof CommittedPointOutcomeCorruptionErrorV1
+  ) {
+    return cause;
+  }
+  return mapTransactionFailure(cause);
 }
 
 function isAppRowInvariantFailure(cause: unknown): boolean {
@@ -2860,6 +4002,36 @@ function validHash(value: unknown): value is Uint8Array {
 
 function validEpochMilliseconds(value: unknown): value is number {
   return isPositiveSafeInteger(value);
+}
+
+function committedOutcomeCorruption(
+  input: ResolveCommittedPointOutcomeInputV1,
+  reason: CommittedPointOutcomeCorruptionReasonV1,
+  commitSeq?: CommitSeq,
+): CommittedPointOutcomeCorruptionErrorV1 {
+  return new CommittedPointOutcomeCorruptionErrorV1({
+    scopeUuid: input.scopeUuid,
+    reason,
+    ...(commitSeq === undefined ? {} : { commitSeq }),
+  });
+}
+
+function replacementCorruption(
+  reason: PointMutationAttemptReplacementCorruptionReasonV1,
+): PointMutationAttemptReplacementCorruptionV1Error {
+  return new PointMutationAttemptReplacementCorruptionV1Error({ reason });
+}
+
+function replacementSqlError(
+  operation: PointMutationAttemptReplacementSqlOperationV1,
+  cause: unknown,
+): PointMutationAttemptReplacementSqlErrorV1 {
+  const sqlState = findSqlState(cause);
+  return new PointMutationAttemptReplacementSqlErrorV1({
+    operation,
+    cause,
+    ...(sqlState === undefined ? {} : { sqlState }),
+  });
 }
 
 function corruption(

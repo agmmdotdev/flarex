@@ -94,7 +94,7 @@ Convex-first implementation references include:
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
 | Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. S06 is its first replacement-row consumer; no replacement route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
-| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, the required non-routing mutation-session authority core, private exact-snapshot semantic point reads with typed dependencies, C03's bounded exact-attempt point journal/overlay/seal, C04A/C04B1/C04B2 authenticated verification, corrected C04C1 logical point planning, S08's native commit/change-feed schema plus bounded private reader, S09-A's private committed-success result storage, S09-B's fixed-kind private commit-wake schema/repository, O06's rollback-proven private point-commit transaction kernel, O07-A's read-only committed-outcome resolution, O07-B's atomic point publication and fixed-kind outbox production, C05-A's exact finishing transition, and C05-B's fresh-process reconstruction/composition are implemented. C06 endpoint/dispatch and replay orchestration, O08 retry and uncertain-outcome policy, result-expiry policy, reconnect retention/retained-floor advancement, index sidecars, edges, target-native readiness, routing/activation, and prototype retirement are not implemented; C04C2 and long-running-attempt renewal remain conditional on proven consumers. |
+| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, the required non-routing mutation-session authority core, private exact-snapshot semantic point reads with typed dependencies, C03's bounded exact-attempt point journal/overlay/seal, C04A/C04B1/C04B2 authenticated verification, corrected C04C1 logical point planning, S08's native commit/change-feed schema plus bounded private reader, S09-A's private committed-success result storage, S09-B's fixed-kind private commit-wake schema/repository, O06's rollback-proven private point-commit transaction kernel, O07-A's read-only committed-outcome resolution, O07-B's atomic point publication and fixed-kind outbox production, C05-A's exact finishing transition, C05-B's fresh-process reconstruction/composition, and O08-A's atomic exact-attempt replacement are implemented. O08-B trusted OCC rerun, O08-C known-settled SQL retry, O08-D uncertain-outcome policy, C06 endpoint/dispatch, result-expiry policy, reconnect retention/retained-floor advancement, index sidecars, edges, target-native readiness, routing/activation, and prototype retirement are not implemented; C04C2 and long-running-attempt renewal remain conditional on proven consumers. |
 
 Existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, and
 subscription tables remain an internal prototype behavior baseline. They are
@@ -162,8 +162,9 @@ These decisions are durable and are not re-opened by each implementation turn:
   qualified point dependency/overlay rows, and bounded ordered material-write
   events; deleting the root cascades those temporary children. Initial
   activation creates the root with a database-time creation seed. Abort/expiry
-  deletes it before the lease/session transition, and O08 must create a fresh
-  root atomically with any future fence/lease replacement.
+  deletes it before the lease/session transition. O08-A now deletes that root
+  and its children before the exact lease, advances the parent fence, and
+  atomically installs a fresh lease plus pristine database-time-seeded root.
 - Session arguments and grants retain checked object JSON, Value Codec V1
   canonical bytes, and SHA-256. The grant contains minimized inert
   claims/capabilities. A cryptographic identity/policy digest is matching
@@ -566,7 +567,7 @@ Exit gates:
   foreign-key mutable clock values;
 - caller-owned transactions prove anchor/lease creation and explicit
   delete/advance/insert replacement rollback without claiming O03-B activation
-  or O08's production retry primitive;
+  or O08-A's production exact-attempt replacement primitive;
 - PGlite and real Postgres prove constraints, concurrent conflicting lease
   attempts, exact bigint boundaries, and intended lookup plans; and
 - legacy `invoke_sessions`, `/invoke/*`, exports, and routing remain unchanged.

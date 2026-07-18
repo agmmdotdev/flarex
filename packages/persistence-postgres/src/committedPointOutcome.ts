@@ -204,7 +204,12 @@ export interface CommittedPointOutcomeResolverOptionsV1 {
 
 interface ValidatedLookupInputV1 extends ResolveCommittedPointOutcomeInputV1 {}
 
-interface CapturedOutcomeRowV1 {
+/**
+ * Package-internal scalar request evidence shared by the O07 resolver and
+ * under-lock commit/retry decisions. It deliberately carries comparisons and
+ * byte lengths rather than the stored digest bytes.
+ */
+export interface CommittedPointOutcomeRequestEvidenceV1 {
   readonly outcomeScopeUuid: unknown;
   readonly outcomeRequestKey: unknown;
   readonly identityHashByteLength: unknown;
@@ -213,6 +218,10 @@ interface CapturedOutcomeRowV1 {
   readonly functionPathMatches: unknown;
   readonly requestHashByteLength: unknown;
   readonly requestMatches: unknown;
+}
+
+interface CapturedOutcomeRowV1
+  extends CommittedPointOutcomeRequestEvidenceV1 {
   readonly epochUuid: unknown;
   readonly commitSeq: unknown;
   readonly resultState: unknown;
@@ -230,6 +239,37 @@ interface CapturedOutcomeRowV1 {
   readonly retainedHeaderCommitSeq: unknown;
   readonly boundedResultBytes: unknown;
   readonly boundedResultSha256: unknown;
+}
+
+export function validateCommittedPointOutcomeRequestEvidenceShapeV1(
+  input: ResolveCommittedPointOutcomeInputV1,
+  row: CommittedPointOutcomeRequestEvidenceV1,
+): Result.Result<true, CommittedPointOutcomeCorruptionErrorV1> {
+  if (
+    row.outcomeScopeUuid !== input.scopeUuid ||
+    row.outcomeRequestKey !== input.requestKey ||
+    row.identityHashByteLength !== 32 ||
+    row.requestHashByteLength !== 32 ||
+    row.functionPathValid !== true ||
+    typeof row.identityMatches !== "boolean" ||
+    typeof row.functionPathMatches !== "boolean" ||
+    typeof row.requestMatches !== "boolean"
+  ) {
+    return corruption(input, "outcomeRowInvalid");
+  }
+  return Result.succeed(true);
+}
+
+export function committedPointOutcomeRequestMismatchesV1(
+  row: CommittedPointOutcomeRequestEvidenceV1,
+): ReadonlyArray<CommittedPointOutcomeMismatchV1> {
+  const mismatches: CommittedPointOutcomeMismatchV1[] = [];
+  if (row.identityMatches !== true) {
+    mismatches.push("identityAccessPolicySha256");
+  }
+  if (row.functionPathMatches !== true) mismatches.push("functionPath");
+  if (row.requestMatches !== true) mismatches.push("requestSha256");
+  return Object.freeze(mismatches);
 }
 
 interface ValidatedAvailableOutcomeRowV1 {
@@ -607,19 +647,8 @@ function validateCapturedOutcome(
       return yield* corruption(input, "duplicateOutcome");
     }
     const row = rows[0];
-    if (
-      row === undefined ||
-      row.outcomeScopeUuid !== input.scopeUuid ||
-      row.outcomeRequestKey !== input.requestKey ||
-      row.identityHashByteLength !== 32 ||
-      row.requestHashByteLength !== 32 ||
-      row.functionPathValid !== true ||
-      typeof row.identityMatches !== "boolean" ||
-      typeof row.functionPathMatches !== "boolean" ||
-      typeof row.requestMatches !== "boolean"
-    ) {
-      return yield* corruption(input, "outcomeRowInvalid");
-    }
+    if (row === undefined) return yield* corruption(input, "outcomeRowInvalid");
+    yield* validateCommittedPointOutcomeRequestEvidenceShapeV1(input, row);
     if (row.clockScopeUuid === null) {
       if (row.lastCommitSeq !== null || row.oldestAvailableCommitSeq !== null) {
         return yield* corruption(input, "scopeClockInvalid");
@@ -737,10 +766,7 @@ function validateCapturedOutcome(
       );
     }
 
-    const mismatches: CommittedPointOutcomeMismatchV1[] = [];
-    if (!row.identityMatches) mismatches.push("identityAccessPolicySha256");
-    if (!row.functionPathMatches) mismatches.push("functionPath");
-    if (!row.requestMatches) mismatches.push("requestSha256");
+    const mismatches = committedPointOutcomeRequestMismatchesV1(row);
     if (mismatches.length > 0) {
       return yield* Result.fail(
         new CommittedPointOutcomeRequestKeyReuseErrorV1({

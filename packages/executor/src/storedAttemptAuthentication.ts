@@ -22,6 +22,10 @@ import type {
   PointCommitRollbackProofV1Error,
   PointCommitTransactionCommandV1,
   PointCommitWouldCommitV1,
+  PointMutationAttemptReplacementCommandV1,
+  PointMutationAttemptReplacementObservationV1,
+  PointMutationAttemptReplacementPortV1,
+  PointMutationAttemptReplacementV1Error,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import { PointCommitCorruptionV1Error } from
   "@flarex/persistence-postgres/point-commit-transaction";
@@ -726,6 +730,12 @@ export interface StoredPointCommitFinishingTransitionConfigV1
   readonly pointCommitFinishing: PointCommitFinishingTransitionPortV1;
 }
 
+export interface StoredPointMutationAttemptReplacementConfigV1
+  extends StoredPointCommitFinishingTransitionConfigV1 {
+  readonly pointMutationAttemptReplacement:
+    PointMutationAttemptReplacementPortV1;
+}
+
 export type PointCommitRollbackV1Error =
   | InvalidPreparedPointCommitV1Error
   | PointCommitRollbackProofV1Error;
@@ -823,6 +833,21 @@ export interface StoredPointCommitExecutorV1
   >;
 }
 
+export type PointMutationAttemptReplacementExecutionV1Error =
+  | InvalidPreparedPointCommitV1Error
+  | PointMutationAttemptReplacementV1Error;
+
+export interface StoredPointMutationAttemptReplacementV1
+  extends StoredPointCommitExecutorV1 {
+  readonly replaceConflictedPointMutationAttempt: (
+    input: FinishingPreparedPointCommitV1,
+  ) => Effect.Effect<
+    PointMutationAttemptReplacementObservationV1,
+    PointMutationAttemptReplacementExecutionV1Error,
+    never
+  >;
+}
+
 function isPointCommitRollbackProofPortV1(
   value: unknown,
 ): value is PointCommitRollbackProofPortV1 {
@@ -843,6 +868,12 @@ function isPointCommitFinishingTransitionPortV1(
     typeof value.enterFinishing === "function";
 }
 
+function isPointMutationAttemptReplacementPortV1(
+  value: unknown,
+): value is PointMutationAttemptReplacementPortV1 {
+  return isNonArrayRecord(value) && typeof value.replace === "function";
+}
+
 function isStoredAttemptFinishingEvidenceLoaderPortV1(
   value: StoredAttemptEvidenceLoaderPortV1,
 ): value is StoredAttemptFinishingEvidenceLoaderPortV1 {
@@ -852,6 +883,10 @@ function isStoredAttemptFinishingEvidenceLoaderPortV1(
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptEvidenceLoaderPortV1,
 ): StoredAttemptAuthenticationV1;
+export function createStoredAttemptAuthenticationV1(
+  loader: StoredAttemptFinishingEvidenceLoaderPortV1,
+  commitAuthority: StoredPointMutationAttemptReplacementConfigV1,
+): StoredPointMutationAttemptReplacementV1;
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptFinishingEvidenceLoaderPortV1,
   commitAuthority: StoredPointCommitFinishingTransitionConfigV1,
@@ -878,14 +913,16 @@ export function createStoredAttemptAuthenticationV1(
     | StoredCommitAuthorityAuthenticationConfigV1
     | StoredPointCommitRollbackProofConfigV1
     | StoredPointCommitPublisherConfigV1
-    | StoredPointCommitFinishingTransitionConfigV1,
+    | StoredPointCommitFinishingTransitionConfigV1
+    | StoredPointMutationAttemptReplacementConfigV1,
 ):
   | StoredAttemptAuthenticationV1
   | StoredPointCommitPlanningV1
   | StoredPointCommitRollbackProofV1
   | StoredPointCommitPublisherV1
   | StoredPointCommitFinishingTransitionV1
-  | StoredPointCommitExecutorV1 {
+  | StoredPointCommitExecutorV1
+  | StoredPointMutationAttemptReplacementV1 {
   const authorityStates = new WeakMap<object, StoredAttemptAuthorityStateV1>();
   const authenticatedStates = new WeakMap<
     object,
@@ -956,6 +993,17 @@ export function createStoredAttemptAuthenticationV1(
     )
     ? pointCommitFinishingCandidate
     : undefined;
+  const pointMutationAttemptReplacementCandidate: unknown =
+    commitAuthority !== undefined &&
+      "pointMutationAttemptReplacement" in commitAuthority
+      ? commitAuthority.pointMutationAttemptReplacement
+      : undefined;
+  const pointMutationAttemptReplacement =
+    isPointMutationAttemptReplacementPortV1(
+        pointMutationAttemptReplacementCandidate,
+      )
+      ? pointMutationAttemptReplacementCandidate
+      : undefined;
   const finishingEvidenceLoader =
     isStoredAttemptFinishingEvidenceLoaderPortV1(loader) ? loader : undefined;
   const grantKernel = commitAuthority === undefined
@@ -1399,12 +1447,43 @@ export function createStoredAttemptAuthenticationV1(
       },
     );
 
-  return Object.freeze({
+  const executor = Object.freeze({
     ...finishingTransition,
     reconstructPointCommitFinishing,
     finishPointCommit,
     resumePointCommit,
   } satisfies StoredPointCommitExecutorV1);
+  if (pointMutationAttemptReplacement === undefined) return executor;
+
+  const replaceConflictedPointMutationAttempt:
+    StoredPointMutationAttemptReplacementV1[
+      "replaceConflictedPointMutationAttempt"
+    ] = Effect.fn(
+      "StoredAttemptAuthentication.replaceConflictedPointMutationAttempt",
+    )(function* (input) {
+      const state = lookupPreparedPointCommitState(
+        preparedPointCommitStates,
+        input,
+      );
+      if (state === undefined) {
+        return yield* Effect.fail(new InvalidPreparedPointCommitV1Error({
+          reason: "notSameFactory",
+        }));
+      }
+      if (!finishingPreparedPointCommitStates.has(input)) {
+        return yield* Effect.fail(new InvalidPreparedPointCommitV1Error({
+          reason: "notFinishing",
+        }));
+      }
+      return yield* pointMutationAttemptReplacement.replace(
+        capturePointMutationAttemptReplacementCommand(state),
+      );
+    });
+
+  return Object.freeze({
+    ...executor,
+    replaceConflictedPointMutationAttempt,
+  } satisfies StoredPointMutationAttemptReplacementV1);
 }
 
 function captureCommitAuthorityPort(
@@ -1731,14 +1810,7 @@ function capturePointCommitTransactionCommand(
   state: PreparedPointCommitCapabilityStateV1,
 ): PointCommitTransactionCommandV1 {
   const scalar = capturePointCommitAttemptScalarCommand(state);
-  const dependencies = Object.freeze(state.plan.dependencies.map(
-    (dependency) => Object.freeze({
-      documentId: dependency.documentId,
-      tableId: dependency.tableId,
-      rowId: dependency.rowId,
-      dependency: Object.freeze(structuredClone(dependency.dependency)),
-    }),
-  ));
+  const dependencies = capturePointCommitDependencies(state);
   const rowIntent = state.plan.rowIntent === null
     ? null
     : state.plan.rowIntent.kind === "deleted"
@@ -1772,6 +1844,28 @@ function capturePointCommitTransactionCommand(
     dependencies,
     rowIntent,
   } satisfies PointCommitTransactionCommandV1);
+}
+
+function capturePointMutationAttemptReplacementCommand(
+  state: PreparedPointCommitCapabilityStateV1,
+): PointMutationAttemptReplacementCommandV1 {
+  return Object.freeze({
+    ...capturePointCommitAttemptScalarCommand(state),
+    dependencies: capturePointCommitDependencies(state),
+  });
+}
+
+function capturePointCommitDependencies(
+  state: PreparedPointCommitCapabilityStateV1,
+): PointCommitTransactionCommandV1["dependencies"] {
+  return Object.freeze(state.plan.dependencies.map(
+    (dependency) => Object.freeze({
+      documentId: dependency.documentId,
+      tableId: dependency.tableId,
+      rowId: dependency.rowId,
+      dependency: Object.freeze(structuredClone(dependency.dependency)),
+    }),
+  ));
 }
 
 function capturePointCommitPublicationCommand(

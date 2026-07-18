@@ -22,7 +22,9 @@ rollback-proven point-commit transaction kernel, O07-A private read-only
 committed-outcome resolver, and O07-B private durable point publication are
 complete. C05-A's exact scalar-fenced finishing transition and C05-B's separate
 fresh-process finishing reconstruction/private publisher composition are
-complete. O08 is next. C04C2
+complete. O08-A atomic exact-attempt replacement is complete; O08-B trusted OCC
+rerun is next, while O08-C known-settled SQL retry and O08-D uncertain-outcome
+policy remain pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
@@ -730,9 +732,9 @@ Deferred ownership after the required O03-B core:
   and invokes the same O07-B publisher. `C06` owns endpoint orchestration;
 - `O07-B` atomically deletes the exact current lease and stores `committed` only
   inside the data/result/outcome/feed/outbox transaction;
-- `O08` introduces the checked delete/fence-advance/new-lease primitive with
-  trusted OCC rerun classification, journal discard, backoff, SQL retry, and
-  uncertain-outcome lookup; and
+- `O08-A` supplies the checked exact-attempt replacement primitive only;
+  `O08-B` owns trusted OCC rerun authority and backoff, `O08-C` owns known-
+  settled SQL retry, and `O08-D` owns uncertain-outcome lookup policy; and
 - `O11` first introduces the active-floor query and engine-history cleanup
   consumer. S09-A committed-key lifetime and result-payload expiry remain
   separate from engine/feed, reconnect, and S09-B outbox retention.
@@ -878,7 +880,7 @@ Exit gate:
   remains test/proof-only and no externally routable mutation can commit through
   O06; and
 - O07-B proves private exactly-one-winner publication, dense sequence allocation,
-  and atomic header/change/outcome/wake settlement. C06/O08 retain routed finish
+  and atomic header/change/outcome/wake settlement. O08-D/C06 retain routed finish
   orchestration and uncertain-outcome retry policy, and C07 retains the first
   complete end-to-end gate.
 
@@ -919,7 +921,7 @@ Exit gate:
 Outcome:
 
 - Reuse and extend the O06 kernel as the private `CommitExecutor` capability that
-  accepts only the immutable prepared point plan. C05-A supplies its exact
+  accepts only the genuine prepared logical point capability. C05-A supplies its exact
   same-process finishing capability and C05-B supplies equivalent fresh-process
   reconstruction as its first complete compiler consumer; this
   target capability never wraps or promotes legacy
@@ -958,9 +960,11 @@ O07-A committed-outcome lookup outside the transaction
   -> insert the S09-A success receipt together with S08/S09-B evidence
 ```
 
-Any future O03-B2b2 renewal, O03-B2b1 abort/expiry, and O08 retry replacement
-use the same scope-clock then session then lease order whenever they touch those
-authorities.
+Any future O03-B2b2 renewal and O03-B2b1 abort/expiry use the same scope-clock
+then session then lease order whenever they touch those authorities. O08-A adds
+the sealed root after the lease lock; its distinct FK-safe mutation order is
+`finishing -> retrying -> delete root/cascading children -> delete lease ->
+advance fence -> insert lease -> insert pristine root -> running`.
 
 Exit gate:
 
@@ -972,34 +976,59 @@ Exit gate:
 - failed or rolled-back attempts do not appear committed; and
 - no committed/terminal session retains an active snapshot lease.
 
-### [ ] O08 — Separate The Three Retry Coordinators
+### [ ] O08 — Separate Attempt Replacement And Three Retry Coordinators
 
-Outcome:
+#### [x] O08-A — Replace One Exact Conflicted Attempt Atomically
 
-1. A trusted OCC conflict locks and validates the current `finishing` session/
-   fence, enters `retrying`, deletes the old lease, checked-increments the attempt
-   fence, installs the newly resolved exact snapshot lease, returns the same
-   request anchor to `running`, discards the old journal, and reruns
-   deterministic user code under the same request-level generation/fence pin.
-2. PostgreSQL `40001` or `40P01` before a known decision retries the same
-   immutable physical plan within a strict bound.
-3. An uncertain connection outcome consumes O07-A's authoritative lookup before
-   any retry; it does not reimplement the resolver.
+The persistence-owned package-private operation consumes detached correlation
+evidence derived from a genuine same-factory finishing plan, but independently
+resolves placement and revalidates authority, request outcome, session, lease,
+sealed root, database-time liveness, and a reproducible O05 conflict. One READ
+COMMITTED transaction locks clock -> outcome -> session -> lease -> root, enters
+`retrying`, deletes the root and its children before the exact lease, advances
+the signed-int64 fence, inserts a fresh clock-snapshot lease and pristine open
+root, then returns to `running`. Response-loss convergence accepts only the
+exact fence+1 live pristine attempt. The observation is lifecycle evidence, not
+a rerun permit; no backoff, retry budget, user-code execution, SQL retry, or
+uncertain-outcome policy exists in O08-A.
+
+#### [ ] O08-B — Authorize Trusted OCC User-Code Rerun
+
+A known typed O07-B OCC conflict must obtain an opaque same-request rerun permit,
+apply the bounded Convex-style OCC budget/backoff, reload the fresh exact attempt,
+and only then rerun user code without crossing storage-generation authority.
+
+#### [ ] O08-C — Retry Known-Settled SQL Transactions
+
+Only a confirmed pre-decision PostgreSQL `40001` or `40P01` may retry the same
+authenticated logical/closed command within a strict bound. Every attempt opens
+a new transaction and freshly derives locks, physical rows, commit/outbox
+sequences, IDs, and database timestamps. It never reruns user code and cannot
+reuse a physical SQL plan.
+
+#### [ ] O08-D — Resolve Uncertain Outcomes
+
+An uncertain connection outcome consumes O07-A/C05-B before any retry or rerun.
+Matching success replays; mismatched, corrupt, or expired evidence fails closed;
+the coordinator does not duplicate the authoritative outcome resolver.
 
 No request silently crosses a generation fence during an active OCC retry. The
 current clean-replacement path has no legacy request-rebind obligation. If
 shipped request identities are later discovered, their no-commit/terminal-
 anchor rebind rule requires a separately preflighted migration capability.
 
-Every SQL-plan retry opens a new transaction, reacquires the scope clock,
-rechecks session/generation/epoch/idempotency, and derives tentative commit/
-outbox sequences, IDs, timestamps, and transaction locks again. The immutable
-prepared plan contains none of those transaction-derived facts.
+Every O08-C retry opens a new transaction, reacquires the scope clock, rechecks
+session/generation/epoch/idempotency, and derives tentative commit/outbox
+sequences, IDs, timestamps, and transaction locks again. The authenticated
+logical/closed command contains none of those transaction-derived facts.
 
 Exit gate:
 
-- SQL retries do not rerun user code;
-- OCC conflicts do rerun it;
+- O08-A rollback, response-loss convergence, duplicate replacement, O07-B/
+  abort/expiry races, independent-scope progress, and index-backed queries pass
+  on PGlite and isolated real Postgres;
+- O08-C SQL retries do not rerun user code;
+- O08-B OCC conflicts do rerun it;
 - a successful uncertain commit is never applied twice;
 - authorization, validation, codec, and deterministic constraint errors are not
   retried;
