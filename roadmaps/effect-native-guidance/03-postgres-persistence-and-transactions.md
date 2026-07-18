@@ -15,13 +15,14 @@ model still lives outside Effect.
 
 ## Current Migration Status
 
-The first bounded vertical slice ports session-journal table resolution. The
-persistence contract now exposes an Effect-native resolver with exact domain
-and persistence failures, and the executor consumes that resolver directly.
-The Promise resolver remains a temporary compatibility bridge for persistence
-tests and the remaining Promise-native journal flow; remove it and its audited
-runtime-boundary entry when those consumers migrate. Session opening, point
-operations, sealing, and transaction ownership remain outside this slice.
+The first bounded vertical slices port session-journal table resolution and
+attempt opening. The persistence contract now exposes Effect-native operations
+with exact domain and persistence failures, and the executor consumes those
+operations directly. The Promise table resolver and synchronous attempt opener
+remain temporary compatibility bridges for persistence tests; remove them and
+the resolver's audited runtime-boundary entry when those consumers migrate.
+Point operations, sealing, and transaction ownership remain outside these
+slices.
 
 ## Target Boundary
 

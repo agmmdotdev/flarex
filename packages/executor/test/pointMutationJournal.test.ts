@@ -3,6 +3,7 @@ import type {
   SessionJournalPointOperationV1,
 } from "@flarex/persistence-postgres/session-journal-store";
 import {
+  InvalidSessionJournalInputV1Error,
   PinnedPointTableNotFoundV1Error,
   SessionJournalPersistenceV1Error,
 } from "@flarex/persistence-postgres/session-journal-store";
@@ -434,6 +435,16 @@ describe("C03 executor point-mutation journal boundary", () => {
   });
 
   it("preserves typed capability and persistence failures at the Effect boundary", async () => {
+    const invalidPins = new InvalidSessionJournalInputV1Error({
+      operation: "openAttempt",
+      reason: "invalidAttemptPins",
+    });
+    const openHarness = createHarness({ openAttemptFailure: invalidPins });
+    const openFailure = await runFailure(
+      openHarness.journal.openAttempt(await loadedAttempt()),
+    );
+    expect(openFailure).toBe(invalidPins);
+
     const missingTable = new PinnedPointTableNotFoundV1Error({
       deploymentId: DEPLOYMENT_ID,
       schemaVersionId: SCHEMA_VERSION_ID,
@@ -584,6 +595,7 @@ describe("C03 executor point-mutation journal boundary", () => {
 });
 
 interface HarnessOptions {
+  readonly openAttemptFailure?: InvalidSessionJournalInputV1Error;
   readonly resolvePointTable?: (
     persistenceAttempt: unknown,
     tableName: unknown,
@@ -620,6 +632,9 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
   let completedResult: CanonicalSuccessfulResultV1 | undefined;
   const persistence = Object.freeze({
     openAttempt: () => persistenceAttempt,
+    openAttemptEffect: () => options.openAttemptFailure === undefined
+      ? Effect.succeed(persistenceAttempt)
+      : Effect.fail(options.openAttemptFailure),
     resolvePointTable: async (
       attempt: unknown,
       tableName: unknown,

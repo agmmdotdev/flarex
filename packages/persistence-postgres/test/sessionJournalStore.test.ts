@@ -272,6 +272,67 @@ describe("C03 Postgres SessionJournalStore", () => {
 
     const current = await scenario("table_resolution");
     await expect(
+      runEffect(current.store.openAttemptEffect({
+        selector: selectorFromAnchor(current.anchor),
+        snapshotToken: current.anchor.snapshotToken,
+        schemaVersionId: current.schemaVersionId,
+      })),
+    ).resolves.toBeDefined();
+    const invalidOpenAttemptInput = {
+      selector: {
+        ...selectorFromAnchor(current.anchor),
+        attemptFence: 0n,
+      },
+      snapshotToken: current.anchor.snapshotToken,
+      schemaVersionId: current.schemaVersionId,
+    };
+    const invalidOpenAttemptEffect = Reflect.apply(
+      current.store.openAttemptEffect,
+      undefined,
+      [invalidOpenAttemptInput],
+    );
+    await expect(runFailure(invalidOpenAttemptEffect)).resolves.toMatchObject({
+      operation: "openAttempt",
+      reason: "invalidAttemptPins",
+    } satisfies Partial<InvalidSessionJournalInputV1Error>);
+    expect(() => Reflect.apply(
+      current.store.openAttempt,
+      undefined,
+      [invalidOpenAttemptInput],
+    )).toThrow(InvalidSessionJournalInputV1Error);
+    const propertyAccessCause = new Error("selector access failed");
+    const throwingOpenAttemptInput = Object.defineProperty(
+      {},
+      "selector",
+      {
+        enumerable: true,
+        get: () => {
+          throw propertyAccessCause;
+        },
+      },
+    );
+    const throwingOpenAttemptEffect = Reflect.apply(
+      current.store.openAttemptEffect,
+      undefined,
+      [throwingOpenAttemptInput],
+    );
+    const propertyAccessFailure = await runFailure(
+      throwingOpenAttemptEffect,
+    );
+    expect(propertyAccessFailure).toBeInstanceOf(
+      InvalidSessionJournalInputV1Error,
+    );
+    expect(propertyAccessFailure).toMatchObject({
+      operation: "openAttempt",
+      reason: "invalidAttemptPins",
+      cause: propertyAccessCause,
+    } satisfies Partial<InvalidSessionJournalInputV1Error>);
+    expect(() => Reflect.apply(
+      current.store.openAttempt,
+      undefined,
+      [throwingOpenAttemptInput],
+    )).toThrow(InvalidSessionJournalInputV1Error);
+    await expect(
       runEffect(current.store.resolvePointTableEffect(
         current.attempt,
         "users",

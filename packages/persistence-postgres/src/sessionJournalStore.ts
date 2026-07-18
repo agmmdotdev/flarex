@@ -9,7 +9,7 @@ import {
 } from "@flarex/utils/numbers";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 
 import {
   AppDocumentSystemFieldV1Error,
@@ -72,7 +72,7 @@ import {
   type JsonObject,
 } from "flarex-protocol/json";
 import {
-  decodeCatalogSchemaVersionId,
+  CatalogSchemaVersionIdSchema,
   SchemaManifestAppTableNameSchema,
   type CatalogSchemaVersionId,
   type SchemaManifestAppTableName,
@@ -337,6 +337,17 @@ export interface SessionJournalStorePersistenceV1 {
   readonly openAttempt: (
     input: OpenSessionJournalAttemptV1Input,
   ) => SessionJournalAttemptV1;
+  /**
+   * Effect-native attempt-opening path. The synchronous method above remains
+   * a temporary compatibility bridge for persistence tests; remove it when
+   * those fixtures migrate.
+   */
+  readonly openAttemptEffect: (
+    input: OpenSessionJournalAttemptV1Input,
+  ) => Effect.Effect<
+    SessionJournalAttemptV1,
+    InvalidSessionJournalInputV1Error
+  >;
   readonly resolvePointTable: (
     attempt: SessionJournalAttemptV1,
     tableName: unknown,
@@ -647,6 +658,18 @@ const encodeSessionJournal = Schema.encodeSync(SessionJournalV1Schema);
 const decodeSchemaManifestAppTableNameEffect = Schema.decodeUnknownEffect(
   SchemaManifestAppTableNameSchema,
 );
+const decodeTransactionSessionIdResult = Schema.decodeUnknownResult(
+  Schema.toType(TransactionSessionIdV1Schema),
+);
+const decodeTransactionAttemptFenceResult = Schema.decodeUnknownResult(
+  Schema.toType(TransactionAttemptFenceSchema),
+);
+const decodeSnapshotTokenResult = Schema.decodeUnknownResult(
+  Schema.toType(SnapshotTokenSchema),
+);
+const decodeCatalogSchemaVersionIdResult = Schema.decodeUnknownResult(
+  Schema.toType(CatalogSchemaVersionIdSchema),
+);
 
 export function createSessionJournalStorePersistenceV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
@@ -673,6 +696,23 @@ export function createSessionJournalStorePersistenceV1(
     }
     return state;
   };
+
+  const createAttemptHandle = (
+    state: SessionJournalAttemptStateV1,
+  ): SessionJournalAttemptV1 => {
+    const handle = Object.freeze({
+      [sessionJournalAttemptBrand]: true as const,
+    });
+    attemptStates.set(handle, state);
+    return handle;
+  };
+
+  const openAttemptEffect: SessionJournalStorePersistenceV1[
+    "openAttemptEffect"
+  ] = Effect.fn("SessionJournalStore.openAttempt")(function* (input) {
+    const state = yield* Effect.fromResult(captureAttemptStateResult(input));
+    return createAttemptHandle(state);
+  });
 
   const resolvePointTableEffect: SessionJournalStorePersistenceV1[
     "resolvePointTableEffect"
@@ -744,13 +784,11 @@ export function createSessionJournalStorePersistenceV1(
     openAttempt: (
       input: OpenSessionJournalAttemptV1Input,
     ): SessionJournalAttemptV1 => {
-      const state = captureAttemptState(input);
-      const handle = Object.freeze({
-        [sessionJournalAttemptBrand]: true as const,
-      });
-      attemptStates.set(handle, state);
-      return handle;
+      return createAttemptHandle(
+        Result.getOrThrow(captureAttemptStateResult(input)),
+      );
     },
+    openAttemptEffect,
     resolvePointTable: async (
       attempt: SessionJournalAttemptV1,
       tableNameInput: unknown,
@@ -889,38 +927,89 @@ interface ResolvedJournalTargetV1 {
   readonly authority: TrustedScopeAuthority;
 }
 
-function captureAttemptState(
+function captureAttemptStateResult(
   input: OpenSessionJournalAttemptV1Input,
-): SessionJournalAttemptStateV1 {
-  try {
+): Result.Result<
+  SessionJournalAttemptStateV1,
+  InvalidSessionJournalInputV1Error
+> {
+  return Result.gen(function* () {
+    const selectorInput = yield* readOpenAttemptInput(() => input.selector);
+    const deploymentId = yield* readOpenAttemptInput(
+      () => selectorInput.deploymentId,
+    );
+    const scopeId = yield* readOpenAttemptInput(() => selectorInput.scopeId);
+    const sessionIdInput = yield* readOpenAttemptInput(
+      () => selectorInput.sessionId,
+    );
+    const sessionId = yield* decodeTransactionSessionIdResult(
+      sessionIdInput,
+    ).pipe(Result.mapError(invalidAttemptPins));
+    const attemptFenceInput = yield* readOpenAttemptInput(
+      () => selectorInput.attemptFence,
+    );
+    const attemptFence = yield* decodeTransactionAttemptFenceResult(
+      attemptFenceInput,
+    ).pipe(Result.mapError(invalidAttemptPins));
     const selector = Object.freeze({
-      deploymentId: input.selector.deploymentId,
-      scopeId: input.selector.scopeId,
-      sessionId: TransactionSessionIdV1Schema.make(input.selector.sessionId),
-      attemptFence: TransactionAttemptFenceSchema.make(
-        input.selector.attemptFence,
-      ),
+      deploymentId,
+      scopeId,
+      sessionId,
+      attemptFence,
     } satisfies PointMutationSessionAttemptSelectorV1);
-    const snapshotToken = Object.freeze(SnapshotTokenSchema.make({
-      scopeId: input.snapshotToken.scopeId,
-      epoch: input.snapshotToken.epoch,
-      commitSeq: input.snapshotToken.commitSeq,
-    }));
+    const snapshotTokenInput = yield* readOpenAttemptInput(
+      () => input.snapshotToken,
+    );
+    const snapshotScopeId = yield* readOpenAttemptInput(
+      () => snapshotTokenInput.scopeId,
+    );
+    const snapshotEpoch = yield* readOpenAttemptInput(
+      () => snapshotTokenInput.epoch,
+    );
+    const snapshotCommitSeq = yield* readOpenAttemptInput(
+      () => snapshotTokenInput.commitSeq,
+    );
+    const snapshotToken = Object.freeze(
+      yield* decodeSnapshotTokenResult({
+        scopeId: snapshotScopeId,
+        epoch: snapshotEpoch,
+        commitSeq: snapshotCommitSeq,
+      }).pipe(Result.mapError(invalidAttemptPins)),
+    );
     if (snapshotToken.scopeId !== selector.scopeId) {
-      throw new Error("Snapshot scope does not match the attempt selector.");
+      return yield* Result.fail(invalidAttemptPins(
+        new Error("Snapshot scope does not match the attempt selector."),
+      ));
     }
+    const schemaVersionIdInput = yield* readOpenAttemptInput(
+      () => input.schemaVersionId,
+    );
+    const schemaVersionId = yield* decodeCatalogSchemaVersionIdResult(
+      schemaVersionIdInput,
+    ).pipe(Result.mapError(invalidAttemptPins));
     return Object.freeze({
       selector,
       snapshotToken,
-      schemaVersionId: decodeCatalogSchemaVersionId(input.schemaVersionId),
+      schemaVersionId,
     });
-  } catch (cause) {
-    throw new InvalidSessionJournalInputV1Error({
-      operation: "openAttempt",
-      reason: "invalidAttemptPins",
-      cause,
-    });
-  }
+  });
+}
+
+function readOpenAttemptInput<A>(
+  read: () => A,
+): Result.Result<A, InvalidSessionJournalInputV1Error> {
+  return Result.try({
+    try: read,
+    catch: invalidAttemptPins,
+  });
+}
+
+function invalidAttemptPins(cause: unknown): InvalidSessionJournalInputV1Error {
+  return new InvalidSessionJournalInputV1Error({
+    operation: "openAttempt",
+    reason: "invalidAttemptPins",
+    cause,
+  });
 }
 
 async function resolveJournalTarget(

@@ -227,13 +227,10 @@ export function createPointMutationJournalV1(
         reference,
       }));
     }
-    const persistenceAttempt = yield* Effect.try({
-      try: () => persistence.openAttempt({
-        selector: inspection.selector,
-        snapshotToken: inspection.snapshotToken,
-        schemaVersionId: inspection.schemaVersionId,
-      }),
-      catch: mapPersistenceFailure,
+    const persistenceAttempt = yield* persistence.openAttemptEffect({
+      selector: inspection.selector,
+      snapshotToken: inspection.snapshotToken,
+      schemaVersionId: inspection.schemaVersionId,
     });
     const state = Object.freeze({
       persistenceAttempt,
