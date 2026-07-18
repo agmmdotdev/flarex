@@ -9,6 +9,7 @@ import { compareUtf16Strings } from "@flarex/utils/strings";
 import { isH05CloudflareHexId } from "../h05/cloudflareHexId";
 import {
   compileH05ControlPlaneEvidence,
+  h05BindingEvidenceKey,
   h05CloudflareAccountIdSha256,
   h05ControlPlaneEvidenceFormat,
   h05MaximumZonePages,
@@ -593,7 +594,10 @@ function projectBindings(value: unknown, path: string): readonly H05BindingEvide
     throw new Error(`${bindingPath} uses an unsupported binding type.`);
   });
   return projected.sort((left, right) =>
-    compareUtf16Strings(bindingKey(left), bindingKey(right)),
+    compareUtf16Strings(
+      h05BindingEvidenceKey(left),
+      h05BindingEvidenceKey(right),
+    ),
   );
 }
 
@@ -1019,16 +1023,6 @@ function assertNoSecretMaterial(
       pending.push(child);
     }
   }
-}
-
-function bindingKey(binding: H05BindingEvidence): string {
-  if (binding.type === "hyperdrive") {
-    return `${binding.name}:${binding.type}:${binding.id}`;
-  }
-  if (binding.type === "service") {
-    return `${binding.name}:${binding.type}:${binding.service}`;
-  }
-  return `${binding.name}:${binding.type}`;
 }
 
 function domainHash(domain: string, value: string): string {

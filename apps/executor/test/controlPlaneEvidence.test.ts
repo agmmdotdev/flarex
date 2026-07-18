@@ -4,6 +4,7 @@ import {
   compileH05ControlPlaneEvidence,
   decodeH05ControlPlaneEvidence,
   decodeH05ControlPlaneEvidenceJson,
+  h05BindingEvidenceKey,
   h05CloudflareAccountIdSha256,
   h05ControlPlaneEvidenceFormat,
   h05ZoneTypes,
@@ -19,6 +20,26 @@ import {
 import { decodeH05ProofRunId, h05ProofIdentity } from "../h05/proofIdentity";
 
 describe("H05 control-plane evidence contract", () => {
+  it.each([
+    [
+      { type: "hyperdrive", name: "HYPERDRIVE", id: "hyperdrive-id" },
+      "HYPERDRIVE:hyperdrive:hyperdrive-id",
+    ],
+    [
+      { type: "secret_text", name: "EXECUTOR_TOKEN" },
+      "EXECUTOR_TOKEN:secret_text",
+    ],
+    [
+      { type: "service", name: "EXECUTOR", service: "flarex-executor" },
+      "EXECUTOR:service:flarex-executor",
+    ],
+  ] satisfies ReadonlyArray<readonly [H05BindingEvidence, string]>)(
+    "derives the exact identity key for $0 bindings",
+    (binding, expected) => {
+      expect(h05BindingEvidenceKey(binding)).toBe(expected);
+    },
+  );
+
   it("retains the Cloudflare account ID diagnostic", () => {
     expect(() => h05CloudflareAccountIdSha256("A".repeat(32))).toThrow(
       "CLOUDFLARE_ACCOUNT_ID must be 32 lowercase hexadecimal characters.",

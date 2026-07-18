@@ -90,6 +90,16 @@ export type H05BindingEvidence =
       readonly type: "service";
     };
 
+export function h05BindingEvidenceKey(binding: H05BindingEvidence): string {
+  if (binding.type === "hyperdrive") {
+    return `${binding.name}:${binding.type}:${binding.id}`;
+  }
+  if (binding.type === "service") {
+    return `${binding.name}:${binding.type}:${binding.service}`;
+  }
+  return `${binding.name}:${binding.type}`;
+}
+
 export interface H05TraceSettingsEvidence {
   readonly enabled: true;
   readonly persisted: true;
@@ -926,7 +936,7 @@ function decodeBindings(value: unknown, path: string): readonly H05BindingEviden
   const bindings = value.map((binding, index) =>
     decodeBinding(binding, `${path}[${index}]`),
   );
-  assertSortedUnique(bindings.map(bindingKey), path);
+  assertSortedUnique(bindings.map(h05BindingEvidenceKey), path);
   return bindings;
 }
 
@@ -1151,27 +1161,17 @@ function assertBindings(
   expected: readonly H05BindingEvidence[],
   path: string,
 ): void {
-  const expectedKeys = expected.map(bindingKey).sort();
+  const expectedKeys = expected.map(h05BindingEvidenceKey).sort();
   assertExactStrings(
-    version.versionBindings.map(bindingKey),
+    version.versionBindings.map(h05BindingEvidenceKey),
     expectedKeys,
     `${path}.versionBindings`,
   );
   assertExactStrings(
-    version.settingsBindings.map(bindingKey),
+    version.settingsBindings.map(h05BindingEvidenceKey),
     expectedKeys,
     `${path}.settingsBindings`,
   );
-}
-
-function bindingKey(binding: H05BindingEvidence): string {
-  if (binding.type === "hyperdrive") {
-    return `${binding.name}:${binding.type}:${binding.id}`;
-  }
-  if (binding.type === "service") {
-    return `${binding.name}:${binding.type}:${binding.service}`;
-  }
-  return `${binding.name}:${binding.type}`;
 }
 
 function assertExactStrings(
