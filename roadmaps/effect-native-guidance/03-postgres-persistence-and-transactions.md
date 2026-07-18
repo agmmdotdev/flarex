@@ -163,7 +163,12 @@ narrow interruption-masked Drizzle read edges and translated once by the
 session store. Raw row acquisition is split from manifest integrity work and
 stable-binding decoding, so cancellation masking does not extend through
 canonicalization, hashing, or owned stored-row validation. The resolver still
-never reads the mutable active-schema pointer.
+never reads the mutable active-schema pointer. Stable-binding row validation
+now has one authoritative pure `Result` decoder, and the resolver consumes that
+failure channel directly instead of reconstructing owned throws through broad
+Effect catch logic. Throwing projections remain only for the current
+Promise-based schema-planning and insert-return verification consumers and are
+deleted when those consumers receive Result or Effect failure channels.
 
 Fenced index build-state reads are now Effect-native at the exported
 persistence boundary. Unknown input and stored clock/build rows compose through

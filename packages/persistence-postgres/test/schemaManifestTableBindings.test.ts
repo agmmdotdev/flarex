@@ -1,8 +1,11 @@
+import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import {
   CatalogSchemaVersionSchema,
+  decodeSchemaManifestAppTableName,
   type SchemaManifestAppTableDeclarationInputV1,
   type SchemaManifestTableDefinitionsV1,
 } from "flarex-protocol/schema-manifest";
+import { Result } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type {
@@ -13,9 +16,13 @@ import { getSchemaVersionArtifactByVersion } from "../src/schemaVersionArtifacts
 import { createPGlitePersistence } from "../src/pglite";
 import {
   applySchemaManifestAppTableBindingsV1InTransaction,
+  decodeSchemaManifestAppTableBindingRows,
+  decodeSchemaManifestAppTableBindingRowsResult,
   InvalidPreparedSchemaManifestTableBindingsError,
   InvalidSchemaManifestTableBindingInputError,
   prepareSchemaManifestAppTableBindingsV1,
+  SchemaManifestTableBindingCorruptionError,
+  type SchemaManifestAppTableBindingRow,
   type PrepareSchemaManifestAppTableBindingsV1Input,
   type PreparedSchemaManifestAppTableBindingsV1,
 } from "../src/schemaManifestTableBindings";
@@ -52,6 +59,75 @@ describe("schema manifest app table bindings", () => {
     expectTypeOf<
       PreparedSchemaManifestAppTableBindingsV1["section"]
     >().toEqualTypeOf<SchemaManifestTableDefinitionsV1>();
+  });
+
+  it("decodes stable binding rows through Result without capturing defects", () => {
+    const deploymentId = "deployment_binding_result";
+    const logicalName = decodeSchemaManifestAppTableName("users");
+    const row = {
+      deploymentId,
+      logicalName,
+      tableId: decodeCatalogTableId(1),
+    } satisfies SchemaManifestAppTableBindingRow;
+
+    const decoded = decodeSchemaManifestAppTableBindingRowsResult(
+      deploymentId,
+      [logicalName],
+      [row],
+    );
+    expect(Result.getOrThrow(decoded).get(logicalName)).toBe(row.tableId);
+
+    const invalidRow = new Proxy(row, {
+      get(target, property, receiver) {
+        return property === "tableId"
+          ? "invalid-table-id"
+          : Reflect.get(target, property, receiver);
+      },
+    });
+    const invalid = decodeSchemaManifestAppTableBindingRowsResult(
+      deploymentId,
+      [logicalName],
+      [invalidRow],
+    );
+    expect(Result.isFailure(invalid)).toBe(true);
+    if (Result.isFailure(invalid)) {
+      expect(invalid.failure).toBeInstanceOf(
+        SchemaManifestTableBindingCorruptionError,
+      );
+      expect(invalid.failure).toMatchObject({
+        _tag: "SchemaManifestTableBindingCorruptionError",
+        deploymentId,
+        detail: "invalid stored table ID: invalid-table-id",
+      });
+    }
+    const unreachedRow = new Proxy(row, {
+      get() {
+        throw new Error("later binding row must not be inspected");
+      },
+    });
+    expect(Result.isFailure(decodeSchemaManifestAppTableBindingRowsResult(
+      deploymentId,
+      [logicalName],
+      [invalidRow, unreachedRow],
+    ))).toBe(true);
+    expect(() => decodeSchemaManifestAppTableBindingRows(
+      deploymentId,
+      [logicalName],
+      [invalidRow],
+    )).toThrow(SchemaManifestTableBindingCorruptionError);
+
+    const cause = new Error("binding row accessor failed");
+    const throwingRow = new Proxy(row, {
+      get(target, property, receiver) {
+        if (property === "logicalName") throw cause;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(() => decodeSchemaManifestAppTableBindingRowsResult(
+      deploymentId,
+      [logicalName],
+      [throwingRow],
+    )).toThrow(cause);
   });
 
   it("plans name-order candidates and replays the exact committed bindings", async () => {

@@ -10,8 +10,7 @@ import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
-  SchemaManifestTableBindingCorruptionError,
-  decodeSchemaManifestAppTableBindingRows,
+  decodeSchemaManifestAppTableBindingRowsResult,
   selectSchemaManifestAppTableBindingRows,
 } from "./schemaManifestTableBindings";
 import {
@@ -128,22 +127,17 @@ export const resolvePinnedPointTableIdV1Effect = Effect.fn(
       cause,
     }),
   }));
-  const bindings = yield* Effect.try({
-    try: () => decodeSchemaManifestAppTableBindingRows(
+  const bindings = yield* Effect.fromResult(
+    decodeSchemaManifestAppTableBindingRowsResult(
       input.deploymentId,
       [input.tableName],
       bindingRows,
-    ),
-    catch: (cause): unknown => cause,
-  }).pipe(
-    Effect.catch((cause: unknown) =>
-      cause instanceof SchemaManifestTableBindingCorruptionError
-        ? Effect.fail(pinnedPointTableCorruption(
-            input,
-            "stableBindingInvalid",
-            cause,
-          ))
-        : Effect.die(cause)
+    ).pipe(
+      Result.mapError((cause) => pinnedPointTableCorruption(
+        input,
+        "stableBindingInvalid",
+        cause,
+      )),
     ),
   );
   const stableTableId = bindings.get(input.tableName);

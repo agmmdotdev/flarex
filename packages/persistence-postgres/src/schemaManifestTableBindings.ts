@@ -1,5 +1,6 @@
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq, inArray } from "drizzle-orm";
+import { Result } from "effect";
 import {
   decodeCatalogTableId,
   type CatalogTableId,
@@ -96,6 +97,8 @@ export class SchemaManifestTableBindingPlanStaleError extends Error {
 }
 
 export class SchemaManifestTableBindingCorruptionError extends Error {
+  readonly _tag = "SchemaManifestTableBindingCorruptionError" as const;
+
   constructor(
     readonly deploymentId: string,
     readonly detail: string,
@@ -359,28 +362,59 @@ export function decodeSchemaManifestAppTableBindingRows(
   logicalNames: ReadonlyArray<SchemaManifestAppTableName>,
   rows: ReadonlyArray<SchemaManifestAppTableBindingRow>,
 ): ReadonlyMap<SchemaManifestAppTableName, CatalogTableId> {
-  const requestedNames = new Set(logicalNames);
-  const bindings = new Map<SchemaManifestAppTableName, CatalogTableId>();
-  for (const row of rows) {
-    if (row.deploymentId !== deploymentId) {
-      throw new SchemaManifestTableBindingCorruptionError(
+  // Temporary throwing projection for the Promise-based schema-planning
+  // consumers in this module and schemaManifestAppSchemaBindings. Delete it
+  // when those consumers own Result or Effect failure channels.
+  return Result.getOrThrow(
+    decodeSchemaManifestAppTableBindingRowsResult(
+      deploymentId,
+      logicalNames,
+      rows,
+    ),
+  );
+}
+
+/** Pure recoverable decoder for rows acquired from the stable table catalog. */
+export function decodeSchemaManifestAppTableBindingRowsResult(
+  deploymentId: string,
+  logicalNames: ReadonlyArray<SchemaManifestAppTableName>,
+  rows: ReadonlyArray<SchemaManifestAppTableBindingRow>,
+): Result.Result<
+  ReadonlyMap<SchemaManifestAppTableName, CatalogTableId>,
+  SchemaManifestTableBindingCorruptionError
+> {
+  return Result.gen(function* () {
+    const requestedNames = new Set(logicalNames);
+    const bindings = new Map<SchemaManifestAppTableName, CatalogTableId>();
+    for (const row of rows) {
+      if (row.deploymentId !== deploymentId) {
+        return yield* Result.fail(
+          new SchemaManifestTableBindingCorruptionError(
+            deploymentId,
+            `cross-deployment row returned for ${row.deploymentId}`,
+          ),
+        );
+      }
+      const logicalName = yield* decodeStoredLogicalNameResult(
         deploymentId,
-        `cross-deployment row returned for ${row.deploymentId}`,
+        row.logicalName,
       );
-    }
-    const logicalName = decodeStoredLogicalName(deploymentId, row.logicalName);
-    if (!requestedNames.has(logicalName) || bindings.has(logicalName)) {
-      throw new SchemaManifestTableBindingCorruptionError(
+      if (!requestedNames.has(logicalName) || bindings.has(logicalName)) {
+        return yield* Result.fail(
+          new SchemaManifestTableBindingCorruptionError(
+            deploymentId,
+            `unexpected or duplicate app binding for ${logicalName}`,
+          ),
+        );
+      }
+      const tableId = yield* decodeStoredTableIdResult(
         deploymentId,
-        `unexpected or duplicate app binding for ${logicalName}`,
+        row.tableId,
       );
+      bindings.set(logicalName, tableId);
     }
-    bindings.set(
-      logicalName,
-      decodeStoredTableId(deploymentId, row.tableId),
-    );
-  }
-  return bindings;
+    return bindings;
+  });
 }
 
 function planTableBindings(
@@ -521,34 +555,54 @@ export async function insertPlannedSchemaManifestAppTableBindings(
   }
 }
 
+function decodeStoredLogicalNameResult(
+  deploymentId: string,
+  value: unknown,
+): Result.Result<
+  SchemaManifestAppTableName,
+  SchemaManifestTableBindingCorruptionError
+> {
+  return Result.try({
+    try: () => decodeSchemaManifestAppTableName(value),
+    catch: (cause) => new SchemaManifestTableBindingCorruptionError(
+      deploymentId,
+      `invalid stored app table name: ${String(value)}`,
+      { cause },
+    ),
+  });
+}
+
 function decodeStoredLogicalName(
   deploymentId: string,
   value: unknown,
 ): SchemaManifestAppTableName {
-  try {
-    return decodeSchemaManifestAppTableName(value);
-  } catch (cause) {
-    throw new SchemaManifestTableBindingCorruptionError(
+  // Temporary projection for insert-return verification in the still-Promise
+  // writer. Delete it with that consumer's Result/Effect migration.
+  return Result.getOrThrow(
+    decodeStoredLogicalNameResult(deploymentId, value),
+  );
+}
+
+function decodeStoredTableIdResult(
+  deploymentId: string,
+  value: unknown,
+): Result.Result<CatalogTableId, SchemaManifestTableBindingCorruptionError> {
+  return Result.try({
+    try: () => decodeCatalogTableId(value),
+    catch: (cause) => new SchemaManifestTableBindingCorruptionError(
       deploymentId,
-      `invalid stored app table name: ${String(value)}`,
+      `invalid stored table ID: ${String(value)}`,
       { cause },
-    );
-  }
+    ),
+  });
 }
 
 function decodeStoredTableId(
   deploymentId: string,
   value: unknown,
 ): CatalogTableId {
-  try {
-    return decodeCatalogTableId(value);
-  } catch (cause) {
-    throw new SchemaManifestTableBindingCorruptionError(
-      deploymentId,
-      `invalid stored table ID: ${String(value)}`,
-      { cause },
-    );
-  }
+  // Same insert-return compatibility boundary as decodeStoredLogicalName.
+  return Result.getOrThrow(decodeStoredTableIdResult(deploymentId, value));
 }
 
 function bindingChanged(
