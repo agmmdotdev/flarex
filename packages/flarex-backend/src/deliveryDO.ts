@@ -24,7 +24,13 @@ import {
   deliveryInternalRouteErrorToResponseEffect,
   type DeliveryInternalRouteError,
 } from "./delivery/InternalRouteBoundary";
+import {
+  deliveryFailureMessage,
+  type DeliveryFailureReportStage,
+  reportDeliveryFailureEffect,
+} from "./delivery/FailureReporter";
 import { HttpError, json } from "./http";
+import { fetchExecutorJson } from "./executorHttp";
 import { Data, Effect } from "effect";
 import {
   addLiveQueryDeliverySkipReasons,
@@ -61,8 +67,6 @@ type DeliveryDrainRunResult = DeliveryDrainResult & (
   | { hasMore: false; continuationCursor?: never }
 );
 
-type DeliveryFailureStage = "fanout" | "ack";
-
 type DeliveryDrainSummary = LiveQueryDeliveryResult & {
   batches: number;
   claimed: number;
@@ -71,7 +75,7 @@ type DeliveryDrainSummary = LiveQueryDeliveryResult & {
   hasMore: boolean;
 };
 
-export type DeliveryDrainFailureStage = "claim" | DeliveryFailureStage;
+export type DeliveryDrainFailureStage = "claim" | DeliveryFailureReportStage;
 
 export type DeliveryDrainFailureDetail = {
   stage: DeliveryDrainFailureStage;
@@ -175,6 +179,8 @@ export class DeliveryDO extends DurableObject<Env> {
     const claimOwner = body.claimOwner;
 
     const self = this;
+    const fetchExecutor = (path: string, requestBody: unknown) =>
+      fetchExecutorJson(this.env, path, requestBody);
     return Effect.gen(function* () {
       let batches = 0;
       let claimed = 0;
@@ -220,12 +226,15 @@ export class DeliveryDO extends DurableObject<Env> {
         claimed += page.deliveries.length;
         const changes = yield* deliveryChangesFromRecordsEffect(page.deliveries).pipe(
           Effect.tapError(error =>
-            self.reportDeliveryFailureEffect(
-              deploymentId,
-              page.deliveries,
-              claimOwner,
-              "fanout",
-              error,
+            reportDeliveryFailureEffect(
+              fetchExecutor,
+              {
+                deploymentId,
+                deliveries: page.deliveries,
+                claimOwner,
+                stage: "fanout",
+                error,
+              },
             )
           ),
           Effect.mapError(error => newDeliveryDrainFailureError({
@@ -247,12 +256,15 @@ export class DeliveryDO extends DurableObject<Env> {
           changes,
         ).pipe(
           Effect.tapError(error =>
-            self.reportDeliveryFailureEffect(
-              deploymentId,
-              page.deliveries,
-              claimOwner,
-              "fanout",
-              error,
+            reportDeliveryFailureEffect(
+              fetchExecutor,
+              {
+                deploymentId,
+                deliveries: page.deliveries,
+                claimOwner,
+                stage: "fanout",
+                error,
+              },
             )
           ),
           Effect.mapError(error => newDeliveryDrainFailureError({
@@ -278,12 +290,15 @@ export class DeliveryDO extends DurableObject<Env> {
           claimOwner,
         ).pipe(
           Effect.tapError(error =>
-            self.reportDeliveryFailureEffect(
-              deploymentId,
-              page.deliveries,
-              claimOwner,
-              "ack",
-              error,
+            reportDeliveryFailureEffect(
+              fetchExecutor,
+              {
+                deploymentId,
+                deliveries: page.deliveries,
+                claimOwner,
+                stage: "ack",
+                error,
+              },
             )
           ),
           Effect.mapError(error => newDeliveryDrainFailureError({
@@ -421,7 +436,7 @@ export class DeliveryDO extends DurableObject<Env> {
     cursor: LiveQueryDeliveryCursor | undefined,
   ) {
     return claimLiveQueryDeliveryBatchEffect(
-      (path, body) => this.executorFetch(path, body),
+      (path, body) => fetchExecutorJson(this.env, path, body),
       {
         deploymentId,
         limit,
@@ -438,7 +453,7 @@ export class DeliveryDO extends DurableObject<Env> {
     claimOwner: string,
   ) {
     return ackLiveQueryDeliveryBatchEffect(
-      (path, body) => this.executorFetch(path, body),
+      (path, body) => fetchExecutorJson(this.env, path, body),
       {
         deploymentId,
         deliveryIds,
@@ -447,66 +462,6 @@ export class DeliveryDO extends DurableObject<Env> {
     );
   }
 
-  private async reportDeliveryFailure(
-    deploymentId: string,
-    deliveries: LiveQueryDeliveryRecord[],
-    claimOwner: string,
-    stage: DeliveryFailureStage,
-    error: unknown,
-  ): Promise<void> {
-    try {
-      const response = await this.executorFetch(
-        "/maintenance/live-queries/failure",
-        {
-          deploymentId,
-          deliveryIds: deliveries.map(delivery => delivery.deliveryId),
-          claimOwner,
-          stage,
-          error: errorMessage(error),
-          failedAt: new Date().toISOString(),
-        },
-      );
-      if (!response.ok) {
-        console.error(
-          `Live query delivery failure report failed with status ${response.status}.`,
-        );
-      }
-    } catch (reportError) {
-      console.error("Live query delivery failure report failed.", reportError);
-    }
-  }
-
-  private reportDeliveryFailureEffect(
-    deploymentId: string,
-    deliveries: LiveQueryDeliveryRecord[],
-    claimOwner: string,
-    stage: DeliveryFailureStage,
-    error: unknown,
-  ): Effect.Effect<void> {
-    return Effect.tryPromise({
-      try: () => this.reportDeliveryFailure(deploymentId, deliveries, claimOwner, stage, error),
-      catch: reportError => reportError,
-    }).pipe(
-      Effect.catch(() => Effect.void),
-    );
-  }
-
-  private async executorFetch(path: string, body: unknown): Promise<Response> {
-    const url = executorUrl(this.env, path);
-    const headers = new Headers({ "content-type": "application/json" });
-    if (this.env.FLAREX_EXECUTOR_TOKEN !== undefined) {
-      headers.set("authorization", `Bearer ${this.env.FLAREX_EXECUTOR_TOKEN}`);
-    }
-    const request = new Request(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
-    if (this.env.FLAREX_EXECUTOR !== undefined) {
-      return this.env.FLAREX_EXECUTOR.fetch(request);
-    }
-    return fetch(request);
-  }
 }
 
 interface DeliveryRouteHandlers {
@@ -610,11 +565,6 @@ const runDeliveryAlarmContinuation = Effect.fn(
   );
 });
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
 class DeliveryDrainFailureError extends Data.TaggedError("DeliveryDrainFailureError")<{
   readonly result: DeliveryDrainFailureResult;
   readonly message: string;
@@ -654,7 +604,7 @@ function deliveryDrainFailureResult(input: {
   const detail = {
     stage: input.stage,
     status: deliveryFailureStatus(input.error),
-    error: errorMessage(input.error),
+    error: deliveryFailureMessage(input.error),
   };
   return {
     deploymentId: input.deploymentId,
@@ -726,12 +676,3 @@ const deliveryChangesFromRecordsEffect = Effect.fn("DeliveryDO.deliveryChangesFr
     });
   },
 );
-
-function executorUrl(env: Env, path: string): string {
-  const base = env.FLAREX_EXECUTOR_URL ?? "https://flarex-executor.internal";
-  const url = new URL(base);
-  url.pathname = `${url.pathname.replace(/\/+$/, "")}${path}`;
-  url.search = "";
-  url.hash = "";
-  return url.href;
-}

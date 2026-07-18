@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { HttpError, json } from "./http";
+import { fetchExecutorJson } from "./executorHttp";
 import { deliveryObjectName } from "./routing";
 import { Effect } from "effect";
 import {
@@ -978,7 +979,7 @@ export class SchedulerDO extends DurableObject<Env> {
     SchedulerMaintenanceBoundaryError
   > {
     return rerunStaleLiveQuerySubscriptionsEffect(
-      (path, body) => this.executorFetch(path, body),
+      (path, body) => fetchExecutorJson(this.env, path, body),
       body,
     );
   }
@@ -1040,7 +1041,7 @@ export class SchedulerDO extends DurableObject<Env> {
     SchedulerMaintenanceBoundaryError
   > {
     return cleanupExpiredLiveQueryConnectionsEffect(
-      (path, body) => this.executorFetch(path, body),
+      (path, body) => fetchExecutorJson(this.env, path, body),
       body,
     );
   }
@@ -1052,7 +1053,7 @@ export class SchedulerDO extends DurableObject<Env> {
     SchedulerMaintenanceBoundaryError
   > {
     return expiredConnectionDeploymentsEffect(
-      (path, body) => this.executorFetch(path, body),
+      (path, body) => fetchExecutorJson(this.env, path, body),
       body,
     );
   }
@@ -1064,7 +1065,7 @@ export class SchedulerDO extends DurableObject<Env> {
     SchedulerMaintenanceBoundaryError
   > {
     return deadLetterStuckLiveQueryDeliveriesEffect(
-      (path, body) => this.executorFetch(path, body),
+      (path, body) => fetchExecutorJson(this.env, path, body),
       body,
     );
   }
@@ -1096,7 +1097,7 @@ export class SchedulerDO extends DurableObject<Env> {
     SchedulerMaintenanceBoundaryError
   > {
     return pendingDeploymentsEffect(
-      (path, body) => this.executorFetch(path, body),
+      (path, body) => fetchExecutorJson(this.env, path, body),
       {
         limit: input.limit,
         ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
@@ -1104,22 +1105,6 @@ export class SchedulerDO extends DurableObject<Env> {
     );
   }
 
-  private async executorFetch(path: string, body: unknown): Promise<Response> {
-    const url = executorUrl(this.env, path);
-    const headers = new Headers({ "content-type": "application/json" });
-    if (this.env.FLAREX_EXECUTOR_TOKEN !== undefined) {
-      headers.set("authorization", `Bearer ${this.env.FLAREX_EXECUTOR_TOKEN}`);
-    }
-    const request = new Request(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
-    if (this.env.FLAREX_EXECUTOR !== undefined) {
-      return this.env.FLAREX_EXECUTOR.fetch(request);
-    }
-    return fetch(request);
-  }
 }
 
 interface SchedulerRouteHandlers {
@@ -1391,15 +1376,6 @@ const runDeadLetterLiveQueryDeliveriesEffect = Effect.fn(
     };
   },
 );
-
-function executorUrl(env: Env, path: string): string {
-  const base = env.FLAREX_EXECUTOR_URL ?? "https://flarex-executor.internal";
-  const url = new URL(base);
-  url.pathname = `${url.pathname.replace(/\/+$/, "")}${path}`;
-  url.search = "";
-  url.hash = "";
-  return url.href;
-}
 
 function pendingRerunFromRequest(request: {
   deploymentId: string;
