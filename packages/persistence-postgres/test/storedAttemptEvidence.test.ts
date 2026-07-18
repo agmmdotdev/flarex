@@ -106,6 +106,7 @@ import {
 } from "../src/storedCommitAuthorityEvidence";
 import {
   createStoredAttemptEvidenceLoaderV1,
+  StoredAttemptEvidencePersistenceV1Error,
   type StoredAttemptEvidenceAuthorityV1,
   type StoredAttemptEvidenceLoadResultV1,
   type StoredAttemptEvidenceLoaderV1,
@@ -218,6 +219,61 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     expect(result.evidence.root.sealedFinalSyscallSequence).toBe(0n);
     expect(result.evidence.points).toEqual([]);
     expect(await timestamps(current.anchor.sessionId)).toEqual(before);
+  });
+
+  it("maps foreign authority failures into the typed persistence channel", async () => {
+    const current = await scenario("typed_authority_failure");
+    const cause = new Error("stored-attempt metadata unavailable");
+    const basePorts = resolutionPorts(persistence);
+    const loader = createStoredAttemptEvidenceLoaderV1({
+      ...basePorts,
+      scopeMetadata: {
+        getScopeMetadataByDeploymentId: async () => {
+          throw cause;
+        },
+      },
+    });
+
+    const failure = await runFailure(loader.loadEffect(current.authority));
+    expect(failure).toBeInstanceOf(StoredAttemptEvidencePersistenceV1Error);
+    expect(failure).toMatchObject({
+      _tag: "StoredAttemptEvidencePersistenceV1Error",
+      operation: "scopeMetadataRead",
+      cause,
+    });
+  });
+
+  it("does not observe interruption until the repeatable-read edge settles", async () => {
+    const current = await scenario("repeatable_read_interruption");
+    await seal(current);
+    const entered = deferredSignal();
+    const release = deferredSignal();
+    let interruptionSettled = false;
+    const loader = createStoredAttemptEvidenceLoaderV1(
+      resolutionPorts(persistence),
+      {
+        beforeRepeatableReadClose: async () => {
+          entered.resolve();
+          await release.promise;
+        },
+      },
+    );
+
+    const fiber = Effect.runFork(loader.loadEffect(current.authority));
+    await entered.promise;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+      interruptionSettled = true;
+      return exit;
+    });
+    try {
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      release.resolve();
+    }
+    await interruption;
+    expect(interruptionSettled).toBe(true);
+    expect(Exit.hasInterrupts(await runEffect(Fiber.await(fiber)))).toBe(true);
   });
 
   it("accepts finishing+sealed for reconstruction but rejects every other lifecycle", async () => {

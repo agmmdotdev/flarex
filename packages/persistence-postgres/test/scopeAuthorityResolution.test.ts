@@ -21,7 +21,6 @@ import {
   type SplitScopeAuthorityProvisioningReceipt,
 } from "../src/scopeAuthorityProvisioningReceiptTypes";
 import {
-  resolveLocatedTrustedScopeAuthority,
   resolveTrustedScopeAuthorityEffect,
   TrustedScopeAuthorityPortError,
   TrustedScopeAuthorityResolutionError,
@@ -471,15 +470,6 @@ describe("trusted scope authority resolution", () => {
     });
     expect(fixture.getProvisioningReceipt).not.toHaveBeenCalled();
     expect(fixture.resolveClockTarget).not.toHaveBeenCalled();
-  });
-
-  it("preserves rejection identity at the remaining temporary Promise facade", async () => {
-    const cause = new Error("legacy metadata rejection");
-    const fixture = resolutionFixture({ metadataCause: cause });
-
-    await expect(
-      resolveLocatedTrustedScopeAuthority("deployment_split", fixture.ports),
-    ).rejects.toBe(cause);
   });
 
   it("maps a split receipt-port rejection before target resolution", async () => {

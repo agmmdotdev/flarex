@@ -69,10 +69,12 @@ and unwraps only the typed port error to preserve its prior rejection identity.
 Delete that local bridge when those persistence contracts and their executor
 callers move to Effect operations directly.
 
-The generic `resolveLocatedTrustedScopeAuthority` Promise facade now has one
-remaining committed consumer: stored-attempt evidence. Delete it when that
-consumer's independent Effect migration is complete; new authority consumers
-must use the Effect operation directly.
+Stored-attempt evidence loading now owns Effect-native `loadEffect` and
+`loadFinishingEffect` operations with typed persistence failures and an
+interruption-masked repeatable-read Promise edge. Its executor port consumes
+those operations directly, so the obsolete generic
+`resolveLocatedTrustedScopeAuthority` Promise facade and audited runtime
+boundary have been deleted.
 
 Stored commit-authority loading now owns an Effect-native `loadEffect`
 operation, typed persistence failures, Effect-native detached

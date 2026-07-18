@@ -250,28 +250,6 @@ export const resolveLocatedTrustedScopeAuthorityEffect = Effect.fn(
   }
 });
 
-/**
- * Temporary Promise compatibility boundary for stored-attempt evidence.
- * Delete it when that remaining consumer uses
- * `resolveLocatedTrustedScopeAuthorityEffect` directly.
- */
-export function resolveLocatedTrustedScopeAuthority<
-  Target extends LocatedScopeClockReader,
->(
-  deploymentId: string,
-  ports: TrustedScopeAuthorityResolutionPorts<Target>,
-): Promise<LocatedTrustedScopeAuthority<Target>> {
-  return Effect.runPromise(
-    resolveLocatedTrustedScopeAuthorityEffect(deploymentId, ports).pipe(
-      Effect.mapError((error) =>
-        error instanceof TrustedScopeAuthorityPortError
-          ? error.cause
-          : error
-      ),
-    ),
-  );
-}
-
 const resolveSplitScopeAuthority = Effect.fn(
   "ScopeAuthority.resolveSplit",
 )(function* <Target extends LocatedScopeClockReader>(
