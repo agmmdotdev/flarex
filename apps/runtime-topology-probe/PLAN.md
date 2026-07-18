@@ -1,9 +1,10 @@
 # Runtime Topology Probe Turn Plan
 
-Status: experimental evidence plan; `P00` through `P09` complete. The first
-production attempt failed the Paid-eligibility gate and was cleaned up; after
-the owner upgraded the same isolated target, P09 passed in production. The
-running campaign and deployment are retained for P10, which remains pending.
+Status: experiment complete; `P00` through `P11` passed. The first production
+attempt failed the Paid-eligibility gate and was cleaned up. After the owner
+upgraded the same isolated target, P09 smoke and P10 evidence collection passed,
+P11 recorded the bounded conclusions, and every isolated Cloudflare resource
+was removed.
 
 This file owns a bounded production probe for measuring Cloudflare runtime
 communication. It is local to `apps/runtime-topology-probe`; it is not an
@@ -180,10 +181,11 @@ version before the production matrix is registered.
   service bindings.
 - Bound repetitions, concurrency, payload bytes, journal entries, facets per
   session, and unique Dynamic Worker code IDs at the server boundary.
-- Gates `P02` through `P07B` are local and dry-run-only. `P07B` closes the local
-  bounded-orchestration, evidence, reconciliation, and resumable-purge gates;
-  production deployment required the separate `P08` preflight. P09 has now
-  passed, and P10 remains separately gated.
+- Gates `P02` through `P07B` were local and dry-run-only. `P07B` closed the
+  local bounded-orchestration, evidence, reconciliation, and resumable-purge
+  gates; production deployment required the separate `P08` preflight. P09 and
+  P10 later ran only the frozen production matrix, and P11 removed the isolated
+  deployment.
   `P07A` budgets only one immutable run/cell; the fixed `P07B` coordinator owns
   the deployment-wide creation limit for this isolated probe.
 - Set `globalOutbound: null` for loaded code. Pass only the narrow mock syscall
@@ -377,7 +379,8 @@ gateway polling because it would measure the opposite communication direction.
 
 ### P07A - Add Per-Cell Run Control And Measurement Integrity
 
-Status: complete locally; not deployed.
+Status: complete. It was proven locally at this gate, later exercised only by
+the isolated P09-P10 deployment, and removed in P11.
 
 Delivered:
 
@@ -419,7 +422,8 @@ Miniflare; and all deployment dry-runs.
 
 ### P07B - Add Reconciliation, Purge, Runner, And Evidence Export
 
-Status: complete locally; not deployed.
+Status: complete. It was proven locally at this gate, later exercised only by
+the isolated P09-P10 deployment, and removed in P11.
 
 #### Approved implementation preflight
 
@@ -550,7 +554,7 @@ scope would expand.
 
 Status: complete. Attempt 1 stopped before gateway creation and was cleaned up.
 Attempt 2 passed all eight production scenarios and left the campaign running
-for the separately approved P10 resume.
+for the same-campaign P10 resume; P10 later sealed and purged it.
 
 The failed-attempt absence proof is recorded in
 `P09-PRODUCTION-ATTEMPT-1.md`; the successful smoke, latency, usage, trace
@@ -573,7 +577,10 @@ resume. P07B remains the successful pre-production cleanup rehearsal.
 
 ### P10 - Collect Production Latency Evidence
 
-Status: pending.
+Status: complete. The same P09 campaign produced 32 complete samples, 24
+eligible measurements, schema-valid and digest-matched raw/summary artifacts,
+zero scenario failures, and a terminal application purge. The sanitized receipt
+is [`P10-PRODUCTION-EVIDENCE.md`](./P10-PRODUCTION-EVIDENCE.md).
 
 Deliver:
 
@@ -592,7 +599,8 @@ budget and no secret or tenant data.
 
 ### P11 - Analyze, Record Conclusions, And Teardown
 
-Status: pending.
+Status: complete. The bounded conclusions and final absence proof are in
+[`P11-CONCLUSIONS-AND-TEARDOWN.md`](./P11-CONCLUSIONS-AND-TEARDOWN.md).
 
 Deliver:
 
@@ -612,13 +620,12 @@ teardown are complete.
 
 ## Goal Loop State
 
-- Active goal: build and validate the isolated production runtime-topology
-  probe through separately approved gates.
-- Current gate: `P09` passed on the now-paid target. The campaign is `running`,
-  eight ordinal-zero completions are checkpointed, and the three Workers plus
-  four probe namespaces are intentionally retained.
-- Next action: review and explicitly approve the current P10 preflight before
-  resuming the same campaign for the remaining ordinals. P10 must not create a
-  second campaign or purge before verified evidence is persisted.
-- Goal completion condition: production evidence and analysis are recorded and
-  the approved cleanup/retention action is verified.
+- Goal: complete. The isolated production topology was built, measured, and
+  removed without changing an active Flarex architecture roadmap.
+- Final gate: `P11` recorded the production conclusions after P10 persisted and
+  verified all evidence, then deleted the gateway, mock, sync Worker, and all
+  four exact Durable Object namespace pairs.
+- Retained local evidence: the ignored checkpoint, raw artifact, and derived
+  summary remain secret-free and unstaged for auditability.
+- Any future Postgres-backed `C07A` comparison is a new experiment and must not
+  treat this topology receipt as an architecture selection.

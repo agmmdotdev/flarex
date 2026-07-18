@@ -7,9 +7,10 @@ and teardown requirements live in [`PLAN.md`](./PLAN.md).
 
 ## Current Slice
 
-`P09` is complete in production. The app wraps the P02-P06 communication
-shapes in durable per-cell and deployment-wide campaign coordination without
-introducing a real executor, transaction, or sync engine. The current app owns:
+`P11` is complete. The app wrapped the P02-P06 communication shapes in durable
+per-cell and deployment-wide campaign coordination, collected the frozen P10
+production matrix, and removed every isolated Cloudflare resource without
+introducing a real executor, transaction, or sync engine. The app owns:
 
 - bearer-protected run creation, run status, and compact per-sample commands
   with bounded streaming JSON reads;
@@ -86,8 +87,9 @@ introducing a real executor, transaction, or sync engine. The current app owns:
 - resumable SessionDO facet cleanup, mock-to-sync cleanup, RunDO cleanup, and a
   retained campaign/session/sync tombstone proving the terminal cleanup fence.
 
-This slice has complete local evidence, one cleaned-up eligibility failure, and
-one successful production smoke. The app-local
+This experiment has complete local and production evidence, one cleaned-up
+eligibility failure, one successful production smoke, one publishable P10
+matrix, and a verified P11 teardown. The app-local
 [`P08-PRODUCTION-PREFLIGHT.md`](./P08-PRODUCTION-PREFLIGHT.md) freezes the
 isolated resources, budget, corrected one-campaign smoke/measurement flow,
 evidence destination, and teardown order. The first attempt was removed after
@@ -99,9 +101,11 @@ Dynamic Worker counts, trace configuration, and retained-state boundary are in
 [`P09-PRODUCTION-SMOKE.md`](./P09-PRODUCTION-SMOKE.md). `P07B` does not
 make a lost JavaScript call stack resumable: it seals the run and records the
 claim as `abandoned`. SessionDO cleanup explicitly deletes facet databases,
-removes supervisor probe rows, and retains one exact completion/fence tombstone;
-final namespace and Worker Loader code-cache teardown after the retained P10
-run remains a `P11` responsibility.
+removes supervisor probe rows, and retains one exact completion/fence tombstone.
+The full production evidence and corrected Dynamic Worker request model are in
+[`P10-PRODUCTION-EVIDENCE.md`](./P10-PRODUCTION-EVIDENCE.md); the architecture
+limits and proof that all three Workers and four namespaces are absent are in
+[`P11-CONCLUSIONS-AND-TEARDOWN.md`](./P11-CONCLUSIONS-AND-TEARDOWN.md).
 
 All durations are caller-local monotonic round trips. The protocol never
 subtracts absolute timestamps created by different isolates.
@@ -124,16 +128,15 @@ corepack pnpm --filter @flarex/runtime-topology-probe teardown:sync:delete:dry-r
 ```
 
 The teardown commands above are local dry-runs. Their configs retain the
-production Worker names but export only a binding-free `410 Gone` handler and
-append the required Durable Object deletion tags. The authenticated,
-destructive P11 order is intentionally documented only in
-[`P08-PRODUCTION-PREFLIGHT.md`](./P08-PRODUCTION-PREFLIGHT.md); never substitute
-these configs for the ordinary deployment configs during P09.
+historical production Worker names but export only a binding-free `410 Gone`
+handler and append the required Durable Object deletion tags. The authenticated,
+destructive order and completed receipt are documented in
+[`P08-PRODUCTION-PREFLIGHT.md`](./P08-PRODUCTION-PREFLIGHT.md) and
+[`P11-CONCLUSIONS-AND-TEARDOWN.md`](./P11-CONCLUSIONS-AND-TEARDOWN.md).
 
-After P08 identifies the exact production target, supply the origin and bearer
-secret only through environment variables. P09 runs the resumable eight-scenario
-smoke without sealing or purging the singleton campaign; P10 then resumes the
-same checkpoint and completes the frozen matrix:
+The production run is closed and no probe Worker remains deployed. For a new,
+separately reviewed experiment, supply the origin and bearer secret only
+through environment variables. The historical P09/P10 commands were:
 
 ```sh
 RUNTIME_TOPOLOGY_PROBE_ORIGIN=https://probe.example.workers.dev \
@@ -159,11 +162,12 @@ purge begins. If a process stops after purge starts, verify those files and run
 `probe:purge`; that command refuses to resume cleanup unless both artifacts
 strictly decode and agree by digest.
 
-If P09 must stop after creating the campaign, `probe:abort` explicitly
-requires that exact campaign to exist, replays its durable external-completion
-checkpoint, reconciles unfinished ordinals as partial evidence, persists and
-verifies the artifacts, and runs the same bounded cleanup. Use it only for an
-intentional abort; ordinary P09 success must remain `running` for P10.
+If a future smoke must stop after creating its campaign, `probe:abort`
+explicitly requires that exact campaign to exist, replays its durable
+external-completion checkpoint, reconciles unfinished ordinals as partial
+evidence, persists and verifies the artifacts, and runs the same bounded
+cleanup. Use it only for an intentional abort; a successful smoke must remain
+`running` for its matching measurement resume.
 
 ## Source Layout
 

@@ -1,7 +1,7 @@
 # P09 Production Smoke
 
-Status: passed on 2026-07-18; the campaign and isolated deployment are retained
-for a separately approved P10 run.
+Status: passed on 2026-07-18. This is the historical smoke receipt; P10 later
+completed and purged the campaign, and P11 removed the isolated deployment.
 
 This is the sanitized production receipt for the isolated runtime-topology
 probe. It records only synthetic probe state and aggregate platform evidence.
@@ -69,8 +69,8 @@ remained `running`:
 
 These are single, control-plane-inclusive external round trips from a cold
 production smoke. They prove reachability and bounded completion, not a latency
-distribution or an architectural performance conclusion. P10 owns repeated
-measurements and percentile analysis.
+distribution or an architectural performance conclusion. P10 later supplied
+the repeated measurements and percentile analysis.
 
 The ignored `.probe-state/p07b_local_v1.json` checkpoint strictly decodes as
 the same campaign with eight unique ordinal-zero external completions. The
@@ -124,20 +124,22 @@ four probe Durable Object namespaces. Binding direction is gateway to mock to
 sync; deployment order was sync, mock, gateway. The gateway has no direct sync
 binding, and no Flarex production binding is present.
 
-## Retained State And P10 Gate
+## Historical Retained State And P10 Gate
 
-The final state is intentionally not cleanup-complete:
+At the end of P09, the state was intentionally not cleanup-complete:
 
-- the singleton campaign is `running`;
-- the eight-completion ignored checkpoint remains local;
-- all three Workers and four Durable Object namespaces are retained for the
+- the singleton campaign was `running`;
+- the eight-completion ignored checkpoint remained local;
+- all three Workers and four Durable Object namespaces were retained for the
   same-campaign P10 resume; completed measurement facets were deleted through
-  the normal per-sample cleanup path, while P11 still owns final Worker Loader
-  code-cache and deployment teardown; and
-- no bearer capability remains in the local environment or filesystem. P10
-  must rotate a fresh in-memory capability through Wrangler standard input.
+  the normal per-sample cleanup path, while P11 later completed final Worker
+  Loader code-cache and deployment teardown; and
+- no bearer capability remained in the local environment or filesystem. P10
+  later rotated a fresh in-memory capability through Wrangler standard input.
 
-P10 has not started. Its remaining 24 sample executions, evidence seal,
-artifact persistence, and single application purge require their own current
-preflight and explicit approval. P11 still owns conclusions and deployment
-teardown.
+P10 subsequently completed the remaining 24 sample executions, evidence seal,
+artifact persistence, and single application purge. Its sanitized measurements
+and request-model correction are in
+[`P10-PRODUCTION-EVIDENCE.md`](./P10-PRODUCTION-EVIDENCE.md). P11 then recorded
+the conclusions and verified complete external absence in
+[`P11-CONCLUSIONS-AND-TEARDOWN.md`](./P11-CONCLUSIONS-AND-TEARDOWN.md).

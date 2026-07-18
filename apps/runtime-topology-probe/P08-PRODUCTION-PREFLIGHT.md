@@ -1,8 +1,10 @@
 # P08 Production Deployment Preflight
 
-Status: preparation complete. The first authenticated attempt was ineligible
-and cleaned up; after the owner upgraded the target, the P09 production smoke
-passed. See `P09-PRODUCTION-SMOKE.md` for the current retained state.
+Status: historical preflight complete. The first authenticated attempt was
+ineligible and cleaned up; after the owner upgraded the target, P09 and P10
+passed and P11 removed the complete isolated deployment. See
+`P09-PRODUCTION-SMOKE.md`, `P10-PRODUCTION-EVIDENCE.md`, and
+`P11-CONCLUSIONS-AND-TEARDOWN.md` for the receipts.
 
 This record freezes the production target, budget, run order, evidence path,
 and teardown requirements for the isolated runtime-topology experiment. It is
@@ -29,11 +31,14 @@ account identifier, email, subdomain, OAuth token, current usage values, and
 account resource inventory remain deliberately outside Git.
 
 The owner subsequently upgraded the same isolated target. On 2026-07-18,
-Cloudflare accepted the gateway's Worker Loader upload and P09 passed. The
-retained inventory is now three probe Workers and four probe Durable Object
-namespaces; the same-day Dynamic Worker delta is 5 requests, 4 identities, and
-7,502 microseconds of CPU time. The sanitized current receipt is
-[`P09-PRODUCTION-SMOKE.md`](./P09-PRODUCTION-SMOKE.md).
+Cloudflare accepted the gateway's Worker Loader upload and P09 passed. P09
+retained three probe Workers and four probe Durable Object namespaces; its
+same-day Dynamic Worker delta was 5 requests, 4 identities, and 7,502
+microseconds of CPU time. P10 later completed the matrix and P11 verified that
+the final script and namespace counts were both zero. The sanitized receipts
+are [`P09-PRODUCTION-SMOKE.md`](./P09-PRODUCTION-SMOKE.md),
+[`P10-PRODUCTION-EVIDENCE.md`](./P10-PRODUCTION-EVIDENCE.md), and
+[`P11-CONCLUSIONS-AND-TEARDOWN.md`](./P11-CONCLUSIONS-AND-TEARDOWN.md).
 
 Recheck authentication and all three names immediately before every production
 deployment. A Standard default usage-model setting is a Worker configuration
@@ -172,17 +177,26 @@ These rates are sourced from Cloudflare's
 and [Workers traces](https://developers.cloudflare.com/workers/observability/traces/)
 documentation and must be rechecked when the production run begins.
 
-The clean staged campaign makes 23 Dynamic Worker or facet invocations. A
-successful idempotent smoke replay adds none because all eight samples are
-already complete. The budget nevertheless reserves up to five additional
-dynamic invocations if the first smoke stopped before durably completing the
-five dynamic scenarios, producing a conservative operational maximum of 28
-while retaining the same 12 bounded code IDs. The fixed Dynamic Worker
-packages bound execution CPU at 50 ms for direct, facet, journal, and
+The pre-run model assumed the clean staged campaign would make 23 Dynamic
+Worker or facet requests. A successful idempotent smoke replay would add none
+because all eight samples were already complete. The budget nevertheless
+reserved up to five additional requests if the first smoke stopped before
+durably completing the five dynamic scenarios, producing an operational
+maximum of 28 while retaining the same 12 bounded code IDs. The fixed Dynamic
+Worker packages bound execution CPU at 50 ms for direct, facet, journal, and
 full-invoke paths and at 25 ms for reruns; the clean campaign plus that
 five-invocation reserve has 1,250 ms of configured execution-CPU allowance.
 Dynamic Worker startup CPU is separately metered and is not represented by
 that allowance.
+
+P10 proved that request model wrong: the same-day result was 37 Dynamic Worker
+requests, 52,799 microseconds of CPU, and the expected 12 distinct identities.
+The P10 interval alone reported 32 requests for 18 remaining logical
+dynamic/facet samples. The arithmetic matches four direct samples plus two
+requests for each of 14 facet samples, but account-level analytics cannot prove
+per-sample attribution and the P09 result does not establish that rule. The
+one-request-per-facet assumption must not be reused; see
+[`P10-PRODUCTION-EVIDENCE.md`](./P10-PRODUCTION-EVIDENCE.md).
 
 Expected incremental spend is approximately USD 0 when the account retains
 its included monthly headroom, but that expectation is not a guarantee of a
@@ -306,8 +320,13 @@ unchanged.
 
 The destructive P11 sequence is fail-closed. Run each command as a separate
 shell invocation after authenticated target re-verification. Never paste these
-commands into one shell block. A command must exit zero and its following
-remote-state check must pass before the next numbered step begins.
+commands into one shell block. Ordinarily a command must exit zero and its
+following remote-state check must pass before the next numbered step begins.
+During P11, Wrangler 4.100.0 sometimes committed a mutation but retained its
+local Node process. In that case, stop only the probe-owned process after a
+bounded wait, never repeat the mutation blindly, and continue only when the
+authenticated deployment, settings, script, and namespace APIs prove the exact
+expected state.
 
 1. Deploy only the gateway deletion migration:
 
@@ -316,9 +335,13 @@ remote-state check must pass before the next numbered step begins.
    ```
 
    Then list gateway deployments and inspect the authenticated Cloudflare
-   binding inventory. Confirm the newest deployment is the binding-free
-   teardown Worker, `workers_dev` is disabled, and `PROBE_SESSIONS`,
+   binding inventory. Confirm the newest deployment is the teardown Worker,
+   `workers_dev` is disabled, and `PROBE_SESSIONS`,
    `PROBE_RUNS`, `PROBE_CAMPAIGN`, `MOCK_*`, and `LOADER` are all absent.
+   Wrangler preserves existing secrets when an ordinary deployment omits them,
+   so explicitly delete `RUNTIME_TOPOLOGY_PROBE_TOKEN` or prove it disappears
+   with Worker deletion; do not describe the interim Worker as binding-free
+   while that secret remains.
    Use the dashboard or authenticated Durable Object Namespace List API to
    confirm that no namespace owned by the gateway script remains for
    `ProbeSessionDO`, `ProbeRunDO`, or `ProbeCampaignDO`. Stop if any check is
@@ -367,19 +390,19 @@ remote-state check must pass before the next numbered step begins.
    ```
 
 For either namespace check, request the maximum supported `per_page=1000` and
-require `success === true` with no errors or messages. When
-`result_info.total_count` is greater than zero, require a consistent
-`result_info.total_pages` and inspect every page from 1 through that value. Stop
-if pagination metadata is absent or inconsistent, any page fails, or the
-combined result cannot be checked.
+require `success === true` with no errors or messages, a consistent page and
+per-page value, `count === result.length`, and a stable `total_count`.
+`total_pages` is optional and live P11 responses omitted it with both four and
+one namespace present. When it is absent, derive the required page count as
+`ceil(total_count / per_page)`. Inspect every required page, reject duplicate
+namespace IDs, and require the concatenated result length to equal
+`total_count`.
 
-Cloudflare's live empty-account response omits the optional `total_pages`
-field. That response proves absence only when page 1 has `per_page=1000`,
-`total_count === 0`, and an empty result, and a second default-page request
-independently returns the same authoritative zero total. A non-empty first page
-alone is never proof of absence. Only the fully concatenated result or that
-strict empty-account case may prove that the exact Worker `script` plus class
-pairs are absent:
+For a zero or one-page inventory, independently request the default page and
+require the same total and namespace-ID set. A non-empty first page alone is
+never proof of absence. Only the fully concatenated result plus that
+independent one-page comparison may prove that the exact Worker `script` plus
+class pairs are absent:
 
 - `flarex-runtime-topology-probe-gateway` with `ProbeSessionDO`, `ProbeRunDO`,
   and `ProbeCampaignDO`; and
