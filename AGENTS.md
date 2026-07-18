@@ -154,6 +154,12 @@ When Flarex-dev response errors map the exact message and diagnostics into
 owner. Retain each response error's tag, operation or context, status, body,
 and source decoder, and keep the existing `Effect.mapError` boundary in its
 consumer. This development-analysis contract is not a generic error utility.
+When Flarex-dev materializer response errors share the exact message/status
+projection into a compatibility `Error`, keep one structural projector with
+the materializer owner. Retain each source error's tag and body, preserve its
+decoder and `Effect.mapError` position, and pin fresh allocation plus the own
+status property; do not promote this adapter-specific compatibility shape into
+`@flarex/utils`.
 Keep Node filesystem and path-boundary mechanics with their host or tooling
 owner. A host-local helper may centralize canonical path resolution,
 inside/outside-root checks, file-kind and byte-size inspection, bounded reads,

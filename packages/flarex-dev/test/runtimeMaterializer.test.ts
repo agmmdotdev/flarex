@@ -30,6 +30,7 @@ import {
   decodeMaterializedArtifactResponse,
   LocalMiniflareExecutionArtifactMaterializer,
   MaterializedArtifactResponseError,
+  materializedArtifactResponseErrorToError,
 } from "../src/runtimeMaterializer";
 import type { PushSourcePackage } from "flarex-backend/types";
 
@@ -113,6 +114,25 @@ describe("runtime materializer", () => {
       message: "Materialized execution artifact failed: response body must be valid Flarex JSON.",
       body: null,
     } satisfies Partial<MaterializedArtifactResponseError>);
+  });
+
+  it("projects materialized response errors through one status-bearing Error adapter", () => {
+    const responseError = new MaterializedArtifactResponseError({
+      status: 409,
+      message: "artifact failed",
+      body: { error: "artifact failed" },
+    });
+
+    const first = materializedArtifactResponseErrorToError(responseError);
+    const second = materializedArtifactResponseErrorToError(responseError);
+
+    expect(first).toBeInstanceOf(Error);
+    expect(first).toMatchObject({
+      message: "artifact failed",
+      status: 409,
+    });
+    expect(Object.hasOwn(first, "status")).toBe(true);
+    expect(second).not.toBe(first);
   });
 
   it("validates local source package module maps before creating Miniflare artifacts", async () => {

@@ -340,7 +340,9 @@ semantics.
   Its execution-artifact analysis-error owner also owns the exact pure
   message/diagnostics projection reused by local and HTTP response adapters;
   their distinct response tags and transport evidence remain with each
-  adapter.
+  adapter. The materializer likewise owns its exact message/status projection
+  from typed response errors into the compatibility `Error` consumed by its
+  Promise methods, while the source tags, bodies, and decoders remain distinct.
 - `flarex-test` reuses the local runtime surface.
 - Fetch and Nitro adapters share the same executor core; Nitro is a thin
   wrapper over the Fetch adapter.

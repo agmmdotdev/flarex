@@ -16,7 +16,6 @@ import type {
   ExecutionArtifactMaterializer,
   MaterializedExecutionArtifactPayload,
   MaterializedExecutionArtifact,
-  MaterializedExecutionArtifactInvokeResponseError,
   ExecutionArtifactWorkerExecutorTransport,
 } from "flarex-backend/artifact-runtime";
 import type { InvokeResponse, Json } from "flarex-backend/types";
@@ -156,7 +155,7 @@ class LocalMiniflareMaterializedExecutionArtifact implements MaterializedExecuti
         response,
         "Materialized execution artifact failed",
       ).pipe(
-        Effect.mapError(materializedArtifactInvokeResponseErrorToError),
+        Effect.mapError(materializedArtifactResponseErrorToError),
       ),
     );
   }
@@ -249,14 +248,8 @@ function materializedArtifactErrorMessage(
   return executionArtifactHttpErrorMessage(body, fallbackMessage, status);
 }
 
-function materializedArtifactResponseErrorToError(
-  error: MaterializedArtifactResponseError,
-): Error & { status?: number } {
-  return Object.assign(new Error(error.message), { status: error.status });
-}
-
-function materializedArtifactInvokeResponseErrorToError(
-  error: MaterializedExecutionArtifactInvokeResponseError,
+export function materializedArtifactResponseErrorToError(
+  error: Pick<MaterializedArtifactResponseError, "message" | "status">,
 ): Error & { status?: number } {
   return Object.assign(new Error(error.message), { status: error.status });
 }
