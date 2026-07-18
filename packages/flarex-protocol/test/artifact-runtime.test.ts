@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   decodeExecutionArtifactInvokePayloadBodyEffect,
   executionArtifactErrorBodyMessage,
+  executionArtifactHttpErrorMessage,
   executionArtifactInvokePayload,
   ExecutionArtifactInvokePayloadError,
   materializedExecutionArtifactInvokePayload,
@@ -43,6 +44,36 @@ describe("artifact runtime protocol payload decoders", () => {
         throw new Error("hostile error membership");
       },
     }))).toThrow("hostile error membership");
+  });
+
+  it("projects artifact HTTP error bodies before applying the exact fallback", () => {
+    expect(executionArtifactHttpErrorMessage(
+      { error: "artifact failed" },
+      "Invocation failed",
+      503,
+    )).toBe("artifact failed");
+    expect(executionArtifactHttpErrorMessage(
+      { message: "not conventional" },
+      "Invocation failed",
+      503,
+    )).toBe("Invocation failed with status 503");
+  });
+
+  it("does not hide unexpected HTTP error-body projection failures", () => {
+    const failure = new Error("hostile error getter");
+    const body = Object.defineProperty({}, "error", {
+      get(): never {
+        throw failure;
+      },
+    });
+
+    let thrown: unknown;
+    try {
+      executionArtifactHttpErrorMessage(body, "Invocation failed", 503);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBe(failure);
   });
 
   it("decodes execution artifact invoke payloads", async () => {

@@ -28,6 +28,22 @@ export function executionArtifactErrorBodyMessage(
   return String(Reflect.get(value, "error"));
 }
 
+/**
+ * Projects an execution-artifact HTTP failure body into its protocol message,
+ * falling back to the caller-owned operation label and response status.
+ *
+ * Unexpected failures while reading or stringifying the caller-owned body are
+ * deliberately preserved rather than hidden behind the fallback.
+ */
+export function executionArtifactHttpErrorMessage(
+  value: unknown,
+  fallbackMessage: string,
+  status: number,
+): string {
+  return executionArtifactErrorBodyMessage(value) ??
+    `${fallbackMessage} with status ${status}`;
+}
+
 export type ExecutionArtifactInvokeRequest = {
   path: string;
   args: Json;

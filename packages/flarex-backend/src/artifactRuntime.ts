@@ -51,7 +51,7 @@ export {
 } from "./artifactRuntime/HostKit.ts";
 import { Data, Effect, Schema } from "effect";
 import {
-  executionArtifactErrorBodyMessage,
+  executionArtifactHttpErrorMessage,
   executionArtifactInvokePayload,
   type ExecutionArtifactInvokePayloadFor,
   materializedExecutionArtifactInvokePayload,
@@ -475,8 +475,11 @@ function serviceBindingExecutionArtifactRuntimeErrorMessage(
   body: unknown,
   status: number,
 ): string {
-  return executionArtifactErrorBodyMessage(body) ??
-    `Execution artifact runtime failed with status ${status}`;
+  return executionArtifactHttpErrorMessage(
+    body,
+    "Execution artifact runtime failed",
+    status,
+  );
 }
 
 function materializedExecutionArtifactInvokeErrorMessage(
@@ -484,8 +487,7 @@ function materializedExecutionArtifactInvokeErrorMessage(
   fallbackMessage: string,
   status: number,
 ): string {
-  return executionArtifactErrorBodyMessage(body) ??
-    `${fallbackMessage} with status ${status}`;
+  return executionArtifactHttpErrorMessage(body, fallbackMessage, status);
 }
 
 function serviceBindingExecutionArtifactRuntimeErrorToHttpError(
@@ -496,11 +498,12 @@ function serviceBindingExecutionArtifactRuntimeErrorToHttpError(
 
 export const serviceBindingExecutionArtifactRuntimeErrorToHttpErrorEffect = Effect.fn(
   "ServiceBindingExecutionArtifactRuntime.errorToHttpError",
-)(function* (
-  error: ServiceBindingExecutionArtifactRuntimeError,
-): Effect.fn.Return<never, HttpError> {
-  return yield* Effect.fail(serviceBindingExecutionArtifactRuntimeErrorToHttpError(error));
-});
+)(
+  (
+    error: ServiceBindingExecutionArtifactRuntimeError,
+  ): Effect.Effect<never, HttpError> =>
+    Effect.fail(serviceBindingExecutionArtifactRuntimeErrorToHttpError(error)),
+);
 
 function executionArtifactRuntimeErrorResponse(error: ExecutionArtifactRuntimeRouteError): Response {
   if (error instanceof RequestJsonError || error instanceof ExecutionArtifactInvokePayloadError) {

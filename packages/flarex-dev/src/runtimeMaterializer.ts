@@ -1,7 +1,9 @@
 import { Miniflare } from "miniflare";
 import { Data, Effect } from "effect";
 import type { RunLiveQuerySubscriptionWithInvokeInput } from "@flarex/executor";
-import { executionArtifactErrorBodyMessage } from "flarex-protocol/artifact-runtime";
+import {
+  executionArtifactHttpErrorMessage,
+} from "flarex-protocol/artifact-runtime";
 import { isWritableJsonFromUnknown } from "flarex-protocol/json";
 import {
   decodeMaterializedExecutionArtifactInvokeResponse,
@@ -244,8 +246,7 @@ function materializedArtifactErrorMessage(
   fallbackMessage: string,
   status: number,
 ): string {
-  return executionArtifactErrorBodyMessage(body) ??
-    `${fallbackMessage} with status ${status}`;
+  return executionArtifactHttpErrorMessage(body, fallbackMessage, status);
 }
 
 function materializedArtifactResponseErrorToError(
