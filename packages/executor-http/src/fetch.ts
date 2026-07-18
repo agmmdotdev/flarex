@@ -8,6 +8,9 @@ import {
   handleInvokeStart,
   handleInvokeSyscall,
 } from "./routeEffects";
+import {
+  normalizeExecutorHttpRoutePath as normalizeRoutePath,
+} from "./routePath";
 
 export type FlarexExecutorFetchConfig = Pick<
   FlarexHttpAppConfig,
@@ -44,35 +47,35 @@ export function createFlarexExecutorFetchHandler(
 ): FlarexExecutorFetchHandler {
   const executor = config.executor;
   const capabilityToken = config.capabilityToken;
-  const healthPath = normalizePath(config.healthPath ?? "/health");
+  const healthPath = normalizeRoutePath(config.healthPath ?? "/health");
   const invokeRoutes = [
     {
-      path: normalizePath(config.invokePreparePath ?? "/invoke/prepare"),
+      path: normalizeRoutePath(config.invokePreparePath ?? "/invoke/prepare"),
       handle: (request, set) =>
         handleInvokePrepare(executor, request, set, capabilityToken),
     },
     {
-      path: normalizePath(config.invokeStartPath ?? "/invoke/start"),
+      path: normalizeRoutePath(config.invokeStartPath ?? "/invoke/start"),
       handle: (request, set) =>
         handleInvokeStart(executor, request, set, capabilityToken),
     },
     {
-      path: normalizePath(config.invokeSyscallPath ?? "/invoke/syscall"),
+      path: normalizeRoutePath(config.invokeSyscallPath ?? "/invoke/syscall"),
       handle: (request, set) =>
         handleInvokeSyscall(executor, request, set, capabilityToken),
     },
     {
-      path: normalizePath(config.invokeFinishPath ?? "/invoke/finish"),
+      path: normalizeRoutePath(config.invokeFinishPath ?? "/invoke/finish"),
       handle: (request, set) =>
         handleInvokeFinish(executor, request, set, capabilityToken),
     },
     {
-      path: normalizePath(config.invokeAbortPath ?? "/invoke/abort"),
+      path: normalizeRoutePath(config.invokeAbortPath ?? "/invoke/abort"),
       handle: (request, set) =>
         handleInvokeAbort(executor, request, set, capabilityToken),
     },
     {
-      path: normalizePath(config.invokeAbortStalePath ?? "/invoke/abort-stale"),
+      path: normalizeRoutePath(config.invokeAbortStalePath ?? "/invoke/abort-stale"),
       handle: (request, set) =>
         handleInvokeAbortStale(executor, request, set, capabilityToken),
     },
@@ -112,9 +115,4 @@ export function createFlarexExecutorFetchHandler(
 
 function numericStatus(status: ElysiaSet["status"]): number {
   return typeof status === "number" ? status : 200;
-}
-
-function normalizePath(path: string): string {
-  const normalized = path.startsWith("/") ? path : `/${path}`;
-  return normalized === "/" ? normalized : normalized.replace(/\/+$/, "");
 }

@@ -24,86 +24,89 @@ import {
   handleLiveQuerySubscriptionRemove,
   handleLiveQuerySubscriptionRemoveConnection,
 } from "./routeEffects";
+import {
+  normalizeExecutorHttpRoutePath as normalizeRoutePath,
+} from "./routePath";
 
 export function createFlarexHttpApp(config: FlarexHttpAppConfig) {
   const executor = config.executor;
-  const healthPath = normalizePath(config.healthPath ?? "/health");
-  const invokePreparePath = normalizePath(
+  const healthPath = normalizeRoutePath(config.healthPath ?? "/health");
+  const invokePreparePath = normalizeRoutePath(
     config.invokePreparePath ?? "/invoke/prepare",
   );
-  const invokeStartPath = normalizePath(
+  const invokeStartPath = normalizeRoutePath(
     config.invokeStartPath ?? "/invoke/start",
   );
-  const invokeSyscallPath = normalizePath(
+  const invokeSyscallPath = normalizeRoutePath(
     config.invokeSyscallPath ?? "/invoke/syscall",
   );
-  const invokeFinishPath = normalizePath(
+  const invokeFinishPath = normalizeRoutePath(
     config.invokeFinishPath ?? "/invoke/finish",
   );
-  const invokeAbortPath = normalizePath(
+  const invokeAbortPath = normalizeRoutePath(
     config.invokeAbortPath ?? "/invoke/abort",
   );
-  const invokeAbortStalePath = normalizePath(
+  const invokeAbortStalePath = normalizeRoutePath(
     config.invokeAbortStalePath ?? "/invoke/abort-stale",
   );
-  const maintenanceInvokeSessionsPath = normalizePath(
+  const maintenanceInvokeSessionsPath = normalizeRoutePath(
     config.maintenanceInvokeSessionsPath ?? "/maintenance/invoke-sessions",
   );
-  const maintenanceLiveQueryRerunPath = normalizePath(
+  const maintenanceLiveQueryRerunPath = normalizeRoutePath(
     config.maintenanceLiveQueryRerunPath ??
       "/maintenance/live-queries/rerun",
   );
-  const maintenanceLiveQueryDeliveryPath = normalizePath(
+  const maintenanceLiveQueryDeliveryPath = normalizeRoutePath(
     config.maintenanceLiveQueryDeliveryPath ??
       "/maintenance/live-queries/deliver",
   );
-  const liveQueryConnectionTouchPath = normalizePath(
+  const liveQueryConnectionTouchPath = normalizeRoutePath(
     config.liveQueryConnectionTouchPath ?? "/live-query-connections/touch",
   );
-  const liveQuerySubscriptionRecordPath = normalizePath(
+  const liveQuerySubscriptionRecordPath = normalizeRoutePath(
     config.liveQuerySubscriptionRecordPath ??
       "/live-query-subscriptions/record",
   );
-  const liveQuerySubscriptionRemovePath = normalizePath(
+  const liveQuerySubscriptionRemovePath = normalizeRoutePath(
     config.liveQuerySubscriptionRemovePath ??
       "/live-query-subscriptions/remove",
   );
-  const liveQuerySubscriptionRemoveConnectionPath = normalizePath(
+  const liveQuerySubscriptionRemoveConnectionPath = normalizeRoutePath(
     config.liveQuerySubscriptionRemoveConnectionPath ??
       "/live-query-subscriptions/remove-connection",
   );
-  const maintenanceLiveQueryConnectionCleanupPath = normalizePath(
+  const maintenanceLiveQueryConnectionCleanupPath = normalizeRoutePath(
     config.maintenanceLiveQueryConnectionCleanupPath ??
       "/maintenance/live-queries/connections/cleanup",
   );
-  const maintenanceLiveQueryExpiredConnectionDeploymentsPath = normalizePath(
+  const maintenanceLiveQueryExpiredConnectionDeploymentsPath = normalizeRoutePath(
     config.maintenanceLiveQueryExpiredConnectionDeploymentsPath ??
       "/maintenance/live-queries/expired-connection-deployments",
   );
-  const maintenanceLiveQueryClaimPath = normalizePath(
+  const maintenanceLiveQueryClaimPath = normalizeRoutePath(
     config.maintenanceLiveQueryClaimPath ??
       "/maintenance/live-queries/claim",
   );
-  const maintenanceLiveQueryAckPath = normalizePath(
+  const maintenanceLiveQueryAckPath = normalizeRoutePath(
     config.maintenanceLiveQueryAckPath ?? "/maintenance/live-queries/ack",
   );
-  const maintenanceLiveQueryFailurePath = normalizePath(
+  const maintenanceLiveQueryFailurePath = normalizeRoutePath(
     config.maintenanceLiveQueryFailurePath ??
       "/maintenance/live-queries/failure",
   );
-  const maintenanceLiveQueryDeadLetterPath = normalizePath(
+  const maintenanceLiveQueryDeadLetterPath = normalizeRoutePath(
     config.maintenanceLiveQueryDeadLetterPath ??
       "/maintenance/live-queries/dead-letter",
   );
-  const maintenanceLiveQueryDeadLetterStuckPath = normalizePath(
+  const maintenanceLiveQueryDeadLetterStuckPath = normalizeRoutePath(
     config.maintenanceLiveQueryDeadLetterStuckPath ??
       "/maintenance/live-queries/dead-letter-stuck",
   );
-  const maintenanceLiveQueryPendingDeploymentsPath = normalizePath(
+  const maintenanceLiveQueryPendingDeploymentsPath = normalizeRoutePath(
     config.maintenanceLiveQueryPendingDeploymentsPath ??
       "/maintenance/live-queries/pending-deployments",
   );
-  const maintenanceLiveQueryStuckDeliveriesPath = normalizePath(
+  const maintenanceLiveQueryStuckDeliveriesPath = normalizeRoutePath(
     config.maintenanceLiveQueryStuckDeliveriesPath ??
       "/maintenance/live-queries/stuck-deliveries",
   );
@@ -393,9 +396,4 @@ export function createFlarexHttpHandler(
 ): (request: Request) => Promise<Response> {
   const app = createFlarexHttpApp(config);
   return (request) => app.handle(request);
-}
-
-function normalizePath(path: string): string {
-  const normalized = path.startsWith("/") ? path : `/${path}`;
-  return normalized === "/" ? normalized : normalized.replace(/\/+$/, "");
 }
