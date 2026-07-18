@@ -3,6 +3,7 @@ import { and, asc, eq, gt, isNull, or } from "drizzle-orm";
 import { outbox } from "./schema";
 import type { FlarexMetadataDatabase } from "./deployments";
 import type { CommittedDocumentWriteRecord } from "./commits";
+import { uniqueSorted } from "./uniqueSorted";
 
 export interface CommitOutboxEvent {
   [key: string]: unknown;
@@ -200,10 +201,4 @@ async function listOutboxEventsInternal(
         : null,
     hasMore,
   };
-}
-
-function uniqueSorted<T extends string | number>(values: T[]): T[] {
-  return Array.from(new Set(values)).sort((left, right) =>
-    left < right ? -1 : left > right ? 1 : 0,
-  );
 }

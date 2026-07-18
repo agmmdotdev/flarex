@@ -6,6 +6,7 @@ import {
   freshnessProcessedEvents,
   tableFreshnessVersions,
 } from "./schema";
+import { uniqueSorted } from "./uniqueSorted";
 
 export interface FreshnessOutboxEventKey {
   deploymentId: string;
@@ -245,10 +246,4 @@ async function listTableFreshnessVersions(
     outboxTs: row.outboxTs,
     outboxSequence: row.outboxSequence,
   }));
-}
-
-function uniqueSorted<T extends string | number>(values: T[]): T[] {
-  return Array.from(new Set(values)).sort((left, right) =>
-    left < right ? -1 : left > right ? 1 : 0,
-  );
 }
