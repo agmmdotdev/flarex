@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   compareUtf16Strings,
   isNonBlankString,
+  trimToNonBlankOrNull,
 } from "@flarex/utils/strings";
 
 describe("compareUtf16Strings", () => {
@@ -39,5 +40,21 @@ describe("isNonBlankString", () => {
     expect(isNonBlankString("  value  ")).toBe(true);
     expect(isNonBlankString("\u200b")).toBe(true);
     expect(isNonBlankString("\u0000")).toBe(true);
+  });
+});
+
+describe("trimToNonBlankOrNull", () => {
+  it("merges missing and ECMAScript whitespace-only input into null", () => {
+    expect(trimToNonBlankOrNull(undefined)).toBeNull();
+    expect(trimToNonBlankOrNull("")).toBeNull();
+    expect(trimToNonBlankOrNull(" \t\r\n")).toBeNull();
+    expect(trimToNonBlankOrNull("\u00a0\ufeff")).toBeNull();
+  });
+
+  it("returns the trimmed nonblank spelling without domain normalization", () => {
+    expect(trimToNonBlankOrNull("value")).toBe("value");
+    expect(trimToNonBlankOrNull("  value  ")).toBe("value");
+    expect(trimToNonBlankOrNull("\u200b")).toBe("\u200b");
+    expect(trimToNonBlankOrNull(" \u0000 ")).toBe("\u0000");
   });
 });

@@ -18,3 +18,18 @@ export function compareUtf16Strings(left: string, right: string): number {
 export function isNonBlankString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
+
+/**
+ * Returns an ECMAScript-trimmed nonblank string, or null when an optional
+ * string is missing or trims to empty.
+ *
+ * This helper intentionally merges undefined and blank input into the same
+ * null sentinel. It does not apply domain-specific text validation.
+ */
+export function trimToNonBlankOrNull(
+  value: string | undefined,
+): string | null {
+  if (value === undefined) return null;
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? null : trimmed;
+}

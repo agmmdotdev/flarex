@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { env, pid } from "node:process";
 import { Miniflare, type MiniflareOptions } from "miniflare";
 import { Pool } from "pg";
+import { trimToNonBlankOrNull } from "@flarex/utils/strings";
 
 import {
   createPostgresPersistence,
@@ -14,7 +15,7 @@ import {
   type ExecutorOccProofTransport,
 } from "../h05/executorOccProof";
 
-export const serviceBindingPostgresUrl = normalizePostgresUrl(
+export const serviceBindingPostgresUrl = trimToNonBlankOrNull(
   env.FLAREX_POSTGRES_DATABASE_URL,
 );
 
@@ -262,12 +263,6 @@ function requiredPostgresUrl(): string {
     throw new Error("FLAREX_POSTGRES_DATABASE_URL is required.");
   }
   return serviceBindingPostgresUrl;
-}
-
-function normalizePostgresUrl(value: string | undefined): string | null {
-  if (value === undefined) return null;
-  const trimmed = value.trim();
-  return trimmed.length === 0 ? null : trimmed;
 }
 
 function temporaryDatabaseName(): string {

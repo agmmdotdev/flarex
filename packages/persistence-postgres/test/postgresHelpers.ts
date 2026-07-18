@@ -1,6 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Client, Pool, type PoolClient, type PoolConfig } from "pg";
+import { trimToNonBlankOrNull } from "@flarex/utils/strings";
 
 import {
   createPostgresClientPersistence,
@@ -11,7 +12,7 @@ import {
   type PostgresFlarexPersistence,
 } from "../src/postgres";
 
-export const postgresUrl = normalizePostgresUrl(
+export const postgresUrl = trimToNonBlankOrNull(
   process.env.FLAREX_POSTGRES_DATABASE_URL,
 );
 
@@ -344,12 +345,6 @@ function requiredPostgresUrl(): string {
     throw new Error("FLAREX_POSTGRES_DATABASE_URL is required.");
   }
   return postgresUrl;
-}
-
-function normalizePostgresUrl(value: string | undefined): string | null {
-  if (value === undefined) return null;
-  const trimmed = value.trim();
-  return trimmed.length === 0 ? null : trimmed;
 }
 
 function temporaryIdentifier(prefix: string): string {

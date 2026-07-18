@@ -217,6 +217,13 @@ When several adapters under one package intentionally share the same throwing
 configuration policy and error spelling, centralize that wrapper package-
 locally around the generic predicate. Do not promote throwing configuration
 errors or host option names into `@flarex/utils/numbers`.
+Use `@flarex/utils/strings` to trim an optional string to a nonblank spelling
+or the shared `null` sentinel only when missing and ECMAScript whitespace-only
+input intentionally have the same meaning. Keep configuration names,
+precedence, required-value errors, secret handling, canonical text policy, and
+domain validation with their owner. Do not use that normalizer when surrounding
+whitespace is significant or when `undefined`, empty, and whitespace-only input
+must remain distinguishable.
 Use `@flarex/utils/dates` only to read a finite intrinsic millisecond snapshot
 from an unknown same-realm JavaScript `Date`, or to copy that snapshot into an
 owned plain `Date`. The utilities never dispatch caller-controlled Date methods
