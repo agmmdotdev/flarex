@@ -13,6 +13,9 @@ import {
   ExecutionArtifactRuntimeMissingSourcePackageError,
   ExecutionArtifactRuntimeOperationError,
 } from "./artifactRuntime/Errors.ts";
+import {
+  executionArtifactRuntimeOperationErrorFromUnknown,
+} from "./artifactRuntime/OperationError.ts";
 export {
   generatedExecutionWorkerSource,
   generatedProjectWorkerExecutorBridgeSource,
@@ -316,7 +319,10 @@ function serviceBindingExecutionArtifactInvokePayloadEffect(
       sourcePackage: await options.store.get(deployment.executionArtifactRef),
       request,
     }),
-    catch: cause => executionArtifactRuntimeOperationError("loadSourcePackage", cause),
+    catch: cause => executionArtifactRuntimeOperationErrorFromUnknown(
+      "loadSourcePackage",
+      cause,
+    ),
   });
 }
 
@@ -341,7 +347,10 @@ function fetchServiceBindingExecutionArtifactRuntime(
       },
       body: JSON.stringify(payload),
     }),
-    catch: cause => executionArtifactRuntimeOperationError("runtimeFetch", cause),
+    catch: cause => executionArtifactRuntimeOperationErrorFromUnknown(
+      "runtimeFetch",
+      cause,
+    ),
   });
 }
 
@@ -499,18 +508,6 @@ export const serviceBindingExecutionArtifactRuntimeErrorToHttpErrorEffect = Effe
   return yield* Effect.fail(serviceBindingExecutionArtifactRuntimeErrorToHttpError(error));
 });
 
-function executionArtifactRuntimeOperationError(
-  operation: ExecutionArtifactRuntimeOperationError["operation"],
-  cause: unknown,
-): ExecutionArtifactRuntimeOperationError {
-  return new ExecutionArtifactRuntimeOperationError({
-    operation,
-    status: errorStatus(cause) ?? 500,
-    message: cause instanceof Error ? cause.message : String(cause),
-    cause,
-  });
-}
-
 function executionArtifactRuntimeErrorResponse(error: ExecutionArtifactRuntimeRouteError): Response {
   if (error instanceof RequestJsonError || error instanceof ExecutionArtifactInvokePayloadError) {
     const httpError = executionArtifactInvokeRouteErrorToHttpError(error);
@@ -545,10 +542,3 @@ export const executionArtifactRuntimeRouteErrorToResponseEffect = Effect.fn(
 ): Effect.fn.Return<Response> {
   return yield* Effect.succeed(executionArtifactRuntimeErrorResponse(error));
 });
-
-function errorStatus(error: unknown): number | undefined {
-  if (error instanceof HttpError) return error.status;
-  if (typeof error !== "object" || error === null) return undefined;
-  const status = (error as { status?: unknown }).status;
-  return typeof status === "number" && Number.isInteger(status) ? status : undefined;
-}

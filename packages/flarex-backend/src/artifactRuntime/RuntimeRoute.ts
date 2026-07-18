@@ -5,7 +5,6 @@ import {
   decodeExecutionArtifactInvokePayload,
   type ExecutionArtifactInvokeRouteError,
 } from "./RouteBoundary.ts";
-import { HttpError } from "../http.ts";
 import type {
   ExecutionArtifactInvokePayload,
   MaterializedExecutionArtifact,
@@ -16,6 +15,9 @@ import {
   ExecutionArtifactRuntimeMissingSourcePackageError,
   ExecutionArtifactRuntimeOperationError,
 } from "./Errors.ts";
+import {
+  executionArtifactRuntimeOperationErrorFromUnknown,
+} from "./OperationError.ts";
 
 export class ExecutionArtifactRuntimeRouteNotFoundError extends Data.TaggedError(
   "ExecutionArtifactRuntimeRouteNotFoundError",
@@ -91,7 +93,10 @@ function normalizeRuntimeRequestEffect(
 ): Effect.Effect<Request, ExecutionArtifactRuntimeOperationError> {
   return Effect.tryPromise({
     try: () => normalizeRuntimeRequest(input, init),
-    catch: cause => executionArtifactRuntimeOperationError("normalizeRequest", cause),
+    catch: cause => executionArtifactRuntimeOperationErrorFromUnknown(
+      "normalizeRequest",
+      cause,
+    ),
   });
 }
 
@@ -158,7 +163,10 @@ function resolveSourcePackageEffect(
       request: payload.request,
       sourcePackage: await store.get(payload.ref),
     }),
-    catch: cause => executionArtifactRuntimeOperationError("loadSourcePackage", cause),
+    catch: cause => executionArtifactRuntimeOperationErrorFromUnknown(
+      "loadSourcePackage",
+      cause,
+    ),
   });
 }
 
@@ -168,7 +176,10 @@ function getMaterializedArtifactEffect(
 ): Effect.Effect<MaterializedExecutionArtifact, ExecutionArtifactRuntimeOperationError> {
   return Effect.tryPromise({
     try: () => cache.get(payload),
-    catch: cause => executionArtifactRuntimeOperationError("materialize", cause),
+    catch: cause => executionArtifactRuntimeOperationErrorFromUnknown(
+      "materialize",
+      cause,
+    ),
   });
 }
 
@@ -178,27 +189,11 @@ function invokeMaterializedArtifactEffect(
 ): Effect.Effect<InvokeResponse, ExecutionArtifactRuntimeOperationError> {
   return Effect.tryPromise({
     try: () => artifact.invoke(payload),
-    catch: cause => executionArtifactRuntimeOperationError("invoke", cause),
+    catch: cause => executionArtifactRuntimeOperationErrorFromUnknown(
+      "invoke",
+      cause,
+    ),
   });
-}
-
-function executionArtifactRuntimeOperationError(
-  operation: ExecutionArtifactRuntimeOperationError["operation"],
-  cause: unknown,
-): ExecutionArtifactRuntimeOperationError {
-  return new ExecutionArtifactRuntimeOperationError({
-    operation,
-    status: errorStatus(cause) ?? 500,
-    message: cause instanceof Error ? cause.message : String(cause),
-    cause,
-  });
-}
-
-function errorStatus(error: unknown): number | undefined {
-  if (error instanceof HttpError) return error.status;
-  if (typeof error !== "object" || error === null) return undefined;
-  const status = (error as { status?: unknown }).status;
-  return typeof status === "number" && Number.isInteger(status) ? status : undefined;
 }
 
 async function normalizeRuntimeRequest(
