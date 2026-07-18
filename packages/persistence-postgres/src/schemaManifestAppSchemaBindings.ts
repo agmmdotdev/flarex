@@ -38,6 +38,7 @@ import {
 } from "./stableLogicalIndexCatalogAllocation";
 import type { StableTableCatalogTransaction } from "./stableTableCatalog";
 import { readStableTableCatalogHighWater } from "./stableTableCatalogAllocation";
+import { snapshotSchemaManifestValue } from "./schemaManifestValueSnapshot";
 
 export interface PrepareSchemaManifestAppSchemaBindingsV1Input {
   readonly deploymentId: string;
@@ -193,7 +194,7 @@ export async function prepareSchemaManifestAppSchemaBindingsV1(
     observedBindings,
     observedIndexHighWater,
   );
-  const manifest = detachAndFreeze(
+  const manifest = snapshotSchemaManifestValue(
     assembleManifest(deploymentId, tableState, plannedIndexes),
   );
   const prepared = Object.freeze({
@@ -672,19 +673,6 @@ function freezeIdentities(
   identities: ReadonlyArray<SchemaManifestAppSchemaBindingIdentity>,
 ): ReadonlyArray<SchemaManifestAppSchemaBindingIdentity> {
   return Object.freeze([...identities]);
-}
-
-function detachAndFreeze<T>(value: T): T {
-  const copy = structuredClone(value);
-  deepFreeze(copy);
-  return copy;
-}
-
-function deepFreeze(value: unknown): void {
-  if (value === null || typeof value !== "object") return;
-  const children = Array.isArray(value) ? value : Object.values(value);
-  for (const child of children) deepFreeze(child);
-  Object.freeze(value);
 }
 
 function decodeStoredIndexId(

@@ -243,6 +243,12 @@ Do not move Effect Schema options, typed errors, authority or cryptographic
 logic, persistence codecs, canonical protocol encodings, universal deep-freeze
 logic, or legacy compatibility into `@flarex/utils`. Those concerns stay with
 their protocol, domain, persistence, host, or temporary migration owner.
+When persistence retains already-decoded schema-manifest values across an
+asynchronous or database boundary, share clone-and-recursive-freeze mechanics
+through a persistence-local helper whose accepted input is restricted to those
+plain-data manifest shapes. Establish ownership before freezing, preserve the
+caller's original values, and do not widen that helper into a generic unknown-
+object deep freeze or move it into `@flarex/utils`.
 When several protocol operations consume one codec envelope, the codec module
 owns its structural type, guard, and Schema. Consumers reuse that contract but
 retain their own byte limits, canonical byte comparisons, digest checks, and

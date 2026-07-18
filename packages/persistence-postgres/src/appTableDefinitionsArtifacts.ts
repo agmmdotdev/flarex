@@ -26,6 +26,7 @@ import {
   type PreparedSchemaVersionArtifact,
   type SchemaVersionArtifactTransaction,
 } from "./schemaVersionArtifacts";
+import { snapshotSchemaManifestValue } from "./schemaManifestValueSnapshot";
 import type { StableTableCatalogTransaction } from "./stableTableCatalog";
 
 export const MAX_APP_TABLE_DEFINITIONS_ARTIFACT_V1_ATTEMPTS = 3;
@@ -290,10 +291,9 @@ function validateAndSnapshotInput(
 
   let tables: ReadonlyArray<SchemaManifestAppTableDeclarationV1>;
   try {
-    tables = structuredClone(
+    tables = snapshotSchemaManifestValue(
       decodeSchemaManifestAppTableDeclarationsV1(input.tables),
     );
-    deepFreeze(tables);
   } catch (cause) {
     throw invalidField("tables", cause);
   }
@@ -317,14 +317,6 @@ function invalidField(
     { reason: "invalidField", field },
     cause === undefined ? undefined : { cause },
   );
-}
-
-function deepFreeze(value: unknown): void {
-  if (value === null || typeof value !== "object") return;
-  for (const item of Array.isArray(value) ? value : Object.values(value)) {
-    deepFreeze(item);
-  }
-  Object.freeze(value);
 }
 
 function invalidInputMessage(

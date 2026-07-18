@@ -27,6 +27,7 @@ import {
   type PreparedSchemaManifestAppSchemaBindingsV1,
   type PrepareSchemaManifestAppSchemaBindingsV1Input,
 } from "./schemaManifestAppSchemaBindings";
+import { snapshotSchemaManifestValue } from "./schemaManifestValueSnapshot";
 import {
   getPreparedSchemaVersionArtifactCanonicalByteLength,
   prepareSchemaVersionArtifact,
@@ -298,10 +299,8 @@ function validateAndSnapshotInput(
     decodedIndexes,
   );
 
-  const tables = structuredClone(decodedTables);
-  const indexes = structuredClone(decodedIndexes);
-  deepFreeze(tables);
-  deepFreeze(indexes);
+  const tables = snapshotSchemaManifestValue(decodedTables);
+  const indexes = snapshotSchemaManifestValue(decodedIndexes);
 
   return Object.freeze({
     deploymentId,
@@ -323,13 +322,6 @@ function invalidField(
     { reason: "invalidField", field },
     cause === undefined ? undefined : { cause },
   );
-}
-
-function deepFreeze(value: unknown): void {
-  if (value === null || typeof value !== "object") return;
-  const children = Array.isArray(value) ? value : Object.values(value);
-  for (const child of children) deepFreeze(child);
-  Object.freeze(value);
 }
 
 function invalidInputMessage(

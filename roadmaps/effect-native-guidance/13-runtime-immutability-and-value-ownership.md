@@ -157,10 +157,10 @@ runtime mutation protection. Do not wrap a fresh plain-object freeze in
 
 ## Current Repository Evidence
 
-The current working tree contains 723 `Object.freeze` occurrences: 585 under
-source paths, 137 under test paths, and one elsewhere. The largest groups are
-`persistence-postgres` (448), `executor` (151), and `flarex-protocol` (100).
-These counts identify review pressure, not a removal target.
+Runtime freezing is concentrated in persistence, executor, and protocol code.
+Treat search counts only as transient review-pressure evidence, not as a
+removal target or a durable inventory; inspect the owning operation and current
+tests before changing any occurrence.
 
 Representative evidence:
 
@@ -172,11 +172,12 @@ Representative evidence:
   boundary.
 - `packages/flarex-protocol/src/value.ts` recursively freezes canonical value
   trees; this is a protocol invariant.
-- `packages/persistence-postgres/src/appSchemaPublicationPreparation.ts` and
-  `packages/flarex-protocol/src/app-schema-catalog.ts` contain similar local
-  recursive freeze helpers. A future touched slice should decide whether one
-  domain-owned plain-data snapshot abstraction can centralize them without
-  widening supported inputs or changing contracts.
+- Persistence preparation shares one package-local schema-manifest snapshot
+  helper restricted to already-decoded table declarations, index declarations,
+  and complete app-schema manifests. It establishes ownership with
+  `structuredClone` before recursively freezing those plain-data shapes.
+  Protocol codecs retain their own canonical-value freezing, and neither owner
+  exposes a universal deep-freeze utility.
 - Existing tests that assert `Object.isFrozen` prove that some runtime freezes
   are deliberate contracts. Other freezes on tiny private return records may
   be removable ceremony, but only after their callers and mutation tests are
