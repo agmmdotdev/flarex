@@ -1,6 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 
-import { Effect, Fiber } from "effect";
+import { Cause, Effect, Exit, Fiber, Result } from "effect";
+import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import {
   TransactionGrantDeploymentIdV1Schema,
 } from "flarex-protocol/transaction-grant";
@@ -284,12 +285,12 @@ describe("located scope authorization epoch authority", () => {
       if (invalidMethod === "missing") {
         Reflect.deleteProperty(
           malformedTarget,
-          "requireCurrentAuthorizationRevocationEpoch",
+          "requireCurrentAuthorizationRevocationEpochEffect",
         );
       } else {
         Reflect.set(
           malformedTarget,
-          "requireCurrentAuthorizationRevocationEpoch",
+          "requireCurrentAuthorizationRevocationEpochEffect",
           "not-a-function",
         );
       }
@@ -348,8 +349,8 @@ describe("located scope authorization epoch authority", () => {
             );
             return clock;
           },
-          requireCurrentAuthorizationRevocationEpoch:
-            target.requireCurrentAuthorizationRevocationEpoch,
+          requireCurrentAuthorizationRevocationEpochEffect:
+            target.requireCurrentAuthorizationRevocationEpochEffect,
         }),
       },
     } satisfies CurrentScopeAuthorizationEpochResolutionPorts;
@@ -365,7 +366,7 @@ describe("located scope authorization epoch authority", () => {
     } satisfies Partial<CurrentScopeAuthorizationEpochResolutionError>);
   });
 
-  it("keeps an unexpected epoch-reader rejection in the typed port channel", async () => {
+  it("preserves an unexpected target defect outside the typed port channel", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
@@ -393,15 +394,45 @@ describe("located scope authorization epoch authority", () => {
             persistence,
             sharedLocator,
           ),
-          requireCurrentAuthorizationRevocationEpoch: async () => {
-            throw cause;
-          },
+          requireCurrentAuthorizationRevocationEpochEffect: () =>
+            Effect.die(cause),
         }),
       },
     } satisfies CurrentScopeAuthorizationEpochResolutionPorts;
 
-    const failure = await runEffectFailure(
+    const exit = await Effect.runPromiseExit(
       resolveCurrentScopeAuthorizationEpochEffect(deploymentId, ports),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(cause.message);
+    }
+  });
+
+  it("maps a concrete target transaction rejection once at its foreign edge", async () => {
+    const persistence = await createPGlitePersistence();
+    const cause = new Error("epoch transaction unavailable");
+    const rejectingDb = new Proxy(persistence.drizzle, {
+      get(target, property, receiver) {
+        if (property === "transaction") {
+          return async () => {
+            throw cause;
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const target = createLocatedScopeAuthorizationEpochTarget(
+      rejectingDb,
+      sharedLocator,
+    );
+
+    const failure = await runEffectFailure(
+      target.requireCurrentAuthorizationRevocationEpochEffect(
+        ScopeIdSchema.make("scope_epoch_transaction_failure"),
+      ),
     );
     expect(failure).toBeInstanceOf(CurrentScopeAuthorizationEpochPortError);
     expect(failure).toMatchObject({
@@ -412,44 +443,30 @@ describe("located scope authorization epoch authority", () => {
 
   it("waits for the epoch transaction Promise to settle after interruption", async () => {
     const persistence = await createPGlitePersistence();
-    await persistence.migrate();
-    const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
-      "deployment_epoch_interruption",
-    );
-    await createPGliteSharedScopeAuthorityProvisioner(
-      persistence,
-      {
-        physicalLocator: sharedLocator,
-        randomUuid: uuidSequence(
-          "40000000-0000-4000-8000-000000000081",
-          "40000000-0000-4000-8000-000000000082",
-        ),
-      },
-    ).ensure({
-      deploymentId,
-      projectId: "project_epoch_interruption",
-    });
     const entered = deferred<void>();
-    const release = deferred<
-      ReturnType<typeof TransactionAuthorizationRevocationEpochSchema.make>
-    >();
-    const ports = {
-      ...resolutionPorts(persistence),
-      scopeEpochTargets: {
-        resolve: async () => ({
-          ...createPGliteLocatedScopeAuthorizationEpochTarget(
-            persistence,
-            sharedLocator,
-          ),
-          requireCurrentAuthorizationRevocationEpoch: async () => {
+    const release = deferred<void>();
+    const interceptedDb = new Proxy(persistence.drizzle, {
+      get(target, property, receiver) {
+        if (property === "transaction") {
+          return async () => {
             entered.resolve();
-            return release.promise;
-          },
-        }),
+            await release.promise;
+            return Result.succeed(
+              TransactionAuthorizationRevocationEpochSchema.make(0n),
+            );
+          };
+        }
+        return Reflect.get(target, property, receiver);
       },
-    } satisfies CurrentScopeAuthorizationEpochResolutionPorts;
+    });
+    const target = createLocatedScopeAuthorizationEpochTarget(
+      interceptedDb,
+      sharedLocator,
+    );
     const fiber = Effect.runFork(
-      resolveCurrentScopeAuthorizationEpochEffect(deploymentId, ports),
+      target.requireCurrentAuthorizationRevocationEpochEffect(
+        ScopeIdSchema.make("scope_epoch_interruption"),
+      ),
     );
     await entered.promise;
 
@@ -460,7 +477,7 @@ describe("located scope authorization epoch authority", () => {
     });
     await delay(25);
     expect(interruptionSettled).toBe(false);
-    release.resolve(TransactionAuthorizationRevocationEpochSchema.make(0n));
+    release.resolve();
     await interruption;
     expect(interruptionSettled).toBe(true);
   });

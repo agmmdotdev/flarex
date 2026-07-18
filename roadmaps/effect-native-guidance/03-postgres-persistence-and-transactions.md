@@ -55,12 +55,16 @@ authority-resolution operation and preserve their existing stale, corruption,
 SQL, and defect classification. The located current-authorization-epoch
 resolver and the directly connected
 executor grant-admission operations are now Effect-native. Target capability
-validation is a pure `Result`, the epoch transaction remains the one narrow
-Promise edge and masks interruption until that transaction settles. Authority
-and clock corruption failures remain typed, and an
-unexpected epoch-reader rejection is retained in the tagged port error
-channel. The unused high-level Promise resolver was deleted; the Worker and
-tests own their explicit runtime boundaries.
+validation is a pure `Result`, and the located target now exposes an Effect
+operation directly. Missing or corrupt epoch rows cross its read-only
+transaction as `Result` rather than thrown owned errors; the Drizzle 0.45
+transaction remains the one narrow interruption-masked Promise edge inside the
+concrete target. Unexpected transaction rejection is mapped once to the tagged
+port error, while a target defect remains a defect. The temporary private
+throwing epoch decoder now serves only the still-Promise epoch-advance path and
+is deleted when that writer receives its own Effect/Result channel. The unused
+high-level Promise resolver was deleted; the Worker and tests own their
+explicit runtime boundaries.
 
 Transaction-session activation and its executor operation are now
 Effect-native. The executor consumes persistence `activateEffect` directly and

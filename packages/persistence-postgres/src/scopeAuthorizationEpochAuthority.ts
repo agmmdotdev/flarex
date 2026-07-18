@@ -22,6 +22,7 @@ import {
 import {
   getScopeClock,
   requireScopeAuthorizationRevocationEpochInTransaction,
+  type ScopeAuthorizationRevocationEpochReadError,
   ScopeClockCorruptionError,
   ScopeClockNotFoundError,
 } from "./scopeClock";
@@ -30,9 +31,12 @@ import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
 
 export interface LocatedScopeAuthorizationEpochTarget
   extends LocatedScopeClockReader {
-  readonly requireCurrentAuthorizationRevocationEpoch: (
+  readonly requireCurrentAuthorizationRevocationEpochEffect: (
     scopeId: ScopeId,
-  ) => Promise<TransactionAuthorizationRevocationEpoch>;
+  ) => Effect.Effect<
+    TransactionAuthorizationRevocationEpoch,
+    LocatedScopeAuthorizationEpochReadError
+  >;
 }
 
 export interface CurrentScopeAuthorizationEpochResolutionPorts {
@@ -80,6 +84,10 @@ export class CurrentScopeAuthorizationEpochPortError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
+export type LocatedScopeAuthorizationEpochReadError =
+  | ScopeAuthorizationRevocationEpochReadError
+  | CurrentScopeAuthorizationEpochPortError;
+
 export type CurrentScopeAuthorizationEpochError =
   | TrustedScopeAuthorityError
   | CurrentScopeAuthorizationEpochResolutionError
@@ -120,29 +128,17 @@ export const resolveCurrentScopeAuthorizationEpochEffect = Effect.fn(
       located.authority.physicalLocator,
     ),
   );
-  const authorizationRevocationEpoch = yield* Effect.uninterruptible(
-    Effect.tryPromise({
-      try: () => target.requireCurrentAuthorizationRevocationEpoch(
-        located.authority.scopeId,
-      ),
-      catch: (cause) => {
-        if (cause instanceof ScopeClockNotFoundError) {
-          return currentEpochResolutionError({
-            reason: "scopeAuthorizationEpochMissing",
-            scopeId: located.authority.scopeId,
-            physicalLocator: located.authority.physicalLocator,
-          });
-        }
-        if (cause instanceof ScopeClockCorruptionError) {
-          return cause;
-        }
-        return new CurrentScopeAuthorizationEpochPortError({
-          operation: "authorizationEpochRead",
-          cause,
-        });
-      },
-    }),
-  );
+  const authorizationRevocationEpoch = yield*
+    target.requireCurrentAuthorizationRevocationEpochEffect(
+      located.authority.scopeId,
+    ).pipe(
+      Effect.catchTag("ScopeClockNotFoundError", () =>
+        Effect.fail(currentEpochResolutionError({
+          reason: "scopeAuthorizationEpochMissing",
+          scopeId: located.authority.scopeId,
+          physicalLocator: located.authority.physicalLocator,
+        }))),
+    );
 
   return Object.freeze({
     deploymentId,
@@ -190,7 +186,7 @@ function hasCurrentAuthorizationRevocationEpochReader(
 ): target is LocatedScopeAuthorizationEpochTarget {
   return typeof Reflect.get(
     target,
-    "requireCurrentAuthorizationRevocationEpoch",
+    "requireCurrentAuthorizationRevocationEpochEffect",
   ) === "function";
 }
 
@@ -216,12 +212,28 @@ export function createLocatedScopeAuthorizationEpochTarget(
   physicalLocator: ScopePhysicalLocator,
 ): LocatedScopeAuthorizationEpochTarget {
   const capturedLocator = captureScopePhysicalLocator(physicalLocator);
+  const requireCurrentAuthorizationRevocationEpochEffect = Effect.fn(
+    "ScopeAuthorizationEpochTarget.requireCurrent",
+  )((scopeId: ScopeId): Effect.Effect<
+    TransactionAuthorizationRevocationEpoch,
+    LocatedScopeAuthorizationEpochReadError
+  > =>
+    Effect.uninterruptible(
+      Effect.tryPromise({
+        try: () => db.transaction((tx) =>
+          requireScopeAuthorizationRevocationEpochInTransaction(tx, scopeId)
+        ),
+        catch: (cause) => new CurrentScopeAuthorizationEpochPortError({
+          operation: "authorizationEpochRead",
+          cause,
+        }),
+      }),
+    ).pipe(
+      Effect.flatMap((result) => Effect.fromResult(result)),
+    ));
   return Object.freeze({
     physicalLocator: capturedLocator,
     getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
-    requireCurrentAuthorizationRevocationEpoch: (scopeId: ScopeId) =>
-      db.transaction((tx) =>
-        requireScopeAuthorizationRevocationEpochInTransaction(tx, scopeId),
-      ),
+    requireCurrentAuthorizationRevocationEpochEffect,
   }) satisfies LocatedScopeAuthorizationEpochTarget;
 }

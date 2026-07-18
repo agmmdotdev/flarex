@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { Result } from "effect";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
@@ -31,7 +32,7 @@ import {
   advanceScopeAuthorizationRevocationEpochInTransaction,
   decodeScopeClockRecord,
   lockScopeClockForUpdateInTransaction,
-  requireScopeAuthorizationRevocationEpochInTransaction,
+  requireScopeAuthorizationRevocationEpochInTransaction as requireScopeAuthorizationRevocationEpochResultInTransaction,
   ScopeAuthorizationRevocationEpochExhaustedError,
   ScopeClockNotFoundError,
 } from "../src/scopeClock";
@@ -66,10 +67,13 @@ describe("scope clock", () => {
     expectTypeOf<
       Awaited<
         ReturnType<
-          typeof requireScopeAuthorizationRevocationEpochInTransaction
+          typeof requireScopeAuthorizationRevocationEpochResultInTransaction
         >
       >
-    >().toEqualTypeOf<TransactionAuthorizationRevocationEpoch>();
+    >().toEqualTypeOf<Result.Result<
+      TransactionAuthorizationRevocationEpoch,
+      ScopeClockNotFoundError | ScopeClockCorruptionError
+    >>();
     expectTypeOf<FlarexMetadataDatabase>()
       .not.toMatchTypeOf<
         Parameters<typeof lockScopeClockForUpdateInTransaction>[0]
@@ -319,14 +323,16 @@ describe("scope clock", () => {
     await expect(persistence.getScopeClock(defaultScopeId)).resolves.not.toHaveProperty(
       "authorizationRevocationEpoch",
     );
-    await expect(
-      persistence.drizzle.transaction((tx) =>
-        requireScopeAuthorizationRevocationEpochInTransaction(
-          tx,
-          ScopeIdSchema.make("scope_authorization_missing"),
-        ),
-      ),
-    ).rejects.toBeInstanceOf(ScopeClockNotFoundError);
+    const missing = await persistence.drizzle.transaction((tx) =>
+      requireScopeAuthorizationRevocationEpochResultInTransaction(
+        tx,
+        ScopeIdSchema.make("scope_authorization_missing"),
+      )
+    );
+    expect(Result.isFailure(missing)).toBe(true);
+    if (Result.isFailure(missing)) {
+      expect(missing.failure).toBeInstanceOf(ScopeClockNotFoundError);
+    }
   });
 
   it("fails closed on a corrupt persisted authorization epoch", async () => {
@@ -349,11 +355,13 @@ describe("scope clock", () => {
       [scopeId, "epoch-authorization-corrupt"],
     );
 
-    await expect(
-      persistence.drizzle.transaction((tx) =>
-        requireScopeAuthorizationRevocationEpochInTransaction(tx, scopeId),
-      ),
-    ).rejects.toBeInstanceOf(ScopeClockCorruptionError);
+    const corrupt = await persistence.drizzle.transaction((tx) =>
+      requireScopeAuthorizationRevocationEpochResultInTransaction(tx, scopeId)
+    );
+    expect(Result.isFailure(corrupt)).toBe(true);
+    if (Result.isFailure(corrupt)) {
+      expect(corrupt.failure).toBeInstanceOf(ScopeClockCorruptionError);
+    }
   });
 
   it("checked-increments only one scope with database time", async () => {
@@ -667,5 +675,19 @@ async function setScopeAuthorizationEpoch(
       where scope_id = $1
     `,
     [scopeId, value.toString()],
+  );
+}
+
+async function requireScopeAuthorizationRevocationEpochInTransaction(
+  db: Parameters<
+    typeof requireScopeAuthorizationRevocationEpochResultInTransaction
+  >[0],
+  scopeId: ScopeId,
+): Promise<TransactionAuthorizationRevocationEpoch> {
+  return Result.getOrThrow(
+    await requireScopeAuthorizationRevocationEpochResultInTransaction(
+      db,
+      scopeId,
+    ),
   );
 }

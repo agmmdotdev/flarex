@@ -11,6 +11,7 @@ import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
+import { Result } from "effect";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
@@ -22,6 +23,7 @@ import {
 } from "flarex-protocol/storage-authority";
 import {
   MAX_TRANSACTION_AUTHORIZATION_REVOCATION_EPOCH,
+  type TransactionAuthorizationRevocationEpoch,
 } from "flarex-protocol/transaction-session";
 import {
   TransactionGrantDeploymentIdV1Schema,
@@ -40,7 +42,7 @@ import {
 import {
   advanceScopeAuthorizationRevocationEpochInTransaction,
   lockScopeClockForUpdateInTransaction,
-  requireScopeAuthorizationRevocationEpochInTransaction,
+  requireScopeAuthorizationRevocationEpochInTransaction as requireScopeAuthorizationRevocationEpochResultInTransaction,
   ScopeAuthorizationRevocationEpochExhaustedError,
 } from "../src/scopeClock";
 import type {
@@ -657,6 +659,20 @@ async function waitForBlockedScopeClockRead(
 
 function quoteIdentifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
+}
+
+async function requireScopeAuthorizationRevocationEpochInTransaction(
+  db: Parameters<
+    typeof requireScopeAuthorizationRevocationEpochResultInTransaction
+  >[0],
+  scopeId: ScopeId,
+): Promise<TransactionAuthorizationRevocationEpoch> {
+  return Result.getOrThrow(
+    await requireScopeAuthorizationRevocationEpochResultInTransaction(
+      db,
+      scopeId,
+    ),
+  );
 }
 
 class Deferred<Value> {

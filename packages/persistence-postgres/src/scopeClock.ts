@@ -1,6 +1,7 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { eq, sql } from "drizzle-orm";
+import { Result } from "effect";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
@@ -37,6 +38,8 @@ export interface ScopeClockRecord {
 }
 
 export class ScopeClockNotFoundError extends Error {
+  readonly _tag = "ScopeClockNotFoundError" as const;
+
   constructor(readonly scopeId: ScopeId) {
     super(`Scope clock does not exist: ${scopeId}`);
     this.name = "ScopeClockNotFoundError";
@@ -67,6 +70,10 @@ export interface AdvanceScopeAuthorizationRevocationEpochResult {
   readonly current: TransactionAuthorizationRevocationEpoch;
 }
 
+export type ScopeAuthorizationRevocationEpochReadError =
+  | ScopeClockNotFoundError
+  | ScopeClockCorruptionError;
+
 export async function getScopeClock(
   db: FlarexMetadataDatabase,
   scopeId: ScopeId,
@@ -87,12 +94,20 @@ export async function getScopeClock(
 export async function requireScopeAuthorizationRevocationEpochInTransaction(
   db: ScopeClockTransaction,
   scopeId: ScopeId,
-): Promise<TransactionAuthorizationRevocationEpoch> {
+): Promise<
+  Result.Result<
+    TransactionAuthorizationRevocationEpoch,
+    ScopeAuthorizationRevocationEpochReadError
+  >
+> {
   const row = await lockScopeAuthorizationRevocationEpochForShareInTransaction(
     db,
     scopeId,
   );
-  return decodeScopeAuthorizationRevocationEpoch(
+  if (row === undefined) {
+    return Result.fail(new ScopeClockNotFoundError(scopeId));
+  }
+  return decodeScopeAuthorizationRevocationEpochResult(
     row.scopeId,
     row.authorizationRevocationEpoch,
   );
@@ -102,7 +117,7 @@ async function lockScopeAuthorizationRevocationEpochForShareInTransaction(
   db: ScopeClockTransaction,
   scopeId: ScopeId,
 ): Promise<
-  Pick<ScopeClockRow, "scopeId" | "authorizationRevocationEpoch">
+  Pick<ScopeClockRow, "scopeId" | "authorizationRevocationEpoch"> | undefined
 > {
   const rows = await db
     .select({
@@ -114,11 +129,7 @@ async function lockScopeAuthorizationRevocationEpochForShareInTransaction(
     .where(eq(fxSystemScopeClocks.scopeId, scopeId))
     .limit(1)
     .for("share");
-  const clock = rows[0];
-  if (clock === undefined) {
-    throw new ScopeClockNotFoundError(scopeId);
-  }
-  return clock;
+  return rows[0];
 }
 
 /**
@@ -269,17 +280,34 @@ function decodeScopeAuthorizationRevocationEpoch(
   scopeId: string,
   value: unknown,
 ): TransactionAuthorizationRevocationEpoch {
+  // Temporary throwing projection for the still-Promise epoch-advance path.
+  // Delete it when advanceScopeAuthorizationRevocationEpochInTransaction owns
+  // an Effect/Result failure channel.
+  return Result.getOrThrow(
+    decodeScopeAuthorizationRevocationEpochResult(scopeId, value),
+  );
+}
+
+function decodeScopeAuthorizationRevocationEpochResult(
+  scopeId: string,
+  value: unknown,
+): Result.Result<
+  TransactionAuthorizationRevocationEpoch,
+  ScopeClockCorruptionError
+> {
   if (
     typeof value !== "bigint" ||
     value < 0n ||
     value > MAX_TRANSACTION_AUTHORIZATION_REVOCATION_EPOCH
   ) {
-    throw new ScopeClockCorruptionError(
+    return Result.fail(new ScopeClockCorruptionError(
       scopeId,
       "authorization revocation epoch is outside the signed-bigint range",
-    );
+    ));
   }
-  return TransactionAuthorizationRevocationEpochSchema.make(value);
+  return Result.succeed(
+    TransactionAuthorizationRevocationEpochSchema.make(value),
+  );
 }
 
 function decodeStorageGeneration(
