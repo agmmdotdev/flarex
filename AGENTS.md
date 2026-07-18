@@ -259,6 +259,12 @@ operation, but do not redeclare the structural capability and do not accept
 the top-level autocommit database for a lock whose lifetime must span later
 work. This transaction marker is a persistence contract, not `@flarex/utils`
 material and not automatically a public package export.
+Keep Drizzle query-observation mechanics with the persistence package. When
+several persistence operations expose test-only compiled SQL receipts, share
+only the exact compile, detach, and freeze mechanism; retain domain query-name
+unions and observer options with their owning operation. An absent observer
+must remain a true short circuit that does not compile the query, and helper
+reuse must not change query execution, failure mapping, or transaction order.
 
 Do not move Effect Schema options, typed errors, authority or cryptographic
 logic, persistence codecs, canonical protocol encodings, universal deep-freeze

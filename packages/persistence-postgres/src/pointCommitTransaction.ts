@@ -128,6 +128,9 @@ import {
 } from "./committedPointOutcome";
 import { COMMIT_WAKE_OUTBOX_EVENT_KIND_V1 } from "./commitWakeOutbox";
 import {
+  observeDrizzleQuery as observeCompiledDrizzleQuery,
+} from "./drizzleQueryObservation";
+import {
   decodeScopeClockRecord,
   ScopeClockCorruptionError,
   ScopeClockNotFoundError,
@@ -3581,13 +3584,7 @@ function observeDrizzleQuery(
   }>,
   options: PointCommitTransactionProofOptionsV1,
 ): void {
-  if (options.observeQuery === undefined) return;
-  const compiled = query.toSQL();
-  options.observeQuery(Object.freeze({
-    name,
-    sql: compiled.sql,
-    params: Object.freeze(structuredClone(compiled.params)),
-  }));
+  observeCompiledDrizzleQuery(name, query, options.observeQuery);
 }
 
 function observeReplacementQuery(
@@ -3600,13 +3597,7 @@ function observeReplacementQuery(
   }>,
   options: PointMutationAttemptReplacementOptionsV1,
 ): void {
-  if (options.observeQuery === undefined) return;
-  const compiled = query.toSQL();
-  options.observeQuery(Object.freeze({
-    name,
-    sql: compiled.sql,
-    params: Object.freeze(structuredClone(compiled.params)),
-  }));
+  observeCompiledDrizzleQuery(name, query, options.observeQuery);
 }
 
 async function replacementSqlCall<Value>(

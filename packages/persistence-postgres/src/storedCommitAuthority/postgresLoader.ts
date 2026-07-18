@@ -13,6 +13,7 @@ import type {
 } from "flarex-protocol/transaction-session";
 
 import type { AppRowTransaction } from "../appRows";
+import { observeDrizzleQuery } from "../drizzleQueryObservation";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
 } from "../scopeAuthorityResolution";
@@ -564,22 +565,6 @@ function emptyCapture(
     schemaPayloadRows: Object.freeze([]),
     bindingRows: Object.freeze([]),
   });
-}
-
-function observeDrizzleQuery(
-  name: StoredCommitAuthorityEvidenceQueryV1["name"],
-  query: Readonly<{
-    toSQL: () => Readonly<{ sql: string; params: ReadonlyArray<unknown> }>;
-  }>,
-  observer: StoredCommitAuthorityEvidenceLoaderOptionsV1["observeQuery"],
-): void {
-  if (observer === undefined) return;
-  const compiled = query.toSQL();
-  observer(Object.freeze({
-    name,
-    sql: compiled.sql,
-    params: Object.freeze(structuredClone(compiled.params)),
-  }));
 }
 
 function rowsFromExecuteResult(result: unknown): ReadonlyArray<unknown> {

@@ -57,6 +57,9 @@ import {
 
 import type { AppRowTransaction } from "./appRows";
 import {
+  observeDrizzleQuery as observeStoredAttemptQuery,
+} from "./drizzleQueryObservation";
+import {
   resolveLocatedTrustedScopeAuthorityEffect,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityPortOperation,
@@ -641,22 +644,6 @@ async function selectStoredAttemptSessionRows(
     .limit(2);
   observeStoredAttemptQuery("session", query, observeQuery);
   return query;
-}
-
-function observeStoredAttemptQuery(
-  name: StoredAttemptEvidenceQueryV1["name"],
-  query: Readonly<{
-    toSQL: () => Readonly<{ sql: string; params: ReadonlyArray<unknown> }>;
-  }>,
-  observer: StoredAttemptEvidenceLoaderOptionsV1["observeQuery"],
-): void {
-  if (observer === undefined) return;
-  const compiled = query.toSQL();
-  observer(Object.freeze({
-    name,
-    sql: compiled.sql,
-    params: Object.freeze(structuredClone(compiled.params)),
-  }));
 }
 
 function materializeStoredAttemptEvidence(
