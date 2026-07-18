@@ -57,6 +57,7 @@ import {
 import { runEffect, runEffectFailure as runFailure } from
   "./effectTestRuntime";
 import {
+  activatePointMutationSession,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
@@ -530,21 +531,24 @@ async function createAttempt(
   scope: ScopeScenario,
   label: string,
 ): Promise<AttemptScenario> {
-  const activation = await createPointMutationSessionActivationPersistenceV1(
-    scope.ports,
-    { leaseDurationMilliseconds: 300_000, randomUuid },
-  ).activate(pointMutationSessionActivationFixture(
-    scope.deploymentId,
-    scope.scopeId,
-    {
-      evidence: {
-        requestKey: TransactionRequestKeyV1Schema.make(
-          `request:c05a:${label}`,
-        ),
-        schemaVersionId: scope.schemaVersionId,
+  const activation = await activatePointMutationSession(
+    createPointMutationSessionActivationPersistenceV1(
+      scope.ports,
+      { leaseDurationMilliseconds: 300_000, randomUuid },
+    ),
+    pointMutationSessionActivationFixture(
+      scope.deploymentId,
+      scope.scopeId,
+      {
+        evidence: {
+          requestKey: TransactionRequestKeyV1Schema.make(
+            `request:c05a:${label}`,
+          ),
+          schemaVersionId: scope.schemaVersionId,
+        },
       },
-    },
-  ));
+    ),
+  );
   const store = createSessionJournalStorePersistenceV1(scope.ports, {
     randomUuid,
   });

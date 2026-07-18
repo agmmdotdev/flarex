@@ -1,5 +1,6 @@
 import type {
   PointMutationSessionActivationPersistenceV1,
+  PointMutationSessionActivationEffectErrorV1,
   PointMutationSessionActivationResultV1,
   PointMutationSessionAttemptLoadPersistenceV1,
   PointMutationSessionAttemptLoadResultV1,
@@ -24,6 +25,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 import { TransactionSessionIdV1Schema } from
   "flarex-protocol/transaction-session";
+import { Effect } from "effect";
 
 import { isPlainRecord } from "./plainRecord";
 import {
@@ -32,8 +34,10 @@ import {
   type PointMutationSessionAttemptSelectorIssueV1,
 } from "./pointMutationSessionAttemptSelector";
 import {
-  inspectAdmittedPointMutationStartV1,
+  inspectAdmittedPointMutationStartResultV1,
+  type AdmittedPointMutationStartInspectionV1,
   type AdmittedPointMutationStartV1,
+  type InvalidAdmittedPointMutationStartV1Error,
 } from "./transactionGrant";
 
 const activatedPointMutationSessionBrand: unique symbol = Symbol(
@@ -135,8 +139,15 @@ export class PointMutationSessionAttemptTerminalizationContractV1Error
 export interface PointMutationSessionActivationV1 {
   readonly activate: (
     admittedStart: AdmittedPointMutationStartV1,
-  ) => Promise<ActivatedPointMutationSessionV1>;
+  ) => Effect.Effect<
+    ActivatedPointMutationSessionV1,
+    PointMutationSessionActivationExecutionV1Error
+  >;
 }
+
+export type PointMutationSessionActivationExecutionV1Error =
+  | InvalidAdmittedPointMutationStartV1Error
+  | PointMutationSessionActivationEffectErrorV1;
 
 export interface PointMutationSessionAttemptLoadingV1 {
   readonly load: (
@@ -154,22 +165,27 @@ export interface PointMutationSessionAttemptTerminalizationV1 {
 }
 
 export function createPointMutationSessionActivationV1(
-  persistence: Pick<PointMutationSessionActivationPersistenceV1, "activate">,
+  persistence: Pick<
+    PointMutationSessionActivationPersistenceV1,
+    "activateEffect"
+  >,
 ): PointMutationSessionActivationV1 {
-  return Object.freeze({
-    activate: async (
-      admittedStart: AdmittedPointMutationStartV1,
-    ): Promise<ActivatedPointMutationSessionV1> => {
-      const admitted = inspectAdmittedPointMutationStartV1(admittedStart);
-      const prepared = preparePersistenceActivation(admitted);
-      const result = await persistence.activate(prepared);
-      const handle = Object.freeze({
-        [activatedPointMutationSessionBrand]: true as const,
-      });
-      activatedSessionInspectionByHandle.set(handle, result);
-      return handle;
-    },
+  const activate: PointMutationSessionActivationV1["activate"] = Effect.fn(
+    "ExecutorPointMutationSessionActivation.activate",
+  )(function* (admittedStart) {
+    const admitted = yield* Effect.fromResult(
+      inspectAdmittedPointMutationStartResultV1(admittedStart),
+    );
+    const prepared = preparePersistenceActivation(admitted);
+    const result = yield* persistence.activateEffect(prepared);
+    const handle = Object.freeze({
+      [activatedPointMutationSessionBrand]: true as const,
+    });
+    activatedSessionInspectionByHandle.set(handle, result);
+    return handle;
   });
+
+  return Object.freeze({ activate });
 }
 
 export function createPointMutationSessionAttemptLoadingV1(
@@ -416,7 +432,7 @@ function terminalizationContractError(
 }
 
 function preparePersistenceActivation(
-  admitted: ReturnType<typeof inspectAdmittedPointMutationStartV1>,
+  admitted: AdmittedPointMutationStartInspectionV1,
 ): PreparedPointMutationSessionActivationV1 {
   const preparedStart = admitted.preparedStart;
   const pins = preparedStart.logicalPins;

@@ -11,6 +11,7 @@ import {
   createPGliteSharedScopeAuthorityProvisioner,
 } from "@flarex/persistence-postgres/pglite";
 import {
+  PointMutationSessionActivationPersistenceV1Error,
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
 } from "@flarex/persistence-postgres/transaction-session-activation";
@@ -912,9 +913,9 @@ describe("current-epoch transaction-grant admission", () => {
       );
     let persistenceCalls = 0;
     const activation = createPointMutationSessionActivationV1({
-      activate: async (input) => {
+      activateEffect: (input) => {
         persistenceCalls += 1;
-        return sessionPersistence.activate(input);
+        return sessionPersistence.activateEffect(input);
       },
     });
 
@@ -924,15 +925,51 @@ describe("current-epoch transaction-grant admission", () => {
       Object.create(admitted),
       fixture.preparedStart,
     ]) {
-      await expect(activateUnknown(activation, invalid)).rejects.toBeInstanceOf(
-        InvalidAdmittedPointMutationStartV1Error,
-      );
+      await expect(
+        runEffect(activateUnknownEffect(activation, invalid)),
+      ).rejects.toBeInstanceOf(InvalidAdmittedPointMutationStartV1Error);
     }
     expect(persistenceCalls).toBe(0);
 
-    const activated = await activation.activate(admitted);
+    const recoveredInvalidTag = await runEffect(
+      activateUnknownEffect(activation, fixture.preparedStart).pipe(
+        Effect.catchTag(
+          "InvalidAdmittedPointMutationStartV1Error",
+          (error) => Effect.succeed(error._tag),
+        ),
+      ),
+    );
+    expect(recoveredInvalidTag).toBe(
+      "InvalidAdmittedPointMutationStartV1Error",
+    );
+    expect(persistenceCalls).toBe(0);
+
+    const persistenceFailure =
+      new PointMutationSessionActivationPersistenceV1Error({
+        operation: "activationTransaction",
+        cause: new Error("activation unavailable"),
+      });
+    const failingActivation = createPointMutationSessionActivationV1({
+      activateEffect: () => Effect.fail(persistenceFailure),
+    });
+    await expect(
+      runEffectFailure(failingActivation.activate(admitted)),
+    ).resolves.toBe(persistenceFailure);
+
+    const defect = new Error("activation adapter defect");
+    const defectiveActivation = createPointMutationSessionActivationV1({
+      activateEffect: () => Effect.die(defect),
+    });
+    await expect(
+      runEffect(defectiveActivation.activate(admitted)),
+    ).rejects.toBe(defect);
+
+    const pendingActivation = activation.activate(admitted);
+    expect(persistenceCalls).toBe(0);
+    const activated = await runEffect(pendingActivation);
+    expect(persistenceCalls).toBe(1);
     const created = inspectActivatedPointMutationSessionV1(activated);
-    const replayedHandle = await activation.activate(admitted);
+    const replayedHandle = await runEffect(activation.activate(admitted));
     const replayed = inspectActivatedPointMutationSessionV1(replayedHandle);
     const serializedSelector = JSON.stringify(
       pointMutationSessionAttemptSelectorV1FromActivated(activated),
@@ -1259,10 +1296,10 @@ async function verifierFixture(
   });
 }
 
-async function activateUnknown(
+function activateUnknownEffect(
   activation: PointMutationSessionActivationV1,
   value: unknown,
-): Promise<unknown> {
+): ReturnType<PointMutationSessionActivationV1["activate"]> {
   // @ts-expect-error This deliberately exercises the runtime opaque boundary.
   return activation.activate(value);
 }

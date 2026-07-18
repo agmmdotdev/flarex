@@ -60,6 +60,7 @@ import { pointCommitFinishingCommandFromStoredAttemptV1 } from
 import { runEffect, runEffectFailure as runFailure } from
   "./effectTestRuntime";
 import {
+  activatePointMutationSession,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
@@ -470,14 +471,17 @@ describe("C05-A point-commit finishing transition", () => {
       indexes: [],
     });
     const ports = resolutionPorts();
-    const activation = await createPointMutationSessionActivationPersistenceV1(
-      ports,
-      { leaseDurationMilliseconds: 60_000, randomUuid: nextUuid },
-    ).activate(pointMutationSessionActivationFixture(
-      deploymentId,
-      scopeId,
-      { evidence: { schemaVersionId } },
-    ));
+    const activation = await activatePointMutationSession(
+      createPointMutationSessionActivationPersistenceV1(
+        ports,
+        { leaseDurationMilliseconds: 60_000, randomUuid: nextUuid },
+      ),
+      pointMutationSessionActivationFixture(
+        deploymentId,
+        scopeId,
+        { evidence: { schemaVersionId } },
+      ),
+    );
     const store = createSessionJournalStorePersistenceV1(ports, {
       randomUuid: nextUuid,
     });

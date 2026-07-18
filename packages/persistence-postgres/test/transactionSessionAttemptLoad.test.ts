@@ -36,6 +36,7 @@ import {
   type PointMutationSessionAttemptSelectorV1,
 } from "../src/transactionSessionActivation";
 import {
+  activatePointMutationSession,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
@@ -108,16 +109,19 @@ describe("O03-B exact point-mutation attempt authority", () => {
   }
 
   async function activate(context: AttemptLoadContext) {
-    return createPointMutationSessionActivationPersistenceV1(
-      resolutionPorts(persistence),
-      {
-        leaseDurationMilliseconds: 60_000,
-        randomUuid: () => nextUuid(),
-      },
-    ).activate(pointMutationSessionActivationFixture(
-      context.deploymentId,
-      context.scopeId,
-    ));
+    return activatePointMutationSession(
+      createPointMutationSessionActivationPersistenceV1(
+        resolutionPorts(persistence),
+        {
+          leaseDurationMilliseconds: 60_000,
+          randomUuid: () => nextUuid(),
+        },
+      ),
+      pointMutationSessionActivationFixture(
+        context.deploymentId,
+        context.scopeId,
+      ),
+    );
   }
 
   function terminalizationPersistence(

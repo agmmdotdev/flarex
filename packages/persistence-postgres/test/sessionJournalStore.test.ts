@@ -95,6 +95,7 @@ import {
   runSessionJournalPointOperation as runPointOperation,
 } from "./effectTestRuntime";
 import {
+  activatePointMutationSession,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
@@ -238,17 +239,20 @@ describe("C03 Postgres SessionJournalStore", () => {
       );
 
     const ports = resolutionPorts(persistence, options.targetOptions);
-    const activation = await createPointMutationSessionActivationPersistenceV1(
-      ports,
-      {
-        leaseDurationMilliseconds: 60_000,
-        randomUuid: () => nextInfrastructureUuid(),
-      },
-    ).activate(pointMutationSessionActivationFixture(
-      deploymentId,
-      scopeId,
-      { evidence: { schemaVersionId } },
-    ));
+    const activation = await activatePointMutationSession(
+      createPointMutationSessionActivationPersistenceV1(
+        ports,
+        {
+          leaseDurationMilliseconds: 60_000,
+          randomUuid: () => nextInfrastructureUuid(),
+        },
+      ),
+      pointMutationSessionActivationFixture(
+        deploymentId,
+        scopeId,
+        { evidence: { schemaVersionId } },
+      ),
+    );
     const randomUuid = options.randomUuid ?? (() => nextInfrastructureUuid());
     const store = createSessionJournalStorePersistenceV1(ports, {
       randomUuid,

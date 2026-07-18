@@ -368,6 +368,7 @@ const admittedPointMutationStartInspectionByHandle = new WeakMap<
 >();
 
 export class InvalidAdmittedPointMutationStartV1Error extends Error {
+  readonly _tag = "InvalidAdmittedPointMutationStartV1Error" as const;
   readonly name = "InvalidAdmittedPointMutationStartV1Error";
 
   constructor() {
@@ -436,14 +437,23 @@ export function createPointMutationStartAdmissionV1<ResolverError>(
 export function inspectAdmittedPointMutationStartV1(
   value: unknown,
 ): AdmittedPointMutationStartInspectionV1 {
+  return Result.getOrThrow(inspectAdmittedPointMutationStartResultV1(value));
+}
+
+export function inspectAdmittedPointMutationStartResultV1(
+  value: unknown,
+): Result.Result<
+  AdmittedPointMutationStartInspectionV1,
+  InvalidAdmittedPointMutationStartV1Error
+> {
   if (typeof value !== "object" || value === null) {
-    throw new InvalidAdmittedPointMutationStartV1Error();
+    return Result.fail(new InvalidAdmittedPointMutationStartV1Error());
   }
   const inspection = admittedPointMutationStartInspectionByHandle.get(value);
   if (inspection === undefined) {
-    throw new InvalidAdmittedPointMutationStartV1Error();
+    return Result.fail(new InvalidAdmittedPointMutationStartV1Error());
   }
-  return inspection;
+  return Result.succeed(inspection);
 }
 
 export interface TransactionGrantVerifierV1Config {

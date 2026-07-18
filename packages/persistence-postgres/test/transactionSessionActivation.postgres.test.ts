@@ -28,7 +28,9 @@ import {
   postgresUrl,
   withTemporaryPostgresPersistence,
 } from "./postgresHelpers";
+import { runEffectFailure as runFailure } from "./effectTestRuntime";
 import {
+  activatePointMutationSession,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
@@ -63,8 +65,8 @@ describePostgres("real Postgres O03-B session authority", () => {
       );
 
       const results = await Promise.all([
-        activation.activate(input),
-        activation.activate(input),
+        activatePointMutationSession(activation, input),
+        activatePointMutationSession(activation, input),
       ]);
 
       expect(results.map((result) => result.status).sort()).toEqual([
@@ -106,8 +108,8 @@ describePostgres("real Postgres O03-B session authority", () => {
       );
 
       const settled = await Promise.allSettled([
-        activation.activate(first),
-        activation.activate(second),
+        activatePointMutationSession(activation, first),
+        activatePointMutationSession(activation, second),
       ]);
       const fulfilled = settled.find(
         (result) => result.status === "fulfilled",
@@ -158,7 +160,8 @@ describePostgres("real Postgres O03-B session authority", () => {
         },
       });
       const activationB = createActivationPersistence(persistence, ids);
-      const pendingA = activationA.activate(
+      const pendingA = activatePointMutationSession(
+        activationA,
         pointMutationSessionActivationFixture(
           contextA.deploymentId,
           contextA.scopeId,
@@ -169,7 +172,8 @@ describePostgres("real Postgres O03-B session authority", () => {
       let resultB: PointMutationSessionActivationResultV1 | undefined;
       try {
         resultB = await Promise.race([
-          activationB.activate(
+          activatePointMutationSession(
+            activationB,
             pointMutationSessionActivationFixture(
               contextB.deploymentId,
               contextB.scopeId,
@@ -221,9 +225,12 @@ describePostgres("real Postgres O03-B session authority", () => {
           },
         });
 
-        await expect(activation.activate(input)).rejects.toThrow(
-          `fail:${failureStep}`,
-        );
+        const failure = await runFailure(activation.activateEffect(input));
+        expect(failure).toMatchObject({
+          _tag: "PointMutationSessionActivationPersistenceV1Error",
+          operation: "activationTransaction",
+          cause: expect.objectContaining({ message: `fail:${failureStep}` }),
+        });
         await expect(rowCounts(persistence, context.scopeId)).resolves.toEqual({
           sessions: 0,
           leases: 0,
@@ -241,13 +248,13 @@ describePostgres("real Postgres O03-B session authority", () => {
         sharedLocator("attempt-reload"),
         ids,
       );
-      const activated = await createActivationPersistence(
-        persistence,
-        ids,
-      ).activate(pointMutationSessionActivationFixture(
-        context.deploymentId,
-        context.scopeId,
-      ));
+      const activated = await activatePointMutationSession(
+        createActivationPersistence(persistence, ids),
+        pointMutationSessionActivationFixture(
+          context.deploymentId,
+          context.scopeId,
+        ),
+      );
       const selector = selectorFromAnchor(activated.anchor);
       const before = await attemptRowState(persistence, context.scopeId);
       const steps: string[] = [];
@@ -295,13 +302,15 @@ describePostgres("real Postgres O03-B session authority", () => {
         ids,
       );
       const activation = createActivationPersistence(persistence, ids);
-      const anchorA = (await activation.activate(
+      const anchorA = (await activatePointMutationSession(
+        activation,
         pointMutationSessionActivationFixture(
           contextA.deploymentId,
           contextA.scopeId,
         ),
       )).anchor;
-      const anchorB = (await activation.activate(
+      const anchorB = (await activatePointMutationSession(
+        activation,
         pointMutationSessionActivationFixture(
           contextB.deploymentId,
           contextB.scopeId,
@@ -347,13 +356,15 @@ describePostgres("real Postgres O03-B session authority", () => {
         sharedLocator("attempt-expiry"),
         ids,
       );
-      const anchor = (await createActivationPersistence(
-        persistence,
-        ids,
-      ).activate(pointMutationSessionActivationFixture(
-        context.deploymentId,
-        context.scopeId,
-      ))).anchor;
+      const anchor = (
+        await activatePointMutationSession(
+          createActivationPersistence(persistence, ids),
+          pointMutationSessionActivationFixture(
+            context.deploymentId,
+            context.scopeId,
+          ),
+        )
+      ).anchor;
       await persistence.query(
         `
           update fx_system_snapshot_lease
@@ -384,13 +395,15 @@ describePostgres("real Postgres O03-B session authority", () => {
         sharedLocator("attempt-authority-race"),
         ids,
       );
-      const anchor = (await createActivationPersistence(
-        persistence,
-        ids,
-      ).activate(pointMutationSessionActivationFixture(
-        context.deploymentId,
-        context.scopeId,
-      ))).anchor;
+      const anchor = (
+        await activatePointMutationSession(
+          createActivationPersistence(persistence, ids),
+          pointMutationSessionActivationFixture(
+            context.deploymentId,
+            context.scopeId,
+          ),
+        )
+      ).anchor;
       const baseTarget =
         createPostgresLocatedPointMutationSessionActivationTargetV1(
           persistence,
@@ -434,13 +447,15 @@ describePostgres("real Postgres O03-B session authority", () => {
         sharedLocator("attempt-terminal-race"),
         ids,
       );
-      const anchor = (await createActivationPersistence(
-        persistence,
-        ids,
-      ).activate(pointMutationSessionActivationFixture(
-        context.deploymentId,
-        context.scopeId,
-      ))).anchor;
+      const anchor = (
+        await activatePointMutationSession(
+          createActivationPersistence(persistence, ids),
+          pointMutationSessionActivationFixture(
+            context.deploymentId,
+            context.scopeId,
+          ),
+        )
+      ).anchor;
       await persistence.query(
         `update fx_system_snapshot_lease
          set lease_expires_at = '2000-01-01T00:00:00.000Z'
@@ -493,13 +508,15 @@ describePostgres("real Postgres O03-B session authority", () => {
         sharedLocator("attempt-terminal-expiry"),
         ids,
       );
-      const anchor = (await createActivationPersistence(
-        persistence,
-        ids,
-      ).activate(pointMutationSessionActivationFixture(
-        context.deploymentId,
-        context.scopeId,
-      ))).anchor;
+      const anchor = (
+        await activatePointMutationSession(
+          createActivationPersistence(persistence, ids),
+          pointMutationSessionActivationFixture(
+            context.deploymentId,
+            context.scopeId,
+          ),
+        )
+      ).anchor;
       await persistence.query(
         `update fx_system_snapshot_lease
          set lease_expires_at = clock_timestamp() + interval '2 seconds'
@@ -550,13 +567,15 @@ describePostgres("real Postgres O03-B session authority", () => {
         ids,
       );
       const activation = createActivationPersistence(persistence, ids);
-      const anchorA = (await activation.activate(
+      const anchorA = (await activatePointMutationSession(
+        activation,
         pointMutationSessionActivationFixture(
           contextA.deploymentId,
           contextA.scopeId,
         ),
       )).anchor;
-      const anchorB = (await activation.activate(
+      const anchorB = (await activatePointMutationSession(
+        activation,
         pointMutationSessionActivationFixture(
           contextB.deploymentId,
           contextB.scopeId,
@@ -608,13 +627,15 @@ describePostgres("real Postgres O03-B session authority", () => {
         sharedLocator("attempt-terminal-rollback"),
         ids,
       );
-      const anchor = (await createActivationPersistence(
-        persistence,
-        ids,
-      ).activate(pointMutationSessionActivationFixture(
-        context.deploymentId,
-        context.scopeId,
-      ))).anchor;
+      const anchor = (
+        await activatePointMutationSession(
+          createActivationPersistence(persistence, ids),
+          pointMutationSessionActivationFixture(
+            context.deploymentId,
+            context.scopeId,
+          ),
+        )
+      ).anchor;
       const before = await attemptRowState(persistence, context.scopeId);
       const terminalization = createTerminalizationPersistence(persistence, {
         afterTerminalizationEvent: (event) => {

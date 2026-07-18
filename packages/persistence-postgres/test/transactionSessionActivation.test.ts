@@ -42,6 +42,7 @@ import {
   type PointMutationSessionActivationResolutionPortsV1,
 } from "../src/transactionSessionActivation";
 import {
+  activatePointMutationSession,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
@@ -123,33 +124,6 @@ describe("O03-B1 point-mutation session activation", () => {
     expectTypeOf<RootActivationExport>().toEqualTypeOf<never>();
   });
 
-  it("preserves metadata rejection identity at its Promise compatibility boundary", async () => {
-    const context = await provisionContext("metadata_rejection");
-    const cause = new Error("activation metadata transport unavailable");
-    const basePorts = resolutionPorts(persistence);
-    const activation = createPointMutationSessionActivationPersistenceV1(
-      {
-        ...basePorts,
-        scopeMetadata: {
-          getScopeMetadataByDeploymentId: async () => {
-            throw cause;
-          },
-        },
-      },
-      {
-        leaseDurationMilliseconds: 60_000,
-        randomUuid: () => nextUuid(),
-      },
-    );
-
-    await expect(
-      activation.activate(pointMutationSessionActivationFixture(
-        context.deploymentId,
-        context.scopeId,
-      )),
-    ).rejects.toBe(cause);
-  });
-
   it("maps metadata rejection into the typed Effect persistence channel", async () => {
     const context = await provisionContext("metadata_effect_failure");
     const cause = new Error("activation metadata transport unavailable");
@@ -193,7 +167,7 @@ describe("O03-B1 point-mutation session activation", () => {
     );
     const activation = activationPersistence();
 
-    const created = await activation.activate(input);
+    const created = await activatePointMutationSession(activation, input);
 
     expect(created.status).toBe("created");
     expect(Object.isFrozen(created)).toBe(true);
@@ -266,7 +240,7 @@ describe("O03-B1 point-mutation session activation", () => {
       `update fx_system_scope_clock set last_commit_seq = 7 where scope_id = $1`,
       [context.scopeId],
     );
-    const replayed = await activation.activate(input);
+    const replayed = await activatePointMutationSession(activation, input);
 
     expect(replayed.status).toBe("replayed");
     expect(replayed.anchor).toEqual(created.anchor);
@@ -290,7 +264,9 @@ describe("O03-B1 point-mutation session activation", () => {
         { evidence },
       );
 
-      await expect(activation.activate(input)).rejects.toMatchObject({
+      await expect(
+        activatePointMutationSession(activation, input),
+      ).rejects.toMatchObject({
         issue: { reason: "invalidPreparedEvidence" },
       } satisfies Partial<PointMutationSessionActivationV1Error>);
     }
@@ -311,7 +287,7 @@ describe("O03-B1 point-mutation session activation", () => {
     );
     const activation = activationPersistence();
 
-    const created = await activation.activate(input);
+    const created = await activatePointMutationSession(activation, input);
     const persisted = await persistence.query<{
       validated_args_json: JsonObject;
     }>(
@@ -334,7 +310,7 @@ describe("O03-B1 point-mutation session activation", () => {
     expect(Object.getPrototypeOf(persistedArgs)).toBe(Object.prototype);
     expect(persistedArgs["__proto__"]).toEqual({ polluted: true });
 
-    const replayed = await activation.activate(input);
+    const replayed = await activatePointMutationSession(activation, input);
     expect(replayed.status).toBe("replayed");
     expect(replayed.anchor).toEqual(created.anchor);
   });
@@ -348,7 +324,7 @@ describe("O03-B1 point-mutation session activation", () => {
     );
     const activation = activationPersistence();
 
-    const created = await activation.activate(input);
+    const created = await activatePointMutationSession(activation, input);
     const persisted = await persistence.query<{
       validated_args_json: JsonObject;
     }>(
@@ -364,7 +340,7 @@ describe("O03-B1 point-mutation session activation", () => {
     expect(Object.is(persisted.rows[0]?.validated_args_json.value, 0)).toBe(
       true,
     );
-    const replayed = await activation.activate(input);
+    const replayed = await activatePointMutationSession(activation, input);
     expect(replayed.status).toBe("replayed");
     expect(replayed.anchor).toEqual(created.anchor);
   });
@@ -394,7 +370,7 @@ describe("O03-B1 point-mutation session activation", () => {
       },
     );
 
-    const result = await activation.activate(input);
+    const result = await activatePointMutationSession(activation, input);
 
     expect(result.anchor.hardExpiresAt).toBe(grantExpiry.toISOString());
     expect(result.anchor.leaseExpiresAt).toBe(grantExpiry.toISOString());
@@ -410,7 +386,7 @@ describe("O03-B1 point-mutation session activation", () => {
       changedContext.deploymentId,
       changedContext.scopeId,
     );
-    await changedActivation.activate(changedInput);
+    await activatePointMutationSession(changedActivation, changedInput);
     const conflictingInput = pointMutationSessionActivationFixture(
       changedContext.deploymentId,
       changedContext.scopeId,
@@ -422,7 +398,9 @@ describe("O03-B1 point-mutation session activation", () => {
         },
       },
     );
-    await expect(changedActivation.activate(conflictingInput)).rejects.toMatchObject({
+    await expect(
+      activatePointMutationSession(changedActivation, conflictingInput),
+    ).rejects.toMatchObject({
       issue: { reason: "requestKeyConflict" },
     } satisfies Partial<PointMutationSessionActivationV1Error>);
 
@@ -432,7 +410,7 @@ describe("O03-B1 point-mutation session activation", () => {
       terminalContext.deploymentId,
       terminalContext.scopeId,
     );
-    await terminalActivation.activate(terminalInput);
+    await activatePointMutationSession(terminalActivation, terminalInput);
     await persistence.query(
       `
         update fx_system_tx_session
@@ -443,7 +421,9 @@ describe("O03-B1 point-mutation session activation", () => {
       `,
       [terminalContext.scopeId],
     );
-    await expect(terminalActivation.activate(terminalInput)).rejects.toMatchObject({
+    await expect(
+      activatePointMutationSession(terminalActivation, terminalInput),
+    ).rejects.toMatchObject({
       issue: { reason: "terminalRequest", lifecycle: "aborted" },
     } satisfies Partial<PointMutationSessionActivationV1Error>);
 
@@ -453,7 +433,10 @@ describe("O03-B1 point-mutation session activation", () => {
       missingLeaseContext.deploymentId,
       missingLeaseContext.scopeId,
     );
-    await missingLeaseActivation.activate(missingLeaseInput);
+    await activatePointMutationSession(
+      missingLeaseActivation,
+      missingLeaseInput,
+    );
     await persistence.query(
       `
         delete from fx_system_snapshot_lease
@@ -464,7 +447,7 @@ describe("O03-B1 point-mutation session activation", () => {
       [missingLeaseContext.scopeId],
     );
     await expect(
-      missingLeaseActivation.activate(missingLeaseInput),
+      activatePointMutationSession(missingLeaseActivation, missingLeaseInput),
     ).rejects.toMatchObject({
       issue: "snapshotLeaseMissing",
     } satisfies Partial<PointMutationSessionAuthorityCorruptionV1Error>);
@@ -475,7 +458,10 @@ describe("O03-B1 point-mutation session activation", () => {
       expiredLeaseContext.deploymentId,
       expiredLeaseContext.scopeId,
     );
-    await expiredLeaseActivation.activate(expiredLeaseInput);
+    await activatePointMutationSession(
+      expiredLeaseActivation,
+      expiredLeaseInput,
+    );
     await persistence.query(
       `
         update fx_system_snapshot_lease
@@ -487,7 +473,7 @@ describe("O03-B1 point-mutation session activation", () => {
       [expiredLeaseContext.scopeId],
     );
     await expect(
-      expiredLeaseActivation.activate(expiredLeaseInput),
+      activatePointMutationSession(expiredLeaseActivation, expiredLeaseInput),
     ).rejects.toMatchObject({
       issue: { reason: "activeAttemptExpired" },
     } satisfies Partial<PointMutationSessionActivationV1Error>);
@@ -498,7 +484,10 @@ describe("O03-B1 point-mutation session activation", () => {
       mismatchedLeaseContext.deploymentId,
       mismatchedLeaseContext.scopeId,
     );
-    await mismatchedLeaseActivation.activate(mismatchedLeaseInput);
+    await activatePointMutationSession(
+      mismatchedLeaseActivation,
+      mismatchedLeaseInput,
+    );
     await persistence.query(
       `
         update fx_system_snapshot_lease
@@ -510,7 +499,10 @@ describe("O03-B1 point-mutation session activation", () => {
       [mismatchedLeaseContext.scopeId],
     );
     await expect(
-      mismatchedLeaseActivation.activate(mismatchedLeaseInput),
+      activatePointMutationSession(
+        mismatchedLeaseActivation,
+        mismatchedLeaseInput,
+      ),
     ).rejects.toMatchObject({
       issue: "snapshotLeaseInvalid",
     } satisfies Partial<PointMutationSessionAuthorityCorruptionV1Error>);
@@ -523,7 +515,7 @@ describe("O03-B1 point-mutation session activation", () => {
       context.deploymentId,
       context.scopeId,
     );
-    const created = await activation.activate(input);
+    const created = await activatePointMutationSession(activation, input);
     const sessions = await persistence.drizzle
       .select()
       .from(fxSystemTransactionSessions);
@@ -547,7 +539,9 @@ describe("O03-B1 point-mutation session activation", () => {
       sessionId: duplicateSessionId,
     });
 
-    await expect(activation.activate(input)).rejects.toMatchObject({
+    await expect(
+      activatePointMutationSession(activation, input),
+    ).rejects.toMatchObject({
       issue: "duplicateRequestAnchors",
     } satisfies Partial<PointMutationSessionAuthorityCorruptionV1Error>);
   });
@@ -566,9 +560,12 @@ describe("O03-B1 point-mutation session activation", () => {
         },
       });
 
-      await expect(activation.activate(input)).rejects.toThrow(
-        `fail:${failureStep}`,
-      );
+      const failure = await runFailure(activation.activateEffect(input));
+      expect(failure).toMatchObject({
+        _tag: "PointMutationSessionActivationPersistenceV1Error",
+        operation: "activationTransaction",
+        cause: expect.objectContaining({ message: `fail:${failureStep}` }),
+      });
       await expect(rowCounts(persistence, context.scopeId)).resolves.toEqual({
         sessions: 0,
         leases: 0,
@@ -576,7 +573,7 @@ describe("O03-B1 point-mutation session activation", () => {
     }
   });
 
-  it("maps activation-transaction rejection without changing facade identity", async () => {
+  it("maps activation-transaction rejection once into the typed channel", async () => {
     const context = await provisionContext("typed_transaction_failure");
     const input = pointMutationSessionActivationFixture(
       context.deploymentId,
@@ -598,7 +595,6 @@ describe("O03-B1 point-mutation session activation", () => {
       operation: "activationTransaction",
       cause,
     });
-    await expect(activation.activate(input)).rejects.toBe(cause);
     await expect(rowCounts(persistence, context.scopeId)).resolves.toEqual({
       sessions: 0,
       leases: 0,
@@ -680,7 +676,8 @@ describe("O03-B1 point-mutation session activation", () => {
     );
 
     await expect(
-      activation.activate(
+      activatePointMutationSession(
+        activation,
         pointMutationSessionActivationFixture(deploymentId, scopeId),
       ),
     ).rejects.toMatchObject({
@@ -783,7 +780,8 @@ describe("O03-B1 point-mutation session activation", () => {
       );
 
       await expect(
-        activation.activate(
+        activatePointMutationSession(
+          activation,
           pointMutationSessionActivationFixture(
             context.deploymentId,
             context.scopeId,
@@ -817,7 +815,10 @@ describe("O03-B1 point-mutation session activation", () => {
       },
     );
 
-    const result = await activationPersistence().activate(input);
+    const result = await activatePointMutationSession(
+      activationPersistence(),
+      input,
+    );
 
     expect(result.anchor.storageGenerationFence).toBe(
       POSTGRES_SIGNED_BIGINT_MAX,

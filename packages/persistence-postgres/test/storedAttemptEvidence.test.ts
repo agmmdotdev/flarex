@@ -151,6 +151,7 @@ import {
   runSessionJournalPointOperation as runPointOperation,
 } from "./effectTestRuntime";
 import {
+  activatePointMutationSession,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
@@ -1874,14 +1875,17 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       indexes: [],
     });
     const ports = resolutionPorts(persistence);
-    const activation = await createPointMutationSessionActivationPersistenceV1(
-      ports,
-      { leaseDurationMilliseconds: 60_000, randomUuid: nextUuid },
-    ).activate(pointMutationSessionActivationFixture(
-      deploymentId,
-      scopeId,
-      { evidence: { schemaVersionId } },
-    ));
+    const activation = await activatePointMutationSession(
+      createPointMutationSessionActivationPersistenceV1(
+        ports,
+        { leaseDurationMilliseconds: 60_000, randomUuid: nextUuid },
+      ),
+      pointMutationSessionActivationFixture(
+        deploymentId,
+        scopeId,
+        { evidence: { schemaVersionId } },
+      ),
+    );
     const store = createSessionJournalStorePersistenceV1(ports, {
       randomUuid: nextUuid,
     });
@@ -2032,12 +2036,14 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       ),
     });
     const ports = resolutionPorts(persistence);
-    const activation = await createPointMutationSessionActivationPersistenceV1(
-      ports,
-      { leaseDurationMilliseconds: 60_000, randomUuid: nextUuid },
-    ).activate(pointMutationSessionActivationFixture(
-      deploymentId,
-      scopeId,
+    const activation = await activatePointMutationSession(
+      createPointMutationSessionActivationPersistenceV1(
+        ports,
+        { leaseDurationMilliseconds: 60_000, randomUuid: nextUuid },
+      ),
+      pointMutationSessionActivationFixture(
+        deploymentId,
+        scopeId,
       {
         evidence: {
           packageId: prepared.logicalPins.packageId,
@@ -2073,7 +2079,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           requestSha256: prepared.requestEvidence.sha256,
         },
       },
-    ));
+      ),
+    );
     const store = createSessionJournalStorePersistenceV1(ports, {
       randomUuid: nextUuid,
     });

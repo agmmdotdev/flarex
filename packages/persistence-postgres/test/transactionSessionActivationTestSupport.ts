@@ -23,7 +23,12 @@ import {
 import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
 
 import type { FlarexSqlClient } from "../src";
-import type { PreparedPointMutationSessionActivationV1 } from "../src/transactionSessionActivation";
+import type {
+  PointMutationSessionActivationPersistenceV1,
+  PointMutationSessionActivationResultV1,
+  PreparedPointMutationSessionActivationV1,
+} from "../src/transactionSessionActivation";
+import { runEffect } from "./effectTestRuntime";
 
 type ActivationEvidence = PreparedPointMutationSessionActivationV1["evidence"];
 
@@ -31,6 +36,14 @@ export interface ActivationFixtureOverrides {
   readonly deploymentId?: TransactionGrantDeploymentIdV1;
   readonly scopeId?: ReplacementScopeIdV1;
   readonly evidence?: Partial<ActivationEvidence>;
+}
+
+/** Explicit test runtime boundary for the Effect-native activation port. */
+export function activatePointMutationSession(
+  persistence: PointMutationSessionActivationPersistenceV1,
+  input: PreparedPointMutationSessionActivationV1,
+): Promise<PointMutationSessionActivationResultV1> {
+  return runEffect(persistence.activateEffect(input));
 }
 
 export function pointMutationSessionActivationFixture(

@@ -71,6 +71,7 @@ import {
   runSessionJournalPointOperation as runPointOperation,
 } from "./effectTestRuntime";
 import {
+  activatePointMutationSession,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
@@ -805,17 +806,20 @@ async function scenario(
   });
   const tableId = requirePublishedTableId(publication.manifest, "users");
   const ports = resolutionPorts(persistence, options.targetOptions);
-  const activation = await createPointMutationSessionActivationPersistenceV1(
-    ports,
-    {
-      leaseDurationMilliseconds: 60_000,
-      randomUuid: infrastructureIds,
-    },
-  ).activate(pointMutationSessionActivationFixture(
-    deploymentId,
-    scopeId,
-    { evidence: { schemaVersionId } },
-  ));
+  const activation = await activatePointMutationSession(
+    createPointMutationSessionActivationPersistenceV1(
+      ports,
+      {
+        leaseDurationMilliseconds: 60_000,
+        randomUuid: infrastructureIds,
+      },
+    ),
+    pointMutationSessionActivationFixture(
+      deploymentId,
+      scopeId,
+      { evidence: { schemaVersionId } },
+    ),
+  );
   const store = createSessionJournalStorePersistenceV1(ports, {
     ...(options.randomUuid === undefined
       ? {}

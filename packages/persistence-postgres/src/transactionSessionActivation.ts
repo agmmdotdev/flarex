@@ -264,13 +264,6 @@ export interface PointMutationSessionActivationPersistenceV1 {
     PointMutationSessionActivationResultV1,
     PointMutationSessionActivationEffectErrorV1
   >;
-  /**
-   * Temporary compatibility boundary for the executor activation port.
-   * Delete when that port consumes `activateEffect` directly.
-   */
-  readonly activate: (
-    input: PreparedPointMutationSessionActivationV1,
-  ) => Promise<PointMutationSessionActivationResultV1>;
 }
 
 export interface PointMutationSessionAttemptLoadPersistenceV1 {
@@ -619,16 +612,7 @@ export function createPointMutationSessionActivationPersistenceV1(
     },
   );
 
-  const activate: PointMutationSessionActivationPersistenceV1["activate"] =
-    (input) => runTransactionSessionEffect(
-      activateEffect(input),
-      unwrapActivationEffectError,
-    );
-
-  return Object.freeze({
-    activateEffect,
-    activate,
-  });
+  return Object.freeze({ activateEffect });
 }
 
 export function createPointMutationSessionAttemptLoadPersistenceV1(
@@ -713,9 +697,9 @@ export function createPointMutationSessionAttemptTerminalizationPersistenceV1(
 }
 
 /**
- * Temporary runtime bridge owned by activation's executor compatibility facade
- * plus the Promise-native reload and terminalization contracts. Delete it when
- * those consumers compose the corresponding Effect operations directly.
+ * Temporary runtime bridge owned by the Promise-native reload and
+ * terminalization contracts. Delete it when those consumers compose the
+ * corresponding Effect operations directly.
  */
 function runTransactionSessionEffect<A, E>(
   effect: Effect.Effect<A, E>,
@@ -728,14 +712,6 @@ function unwrapTrustedScopeAuthorityError(
   error: TrustedScopeAuthorityError,
 ): unknown {
   return error instanceof TrustedScopeAuthorityPortError ? error.cause : error;
-}
-
-function unwrapActivationEffectError(
-  error: PointMutationSessionActivationEffectErrorV1,
-): unknown {
-  return error instanceof PointMutationSessionActivationPersistenceV1Error
-    ? error.cause
-    : error;
 }
 
 export function createLocatedPointMutationSessionActivationTargetV1(
