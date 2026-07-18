@@ -4,7 +4,7 @@ import {
   type ProbeGatewayEnv,
 } from "./gateway";
 import { canonicalProbeCampaignManifestV1 } from "./campaignProtocol";
-import { PROBE_LOCAL_REHEARSAL_MATRIX_V1 } from "./matrix";
+import { PROBE_ACTIVE_CAMPAIGN_MATRIX_V1 } from "./matrix";
 import {
   OneShotProbeRuntimeRerunCapability,
   ProbeRuntimeRerunEntrypoint,
@@ -14,12 +14,13 @@ export { ProbeSessionDO } from "./sessionDO";
 export { ProbeRunDO } from "./probeRunDO";
 export { ProbeCampaignDO } from "./probeCampaignDO";
 export { ProbeRuntimeRerunEntrypoint } from "./runtimeRerunEntrypoint";
+export { ProbeSessionExecutorReadEntrypoint } from "./sessionExecutorReadEntrypoint";
 
 const frozenManifest = canonicalProbeCampaignManifestV1(
-  PROBE_LOCAL_REHEARSAL_MATRIX_V1,
+  PROBE_ACTIVE_CAMPAIGN_MATRIX_V1,
 );
 const frozenRunIds = new Set(
-  PROBE_LOCAL_REHEARSAL_MATRIX_V1.runs.map(run => run.runId),
+  PROBE_ACTIVE_CAMPAIGN_MATRIX_V1.runs.map(run => run.runId),
 );
 const admission = {
   manifestIsAdmitted: (env, manifest) =>

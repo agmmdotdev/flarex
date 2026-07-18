@@ -36,6 +36,9 @@ export interface RuntimeProbeHarnessOptions {
   readonly mockFinish?: boolean;
   readonly mockRead?: boolean;
   readonly mockRerun?: boolean;
+  readonly sessionSync?: boolean;
+  readonly sessionExecutorRead?: boolean;
+  readonly sessionReadDelayMs?: number;
   readonly token?: string | false;
   readonly unfrozenAdmission?: boolean;
   readonly workerLoader?: boolean;
@@ -83,6 +86,12 @@ async function createRuntimeProbeHarnessInternal<GatewayBindings extends object>
           : {
               RUNTIME_TOPOLOGY_PROBE_TEST_UNFROZEN_ADMISSION:
                 "explicit-test-only",
+              ...(options.sessionReadDelayMs === undefined
+                ? {}
+                : {
+                    RUNTIME_TOPOLOGY_PROBE_TEST_READ_DELAY_MS:
+                      options.sessionReadDelayMs.toString(),
+                  }),
             }),
       };
   const miniflareOptions = {
@@ -103,6 +112,14 @@ async function createRuntimeProbeHarnessInternal<GatewayBindings extends object>
           ? {}
           : { workerLoaders: { LOADER: {} } }),
         serviceBindings: {
+          ...(options.sessionExecutorRead === false
+            ? {}
+            : {
+                SESSION_EXECUTOR_READ: {
+                  name: PROBE_GATEWAY_WORKER_NAME,
+                  entrypoint: "ProbeSessionExecutorReadEntrypoint",
+                },
+              }),
           ...(options.mockRead === false
             ? {}
             : {
@@ -149,6 +166,14 @@ async function createRuntimeProbeHarnessInternal<GatewayBindings extends object>
             className: "ProbeSessionDO",
             useSQLite: true,
           },
+          ...(options.sessionSync === false
+            ? {}
+            : {
+                PROBE_SYNC: {
+                  className: "ProbeSyncDO",
+                  scriptName: PROBE_SYNC_WORKER_NAME,
+                },
+              }),
         },
       },
       {

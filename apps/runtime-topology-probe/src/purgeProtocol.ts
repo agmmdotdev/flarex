@@ -9,7 +9,10 @@ import {
   ProbeScopeIdSchema,
   ProbeSessionIdSchema,
 } from "./identity";
-import { ProbeProtocolVersionV1Schema } from "./protocol";
+import {
+  ProbeProtocolVersionV1Schema,
+  ProbeScenarioSchema,
+} from "./protocol";
 
 const StrictStructOptions = {
   parseOptions: { onExcessProperty: "error" },
@@ -30,6 +33,7 @@ const ProbeSessionPurgeRequestV1Shape = Schema.Struct({
     Schema.Struct({
       attemptId: ProbeAttemptIdSchema,
       codeId: ProbeCodeIdSchema,
+      scenario: ProbeScenarioSchema,
     }).annotate(StrictStructOptions),
   ),
 }).annotate(StrictStructOptions);

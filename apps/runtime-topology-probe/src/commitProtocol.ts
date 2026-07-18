@@ -30,9 +30,17 @@ const StrictStructOptions = {
 } as const;
 const StrictParseOptions = { onExcessProperty: "error" } as const;
 
-export const ProbeCommitScenarioSchema = Schema.Literals([
-  "commit_wake",
+export const ProbeInvokeCommitScenarioSchema = Schema.Literals([
   "full_invoke",
+  "executor_worker_invoke",
+  "session_executor_invoke",
+]);
+export type ProbeInvokeCommitScenario =
+  typeof ProbeInvokeCommitScenarioSchema.Type;
+
+export const ProbeCommitScenarioSchema = Schema.Union([
+  Schema.Literal("commit_wake"),
+  ProbeInvokeCommitScenarioSchema,
 ]);
 export type ProbeCommitScenario = typeof ProbeCommitScenarioSchema.Type;
 
@@ -179,8 +187,8 @@ export const ProbeMockReadRequestV1Schema =
     Schema.makeFilter(request => {
       const identityIssue = probeCommitIdentityIssueV1(request);
       if (identityIssue !== undefined) return identityIssue;
-      if (request.scenario !== "full_invoke") {
-        return "mock reads are only available to full_invoke";
+      if (request.scenario === "commit_wake") {
+        return "mock reads are only available to invoke scenarios";
       }
       return probeInvokeRuntimeIdentityIssueV1(request);
     }),
@@ -200,8 +208,8 @@ export const ProbeMockReadResponseV1Schema =
     Schema.makeFilter(response => {
       const identityIssue = probeCommitIdentityIssueV1(response);
       if (identityIssue !== undefined) return identityIssue;
-      if (response.scenario !== "full_invoke") {
-        return "mock read receipts are only available to full_invoke";
+      if (response.scenario === "commit_wake") {
+        return "mock read receipts are only available to invoke scenarios";
       }
       const runtimeIssue = probeInvokeRuntimeIdentityIssueV1(response);
       if (runtimeIssue !== undefined) return runtimeIssue;
@@ -233,7 +241,7 @@ const ProbeMockCommitWakeRequestV1Shape = Schema.Struct({
 
 const ProbeMockFullInvokeFinishRequestV1Shape = Schema.Struct({
   ...CommitIdentityShape,
-  scenario: Schema.Literal("full_invoke"),
+  scenario: ProbeInvokeCommitScenarioSchema,
   ...RuntimeIdentityShape,
   journalEntries: JournalEntriesSchema,
   sealDigest: SealDigestSchema,
@@ -378,6 +386,8 @@ export const decodeProbeSyncControlRequestV1OrNull =
   strictSchemaValueOrNullDecoder(ProbeSyncControlRequestV1Schema);
 export const decodeProbeMockReadRequestV1OrNull =
   strictSchemaValueOrNullDecoder(ProbeMockReadRequestV1Schema);
+export const decodeProbeMockReadResponseV1OrNull =
+  strictSchemaValueOrNullDecoder(ProbeMockReadResponseV1Schema);
 export const decodeProbeMockFinishRequestV1OrNull =
   strictSchemaValueOrNullDecoder(ProbeMockFinishRequestV1Schema);
 export const decodeProbeMockFinishResponseV1OrNull =

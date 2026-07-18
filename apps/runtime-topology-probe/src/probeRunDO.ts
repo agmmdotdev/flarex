@@ -10,6 +10,7 @@ import {
   PROBE_PROTOCOL_VERSION_V1,
   ProbeDurationMsSchema,
   probeSampleIdentityV1,
+  probeWorkerLoaderIdentityV1,
   type ProbeRunRequestV1,
   type ProbeSamplePhase,
 } from "./protocol";
@@ -248,7 +249,10 @@ export class ProbeRunDO extends DurableObject<Record<string, never>> {
           run.dimensions,
           request.sampleOrdinal,
         );
-        const codeId = identity.codeId;
+        const codeId = probeWorkerLoaderIdentityV1(
+          run.scenario,
+          identity,
+        );
         const addsCodeId = codeId !== null &&
           this.sql.exec<{ code_id: string }>(
               `SELECT code_id FROM probe_run_code_ids_v1 WHERE code_id = ?`,
@@ -1103,7 +1107,10 @@ function measurementDisposition(
 }
 
 function isOrderedWakeScenario(run: ProbeRunRequestV1): boolean {
-  return run.scenario === "commit_wake" || run.scenario === "full_invoke";
+  return run.scenario === "commit_wake" ||
+    run.scenario === "full_invoke" ||
+    run.scenario === "executor_worker_invoke" ||
+    run.scenario === "session_executor_invoke";
 }
 
 function runState(row: RunRow): ProbeRunStatusV1["state"] {

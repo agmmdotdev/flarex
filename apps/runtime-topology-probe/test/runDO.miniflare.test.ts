@@ -6,10 +6,12 @@ import {
   decodeProbeRunIdEffect,
   newProbeClaimToken,
   probeRunActorId,
+  probeSampleId,
   probeSpanId,
 } from "../src/identity";
 import {
   decodeProbeRunRequestV1Effect,
+  probeSampleIdentityV1,
   ProbeDurationMsSchema,
   PROBE_PROTOCOL_VERSION_V1,
   ProbeTraceSpanV1Schema,
@@ -35,6 +37,7 @@ import {
   type ProbeGatewaySampleV1,
   type ProbeSyncWakeObservationV1,
 } from "../src/runtimeProtocol";
+import { validSample } from "./fixtures";
 import {
   createRuntimeProbeHarness,
   removeRuntimeProbePersistPath,
@@ -174,6 +177,53 @@ describe.sequential("P07A ProbeRunDO state machine", () => {
           uniqueCodeIds: 2,
         },
       });
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it("accounts every attempt-scoped executor loader identity", async () => {
+    const harness = await createRuntimeProbeHarness();
+    try {
+      const run = validRun("p12_attempt_loader_budgets", {
+        scenario: "session_executor_invoke",
+        codeMode: "stable",
+        repetitions: 3,
+        concurrency: 1,
+      });
+      await register(harness, run);
+
+      for (let value = 0; value < 3; value += 1) {
+        const sampleOrdinal = ordinal(value);
+        const claimed = await requiredClaim(harness, run, value);
+        const completedSample = validSample(run.scenario, {
+          runId: run.runId,
+          sampleId: probeSampleId(run.runId, sampleOrdinal),
+          dimensions: run.dimensions,
+          identity: probeSampleIdentityV1(
+            run.runId,
+            run.scenario,
+            run.dimensions,
+            sampleOrdinal,
+          ),
+        });
+        const fragment: ProbeGatewaySampleV1 = {
+          ...completedSample,
+          spans: completedSample.spans.slice(1),
+        };
+        expect(
+          await finalizeEvidence(
+            harness,
+            run,
+            claimed,
+            fragment,
+            { kind: "observed", disposition: "applied" },
+          ),
+        ).toMatchObject({ kind: "finalized", idempotent: false });
+
+        const status = await readStatus(harness, run);
+        expect(status.budgets.consumed.uniqueCodeIds).toBe(value + 1);
+      }
     } finally {
       await harness.dispose();
     }

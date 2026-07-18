@@ -7,7 +7,10 @@ and teardown requirements live in [`PLAN.md`](./PLAN.md).
 
 ## Current Slice
 
-`P11` is complete. The app wrapped the P02-P06 communication shapes in durable
+`P15` is complete. After the original P02-P11 topology experiment, the app ran
+an isolated SessionDO-hosted mock-executor A/B against the retained external
+Worker control, rejected the candidate on its frozen latency threshold, and
+again removed every Cloudflare resource. The app wrapped the communication shapes in durable
 per-cell and deployment-wide campaign coordination, collected the frozen P10
 production matrix, and removed every isolated Cloudflare resource without
 introducing a real executor, transaction, or sync engine. The app owns:
@@ -102,10 +105,14 @@ Dynamic Worker counts, trace configuration, and retained-state boundary are in
 make a lost JavaScript call stack resumable: it seals the run and records the
 claim as `abandoned`. SessionDO cleanup explicitly deletes facet databases,
 removes supervisor probe rows, and retains one exact completion/fence tombstone.
-The full production evidence and corrected Dynamic Worker request model are in
+The original production evidence and corrected Dynamic Worker request model are in
 [`P10-PRODUCTION-EVIDENCE.md`](./P10-PRODUCTION-EVIDENCE.md); the architecture
 limits and proof that all three Workers and four namespaces are absent are in
-[`P11-CONCLUSIONS-AND-TEARDOWN.md`](./P11-CONCLUSIONS-AND-TEARDOWN.md).
+[`P11-CONCLUSIONS-AND-TEARDOWN.md`](./P11-CONCLUSIONS-AND-TEARDOWN.md). The
+later matched SessionDO executor production receipt is in
+[`P14-PRODUCTION-SESSION-EXECUTOR-AB.md`](./P14-PRODUCTION-SESSION-EXECUTOR-AB.md),
+and its decision plus second complete teardown are in
+[`P15-CONCLUSIONS-AND-TEARDOWN.md`](./P15-CONCLUSIONS-AND-TEARDOWN.md).
 
 All durations are caller-local monotonic round trips. The protocol never
 subtracts absolute timestamps created by different isolates.

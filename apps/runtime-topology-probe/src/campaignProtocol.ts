@@ -5,7 +5,6 @@ import { strictSchemaValueOrNullDecoder } from "./effectBoundary";
 import {
   ProbeCampaignIdSchema,
   ProbeOrdinalSchema,
-  type ProbeCodeId,
 } from "./identity";
 import {
   canonicalProbeRunRequestV1,
@@ -17,6 +16,7 @@ import {
   ProbeProtocolVersionV1Schema,
   ProbeRunRequestV1Schema,
   probeSampleIdentityV1,
+  probeWorkerLoaderIdentityV1,
   type ProbeRunRequestV1,
 } from "./protocol";
 
@@ -294,7 +294,7 @@ export function probeCampaignBudgetPlanV1(
   let sampleExecutions = 0;
   let payloadBytes = 0;
   let journalEntries = 0;
-  const codeIds = new Set<ProbeCodeId>();
+  const codeIds = new Set<string>();
   for (const run of manifest.runs) {
     const plan = probeRunBudgetPlanV1(run);
     sampleExecutions += plan.sampleClaims;
@@ -307,7 +307,11 @@ export function probeCampaignBudgetPlanV1(
         run.dimensions,
         ProbeOrdinalSchema.make(ordinal),
       );
-      if (identity.codeId !== null) codeIds.add(identity.codeId);
+      const codeIdentity = probeWorkerLoaderIdentityV1(
+        run.scenario,
+        identity,
+      );
+      if (codeIdentity !== null) codeIds.add(codeIdentity);
     }
   }
   return ProbeCampaignBudgetValuesV1Schema.make({
@@ -417,6 +421,8 @@ function campaignPurgeTaskCountV1(
       if (
         run.scenario === "commit_wake" ||
         run.scenario === "full_invoke" ||
+        run.scenario === "executor_worker_invoke" ||
+        run.scenario === "session_executor_invoke" ||
         run.scenario === "sync_rerun"
       ) {
         syncScopes.add(identity.scopeId);
@@ -519,7 +525,11 @@ function uncheckedCampaignBudgetPlan(
         run.dimensions,
         ProbeOrdinalSchema.make(ordinal),
       );
-      if (identity.codeId !== null) codeIds.add(identity.codeId);
+      const codeIdentity = probeWorkerLoaderIdentityV1(
+        run.scenario,
+        identity,
+      );
+      if (codeIdentity !== null) codeIds.add(codeIdentity);
     }
   }
   return {
@@ -534,6 +544,7 @@ function uncheckedCampaignBudgetPlan(
 function canonicalCampaignCell(run: ProbeRunRequestV1): string {
   return JSON.stringify([
     run.scenario,
+    run.replicate ?? null,
     run.repetitions,
     run.warmupRepetitions,
     run.dimensions.codeMode,

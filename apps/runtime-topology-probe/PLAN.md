@@ -1,6 +1,9 @@
 # Runtime Topology Probe Turn Plan
 
-Status: experiment complete; `P00` through `P11` passed. The first production
+Status: experiment complete; `P00` through `P15` passed. The approved
+SessionDO-hosted executor extension completed its production A/B, rejected the
+candidate on the frozen latency threshold, and removed every isolated resource.
+The first production
 attempt failed the Paid-eligibility gate and was cleaned up. After the owner
 upgraded the same isolated target, P09 smoke and P10 evidence collection passed,
 P11 recorded the bounded conclusions, and every isolated Cloudflare resource
@@ -618,14 +621,58 @@ Deliver:
 Exit: close the experiment goal only after evidence, conclusions, and requested
 teardown are complete.
 
+### P12 - SessionDO-Hosted Mock Executor A/B Preflight
+
+Status: complete. The approved boundary and frozen matrix are recorded.
+
+The new experiment is recorded in
+[`P12-SESSION-EXECUTOR-AB-PREFLIGHT.md`](./P12-SESSION-EXECUTOR-AB-PREFLIGHT.md).
+It keeps the previous external mock executor path as a matched control and adds
+one SessionDO-hosted synthetic read/finish candidate. It does not change an
+active Flarex architecture roadmap or claim a real Postgres executor proof.
+
+### P13 - Implement And Prove The Paired Paths Locally
+
+Status: complete. The exact candidate/control paths, attempt and cleanup state
+machines, 230-test local proof, bundle dry-runs, and clean mandatory reviews
+are recorded in
+[`P13-LOCAL-SESSION-EXECUTOR-PROOF.md`](./P13-LOCAL-SESSION-EXECUTOR-PROOF.md).
+
+Deliver exact attempt-scoped capabilities, an explicit SessionDO attempt state
+machine, matched control/candidate trace trees, strict protocol relationships,
+interleaving and replay tests, full local matrix evidence, typecheck, bundle
+dry-runs, and both required project reviews.
+
+### P14 - Run The Bounded Production A/B
+
+Status: complete. The same immutable campaign produced 28 complete samples,
+24 eligible matched measurements, zero correctness exclusions, a publishable
+evidence seal, terminal application purge, and the sanitized receipt in
+[`P14-PRODUCTION-SESSION-EXECUTOR-AB.md`](./P14-PRODUCTION-SESSION-EXECUTOR-AB.md).
+
+Deploy only the isolated probe resources, run the predeclared paired campaign,
+persist secret-free raw and derived evidence, and report capability correctness,
+failures, internal/external latency, Dynamic Worker usage, and bounded cost.
+
+### P15 - Conclusions And Teardown
+
+Status: complete. The bounded decision and complete script/namespace absence
+proof are recorded in
+[`P15-CONCLUSIONS-AND-TEARDOWN.md`](./P15-CONCLUSIONS-AND-TEARDOWN.md).
+
+State whether the SessionDO-hosted mock executor met the predeclared latency and
+correctness threshold without treating mock evidence as a Postgres commit
+result. Purge application state, remove every temporary Cloudflare resource,
+prove absence, and commit only the isolated app files.
+
 ## Goal Loop State
 
-- Goal: complete. The isolated production topology was built, measured, and
-  removed without changing an active Flarex architecture roadmap.
-- Final gate: `P11` recorded the production conclusions after P10 persisted and
-  verified all evidence, then deleted the gateway, mock, sync Worker, and all
-  four exact Durable Object namespace pairs.
-- Retained local evidence: the ignored checkpoint, raw artifact, and derived
-  summary remain secret-free and unstaged for auditability.
-- Any future Postgres-backed `C07A` comparison is a new experiment and must not
-  treat this topology receipt as an architecture selection.
+- Goal: complete. P12-P15 extended the isolated probe with one approved
+  SessionDO-hosted mock executor A/B and do not change active architecture
+  roadmaps.
+- Previous baseline: P11 closed and removed the original deployment; its
+  ignored evidence remains secret-free and unstaged.
+- Current gate: closed. P14 evidence and P15 teardown are complete.
+- Terminal gate: P15 must record the bounded conclusion, purge application
+  state, remove all temporary Workers/namespaces, verify absence, and commit the
+  app-local evidence.

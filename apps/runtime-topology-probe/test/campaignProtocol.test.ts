@@ -8,7 +8,10 @@ import {
   ProbeCampaignStatusV1Schema,
 } from "../src/campaignProtocol";
 import { ProbeCampaignIdSchema, ProbeRunIdSchema } from "../src/identity";
-import { PROBE_LOCAL_REHEARSAL_MATRIX_V1 } from "../src/matrix";
+import {
+  PROBE_LOCAL_REHEARSAL_MATRIX_V1,
+  PROBE_SESSION_EXECUTOR_AB_MATRIX_V1,
+} from "../src/matrix";
 import {
   PROBE_PROTOCOL_VERSION_V1,
   ProbeRunRequestV1Schema,
@@ -25,6 +28,25 @@ describe("campaign protocol", () => {
       journalEntries: 20,
       uniqueCodeIds: 12,
     });
+  });
+
+  it("pins the paired SessionDO executor campaign and attempt-scoped loaders", () => {
+    expect(probeCampaignBudgetPlanV1(PROBE_SESSION_EXECUTOR_AB_MATRIX_V1))
+      .toEqual({
+        runCells: 24,
+        sampleExecutions: 28,
+        payloadBytes: 1_792,
+        journalEntries: 56,
+        uniqueCodeIds: 28,
+      });
+    expect(
+      PROBE_SESSION_EXECUTOR_AB_MATRIX_V1.runs.map(run => run.scenario),
+    ).toEqual(
+      Array.from({ length: 12 }, () => [
+        "executor_worker_invoke",
+        "session_executor_invoke",
+      ]).flat(),
+    );
   });
 
   it("deduplicates stable source IDs and counts each new-code ordinal", () => {
@@ -96,6 +118,19 @@ describe("campaign protocol", () => {
     expect(decodeProbeCampaignManifestV1OrNull(rawManifest(runs))).toBeNull();
   });
 
+  it("rejects attempt-scoped loader identities beyond the campaign budget", () => {
+    const oversized = Array.from({ length: 9 }, (_, index) =>
+      run(
+        `attempt_loader_0${index + 1}`,
+        "session_executor_invoke",
+        { repetitions: 16, replicate: index + 1 },
+      )
+    );
+
+    expect(decodeProbeCampaignManifestV1OrNull(rawManifest(oversized)))
+      .toBeNull();
+  });
+
   it("rejects campaign statuses that contradict their immutable manifest", () => {
     const campaign = manifest("campaign_status_relations", [
       run("status_01_edge", "edge_echo"),
@@ -153,6 +188,7 @@ interface RunOptions {
   readonly codeMode?: "new-code" | "stable";
   readonly journalEntries?: number;
   readonly payloadBytes?: number;
+  readonly replicate?: number;
   readonly repetitions?: number;
   readonly warmupRepetitions?: number;
 }
@@ -166,6 +202,7 @@ function run(
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
     runId: ProbeRunIdSchema.make(runId),
     scenario,
+    replicate: options.replicate,
     repetitions: options.repetitions ?? 1,
     warmupRepetitions: options.warmupRepetitions ?? 0,
     dimensions: {

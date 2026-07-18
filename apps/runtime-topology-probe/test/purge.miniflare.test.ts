@@ -21,7 +21,10 @@ import {
   ProbeSyncControlRequestV1Schema,
 } from "../src/commitProtocol";
 import { PROBE_SAMPLE_ROUTE } from "../src/gateway";
-import { PROBE_LOCAL_REHEARSAL_MATRIX_V1 } from "../src/matrix";
+import {
+  PROBE_ACTIVE_CAMPAIGN_MATRIX_V1,
+  PROBE_LOCAL_REHEARSAL_MATRIX_V1,
+} from "../src/matrix";
 import {
   PROBE_PROTOCOL_VERSION_V1,
   probeSampleIdentityV1,
@@ -79,6 +82,187 @@ describe.sequential("P07B resumable facet purge", () => {
       await harness.dispose();
     }
   }, 60_000);
+
+  it("purges multiple attempt-scoped SessionDO executor Workers under their original code", async () => {
+    const harness = await createRuntimeProbeHarness();
+    try {
+      const manifest = focusedSessionExecutorManifest(
+        "p12_session_executor_purge",
+      );
+      const result = await runProbeCampaignV1({
+        manifest,
+        target: {
+          kind: "local-miniflare",
+          compatibilityDate: "2026-06-14",
+        },
+        transport: harnessTransport(harness),
+        checkpoint: createInMemoryProbeCheckpointStore(),
+        persistEvidence: persistEvidenceInMemory,
+        purgeBatchSize: 1,
+        maxPurgeControlSteps: 64,
+      });
+
+      expect(result.raw.evidence).toHaveLength(3);
+      expect(result.purgedCampaign.state).toBe("purged");
+      const replay = sessionPurgeReplayForManifest(manifest);
+      const receipt = await (await harness.bindings()).PROBE_SESSIONS
+        .getByName(replay.sessionId)
+        .purge(replay.request);
+      expect(receipt).toMatchObject({
+        kind: "probe-data-cleared",
+        deletedFacets: 1,
+        probeDataCleared: true,
+        completionTombstoneRetained: true,
+      });
+    } finally {
+      await harness.dispose();
+    }
+  }, 90_000);
+
+  it("purges planned SessionDO executor attempts that never started", async () => {
+    const harness = await createRuntimeProbeHarness();
+    try {
+      const manifest = focusedSessionExecutorManifest(
+        "p12_session_executor_partial_purge",
+      );
+      const run = manifest.runs[0];
+      if (run === undefined) throw new Error("candidate purge run is missing");
+      const bindings = await harness.bindings();
+      const campaign = bindings.PROBE_CAMPAIGN.getByName(
+        PROBE_CAMPAIGN_ACTOR_NAME,
+      );
+      const control = ProbeCampaignControlRequestV1Schema.make({
+        protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+        campaignId: manifest.campaignId,
+      });
+      expect(await campaign.register(manifest)).toMatchObject({
+        kind: "registered",
+      });
+      const sample = await harness.mf.dispatchFetch(
+        `https://probe.test${PROBE_SAMPLE_ROUTE}`,
+        {
+          method: "POST",
+          headers: {
+            authorization: PROBE_TEST_AUTHORIZATION,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(ProbePublicSampleRequestV1Schema.make({
+            protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+            runId: run.runId,
+            sampleOrdinal: ProbeOrdinalSchema.make(0),
+          })),
+        },
+      );
+      expect(sample.status).toBe(200);
+      await sample.arrayBuffer();
+      expect(await campaign.reconcile(control)).toMatchObject({
+        kind: "accepted",
+        status: { state: "reconciled" },
+      });
+      expect(await campaign.sealEvidence(control)).toMatchObject({
+        kind: "accepted",
+        status: { state: "evidence-sealed" },
+      });
+
+      const purge = ProbeCampaignPurgeRequestV1Schema.make({
+        ...control,
+        maxTasks: 16,
+      });
+      let purged = false;
+      for (let step = 0; step < 64; step += 1) {
+        const receipt = await campaign.purge(purge);
+        if (
+          receipt.kind === "accepted" &&
+          receipt.status.state === "purged"
+        ) {
+          purged = true;
+          break;
+        }
+      }
+      expect(purged).toBe(true);
+      const unstarted = sessionPurgeReplayForManifest(manifest, 1);
+      expect(
+        await bindings.PROBE_SESSIONS.getByName(unstarted.sessionId)
+          .purge(unstarted.request),
+      ).toMatchObject({
+        kind: "probe-data-cleared",
+        deletedFacets: 0,
+        probeDataCleared: true,
+        completionTombstoneRetained: true,
+      });
+    } finally {
+      await harness.dispose();
+    }
+  }, 90_000);
+
+  it("purges unadmitted candidates without Loader or read bindings", async () => {
+    const harness = await createRuntimeProbeHarness({
+      sessionExecutorRead: false,
+      workerLoader: false,
+    });
+    try {
+      const manifest = focusedSessionExecutorManifest(
+        "p12_unadmitted_candidate_purge",
+      );
+      const run = manifest.runs[0];
+      if (run === undefined) throw new Error("candidate purge run is missing");
+      const bindings = await harness.bindings();
+      const campaign = bindings.PROBE_CAMPAIGN.getByName(
+        PROBE_CAMPAIGN_ACTOR_NAME,
+      );
+      const control = ProbeCampaignControlRequestV1Schema.make({
+        protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+        campaignId: manifest.campaignId,
+      });
+      expect(await campaign.register(manifest)).toMatchObject({
+        kind: "registered",
+      });
+      const sample = await harness.mf.dispatchFetch(
+        `https://probe.test${PROBE_SAMPLE_ROUTE}`,
+        {
+          method: "POST",
+          headers: {
+            authorization: PROBE_TEST_AUTHORIZATION,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(ProbePublicSampleRequestV1Schema.make({
+            protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+            runId: run.runId,
+            sampleOrdinal: ProbeOrdinalSchema.make(0),
+          })),
+        },
+      );
+      expect(sample.status).toBe(200);
+      await sample.arrayBuffer();
+      expect(await campaign.reconcile(control)).toMatchObject({
+        kind: "accepted",
+        status: { state: "reconciled" },
+      });
+      expect(await campaign.sealEvidence(control)).toMatchObject({
+        kind: "accepted",
+        status: { state: "evidence-sealed" },
+      });
+
+      const purge = ProbeCampaignPurgeRequestV1Schema.make({
+        ...control,
+        maxTasks: 16,
+      });
+      let purged = false;
+      for (let step = 0; step < 64; step += 1) {
+        const receipt = await campaign.purge(purge);
+        if (
+          receipt.kind === "accepted" &&
+          receipt.status.state === "purged"
+        ) {
+          purged = true;
+          break;
+        }
+      }
+      expect(purged).toBe(true);
+    } finally {
+      await harness.dispose();
+    }
+  }, 90_000);
 
   it("resumes an interrupted purge from durable progress after restart", async () => {
     const first = await createRuntimeProbeHarness({
@@ -636,6 +820,22 @@ function focusedFullInvokeManifest(campaignId: string) {
   });
 }
 
+function focusedSessionExecutorManifest(campaignId: string) {
+  const run = PROBE_ACTIVE_CAMPAIGN_MATRIX_V1.runs.find(candidate =>
+    candidate.scenario === "session_executor_invoke" &&
+    candidate.warmupRepetitions === 2
+  );
+  if (run === undefined) {
+    throw new Error("SessionDO executor production run is missing");
+  }
+  return ProbeCampaignManifestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    campaignId: ProbeCampaignIdSchema.make(campaignId),
+    collectorConcurrency: 1,
+    runs: [run],
+  });
+}
+
 async function persistEvidenceInMemory(
   raw: Parameters<typeof probeEvidencePersistenceReceiptV1>[0],
   summary: Parameters<typeof probeEvidencePersistenceReceiptV1>[1],
@@ -655,6 +855,7 @@ function evidenceSeal(raw: ProbeRawEvidenceArtifactV1 | undefined) {
 
 function sessionPurgeReplayForManifest(
   manifest: ProbeCampaignManifestV1,
+  sampleOrdinal = 0,
 ) {
   const run = manifest.runs[0];
   if (run === undefined) throw new Error("purge replay run is missing");
@@ -667,19 +868,23 @@ function sessionPurgeReplayForManifest(
       ProbeOrdinalSchema.make(ordinal),
     )
   );
-  const sessionId = identities[0]?.sessionId;
+  const sessionId = identities[sampleOrdinal]?.sessionId;
   if (sessionId === null || sessionId === undefined) {
     throw new Error("purge replay session is missing");
   }
-  const facets = identities.map(identity => {
+  const facets = identities.filter(identity => identity.sessionId === sessionId)
+    .map(identity => {
     if (
-      identity.sessionId !== sessionId ||
       identity.attemptId === null ||
       identity.codeId === null
     ) {
       throw new Error("purge replay facet identity is invalid");
     }
-    return { attemptId: identity.attemptId, codeId: identity.codeId };
+    return {
+      attemptId: identity.attemptId,
+      codeId: identity.codeId,
+      scenario: run.scenario,
+    };
   });
   return {
     sessionId,

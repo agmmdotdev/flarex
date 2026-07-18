@@ -15,7 +15,10 @@ import {
   ProbeOrdinalSchema,
   ProbeRunIdSchema,
 } from "../src/identity";
-import { PROBE_LOCAL_REHEARSAL_MATRIX_V1 } from "../src/matrix";
+import {
+  PROBE_ACTIVE_CAMPAIGN_MATRIX_V1,
+  PROBE_LOCAL_REHEARSAL_MATRIX_V1,
+} from "../src/matrix";
 import {
   ProbeDurationMsSchema,
   PROBE_PROTOCOL_VERSION_V1,
@@ -166,14 +169,14 @@ describe.sequential("P07B campaign coordinator", () => {
       unfrozenAdmission: false,
     });
     try {
-      const frozenRun = PROBE_LOCAL_REHEARSAL_MATRIX_V1.runs[0];
+      const frozenRun = PROBE_ACTIVE_CAMPAIGN_MATRIX_V1.runs[0];
       if (frozenRun === undefined) throw new Error("frozen run is missing");
       const changed = ProbeCampaignManifestV1Schema.make({
-        ...PROBE_LOCAL_REHEARSAL_MATRIX_V1,
+        ...PROBE_ACTIVE_CAMPAIGN_MATRIX_V1,
         runs: [{
           ...frozenRun,
           dimensions: { ...frozenRun.dimensions, payloadBytes: 1 },
-        }, ...PROBE_LOCAL_REHEARSAL_MATRIX_V1.runs.slice(1)],
+        }, ...PROBE_ACTIVE_CAMPAIGN_MATRIX_V1.runs.slice(1)],
       });
       expect((await post(harness, PROBE_CAMPAIGN_ROUTE, changed)).status).toBe(
         404,
@@ -223,7 +226,7 @@ describe.sequential("P07B campaign coordinator", () => {
       const exact = await post(
         harness,
         PROBE_CAMPAIGN_ROUTE,
-        PROBE_LOCAL_REHEARSAL_MATRIX_V1,
+        PROBE_ACTIVE_CAMPAIGN_MATRIX_V1,
       );
       expect(exact.status).toBe(201);
       expect((await get(

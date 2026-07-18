@@ -27,7 +27,9 @@ import {
 } from "../src/commitProtocol";
 import { copyCloudflareRpcRecord } from "../src/effectBoundary";
 import {
+  decodeProbeFullInvokeSessionResponseV1Effect,
   probeInvokeWorkerCode,
+  ProbeInvokeFacetRequestV1Schema,
   PROBE_INVOKE_WORKER_MAIN_MODULE,
 } from "../src/invokeProtocol";
 import {
@@ -803,6 +805,155 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     await facetLifecycle(harness, "p05_full_invoke", 1, "delete");
   });
 
+  it("compares the external Worker and SessionDO executor hosts with exact traces", async () => {
+    const external = await measuredDispatchOnFreshHarness(
+      validSampleRequest("executor_worker_invoke", "p12_test_external", {
+        journalEntries: 2,
+        payloadBytes: 64,
+      }),
+    );
+    const session = await measuredDispatchOnFreshHarness(
+      validSampleRequest("session_executor_invoke", "p12_test_session", {
+        journalEntries: 2,
+        payloadBytes: 64,
+      }),
+    );
+    const externalSample = completeProbeGatewaySampleV1(
+      external.fragment,
+      external.durationMs,
+    );
+    const sessionSample = completeProbeGatewaySampleV1(
+      session.fragment,
+      session.durationMs,
+    );
+
+    expect(externalSample.spans.map(span => span.name)).toEqual([
+      "external_request",
+      "gateway_session_rtt",
+      "session_facet_rtt",
+      "facet_mock_read_rtt",
+      "facet_journal_io",
+      "session_mock_finish_rtt",
+      "mock_sync_wake_rtt",
+      "sync_cursor_io",
+    ]);
+    expect(sessionSample.spans.map(span => span.name)).toEqual([
+      "external_request",
+      "gateway_session_rtt",
+      "session_facet_rtt",
+      "facet_session_read_rtt",
+      "facet_journal_io",
+      "session_executor_finish",
+      "session_sync_wake_rtt",
+      "sync_cursor_io",
+    ]);
+    expect(validateProbeTraceV1(externalSample)).toEqual({ ok: true });
+    expect(validateProbeTraceV1(sessionSample)).toEqual({ ok: true });
+    expect(external.control.syncWake).toEqual({
+      kind: "observed",
+      disposition: "applied",
+    });
+    expect(session.control.syncWake).toEqual({
+      kind: "observed",
+      disposition: "applied",
+    });
+  });
+
+  it("replays one completed SessionDO attempt and rejects changed evidence", async () => {
+    const request = candidateInvokeRequest("p12_session_replay");
+    const completed = await measuredDispatch(
+      harness,
+      validSampleRequest(
+        "session_executor_invoke",
+        "p12_session_replay",
+        { journalEntries: 2, payloadBytes: 64 },
+      ),
+    );
+    const first = await directFullInvoke(harness, request);
+    const repeated = await directFullInvoke(harness, request);
+    const changed = await directFullInvoke(harness, {
+      ...request,
+      payload: `${request.payload}x`,
+    });
+    const rawFirst = await first.text();
+    const rawRepeated = await repeated.text();
+
+    expect(completed.fragment.outcome).toEqual({ kind: "ok" });
+    expect(first.status, rawFirst).toBe(200);
+    expect(repeated.status).toBe(200);
+    expect(rawRepeated).toBe(rawFirst);
+    await runEffectTest(
+      decodeProbeFullInvokeSessionResponseV1Effect(JSON.parse(rawFirst)),
+    );
+    expect(changed.status).toBe(409);
+    expect(await changed.json()).toEqual({
+      error: "session_executor_attempt_conflict",
+    });
+    expect(await syncCursor(harness, "p12_session_replay", "read")).toBe(1);
+  });
+
+  it("fails an in-progress duplicate closed, then replays the completion", async () => {
+    const delayed = await createRuntimeProbeHarness({
+      sessionReadDelayMs: 500,
+    });
+    try {
+      const request = candidateInvokeRequest("p12_session_concurrent");
+      const bindings = await delayed.bindings();
+      const session = bindings.PROBE_SESSIONS.getByName(request.sessionId);
+      const invoke = () => session.fetch(
+        "https://probe-session.internal/v1/full-invoke",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+        },
+      );
+      const responses = await Promise.all([invoke(), invoke()]);
+      const completed = responses.find(response => response.status === 200);
+      const busy = responses.find(response => response.status === 409);
+      if (completed === undefined || busy === undefined) {
+        throw new Error("expected one completion and one busy duplicate");
+      }
+      const completedBody = await completed.text();
+      const replay = await invoke();
+
+      expect(await busy.json()).toEqual({
+        error: "session_executor_attempt_busy",
+      });
+      expect(replay.status).toBe(200);
+      expect(await replay.text()).toBe(completedBody);
+      expect(
+        await syncCursor(delayed, "p12_session_concurrent", "read"),
+      ).toBe(1);
+    } finally {
+      await delayed.dispose();
+    }
+  });
+
+  it("fails the SessionDO executor closed without its SyncDO capability", async () => {
+    const outcome = await measuredDispatchOnFreshHarness(
+      validSampleRequest("session_executor_invoke", "p12_no_session_sync", {
+        journalEntries: 2,
+        payloadBytes: 64,
+      }),
+      { sessionSync: false },
+    );
+
+    expect(outcome.fragment.outcome).toEqual({
+      kind: "error",
+      error: {
+        code: "runtime_failure",
+        retryable: false,
+        stage: "request",
+      },
+    });
+    expect(outcome.fragment.spans).toEqual([]);
+    expect(outcome.fragment.startup).toEqual({
+      workerLoader: "callback-not-run",
+      facet: "callback-not-run",
+    });
+  });
+
   it("uses distinct invoke-v1 code identities for bounded new-code samples", async () => {
     const request = validSampleRequest("full_invoke", "p05_invoke_new_code", {
       codeMode: "new-code",
@@ -985,7 +1136,7 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect(receipt.sync.cursor).toBe(1);
   });
 
-  it("keeps the permanent binding graph one-way and facets capability-free", async () => {
+  it("keeps dependent workers session-free and facets capability-scoped", async () => {
     const gatewayBindings = await harness.bindings();
     const mockBindings = await harness.mockBindings();
     const syncBindings = await harness.syncBindings();
@@ -996,7 +1147,8 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     const rerunCode = probeRerunWorkerCode();
     const rerunSource = rerunCode.modules[PROBE_RERUN_WORKER_MAIN_MODULE];
 
-    expect("PROBE_SYNC" in gatewayBindings).toBe(false);
+    expect(gatewayBindings.PROBE_SYNC).toBeDefined();
+    expect(gatewayBindings.SESSION_EXECUTOR_READ).toBeDefined();
     expect(gatewayBindings.MOCK_RERUN).toBeDefined();
     expect(mockBindings.PROBE_SYNC).toBeDefined();
     expect(Object.keys(mockBindings).sort()).toEqual(["PROBE_SYNC"]);
@@ -1005,7 +1157,7 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect("MOCK_RERUN" in mockBindings).toBe(false);
     expect("PROBE_SESSIONS" in syncBindings).toBe(false);
     expect("MOCK_RERUN" in syncBindings).toBe(false);
-    expect(Object.keys(workerCode.env ?? {})).toEqual(["MOCK_READ"]);
+    expect(Object.keys(workerCode.env ?? {})).toEqual(["EXECUTOR_READ"]);
     expect(workerCode.globalOutbound).toBeNull();
     expect(typeof source).toBe("string");
     expect(source).not.toContain("MOCK_FINISH");
@@ -1076,6 +1228,8 @@ type SupportedScenario =
   | "facet_journal"
   | "commit_wake"
   | "full_invoke"
+  | "executor_worker_invoke"
+  | "session_executor_invoke"
   | "session_echo"
   | "sync_rerun";
 
@@ -1087,6 +1241,42 @@ interface SampleOverrides {
   readonly repetitions?: number;
   readonly warmupRepetitions?: number;
   readonly sessionMode?: "new-session" | "reuse-session";
+}
+
+function candidateInvokeRequest(runIdValue: string) {
+  const runId = runEffectTestSync(decodeProbeRunIdEffect(runIdValue));
+  const sampleOrdinal = runEffectTestSync(decodeProbeOrdinalEffect(0));
+  return ProbeInvokeFacetRequestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    runId,
+    sampleId: probeSampleId(runId, sampleOrdinal),
+    sampleOrdinal,
+    scopeId: probeScopeId(runId),
+    scenario: "session_executor_invoke",
+    commitSeq: probeSyntheticCommitSeq(sampleOrdinal),
+    sessionId: probeSessionId(runId, sampleOrdinal),
+    sessionMode: "new-session",
+    attemptId: probeAttemptId(runId, sampleOrdinal, sampleOrdinal),
+    codeMode: "stable",
+    codeId: probeCodeId({ mode: "stable", profile: "invoke" }),
+    journalEntries: 2,
+    payload: "x".repeat(64),
+  });
+}
+
+async function directFullInvoke(
+  runtime: RuntimeProbeHarness,
+  request: ReturnType<typeof candidateInvokeRequest>,
+) {
+  const bindings = await runtime.bindings();
+  return await bindings.PROBE_SESSIONS.getByName(request.sessionId).fetch(
+    "https://probe-session.internal/v1/full-invoke",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
 }
 
 function validSampleRequest(
@@ -1236,7 +1426,8 @@ async function measuredDispatch(
     PROBE_TEST_AUTHORIZATION,
   );
   if (prepared.kind === "response") {
-    expect(prepared.response.status).toBe(200);
+    const registrationBody = await prepared.response.clone().text();
+    expect(prepared.response.status, registrationBody).toBe(200);
     throw new Error("probe run registration did not succeed");
   }
   const startedAt = performance.now();

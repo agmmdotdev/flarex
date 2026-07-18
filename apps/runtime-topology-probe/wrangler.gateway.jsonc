@@ -12,6 +12,11 @@
   ],
   "services": [
     {
+      "binding": "SESSION_EXECUTOR_READ",
+      "service": "flarex-runtime-topology-probe-gateway",
+      "entrypoint": "ProbeSessionExecutorReadEntrypoint"
+    },
+    {
       "binding": "MOCK_READ",
       "service": "flarex-runtime-topology-probe-mock",
       "entrypoint": "MockReadEntrypoint"
@@ -37,6 +42,11 @@
       {
         "name": "PROBE_SESSIONS",
         "class_name": "ProbeSessionDO"
+      },
+      {
+        "name": "PROBE_SYNC",
+        "class_name": "ProbeSyncDO",
+        "script_name": "flarex-runtime-topology-probe-sync"
       },
       {
         "name": "PROBE_RUNS",

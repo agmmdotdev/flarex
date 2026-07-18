@@ -13,6 +13,7 @@ import {
 interface RehearsalRunInput {
   readonly runId: string;
   readonly scenario: ProbeScenario;
+  readonly replicate?: number;
   readonly codeMode?: "new-code" | "stable";
   readonly sessionMode?: "new-session" | "reuse-session";
   readonly repetitions?: number;
@@ -27,6 +28,7 @@ function rehearsalRun(input: RehearsalRunInput): ProbeRunRequestV1 {
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
     runId: ProbeRunIdSchema.make(input.runId),
     scenario: input.scenario,
+    replicate: input.replicate,
     repetitions: input.repetitions ?? 2,
     warmupRepetitions: input.warmupRepetitions ?? 1,
     dimensions: {
@@ -122,3 +124,40 @@ export const PROBE_LOCAL_REHEARSAL_MATRIX_V1: ProbeCampaignManifestV1 =
       }),
     ],
   });
+
+type SessionExecutorComparisonScenario =
+  | "executor_worker_invoke"
+  | "session_executor_invoke";
+
+function sessionExecutorComparisonRun(
+  pair: number,
+  scenario: SessionExecutorComparisonScenario,
+): ProbeRunRequestV1 {
+  const host = scenario === "executor_worker_invoke" ? "external" : "session";
+  return rehearsalRun({
+    runId: `p12_${pair.toString().padStart(2, "0")}_${host}`,
+    scenario,
+    replicate: pair,
+    repetitions: 1,
+    warmupRepetitions: pair === 1 ? 2 : 0,
+    journalEntries: 2,
+    payloadBytes: 64,
+    sessionMode: "new-session",
+  });
+}
+
+export const PROBE_SESSION_EXECUTOR_AB_MATRIX_V1: ProbeCampaignManifestV1 =
+  ProbeCampaignManifestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    campaignId: ProbeCampaignIdSchema.make("p12_session_executor_ab_v1"),
+    collectorConcurrency: 1,
+    runs: Array.from({ length: 12 }, (_, index) => index + 1).flatMap(
+      pair => [
+        sessionExecutorComparisonRun(pair, "executor_worker_invoke"),
+        sessionExecutorComparisonRun(pair, "session_executor_invoke"),
+      ],
+    ),
+  });
+
+export const PROBE_ACTIVE_CAMPAIGN_MATRIX_V1 =
+  PROBE_SESSION_EXECUTOR_AB_MATRIX_V1;

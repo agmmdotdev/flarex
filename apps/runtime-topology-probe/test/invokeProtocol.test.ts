@@ -128,6 +128,8 @@ describe("P05 full-invoke protocol", () => {
       facetDurationMs: 4,
       workerLoaderCallbackRan: true,
       facetStartupCallbackRan: true,
+      executorHost: "external-worker",
+      readCapabilityCalls: 0,
       sessionMockFinishDurationMs: 5,
       finish: {
         request: finishRequest,

@@ -50,6 +50,8 @@ export const ProbeScenarioSchema = Schema.Literals([
   "facet_journal",
   "commit_wake",
   "full_invoke",
+  "executor_worker_invoke",
+  "session_executor_invoke",
   "sync_rerun",
 ]);
 export type ProbeScenario = typeof ProbeScenarioSchema.Type;
@@ -73,8 +75,11 @@ export const ProbeSpanNameSchema = Schema.Literals([
   "session_facet_rtt",
   "facet_journal_io",
   "facet_mock_read_rtt",
+  "facet_session_read_rtt",
   "session_mock_finish_rtt",
+  "session_executor_finish",
   "mock_sync_wake_rtt",
+  "session_sync_wake_rtt",
   "sync_cursor_io",
   "sync_runtime_rerun_rtt",
 ]);
@@ -130,6 +135,11 @@ const WarmupRepetitionsSchema = boundedProbeIntegerSchema(
   PROBE_LIMITS_V1.maxWarmupRepetitions,
   "warmupRepetitions",
 );
+const ReplicateSchema = boundedProbeIntegerSchema(
+  1,
+  100,
+  "replicate",
+);
 const ConcurrencySchema = boundedProbeIntegerSchema(
   1,
   PROBE_LIMITS_V1.maxConcurrency,
@@ -170,6 +180,7 @@ const ProbeRunRequestV1Shape = Schema.Struct({
   protocolVersion: ProbeProtocolVersionV1Schema,
   runId: ProbeRunIdSchema,
   scenario: ProbeScenarioSchema,
+  replicate: Schema.optional(ReplicateSchema),
   repetitions: RepetitionsSchema,
   warmupRepetitions: WarmupRepetitionsSchema,
   dimensions: ProbeDimensionsV1Schema,
@@ -184,6 +195,14 @@ export const ProbeRunRequestV1Schema = ProbeRunRequestV1Shape.check(
     if (dimensionIssue !== undefined) return dimensionIssue;
     if (request.dimensions.concurrency > request.repetitions) {
       return "concurrency cannot exceed measured repetitions";
+    }
+    if (
+      (request.scenario === "executor_worker_invoke" ||
+        request.scenario === "session_executor_invoke") &&
+      request.repetitions + request.warmupRepetitions >
+        PROBE_LIMITS_V1.maxNewCodeRepetitions
+    ) {
+      return `attempt-scoped loader scenarios allow at most ${PROBE_LIMITS_V1.maxNewCodeRepetitions} total executions`;
     }
     if (request.dimensions.codeMode !== "new-code") return undefined;
     if (request.warmupRepetitions !== 0) {
@@ -310,6 +329,18 @@ export function sameProbeSampleIdentityV1(
     left.codeId === right.codeId;
 }
 
+export function probeWorkerLoaderIdentityV1(
+  scenario: ProbeScenario,
+  identity: Pick<ProbeSampleIdentityV1, "attemptId" | "codeId">,
+): string | null {
+  if (identity.codeId === null) return null;
+  return (scenario === "executor_worker_invoke" ||
+      scenario === "session_executor_invoke") &&
+      identity.attemptId !== null
+    ? `${identity.codeId}-${identity.attemptId}`
+    : identity.codeId;
+}
+
 const ProbeSampleResultV1Shape = Schema.Struct({
   protocolVersion: ProbeProtocolVersionV1Schema,
   runId: ProbeRunIdSchema,
@@ -394,6 +425,8 @@ export function probeSampleIdentityV1(
         ),
       };
     case "full_invoke":
+    case "executor_worker_invoke":
+    case "session_executor_invoke":
       return {
         kind: "facet-session",
         sampleOrdinal,
@@ -507,6 +540,8 @@ export function probeStartupRelationshipIssueV1(
     case "facet_echo":
     case "facet_journal":
     case "full_invoke":
+    case "executor_worker_invoke":
+    case "session_executor_invoke":
     case "sync_rerun":
       if (
         startup.workerLoader === "not-applicable" ||
@@ -548,6 +583,8 @@ export function probeDimensionRelationshipIssueV1(
     scenario === "facet_echo" ||
     scenario === "facet_journal" ||
     scenario === "full_invoke" ||
+    scenario === "executor_worker_invoke" ||
+    scenario === "session_executor_invoke" ||
     scenario === "sync_rerun";
   if (!usesDynamicWorker && dimensions.codeMode !== "stable") {
     return `${scenario} requires canonical stable code mode because it does not invoke a Dynamic Worker`;
@@ -558,6 +595,8 @@ export function probeDimensionRelationshipIssueV1(
     scenario === "facet_echo" ||
     scenario === "facet_journal" ||
     scenario === "full_invoke" ||
+    scenario === "executor_worker_invoke" ||
+    scenario === "session_executor_invoke" ||
     scenario === "sync_rerun";
   if (!usesSession && dimensions.sessionMode !== "new-session") {
     return `${scenario} requires canonical new-session mode because it does not invoke a SessionDO`;
@@ -566,14 +605,20 @@ export function probeDimensionRelationshipIssueV1(
     return "sync_rerun requires a fresh session";
   }
   if (
-    (scenario === "commit_wake" || scenario === "full_invoke") &&
+    (scenario === "commit_wake" ||
+      scenario === "full_invoke" ||
+      scenario === "executor_worker_invoke" ||
+      scenario === "session_executor_invoke") &&
     dimensions.concurrency !== 1
   ) {
     return `${scenario} requires concurrency 1 because synthetic sync commits must finish in ordinal order`;
   }
 
   const usesJournal =
-    scenario === "facet_journal" || scenario === "full_invoke";
+    scenario === "facet_journal" ||
+    scenario === "full_invoke" ||
+    scenario === "executor_worker_invoke" ||
+    scenario === "session_executor_invoke";
   return !usesJournal && dimensions.journalEntries !== 0
     ? `${scenario} requires zero journal entries because it does not measure journal I/O`
     : undefined;

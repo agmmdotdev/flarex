@@ -116,7 +116,10 @@ import {
   ProbeSessionEchoRequestV1Schema,
   type ProbeSessionEchoResponseV1,
 } from "./sessionProtocol";
-import type { ProbeSessionDO, ProbeSessionEnv } from "./sessionDO";
+import type {
+  ProbeSessionDO,
+  ProbeSessionEnv,
+} from "./sessionDO";
 import {
   decodeProbeSyncRerunReceiptV1OrNull,
   ProbeRuntimeRerunRequestV1Schema,
@@ -637,10 +640,20 @@ async function executeRegisteredScenario(
             edgeColo,
           );
     case "full_invoke":
+    case "executor_worker_invoke":
       if (
         env.LOADER === undefined ||
         env.MOCK_READ === undefined ||
         env.MOCK_FINISH === undefined
+      ) {
+        return failedScenarioExecution(sampleRequest, edgeColo);
+      }
+      return await executeFullInvokeScenario(env, sampleRequest, edgeColo);
+    case "session_executor_invoke":
+      if (
+        env.LOADER === undefined ||
+        env.PROBE_SYNC === undefined ||
+        env.SESSION_EXECUTOR_READ === undefined
       ) {
         return failedScenarioExecution(sampleRequest, edgeColo);
       }
@@ -703,6 +716,8 @@ function failedScenarioExecution(
     scenario === "facet_echo" ||
       scenario === "facet_journal" ||
       scenario === "full_invoke" ||
+      scenario === "executor_worker_invoke" ||
+      scenario === "session_executor_invoke" ||
       scenario === "sync_rerun"
       ? { workerLoader: "callback-not-run", facet: "callback-not-run" } as const
       : undefined;
@@ -714,7 +729,10 @@ function failedScenarioExecution(
       [],
       startup,
     ),
-    syncWake: scenario === "commit_wake" || scenario === "full_invoke"
+    syncWake: scenario === "commit_wake" ||
+        scenario === "full_invoke" ||
+        scenario === "executor_worker_invoke" ||
+        scenario === "session_executor_invoke"
       ? { kind: "unobserved" }
       : { kind: "not-applicable" },
   };
@@ -1145,7 +1163,11 @@ async function executeFullInvokeScenario(
   sampleRequest: ProbeGatewaySampleRequestV1,
   edgeColo: string | null,
 ): Promise<ProbeScenarioExecution> {
-  if (sampleRequest.run.scenario !== "full_invoke") {
+  if (
+    sampleRequest.run.scenario !== "full_invoke" &&
+    sampleRequest.run.scenario !== "executor_worker_invoke" &&
+    sampleRequest.run.scenario !== "session_executor_invoke"
+  ) {
     throw new Error("executeFullInvokeScenario received a non-invoke scenario");
   }
   const identity = probeSampleIdentityV1(
@@ -1166,7 +1188,7 @@ async function executeFullInvokeScenario(
     ),
     sampleOrdinal: sampleRequest.sampleOrdinal,
     scopeId: identity.scopeId,
-    scenario: "full_invoke",
+    scenario: sampleRequest.run.scenario,
     commitSeq: probeSyntheticCommitSeq(sampleRequest.sampleOrdinal),
     sessionId: identity.sessionId,
     sessionMode: sampleRequest.run.dimensions.sessionMode,
@@ -1668,11 +1690,31 @@ function mockReadSpan(durationMs: number): ProbeTraceSpanV1 {
   });
 }
 
+function sessionReadSpan(durationMs: number): ProbeTraceSpanV1 {
+  return ProbeTraceSpanV1Schema.make({
+    spanId: probeSpanId(ProbeOrdinalSchema.make(3)),
+    parentSpanId: probeSpanId(ProbeOrdinalSchema.make(2)),
+    name: "facet_session_read_rtt",
+    durationMs: ProbeDurationMsSchema.make(durationMs),
+    outcome: { kind: "ok" },
+  });
+}
+
 function sessionMockFinishSpan(durationMs: number): ProbeTraceSpanV1 {
   return ProbeTraceSpanV1Schema.make({
     spanId: probeSpanId(ProbeOrdinalSchema.make(5)),
     parentSpanId: probeSpanId(ProbeOrdinalSchema.make(1)),
     name: "session_mock_finish_rtt",
+    durationMs: ProbeDurationMsSchema.make(durationMs),
+    outcome: { kind: "ok" },
+  });
+}
+
+function sessionExecutorFinishSpan(durationMs: number): ProbeTraceSpanV1 {
+  return ProbeTraceSpanV1Schema.make({
+    spanId: probeSpanId(ProbeOrdinalSchema.make(5)),
+    parentSpanId: probeSpanId(ProbeOrdinalSchema.make(1)),
+    name: "session_executor_finish",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
   });
@@ -1687,6 +1729,20 @@ function mockSyncWakeSpan(
     spanId: probeSpanId(ProbeOrdinalSchema.make(spanOrdinal)),
     parentSpanId: probeSpanId(ProbeOrdinalSchema.make(parentOrdinal)),
     name: "mock_sync_wake_rtt",
+    durationMs: ProbeDurationMsSchema.make(durationMs),
+    outcome: { kind: "ok" },
+  });
+}
+
+function sessionSyncWakeSpan(
+  durationMs: number,
+  spanOrdinal: number,
+  parentOrdinal: number,
+): ProbeTraceSpanV1 {
+  return ProbeTraceSpanV1Schema.make({
+    spanId: probeSpanId(ProbeOrdinalSchema.make(spanOrdinal)),
+    parentSpanId: probeSpanId(ProbeOrdinalSchema.make(parentOrdinal)),
+    name: "session_sync_wake_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
   });
@@ -1714,6 +1770,17 @@ function fullInvokeSpans(
 ): ReadonlyArray<ProbeTraceSpanV1> {
   const facet = observation.facet;
   const finish = observation.finish;
+  if (observation.executorHost === "session-do") {
+    return [
+      sessionSpan(sessionDurationMs, { kind: "ok" }),
+      facetSpan(observation.facetDurationMs),
+      sessionReadSpan(facet.mockReadDurationMs),
+      journalSpan(facet.journalDurationMs, 4),
+      sessionExecutorFinishSpan(observation.sessionMockFinishDurationMs),
+      sessionSyncWakeSpan(finish.mockSyncWakeDurationMs, 6, 5),
+      syncCursorSpan(finish.sync.cursorDurationMs, 7, 6, syncOutcome),
+    ];
+  }
   return [
     sessionSpan(sessionDurationMs, { kind: "ok" }),
     facetSpan(observation.facetDurationMs),
@@ -1875,7 +1942,7 @@ function sameMockFinishReceipt(
   if (receipt.scenario === "commit_wake") {
     return request.scenario === "commit_wake";
   }
-  return request.scenario === "full_invoke" &&
+  return request.scenario !== "commit_wake" &&
     receipt.sessionId === request.sessionId &&
     receipt.sessionMode === request.sessionMode &&
     receipt.attemptId === request.attemptId &&
@@ -1914,7 +1981,16 @@ async function sameFullInvokeSessionReceipt(
 ): Promise<boolean> {
   const facet = response.facet;
   const finish = response.finish.request;
-  if (finish.scenario !== "full_invoke") return false;
+  if (
+    finish.scenario === "commit_wake" ||
+    finish.scenario !== request.scenario ||
+    response.executorHost !==
+      (request.scenario === "session_executor_invoke"
+        ? "session-do"
+        : "external-worker") ||
+    response.readCapabilityCalls !==
+      (request.scenario === "session_executor_invoke" ? 1 : 0)
+  ) return false;
   const identityMatches = facet.protocolVersion === request.protocolVersion &&
     facet.runId === request.runId &&
     facet.sampleId === request.sampleId &&

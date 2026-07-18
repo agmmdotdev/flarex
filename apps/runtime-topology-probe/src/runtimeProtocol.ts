@@ -317,7 +317,10 @@ export function probeSyncWakeRelationshipIssueV1(
   syncWake: ProbeSyncWakeObservationV1,
 ): string | undefined {
   const wakeScenario =
-    sample.scenario === "commit_wake" || sample.scenario === "full_invoke";
+    sample.scenario === "commit_wake" ||
+    sample.scenario === "full_invoke" ||
+    sample.scenario === "executor_worker_invoke" ||
+    sample.scenario === "session_executor_invoke";
   if (!wakeScenario) {
     return syncWake.kind === "not-applicable"
       ? undefined
@@ -449,9 +452,11 @@ function gatewaySampleRelationshipIssue(
         ? commitWakeRelationshipIssue(sample)
         : "commit_wake cannot report Dynamic Worker callbacks";
     case "full_invoke":
+    case "executor_worker_invoke":
+    case "session_executor_invoke":
       return hasFacetStartupObservations(sample.startup)
         ? fullInvokeRelationshipIssue(sample)
-        : "full_invoke requires consistent Worker Loader and facet callback observations";
+        : `${sample.scenario} requires consistent Worker Loader and facet callback observations`;
     case "sync_rerun":
       return hasFacetStartupObservations(sample.startup)
         ? syncRerunRelationshipIssue(sample)
@@ -577,14 +582,25 @@ function commitWakeRelationshipIssue(
 function fullInvokeRelationshipIssue(
   sample: typeof ProbeGatewaySampleV1Shape.Type,
 ): string | undefined {
+  const tail = sample.scenario === "session_executor_invoke"
+    ? [
+        ["facet_session_read_rtt", 3, 2],
+        ["facet_journal_io", 4, 2],
+        ["session_executor_finish", 5, 1],
+        ["session_sync_wake_rtt", 6, 5],
+        ["sync_cursor_io", 7, 6],
+      ] as const
+    : [
+        ["facet_mock_read_rtt", 3, 2],
+        ["facet_journal_io", 4, 2],
+        ["session_mock_finish_rtt", 5, 1],
+        ["mock_sync_wake_rtt", 6, 5],
+        ["sync_cursor_io", 7, 6],
+      ] as const;
   return nestedSpanTreeIssue(sample, [
     ["gateway_session_rtt", 1, 0],
     ["session_facet_rtt", 2, 1],
-    ["facet_mock_read_rtt", 3, 2],
-    ["facet_journal_io", 4, 2],
-    ["session_mock_finish_rtt", 5, 1],
-    ["mock_sync_wake_rtt", 6, 5],
-    ["sync_cursor_io", 7, 6],
+    ...tail,
   ]);
 }
 

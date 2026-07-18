@@ -4,7 +4,10 @@ import {
   probeCommitIdentityIssueV1,
   probeInvokeRuntimeIdentityIssueV1,
   ProbeCommitScenarioSchema,
+  ProbeInvokeCommitScenarioSchema,
   ProbeMockFinishResponseV1Schema,
+  type ProbeMockReadRequestV1,
+  type ProbeMockReadResponseV1,
   ProbeSyntheticCommitSeqSchema,
   ProbeSyntheticCursorSchema,
 } from "./commitProtocol";
@@ -18,7 +21,6 @@ import {
   ProbeScopeIdSchema,
   ProbeSessionIdSchema,
 } from "./identity";
-import type { MockReadEntrypoint } from "./mockCommitWorker";
 import { strictSchemaValueOrNullDecoder } from "./effectBoundary";
 import {
   PROBE_LIMITS_V1,
@@ -59,7 +61,7 @@ const InvokeIdentityShape = {
   sampleId: ProbeSampleIdSchema,
   sampleOrdinal: ProbeOrdinalSchema,
   scopeId: ProbeScopeIdSchema,
-  scenario: Schema.Literal("full_invoke"),
+  scenario: ProbeInvokeCommitScenarioSchema,
   commitSeq: ProbeSyntheticCommitSeqSchema,
   sessionId: ProbeSessionIdSchema,
   sessionMode: ProbeSessionModeSchema,
@@ -86,6 +88,26 @@ export const ProbeInvokeFacetRequestV1Schema =
   );
 export type ProbeInvokeFacetRequestV1 =
   typeof ProbeInvokeFacetRequestV1Schema.Type;
+
+export function probeMockReadRequestFromInvoke(
+  request: ProbeInvokeFacetRequestV1,
+): ProbeMockReadRequestV1 {
+  return {
+    protocolVersion: request.protocolVersion,
+    runId: request.runId,
+    sampleId: request.sampleId,
+    sampleOrdinal: request.sampleOrdinal,
+    scopeId: request.scopeId,
+    scenario: request.scenario,
+    commitSeq: request.commitSeq,
+    sessionId: request.sessionId,
+    sessionMode: request.sessionMode,
+    attemptId: request.attemptId,
+    codeMode: request.codeMode,
+    codeId: request.codeId,
+    payloadBytes: request.payload.length,
+  };
+}
 
 const ProbeInvokeFacetWorkerResponseV1Shape = Schema.Struct({
   ...InvokeIdentityShape,
@@ -114,6 +136,14 @@ const FullInvokeSessionObservationShape = {
   facetDurationMs: ProbeDurationMsSchema,
   workerLoaderCallbackRan: Schema.Boolean,
   facetStartupCallbackRan: Schema.Boolean,
+  executorHost: Schema.Literals(["external-worker", "session-do"]),
+  readCapabilityCalls: Schema.Int.check(
+    Schema.makeFilter((value: number) =>
+      value === 0 || value === 1
+        ? undefined
+        : "readCapabilityCalls must be zero or one"
+    ),
+  ),
   sessionMockFinishDurationMs: ProbeDurationMsSchema,
   finish: ProbeMockFinishResponseV1Schema,
 } as const;
@@ -247,9 +277,11 @@ export const decodeProbeFullInvokeSessionFailureV1OrNull =
   strictSchemaValueOrNullDecoder(ProbeFullInvokeSessionFailureV1Schema);
 
 function fullInvokeSessionObservationIssue(response: {
+  readonly executorHost: "external-worker" | "session-do";
   readonly facet: ProbeInvokeFacetWorkerResponseV1;
   readonly facetStartupCallbackRan: boolean;
   readonly finish: typeof ProbeMockFinishResponseV1Schema.Type;
+  readonly readCapabilityCalls: number;
   readonly workerLoaderCallbackRan: boolean;
 }): string | undefined {
   if (
@@ -259,8 +291,15 @@ function fullInvokeSessionObservationIssue(response: {
     return "Worker Loader callback cannot run without facet startup";
   }
   const request = response.finish.request;
-  if (request.scenario !== "full_invoke") {
-    return "full invoke session observation requires a full-invoke finish";
+  if (request.scenario === "commit_wake") {
+    return "invoke session observation requires an invoke finish";
+  }
+  const sessionHosted = request.scenario === "session_executor_invoke";
+  if (
+    response.executorHost !== (sessionHosted ? "session-do" : "external-worker") ||
+    response.readCapabilityCalls !== (sessionHosted ? 1 : 0)
+  ) {
+    return "executor host and read capability evidence must match the invoke scenario";
   }
   return sameInvokeAndFinishIdentity(response.facet, request)
     ? undefined
@@ -286,9 +325,9 @@ function invokeIdentityIssue(input: {
 
 function sameInvokeAndFinishIdentity(
   facet: ProbeInvokeFacetWorkerResponseV1,
-  finish: Extract<
+  finish: Exclude<
     typeof ProbeMockFinishResponseV1Schema.Type["request"],
-    { readonly scenario: "full_invoke" }
+    { readonly scenario: "commit_wake" }
   >,
 ): boolean {
   return facet.protocolVersion === finish.protocolVersion &&
@@ -330,8 +369,20 @@ function canonicalJournalSeal(
 export const PROBE_INVOKE_WORKER_MAIN_MODULE = "probe-invoke-worker.js";
 export const PROBE_INVOKE_FACET_CLASS_NAME = "ProbeInvocationFacet";
 
+export interface ProbeInvokeReadCapability {
+  read(value: unknown): Promise<ProbeMockReadResponseV1>;
+}
+
+export interface ProbeInvokeSessionReadCapability {
+  read(
+    envelope: unknown,
+    value: unknown,
+  ): Promise<ProbeMockReadResponseV1>;
+}
+
 export function probeInvokeWorkerCode(
-  mockRead: Service<typeof MockReadEntrypoint>,
+  executorRead: ProbeInvokeReadCapability | ProbeInvokeSessionReadCapability,
+  executorCapability?: unknown,
 ): WorkerLoaderWorkerCode {
   return {
     compatibilityDate: "2026-06-14",
@@ -339,7 +390,12 @@ export function probeInvokeWorkerCode(
     modules: {
       [PROBE_INVOKE_WORKER_MAIN_MODULE]: PROBE_INVOKE_WORKER_SOURCE,
     },
-    env: { MOCK_READ: mockRead },
+    env: {
+      EXECUTOR_READ: executorRead,
+      ...(executorCapability === undefined
+        ? {}
+        : { EXECUTOR_CAPABILITY: executorCapability }),
+    },
     globalOutbound: null,
     limits: { cpuMs: 50, subRequests: 4 },
   };
@@ -399,13 +455,18 @@ export class ProbeInvocationFacet extends DurableObject {
     if (this.ctx.id.toString() !== value.attemptId) {
       return json({ error: "attempt_identity_mismatch" }, 409);
     }
-    if (this.env.MOCK_READ === undefined || typeof this.env.MOCK_READ.read !== "function") {
-      return json({ error: "mock_read_unavailable" }, 500);
+    if (this.env.EXECUTOR_READ === undefined || typeof this.env.EXECUTOR_READ.read !== "function") {
+      return json({ error: "executor_read_unavailable" }, 500);
     }
 
     const readRequest = mockReadRequest(value);
     const readStartedAt = performance.now();
-    const rpcReadReceipt = await this.env.MOCK_READ.read(readRequest);
+    const rpcReadReceipt = this.env.EXECUTOR_CAPABILITY === undefined
+      ? await this.env.EXECUTOR_READ.read(readRequest)
+      : await this.env.EXECUTOR_READ.read(
+          this.env.EXECUTOR_CAPABILITY,
+          readRequest
+        );
     const readReceipt = Object.fromEntries(Object.entries(rpcReadReceipt));
     if (!validReadReceipt(readReceipt, readRequest)) {
       return json({ error: "mock_read_receipt_mismatch" }, 502);
@@ -495,7 +556,12 @@ function validRequest(value) {
   if (!Number.isInteger(value.sampleOrdinal) || value.sampleOrdinal < 0 || value.sampleOrdinal > 999999) return false;
   if (value.sampleId !== "rtp-sample-" + value.runId + "-" + value.sampleOrdinal) return false;
   if (value.scopeId !== "rtp-scope-" + value.runId) return false;
-  if (value.scenario !== "full_invoke" || value.commitSeq !== value.sampleOrdinal + 1) return false;
+  if (
+    (value.scenario !== "full_invoke" &&
+      value.scenario !== "executor_worker_invoke" &&
+      value.scenario !== "session_executor_invoke") ||
+    value.commitSeq !== value.sampleOrdinal + 1
+  ) return false;
   if (value.sessionMode !== "new-session" && value.sessionMode !== "reuse-session") return false;
   const sessionOrdinal = value.sessionMode === "reuse-session" ? 0 : value.sampleOrdinal;
   if (value.sessionId !== "rtp-session-" + value.runId + "-" + sessionOrdinal) return false;

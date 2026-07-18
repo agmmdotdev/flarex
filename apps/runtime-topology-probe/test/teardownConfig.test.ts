@@ -154,6 +154,7 @@ function readDurableObjectClassNames(
 ): ReadonlyArray<string> {
   const durableObjects = readRecordProperty(config, "durable_objects");
   return readRecordArrayProperty(durableObjects, "bindings")
+    .filter(binding => binding.script_name === undefined)
     .map(binding => readStringProperty(binding, "class_name"))
     .sort();
 }

@@ -43,6 +43,7 @@ import type { MockPurgeEntrypoint } from "./mockCommitWorker";
 import {
   PROBE_PROTOCOL_VERSION_V1,
   probeSampleIdentityV1,
+  type ProbeScenario,
 } from "./protocol";
 import type { ProbeRunDO } from "./probeRunDO";
 import {
@@ -607,7 +608,10 @@ function insertPurgeTasks(
 ): void {
   const sessions = new Map<
     ProbeSessionId,
-    Map<ProbeAttemptId, ProbeCodeId>
+    Map<
+      ProbeAttemptId,
+      { readonly codeId: ProbeCodeId; readonly scenario: ProbeScenario }
+    >
   >();
   const syncScopes = new Set<ProbeScopeId>();
   for (const run of manifest.runs) {
@@ -621,9 +625,15 @@ function insertPurgeTasks(
       );
       if (identity.sessionId !== null) {
         const attempts = sessions.get(identity.sessionId) ??
-          new Map<ProbeAttemptId, ProbeCodeId>();
+          new Map<
+            ProbeAttemptId,
+            { readonly codeId: ProbeCodeId; readonly scenario: ProbeScenario }
+          >();
         if (identity.attemptId !== null && identity.codeId !== null) {
-          attempts.set(identity.attemptId, identity.codeId);
+          attempts.set(identity.attemptId, {
+            codeId: identity.codeId,
+            scenario: run.scenario,
+          });
         }
         sessions.set(identity.sessionId, attempts);
       }
@@ -631,6 +641,8 @@ function insertPurgeTasks(
     if (
       run.scenario === "commit_wake" ||
       run.scenario === "full_invoke" ||
+      run.scenario === "executor_worker_invoke" ||
+      run.scenario === "session_executor_invoke" ||
       run.scenario === "sync_rerun"
     ) {
       syncScopes.add(probeScopeId(run.runId));
@@ -643,9 +655,10 @@ function insertPurgeTasks(
   for (const [sessionId, attempts] of sortedSessions) {
     const facets = [...attempts.entries()]
       .sort(([left], [right]) => compareUtf16Strings(left, right))
-      .map(([attemptId, codeId]) => ({
+      .map(([attemptId, facet]) => ({
         attemptId: ProbeAttemptIdSchema.make(attemptId),
-        codeId: ProbeCodeIdSchema.make(codeId),
+        codeId: ProbeCodeIdSchema.make(facet.codeId),
+        scenario: facet.scenario,
       }));
     const request = ProbeSessionPurgeRequestV1Schema.make({
       protocolVersion: PROBE_PROTOCOL_VERSION_V1,

@@ -589,9 +589,16 @@ export function probeRunBudgetPlanV1(
     run.scenario === "facet_echo" ||
     run.scenario === "facet_journal" ||
     run.scenario === "full_invoke" ||
+    run.scenario === "executor_worker_invoke" ||
+    run.scenario === "session_executor_invoke" ||
     run.scenario === "sync_rerun";
+  const usesAttemptScopedLoader =
+    run.scenario === "executor_worker_invoke" ||
+    run.scenario === "session_executor_invoke";
   const uniqueCodeIds = !hasDynamicCode
     ? 0
+    : usesAttemptScopedLoader
+    ? sampleClaims
     : run.dimensions.codeMode === "stable"
     ? 1
     : sampleClaims;
@@ -608,6 +615,7 @@ export function canonicalProbeRunRequestV1(run: ProbeRunRequestV1): string {
     protocolVersion: run.protocolVersion,
     runId: run.runId,
     scenario: run.scenario,
+    replicate: run.replicate,
     repetitions: run.repetitions,
     warmupRepetitions: run.warmupRepetitions,
     dimensions: {
@@ -747,7 +755,9 @@ function runSampleRelationshipIssue(
       continue;
     }
     const wakeScenario = status.run.scenario === "commit_wake" ||
-      status.run.scenario === "full_invoke";
+      status.run.scenario === "full_invoke" ||
+      status.run.scenario === "executor_worker_invoke" ||
+      status.run.scenario === "session_executor_invoke";
     if (
       (wakeScenario && sample.syncWake.kind === "not-applicable") ||
       (!wakeScenario && sample.syncWake.kind !== "not-applicable")
@@ -810,6 +820,12 @@ function expectedConsumedCodeIds(
   status: typeof ProbeRunStatusV1Shape.Type,
 ): number {
   if (status.budgets.planned.uniqueCodeIds === 0) return 0;
+  if (
+    status.run.scenario === "executor_worker_invoke" ||
+    status.run.scenario === "session_executor_invoke"
+  ) {
+    return status.counters.claimed;
+  }
   return status.run.dimensions.codeMode === "stable"
     ? Number(status.counters.claimed > 0)
     : status.counters.claimed;
