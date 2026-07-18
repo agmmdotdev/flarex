@@ -33,6 +33,7 @@ import {
   bundleSourcePackage,
   type SourcePackage,
 } from "./sourcePackage.ts";
+import { errorMessageFromUnknown } from "./errorMessage.ts";
 
 export type FlarexGenerateOptions = {
   root: string;
@@ -713,7 +714,7 @@ function activatedPushStatus(finished: DevFinishPushResponse): FlarexActivatedPu
 }
 
 function deployAbandonReason(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorMessageFromUnknown(error);
   return message.length === 0
     ? "Generated output validation failed before activation."
     : `Generated output validation failed before activation: ${message}`;

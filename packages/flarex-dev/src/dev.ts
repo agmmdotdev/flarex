@@ -30,6 +30,7 @@ import {
   typecheckGeneratedOutput,
   type FlarexGeneratedOutputTypecheckOption,
 } from "./generatedTypecheck.ts";
+import { errorMessageFromUnknown } from "./errorMessage.ts";
 import { LocalMiniflareExecutionArtifactMaterializer } from "./runtimeMaterializer.ts";
 import {
   decodeDevInvokeBody,
@@ -291,7 +292,7 @@ export async function createFlarexDevRuntime(
             {
               error: isDevRouteError(error)
                 ? devRouteErrorMessage(error)
-                : error instanceof Error ? error.message : String(error),
+                : errorMessageFromUnknown(error),
             },
             { status: 400 },
           );

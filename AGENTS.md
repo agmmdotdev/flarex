@@ -160,6 +160,13 @@ the materializer owner. Retain each source error's tag and body, preserve its
 decoder and `Effect.mapError` position, and pin fresh allocation plus the own
 status property; do not promote this adapter-specific compatibility shape into
 `@flarex/utils`.
+When Flarex-dev adapters share the exact message-only projection from an
+unknown exception, keep one package-local projector. Its realm-sensitive
+`instanceof Error` check and fallback `String` coercion, including possible
+caller-controlled throws, are compatibility behavior rather than a total
+generic utility. Keep stack-bearing logs, typed diagnostics, cause
+preservation, redaction, and self-contained generated Worker source with their
+own boundary policies.
 Keep Node filesystem and path-boundary mechanics with their host or tooling
 owner. A host-local helper may centralize canonical path resolution,
 inside/outside-root checks, file-kind and byte-size inspection, bounded reads,

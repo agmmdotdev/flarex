@@ -24,6 +24,7 @@ import type {
   StartPushRequest,
 } from "flarex-backend/types";
 import type { DeploymentAnalysis as CodegenDeploymentAnalysis } from "./analyze.ts";
+import { errorMessageFromUnknown } from "./errorMessage.ts";
 import {
   ExecutionArtifactAnalysisError,
   LocalMiniflareExecutionArtifactAdapter,
@@ -453,7 +454,9 @@ export function createLocalAnalyzerService(
     } catch (error) {
       return Response.json(
         {
-          error: isDevRouteError(error) ? devRouteErrorMessage(error) : errorMessage(error),
+          error: isDevRouteError(error)
+            ? devRouteErrorMessage(error)
+            : errorMessageFromUnknown(error),
           diagnostics: diagnosticsFromError(error),
         },
         { status: 400 },
@@ -820,10 +823,6 @@ function backendRequestUrl(baseUrl: string, path: string): URL {
   const basePath = base.pathname === "/" ? "" : base.pathname.replace(/\/$/, "");
   base.pathname = `${basePath}${path}`;
   return base;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function diagnosticsFromError(error: unknown): AnalyzerDiagnostic[] {

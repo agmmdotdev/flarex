@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { CompilerOptions } from "typescript";
+import { errorMessageFromUnknown } from "./errorMessage.ts";
 import type { FlarexGenerateOptions } from "./generate.ts";
 
 const execFileAsync = promisify(execFile);
@@ -93,7 +94,7 @@ export async function typecheckGeneratedOutput(
     throw new Error(
       [
         "Generated output typecheck failed.",
-        childProcessErrorMessage(error),
+        errorMessageFromUnknown(error),
         childProcessOutput(error, "stdout"),
         childProcessOutput(error, "stderr"),
       ]
@@ -152,10 +153,6 @@ function generatedOutputTsconfig(
 
 function resolveTypeScriptCliPath(): string {
   return fileURLToPath(import.meta.resolve("typescript/bin/tsc"));
-}
-
-function childProcessErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function childProcessOutput(error: unknown, key: "stdout" | "stderr"): string | undefined {

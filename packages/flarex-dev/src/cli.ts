@@ -21,6 +21,7 @@ import {
   typecheckGeneratedOutput,
   type FlarexGeneratedOutputTypecheckOptions,
 } from "./generatedTypecheck.ts";
+import { errorMessageFromUnknown } from "./errorMessage.ts";
 
 type CliWriter = {
   write(chunk: string): unknown;
@@ -171,7 +172,7 @@ async function runDeployCommand(
       writeDeployJsonError(error, options.stdout);
       return 1;
     }
-    options.stderr.write(cliErrorMessage(error));
+    options.stderr.write(errorMessageFromUnknown(error));
     options.stderr.write("\n");
     return 1;
   }
@@ -248,7 +249,7 @@ async function runCodegenCommand(
 
     return 0;
   } catch (error) {
-    options.stderr.write(cliErrorMessage(error));
+    options.stderr.write(errorMessageFromUnknown(error));
     options.stderr.write("\n");
     return 1;
   }
@@ -267,7 +268,7 @@ async function maybeTypecheckGenerated(
   } catch (error) {
     if (commandConfig.typecheckMode === "try") {
       options.stderr.write(
-        `Generated output typecheck failed, continuing because --typecheck try was used.\n${cliErrorMessage(error)}\n`,
+        `Generated output typecheck failed, continuing because --typecheck try was used.\n${errorMessageFromUnknown(error)}\n`,
       );
       return;
     }
@@ -488,7 +489,7 @@ function writeDeployJsonError(error: unknown, stdout: CliWriter): void {
 }
 
 function deployJsonError(error: unknown): FlarexDeployJsonError {
-  const message = cliErrorMessage(error);
+  const message = errorMessageFromUnknown(error);
   if (error instanceof FlarexDeployFinishRejectedError) {
     const diagnostics = error.response.diagnostics ?? error.response.push.diagnostics;
     return {
@@ -575,10 +576,6 @@ function stringValues(value: unknown, flagName: string): string | string[] {
     return value;
   }
   throw new Error(`Invalid ${flagName} value.`);
-}
-
-function cliErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function helpText(): string {

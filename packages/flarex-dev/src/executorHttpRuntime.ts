@@ -38,6 +38,7 @@ import {
   createMaterializedArtifactLiveQueryExecutionHost,
   LocalMiniflareExecutionArtifactMaterializer,
 } from "./runtimeMaterializer.ts";
+import { errorMessageFromUnknown } from "./errorMessage.ts";
 
 export type LocalExecutorHttpRuntimeOptions =
   Omit<FlarexHttpAppConfig, "liveQueryRerun"> & {
@@ -310,7 +311,7 @@ async function decodeMaterializableAuthConfig(
   try {
     return await decodeAuthConfigPromise(value);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessageFromUnknown(error);
     throw new Error(`Deployment package ${packageId} has invalid auth config: ${message}`);
   }
 }

@@ -343,6 +343,9 @@ semantics.
   adapter. The materializer likewise owns its exact message/status projection
   from typed response errors into the compatibility `Error` consumed by its
   Promise methods, while the source tags, bodies, and decoders remain distinct.
+  Flarex-dev also owns its message-only projection from unknown adapter
+  exceptions; stack, diagnostics, causes, redaction, and generated-source
+  formatting remain with their narrower boundaries.
 - `flarex-test` reuses the local runtime surface.
 - Fetch and Nitro adapters share the same executor core; Nitro is a thin
   wrapper over the Fetch adapter.

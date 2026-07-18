@@ -9,6 +9,7 @@ import {
   typecheckGeneratedOutput,
   type FlarexGeneratedOutputTypecheckOption,
 } from "./generatedTypecheck.ts";
+import { errorMessageFromUnknown } from "./errorMessage.ts";
 
 export type FlarexPluginOptions = Omit<FlarexGenerateOptions, "root"> & {
   dev?:
@@ -72,7 +73,7 @@ export function flarex(options: FlarexPluginOptions = {}): Plugin {
             response.statusCode = 500;
             response.setHeader("content-type", "application/json");
             response.end(
-              JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+              JSON.stringify({ error: errorMessageFromUnknown(error) }),
             );
           }
         });
