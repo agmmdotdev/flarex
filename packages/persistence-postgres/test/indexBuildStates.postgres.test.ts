@@ -2,13 +2,22 @@ import { CatalogIndexDefinitionIdSchema } from "flarex-protocol/catalog";
 import { ScopeIdSchema } from "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
 
-import { readFencedIndexBuildState } from "../src";
+import type { FlarexMetadataDatabase } from "../src/deployments";
+import { readFencedIndexBuildStateEffect } from "../src";
+import { runEffect } from "./effectTestRuntime";
 import {
   postgresUrl,
   withTemporaryPostgresPersistence,
 } from "./postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+
+function readFencedIndexBuildState(
+  db: FlarexMetadataDatabase,
+  input: unknown,
+) {
+  return runEffect(readFencedIndexBuildStateEffect(db, input));
+}
 
 describePostgres("real Postgres fenced index build-state reads", () => {
   it("keeps build authority in the isolated data plane and observes one clock snapshot", async () => {

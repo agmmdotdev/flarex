@@ -374,14 +374,16 @@ export { StableLogicalIndexCatalogIdExhaustedError } from "./stableLogicalIndexC
 export {
   IndexBuildStateClockNotFoundError,
   IndexBuildStateCorruptionError,
+  IndexBuildStatePersistenceError,
   InvalidIndexBuildStateReadInputError,
-  readFencedIndexBuildState,
+  readFencedIndexBuildStateEffect,
   type FencedIndexBuildStateReadResult,
   type IndexBuildAuthorityMismatch,
   type IndexBuildAuthorityMismatches,
   type IndexBuildStateRecord,
   type IndexBuildStorageAuthority,
   type InvalidIndexBuildStateReadInputIssue,
+  type ReadFencedIndexBuildStateError,
   type ReadFencedIndexBuildStateInput,
 } from "./indexBuildStates";
 export {

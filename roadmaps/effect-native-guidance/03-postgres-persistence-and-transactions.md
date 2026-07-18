@@ -143,6 +143,14 @@ stable-binding decoding, so cancellation masking does not extend through
 canonicalization, hashing, or owned stored-row validation. The resolver still
 never reads the mutable active-schema pointer.
 
+Fenced index build-state reads are now Effect-native at the exported
+persistence boundary. Unknown input and stored clock/build rows compose through
+typed `Result` validation, the single Drizzle read is an interruption-masked
+foreign Promise edge with a distinct persistence failure, and missing clock
+authority remains separate from stored corruption. The former Promise export
+was deleted because no production compatibility consumer exists; focused tests
+own the explicit runtime bridge.
+
 ## Target Boundary
 
 The target public persistence capability should expose exact Effect methods:

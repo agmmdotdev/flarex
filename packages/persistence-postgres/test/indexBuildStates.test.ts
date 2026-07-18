@@ -24,13 +24,15 @@ import {
   type ScopeId,
   type StorageGenerationFence,
 } from "flarex-protocol/storage-authority";
+import { Cause, Effect, Exit, Fiber } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   IndexBuildStateClockNotFoundError,
   IndexBuildStateCorruptionError,
+  IndexBuildStatePersistenceError,
   InvalidIndexBuildStateReadInputError,
-  readFencedIndexBuildState,
+  readFencedIndexBuildStateEffect,
   type FlarexPersistence,
   type IndexBuildStateRecord,
 } from "../src";
@@ -40,6 +42,14 @@ import {
   fxSystemIndexBuildStates,
   fxSystemScopeClocks,
 } from "../src/schema";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
+
+function readFencedIndexBuildState(
+  db: FlarexMetadataDatabase,
+  input: unknown,
+) {
+  return runEffect(readFencedIndexBuildStateEffect(db, input));
+}
 
 type PublicBuildMutationMethod = Extract<
   keyof FlarexPersistence,
@@ -413,7 +423,6 @@ describe("fenced index build-state reads", () => {
       await expect(
         readFencedIndexBuildState(
           persistence.drizzle,
-          // @ts-expect-error This negative test deliberately crosses the typed boundary.
           input,
         ),
       ).rejects.toBeInstanceOf(InvalidIndexBuildStateReadInputError);
@@ -425,7 +434,159 @@ describe("fenced index build-state reads", () => {
       }),
     ).rejects.toBeInstanceOf(IndexBuildStateClockNotFoundError);
   });
+
+  it("maps the Drizzle read rejection at the persistence boundary", async () => {
+    const persistence = await migratedPersistence();
+    await persistence.query("drop table fx_system_scope_clock cascade");
+
+    const failure = await runEffectFailure(readFencedIndexBuildStateEffect(
+      persistence.drizzle,
+      {
+        scopeId: ScopeIdSchema.make("scope_index_build_sql_failure"),
+        indexDefinitionId: CatalogIndexDefinitionIdSchema.make(1),
+      },
+    ));
+
+    expect(failure).toBeInstanceOf(IndexBuildStatePersistenceError);
+    expect(failure).toMatchObject({
+      operation: "readFencedIndexBuildState",
+    });
+    expect(failure.cause).toBeDefined();
+  });
+
+  it("classifies malformed stored clock authority as typed corruption", async () => {
+    const persistence = await migratedPersistence();
+    const scopeId = ScopeIdSchema.make("scope_index_build_clock_corruption");
+    const indexDefinitionId = CatalogIndexDefinitionIdSchema.make(1);
+    await insertClock(persistence.drizzle, {
+      scopeId,
+      epoch: ScopeEpochSchema.make("epoch-clock-corruption"),
+      fence: StorageGenerationFenceSchema.make(1n),
+      lastCommitSeq: CommitSeqSchema.make(0n),
+    });
+    await persistence.query(`
+      alter table fx_system_scope_clock
+        drop constraint fx_system_scope_clock_epoch_non_empty_check
+    `);
+    await persistence.query(
+      "update fx_system_scope_clock set epoch = '' where scope_id = $1",
+      [scopeId],
+    );
+
+    const failure = await runEffectFailure(readFencedIndexBuildStateEffect(
+      persistence.drizzle,
+      { scopeId, indexDefinitionId },
+    ));
+
+    expect(failure).toBeInstanceOf(IndexBuildStateCorruptionError);
+    expect(failure).toMatchObject({
+      detail: "stored scope clock is invalid",
+      cause: expect.objectContaining({
+        _tag: "ScopeClockCorruptionError",
+      }),
+    });
+  });
+
+  it("waits for a pending Drizzle read to settle before interruption completes", async () => {
+    const entered = deferredValue<void>();
+    const query = deferredValue<readonly []>();
+    const db = pendingIndexBuildReadDatabase(() => {
+      entered.resolve();
+      return query.promise;
+    });
+    const fiber = Effect.runFork(readFencedIndexBuildStateEffect(db, {
+      scopeId: ScopeIdSchema.make("scope_index_build_interruption"),
+      indexDefinitionId: CatalogIndexDefinitionIdSchema.make(1),
+    }));
+
+    await entered.promise;
+    const completion = runEffect(Fiber.await(fiber));
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then(() => {
+      interruptionSettled = true;
+    });
+    try {
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      query.resolve([]);
+    }
+
+    await interruption;
+    const exit = await completion;
+    expect(interruptionSettled).toBe(true);
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    }
+  });
+
+  it("preserves unexpected input accessor failures as defects", async () => {
+    const persistence = await migratedPersistence();
+    const defect = new Error("unexpected index-build input accessor defect");
+    const input = new Proxy(
+      {
+        scopeId: "scope_index_build_input_defect",
+        indexDefinitionId: 1,
+      },
+      {
+        get(target, property, receiver) {
+          if (property === "indexDefinitionId") throw defect;
+          return Reflect.get(target, property, receiver);
+        },
+      },
+    );
+
+    const exit = await Effect.runPromiseExit(readFencedIndexBuildStateEffect(
+      persistence.drizzle,
+      input,
+    ));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
 });
+
+function pendingIndexBuildReadDatabase(
+  run: () => Promise<readonly []>,
+): FlarexMetadataDatabase {
+  const query = {
+    from: () => query,
+    leftJoin: () => query,
+    where: () => query,
+    limit: () => run(),
+  };
+  return {
+    select: () => query,
+  } as unknown as FlarexMetadataDatabase;
+}
+
+function deferredValue<A>(): Readonly<{
+  promise: Promise<A>;
+  resolve(value: A): void;
+}> {
+  let resolvePromise: ((value: A) => void) | undefined;
+  const promise = new Promise<A>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return Object.freeze({
+    promise,
+    resolve(value: A) {
+      if (resolvePromise === undefined) {
+        throw new Error("Deferred value was not initialized.");
+      }
+      resolvePromise(value);
+    },
+  });
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
 
 type PGlitePersistence = Awaited<ReturnType<typeof createPGlitePersistence>>;
 

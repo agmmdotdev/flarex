@@ -1,5 +1,6 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { and, eq } from "drizzle-orm";
+import { Effect, Result, Schema, SchemaIssue } from "effect";
 import {
   decodeCatalogIndexDefinitionId,
   type CatalogIndexDefinitionId,
@@ -13,7 +14,10 @@ import {
   type IndexBuildBackfillCursorV1,
   type IndexBuildLifecycleV1,
 } from "flarex-protocol/index-build-state";
-import { orderedIndexRowIdHexV1FromBytes } from "flarex-protocol/ordered-index";
+import {
+  OrderedIndexCodecV1InputError,
+  orderedIndexRowIdHexV1FromBytes,
+} from "flarex-protocol/ordered-index";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
@@ -30,7 +34,10 @@ import {
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
-import { decodeScopeClockRecord } from "./scopeClock";
+import {
+  decodeScopeClockRecord,
+  ScopeClockCorruptionError,
+} from "./scopeClock";
 import {
   fxSystemIndexBuildStates,
   fxSystemScopeClocks,
@@ -122,6 +129,8 @@ export type InvalidIndexBuildStateReadInputIssue =
   | { readonly reason: "invalidIndexDefinitionId" };
 
 export class InvalidIndexBuildStateReadInputError extends Error {
+  readonly _tag = "InvalidIndexBuildStateReadInputError" as const;
+
   constructor(
     readonly issue: InvalidIndexBuildStateReadInputIssue,
     options?: ErrorOptions,
@@ -132,6 +141,8 @@ export class InvalidIndexBuildStateReadInputError extends Error {
 }
 
 export class IndexBuildStateCorruptionError extends Error {
+  readonly _tag = "IndexBuildStateCorruptionError" as const;
+
   constructor(
     readonly scopeId: string,
     readonly indexDefinitionId: CatalogIndexDefinitionId,
@@ -147,6 +158,8 @@ export class IndexBuildStateCorruptionError extends Error {
 }
 
 export class IndexBuildStateClockNotFoundError extends Error {
+  readonly _tag = "IndexBuildStateClockNotFoundError" as const;
+
   constructor(
     readonly scopeId: ScopeId,
     readonly indexDefinitionId: CatalogIndexDefinitionId,
@@ -158,18 +171,58 @@ export class IndexBuildStateClockNotFoundError extends Error {
   }
 }
 
+export class IndexBuildStatePersistenceError extends Error {
+  readonly _tag = "IndexBuildStatePersistenceError" as const;
+
+  constructor(
+    readonly operation: "readFencedIndexBuildState",
+    readonly cause: unknown,
+  ) {
+    super("Failed to read fenced index build state.", { cause });
+    this.name = "IndexBuildStatePersistenceError";
+  }
+}
+
+export type ReadFencedIndexBuildStateError =
+  | InvalidIndexBuildStateReadInputError
+  | IndexBuildStateClockNotFoundError
+  | IndexBuildStateCorruptionError
+  | IndexBuildStatePersistenceError;
+
 /**
  * Read one build row and its current scope clock from one SQL statement.
  *
  * `current` means only that generation, fence, and epoch still match. It does
  * not mean the index is enabled or that a schema is activation-ready.
  */
-export async function readFencedIndexBuildState(
+export const readFencedIndexBuildStateEffect = Effect.fn(
+  "IndexBuildState.readFenced",
+)(function* (
+  db: FlarexMetadataDatabase,
+  input: unknown,
+): Effect.fn.Return<
+  FencedIndexBuildStateReadResult,
+  ReadFencedIndexBuildStateError
+> {
+  const decoded = yield* Effect.fromResult(decodeReadInput(input));
+  const rows = yield* Effect.uninterruptible(Effect.tryPromise({
+    try: () => selectFencedIndexBuildStateRows(db, decoded),
+    catch: (cause) => new IndexBuildStatePersistenceError(
+      "readFencedIndexBuildState",
+      cause,
+    ),
+  }));
+  return yield* Effect.fromResult(materializeFencedIndexBuildState(
+    rows,
+    decoded,
+  ));
+});
+
+function selectFencedIndexBuildStateRows(
   db: FlarexMetadataDatabase,
   input: ReadFencedIndexBuildStateInput,
-): Promise<FencedIndexBuildStateReadResult> {
-  const decoded = decodeReadInput(input);
-  const rows = await db
+) {
+  return db
     .select({
       clock: {
         scopeId: fxSystemScopeClocks.scopeId,
@@ -210,58 +263,84 @@ export async function readFencedIndexBuildState(
         ),
         eq(
           fxSystemIndexBuildStates.indexDefinitionId,
-          decoded.indexDefinitionId,
+          input.indexDefinitionId,
         ),
       ),
     )
-    .where(eq(fxSystemScopeClocks.scopeId, decoded.scopeId))
+    .where(eq(fxSystemScopeClocks.scopeId, input.scopeId))
     .limit(1);
-  const row = rows[0];
-  if (row === undefined) {
-    throw new IndexBuildStateClockNotFoundError(
-      decoded.scopeId,
-      decoded.indexDefinitionId,
-    );
-  }
-  const clock = decodeScopeClockRecord(row.clock);
-  const currentAuthority = freezeAuthority({
-    scopeId: clock.scopeId,
-    storageGeneration: clock.storageGeneration,
-    storageGenerationFence: clock.storageGenerationFence,
-    epoch: clock.epoch,
-  });
-  if (row.buildState === null) {
-    return Object.freeze({
-      status: "absent",
-      currentAuthority,
-    });
-  }
+}
 
-  const buildState = decodeBuildStateRow(
-    row.buildState,
-    decoded.scopeId,
-    decoded.indexDefinitionId,
-  );
-  if (buildState.startCommitSeq > clock.lastCommitSeq) {
-    throw new IndexBuildStateCorruptionError(
-      buildState.scopeId,
-      buildState.indexDefinitionId,
-      `start commit sequence ${buildState.startCommitSeq} is ahead of scope clock ${clock.lastCommitSeq}`,
+type FencedIndexBuildStateRows = Awaited<
+  ReturnType<typeof selectFencedIndexBuildStateRows>
+>;
+
+function materializeFencedIndexBuildState(
+  rows: FencedIndexBuildStateRows,
+  input: ReadFencedIndexBuildStateInput,
+): Result.Result<
+  FencedIndexBuildStateReadResult,
+  IndexBuildStateClockNotFoundError | IndexBuildStateCorruptionError
+> {
+  return Result.gen(function* () {
+    const row = rows[0];
+    if (row === undefined) {
+      return yield* Result.fail(new IndexBuildStateClockNotFoundError(
+        input.scopeId,
+        input.indexDefinitionId,
+      ));
+    }
+    const clock = yield* Result.try({
+      try: () => decodeScopeClockRecord(row.clock),
+      catch: (cause) => {
+        if (!(cause instanceof ScopeClockCorruptionError)) throw cause;
+        return new IndexBuildStateCorruptionError(
+          input.scopeId,
+          input.indexDefinitionId,
+          "stored scope clock is invalid",
+          { cause },
+        );
+      },
+    });
+    const currentAuthority = freezeAuthority({
+      scopeId: clock.scopeId,
+      storageGeneration: clock.storageGeneration,
+      storageGenerationFence: clock.storageGenerationFence,
+      epoch: clock.epoch,
+    });
+    if (row.buildState === null) {
+      return Object.freeze({
+        status: "absent",
+        currentAuthority,
+      });
+    }
+
+    const buildState = yield* decodeBuildStateRow(
+      row.buildState,
+      input.scopeId,
+      input.indexDefinitionId,
     );
-  }
-  const mismatches = collectAuthorityMismatches(
-    buildState,
-    currentAuthority,
-  );
-  if (mismatches !== null) {
-    return Object.freeze({
-      status: "stale",
+    if (buildState.startCommitSeq > clock.lastCommitSeq) {
+      return yield* Result.fail(new IndexBuildStateCorruptionError(
+        buildState.scopeId,
+        buildState.indexDefinitionId,
+        `start commit sequence ${buildState.startCommitSeq} is ahead of scope clock ${clock.lastCommitSeq}`,
+      ));
+    }
+    const mismatches = collectAuthorityMismatches(
       buildState,
       currentAuthority,
-      mismatches,
-    });
-  }
-  return Object.freeze({ status: "current", buildState });
+    );
+    if (mismatches !== null) {
+      return Object.freeze({
+        status: "stale",
+        buildState,
+        currentAuthority,
+        mismatches,
+      });
+    }
+    return Object.freeze({ status: "current", buildState });
+  });
 }
 
 type IndexBuildStateRow = typeof fxSystemIndexBuildStates.$inferSelect;
@@ -270,145 +349,168 @@ function decodeBuildStateRow(
   row: IndexBuildStateRow,
   expectedScopeId: ScopeId,
   expectedIndexDefinitionId: CatalogIndexDefinitionId,
-): IndexBuildStateRecord {
-  let scopeId: ScopeId;
-  let indexDefinitionId: CatalogIndexDefinitionId;
-  let storageGeneration: FlarexDbV1StorageGeneration;
-  let storageGenerationFence: StorageGenerationFence;
-  let epoch: ScopeEpoch;
-  let startCommitSeq: CommitSeq;
-  let lifecycle: IndexBuildLifecycleV1;
-  let backfillCursor: IndexBuildBackfillCursorV1;
-  let attemptFence: IndexBuildAttemptFence;
-  try {
-    scopeId = ScopeIdSchema.make(row.scopeId);
-    indexDefinitionId = decodeCatalogIndexDefinitionId(row.indexDefinitionId);
-    storageGeneration = FlarexDbV1StorageGenerationSchema.make(
-      row.storageGeneration,
-    );
-    storageGenerationFence = StorageGenerationFenceSchema.make(
-      row.storageGenerationFence,
-    );
-    epoch = ScopeEpochSchema.make(row.epoch);
-    startCommitSeq = CommitSeqSchema.make(row.startCommitSeq);
-    lifecycle = decodeIndexBuildLifecycleV1(row.lifecycle);
-    const cursorCodecVersion = decodeIndexBuildCursorCodecVersionV1(
-      row.cursorCodecVersion,
-    );
-    backfillCursor = decodeIndexBuildBackfillCursorV1({
-      codecVersion: cursorCodecVersion,
-      afterRowId: row.backfillCursorRowId === null
-        ? null
-        : orderedIndexRowIdHexV1FromBytes(row.backfillCursorRowId),
+): Result.Result<IndexBuildStateRecord, IndexBuildStateCorruptionError> {
+  return Result.gen(function* () {
+    const decoded = yield* Result.try({
+      try: () => {
+        const cursorCodecVersion = decodeIndexBuildCursorCodecVersionV1(
+          row.cursorCodecVersion,
+        );
+        return {
+          scopeId: ScopeIdSchema.make(row.scopeId),
+          indexDefinitionId: decodeCatalogIndexDefinitionId(
+            row.indexDefinitionId,
+          ),
+          storageGeneration: FlarexDbV1StorageGenerationSchema.make(
+            row.storageGeneration,
+          ),
+          storageGenerationFence: StorageGenerationFenceSchema.make(
+            row.storageGenerationFence,
+          ),
+          epoch: ScopeEpochSchema.make(row.epoch),
+          startCommitSeq: CommitSeqSchema.make(row.startCommitSeq),
+          lifecycle: decodeIndexBuildLifecycleV1(row.lifecycle),
+          backfillCursor: decodeIndexBuildBackfillCursorV1({
+            codecVersion: cursorCodecVersion,
+            afterRowId: row.backfillCursorRowId === null
+              ? null
+              : orderedIndexRowIdHexV1FromBytes(row.backfillCursorRowId),
+          }),
+          attemptFence: IndexBuildAttemptFenceSchema.make(row.attemptFence),
+        };
+      },
+      catch: (cause) => {
+        if (
+          !isSchemaValidationError(cause) &&
+          !(cause instanceof OrderedIndexCodecV1InputError)
+        ) {
+          throw cause;
+        }
+        return new IndexBuildStateCorruptionError(
+          expectedScopeId,
+          expectedIndexDefinitionId,
+          "stored identity, authority pin, lifecycle, or cursor is invalid",
+          { cause },
+        );
+      },
     });
-    attemptFence = IndexBuildAttemptFenceSchema.make(row.attemptFence);
-  } catch (cause) {
-    throw new IndexBuildStateCorruptionError(
-      expectedScopeId,
-      expectedIndexDefinitionId,
-      "stored identity, authority pin, lifecycle, or cursor is invalid",
-      { cause },
-    );
-  }
-  if (
-    scopeId !== expectedScopeId ||
-    indexDefinitionId !== expectedIndexDefinitionId
-  ) {
-    throw new IndexBuildStateCorruptionError(
-      expectedScopeId,
-      expectedIndexDefinitionId,
-      "point query returned another build identity",
-    );
-  }
-  if (
-    (lifecycle === "declared" || lifecycle === "building") &&
-    backfillCursor.afterRowId !== null
-  ) {
-    throw new IndexBuildStateCorruptionError(
+    const {
       scopeId,
       indexDefinitionId,
-      `${lifecycle} build unexpectedly carries a backfill cursor`,
-    );
-  }
-  const createdAt = decodeTimestamp(
-    row.createdAt,
-    scopeId,
-    indexDefinitionId,
-    "created",
-  );
-  const updatedAt = decodeTimestamp(
-    row.updatedAt,
-    scopeId,
-    indexDefinitionId,
-    "updated",
-  );
-  if (updatedAt < createdAt) {
-    throw new IndexBuildStateCorruptionError(
-      scopeId,
-      indexDefinitionId,
-      "updated timestamp precedes creation",
-    );
-  }
-
-  const common = {
-    scopeId,
-    indexDefinitionId,
-    storageGeneration,
-    storageGenerationFence,
-    epoch,
-    startCommitSeq,
-    attemptFence,
-    createdAt,
-    updatedAt,
-  } satisfies IndexBuildStateRecordBase;
-  if (lifecycle === "declared" || lifecycle === "building") {
-    const preBackfillCursor: IndexBuildPreBackfillCursorV1 = Object.freeze({
-      codecVersion: backfillCursor.codecVersion,
-      afterRowId: null,
-    });
-    return Object.freeze({
-      ...common,
+      storageGeneration,
+      storageGenerationFence,
+      epoch,
+      startCommitSeq,
       lifecycle,
-      backfillCursor: preBackfillCursor,
-    });
-  }
-  return Object.freeze({ ...common, lifecycle, backfillCursor });
+      backfillCursor,
+      attemptFence,
+    } = decoded;
+    if (
+      scopeId !== expectedScopeId ||
+      indexDefinitionId !== expectedIndexDefinitionId
+    ) {
+      return yield* Result.fail(new IndexBuildStateCorruptionError(
+        expectedScopeId,
+        expectedIndexDefinitionId,
+        "point query returned another build identity",
+      ));
+    }
+    if (
+      (lifecycle === "declared" || lifecycle === "building") &&
+      backfillCursor.afterRowId !== null
+    ) {
+      return yield* Result.fail(new IndexBuildStateCorruptionError(
+        scopeId,
+        indexDefinitionId,
+        `${lifecycle} build unexpectedly carries a backfill cursor`,
+      ));
+    }
+    const createdAt = yield* decodeTimestamp(
+      row.createdAt,
+      scopeId,
+      indexDefinitionId,
+      "created",
+    );
+    const updatedAt = yield* decodeTimestamp(
+      row.updatedAt,
+      scopeId,
+      indexDefinitionId,
+      "updated",
+    );
+    if (updatedAt < createdAt) {
+      return yield* Result.fail(new IndexBuildStateCorruptionError(
+        scopeId,
+        indexDefinitionId,
+        "updated timestamp precedes creation",
+      ));
+    }
+
+    const common = {
+      scopeId,
+      indexDefinitionId,
+      storageGeneration,
+      storageGenerationFence,
+      epoch,
+      startCommitSeq,
+      attemptFence,
+      createdAt,
+      updatedAt,
+    } satisfies IndexBuildStateRecordBase;
+    if (lifecycle === "declared" || lifecycle === "building") {
+      const preBackfillCursor: IndexBuildPreBackfillCursorV1 = Object.freeze({
+        codecVersion: backfillCursor.codecVersion,
+        afterRowId: null,
+      });
+      return Object.freeze({
+        ...common,
+        lifecycle,
+        backfillCursor: preBackfillCursor,
+      });
+    }
+    return Object.freeze({ ...common, lifecycle, backfillCursor });
+  });
 }
 
 function decodeReadInput(
   value: unknown,
-): ReadFencedIndexBuildStateInput {
-  if (!hasExactOwnDataKeys(value, READ_INPUT_KEYS)) {
-    throw new InvalidIndexBuildStateReadInputError({
-      reason: "invalidInputShape",
+): Result.Result<
+  ReadFencedIndexBuildStateInput,
+  InvalidIndexBuildStateReadInputError
+> {
+  return Result.gen(function* () {
+    if (!hasExactOwnDataKeys(value, READ_INPUT_KEYS)) {
+      return yield* Result.fail(new InvalidIndexBuildStateReadInputError({
+        reason: "invalidInputShape",
+      }));
+    }
+    if (typeof value.scopeId !== "string") {
+      return yield* Result.fail(new InvalidIndexBuildStateReadInputError({
+        reason: "invalidScopeId",
+      }));
+    }
+    const rawScopeId = value.scopeId;
+    const scopeId = yield* Result.try({
+      try: () => ScopeIdSchema.make(rawScopeId),
+      catch: (cause) => {
+        if (!isSchemaValidationError(cause)) throw cause;
+        return new InvalidIndexBuildStateReadInputError(
+          { reason: "invalidScopeId" },
+          { cause },
+        );
+      },
     });
-  }
-  let scopeId: ScopeId;
-  if (typeof value.scopeId !== "string") {
-    throw new InvalidIndexBuildStateReadInputError({
-      reason: "invalidScopeId",
+    const indexDefinitionId = yield* Result.try({
+      try: () => decodeCatalogIndexDefinitionId(value.indexDefinitionId),
+      catch: (cause) => {
+        if (!isSchemaValidationError(cause)) throw cause;
+        return new InvalidIndexBuildStateReadInputError(
+          { reason: "invalidIndexDefinitionId" },
+          { cause },
+        );
+      },
     });
-  }
-  try {
-    scopeId = ScopeIdSchema.make(value.scopeId);
-  } catch (cause) {
-    throw new InvalidIndexBuildStateReadInputError(
-      { reason: "invalidScopeId" },
-      { cause },
-    );
-  }
-  let indexDefinitionId: CatalogIndexDefinitionId;
-  try {
-    indexDefinitionId = decodeCatalogIndexDefinitionId(
-      value.indexDefinitionId,
-    );
-  } catch (cause) {
-    throw new InvalidIndexBuildStateReadInputError(
-      { reason: "invalidIndexDefinitionId" },
-      { cause },
-    );
-  }
-  return Object.freeze({ scopeId, indexDefinitionId });
+    return Object.freeze({ scopeId, indexDefinitionId });
+  });
 }
 
 function freezeAuthority(
@@ -420,6 +522,11 @@ function freezeAuthority(
     storageGenerationFence: authority.storageGenerationFence,
     epoch: authority.epoch,
   });
+}
+
+function isSchemaValidationError(cause: unknown): boolean {
+  return Schema.isSchemaError(cause) ||
+    (cause instanceof Error && SchemaIssue.isIssue(cause.cause));
 }
 
 function collectAuthorityMismatches(
@@ -453,16 +560,16 @@ function decodeTimestamp(
   scopeId: ScopeId,
   indexDefinitionId: CatalogIndexDefinitionId,
   field: "created" | "updated",
-): Date {
+): Result.Result<Date, IndexBuildStateCorruptionError> {
   const timestamp = copyFiniteDate(value);
   if (timestamp === undefined) {
-    throw new IndexBuildStateCorruptionError(
+    return Result.fail(new IndexBuildStateCorruptionError(
       scopeId,
       indexDefinitionId,
       `${field} timestamp is invalid`,
-    );
+    ));
   }
-  return timestamp;
+  return Result.succeed(timestamp);
 }
 
 function invalidInputMessage(
