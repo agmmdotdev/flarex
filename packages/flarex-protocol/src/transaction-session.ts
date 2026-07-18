@@ -1,3 +1,4 @@
+import { bytesEqualFullScan } from "@flarex/utils/bytes";
 import { Schema } from "effect";
 
 import { isCanonicalUuidTextV1 } from "./canonical-uuid";
@@ -204,3 +205,112 @@ export const TransactionRequestSha256V1Schema = Sha256Bytes.pipe(
 );
 export type TransactionRequestSha256V1 =
   typeof TransactionRequestSha256V1Schema.Type;
+
+/**
+ * Exact stored V1 session evidence compared across persistence and executor
+ * authority boundaries. The broad scalar spellings preserve the decoded port
+ * contract; their owning row decoders retain canonical and range validation.
+ */
+export interface StoredTransactionSessionScalarsV1 {
+  readonly lifecycle: "running" | "finishing";
+  readonly storageGeneration: string;
+  readonly storageGenerationFence: bigint;
+  readonly packageId: string;
+  readonly artifactRuntime: string;
+  readonly artifactId: string;
+  readonly sourcePackageHash: string;
+  readonly executionModule: string;
+  readonly functionPath: string;
+  readonly functionKind: string;
+  readonly schemaVersionId: string;
+  readonly policyVersion: string;
+  readonly identityAccessPolicySha256: Uint8Array;
+  readonly validatedArgsValueCodecVersion: number;
+  readonly validatedArgsCanonicalByteLength: number;
+  readonly validatedArgsSha256: Uint8Array;
+  readonly authorizationGrantId: string;
+  readonly authorizationGrantValueCodecVersion: number;
+  readonly authorizationGrantCanonicalByteLength: number;
+  readonly authorizationGrantSha256: Uint8Array;
+  readonly authorizationRevocationEpoch: bigint;
+  readonly authorizationGrantExpiresAtMilliseconds: number;
+  readonly requestKey: string;
+  readonly requestSha256: Uint8Array;
+  readonly protocolVersion: number;
+  readonly hardExpiresAtMilliseconds: number;
+  readonly createdAtMilliseconds: number;
+  readonly updatedAtMilliseconds: number;
+}
+
+const STORED_TRANSACTION_SESSION_BYTE_FIELDS_V1 = [
+  "identityAccessPolicySha256",
+  "validatedArgsSha256",
+  "authorizationGrantSha256",
+  "requestSha256",
+] as const satisfies ReadonlyArray<StoredTransactionSessionByteFieldV1>;
+
+type StoredTransactionSessionByteFieldV1 = {
+  readonly [Field in keyof StoredTransactionSessionScalarsV1]:
+    StoredTransactionSessionScalarsV1[Field] extends Uint8Array ? Field : never;
+}[keyof StoredTransactionSessionScalarsV1];
+
+const EXACT_STORED_TRANSACTION_SESSION_BYTE_FIELDS_V1:
+  Exclude<
+    StoredTransactionSessionByteFieldV1,
+    typeof STORED_TRANSACTION_SESSION_BYTE_FIELDS_V1[number]
+  > extends never
+    ? typeof STORED_TRANSACTION_SESSION_BYTE_FIELDS_V1
+    : never = STORED_TRANSACTION_SESSION_BYTE_FIELDS_V1;
+
+type StoredTransactionSessionScalarFieldV1 = Exclude<
+  keyof StoredTransactionSessionScalarsV1,
+  StoredTransactionSessionByteFieldV1
+>;
+
+const STORED_TRANSACTION_SESSION_SCALAR_FIELDS_V1 = [
+  "lifecycle",
+  "storageGeneration",
+  "storageGenerationFence",
+  "packageId",
+  "artifactRuntime",
+  "artifactId",
+  "sourcePackageHash",
+  "executionModule",
+  "functionPath",
+  "functionKind",
+  "schemaVersionId",
+  "policyVersion",
+  "validatedArgsValueCodecVersion",
+  "validatedArgsCanonicalByteLength",
+  "authorizationGrantId",
+  "authorizationGrantValueCodecVersion",
+  "authorizationGrantCanonicalByteLength",
+  "authorizationRevocationEpoch",
+  "authorizationGrantExpiresAtMilliseconds",
+  "requestKey",
+  "protocolVersion",
+  "hardExpiresAtMilliseconds",
+  "createdAtMilliseconds",
+  "updatedAtMilliseconds",
+] as const satisfies ReadonlyArray<StoredTransactionSessionScalarFieldV1>;
+
+const EXACT_STORED_TRANSACTION_SESSION_SCALAR_FIELDS_V1:
+  Exclude<
+    StoredTransactionSessionScalarFieldV1,
+    typeof STORED_TRANSACTION_SESSION_SCALAR_FIELDS_V1[number]
+  > extends never
+    ? typeof STORED_TRANSACTION_SESSION_SCALAR_FIELDS_V1
+    : never = STORED_TRANSACTION_SESSION_SCALAR_FIELDS_V1;
+
+/** Compares exact stored session pins with full scans inside digest equality. */
+export function storedTransactionSessionScalarsEqualV1(
+  actual: StoredTransactionSessionScalarsV1,
+  expected: StoredTransactionSessionScalarsV1,
+): boolean {
+  return EXACT_STORED_TRANSACTION_SESSION_SCALAR_FIELDS_V1.every(
+    (field) => actual[field] === expected[field],
+  ) &&
+    EXACT_STORED_TRANSACTION_SESSION_BYTE_FIELDS_V1.every((field) =>
+      bytesEqualFullScan(actual[field], expected[field])
+    );
+}

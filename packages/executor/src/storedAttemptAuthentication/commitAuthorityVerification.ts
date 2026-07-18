@@ -39,6 +39,7 @@ import {
   TransactionRequestKeyV1Schema,
   TransactionRequestSha256V1Schema,
   TransactionSourcePackageSha256HexV1Schema,
+  storedTransactionSessionScalarsEqualV1,
 } from "flarex-protocol/transaction-session";
 import {
   FLAREX_VALUE_CODEC_VERSION_V1,
@@ -144,7 +145,10 @@ export const verifyCommitAuthorityEvidenceEffect = Effect.fn(
       "revocationEpochChanged",
     );
   }
-  if (!sameStoredSessionScalars(evidence.session, storedAttempt.session)) {
+  if (!storedTransactionSessionScalarsEqualV1(
+    evidence.session,
+    storedAttempt.session,
+  )) {
     return yield* commitAuthorityMismatchEffect("sealChanged");
   }
 
@@ -381,49 +385,6 @@ function sameStoredGrantEvidence(
         TransactionIdentityAccessPolicySha256V1Schema,
       )(session.identityAccessPolicySha256),
     ) === grant.payload.identityAccessPolicySha256;
-}
-
-function sameStoredSessionScalars(
-  actual: StoredCommitAuthoritySessionEvidencePortV1,
-  expected: StoredAttemptSessionScalarsPortV1,
-): boolean {
-  const scalarFields = [
-    "lifecycle",
-    "storageGeneration",
-    "storageGenerationFence",
-    "packageId",
-    "artifactRuntime",
-    "artifactId",
-    "sourcePackageHash",
-    "executionModule",
-    "functionPath",
-    "functionKind",
-    "schemaVersionId",
-    "policyVersion",
-    "validatedArgsValueCodecVersion",
-    "validatedArgsCanonicalByteLength",
-    "authorizationGrantId",
-    "authorizationGrantValueCodecVersion",
-    "authorizationGrantCanonicalByteLength",
-    "authorizationRevocationEpoch",
-    "authorizationGrantExpiresAtMilliseconds",
-    "requestKey",
-    "protocolVersion",
-    "hardExpiresAtMilliseconds",
-    "createdAtMilliseconds",
-    "updatedAtMilliseconds",
-  ] as const;
-  return scalarFields.every((field) => actual[field] === expected[field]) &&
-    bytesEqual(
-      actual.identityAccessPolicySha256,
-      expected.identityAccessPolicySha256,
-    ) &&
-    bytesEqual(actual.validatedArgsSha256, expected.validatedArgsSha256) &&
-    bytesEqual(
-      actual.authorizationGrantSha256,
-      expected.authorizationGrantSha256,
-    ) &&
-    bytesEqual(actual.requestSha256, expected.requestSha256);
 }
 
 function bindingsMatchManifest(

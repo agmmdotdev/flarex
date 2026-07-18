@@ -40,6 +40,7 @@ import {
   TransactionAttemptFenceSchema,
   TransactionAuthorizationRevocationEpochSchema,
   TransactionSessionIdV1Schema,
+  storedTransactionSessionScalarsEqualV1,
   type TransactionAttemptFence,
   type TransactionSessionIdV1,
 } from "flarex-protocol/transaction-session";
@@ -291,7 +292,10 @@ async function materializeUnsafe(
     return corrupt("journalRootInvalid");
   }
 
-  if (!sameSessionScalars(sessionScalars, expected.session)) {
+  if (!storedTransactionSessionScalarsEqualV1(
+    sessionScalars,
+    expected.session,
+  )) {
     return authorityMismatch("sealChanged");
   }
   if (!sameSealIdentity(
@@ -579,49 +583,6 @@ function validRootScalars(root: RootScalarRow): boolean {
     sealedAtMilliseconds !== undefined &&
     updatedAtMilliseconds >= createdAtMilliseconds &&
     sealedAtMilliseconds >= createdAtMilliseconds;
-}
-
-function sameSessionScalars(
-  actual: StoredCommitAuthoritySessionScalarsV1,
-  expected: StoredCommitAuthoritySessionScalarsV1,
-): boolean {
-  const scalarFields = [
-    "lifecycle",
-    "storageGeneration",
-    "storageGenerationFence",
-    "packageId",
-    "artifactRuntime",
-    "artifactId",
-    "sourcePackageHash",
-    "executionModule",
-    "functionPath",
-    "functionKind",
-    "schemaVersionId",
-    "policyVersion",
-    "validatedArgsValueCodecVersion",
-    "validatedArgsCanonicalByteLength",
-    "authorizationGrantId",
-    "authorizationGrantValueCodecVersion",
-    "authorizationGrantCanonicalByteLength",
-    "authorizationRevocationEpoch",
-    "authorizationGrantExpiresAtMilliseconds",
-    "requestKey",
-    "protocolVersion",
-    "hardExpiresAtMilliseconds",
-    "createdAtMilliseconds",
-    "updatedAtMilliseconds",
-  ] as const;
-  return scalarFields.every((field) => actual[field] === expected[field]) &&
-    bytesEqual(
-      actual.identityAccessPolicySha256,
-      expected.identityAccessPolicySha256,
-    ) &&
-    bytesEqual(actual.validatedArgsSha256, expected.validatedArgsSha256) &&
-    bytesEqual(
-      actual.authorizationGrantSha256,
-      expected.authorizationGrantSha256,
-    ) &&
-    bytesEqual(actual.requestSha256, expected.requestSha256);
 }
 
 function sameSealIdentity(

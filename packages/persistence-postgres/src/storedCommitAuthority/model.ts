@@ -19,6 +19,7 @@ import type {
 } from "flarex-protocol/storage-authority";
 import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction-grant";
 import type {
+  StoredTransactionSessionScalarsV1,
   TransactionAttemptFence,
   TransactionSessionIdV1,
 } from "flarex-protocol/transaction-session";
@@ -27,36 +28,8 @@ import type { FlarexValueCodecVersion } from "flarex-protocol/value";
 export const MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1 =
   64 * 1024 * 1024;
 
-export interface StoredCommitAuthoritySessionScalarsV1 {
-  readonly lifecycle: "running" | "finishing";
-  readonly storageGeneration: string;
-  readonly storageGenerationFence: bigint;
-  readonly packageId: string;
-  readonly artifactRuntime: string;
-  readonly artifactId: string;
-  readonly sourcePackageHash: string;
-  readonly executionModule: string;
-  readonly functionPath: string;
-  readonly functionKind: string;
-  readonly schemaVersionId: string;
-  readonly policyVersion: string;
-  readonly identityAccessPolicySha256: Uint8Array;
-  readonly validatedArgsValueCodecVersion: number;
-  readonly validatedArgsCanonicalByteLength: number;
-  readonly validatedArgsSha256: Uint8Array;
-  readonly authorizationGrantId: string;
-  readonly authorizationGrantValueCodecVersion: number;
-  readonly authorizationGrantCanonicalByteLength: number;
-  readonly authorizationGrantSha256: Uint8Array;
-  readonly authorizationRevocationEpoch: bigint;
-  readonly authorizationGrantExpiresAtMilliseconds: number;
-  readonly requestKey: string;
-  readonly requestSha256: Uint8Array;
-  readonly protocolVersion: number;
-  readonly hardExpiresAtMilliseconds: number;
-  readonly createdAtMilliseconds: number;
-  readonly updatedAtMilliseconds: number;
-}
+export type StoredCommitAuthoritySessionScalarsV1 =
+  StoredTransactionSessionScalarsV1;
 
 export interface StoredCommitAuthoritySealIdentityV1 {
   readonly scopeUuid: ScopeUuidV1;

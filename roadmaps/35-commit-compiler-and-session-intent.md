@@ -695,10 +695,13 @@ the strict host-neutral `SessionJournalV1`, separate successful-result evidence,
 dormant inline carriage. C03 now composes current-attempt authorization, O04
 semantics, a narrow pinned-manifest table capability, the trusted bounded
 Postgres journal store, and the staged read-your-writes overlay. C04B1 adds
-only the private current-authority capability, C04B2 adds the private-C07 final
-value/result proof, and corrected C04C1 is the approved private logical point
-planner. None of these makes committed publication, production routing, inline
-carriage, or conditional C04C2 active.
+only the private current-authority capability. Its exact stored-session scalar
+shape and equality policy are owned by `flarex-protocol/transaction-session`;
+the persistence materializer and executor authority port retain domain names as
+aliases rather than separate contracts. C04B2 adds the private-C07 final value/
+result proof, and corrected C04C1 is the approved private logical point planner.
+None of these makes committed publication, production routing, inline carriage,
+or conditional C04C2 active.
 
 ## Known Gaps And Limitations
 

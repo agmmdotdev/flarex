@@ -91,6 +91,7 @@ import {
   type TransactionGrantDeploymentIdV1,
 } from "flarex-protocol/transaction-grant";
 import {
+  type StoredTransactionSessionScalarsV1,
   TransactionArtifactIdV1Schema,
   TransactionArtifactRuntimeV1Schema,
   TransactionAuthorizationGrantIdV1Schema,
@@ -418,36 +419,8 @@ export type StoredAttemptEvidenceAuthorityPortV1 = Readonly<
   StoredAttemptAuthorityStateV1
 >;
 
-export interface StoredAttemptSessionScalarsPortV1 {
-  readonly lifecycle: "running" | "finishing";
-  readonly storageGeneration: string;
-  readonly storageGenerationFence: bigint;
-  readonly packageId: string;
-  readonly artifactRuntime: string;
-  readonly artifactId: string;
-  readonly sourcePackageHash: string;
-  readonly executionModule: string;
-  readonly functionPath: string;
-  readonly functionKind: string;
-  readonly schemaVersionId: string;
-  readonly policyVersion: string;
-  readonly identityAccessPolicySha256: Uint8Array;
-  readonly validatedArgsValueCodecVersion: number;
-  readonly validatedArgsCanonicalByteLength: number;
-  readonly validatedArgsSha256: Uint8Array;
-  readonly authorizationGrantId: string;
-  readonly authorizationGrantValueCodecVersion: number;
-  readonly authorizationGrantCanonicalByteLength: number;
-  readonly authorizationGrantSha256: Uint8Array;
-  readonly authorizationRevocationEpoch: bigint;
-  readonly authorizationGrantExpiresAtMilliseconds: number;
-  readonly requestKey: string;
-  readonly requestSha256: Uint8Array;
-  readonly protocolVersion: number;
-  readonly hardExpiresAtMilliseconds: number;
-  readonly createdAtMilliseconds: number;
-  readonly updatedAtMilliseconds: number;
-}
+export type StoredAttemptSessionScalarsPortV1 =
+  StoredTransactionSessionScalarsV1;
 
 interface StoredAttemptSealedRootPortV1 {
   readonly lastSyscallSequence: CommitFinalSyscallSequenceV1;
