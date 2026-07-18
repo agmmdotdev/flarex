@@ -62,12 +62,16 @@ unexpected epoch-reader rejection is retained in the tagged port error
 channel. The unused high-level Promise resolver was deleted; the Worker and
 tests own their explicit runtime boundaries.
 
-Transaction-session activation, reload, and terminalization now start from
-`resolveLocatedTrustedScopeAuthorityEffect`; because those contracts remain
-Promise-native, their module owns one explicitly named temporary runtime bridge
-and unwraps only the typed port error to preserve its prior rejection identity.
-Delete that local bridge when those persistence contracts and their executor
-callers move to Effect operations directly.
+Transaction-session activation now exposes an Effect-native `activateEffect`
+operation. Authority-port and activation-transaction failures are mapped once
+to `PointMutationSessionActivationPersistenceV1Error`, owned validation remains
+typed, and interruption waits for the Drizzle transaction to settle. Its
+existing executor port still consumes a temporary `activate` Promise facade
+that unwraps only the typed persistence cause, preserving prior rejection
+identity. Reload and terminalization remain Promise-native. Their module owns
+one explicitly named temporary runtime bridge for these three compatibility
+surfaces; delete each use as its executor caller moves to the corresponding
+Effect operation.
 
 Stored-attempt evidence loading now owns Effect-native `loadEffect` and
 `loadFinishingEffect` operations with typed persistence failures and an

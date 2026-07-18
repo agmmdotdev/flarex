@@ -1,3 +1,4 @@
+import { Effect, Exit, Fiber } from "effect";
 import {
   ReplacementScopeIdV1Schema,
   decodeReplacementScopeIdV1,
@@ -33,6 +34,7 @@ import {
 } from "../src/schema";
 import {
   PointMutationSessionActivationConfigurationV1Error,
+  PointMutationSessionActivationPersistenceV1Error,
   PointMutationSessionActivationV1Error,
   PointMutationSessionAuthorityCorruptionV1Error,
   createPointMutationSessionActivationPersistenceV1,
@@ -43,6 +45,10 @@ import {
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
+import {
+  runEffect,
+  runEffectFailure as runFailure,
+} from "./effectTestRuntime";
 
 const sharedLocator = Object.freeze({
   kind: "shared_database",
@@ -142,6 +148,41 @@ describe("O03-B1 point-mutation session activation", () => {
         context.scopeId,
       )),
     ).rejects.toBe(cause);
+  });
+
+  it("maps metadata rejection into the typed Effect persistence channel", async () => {
+    const context = await provisionContext("metadata_effect_failure");
+    const cause = new Error("activation metadata transport unavailable");
+    const basePorts = resolutionPorts(persistence);
+    const activation = createPointMutationSessionActivationPersistenceV1(
+      {
+        ...basePorts,
+        scopeMetadata: {
+          getScopeMetadataByDeploymentId: async () => {
+            throw cause;
+          },
+        },
+      },
+      {
+        leaseDurationMilliseconds: 60_000,
+        randomUuid: () => nextUuid(),
+      },
+    );
+
+    const failure = await runFailure(activation.activateEffect(
+      pointMutationSessionActivationFixture(
+        context.deploymentId,
+        context.scopeId,
+      ),
+    ));
+    expect(failure).toBeInstanceOf(
+      PointMutationSessionActivationPersistenceV1Error,
+    );
+    expect(failure).toMatchObject({
+      _tag: "PointMutationSessionActivationPersistenceV1Error",
+      operation: "scopeMetadataRead",
+      cause,
+    });
   });
 
   it("atomically creates one running anchor and exactly replays it unchanged", async () => {
@@ -535,6 +576,73 @@ describe("O03-B1 point-mutation session activation", () => {
     }
   });
 
+  it("maps activation-transaction rejection without changing facade identity", async () => {
+    const context = await provisionContext("typed_transaction_failure");
+    const input = pointMutationSessionActivationFixture(
+      context.deploymentId,
+      context.scopeId,
+    );
+    const cause = new Error("activation transaction unavailable");
+    const activation = activationPersistence({
+      afterWrite: () => {
+        throw cause;
+      },
+    });
+
+    const failure = await runFailure(activation.activateEffect(input));
+    expect(failure).toBeInstanceOf(
+      PointMutationSessionActivationPersistenceV1Error,
+    );
+    expect(failure).toMatchObject({
+      _tag: "PointMutationSessionActivationPersistenceV1Error",
+      operation: "activationTransaction",
+      cause,
+    });
+    await expect(activation.activate(input)).rejects.toBe(cause);
+    await expect(rowCounts(persistence, context.scopeId)).resolves.toEqual({
+      sessions: 0,
+      leases: 0,
+    });
+  });
+
+  it("does not observe interruption until the activation transaction settles", async () => {
+    const context = await provisionContext("transaction_interruption");
+    const input = pointMutationSessionActivationFixture(
+      context.deploymentId,
+      context.scopeId,
+    );
+    const entered = deferredSignal();
+    const release = deferredSignal();
+    let interruptionSettled = false;
+    const activation = activationPersistence({
+      afterWrite: async (step) => {
+        if (step !== "sessionInserted") return;
+        entered.resolve();
+        await release.promise;
+      },
+    });
+
+    const fiber = Effect.runFork(activation.activateEffect(input));
+    await entered.promise;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+      interruptionSettled = true;
+      return exit;
+    });
+    try {
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      release.resolve();
+    }
+    await interruption;
+    expect(interruptionSettled).toBe(true);
+    expect(Exit.hasInterrupts(await runEffect(Fiber.await(fiber)))).toBe(true);
+    await expect(rowCounts(persistence, context.scopeId)).resolves.toEqual({
+      sessions: 1,
+      leases: 1,
+    });
+  });
+
   it("rejects invalid generated identity before any authority or SQL read", async () => {
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       "deployment_activation_invalid_uuid",
@@ -578,6 +686,21 @@ describe("O03-B1 point-mutation session activation", () => {
     ).rejects.toMatchObject({
       issue: { reason: "invalidGeneratedSessionId", value: "not-a-uuid" },
     } satisfies Partial<PointMutationSessionActivationConfigurationV1Error>);
+
+    const taggedIssue = await runEffect(
+      activation.activateEffect(
+        pointMutationSessionActivationFixture(deploymentId, scopeId),
+      ).pipe(
+        Effect.catchTag(
+          "PointMutationSessionActivationConfigurationV1Error",
+          (error) => Effect.succeed(error.issue),
+        ),
+      ),
+    );
+    expect(taggedIssue).toEqual({
+      reason: "invalidGeneratedSessionId",
+      value: "not-a-uuid",
+    });
     expect(authorityReads).toBe(0);
   });
 
@@ -760,4 +883,18 @@ async function rowCounts(
   const row = result.rows[0];
   if (row === undefined) throw new Error("Activation scope clock is missing.");
   return row;
+}
+
+function deferredSignal(): Readonly<{
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+}> {
+  let resolver: (() => void) | undefined;
+  const promise = new Promise<void>((resolve) => {
+    resolver = resolve;
+  });
+  return Object.freeze({
+    promise,
+    resolve: () => resolver?.(),
+  });
 }

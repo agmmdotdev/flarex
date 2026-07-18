@@ -154,7 +154,7 @@ export interface PointMutationSessionAttemptTerminalizationV1 {
 }
 
 export function createPointMutationSessionActivationV1(
-  persistence: PointMutationSessionActivationPersistenceV1,
+  persistence: Pick<PointMutationSessionActivationPersistenceV1, "activate">,
 ): PointMutationSessionActivationV1 {
   return Object.freeze({
     activate: async (

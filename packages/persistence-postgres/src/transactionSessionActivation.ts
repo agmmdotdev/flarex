@@ -5,7 +5,7 @@ import {
 } from "@flarex/utils/dates";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { Effect } from "effect";
+import { Data, Effect, Result } from "effect";
 
 import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import {
@@ -88,6 +88,8 @@ import {
   type ScopeProvisioningReceiptReader,
   type TrustedScopeAuthority,
   type TrustedScopeAuthorityError,
+  type TrustedScopeAuthorityPortOperation,
+  type TrustedScopeAuthorityResolutionError,
 } from "./scopeAuthorityResolution";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
@@ -256,6 +258,16 @@ export interface PointMutationSessionAttemptAbortInputV1 {
 }
 
 export interface PointMutationSessionActivationPersistenceV1 {
+  readonly activateEffect: (
+    input: PreparedPointMutationSessionActivationV1,
+  ) => Effect.Effect<
+    PointMutationSessionActivationResultV1,
+    PointMutationSessionActivationEffectErrorV1
+  >;
+  /**
+   * Temporary compatibility boundary for the executor activation port.
+   * Delete when that port consumes `activateEffect` directly.
+   */
   readonly activate: (
     input: PreparedPointMutationSessionActivationV1,
   ) => Promise<PointMutationSessionActivationResultV1>;
@@ -282,6 +294,7 @@ export type PointMutationSessionActivationConfigurationIssueV1 =
   | { readonly reason: "sessionIdGenerationFailed"; readonly cause: unknown };
 
 export class PointMutationSessionActivationConfigurationV1Error extends Error {
+  readonly _tag = "PointMutationSessionActivationConfigurationV1Error";
   readonly name = "PointMutationSessionActivationConfigurationV1Error";
 
   constructor(
@@ -310,6 +323,7 @@ export type PointMutationSessionActivationIssueV1 =
   | { readonly reason: "sessionIdCollision" };
 
 export class PointMutationSessionActivationV1Error extends Error {
+  readonly _tag = "PointMutationSessionActivationV1Error";
   readonly name = "PointMutationSessionActivationV1Error";
 
   constructor(readonly issue: PointMutationSessionActivationIssueV1) {
@@ -391,6 +405,7 @@ export type PointMutationSessionAuthorityCorruptionIssueV1 =
   | "terminalizationWriteMismatch";
 
 export class PointMutationSessionAuthorityCorruptionV1Error extends Error {
+  readonly _tag = "PointMutationSessionAuthorityCorruptionV1Error";
   readonly name = "PointMutationSessionAuthorityCorruptionV1Error";
 
   constructor(
@@ -403,6 +418,7 @@ export class PointMutationSessionAuthorityCorruptionV1Error extends Error {
 }
 
 export class PointMutationSessionActivationTargetV1Error extends Error {
+  readonly _tag = "PointMutationSessionActivationTargetV1Error";
   readonly name = "PointMutationSessionActivationTargetV1Error";
 
   constructor(readonly scopeId: ScopeId) {
@@ -428,6 +444,24 @@ export class PointMutationSessionAttemptTerminalizationTargetV1Error
     );
   }
 }
+
+export type PointMutationSessionActivationPersistenceOperationV1 =
+  | TrustedScopeAuthorityPortOperation
+  | "activationTransaction";
+
+export class PointMutationSessionActivationPersistenceV1Error
+  extends Data.TaggedError("PointMutationSessionActivationPersistenceV1Error")<{
+    readonly operation: PointMutationSessionActivationPersistenceOperationV1;
+    readonly cause: unknown;
+  }> {}
+
+export type PointMutationSessionActivationEffectErrorV1 =
+  | TrustedScopeAuthorityResolutionError
+  | PointMutationSessionActivationConfigurationV1Error
+  | PointMutationSessionActivationV1Error
+  | PointMutationSessionAuthorityCorruptionV1Error
+  | PointMutationSessionActivationTargetV1Error
+  | PointMutationSessionActivationPersistenceV1Error;
 
 export type PointMutationSessionActivationWriteStepV1 =
   | "sessionInserted"
@@ -547,33 +581,53 @@ export function createPointMutationSessionActivationPersistenceV1(
   );
   const randomUuid = options.randomUuid ?? (() => crypto.randomUUID());
 
-  return Object.freeze({
-    activate: async (
+  const activateEffect = Effect.fn("PointMutationSessionActivation.activate")(
+    function* (
       input: PreparedPointMutationSessionActivationV1,
-    ): Promise<PointMutationSessionActivationResultV1> => {
-      const prepared = capturePreparedActivation(input);
-      const candidateSessionId = generateSessionId(randomUuid);
-      const located = await runTransactionSessionAuthorityResolution(
-        resolveLocatedTrustedScopeAuthorityEffect(prepared.deploymentId, {
+    ): Effect.fn.Return<
+      PointMutationSessionActivationResultV1,
+      PointMutationSessionActivationEffectErrorV1
+    > {
+      const prepared = yield* Effect.fromResult(
+        capturePreparedActivation(input),
+      );
+      const candidateSessionId = yield* generateSessionIdEffect(randomUuid);
+      const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+        prepared.deploymentId,
+        {
           scopeMetadata: ports.scopeMetadata,
           provisioningReceipts: ports.provisioningReceipts,
           scopeClockTargets: ports.scopeSessionTargets,
-        }),
-      );
+        },
+      ).pipe(Effect.mapError(mapActivationAuthorityError));
       if (located.authority.scopeId !== prepared.scopeId) {
-        throw activationError({ reason: "scopeMismatch" });
+        return yield* Effect.fail(activationError({ reason: "scopeMismatch" }));
       }
-      const target = requireActivationTarget(
+      const target = yield* Effect.fromResult(requireActivationTarget(
         located.target,
         prepared.scopeId,
-      );
-      return target.activatePreparedPointMutationSession({
-        prepared,
-        preliminaryAuthority: located.authority,
-        candidateSessionId,
-        leaseDurationMilliseconds,
-      });
+      ));
+      return yield* Effect.uninterruptible(Effect.tryPromise({
+        try: () => target.activatePreparedPointMutationSession({
+          prepared,
+          preliminaryAuthority: located.authority,
+          candidateSessionId,
+          leaseDurationMilliseconds,
+        }),
+        catch: mapActivationTransactionError,
+      }));
     },
+  );
+
+  const activate: PointMutationSessionActivationPersistenceV1["activate"] =
+    (input) => runTransactionSessionEffect(
+      activateEffect(input),
+      unwrapActivationEffectError,
+    );
+
+  return Object.freeze({
+    activateEffect,
+    activate,
   });
 }
 
@@ -585,12 +639,13 @@ export function createPointMutationSessionAttemptLoadPersistenceV1(
       input: PointMutationSessionAttemptSelectorV1,
     ): Promise<PointMutationSessionAttemptLoadResultV1> => {
       const selector = captureAttemptSelector(input);
-      const located = await runTransactionSessionAuthorityResolution(
+      const located = await runTransactionSessionEffect(
         resolveLocatedTrustedScopeAuthorityEffect(selector.deploymentId, {
           scopeMetadata: ports.scopeMetadata,
           provisioningReceipts: ports.provisioningReceipts,
           scopeClockTargets: ports.scopeSessionTargets,
         }),
+        unwrapTrustedScopeAuthorityError,
       );
       if (located.authority.scopeId !== selector.scopeId) {
         throw attemptLoadError({ reason: "selectorScopeMismatch" });
@@ -613,12 +668,13 @@ export function createPointMutationSessionAttemptTerminalizationPersistenceV1(
   const terminalize = async (
     input: PreparedPointMutationSessionAttemptTerminalizationInputV1,
   ): Promise<PointMutationSessionAttemptTerminalizationResultV1> => {
-    const located = await runTransactionSessionAuthorityResolution(
+    const located = await runTransactionSessionEffect(
       resolveLocatedTrustedScopeAuthorityEffect(input.selector.deploymentId, {
         scopeMetadata: ports.scopeMetadata,
         provisioningReceipts: ports.provisioningReceipts,
         scopeClockTargets: ports.scopeSessionTargets,
       }),
+      unwrapTrustedScopeAuthorityError,
     );
     if (located.authority.scopeId !== input.selector.scopeId) {
       throw attemptTerminalizationError({ reason: "selectorScopeMismatch" });
@@ -657,20 +713,29 @@ export function createPointMutationSessionAttemptTerminalizationPersistenceV1(
 }
 
 /**
- * Temporary runtime bridge owned by the Promise-native activation, reload, and
- * terminalization persistence contracts. Delete it when those contracts expose
- * Effect operations and their executor callers compose them directly.
+ * Temporary runtime bridge owned by activation's executor compatibility facade
+ * plus the Promise-native reload and terminalization contracts. Delete it when
+ * those consumers compose the corresponding Effect operations directly.
  */
-function runTransactionSessionAuthorityResolution<A>(
-  effect: Effect.Effect<A, TrustedScopeAuthorityError>,
+function runTransactionSessionEffect<A, E>(
+  effect: Effect.Effect<A, E>,
+  unwrapError: (error: E) => unknown,
 ): Promise<A> {
-  return Effect.runPromise(
-    effect.pipe(
-      Effect.mapError((error) =>
-        error instanceof TrustedScopeAuthorityPortError ? error.cause : error
-      ),
-    ),
-  );
+  return Effect.runPromise(effect.pipe(Effect.mapError(unwrapError)));
+}
+
+function unwrapTrustedScopeAuthorityError(
+  error: TrustedScopeAuthorityError,
+): unknown {
+  return error instanceof TrustedScopeAuthorityPortError ? error.cause : error;
+}
+
+function unwrapActivationEffectError(
+  error: PointMutationSessionActivationEffectErrorV1,
+): unknown {
+  return error instanceof PointMutationSessionActivationPersistenceV1Error
+    ? error.cause
+    : error;
 }
 
 export function createLocatedPointMutationSessionActivationTargetV1(
@@ -1886,15 +1951,18 @@ function sessionEvidenceMatches(
 
 function capturePreparedActivation(
   input: PreparedPointMutationSessionActivationV1,
-): PreparedPointMutationSessionActivationV1 {
+): Result.Result<
+  PreparedPointMutationSessionActivationV1,
+  PointMutationSessionActivationV1Error
+> {
   const evidence = input.evidence;
   if (
     !isJsonObjectFromUnknown(evidence.validatedArgsJson) ||
     !isJsonObjectFromUnknown(evidence.authorizationGrantJson)
   ) {
-    throw activationError({ reason: "invalidPreparedEvidence" });
+    return Result.fail(activationError({ reason: "invalidPreparedEvidence" }));
   }
-  return Object.freeze({
+  return Result.succeed(Object.freeze({
     deploymentId: input.deploymentId,
     scopeId: decodeReplacementScopeIdV1(input.scopeId),
     evidence: Object.freeze({
@@ -1947,7 +2015,7 @@ function capturePreparedActivation(
         new Uint8Array(evidence.requestSha256),
       ),
     }),
-  });
+  }));
 }
 
 function captureAttemptSelector(
@@ -2013,11 +2081,16 @@ function decodeAttemptSelector(
 function requireActivationTarget(
   target: LocatedScopeClockReader,
   scopeId: ScopeId,
-): LocatedPointMutationSessionActivationTargetV1 {
+): Result.Result<
+  LocatedPointMutationSessionActivationTargetV1,
+  PointMutationSessionActivationTargetV1Error
+> {
   if (!isActivationTarget(target)) {
-    throw new PointMutationSessionActivationTargetV1Error(scopeId);
+    return Result.fail(
+      new PointMutationSessionActivationTargetV1Error(scopeId),
+    );
   }
-  return target;
+  return Result.succeed(target);
 }
 
 function requireAttemptLoadTarget(
@@ -2074,23 +2147,67 @@ function requireLeaseDuration(value: number): number {
   return value;
 }
 
-function generateSessionId(randomUuid: () => string): TransactionSessionIdV1 {
-  let value: string;
-  try {
-    value = randomUuid();
-  } catch (cause) {
-    throw new PointMutationSessionActivationConfigurationV1Error({
-      reason: "sessionIdGenerationFailed",
-      cause,
-    });
-  }
+const generateSessionIdEffect = Effect.fn(
+  "PointMutationSessionActivation.generateSessionId",
+)(function* (
+  randomUuid: () => string,
+): Effect.fn.Return<
+  TransactionSessionIdV1,
+  PointMutationSessionActivationConfigurationV1Error
+> {
+  const value = yield* Effect.try({
+    try: randomUuid,
+    catch: (cause) =>
+      new PointMutationSessionActivationConfigurationV1Error({
+        reason: "sessionIdGenerationFailed",
+        cause,
+      }),
+  });
+  return yield* Effect.fromResult(validateGeneratedSessionId(value));
+});
+
+function validateGeneratedSessionId(
+  value: string,
+): Result.Result<
+  TransactionSessionIdV1,
+  PointMutationSessionActivationConfigurationV1Error
+> {
   if (!UUID_V4_PATTERN.test(value)) {
-    throw new PointMutationSessionActivationConfigurationV1Error({
+    return Result.fail(new PointMutationSessionActivationConfigurationV1Error({
       reason: "invalidGeneratedSessionId",
       value,
-    });
+    }));
   }
-  return TransactionSessionIdV1Schema.make(value);
+  return Result.succeed(TransactionSessionIdV1Schema.make(value));
+}
+
+function mapActivationAuthorityError(
+  error: TrustedScopeAuthorityError,
+): TrustedScopeAuthorityResolutionError |
+  PointMutationSessionActivationPersistenceV1Error {
+  return error instanceof TrustedScopeAuthorityPortError
+    ? new PointMutationSessionActivationPersistenceV1Error({
+        operation: error.operation,
+        cause: error.cause,
+      })
+    : error;
+}
+
+function mapActivationTransactionError(
+  cause: unknown,
+): PointMutationSessionActivationV1Error |
+  PointMutationSessionAuthorityCorruptionV1Error |
+  PointMutationSessionActivationPersistenceV1Error {
+  if (
+    cause instanceof PointMutationSessionActivationV1Error ||
+    cause instanceof PointMutationSessionAuthorityCorruptionV1Error
+  ) {
+    return cause;
+  }
+  return new PointMutationSessionActivationPersistenceV1Error({
+    operation: "activationTransaction",
+    cause,
+  });
 }
 
 function activationResult(
