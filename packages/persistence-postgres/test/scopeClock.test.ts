@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { Result } from "effect";
+import { Cause, Effect, Exit, Fiber } from "effect";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
@@ -27,16 +27,22 @@ import {
   type ScopeClockRecord,
 } from "../src";
 import type { FlarexMetadataDatabase } from "../src/deployments";
+import type { FlarexMetadataTransaction } from "../src/metadataTransaction";
 import { createPGlitePersistence } from "../src/pglite";
 import {
-  advanceScopeAuthorizationRevocationEpochInTransaction,
+  advanceScopeAuthorizationRevocationEpochInTransactionEffect,
   decodeScopeClockRecord,
   lockScopeClockForUpdateInTransaction,
-  requireScopeAuthorizationRevocationEpochInTransaction as requireScopeAuthorizationRevocationEpochResultInTransaction,
+  requireScopeAuthorizationRevocationEpochInTransactionEffect,
+  type AdvanceScopeAuthorizationRevocationEpochError,
+  type AdvanceScopeAuthorizationRevocationEpochResult,
+  type ScopeAuthorizationRevocationEpochReadError,
   ScopeAuthorizationRevocationEpochExhaustedError,
+  ScopeAuthorizationRevocationEpochPersistenceError,
   ScopeClockNotFoundError,
 } from "../src/scopeClock";
 import { fxSystemScopeClocks } from "../src/schema";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 type ForbiddenScopeClockMethod = Extract<
   keyof FlarexPersistence,
@@ -65,14 +71,20 @@ describe("scope clock", () => {
       .toEqualTypeOf<OutboxSeq>();
     expectTypeOf<ForbiddenScopeClockMethod>().toEqualTypeOf<never>();
     expectTypeOf<
-      Awaited<
-        ReturnType<
-          typeof requireScopeAuthorizationRevocationEpochResultInTransaction
-        >
+      ReturnType<
+        typeof requireScopeAuthorizationRevocationEpochInTransactionEffect
       >
-    >().toEqualTypeOf<Result.Result<
+    >().toEqualTypeOf<Effect.Effect<
       TransactionAuthorizationRevocationEpoch,
-      ScopeClockNotFoundError | ScopeClockCorruptionError
+      ScopeAuthorizationRevocationEpochReadError
+    >>();
+    expectTypeOf<
+      ReturnType<
+        typeof advanceScopeAuthorizationRevocationEpochInTransactionEffect
+      >
+    >().toEqualTypeOf<Effect.Effect<
+      AdvanceScopeAuthorizationRevocationEpochResult,
+      AdvanceScopeAuthorizationRevocationEpochError
     >>();
     expectTypeOf<FlarexMetadataDatabase>()
       .not.toMatchTypeOf<
@@ -81,7 +93,7 @@ describe("scope clock", () => {
     expectTypeOf<FlarexMetadataDatabase>()
       .not.toMatchTypeOf<
         Parameters<
-          typeof advanceScopeAuthorizationRevocationEpochInTransaction
+          typeof advanceScopeAuthorizationRevocationEpochInTransactionEffect
         >[0]
       >();
   });
@@ -323,16 +335,14 @@ describe("scope clock", () => {
     await expect(persistence.getScopeClock(defaultScopeId)).resolves.not.toHaveProperty(
       "authorizationRevocationEpoch",
     );
-    const missing = await persistence.drizzle.transaction((tx) =>
-      requireScopeAuthorizationRevocationEpochResultInTransaction(
-        tx,
-        ScopeIdSchema.make("scope_authorization_missing"),
-      )
-    );
-    expect(Result.isFailure(missing)).toBe(true);
-    if (Result.isFailure(missing)) {
-      expect(missing.failure).toBeInstanceOf(ScopeClockNotFoundError);
-    }
+    await expect(
+      persistence.drizzle.transaction((tx) =>
+        requireScopeAuthorizationRevocationEpochInTransaction(
+          tx,
+          ScopeIdSchema.make("scope_authorization_missing"),
+        )
+      ),
+    ).rejects.toBeInstanceOf(ScopeClockNotFoundError);
   });
 
   it("fails closed on a corrupt persisted authorization epoch", async () => {
@@ -355,12 +365,87 @@ describe("scope clock", () => {
       [scopeId, "epoch-authorization-corrupt"],
     );
 
-    const corrupt = await persistence.drizzle.transaction((tx) =>
-      requireScopeAuthorizationRevocationEpochResultInTransaction(tx, scopeId)
+    await expect(
+      persistence.drizzle.transaction((tx) =>
+        requireScopeAuthorizationRevocationEpochInTransaction(tx, scopeId)
+      ),
+    ).rejects.toBeInstanceOf(ScopeClockCorruptionError);
+  });
+
+  it("maps rejected private epoch reads at the exact SQL edge", async () => {
+    const rejection = new Error("authorization epoch read rejected");
+    const scopeId = ScopeIdSchema.make("scope_authorization_read_rejection");
+    const failure = await runEffectFailure(
+      requireScopeAuthorizationRevocationEpochInTransactionEffect(
+        scopeClockReadTransaction(() => Promise.reject(rejection)),
+        scopeId,
+      ),
     );
-    expect(Result.isFailure(corrupt)).toBe(true);
-    if (Result.isFailure(corrupt)) {
-      expect(corrupt.failure).toBeInstanceOf(ScopeClockCorruptionError);
+
+    expect(failure).toBeInstanceOf(
+      ScopeAuthorizationRevocationEpochPersistenceError,
+    );
+    expect(failure).toMatchObject({
+      _tag: "ScopeAuthorizationRevocationEpochPersistenceError",
+      operation: "readForShare",
+      cause: rejection,
+    });
+  });
+
+  it("preserves private epoch query construction failures as defects", async () => {
+    const defect = new Error("authorization epoch query construction defect");
+    const transaction = {
+      select() {
+        throw defect;
+      },
+    } as unknown as FlarexMetadataTransaction;
+    const exit = await Effect.runPromiseExit(
+      requireScopeAuthorizationRevocationEpochInTransactionEffect(
+        transaction,
+        ScopeIdSchema.make("scope_authorization_read_defect"),
+      ),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
+
+  it("waits for a pending private epoch read before interruption completes", async () => {
+    const entered = deferredValue<void>();
+    const query = deferredValue<ReadonlyArray<unknown>>();
+    const transaction = scopeClockReadTransaction(() => {
+      entered.resolve(undefined);
+      return query.promise;
+    });
+    const fiber = Effect.runFork(
+      requireScopeAuthorizationRevocationEpochInTransactionEffect(
+        transaction,
+        ScopeIdSchema.make("scope_authorization_read_interruption"),
+      ),
+    );
+
+    await entered.promise;
+    const completion = runEffect(Fiber.await(fiber));
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then(() => {
+      interruptionSettled = true;
+    });
+    try {
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      query.resolve([]);
+    }
+
+    await interruption;
+    const exit = await completion;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
     }
   });
 
@@ -678,16 +763,74 @@ async function setScopeAuthorizationEpoch(
   );
 }
 
+interface ScopeClockReadQueryStub
+  extends PromiseLike<ReadonlyArray<unknown>> {
+  from(): ScopeClockReadQueryStub;
+  where(): ScopeClockReadQueryStub;
+  limit(): ScopeClockReadQueryStub;
+  for(): ScopeClockReadQueryStub;
+}
+
+function scopeClockReadTransaction(
+  run: () => Promise<ReadonlyArray<unknown>>,
+): FlarexMetadataTransaction {
+  return {
+    select() {
+      const promise = run();
+      const query: ScopeClockReadQueryStub = {
+        from: () => query,
+        where: () => query,
+        limit: () => query,
+        for: () => query,
+        then: (onFulfilled, onRejected) =>
+          promise.then(onFulfilled, onRejected),
+      };
+      return query;
+    },
+  } as unknown as FlarexMetadataTransaction;
+}
+
+function deferredValue<Value>(): Readonly<{
+  promise: Promise<Value>;
+  resolve(value: Value): void;
+}> {
+  let resolvePromise: ((value: Value) => void) | undefined;
+  const promise = new Promise<Value>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return Object.freeze({
+    promise,
+    resolve(value: Value) {
+      if (resolvePromise === undefined) {
+        throw new Error("Deferred value was not initialized.");
+      }
+      resolvePromise(value);
+    },
+  });
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function advanceScopeAuthorizationRevocationEpochInTransaction(
+  db: Parameters<
+    typeof advanceScopeAuthorizationRevocationEpochInTransactionEffect
+  >[0],
+  scopeId: ScopeId,
+): Promise<AdvanceScopeAuthorizationRevocationEpochResult> {
+  return runEffect(
+    advanceScopeAuthorizationRevocationEpochInTransactionEffect(db, scopeId),
+  );
+}
+
 async function requireScopeAuthorizationRevocationEpochInTransaction(
   db: Parameters<
-    typeof requireScopeAuthorizationRevocationEpochResultInTransaction
+    typeof requireScopeAuthorizationRevocationEpochInTransactionEffect
   >[0],
   scopeId: ScopeId,
 ): Promise<TransactionAuthorizationRevocationEpoch> {
-  return Result.getOrThrow(
-    await requireScopeAuthorizationRevocationEpochResultInTransaction(
-      db,
-      scopeId,
-    ),
+  return runEffect(
+    requireScopeAuthorizationRevocationEpochInTransactionEffect(db, scopeId),
   );
 }

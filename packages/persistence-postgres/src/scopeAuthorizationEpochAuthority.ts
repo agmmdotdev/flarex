@@ -7,9 +7,11 @@ import type {
 import type {
   TransactionAuthorizationRevocationEpoch,
 } from "flarex-protocol/transaction-session";
-import { Data, Effect, Result } from "effect";
+import { Cause, Data, Effect, Exit, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import { reconcileEffectTransactionFailure } from "./effectTransactionFailure";
+import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
   TrustedScopeAuthorityPortError,
@@ -21,8 +23,9 @@ import {
 } from "./scopeAuthorityResolution";
 import {
   getScopeClock,
-  requireScopeAuthorizationRevocationEpochInTransaction,
+  requireScopeAuthorizationRevocationEpochInTransactionEffect,
   type ScopeAuthorizationRevocationEpochReadError,
+  ScopeAuthorizationRevocationEpochPersistenceError,
   ScopeClockCorruptionError,
   ScopeClockNotFoundError,
 } from "./scopeClock";
@@ -82,10 +85,14 @@ export class CurrentScopeAuthorizationEpochPortError extends Data.TaggedError(
 )<{
   readonly operation: "authorizationEpochRead";
   readonly cause: unknown;
+  readonly callbackCause?: Cause.Cause<unknown>;
 }> {}
 
 export type LocatedScopeAuthorizationEpochReadError =
-  | ScopeAuthorizationRevocationEpochReadError
+  | Exclude<
+      ScopeAuthorizationRevocationEpochReadError,
+      ScopeAuthorizationRevocationEpochPersistenceError
+    >
   | CurrentScopeAuthorizationEpochPortError;
 
 export type CurrentScopeAuthorizationEpochError =
@@ -217,23 +224,69 @@ export function createLocatedScopeAuthorizationEpochTarget(
   )((scopeId: ScopeId): Effect.Effect<
     TransactionAuthorizationRevocationEpoch,
     LocatedScopeAuthorizationEpochReadError
-  > =>
-    Effect.uninterruptible(
-      Effect.tryPromise({
-        try: () => db.transaction((tx) =>
-          requireScopeAuthorizationRevocationEpochInTransaction(tx, scopeId)
-        ),
-        catch: (cause) => new CurrentScopeAuthorizationEpochPortError({
-          operation: "authorizationEpochRead",
-          cause,
-        }),
-      }),
+  > => runScopeAuthorizationEpochEffectTransaction(
+    db,
+    (tx) => requireScopeAuthorizationRevocationEpochInTransactionEffect(
+      tx,
+      scopeId,
     ).pipe(
-      Effect.flatMap((result) => Effect.fromResult(result)),
-    ));
+      Effect.catchTag(
+        "ScopeAuthorizationRevocationEpochPersistenceError",
+        (failure) => Effect.fail(new CurrentScopeAuthorizationEpochPortError({
+          operation: "authorizationEpochRead",
+          cause: failure.cause,
+        })),
+      ),
+    ),
+  ));
   return Object.freeze({
     physicalLocator: capturedLocator,
     getCurrentClock: (scopeId: ScopeId) => getScopeClock(db, scopeId),
     requireCurrentAuthorizationRevocationEpochEffect,
   }) satisfies LocatedScopeAuthorizationEpochTarget;
+}
+
+// Drizzle 0.45 requires a Promise transaction callback. This runner owns that
+// one runtime bridge, forces rollback for every failed Cause, and is deleted
+// when the target database transaction capability becomes Effect-native.
+function runScopeAuthorizationEpochEffectTransaction<ResultValue, Failure>(
+  db: FlarexMetadataDatabase,
+  work: (
+    tx: FlarexMetadataTransaction,
+  ) => Effect.Effect<ResultValue, Failure>,
+): Effect.Effect<
+  ResultValue,
+  Failure | CurrentScopeAuthorizationEpochPortError
+> {
+  return Effect.suspend(() => {
+    let callbackCause: Cause.Cause<Failure> | undefined;
+    const rollbackSignal = new Error(
+      "Scope authorization epoch Effect work failed; roll back the transaction.",
+    );
+    return Effect.uninterruptible(
+      Effect.tryPromise({
+        try: () => db.transaction(async (tx): Promise<ResultValue> => {
+          const exit = await Effect.runPromise(Effect.exit(
+            Effect.suspend(() => work(tx)),
+          ));
+          if (Exit.isFailure(exit)) {
+            callbackCause = exit.cause;
+            throw rollbackSignal;
+          }
+          return exit.value;
+        }),
+        catch: (cause) => new CurrentScopeAuthorizationEpochPortError({
+          operation: "authorizationEpochRead",
+          cause,
+          ...(callbackCause === undefined ? {} : { callbackCause }),
+        }),
+      }).pipe(
+        Effect.catch((failure) => reconcileEffectTransactionFailure(
+          failure,
+          callbackCause,
+          rollbackSignal,
+        )),
+      ),
+    );
+  });
 }

@@ -1,7 +1,7 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { eq, sql } from "drizzle-orm";
-import { Result } from "effect";
+import { Data, Effect, Result } from "effect";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
@@ -59,6 +59,9 @@ export class ScopeClockCorruptionError extends Error {
 }
 
 export class ScopeAuthorizationRevocationEpochExhaustedError extends Error {
+  readonly _tag =
+    "ScopeAuthorizationRevocationEpochExhaustedError" as const;
+
   constructor(readonly scopeId: ScopeId) {
     super(`Authorization revocation epoch is exhausted for scope: ${scopeId}`);
     this.name = "ScopeAuthorizationRevocationEpochExhaustedError";
@@ -72,7 +75,22 @@ export interface AdvanceScopeAuthorizationRevocationEpochResult {
 
 export type ScopeAuthorizationRevocationEpochReadError =
   | ScopeClockNotFoundError
-  | ScopeClockCorruptionError;
+  | ScopeClockCorruptionError
+  | ScopeAuthorizationRevocationEpochPersistenceError;
+
+export class ScopeAuthorizationRevocationEpochPersistenceError
+  extends Data.TaggedError(
+    "ScopeAuthorizationRevocationEpochPersistenceError",
+  )<{
+    readonly operation: "readForShare" | "lockForUpdate" | "update";
+    readonly cause: unknown;
+  }> {}
+
+export type AdvanceScopeAuthorizationRevocationEpochError =
+  | ScopeClockNotFoundError
+  | ScopeClockCorruptionError
+  | ScopeAuthorizationRevocationEpochExhaustedError
+  | ScopeAuthorizationRevocationEpochPersistenceError;
 
 export async function getScopeClock(
   db: FlarexMetadataDatabase,
@@ -91,35 +109,41 @@ export async function getScopeClock(
  * Private S07-A authority read. This module is not a package export; O03-A
  * owns the future trusted command and consumer-facing capability.
  */
-export async function requireScopeAuthorizationRevocationEpochInTransaction(
-  db: ScopeClockTransaction,
-  scopeId: ScopeId,
-): Promise<
-  Result.Result<
-    TransactionAuthorizationRevocationEpoch,
-    ScopeAuthorizationRevocationEpochReadError
-  >
-> {
-  const row = await lockScopeAuthorizationRevocationEpochForShareInTransaction(
-    db,
-    scopeId,
+export const requireScopeAuthorizationRevocationEpochInTransactionEffect =
+  Effect.fn("ScopeClock.requireAuthorizationRevocationEpochInTransaction")(
+    function* (
+      db: ScopeClockTransaction,
+      scopeId: ScopeId,
+    ): Effect.fn.Return<
+      TransactionAuthorizationRevocationEpoch,
+      ScopeAuthorizationRevocationEpochReadError
+    > {
+      const query = selectScopeAuthorizationRevocationEpochForShare(
+        db,
+        scopeId,
+      );
+      const rows = yield* runScopeAuthorizationRevocationEpochQueryEffect(
+        "readForShare",
+        query,
+      );
+      const row = rows[0];
+      if (row === undefined) {
+        return yield* Effect.fail(new ScopeClockNotFoundError(scopeId));
+      }
+      return yield* Effect.fromResult(
+        decodeScopeAuthorizationRevocationEpochResult(
+          row.scopeId,
+          row.authorizationRevocationEpoch,
+        ),
+      );
+    },
   );
-  if (row === undefined) {
-    return Result.fail(new ScopeClockNotFoundError(scopeId));
-  }
-  return decodeScopeAuthorizationRevocationEpochResult(
-    row.scopeId,
-    row.authorizationRevocationEpoch,
-  );
-}
 
-async function lockScopeAuthorizationRevocationEpochForShareInTransaction(
+function selectScopeAuthorizationRevocationEpochForShare(
   db: ScopeClockTransaction,
   scopeId: ScopeId,
-): Promise<
-  Pick<ScopeClockRow, "scopeId" | "authorizationRevocationEpoch"> | undefined
-> {
-  const rows = await db
+) {
+  return db
     .select({
       scopeId: fxSystemScopeClocks.scopeId,
       authorizationRevocationEpoch:
@@ -129,55 +153,75 @@ async function lockScopeAuthorizationRevocationEpochForShareInTransaction(
     .where(eq(fxSystemScopeClocks.scopeId, scopeId))
     .limit(1)
     .for("share");
-  return rows[0];
 }
 
 /**
  * Advances the current scope authority by exactly one under the caller's
  * short transaction. Callers cannot select or replace the persisted value.
  */
-export async function advanceScopeAuthorizationRevocationEpochInTransaction(
-  db: ScopeClockTransaction,
-  scopeId: ScopeId,
-): Promise<AdvanceScopeAuthorizationRevocationEpochResult> {
-  const row = await lockScopeClockRowForUpdateInTransaction(db, scopeId);
-  const previous = decodeScopeAuthorizationRevocationEpoch(
-    row.scopeId,
-    row.authorizationRevocationEpoch,
+export const advanceScopeAuthorizationRevocationEpochInTransactionEffect =
+  Effect.fn("ScopeClock.advanceAuthorizationRevocationEpochInTransaction")(
+    function* (
+      db: ScopeClockTransaction,
+      scopeId: ScopeId,
+    ): Effect.fn.Return<
+      AdvanceScopeAuthorizationRevocationEpochResult,
+      AdvanceScopeAuthorizationRevocationEpochError
+    > {
+      const row = yield* lockScopeClockRowForUpdateInTransactionEffect(
+        db,
+        scopeId,
+      );
+      const previous = yield* Effect.fromResult(
+        decodeScopeAuthorizationRevocationEpochResult(
+          row.scopeId,
+          row.authorizationRevocationEpoch,
+        ),
+      );
+      if (previous === MAX_TRANSACTION_AUTHORIZATION_REVOCATION_EPOCH) {
+        return yield* Effect.fail(
+          new ScopeAuthorizationRevocationEpochExhaustedError(scopeId),
+        );
+      }
+      const expectedCurrent =
+        TransactionAuthorizationRevocationEpochSchema.make(previous + 1n);
+      const updateQuery = db
+        .update(fxSystemScopeClocks)
+        .set({
+          authorizationRevocationEpoch: expectedCurrent,
+          updatedAt: sql`clock_timestamp()`,
+        })
+        .where(eq(fxSystemScopeClocks.scopeId, scopeId))
+        .returning({
+          authorizationRevocationEpoch:
+            fxSystemScopeClocks.authorizationRevocationEpoch,
+        });
+      const updatedRows =
+        yield* runScopeAuthorizationRevocationEpochQueryEffect(
+          "update",
+          updateQuery,
+        );
+      const updated = updatedRows[0];
+      if (updated === undefined) {
+        return yield* Effect.fail(new ScopeClockNotFoundError(scopeId));
+      }
+      const current = yield* Effect.fromResult(
+        decodeScopeAuthorizationRevocationEpochResult(
+          scopeId,
+          updated.authorizationRevocationEpoch,
+        ),
+      );
+      if (current !== expectedCurrent) {
+        return yield* Effect.fail(
+          new ScopeClockCorruptionError(
+            scopeId,
+            "authorization revocation epoch increment returned an unexpected value",
+          ),
+        );
+      }
+      return { previous, current };
+    },
   );
-  if (previous === MAX_TRANSACTION_AUTHORIZATION_REVOCATION_EPOCH) {
-    throw new ScopeAuthorizationRevocationEpochExhaustedError(scopeId);
-  }
-  const expectedCurrent = TransactionAuthorizationRevocationEpochSchema.make(
-    previous + 1n,
-  );
-  const updatedRows = await db
-    .update(fxSystemScopeClocks)
-    .set({
-      authorizationRevocationEpoch: expectedCurrent,
-      updatedAt: sql`clock_timestamp()`,
-    })
-    .where(eq(fxSystemScopeClocks.scopeId, scopeId))
-    .returning({
-      authorizationRevocationEpoch:
-        fxSystemScopeClocks.authorizationRevocationEpoch,
-    });
-  const updated = updatedRows[0];
-  if (updated === undefined) {
-    throw new ScopeClockNotFoundError(scopeId);
-  }
-  const current = decodeScopeAuthorizationRevocationEpoch(
-    scopeId,
-    updated.authorizationRevocationEpoch,
-  );
-  if (current !== expectedCurrent) {
-    throw new ScopeClockCorruptionError(
-      scopeId,
-      "authorization revocation epoch increment returned an unexpected value",
-    );
-  }
-  return { previous, current };
-}
 
 /**
  * Scope-clock lock primitive. Callers must already be inside a short trusted
@@ -197,18 +241,61 @@ async function lockScopeClockRowForUpdateInTransaction(
   db: ScopeClockTransaction,
   scopeId: ScopeId,
 ): Promise<ScopeClockRow> {
-  const rows = await db
-    .select()
-    .from(fxSystemScopeClocks)
-    .where(eq(fxSystemScopeClocks.scopeId, scopeId))
-    .limit(1)
-    .for("update");
+  const rows = await selectScopeClockRowForUpdate(db, scopeId);
   const clock = rows[0];
   if (clock === undefined) {
     throw new ScopeClockNotFoundError(scopeId);
   }
   return clock;
 }
+
+const lockScopeClockRowForUpdateInTransactionEffect = Effect.fn(
+  "ScopeClock.lockRowForUpdateInTransaction",
+)(function* (
+  db: ScopeClockTransaction,
+  scopeId: ScopeId,
+): Effect.fn.Return<
+  ScopeClockRow,
+  | ScopeClockNotFoundError
+  | ScopeAuthorizationRevocationEpochPersistenceError
+> {
+  const query = selectScopeClockRowForUpdate(db, scopeId);
+  const rows = yield* runScopeAuthorizationRevocationEpochQueryEffect(
+    "lockForUpdate",
+    query,
+  );
+  const clock = rows[0];
+  if (clock === undefined) {
+    return yield* Effect.fail(new ScopeClockNotFoundError(scopeId));
+  }
+  return clock;
+});
+
+function selectScopeClockRowForUpdate(
+  db: ScopeClockTransaction,
+  scopeId: ScopeId,
+) {
+  return db
+    .select()
+    .from(fxSystemScopeClocks)
+    .where(eq(fxSystemScopeClocks.scopeId, scopeId))
+    .limit(1)
+    .for("update");
+}
+
+const runScopeAuthorizationRevocationEpochQueryEffect = Effect.fn(<Row>(
+  operation: ScopeAuthorizationRevocationEpochPersistenceError["operation"],
+  query: PromiseLike<ReadonlyArray<Row>>,
+): Effect.Effect<
+  ReadonlyArray<Row>,
+  ScopeAuthorizationRevocationEpochPersistenceError
+> => Effect.uninterruptible(Effect.tryPromise({
+  try: () => query,
+  catch: (cause) => new ScopeAuthorizationRevocationEpochPersistenceError({
+    operation,
+    cause,
+  }),
+})));
 
 type ScopeClockTransaction = FlarexMetadataTransaction;
 
@@ -274,18 +361,6 @@ export function decodeScopeClockRecord(
     epoch: ScopeEpochSchema.make(row.epoch),
     updatedAt,
   } satisfies ScopeClockRecord;
-}
-
-function decodeScopeAuthorizationRevocationEpoch(
-  scopeId: string,
-  value: unknown,
-): TransactionAuthorizationRevocationEpoch {
-  // Temporary throwing projection for the still-Promise epoch-advance path.
-  // Delete it when advanceScopeAuthorizationRevocationEpochInTransaction owns
-  // an Effect/Result failure channel.
-  return Result.getOrThrow(
-    decodeScopeAuthorizationRevocationEpochResult(scopeId, value),
-  );
 }
 
 function decodeScopeAuthorizationRevocationEpochResult(

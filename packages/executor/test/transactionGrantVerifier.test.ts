@@ -52,7 +52,7 @@ import { Effect } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
-  advanceScopeAuthorizationRevocationEpochInTransaction,
+  advanceScopeAuthorizationRevocationEpochInTransactionEffect,
 } from "../../persistence-postgres/src/scopeClock";
 import {
   CurrentEpochTransactionGrantAdmissionV1Error,
@@ -791,9 +791,11 @@ describe("current-epoch transaction-grant admission", () => {
     );
     await expect(runEffect(admission.admit(oldGrant))).resolves.toBeDefined();
     await persistence.drizzle.transaction((tx) =>
-      advanceScopeAuthorizationRevocationEpochInTransaction(
-        tx,
-        provisioned.scope.scopeId,
+      runEffect(
+        advanceScopeAuthorizationRevocationEpochInTransactionEffect(
+          tx,
+          provisioned.scope.scopeId,
+        ),
       ),
     );
     await expect(runEffect(admission.admit(oldGrant))).rejects.toMatchObject({
@@ -1108,9 +1110,11 @@ describePostgres(
           await expect(runEffect(admission.admit(oldGrant)))
             .resolves.toBeDefined();
           await persistence.drizzle.transaction((tx) =>
-            advanceScopeAuthorizationRevocationEpochInTransaction(
-              tx,
-              provisioned.scope.scopeId,
+            runEffect(
+              advanceScopeAuthorizationRevocationEpochInTransactionEffect(
+                tx,
+                provisioned.scope.scopeId,
+              ),
             ),
           );
           await expect(runEffect(admission.admit(oldGrant)))

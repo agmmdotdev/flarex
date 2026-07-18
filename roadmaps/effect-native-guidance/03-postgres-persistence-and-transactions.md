@@ -53,18 +53,22 @@ and translates it once to its existing persistence error. Point-commit
 finishing, rollback proof, and publication now share one Effect-native
 authority-resolution operation and preserve their existing stale, corruption,
 SQL, and defect classification. The located current-authorization-epoch
-resolver and the directly connected
-executor grant-admission operations are now Effect-native. Target capability
-validation is a pure `Result`, and the located target now exposes an Effect
-operation directly. Missing or corrupt epoch rows cross its read-only
-transaction as `Result` rather than thrown owned errors; the Drizzle 0.45
-transaction remains the one narrow interruption-masked Promise edge inside the
-concrete target. Unexpected transaction rejection is mapped once to the tagged
-port error, while a target defect remains a defect. The temporary private
-throwing epoch decoder now serves only the still-Promise epoch-advance path and
-is deleted when that writer receives its own Effect/Result channel. The unused
-high-level Promise resolver was deleted; the Worker and tests own their
-explicit runtime boundaries.
+resolver and the directly connected executor grant-admission operations are
+now Effect-native. Target capability validation is a pure `Result`, and the
+located target exposes an Effect operation directly. The private share-lock
+read and checked update-lock increment are now named Effect operations.
+Missing clocks, corrupt epochs, signed-bigint exhaustion, and
+operation-specific SQL rejection stay distinct; owned epoch decoding enters
+through pure `Result`, and the former throwing decoder is deleted. The located
+target owns one audited Cause-preserving runtime bridge at Drizzle 0.45's
+Promise transaction callback, forces rollback for every typed failure, defect,
+or interruption, and waits for transaction settlement before exposing the
+exact callback `Cause`. Query rejection is translated once to the target's
+tagged port error, transaction infrastructure fails separately, and target
+defects remain defects. The checked increment remains a private test primitive
+rather than a production revocation command. The unused high-level Promise
+resolver stays deleted; the Worker and tests own their explicit runtime
+boundaries.
 
 Transaction-session activation and its executor operation are now
 Effect-native. The executor consumes persistence `activateEffect` directly and

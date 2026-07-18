@@ -83,6 +83,7 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/flarex-protocol/src/auth.ts", "decodeAuthConfigPromise"), 1],
   [siteKey("packages/persistence-postgres/src/appSchemaPublicationTransaction.ts", "runCreationTimeIndexDefinitionEffect"), 1],
   [siteKey("packages/persistence-postgres/src/postgresRuntime.ts", "runPostgresTransaction"), 1],
+  [siteKey("packages/persistence-postgres/src/scopeAuthorizationEpochAuthority.ts", "runScopeAuthorizationEpochEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/stableTableCatalog.ts", "runStableTableCatalogEffectTransaction"), 1],
   [siteKey("packages/persistence-postgres/src/transactionSessionActivation.ts", "runExactRunningAttemptEffectTransaction"), 1],
 ]);

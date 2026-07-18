@@ -11,7 +11,6 @@ import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
-import { Result } from "effect";
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
@@ -40,9 +39,10 @@ import {
   createPostgresPersistence,
 } from "../src/postgres";
 import {
-  advanceScopeAuthorizationRevocationEpochInTransaction,
+  advanceScopeAuthorizationRevocationEpochInTransactionEffect,
   lockScopeClockForUpdateInTransaction,
-  requireScopeAuthorizationRevocationEpochInTransaction as requireScopeAuthorizationRevocationEpochResultInTransaction,
+  requireScopeAuthorizationRevocationEpochInTransactionEffect,
+  type AdvanceScopeAuthorizationRevocationEpochResult,
   ScopeAuthorizationRevocationEpochExhaustedError,
 } from "../src/scopeClock";
 import type {
@@ -663,15 +663,23 @@ function quoteIdentifier(value: string): string {
 
 async function requireScopeAuthorizationRevocationEpochInTransaction(
   db: Parameters<
-    typeof requireScopeAuthorizationRevocationEpochResultInTransaction
+    typeof requireScopeAuthorizationRevocationEpochInTransactionEffect
   >[0],
   scopeId: ScopeId,
 ): Promise<TransactionAuthorizationRevocationEpoch> {
-  return Result.getOrThrow(
-    await requireScopeAuthorizationRevocationEpochResultInTransaction(
-      db,
-      scopeId,
-    ),
+  return runEffect(
+    requireScopeAuthorizationRevocationEpochInTransactionEffect(db, scopeId),
+  );
+}
+
+function advanceScopeAuthorizationRevocationEpochInTransaction(
+  db: Parameters<
+    typeof advanceScopeAuthorizationRevocationEpochInTransactionEffect
+  >[0],
+  scopeId: ScopeId,
+): Promise<AdvanceScopeAuthorizationRevocationEpochResult> {
+  return runEffect(
+    advanceScopeAuthorizationRevocationEpochInTransactionEffect(db, scopeId),
   );
 }
 
