@@ -23,7 +23,7 @@ import {
 import { isH05LowercaseSha256Digest } from "./sha256";
 import { h05Sha256Utf8 } from "./sha256Utf8";
 import { requireOrderedH05Timestamps } from "./timestampOrder";
-import { isH05SupportedWranglerVersion } from "./wranglerVersion";
+import { decodeH05WranglerVersion } from "./wranglerVersion";
 import {
   h05ExecutorCompatibilityDate,
   h05ExecutorTokenName,
@@ -1314,11 +1314,7 @@ function gitCommitString(value: unknown, path: string): string {
 }
 
 function wranglerVersionString(value: unknown, path: string): string {
-  const decoded = nonEmptyString(value, path);
-  if (!isH05SupportedWranglerVersion(decoded)) {
-    fail(`${path} has an invalid format.`);
-  }
-  return decoded;
+  return decodeH05WranglerVersion(value, path, fail);
 }
 
 function cloudflareId(value: unknown, path: string): string {

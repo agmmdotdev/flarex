@@ -20,7 +20,7 @@ import { h05ProbeEndpoint, h05ProbeHop } from "./probeProtocol";
 import { isH05LowercaseSha256Digest } from "./sha256";
 import { h05Sha256Utf8 } from "./sha256Utf8";
 import { requireOrderedH05Timestamps } from "./timestampOrder";
-import { isH05SupportedWranglerVersion } from "./wranglerVersion";
+import { decodeH05WranglerVersion } from "./wranglerVersion";
 
 declare const sha256Brand: unique symbol;
 declare const gitCommitBrand: unique symbol;
@@ -101,13 +101,8 @@ const hyperdriveIdDecoder: Decoder<string> = (value, path) => {
   return decoded;
 };
 const hyperdriveNameDecoder = patternString(/^[a-z0-9][a-z0-9_-]{0,62}$/);
-const wranglerVersionDecoder: Decoder<string> = (value, path) => {
-  const decoded = nonEmptyString(value, path);
-  if (!isH05SupportedWranglerVersion(decoded)) {
-    fail(`${path} has an invalid format.`);
-  }
-  return decoded;
-};
+const wranglerVersionDecoder: Decoder<string> = (value, path) =>
+  decodeH05WranglerVersion(value, path, fail);
 
 const h05InvocationEvidenceShape = {
   source: literal("hosted-occ-proof-harness"),
