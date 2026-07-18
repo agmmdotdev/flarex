@@ -109,6 +109,37 @@ describe("ordered index physical contract v1", () => {
     }
   });
 
+  it("detaches and deeply freezes decoded physical specifications", () => {
+    const input = {
+      kind: "appOrdered",
+      specVersion: 1,
+      accessPath: "developer",
+      orderedFields: [
+        { kind: "documentPath", path: "status" },
+        { kind: "systemCreationTime" },
+      ],
+      tieBreaker: { kind: "separateRowIdentity", byteLength: 16 },
+      keyCodecVersion: 1,
+      collation: "binaryUtf8",
+      maxEncodedKeyBytes: MAX_ORDERED_INDEX_KEY_BYTES_V1,
+    };
+
+    const decoded = decodeAppOrderedIndexPhysicalSpecV1(input);
+    input.orderedFields[0]!.path = "changedAfterDecode";
+    input.tieBreaker.byteLength = 1;
+
+    expect(decoded.orderedFields[0]).toEqual({
+      kind: "documentPath",
+      path: "status",
+    });
+    expect(decoded.tieBreaker.byteLength).toBe(16);
+    expect(Object.isFrozen(input)).toBe(false);
+    expect(Object.isFrozen(decoded)).toBe(true);
+    expect(Object.isFrozen(decoded.orderedFields)).toBe(true);
+    expect(Object.isFrozen(decoded.orderedFields[0])).toBe(true);
+    expect(Object.isFrozen(decoded.tieBreaker)).toBe(true);
+  });
+
   it("keeps encoded-key and row-identity types nominally distinct", () => {
     expectTypeOf<OrderedIndexKeyHexV1>()
       .not.toEqualTypeOf<OrderedIndexRowIdHexV1>();

@@ -1,5 +1,6 @@
 import { compareUtf16Strings } from "@flarex/utils/strings";
 
+import { snapshotDecodedProtocolPlainData } from "./decoded-protocol-snapshot";
 import {
   canonicalizeAppIndexPhysicalSpecV1,
   type CanonicalAppIndexPhysicalSpecV1,
@@ -203,9 +204,9 @@ function decodeAndSnapshotManifest(
   value: unknown,
 ): SchemaManifestAppSchemaV1 {
   try {
-    const snapshot = structuredClone(decodeSchemaManifestAppSchemaV1(value));
-    deepFreeze(snapshot);
-    return snapshot;
+    return snapshotDecodedProtocolPlainData(
+      decodeSchemaManifestAppSchemaV1(value),
+    );
   } catch (cause) {
     throw new AppSchemaCatalogCompilationErrorV1(
       { reason: "invalidManifest" },
@@ -413,13 +414,6 @@ function compareIndexes(
   right: SchemaManifestAppIndexBindingV1,
 ): number {
   return left.logicalIndexId - right.logicalIndexId;
-}
-
-function deepFreeze(value: unknown): void {
-  if (value === null || typeof value !== "object") return;
-  const children = Array.isArray(value) ? value : Object.values(value);
-  for (const child of children) deepFreeze(child);
-  Object.freeze(value);
 }
 
 function compilationIssueMessage(

@@ -14,6 +14,7 @@ import {
   decodeAppRowIdHexV1,
   type AppRowIdHexV1,
 } from "./app-document-id";
+import { snapshotDecodedProtocolPlainData } from "./decoded-protocol-snapshot";
 import {
   SchemaManifestAppIndexFieldPathSchema,
   decodeSchemaManifestAppDeveloperOrderedIndexSpecV1,
@@ -363,7 +364,9 @@ const SEPARATE_ROW_ID_TIE_BREAKER = Object.freeze({
 export function decodeAppOrderedIndexPhysicalSpecV1(
   value: unknown,
 ): AppOrderedIndexPhysicalSpecV1 {
-  return detachAndFreeze(decodeAppOrderedIndexPhysicalSpecV1Shape(value));
+  return snapshotDecodedProtocolPlainData(
+    decodeAppOrderedIndexPhysicalSpecV1Shape(value),
+  );
 }
 
 export function lowerAppDeveloperOrderedIndexPhysicalSpecV1(
@@ -662,7 +665,7 @@ export function decodeOrderedIndexComponentsV1(
   if (reader.remaining !== 0) {
     throw reader.invalid("encoded key has trailing bytes");
   }
-  const frozen = detachAndFreeze(values);
+  const frozen = snapshotDecodedProtocolPlainData(values);
   let reencoded: OrderedIndexKeyHexV1;
   try {
     reencoded = encodeOrderedIndexComponentsV1(frozen);
@@ -1795,19 +1798,6 @@ function invalidValue(
   return new OrderedIndexCodecV1InputError({
     issue: { reason: "invalidValue", path, detail },
   });
-}
-
-function detachAndFreeze<T>(value: T): T {
-  const copy = structuredClone(value);
-  deepFreeze(copy);
-  return copy;
-}
-
-function deepFreeze(value: unknown): void {
-  if (value === null || typeof value !== "object") return;
-  const children = Array.isArray(value) ? value : Object.values(value);
-  for (const child of children) deepFreeze(child);
-  Object.freeze(value);
 }
 
 const TEXT_ENCODER = new TextEncoder();
