@@ -281,6 +281,17 @@ PostgreSQL JSONB adapters are persistence codec policy, not generic utilities.
 When a `jsonb NOT NULL` column must store JSON `null`, share the exact adapter
 inside the persistence package, preserve every non-null input by identity, and
 do not conflate JSON `null` with SQL `NULL` merely to remove a local helper.
+Use the persistence-local driver-row snapshot helper only for cloneable rows
+that must outlive their query or transaction owner. Its typed form admits only
+plain own-enumerable data records plus the supported intrinsic values, rejects
+custom prototypes and accessors without invoking them, deep-detaches with the
+platform structured-clone algorithm, and shallow-freezes only the returned
+array. It must reject shared-backed byte views because platform cloning aliases
+their storage instead of detaching it. Keep domain validation, nested runtime
+freezing, and branded byte or Date capture with their domain owner. Use the
+platform-failure-preserving
+unknown form only when the consuming persistence boundary will decode each row
+before establishing a domain type.
 Centralize stored-row decoding only when the protocol decoder, branded output,
 corruption error owner, detail spelling, and nested-cause policy are exact.
 Keep a domain-local decoder or adapter when any of those claims differ; sharing
@@ -315,9 +326,9 @@ representation rather than a broader host capability. Keep caller-specific
 configuration errors local while sharing the predicate and inclusive bounds.
 Validate the numeric representation before relational comparisons so unknown
 JavaScript inputs are rejected without invoking caller-controlled coercion.
-Use `@flarex/utils/bytes` only for the shallow `Uint8Array` and visible-byte-
-length predicate when independent owners need that exact classification. The
-predicate reads the intrinsic typed-array kind and view length rather than
+Use `@flarex/utils/bytes` `isUint8Array` for shallow intrinsic classification
+and `isUint8ArrayWithByteLength` when the visible length is also part of the
+claim. Both read the intrinsic typed-array kind and view length rather than
 trusting `instanceof` or an own caller-controlled `byteLength` property. Keep
 fixed digest or identity lengths, branded byte values, canonical encoding,
 validation messages, and domain failure mapping with their protocol,

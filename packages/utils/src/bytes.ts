@@ -23,6 +23,14 @@ export function copyBytesToArrayBuffer(value: Uint8Array): ArrayBuffer {
 }
 
 /**
+ * Narrows an unknown value to an intrinsic Uint8Array, including detached
+ * views whose platform-visible byte length is zero.
+ */
+export function isUint8Array(value: unknown): value is Uint8Array {
+  return intrinsicUint8ArrayByteLength(value) !== undefined;
+}
+
+/**
  * Narrows an unknown value to a Uint8Array whose visible view has exactly the
  * requested byte length.
  */
@@ -30,20 +38,23 @@ export function isUint8ArrayWithByteLength(
   value: unknown,
   expectedByteLength: number,
 ): value is Uint8Array {
+  return intrinsicUint8ArrayByteLength(value) === expectedByteLength;
+}
+
+function intrinsicUint8ArrayByteLength(value: unknown): number | undefined {
   try {
     if (
-      !(value instanceof Uint8Array) ||
       TYPED_ARRAY_BYTE_LENGTH_GETTER === undefined ||
       TYPED_ARRAY_TAG_GETTER === undefined
     ) {
-      return false;
+      return undefined;
     }
     const typedArrayTag: unknown = TYPED_ARRAY_TAG_GETTER.call(value);
-    if (typedArrayTag !== "Uint8Array") return false;
+    if (typedArrayTag !== "Uint8Array") return undefined;
     const byteLength: unknown = TYPED_ARRAY_BYTE_LENGTH_GETTER.call(value);
-    return byteLength === expectedByteLength;
+    return typeof byteLength === "number" ? byteLength : undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }
 

@@ -7,6 +7,7 @@ import {
   copyBytes,
   copyBytesToArrayBuffer,
   encodeBytesToLowercaseHex,
+  isUint8Array,
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 
@@ -152,6 +153,32 @@ describe("isUint8ArrayWithByteLength", () => {
     Object.setPrototypeOf(wrongElementType, Uint8Array.prototype);
     expect(wrongElementType instanceof Uint8Array).toBe(true);
     expect(isUint8ArrayWithByteLength(wrongElementType, 2)).toBe(false);
+  });
+});
+
+describe("isUint8Array", () => {
+  it("classifies intrinsic views without a caller-supplied length", () => {
+    expect(isUint8Array(new Uint8Array([1]))).toBe(true);
+    expect(isUint8Array(new Uint8Array([1]).subarray(1))).toBe(true);
+    expect(isUint8Array(new Uint16Array([1]))).toBe(false);
+    expect(isUint8Array(new DataView(new ArrayBuffer(1)))).toBe(false);
+  });
+
+  it("preserves detached Uint8Array classification", () => {
+    const buffer = new ArrayBuffer(2);
+    const bytes = new Uint8Array(buffer);
+    structuredClone(buffer, { transfer: [buffer] });
+
+    expect(isUint8Array(bytes)).toBe(true);
+  });
+
+  it("rejects Proxies and prototype impostors without throwing", () => {
+    const bytes = new Uint8Array([1]);
+    expect(isUint8Array(new Proxy(bytes, {}))).toBe(false);
+
+    const impostor: unknown = Object.create(Uint8Array.prototype);
+    expect(impostor instanceof Uint8Array).toBe(true);
+    expect(isUint8Array(impostor)).toBe(false);
   });
 });
 

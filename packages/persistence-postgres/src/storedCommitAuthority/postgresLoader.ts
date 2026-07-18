@@ -13,6 +13,10 @@ import type {
 } from "flarex-protocol/transaction-session";
 
 import type { AppRowTransaction } from "../appRows";
+import {
+  detachDriverRows,
+  detachUnknownDriverRows,
+} from "../detachDriverRows";
 import { observeDrizzleQuery } from "../drizzleQueryObservation";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
@@ -252,12 +256,12 @@ async function captureRows(
   );
   if (skipReason !== undefined) {
     return Object.freeze({
-      clockRows: detachRows(clockRows),
+      clockRows: detachDriverRows(clockRows),
       databaseNowText: nowRows[0]?.milliseconds,
-      sessionSizeRows: detachRows(sessionSizeRows),
-      leaseRows: detachRows(leaseRows),
-      rootRows: detachRows(rootRows),
-      schemaSizeRows: detachRows(schemaSizeRows),
+      sessionSizeRows: detachDriverRows(sessionSizeRows),
+      leaseRows: detachDriverRows(leaseRows),
+      rootRows: detachDriverRows(rootRows),
+      schemaSizeRows: detachDriverRows(schemaSizeRows),
       skipReason,
       sessionPayloadRows: Object.freeze([]),
       schemaPayloadRows: Object.freeze([]),
@@ -365,15 +369,15 @@ async function captureRows(
   const bindingResult: unknown = await tx.execute(bindingStatement);
 
   return Object.freeze({
-    clockRows: detachRows(clockRows),
+    clockRows: detachDriverRows(clockRows),
     databaseNowText: nowRows[0]?.milliseconds,
-    sessionSizeRows: detachRows(sessionSizeRows),
-    leaseRows: detachRows(leaseRows),
-    rootRows: detachRows(rootRows),
-    schemaSizeRows: detachRows(schemaSizeRows),
+    sessionSizeRows: detachDriverRows(sessionSizeRows),
+    leaseRows: detachDriverRows(leaseRows),
+    rootRows: detachDriverRows(rootRows),
+    schemaSizeRows: detachDriverRows(schemaSizeRows),
     sessionPayloadRows: detachSessionPayloadRows(sessionPayloadRows),
     schemaPayloadRows: detachSchemaPayloadRows(schemaPayloadRows),
-    bindingRows: detachRows(rowsFromExecuteResult(bindingResult)),
+    bindingRows: detachUnknownDriverRows(rowsFromExecuteResult(bindingResult)),
   });
 }
 
@@ -555,7 +559,7 @@ function emptyCapture(
   databaseNowText: string | undefined,
 ): CapturedRowsV1 {
   return Object.freeze({
-    clockRows: detachRows(clockRows),
+    clockRows: detachDriverRows(clockRows),
     databaseNowText,
     sessionSizeRows: Object.freeze([]),
     leaseRows: Object.freeze([]),
@@ -578,10 +582,6 @@ function rowsFromExecuteResult(result: unknown): ReadonlyArray<unknown> {
     return result.rows;
   }
   throw new Error("Stable-binding query returned an invalid driver result.");
-}
-
-function detachRows<Row>(rows: ReadonlyArray<Row>): ReadonlyArray<Row> {
-  return Object.freeze(structuredClone(rows));
 }
 
 function detachSessionPayloadRows(

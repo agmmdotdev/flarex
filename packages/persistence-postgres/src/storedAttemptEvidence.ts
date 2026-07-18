@@ -56,6 +56,7 @@ import {
 } from "flarex-protocol/value";
 
 import type { AppRowTransaction } from "./appRows";
+import { detachDriverRows } from "./detachDriverRows";
 import {
   observeDrizzleQuery as observeStoredAttemptQuery,
 } from "./drizzleQueryObservation";
@@ -515,7 +516,7 @@ async function captureStoredAttemptRows(
   const scopeUuid = clockRows[0]?.scopeUuid;
   if (scopeUuid === undefined || scopeUuid === null) {
     return Object.freeze({
-      clockRows: Object.freeze(structuredClone(clockRows)),
+      clockRows: detachDriverRows(clockRows),
       databaseNowText: nowRows[0]?.milliseconds,
       sessionRows: Object.freeze([]),
       leaseRows: Object.freeze([]),
@@ -574,12 +575,12 @@ async function captureStoredAttemptRows(
   const pointRows = await pointQuery;
 
   return Object.freeze({
-    clockRows: Object.freeze(structuredClone(clockRows)),
+    clockRows: detachDriverRows(clockRows),
     databaseNowText: nowRows[0]?.milliseconds,
-    sessionRows: Object.freeze(structuredClone(sessionRows)),
-    leaseRows: Object.freeze(structuredClone(leaseRows)),
-    rootRows: Object.freeze(structuredClone(rootRows)),
-    pointRows: Object.freeze(structuredClone(pointRows)),
+    sessionRows: detachDriverRows(sessionRows),
+    leaseRows: detachDriverRows(leaseRows),
+    rootRows: detachDriverRows(rootRows),
+    pointRows: detachDriverRows(pointRows),
   });
 }
 

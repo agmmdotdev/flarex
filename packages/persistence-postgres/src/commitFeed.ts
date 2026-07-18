@@ -14,6 +14,7 @@ import {
 } from "flarex-protocol/storage-authority";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import { detachDriverRows } from "./detachDriverRows";
 import {
   fxAppRowRevisions,
   fxSystemCommitAppRowChanges,
@@ -290,8 +291,8 @@ async function captureCommitFeedRows(
     );
     if (selection === null) {
       return Object.freeze({
-        clockRows: detachRows(clockRows),
-        headerRows: detachRows(headerRows),
+        clockRows: detachDriverRows(clockRows),
+        headerRows: detachDriverRows(headerRows),
         appRowChangeRows: Object.freeze([]),
       });
     }
@@ -360,9 +361,9 @@ async function captureCommitFeedRows(
     const appRowChangeRows = await appRowChangeQuery;
 
     return Object.freeze({
-      clockRows: detachRows(clockRows),
-      headerRows: detachRows(headerRows),
-      appRowChangeRows: detachRows(appRowChangeRows),
+      clockRows: detachDriverRows(clockRows),
+      headerRows: detachDriverRows(headerRows),
+      appRowChangeRows: detachDriverRows(appRowChangeRows),
     });
   });
 }
@@ -679,10 +680,6 @@ function corruption<A = never>(
       ? {}
       : { commitSeq: CommitSeqSchema.make(commitSeq) }),
   }));
-}
-
-function detachRows<Row>(rows: ReadonlyArray<Row>): ReadonlyArray<Row> {
-  return Object.freeze(structuredClone(rows));
 }
 
 function observeCommitFeedQuery(
