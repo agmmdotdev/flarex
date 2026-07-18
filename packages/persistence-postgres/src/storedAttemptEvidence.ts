@@ -430,7 +430,7 @@ export function createStoredAttemptEvidenceLoaderV1(
         }),
       });
     }
-    return materializeStoredAttemptEvidence(
+    return yield* materializeStoredAttemptEvidence(
       request,
       located.authority,
       captured,
@@ -663,19 +663,22 @@ function materializeStoredAttemptEvidence(
   request: StoredAttemptEvidenceRequestV1,
   preliminary: TrustedScopeAuthority,
   captured: CapturedStoredAttemptRowsV1,
-): StoredAttemptEvidenceLoadResultV1 {
-  try {
-    return materializeStoredAttemptEvidenceUnsafe(
-      request,
-      preliminary,
-      captured,
-    );
-  } catch (cause) {
-    if (isStoredAttemptEvidenceDecodeFailure(cause)) {
-      return corrupt("sessionRecordInvalid", cause);
-    }
-    throw cause;
-  }
+): Effect.Effect<StoredAttemptEvidenceLoadResultV1> {
+  return Effect.try({
+    try: () =>
+      materializeStoredAttemptEvidenceUnsafe(
+        request,
+        preliminary,
+        captured,
+      ),
+    catch: (cause): unknown => cause,
+  }).pipe(
+    Effect.catchIf(
+      isStoredAttemptEvidenceDecodeFailure,
+      (cause) => Effect.succeed(corrupt("sessionRecordInvalid", cause)),
+    ),
+    Effect.orDie,
+  );
 }
 
 function isStoredAttemptEvidenceDecodeFailure(cause: unknown): boolean {
