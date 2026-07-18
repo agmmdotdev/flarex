@@ -2,7 +2,6 @@ import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
 import {
-  decodeCatalogTableId,
   decodeCatalogTableNamespace,
   type CatalogTableId,
   type CatalogTableNamespace,
@@ -11,6 +10,8 @@ import {
 import type { FlarexMetadataDatabase } from "./deployments";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { deployments, fxControlTables } from "./schema";
+import { decodeStableTableCatalogId as decodeTableId } from
+  "./stableTableCatalogDecoding";
 import {
   nextStableTableCatalogId,
   readStableTableCatalogHighWater,
@@ -188,20 +189,6 @@ function validateNonBlank(
 ): void {
   if (!isNonBlankString(value)) {
     throw new InvalidStableTableIdentityInputError(field);
-  }
-}
-
-function decodeTableId(
-  deploymentId: string,
-  value: unknown,
-): CatalogTableId {
-  try {
-    return decodeCatalogTableId(value);
-  } catch {
-    throw new StableTableCatalogCorruptionError(
-      deploymentId,
-      `invalid table ID: ${String(value)}`,
-    );
   }
 }
 
