@@ -4,6 +4,7 @@ import { HttpError, RequestJsonError } from "../src/http";
 import {
   decodeDeliveryWakeRequest,
   decodeDeliveryWakeRoutePayload,
+  deliveryWakeRouteErrorToHttpError,
 } from "../src/delivery/RouteBoundary";
 import {
   decodeDeliveryWakePayload,
@@ -111,6 +112,10 @@ describe("delivery route boundary", () => {
       message: "Request body must be JSON.",
       cause: new SyntaxError("Unexpected end of JSON input"),
     });
+    expect(deliveryWakeRouteErrorToHttpError(jsonError)).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
     const jsonResponse = await Effect.runPromise(deliveryInternalRouteErrorToResponseEffect(jsonError));
     expect(jsonResponse.status).toBe(400);
     await expect(jsonResponse.json()).resolves.toEqual({
@@ -118,6 +123,10 @@ describe("delivery route boundary", () => {
     });
 
     const validationError = new DeliveryWakePayloadError({
+      message: "deploymentId must be a non-empty string.",
+    });
+    expect(deliveryWakeRouteErrorToHttpError(validationError)).toMatchObject({
+      status: 400,
       message: "deploymentId must be a non-empty string.",
     });
     const validationResponse = await Effect.runPromise(

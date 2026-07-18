@@ -1,5 +1,4 @@
 import { DurableObject } from "cloudflare:workers";
-import { ExecutionProtocolValidationError } from "flarex-protocol/execution";
 import { Effect } from "effect";
 import {
   decodeExecutionFinishRouteRequest,
@@ -19,6 +18,7 @@ import {
   executionRouteOperationErrorToAdapterError,
   type ExecutionRouteOperation,
 } from "./execution/RouteOperationError";
+import { executionRouteDecodeErrorToHttpError } from "./execution/RouteDecodeError";
 import {
   ExecutionSessionError,
   executionSessionError,
@@ -29,7 +29,6 @@ import {
   requireNoActiveExecutionSession,
   requireSupportedExecutionFunctionKind,
 } from "./execution/SessionError";
-import { HttpError, RequestJsonError, requestJsonErrorToHttpError } from "./http";
 import {
   deleteDocumentEffect,
   getDocumentEffect,
@@ -478,25 +477,7 @@ function executionInternalRouteErrorToResponse(
 
 export const executionInternalRouteErrorToResponseEffect = Effect.fn(
   "ExecutionDO.executionInternalRouteErrorToResponse",
-)(function* (
-  error: ExecutionInternalRouteError,
-): Effect.fn.Return<Response> {
-  return yield* Effect.succeed(executionInternalRouteErrorToResponse(error));
-});
-
-type ExecutionRouteDecodeError =
-  | ExecutionStartRouteError
-  | ExecutionSyscallRouteError
-  | ExecutionFinishRouteError;
-
-function executionRouteDecodeErrorToHttpError(
-  error: ExecutionRouteDecodeError,
-): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  if (error instanceof ExecutionProtocolValidationError) {
-    return new HttpError(400, error.message);
-  }
-  return new HttpError(500, "Unexpected execution route error.");
-}
+)(
+  (error: ExecutionInternalRouteError): Effect.Effect<Response> =>
+    Effect.succeed(executionInternalRouteErrorToResponse(error)),
+);

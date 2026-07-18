@@ -3,8 +3,6 @@ import {
   errorResponse,
   HttpError,
   json,
-  RequestJsonError,
-  requestJsonErrorToHttpError,
 } from "../http";
 import {
   deliveryPendingDrainStateErrorToHttpError,
@@ -14,8 +12,10 @@ import {
   DeliveryRouteOperationError,
   deliveryRouteOperationErrorToHttpError,
 } from "./RouteOperationError";
-import type { DeliveryWakeRouteError } from "./RouteBoundary";
-import { DeliveryWakePayloadError } from "./WakeRequest";
+import {
+  deliveryWakeRouteErrorToHttpError,
+  type DeliveryWakeRouteError,
+} from "./RouteBoundary";
 
 type DeliveryDrainFailureLike = {
   readonly _tag: "DeliveryDrainFailureError";
@@ -54,16 +54,6 @@ export function deliveryInternalRouteErrorToHttpError(
     return deliveryPendingDrainStateErrorToHttpError(error);
   }
   return deliveryWakeRouteErrorToHttpError(error);
-}
-
-function deliveryWakeRouteErrorToHttpError(error: DeliveryWakeRouteError): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  if (error instanceof DeliveryWakePayloadError) {
-    return new HttpError(400, error.message);
-  }
-  return new HttpError(500, "Unexpected delivery wake route error.");
 }
 
 export const deliveryInternalRouteErrorToHttpErrorEffect = Effect.fn(

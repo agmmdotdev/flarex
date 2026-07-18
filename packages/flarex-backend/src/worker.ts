@@ -40,6 +40,7 @@ import {
   dispatchPublicDeliveryWakeEffect,
 } from "./delivery/PublicWakeDispatchBoundary";
 import {
+  deliveryWakeRouteErrorToHttpError,
   type DeliveryWakeRouteError,
 } from "./delivery/RouteBoundary";
 import { DeliveryWakePayloadError } from "./delivery/WakeRequest";
@@ -57,6 +58,7 @@ import {
   decodePublicExecutionStartRouteRequest,
   type ExecutionStartRouteError,
 } from "./execution/StartRouteBoundary";
+import { executionRouteDecodeErrorToHttpError } from "./execution/RouteDecodeError";
 import {
   dispatchPublicExecutionActionEffect,
   startPublicExecutionEffect,
@@ -525,18 +527,6 @@ function publicDeploymentRoutePathErrorToHttpError(
     return publicExecutionRoutePathErrorToHttpError(error);
   }
   return publicRoutePathErrorToHttpError(error);
-}
-
-function executionRouteDecodeErrorToHttpError(
-  error: ExecutionStartRouteError | PublicExecutionActionRouteError,
-): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  if (error instanceof ExecutionProtocolValidationError) {
-    return new HttpError(400, error.message);
-  }
-  return new HttpError(500, "Unexpected execution route error.");
 }
 
 function publicExecutionRoutePathErrorToHttpError(
@@ -1142,16 +1132,6 @@ function publicWorkerDeploymentSyncRouteErrorToHttpError(
     return liveQueryDeliveryRouteErrorToHttpError(error);
   }
   return liveQueryDeliveryRouteErrorToHttpError(error);
-}
-
-function deliveryWakeRouteErrorToHttpError(error: DeliveryWakeRouteError): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  if (error instanceof DeliveryWakePayloadError) {
-    return new HttpError(400, error.message);
-  }
-  return new HttpError(500, "Unexpected delivery wake route error.");
 }
 
 function liveQueryDeliveryRouteErrorToHttpError(error: LiveQueryDeliveryRouteError): HttpError {

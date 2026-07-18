@@ -8,6 +8,7 @@ import {
   decodePublicExecutionStartRoutePayload,
   decodePublicExecutionStartRouteRequest,
 } from "../src/execution/StartRouteBoundary";
+import { executionRouteDecodeErrorToHttpError } from "../src/execution/RouteDecodeError";
 
 describe("execution start route boundary", () => {
   it("decodes internal execution start requests through the protocol parser", async () => {
@@ -87,6 +88,26 @@ describe("execution start route boundary", () => {
         body: "{",
       },
     )))).rejects.toBeInstanceOf(RequestJsonError);
+  });
+
+  it("maps execution route decode errors at the shared boundary", async () => {
+    const jsonError = new RequestJsonError({
+      message: "Request body must be JSON.",
+      cause: new SyntaxError("Unexpected end of JSON input"),
+    });
+    expect(executionRouteDecodeErrorToHttpError(jsonError)).toMatchObject({
+      status: 400,
+      message: "Request body must be JSON.",
+    });
+
+    const protocolError = await Effect.runPromise(
+      Effect.flip(decodeExecutionStartRoutePayload(null)),
+    );
+    expect(protocolError).toBeInstanceOf(ExecutionProtocolValidationError);
+    expect(executionRouteDecodeErrorToHttpError(protocolError)).toMatchObject({
+      status: 400,
+      message: protocolError.message,
+    });
   });
 
 });
