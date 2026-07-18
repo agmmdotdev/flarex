@@ -125,10 +125,28 @@ and broad seal `tryPromise` wrapper are deleted. A failed transaction retains
 the preparation handle for retry; successful completion deletes it only after
 the transaction settles. If transaction cleanup also fails after callback work
 dies or is interrupted, the callback `Cause` remains observable and the
-transaction failure is attached as diagnostic defect evidence. Precise
-driver-level begin/commit/rollback
-classification beyond the callback-versus-infrastructure distinction remains
-a later adapter slice.
+transaction failure is attached as diagnostic defect evidence.
+
+The already-connected Postgres transaction demarcation is now Effect-native.
+BEGIN and COMMIT rejection have distinct typed infrastructure failures; a
+callback's typed failure, defect, or interruption remains its exact `Cause` and
+rollback settlement completes before that cause becomes observable. Rollback
+failure remains secondary diagnostic evidence; the native operation requires
+the connection owner to observe it, and a throwing observer cannot replace the
+primary cause. Interruption requested during COMMIT waits for settlement. If
+COMMIT succeeds, no rollback follows and the fiber may then report interruption,
+so higher-level retries must use the existing idempotency or authoritative
+outcome-recovery contract rather than infer that cancellation means rollback.
+The Promise facade remains only for the current
+`FlarexRuntimePersistenceDriver.transaction` consumers, preserves their raw
+rejection identity, and retains their historical optional observer; it is
+deleted when that runtime and public persistence transaction contract become
+Effect-native. Pool acquisition/release remains a host-owned Promise lifecycle
+outside this bounded slice. Before native host activation, that owner still
+needs a bounded driver timeout plus abort-and-poison policy for a connection
+whose BEGIN, COMMIT, or ROLLBACK never settles. The transaction adapter does not
+fake that policy with an Effect timer because returning while the driver remains
+in flight would manufacture an unknown database outcome.
 
 Pinned point-table resolution is now Effect-native across the session store,
 located target capability, and resolver. The obsolete Promise capability and
