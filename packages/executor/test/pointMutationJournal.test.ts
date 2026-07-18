@@ -4,6 +4,7 @@ import type {
 } from "@flarex/persistence-postgres/session-journal-store";
 import {
   PinnedPointTableNotFoundV1Error,
+  SessionJournalPersistenceV1Error,
 } from "@flarex/persistence-postgres/session-journal-store";
 import type {
   PointMutationSessionAnchorV1,
@@ -451,6 +452,26 @@ describe("C03 executor point-mutation journal boundary", () => {
     );
     expect(missingFailure).toBe(missingTable);
 
+    const resolutionCause = new Error("table resolution unavailable");
+    const unavailableHarness = createHarness({
+      resolvePointTable: async () => {
+        throw resolutionCause;
+      },
+    });
+    const unavailableAttempt = await runEffect(
+      unavailableHarness.journal.openAttempt(await loadedAttempt()),
+    );
+    const unavailableFailure = await runFailure(
+      unavailableHarness.journal.resolvePointTable(
+        unavailableAttempt,
+        "users",
+      ),
+    );
+    expect(unavailableFailure).toBeInstanceOf(
+      PointMutationJournalPersistenceV1Error,
+    );
+    expect(unavailableFailure).toMatchObject({ cause: resolutionCause });
+
     const invalidAttemptEffect = Reflect.apply(
       resolveHarness.journal.resolvePointTable,
       undefined,
@@ -608,6 +629,20 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
       }
       return Object.freeze({ attempt, tableName });
     },
+    resolvePointTableEffect: (
+      attempt: unknown,
+      tableName: unknown,
+    ) => Effect.tryPromise({
+      try: () => options.resolvePointTable === undefined
+        ? Promise.resolve(Object.freeze({ attempt, tableName }))
+        : options.resolvePointTable(attempt, tableName),
+      catch: (cause) => cause instanceof PinnedPointTableNotFoundV1Error
+        ? cause
+        : new SessionJournalPersistenceV1Error({
+          operation: "resolvePinnedPointTable",
+          cause,
+        }),
+    }),
     runPointOperation: async (
       table: unknown,
       operation: SessionJournalPointOperationV1,

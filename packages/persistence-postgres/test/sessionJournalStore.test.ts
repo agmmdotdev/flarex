@@ -69,6 +69,7 @@ import {
   PinnedPointTableCorruptionV1Error,
   PinnedPointTableNotFoundV1Error,
   SessionJournalIdentityGenerationV1Error,
+  SessionJournalPersistenceV1Error,
   SessionJournalSealV1Error,
   createSessionJournalStorePersistenceV1,
   type PinnedPointTableV1,
@@ -270,6 +271,60 @@ describe("C03 Postgres SessionJournalStore", () => {
     expectTypeOf<UnsupportedStoreOperation>().toEqualTypeOf<never>();
 
     const current = await scenario("table_resolution");
+    await expect(
+      runEffect(current.store.resolvePointTableEffect(
+        current.attempt,
+        "users",
+      )),
+    ).resolves.toBeDefined();
+    await expect(
+      runFailure(current.store.resolvePointTableEffect(
+        current.attempt,
+        "comments",
+      )),
+    ).resolves.toBeInstanceOf(PinnedPointTableNotFoundV1Error);
+    await expect(
+      runFailure(current.store.resolvePointTableEffect(current.attempt, 42)),
+    ).resolves.toMatchObject({
+      reason: "invalidTableName",
+    } satisfies Partial<InvalidSessionJournalInputV1Error>);
+    const resolutionCause = new Error("resolution persistence unavailable");
+    const failingResolutionPorts = {
+      scopeMetadata: {
+        getScopeMetadataByDeploymentId: async () => {
+          throw resolutionCause;
+        },
+      },
+      provisioningReceipts: {
+        getScopeAuthorityProvisioningReceipt: async () => {
+          throw new Error("Resolution must stop after the metadata failure.");
+        },
+      },
+      scopeSessionTargets: {
+        resolve: async () => {
+          throw new Error("Resolution must stop after the metadata failure.");
+        },
+      },
+    } satisfies PointMutationSessionAuthorityResolutionPortsV1;
+    const failingResolutionStore = createSessionJournalStorePersistenceV1(
+      failingResolutionPorts,
+    );
+    const failingResolutionAttempt = failingResolutionStore.openAttempt({
+      selector: selectorFromAnchor(current.anchor),
+      snapshotToken: current.anchor.snapshotToken,
+      schemaVersionId: current.schemaVersionId,
+    });
+    const resolutionFailure = await runFailure(
+      failingResolutionStore.resolvePointTableEffect(
+        failingResolutionAttempt,
+        "users",
+      ),
+    );
+    expect(resolutionFailure).toBeInstanceOf(SessionJournalPersistenceV1Error);
+    expect(resolutionFailure).toMatchObject({
+      operation: "resolveJournalTarget",
+      cause: resolutionCause,
+    } satisfies Partial<SessionJournalPersistenceV1Error>);
     await expect(
       current.store.resolvePointTable(current.attempt, "users"),
     ).resolves.toBeDefined();
@@ -1904,4 +1959,8 @@ function removalFieldPrefixes(fieldCount: number): ReadonlyArray<string> {
 
 function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
   return Effect.runPromise(effect);
+}
+
+function runFailure<A, E>(effect: Effect.Effect<A, E>): Promise<E> {
+  return Effect.runPromise(Effect.flip(effect));
 }

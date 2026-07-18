@@ -255,13 +255,21 @@ export function createPointMutationJournalV1(
           catch: mapPersistenceFailure,
         });
         const persistenceTable = yield* state.coordinator.semaphore.withPermit(
-          Effect.uninterruptible(Effect.tryPromise({
-            try: () => persistence.resolvePointTable(
+          Effect.uninterruptible(
+            persistence.resolvePointTableEffect(
               state.persistenceAttempt,
               tableName,
+            ).pipe(
+              Effect.catchTag(
+                "SessionJournalPersistenceV1Error",
+                (error) => Effect.fail(
+                  new PointMutationJournalPersistenceV1Error({
+                    cause: error.cause,
+                  }),
+                ),
+              ),
             ),
-            catch: mapPersistenceFailure,
-          })),
+          ),
         );
         const handle = Object.freeze({
           [pointMutationJournalTableBrand]: true as const,

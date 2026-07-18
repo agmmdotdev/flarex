@@ -20,6 +20,29 @@ describe("Effect runtime boundary checker", () => {
     expect(report.errors).toEqual([]);
   });
 
+  it("pins the temporary SessionJournalStore Promise facade to its named owner", () => {
+    const sessionJournalSourcePath =
+      "packages/persistence-postgres/src/sessionJournalStore.ts";
+    const report = analyzeEffectRuntimeBoundaries(
+      [{
+        relativePath: sessionJournalSourcePath,
+        text: `
+          import { Effect } from "effect";
+
+          export const store = {
+            resolvePointTable: async () => Effect.runPromise(Effect.succeed(1)),
+          };
+        `,
+      }],
+      new Map([[
+        `${sessionJournalSourcePath} :: resolvePointTable`,
+        1,
+      ]]),
+    );
+
+    expect(report.errors).toEqual([]);
+  });
+
   it("rejects generated production runSync boundaries", () => {
     const suffix = "}";
     const report = analyzeSource(`

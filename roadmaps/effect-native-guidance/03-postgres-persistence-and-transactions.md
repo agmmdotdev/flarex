@@ -13,6 +13,16 @@ journal catches the Promise, recognizes a long list of tagged errors with
 `instanceof`, and wraps the rest as one persistence error, the real error
 model still lives outside Effect.
 
+## Current Migration Status
+
+The first bounded vertical slice ports session-journal table resolution. The
+persistence contract now exposes an Effect-native resolver with exact domain
+and persistence failures, and the executor consumes that resolver directly.
+The Promise resolver remains a temporary compatibility bridge for persistence
+tests and the remaining Promise-native journal flow; remove it and its audited
+runtime-boundary entry when those consumers migrate. Session opening, point
+operations, sealing, and transaction ownership remain outside this slice.
+
 ## Target Boundary
 
 The target public persistence capability should expose exact Effect methods:

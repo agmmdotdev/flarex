@@ -73,7 +73,7 @@ import {
 } from "flarex-protocol/json";
 import {
   decodeCatalogSchemaVersionId,
-  decodeSchemaManifestAppTableName,
+  SchemaManifestAppTableNameSchema,
   type CatalogSchemaVersionId,
   type SchemaManifestAppTableName,
 } from "flarex-protocol/schema-manifest";
@@ -341,6 +341,18 @@ export interface SessionJournalStorePersistenceV1 {
     attempt: SessionJournalAttemptV1,
     tableName: unknown,
   ) => Promise<PinnedPointTableV1>;
+  /**
+   * Effect-native table-resolution path. The Promise method above is a
+   * temporary compatibility bridge for persistence tests and the remaining
+   * Promise-native journal operations; remove it when those consumers migrate.
+   */
+  readonly resolvePointTableEffect: (
+    attempt: SessionJournalAttemptV1,
+    tableName: unknown,
+  ) => Effect.Effect<
+    PinnedPointTableV1,
+    SessionJournalResolvePointTableV1Error
+  >;
   readonly runPointOperation: (
     table: PinnedPointTableV1,
     operation: SessionJournalPointOperationV1,
@@ -382,6 +394,21 @@ export class SessionJournalTargetUnavailableV1Error extends Data.TaggedError(
 )<{
   readonly scopeId: ScopeId;
 }> {}
+
+export class SessionJournalPersistenceV1Error extends Data.TaggedError(
+  "SessionJournalPersistenceV1Error",
+)<{
+  readonly operation: "resolveJournalTarget" | "resolvePinnedPointTable";
+  readonly cause: unknown;
+}> {}
+
+export type SessionJournalResolvePointTableV1Error =
+  | InvalidSessionJournalCapabilityV1Error
+  | InvalidSessionJournalInputV1Error
+  | PinnedPointTableCorruptionV1Error
+  | PinnedPointTableNotFoundV1Error
+  | SessionJournalPersistenceV1Error
+  | SessionJournalTargetUnavailableV1Error;
 
 type SessionJournalStorageCorruptionReasonV1 =
   | "databaseClockInvalid"
@@ -617,6 +644,9 @@ const decodeLogicalAppWrite = Schema.decodeUnknownSync(
   { onExcessProperty: "error" },
 );
 const encodeSessionJournal = Schema.encodeSync(SessionJournalV1Schema);
+const decodeSchemaManifestAppTableNameEffect = Schema.decodeUnknownEffect(
+  SchemaManifestAppTableNameSchema,
+);
 
 export function createSessionJournalStorePersistenceV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
@@ -644,6 +674,72 @@ export function createSessionJournalStorePersistenceV1(
     return state;
   };
 
+  const resolvePointTableEffect: SessionJournalStorePersistenceV1[
+    "resolvePointTableEffect"
+  ] = Effect.fn("SessionJournalStore.resolvePointTable")(function* (
+    attempt,
+    tableNameInput,
+  ) {
+    const attemptState = typeof attempt === "object" && attempt !== null
+      ? attemptStates.get(attempt)
+      : undefined;
+    if (attemptState === undefined) {
+      return yield* Effect.fail(new InvalidSessionJournalCapabilityV1Error({
+        capability: "attempt",
+      }));
+    }
+    const tableName = yield* decodeSchemaManifestAppTableNameEffect(
+      tableNameInput,
+    ).pipe(
+      Effect.mapError((cause) => new InvalidSessionJournalInputV1Error({
+        operation: "resolvePointTable",
+        reason: "invalidTableName",
+        cause,
+      })),
+    );
+    const located = yield* Effect.tryPromise({
+      try: () => resolveLocatedTrustedScopeAuthority(
+        attemptState.selector.deploymentId,
+        {
+          scopeMetadata: ports.scopeMetadata,
+          provisioningReceipts: ports.provisioningReceipts,
+          scopeClockTargets: ports.scopeSessionTargets,
+        },
+      ),
+      catch: (cause) => new SessionJournalPersistenceV1Error({
+        operation: "resolveJournalTarget",
+        cause,
+      }),
+    });
+    const target = located.authority.scopeId === attemptState.selector.scopeId &&
+        isLocatedExactRunningAttemptKernelV1(located.target)
+      ? located.target
+      : undefined;
+    if (target === undefined) {
+      return yield* Effect.fail(new SessionJournalTargetUnavailableV1Error({
+        scopeId: attemptState.selector.scopeId,
+      }));
+    }
+    const tableId = yield* Effect.tryPromise({
+      try: () => target[RESOLVE_PINNED_POINT_TABLE_ID_V1]({
+        deploymentId: attemptState.selector.deploymentId,
+        schemaVersionId: attemptState.schemaVersionId,
+        tableName,
+      }),
+      catch: mapPointTableResolutionFailure,
+    });
+    const state = Object.freeze({
+      attempt: attemptState,
+      tableName,
+      tableId,
+    } satisfies PinnedPointTableStateV1);
+    const handle = Object.freeze({
+      [pinnedPointTableBrand]: true as const,
+    });
+    tableStates.set(handle, state);
+    return handle;
+  });
+
   return Object.freeze({
     openAttempt: (
       input: OpenSessionJournalAttemptV1Input,
@@ -659,36 +755,11 @@ export function createSessionJournalStorePersistenceV1(
       attempt: SessionJournalAttemptV1,
       tableNameInput: unknown,
     ): Promise<PinnedPointTableV1> => {
-      const attemptState = requireAttempt(attempt);
-      let tableName: SchemaManifestAppTableName;
-      try {
-        tableName = decodeSchemaManifestAppTableName(tableNameInput);
-      } catch (cause) {
-        throw new InvalidSessionJournalInputV1Error({
-          operation: "resolvePointTable",
-          reason: "invalidTableName",
-          cause,
-        });
-      }
-      const resolved = await resolveJournalTarget(ports, attemptState);
-      const tableId = await resolved.target[
-        RESOLVE_PINNED_POINT_TABLE_ID_V1
-      ]({
-        deploymentId: attemptState.selector.deploymentId,
-        schemaVersionId: attemptState.schemaVersionId,
-        tableName,
-      });
-      const state = Object.freeze({
-        attempt: attemptState,
-        tableName,
-        tableId,
-      } satisfies PinnedPointTableStateV1);
-      const handle = Object.freeze({
-        [pinnedPointTableBrand]: true as const,
-      });
-      tableStates.set(handle, state);
-      return handle;
+      return Effect.runPromise(
+        resolvePointTableEffect(attempt, tableNameInput),
+      );
     },
+    resolvePointTableEffect,
     runPointOperation: async (
       table: PinnedPointTableV1,
       operation: SessionJournalPointOperationV1,
@@ -796,6 +867,21 @@ export function createSessionJournalStorePersistenceV1(
       return envelope;
     },
   });
+}
+
+function mapPointTableResolutionFailure(
+  cause: unknown,
+):
+  | PinnedPointTableCorruptionV1Error
+  | PinnedPointTableNotFoundV1Error
+  | SessionJournalPersistenceV1Error {
+  return cause instanceof PinnedPointTableCorruptionV1Error ||
+      cause instanceof PinnedPointTableNotFoundV1Error
+    ? cause
+    : new SessionJournalPersistenceV1Error({
+      operation: "resolvePinnedPointTable",
+      cause,
+    });
 }
 
 interface ResolvedJournalTargetV1 {
