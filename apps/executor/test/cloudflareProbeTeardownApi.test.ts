@@ -175,6 +175,26 @@ describe("fixed H05 Cloudflare probe teardown API", () => {
     );
   });
 
+  it("maps account-access stream failures without surfacing their cause", async () => {
+    const marker = "PRIVATE_ACCOUNT_ACCESS_STREAM_FAILURE";
+    const api = validApi(async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.error(new Error(marker));
+          },
+        }),
+        { status: 200 },
+      )
+    );
+    const failure = api.verifyAccountAccess();
+
+    await expect(failure).rejects.toThrow(
+      "Cloudflare Scripts account access response could not be read.",
+    );
+    await expect(failure).rejects.not.toThrow(marker);
+  });
+
   it("returns a live public 401 as status-only evidence without authorization", async () => {
     const observedHeaders: Record<string, string>[] = [];
     const api = validApi(async (_input, init) => {

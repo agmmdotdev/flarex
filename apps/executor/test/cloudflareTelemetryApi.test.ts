@@ -153,6 +153,28 @@ describe("bounded H05 Cloudflare telemetry API", () => {
       malformed.query(accountId, validRequest()),
     ).rejects.not.toThrow("provider-secret-value");
   });
+
+  it("maps successful-response stream failures without surfacing their cause", async () => {
+    const marker = "PRIVATE_TELEMETRY_STREAM_FAILURE";
+    const api = createH05CloudflareTelemetryApi({
+      apiToken,
+      fetch: async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.error(new Error(marker));
+            },
+          }),
+          { status: 200 },
+        ),
+    });
+    const failure = api.query(accountId, validRequest());
+
+    await expect(failure).rejects.toThrow(
+      "Cloudflare telemetry response body could not be read.",
+    );
+    await expect(failure).rejects.not.toThrow(marker);
+  });
 });
 
 function validRequest(): H05TelemetryQueryRequest {

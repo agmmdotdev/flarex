@@ -143,6 +143,13 @@ or atomic no-replace publication. Callers retain the evidence kind, byte
 ceiling, diagnostics, and recovery policy. Do not add Node dependencies or
 host-specific trust policy to `@flarex/utils` merely because several commands
 repeat the same filesystem sequence.
+When several host adapters share a bounded foreign-response-to-JSON sequence,
+centralize the byte-read and fatal decode mechanics with that host owner. Let
+each adapter retain its byte ceiling and size, stream-read, decode, redaction,
+and envelope errors through explicit callbacks. Preserve the original failure
+order and any exact size-error identity. Keep optional empty-body acceptance
+with the endpoint contract that owns it rather than adding a permissive generic
+JSON-reader option or moving the helper into `@flarex/utils`.
 
 Before adding a local utility, inspect the installed platform and dependency
 APIs for an exact portable owner. Reuse a total encoder such as Effect

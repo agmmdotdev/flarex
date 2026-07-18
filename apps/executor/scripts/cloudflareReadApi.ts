@@ -7,11 +7,8 @@ import {
   cloudflareApiToken,
   positiveSafeInteger,
 } from "./cloudflareApiConfiguration";
-import {
-  discardH05BoundedResponseBody,
-  readH05BoundedResponseBody,
-} from "./h05BoundedResponseBody";
-import { decodeH05JsonBytesOrThrow } from "./h05JsonBytes";
+import { discardH05BoundedResponseBody } from "./h05BoundedResponseBody";
+import { readH05BoundedJsonResponse } from "./h05BoundedJsonResponse";
 
 export interface H05CloudflareReadApi {
   get(
@@ -72,7 +69,23 @@ export function createH05CloudflareReadApi(
           `Cloudflare API read returned HTTP ${response.status} for ${safePath(path)}.`,
         );
       }
-      const value = await readBoundedJson(response, maximumResponseBytes, path);
+      const value = await readH05BoundedJsonResponse(
+        response,
+        maximumResponseBytes,
+        {
+          createSizeError: () => new H05ResponseSizeError(),
+          mapReadFailure: (cause) =>
+            cause instanceof H05ResponseSizeError
+              ? cause
+              : new Error(
+                `Cloudflare API response body could not be read for ${safePath(path)}.`,
+              ),
+          mapDecodeFailure: () =>
+            new Error(
+              `Cloudflare API returned invalid JSON for ${safePath(path)}.`,
+            ),
+        },
+      );
       return unwrapSuccessEnvelope(value, path);
     },
     async publicStatus(origin) {
@@ -138,40 +151,6 @@ function unwrapSuccessEnvelope(
       ? value.result_info
       : undefined,
   };
-}
-
-async function readBoundedJson(
-  response: Response,
-  maximumResponseBytes: number,
-  path: string,
-): Promise<unknown> {
-  let bytes: Uint8Array;
-  try {
-    bytes = await readBoundedBody(response, maximumResponseBytes);
-  } catch (error) {
-    if (error instanceof H05ResponseSizeError) throw error;
-    throw new Error(
-      `Cloudflare API response body could not be read for ${safePath(path)}.`,
-    );
-  }
-  return decodeH05JsonBytesOrThrow(
-    bytes,
-    () =>
-      new Error(
-        `Cloudflare API returned invalid JSON for ${safePath(path)}.`,
-      ),
-  );
-}
-
-async function readBoundedBody(
-  response: Response,
-  maximumResponseBytes: number,
-): Promise<Uint8Array> {
-  return readH05BoundedResponseBody(
-    response,
-    maximumResponseBytes,
-    () => new H05ResponseSizeError(),
-  );
 }
 
 class H05ResponseSizeError extends Error {

@@ -7,11 +7,8 @@ import {
   cloudflareApiToken,
   positiveSafeInteger,
 } from "./cloudflareApiConfiguration";
-import {
-  discardH05BoundedResponseBody,
-  readH05BoundedResponseBody,
-} from "./h05BoundedResponseBody";
-import { decodeH05JsonBytesOrThrow } from "./h05JsonBytes";
+import { discardH05BoundedResponseBody } from "./h05BoundedResponseBody";
+import { readH05BoundedJsonResponse } from "./h05BoundedJsonResponse";
 
 export type H05TelemetryView = "events" | "traces";
 
@@ -112,7 +109,21 @@ export function createH05CloudflareTelemetryApi(
           `Cloudflare telemetry query returned HTTP ${response.status}.`,
         );
       }
-      const envelope = await readBoundedJson(response, maximumResponseBytes);
+      const envelope = await readH05BoundedJsonResponse(
+        response,
+        maximumResponseBytes,
+        {
+          createSizeError: () => new H05TelemetryResponseSizeError(),
+          mapReadFailure: (cause) =>
+            cause instanceof H05TelemetryResponseSizeError
+              ? cause
+              : new Error(
+                "Cloudflare telemetry response body could not be read.",
+              ),
+          mapDecodeFailure: () =>
+            new Error("Cloudflare telemetry query returned invalid JSON."),
+        },
+      );
       return unwrapSuccessEnvelope(envelope);
     },
   };
@@ -132,34 +143,6 @@ function unwrapSuccessEnvelope(value: unknown): unknown {
     throw new Error("Cloudflare telemetry query omitted its result.");
   }
   return value.result;
-}
-
-async function readBoundedJson(
-  response: Response,
-  maximumResponseBytes: number,
-): Promise<unknown> {
-  let bytes: Uint8Array;
-  try {
-    bytes = await readBoundedBody(response, maximumResponseBytes);
-  } catch (error) {
-    if (error instanceof H05TelemetryResponseSizeError) throw error;
-    throw new Error("Cloudflare telemetry response body could not be read.");
-  }
-  return decodeH05JsonBytesOrThrow(
-    bytes,
-    () => new Error("Cloudflare telemetry query returned invalid JSON."),
-  );
-}
-
-async function readBoundedBody(
-  response: Response,
-  maximumResponseBytes: number,
-): Promise<Uint8Array> {
-  return readH05BoundedResponseBody(
-    response,
-    maximumResponseBytes,
-    () => new H05TelemetryResponseSizeError(),
-  );
 }
 
 class H05TelemetryResponseSizeError extends Error {

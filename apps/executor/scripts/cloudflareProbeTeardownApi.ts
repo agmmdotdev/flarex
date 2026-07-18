@@ -19,6 +19,7 @@ import {
   discardH05BoundedResponseBody,
   readH05BoundedResponseBody,
 } from "./h05BoundedResponseBody";
+import { readH05BoundedJsonResponse } from "./h05BoundedJsonResponse";
 import { decodeH05JsonBytesOrThrow } from "./h05JsonBytes";
 
 export type H05CloudflareProbeDeletionResult =
@@ -161,19 +162,22 @@ async function validateAccountAccess(
   response: Response,
   maximumResponseBytes: number,
 ): Promise<void> {
-  let bytes: Uint8Array;
-  try {
-    bytes = await readBoundedBody(response, maximumResponseBytes);
-  } catch (error) {
-    if (error instanceof H05ResponseSizeError) throw error;
-    throw new Error("Cloudflare Scripts account access response could not be read.");
-  }
-  const value = decodeH05JsonBytesOrThrow(
-    bytes,
-    () =>
-      new Error(
-        "Cloudflare Scripts account access returned an invalid response.",
-      ),
+  const value = await readH05BoundedJsonResponse(
+    response,
+    maximumResponseBytes,
+    {
+      createSizeError: () => new H05ResponseSizeError(),
+      mapReadFailure: (cause) =>
+        cause instanceof H05ResponseSizeError
+          ? cause
+          : new Error(
+            "Cloudflare Scripts account access response could not be read.",
+          ),
+      mapDecodeFailure: () =>
+        new Error(
+          "Cloudflare Scripts account access returned an invalid response.",
+        ),
+    },
   );
   if (
     !isRecord(value) ||
