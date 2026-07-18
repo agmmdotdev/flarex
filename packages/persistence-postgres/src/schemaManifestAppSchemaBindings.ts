@@ -1,10 +1,8 @@
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq, inArray } from "drizzle-orm";
-import {
-  decodeCatalogIndexId,
-  decodeCatalogTableId,
-  type CatalogIndexId,
-  type CatalogTableId,
+import type {
+  CatalogIndexId,
+  CatalogTableId,
 } from "flarex-protocol/catalog";
 import {
   decodeSchemaManifestAppIndexDeclarationsV1,
@@ -36,6 +34,10 @@ import {
   readStableLogicalIndexCatalogHighWater,
   StableLogicalIndexCatalogCorruptionError,
 } from "./stableLogicalIndexCatalogAllocation";
+import {
+  decodeStableLogicalIndexCatalogIndexId as decodeStoredIndexId,
+  decodeStableLogicalIndexCatalogTableId as decodeStoredTableId,
+} from "./stableLogicalIndexCatalogDecoding";
 import type { StableTableCatalogTransaction } from "./stableTableCatalog";
 import { readStableTableCatalogHighWater } from "./stableTableCatalogAllocation";
 import { snapshotSchemaManifestValue } from "./schemaManifestValueSnapshot";
@@ -673,34 +675,6 @@ function freezeIdentities(
   identities: ReadonlyArray<SchemaManifestAppSchemaBindingIdentity>,
 ): ReadonlyArray<SchemaManifestAppSchemaBindingIdentity> {
   return Object.freeze([...identities]);
-}
-
-function decodeStoredIndexId(
-  deploymentId: string,
-  value: unknown,
-): CatalogIndexId {
-  try {
-    return decodeCatalogIndexId(value);
-  } catch {
-    throw new StableLogicalIndexCatalogCorruptionError(
-      deploymentId,
-      `invalid logical index ID: ${String(value)}`,
-    );
-  }
-}
-
-function decodeStoredTableId(
-  deploymentId: string,
-  value: unknown,
-): CatalogTableId {
-  try {
-    return decodeCatalogTableId(value);
-  } catch {
-    throw new StableLogicalIndexCatalogCorruptionError(
-      deploymentId,
-      `invalid table ID: ${String(value)}`,
-    );
-  }
 }
 
 function invalidInputMessage(

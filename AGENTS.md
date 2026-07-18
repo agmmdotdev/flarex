@@ -270,6 +270,11 @@ Do not move Effect Schema options, typed errors, authority or cryptographic
 logic, persistence codecs, canonical protocol encodings, universal deep-freeze
 logic, or legacy compatibility into `@flarex/utils`. Those concerns stay with
 their protocol, domain, persistence, host, or temporary migration owner.
+Centralize stored-row decoding only when the protocol decoder, branded output,
+corruption error owner, detail spelling, and nested-cause policy are exact.
+Keep a domain-local decoder or adapter when any of those claims differ; sharing
+the underlying protocol decoder does not make distinct corruption contracts
+interchangeable.
 When persistence retains already-decoded schema-manifest values across an
 asynchronous or database boundary, share clone-and-recursive-freeze mechanics
 through a persistence-local helper whose accepted input is restricted to those

@@ -11,6 +11,10 @@ import {
 import type { FlarexMetadataDatabase } from "./deployments";
 import { fxControlIndexes } from "./schema";
 import { StableLogicalIndexCatalogCorruptionError } from "./stableLogicalIndexCatalogAllocation";
+import {
+  decodeStableLogicalIndexCatalogIndexId as decodeStoredIndexId,
+  decodeStableLogicalIndexCatalogTableId as decodeStoredTableId,
+} from "./stableLogicalIndexCatalogDecoding";
 
 export { StableLogicalIndexCatalogCorruptionError } from "./stableLogicalIndexCatalogAllocation";
 
@@ -114,34 +118,6 @@ function decodeInputTableId(value: unknown): CatalogTableId {
     return decodeCatalogTableId(value);
   } catch {
     throw new InvalidStableLogicalIndexIdentityInputError("tableId");
-  }
-}
-
-function decodeStoredIndexId(
-  deploymentId: string,
-  value: unknown,
-): CatalogIndexId {
-  try {
-    return decodeCatalogIndexId(value);
-  } catch {
-    throw new StableLogicalIndexCatalogCorruptionError(
-      deploymentId,
-      `invalid logical index ID: ${String(value)}`,
-    );
-  }
-}
-
-function decodeStoredTableId(
-  deploymentId: string,
-  value: unknown,
-): CatalogTableId {
-  try {
-    return decodeCatalogTableId(value);
-  } catch {
-    throw new StableLogicalIndexCatalogCorruptionError(
-      deploymentId,
-      `invalid table ID: ${String(value)}`,
-    );
   }
 }
 
