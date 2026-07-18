@@ -114,11 +114,21 @@ transaction back.
 
 Drizzle query calls in that planning/read graph remain narrow Promise edges,
 and the ordered mutation statements remain one temporary Promise adapter until
-the installed driver can expose an Effect-owned transaction client. The older
-Promise exact-attempt capability remains only for seal completion and has the
-same deletion condition as the remaining Promise-native seal transaction body.
-Precise driver-level begin/commit/rollback classification beyond the
-callback-versus-infrastructure distinction remains a later adapter slice.
+the installed driver can expose an Effect-owned transaction client.
+
+Seal completion now uses the same Effect-native exact-attempt transaction
+capability as point operations. Its transaction body is a named Effect
+operation, exact-attempt and stale/sealed checks enter through typed Effect or
+`Result` channels, and only the conditional Drizzle update remains a Promise
+edge. The obsolete Promise exact-attempt callback type, symbol, target method,
+and broad seal `tryPromise` wrapper are deleted. A failed transaction retains
+the preparation handle for retry; successful completion deletes it only after
+the transaction settles. If transaction cleanup also fails after callback work
+dies or is interrupted, the callback `Cause` remains observable and the
+transaction failure is attached as diagnostic defect evidence. Precise
+driver-level begin/commit/rollback
+classification beyond the callback-versus-infrastructure distinction remains
+a later adapter slice.
 
 ## Target Boundary
 

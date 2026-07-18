@@ -94,6 +94,7 @@ import {
   ExactRunningAttemptTransactionV1Error,
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
   isLocatedExactRunningAttemptKernelV1,
+  reconcileExactRunningAttemptTransactionFailureV1,
 } from "../src/transactionSessionAttemptKernel";
 import {
   completeSessionJournalSeal as completeSeal,
@@ -618,6 +619,52 @@ describe("C03 Postgres SessionJournalStore", () => {
       cause: transactionFailure,
       callbackCause: undefined,
     } satisfies Partial<ExactRunningAttemptTransactionV1Error>);
+  });
+
+  it("preserves a callback defect or interruption when transaction cleanup also fails", async () => {
+    const callbackDefect = new Error("exact-attempt callback defect");
+    const interruptorFiberId = 73;
+    for (const callbackCause of [
+      Cause.die(callbackDefect),
+      Cause.interrupt(interruptorFiberId),
+    ]) {
+      const transactionFailure = new ExactRunningAttemptTransactionV1Error({
+        cause: new Error("rollback failed"),
+        callbackCause,
+      });
+      const exit = await Effect.runPromiseExit(
+        reconcileExactRunningAttemptTransactionFailureV1(
+          transactionFailure,
+          callbackCause,
+          new Error("rollback signal"),
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isSuccess(exit)) {
+        throw new Error(
+          "Expected the dual failure to preserve its Effect Cause.",
+        );
+      }
+      expect(
+        exit.cause.reasons.filter(Cause.isDieReason).map(
+          (reason) => reason.defect,
+        ),
+      ).toContain(transactionFailure);
+      if (Cause.hasDies(callbackCause)) {
+        expect(
+          exit.cause.reasons.filter(Cause.isDieReason).map(
+            (reason) => reason.defect,
+          ),
+        ).toContain(callbackDefect);
+      } else {
+        expect(
+          exit.cause.reasons.filter(Cause.isInterruptReason).map(
+            (reason) => reason.fiberId,
+          ),
+        ).toContain(interruptorFiberId);
+      }
+    }
   });
 
   it("reads the pinned snapshot once, then serves the staged same-row overlay", async () => {
@@ -1732,6 +1779,60 @@ describe("C03 Postgres SessionJournalStore", () => {
     expect(await journalRoot(current.anchor.sessionId)).toMatchObject({
       state: "sealed",
       last_syscall_sequence: "2",
+    });
+  });
+
+  it("retains seal preparation after transaction infrastructure failure and retries", async () => {
+    const transactionFailure = new Error("seal transaction unavailable");
+    let failCompletion = false;
+    const current = await scenario("seal_transaction_retry", {
+      targetOptions: {
+        afterLoadLock: (step) => {
+          if (failCompletion && step === "journalRootLocked") {
+            failCompletion = false;
+            throw transactionFailure;
+          }
+        },
+      },
+    });
+    await runPointOperation(current.store, current.table, {
+      kind: "get",
+      syscallSequence: syscallSequence(1n),
+      documentId: documentId(current.tableId, 205),
+    });
+    const prepared = await prepareSeal(current.store, current.attempt);
+    const canonicalJournal = await runEffect(
+      canonicalizeSessionJournalV1Effect(prepared.journal),
+    );
+    const successfulResult = await runEffect(
+      canonicalizeSuccessfulResultV1Effect({ ok: true }),
+    );
+
+    failCompletion = true;
+    await expect(runFailure(current.store.completeSealEffect(
+      prepared.preparation,
+      canonicalJournal,
+      successfulResult,
+    ))).resolves.toMatchObject({
+      operation: "completeSealTransaction",
+      cause: transactionFailure,
+    } satisfies Partial<SessionJournalPersistenceV1Error>);
+    await expect(journalRoot(current.anchor.sessionId)).resolves.toMatchObject({
+      state: "open",
+      last_syscall_sequence: "1",
+    });
+
+    await expect(runEffect(current.store.completeSealEffect(
+      prepared.preparation,
+      canonicalJournal,
+      successfulResult,
+    ))).resolves.toMatchObject({
+      sessionId: current.anchor.sessionId,
+      finalSyscallSequence: 1n,
+    });
+    await expect(journalRoot(current.anchor.sessionId)).resolves.toMatchObject({
+      state: "sealed",
+      last_syscall_sequence: "1",
     });
   });
 

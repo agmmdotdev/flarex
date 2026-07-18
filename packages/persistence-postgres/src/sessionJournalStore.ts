@@ -146,7 +146,6 @@ import {
   ExactRunningAttemptTransactionV1Error,
   RESOLVE_PINNED_POINT_TABLE_ID_V1,
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
-  RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1,
   RUN_LOCATED_REPEATABLE_READ_V1,
   isLocatedExactRunningAttemptKernelV1,
   type ExactRunningAttemptKernelContextV1,
@@ -923,23 +922,26 @@ export function createSessionJournalStorePersistenceV1(
     );
     const resolved = yield* resolveJournalTargetEffect(prepared.attempt);
     return yield* Effect.uninterruptible(Effect.gen(function* () {
-      const envelope = yield* Effect.tryPromise({
-        try: () => resolved.target[
-          RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1
-        ](
-          {
-            selector: prepared.attempt.selector,
-            preliminaryAuthority: resolved.authority,
-          },
-          (tx, context) => completeSealInTransaction(
-            tx,
-            context,
-            prepared,
-            sealedEvidence,
-          ),
+      const envelope = yield* resolved.target[
+        RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1
+      ](
+        {
+          selector: prepared.attempt.selector,
+          preliminaryAuthority: resolved.authority,
+        },
+        (tx, context) => completeSealInTransactionEffect(
+          tx,
+          context,
+          prepared,
+          sealedEvidence,
         ),
-        catch: mapCompleteSealTransactionFailure,
-      });
+      ).pipe(
+        Effect.mapError((error) =>
+          error instanceof ExactRunningAttemptTransactionV1Error
+            ? mapExactRunningAttemptCompleteSealFailure(error)
+            : error
+        ),
+      );
       sealStates.delete(preparation);
       return envelope;
     }));
@@ -1007,6 +1009,18 @@ function mapCompleteSealTransactionFailure(
   return new SessionJournalPersistenceV1Error({
     operation: "completeSealTransaction",
     cause,
+  });
+}
+
+function mapExactRunningAttemptCompleteSealFailure(
+  failure: ExactRunningAttemptTransactionV1Error,
+): SessionJournalCompleteSealV1Error {
+  if (failure.callbackCause === undefined) {
+    return mapCompleteSealTransactionFailure(failure.cause);
+  }
+  return new SessionJournalPersistenceV1Error({
+    operation: "completeSealTransaction",
+    cause: failure,
   });
 }
 
@@ -3156,14 +3170,6 @@ function projectSuccessfulStoredOutcome(
   }
 }
 
-function requireKernelContextMatchesAttempt(
-  context: ExactRunningAttemptKernelContextV1,
-  attempt: SessionJournalAttemptStateV1,
-): void {
-  if (kernelContextMatchesAttempt(context, attempt)) return;
-  throw corruption(attempt, "exactAttemptPinsChanged");
-}
-
 function kernelContextMatchesAttempt(
   context: ExactRunningAttemptKernelContextV1,
   attempt: SessionJournalAttemptStateV1,
@@ -3979,69 +3985,96 @@ function sealMismatch(
   return new SessionJournalSealV1Error({ reason });
 }
 
-async function completeSealInTransaction(
+const completeSealInTransactionEffect = Effect.fn(
+  "SessionJournalStore.completeSealInTransaction",
+)(function* (
   tx: AppRowTransaction,
   context: ExactRunningAttemptKernelContextV1,
   prepared: PreparedSessionJournalSealStateV1,
   evidence: ValidatedCanonicalSealEvidenceV1,
-): Promise<StoredForSessionAttemptCommitEnvelopeV1> {
-  requireKernelContextMatchesAttempt(context, prepared.attempt);
+): Effect.fn.Return<
+  StoredForSessionAttemptCommitEnvelopeV1,
+  SessionJournalCompleteSealV1Error
+> {
+  if (!kernelContextMatchesAttempt(context, prepared.attempt)) {
+    return yield* Effect.fail(corruption(
+      prepared.attempt,
+      "exactAttemptPinsChanged",
+    ));
+  }
   const root = context.journalRoot;
   if (root.state === "failed") {
-    throw new SessionJournalSealV1Error({ reason: "journalFailed" });
+    return yield* Effect.fail(
+      new SessionJournalSealV1Error({ reason: "journalFailed" }),
+    );
   }
   if (root.state === "sealed") {
-    requireStoredSealMatches(prepared.attempt, root, evidence);
+    yield* Effect.fromResult(validateStoredSealMatchesResult(
+      prepared.attempt,
+      root,
+      evidence,
+    ));
     return storedSealEnvelope(context, evidence);
   }
   if (root.state !== "open") {
-    throw corruption(prepared.attempt, "journalStateInvalid");
+    return yield* Effect.fail(corruption(
+      prepared.attempt,
+      "journalStateInvalid",
+    ));
   }
-  requireSealCandidateStillCurrent(prepared.candidate, root);
+  yield* Effect.fromResult(validateSealCandidateStillCurrentResult(
+    prepared.candidate,
+    root,
+  ));
 
-  const updated = await tx
-    .update(fxSystemTransactionJournals)
-    .set({
-      state: "sealed",
-      failureDimension: null,
-      sealedFinalSyscallSequence: evidence.finalSyscallSequence,
-      sealedJournalBytes: new Uint8Array(evidence.journalBytes),
-      sealedJournalSha256: new Uint8Array(evidence.journalSha256),
-      sealedResultValueCodecVersion: evidence.resultValueCodecVersion,
-      sealedResultSemanticBytes: evidence.resultSemanticBytes,
-      sealedResultBytes: new Uint8Array(evidence.resultBytes),
-      sealedResultSha256: new Uint8Array(evidence.resultSha256),
-      sealedAt: context.databaseNow,
-      updatedAt: context.databaseNow,
-    })
-    .where(and(
-      eq(fxSystemTransactionJournals.scopeUuid, context.scopeUuid),
-      eq(fxSystemTransactionJournals.sessionId, context.anchor.sessionId),
-      eq(
-        fxSystemTransactionJournals.attemptFence,
-        context.anchor.attemptFence,
-      ),
-      eq(fxSystemTransactionJournals.state, "open"),
-      eq(
-        fxSystemTransactionJournals.lastSyscallSequence,
-        prepared.candidate.lastSyscallSequence,
-      ),
-      eq(
-        fxSystemTransactionJournals.updatedAt,
-        new Date(prepared.candidate.rootUpdatedAtMilliseconds),
-      ),
-    ))
-    .returning({ state: fxSystemTransactionJournals.state });
+  const updated = yield* Effect.tryPromise({
+    try: () => tx
+      .update(fxSystemTransactionJournals)
+      .set({
+        state: "sealed",
+        failureDimension: null,
+        sealedFinalSyscallSequence: evidence.finalSyscallSequence,
+        sealedJournalBytes: new Uint8Array(evidence.journalBytes),
+        sealedJournalSha256: new Uint8Array(evidence.journalSha256),
+        sealedResultValueCodecVersion: evidence.resultValueCodecVersion,
+        sealedResultSemanticBytes: evidence.resultSemanticBytes,
+        sealedResultBytes: new Uint8Array(evidence.resultBytes),
+        sealedResultSha256: new Uint8Array(evidence.resultSha256),
+        sealedAt: context.databaseNow,
+        updatedAt: context.databaseNow,
+      })
+      .where(and(
+        eq(fxSystemTransactionJournals.scopeUuid, context.scopeUuid),
+        eq(fxSystemTransactionJournals.sessionId, context.anchor.sessionId),
+        eq(
+          fxSystemTransactionJournals.attemptFence,
+          context.anchor.attemptFence,
+        ),
+        eq(fxSystemTransactionJournals.state, "open"),
+        eq(
+          fxSystemTransactionJournals.lastSyscallSequence,
+          prepared.candidate.lastSyscallSequence,
+        ),
+        eq(
+          fxSystemTransactionJournals.updatedAt,
+          new Date(prepared.candidate.rootUpdatedAtMilliseconds),
+        ),
+      ))
+      .returning({ state: fxSystemTransactionJournals.state }),
+    catch: mapCompleteSealTransactionFailure,
+  });
   if (updated.length !== 1 || updated[0]?.state !== "sealed") {
-    throw new SessionJournalSealV1Error({ reason: "stalePreparation" });
+    return yield* Effect.fail(
+      new SessionJournalSealV1Error({ reason: "stalePreparation" }),
+    );
   }
   return storedSealEnvelope(context, evidence);
-}
+});
 
-function requireSealCandidateStillCurrent(
+function validateSealCandidateStillCurrentResult(
   candidate: SessionJournalSealCandidateV1,
   root: typeof fxSystemTransactionJournals.$inferSelect,
-): void {
+): Result.Result<void, SessionJournalSealV1Error> {
   const rootUpdatedAtMilliseconds = finiteDateMilliseconds(root.updatedAt);
   if (
     root.lastSyscallSequence !== candidate.lastSyscallSequence ||
@@ -4055,15 +4088,21 @@ function requireSealCandidateStillCurrent(
       candidate.counters.materialWriteEventEvidenceBytes ||
     rootUpdatedAtMilliseconds !== candidate.rootUpdatedAtMilliseconds
   ) {
-    throw new SessionJournalSealV1Error({ reason: "stalePreparation" });
+    return Result.fail(
+      new SessionJournalSealV1Error({ reason: "stalePreparation" }),
+    );
   }
+  return Result.succeed(undefined);
 }
 
-function requireStoredSealMatches(
+function validateStoredSealMatchesResult(
   attempt: SessionJournalAttemptStateV1,
   root: typeof fxSystemTransactionJournals.$inferSelect,
   evidence: ValidatedCanonicalSealEvidenceV1,
-): void {
+): Result.Result<
+  void,
+  SessionJournalSealV1Error | SessionJournalStorageCorruptionV1Error
+> {
   if (
     root.sealedFinalSyscallSequence !== evidence.finalSyscallSequence ||
     root.sealedJournalBytes === null ||
@@ -4077,13 +4116,14 @@ function requireStoredSealMatches(
     !bytesEqual(root.sealedResultBytes, evidence.resultBytes) ||
     !bytesEqual(root.sealedResultSha256, evidence.resultSha256)
   ) {
-    throw new SessionJournalSealV1Error({
+    return Result.fail(new SessionJournalSealV1Error({
       reason: "sealedEvidenceMismatch",
-    });
+    }));
   }
   if (root.failureDimension !== null || root.sealedAt === null) {
-    throw corruption(attempt, "sealedJournalStateInvalid");
+    return Result.fail(corruption(attempt, "sealedJournalStateInvalid"));
   }
+  return Result.succeed(undefined);
 }
 
 function storedSealEnvelope(

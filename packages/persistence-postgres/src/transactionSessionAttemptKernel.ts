@@ -1,5 +1,4 @@
-import { Data, type Effect } from "effect";
-import type { Cause } from "effect/Cause";
+import { Cause, Data, Effect } from "effect";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type {
   CatalogSchemaVersionId,
@@ -39,11 +38,6 @@ export interface ExactRunningAttemptKernelContextV1 {
   readonly journalRoot: Readonly<TransactionJournalRootRowV1>;
 }
 
-export type ExactRunningAttemptWorkV1<Result> = (
-  tx: AppRowTransaction,
-  context: ExactRunningAttemptKernelContextV1,
-) => Promise<Result>;
-
 export type ExactRunningAttemptEffectWorkV1<Result, Failure> = (
   tx: AppRowTransaction,
   context: ExactRunningAttemptKernelContextV1,
@@ -53,9 +47,6 @@ export type ExactRunningAttemptEffectWorkV1<Result, Failure> = (
  * Package-internal capability. This module is deliberately absent from package
  * exports so no public caller can request a raw transaction callback.
  */
-export const RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1: unique symbol =
-  Symbol("FlarexDB/runExactRunningPointMutationAttemptV1");
-
 export const RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1: unique symbol =
   Symbol("FlarexDB/runExactRunningPointMutationAttemptEffectV1");
 
@@ -89,15 +80,28 @@ export class ExactRunningAttemptTransactionV1Error extends Data.TaggedError(
   "ExactRunningAttemptTransactionV1Error",
 )<{
   readonly cause: unknown;
-  readonly callbackCause: Cause<unknown> | undefined;
+  readonly callbackCause: Cause.Cause<unknown> | undefined;
 }> {}
+
+export function reconcileExactRunningAttemptTransactionFailureV1<Failure>(
+  failure: ExactRunningAttemptTransactionV1Error,
+  callbackCause: Cause.Cause<Failure> | undefined,
+  rollbackSignal: unknown,
+): Effect.Effect<never, Failure | ExactRunningAttemptTransactionV1Error> {
+  if (callbackCause !== undefined && failure.cause === rollbackSignal) {
+    return Effect.failCause(callbackCause);
+  }
+  if (
+    callbackCause !== undefined
+    && (Cause.hasDies(callbackCause) || Cause.hasInterrupts(callbackCause))
+  ) {
+    return Effect.failCause(Cause.combine(callbackCause, Cause.die(failure)));
+  }
+  return Effect.fail(failure);
+}
 
 export interface LocatedExactRunningAttemptKernelV1
   extends LocatedScopeClockReader {
-  readonly [RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1]: <Result>(
-    input: ExactRunningAttemptKernelInputV1,
-    work: ExactRunningAttemptWorkV1<Result>,
-  ) => Promise<Result>;
   readonly [RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1]: <
     Result,
     Failure,
@@ -178,10 +182,6 @@ export function isLocatedExactRunningAttemptKernelV1(
   target: LocatedScopeClockReader,
 ): target is LocatedExactRunningAttemptKernelV1 {
   return (
-    typeof Reflect.get(
-      target,
-      RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1,
-    ) === "function" &&
     typeof Reflect.get(
       target,
       RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,

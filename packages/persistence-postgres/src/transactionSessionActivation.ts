@@ -110,11 +110,10 @@ import {
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
   RUN_LOCATED_READ_COMMITTED_V1,
   RUN_LOCATED_REPEATABLE_READ_V1,
-  RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1,
+  reconcileExactRunningAttemptTransactionFailureV1,
   type ExactRunningAttemptKernelContextV1,
   type ExactRunningAttemptEffectWorkV1,
   type ExactRunningAttemptKernelInputV1,
-  type ExactRunningAttemptWorkV1,
   type LocatedExactRunningAttemptKernelV1,
   type LocatedPointCommitPublicationTargetV1,
 } from "./transactionSessionAttemptKernel";
@@ -827,17 +826,6 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       input: LocatedPointMutationSessionAttemptLoadInputV1,
     ) => db.transaction((tx) =>
       loadAttemptInTransaction(tx, input, afterLoadLock)),
-    [RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1]: <Result>(
-      input: ExactRunningAttemptKernelInputV1,
-      work: ExactRunningAttemptWorkV1<Result>,
-    ): Promise<Result> => db.transaction(async (tx) => {
-      const context = await loadExactRunningAttemptForKernelInTransaction(
-        tx,
-        input,
-        afterLoadLock,
-      );
-      return work(tx, context);
-    }),
     [RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1]: <Result, Failure>(
       input: ExactRunningAttemptKernelInputV1,
       work: ExactRunningAttemptEffectWorkV1<Result, Failure>,
@@ -939,14 +927,12 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
           callbackCause,
         }),
       }).pipe(
-        Effect.catch((failure): Effect.Effect<
-          never,
-          Failure | ExactRunningAttemptTransactionV1Error
-        > =>
-          callbackCause !== undefined && failure.cause === rollbackSignal
-            ? Effect.failCause(callbackCause)
-            : Effect.fail(failure)
-        ),
+        Effect.catch((failure) =>
+          reconcileExactRunningAttemptTransactionFailureV1(
+            failure,
+            callbackCause,
+            rollbackSignal,
+          )),
       ),
     );
   });
