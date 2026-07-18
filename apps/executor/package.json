@@ -25,6 +25,7 @@
     "@flarex/persistence-postgres": "workspace:*",
     "@flarex/utils": "workspace:*",
     "effect": "catalog:",
+    "flarex-protocol": "workspace:*",
     "pg": "^8.22.0"
   },
   "devDependencies": {

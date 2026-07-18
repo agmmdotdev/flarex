@@ -1,4 +1,4 @@
-export function isH05CanonicalIsoTimestamp(value: string): boolean {
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
-}
+import { isCanonicalIsoTimestamp } from "flarex-protocol/iso-timestamp";
+
+/** H05-local name for the shared canonical spelling predicate. */
+export const isH05CanonicalIsoTimestamp = isCanonicalIsoTimestamp;

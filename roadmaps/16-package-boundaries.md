@@ -420,6 +420,12 @@ semantics.
   integer-but-not-safe contracts, signed ranges, timestamps and durations,
   brands, and typed failures; sharing the primitive does not make those numeric
   contracts interchangeable.
+- `flarex-protocol/iso-timestamp` owns the pure canonical ECMAScript
+  parse-and-round-trip predicate shared by H05 evidence and point-session
+  terminalization. It accepts extended-year `Date.prototype.toISOString()`
+  spellings but does not own brands, diagnostics, ordering, freshness, expiry,
+  or clock authority. Transaction grants retain their stricter four-digit-year
+  wire grammar rather than weakening it for reuse.
 - `@flarex/utils/bytes` owns tested defensive copying into an owned
   `Uint8Array` or fresh exactly-sized `ArrayBuffer`, ordinary early-exit byte
   equality, a separately named equal-length full-scan comparison, and lowercase

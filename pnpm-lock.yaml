@@ -116,6 +116,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.90
+      flarex-protocol:
+        specifier: workspace:*
+        version: link:../../packages/flarex-protocol
       pg:
         specifier: ^8.22.0
         version: 8.22.0

@@ -15,6 +15,7 @@ import type {
 import {
   transactionGrantIdentityAccessPolicySha256BytesV1FromHex,
 } from "flarex-protocol/transaction-grant";
+import { isCanonicalIsoTimestamp } from "flarex-protocol/iso-timestamp";
 import {
   FlarexDbV1StorageGenerationSchema,
   SnapshotTokenSchema,
@@ -538,11 +539,6 @@ function isPointMutationSessionTerminalLifecycle(
   value: unknown,
 ): value is PointMutationSessionTerminalLifecycleV1 {
   return value === "committed" || value === "aborted" || value === "expired";
-}
-
-function isCanonicalIsoTimestamp(value: string): boolean {
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
 }
 
 function terminalizationContractError(
