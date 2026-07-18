@@ -347,6 +347,11 @@ semantics.
   Unused backend throwing wrappers were removed; `Result.getOrThrow` is reserved
   for an explicit unchecked API with a concrete supported compatibility
   consumer, not one inferred from existing code or tests.
+- Backend live-query and scheduler response payloads share one package-local
+  Effect decoder factory for exact structural primitives. Each domain retains
+  its operation union, messages, and tagged failure construction; the factory
+  remains outside `@flarex/utils` because that dependency leaf cannot own
+  Effect adapters or backend response policy.
 - `@flarex/utils/records` owns shallow non-null, non-array object narrowing as
   both a predicate and nullable adapter. It deliberately does not promise a
   plain prototype, JSON membership, symbol-key rejection, or runtime

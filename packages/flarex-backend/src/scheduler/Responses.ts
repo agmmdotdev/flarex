@@ -1,10 +1,6 @@
-import {
-  isNonArrayRecord,
-  type UnknownRecord,
-} from "@flarex/utils/records";
 import { Data, Effect } from "effect";
-import { normalizeDateString } from "../dateStringNormalization";
 import { HttpError, readResponseJsonOrNullEffect } from "../http";
+import { createResponsePayloadDecoders } from "../responsePayloadDecoding";
 
 type SchedulerHttpResponse = Pick<Response, "json" | "ok" | "status">;
 
@@ -31,6 +27,15 @@ export class SchedulerResponsePayloadError extends Data.TaggedError(
   readonly status: number;
   readonly message: string;
 }> {}
+
+const responsePayload = createResponsePayloadDecoders<
+  SchedulerResponseOperation,
+  SchedulerResponsePayloadError
+>((operation, message) => new SchedulerResponsePayloadError({
+  operation,
+  status: 502,
+  message,
+}));
 
 export type PendingDeploymentCursor = {
   oldestCreatedAt: string;
@@ -189,12 +194,12 @@ export const decodeSchedulerPendingDeploymentsPayload = Effect.fn(
   function* (
     value: unknown,
   ): Effect.fn.Return<PendingDeploymentsResult, SchedulerResponsePayloadError> {
-    const record = yield* responseRecord(
+    const record = yield* responsePayload.record(
       value,
       "pendingDeployments",
       "Pending deployments response must be an object.",
     );
-    const deployments = yield* arrayField(
+    const deployments = yield* responsePayload.array(
       record.deployments,
       "pendingDeployments",
       "Pending deployments response.deployments must be an array.",
@@ -208,7 +213,11 @@ export const decodeSchedulerPendingDeploymentsPayload = Effect.fn(
     return {
       deployments: decodedDeployments,
       nextCursor: yield* pendingCursorFromUnknown(record.nextCursor),
-      hasMore: yield* booleanFromUnknown(record.hasMore, "hasMore", "pendingDeployments"),
+      hasMore: yield* responsePayload.boolean(
+        record.hasMore,
+        "hasMore",
+        "pendingDeployments",
+      ),
     };
   },
 );
@@ -219,28 +228,32 @@ export const decodeSchedulerRerunPayload = Effect.fn(
   function* (
     value: unknown,
   ): Effect.fn.Return<ExecutorLiveQueryRerunResult, SchedulerResponsePayloadError> {
-    const record = yield* responseRecord(
+    const record = yield* responsePayload.record(
       value,
       "rerun",
       "Live query rerun response must be an object.",
     );
     return {
-      changed: yield* arrayField(
+      changed: yield* responsePayload.array(
         record.changed,
         "rerun",
         "Live query rerun response.changed must be an array.",
       ),
-      unchanged: yield* arrayField(
+      unchanged: yield* responsePayload.array(
         record.unchanged,
         "rerun",
         "Live query rerun response.unchanged must be an array.",
       ),
-      unsupported: yield* arrayField(
+      unsupported: yield* responsePayload.array(
         record.unsupported,
         "rerun",
         "Live query rerun response.unsupported must be an array.",
       ),
-      hasMoreStale: yield* booleanFromUnknown(record.hasMoreStale, "hasMoreStale", "rerun"),
+      hasMoreStale: yield* responsePayload.boolean(
+        record.hasMoreStale,
+        "hasMoreStale",
+        "rerun",
+      ),
     };
   },
 );
@@ -251,12 +264,12 @@ export const decodeSchedulerExpiredConnectionDeploymentsPayload = Effect.fn(
   function* (
     value: unknown,
   ): Effect.fn.Return<ExpiredConnectionDeploymentsResult, SchedulerResponsePayloadError> {
-    const record = yield* responseRecord(
+    const record = yield* responsePayload.record(
       value,
       "expiredConnectionDeployments",
       "Expired connection deployments response must be an object.",
     );
-    const deployments = yield* arrayField(
+    const deployments = yield* responsePayload.array(
       record.deployments,
       "expiredConnectionDeployments",
       "Expired connection deployments response.deployments must be an array.",
@@ -270,7 +283,11 @@ export const decodeSchedulerExpiredConnectionDeploymentsPayload = Effect.fn(
     return {
       deployments: decodedDeployments,
       nextCursor: yield* expiredConnectionCursorOrNullFromUnknown(record.nextCursor),
-      hasMore: yield* booleanFromUnknown(record.hasMore, "hasMore", "expiredConnectionDeployments"),
+      hasMore: yield* responsePayload.boolean(
+        record.hasMore,
+        "hasMore",
+        "expiredConnectionDeployments",
+      ),
     };
   },
 );
@@ -281,12 +298,12 @@ export const decodeSchedulerDeadLetterPayload = Effect.fn(
   function* (
     value: unknown,
   ): Effect.fn.Return<ExecutorDeadLetterStuckResult, SchedulerResponsePayloadError> {
-    const record = yield* responseRecord(
+    const record = yield* responsePayload.record(
       value,
       "deadLetterStuck",
       "Dead-letter response must be an object.",
     );
-    const reconnectConnectionIds = yield* arrayField(
+    const reconnectConnectionIds = yield* responsePayload.array(
       record.reconnectConnectionIds,
       "deadLetterStuck",
       "Dead-letter response.reconnectConnectionIds must be an array.",
@@ -294,23 +311,31 @@ export const decodeSchedulerDeadLetterPayload = Effect.fn(
     const decodedReconnectConnectionIds: string[] = [];
     for (const [index, connectionId] of reconnectConnectionIds.entries()) {
       decodedReconnectConnectionIds.push(
-        yield* stringFromUnknown(connectionId, `reconnectConnectionIds[${index}]`, "deadLetterStuck"),
+        yield* responsePayload.nonEmptyString(
+          connectionId,
+          `reconnectConnectionIds[${index}]`,
+          "deadLetterStuck",
+        ),
       );
     }
     return {
-      scanned: yield* arrayField(
+      scanned: yield* responsePayload.array(
         record.scanned,
         "deadLetterStuck",
         "Dead-letter response.scanned must be an array.",
       ),
-      deadLettered: yield* arrayField(
+      deadLettered: yield* responsePayload.array(
         record.deadLettered,
         "deadLetterStuck",
         "Dead-letter response.deadLettered must be an array.",
       ),
       reconnectConnectionIds: decodedReconnectConnectionIds,
       nextCursor: record.nextCursor ?? null,
-      hasMore: yield* booleanFromUnknown(record.hasMore, "hasMore", "deadLetterStuck"),
+      hasMore: yield* responsePayload.boolean(
+        record.hasMore,
+        "hasMore",
+        "deadLetterStuck",
+      ),
     };
   },
 );
@@ -321,13 +346,13 @@ export const decodeSchedulerForceReconnectPayload = Effect.fn(
   function* (
     value: unknown,
   ): Effect.fn.Return<{ closed: number }, SchedulerResponsePayloadError> {
-    const record = yield* responseRecord(
+    const record = yield* responsePayload.record(
       value,
       "forceReconnect",
       "ConnectionDO force-reconnect response must be an object.",
     );
     return {
-      closed: yield* nonNegativeIntegerFromUnknown(
+      closed: yield* responsePayload.nonNegativeInteger(
         record.closed,
         "forceReconnect.closed",
         "forceReconnect",
@@ -342,18 +367,18 @@ export const decodeSchedulerCleanupConnectionsPayload = Effect.fn(
   function* (
     value: unknown,
   ): Effect.fn.Return<ExecutorCleanupLiveQueryConnectionsResult, SchedulerResponsePayloadError> {
-    const record = yield* responseRecord(
+    const record = yield* responsePayload.record(
       value,
       "cleanupConnections",
       "Connection cleanup response must be an object.",
     );
     return {
-      deleted: yield* nonNegativeIntegerFromUnknown(
+      deleted: yield* responsePayload.nonNegativeInteger(
         record.deleted,
         "cleanup.deleted",
         "cleanupConnections",
       ),
-      deletedConnections: yield* nonNegativeIntegerFromUnknown(
+      deletedConnections: yield* responsePayload.nonNegativeInteger(
         record.deletedConnections,
         "cleanup.deletedConnections",
         "cleanupConnections",
@@ -416,11 +441,27 @@ function pendingDeploymentFromUnknown(
   path: string,
 ): Effect.Effect<PendingDeployment, SchedulerResponsePayloadError> {
   return Effect.gen(function* () {
-    const record = yield* responseRecord(value, "pendingDeployments", `${path} must be an object.`);
+    const record = yield* responsePayload.record(
+      value,
+      "pendingDeployments",
+      `${path} must be an object.`,
+    );
     return {
-      deploymentId: yield* stringFromUnknown(record.deploymentId, `${path}.deploymentId`, "pendingDeployments"),
-      oldestCreatedAt: yield* dateStringFromUnknown(record.oldestCreatedAt, `${path}.oldestCreatedAt`, "pendingDeployments"),
-      pending: yield* nonNegativeIntegerFromUnknown(record.pending, `${path}.pending`, "pendingDeployments"),
+      deploymentId: yield* responsePayload.nonEmptyString(
+        record.deploymentId,
+        `${path}.deploymentId`,
+        "pendingDeployments",
+      ),
+      oldestCreatedAt: yield* responsePayload.isoDateString(
+        record.oldestCreatedAt,
+        `${path}.oldestCreatedAt`,
+        "pendingDeployments",
+      ),
+      pending: yield* responsePayload.nonNegativeInteger(
+        record.pending,
+        `${path}.pending`,
+        "pendingDeployments",
+      ),
     };
   });
 }
@@ -430,14 +471,22 @@ function pendingCursorFromUnknown(
 ): Effect.Effect<PendingDeploymentCursor | null, SchedulerResponsePayloadError> {
   if (value === null) return Effect.succeed(null);
   return Effect.gen(function* () {
-    const record = yield* responseRecord(
+    const record = yield* responsePayload.record(
       value,
       "pendingDeployments",
       "Pending deployments response.nextCursor must be null or an object.",
     );
     return {
-      oldestCreatedAt: yield* dateStringFromUnknown(record.oldestCreatedAt, "nextCursor.oldestCreatedAt", "pendingDeployments"),
-      deploymentId: yield* stringFromUnknown(record.deploymentId, "nextCursor.deploymentId", "pendingDeployments"),
+      oldestCreatedAt: yield* responsePayload.isoDateString(
+        record.oldestCreatedAt,
+        "nextCursor.oldestCreatedAt",
+        "pendingDeployments",
+      ),
+      deploymentId: yield* responsePayload.nonEmptyString(
+        record.deploymentId,
+        "nextCursor.deploymentId",
+        "pendingDeployments",
+      ),
     };
   });
 }
@@ -447,12 +496,28 @@ function expiredConnectionDeploymentFromUnknown(
   path: string,
 ): Effect.Effect<ExpiredConnectionDeployment, SchedulerResponsePayloadError> {
   return Effect.gen(function* () {
-    const record = yield* responseRecord(value, "expiredConnectionDeployments", `${path} must be an object.`);
+    const record = yield* responsePayload.record(
+      value,
+      "expiredConnectionDeployments",
+      `${path} must be an object.`,
+    );
     return {
-      deploymentId: yield* stringFromUnknown(record.deploymentId, `${path}.deploymentId`, "expiredConnectionDeployments"),
-      projectId: yield* stringFromUnknown(record.projectId, `${path}.projectId`, "expiredConnectionDeployments"),
-      oldestExpiredAt: yield* dateStringFromUnknown(record.oldestExpiredAt, `${path}.oldestExpiredAt`, "expiredConnectionDeployments"),
-      expiredConnections: yield* nonNegativeIntegerFromUnknown(
+      deploymentId: yield* responsePayload.nonEmptyString(
+        record.deploymentId,
+        `${path}.deploymentId`,
+        "expiredConnectionDeployments",
+      ),
+      projectId: yield* responsePayload.nonEmptyString(
+        record.projectId,
+        `${path}.projectId`,
+        "expiredConnectionDeployments",
+      ),
+      oldestExpiredAt: yield* responsePayload.isoDateString(
+        record.oldestExpiredAt,
+        `${path}.oldestExpiredAt`,
+        "expiredConnectionDeployments",
+      ),
+      expiredConnections: yield* responsePayload.nonNegativeInteger(
         record.expiredConnections,
         `${path}.expiredConnections`,
         "expiredConnectionDeployments",
@@ -473,82 +538,22 @@ function expiredConnectionCursorFromUnknown(
   path: string,
 ): Effect.Effect<ExpiredConnectionDeploymentCursor, SchedulerResponsePayloadError> {
   return Effect.gen(function* () {
-    const record = yield* responseRecord(value, "expiredConnectionDeployments", `${path} must be an object.`);
+    const record = yield* responsePayload.record(
+      value,
+      "expiredConnectionDeployments",
+      `${path} must be an object.`,
+    );
     return {
-      oldestExpiredAt: yield* dateStringFromUnknown(record.oldestExpiredAt, `${path}.oldestExpiredAt`, "expiredConnectionDeployments"),
-      deploymentId: yield* stringFromUnknown(record.deploymentId, `${path}.deploymentId`, "expiredConnectionDeployments"),
+      oldestExpiredAt: yield* responsePayload.isoDateString(
+        record.oldestExpiredAt,
+        `${path}.oldestExpiredAt`,
+        "expiredConnectionDeployments",
+      ),
+      deploymentId: yield* responsePayload.nonEmptyString(
+        record.deploymentId,
+        `${path}.deploymentId`,
+        "expiredConnectionDeployments",
+      ),
     };
   });
-}
-
-function responseRecord(
-  value: unknown,
-  operation: SchedulerResponseOperation,
-  message: string,
-): Effect.Effect<UnknownRecord, SchedulerResponsePayloadError> {
-  if (isNonArrayRecord(value)) {
-    return Effect.succeed(value);
-  }
-  return failPayload(operation, message);
-}
-
-function arrayField(
-  value: unknown,
-  operation: SchedulerResponseOperation,
-  message: string,
-): Effect.Effect<unknown[], SchedulerResponsePayloadError> {
-  return Array.isArray(value) ? Effect.succeed(value) : failPayload(operation, message);
-}
-
-function dateStringFromUnknown(
-  value: unknown,
-  field: string,
-  operation: SchedulerResponseOperation,
-): Effect.Effect<string, SchedulerResponsePayloadError> {
-  return Effect.gen(function* () {
-    const text = yield* stringFromUnknown(value, field, operation);
-    const normalized = normalizeDateString(text);
-    if (normalized !== undefined) return normalized;
-    return yield* failPayload(operation, `${field} must be an ISO date string.`);
-  });
-}
-
-function stringFromUnknown(
-  value: unknown,
-  field: string,
-  operation: SchedulerResponseOperation,
-): Effect.Effect<string, SchedulerResponsePayloadError> {
-  if (typeof value === "string" && value.length > 0) return Effect.succeed(value);
-  return failPayload(operation, `${field} must be a non-empty string.`);
-}
-
-function nonNegativeIntegerFromUnknown(
-  value: unknown,
-  field: string,
-  operation: SchedulerResponseOperation,
-): Effect.Effect<number, SchedulerResponsePayloadError> {
-  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
-    return Effect.succeed(value);
-  }
-  return failPayload(operation, `${field} must be a non-negative integer.`);
-}
-
-function booleanFromUnknown(
-  value: unknown,
-  field: string,
-  operation: SchedulerResponseOperation,
-): Effect.Effect<boolean, SchedulerResponsePayloadError> {
-  if (typeof value === "boolean") return Effect.succeed(value);
-  return failPayload(operation, `${field} must be a boolean.`);
-}
-
-function failPayload<A = never>(
-  operation: SchedulerResponseOperation,
-  message: string,
-): Effect.Effect<A, SchedulerResponsePayloadError> {
-  return Effect.fail(new SchedulerResponsePayloadError({
-    operation,
-    status: 502,
-    message,
-  }));
 }

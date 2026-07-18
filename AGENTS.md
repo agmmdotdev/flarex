@@ -130,6 +130,12 @@ is a dependency leaf: it must have no runtime dependencies and must not import
 Effect or another Flarex package. Keep a helper package-local while it has one
 legitimate owner or expresses a local invariant more clearly than a generic
 primitive.
+When repeated Effect-returning structural decoders have one package owner but
+different domain errors, share only their exact mechanics through a
+package-local generic or factory. Let each consumer supply its operation,
+message, and typed failure constructor. Do not move that Effect adapter into
+`@flarex/utils`, and do not erase the domain error channel merely to make the
+helper look generic.
 
 Before adding a local utility, inspect the installed platform and dependency
 APIs for an exact portable owner. Reuse a total encoder such as Effect
