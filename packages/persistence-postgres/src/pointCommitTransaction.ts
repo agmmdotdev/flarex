@@ -64,6 +64,7 @@ import {
   TransactionAuthorizationRevocationEpochSchema,
   TransactionIdentityAccessPolicySha256V1Schema,
   TransactionRequestSha256V1Schema,
+  type StoredTransactionSessionScalarsV1,
   type TransactionArtifactIdV1,
   type TransactionArtifactRuntimeV1,
   type TransactionAttemptFence,
@@ -179,36 +180,12 @@ export interface PointCommitAuthorityPinsV1 {
   readonly requestKey: TransactionRequestKeyV1;
 }
 
-export interface PointCommitSessionScalarsV1 {
-  readonly lifecycle: "running" | "finishing";
-  readonly storageGeneration: string;
-  readonly storageGenerationFence: bigint;
-  readonly packageId: string;
-  readonly artifactRuntime: string;
-  readonly artifactId: string;
-  readonly sourcePackageHash: string;
-  readonly executionModule: string;
-  readonly functionPath: string;
-  readonly functionKind: string;
-  readonly schemaVersionId: string;
-  readonly policyVersion: string;
-  readonly identityAccessPolicySha256: Uint8Array;
-  readonly validatedArgsValueCodecVersion: number;
-  readonly validatedArgsCanonicalByteLength: number;
-  readonly validatedArgsSha256: Uint8Array;
+export type PointCommitSessionScalarsV1 = Omit<
+  StoredTransactionSessionScalarsV1,
+  "authorizationGrantId"
+> & {
   readonly authorizationGrantId: TransactionAuthorizationGrantIdV1;
-  readonly authorizationGrantValueCodecVersion: number;
-  readonly authorizationGrantCanonicalByteLength: number;
-  readonly authorizationGrantSha256: Uint8Array;
-  readonly authorizationRevocationEpoch: bigint;
-  readonly authorizationGrantExpiresAtMilliseconds: number;
-  readonly requestKey: string;
-  readonly requestSha256: Uint8Array;
-  readonly protocolVersion: number;
-  readonly hardExpiresAtMilliseconds: number;
-  readonly createdAtMilliseconds: number;
-  readonly updatedAtMilliseconds: number;
-}
+};
 
 export interface PointCommitSealIdentityV1 {
   readonly scopeUuid: ScopeUuidV1;
