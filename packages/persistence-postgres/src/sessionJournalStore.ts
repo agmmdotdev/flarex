@@ -692,8 +692,6 @@ const decodeCommitFinalSyscallSequenceResult = Schema.decodeUnknownResult(
 const decodeCommitSyscallSequenceResult = Schema.decodeUnknownResult(
   Schema.toType(CommitSyscallSequenceV1Schema),
 );
-const decodeLogicalAppWrite = (input: unknown): LogicalAppWriteV1 =>
-  Result.getOrThrow(decodeLogicalAppWriteResult(input));
 const encodeSessionJournal = Schema.encodeSync(SessionJournalV1Schema);
 const decodeSchemaManifestAppTableNameEffect = Schema.decodeUnknownEffect(
   SchemaManifestAppTableNameSchema,
@@ -1313,6 +1311,15 @@ function mapRunPointOperationFailure(
   });
 }
 
+function fromPointOperationPromise<A>(
+  run: () => PromiseLike<A>,
+): Effect.Effect<A, SessionJournalRunPointOperationV1Error> {
+  return Effect.tryPromise({
+    try: run,
+    catch: mapRunPointOperationFailure,
+  });
+}
+
 function mapExactRunningAttemptTransactionFailure(
   failure: ExactRunningAttemptTransactionV1Error,
 ): SessionJournalRunPointOperationV1Error {
@@ -1332,19 +1339,34 @@ async function canonicalizeStoredOutcome(
   return canonicalizeFlarexValueJsonV1(requireJson(encoded));
 }
 
-async function prepareLogicalWriteEvent(
+const prepareLogicalWriteEventEffect = Effect.fn(
+  "SessionJournalStore.prepareLogicalWriteEvent",
+)(function* (
   write: LogicalAppWriteV1,
-): Promise<PreparedLogicalWriteEventV1> {
+): Effect.fn.Return<
+  PreparedLogicalWriteEventV1,
+  SessionJournalRunPointOperationV1Error
+> {
   const encoded = requireJson(encodeLogicalAppWrite(write));
   if (!isJsonObject(encoded)) {
-    throw new Error("Logical write encoder returned a non-object.");
+    return yield* Effect.die(
+      new Error("Logical write encoder returned a non-object."),
+    );
   }
-  const evidence = await canonicalizeFlarexValueJsonV1(encoded);
+  const evidence = yield* Effect.promise(() =>
+    canonicalizeFlarexValueJsonV1(encoded)
+  );
   if (!isJsonObject(evidence.valueJson)) {
-    throw new Error("Canonical logical write evidence returned a non-object.");
+    return yield* Effect.die(
+      new Error("Canonical logical write evidence returned a non-object."),
+    );
   }
   const eventJson = cloneJsonObject(evidence.valueJson);
-  const strictWrite = decodeLogicalAppWrite(structuredClone(eventJson));
+  const strictWrite = yield* Effect.fromResult(
+    decodeLogicalAppWriteResult(structuredClone(eventJson)).pipe(
+      Result.mapError(mapRunPointOperationFailure),
+    ),
+  );
   return Object.freeze({
     write: strictWrite,
     eventJson,
@@ -1352,7 +1374,7 @@ async function prepareLogicalWriteEvent(
     sha256: copyFlarexValueSha256V1(evidence.sha256),
     evidenceBytes: evidence.canonicalBytes.byteLength,
   });
-}
+});
 
 function requireJson(input: unknown): Json {
   if (!isJson(input)) throw new Error("Schema encoder returned non-JSON data.");
@@ -1626,26 +1648,17 @@ const runPointOperationInTransactionEffect = Effect.fn(
     ));
   }
 
-  // Temporary bridge: fresh planning still owns Promise reads plus the
-  // logical-write and point-dependency throwing projections. Delete this
-  // adapter when that planning/read subgraph receives its Effect slice.
-  const plan = yield* Effect.tryPromise({
-    try: () => planFreshPointOperation(
-      tx,
-      context,
-      table,
-      request,
-      randomUuid,
-    ),
-    catch: mapRunPointOperationFailure,
-  });
+  const plan = yield* planFreshPointOperationEffect(
+    tx,
+    context,
+    table,
+    request,
+    randomUuid,
+  );
   const logicalWrite = plan.write;
   const preparedWriteEvent = logicalWrite === undefined
     ? undefined
-    : yield* Effect.tryPromise({
-      try: () => prepareLogicalWriteEvent(logicalWrite),
-      catch: mapRunPointOperationFailure,
-    });
+    : yield* prepareLogicalWriteEventEffect(logicalWrite);
   const counterDeltas = Object.freeze({
     ...plan.counters,
     materialWriteEventEvidenceBytes:
@@ -1727,17 +1740,27 @@ const runPointOperationInTransactionEffect = Effect.fn(
   });
 });
 
-async function planFreshPointOperation(
+const planFreshPointOperationEffect = Effect.fn(
+  "SessionJournalStore.planFreshPointOperation",
+)(function* (
   tx: AppRowTransaction,
   context: ExactRunningAttemptKernelContextV1,
   table: PinnedPointTableStateV1,
   request: SessionJournalStoredRequestV1,
   randomUuid: () => string,
-): Promise<SessionJournalOperationPlanV1> {
+): Effect.fn.Return<
+  SessionJournalOperationPlanV1,
+  SessionJournalRunPointOperationV1Error
+> {
   switch (request.kind) {
     case "get": {
       const identity = decodeAppDocumentIdentityV1(request.documentId);
-      const read = await readLogicalPoint(tx, context, table, identity.rowId);
+      const read = yield* readLogicalPointEffect(
+        tx,
+        context,
+        table,
+        identity.rowId,
+      );
       const counters = countersForPointRead(read);
       return Object.freeze({
         outcome: read.result.kind === "present"
@@ -1753,28 +1776,39 @@ async function planFreshPointOperation(
       });
     }
     case "insert":
-      return planInsert(tx, context, table, request, randomUuid);
+      return yield* planInsertEffect(
+        tx,
+        context,
+        table,
+        request,
+        randomUuid,
+      );
     case "patch":
-      return planPatch(tx, context, table, request);
+      return yield* planPatchEffect(tx, context, table, request);
     case "replace":
-      return planReplace(tx, context, table, request);
+      return yield* planReplaceEffect(tx, context, table, request);
     case "delete":
-      return planDelete(tx, context, table, request);
+      return yield* planDeleteEffect(tx, context, table, request);
   }
-}
+});
 
-async function planInsert(
+const planInsertEffect = Effect.fn(
+  "SessionJournalStore.planInsert",
+)(function* (
   tx: AppRowTransaction,
   context: ExactRunningAttemptKernelContextV1,
   table: PinnedPointTableStateV1,
   request: Extract<SessionJournalStoredRequestV1, { readonly kind: "insert" }>,
   randomUuid: () => string,
-): Promise<SessionJournalOperationPlanV1> {
+): Effect.fn.Return<
+  SessionJournalOperationPlanV1,
+  SessionJournalRunPointOperationV1Error
+> {
   const generatedUuid = randomUuid();
   if (typeof generatedUuid !== "string" || !UUID_V4_PATTERN.test(generatedUuid)) {
-    throw new SessionJournalIdentityGenerationV1Error({
+    return yield* Effect.fail(new SessionJournalIdentityGenerationV1Error({
       generatedValue: generatedUuid,
-    });
+    }));
   }
   const rowId = decodeAppDocumentIdentityV1(
     `${table.tableId}:${generatedUuid}`,
@@ -1788,16 +1822,18 @@ async function planInsert(
   );
   const nextCreationTime = nextAppCreationTime(creationTime);
 
-  const historical = await tx
-    .select({ commitSeq: fxAppRowRevisions.commitSeq })
-    .from(fxAppRowRevisions)
-    .where(and(
-      eq(fxAppRowRevisions.scopeUuid, context.scopeUuid),
-      eq(fxAppRowRevisions.tableId, table.tableId),
-      eq(fxAppRowRevisions.rowId, appRowIdHexV1ToBytes(rowId)),
-    ))
-    .limit(1);
-  const staged = await loadJournalPointRow(
+  const historical = yield* fromPointOperationPromise(() =>
+    tx
+      .select({ commitSeq: fxAppRowRevisions.commitSeq })
+      .from(fxAppRowRevisions)
+      .where(and(
+        eq(fxAppRowRevisions.scopeUuid, context.scopeUuid),
+        eq(fxAppRowRevisions.tableId, table.tableId),
+        eq(fxAppRowRevisions.rowId, appRowIdHexV1ToBytes(rowId)),
+      ))
+      .limit(1)
+  );
+  const staged = yield* loadJournalPointRowEffect(
     tx,
     context,
     table.tableId,
@@ -1819,7 +1855,7 @@ async function planInsert(
     request.fieldsValueJson,
     "appDocument",
   ).value;
-  const documentResult = await tryCanonicalizeDocument({
+  const documentResult = yield* tryCanonicalizeDocumentEffect({
     tableId: table.tableId,
     rowId,
     creationTime,
@@ -1881,16 +1917,26 @@ async function planInsert(
     write,
     nextCreationTime,
   });
-}
+});
 
-async function planPatch(
+const planPatchEffect = Effect.fn(
+  "SessionJournalStore.planPatch",
+)(function* (
   tx: AppRowTransaction,
   context: ExactRunningAttemptKernelContextV1,
   table: PinnedPointTableStateV1,
   request: Extract<SessionJournalStoredRequestV1, { readonly kind: "patch" }>,
-): Promise<SessionJournalOperationPlanV1> {
+): Effect.fn.Return<
+  SessionJournalOperationPlanV1,
+  SessionJournalRunPointOperationV1Error
+> {
   const identity = decodeAppDocumentIdentityV1(request.documentId);
-  const read = await readLogicalPoint(tx, context, table, identity.rowId);
+  const read = yield* readLogicalPointEffect(
+    tx,
+    context,
+    table,
+    identity.rowId,
+  );
   const readCounters = countersForPointRead(read);
   if (read.result.kind === "missing") {
     return Object.freeze({
@@ -1910,7 +1956,7 @@ async function planPatch(
   const fields = developerFieldsFromDocument(current.value);
   applyPatchChanges(fields, request.changes);
   const creationTime = creationTimeFromDocument(current.value);
-  const documentResult = await tryCanonicalizeDocument({
+  const documentResult = yield* tryCanonicalizeDocumentEffect({
     tableId: table.tableId,
     rowId: identity.rowId,
     creationTime,
@@ -1962,16 +2008,26 @@ async function planPatch(
     ),
     write,
   });
-}
+});
 
-async function planReplace(
+const planReplaceEffect = Effect.fn(
+  "SessionJournalStore.planReplace",
+)(function* (
   tx: AppRowTransaction,
   context: ExactRunningAttemptKernelContextV1,
   table: PinnedPointTableStateV1,
   request: Extract<SessionJournalStoredRequestV1, { readonly kind: "replace" }>,
-): Promise<SessionJournalOperationPlanV1> {
+): Effect.fn.Return<
+  SessionJournalOperationPlanV1,
+  SessionJournalRunPointOperationV1Error
+> {
   const identity = decodeAppDocumentIdentityV1(request.documentId);
-  const read = await readLogicalPoint(tx, context, table, identity.rowId);
+  const read = yield* readLogicalPointEffect(
+    tx,
+    context,
+    table,
+    identity.rowId,
+  );
   const readCounters = countersForPointRead(read);
   if (read.result.kind === "missing") {
     return Object.freeze({
@@ -1993,7 +2049,7 @@ async function planReplace(
     "appDocument",
   ).value;
   const creationTime = creationTimeFromDocument(current.value);
-  const documentResult = await tryCanonicalizeDocument({
+  const documentResult = yield* tryCanonicalizeDocumentEffect({
     tableId: table.tableId,
     rowId: identity.rowId,
     creationTime,
@@ -2045,16 +2101,26 @@ async function planReplace(
     ),
     write,
   });
-}
+});
 
-async function planDelete(
+const planDeleteEffect = Effect.fn(
+  "SessionJournalStore.planDelete",
+)(function* (
   tx: AppRowTransaction,
   context: ExactRunningAttemptKernelContextV1,
   table: PinnedPointTableStateV1,
   request: Extract<SessionJournalStoredRequestV1, { readonly kind: "delete" }>,
-): Promise<SessionJournalOperationPlanV1> {
+): Effect.fn.Return<
+  SessionJournalOperationPlanV1,
+  SessionJournalRunPointOperationV1Error
+> {
   const identity = decodeAppDocumentIdentityV1(request.documentId);
-  const read = await readLogicalPoint(tx, context, table, identity.rowId);
+  const read = yield* readLogicalPointEffect(
+    tx,
+    context,
+    table,
+    identity.rowId,
+  );
   const readCounters = countersForPointRead(read);
   if (read.result.kind === "missing") {
     return Object.freeze({
@@ -2089,28 +2155,32 @@ async function planDelete(
     ),
     write,
   });
-}
+});
 
-async function readLogicalPoint(
+const readLogicalPointEffect = Effect.fn(
+  "SessionJournalStore.readLogicalPoint",
+)(function* (
   tx: AppRowTransaction,
   context: ExactRunningAttemptKernelContextV1,
   table: PinnedPointTableStateV1,
   rowId: AppRowIdHexV1,
-): Promise<LogicalPointReadV1> {
-  const point = await loadJournalPointRow(
+): Effect.fn.Return<
+  LogicalPointReadV1,
+  SessionJournalRunPointOperationV1Error
+> {
+  const point = yield* loadJournalPointRowEffect(
     tx,
     context,
     table.tableId,
     rowId,
   );
   if (point === undefined) {
-    const result = await getAppRowAtSnapshotInTransaction(
-      tx,
-      {
+    const result = yield* fromPointOperationPromise(() =>
+      getAppRowAtSnapshotInTransaction(tx, {
         snapshotToken: table.attempt.snapshotToken,
         tableId: table.tableId,
         rowId,
-      },
+      })
     );
     return Object.freeze({
       result,
@@ -2125,27 +2195,15 @@ async function readLogicalPoint(
     });
   }
 
-  const dependency = decodePointDependency(table.attempt, point);
+  const dependency = yield* Effect.fromResult(
+    decodePointDependencyResult(table.attempt, point),
+  );
   switch (point.overlayKind) {
     case "live": {
-      if (
-        point.overlayCreationTime === null ||
-        point.overlayValueCodecVersion === null ||
-        point.overlayValueJson === null ||
-        point.overlayValueBytes === null ||
-        point.overlayValueSha256 === null
-      ) {
-        throw corruption(table.attempt, "liveOverlayEvidenceMissing");
-      }
-      const document = await verifyAppDocumentEvidenceV1({
-        tableId: table.tableId,
-        rowId,
-        creationTime: point.overlayCreationTime,
-        codecVersion: point.overlayValueCodecVersion,
-        valueJson: point.overlayValueJson,
-        canonicalBytes: point.overlayValueBytes,
-        sha256: point.overlayValueSha256,
-      });
+      const document = yield* decodeLivePointOverlayEvidenceEffect(
+        table.attempt,
+        point,
+      );
       return Object.freeze({
         dependencyIsNew: false,
         result: Object.freeze({
@@ -2165,47 +2223,64 @@ async function readLogicalPoint(
         }),
       });
     case "none": {
-      const result = await getAppRowAtSnapshotInTransaction(
-        tx,
-        {
+      const result = yield* fromPointOperationPromise(() =>
+        getAppRowAtSnapshotInTransaction(tx, {
           snapshotToken: table.attempt.snapshotToken,
           tableId: table.tableId,
           rowId,
-        },
+        })
       );
       if (!dependenciesEqual(dependency, result.dependency)) {
-        throw corruption(table.attempt, "pointDependencyChangedAtSnapshot");
+        return yield* Effect.fail(corruption(
+          table.attempt,
+          "pointDependencyChangedAtSnapshot",
+        ));
       }
       return Object.freeze({ result, dependencyIsNew: false });
     }
   }
-}
+});
 
-async function loadJournalPointRow(
+const loadJournalPointRowEffect = Effect.fn(
+  "SessionJournalStore.loadJournalPointRow",
+)(function* (
   tx: AppRowTransaction,
   context: ExactRunningAttemptKernelContextV1,
   tableId: CatalogTableId,
   rowId: AppRowIdHexV1,
-): Promise<typeof fxSystemTransactionJournalPoints.$inferSelect | undefined> {
-  const rows = await tx
-    .select()
-    .from(fxSystemTransactionJournalPoints)
-    .where(and(
-      eq(fxSystemTransactionJournalPoints.scopeUuid, context.scopeUuid),
-      eq(fxSystemTransactionJournalPoints.sessionId, context.anchor.sessionId),
-      eq(
-        fxSystemTransactionJournalPoints.attemptFence,
-        context.anchor.attemptFence,
-      ),
-      eq(fxSystemTransactionJournalPoints.tableId, tableId),
-      eq(fxSystemTransactionJournalPoints.rowId, appRowIdHexV1ToBytes(rowId)),
-    ))
-    .limit(2);
+): Effect.fn.Return<
+  typeof fxSystemTransactionJournalPoints.$inferSelect | undefined,
+  SessionJournalRunPointOperationV1Error
+> {
+  const rows = yield* fromPointOperationPromise(() =>
+    tx
+      .select()
+      .from(fxSystemTransactionJournalPoints)
+      .where(and(
+        eq(fxSystemTransactionJournalPoints.scopeUuid, context.scopeUuid),
+        eq(
+          fxSystemTransactionJournalPoints.sessionId,
+          context.anchor.sessionId,
+        ),
+        eq(
+          fxSystemTransactionJournalPoints.attemptFence,
+          context.anchor.attemptFence,
+        ),
+        eq(fxSystemTransactionJournalPoints.tableId, tableId),
+        eq(
+          fxSystemTransactionJournalPoints.rowId,
+          appRowIdHexV1ToBytes(rowId),
+        ),
+      ))
+      .limit(2)
+  );
   if (rows.length > 1) {
-    throw new Error("Journal point primary key returned duplicate rows.");
+    return yield* Effect.fail(mapRunPointOperationFailure(
+      new Error("Journal point primary key returned duplicate rows."),
+    ));
   }
   return rows[0];
-}
+});
 
 function countersForPointRead(
   read: LogicalPointReadV1,
@@ -2233,13 +2308,6 @@ function pointMutationForOverlay(
     dependency: read.result.dependency,
     overlay,
   });
-}
-
-function decodePointDependency(
-  attempt: SessionJournalAttemptStateV1,
-  row: typeof fxSystemTransactionJournalPoints.$inferSelect,
-): AppRowPointDependencyV1 {
-  return Result.getOrThrow(decodePointDependencyResult(attempt, row));
 }
 
 function decodePointDependencyResult(
@@ -2384,25 +2452,28 @@ type CanonicalizePlannedDocumentResultV1 =
     }>
   | Readonly<{ readonly kind: "invalid" }>;
 
-async function tryCanonicalizeDocument(input: {
+const tryCanonicalizeDocumentEffect = Effect.fn(
+  "SessionJournalStore.tryCanonicalizeDocument",
+)((input: {
   readonly tableId: CatalogTableId;
   readonly rowId: AppRowIdHexV1;
   readonly creationTime: AppCreationTimeV1;
   readonly fields: unknown;
-}): Promise<CanonicalizePlannedDocumentResultV1> {
-  try {
-    const document = await canonicalizeAppDocumentV1(input);
-    return Object.freeze({ kind: "valid", document });
-  } catch (cause) {
-    if (
+}): Effect.Effect<CanonicalizePlannedDocumentResultV1> =>
+  Effect.tryPromise({
+    try: () => canonicalizeAppDocumentV1(input),
+    catch: (cause): unknown => cause,
+  }).pipe(
+    Effect.map((document) =>
+      Object.freeze({ kind: "valid", document } as const)
+    ),
+    Effect.catch((cause) =>
       cause instanceof FlarexValueCodecV1Error ||
-      cause instanceof AppDocumentSystemFieldV1Error
-    ) {
-      return Object.freeze({ kind: "invalid" });
-    }
-    throw cause;
-  }
-}
+        cause instanceof AppDocumentSystemFieldV1Error
+        ? Effect.succeed(Object.freeze({ kind: "invalid" } as const))
+        : Effect.die(cause)
+    ),
+  ));
 
 function nextAppCreationTime(value: AppCreationTimeV1): AppCreationTimeV1 {
   const buffer = new ArrayBuffer(8);
@@ -3611,11 +3682,20 @@ async function loadLatestReceiptReadOnly(
   return rows[0];
 }
 
-const verifyPointOverlayEvidenceEffect = Effect.fn(function* (
+const decodeLivePointOverlayEvidenceEffect = Effect.fn(
+  "SessionJournalStore.decodeLivePointOverlayEvidence",
+)(function* (
   attempt: SessionJournalAttemptStateV1,
   point: typeof fxSystemTransactionJournalPoints.$inferSelect,
-): Effect.fn.Return<void, SessionJournalStorageCorruptionV1Error> {
-  if (point.overlayKind !== "live") return;
+): Effect.fn.Return<
+  CanonicalFlarexValueV1,
+  SessionJournalStorageCorruptionV1Error
+> {
+  if (point.overlayKind !== "live") {
+    return yield* Effect.die(
+      new Error("Live point-overlay decoder received a non-live row."),
+    );
+  }
   if (
     point.overlayCreationTime === null ||
     point.overlayValueCodecVersion === null ||
@@ -3666,6 +3746,15 @@ const verifyPointOverlayEvidenceEffect = Effect.fn(function* (
       "liveOverlaySemanticBytesMismatch",
     ));
   }
+  return document;
+});
+
+const verifyPointOverlayEvidenceEffect = Effect.fn(function* (
+  attempt: SessionJournalAttemptStateV1,
+  point: typeof fxSystemTransactionJournalPoints.$inferSelect,
+): Effect.fn.Return<void, SessionJournalStorageCorruptionV1Error> {
+  if (point.overlayKind !== "live") return;
+  yield* decodeLivePointOverlayEvidenceEffect(attempt, point);
 });
 
 function logicalDependencyFromPoint(

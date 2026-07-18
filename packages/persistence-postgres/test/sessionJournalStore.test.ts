@@ -885,11 +885,14 @@ describe("C03 Postgres SessionJournalStore", () => {
     const invalid = await scenario("invalid_uuid", {
       randomUuid: () => "not-a-v4-uuid",
     });
-    await expect(runPointOperation(invalid.store, invalid.table, {
-      kind: "insert",
-      syscallSequence: syscallSequence(1n),
-      fields: { name: "invalid" },
-    })).rejects.toBeInstanceOf(SessionJournalIdentityGenerationV1Error);
+    await expect(runFailure(invalid.store.runPointOperationEffect(
+      invalid.table,
+      {
+        kind: "insert",
+        syscallSequence: syscallSequence(1n),
+        fields: { name: "invalid" },
+      },
+    ))).resolves.toBeInstanceOf(SessionJournalIdentityGenerationV1Error);
     expect(await journalRoot(invalid.anchor.sessionId)).toMatchObject({
       last_syscall_sequence: "0",
       state: "open",
@@ -898,6 +901,80 @@ describe("C03 Postgres SessionJournalStore", () => {
       receipts: 0,
       points: 0,
       events: 0,
+    });
+  });
+
+  it("preserves an unexpected identity-generator throw as a defect and rolls back", async () => {
+    const defect = new Error("point identity generator unavailable");
+    const current = await scenario("identity_generation_defect", {
+      randomUuid: () => {
+        throw defect;
+      },
+    });
+
+    const exit = await Effect.runPromiseExit(
+      current.store.runPointOperationEffect(current.table, {
+        kind: "insert",
+        syscallSequence: syscallSequence(1n),
+        fields: { name: "must-not-persist" },
+      }),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(exit.cause.reasons).toHaveLength(1);
+      const reason = exit.cause.reasons[0];
+      expect(reason !== undefined && Cause.isDieReason(reason)).toBe(true);
+      if (reason !== undefined && Cause.isDieReason(reason)) {
+        expect(reason.defect).toBe(defect);
+      }
+    }
+    await expect(journalRoot(current.anchor.sessionId)).resolves.toMatchObject({
+      last_syscall_sequence: "0",
+      state: "open",
+    });
+    await expect(journalCounts(current.anchor.sessionId)).resolves.toMatchObject({
+      receipts: 0,
+      points: 0,
+      events: 0,
+    });
+  });
+
+  it("keeps fresh-plan overlay corruption typed and rolls back the attempted operation", async () => {
+    const overlay = await scenario("planning_overlay_corruption", {
+      randomUuid: () => "86000000-0000-4000-8000-000000000001",
+    });
+    const overlayInsert = await runPointOperation(overlay.store, overlay.table, {
+      kind: "insert",
+      syscallSequence: syscallSequence(1n),
+      fields: { name: "overlay" },
+    });
+    const overlayDocumentId = requireInsertedDocumentId(overlayInsert);
+    await persistence.query(
+      `
+        update fx_system_tx_journal_point
+        set overlay_value_sha256 = $2
+        where session_id = $1
+      `,
+      [overlay.anchor.sessionId, new Uint8Array(32)],
+    );
+    await expect(runFailure(overlay.store.runPointOperationEffect(
+      overlay.table,
+      {
+        kind: "replace",
+        syscallSequence: syscallSequence(2n),
+        documentId: overlayDocumentId,
+        fields: { name: "must-not-persist" },
+      },
+    ))).resolves.toMatchObject({
+      reason: "liveOverlaySemanticBytesMismatch",
+    } satisfies Partial<SessionJournalStorageCorruptionV1Error>);
+    await expect(journalRoot(overlay.anchor.sessionId)).resolves.toMatchObject({
+      last_syscall_sequence: "1",
+    });
+    await expect(journalCounts(overlay.anchor.sessionId)).resolves.toMatchObject({
+      receipts: 1,
+      points: 1,
+      events: 1,
     });
   });
 

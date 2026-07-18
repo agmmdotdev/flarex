@@ -103,16 +103,22 @@ uninterruptible until the transaction settles.
 Journal counters, receipt cardinality, stored request/outcome decoding, and
 receipt/root correlation now compose through `Result` and Effect directly.
 The duplicate Promise latest-receipt verifier and five throwing projections
-were deleted. Fresh point planning and its write phase remain temporary
-Promise adapters because their SQL helpers still execute inside Drizzle's
-callback. Their two remaining `Result.getOrThrow` consumers are the logical
-write projection in `prepareLogicalWriteEvent` and point-dependency projection
-in `readLogicalPoint`; delete both when that planning/read/write subgraph
-receives its next Effect-native slice. The older Promise exact-attempt
-capability remains only for seal completion and has the same deletion condition
-as the remaining Promise-native seal transaction body. Precise driver-level
-begin/commit/rollback classification beyond the callback-versus-infrastructure
-distinction remains a later adapter slice.
+were deleted. Fresh point planning, logical point reads, document
+canonicalization, and logical-write evidence preparation are now named Effect
+operations. Their two former `Result.getOrThrow` projections and the broad
+planning `tryPromise` veneer are deleted. Point-dependency corruption remains
+typed, live-overlay evidence shares the seal path's typed verifier, an invalid
+developer document remains a normal rejected point outcome, and unexpected
+identity-generation or canonicalization failures remain defects that roll the
+transaction back.
+
+Drizzle query calls in that planning/read graph remain narrow Promise edges,
+and the ordered mutation statements remain one temporary Promise adapter until
+the installed driver can expose an Effect-owned transaction client. The older
+Promise exact-attempt capability remains only for seal completion and has the
+same deletion condition as the remaining Promise-native seal transaction body.
+Precise driver-level begin/commit/rollback classification beyond the
+callback-versus-infrastructure distinction remains a later adapter slice.
 
 ## Target Boundary
 
