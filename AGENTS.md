@@ -342,6 +342,11 @@ constructors, retains its domain owner and may delegate to those primitives.
 Retain narrow local wrappers when their names communicate an important domain
 invariant. Never centralize a legacy path just because it is duplicated;
 removal can be the correct reuse strategy.
+Within a domain-local decoder family, give an exact shared callback port such
+as `(message: string) => never` one local type owner instead of declaring a
+synonymous alias for every validation kernel. Keep boundary-specific error
+construction, prefixes, typed failures, and narrow adapters with their owner;
+do not change a throwing, Result, or Effect boundary merely to share the port.
 When accepted design intentionally keeps a permissive compatibility facade
 beside a stricter replacement codec, do not merge their contracts merely to
 deduplicate code. Remove duplicate implementations within each surface, keep

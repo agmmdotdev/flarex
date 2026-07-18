@@ -10,6 +10,7 @@ import { formatH05JsonDocument } from "./jsonDocument";
 import { isH05FullLowercaseGitCommit } from "./gitCommit";
 import { isH05HttpsOriginUrl } from "./httpsOrigin";
 import { isH05CanonicalIsoTimestamp } from "./isoTimestamp";
+import { decodeNonEmptyH05String } from "./nonEmptyString";
 import {
   decodeH05ProofRunId,
   h05ProofIdentity,
@@ -869,10 +870,7 @@ function positiveSafeIntegerInRangeDecoder(
 }
 
 function nonEmptyString(value: unknown, path: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    fail(`${path} must be a non-empty string.`);
-  }
-  return value;
+  return decodeNonEmptyH05String(value, path, fail);
 }
 
 function patternString(pattern: RegExp): Decoder<string> {

@@ -1,4 +1,4 @@
-export type H05ExactStringTupleFailure = (message: string) => never;
+import type { H05DecodeFailure } from "./decodeFailure";
 
 export function decodeExactH05StringTuple<
   const Expected extends readonly string[],
@@ -6,7 +6,7 @@ export function decodeExactH05StringTuple<
   value: unknown,
   expected: Expected,
   path: string,
-  fail: H05ExactStringTupleFailure,
+  fail: H05DecodeFailure,
 ): Expected {
   if (
     !Array.isArray(value) ||
