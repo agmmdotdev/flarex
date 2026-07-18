@@ -1,6 +1,6 @@
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
-import { isNonArrayRecord } from "@flarex/utils/records";
+import { asNonArrayRecord, isNonArrayRecord } from "@flarex/utils/records";
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { Data, Effect, Option, Result, Schema } from "effect";
 
@@ -1057,7 +1057,7 @@ function materializeClaimSnapshot(
       scopeUuid: expectedScopeUuid,
     }));
   }
-  const first = recordFromUnknown(rawRows[0]);
+  const first = asNonArrayRecord(rawRows[0]);
   const clock = decodeClock(first, expectedScopeUuid);
   if (clock === null) {
     return Result.fail(corruption(
@@ -1069,7 +1069,7 @@ function materializeClaimSnapshot(
 
   const wakes: CapturedCommitWakeV1[] = [];
   for (const rawRow of rawRows) {
-    const row = recordFromUnknown(rawRow);
+    const row = asNonArrayRecord(rawRow);
     if (!sameClockRow(row, clock)) {
       return Result.fail(corruption(
         operation,
@@ -1536,12 +1536,6 @@ function isFailureCode(
     value === "claim_lease_expired" ||
     value === "terminal_delivery" ||
     value === "attempts_exhausted";
-}
-
-function recordFromUnknown(
-  value: unknown,
-): Readonly<Record<string, unknown>> | null {
-  return isNonArrayRecord(value) ? value : null;
 }
 
 function stringField(
