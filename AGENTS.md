@@ -277,6 +277,10 @@ Do not move Effect Schema options, typed errors, authority or cryptographic
 logic, persistence codecs, canonical protocol encodings, universal deep-freeze
 logic, or legacy compatibility into `@flarex/utils`. Those concerns stay with
 their protocol, domain, persistence, host, or temporary migration owner.
+PostgreSQL JSONB adapters are persistence codec policy, not generic utilities.
+When a `jsonb NOT NULL` column must store JSON `null`, share the exact adapter
+inside the persistence package, preserve every non-null input by identity, and
+do not conflate JSON `null` with SQL `NULL` merely to remove a local helper.
 Centralize stored-row decoding only when the protocol decoder, branded output,
 corruption error owner, detail spelling, and nested-cause policy are exact.
 Keep a domain-local decoder or adapter when any of those claims differ; sharing

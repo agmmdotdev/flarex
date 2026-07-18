@@ -15,6 +15,7 @@ import {
 } from "drizzle-orm";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import { jsonbNotNullValue } from "./jsonbNotNullValue";
 import { liveQueryDeliveries } from "./schema";
 
 export interface InsertLiveQueryDeliveryInput {
@@ -153,7 +154,7 @@ export async function insertLiveQueryDelivery(
       deliveryId: input.deliveryId,
       connectionId: input.connectionId,
       queryId: input.queryId,
-      payloadJson: jsonbValue(input.payloadJson),
+      payloadJson: jsonbNotNullValue(input.payloadJson),
       ...(input.createdAt === undefined ? {} : { createdAt: input.createdAt }),
     })
     .returning();
@@ -537,10 +538,6 @@ export async function listStuckLiveQueryDeliveries(
         : null,
     hasMore,
   };
-}
-
-function jsonbValue(value: unknown): unknown {
-  return value === null ? sql`'null'::jsonb` : value;
 }
 
 function deliveryCursorFilter(

@@ -1,8 +1,9 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import type { LiveQueryDeliveryFailedChange } from "flarex";
 import type { ExecutionIdentity } from "flarex-protocol/auth";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import { jsonbNotNullValue } from "./jsonbNotNullValue";
 import {
   insertLiveQueryDelivery,
   type InsertLiveQueryDeliveryInput,
@@ -81,12 +82,12 @@ export async function upsertLiveQuerySubscription(
       connectionId: input.connectionId,
       queryId: input.queryId,
       functionPath: input.functionPath,
-      argsJson: jsonbValue(input.argsJson),
+      argsJson: jsonbNotNullValue(input.argsJson),
       identityJson: input.identityJson ?? { kind: "anonymous" },
       partitionKey: input.partitionKey ?? null,
       beginTs: input.beginTs,
       readSetJson: input.readSetJson,
-      resultJson: jsonbValue(input.resultJson),
+      resultJson: jsonbNotNullValue(input.resultJson),
       resultHash: input.resultHash,
       ...(input.updatedAt === undefined ? {} : { updatedAt: input.updatedAt }),
     })
@@ -98,12 +99,12 @@ export async function upsertLiveQuerySubscription(
       ],
       set: {
         functionPath: input.functionPath,
-        argsJson: jsonbValue(input.argsJson),
+        argsJson: jsonbNotNullValue(input.argsJson),
         identityJson: input.identityJson ?? { kind: "anonymous" },
         partitionKey: input.partitionKey ?? null,
         beginTs: input.beginTs,
         readSetJson: input.readSetJson,
-        resultJson: jsonbValue(input.resultJson),
+        resultJson: jsonbNotNullValue(input.resultJson),
         resultHash: input.resultHash,
         updatedAt: input.updatedAt ?? new Date(),
       },
@@ -208,8 +209,4 @@ export async function listLiveQuerySubscriptions(
       asc(liveQuerySubscriptions.connectionId),
       asc(liveQuerySubscriptions.queryId),
     );
-}
-
-function jsonbValue(value: unknown): unknown {
-  return value === null ? sql`'null'::jsonb` : value;
 }

@@ -3959,6 +3959,76 @@ describe("createPGlitePersistence", () => {
     ]);
   });
 
+  it("preserves JSON null in live query jsonb columns", async () => {
+    const persistence = await createPGlitePersistence();
+    await persistence.migrate();
+
+    await persistence.upsertLiveQuerySubscription({
+      deploymentId: "deployment_live_query_json_null",
+      connectionId: "connection_json_null",
+      queryId: 1,
+      functionPath: "messages:list",
+      argsJson: { teamId: "team_a" },
+      beginTs: 10,
+      readSetJson: {},
+      resultJson: [],
+      resultHash: "hash_before_null",
+    });
+    await expect(
+      persistence.upsertLiveQuerySubscription({
+        deploymentId: "deployment_live_query_json_null",
+        connectionId: "connection_json_null",
+        queryId: 1,
+        functionPath: "messages:list",
+        argsJson: null,
+        beginTs: 11,
+        readSetJson: {},
+        resultJson: null,
+        resultHash: "hash_null",
+      }),
+    ).resolves.toMatchObject({
+      argsJson: null,
+      resultJson: null,
+      resultHash: "hash_null",
+    });
+    await expect(
+      persistence.upsertLiveQuerySubscription({
+        deploymentId: "deployment_live_query_json_null",
+        connectionId: "connection_json_null",
+        queryId: 2,
+        functionPath: "messages:count",
+        argsJson: null,
+        beginTs: 12,
+        readSetJson: {},
+        resultJson: null,
+        resultHash: "hash_inserted_null",
+      }),
+    ).resolves.toMatchObject({
+      argsJson: null,
+      resultJson: null,
+      resultHash: "hash_inserted_null",
+    });
+
+    await expect(
+      persistence.insertLiveQueryDelivery({
+        deploymentId: "deployment_live_query_json_null",
+        deliveryId: "delivery_json_null",
+        connectionId: "connection_json_null",
+        queryId: 1,
+        payloadJson: null,
+      }),
+    ).resolves.toMatchObject({ payloadJson: null });
+    await expect(
+      persistence.listUndeliveredLiveQueryDeliveries({
+        deploymentId: "deployment_live_query_json_null",
+        limit: 10,
+      }),
+    ).resolves.toMatchObject({
+      deliveries: [{ deliveryId: "delivery_json_null", payloadJson: null }],
+      hasMore: false,
+    });
+  });
+
   it("tracks active live query subscriptions through connection leases", async () => {
     const persistence = await createPGlitePersistence();
     await persistence.migrate();
