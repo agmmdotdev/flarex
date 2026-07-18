@@ -20,6 +20,7 @@ import {
   TransactionPackageIdV1Schema,
   TransactionRequestKeyV1Schema,
 } from "flarex-protocol/transaction-session";
+import { Cause, Effect, Exit } from "effect";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -337,6 +338,55 @@ describe("C05-A point-commit finishing transition", () => {
     expect((await sessionFingerprint(current.anchor.sessionId)).lifecycle).toBe(
       "running",
     );
+  });
+
+  it("maps authority-port SQL rejection and preserves an unexpected cause as a defect", async () => {
+    const current = await scenario("authority_port_failures");
+    const sqlCause = Object.assign(new Error("authority SQL unavailable"), {
+      code: "08006",
+    });
+    const sqlPorts = Object.freeze({
+      ...current.ports,
+      scopeMetadata: {
+        getScopeMetadataByDeploymentId: async () => {
+          throw sqlCause;
+        },
+      },
+    }) satisfies PointMutationSessionAuthorityResolutionPortsV1;
+
+    const sqlFailure = await runFailure(
+      createPointCommitFinishingTransitionPortV1(sqlPorts)
+        .enterFinishing(current.command),
+    );
+    expect(sqlFailure).toMatchObject({
+      _tag: "PointCommitSqlErrorV1",
+      operation: "resolveAuthority",
+      sqlState: "08006",
+      cause: sqlCause,
+    });
+
+    const defect = new Error("unexpected authority adapter defect");
+    const defectPorts = Object.freeze({
+      ...current.ports,
+      scopeMetadata: {
+        getScopeMetadataByDeploymentId: async () => {
+          throw defect;
+        },
+      },
+    }) satisfies PointMutationSessionAuthorityResolutionPortsV1;
+    const exit = await Effect.runPromiseExit(
+      createPointCommitFinishingTransitionPortV1(defectPorts)
+        .enterFinishing(current.command),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(exit.cause.reasons).toHaveLength(1);
+      const reason = exit.cause.reasons[0];
+      expect(reason !== undefined && Cause.isDieReason(reason)).toBe(true);
+      if (reason !== undefined && Cause.isDieReason(reason)) {
+        expect(reason.defect).toBe(defect);
+      }
+    }
   });
 
   it("uses database time for expiry and rolls back an injected post-update failure", async () => {

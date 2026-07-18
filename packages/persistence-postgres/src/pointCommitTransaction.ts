@@ -123,9 +123,12 @@ import {
   ScopeClockNotFoundError,
 } from "./scopeClock";
 import {
-  resolveLocatedTrustedScopeAuthority,
+  resolveLocatedTrustedScopeAuthorityEffect,
+  TrustedScopeAuthorityPortError,
   TrustedScopeAuthorityResolutionError,
+  type LocatedTrustedScopeAuthority,
   type TrustedScopeAuthority,
+  type TrustedScopeAuthorityError,
 } from "./scopeAuthorityResolution";
 import {
   fxAppRowCurrent,
@@ -553,6 +556,21 @@ class PointCommitSqlFailureMarkerV1 {
   ) {}
 }
 
+const resolvePointCommitAuthority = Effect.fn(
+  "PointCommitTransaction.resolveAuthority",
+)((
+  deploymentId: TransactionGrantDeploymentIdV1,
+  ports: PointMutationSessionAuthorityResolutionPortsV1,
+): Effect.Effect<
+  LocatedTrustedScopeAuthority,
+  PointCommitFinishingTransitionV1Error
+> =>
+  resolveLocatedTrustedScopeAuthorityEffect(deploymentId, {
+    scopeMetadata: ports.scopeMetadata,
+    provisioningReceipts: ports.provisioningReceipts,
+    scopeClockTargets: ports.scopeSessionTargets,
+  }).pipe(Effect.catch(routeAuthorityResolutionFailure)));
+
 export function createPointCommitFinishingTransitionPortV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
   options: PointCommitTransactionProofOptionsV1 = {},
@@ -566,17 +584,10 @@ export function createPointCommitFinishingTransitionPortV1(
       try: () => capturePointCommitFinishingTransitionCommand(input),
       catch: mapCommandPreparationFailure,
     });
-    const located = yield* Effect.tryPromise({
-      try: () => resolveLocatedTrustedScopeAuthority(
-        command.authorityPins.deploymentId,
-        {
-          scopeMetadata: ports.scopeMetadata,
-          provisioningReceipts: ports.provisioningReceipts,
-          scopeClockTargets: ports.scopeSessionTargets,
-        },
-      ),
-      catch: mapAuthorityResolutionFailure,
-    });
+    const located = yield* resolvePointCommitAuthority(
+      command.authorityPins.deploymentId,
+      ports,
+    );
     const preliminaryFailure = preliminaryAuthorityFailure(
       command,
       located.authority,
@@ -617,17 +628,10 @@ export function createPointCommitRollbackProofPortV1(
       try: () => preparePointCommitCommand(input),
       catch: mapCommandPreparationFailure,
     });
-    const located = yield* Effect.tryPromise({
-      try: () => resolveLocatedTrustedScopeAuthority(
-        command.authorityPins.deploymentId,
-        {
-          scopeMetadata: ports.scopeMetadata,
-          provisioningReceipts: ports.provisioningReceipts,
-          scopeClockTargets: ports.scopeSessionTargets,
-        },
-      ),
-      catch: mapAuthorityResolutionFailure,
-    });
+    const located = yield* resolvePointCommitAuthority(
+      command.authorityPins.deploymentId,
+      ports,
+    );
     const preliminaryFailure = preliminaryAuthorityFailure(
       command,
       located.authority,
@@ -677,17 +681,10 @@ export function createPointCommitPublisherPortV1(
     "PointCommitTransaction.publish",
   )(function* (input) {
     const command = yield* preparePointCommitPublicationCommand(input);
-    const located = yield* Effect.tryPromise({
-      try: () => resolveLocatedTrustedScopeAuthority(
-        command.authorityPins.deploymentId,
-        {
-          scopeMetadata: ports.scopeMetadata,
-          provisioningReceipts: ports.provisioningReceipts,
-          scopeClockTargets: ports.scopeSessionTargets,
-        },
-      ),
-      catch: mapAuthorityResolutionFailure,
-    });
+    const located = yield* resolvePointCommitAuthority(
+      command.authorityPins.deploymentId,
+      ports,
+    );
     const target = isLocatedPointCommitPublicationTargetV1(located.target)
       ? located.target
       : null;
@@ -2745,20 +2742,22 @@ function publicationResultFromOutcomeEffect(
   });
 }
 
-function mapAuthorityResolutionFailure(
-  cause: unknown,
-):
-  | PointCommitStaleAuthorityV1Error
-  | PointCommitCorruptionV1Error
-  | PointCommitSqlErrorV1 {
-  if (cause instanceof TrustedScopeAuthorityResolutionError) {
-    const failure = cause.failure;
+function routeAuthorityResolutionFailure(
+  cause: TrustedScopeAuthorityError,
+): Effect.Effect<never, PointCommitFinishingTransitionV1Error> {
+  const underlyingCause = cause instanceof TrustedScopeAuthorityPortError
+    ? cause.cause
+    : cause;
+  if (underlyingCause instanceof TrustedScopeAuthorityResolutionError) {
+    const failure = underlyingCause.failure;
     switch (failure.reason) {
       case "scopeClockTargetResolutionFailed":
-        return sqlError("resolveAuthority", failure.resolutionCause);
+        return Effect.fail(
+          sqlError("resolveAuthority", failure.resolutionCause),
+        );
       case "scopeClockTargetInvalid":
       case "scopeClockScopeMismatch":
-        return corruption("scopeClockInvalid");
+        return Effect.fail(corruption("scopeClockInvalid"));
       case "scopeMetadataMissing":
       case "scopeDeploymentMismatch":
       case "splitProvisioningReceiptMissing":
@@ -2767,16 +2766,16 @@ function mapAuthorityResolutionFailure(
       case "splitProvisioningReceiptPlacementMismatch":
       case "scopeClockTargetPlacementMismatch":
       case "scopeClockMissing":
-        return stale("placementChanged");
+        return Effect.fail(stale("placementChanged"));
       default:
         return unexpectedAuthorityResolutionFailure(failure);
     }
   }
-  const sqlState = findSqlState(cause);
+  const sqlState = findSqlState(underlyingCause);
   if (sqlState !== undefined) {
-    return sqlError("resolveAuthority", cause);
+    return Effect.fail(sqlError("resolveAuthority", underlyingCause));
   }
-  throw cause;
+  return Effect.die(underlyingCause);
 }
 
 function unexpectedAuthorityResolutionFailure(failure: never): never {

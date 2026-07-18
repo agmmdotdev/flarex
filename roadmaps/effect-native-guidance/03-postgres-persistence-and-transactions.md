@@ -49,11 +49,14 @@ located-clock Promise rejection is mapped once to the tagged
 `TrustedScopeAuthorityPortError`. The target-registry resolver retains its
 existing typed placement-resolution failure because that cause is part of the
 authority contract. The session journal consumes the Effect operation directly
-and translates it once to its existing persistence error. The
+and translates it once to its existing persistence error. Point-commit
+finishing, rollback proof, and publication now share one Effect-native
+authority-resolution operation and preserve their existing stale, corruption,
+SQL, and defect classification. The
 `resolveLocatedTrustedScopeAuthority` facade is the one temporary
 Promise/runtime compatibility bridge for transaction activation,
-authorization-epoch resolution, point commit, stored-attempt evidence, and
-stored commit-authority loading. Delete it after those concrete consumers move to
+authorization-epoch resolution, stored-attempt evidence, and stored
+commit-authority loading. Delete it after those concrete consumers move to
 `resolveLocatedTrustedScopeAuthorityEffect`; new consumers must use the Effect
 operation directly. The compatibility bridge unwraps only the new port error
 to preserve the original Promise rejection identity expected by those legacy
