@@ -27,6 +27,7 @@ import type { DeploymentAnalysis as CodegenDeploymentAnalysis } from "./analyze.
 import {
   ExecutionArtifactAnalysisError,
   LocalMiniflareExecutionArtifactAdapter,
+  executionArtifactAnalysisErrorFromResponse,
   type AnalyzerDiagnostic,
   type ExecutionArtifactAdapter,
   normalizeAnalyzerDiagnostics,
@@ -209,7 +210,7 @@ export class HttpBackendSourceAnalyzer implements BackendSourceAnalyzer {
     // Deliberate runtime bridge: HTTP analyzer response decoding is Promise-based.
     return await Effect.runPromise(Effect.gen(function* () {
       const body = yield* decodeHttpBackendAnalyzerBody(response).pipe(
-        Effect.mapError(backendPushResponseErrorToAnalysisError),
+        Effect.mapError(executionArtifactAnalysisErrorFromResponse),
       );
       return {
         analysis: yield* parseCodegenAnalysisFromBodyEffect(body),
@@ -318,7 +319,7 @@ export class HttpBackendPushCoordinator implements BackendPushCoordinator {
     // Deliberate runtime bridge: HTTP backend push API is Promise-based.
     return await Effect.runPromise(
       decodeHttpBackendPushBody(response).pipe(
-        Effect.mapError(backendPushResponseErrorToAnalysisError),
+        Effect.mapError(executionArtifactAnalysisErrorFromResponse),
         Effect.flatMap(parseDevPushStatusEffect),
       ),
     );
@@ -333,7 +334,7 @@ export class HttpBackendPushCoordinator implements BackendPushCoordinator {
     // Deliberate runtime bridge: HTTP backend finish API is Promise-based.
     return await Effect.runPromise(
       decodeHttpBackendFinishBody(response).pipe(
-        Effect.mapError(backendPushResponseErrorToAnalysisError),
+        Effect.mapError(executionArtifactAnalysisErrorFromResponse),
         Effect.flatMap(parseDevFinishPushResponseEffect),
       ),
     );
@@ -418,12 +419,6 @@ function backendPushResponseFailure(
     diagnostics: diagnosticsFromBody(body),
     body,
   }));
-}
-
-function backendPushResponseErrorToAnalysisError(
-  error: BackendPushResponseError,
-): ExecutionArtifactAnalysisError {
-  return new ExecutionArtifactAnalysisError(error.message, error.diagnostics);
 }
 
 function localBackendFinishResponseErrorToError(error: LocalBackendFinishResponseError): Error {

@@ -337,6 +337,10 @@ semantics.
   executor core.
 - Local development composes analysis, source packaging, generated artifacts,
   backend runtime, executor, persistence, and Miniflare from `flarex-dev`.
+  Its execution-artifact analysis-error owner also owns the exact pure
+  message/diagnostics projection reused by local and HTTP response adapters;
+  their distinct response tags and transport evidence remain with each
+  adapter.
 - `flarex-test` reuses the local runtime surface.
 - Fetch and Nitro adapters share the same executor core; Nitro is a thin
   wrapper over the Fetch adapter.

@@ -5,8 +5,10 @@ import { describe, expect, it } from "vitest";
 import { analyzeSourcePackageLocally } from "../src/analyze";
 import {
   ExecutionArtifactAnalysisError,
+  ExecutionArtifactResponseError,
   LocalMiniflareExecutionArtifactAdapter,
   LocalMiniflareExecutionArtifactRuntime,
+  executionArtifactAnalysisErrorFromResponse,
 } from "../src/executionArtifact";
 import {
   bundleFlarexSourcePackage,
@@ -15,6 +17,31 @@ import {
 } from "../src/generate";
 
 describe("execution artifact analysis", () => {
+  it("projects response failures through the analysis-error owner", () => {
+    const diagnostics = [{
+      level: "error" as const,
+      message: "Analysis failed.",
+    }];
+    const responseError = new ExecutionArtifactResponseError({
+      operation: "analysis",
+      status: 400,
+      message: "Execution artifact analysis failed.",
+      diagnostics,
+      body: { error: "Execution artifact analysis failed." },
+    });
+
+    const first = executionArtifactAnalysisErrorFromResponse(responseError);
+    const second = executionArtifactAnalysisErrorFromResponse(responseError);
+
+    expect(first).toBeInstanceOf(ExecutionArtifactAnalysisError);
+    expect(first).toMatchObject({
+      name: "ExecutionArtifactAnalysisError",
+      message: "Execution artifact analysis failed.",
+    });
+    expect(first.diagnostics).toBe(diagnostics);
+    expect(second).not.toBe(first);
+  });
+
   it("invokes execution artifacts through the internal invoke route", async () => {
     const calls: Array<{
       url: string;

@@ -149,6 +149,11 @@ the HTTP owner while retaining domain-named wrappers. Keep tag-specific status,
 message rewriting, defensive unexpected-error fallbacks, and the Effect error
 channel with the adapter that owns them; this transport policy is not a generic
 `@flarex/utils` error helper.
+When Flarex-dev response errors map the exact message and diagnostics into
+`ExecutionArtifactAnalysisError`, keep one pure projection with that class
+owner. Retain each response error's tag, operation or context, status, body,
+and source decoder, and keep the existing `Effect.mapError` boundary in its
+consumer. This development-analysis contract is not a generic error utility.
 Keep Node filesystem and path-boundary mechanics with their host or tooling
 owner. A host-local helper may centralize canonical path resolution,
 inside/outside-root checks, file-kind and byte-size inspection, bounded reads,

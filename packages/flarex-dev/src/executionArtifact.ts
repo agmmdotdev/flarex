@@ -42,6 +42,12 @@ export class ExecutionArtifactResponseError extends Data.TaggedError("ExecutionA
   readonly body: unknown;
 }> {}
 
+export function executionArtifactAnalysisErrorFromResponse(
+  error: Pick<ExecutionArtifactResponseError, "message" | "diagnostics">,
+): ExecutionArtifactAnalysisError {
+  return new ExecutionArtifactAnalysisError(error.message, error.diagnostics);
+}
+
 export interface ExecutionArtifactAdapter {
   analyze(sourcePackage: SourcePackage): Promise<DeploymentAnalysis>;
   analyzeWithDiagnostics?(sourcePackage: SourcePackage): Promise<ExecutionArtifactAnalysis>;
@@ -92,7 +98,7 @@ export class LocalMiniflareExecutionArtifactAdapter implements ExecutionArtifact
       // Deliberate runtime bridge: local artifact analysis API is Promise-based.
       const { body, diagnostics } = await Effect.runPromise(
         decodeExecutionArtifactAnalysisBody(response).pipe(
-          Effect.mapError(executionArtifactResponseErrorToAnalysisError),
+          Effect.mapError(executionArtifactAnalysisErrorFromResponse),
         ),
       );
       if (typeof body !== "object" || body === null || !("analysis" in body)) {
@@ -187,12 +193,6 @@ function errorMessageFromBody(body: unknown): string | undefined {
   return typeof body === "object" && body !== null && "error" in body
     ? String((body as { error: unknown }).error)
     : undefined;
-}
-
-function executionArtifactResponseErrorToAnalysisError(
-  error: ExecutionArtifactResponseError,
-): ExecutionArtifactAnalysisError {
-  return new ExecutionArtifactAnalysisError(error.message, error.diagnostics);
 }
 
 function executionArtifactResponseErrorToError(error: ExecutionArtifactResponseError): Error {
