@@ -177,6 +177,11 @@ a method on the caller-owned Date. These utilities do not parse text or prove
 canonical ISO spelling, time-zone policy, freshness, ordering, expiry, database
 clock authority, or a branded timestamp contract; those rules and their
 failures stay with the protocol, persistence, or host boundary.
+When several modules under one host owner intentionally accept JavaScript-
+parseable date text and normalize it to ISO, share that policy package-locally
+while retaining each caller's validation order and typed failure mapping. Do
+not promote platform Date parsing into `@flarex/utils/dates` or describe the
+input as canonical merely because the output is normalized.
 When a pure recoverable decoder serves both a typed Effect API and an existing
 throwing compatibility API, keep one domain-local Effect v4 `Result`
 normalizer. Enter the Effect error channel once with `Effect.fromResult`, and

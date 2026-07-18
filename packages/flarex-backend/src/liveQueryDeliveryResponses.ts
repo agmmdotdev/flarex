@@ -1,9 +1,9 @@
-import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import {
   isNonArrayRecord,
   type UnknownRecord,
 } from "@flarex/utils/records";
 import { Data, Effect } from "effect";
+import { normalizeDateString } from "./dateStringNormalization";
 import { HttpError, readResponseJsonOrNullEffect } from "./http";
 
 type LiveQueryDeliveryHttpResponse = Pick<Response, "json" | "ok" | "status">;
@@ -282,8 +282,8 @@ function dateStringFromUnknown(
 ): Effect.Effect<string, LiveQueryDeliveryResponsePayloadError> {
   return Effect.gen(function* () {
     const text = yield* stringFromUnknown(value, field);
-    const date = new Date(text);
-    if (finiteDateMilliseconds(date) !== undefined) return date.toISOString();
+    const normalized = normalizeDateString(text);
+    if (normalized !== undefined) return normalized;
     return yield* failPayload("claim", `${field} must be an ISO date string.`);
   });
 }

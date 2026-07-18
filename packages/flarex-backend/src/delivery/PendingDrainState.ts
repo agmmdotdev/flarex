@@ -1,6 +1,6 @@
-import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { isNonArrayRecord } from "@flarex/utils/records";
 import { Data, Effect, Result } from "effect";
+import { normalizeDateString } from "../dateStringNormalization";
 import { HttpError } from "../http";
 import type { LiveQueryDeliveryCursor } from "../liveQueryDeliveryResponses";
 
@@ -124,9 +124,9 @@ function storageNonNegativeInteger(value: unknown, field: string): DeliveryPendi
 function dateStringFromStorage(value: unknown, field: string): DeliveryPendingDrainStateResult<string> {
   return storageString(value, field).pipe(
     Result.flatMap(text => {
-      const date = new Date(text);
-      return finiteDateMilliseconds(date) !== undefined
-        ? Result.succeed(date.toISOString())
+      const normalized = normalizeDateString(text);
+      return normalized !== undefined
+        ? Result.succeed(normalized)
         : deliveryPendingDrainStateFailure(`${field} must be an ISO date string.`);
     }),
   );
