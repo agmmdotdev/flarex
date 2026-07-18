@@ -117,6 +117,33 @@ describe("O03-B1 point-mutation session activation", () => {
     expectTypeOf<RootActivationExport>().toEqualTypeOf<never>();
   });
 
+  it("preserves metadata rejection identity at its Promise compatibility boundary", async () => {
+    const context = await provisionContext("metadata_rejection");
+    const cause = new Error("activation metadata transport unavailable");
+    const basePorts = resolutionPorts(persistence);
+    const activation = createPointMutationSessionActivationPersistenceV1(
+      {
+        ...basePorts,
+        scopeMetadata: {
+          getScopeMetadataByDeploymentId: async () => {
+            throw cause;
+          },
+        },
+      },
+      {
+        leaseDurationMilliseconds: 60_000,
+        randomUuid: () => nextUuid(),
+      },
+    );
+
+    await expect(
+      activation.activate(pointMutationSessionActivationFixture(
+        context.deploymentId,
+        context.scopeId,
+      )),
+    ).rejects.toBe(cause);
+  });
+
   it("atomically creates one running anchor and exactly replays it unchanged", async () => {
     const context = await provisionContext("create_replay");
     const input = pointMutationSessionActivationFixture(

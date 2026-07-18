@@ -5,6 +5,7 @@ import {
 } from "@flarex/utils/dates";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, asc, eq, sql } from "drizzle-orm";
+import { Effect } from "effect";
 
 import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import {
@@ -79,12 +80,14 @@ import {
   type ScopeClockRecord,
 } from "./scopeClock";
 import {
-  resolveLocatedTrustedScopeAuthority,
+  resolveLocatedTrustedScopeAuthorityEffect,
+  TrustedScopeAuthorityPortError,
   type LocatedScopeClockReader,
   type ScopeClockTargetReaderResolver,
   type ScopeMetadataReader,
   type ScopeProvisioningReceiptReader,
   type TrustedScopeAuthority,
+  type TrustedScopeAuthorityError,
 } from "./scopeAuthorityResolution";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
@@ -550,13 +553,12 @@ export function createPointMutationSessionActivationPersistenceV1(
     ): Promise<PointMutationSessionActivationResultV1> => {
       const prepared = capturePreparedActivation(input);
       const candidateSessionId = generateSessionId(randomUuid);
-      const located = await resolveLocatedTrustedScopeAuthority(
-        prepared.deploymentId,
-        {
+      const located = await runTransactionSessionAuthorityResolution(
+        resolveLocatedTrustedScopeAuthorityEffect(prepared.deploymentId, {
           scopeMetadata: ports.scopeMetadata,
           provisioningReceipts: ports.provisioningReceipts,
           scopeClockTargets: ports.scopeSessionTargets,
-        },
+        }),
       );
       if (located.authority.scopeId !== prepared.scopeId) {
         throw activationError({ reason: "scopeMismatch" });
@@ -583,13 +585,12 @@ export function createPointMutationSessionAttemptLoadPersistenceV1(
       input: PointMutationSessionAttemptSelectorV1,
     ): Promise<PointMutationSessionAttemptLoadResultV1> => {
       const selector = captureAttemptSelector(input);
-      const located = await resolveLocatedTrustedScopeAuthority(
-        selector.deploymentId,
-        {
+      const located = await runTransactionSessionAuthorityResolution(
+        resolveLocatedTrustedScopeAuthorityEffect(selector.deploymentId, {
           scopeMetadata: ports.scopeMetadata,
           provisioningReceipts: ports.provisioningReceipts,
           scopeClockTargets: ports.scopeSessionTargets,
-        },
+        }),
       );
       if (located.authority.scopeId !== selector.scopeId) {
         throw attemptLoadError({ reason: "selectorScopeMismatch" });
@@ -612,13 +613,12 @@ export function createPointMutationSessionAttemptTerminalizationPersistenceV1(
   const terminalize = async (
     input: PreparedPointMutationSessionAttemptTerminalizationInputV1,
   ): Promise<PointMutationSessionAttemptTerminalizationResultV1> => {
-    const located = await resolveLocatedTrustedScopeAuthority(
-      input.selector.deploymentId,
-      {
+    const located = await runTransactionSessionAuthorityResolution(
+      resolveLocatedTrustedScopeAuthorityEffect(input.selector.deploymentId, {
         scopeMetadata: ports.scopeMetadata,
         provisioningReceipts: ports.provisioningReceipts,
         scopeClockTargets: ports.scopeSessionTargets,
-      },
+      }),
     );
     if (located.authority.scopeId !== input.selector.scopeId) {
       throw attemptTerminalizationError({ reason: "selectorScopeMismatch" });
@@ -654,6 +654,23 @@ export function createPointMutationSessionAttemptTerminalizationPersistenceV1(
       });
     },
   });
+}
+
+/**
+ * Temporary runtime bridge owned by the Promise-native activation, reload, and
+ * terminalization persistence contracts. Delete it when those contracts expose
+ * Effect operations and their executor callers compose them directly.
+ */
+function runTransactionSessionAuthorityResolution<A>(
+  effect: Effect.Effect<A, TrustedScopeAuthorityError>,
+): Promise<A> {
+  return Effect.runPromise(
+    effect.pipe(
+      Effect.mapError((error) =>
+        error instanceof TrustedScopeAuthorityPortError ? error.cause : error
+      ),
+    ),
+  );
 }
 
 export function createLocatedPointMutationSessionActivationTargetV1(

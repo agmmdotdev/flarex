@@ -251,9 +251,8 @@ export const resolveLocatedTrustedScopeAuthorityEffect = Effect.fn(
 });
 
 /**
- * Temporary Promise compatibility boundary for transaction activation,
- * stored-attempt evidence, and commit-authority loading. Delete it when those
- * callers consume
+ * Temporary Promise compatibility boundary for stored-attempt evidence.
+ * Delete it when that remaining consumer uses
  * `resolveLocatedTrustedScopeAuthorityEffect` directly.
  */
 export function resolveLocatedTrustedScopeAuthority<

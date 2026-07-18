@@ -62,13 +62,17 @@ unexpected epoch-reader rejection is retained in the tagged port error
 channel. The unused high-level Promise resolver was deleted; the Worker and
 tests own their explicit runtime boundaries.
 
-The `resolveLocatedTrustedScopeAuthority` facade is a temporary
-Promise/runtime compatibility bridge for transaction activation and
-stored-attempt evidence. Delete it after those concrete consumers move to
-`resolveLocatedTrustedScopeAuthorityEffect`; new consumers must use the Effect
-operation directly. The compatibility bridge unwraps only the new port error
-to preserve the original Promise rejection identity expected by those legacy
-consumers.
+Transaction-session activation, reload, and terminalization now start from
+`resolveLocatedTrustedScopeAuthorityEffect`; because those contracts remain
+Promise-native, their module owns one explicitly named temporary runtime bridge
+and unwraps only the typed port error to preserve its prior rejection identity.
+Delete that local bridge when those persistence contracts and their executor
+callers move to Effect operations directly.
+
+The generic `resolveLocatedTrustedScopeAuthority` Promise facade now has one
+remaining committed consumer: stored-attempt evidence. Delete it when that
+consumer's independent Effect migration is complete; new authority consumers
+must use the Effect operation directly.
 
 Stored commit-authority loading now owns an Effect-native `loadEffect`
 operation, typed persistence failures, Effect-native detached

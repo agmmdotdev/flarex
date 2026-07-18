@@ -473,7 +473,7 @@ describe("trusted scope authority resolution", () => {
     expect(fixture.resolveClockTarget).not.toHaveBeenCalled();
   });
 
-  it("preserves the original rejection identity at the temporary Promise facade", async () => {
+  it("preserves rejection identity at the remaining temporary Promise facade", async () => {
     const cause = new Error("legacy metadata rejection");
     const fixture = resolutionFixture({ metadataCause: cause });
 
