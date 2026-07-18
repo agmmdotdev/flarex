@@ -8,6 +8,7 @@ import type {
 } from "@flarex/persistence-postgres/transaction-session-activation";
 import {
   PointMutationSessionAttemptLoadV1Error,
+  PointMutationSessionAttemptTerminalizationV1Error,
 } from "@flarex/persistence-postgres/transaction-session-activation";
 import {
   CommitSeqSchema,
@@ -37,7 +38,7 @@ import {
   inspectLoadedPointMutationSessionAttemptV1,
   type PointMutationSessionAttemptSelectorWireV1,
 } from "../src/pointMutationSessionActivation";
-import { runEffect } from "./effectTestRuntime";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 const DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
   "deployment_attempt_loading",
@@ -248,7 +249,7 @@ describe("O03-B2b1 point-mutation attempt terminalization", () => {
     );
     let abortCalls = 0;
     const terminalization = createPointMutationSessionAttemptTerminalizationV1({
-      abort: async (input) => {
+      abortEffect: (input) => Effect.sync(() => {
         abortCalls += 1;
         expect(input.selector).toEqual({
           ...SELECTOR,
@@ -262,15 +263,17 @@ describe("O03-B2b1 point-mutation attempt terminalization", () => {
           "terminalized",
           "aborted",
         );
-      },
-      expire: async (selector) =>
+      }),
+      expireEffect: (selector) => Effect.succeed(
         terminalizationResult(selector, "terminalized", "expired"),
+      ),
     });
 
-    await expect(terminalization.abort(loaded)).resolves.toMatchObject({
-      status: "terminalized",
-      terminal: { lifecycle: "aborted" },
-    });
+    await expect(runEffect(terminalization.abort(loaded))).resolves
+      .toMatchObject({
+        status: "terminalized",
+        terminal: { lifecycle: "aborted" },
+      });
 
     for (const invalid of [
       { ...loaded },
@@ -279,12 +282,12 @@ describe("O03-B2b1 point-mutation attempt terminalization", () => {
       SELECTOR,
     ]) {
       await expect(
-        Promise.resolve(Reflect.apply(
-          terminalization.abort,
-          terminalization,
-          [invalid],
-        )),
-      ).rejects.toBeInstanceOf(InvalidLoadedPointMutationSessionAttemptV1Error);
+        runEffect(
+          Reflect.apply(terminalization.abort, terminalization, [invalid]),
+        ),
+      ).rejects.toBeInstanceOf(
+        InvalidLoadedPointMutationSessionAttemptV1Error,
+      );
     }
     expect(abortCalls).toBe(1);
   });
@@ -292,38 +295,44 @@ describe("O03-B2b1 point-mutation attempt terminalization", () => {
   it("expires through the strict restart-safe selector decoder", async () => {
     const observedSelectors: PointMutationSessionAttemptSelectorV1[] = [];
     const terminalization = createPointMutationSessionAttemptTerminalizationV1({
-      abort: async (input) =>
+      abortEffect: (input) => Effect.succeed(
         terminalizationResult(input.selector, "terminalized", "aborted"),
-      expire: async (selector) => {
+      ),
+      expireEffect: (selector) => Effect.sync(() => {
         observedSelectors.push(selector);
         return terminalizationResult(selector, "terminalized", "expired");
-      },
+      }),
     });
 
     const restarted = createPointMutationSessionAttemptTerminalizationV1({
-      abort: async (input) =>
+      abortEffect: (input) => Effect.succeed(
         terminalizationResult(input.selector, "terminalized", "aborted"),
-      expire: async (selector) => {
+      ),
+      expireEffect: (selector) => Effect.sync(() => {
         observedSelectors.push(selector);
         return terminalizationResult(selector, "observed", "expired");
-      },
+      }),
     });
     await expect(
-      restarted.expire(JSON.parse(JSON.stringify(SELECTOR))),
+      runEffect(restarted.expire(JSON.parse(JSON.stringify(SELECTOR)))),
     ).resolves.toMatchObject({
       status: "observed",
       terminal: { lifecycle: "expired" },
     });
-    await expect(terminalization.expire({
-      ...SELECTOR,
-      snapshotToken: { commitSeq: "19" },
-    })).rejects.toBeInstanceOf(
+    await expect(
+      runEffect(terminalization.expire({
+        ...SELECTOR,
+        snapshotToken: { commitSeq: "19" },
+      })),
+    ).rejects.toBeInstanceOf(
       InvalidPointMutationSessionAttemptSelectorV1Error,
     );
-    await expect(terminalization.expire({
-      ...SELECTOR,
-      attemptFence: "01",
-    })).rejects.toBeInstanceOf(
+    await expect(
+      runEffect(terminalization.expire({
+        ...SELECTOR,
+        attemptFence: "01",
+      })),
+    ).rejects.toBeInstanceOf(
       InvalidPointMutationSessionAttemptSelectorV1Error,
     );
     expect(observedSelectors).toHaveLength(1);
@@ -364,12 +373,13 @@ describe("O03-B2b1 point-mutation attempt terminalization", () => {
 
     for (const result of invalidResults) {
       const terminalization = createPointMutationSessionAttemptTerminalizationV1({
-        abort: async () => result,
-        expire: async () => result,
+        abortEffect: () => Effect.succeed(result),
+        expireEffect: () => Effect.succeed(result),
       });
-      await expect(terminalization.expire(SELECTOR)).rejects.toBeInstanceOf(
-        PointMutationSessionAttemptTerminalizationContractV1Error,
-      );
+      await expect(runEffect(terminalization.expire(SELECTOR))).rejects
+        .toBeInstanceOf(
+          PointMutationSessionAttemptTerminalizationContractV1Error,
+        );
     }
   });
 
@@ -416,15 +426,37 @@ describe("O03-B2b1 point-mutation attempt terminalization", () => {
         createPointMutationSessionAttemptTerminalizationV1,
         undefined,
         [{
-          abort: async () => invalid.result,
-          expire: async () => invalid.result,
+          abortEffect: () => Effect.succeed(invalid.result),
+          expireEffect: () => Effect.succeed(invalid.result),
         }],
       );
-      await expect(terminalization.expire(SELECTOR)).rejects.toMatchObject({
-        issue: { reason: invalid.reason },
-      } satisfies Partial<PointMutationSessionAttemptTerminalizationContractV1Error>);
+      await expect(runEffect(terminalization.expire(SELECTOR))).rejects
+        .toMatchObject({
+          issue: { reason: invalid.reason },
+        } satisfies Partial<PointMutationSessionAttemptTerminalizationContractV1Error>);
     }
     expect(getterCalls).toBe(0);
+  });
+
+  it("preserves typed terminalization failures and does not recover defects", async () => {
+    const expectedFailure = new PointMutationSessionAttemptTerminalizationV1Error({
+      reason: "attemptStillLive",
+      effectiveExpiresAt: "2099-01-01T00:00:00.000Z",
+    });
+    const failing = createPointMutationSessionAttemptTerminalizationV1({
+      abortEffect: () => Effect.fail(expectedFailure),
+      expireEffect: () => Effect.fail(expectedFailure),
+    });
+    await expect(runEffectFailure(failing.expire(SELECTOR))).resolves.toBe(
+      expectedFailure,
+    );
+
+    const defect = new Error("attempt-terminalization persistence defect");
+    const defective = createPointMutationSessionAttemptTerminalizationV1({
+      abortEffect: () => Effect.die(defect),
+      expireEffect: () => Effect.die(defect),
+    });
+    await expect(runEffect(defective.expire(SELECTOR))).rejects.toBe(defect);
   });
 });
 

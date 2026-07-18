@@ -71,6 +71,7 @@ import {
   runSessionJournalPointOperation as runPointOperation,
 } from "./effectTestRuntime";
 import {
+  abortPointMutationSessionAttempt,
   activatePointMutationSession,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
@@ -388,13 +389,15 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       await expect(journalCounts(persistence, current.anchor.sessionId))
         .resolves.toEqual({ roots: 1, receipts: 1, points: 1, events: 1 });
 
-      const terminalized = await
+      const terminalized = await abortPointMutationSessionAttempt(
         createPointMutationSessionAttemptTerminalizationPersistenceV1(
           current.ports,
-        ).abort({
+        ),
+        {
           selector: selectorFromAnchor(current.anchor),
           expectedSnapshotToken: current.anchor.snapshotToken,
-        });
+        },
+      );
 
       expect(terminalized).toMatchObject({
         status: "terminalized",

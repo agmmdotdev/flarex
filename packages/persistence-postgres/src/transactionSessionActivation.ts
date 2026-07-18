@@ -132,6 +132,9 @@ const decodeAttemptSessionIdResult = Schema.decodeUnknownResult(
 const decodeAttemptFenceResult = Schema.decodeUnknownResult(
   Schema.toType(TransactionAttemptFenceSchema),
 );
+const decodeAttemptSnapshotTokenResult = Schema.decodeUnknownResult(
+  Schema.toType(SnapshotTokenSchema),
+);
 
 export interface PointMutationSessionAuthorityResolutionPortsV1 {
   readonly scopeMetadata: ScopeMetadataReader;
@@ -290,12 +293,18 @@ export interface PointMutationSessionAttemptLoadPersistenceV1 {
 }
 
 export interface PointMutationSessionAttemptTerminalizationPersistenceV1 {
-  readonly abort: (
+  readonly abortEffect: (
     input: PointMutationSessionAttemptAbortInputV1,
-  ) => Promise<PointMutationSessionAttemptTerminalizationResultV1>;
-  readonly expire: (
+  ) => Effect.Effect<
+    PointMutationSessionAttemptTerminalizationResultV1,
+    PointMutationSessionAttemptTerminalizationEffectErrorV1
+  >;
+  readonly expireEffect: (
     selector: PointMutationSessionAttemptSelectorV1,
-  ) => Promise<PointMutationSessionAttemptTerminalizationResultV1>;
+  ) => Effect.Effect<
+    PointMutationSessionAttemptTerminalizationResultV1,
+    PointMutationSessionAttemptTerminalizationEffectErrorV1
+  >;
 }
 
 export type PointMutationSessionActivationConfigurationIssueV1 =
@@ -391,6 +400,7 @@ export type PointMutationSessionAttemptTerminalizationIssueV1 =
     };
 
 export class PointMutationSessionAttemptTerminalizationV1Error extends Error {
+  readonly _tag = "PointMutationSessionAttemptTerminalizationV1Error";
   readonly name = "PointMutationSessionAttemptTerminalizationV1Error";
 
   constructor(
@@ -448,6 +458,7 @@ export class PointMutationSessionAttemptLoadTargetV1Error extends Error {
 
 export class PointMutationSessionAttemptTerminalizationTargetV1Error
   extends Error {
+  readonly _tag = "PointMutationSessionAttemptTerminalizationTargetV1Error";
   readonly name = "PointMutationSessionAttemptTerminalizationTargetV1Error";
 
   constructor(readonly scopeId: ScopeId) {
@@ -491,6 +502,27 @@ export type PointMutationSessionAttemptLoadEffectErrorV1 =
   | PointMutationSessionAuthorityCorruptionV1Error
   | PointMutationSessionAttemptLoadTargetV1Error
   | PointMutationSessionAttemptLoadPersistenceV1Error;
+
+export type PointMutationSessionAttemptTerminalizationPersistenceOperationV1 =
+  | TrustedScopeAuthorityPortOperation
+  | "attemptAbortTransaction"
+  | "attemptExpireTransaction";
+
+export class PointMutationSessionAttemptTerminalizationPersistenceV1Error
+  extends Data.TaggedError(
+    "PointMutationSessionAttemptTerminalizationPersistenceV1Error",
+  )<{
+    readonly operation:
+      PointMutationSessionAttemptTerminalizationPersistenceOperationV1;
+    readonly cause: unknown;
+  }> {}
+
+export type PointMutationSessionAttemptTerminalizationEffectErrorV1 =
+  | TrustedScopeAuthorityResolutionError
+  | PointMutationSessionAttemptTerminalizationV1Error
+  | PointMutationSessionAuthorityCorruptionV1Error
+  | PointMutationSessionAttemptTerminalizationTargetV1Error
+  | PointMutationSessionAttemptTerminalizationPersistenceV1Error;
 
 export type PointMutationSessionActivationWriteStepV1 =
   | "sessionInserted"
@@ -696,69 +728,79 @@ export function createPointMutationSessionAttemptLoadPersistenceV1(
 export function createPointMutationSessionAttemptTerminalizationPersistenceV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
 ): PointMutationSessionAttemptTerminalizationPersistenceV1 {
-  const terminalize = async (
+  const terminalize = Effect.fn(function* (
     input: PreparedPointMutationSessionAttemptTerminalizationInputV1,
-  ): Promise<PointMutationSessionAttemptTerminalizationResultV1> => {
-    const located = await runTransactionSessionEffect(
-      resolveLocatedTrustedScopeAuthorityEffect(input.selector.deploymentId, {
+  ): Effect.fn.Return<
+    PointMutationSessionAttemptTerminalizationResultV1,
+    PointMutationSessionAttemptTerminalizationEffectErrorV1
+  > {
+    const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+      input.selector.deploymentId,
+      {
         scopeMetadata: ports.scopeMetadata,
         provisioningReceipts: ports.provisioningReceipts,
         scopeClockTargets: ports.scopeSessionTargets,
-      }),
-      unwrapTrustedScopeAuthorityError,
-    );
+      },
+    ).pipe(Effect.mapError(mapAttemptTerminalizationAuthorityError));
     if (located.authority.scopeId !== input.selector.scopeId) {
-      throw attemptTerminalizationError({ reason: "selectorScopeMismatch" });
+      return yield* Effect.fail(
+        attemptTerminalizationError({ reason: "selectorScopeMismatch" }),
+      );
     }
-    const target = requireAttemptTerminalizationTarget(
-      located.target,
-      input.selector.scopeId,
+    const target = yield* Effect.fromResult(
+      requireAttemptTerminalizationTarget(
+        located.target,
+        input.selector.scopeId,
+      ),
     );
-    return target.terminalizeExactPointMutationSessionAttempt({
-      ...input,
-      preliminaryAuthority: located.authority,
-    });
-  };
-
-  return Object.freeze({
-    abort: async (
-      input: PointMutationSessionAttemptAbortInputV1,
-    ): Promise<PointMutationSessionAttemptTerminalizationResultV1> => {
-      const captured = captureAttemptAbortInput(input);
-      return terminalize({
-        operation: "abort",
-        selector: captured.selector,
-        expectedSnapshotToken: captured.expectedSnapshotToken,
-      });
-    },
-    expire: async (
-      input: PointMutationSessionAttemptSelectorV1,
-    ): Promise<PointMutationSessionAttemptTerminalizationResultV1> => {
-      const selector = captureTerminalizationAttemptSelector(input);
-      return terminalize({
-        operation: "expire",
-        selector,
-      });
-    },
+    return yield* Effect.uninterruptible(
+      Effect.tryPromise({
+        try: () => target.terminalizeExactPointMutationSessionAttempt({
+          ...input,
+          preliminaryAuthority: located.authority,
+        }),
+        catch: (cause) => mapAttemptTerminalizationTransactionError(
+          input.operation,
+          cause,
+        ),
+      }),
+    );
   });
-}
 
-/**
- * Temporary runtime bridge owned by the Promise-native terminalization
- * contract. Delete it when that consumer composes the corresponding Effect
- * operations directly.
- */
-function runTransactionSessionEffect<A, E>(
-  effect: Effect.Effect<A, E>,
-  unwrapError: (error: E) => unknown,
-): Promise<A> {
-  return Effect.runPromise(effect.pipe(Effect.mapError(unwrapError)));
-}
+  const abortEffect = Effect.fn(
+    "PointMutationSessionAttemptTerminalization.abort",
+  )(function* (
+    input: PointMutationSessionAttemptAbortInputV1,
+  ): Effect.fn.Return<
+    PointMutationSessionAttemptTerminalizationResultV1,
+    PointMutationSessionAttemptTerminalizationEffectErrorV1
+  > {
+    const captured = yield* Effect.fromResult(captureAttemptAbortInput(input));
+    return yield* terminalize({
+      operation: "abort",
+      selector: captured.selector,
+      expectedSnapshotToken: captured.expectedSnapshotToken,
+    });
+  });
 
-function unwrapTrustedScopeAuthorityError(
-  error: TrustedScopeAuthorityError,
-): unknown {
-  return error instanceof TrustedScopeAuthorityPortError ? error.cause : error;
+  const expireEffect = Effect.fn(
+    "PointMutationSessionAttemptTerminalization.expire",
+  )(function* (
+    input: PointMutationSessionAttemptSelectorV1,
+  ): Effect.fn.Return<
+    PointMutationSessionAttemptTerminalizationResultV1,
+    PointMutationSessionAttemptTerminalizationEffectErrorV1
+  > {
+    const selector = yield* Effect.fromResult(
+      captureTerminalizationAttemptSelector(input),
+    );
+    return yield* terminalize({
+      operation: "expire",
+      selector,
+    });
+  });
+
+  return Object.freeze({ abortEffect, expireEffect });
 }
 
 export function createLocatedPointMutationSessionActivationTargetV1(
@@ -2047,29 +2089,31 @@ function captureAttemptSelector(
   PointMutationSessionAttemptSelectorV1,
   PointMutationSessionAttemptLoadV1Error
 > {
+  return decodeAttemptSelectorResult(input).pipe(
+    Result.mapError(invalidAttemptSelector),
+  );
+}
+
+function decodeAttemptSelectorResult(
+  input: PointMutationSessionAttemptSelectorV1,
+): Result.Result<PointMutationSessionAttemptSelectorV1, unknown> {
   return Result.gen(function* () {
     const deploymentIdInput = yield* readAttemptSelectorInput(
       () => input.deploymentId,
     );
     const deploymentId = yield* decodeAttemptDeploymentIdResult(
       deploymentIdInput,
-    ).pipe(Result.mapError(invalidAttemptSelector));
-    const scopeIdInput = yield* readAttemptSelectorInput(() => input.scopeId);
-    const scopeId = yield* decodeAttemptScopeIdResult(scopeIdInput).pipe(
-      Result.mapError(invalidAttemptSelector),
     );
+    const scopeIdInput = yield* readAttemptSelectorInput(() => input.scopeId);
+    const scopeId = yield* decodeAttemptScopeIdResult(scopeIdInput);
     const sessionIdInput = yield* readAttemptSelectorInput(
       () => input.sessionId,
     );
-    const sessionId = yield* decodeAttemptSessionIdResult(sessionIdInput).pipe(
-      Result.mapError(invalidAttemptSelector),
-    );
+    const sessionId = yield* decodeAttemptSessionIdResult(sessionIdInput);
     const attemptFenceInput = yield* readAttemptSelectorInput(
       () => input.attemptFence,
     );
-    const attemptFence = yield* decodeAttemptFenceResult(attemptFenceInput).pipe(
-      Result.mapError(invalidAttemptSelector),
-    );
+    const attemptFence = yield* decodeAttemptFenceResult(attemptFenceInput);
     return Object.freeze({
       deploymentId,
       scopeId,
@@ -2081,8 +2125,8 @@ function captureAttemptSelector(
 
 function readAttemptSelectorInput<A>(
   read: () => A,
-): Result.Result<A, PointMutationSessionAttemptLoadV1Error> {
-  return Result.try({ try: read, catch: invalidAttemptSelector });
+): Result.Result<A, unknown> {
+  return Result.try({ try: read, catch: (cause) => cause });
 }
 
 function invalidAttemptSelector(
@@ -2093,51 +2137,65 @@ function invalidAttemptSelector(
 
 function captureTerminalizationAttemptSelector(
   input: PointMutationSessionAttemptSelectorV1,
-): PointMutationSessionAttemptSelectorV1 {
-  try {
-    return decodeAttemptSelector(input);
-  } catch (cause) {
-    throw attemptTerminalizationError({ reason: "invalidSelector", cause });
-  }
+): Result.Result<
+  PointMutationSessionAttemptSelectorV1,
+  PointMutationSessionAttemptTerminalizationV1Error
+> {
+  return decodeAttemptSelectorResult(input).pipe(
+    Result.mapError(invalidTerminalizationAttemptSelector),
+  );
 }
 
 function captureAttemptAbortInput(
   input: PointMutationSessionAttemptAbortInputV1,
-): PointMutationSessionAttemptAbortInputV1 {
-  const selector = captureTerminalizationAttemptSelector(input.selector);
-  try {
-    const expectedSnapshotToken = Object.freeze(
-      SnapshotTokenSchema.make({
-        scopeId: input.expectedSnapshotToken.scopeId,
-        epoch: input.expectedSnapshotToken.epoch,
-        commitSeq: input.expectedSnapshotToken.commitSeq,
-      }),
+): Result.Result<
+  PointMutationSessionAttemptAbortInputV1,
+  PointMutationSessionAttemptTerminalizationV1Error
+> {
+  return Result.gen(function* () {
+    const selectorInput = yield* readAttemptTerminalizationInput(
+      () => input.selector,
+      invalidTerminalizationAttemptSelector,
     );
+    const selector = yield* captureTerminalizationAttemptSelector(selectorInput);
+    const expectedSnapshotTokenInput = yield* readAttemptTerminalizationInput(
+      () => input.expectedSnapshotToken,
+      invalidAbortSnapshot,
+    );
+    const expectedSnapshotToken = yield* decodeAttemptSnapshotTokenResult(
+      expectedSnapshotTokenInput,
+    ).pipe(Result.mapError(invalidAbortSnapshot));
     if (expectedSnapshotToken.scopeId !== selector.scopeId) {
-      throw new Error("Abort snapshot scope does not match its selector.");
+      return yield* Result.fail(invalidAbortSnapshot(
+        new Error("Abort snapshot scope does not match its selector."),
+      ));
     }
     return Object.freeze({
       selector,
-      expectedSnapshotToken,
+      expectedSnapshotToken: Object.freeze(expectedSnapshotToken),
     });
-  } catch (cause) {
-    throw attemptTerminalizationError({
-      reason: "invalidAbortSnapshot",
-      cause,
-    });
-  }
+  });
 }
 
-function decodeAttemptSelector(
-  input: PointMutationSessionAttemptSelectorV1,
-): PointMutationSessionAttemptSelectorV1 {
-  return Object.freeze({
-    deploymentId: TransactionGrantDeploymentIdV1Schema.make(
-      input.deploymentId,
-    ),
-    scopeId: decodeReplacementScopeIdV1(input.scopeId),
-    sessionId: TransactionSessionIdV1Schema.make(input.sessionId),
-    attemptFence: TransactionAttemptFenceSchema.make(input.attemptFence),
+function readAttemptTerminalizationInput<A>(
+  read: () => A,
+  onFailure: (cause: unknown) => PointMutationSessionAttemptTerminalizationV1Error,
+): Result.Result<A, PointMutationSessionAttemptTerminalizationV1Error> {
+  return Result.try({ try: read, catch: onFailure });
+}
+
+function invalidTerminalizationAttemptSelector(
+  cause: unknown,
+): PointMutationSessionAttemptTerminalizationV1Error {
+  return attemptTerminalizationError({ reason: "invalidSelector", cause });
+}
+
+function invalidAbortSnapshot(
+  cause: unknown,
+): PointMutationSessionAttemptTerminalizationV1Error {
+  return attemptTerminalizationError({
+    reason: "invalidAbortSnapshot",
+    cause,
   });
 }
 
@@ -2172,13 +2230,16 @@ function requireAttemptLoadTarget(
 function requireAttemptTerminalizationTarget(
   target: LocatedScopeClockReader,
   scopeId: ScopeId,
-): LocatedPointMutationSessionAttemptTerminalizationTargetV1 {
+): Result.Result<
+  LocatedPointMutationSessionAttemptTerminalizationTargetV1,
+  PointMutationSessionAttemptTerminalizationTargetV1Error
+> {
   if (!isAttemptTerminalizationTarget(target)) {
-    throw new PointMutationSessionAttemptTerminalizationTargetV1Error(
-      scopeId,
+    return Result.fail(
+      new PointMutationSessionAttemptTerminalizationTargetV1Error(scopeId),
     );
   }
-  return target;
+  return Result.succeed(target);
 }
 
 function isActivationTarget(
@@ -2301,6 +2362,38 @@ function mapAttemptLoadTransactionError(
   }
   return new PointMutationSessionAttemptLoadPersistenceV1Error({
     operation: "attemptLoadTransaction",
+    cause,
+  });
+}
+
+function mapAttemptTerminalizationAuthorityError(
+  error: TrustedScopeAuthorityError,
+): TrustedScopeAuthorityResolutionError |
+  PointMutationSessionAttemptTerminalizationPersistenceV1Error {
+  return error instanceof TrustedScopeAuthorityPortError
+    ? new PointMutationSessionAttemptTerminalizationPersistenceV1Error({
+        operation: error.operation,
+        cause: error.cause,
+      })
+    : error;
+}
+
+function mapAttemptTerminalizationTransactionError(
+  operation: PointMutationSessionAttemptTerminalizationOperationV1,
+  cause: unknown,
+): PointMutationSessionAttemptTerminalizationV1Error |
+  PointMutationSessionAuthorityCorruptionV1Error |
+  PointMutationSessionAttemptTerminalizationPersistenceV1Error {
+  if (
+    cause instanceof PointMutationSessionAttemptTerminalizationV1Error ||
+    cause instanceof PointMutationSessionAuthorityCorruptionV1Error
+  ) {
+    return cause;
+  }
+  return new PointMutationSessionAttemptTerminalizationPersistenceV1Error({
+    operation: operation === "abort"
+      ? "attemptAbortTransaction"
+      : "attemptExpireTransaction",
     cause,
   });
 }

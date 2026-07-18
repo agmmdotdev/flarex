@@ -57,7 +57,9 @@ import {
 import { runEffect, runEffectFailure as runFailure } from
   "./effectTestRuntime";
 import {
+  abortPointMutationSessionAttempt,
   activatePointMutationSession,
+  expirePointMutationSessionAttempt,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
@@ -293,10 +295,13 @@ describePostgres("real Postgres C05-A finishing transition", () => {
             },
           }),
         );
-      const abortFirstPromise = abortFirstTerminalization.abort({
-        selector: selectorFromAnchor(abortFirst.anchor),
-        expectedSnapshotToken: abortFirst.anchor.snapshotToken,
-      });
+      const abortFirstPromise = abortPointMutationSessionAttempt(
+        abortFirstTerminalization,
+        {
+          selector: selectorFromAnchor(abortFirst.anchor),
+          expectedSnapshotToken: abortFirst.anchor.snapshotToken,
+        },
+      );
       await abortLocked.promise;
       const abortFirstTransition = runFailure(
         createPort(persistence, scope).enterFinishing(abortFirst.command),
@@ -339,10 +344,13 @@ describePostgres("real Postgres C05-A finishing transition", () => {
         createPointMutationSessionAttemptTerminalizationPersistenceV1(
           scope.ports,
         );
-      const transitionFirstAbort = terminalization.abort({
-        selector: selectorFromAnchor(transitionFirst.anchor),
-        expectedSnapshotToken: transitionFirst.anchor.snapshotToken,
-      });
+      const transitionFirstAbort = abortPointMutationSessionAttempt(
+        terminalization,
+        {
+          selector: selectorFromAnchor(transitionFirst.anchor),
+          expectedSnapshotToken: transitionFirst.anchor.snapshotToken,
+        },
+      );
       try {
         await waitForBlockedPointCommit(persistence, 1);
       } finally {
@@ -408,7 +416,8 @@ describePostgres("real Postgres C05-A finishing transition", () => {
         },
       ).enterFinishing(expiredCommand));
       await expiryRaceLocked.promise;
-      const expiryPromise = terminalization.expire(
+      const expiryPromise = expirePointMutationSessionAttempt(
+        terminalization,
         selectorFromAnchor(expired.anchor),
       );
       try {

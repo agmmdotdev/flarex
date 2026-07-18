@@ -27,6 +27,7 @@ import {
 import {
   PointMutationSessionAttemptLoadV1Error,
   PointMutationSessionAttemptLoadPersistenceV1Error,
+  PointMutationSessionAttemptTerminalizationPersistenceV1Error,
   PointMutationSessionAttemptTerminalizationV1Error,
   PointMutationSessionAuthorityCorruptionV1Error,
   createPointMutationSessionActivationPersistenceV1,
@@ -38,7 +39,9 @@ import {
   type PointMutationSessionAttemptSelectorV1,
 } from "../src/transactionSessionActivation";
 import {
+  abortPointMutationSessionAttempt,
   activatePointMutationSession,
+  expirePointMutationSessionAttempt,
   loadPointMutationSessionAttempt,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
@@ -437,7 +440,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
       },
     });
 
-    const aborted = await terminalization.abort({
+    const aborted = await abortPointMutationSessionAttempt(terminalization, {
       selector,
       expectedSnapshotToken: anchor.snapshotToken,
     });
@@ -475,11 +478,17 @@ describe("O03-B exact point-mutation attempt authority", () => {
     );
 
     events.length = 0;
-    const repeatedAbort = await terminalization.abort({
+    const repeatedAbort = await abortPointMutationSessionAttempt(
+      terminalization,
+      {
+        selector,
+        expectedSnapshotToken: anchor.snapshotToken,
+      },
+    );
+    const repeatedExpiry = await expirePointMutationSessionAttempt(
+      terminalization,
       selector,
-      expectedSnapshotToken: anchor.snapshotToken,
-    });
-    const repeatedExpiry = await terminalization.expire(selector);
+    );
     expect(repeatedAbort).toEqual({
       status: "observed",
       terminal: aborted.terminal,
@@ -499,10 +508,12 @@ describe("O03-B exact point-mutation attempt authority", () => {
       `update fx_system_tx_session set lifecycle = 'finishing' where session_id = $1`,
       [finishingAnchor.sessionId],
     );
-    await expect(terminalization.abort({
-      selector: selectorFromAnchor(finishingAnchor),
-      expectedSnapshotToken: finishingAnchor.snapshotToken,
-    })).resolves.toMatchObject({
+    await expect(
+      abortPointMutationSessionAttempt(terminalization, {
+        selector: selectorFromAnchor(finishingAnchor),
+        expectedSnapshotToken: finishingAnchor.snapshotToken,
+      }),
+    ).resolves.toMatchObject({
       status: "terminalized",
       terminal: { lifecycle: "aborted" },
     });
@@ -522,10 +533,125 @@ describe("O03-B exact point-mutation attempt authority", () => {
       [committedAnchor.sessionId],
     );
     await expect(
-      terminalization.expire(selectorFromAnchor(committedAnchor)),
+      expirePointMutationSessionAttempt(
+        terminalization,
+        selectorFromAnchor(committedAnchor),
+      ),
     ).resolves.toMatchObject({
       status: "observed",
       terminal: { lifecycle: "committed" },
+    });
+  });
+
+  it("maps terminalization authority rejection into the typed Effect channel", async () => {
+    const context = await provisionContext("terminal_typed_authority_failure");
+    const anchor = (await activate(context)).anchor;
+    const cause = new Error("terminalization metadata unavailable");
+    const ports = resolutionPorts(persistence);
+    const terminalization =
+      createPointMutationSessionAttemptTerminalizationPersistenceV1({
+        ...ports,
+        scopeMetadata: {
+          getScopeMetadataByDeploymentId: async () => {
+            throw cause;
+          },
+        },
+      });
+
+    const failure = await runFailure(
+      terminalization.abortEffect({
+        selector: selectorFromAnchor(anchor),
+        expectedSnapshotToken: anchor.snapshotToken,
+      }),
+    );
+
+    expect(failure).toBeInstanceOf(
+      PointMutationSessionAttemptTerminalizationPersistenceV1Error,
+    );
+    expect(failure).toMatchObject({
+      _tag: "PointMutationSessionAttemptTerminalizationPersistenceV1Error",
+      operation: "scopeMetadataRead",
+      cause,
+    });
+  });
+
+  it("short-circuits invalid abort input before authority resolution", async () => {
+    const context = await provisionContext("terminal_invalid_input");
+    const anchor = (await activate(context)).anchor;
+    const ports = resolutionPorts(persistence);
+    let authorityReads = 0;
+    const terminalization =
+      createPointMutationSessionAttemptTerminalizationPersistenceV1({
+        ...ports,
+        scopeMetadata: {
+          getScopeMetadataByDeploymentId: async (deploymentId) => {
+            authorityReads += 1;
+            return ports.scopeMetadata.getScopeMetadataByDeploymentId(
+              deploymentId,
+            );
+          },
+        },
+      });
+    const input = {
+      selector: selectorFromAnchor(anchor),
+      expectedSnapshotToken: anchor.snapshotToken,
+    };
+    Object.defineProperty(input, "selector", {
+      enumerable: true,
+      get: () => {
+        throw new Error("selector getter failed");
+      },
+    });
+
+    const failure = await runFailure(terminalization.abortEffect(input));
+
+    expect(failure).toMatchObject({
+      issue: {
+        reason: "invalidSelector",
+        cause: expect.any(Error),
+      },
+    } satisfies Partial<PointMutationSessionAttemptTerminalizationV1Error>);
+    expect(authorityReads).toBe(0);
+  });
+
+  it("does not observe interruption until terminalization commits atomically", async () => {
+    const context = await provisionContext("terminal_interruption");
+    const anchor = (await activate(context)).anchor;
+    const entered = deferredSignal();
+    const release = deferredSignal();
+    let interruptionSettled = false;
+    const terminalization = terminalizationPersistence({
+      afterTerminalizationEvent: async (event) => {
+        if (event.phase !== "write" || event.step !== "journalDeleted") return;
+        entered.resolve();
+        await release.promise;
+      },
+    });
+
+    const fiber = Effect.runFork(
+      terminalization.abortEffect({
+        selector: selectorFromAnchor(anchor),
+        expectedSnapshotToken: anchor.snapshotToken,
+      }),
+    );
+    await entered.promise;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+      interruptionSettled = true;
+      return exit;
+    });
+    try {
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      release.resolve();
+    }
+    await interruption;
+
+    expect(interruptionSettled).toBe(true);
+    expect(Exit.hasInterrupts(await runEffect(Fiber.await(fiber)))).toBe(true);
+    expect(await rowState(persistence, context.scopeId)).toMatchObject({
+      lifecycle: "aborted",
+      lease_attempt_fence: null,
     });
   });
 
@@ -536,7 +662,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
     const terminalization = terminalizationPersistence();
     const before = await rowState(persistence, live.scopeId);
 
-    await expect(terminalization.expire(liveSelector)).rejects.toMatchObject({
+    await expect(expirePointMutationSessionAttempt(
+      terminalization,
+      liveSelector,
+    )).rejects.toMatchObject({
       issue: { reason: "attemptStillLive" },
     });
     expect(await rowState(persistence, live.scopeId)).toEqual(before);
@@ -547,7 +676,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
        where session_id = $1`,
       [liveAnchor.sessionId],
     );
-    await expect(terminalization.expire(liveSelector)).resolves.toMatchObject({
+    await expect(expirePointMutationSessionAttempt(
+      terminalization,
+      liveSelector,
+    )).resolves.toMatchObject({
       status: "terminalized",
       terminal: { lifecycle: "expired" },
     });
@@ -560,10 +692,12 @@ describe("O03-B exact point-mutation attempt authority", () => {
        where session_id = $1`,
       [lateAbortAnchor.sessionId],
     );
-    await expect(terminalization.abort({
-      selector: selectorFromAnchor(lateAbortAnchor),
-      expectedSnapshotToken: lateAbortAnchor.snapshotToken,
-    })).resolves.toMatchObject({
+    await expect(
+      abortPointMutationSessionAttempt(terminalization, {
+        selector: selectorFromAnchor(lateAbortAnchor),
+        expectedSnapshotToken: lateAbortAnchor.snapshotToken,
+      }),
+    ).resolves.toMatchObject({
       status: "terminalized",
       terminal: { lifecycle: "expired" },
     });
@@ -578,7 +712,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
       `delete from fx_system_snapshot_lease where session_id = $1`,
       [missingLeaseAnchor.sessionId],
     );
-    await expect(terminalization.expire(selectorFromAnchor(missingLeaseAnchor)))
+    await expect(expirePointMutationSessionAttempt(
+      terminalization,
+      selectorFromAnchor(missingLeaseAnchor),
+    ))
       .rejects.toMatchObject({
         issue: "snapshotLeaseMissing",
       } satisfies Partial<PointMutationSessionAuthorityCorruptionV1Error>);
@@ -589,7 +726,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
       `update fx_system_tx_session set lifecycle = 'aborted' where session_id = $1`,
       [terminalLeaseAnchor.sessionId],
     );
-    await expect(terminalization.expire(selectorFromAnchor(terminalLeaseAnchor)))
+    await expect(expirePointMutationSessionAttempt(
+      terminalization,
+      selectorFromAnchor(terminalLeaseAnchor),
+    ))
       .rejects.toMatchObject({
         issue: "terminalSnapshotLeasePresent",
       } satisfies Partial<PointMutationSessionAuthorityCorruptionV1Error>);
@@ -604,7 +744,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
         [transitionalAnchor.sessionId, lifecycle],
       );
       await expect(
-        terminalization.expire(selectorFromAnchor(transitionalAnchor)),
+        expirePointMutationSessionAttempt(
+          terminalization,
+          selectorFromAnchor(transitionalAnchor),
+        ),
       ).rejects.toMatchObject({
         issue: { reason: "attemptNotTerminalizable", lifecycle },
       } satisfies Partial<PointMutationSessionAttemptTerminalizationV1Error>);
@@ -620,10 +763,12 @@ describe("O03-B exact point-mutation attempt authority", () => {
     await setFlarexActivationClock(persistence, changedSnapshot.scopeId, {
       lastCommitSeq: 1n,
     });
-    await expect(terminalization.abort({
-      selector: selectorFromAnchor(changedSnapshotAnchor),
-      expectedSnapshotToken: changedSnapshotAnchor.snapshotToken,
-    })).rejects.toMatchObject({
+    await expect(
+      abortPointMutationSessionAttempt(terminalization, {
+        selector: selectorFromAnchor(changedSnapshotAnchor),
+        expectedSnapshotToken: changedSnapshotAnchor.snapshotToken,
+      }),
+    ).rejects.toMatchObject({
       issue: "attemptSnapshotChanged",
     } satisfies Partial<PointMutationSessionAuthorityCorruptionV1Error>);
 
@@ -664,7 +809,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
       });
     });
     await expect(
-      terminalization.expire(selectorFromAnchor(staleAnchor)),
+      expirePointMutationSessionAttempt(
+        terminalization,
+        selectorFromAnchor(staleAnchor),
+      ),
     ).rejects.toMatchObject({
       issue: { reason: "staleAttemptFence" },
     } satisfies Partial<PointMutationSessionAttemptTerminalizationV1Error>);
@@ -681,7 +829,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
        where scope_id = $1`,
       [drift.scopeId],
     );
-    await expect(terminalization.expire(selectorFromAnchor(driftAnchor)))
+    await expect(expirePointMutationSessionAttempt(
+      terminalization,
+      selectorFromAnchor(driftAnchor),
+    ))
       .rejects.toMatchObject({
         issue: { reason: "authorizationRevocationEpochChanged" },
       } satisfies Partial<PointMutationSessionAttemptTerminalizationV1Error>);
@@ -699,7 +850,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
       [generationDrift.scopeId],
     );
     await expect(
-      terminalization.expire(selectorFromAnchor(generationDriftAnchor)),
+      expirePointMutationSessionAttempt(
+        terminalization,
+        selectorFromAnchor(generationDriftAnchor),
+      ),
     ).rejects.toMatchObject({
       issue: { reason: "storageGenerationFenceChanged" },
     } satisfies Partial<PointMutationSessionAttemptTerminalizationV1Error>);
@@ -757,10 +911,13 @@ describe("O03-B exact point-mutation attempt authority", () => {
       attemptFence: maximumFence,
     });
 
-    const result = await terminalizationPersistence().abort({
-      selector,
-      expectedSnapshotToken: anchor.snapshotToken,
-    });
+    const result = await abortPointMutationSessionAttempt(
+      terminalizationPersistence(),
+      {
+        selector,
+        expectedSnapshotToken: anchor.snapshotToken,
+      },
+    );
 
     expect(result.terminal.attemptFence).toBe(maximumFence);
     expect(result.terminal.lifecycle).toBe("aborted");
@@ -779,18 +936,28 @@ describe("O03-B exact point-mutation attempt authority", () => {
       const context = await provisionContext(`terminal_rollback_${failureStep}`);
       const anchor = (await activate(context)).anchor;
       const before = await rowState(persistence, context.scopeId);
+      const cause = new Error(`fail:${failureStep}`);
       const terminalization = terminalizationPersistence({
         afterTerminalizationEvent: (event) => {
           if (event.phase === "write" && event.step === failureStep) {
-            throw new Error(`fail:${failureStep}`);
+            throw cause;
           }
         },
       });
 
-      await expect(terminalization.abort({
-        selector: selectorFromAnchor(anchor),
-        expectedSnapshotToken: anchor.snapshotToken,
-      })).rejects.toThrow(`fail:${failureStep}`);
+      const failure = await runFailure(
+        terminalization.abortEffect({
+          selector: selectorFromAnchor(anchor),
+          expectedSnapshotToken: anchor.snapshotToken,
+        }),
+      );
+      expect(failure).toBeInstanceOf(
+        PointMutationSessionAttemptTerminalizationPersistenceV1Error,
+      );
+      expect(failure).toMatchObject({
+        operation: "attemptAbortTransaction",
+        cause,
+      });
       expect(await rowState(persistence, context.scopeId)).toEqual(before);
     }
   });

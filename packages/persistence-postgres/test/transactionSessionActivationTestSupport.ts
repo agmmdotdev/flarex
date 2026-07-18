@@ -28,7 +28,10 @@ import type {
   PointMutationSessionActivationResultV1,
   PointMutationSessionAttemptLoadPersistenceV1,
   PointMutationSessionAttemptLoadResultV1,
+  PointMutationSessionAttemptAbortInputV1,
   PointMutationSessionAttemptSelectorV1,
+  PointMutationSessionAttemptTerminalizationPersistenceV1,
+  PointMutationSessionAttemptTerminalizationResultV1,
   PreparedPointMutationSessionActivationV1,
 } from "../src/transactionSessionActivation";
 import { runEffect } from "./effectTestRuntime";
@@ -55,6 +58,22 @@ export function loadPointMutationSessionAttempt(
   selector: PointMutationSessionAttemptSelectorV1,
 ): Promise<PointMutationSessionAttemptLoadResultV1> {
   return runEffect(persistence.loadEffect(selector));
+}
+
+/** Explicit test runtime boundary for the Effect-native attempt terminalizer. */
+export function abortPointMutationSessionAttempt(
+  persistence: PointMutationSessionAttemptTerminalizationPersistenceV1,
+  input: PointMutationSessionAttemptAbortInputV1,
+): Promise<PointMutationSessionAttemptTerminalizationResultV1> {
+  return runEffect(persistence.abortEffect(input));
+}
+
+/** Explicit test runtime boundary for the Effect-native attempt terminalizer. */
+export function expirePointMutationSessionAttempt(
+  persistence: PointMutationSessionAttemptTerminalizationPersistenceV1,
+  selector: PointMutationSessionAttemptSelectorV1,
+): Promise<PointMutationSessionAttemptTerminalizationResultV1> {
+  return runEffect(persistence.expireEffect(selector));
 }
 
 export function pointMutationSessionActivationFixture(

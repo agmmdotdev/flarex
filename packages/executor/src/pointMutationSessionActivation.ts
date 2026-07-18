@@ -6,6 +6,7 @@ import type {
   PointMutationSessionAttemptLoadPersistenceV1,
   PointMutationSessionAttemptLoadResultV1,
   PointMutationSessionAttemptSelectorV1,
+  PointMutationSessionAttemptTerminalizationEffectErrorV1,
   PointMutationSessionAttemptTerminalizationPersistenceV1,
   PointMutationSessionAttemptTerminalizationResultV1,
   PointMutationSessionTerminalLifecycleV1,
@@ -32,7 +33,6 @@ import { Effect, Result } from "effect";
 
 import { isPlainRecord } from "./plainRecord";
 import {
-  decodePointMutationSessionAttemptSelectorV1,
   decodePointMutationSessionAttemptSelectorV1Result,
   InvalidPointMutationSessionAttemptSelectorV1Error,
   type PointMutationSessionAttemptSelectorIssueV1,
@@ -106,6 +106,7 @@ export {
 };
 
 export class InvalidLoadedPointMutationSessionAttemptV1Error extends Error {
+  readonly _tag = "InvalidLoadedPointMutationSessionAttemptV1Error" as const;
   readonly name = "InvalidLoadedPointMutationSessionAttemptV1Error";
 
   constructor() {
@@ -129,6 +130,8 @@ export type PointMutationSessionAttemptTerminalizationContractIssueV1 =
 
 export class PointMutationSessionAttemptTerminalizationContractV1Error
   extends Error {
+  readonly _tag =
+    "PointMutationSessionAttemptTerminalizationContractV1Error" as const;
   readonly name =
     "PointMutationSessionAttemptTerminalizationContractV1Error";
 
@@ -171,11 +174,23 @@ export type PointMutationSessionAttemptLoadingExecutionV1Error =
 export interface PointMutationSessionAttemptTerminalizationV1 {
   readonly abort: (
     attempt: LoadedPointMutationSessionAttemptV1,
-  ) => Promise<PointMutationSessionAttemptTerminalizationResultV1>;
+  ) => Effect.Effect<
+    PointMutationSessionAttemptTerminalizationResultV1,
+    PointMutationSessionAttemptTerminalizationExecutionV1Error
+  >;
   readonly expire: (
     selector: unknown,
-  ) => Promise<PointMutationSessionAttemptTerminalizationResultV1>;
+  ) => Effect.Effect<
+    PointMutationSessionAttemptTerminalizationResultV1,
+    PointMutationSessionAttemptTerminalizationExecutionV1Error
+  >;
 }
+
+export type PointMutationSessionAttemptTerminalizationExecutionV1Error =
+  | InvalidLoadedPointMutationSessionAttemptV1Error
+  | InvalidPointMutationSessionAttemptSelectorV1Error
+  | PointMutationSessionAttemptTerminalizationEffectErrorV1
+  | PointMutationSessionAttemptTerminalizationContractV1Error;
 
 export function createPointMutationSessionActivationV1(
   persistence: Pick<
@@ -232,28 +247,44 @@ export function createPointMutationSessionAttemptLoadingV1(
 export function createPointMutationSessionAttemptTerminalizationV1(
   persistence: PointMutationSessionAttemptTerminalizationPersistenceV1,
 ): PointMutationSessionAttemptTerminalizationV1 {
-  return Object.freeze({
-    abort: async (
+  const abort = Effect.fn("ExecutorPointMutationSessionTerminalization.abort")(
+    function* (
       attempt: LoadedPointMutationSessionAttemptV1,
-    ): Promise<PointMutationSessionAttemptTerminalizationResultV1> => {
-      const inspection = inspectLoadedPointMutationSessionAttemptV1(attempt);
-      const result = await persistence.abort({
+    ): Effect.fn.Return<
+      PointMutationSessionAttemptTerminalizationResultV1,
+      PointMutationSessionAttemptTerminalizationExecutionV1Error
+    > {
+      const inspection = yield* Effect.fromResult(
+        inspectLoadedPointMutationSessionAttemptResultV1(attempt),
+      );
+      const result = yield* persistence.abortEffect({
         selector: inspection.selector,
         expectedSnapshotToken: inspection.snapshotToken,
       });
-      return captureAttemptTerminalizationResult(
-        inspection.selector,
-        result,
+      return yield* Effect.fromResult(
+        captureAttemptTerminalizationResult(inspection.selector, result),
       );
     },
-    expire: async (
-      input: unknown,
-    ): Promise<PointMutationSessionAttemptTerminalizationResultV1> => {
-      const selector = decodePointMutationSessionAttemptSelectorV1(input);
-      const result = await persistence.expire(selector);
-      return captureAttemptTerminalizationResult(selector, result);
-    },
+  );
+
+  const expire = Effect.fn(
+    "ExecutorPointMutationSessionTerminalization.expire",
+  )(function* (
+    input: unknown,
+  ): Effect.fn.Return<
+    PointMutationSessionAttemptTerminalizationResultV1,
+    PointMutationSessionAttemptTerminalizationExecutionV1Error
+  > {
+    const selector = yield* Effect.fromResult(
+      decodePointMutationSessionAttemptSelectorV1Result(input),
+    );
+    const result = yield* persistence.expireEffect(selector);
+    return yield* Effect.fromResult(
+      captureAttemptTerminalizationResult(selector, result),
+    );
   });
+
+  return Object.freeze({ abort, expire });
 }
 
 export function inspectActivatedPointMutationSessionV1(
@@ -284,14 +315,25 @@ export function pointMutationSessionAttemptSelectorV1FromActivated(
 export function inspectLoadedPointMutationSessionAttemptV1(
   value: unknown,
 ): LoadedPointMutationSessionAttemptInspectionV1 {
+  return Result.getOrThrow(
+    inspectLoadedPointMutationSessionAttemptResultV1(value),
+  );
+}
+
+function inspectLoadedPointMutationSessionAttemptResultV1(
+  value: unknown,
+): Result.Result<
+  LoadedPointMutationSessionAttemptInspectionV1,
+  InvalidLoadedPointMutationSessionAttemptV1Error
+> {
   if (typeof value !== "object" || value === null) {
-    throw new InvalidLoadedPointMutationSessionAttemptV1Error();
+    return Result.fail(new InvalidLoadedPointMutationSessionAttemptV1Error());
   }
   const inspection = loadedAttemptInspectionByHandle.get(value);
   if (inspection === undefined) {
-    throw new InvalidLoadedPointMutationSessionAttemptV1Error();
+    return Result.fail(new InvalidLoadedPointMutationSessionAttemptV1Error());
   }
-  return inspection;
+  return Result.succeed(inspection);
 }
 
 function captureLoadedAttemptInspection(
@@ -344,109 +386,133 @@ function captureLoadedAttemptInspection(
 function captureAttemptTerminalizationResult(
   selector: PointMutationSessionAttemptSelectorV1,
   result: unknown,
-): PointMutationSessionAttemptTerminalizationResultV1 {
+): Result.Result<
+  PointMutationSessionAttemptTerminalizationResultV1,
+  PointMutationSessionAttemptTerminalizationContractV1Error
+> {
   if (!isPlainRecord(result)) {
-    throw terminalizationContractError("invalidStatusOrLifecycle");
+    return Result.fail(
+      terminalizationContractError("invalidStatusOrLifecycle"),
+    );
   }
-  const status = readTerminalizationDataProperty(
-    result,
-    "status",
-    "invalidStatusOrLifecycle",
-  );
-  const terminalValue = readTerminalizationDataProperty(
-    result,
-    "terminal",
-    "invalidStatusOrLifecycle",
-  );
-  if (!isPlainRecord(terminalValue)) {
-    throw terminalizationContractError("invalidStatusOrLifecycle");
-  }
-  if (
-    readTerminalizationDataProperty(
+  return Result.gen(function* () {
+    const status = yield* readTerminalizationDataProperty(
+      result,
+      "status",
+      "invalidStatusOrLifecycle",
+    );
+    const terminalValue = yield* readTerminalizationDataProperty(
+      result,
+      "terminal",
+      "invalidStatusOrLifecycle",
+    );
+    if (!isPlainRecord(terminalValue)) {
+      return yield* Result.fail(
+        terminalizationContractError("invalidStatusOrLifecycle"),
+      );
+    }
+    const deploymentId = yield* readTerminalizationDataProperty(
       terminalValue,
       "deploymentId",
       "selectorMismatch",
-    ) !== selector.deploymentId ||
-    readTerminalizationDataProperty(
+    );
+    const scopeId = yield* readTerminalizationDataProperty(
       terminalValue,
       "scopeId",
       "selectorMismatch",
-    ) !== selector.scopeId ||
-    readTerminalizationDataProperty(
+    );
+    const sessionId = yield* readTerminalizationDataProperty(
       terminalValue,
       "sessionId",
       "selectorMismatch",
-    ) !== selector.sessionId ||
-    readTerminalizationDataProperty(
+    );
+    const attemptFence = yield* readTerminalizationDataProperty(
       terminalValue,
       "attemptFence",
       "selectorMismatch",
-    ) !== selector.attemptFence
-  ) {
-    throw terminalizationContractError("selectorMismatch");
-  }
-  const lifecycle = readTerminalizationDataProperty(
-    terminalValue,
-    "lifecycle",
-    "invalidStatusOrLifecycle",
-  );
-  if (
-    !isPointMutationSessionTerminalLifecycle(lifecycle) ||
-    (status !== "terminalized" && status !== "observed")
-  ) {
-    throw terminalizationContractError("invalidStatusOrLifecycle");
-  }
-  const terminalizedAt = readTerminalizationDataProperty(
-    terminalValue,
-    "terminalizedAt",
-    "invalidTerminalTimestamp",
-  );
-  if (
-    typeof terminalizedAt !== "string" ||
-    !isCanonicalIsoTimestamp(terminalizedAt)
-  ) {
-    throw terminalizationContractError("invalidTerminalTimestamp");
-  }
-  switch (status) {
-    case "terminalized": {
-      if (lifecycle === "committed") {
-        throw terminalizationContractError("invalidStatusOrLifecycle");
-      }
-      return Object.freeze({
-        status: "terminalized",
-        terminal: Object.freeze({
-          ...selector,
-          lifecycle,
-          terminalizedAt,
-        }),
-      });
+    );
+    if (
+      deploymentId !== selector.deploymentId ||
+      scopeId !== selector.scopeId ||
+      sessionId !== selector.sessionId ||
+      attemptFence !== selector.attemptFence
+    ) {
+      return yield* Result.fail(
+        terminalizationContractError("selectorMismatch"),
+      );
     }
-    case "observed":
-      return Object.freeze({
-        status: "observed",
-        terminal: Object.freeze({
-          ...selector,
-          lifecycle,
-          terminalizedAt,
-        }),
-      });
-  }
+    const lifecycle = yield* readTerminalizationDataProperty(
+      terminalValue,
+      "lifecycle",
+      "invalidStatusOrLifecycle",
+    );
+    if (
+      !isPointMutationSessionTerminalLifecycle(lifecycle) ||
+      (status !== "terminalized" && status !== "observed")
+    ) {
+      return yield* Result.fail(
+        terminalizationContractError("invalidStatusOrLifecycle"),
+      );
+    }
+    const terminalizedAt = yield* readTerminalizationDataProperty(
+      terminalValue,
+      "terminalizedAt",
+      "invalidTerminalTimestamp",
+    );
+    if (
+      typeof terminalizedAt !== "string" ||
+      !isCanonicalIsoTimestamp(terminalizedAt)
+    ) {
+      return yield* Result.fail(
+        terminalizationContractError("invalidTerminalTimestamp"),
+      );
+    }
+    switch (status) {
+      case "terminalized": {
+        if (lifecycle === "committed") {
+          return yield* Result.fail(
+            terminalizationContractError("invalidStatusOrLifecycle"),
+          );
+        }
+        return Object.freeze({
+          status: "terminalized" as const,
+          terminal: Object.freeze({
+            ...selector,
+            lifecycle,
+            terminalizedAt,
+          }),
+        });
+      }
+      case "observed":
+        return Object.freeze({
+          status: "observed" as const,
+          terminal: Object.freeze({
+            ...selector,
+            lifecycle,
+            terminalizedAt,
+          }),
+        });
+    }
+  });
 }
 
 function readTerminalizationDataProperty(
   input: Readonly<Record<string, unknown>>,
   field: string,
   invalidReason: PointMutationSessionAttemptTerminalizationContractIssueV1["reason"],
-): unknown {
+): Result.Result<
+  unknown,
+  PointMutationSessionAttemptTerminalizationContractV1Error
+> {
   const descriptor = Object.getOwnPropertyDescriptor(input, field);
   if (
     descriptor === undefined ||
     descriptor.enumerable !== true ||
     !("value" in descriptor)
   ) {
-    throw terminalizationContractError(invalidReason);
+    return Result.fail(terminalizationContractError(invalidReason));
   }
-  return descriptor.value;
+  return Result.succeed(descriptor.value);
 }
 
 function isPointMutationSessionTerminalLifecycle(

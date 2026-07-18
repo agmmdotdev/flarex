@@ -30,7 +30,9 @@ import {
 } from "./postgresHelpers";
 import { runEffectFailure as runFailure } from "./effectTestRuntime";
 import {
+  abortPointMutationSessionAttempt,
   activatePointMutationSession,
+  expirePointMutationSessionAttempt,
   loadPointMutationSessionAttempt,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
@@ -481,11 +483,11 @@ describePostgres("real Postgres O03-B session authority", () => {
       const selector = selectorFromAnchor(anchor);
 
       const results = await Promise.all([
-        terminalization.abort({
+        abortPointMutationSessionAttempt(terminalization, {
           selector,
           expectedSnapshotToken: anchor.snapshotToken,
         }),
-        terminalization.expire(selector),
+        expirePointMutationSessionAttempt(terminalization, selector),
       ]);
 
       expect(results.map((result) => result.status).sort()).toEqual([
@@ -544,7 +546,10 @@ describePostgres("real Postgres O03-B session authority", () => {
       });
 
       await expect(
-        terminalization.expire(selectorFromAnchor(anchor)),
+        expirePointMutationSessionAttempt(
+          terminalization,
+          selectorFromAnchor(anchor),
+        ),
       ).resolves.toMatchObject({
         status: "terminalized",
         terminal: { lifecycle: "expired" },
@@ -601,7 +606,7 @@ describePostgres("real Postgres O03-B session authority", () => {
         },
       });
       const terminalizationB = createTerminalizationPersistence(persistence);
-      const pendingA = terminalizationA.abort({
+      const pendingA = abortPointMutationSessionAttempt(terminalizationA, {
         selector: selectorFromAnchor(anchorA),
         expectedSnapshotToken: anchorA.snapshotToken,
       });
@@ -610,7 +615,7 @@ describePostgres("real Postgres O03-B session authority", () => {
       let resultB;
       try {
         resultB = await Promise.race([
-          terminalizationB.abort({
+          abortPointMutationSessionAttempt(terminalizationB, {
             selector: selectorFromAnchor(anchorB),
             expectedSnapshotToken: anchorB.snapshotToken,
           }),
@@ -658,10 +663,16 @@ describePostgres("real Postgres O03-B session authority", () => {
         },
       });
 
-      await expect(terminalization.abort({
-        selector: selectorFromAnchor(anchor),
-        expectedSnapshotToken: anchor.snapshotToken,
-      })).rejects.toThrow("fail:sessionTerminalized");
+      await expect(
+        abortPointMutationSessionAttempt(terminalization, {
+          selector: selectorFromAnchor(anchor),
+          expectedSnapshotToken: anchor.snapshotToken,
+        }),
+      ).rejects.toMatchObject({
+          cause: expect.objectContaining({
+            message: "fail:sessionTerminalized",
+          }),
+        });
       await expect(attemptRowState(persistence, context.scopeId))
         .resolves.toEqual(before);
     });

@@ -68,13 +68,14 @@ propagates its typed failure channel without reconstructing errors. Invalid
 admitted capabilities enter through pure `Result` inspection, while
 authority-port and activation-transaction failures are mapped once to
 `PointMutationSessionActivationPersistenceV1Error`. Interruption still waits
-for each Drizzle transaction to settle. The obsolete activation and exact-
-attempt reload Promise facades have been deleted. Reload selector and target
-validation enter through `Result`, persistence owns typed authority and
-transaction failures, and the executor composes `loadEffect` directly without
-recovering defects. Terminalization remains Promise-native; its module retains
-the one explicitly named temporary runtime bridge until that final executor
-caller moves to Effect.
+for each Drizzle transaction to settle. The obsolete activation, exact-attempt
+reload, and terminalization Promise facades have been deleted. Reload and
+terminalization selector, snapshot, target, capability, and returned-contract
+validation enter through `Result`. Persistence owns typed authority and
+transaction failures; the executor composes `loadEffect`, `abortEffect`, and
+`expireEffect` directly without recovering defects. Each Drizzle transaction
+remains one narrow interruption-masked Promise edge, and the former
+module-local runtime bridge is gone.
 
 Stored-attempt evidence loading now owns Effect-native `loadEffect` and
 `loadFinishingEffect` operations with typed persistence failures and an
