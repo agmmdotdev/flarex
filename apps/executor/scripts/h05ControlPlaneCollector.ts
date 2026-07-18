@@ -39,6 +39,7 @@ import {
   decodeH05ProofRunId,
   h05ProofIdentity,
 } from "../h05/proofIdentity";
+import { cloudflareAccountId } from "./cloudflareApiConfiguration";
 import type { H05CloudflareReadApi, H05CloudflareReadResult } from "./cloudflareReadApi";
 
 export interface H05ExpectedPostgresTarget {
@@ -1032,13 +1033,6 @@ function bindingKey(binding: H05BindingEvidence): string {
 
 function domainHash(domain: string, value: string): string {
   return h05Sha256Utf8(`flarex-h05-${domain}-v1\0${value}`);
-}
-
-function cloudflareAccountId(value: string): string {
-  if (!isH05CloudflareHexId(value)) {
-    throw new Error("CLOUDFLARE_ACCOUNT_ID must be 32 lowercase hexadecimal characters.");
-  }
-  return value;
 }
 
 function hyperdriveName(value: string): string {

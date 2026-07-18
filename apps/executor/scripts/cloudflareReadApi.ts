@@ -1,8 +1,12 @@
-import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
-import { isH05CloudflareApiToken } from "../h05/cloudflareApiToken";
 import { isH05HttpsOriginUrl } from "../h05/httpsOrigin";
+import {
+  cloudflareApiOrigin,
+  cloudflareApiPrefix,
+  cloudflareApiToken,
+  positiveSafeInteger,
+} from "./cloudflareApiConfiguration";
 import { readH05BoundedResponseBody } from "./h05BoundedResponseBody";
 
 export interface H05CloudflareReadApi {
@@ -25,15 +29,13 @@ export interface H05CloudflareReadApiOptions {
   readonly timeoutMs?: number;
 }
 
-const cloudflareApiOrigin = "https://api.cloudflare.com";
-const cloudflareApiPrefix = "/client/v4";
 const defaultMaximumResponseBytes = 1024 * 1024;
 const defaultTimeoutMs = 15_000;
 
 export function createH05CloudflareReadApi(
   options: H05CloudflareReadApiOptions,
 ): H05CloudflareReadApi {
-  const apiToken = decodeApiToken(options.apiToken);
+  const apiToken = cloudflareApiToken(options.apiToken, "CLOUDFLARE_API_TOKEN");
   const fetchImplementation = options.fetch ?? fetch;
   const maximumResponseBytes = positiveSafeInteger(
     options.maximumResponseBytes ?? defaultMaximumResponseBytes,
@@ -184,13 +186,6 @@ class H05ResponseSizeError extends Error {
   }
 }
 
-function decodeApiToken(value: string): string {
-  if (!isH05CloudflareApiToken(value)) {
-    throw new Error("CLOUDFLARE_API_TOKEN is invalid.");
-  }
-  return value;
-}
-
 function decodePublicOrigin(value: string): URL {
   let url: URL;
   try {
@@ -209,11 +204,4 @@ function decodePublicOrigin(value: string): URL {
 
 function safePath(path: string): string {
   return /^\/[A-Za-z0-9_./{}-]+$/.test(path) ? path : "the requested endpoint";
-}
-
-function positiveSafeInteger(value: number, name: string): number {
-  if (!isPositiveSafeInteger(value)) {
-    throw new Error(`${name} must be a positive safe integer.`);
-  }
-  return value;
 }

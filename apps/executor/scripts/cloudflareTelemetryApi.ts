@@ -1,8 +1,12 @@
-import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
-import { isH05CloudflareApiToken } from "../h05/cloudflareApiToken";
-import { isH05CloudflareHexId } from "../h05/cloudflareHexId";
+import {
+  cloudflareAccountId,
+  cloudflareApiOrigin,
+  cloudflareApiPrefix,
+  cloudflareApiToken,
+  positiveSafeInteger,
+} from "./cloudflareApiConfiguration";
 import { readH05BoundedResponseBody } from "./h05BoundedResponseBody";
 
 export type H05TelemetryView = "events" | "traces";
@@ -48,8 +52,6 @@ export interface H05CloudflareTelemetryApiOptions {
   readonly timeoutMs?: number;
 }
 
-const cloudflareApiOrigin = "https://api.cloudflare.com";
-const cloudflareApiPrefix = "/client/v4";
 const defaultMaximumRequestBytes = 64 * 1024;
 const defaultMaximumResponseBytes = 4 * 1024 * 1024;
 const defaultTimeoutMs = 15_000;
@@ -57,7 +59,10 @@ const defaultTimeoutMs = 15_000;
 export function createH05CloudflareTelemetryApi(
   options: H05CloudflareTelemetryApiOptions,
 ): H05CloudflareTelemetryApi {
-  const apiToken = decodeApiToken(options.apiToken);
+  const apiToken = cloudflareApiToken(
+    options.apiToken,
+    "FLAREX_H05_TELEMETRY_API_TOKEN",
+  );
   const fetchImplementation = options.fetch ?? fetch;
   const maximumRequestBytes = positiveSafeInteger(
     options.maximumRequestBytes ?? defaultMaximumRequestBytes,
@@ -170,27 +175,4 @@ class H05TelemetryResponseSizeError extends Error {
     super("Cloudflare telemetry response exceeded the H05 evidence size limit.");
     this.name = "H05TelemetryResponseSizeError";
   }
-}
-
-function cloudflareAccountId(value: string): string {
-  if (!isH05CloudflareHexId(value)) {
-    throw new Error(
-      "CLOUDFLARE_ACCOUNT_ID must be 32 lowercase hexadecimal characters.",
-    );
-  }
-  return value;
-}
-
-function decodeApiToken(value: string): string {
-  if (!isH05CloudflareApiToken(value)) {
-    throw new Error("FLAREX_H05_TELEMETRY_API_TOKEN is invalid.");
-  }
-  return value;
-}
-
-function positiveSafeInteger(value: number, name: string): number {
-  if (!isPositiveSafeInteger(value)) {
-    throw new Error(`${name} must be a positive safe integer.`);
-  }
-  return value;
 }

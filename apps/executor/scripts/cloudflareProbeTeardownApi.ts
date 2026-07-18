@@ -1,8 +1,6 @@
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 
-import { isH05CloudflareApiToken } from "../h05/cloudflareApiToken";
-import { isH05CloudflareHexId } from "../h05/cloudflareHexId";
 import { isH05HttpsOriginUrl } from "../h05/httpsOrigin";
 import {
   decodeH05ProofRunId,
@@ -10,6 +8,13 @@ import {
 } from "../h05/proofIdentity";
 import { h05ProbeEndpoint } from "../h05/probeProtocol";
 import { h05ProbeWorkerName } from "../h05/receipt";
+import {
+  cloudflareAccountId,
+  cloudflareApiOrigin,
+  cloudflareApiPrefix,
+  cloudflareApiToken,
+  positiveSafeInteger,
+} from "./cloudflareApiConfiguration";
 import { readH05BoundedResponseBody } from "./h05BoundedResponseBody";
 
 export type H05CloudflareProbeDeletionResult =
@@ -33,8 +38,6 @@ export interface H05CloudflareProbeTeardownApiOptions {
   readonly timeoutMs?: number;
 }
 
-const cloudflareApiOrigin = "https://api.cloudflare.com";
-const cloudflareApiPrefix = "/client/v4";
 const defaultMaximumResponseBytes = 64 * 1024;
 const defaultTimeoutMs = 15_000;
 const accessCheckTag = "flarex-h05-teardown-access-check-v1:yes";
@@ -43,7 +46,10 @@ export function createH05CloudflareProbeTeardownApi(
   options: H05CloudflareProbeTeardownApiOptions,
 ): H05CloudflareProbeTeardownApi {
   const accountId = cloudflareAccountId(options.accountId);
-  const apiToken = decodeApiToken(options.apiToken);
+  const apiToken = cloudflareApiToken(
+    options.apiToken,
+    "FLAREX_H05_TEARDOWN_API_TOKEN",
+  );
   const fetchImplementation = options.fetch ?? fetch;
   const maximumResponseBytes = positiveSafeInteger(
     options.maximumResponseBytes ?? defaultMaximumResponseBytes,
@@ -254,22 +260,6 @@ class H05ResponseSizeError extends Error {
   }
 }
 
-function cloudflareAccountId(value: string): string {
-  if (!isH05CloudflareHexId(value)) {
-    throw new Error(
-      "CLOUDFLARE_ACCOUNT_ID must be 32 lowercase hexadecimal characters.",
-    );
-  }
-  return value;
-}
-
-function decodeApiToken(value: string): string {
-  if (!isH05CloudflareApiToken(value)) {
-    throw new Error("FLAREX_H05_TEARDOWN_API_TOKEN is invalid.");
-  }
-  return value;
-}
-
 function proofRunId(value: string): H05ProofRunId {
   const decoded = decodeH05ProofRunId(value);
   if (!decoded.ok) throw new Error(decoded.message);
@@ -295,13 +285,6 @@ function workersDevOrigin(value: string): string {
 function httpStatus(value: number, path: string): number {
   if (!isPositiveSafeInteger(value) || value < 100 || value > 599) {
     throw new Error(`${path} is invalid.`);
-  }
-  return value;
-}
-
-function positiveSafeInteger(value: number, name: string): number {
-  if (!isPositiveSafeInteger(value)) {
-    throw new Error(`${name} must be a positive safe integer.`);
   }
   return value;
 }

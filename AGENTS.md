@@ -167,6 +167,10 @@ accepts JavaScript negative zero, matching `Number.isSafeInteger(value)` plus
 integer-but-not-safe contracts, signed ranges, time semantics, and branded or
 protocol numeric policy with their owning decoder; a shared predicate is not a
 shared range contract.
+When several adapters under one package intentionally share the same throwing
+configuration policy and error spelling, centralize that wrapper package-
+locally around the generic predicate. Do not promote throwing configuration
+errors or host option names into `@flarex/utils/numbers`.
 Use `@flarex/utils/dates` only to read a finite intrinsic millisecond snapshot
 from an unknown same-realm JavaScript `Date`, or to copy that snapshot into an
 owned plain `Date`. The utilities never dispatch caller-controlled Date methods

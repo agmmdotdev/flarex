@@ -5,7 +5,6 @@ import {
 import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
 import { compareUtf16Strings } from "@flarex/utils/strings";
 
-import { isH05CloudflareHexId } from "../h05/cloudflareHexId";
 import {
   decodeH05ControlPlaneEvidence,
   h05CloudflareAccountIdSha256,
@@ -40,6 +39,7 @@ import {
   type H05UnauthorizedTraceEvidence,
   validateH05TraceEvidenceDependencies,
 } from "../h05/traceEvidence";
+import { cloudflareAccountId } from "./cloudflareApiConfiguration";
 import type {
   H05CloudflareTelemetryApi,
   H05TelemetryFilter,
@@ -997,15 +997,6 @@ function epochMsToIso(value: number): H05IsoTimestamp {
 
 function nowIso(now: () => string): string {
   return now();
-}
-
-function cloudflareAccountId(value: string): string {
-  if (!isH05CloudflareHexId(value)) {
-    throw new Error(
-      "CLOUDFLARE_ACCOUNT_ID must be 32 lowercase hexadecimal characters.",
-    );
-  }
-  return value;
 }
 
 function opaqueIdentifier(value: unknown, context: string): string {
