@@ -26,6 +26,11 @@ import type {
 } from "flarex-protocol/transaction-session";
 import type { FlarexValueCodecVersion } from "flarex-protocol/value";
 
+import {
+  storedAuthorityCorruptionResult,
+  type StoredAuthorityCorruptionResult,
+} from "../storedAuthorityLoadResult";
+
 export const MAX_STORED_COMMIT_AUTHORITY_MATERIALIZATION_BYTES_V1 =
   64 * 1024 * 1024;
 
@@ -135,11 +140,7 @@ export type StoredCommitAuthorityEvidenceLoadResultV1 =
         | "revocationEpochChanged"
         | "sealChanged";
     }>
-  | Readonly<{
-      readonly kind: "corrupt";
-      readonly reason: StoredCommitAuthorityCorruptionReasonV1;
-      readonly cause?: unknown;
-    }>;
+  | StoredAuthorityCorruptionResult<StoredCommitAuthorityCorruptionReasonV1>;
 
 export type StoredCommitAuthorityEvidencePersistenceOperationV1 =
   | "scopeMetadataRead"
@@ -179,9 +180,5 @@ export function corrupt(
   reason: StoredCommitAuthorityCorruptionReasonV1,
   cause?: unknown,
 ): StoredCommitAuthorityEvidenceLoadResultV1 {
-  return Object.freeze({
-    kind: "corrupt",
-    reason,
-    ...(cause === undefined ? {} : { cause }),
-  });
+  return storedAuthorityCorruptionResult(reason, cause);
 }

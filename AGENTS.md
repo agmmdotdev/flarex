@@ -252,6 +252,13 @@ When multiple Effect consumers call the same Promise-based protocol operation,
 prefer one protocol-owned Effect adapter that preserves its typed failures and
 routes unexpected causes to defects. Consumers may translate the typed error
 channel for their domain, but must not turn defects into ordinary failures.
+Share a tagged result facet across domains only when its discriminant, optional
+fields, omission-versus-`undefined` behavior, allocation, runtime freeze, and
+nested-value aliasing are exact. Keep each domain's reason union and larger
+public result union with that domain, and retain narrow local constructors when
+their names constrain domain reasons. Do not replace a deliberate multi-variant
+success-data contract with Effect `Result`, `Exit`, or the Effect error channel
+merely to deduplicate its object construction.
 Within persistence, reuse the package-local transaction capability type for
 operations that require Drizzle transaction-only methods such as `rollback`
 or `setTransaction`. Keep domain aliases when they communicate the owning

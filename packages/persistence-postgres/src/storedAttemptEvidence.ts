@@ -76,6 +76,10 @@ import {
   fxSystemTransactionSessions,
 } from "./schema";
 import {
+  storedAuthorityCorruptionResult,
+  type StoredAuthorityCorruptionResult,
+} from "./storedAuthorityLoadResult";
+import {
   RUN_LOCATED_REPEATABLE_READ_V1,
   isLocatedRepeatableReadAttemptTargetV1,
 } from "./transactionSessionAttemptKernel";
@@ -240,11 +244,7 @@ export type StoredAttemptEvidenceLoadResultV1 =
       readonly kind: "authorityMismatch";
       readonly reason: StoredAttemptAuthorityMismatchReasonV1;
     }>
-  | Readonly<{
-      readonly kind: "corrupt";
-      readonly reason: StoredAttemptCorruptionReasonV1;
-      readonly cause?: unknown;
-    }>;
+  | StoredAuthorityCorruptionResult<StoredAttemptCorruptionReasonV1>;
 
 export interface StoredAttemptEvidenceLoaderV1 {
   readonly loadEffect: (
@@ -1111,9 +1111,5 @@ function corrupt(
   reason: StoredAttemptCorruptionReasonV1,
   cause?: unknown,
 ): StoredAttemptEvidenceLoadResultV1 {
-  return Object.freeze({
-    kind: "corrupt",
-    reason,
-    ...(cause === undefined ? {} : { cause }),
-  });
+  return storedAuthorityCorruptionResult(reason, cause);
 }
