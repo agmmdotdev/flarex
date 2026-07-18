@@ -129,6 +129,7 @@ import {
 import { verifyStoredPushArtifactEffect } from "./deployment/PublicFinishArtifactBoundary";
 import { persistAnalyzedSourcePackageEffect } from "./deployment/PublicStartArtifactBoundary";
 import {
+  badRequestErrorToHttpError,
   errorResponse,
   HttpError,
   json,
@@ -542,10 +543,7 @@ function publicExecutionRoutePathErrorToHttpError(
 }
 
 function partitionRouteErrorToHttpError(error: PartitionRouteError): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  return new HttpError(400, error.message);
+  return badRequestErrorToHttpError(error);
 }
 
 function isPublicWorkerInvokeRouteError(
@@ -669,10 +667,7 @@ function publicWorkerSchedulerRouteErrorToHttpError(
 }
 
 function schedulerRouteErrorToHttpError(error: SchedulerRouteError): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  return new HttpError(400, error.message);
+  return badRequestErrorToHttpError(error);
 }
 
 function isPublicWorkerSchedulerRouteError(
@@ -952,7 +947,7 @@ function publicInvokeRouteErrorToHttpError(
   if (error instanceof JwtAuthError) {
     return jwtAuthErrorToHttpError(error);
   }
-  return new HttpError(400, error.message);
+  return badRequestErrorToHttpError(error);
 }
 
 function isInvokeExecutionError(error: unknown): error is InvokeExecutionError {
@@ -1139,7 +1134,7 @@ function liveQueryDeliveryRouteErrorToHttpError(error: LiveQueryDeliveryRouteErr
     return requestJsonErrorToHttpError(error);
   }
   if (error instanceof LiveQueryDeliveryChangePayloadError) {
-    return new HttpError(400, error.message);
+    return badRequestErrorToHttpError(error);
   }
   return new HttpError(500, "Unexpected live query delivery route error.");
 }

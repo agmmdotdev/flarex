@@ -26,7 +26,6 @@ import {
 import {
   decodeConnectionInvalidationRequest,
   decodeConnectionLiveQueryDeliveryRequest,
-  ConnectionRouteValidationError,
   type ConnectionRouteError,
 } from "./connection/RouteBoundary";
 import {
@@ -41,11 +40,10 @@ import {
   ConnectionRouteOperationError,
 } from "./connection/RouteOperationError";
 import {
+  badRequestErrorToHttpError,
   errorResponse,
   HttpError,
   json,
-  RequestJsonError,
-  requestJsonErrorToHttpError,
 } from "./http";
 import {
   JwtAuthError,
@@ -62,7 +60,6 @@ import {
 import { backendJson } from "./execution/JsonRouteBoundary";
 import {
   addLiveQueryDeliverySkipReason,
-  liveQueryDeliveryChangePayloadErrorToHttpError,
   liveQueryDeliverySkipMetadata,
   type LiveQueryDeliveryChange,
   type LiveQueryDeliverySkipReasons,
@@ -934,13 +931,7 @@ function connectionInternalRouteErrorToHttpError(
 }
 
 function connectionRouteErrorToHttpError(error: ConnectionRouteError): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  if (error instanceof ConnectionRouteValidationError) {
-    return new HttpError(400, error.message);
-  }
-  return liveQueryDeliveryChangePayloadErrorToHttpError(error);
+  return badRequestErrorToHttpError(error);
 }
 
 const connectionRouteErrorToHttpErrorEffect = Effect.fn(

@@ -7,7 +7,7 @@ import {
   decodeExecutionIdentityEffect,
   type ExecutionIdentity,
 } from "flarex-protocol/auth";
-import { HttpError } from "./http";
+import { badRequestErrorToHttpError, type HttpError } from "./http";
 import type { Env } from "./types";
 
 export {
@@ -81,7 +81,7 @@ export const resolveExecutionIdentityEffect = Effect.fn(
 export function trustedExecutionIdentityErrorToHttpError(
   error: TrustedExecutionIdentityError,
 ): HttpError {
-  return new HttpError(400, error.message);
+  return badRequestErrorToHttpError(error);
 }
 
 function parseTrustedExecutionIdentityHeaderEffect(

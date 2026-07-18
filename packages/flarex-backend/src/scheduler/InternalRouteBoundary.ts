@@ -1,10 +1,9 @@
 import { Effect } from "effect";
 import {
+  badRequestErrorToHttpError,
   errorResponse,
-  HttpError,
+  type HttpError,
   json,
-  RequestJsonError,
-  requestJsonErrorToHttpError,
 } from "../http";
 import {
   SchedulerPendingStateError,
@@ -124,10 +123,7 @@ export function schedulerInternalRouteErrorToHttpError(
 }
 
 function schedulerRouteErrorToHttpError(error: SchedulerRouteError): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  return new HttpError(400, error.message);
+  return badRequestErrorToHttpError(error);
 }
 
 export const schedulerInternalRouteErrorToHttpErrorEffect = Effect.fn(

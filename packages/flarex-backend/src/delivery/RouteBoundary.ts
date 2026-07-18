@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import {
+  badRequestErrorToHttpError,
   HttpError,
   readJsonEffect,
   RequestJsonError,
@@ -22,7 +23,7 @@ export function deliveryWakeRouteErrorToHttpError(
     return requestJsonErrorToHttpError(error);
   }
   if (error instanceof DeliveryWakePayloadError) {
-    return new HttpError(400, error.message);
+    return badRequestErrorToHttpError(error);
   }
   return new HttpError(500, "Unexpected delivery wake route error.");
 }

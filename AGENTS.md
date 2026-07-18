@@ -143,6 +143,12 @@ class, named compatibility wrapper, and any specialized upstream-error
 preservation. Do not introduce a common tagged-error base, move host HTTP
 policy into `@flarex/utils`, or pull legacy partition routing into the shared
 contract merely because its fields look similar.
+When a backend HTTP adapter maps every member of a typed error union to status
+400 using its existing message, delegate that exact structural projection to
+the HTTP owner while retaining domain-named wrappers. Keep tag-specific status,
+message rewriting, defensive unexpected-error fallbacks, and the Effect error
+channel with the adapter that owns them; this transport policy is not a generic
+`@flarex/utils` error helper.
 Keep Node filesystem and path-boundary mechanics with their host or tooling
 owner. A host-local helper may centralize canonical path resolution,
 inside/outside-root checks, file-kind and byte-size inspection, bounded reads,

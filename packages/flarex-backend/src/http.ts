@@ -68,6 +68,12 @@ export function readResponseJsonOrNullEffect(
   );
 }
 
-export function requestJsonErrorToHttpError(error: RequestJsonError): HttpError {
+export function badRequestErrorToHttpError(
+  error: Readonly<{ message: string }>,
+): HttpError {
   return new HttpError(400, error.message);
+}
+
+export function requestJsonErrorToHttpError(error: RequestJsonError): HttpError {
+  return badRequestErrorToHttpError(error);
 }

@@ -1,6 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
 import { encodeFlarexId, parseFlarexId } from "flarex/ids";
-import { errorResponse, HttpError, json, RequestJsonError } from "./http";
+import {
+  badRequestErrorToHttpError,
+  errorResponse,
+  HttpError,
+  json,
+} from "./http";
 import { indexKeyForDocument } from "./indexKeys";
 import { findReadSetConflict, isOccConflict } from "./occ";
 import {
@@ -1391,10 +1396,7 @@ function partitionInternalRouteErrorToResponse(error: PartitionInternalRouteErro
 }
 
 function partitionRouteErrorToHttpError(error: PartitionRouteError): HttpError {
-  if (error instanceof RequestJsonError) {
-    return new HttpError(400, error.message);
-  }
-  return new HttpError(400, error.message);
+  return badRequestErrorToHttpError(error);
 }
 
 function resolveDocumentWrite(write: DocumentWrite): ResolvedDocumentWrite {

@@ -8,10 +8,10 @@ import {
   type FinishPushRequest,
 } from "flarex-protocol/deployment";
 import {
-  HttpError,
+  badRequestErrorToHttpError,
+  type HttpError,
   readJsonEffect,
   RequestJsonError,
-  requestJsonErrorToHttpError,
 } from "../http";
 import {
   decodeDeploymentAbandonPushPayload,
@@ -144,10 +144,7 @@ export function decodeDeploymentFinishPushRoutePayload(
 export function deploymentRouteErrorToHttpError(
   error: DeploymentRouteError,
 ): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  return new HttpError(400, error.message);
+  return badRequestErrorToHttpError(error);
 }
 
 export const deploymentRouteErrorToHttpErrorEffect = Effect.fn(

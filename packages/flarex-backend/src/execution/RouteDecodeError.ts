@@ -1,5 +1,6 @@
 import { ExecutionProtocolValidationError } from "flarex-protocol/execution";
 import {
+  badRequestErrorToHttpError,
   HttpError,
   RequestJsonError,
   requestJsonErrorToHttpError,
@@ -16,7 +17,7 @@ export function executionRouteDecodeErrorToHttpError(
     return requestJsonErrorToHttpError(error);
   }
   if (error instanceof ExecutionProtocolValidationError) {
-    return new HttpError(400, error.message);
+    return badRequestErrorToHttpError(error);
   }
   return new HttpError(500, "Unexpected execution route error.");
 }

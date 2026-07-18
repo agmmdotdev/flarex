@@ -326,6 +326,10 @@ semantics.
   backend-local operation/status/message/cause facet, default foreign-cause
   classification, and `HttpError` projection. Specialized transaction adapter
   preservation and legacy partition routing remain local.
+- Backend HTTP owns the exact structural projection from a message-bearing
+  typed request error to status 400. Domain-named adapters delegate that
+  projection while retaining tag-specific status or message policy, defensive
+  unexpected-error fallbacks, and their Effect failure channels.
 - The private executor Worker composes the framework-neutral executor, Fetch
   adapter, Postgres client adapter, and Cloudflare request lifecycle.
 - The artifact-runtime Worker owns Worker Loader, R2, and executor service

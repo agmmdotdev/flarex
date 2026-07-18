@@ -2,7 +2,7 @@ import {
   isNonArrayRecord,
   type UnknownRecord,
 } from "@flarex/utils/records";
-import { HttpError } from "./http";
+import { badRequestErrorToHttpError, HttpError } from "./http";
 import { Data, Effect } from "effect";
 import {
   decodeLiveQueryDeliveryChangesBodyEffect,
@@ -93,7 +93,7 @@ export const decodeLiveQueryDeliveryChangesFromBody = Effect.fn(
 export function liveQueryDeliveryChangePayloadErrorToHttpError(
   error: LiveQueryDeliveryChangePayloadError,
 ): HttpError {
-  return new HttpError(400, error.message);
+  return badRequestErrorToHttpError(error);
 }
 
 export const liveQueryDeliveryChangePayloadErrorToHttpErrorEffect = Effect.fn(
@@ -313,7 +313,7 @@ export const liveQueryDeliveryResultPayloadErrorToHttpErrorEffect = Effect.fn(
 export function liveQueryDeliveryTargetErrorToHttpError(
   error: LiveQueryDeliveryTargetError,
 ): HttpError {
-  return new HttpError(400, error.message);
+  return badRequestErrorToHttpError(error);
 }
 
 export const liveQueryDeliveryTargetErrorToHttpErrorEffect = Effect.fn(

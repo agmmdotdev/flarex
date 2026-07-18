@@ -60,10 +60,10 @@ import {
 import type { ExecutionIdentity } from "flarex-protocol/auth";
 import { InvokeResponseSchema, type InvokeResponse as ProtocolInvokeResponse } from "flarex-protocol/invoke";
 import {
+  badRequestErrorToHttpError,
   HttpError,
   readResponseJsonOrNullEffect,
   RequestJsonError,
-  requestJsonErrorToHttpError,
 } from "./http.ts";
 import type {
   ActiveDeploymentStatus,
@@ -526,10 +526,7 @@ function executionArtifactRuntimeErrorResponse(error: ExecutionArtifactRuntimeRo
 function executionArtifactInvokeRouteErrorToHttpError(
   error: RequestJsonError | ExecutionArtifactInvokePayloadError,
 ): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  return new HttpError(400, error.message);
+  return badRequestErrorToHttpError(error);
 }
 
 export const executionArtifactRuntimeRouteErrorToResponseEffect = Effect.fn(

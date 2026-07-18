@@ -10,7 +10,11 @@ import {
 } from "flarex-protocol/deployment";
 import { isWritableJsonObject } from "flarex-protocol/json";
 import { selectorNameForPartitionField } from "flarex-protocol/partition-selector";
-import { HttpError, readResponseJsonEffect } from "./http";
+import {
+  badRequestErrorToHttpError,
+  HttpError,
+  readResponseJsonEffect,
+} from "./http";
 import {
   indexBoundsForExpressions,
   type IndexRangeExpression,
@@ -1334,10 +1338,10 @@ export function invokeValidationErrorToHttpError(error: InvokeValidationError): 
     return new HttpError(error.status, `PartitionValidationError: ${error.message}`);
   }
   if (error instanceof InvokeQueryPlanningError) {
-    return new HttpError(400, error.message);
+    return badRequestErrorToHttpError(error);
   }
   if (error instanceof InvokeKindValidationError) {
-    return new HttpError(400, error.message);
+    return badRequestErrorToHttpError(error);
   }
   return new HttpError(400, `ReturnValidationError: ${error.message}`);
 }

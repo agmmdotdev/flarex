@@ -6,10 +6,10 @@ import {
   type FinishPushRequest,
 } from "flarex-protocol/deployment";
 import {
-  HttpError,
+  badRequestErrorToHttpError,
+  type HttpError,
   readJsonEffect,
   RequestJsonError,
-  requestJsonErrorToHttpError,
 } from "../http";
 import type { StartPushRequest } from "../types";
 import {
@@ -186,10 +186,7 @@ export function decodePublicAbandonPushRoutePayload(
 export function publicDeploymentRouteErrorToHttpError(
   error: PublicDeploymentRouteError,
 ): HttpError {
-  if (error instanceof RequestJsonError) {
-    return requestJsonErrorToHttpError(error);
-  }
-  return new HttpError(400, error.message);
+  return badRequestErrorToHttpError(error);
 }
 
 export const publicDeploymentRouteErrorToHttpErrorEffect = Effect.fn(
