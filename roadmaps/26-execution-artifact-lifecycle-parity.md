@@ -8,12 +8,12 @@ after the shared artifact runtime host kit foundation.
 Local dev and hosted execution now share the generated runtime host kit, but the
 source package lifecycle is still split across packages:
 
-- `flarex-dev` bundles local source packages and stores them in local memory or
-  an R2-shaped durable store.
+- `flarex-dev` bundles local source packages and composes the backend-owned
+  R2-shaped store into the local Miniflare runtime.
 - `flarex-backend` persists hosted source packages, activates deployments, and
   materializes artifact runtime invocations from active deployment records.
-- `flarex/artifacts` derives deterministic artifact refs, but ref/source-package
-  validation was partially duplicated by the dev and backend stores.
+- `flarex/artifacts` owns deterministic artifact refs, manifest validation, and
+  source-package cloning; the backend-owned R2 adapter consumes that contract.
 
 The goal is not to make local dev run hosted Dynamic Workers. The goal is to
 make local and hosted paths share the same lifecycle contract from source
@@ -24,8 +24,8 @@ separate.
 
 - [x] L-0. Create a concrete lifecycle parity roadmap and turn checklist.
 - [x] L-1. Move execution artifact ref equality and source-package ref
-  assertions into `flarex/artifacts`; make local in-memory, local durable, and
-  backend durable stores use the same validation helper.
+  assertions into `flarex/artifacts`; make the backend durable store consume
+  that contract and retire superseded local store facades once unreferenced.
 - [x] L-2. Extract a shared artifact lifecycle payload helper for
   `ExecutionArtifactRef` plus optional `sourcePackage` materialization so local
   and hosted invocation paths build the same runtime input shape.
@@ -51,6 +51,10 @@ separate.
 - `flarex-backend` can own deployment persistence, Durable Object state, hosted
   service bindings, and R2 integration, but not a divergent artifact lifecycle
   contract.
+- The superseded `flarex-dev` in-memory and R2 store facades have no runtime
+  consumer or supported compatibility obligation. Local and hosted composition
+  use the backend-owned R2 adapter, while shared artifact identity and manifest
+  contracts remain in `flarex/artifacts`.
 - Significant code changes require focused validation plus the two read-only
   reviewers named in `AGENTS.md`.
 
@@ -119,7 +123,7 @@ corepack pnpm --filter flarex-protocol exec vitest run test/artifact-runtime.tes
 corepack pnpm --filter @flarex/executor typecheck
 corepack pnpm --filter @flarex/executor exec vitest run test/deployments.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/sourcePackage.test.ts test/executionArtifactStore.test.ts test/artifactLifecycleParity.test.ts test/executorHttpRuntime.test.ts test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev exec vitest run test/sourcePackage.test.ts test/artifactLifecycleParity.test.ts test/executorHttpRuntime.test.ts test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend exec vitest run test/artifactStore.test.ts test/publicStartArtifactBoundary.test.ts test/publicFinishArtifactBoundary.test.ts test/deploymentService.test.ts test/hostedRuntimeCore.test.ts test/artifactRuntime.test.ts test/artifactRuntimeRoute.test.ts test/artifactRuntimeRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 git diff --check

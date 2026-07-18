@@ -186,30 +186,6 @@ Completed:
 - No persistence schema or backend JWT verification changes happen in this
   slice.
 
-Files changed:
-
-- `packages/flarex-dev/src/sourcePackage.ts`
-- `packages/flarex-dev/src/executionArtifactStore.ts`
-- `packages/flarex-dev/src/executorHttpRuntime.ts`
-- `packages/flarex-dev/test/sourcePackage.test.ts`
-- `packages/flarex-dev/test/artifactLifecycleParity.test.ts`
-- `packages/flarex-dev/test/executorHttpRuntime.test.ts`
-- `packages/flarex-dev/test/runtimeMaterializer.test.ts`
-- `packages/flarex/src/artifacts.ts`
-- `packages/flarex/test/artifacts.test.ts`
-- `packages/flarex-protocol/src/deployment.ts`
-- `packages/flarex-protocol/test/deployment.test.ts`
-- `packages/flarex-backend/src/types.ts`
-- `packages/flarex-backend/src/deployment/Validation.ts`
-- `packages/flarex-backend/src/deployment/Requests.ts`
-- `packages/flarex-backend/src/deployment/StorageRows.ts`
-- `packages/flarex-backend/src/artifactStore.ts`
-- `packages/flarex-backend/test/deploymentValidation.test.ts`
-- `packages/flarex-backend/test/deploymentRequests.test.ts`
-- `packages/flarex-backend/test/deploymentStorageRows.test.ts`
-- `packages/executor/src/deploymentPackages.ts`
-- both roadmap files
-
 Convex references inspected:
 
 - `npm-packages/convex/src/server/authentication.ts`

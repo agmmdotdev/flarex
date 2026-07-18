@@ -80,7 +80,7 @@ corepack pnpm --filter flarex-protocol exec vitest run test/artifact-runtime.tes
 corepack pnpm --filter @flarex/executor typecheck
 corepack pnpm --filter @flarex/executor exec vitest run test/deployments.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/sourcePackage.test.ts test/executionArtifactStore.test.ts test/artifactLifecycleParity.test.ts test/executorHttpRuntime.test.ts test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
+corepack pnpm --filter flarex-dev exec vitest run test/sourcePackage.test.ts test/artifactLifecycleParity.test.ts test/executorHttpRuntime.test.ts test/runtimeMaterializer.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 corepack pnpm --filter flarex-backend typecheck
 corepack pnpm --filter flarex-backend exec vitest run test/artifactStore.test.ts test/publicStartArtifactBoundary.test.ts test/publicFinishArtifactBoundary.test.ts test/deploymentService.test.ts test/hostedRuntimeCore.test.ts test/artifactRuntime.test.ts test/artifactRuntimeRoute.test.ts test/artifactRuntimeRequests.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
 git diff --check
@@ -247,46 +247,6 @@ Review gate:
 
 - Required because this changes shared protocol exports and backend runtime
   payload construction.
-
-## Previous Slice
-
-### G-2 / L-1: Shared Artifact Ref/Source-Package Validation
-
-Status: completed and committed in `e482969`
-(`Share execution artifact ref validation`).
-
-Purpose:
-
-Make `flarex/artifacts` own exact execution artifact ref comparison and
-source-package validation. Local dev and hosted backend artifact stores should
-consume the same helper before they trust a stored source package.
-
-Files changed:
-
-- `packages/flarex/src/artifacts.ts`
-- `packages/flarex/test/artifacts.test.ts`
-- `packages/flarex-dev/src/executionArtifactStore.ts`
-- `packages/flarex-dev/test/executionArtifactStore.test.ts`
-- `packages/flarex-backend/src/artifactStore.ts`
-- this file
-- `roadmaps/26-execution-artifact-lifecycle-parity.md`
-
-Validation gates:
-
-```sh
-corepack pnpm --filter flarex typecheck
-corepack pnpm --filter flarex test
-corepack pnpm --filter flarex-dev typecheck
-corepack pnpm --filter flarex-dev exec vitest run test/executionArtifactStore.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
-corepack pnpm --filter flarex-backend typecheck
-corepack pnpm --filter flarex-backend exec vitest run test/artifactStore.test.ts --testTimeout=120000 --hookTimeout=120000 --maxWorkers=1
-git diff --check
-```
-
-Review gate:
-
-- Required because this changes shared package exports and local runtime store
-  validation behavior.
 
 ## Next Slice
 

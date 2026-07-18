@@ -67,6 +67,16 @@ describe("backend execution artifact store", () => {
       `Execution artifact manifest ref mismatch for ${ref.artifactId}`,
     );
   });
+
+  it("deletes artifact source package and manifest objects", async () => {
+    const bucket = new FakeR2Bucket();
+    const store = new R2BackendExecutionArtifactStore(bucket);
+    const ref = await store.put(testSourcePackage());
+
+    await store.delete(ref);
+
+    expect(bucket.keys()).toEqual([]);
+  });
 });
 
 function testSourcePackage(functionModuleHash = "c".repeat(64)): PushSourcePackage {

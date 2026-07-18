@@ -98,14 +98,6 @@ export type {
   MaterializedArtifactLiveQueryExecutionHostOptions,
   RuntimeBackendDispatcher,
 } from "./runtimeMaterializer.ts";
-export {
-  LocalInMemoryExecutionArtifactStore,
-  R2ExecutionArtifactStore,
-} from "./executionArtifactStore.ts";
-export type {
-  DurableExecutionArtifactStore,
-  ExecutionArtifactStore,
-} from "./executionArtifactStore.ts";
 export { bundleSourcePackage, sourceModule } from "./sourcePackage.ts";
 export type { SourceModule, SourcePackage } from "./sourcePackage.ts";
 export { flarex } from "./vite.ts";
