@@ -561,6 +561,17 @@ describe("commit protocol C02", () => {
       component: "successfulResult",
     });
 
+    const base64UrlFailure = await runFailure(
+      verifySuccessfulResultEvidenceV1Effect({
+        ...result.evidence,
+        canonicalValueBase64Url: "AB",
+      }),
+    );
+    expect(base64UrlFailure.issue).toEqual({
+      reason: "invalidBase64Url",
+      component: "successfulResult",
+    });
+
     const oversizedResult = new ArrayBuffer(
       MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1 + 1,
     );

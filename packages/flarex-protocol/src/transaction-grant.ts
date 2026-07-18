@@ -6,11 +6,16 @@ import {
   isNonNegativeSafeInteger,
   isPositiveSafeInteger,
 } from "@flarex/utils/numbers";
-import { Data, Effect, Encoding, Schema } from "effect";
+import { Data, Effect, Encoding, Result, Schema } from "effect";
 
 import type { Json, JsonObject } from "./json";
 import { JsonValue } from "./json";
-import { canonicalBase64UrlEncodedLength } from "./canonical-base64url";
+import {
+  UnpaddedBase64UrlTextSchema,
+  canonicalBase64UrlEncodedLength,
+  decodeCanonicalBase64Url,
+  type CanonicalBase64UrlDecodeIssue,
+} from "./canonical-base64url";
 import { CatalogSchemaVersionIdSchema } from "./schema-manifest";
 import { ReplacementScopeIdV1Schema } from "./storage-authority";
 import {
@@ -51,7 +56,6 @@ import {
 
 const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
-const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 const LOWERCASE_SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 const CANONICAL_TIMESTAMP_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -546,13 +550,8 @@ export const TransactionGrantProtectedHeaderV1Schema = Schema.Struct({
 export type TransactionGrantProtectedHeaderV1 =
   typeof TransactionGrantProtectedHeaderV1Schema.Type;
 
-const Base64UrlText = Schema.String.check(
-  Schema.isMinLength(1),
-  Schema.isPattern(BASE64URL_PATTERN),
-);
-
 export const UnverifiedTransactionGrantProtectedHeaderBase64UrlV1Schema =
-  Base64UrlText.check(
+  UnpaddedBase64UrlTextSchema.check(
     Schema.isMaxLength(
       MAX_TRANSACTION_GRANT_PROTECTED_HEADER_BASE64URL_CHARACTERS_V1,
     ),
@@ -565,7 +564,7 @@ export type UnverifiedTransactionGrantProtectedHeaderBase64UrlV1 =
   typeof UnverifiedTransactionGrantProtectedHeaderBase64UrlV1Schema.Type;
 
 export const UnverifiedTransactionGrantPayloadBase64UrlV1Schema =
-  Base64UrlText.check(
+  UnpaddedBase64UrlTextSchema.check(
     Schema.isMaxLength(
       MAX_TRANSACTION_GRANT_PAYLOAD_BASE64URL_CHARACTERS_V1,
     ),
@@ -578,7 +577,7 @@ export type UnverifiedTransactionGrantPayloadBase64UrlV1 =
   typeof UnverifiedTransactionGrantPayloadBase64UrlV1Schema.Type;
 
 export const UnverifiedTransactionGrantEd25519SignatureBase64UrlV1Schema =
-  Base64UrlText.check(
+  UnpaddedBase64UrlTextSchema.check(
     Schema.isMinLength(
       TRANSACTION_GRANT_ED25519_SIGNATURE_BASE64URL_CHARACTERS_V1,
     ),
@@ -1055,37 +1054,35 @@ function decodeBase64Url(
   field: "protected" | "payload" | "signature",
   maximumBytes: number,
 ): Uint8Array {
-  if (
-    value.length === 0 ||
-    !BASE64URL_PATTERN.test(value) ||
-    value.length % 4 === 1
-  ) {
-    throw invalidBase64Url(field, "Expected canonical unpadded Base64url");
-  }
-  const padding = "=".repeat((4 - (value.length % 4)) % 4);
-  let binary: string;
-  try {
-    binary = atob(value.replace(/-/g, "+").replace(/_/g, "/") + padding);
-  } catch {
-    throw invalidBase64Url(field, "Base64url decoding failed");
-  }
-  if (binary.length > maximumBytes) {
-    throw new TransactionGrantProtocolV1Error({
+  return Result.getOrThrow(
+    decodeCanonicalBase64Url(value, maximumBytes).pipe(
+      Result.mapError((issue) =>
+        transactionGrantBase64UrlDecodeError(field, issue)
+      ),
+    ),
+  );
+}
+
+function transactionGrantBase64UrlDecodeError(
+  field: "protected" | "payload" | "signature",
+  issue: CanonicalBase64UrlDecodeIssue,
+): TransactionGrantProtocolV1Error {
+  if (issue.reason === "tooLarge") {
+    return new TransactionGrantProtocolV1Error({
       issue: {
         reason: "evidenceTooLarge",
         field,
-        observedBytes: binary.length,
-        maximumBytes,
+        observedBytes: issue.observedBytes,
+        maximumBytes: issue.maximumBytes,
       },
     });
   }
-  const bytes = Uint8Array.from(binary, (character) =>
-    character.charCodeAt(0)
-  );
-  if (Encoding.encodeBase64Url(bytes) !== value) {
-    throw invalidBase64Url(field, "Expected one canonical Base64url spelling");
-  }
-  return bytes;
+  const detail = {
+    invalidSyntax: "Expected canonical unpadded Base64url",
+    decodingFailed: "Base64url decoding failed",
+    nonCanonical: "Expected one canonical Base64url spelling",
+  }[issue.reason];
+  return invalidBase64Url(field, detail);
 }
 
 function validateBoundedGrantText(value: string): string | undefined {

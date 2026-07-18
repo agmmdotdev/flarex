@@ -418,12 +418,14 @@ semantics.
   configuration errors remain with their consumers. The shared predicates
   reject non-numbers before relational comparisons and therefore do not invoke
   caller-controlled coercion.
-- Total unpadded Base64URL encoding reuses Effect `Encoding` rather than adding
-  another Flarex utility implementation. Protocol canonicality checks still
-  re-encode and compare at their owning boundary, while input limits, branded
-  outputs, JWT or evidence policy, and typed decoding failures remain local.
-  Source strings that intentionally execute without package imports retain a
-  bounded local encoder.
+- `flarex-protocol/canonical-base64url` owns the shared non-empty unpadded text
+  Schema and pure bounded decoder. It delegates general encoding and decoding
+  to Effect `Encoding`, then re-encodes to prove the unique canonical spelling.
+  Commit evidence and transaction grants supply their own byte ceilings and
+  retain their brands, JWT or evidence policy, and typed failure mapping.
+  This canonical protocol policy stays outside `@flarex/utils`; source strings
+  that intentionally execute without package imports retain a bounded local
+  encoder.
 - `flarex-protocol/connection` owns sync client and server wire types plus
   structural runtime decoding. Backend connection code consumes those
   contracts directly. The SDK derives its narrower outbound and supported

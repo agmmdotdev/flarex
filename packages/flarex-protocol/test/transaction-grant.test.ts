@@ -551,6 +551,21 @@ describe("transaction-grant protocol", () => {
       await expect(deriveInertTransactionGrantEvidenceV1(invalid))
         .rejects.toBeInstanceOf(TransactionGrantProtocolV1Error);
     }
+    for (const [protectedHeader, detail] of [
+      ["A", "Expected canonical unpadded Base64url"],
+      ["AB", "Expected one canonical Base64url spelling"],
+    ] as const) {
+      await expect(deriveInertTransactionGrantEvidenceV1({
+        ...fixture.jws,
+        protected: protectedHeader,
+      })).rejects.toMatchObject({
+        issue: {
+          reason: "invalidBase64Url",
+          field: "protected",
+          detail,
+        },
+      });
+    }
     await expect(
       Effect.runPromise(Effect.flip(
         deriveInertTransactionGrantEvidenceV1Effect({}),

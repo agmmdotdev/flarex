@@ -143,6 +143,12 @@ APIs for an exact portable owner. Reuse a total encoder such as Effect
 validation, canonical re-encoding checks, size limits, branded outputs, and
 typed failure mapping at the protocol or domain boundary; a general decoder
 does not prove a Flarex canonical representation.
+When several protocol consumers share one canonical text-to-bytes algorithm,
+place its syntactic Schema and pure `Result` decoder with the protocol codec
+owner. Let callers supply their byte ceiling and translate the codec issue into
+their own tagged failure; do not move the canonical policy into
+`@flarex/utils`, duplicate the foreign decoder, or erase consumer-specific
+limit and error contracts.
 At an importable unknown-object boundary, use `@flarex/utils/records` directly
 for shallow non-null, non-array narrowing instead of repeating the check or
 asserting a mutable `Record`. Its result is readonly and does not establish a

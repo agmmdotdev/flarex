@@ -21,7 +21,12 @@ import {
   type Json,
   type JsonObject,
 } from "./json";
-import { canonicalBase64UrlEncodedLength } from "./canonical-base64url";
+import {
+  UnpaddedBase64UrlTextSchema,
+  canonicalBase64UrlEncodedLength,
+  decodeCanonicalBase64Url,
+  type CanonicalBase64UrlDecodeIssue,
+} from "./canonical-base64url";
 import {
   CanonicalNonNegativePostgresBigIntFromString,
   CanonicalPositivePostgresBigIntFromString,
@@ -64,7 +69,6 @@ const StrictParseOptions: {
 
 const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
-const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 const LOWERCASE_SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
 export const SESSION_JOURNAL_FORMAT_V1 = "flarex.session-journal";
@@ -324,8 +328,7 @@ export type SessionJournalSha256HexV1 =
   typeof SessionJournalSha256HexV1Schema.Type;
 
 export const CanonicalSessionJournalBase64UrlV1Schema =
-  Schema.String.check(
-    Schema.isPattern(BASE64URL_PATTERN),
+  UnpaddedBase64UrlTextSchema.check(
     Schema.isMaxLength(
       MAX_COMMIT_CANONICAL_EVIDENCE_BASE64URL_CHARACTERS_V1,
     ),
@@ -348,8 +351,7 @@ export type SuccessfulResultSha256HexV1 =
   typeof SuccessfulResultSha256HexV1Schema.Type;
 
 export const CanonicalSuccessfulResultBase64UrlV1Schema =
-  Schema.String.check(
-    Schema.isPattern(BASE64URL_PATTERN),
+  UnpaddedBase64UrlTextSchema.check(
     Schema.isMaxLength(
       MAX_COMMIT_CANONICAL_EVIDENCE_BASE64URL_CHARACTERS_V1,
     ),
@@ -1242,38 +1244,38 @@ const decodeBase64UrlEffect = Effect.fn(function* (
   component: "journal" | "successfulResult",
 ): Effect.fn.Return<Uint8Array, CommitProtocolV1Error> {
   if (
-    value.length === 0 ||
-    value.length > MAX_COMMIT_CANONICAL_EVIDENCE_BASE64URL_CHARACTERS_V1 ||
-    !BASE64URL_PATTERN.test(value) ||
-    value.length % 4 === 1
+    value.length > MAX_COMMIT_CANONICAL_EVIDENCE_BASE64URL_CHARACTERS_V1
   ) {
     return yield* protocolFailureEffect({
       reason: "invalidBase64Url",
       component,
     });
   }
-  const padding = "=".repeat((4 - (value.length % 4)) % 4);
-  const binary = yield* Effect.try({
-    try: () => atob(value.replace(/-/g, "+").replace(/_/g, "/") + padding),
-    catch: () =>
-      new CommitProtocolV1Error({
-        issue: { reason: "invalidBase64Url", component },
-      }),
-  });
-  yield* enforceLimitEffect(
-    "canonicalEvidenceBytes",
-    binary.length,
+  return yield* Effect.fromResult(decodeCanonicalBase64Url(
+    value,
     MAX_COMMIT_CANONICAL_EVIDENCE_BYTES_V1,
+  )).pipe(
+    Effect.mapError((issue) =>
+      commitBase64UrlDecodeError(component, issue)
+    ),
   );
-  const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
-  if (Encoding.encodeBase64Url(bytes) !== value) {
-    return yield* protocolFailureEffect({
-      reason: "invalidBase64Url",
-      component,
-    });
-  }
-  return bytes;
 });
+
+function commitBase64UrlDecodeError(
+  component: "journal" | "successfulResult",
+  issue: CanonicalBase64UrlDecodeIssue,
+): CommitProtocolV1Error {
+  return new CommitProtocolV1Error({
+    issue: issue.reason === "tooLarge"
+      ? {
+          reason: "limitExceeded",
+          dimension: "canonicalEvidenceBytes",
+          observed: issue.observedBytes,
+          maximum: issue.maximumBytes,
+        }
+      : { reason: "invalidBase64Url", component },
+  });
+}
 
 const validateEnvelopeEvidenceBudgetEffect = Effect.fn(function* (
   envelope: CommitEnvelopeV1,
