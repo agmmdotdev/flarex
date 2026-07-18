@@ -345,6 +345,11 @@ semantics.
   projections in each adapter.
 - The Effect boundary checker rejects synchronous execution, hidden aliases,
   direct runtime imports, and unregistered production `runPromise` sites.
+- Postgres and PGlite adapters share one persistence-owned resolver for the
+  bundled Drizzle migration tree. It resolves from package module location so
+  installed consumers do not depend on their current working directory;
+  explicit folder overrides and adapter-specific migrator options remain with
+  each adapter.
 - Pure protocol payload, backend storage-state, and executor HTTP request
   normalizers that intentionally retain validation as data use one
   domain-local Effect v4 `Result` decoder. Multi-field HTTP decoders use

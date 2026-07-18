@@ -1,9 +1,8 @@
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate as migrateNodePg } from "drizzle-orm/node-postgres/migrator";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { Pool, type PoolConfig } from "pg";
 
+import { defaultMigrationsFolder } from "./defaultMigrationsFolder";
 import type { FlarexPersistence } from "./index";
 import {
   createSharedScopeAuthorityBootstrapper,
@@ -239,8 +238,4 @@ export async function createPostgresPersistence(
       }
     },
   };
-}
-
-function defaultMigrationsFolder(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), "../drizzle");
 }

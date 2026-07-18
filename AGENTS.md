@@ -143,6 +143,11 @@ or atomic no-replace publication. Callers retain the evidence kind, byte
 ceiling, diagnostics, and recovery policy. Do not add Node dependencies or
 host-specific trust policy to `@flarex/utils` merely because several commands
 repeat the same filesystem sequence.
+When Postgres and PGlite adapters locate one bundled Drizzle migration tree,
+share the module-location resolver inside the persistence package. Resolve from
+the owning module rather than `process.cwd`, and keep caller-supplied folder
+overrides plus adapter-specific migrator options with each adapter. This Node
+asset-location policy does not belong in `@flarex/utils`.
 When several host adapters share a bounded foreign-response-to-JSON sequence,
 centralize the byte-read and fatal decode mechanics with that host owner. Let
 each adapter retain its byte ceiling and size, stream-read, decode, redaction,

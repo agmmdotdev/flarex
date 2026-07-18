@@ -1,9 +1,8 @@
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate as migratePGlite } from "drizzle-orm/pglite/migrator";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
+import { defaultMigrationsFolder } from "./defaultMigrationsFolder";
 import type {
   FlarexPersistence,
   FlarexSqlClient,
@@ -251,8 +250,4 @@ function createPGliteSqlClient(
       params?: readonly unknown[],
     ) => client.query<Row>(sql, params),
   };
-}
-
-function defaultMigrationsFolder(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), "../drizzle");
 }
