@@ -24,6 +24,7 @@ import type {
 
 type SnapshotLeaseInsertV1 = typeof fxSystemSnapshotLeases.$inferInsert;
 type JournalRootInsertV1 = typeof fxSystemTransactionJournals.$inferInsert;
+type JournalRootRowV1 = typeof fxSystemTransactionJournals.$inferSelect;
 
 export type FreshTransactionAttemptFacetIssueV1 =
   | "databaseTimeInvalid"
@@ -136,4 +137,41 @@ export function buildFreshTransactionAttemptFacetV1(
       updatedAt: new Date(now),
     }),
   }));
+}
+
+/**
+ * Shared exact-root predicate for O08-A convergence and O03's temporal fresh-
+ * attempt observation. Child absence remains transaction-owned because it
+ * requires a database snapshot; this helper owns only the row invariant.
+ */
+export function isPristineFreshTransactionAttemptJournalRootV1(
+  root: Readonly<JournalRootRowV1>,
+  expected: Readonly<JournalRootInsertV1>,
+): boolean {
+  return root.scopeUuid === expected.scopeUuid &&
+    root.sessionId === expected.sessionId &&
+    root.attemptFence === expected.attemptFence &&
+    root.state === "open" &&
+    root.lastSyscallSequence === 0n &&
+    root.creationTimeSeed === expected.creationTimeSeed &&
+    root.nextCreationTime === expected.nextCreationTime &&
+    root.readDocuments === 0 &&
+    root.readSemanticBytes === 0 &&
+    root.pointDependencyCount === 0 &&
+    root.writeOperations === 0 &&
+    root.writeSemanticBytes === 0 &&
+    root.materialWriteEventEvidenceBytes === 0 &&
+    root.failureDimension === null &&
+    root.sealedFinalSyscallSequence === null &&
+    root.sealedJournalBytes === null &&
+    root.sealedJournalSha256 === null &&
+    root.sealedResultValueCodecVersion === null &&
+    root.sealedResultSemanticBytes === null &&
+    root.sealedResultBytes === null &&
+    root.sealedResultSha256 === null &&
+    root.sealedAt === null &&
+    finiteDateMilliseconds(root.createdAt) ===
+      finiteDateMilliseconds(expected.createdAt) &&
+    finiteDateMilliseconds(root.updatedAt) ===
+      finiteDateMilliseconds(expected.updatedAt);
 }

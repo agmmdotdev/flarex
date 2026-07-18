@@ -803,6 +803,7 @@ function loadResult(
     status: "loaded",
     anchor: anchor(selector),
     executionPin: Object.freeze({ schemaVersionId: SCHEMA_VERSION_ID }),
+    attemptFacet: Object.freeze({ kind: "nonPristine" }),
   });
 }
 

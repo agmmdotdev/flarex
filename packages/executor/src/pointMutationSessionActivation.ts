@@ -27,11 +27,19 @@ import {
   decodeCatalogSchemaVersionId,
   type CatalogSchemaVersionId,
 } from "flarex-protocol/schema-manifest";
-import { TransactionSessionIdV1Schema } from
+import {
+  TransactionRequestKeyV1Schema,
+  TransactionSessionIdV1Schema,
+  type TransactionRequestKeyV1,
+} from
   "flarex-protocol/transaction-session";
 import { Effect, Result } from "effect";
 
 import { isPlainRecord } from "./plainRecord";
+import {
+  getLoadedPointMutationSessionAttemptInspectionV1,
+  registerLoadedPointMutationSessionAttemptStateV1,
+} from "./pointMutationSessionAttemptState";
 import {
   decodePointMutationSessionAttemptSelectorV1Result,
   InvalidPointMutationSessionAttemptSelectorV1Error,
@@ -86,11 +94,6 @@ export interface LoadedPointMutationSessionAttemptInspectionV1 {
   /** Immutable schema artifact pinned by the authoritative exact attempt. */
   readonly schemaVersionId: CatalogSchemaVersionId;
 }
-
-const loadedAttemptInspectionByHandle = new WeakMap<
-  object,
-  LoadedPointMutationSessionAttemptInspectionV1
->();
 
 export class InvalidActivatedPointMutationSessionV1Error extends Error {
   readonly name = "InvalidActivatedPointMutationSessionV1Error";
@@ -230,13 +233,18 @@ export function createPointMutationSessionAttemptLoadingV1(
         decodePointMutationSessionAttemptSelectorV1Result(input),
       );
       const result = yield* persistence.loadEffect(selector);
-      const inspection = yield* Effect.fromResult(
+      const captured = yield* Effect.fromResult(
         captureLoadedAttemptInspection(selector, result),
       );
       const handle = Object.freeze({
         [loadedPointMutationSessionAttemptBrand]: true as const,
       });
-      loadedAttemptInspectionByHandle.set(handle, inspection);
+      registerLoadedPointMutationSessionAttemptStateV1(
+        handle,
+        captured.inspection,
+        captured.requestKey,
+        captured.attemptFacet,
+      );
       return handle;
     },
   );
@@ -329,7 +337,7 @@ function inspectLoadedPointMutationSessionAttemptResultV1(
   if (typeof value !== "object" || value === null) {
     return Result.fail(new InvalidLoadedPointMutationSessionAttemptV1Error());
   }
-  const inspection = loadedAttemptInspectionByHandle.get(value);
+  const inspection = getLoadedPointMutationSessionAttemptInspectionV1(value);
   if (inspection === undefined) {
     return Result.fail(new InvalidLoadedPointMutationSessionAttemptV1Error());
   }
@@ -340,7 +348,11 @@ function captureLoadedAttemptInspection(
   selector: PointMutationSessionAttemptSelectorV1,
   result: PointMutationSessionAttemptLoadResultV1,
 ): Result.Result<
-  LoadedPointMutationSessionAttemptInspectionV1,
+  Readonly<{
+    readonly inspection: LoadedPointMutationSessionAttemptInspectionV1;
+    readonly requestKey: TransactionRequestKeyV1;
+    readonly attemptFacet: PointMutationSessionAttemptLoadResultV1["attemptFacet"];
+  }>,
   PointMutationSessionAttemptLoadContractV1Error
 > {
   return Result.try({
@@ -352,11 +364,13 @@ function captureLoadedAttemptInspection(
         anchor.scopeId !== selector.scopeId ||
         anchor.sessionId !== selector.sessionId ||
         anchor.attemptFence !== selector.attemptFence ||
-        anchor.snapshotToken.scopeId !== selector.scopeId
+        anchor.snapshotToken.scopeId !== selector.scopeId ||
+        (result.attemptFacet.kind !== "pristineOpen" &&
+          result.attemptFacet.kind !== "nonPristine")
       ) {
         throw new PointMutationSessionAttemptLoadContractV1Error();
       }
-      return Object.freeze({
+      const inspection = Object.freeze({
         selector,
         storageGeneration: FlarexDbV1StorageGenerationSchema.make(
           anchor.storageGeneration,
@@ -374,6 +388,11 @@ function captureLoadedAttemptInspection(
         schemaVersionId: decodeCatalogSchemaVersionId(
           result.executionPin.schemaVersionId,
         ),
+      });
+      return Object.freeze({
+        inspection,
+        requestKey: TransactionRequestKeyV1Schema.make(anchor.requestKey),
+        attemptFacet: Object.freeze({ kind: result.attemptFacet.kind }),
       });
     },
     catch: (cause) => cause instanceof

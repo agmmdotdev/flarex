@@ -1,4 +1,4 @@
-import { Effect, Exit, Fiber, Schema } from "effect";
+import { Effect, Exit, Fiber, Random, Schema } from "effect";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -128,11 +128,13 @@ import {
   createPointCommitFinishingTransitionPortV1,
   createPointCommitPublisherPortV1,
   createPointCommitRollbackProofPortV1,
+  createPointMutationAttemptReplacementPortV1,
   PointCommitConflictV1Error,
   PointCommitCorruptionV1Error,
   PointCommitResourceExhaustionV1Error,
   PointCommitSqlErrorV1,
   PointCommitStaleAuthorityV1Error,
+  type PointMutationAttemptReplacementOptionsV1,
   type PointCommitTransactionCommandV1,
   type PointCommitTransactionProofOptionsV1,
 } from "../src/pointCommitTransaction";
@@ -925,6 +927,210 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       wakes: "1",
       last_commit_seq: "1",
       last_outbox_seq: "1",
+    });
+  });
+
+  it("composes a genuine O07-B OCC conflict through O08-A into one O08-B1 rerun authority", async () => {
+    const current = await c04b2Scenario("o08b1_pglite");
+    const table = await runEffect(
+      current.store.resolvePointTableEffect(current.attempt, "users"),
+    );
+    await expect(runPointOperation(current.store, table, {
+      kind: "insert",
+      syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+      fields: { name: "conflicted" },
+    })).resolves.toMatchObject({
+      kind: "completed",
+      outcome: { kind: "inserted" },
+    });
+    const envelope = await seal(current);
+    const loadedAttempt = await runEffect(current.loading.load({
+      deploymentId: current.anchor.deploymentId,
+      scopeId: current.anchor.scopeId,
+      sessionId: current.anchor.sessionId,
+      attemptFence: current.anchor.attemptFence.toString(),
+    }));
+    const stored = await runEffect(current.loader.loadEffect(current.authority));
+    if (stored.kind !== "loaded") {
+      throw new Error("Expected stored O08-B1 evidence.");
+    }
+    const authentication = createO08B1Authentication(current);
+    const authority = await runEffect(authentication.deriveAuthority(
+      loadedAttempt,
+    ));
+    const authenticated = await runEffect(authentication.authenticate(
+      authority,
+      encodeEnvelope(envelope),
+    ));
+    const commitAuthority = await runEffect(
+      authentication.authenticateCommitAuthority(authenticated),
+    );
+    const verified = await runEffect(
+      authentication.verifyCommitInput(commitAuthority),
+    );
+    const running = await runEffect(authentication.planPointCommit(verified));
+    const finishing = await runEffect(
+      authentication.enterPointCommitFinishing(running),
+    );
+    const finishingStored = await runEffect(
+      current.loader.loadFinishingEffect({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        sessionId: current.anchor.sessionId,
+        attemptFence: current.anchor.attemptFence,
+      }),
+    );
+    if (finishingStored.kind !== "loaded") {
+      throw new Error("Expected finishing O08-B1 evidence.");
+    }
+    const competingCommand = await pointCommitCommandFromStoredAttemptV1(
+      current.authority,
+      finishingStored.evidence,
+    );
+    await commitCompetingPointRow(competingCommand);
+    const conflict = await runFailure(
+      authentication.publishPointCommit(finishing),
+    );
+    expect(conflict).toBeInstanceOf(PointCommitConflictV1Error);
+
+    const result = await runEffect(
+      authentication.authorizePointMutationOccRerun(conflict).pipe(
+        Effect.provideService(Random.Random, {
+          nextDoubleUnsafe: () => 0,
+          nextIntUnsafe: () => 0,
+        }),
+      ),
+    );
+    expect(result).toMatchObject({
+      kind: "authorized",
+      backoffUpperBoundMilliseconds: 100,
+      backoffMilliseconds: 0,
+    });
+    if (result.kind !== "authorized") {
+      throw new Error("Expected the O08-B1 authorization result.");
+    }
+    const inspection =
+      authentication.consumeAuthorizedPointMutationOccRerunForTest(
+        result.rerun,
+      );
+    expect(inspection).toMatchObject({
+      previousAttemptFence: current.anchor.attemptFence,
+      attemptFence: current.anchor.attemptFence + 1n,
+      previousSnapshotToken: current.anchor.snapshotToken,
+      snapshotToken: {
+        epoch: current.anchor.snapshotToken.epoch,
+        commitSeq: 1n,
+      },
+      conflictingCommitSeq: 1n,
+    });
+    const state = await persistence.query<{
+      lifecycle: string;
+      attempt_fence: string;
+      lease_count: string;
+      root_state: string;
+      last_syscall_sequence: string;
+      receipt_count: string;
+      point_count: string;
+      event_count: string;
+    }>(
+      `
+        select session.lifecycle,
+          session.attempt_fence::text,
+          (select count(*)::text from fx_system_snapshot_lease lease
+            where lease.scope_uuid = session.scope_uuid
+              and lease.session_id = session.session_id
+              and lease.attempt_fence = session.attempt_fence) as lease_count,
+          journal.state as root_state,
+          journal.last_syscall_sequence::text,
+          (select count(*)::text from fx_system_tx_journal_latest_receipt receipt
+            where receipt.scope_uuid = session.scope_uuid
+              and receipt.session_id = session.session_id
+              and receipt.attempt_fence = session.attempt_fence) as receipt_count,
+          (select count(*)::text from fx_system_tx_journal_point point
+            where point.scope_uuid = session.scope_uuid
+              and point.session_id = session.session_id
+              and point.attempt_fence = session.attempt_fence) as point_count,
+          (select count(*)::text from fx_system_tx_journal_write_event event
+            where event.scope_uuid = session.scope_uuid
+              and event.session_id = session.session_id
+              and event.attempt_fence = session.attempt_fence) as event_count
+        from fx_system_tx_session session
+        join fx_system_tx_journal journal
+          on journal.scope_uuid = session.scope_uuid
+          and journal.session_id = session.session_id
+          and journal.attempt_fence = session.attempt_fence
+        where session.scope_uuid = $1 and session.session_id = $2
+      `,
+      [stored.evidence.scopeUuid, current.anchor.sessionId],
+    );
+    expect(state.rows[0]).toEqual({
+      lifecycle: "running",
+      attempt_fence: "2",
+      lease_count: "1",
+      root_state: "open",
+      last_syscall_sequence: "0",
+      receipt_count: "0",
+      point_count: "0",
+      event_count: "0",
+    });
+  });
+
+  it("leaves a pristine non-authorizing attempt when interrupted after replacement settlement", async () => {
+    const entered = deferredSignal();
+    const release = deferredSignal();
+    const prepared = await prepareO08B1Conflict(
+      "o08b1_post_replace_interrupt",
+      {
+        afterReplacementStep: async (event) => {
+          if (event.step !== "beforeCommit") return;
+          entered.resolve();
+          await release.promise;
+        },
+      },
+    );
+    const fiber = Effect.runFork(
+      prepared.authentication.authorizePointMutationOccRerun(
+        prepared.conflict,
+      ).pipe(Effect.provideService(Random.Random, {
+        nextDoubleUnsafe: () => 0,
+        nextIntUnsafe: () => 0,
+      })),
+    );
+    await entered.promise;
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+      interruptionSettled = true;
+      return exit;
+    });
+    try {
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      release.resolve();
+    }
+    await interruption;
+    expect(interruptionSettled).toBe(true);
+    expect(Exit.hasInterrupts(await runEffect(Fiber.await(fiber)))).toBe(true);
+    expect(await o08B1AttemptState(
+      prepared.scopeUuid,
+      prepared.current.anchor.sessionId,
+    )).toEqual({
+      lifecycle: "running",
+      attempt_fence: "2",
+      lease_count: "1",
+      root_state: "open",
+      last_syscall_sequence: "0",
+      receipt_count: "0",
+      point_count: "0",
+      event_count: "0",
+    });
+    expect(await runFailure(
+      prepared.authentication.authorizePointMutationOccRerun(
+        prepared.conflict,
+      ),
+    )).toMatchObject({
+      _tag: "InvalidPointMutationOccConflictV1Error",
+      reason: "alreadyConsumed",
     });
   });
 
@@ -2324,6 +2530,114 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     );
   }
 
+  function createO08B1Authentication(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+    options: PointCommitTransactionProofOptionsV1 = {},
+    replacementOptions: Omit<
+      PointMutationAttemptReplacementOptionsV1,
+      "leaseDurationMilliseconds"
+    > = {},
+  ) {
+    const ports = resolutionPorts(persistence);
+    return createStoredAttemptAuthenticationV1(
+      current.loader,
+      {
+        evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
+        transactionGrantVerifier: current.verifier,
+        functionMetadata: {
+          load: () =>
+            Effect.succeed(structuredClone(current.functionSnapshot)),
+        },
+        pointCommit: createPointCommitPublisherPortV1(ports, options),
+        pointCommitFinishing: createPointCommitFinishingTransitionPortV1(
+          ports,
+        ),
+        pointMutationAttemptReplacement:
+          createPointMutationAttemptReplacementPortV1(ports, {
+            leaseDurationMilliseconds: 60_000,
+            ...replacementOptions,
+          }),
+        pointMutationOccRerun: { attemptLoading: current.loading },
+      },
+    );
+  }
+
+  async function prepareO08B1Conflict(
+    label: string,
+    replacementOptions: Omit<
+      PointMutationAttemptReplacementOptionsV1,
+      "leaseDurationMilliseconds"
+    > = {},
+  ) {
+    const current = await c04b2Scenario(label);
+    const table = await runEffect(
+      current.store.resolvePointTableEffect(current.attempt, "users"),
+    );
+    await runPointOperation(current.store, table, {
+      kind: "insert",
+      syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+      fields: { name: label },
+    });
+    const envelope = await seal(current);
+    const loadedAttempt = await runEffect(current.loading.load({
+      deploymentId: current.anchor.deploymentId,
+      scopeId: current.anchor.scopeId,
+      sessionId: current.anchor.sessionId,
+      attemptFence: current.anchor.attemptFence.toString(),
+    }));
+    const authentication = createO08B1Authentication(
+      current,
+      {},
+      replacementOptions,
+    );
+    const authority = await runEffect(
+      authentication.deriveAuthority(loadedAttempt),
+    );
+    const authenticated = await runEffect(authentication.authenticate(
+      authority,
+      encodeEnvelope(envelope),
+    ));
+    const commitAuthority = await runEffect(
+      authentication.authenticateCommitAuthority(authenticated),
+    );
+    const verified = await runEffect(
+      authentication.verifyCommitInput(commitAuthority),
+    );
+    const running = await runEffect(authentication.planPointCommit(verified));
+    const finishing = await runEffect(
+      authentication.enterPointCommitFinishing(running),
+    );
+    const finishingStored = await runEffect(
+      current.loader.loadFinishingEffect({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        sessionId: current.anchor.sessionId,
+        attemptFence: current.anchor.attemptFence,
+      }),
+    );
+    if (finishingStored.kind !== "loaded") {
+      throw new Error("Expected finishing O08-B1 evidence.");
+    }
+    await commitCompetingPointRow(
+      await pointCommitCommandFromStoredAttemptV1(
+        current.authority,
+        finishingStored.evidence,
+      ),
+    );
+    const conflict = await runFailure(
+      authentication.publishPointCommit(finishing),
+    );
+    if (!(conflict instanceof PointCommitConflictV1Error)) {
+      throw new Error("Expected a genuine O08-B1 conflict.");
+    }
+    return Object.freeze({
+      current,
+      authentication,
+      conflict,
+      scopeUuid: finishingStored.evidence.scopeUuid,
+    });
+  }
+
   async function commitCompetingPointRow(
     command: PointCommitTransactionCommandV1,
   ): Promise<void> {
@@ -2364,6 +2678,55 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       `,
       [command.sealIdentity.scopeUuid],
     );
+  }
+
+  async function o08B1AttemptState(
+    scopeUuid: string,
+    sessionId: PointMutationSessionAnchorV1["sessionId"],
+  ) {
+    const state = await persistence.query<{
+      lifecycle: string;
+      attempt_fence: string;
+      lease_count: string;
+      root_state: string;
+      last_syscall_sequence: string;
+      receipt_count: string;
+      point_count: string;
+      event_count: string;
+    }>(
+      `
+        select session.lifecycle,
+          session.attempt_fence::text,
+          (select count(*)::text from fx_system_snapshot_lease lease
+            where lease.scope_uuid = session.scope_uuid
+              and lease.session_id = session.session_id
+              and lease.attempt_fence = session.attempt_fence) as lease_count,
+          journal.state as root_state,
+          journal.last_syscall_sequence::text,
+          (select count(*)::text
+            from fx_system_tx_journal_latest_receipt receipt
+            where receipt.scope_uuid = session.scope_uuid
+              and receipt.session_id = session.session_id
+              and receipt.attempt_fence = session.attempt_fence)
+            as receipt_count,
+          (select count(*)::text from fx_system_tx_journal_point point
+            where point.scope_uuid = session.scope_uuid
+              and point.session_id = session.session_id
+              and point.attempt_fence = session.attempt_fence) as point_count,
+          (select count(*)::text from fx_system_tx_journal_write_event event
+            where event.scope_uuid = session.scope_uuid
+              and event.session_id = session.session_id
+              and event.attempt_fence = session.attempt_fence) as event_count
+        from fx_system_tx_session session
+        join fx_system_tx_journal journal
+          on journal.scope_uuid = session.scope_uuid
+          and journal.session_id = session.session_id
+          and journal.attempt_fence = session.attempt_fence
+        where session.scope_uuid = $1 and session.session_id = $2
+      `,
+      [scopeUuid, sessionId],
+    );
+    return state.rows[0];
   }
 
   async function o06DurableState(scopeUuid: string) {

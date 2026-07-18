@@ -14,6 +14,7 @@ import type {
 import type { fxSystemTransactionJournals } from "./schema";
 import type {
   PointMutationSessionAnchorV1,
+  PointMutationSessionAttemptFacetObservationV1,
   PointMutationSessionAttemptExecutionPinV1,
   PointMutationSessionAttemptSelectorV1,
 } from "./transactionSessionActivation";
@@ -35,6 +36,7 @@ export interface ExactRunningAttemptKernelContextV1 {
   readonly executionPin: PointMutationSessionAttemptExecutionPinV1;
   readonly databaseNow: Date;
   readonly journalRoot: Readonly<TransactionJournalRootRowV1>;
+  readonly attemptFacet: PointMutationSessionAttemptFacetObservationV1;
 }
 
 export type ExactRunningAttemptEffectWorkV1<Result, Failure> = (

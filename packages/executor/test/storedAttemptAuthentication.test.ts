@@ -1,14 +1,20 @@
-import { Effect, Encoding, Result, Schema } from "effect";
+import { Effect, Encoding, Fiber, Random, Result, Schema } from "effect";
+import { TestClock } from "effect/testing";
 import {
+  PointCommitConflictV1Error,
   PointCommitCorruptionV1Error,
+  RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1,
+  type CommittedPointOutcomeResolutionV1,
   type PointCommitFinishingTransitionCommandV1,
   type PointCommitFinishingTransitionPortV1,
   type PointCommitFinishingTransitionResultV1,
   type PointCommitPublicationCommandV1,
   type PointCommitPublisherPortV1,
+  type PointCommitOutcomeResolutionPortV1,
   type PointCommitRollbackProofPortV1,
   type PointCommitTransactionCommandV1,
   type PointMutationAttemptReplacementCommandV1,
+  type PointMutationAttemptReplacementObservationV1,
   type PointMutationAttemptReplacementPortV1,
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import {
@@ -25,6 +31,7 @@ import { decodeCatalogTableId } from "flarex-protocol/catalog";
 import {
   COMMIT_ENVELOPE_FORMAT_V1,
   CanonicalSessionJournalBase64UrlV1Schema,
+  CanonicalSuccessfulResultBytesV1Schema,
   CommitDocumentSemanticBytesV1Schema,
   CommitEnvelopeV1Schema,
   CommitFinalSyscallSequenceV1Schema,
@@ -76,6 +83,7 @@ import {
   ScopeEpochSchema,
   SnapshotTokenSchema,
   StorageGenerationFenceSchema,
+  decodeScopeEpochUuidV1,
   decodeScopeUuidV1,
 } from "flarex-protocol/storage-authority";
 import {
@@ -88,6 +96,7 @@ import {
 } from "flarex-protocol/transaction-session";
 import {
   FLAREX_VALUE_CODEC_VERSION_V1,
+  FlarexValueSha256V1Schema,
   isCanonicalFlarexRuntimeObjectV1,
   normalizeFlarexValueJsonV1,
 } from "flarex-protocol/value";
@@ -112,11 +121,16 @@ import type { FinishingPreparedPointCommitV1 as ForbiddenFinishingPointCommit } 
 import type { StoredPointCommitExecutorV1 as ForbiddenPointCommitExecutor } from "../src/index";
 // @ts-expect-error O08-A replacement authority must remain absent from the package root.
 import type { StoredPointMutationAttemptReplacementV1 as ForbiddenAttemptReplacement } from "../src/index";
+// @ts-expect-error O08-B1 rerun authority must remain absent from the package root.
+import type { AuthorizedPointMutationOccRerunV1 as ForbiddenOccRerun } from "../src/index";
 import {
   createPointMutationSessionAttemptLoadingV1,
   InvalidPointMutationSessionAttemptSelectorV1Error,
   type PointMutationSessionAttemptSelectorWireV1,
 } from "../src/pointMutationSessionActivation";
+import type {
+  PointMutationSessionAttemptLoadResultV1,
+} from "@flarex/persistence-postgres/transaction-session-activation";
 import {
   createTransactionGrantVerificationKeyNamespaceV1,
   createTransactionGrantVerifierV1,
@@ -129,6 +143,12 @@ import {
   InvalidAuthenticatedCommitAuthorityV1Error,
   InvalidAuthenticatedStoredAttemptV1Error,
   InvalidPreparedPointCommitV1Error,
+  InvalidAuthorizedPointMutationOccRerunV1Error,
+  InvalidPointMutationOccConflictV1Error,
+  PointMutationOccRerunAuthorityCorruptionV1Error,
+  PointMutationOccRerunExhaustedV1Error,
+  PointMutationOccRerunFreshAttemptV1Error,
+  PointMutationOccRerunOwnershipLostV1Error,
   InvalidVerifiedCommitInputV1Error,
   StoredCommitAuthorityCorruptionV1Error,
   StoredCommitAuthorityConfigurationV1Error,
@@ -2044,6 +2064,578 @@ describe("C04A stored-attempt authentication", () => {
     });
   });
 
+  it("authorizes O08-B1 only from the exact consumed O07-B conflict and a pristine fresh attempt", async () => {
+    type RootLeak = Extract<
+      keyof typeof executorRoot,
+      | "AuthorizedPointMutationOccRerunV1"
+      | "authorizePointMutationOccRerun"
+    >;
+    expectTypeOf<RootLeak>().toEqualTypeOf<never>();
+    expect("authorizePointMutationOccRerun" in executorRoot).toBe(false);
+
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: await insertFixture({ name: "o08b1" }, "o08b1"),
+      documentType: {
+        type: "object",
+        value: {
+          name: { optional: false, fieldType: { type: "string" } },
+        },
+      },
+      returnsValidator: { type: "string" },
+    });
+    const fixture = await pointMutationOccAuthorizationFixture(current);
+    const authorized = await runEffect(
+      fixture.authentication.authorizePointMutationOccRerun(
+        fixture.conflict,
+      ).pipe(Effect.provideService(Random.Random, {
+        nextDoubleUnsafe: () => 0.5,
+        nextIntUnsafe: () => 0,
+      })),
+    );
+    expect(authorized).toMatchObject({
+      kind: "authorized",
+      backoffUpperBoundMilliseconds: 100,
+      backoffMilliseconds: 50,
+    });
+    if (authorized.kind !== "authorized") {
+      throw new Error("Expected an authorized O08-B1 rerun.");
+    }
+    expect(Object.isFrozen(authorized.rerun)).toBe(true);
+    expect(JSON.stringify(authorized.rerun)).toBe("{}");
+    expect(Reflect.ownKeys(authorized.rerun)).toHaveLength(1);
+    expect(fixture.counts()).toEqual({
+      outcomeCalls: 1,
+      replacementCalls: 1,
+      loadCalls: 2,
+    });
+    const inspection =
+      fixture.authentication.consumeAuthorizedPointMutationOccRerunForTest(
+        authorized.rerun,
+      );
+    expect(inspection).toMatchObject({
+      attemptFence: 2n,
+      previousAttemptFence: 1n,
+      snapshotToken: fixture.freshSnapshot,
+      conflictingCommitSeq: fixture.freshSnapshot.commitSeq,
+    });
+    expect(() =>
+      fixture.authentication.consumeAuthorizedPointMutationOccRerunForTest(
+        authorized.rerun,
+      )
+    ).toThrow(InvalidAuthorizedPointMutationOccRerunV1Error);
+
+    const consumed = await runFailure(
+      fixture.authentication.authorizePointMutationOccRerun(fixture.conflict),
+    );
+    expect(consumed).toBeInstanceOf(InvalidPointMutationOccConflictV1Error);
+    expect(consumed).toMatchObject({ reason: "alreadyConsumed" });
+    const copied = new PointCommitConflictV1Error({
+      documentId: fixture.conflict.documentId,
+      snapshotCommitSeq: fixture.conflict.snapshotCommitSeq,
+      currentCommitSeq: fixture.conflict.currentCommitSeq,
+    });
+    expect(await runFailure(
+      fixture.authentication.authorizePointMutationOccRerun(copied),
+    )).toMatchObject({
+      _tag: "InvalidPointMutationOccConflictV1Error",
+      reason: "notCaptured",
+    });
+    expect(await runFailure(
+      fixture.authentication.authorizePointMutationOccRerun({
+        ...fixture.conflict,
+      }),
+    )).toMatchObject({
+      _tag: "InvalidPointMutationOccConflictV1Error",
+      reason: "notCaptured",
+    });
+  });
+
+  it("applies the bounded four-rerun full-jitter policy before outcome lookup", async () => {
+    const expectedUpperBounds = [100, 200, 400, 800] as const;
+    for (const [index, expectedUpperBound] of expectedUpperBounds.entries()) {
+      const current = await commitAuthorityFixture({}, undefined, {
+        fixture: await insertFixture({ name: `o08b1_${index}` }, "ok"),
+        documentType: {
+          type: "object",
+          value: {
+            name: { optional: false, fieldType: { type: "string" } },
+          },
+        },
+        returnsValidator: { type: "string" },
+      });
+      const fixture = await pointMutationOccAuthorizationFixture(current, {
+        attemptFence: BigInt(index + 1),
+      });
+      const result = await runEffect(
+        fixture.authentication.authorizePointMutationOccRerun(
+          fixture.conflict,
+        ).pipe(Effect.provideService(Random.Random, {
+          nextDoubleUnsafe: () => 0,
+          nextIntUnsafe: () => 0,
+        })),
+      );
+      expect(result).toMatchObject({
+        kind: "authorized",
+        backoffUpperBoundMilliseconds: expectedUpperBound,
+        backoffMilliseconds: 0,
+      });
+    }
+
+    const exhaustedCurrent = await commitAuthorityFixture({}, undefined, {
+      fixture: await insertFixture({ name: "o08b1_exhausted" }, "ok"),
+      documentType: {
+        type: "object",
+        value: {
+          name: { optional: false, fieldType: { type: "string" } },
+        },
+      },
+      returnsValidator: { type: "string" },
+    });
+    const exhaustedFixture = await pointMutationOccAuthorizationFixture(
+      exhaustedCurrent,
+      { attemptFence: 5n },
+    );
+    const exhausted = await runFailure(
+      exhaustedFixture.authentication.authorizePointMutationOccRerun(
+        exhaustedFixture.conflict,
+      ),
+    );
+    expect(exhausted).toBeInstanceOf(PointMutationOccRerunExhaustedV1Error);
+    expect(exhausted).toMatchObject({ attemptFence: 5n, maximumReruns: 4 });
+    expect(exhaustedFixture.counts()).toEqual({
+      outcomeCalls: 0,
+      replacementCalls: 0,
+      loadCalls: 1,
+    });
+  });
+
+  it("waits the deterministic full-jitter delay before outcome lookup", async () => {
+    const current = await commitAuthorityFixture({}, undefined, {
+      fixture: await insertFixture(
+        { name: "o08b1_test_clock" },
+        "test_clock",
+      ),
+      documentType: {
+        type: "object",
+        value: {
+          name: { optional: false, fieldType: { type: "string" } },
+        },
+      },
+      returnsValidator: { type: "string" },
+    });
+    const fixture = await pointMutationOccAuthorizationFixture(current);
+    const program = Effect.gen(function* () {
+      const fiber = yield* fixture.authentication
+        .authorizePointMutationOccRerun(fixture.conflict)
+        .pipe(
+          Effect.provideService(Random.Random, {
+            nextDoubleUnsafe: () => 0.5,
+            nextIntUnsafe: () => 0,
+          }),
+          Effect.forkChild,
+        );
+      yield* Effect.yieldNow;
+      expect(fixture.counts().outcomeCalls).toBe(0);
+      yield* TestClock.adjust("49 millis");
+      expect(fixture.counts().outcomeCalls).toBe(0);
+      yield* TestClock.adjust("1 millis");
+      const authorized = yield* Fiber.join(fiber);
+      expect(authorized).toMatchObject({
+        kind: "authorized",
+        backoffUpperBoundMilliseconds: 100,
+        backoffMilliseconds: 50,
+      });
+      expect(fixture.counts()).toEqual({
+        outcomeCalls: 1,
+        replacementCalls: 1,
+        loadCalls: 2,
+      });
+    });
+    await runEffect(program.pipe(Effect.provide(TestClock.layer())));
+  });
+
+  it("consumes authority on cancellation and mints nothing after replacement settlement", async () => {
+    const makeCurrent = async (name: string) => commitAuthorityFixture(
+      {},
+      undefined,
+      {
+        fixture: await insertFixture({ name }, name),
+        documentType: {
+          type: "object",
+          value: {
+            name: { optional: false, fieldType: { type: "string" } },
+          },
+        },
+        returnsValidator: { type: "string" },
+      },
+    );
+    const duringBackoff = await pointMutationOccAuthorizationFixture(
+      await makeCurrent("o08b1_backoff_interrupt"),
+    );
+    const backoffTimeout = await runFailure(
+      duringBackoff.authentication.authorizePointMutationOccRerun(
+        duringBackoff.conflict,
+      ).pipe(
+        Effect.provideService(Random.Random, {
+          nextDoubleUnsafe: () => 0.99,
+          nextIntUnsafe: () => 0,
+        }),
+        Effect.timeout("1 millis"),
+      ),
+    );
+    expect(backoffTimeout).toMatchObject({ _tag: "TimeoutError" });
+    expect(duringBackoff.counts()).toEqual({
+      outcomeCalls: 0,
+      replacementCalls: 0,
+      loadCalls: 1,
+    });
+    expect(await runFailure(
+      duringBackoff.authentication.authorizePointMutationOccRerun(
+        duringBackoff.conflict,
+      ),
+    )).toMatchObject({ reason: "alreadyConsumed" });
+
+    const afterReplacement = await pointMutationOccAuthorizationFixture(
+      await makeCurrent("o08b1_post_replace_interrupt"),
+      { freshLoadNever: true },
+    );
+    const postReplacementTimeout = await runFailure(
+      afterReplacement.authentication.authorizePointMutationOccRerun(
+        afterReplacement.conflict,
+      ).pipe(
+        Effect.provideService(Random.Random, {
+          nextDoubleUnsafe: () => 0,
+          nextIntUnsafe: () => 0,
+        }),
+        Effect.timeout("10 millis"),
+      ),
+    );
+    expect(postReplacementTimeout).toMatchObject({ _tag: "TimeoutError" });
+    expect(afterReplacement.counts()).toEqual({
+      outcomeCalls: 1,
+      replacementCalls: 1,
+      loadCalls: 2,
+    });
+    expect(await runFailure(
+      afterReplacement.authentication.authorizePointMutationOccRerun(
+        afterReplacement.conflict,
+      ),
+    )).toMatchObject({ reason: "alreadyConsumed" });
+  });
+
+  it("closes O08-B1 with replay, expiry, or ownership loss before rerun authority", async () => {
+    const makeCurrent = async (name: string) => commitAuthorityFixture(
+      {},
+      undefined,
+      {
+        fixture: await insertFixture({ name }, name),
+        documentType: {
+          type: "object",
+          value: {
+            name: { optional: false, fieldType: { type: "string" } },
+          },
+        },
+        returnsValidator: { type: "string" },
+      },
+    );
+    const token = Object.freeze({
+      scopeUuid: SCOPE_UUID,
+      epochUuid: decodeScopeEpochUuidV1(
+        "92000000-0000-4000-8000-000000000001",
+      ),
+      commitSeq: CommitSeqSchema.make(1n),
+    });
+    const replayCurrent = await makeCurrent("o08b1_replay");
+    const replayCanonical = replayCurrent.fixture.result;
+    const replayFixture = await pointMutationOccAuthorizationFixture(
+      replayCurrent,
+      {
+        outcome: Object.freeze({
+          kind: "available",
+          token,
+          successfulResult: Object.freeze({
+            valueCodecVersion: FLAREX_VALUE_CODEC_VERSION_V1,
+            valueJson: structuredClone(replayCanonical.valueJson),
+            semanticSizeBytes: replayCanonical.semanticSizeBytes,
+            canonicalText: replayCanonical.canonicalText,
+            canonicalBytes: CanonicalSuccessfulResultBytesV1Schema.make(
+              new Uint8Array(replayCanonical.canonicalBytes),
+            ),
+            sha256: FlarexValueSha256V1Schema.make(
+              hexBytes(replayCanonical.evidence.sha256Hex),
+            ),
+          }),
+        }),
+      },
+    );
+    const replayed = await runEffect(
+      replayFixture.authentication.authorizePointMutationOccRerun(
+        replayFixture.conflict,
+      ).pipe(Effect.provideService(Random.Random, {
+        nextDoubleUnsafe: () => 0,
+        nextIntUnsafe: () => 0,
+      })),
+    );
+    expect(replayed.kind).toBe("replayed");
+    expect(replayFixture.counts()).toEqual({
+      outcomeCalls: 1,
+      replacementCalls: 0,
+      loadCalls: 1,
+    });
+
+    const expiredFixture = await pointMutationOccAuthorizationFixture(
+      await makeCurrent("o08b1_expired"),
+      { outcome: Object.freeze({ kind: "expired", token }) },
+    );
+    expect((await runEffect(
+      expiredFixture.authentication.authorizePointMutationOccRerun(
+        expiredFixture.conflict,
+      ).pipe(Effect.provideService(Random.Random, {
+        nextDoubleUnsafe: () => 0,
+        nextIntUnsafe: () => 0,
+      })),
+    )).kind).toBe("expired");
+    expect(expiredFixture.counts().replacementCalls).toBe(0);
+
+    const ownershipFixture = await pointMutationOccAuthorizationFixture(
+      await makeCurrent("o08b1_lost"),
+      { replacementKind: "alreadyReplaced" },
+    );
+    const ownershipLost = await runFailure(
+      ownershipFixture.authentication.authorizePointMutationOccRerun(
+        ownershipFixture.conflict,
+      ).pipe(Effect.provideService(Random.Random, {
+        nextDoubleUnsafe: () => 0,
+        nextIntUnsafe: () => 0,
+      })),
+    );
+    expect(ownershipLost).toBeInstanceOf(
+      PointMutationOccRerunOwnershipLostV1Error,
+    );
+    expect(ownershipFixture.counts()).toEqual({
+      outcomeCalls: 1,
+      replacementCalls: 1,
+      loadCalls: 1,
+    });
+  });
+
+  it("fails closed on unrecognized O08-B1 outcome and replacement observations", async () => {
+    const makeCurrent = async (name: string) => commitAuthorityFixture(
+      {},
+      undefined,
+      {
+        fixture: await insertFixture({ name }, name),
+        documentType: {
+          type: "object",
+          value: {
+            name: { optional: false, fieldType: { type: "string" } },
+          },
+        },
+        returnsValidator: { type: "string" },
+      },
+    );
+    const invalidOutcome = await pointMutationOccAuthorizationFixture(
+      await makeCurrent("o08b1_future_outcome"),
+      { unsafeOutcomeForTest: Object.freeze({ kind: "future" }) },
+    );
+    const outcomeFailure = await runFailure(
+      invalidOutcome.authentication.authorizePointMutationOccRerun(
+        invalidOutcome.conflict,
+      ).pipe(Effect.provideService(Random.Random, {
+        nextDoubleUnsafe: () => 0,
+        nextIntUnsafe: () => 0,
+      })),
+    );
+    expect(outcomeFailure).toBeInstanceOf(
+      PointMutationOccRerunAuthorityCorruptionV1Error,
+    );
+    expect(outcomeFailure).toMatchObject({
+      reason: "outcomeObservationInvalid",
+    });
+    expect(invalidOutcome.counts()).toEqual({
+      outcomeCalls: 1,
+      replacementCalls: 0,
+      loadCalls: 1,
+    });
+
+    const invalidReplacement = await pointMutationOccAuthorizationFixture(
+      await makeCurrent("o08b1_future_replacement"),
+      { unsafeReplacementKindForTest: "future" },
+    );
+    const replacementFailure = await runFailure(
+      invalidReplacement.authentication.authorizePointMutationOccRerun(
+        invalidReplacement.conflict,
+      ).pipe(Effect.provideService(Random.Random, {
+        nextDoubleUnsafe: () => 0,
+        nextIntUnsafe: () => 0,
+      })),
+    );
+    expect(replacementFailure).toBeInstanceOf(
+      PointMutationOccRerunAuthorityCorruptionV1Error,
+    );
+    expect(replacementFailure).toMatchObject({
+      reason: "replacementObservationInvalid",
+    });
+    expect(invalidReplacement.counts()).toEqual({
+      outcomeCalls: 1,
+      replacementCalls: 1,
+      loadCalls: 1,
+    });
+  });
+
+  it("rejects mismatched or non-pristine fresh O08-B1 attempts", async () => {
+    const cases: ReadonlyArray<Readonly<{
+      readonly label: string;
+      readonly reason: string;
+      readonly conflictCommitSeqOffset?: bigint;
+      readonly mutate: (
+        result: PointMutationSessionAttemptLoadResultV1,
+      ) => PointMutationSessionAttemptLoadResultV1;
+    }>> = [
+      {
+        label: "storage_fence",
+        reason: "storageGenerationFence",
+        mutate: (result: PointMutationSessionAttemptLoadResultV1) =>
+          Object.freeze({
+            ...result,
+            anchor: Object.freeze({
+              ...result.anchor,
+              storageGenerationFence: StorageGenerationFenceSchema.make(
+                result.anchor.storageGenerationFence + 1n,
+              ),
+            }),
+          }),
+      },
+      {
+        label: "epoch",
+        reason: "epoch",
+        mutate: (result: PointMutationSessionAttemptLoadResultV1) =>
+          Object.freeze({
+            ...result,
+            anchor: Object.freeze({
+              ...result.anchor,
+              snapshotToken: SnapshotTokenSchema.make({
+                ...result.anchor.snapshotToken,
+                epoch: ScopeEpochSchema.make(
+                  result.anchor.snapshotToken.epoch + 1n,
+                ),
+              }),
+            }),
+          }),
+      },
+      {
+        label: "schema",
+        reason: "schema",
+        mutate: (result: PointMutationSessionAttemptLoadResultV1) =>
+          Object.freeze({
+            ...result,
+            executionPin: Object.freeze({
+              schemaVersionId: CatalogSchemaVersionIdSchema.make(
+                "schema_o08b1_mismatch",
+              ),
+            }),
+          }),
+      },
+      {
+        label: "request_key",
+        reason: "requestKey",
+        mutate: (result: PointMutationSessionAttemptLoadResultV1) =>
+          Object.freeze({
+            ...result,
+            anchor: Object.freeze({
+              ...result.anchor,
+              requestKey: TransactionRequestKeyV1Schema.make(
+                "request:o08b1-mismatch",
+              ),
+            }),
+          }),
+      },
+      {
+        label: "snapshot_not_advanced",
+        reason: "snapshotNotAdvanced",
+        mutate: (result: PointMutationSessionAttemptLoadResultV1) =>
+          Object.freeze({
+            ...result,
+            anchor: Object.freeze({
+              ...result.anchor,
+              snapshotToken: SnapshotTokenSchema.make({
+                ...result.anchor.snapshotToken,
+                commitSeq: CommitSeqSchema.make(
+                  result.anchor.snapshotToken.commitSeq - 1n,
+                ),
+              }),
+            }),
+          }),
+      },
+      {
+        label: "conflict_not_visible",
+        reason: "conflictingCommitNotVisible",
+        conflictCommitSeqOffset: 2n,
+        mutate: (result: PointMutationSessionAttemptLoadResultV1) =>
+          Object.freeze({
+            ...result,
+            anchor: Object.freeze({
+              ...result.anchor,
+              snapshotToken: SnapshotTokenSchema.make({
+                ...result.anchor.snapshotToken,
+                commitSeq: CommitSeqSchema.make(
+                  result.anchor.snapshotToken.commitSeq - 1n,
+                ),
+              }),
+            }),
+          }),
+      },
+      {
+        label: "not_pristine",
+        reason: "attemptNotPristine",
+        mutate: (result: PointMutationSessionAttemptLoadResultV1) =>
+          Object.freeze({
+            ...result,
+            attemptFacet: Object.freeze({ kind: "nonPristine" as const }),
+          }),
+      },
+    ];
+
+    for (const currentCase of cases) {
+      const current = await commitAuthorityFixture({}, undefined, {
+        fixture: await insertFixture(
+          { name: `o08b1_${currentCase.label}` },
+          currentCase.label,
+        ),
+        documentType: {
+          type: "object",
+          value: {
+            name: { optional: false, fieldType: { type: "string" } },
+          },
+        },
+        returnsValidator: { type: "string" },
+      });
+      const fixture = await pointMutationOccAuthorizationFixture(current, {
+        ...(currentCase.conflictCommitSeqOffset === undefined
+          ? {}
+          : { conflictCommitSeqOffset: currentCase.conflictCommitSeqOffset }),
+        mutateFreshLoadForTest: currentCase.mutate,
+      });
+      const failure = await runFailure(
+        fixture.authentication.authorizePointMutationOccRerun(
+          fixture.conflict,
+        ).pipe(Effect.provideService(Random.Random, {
+          nextDoubleUnsafe: () => 0,
+          nextIntUnsafe: () => 0,
+        })),
+      );
+      expect(failure).toBeInstanceOf(
+        PointMutationOccRerunFreshAttemptV1Error,
+      );
+      expect(failure).toMatchObject({ reason: currentCase.reason });
+      expect(fixture.counts()).toEqual({
+        outcomeCalls: 1,
+        replacementCalls: 1,
+        loadCalls: 2,
+      });
+    }
+  });
+
   it("composes C05-A publication and fresh finishing recovery through one private publisher", async () => {
     type RootLeak = Extract<
       keyof typeof executorRoot,
@@ -3044,10 +3636,220 @@ async function pointCommitReplacementFixture(
   return { authentication, prepared };
 }
 
+async function pointMutationOccAuthorizationFixture(
+  current: CommitAuthorityFixture,
+  options: Readonly<{
+    readonly attemptFence?: bigint;
+    readonly outcome?: CommittedPointOutcomeResolutionV1;
+    readonly replacementKind?: "replaced" | "alreadyReplaced";
+    readonly unsafeOutcomeForTest?: unknown;
+    readonly unsafeReplacementKindForTest?: unknown;
+    readonly freshLoadNever?: boolean;
+    readonly conflictCommitSeqOffset?: bigint;
+    readonly mutateFreshLoadForTest?: (
+      result: PointMutationSessionAttemptLoadResultV1,
+    ) => PointMutationSessionAttemptLoadResultV1;
+  }> = {},
+) {
+  const attemptFence = TransactionAttemptFenceSchema.make(
+    options.attemptFence ?? 1n,
+  );
+  Object.assign(current.fixture.envelope, { attemptFence });
+  Object.assign(current.fixture.evidence, { attemptFence });
+  const previousSnapshot = current.fixture.evidence.lease.snapshotToken;
+  const currentCommitSeq = CommitSeqSchema.make(
+    previousSnapshot.commitSeq + (options.conflictCommitSeqOffset ?? 1n),
+  );
+  const freshSnapshot = SnapshotTokenSchema.make({
+    ...previousSnapshot,
+    commitSeq: currentCommitSeq,
+  });
+  const dependency = current.fixture.journal.journal.readDependencies[0];
+  if (dependency?.kind !== "appRowPoint") {
+    throw new Error("O08-B1 fixture requires one point dependency.");
+  }
+  const conflict = new PointCommitConflictV1Error({
+    documentId: dependency.documentId,
+    snapshotCommitSeq: previousSnapshot.commitSeq,
+    currentCommitSeq,
+  });
+  let outcome: unknown = options.unsafeOutcomeForTest ?? options.outcome ??
+    Object.freeze({ kind: "missing" as const });
+  let outcomeCalls = 0;
+  let replacementCalls = 0;
+  let loadCalls = 0;
+  const attemptLoading = createPointMutationSessionAttemptLoadingV1({
+    loadEffect: (selector) => {
+      const isFresh = selector.attemptFence === attemptFence + 1n;
+      if (isFresh && options.freshLoadNever === true) {
+        return Effect.sync(() => {
+          loadCalls += 1;
+        }).pipe(Effect.flatMap(() => Effect.never));
+      }
+      return Effect.sync(() => {
+        loadCalls += 1;
+      const result = Object.freeze({
+        status: "loaded" as const,
+        anchor: Object.freeze({
+          deploymentId: selector.deploymentId,
+          scopeId: selector.scopeId,
+          sessionId: selector.sessionId,
+          requestKey: TransactionRequestKeyV1Schema.make(
+            current.fixture.evidence.session.requestKey,
+          ),
+          storageGeneration: FlarexDbV1StorageGenerationSchema.make(
+            "flarexdb_v1",
+          ),
+          storageGenerationFence: StorageGenerationFenceSchema.make(
+            current.fixture.evidence.session.storageGenerationFence,
+          ),
+          attemptFence: selector.attemptFence,
+          snapshotToken: isFresh ? freshSnapshot : previousSnapshot,
+          hardExpiresAt: "2099-01-01T00:00:00.000Z",
+          leaseExpiresAt: "2098-12-31T23:59:00.000Z",
+          createdAt: "2026-07-18T00:00:00.000Z",
+          updatedAt: "2026-07-18T00:00:00.000Z",
+        }),
+        executionPin: Object.freeze({ schemaVersionId: SCHEMA_VERSION_ID }),
+        attemptFacet: Object.freeze({
+          kind: isFresh ? "pristineOpen" as const : "nonPristine" as const,
+        }),
+      } satisfies PointMutationSessionAttemptLoadResultV1);
+      return isFresh && options.mutateFreshLoadForTest !== undefined
+        ? options.mutateFreshLoadForTest(result)
+        : result;
+      });
+    },
+  });
+  const pointCommit = Object.freeze({
+    prove: Effect.fn("TestO08B1.prove")(
+      () => Effect.succeed(Object.freeze({ kind: "wouldCommit" as const })),
+    ),
+    publish: Effect.fn("TestO08B1.publish")(
+      () => Effect.fail(conflict),
+    ),
+    [RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1]: Effect.fn(
+      "TestO08B1.resolveOutcome",
+    )(() => Effect.sync(() => {
+      outcomeCalls += 1;
+      return unsafeCommittedPointOutcomeResolutionForTest(outcome);
+    })),
+  } satisfies PointCommitPublisherPortV1 & PointCommitOutcomeResolutionPortV1);
+  const pointCommitFinishing: PointCommitFinishingTransitionPortV1 =
+    Object.freeze({
+      enterFinishing: Effect.fn("TestO08B1.enterFinishing")((command) =>
+        Effect.succeed(Object.freeze({
+          kind: "transitioned" as const,
+          scopeUuid: command.sealIdentity.scopeUuid,
+          sessionId: command.authorityPins.sessionId,
+          attemptFence: command.authorityPins.attemptFence,
+          priorSessionUpdatedAtMilliseconds:
+            command.session.updatedAtMilliseconds,
+          finishingSessionUpdatedAtMilliseconds:
+            command.session.updatedAtMilliseconds + 2,
+        }))
+      ),
+    });
+  const pointMutationAttemptReplacement:
+    PointMutationAttemptReplacementPortV1 = Object.freeze({
+      replace: Effect.fn("TestO08B1.replace")((command) => Effect.sync(() => {
+        replacementCalls += 1;
+        return unsafePointMutationAttemptReplacementObservationForTest(
+          Object.freeze({
+          kind: options.unsafeReplacementKindForTest ??
+            options.replacementKind ?? "replaced",
+          scopeUuid: command.sealIdentity.scopeUuid,
+          sessionId: command.authorityPins.sessionId,
+          previousAttemptFence: command.authorityPins.attemptFence,
+          attemptFence: TransactionAttemptFenceSchema.make(
+            command.authorityPins.attemptFence + 1n,
+          ),
+          }),
+        );
+      })),
+    });
+  const authentication = createStoredAttemptAuthenticationV1(
+    {
+      loadEffect: () => Effect.succeed(loaded(current.fixture.evidence)),
+      loadFinishingEffect: () =>
+        Effect.succeed(loaded(current.fixture.evidence)),
+    },
+    {
+      evidenceLoader: {
+        loadEffect: () => Effect.succeed({
+          kind: "loaded" as const,
+          evidence: current.commitEvidence,
+        }),
+      },
+      transactionGrantVerifier: current.verifier,
+      functionMetadata: {
+        load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+      },
+      pointCommit,
+      pointCommitFinishing,
+      pointMutationAttemptReplacement,
+      pointMutationOccRerun: { attemptLoading },
+    },
+  );
+  const initialAttempt = await runEffect(attemptLoading.load({
+    deploymentId: DEPLOYMENT_ID,
+    scopeId: SCOPE_ID,
+    sessionId: SESSION_ID,
+    attemptFence: attemptFence.toString(),
+  }));
+  const authority = await runEffect(authentication.deriveAuthority(
+    initialAttempt,
+  ));
+  const storedAttempt = await runEffect(authentication.authenticate(
+    authority,
+    encodeEnvelope(current.fixture.envelope),
+  ));
+  const commitAuthority = await runEffect(
+    authentication.authenticateCommitAuthority(storedAttempt),
+  );
+  const verified = await runEffect(
+    authentication.verifyCommitInput(commitAuthority),
+  );
+  const prepared = await runEffect(authentication.planPointCommit(verified));
+  const finishing = await runEffect(
+    authentication.enterPointCommitFinishing(prepared),
+  );
+  const observedConflict = await runFailure(
+    authentication.publishPointCommit(finishing),
+  );
+  if (observedConflict !== conflict) {
+    throw new Error("O08-B1 fixture did not observe its exact OCC conflict.");
+  }
+  return {
+    authentication,
+    conflict,
+    prepared,
+    finishing,
+    attemptFence,
+    freshSnapshot,
+    setOutcome: (next: CommittedPointOutcomeResolutionV1) => {
+      outcome = next;
+    },
+    counts: () => ({ outcomeCalls, replacementCalls, loadCalls }),
+  };
+}
+
 function unsafeFinishingTransitionResultForTest(
   value: unknown,
 ): PointCommitFinishingTransitionResultV1 {
   return value as PointCommitFinishingTransitionResultV1;
+}
+
+function unsafeCommittedPointOutcomeResolutionForTest(
+  value: unknown,
+): CommittedPointOutcomeResolutionV1 {
+  return value as CommittedPointOutcomeResolutionV1;
+}
+
+function unsafePointMutationAttemptReplacementObservationForTest(
+  value: unknown,
+): PointMutationAttemptReplacementObservationV1 {
+  return value as PointMutationAttemptReplacementObservationV1;
 }
 
 function commitInputSourceForTest(
@@ -3669,6 +4471,7 @@ async function deriveAuthority(authentication: StoredAttemptAuthenticationV1) {
         updatedAt: "2026-07-16T00:00:00.000Z",
       },
       executionPin: { schemaVersionId: SCHEMA_VERSION_ID },
+      attemptFacet: { kind: "nonPristine" },
     }),
   });
   const loadedAttempt = await runEffect(loading.load(SELECTOR));

@@ -13,8 +13,9 @@ transaction kernel, O07-A private read-only committed-outcome resolver, and
 O07-B private durable point publication are complete. C05-A's exact scalar-
 fenced finishing transition and same-factory continuation are complete. C05-B
 fresh-process reconstruction and private compiler/publisher composition are
-also complete. O08-A atomic exact-attempt replacement is complete; O08-B is
-next and O08-C/O08-D remain pending;
+also complete. O08-A atomic exact-attempt replacement and O08-B1 bounded
+same-factory fresh-attempt handoff are complete; O08-B2 is next and O08-C/O08-D
+remain pending;
 C04C2 remains conditional and unapproved.
 
 This roadmap owns the durable direction for:
@@ -223,7 +224,8 @@ evidence/compiler chain, and composes both paths with the same O07-B publisher;
 C06 orchestrates the stable finish endpoint. O07-B atomically
 deletes the exact lease and stores committed state plus the internal S09-A
 committed-success receipt and S09-B outbox, O08-A owns exact-attempt
-replacement, O08-B/C/D own the remaining retry coordinators, and O11
+replacement, O08-B1 owns the bounded fresh-attempt handoff,
+O08-B2/O08-C/O08-D own the remaining execution/retry coordinators, and O11
 first consumes active floors.
 
 Temporary journal placement does not change this anchor. Reloading it
@@ -326,9 +328,10 @@ syscalls. O07-B deletes the exact current lease and records `committed` only wit
 atomic data/outcome publication. O08 keeps the same request anchor and storage
 generation during trusted OCC recovery. O08-A increments the attempt fence,
 deletes the old journal root before the lease, and installs the fresh lease and
-pristine root without authorizing execution. O08-B alone reruns user code at a
-new snapshot. A stale journal or Durable Object cannot reopen a terminal
-session.
+pristine root without authorizing execution. O08-B1 performs only the bounded
+backoff, outcome check, replacement handoff, and exact fresh-attempt proof;
+O08-B2 alone may reauthenticate and rerun user code at the new snapshot. A
+stale journal or Durable Object cannot reopen a terminal session.
 
 ### Planner and executor split
 
@@ -540,13 +543,16 @@ The replacement keeps one supporting primitive and three coordinators separate:
 1. **O08-A exact-attempt replacement (complete):** replace only the exact
    conflicted finishing attempt in one FK-safe transaction; the result grants no
    execution ownership.
-2. **O08-B OCC rerun:** obtain a genuine bounded rerun permit and rerun user code
-   at the installed exact snapshot.
-3. **O08-C known pre-decision SQL serialization/deadlock:** retry the same
+2. **O08-B1 OCC handoff (complete):** consume the exact same-factory O07-B
+   conflict once, apply bounded full jitter, check O07-A, accept only O08-A
+   replacement, and bind one single-use handoff to the pristine fresh attempt.
+3. **O08-B2 OCC execution:** immediately recheck outcome/liveness/full inputs,
+   consume the handoff, and rerun user code in a fresh execution context.
+4. **O08-C known pre-decision SQL serialization/deadlock:** retry the same
    authenticated logical/closed O07-B command within a strict bound, including
    PostgreSQL `40001` and `40P01`. O06 proves transaction settlement and
    rollback; neither O06 nor C04C1 exposes an immutable physical SQL plan.
-4. **O08-D uncertain outcome:** use O07-A/C05-B to resolve authoritative outcome
+5. **O08-D uncertain outcome:** use O07-A/C05-B to resolve authoritative outcome
    state before rerunning anything.
 
 External side effects never run inside a retriable mutation body or final
@@ -727,8 +733,9 @@ production validator authority, inline carriage, or conditional C04C2.
 - Standalone `C01` was retired before implementation; C02's protocol-only gate,
   C03's operational point-journal gate, C04A's private stored-attempt gate, and
   C04B1's private commit-authority gate and C04B2's private-C07 final-value gate
-  are complete. Corrected C04C1, O06/O07, C05-A/B, and O08-A are complete;
-  C04C2, O08-B/C/D, C06, C07, C08, and C09 remain conditional or incomplete as their
+  are complete. Corrected C04C1, O06/O07, C05-A/B, O08-A, and O08-B1 are
+  complete; C04C2, O08-B2/O08-C/O08-D, C06, C07, C08, and C09 remain
+  conditional or incomplete as their
   statuses state.
 - Current invoke sessions use wall-clock `beginTs`, not authoritative
   `SnapshotToken` reads.
@@ -812,8 +819,9 @@ operational point-journal consumer, and C04A's private stored-attempt
  DDL, S09-A private committed-success DDL, S09-B private commit-wake DDL and
   fenced repository, O06's rollback-proven transaction kernel, O07-B's private
   durable point publication, C05-A's finishing barrier, and C05-B's verified
-  fresh-process reconstruction/composition and O08-A exact-attempt replacement
-  are complete. O08-B is the next Wave 2 prerequisite, O08-C/D remain pending,
+  fresh-process reconstruction/composition, O08-A exact-attempt replacement,
+  and O08-B1 bounded fresh-attempt handoff are complete. O08-B2 is the next
+  Wave 2 prerequisite, O08-C/D remain pending,
   and C04C2 remains conditional and unapproved.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
@@ -821,7 +829,7 @@ retention consumer proves that a bounded attempt must outlive its initial lease.
 Operational revocation and hosted Worker/key adapters are deferred and do not
 block the private C07 proof.
 Hosted compiler execution still waits for coherent production validator and
-activation authority, O08-B/C/D/C06/C07, the target-only caller and routing cutover,
+activation authority, O08-B2/O08-C/O08-D/C06/C07, the target-only caller and routing cutover,
 and the remaining hosted adapters. Shipped-state migration prerequisites are
 conditional.
 

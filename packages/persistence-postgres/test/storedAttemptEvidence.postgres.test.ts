@@ -1,20 +1,52 @@
-import { Effect, Exit, Fiber, Schema } from "effect";
+import { eq } from "drizzle-orm";
+import { Effect, Exit, Fiber, Random, Result, Schema } from "effect";
 import { Client } from "pg";
+import { appRowIdHexV1ToBytes } from
+  "flarex-protocol/app-document-id";
 import {
   CommitEnvelopeV1Schema,
+  CommitSyscallSequenceV1Schema,
   SESSION_JOURNAL_FORMAT_V1,
   canonicalizeSessionJournalV1Effect,
   canonicalizeSuccessfulResultV1Effect,
 } from "flarex-protocol/commit-protocol";
 import {
+  decodeActivePointMutationTargetMetadataV1,
+  preparePointMutationStartEvidenceV1,
+} from "flarex-protocol/point-mutation-start";
+import {
   CatalogSchemaVersionIdSchema,
   CatalogSchemaVersionSchema,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
-import { decodeReplacementScopeIdV1 } from "flarex-protocol/storage-authority";
-import { TransactionGrantDeploymentIdV1Schema } from "flarex-protocol/transaction-grant";
-import { TRANSACTION_SESSION_PROTOCOL_VERSION_V1 } from "flarex-protocol/transaction-session";
-import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
+import {
+  CommitSeqSchema,
+  decodeReplacementScopeIdV1,
+  projectScopeEpochUuidV1,
+} from "flarex-protocol/storage-authority";
+import {
+  TRANSACTION_GRANT_KEY_PURPOSE_V1,
+  TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+  TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+  TransactionGrantDeploymentIdV1Schema,
+  TransactionGrantKeyIdV1Schema,
+  canonicalizeTransactionGrantIdentityAccessPolicyV1,
+  canonicalizeTransactionGrantPayloadV1,
+  canonicalizeTransactionGrantProtectedHeaderV1,
+  deriveInertTransactionGrantEvidenceV1,
+  encodeTransactionGrantEd25519SignatureV1,
+  transactionGrantIdentityAccessPolicySha256BytesV1FromHex,
+} from "flarex-protocol/transaction-grant";
+import {
+  TRANSACTION_SESSION_PROTOCOL_VERSION_V1,
+  TransactionAuthorizationRevocationEpochSchema,
+  TransactionFunctionPathV1Schema,
+  TransactionRequestKeyV1Schema,
+} from "flarex-protocol/transaction-session";
+import {
+  FLAREX_VALUE_CODEC_VERSION_V1,
+  canonicalizeFlarexValueV1,
+} from "flarex-protocol/value";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -23,9 +55,23 @@ import {
 } from "../../executor/src/pointMutationSessionActivation";
 import {
   createStoredAttemptAuthenticationV1,
+  InvalidAuthorizedPointMutationOccRerunV1Error,
+  PointMutationOccRerunOwnershipLostV1Error,
 } from "../../executor/src/storedAttemptAuthentication";
 import {
+  createTransactionGrantVerificationKeyNamespaceV1,
+  createTransactionGrantVerifierV1,
+} from "../../executor/src/transactionGrant";
+import {
+  appendAppRowRevisionAndAdvanceCurrentInTransaction,
+} from "../src/appRows";
+import {
   createPointCommitFinishingTransitionPortV1,
+  createPointCommitPublisherPortV1,
+  createPointMutationAttemptReplacementPortV1,
+  PointCommitConflictV1Error,
+  RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1,
+  type PointCommitTransactionCommandV1,
 } from "../src/pointCommitTransaction";
 import {
   createPostgresLocatedPointMutationSessionActivationTargetV1,
@@ -34,6 +80,11 @@ import {
 } from "../src/postgres";
 import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
+import {
+  fxSystemCommitAppRowChanges,
+  fxSystemCommits,
+  fxSystemScopeClocks,
+} from "../src/schema";
 import {
   createSessionJournalStorePersistenceV1,
   type SessionJournalAttemptV1,
@@ -53,10 +104,13 @@ import {
 import {
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
+  type LocatedPointMutationSessionActivationTargetOptionsV1,
   type PointMutationSessionAnchorV1,
+  type PointMutationSessionAttemptLoadLockStepV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
 } from "../src/transactionSessionActivation";
 import {
+  pointCommitCommandFromStoredAttemptV1,
   pointCommitFinishingCommandFromStoredAttemptV1,
 } from "./pointCommitTransactionTestSupport";
 import {
@@ -67,6 +121,8 @@ import {
   completeSessionJournalSeal as completeSeal,
   prepareSessionJournalSeal as prepareSeal,
   runEffect,
+  runEffectFailure as runFailure,
+  runSessionJournalPointOperation as runPointOperation,
 } from "./effectTestRuntime";
 import {
   activatePointMutationSession,
@@ -554,6 +610,156 @@ describePostgres("real Postgres stored-attempt authority", () => {
       )).resolves.toMatchObject({ kind: "notPlannable", reason: "expired" });
     });
   }, 120_000);
+
+  it("authorizes only one genuine O08-B1 replacement winner", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const current = await o08B1Scenario(persistence, "replacement_winner");
+      const table = await runEffect(
+        current.store.resolvePointTableEffect(current.attempt, "users"),
+      );
+      await expect(runPointOperation(current.store, table, {
+        kind: "insert",
+        syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+        fields: { name: "conflicted" },
+      })).resolves.toMatchObject({
+        kind: "completed",
+        outcome: { kind: "inserted" },
+      });
+      const envelope = await sealScenario(current);
+      const loadedAttempt = await runEffect(current.loading.load(selectorWire(
+        current.anchor,
+      )));
+      current.freshAttemptLoadLocks.length = 0;
+      const observedOutcomeKinds: string[] = [];
+      const authentication = createO08B1Authentication(
+        persistence,
+        current,
+        observedOutcomeKinds,
+      );
+      const authority = await runEffect(
+        authentication.deriveAuthority(loadedAttempt),
+      );
+      const authenticated = await runEffect(authentication.authenticate(
+        authority,
+        encodeEnvelope(envelope),
+      ));
+      const commitAuthority = await runEffect(
+        authentication.authenticateCommitAuthority(authenticated),
+      );
+      const verified = await runEffect(
+        authentication.verifyCommitInput(commitAuthority),
+      );
+      const running = await runEffect(authentication.planPointCommit(verified));
+      const finishing = await runEffect(
+        authentication.enterPointCommitFinishing(running),
+      );
+      const finishingStored = await runEffect(
+        current.loader.loadFinishingEffect({
+          deploymentId: current.anchor.deploymentId,
+          scopeId: current.anchor.scopeId,
+          sessionId: current.anchor.sessionId,
+          attemptFence: current.anchor.attemptFence,
+        }),
+      );
+      if (finishingStored.kind !== "loaded") {
+        throw new Error("Expected finishing O08-B1 evidence.");
+      }
+      await commitCompetingPointRow(
+        persistence,
+        await pointCommitCommandFromStoredAttemptV1(
+          current.authority,
+          finishingStored.evidence,
+        ),
+      );
+      const conflicts = await Promise.all([
+        runFailure(authentication.publishPointCommit(finishing)),
+        runFailure(authentication.publishPointCommit(finishing)),
+      ]);
+      expect(conflicts).toHaveLength(2);
+      for (const conflict of conflicts) {
+        expect(conflict).toBeInstanceOf(PointCommitConflictV1Error);
+      }
+
+      const fixedRandom = Object.freeze({
+        nextDoubleUnsafe: () => 0,
+        nextIntUnsafe: () => 0,
+      });
+      const results = await Promise.all(conflicts.map((conflict) =>
+        runEffect(Effect.result(
+          authentication.authorizePointMutationOccRerun(conflict).pipe(
+            Effect.provideService(Random.Random, fixedRandom),
+          ),
+        ))
+      ));
+      const authorizedResult = results.find(Result.isSuccess);
+      const rejectedResult = results.find(Result.isFailure);
+      expect(authorizedResult).toBeDefined();
+      expect(rejectedResult).toBeDefined();
+      if (
+        authorizedResult === undefined ||
+        Result.isFailure(authorizedResult)
+      ) {
+        throw new Error("Expected one authorized O08-B1 replacement winner.");
+      }
+      if (rejectedResult === undefined || Result.isSuccess(rejectedResult)) {
+        throw new Error("Expected one rejected O08-B1 replacement loser.");
+      }
+      expect(rejectedResult.failure).toBeInstanceOf(
+        PointMutationOccRerunOwnershipLostV1Error,
+      );
+      expect(rejectedResult.failure).toMatchObject({
+        reason: "alreadyReplaced",
+      });
+      expect(observedOutcomeKinds).toEqual(["missing", "missing"]);
+      expect(current.freshAttemptLoadLocks).toEqual([
+        "clockLocked",
+        "sessionLocked",
+        "leaseLocked",
+        "journalRootLocked",
+      ]);
+      expect(authorizedResult.success).toMatchObject({
+        kind: "authorized",
+        backoffUpperBoundMilliseconds: 100,
+        backoffMilliseconds: 0,
+      });
+      if (authorizedResult.success.kind !== "authorized") {
+        throw new Error("Expected an O08-B1 rerun capability.");
+      }
+      const inspection =
+        authentication.consumeAuthorizedPointMutationOccRerunForTest(
+          authorizedResult.success.rerun,
+        );
+      expect(inspection).toMatchObject({
+        previousAttemptFence: current.anchor.attemptFence,
+        attemptFence: current.anchor.attemptFence + 1n,
+        previousSnapshotToken: current.anchor.snapshotToken,
+        snapshotToken: {
+          epoch: current.anchor.snapshotToken.epoch,
+          commitSeq: 1n,
+        },
+        conflictingCommitSeq: 1n,
+      });
+      let secondConsumeFailure: unknown;
+      try {
+        authentication.consumeAuthorizedPointMutationOccRerunForTest(
+          authorizedResult.success.rerun,
+        );
+      } catch (cause) {
+        secondConsumeFailure = cause;
+      }
+      expect(secondConsumeFailure).toBeInstanceOf(
+        InvalidAuthorizedPointMutationOccRerunV1Error,
+      );
+      expect(secondConsumeFailure).toMatchObject({
+        reason: "alreadyConsumed",
+      });
+      await expectFreshO08B1Attempt(
+        persistence,
+        finishingStored.evidence.scopeUuid,
+        current.anchor.sessionId,
+      );
+    });
+  }, 120_000);
 });
 
 interface Scenario {
@@ -644,7 +850,284 @@ async function scenario(
   });
 }
 
-async function sealScenario(current: Scenario): Promise<void> {
+async function o08B1Scenario(
+  persistence: PostgresFlarexPersistence,
+  label: string,
+) {
+  const randomUuid = uuidFactory("94700000");
+  const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
+    `deployment_o08b1_postgres_${label}`,
+  );
+  const schemaVersionId = CatalogSchemaVersionIdSchema.make(
+    `schema_o08b1_postgres_${label}`,
+  );
+  const provisioned = await createPostgresSharedScopeAuthorityProvisioner(
+    persistence,
+    {
+      physicalLocator: sharedLocator(`o08b1-${label}`),
+      randomUuid,
+    },
+  ).ensure({
+    deploymentId,
+    projectId: `project_o08b1_postgres_${label}`,
+  });
+  const scopeId = decodeReplacementScopeIdV1(provisioned.scope.scopeId);
+  await setFlarexActivationClock(persistence, scopeId);
+  const usersTable = appTable("users");
+  await persistence.publishAppSchemaV1({
+    deploymentId,
+    schemaVersionId,
+    version: CatalogSchemaVersionSchema.make(1),
+    tables: [usersTable],
+    indexes: [],
+  });
+  const target = decodeActivePointMutationTargetMetadataV1({
+    format: "flarex.point-mutation-target-metadata",
+    version: 1,
+    deploymentId,
+    scopeId,
+    packageId: "package_o08b1_postgres",
+    artifactRuntime: "dynamic-worker",
+    artifactId: `artifact_${"8".repeat(32)}`,
+    sourcePackageHash: "8".repeat(64),
+    schemaVersionId,
+    functions: [{
+      path: "users:create",
+      executionModule: "flarex/users.ts",
+      kind: "mutation",
+      visibility: "public",
+      argsValidator: { type: "object", value: {} },
+      returnsValidator: {
+        type: "object",
+        value: {
+          ok: { optional: false, fieldType: { type: "boolean" } },
+        },
+      },
+    }],
+    schemaManifest: {
+      kind: "appSchema",
+      manifestVersion: 1,
+      tableDefinitions: {
+        kind: "tableDefinitions",
+        sectionVersion: 1,
+        tables: [{
+          tableId: 1,
+          namespace: "app",
+          logicalName: usersTable.logicalName,
+          definition: usersTable.definition,
+        }],
+      },
+      indexBindings: {
+        kind: "indexBindings",
+        sectionVersion: 1,
+        indexes: [],
+      },
+    },
+  });
+  const requestKey = TransactionRequestKeyV1Schema.make(`request:${label}`);
+  const revocationEpoch = TransactionAuthorizationRevocationEpochSchema.make(
+    0n,
+  );
+  const prepared = await preparePointMutationStartEvidenceV1(
+    target,
+    {
+      deploymentId,
+      functionPath: TransactionFunctionPathV1Schema.make("users:create"),
+      args: {},
+      requestKey,
+    },
+    revocationEpoch,
+  );
+  const policy = await canonicalizeTransactionGrantIdentityAccessPolicyV1({
+    policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+    auth: { kind: "anonymous" },
+    capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+  });
+  const issuedAtMilliseconds = Date.now() - 1_000;
+  const expiresAtMilliseconds = Date.now() + 300_000;
+  const payload = await canonicalizeTransactionGrantPayloadV1({
+    format: "flarex.transaction-grant",
+    version: 1,
+    grantId: `grant_${label}`,
+    ...prepared.logicalPins,
+    policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+    identityAccessPolicySha256: policy.sha256Hex,
+    capabilities: TRANSACTION_GRANT_POINT_MUTATION_CAPABILITIES_V1,
+    auth: { kind: "anonymous" },
+    issuedAt: new Date(issuedAtMilliseconds).toISOString(),
+    expiresAt: new Date(expiresAtMilliseconds).toISOString(),
+    authorizationRevocationEpoch: revocationEpoch.toString(),
+  });
+  const kid = TransactionGrantKeyIdV1Schema.make(`key_${label}`);
+  const header = canonicalizeTransactionGrantProtectedHeaderV1({
+    alg: "Ed25519",
+    kid,
+    typ: "flarex-transaction-grant+jws",
+  });
+  const grant = await deriveInertTransactionGrantEvidenceV1({
+    protected: header.base64url,
+    payload: payload.base64url,
+    signature: encodeTransactionGrantEd25519SignatureV1(new Uint8Array(64)),
+  });
+  const ports = resolutionPorts(persistence);
+  const activation = await activatePointMutationSession(
+    createPointMutationSessionActivationPersistenceV1(
+      ports,
+      { leaseDurationMilliseconds: 60_000, randomUuid },
+    ),
+    pointMutationSessionActivationFixture(deploymentId, scopeId, {
+      evidence: {
+        packageId: prepared.logicalPins.packageId,
+        artifactRuntime: prepared.logicalPins.artifactRuntime,
+        artifactId: prepared.logicalPins.artifactId,
+        sourcePackageHash: prepared.logicalPins.sourcePackageHash,
+        executionModule: prepared.logicalPins.executionModule,
+        functionPath: prepared.logicalPins.functionPath,
+        functionKind: prepared.logicalPins.functionKind,
+        schemaVersionId: prepared.logicalPins.schemaVersionId,
+        policyVersion: TRANSACTION_GRANT_POINT_MUTATION_POLICY_VERSION_V1,
+        identityAccessPolicySha256:
+          transactionGrantIdentityAccessPolicySha256BytesV1FromHex(
+            policy.sha256Hex,
+          ),
+        validatedArgsJson: structuredClone(
+          prepared.validatedArguments.valueJson,
+        ),
+        validatedArgsValueCodecVersion:
+          prepared.logicalPins.validatedArgsValueCodecVersion,
+        validatedArgsCanonicalBytes:
+          prepared.validatedArguments.canonicalBytes,
+        validatedArgsSha256: prepared.validatedArguments.sha256,
+        authorizationGrantId: grant.authorizationGrantId,
+        authorizationGrantJson: structuredClone(grant.authorizationGrantJson),
+        authorizationGrantValueCodecVersion:
+          grant.authorizationGrantValueCodecVersion,
+        authorizationGrantCanonicalBytes:
+          grant.authorizationGrantCanonicalBytes,
+        authorizationGrantSha256: grant.authorizationGrantSha256,
+        authorizationRevocationEpoch: revocationEpoch,
+        authorizationGrantExpiresAt: new Date(expiresAtMilliseconds),
+        requestKey,
+        requestSha256: prepared.requestEvidence.sha256,
+      },
+    }),
+  );
+  const store = createSessionJournalStorePersistenceV1(ports, { randomUuid });
+  const attempt = await runEffect(store.openAttemptEffect({
+    selector: {
+      deploymentId,
+      scopeId,
+      sessionId: activation.anchor.sessionId,
+      attemptFence: activation.anchor.attemptFence,
+    },
+    snapshotToken: activation.anchor.snapshotToken,
+    schemaVersionId,
+  }));
+  const functionMetadata = target.functions[0];
+  if (functionMetadata === undefined) {
+    throw new Error("Missing O08-B1 function metadata fixture.");
+  }
+  const freshAttemptLoadLocks: PointMutationSessionAttemptLoadLockStepV1[] = [];
+  return Object.freeze({
+    anchor: activation.anchor,
+    authority: Object.freeze({
+      deploymentId,
+      scopeId,
+      sessionId: activation.anchor.sessionId,
+      attemptFence: activation.anchor.attemptFence,
+      storageGeneration: activation.anchor.storageGeneration,
+      storageGenerationFence: activation.anchor.storageGenerationFence,
+      snapshotToken: activation.anchor.snapshotToken,
+      schemaVersionId,
+    }),
+    store,
+    attempt,
+    loader: createStoredAttemptEvidenceLoaderV1(ports),
+    loading: createPointMutationSessionAttemptLoadingV1(
+      createPointMutationSessionAttemptLoadPersistenceV1(resolutionPorts(
+        persistence,
+        {
+          afterLoadLock: (step) => {
+            freshAttemptLoadLocks.push(step);
+          },
+        },
+      )),
+    ),
+    freshAttemptLoadLocks,
+    verifier: createTransactionGrantVerifierV1({
+      clock: { now: () => new Date(0) },
+      verificationKeyNamespace:
+        createTransactionGrantVerificationKeyNamespaceV1({
+          deploymentId,
+          keys: [{
+            state: "active",
+            kid,
+            purpose: TRANSACTION_GRANT_KEY_PURPOSE_V1,
+            issuedAtInclusiveEpochMilliseconds: issuedAtMilliseconds - 1_000,
+            verificationEndsAtExclusiveEpochMilliseconds:
+              expiresAtMilliseconds + 1_000,
+            verify: async () => true,
+          }],
+        }),
+      maximumGrantLifetimeMilliseconds: 600_000,
+      maximumFutureIssuedAtSkewMilliseconds: 0,
+    }),
+    functionSnapshot: Object.freeze({
+      deploymentId,
+      scopeId,
+      packageId: prepared.logicalPins.packageId,
+      artifactRuntime: prepared.logicalPins.artifactRuntime,
+      artifactId: prepared.logicalPins.artifactId,
+      sourcePackageHash: prepared.logicalPins.sourcePackageHash,
+      executionModule: prepared.logicalPins.executionModule,
+      functionPath: prepared.logicalPins.functionPath,
+      functionKind: prepared.logicalPins.functionKind,
+      schemaVersionId,
+      functionMetadata: structuredClone(functionMetadata),
+    }),
+  });
+}
+
+function createO08B1Authentication(
+  persistence: PostgresFlarexPersistence,
+  current: Awaited<ReturnType<typeof o08B1Scenario>>,
+  observedOutcomeKinds: string[] = [],
+) {
+  const ports = resolutionPorts(persistence);
+  const publisher = createPointCommitPublisherPortV1(ports);
+  const observedPublisher = Object.freeze({
+    ...publisher,
+    [RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1]: (
+      ...args: Parameters<
+        typeof publisher[
+          typeof RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1
+        ]
+      >
+    ) => publisher[
+      RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1
+    ](...args).pipe(
+      Effect.tap((outcome) => Effect.sync(() => {
+        observedOutcomeKinds.push(outcome.kind);
+      })),
+    ),
+  });
+  return createStoredAttemptAuthenticationV1(current.loader, {
+    evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
+    transactionGrantVerifier: current.verifier,
+    functionMetadata: {
+      load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+    },
+    pointCommit: observedPublisher,
+    pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
+    pointMutationAttemptReplacement:
+      createPointMutationAttemptReplacementPortV1(ports, {
+        leaseDurationMilliseconds: 60_000,
+      }),
+    pointMutationOccRerun: { attemptLoading: current.loading },
+  });
+}
+
+async function sealScenario(current: Scenario) {
   const prepared = await prepareSeal(current.store, current.attempt);
   const journal = await runEffect(
     canonicalizeSessionJournalV1Effect(prepared.journal),
@@ -652,11 +1135,172 @@ async function sealScenario(current: Scenario): Promise<void> {
   const result = await runEffect(
     canonicalizeSuccessfulResultV1Effect({ ok: true }),
   );
-  await completeSeal(current.store, prepared.preparation, journal, result);
+  return completeSeal(current.store, prepared.preparation, journal, result);
+}
+
+async function commitCompetingPointRow(
+  persistence: PostgresFlarexPersistence,
+  command: PointCommitTransactionCommandV1,
+): Promise<void> {
+  const intent = command.rowIntent;
+  if (intent === null || intent.kind !== "live") {
+    throw new Error("O08-B1 competing writer requires a live intent.");
+  }
+  const clock = await persistence.getScopeClock(command.authorityPins.scopeId);
+  if (clock === null) throw new Error("Missing O08-B1 scope clock.");
+  const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
+  const epochUuid = projectScopeEpochUuidV1(clock.epoch).epochUuid;
+  const document = await canonicalizeFlarexValueV1(
+    intent.value,
+    "appDocument",
+  );
+  await persistence.drizzle.transaction(async (tx) => {
+    await tx
+      .select({ scopeUuid: fxSystemScopeClocks.scopeUuid })
+      .from(fxSystemScopeClocks)
+      .where(eq(
+        fxSystemScopeClocks.scopeUuid,
+        command.sealIdentity.scopeUuid,
+      ))
+      .limit(1)
+      .for("update");
+    await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+      kind: "live",
+      scopeId: command.authorityPins.scopeId,
+      tableId: intent.tableId,
+      rowId: intent.rowId,
+      writeEpoch: clock.epoch,
+      commitSeq,
+      prevCommitSeq: null,
+      schemaVersionId: command.authorityPins.schemaVersionId,
+      creationTime: intent.creationTime,
+      value: {
+        codecVersion: document.codecVersion,
+        valueJson: document.valueJson,
+        canonicalBytes: document.canonicalBytes,
+        sha256: document.sha256,
+      },
+    });
+    await tx.insert(fxSystemCommits).values({
+      scopeUuid: command.sealIdentity.scopeUuid,
+      epochUuid,
+      commitSeq,
+      changeCount: 1,
+    });
+    await tx.insert(fxSystemCommitAppRowChanges).values({
+      scopeUuid: command.sealIdentity.scopeUuid,
+      epochUuid,
+      commitSeq,
+      changeOrdinal: 0,
+      tableId: intent.tableId,
+      rowId: appRowIdHexV1ToBytes(intent.rowId),
+    });
+    await tx
+      .update(fxSystemScopeClocks)
+      .set({ lastCommitSeq: commitSeq })
+      .where(eq(
+        fxSystemScopeClocks.scopeUuid,
+        command.sealIdentity.scopeUuid,
+      ));
+  });
+}
+
+async function expectFreshO08B1Attempt(
+  persistence: PostgresFlarexPersistence,
+  scopeUuid: string,
+  sessionId: PointMutationSessionAnchorV1["sessionId"],
+): Promise<void> {
+  const state = await persistence.query<{
+    lifecycle: string;
+    attempt_fence: string;
+    lease_count: string;
+    root_state: string;
+    last_syscall_sequence: string;
+    receipt_count: string;
+    point_count: string;
+    event_count: string;
+  }>(
+    `
+      select session.lifecycle,
+        session.attempt_fence::text,
+        (select count(*)::text from fx_system_snapshot_lease lease
+          where lease.scope_uuid = session.scope_uuid
+            and lease.session_id = session.session_id
+            and lease.attempt_fence = session.attempt_fence) as lease_count,
+        journal.state as root_state,
+        journal.last_syscall_sequence::text,
+        (select count(*)::text from fx_system_tx_journal_latest_receipt receipt
+          where receipt.scope_uuid = session.scope_uuid
+            and receipt.session_id = session.session_id
+            and receipt.attempt_fence = session.attempt_fence)
+          as receipt_count,
+        (select count(*)::text from fx_system_tx_journal_point point
+          where point.scope_uuid = session.scope_uuid
+            and point.session_id = session.session_id
+            and point.attempt_fence = session.attempt_fence) as point_count,
+        (select count(*)::text from fx_system_tx_journal_write_event event
+          where event.scope_uuid = session.scope_uuid
+            and event.session_id = session.session_id
+            and event.attempt_fence = session.attempt_fence) as event_count
+      from fx_system_tx_session session
+      join fx_system_tx_journal journal
+        on journal.scope_uuid = session.scope_uuid
+        and journal.session_id = session.session_id
+        and journal.attempt_fence = session.attempt_fence
+      where session.scope_uuid = $1 and session.session_id = $2
+    `,
+    [scopeUuid, sessionId],
+  );
+  expect(state.rows[0]).toEqual({
+    lifecycle: "running",
+    attempt_fence: "2",
+    lease_count: "1",
+    root_state: "open",
+    last_syscall_sequence: "0",
+    receipt_count: "0",
+    point_count: "0",
+    event_count: "0",
+  });
+  const client = await persistence.pool.connect();
+  try {
+    await client.query("set enable_seqscan = off");
+    for (const { table, index } of [
+      {
+        table: "fx_system_tx_journal_latest_receipt",
+        index: "fx_system_tx_journal_receipt_pk",
+      },
+      {
+        table: "fx_system_tx_journal_point",
+        index: "fx_system_tx_journal_point_pk",
+      },
+      {
+        table: "fx_system_tx_journal_write_event",
+        index: "fx_system_tx_journal_event_pk",
+      },
+    ] as const) {
+      const plan = await client.query<Record<"QUERY PLAN", string>>(
+        `
+          explain (format text)
+          select 1 from ${table}
+          where scope_uuid = $1
+            and session_id = $2
+            and attempt_fence = 2
+          limit 1
+        `,
+        [scopeUuid, sessionId],
+      );
+      const rendered = plan.rows.map((row) => row["QUERY PLAN"]).join("\n");
+      expect(rendered).toContain("Index");
+      expect(rendered).toContain(index);
+    }
+  } finally {
+    client.release();
+  }
 }
 
 function resolutionPorts(
   persistence: PostgresFlarexPersistence,
+  targetOptions: LocatedPointMutationSessionActivationTargetOptionsV1 = {},
 ): PointMutationSessionAuthorityResolutionPortsV1 {
   return {
     scopeMetadata: persistence,
@@ -670,6 +1314,7 @@ function resolutionPorts(
         createPostgresLocatedPointMutationSessionActivationTargetV1(
           persistence,
           physicalLocator,
+          targetOptions,
         ),
     },
   };

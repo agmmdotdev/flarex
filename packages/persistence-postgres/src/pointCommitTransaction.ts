@@ -170,8 +170,16 @@ import {
 import type {
   PointMutationSessionAuthorityResolutionPortsV1,
 } from "./transactionSessionActivation";
-import { buildFreshTransactionAttemptFacetV1 } from
+import {
+  buildFreshTransactionAttemptFacetV1,
+  isPristineFreshTransactionAttemptJournalRootV1,
+} from
   "./transactionSessionAttemptFacet";
+
+export type {
+  CommittedPointOutcomeResolutionV1,
+  ResolveCommittedPointOutcomeInputV1,
+} from "./committedPointOutcome";
 
 const MAX_SIGNED_COMMIT_SEQ = MAX_PERSISTED_SIGNED_INT64_V1;
 const HASH_BYTE_LENGTH = 32;
@@ -579,6 +587,30 @@ export interface PointCommitPublisherPortV1
   >;
 }
 
+/**
+ * Intentional internal O07-A seam for the O08-B1 coordinator. The deployment
+ * id is only a locator; the resolver still derives the trusted target and the
+ * stored request evidence remains authoritative. This symbol is deliberately
+ * absent from the persistence package root.
+ */
+export const RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1: unique symbol =
+  Symbol("FlarexDB/resolvePointCommitOutcomeForOccRerunV1");
+
+export type PointCommitOutcomeResolutionForOccRerunV1Error =
+  | PointCommitFinishingTransitionV1Error
+  | ResolveCommittedPointOutcomeErrorV1;
+
+export interface PointCommitOutcomeResolutionPortV1 {
+  readonly [RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1]: (
+    deploymentId: TransactionGrantDeploymentIdV1,
+    input: ResolveCommittedPointOutcomeInputV1,
+  ) => Effect.Effect<
+    CommittedPointOutcomeResolutionV1,
+    PointCommitOutcomeResolutionForOccRerunV1Error,
+    never
+  >;
+}
+
 export type PointCommitTransactionProofStepV1 =
   | "clockLocked"
   | "sessionLocked"
@@ -888,7 +920,7 @@ export function createPointCommitRollbackProofPortV1(
 export function createPointCommitPublisherPortV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
   options: PointCommitTransactionProofOptionsV1 = {},
-): PointCommitPublisherPortV1 {
+): PointCommitPublisherPortV1 & PointCommitOutcomeResolutionPortV1 {
   const rollback = createPointCommitRollbackProofPortV1(ports, options);
 
   const resolveOutcome = Effect.fn(
@@ -975,7 +1007,29 @@ export function createPointCommitPublisherPortV1(
     );
   });
 
-  return Object.freeze({ ...rollback, publish });
+  const resolveOutcomeForOccRerun: PointCommitOutcomeResolutionPortV1[
+    typeof RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1
+  ] = Effect.fn(
+    "PointCommitTransaction.resolveOutcomeForOccRerun",
+  )(function* (deploymentId, input) {
+    const located = yield* resolvePointCommitAuthority(deploymentId, ports);
+    const target = isLocatedPointCommitPublicationTargetV1(located.target)
+      ? located.target
+      : null;
+    if (target === null) {
+      return yield* Effect.fail(corruption(
+        "readCommittedCapabilityMissing",
+      ));
+    }
+    return yield* resolveOutcome(target, input);
+  });
+
+  return Object.freeze({
+    ...rollback,
+    publish,
+    [RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1]:
+      resolveOutcomeForOccRerun,
+  });
 }
 
 async function preparePointCommitCommand(
@@ -1956,30 +2010,7 @@ async function observeReplacedPointMutationAttempt(
   if (
     rootRows.length !== 1 ||
     root === undefined ||
-    root.scopeUuid !== clock.scopeUuid ||
-    root.sessionId !== command.authorityPins.sessionId ||
-    root.attemptFence !== expectedFence ||
-    root.state !== "open" ||
-    root.lastSyscallSequence !== 0n ||
-    root.creationTimeSeed !== expectedRoot.creationTimeSeed ||
-    root.nextCreationTime !== expectedRoot.nextCreationTime ||
-    root.readDocuments !== 0 ||
-    root.readSemanticBytes !== 0 ||
-    root.pointDependencyCount !== 0 ||
-    root.writeOperations !== 0 ||
-    root.writeSemanticBytes !== 0 ||
-    root.materialWriteEventEvidenceBytes !== 0 ||
-    root.failureDimension !== null ||
-    root.sealedFinalSyscallSequence !== null ||
-    root.sealedJournalBytes !== null ||
-    root.sealedJournalSha256 !== null ||
-    root.sealedResultValueCodecVersion !== null ||
-    root.sealedResultSemanticBytes !== null ||
-    root.sealedResultBytes !== null ||
-    root.sealedResultSha256 !== null ||
-    root.sealedAt !== null ||
-    finiteDateMilliseconds(root.createdAt) !== session.updatedAtMilliseconds ||
-    finiteDateMilliseconds(root.updatedAt) !== session.updatedAtMilliseconds
+    !isPristineFreshTransactionAttemptJournalRootV1(root, expectedRoot)
   ) {
     throw replacementCorruption("replacementConvergenceInvalid");
   }

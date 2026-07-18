@@ -101,9 +101,16 @@ import {
 import {
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
+  fxSystemTransactionJournalLatestReceipts,
+  fxSystemTransactionJournalPoints,
+  fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionJournals,
   fxSystemTransactionSessions,
 } from "./schema";
+import {
+  buildFreshTransactionAttemptFacetV1,
+  isPristineFreshTransactionAttemptJournalRootV1,
+} from "./transactionSessionAttemptFacet";
 import {
   RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1,
   RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
@@ -232,6 +239,12 @@ export interface PointMutationSessionAttemptLoadResultV1 {
   readonly status: "loaded";
   readonly anchor: PointMutationSessionAnchorV1;
   readonly executionPin: PointMutationSessionAttemptExecutionPinV1;
+  /** Temporal, non-authorizing evidence captured under the exact root lock. */
+  readonly attemptFacet: PointMutationSessionAttemptFacetObservationV1;
+}
+
+export interface PointMutationSessionAttemptFacetObservationV1 {
+  readonly kind: "pristineOpen" | "nonPristine";
 }
 
 /** Private execution input reloaded from the authoritative exact attempt. */
@@ -1289,6 +1302,13 @@ async function loadLockedRunningAttempt(
     locked.attemptFence,
     input.afterLeaseLock,
   );
+  const attemptFacet = await observePointMutationSessionAttemptFacet(
+    tx,
+    clock,
+    session,
+    locked,
+    journalRoot,
+  );
 
   let schemaVersionId: CatalogSchemaVersionId;
   try {
@@ -1320,6 +1340,7 @@ async function loadLockedRunningAttempt(
     executionPin: Object.freeze({ schemaVersionId }),
     databaseNow,
     journalRoot: Object.freeze({ ...journalRoot }),
+    attemptFacet,
   } satisfies ExactRunningAttemptKernelContextV1);
 }
 
@@ -1353,6 +1374,103 @@ async function requireExactPointMutationSessionJournalRoot(
   }
   await afterRootLock?.("journalRootLocked");
   return root;
+}
+
+async function observePointMutationSessionAttemptFacet(
+  tx: FlarexMetadataDatabase,
+  clock: LockedPointMutationSessionClockV1,
+  session: TransactionSessionRow,
+  locked: Extract<
+    LockedPointMutationSessionAttemptStructureV1,
+    { readonly leaseState: "present" }
+  >,
+  root: typeof fxSystemTransactionJournals.$inferSelect,
+): Promise<PointMutationSessionAttemptFacetObservationV1> {
+  const sessionUpdatedAtMilliseconds = finiteDateMilliseconds(
+    session.updatedAt,
+  );
+  const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.authorizationGrantExpiresAt,
+  );
+  const hardExpiresAtMilliseconds = finiteDateMilliseconds(
+    session.hardExpiresAt,
+  );
+  if (
+    sessionUpdatedAtMilliseconds === undefined ||
+    authorizationGrantExpiresAtMilliseconds === undefined ||
+    hardExpiresAtMilliseconds === undefined
+  ) {
+    throw corruptionError(clock.record.scopeId, "sessionRecordInvalid");
+  }
+  const expectedFacet = buildFreshTransactionAttemptFacetV1({
+    scopeUuid: clock.scopeUuid,
+    sessionId: locked.sessionId,
+    attemptFence: locked.attemptFence,
+    snapshotEpochUuid: clock.epochUuid,
+    snapshotCommitSeq: locked.snapshotCommitSeq,
+    databaseNowMilliseconds: sessionUpdatedAtMilliseconds,
+    authorizationGrantExpiresAtMilliseconds,
+    hardExpiresAtMilliseconds,
+    leaseDurationMilliseconds:
+      locked.leaseExpiresAtMilliseconds - sessionUpdatedAtMilliseconds,
+  });
+  if (
+    Result.isFailure(expectedFacet) ||
+    !isPristineFreshTransactionAttemptJournalRootV1(
+      root,
+      expectedFacet.success.journalRoot,
+    )
+  ) {
+    return Object.freeze({ kind: "nonPristine" });
+  }
+
+  const rows = await tx.select({
+    receiptExists: sql<boolean>`exists(
+      select 1 from ${fxSystemTransactionJournalLatestReceipts}
+      where ${fxSystemTransactionJournalLatestReceipts.scopeUuid} =
+        ${clock.scopeUuid}
+        and ${fxSystemTransactionJournalLatestReceipts.sessionId} =
+          ${locked.sessionId}
+        and ${fxSystemTransactionJournalLatestReceipts.attemptFence} =
+          ${locked.attemptFence}
+    )`,
+    pointExists: sql<boolean>`exists(
+      select 1 from ${fxSystemTransactionJournalPoints}
+      where ${fxSystemTransactionJournalPoints.scopeUuid} = ${clock.scopeUuid}
+        and ${fxSystemTransactionJournalPoints.sessionId} = ${locked.sessionId}
+        and ${fxSystemTransactionJournalPoints.attemptFence} =
+          ${locked.attemptFence}
+    )`,
+    eventExists: sql<boolean>`exists(
+      select 1 from ${fxSystemTransactionJournalWriteEvents}
+      where ${fxSystemTransactionJournalWriteEvents.scopeUuid} =
+        ${clock.scopeUuid}
+        and ${fxSystemTransactionJournalWriteEvents.sessionId} =
+          ${locked.sessionId}
+        and ${fxSystemTransactionJournalWriteEvents.attemptFence} =
+          ${locked.attemptFence}
+    )`,
+  }).from(fxSystemScopeClocks).where(eq(
+    fxSystemScopeClocks.scopeUuid,
+    clock.scopeUuid,
+  )).limit(1);
+  const observation = rows[0];
+  if (
+    rows.length !== 1 ||
+    observation === undefined ||
+    typeof observation.receiptExists !== "boolean" ||
+    typeof observation.pointExists !== "boolean" ||
+    typeof observation.eventExists !== "boolean"
+  ) {
+    throw corruptionError(clock.record.scopeId, "journalRootInvalid");
+  }
+  return Object.freeze({
+    kind: observation.receiptExists ||
+        observation.pointExists ||
+        observation.eventExists
+      ? "nonPristine"
+      : "pristineOpen",
+  });
 }
 
 interface LockedPointMutationSessionAttemptStructureBaseV1 {
@@ -2490,6 +2608,7 @@ function attemptLoadResult(
     executionPin: Object.freeze({
       schemaVersionId: loaded.executionPin.schemaVersionId,
     }),
+    attemptFacet: Object.freeze({ kind: loaded.attemptFacet.kind }),
   });
 }
 

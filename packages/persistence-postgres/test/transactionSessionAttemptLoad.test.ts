@@ -176,6 +176,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
       status: "loaded",
       anchor: activated.anchor,
       executionPin: { schemaVersionId: "schema_activation_v1" },
+      attemptFacet: { kind: "pristineOpen" },
     });
     expect(second).toEqual(first);
     expect(Object.isFrozen(first)).toBe(true);
@@ -204,6 +205,56 @@ describe("O03-B exact point-mutation attempt authority", () => {
       selector,
     );
     expect(afterCommitAdvance.anchor.snapshotToken.commitSeq).toBe(0n);
+  });
+
+  it("classifies an exact open root with hidden child evidence as non-pristine", async () => {
+    const context = await provisionContext("hidden_child");
+    const activated = await activate(context);
+    await persistence.query(
+      `
+        insert into fx_system_tx_journal_latest_receipt (
+          scope_uuid,
+          session_id,
+          attempt_fence,
+          last_syscall_sequence,
+          operation_kind,
+          request_codec_version,
+          request_bytes,
+          request_sha256,
+          outcome_kind,
+          outcome_codec_version,
+          outcome_bytes,
+          outcome_sha256,
+          created_at,
+          updated_at
+        )
+        select
+          session.scope_uuid,
+          session.session_id,
+          session.attempt_fence,
+          1,
+          'get',
+          1,
+          decode('00', 'hex'),
+          decode(repeat('00', 32), 'hex'),
+          'missing',
+          1,
+          decode('00', 'hex'),
+          decode(repeat('00', 32), 'hex'),
+          session.created_at,
+          session.updated_at
+        from fx_system_tx_session session
+        where session.session_id = $1
+      `,
+      [activated.anchor.sessionId],
+    );
+    const loaded = await loadPointMutationSessionAttempt(
+      createPointMutationSessionAttemptLoadPersistenceV1(
+        resolutionPorts(persistence),
+      ),
+      selectorFromAnchor(activated.anchor),
+    );
+    expect(loaded.attemptFacet).toEqual({ kind: "nonPristine" });
   });
 
   it("maps authority and transaction rejection into the typed Effect channel", async () => {

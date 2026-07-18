@@ -20,14 +20,17 @@ loaded attempt as continuing authorization; C03 first composes fresh exact-
 attempt validation, the O04 reader, and staged read-your-writes. O05 pure point-
 OCC validation, C03's bounded journal, C04's private authentication/planning
 chain, S08/S09 storage, O06's reusable rollback-proven point-commit kernel, and
-  O07-B's private durable point publication and C05-A's exact scalar-fenced
-  transition plus same-factory finishing continuation are complete; standalone
-  C01 was retired before implementation. C05-B fresh-process finishing
-  reconstruction and full publication composition are next. C06 later owns
+  O07-B's private durable point publication, C05-A's exact scalar-fenced
+  transition, C05-B fresh-process finishing reconstruction/composition, O08-A
+  exact-attempt replacement, and O08-B1's bounded fresh-attempt handoff are
+  complete; standalone C01 was retired before implementation. O08-B2 is next.
+  C06 later owns
   stable endpoint and uncertain-outcome orchestration, C03 rejects late
 syscalls, O07 atomically deletes the exact lease and stores committed state plus
 outcome/idempotency. O08-A owns the complete FK-safe exact-attempt replacement;
-O08-B/C/D retain rerun, known-settled SQL retry, and uncertainty policy. O11
+O08-B1 owns only the exact-conflict/backoff/outcome/fresh-attempt handoff,
+while O08-B2/C/D retain execution, known-settled SQL retry, and uncertainty
+policy. O11
 first consumes active floors, and reconnect retention belongs
 to roadmap 21. The prototype `invoke_sessions` model remains routed today but
 is a regression/removal input, not a supported migration obligation.

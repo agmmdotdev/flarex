@@ -22,8 +22,9 @@ rollback-proven point-commit transaction kernel, O07-A private read-only
 committed-outcome resolver, and O07-B private durable point publication are
 complete. C05-A's exact scalar-fenced finishing transition and C05-B's separate
 fresh-process finishing reconstruction/private publisher composition are
-complete. O08-A atomic exact-attempt replacement is complete; O08-B trusted OCC
-rerun is next, while O08-C known-settled SQL retry and O08-D uncertain-outcome
+complete. O08-A atomic exact-attempt replacement and O08-B1's bounded
+same-factory fresh-attempt handoff are complete; O08-B2 trusted user-code rerun
+composition is next, while O08-C known-settled SQL retry and O08-D uncertain-outcome
 policy remain pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
@@ -733,8 +734,10 @@ Deferred ownership after the required O03-B core:
 - `O07-B` atomically deletes the exact current lease and stores `committed` only
   inside the data/result/outcome/feed/outbox transaction;
 - `O08-A` supplies the checked exact-attempt replacement primitive only;
-  `O08-B` owns trusted OCC rerun authority and backoff, `O08-C` owns known-
-  settled SQL retry, and `O08-D` owns uncertain-outcome lookup policy; and
+  `O08-B1` owns the bounded backoff, outcome check, replacement handoff, and
+  exact fresh-attempt proof without executing user code; `O08-B2` owns the
+  immediate reauthentication and trusted OCC user-code rerun; `O08-C` owns
+  known-settled SQL retry, and `O08-D` owns uncertain-outcome lookup policy; and
 - `O11` first introduces the active-floor query and engine-history cleanup
   consumer. S09-A committed-key lifetime and result-payload expiry remain
   separate from engine/feed, reconnect, and S09-B outbox retention.
@@ -994,9 +997,30 @@ uncertain-outcome policy exists in O08-A.
 
 #### [ ] O08-B — Authorize Trusted OCC User-Code Rerun
 
-A known typed O07-B OCC conflict must obtain an opaque same-request rerun permit,
-apply the bounded Convex-style OCC budget/backoff, reload the fresh exact attempt,
-and only then rerun user code without crossing storage-generation authority.
+A known typed O07-B OCC conflict is now split at the execution boundary.
+
+##### [x] O08-B1 — Authorize One Fresh OCC Rerun Handoff
+
+The same executor factory captures only the exact `PointCommitConflictV1Error`
+object emitted by its genuine O07-B finishing publication and irreversibly
+claims that ticket before its first asynchronous yield. Attempts at fences 1
+through 4 use Convex-compatible full jitter with upper bounds 100, 200, 400,
+and 800 milliseconds; fence 5 is exhausted. After backoff, O07-A is checked
+before O08-A. Matching available/expired outcomes close the operation, and only
+O08-A `replaced` may continue. O03-B2a then reloads the exact fence+1 attempt;
+the handoff is minted only when deployment/scope/session/request, storage
+generation/fence, epoch/schema pins, advanced conflict-visible snapshot, live
+lease, and pristine open zero-accounting journal facet all match. The opaque
+handoff is factory-local and single-use. It executes no user code and grants no
+crash-safe redispatch authority.
+
+##### [ ] O08-B2 — Reauthenticate And Rerun User Code
+
+Immediately before execution, consume the B1 handoff once, consult O07-A again,
+and reauthenticate exact current liveness plus the complete canonical execution
+inputs. B2 owns the fresh runtime-neutral execution context, deterministic
+attempt-local state, repeated-conflict loop, and crash-safe redispatch policy.
+Dynamic Worker remains an adapter rather than the coordinator authority.
 
 #### [ ] O08-C — Retry Known-Settled SQL Transactions
 
@@ -1027,8 +1051,9 @@ Exit gate:
 - O08-A rollback, response-loss convergence, duplicate replacement, O07-B/
   abort/expiry races, independent-scope progress, and index-backed queries pass
   on PGlite and isolated real Postgres;
+- O08-B1 accepts only exact same-factory conflicts and never executes user code;
+- O08-B2 OCC conflicts do rerun it after immediate reauthentication;
 - O08-C SQL retries do not rerun user code;
-- O08-B OCC conflicts do rerun it;
 - a successful uncertain commit is never applied twice;
 - authorization, validation, codec, and deterministic constraint errors are not
   retried;
