@@ -1,4 +1,4 @@
-import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+import { Result } from "effect";
 
 import { isH05HttpsOriginUrl } from "../h05/httpsOrigin";
 import {
@@ -7,6 +7,10 @@ import {
   cloudflareApiToken,
   positiveSafeInteger,
 } from "./cloudflareApiConfiguration";
+import {
+  decodeH05CloudflareSuccessEnvelope,
+  type H05CloudflareSuccessEnvelopeIssue,
+} from "./cloudflareSuccessEnvelope";
 import { discardH05BoundedResponseBody } from "./h05BoundedResponseBody";
 import { readH05BoundedJsonResponse } from "./h05BoundedJsonResponse";
 
@@ -133,24 +137,35 @@ function unwrapSuccessEnvelope(
   value: unknown,
   path: string,
 ): H05CloudflareReadResult {
-  if (!isRecord(value)) {
-    throw new Error(`Cloudflare API returned a non-object envelope for ${safePath(path)}.`);
-  }
-  if (value.success !== true || !Array.isArray(value.errors)) {
-    throw new Error(`Cloudflare API returned an invalid envelope for ${safePath(path)}.`);
-  }
-  if (value.errors.length !== 0) {
-    throw new Error(`Cloudflare API reported an error for ${safePath(path)}.`);
-  }
-  if (!Object.hasOwn(value, "result")) {
-    throw new Error(`Cloudflare API omitted its result for ${safePath(path)}.`);
-  }
+  const envelope = Result.getOrThrowWith(
+    decodeH05CloudflareSuccessEnvelope(value),
+    issue => new Error(cloudflareReadEnvelopeErrorMessage(issue, path)),
+  );
   return {
-    result: value.result,
-    resultInfo: Object.hasOwn(value, "result_info")
-      ? value.result_info
+    result: envelope.result,
+    resultInfo: Object.hasOwn(envelope.record, "result_info")
+      ? envelope.record.result_info
       : undefined,
   };
+}
+
+function cloudflareReadEnvelopeErrorMessage(
+  issue: H05CloudflareSuccessEnvelopeIssue,
+  path: string,
+): string {
+  const redactedPath = safePath(path);
+  switch (issue.reason) {
+    case "nonObject":
+      return `Cloudflare API returned a non-object envelope for ${redactedPath}.`;
+    case "invalidEnvelope":
+      return `Cloudflare API returned an invalid envelope for ${redactedPath}.`;
+    case "reportedError":
+      return `Cloudflare API reported an error for ${redactedPath}.`;
+    case "missingResult":
+      return `Cloudflare API omitted its result for ${redactedPath}.`;
+    default:
+      return issue satisfies never;
+  }
 }
 
 class H05ResponseSizeError extends Error {

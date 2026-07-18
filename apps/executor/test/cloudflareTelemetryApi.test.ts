@@ -154,6 +154,32 @@ describe("bounded H05 Cloudflare telemetry API", () => {
     ).rejects.not.toThrow("provider-secret-value");
   });
 
+  it("preserves specific redacted success-envelope failures", async () => {
+    const cases: ReadonlyArray<readonly [unknown, string]> = [
+      [null, "Cloudflare telemetry query returned a non-object envelope."],
+      [
+        {
+          success: true,
+          errors: [{ message: "provider-secret-value" }],
+          result: null,
+        },
+        "Cloudflare telemetry query reported an error.",
+      ],
+      [
+        { success: true, errors: [] },
+        "Cloudflare telemetry query omitted its result.",
+      ],
+    ];
+
+    for (const [body, message] of cases) {
+      const api = createH05CloudflareTelemetryApi({
+        apiToken,
+        fetch: async () => Response.json(body),
+      });
+      await expect(api.query(accountId, validRequest())).rejects.toThrow(message);
+    }
+  });
+
   it("maps successful-response stream failures without surfacing their cause", async () => {
     const marker = "PRIVATE_TELEMETRY_STREAM_FAILURE";
     const api = createH05CloudflareTelemetryApi({

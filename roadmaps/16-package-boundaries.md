@@ -339,7 +339,10 @@ semantics.
   host-local boundary owns canonical outside-worktree evidence input and output
   mechanics, including real-path resolution, regular-file and size checks, and
   atomic no-replace publication. Individual commands retain their evidence
-  labels, byte ceilings, and diagnostics.
+  labels, byte ceilings, and diagnostics. H05 Cloudflare REST adapters also
+  share one host-local pure decoder for the provider success envelope while
+  retaining endpoint result validation, redacted messages, and public result
+  projections in each adapter.
 - The Effect boundary checker rejects synchronous execution, hidden aliases,
   direct runtime imports, and unregistered production `runPromise` sites.
 - Pure protocol payload, backend storage-state, and executor HTTP request

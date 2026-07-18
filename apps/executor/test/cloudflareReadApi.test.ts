@@ -116,6 +116,33 @@ describe("bounded H05 Cloudflare read API", () => {
     );
   });
 
+  it("preserves specific redacted success-envelope failures", async () => {
+    const path = "/accounts/account/workers";
+    const cases: ReadonlyArray<readonly [unknown, string]> = [
+      [null, `Cloudflare API returned a non-object envelope for ${path}.`],
+      [
+        {
+          success: true,
+          errors: [{ message: "provider-secret-value" }],
+          result: null,
+        },
+        `Cloudflare API reported an error for ${path}.`,
+      ],
+      [
+        { success: true, errors: [] },
+        `Cloudflare API omitted its result for ${path}.`,
+      ],
+    ];
+
+    for (const [body, message] of cases) {
+      const api = createH05CloudflareReadApi({
+        apiToken,
+        fetch: async () => Response.json(body),
+      });
+      await expect(api.get(path)).rejects.toThrow(message);
+    }
+  });
+
   it("rejects malformed UTF-8 through the redacted JSON boundary", async () => {
     const api = createH05CloudflareReadApi({
       apiToken,

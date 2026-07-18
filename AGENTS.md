@@ -150,6 +150,14 @@ and envelope errors through explicit callbacks. Preserve the original failure
 order and any exact size-error identity. Keep optional empty-body acceptance
 with the endpoint contract that owns it rather than adding a permissive generic
 JSON-reader option or moving the helper into `@flarex/utils`.
+When H05 host adapters consume the common Cloudflare REST success envelope,
+keep one host-local pure `Result` decoder for its non-array record, `success`,
+`errors`, and own `result` structure. Preserve the
+existing validation order and inherited control-field compatibility. Each
+adapter retains its endpoint result validation, optional metadata projection,
+redacted messages, and public projection. Do not move this foreign-provider
+contract into `@flarex/utils` or make endpoint-specific result requirements
+part of the shared envelope.
 
 Before adding a local utility, inspect the installed platform and dependency
 APIs for an exact portable owner. Reuse a total encoder such as Effect

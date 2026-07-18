@@ -1,4 +1,4 @@
-import { isNonArrayRecord as isRecord } from "@flarex/utils/records";
+import { Result } from "effect";
 
 import {
   cloudflareAccountId,
@@ -7,6 +7,10 @@ import {
   cloudflareApiToken,
   positiveSafeInteger,
 } from "./cloudflareApiConfiguration";
+import {
+  decodeH05CloudflareSuccessEnvelope,
+  type H05CloudflareSuccessEnvelopeIssue,
+} from "./cloudflareSuccessEnvelope";
 import { discardH05BoundedResponseBody } from "./h05BoundedResponseBody";
 import { readH05BoundedJsonResponse } from "./h05BoundedJsonResponse";
 
@@ -109,7 +113,7 @@ export function createH05CloudflareTelemetryApi(
           `Cloudflare telemetry query returned HTTP ${response.status}.`,
         );
       }
-      const envelope = await readH05BoundedJsonResponse(
+      const responseBody = await readH05BoundedJsonResponse(
         response,
         maximumResponseBytes,
         {
@@ -124,25 +128,33 @@ export function createH05CloudflareTelemetryApi(
             new Error("Cloudflare telemetry query returned invalid JSON."),
         },
       );
-      return unwrapSuccessEnvelope(envelope);
+      return unwrapSuccessEnvelope(responseBody);
     },
   };
 }
 
 function unwrapSuccessEnvelope(value: unknown): unknown {
-  if (!isRecord(value)) {
-    throw new Error("Cloudflare telemetry query returned a non-object envelope.");
+  return Result.getOrThrowWith(
+    decodeH05CloudflareSuccessEnvelope(value),
+    issue => new Error(telemetryEnvelopeErrorMessage(issue)),
+  ).result;
+}
+
+function telemetryEnvelopeErrorMessage(
+  issue: H05CloudflareSuccessEnvelopeIssue,
+): string {
+  switch (issue.reason) {
+    case "nonObject":
+      return "Cloudflare telemetry query returned a non-object envelope.";
+    case "invalidEnvelope":
+      return "Cloudflare telemetry query returned an invalid envelope.";
+    case "reportedError":
+      return "Cloudflare telemetry query reported an error.";
+    case "missingResult":
+      return "Cloudflare telemetry query omitted its result.";
+    default:
+      return issue satisfies never;
   }
-  if (value.success !== true || !Array.isArray(value.errors)) {
-    throw new Error("Cloudflare telemetry query returned an invalid envelope.");
-  }
-  if (value.errors.length !== 0) {
-    throw new Error("Cloudflare telemetry query reported an error.");
-  }
-  if (!Object.hasOwn(value, "result")) {
-    throw new Error("Cloudflare telemetry query omitted its result.");
-  }
-  return value.result;
 }
 
 class H05TelemetryResponseSizeError extends Error {
