@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Schema } from "effect";
 import { Client } from "pg";
 import {
   CommitEnvelopeV1Schema,
@@ -31,7 +31,10 @@ import {
 } from "../src/postgres";
 import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
-import { createSessionJournalStorePersistenceV1 } from "../src/sessionJournalStore";
+import {
+  createSessionJournalStorePersistenceV1,
+  type SessionJournalAttemptV1,
+} from "../src/sessionJournalStore";
 import {
   createStoredCommitAuthorityEvidenceLoaderV1,
   type StoredCommitAuthorityEvidenceAuthorityV1,
@@ -52,6 +55,9 @@ import {
   postgresUrl,
   withTemporaryPostgresPersistence,
 } from "./postgresHelpers";
+import {
+  runEffect,
+} from "./effectTestRuntime";
 import {
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
@@ -424,9 +430,7 @@ interface Scenario {
     ReturnType<typeof createStoredAttemptEvidenceLoaderV1>["load"]
   >[0];
   readonly store: ReturnType<typeof createSessionJournalStorePersistenceV1>;
-  readonly attempt: ReturnType<
-    ReturnType<typeof createSessionJournalStorePersistenceV1>["openAttempt"]
-  >;
+  readonly attempt: SessionJournalAttemptV1;
   readonly loader: ReturnType<typeof createStoredAttemptEvidenceLoaderV1>;
   readonly loading: ReturnType<
     typeof createPointMutationSessionAttemptLoadingV1
@@ -474,16 +478,18 @@ async function scenario(
   const store = createSessionJournalStorePersistenceV1(ports, {
     randomUuid,
   });
-  const attempt = store.openAttempt({
-    selector: {
-      deploymentId,
-      scopeId,
-      sessionId: activation.anchor.sessionId,
-      attemptFence: activation.anchor.attemptFence,
-    },
-    snapshotToken: activation.anchor.snapshotToken,
-    schemaVersionId,
-  });
+  const attempt = await runEffect(
+    store.openAttemptEffect({
+      selector: {
+        deploymentId,
+        scopeId,
+        sessionId: activation.anchor.sessionId,
+        attemptFence: activation.anchor.attemptFence,
+      },
+      snapshotToken: activation.anchor.snapshotToken,
+      schemaVersionId,
+    }),
+  );
   return Object.freeze({
     anchor: activation.anchor,
     authority: Object.freeze({
@@ -768,8 +774,4 @@ function deferredSignal(): Readonly<{
     promise,
     resolve: () => resolver?.(),
   });
-}
-
-function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
-  return Effect.runPromise(effect);
 }

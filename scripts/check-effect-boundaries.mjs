@@ -80,9 +80,6 @@ const allowedRunPromiseSites = new Map([
   [siteKey("packages/flarex-dev/src/runtimeMaterializer.ts", "LocalMiniflareMaterializedExecutionArtifact.executeQuerySession"), 1],
   [siteKey("packages/flarex-dev/src/runtimeMaterializer.ts", "LocalMiniflareMaterializedExecutionArtifact.invoke"), 1],
   [siteKey("packages/flarex-protocol/src/auth.ts", "decodeAuthConfigPromise"), 1],
-  // Temporary SessionJournalStore Promise facade; remove this entry with
-  // resolvePointTable once its tests and remaining journal consumers use Effect.
-  [siteKey("packages/persistence-postgres/src/sessionJournalStore.ts", "resolvePointTable"), 1],
   [siteKey("packages/persistence-postgres/src/sessionJournalStore.ts", "completeSeal"), 1],
 ]);
 

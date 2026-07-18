@@ -11,7 +11,6 @@ import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
-import { Effect } from "effect";
 import {
   appRowIdHexV1ToBytes,
   decodeAppDocumentIdV1,
@@ -65,6 +64,9 @@ import {
   withTemporaryPostgresPersistence,
   withTemporaryPostgresSchema,
 } from "./postgresHelpers";
+import {
+  runEffect,
+} from "./effectTestRuntime";
 import {
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
@@ -347,14 +349,15 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
           },
         },
       );
-      const restartedAttempt = restartedStore.openAttempt({
-        selector: selectorFromAnchor(current.anchor),
-        snapshotToken: current.anchor.snapshotToken,
-        schemaVersionId: current.schemaVersionId,
-      });
-      const restartedTable = await restartedStore.resolvePointTable(
-        restartedAttempt,
-        "users",
+      const restartedAttempt = await runEffect(
+        restartedStore.openAttemptEffect({
+          selector: selectorFromAnchor(current.anchor),
+          snapshotToken: current.anchor.snapshotToken,
+          schemaVersionId: current.schemaVersionId,
+        }),
+      );
+      const restartedTable = await runEffect(
+        restartedStore.resolvePointTableEffect(restartedAttempt, "users"),
       );
       const replayed = await restartedStore.runPointOperation(
         restartedTable,
@@ -417,7 +420,9 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       );
 
       const [competingTable, nextPublication] = await Promise.all([
-        current.store.resolvePointTable(current.attempt, "users"),
+        runEffect(
+          current.store.resolvePointTableEffect(current.attempt, "users"),
+        ),
         persistence.publishAppSchemaV1({
           deploymentId: current.deploymentId,
           schemaVersionId: nextSchemaVersionId,
@@ -816,12 +821,16 @@ async function scenario(
       ? {}
       : { randomUuid: options.randomUuid }),
   });
-  const attempt = store.openAttempt({
-    selector: selectorFromAnchor(activation.anchor),
-    snapshotToken: activation.anchor.snapshotToken,
-    schemaVersionId,
-  });
-  const table = await store.resolvePointTable(attempt, "users");
+  const attempt = await runEffect(
+    store.openAttemptEffect({
+      selector: selectorFromAnchor(activation.anchor),
+      snapshotToken: activation.anchor.snapshotToken,
+      schemaVersionId,
+    }),
+  );
+  const table = await runEffect(
+    store.resolvePointTableEffect(attempt, "users"),
+  );
   return Object.freeze({
     deploymentId,
     schemaVersionId,
@@ -1142,10 +1151,6 @@ async function within<T>(
       throw new Error(message);
     }),
   ]);
-}
-
-function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
-  return Effect.runPromise(effect);
 }
 
 function deferredSignal(): Readonly<{

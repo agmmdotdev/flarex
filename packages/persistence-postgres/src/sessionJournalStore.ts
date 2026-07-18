@@ -334,29 +334,12 @@ export interface PreparedSessionJournalSealResultV1 {
 }
 
 export interface SessionJournalStorePersistenceV1 {
-  readonly openAttempt: (
-    input: OpenSessionJournalAttemptV1Input,
-  ) => SessionJournalAttemptV1;
-  /**
-   * Effect-native attempt-opening path. The synchronous method above remains
-   * a temporary compatibility bridge for persistence tests; remove it when
-   * those fixtures migrate.
-   */
   readonly openAttemptEffect: (
     input: OpenSessionJournalAttemptV1Input,
   ) => Effect.Effect<
     SessionJournalAttemptV1,
     InvalidSessionJournalInputV1Error
   >;
-  readonly resolvePointTable: (
-    attempt: SessionJournalAttemptV1,
-    tableName: unknown,
-  ) => Promise<PinnedPointTableV1>;
-  /**
-   * Effect-native table-resolution path. The Promise method above is a
-   * temporary compatibility bridge for persistence tests and the remaining
-   * Promise-native journal operations; remove it when those consumers migrate.
-   */
   readonly resolvePointTableEffect: (
     attempt: SessionJournalAttemptV1,
     tableName: unknown,
@@ -781,22 +764,7 @@ export function createSessionJournalStorePersistenceV1(
   });
 
   return Object.freeze({
-    openAttempt: (
-      input: OpenSessionJournalAttemptV1Input,
-    ): SessionJournalAttemptV1 => {
-      return createAttemptHandle(
-        Result.getOrThrow(captureAttemptStateResult(input)),
-      );
-    },
     openAttemptEffect,
-    resolvePointTable: async (
-      attempt: SessionJournalAttemptV1,
-      tableNameInput: unknown,
-    ): Promise<PinnedPointTableV1> => {
-      return Effect.runPromise(
-        resolvePointTableEffect(attempt, tableNameInput),
-      );
-    },
     resolvePointTableEffect,
     runPointOperation: async (
       table: PinnedPointTableV1,

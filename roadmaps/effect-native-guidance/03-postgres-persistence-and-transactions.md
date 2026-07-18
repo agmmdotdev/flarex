@@ -18,11 +18,10 @@ model still lives outside Effect.
 The first bounded vertical slices port session-journal table resolution and
 attempt opening. The persistence contract now exposes Effect-native operations
 with exact domain and persistence failures, and the executor consumes those
-operations directly. The Promise table resolver and synchronous attempt opener
-remain temporary compatibility bridges for persistence tests; remove them and
-the resolver's audited runtime-boundary entry when those consumers migrate.
-Point operations, sealing, and transaction ownership remain outside these
-slices.
+operations directly. Persistence tests now enter both operations through one
+explicit test runtime bridge; the former Promise table resolver and synchronous
+attempt opener have been removed. Point operations, sealing, and transaction
+ownership remain outside these slices.
 
 ## Target Boundary
 

@@ -1,5 +1,3 @@
-import { Effect } from "effect";
-
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
@@ -85,6 +83,10 @@ import {
   type PointMutationSessionAttemptSelectorV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
 } from "../src/transactionSessionActivation";
+import {
+  runEffect,
+  runEffectFailure as runFailure,
+} from "./effectTestRuntime";
 import {
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
@@ -243,12 +245,16 @@ describe("C03 Postgres SessionJournalStore", () => {
     const store = createSessionJournalStorePersistenceV1(ports, {
       randomUuid,
     });
-    const attempt = store.openAttempt({
-      selector: selectorFromAnchor(activation.anchor),
-      snapshotToken: activation.anchor.snapshotToken,
-      schemaVersionId,
-    });
-    const table = await store.resolvePointTable(attempt, "users");
+    const attempt = await runEffect(
+      store.openAttemptEffect({
+        selector: selectorFromAnchor(activation.anchor),
+        snapshotToken: activation.anchor.snapshotToken,
+        schemaVersionId,
+      }),
+    );
+    const table = await runEffect(
+      store.resolvePointTableEffect(attempt, "users"),
+    );
 
     return Object.freeze({
       deploymentId,
@@ -295,11 +301,6 @@ describe("C03 Postgres SessionJournalStore", () => {
       operation: "openAttempt",
       reason: "invalidAttemptPins",
     } satisfies Partial<InvalidSessionJournalInputV1Error>);
-    expect(() => Reflect.apply(
-      current.store.openAttempt,
-      undefined,
-      [invalidOpenAttemptInput],
-    )).toThrow(InvalidSessionJournalInputV1Error);
     const propertyAccessCause = new Error("selector access failed");
     const throwingOpenAttemptInput = Object.defineProperty(
       {},
@@ -327,11 +328,6 @@ describe("C03 Postgres SessionJournalStore", () => {
       reason: "invalidAttemptPins",
       cause: propertyAccessCause,
     } satisfies Partial<InvalidSessionJournalInputV1Error>);
-    expect(() => Reflect.apply(
-      current.store.openAttempt,
-      undefined,
-      [throwingOpenAttemptInput],
-    )).toThrow(InvalidSessionJournalInputV1Error);
     await expect(
       runEffect(current.store.resolvePointTableEffect(
         current.attempt,
@@ -370,11 +366,13 @@ describe("C03 Postgres SessionJournalStore", () => {
     const failingResolutionStore = createSessionJournalStorePersistenceV1(
       failingResolutionPorts,
     );
-    const failingResolutionAttempt = failingResolutionStore.openAttempt({
-      selector: selectorFromAnchor(current.anchor),
-      snapshotToken: current.anchor.snapshotToken,
-      schemaVersionId: current.schemaVersionId,
-    });
+    const failingResolutionAttempt = await runEffect(
+      failingResolutionStore.openAttemptEffect({
+        selector: selectorFromAnchor(current.anchor),
+        snapshotToken: current.anchor.snapshotToken,
+        schemaVersionId: current.schemaVersionId,
+      }),
+    );
     const resolutionFailure = await runFailure(
       failingResolutionStore.resolvePointTableEffect(
         failingResolutionAttempt,
@@ -386,17 +384,6 @@ describe("C03 Postgres SessionJournalStore", () => {
       operation: "resolveJournalTarget",
       cause: resolutionCause,
     } satisfies Partial<SessionJournalPersistenceV1Error>);
-    await expect(
-      current.store.resolvePointTable(current.attempt, "users"),
-    ).resolves.toBeDefined();
-    await expect(
-      current.store.resolvePointTable(current.attempt, "comments"),
-    ).rejects.toBeInstanceOf(PinnedPointTableNotFoundV1Error);
-    await expect(
-      current.store.resolvePointTable(current.attempt, 42),
-    ).rejects.toMatchObject({
-      reason: "invalidTableName",
-    } satisfies Partial<InvalidSessionJournalInputV1Error>);
     await expect(current.store.runPointOperation(current.table, {
       kind: "patch",
       syscallSequence: syscallSequence(1n),
@@ -425,8 +412,10 @@ describe("C03 Postgres SessionJournalStore", () => {
       [current.deploymentId],
     );
     await expect(
-      current.store.resolvePointTable(current.attempt, "users"),
-    ).rejects.toMatchObject({
+      runFailure(
+        current.store.resolvePointTableEffect(current.attempt, "users"),
+      ),
+    ).resolves.toMatchObject({
       reason: "stableBindingMismatch",
       tableName: decodeSchemaManifestAppTableName("users"),
     } satisfies Partial<PinnedPointTableCorruptionV1Error>);
@@ -751,14 +740,15 @@ describe("C03 Postgres SessionJournalStore", () => {
         },
       },
     );
-    const restartedAttempt = restartedStore.openAttempt({
-      selector: selectorFromAnchor(current.anchor),
-      snapshotToken: current.anchor.snapshotToken,
-      schemaVersionId: current.schemaVersionId,
-    });
-    const restartedTable = await restartedStore.resolvePointTable(
-      restartedAttempt,
-      "users",
+    const restartedAttempt = await runEffect(
+      restartedStore.openAttemptEffect({
+        selector: selectorFromAnchor(current.anchor),
+        snapshotToken: current.anchor.snapshotToken,
+        schemaVersionId: current.schemaVersionId,
+      }),
+    );
+    const restartedTable = await runEffect(
+      restartedStore.resolvePointTableEffect(restartedAttempt, "users"),
     );
     await expect(
       restartedStore.runPointOperation(restartedTable, request),
@@ -2016,12 +2006,4 @@ function removalFieldPrefixes(fieldCount: number): ReadonlyArray<string> {
     { length: fieldCount },
     (_, index) => `r${index.toString(36).padStart(6, "0")}_`,
   );
-}
-
-function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
-  return Effect.runPromise(effect);
-}
-
-function runFailure<A, E>(effect: Effect.Effect<A, E>): Promise<E> {
-  return Effect.runPromise(Effect.flip(effect));
 }

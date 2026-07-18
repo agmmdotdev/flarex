@@ -73,6 +73,10 @@ import {
   withTemporaryPostgresPersistence,
 } from "./postgresHelpers";
 import {
+  runEffect,
+  runEffectFailure as runFailure,
+} from "./effectTestRuntime";
+import {
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
@@ -687,18 +691,22 @@ async function createAttempt(
   const store = createSessionJournalStorePersistenceV1(scope.ports, {
     randomUuid,
   });
-  const attempt = store.openAttempt({
-    selector: {
-      deploymentId: scope.deploymentId,
-      scopeId: scope.scopeId,
-      sessionId: activation.anchor.sessionId,
-      attemptFence: activation.anchor.attemptFence,
-    },
-    snapshotToken: activation.anchor.snapshotToken,
-    schemaVersionId: scope.schemaVersionId,
-  });
+  const attempt = await runEffect(
+    store.openAttemptEffect({
+      selector: {
+        deploymentId: scope.deploymentId,
+        scopeId: scope.scopeId,
+        sessionId: activation.anchor.sessionId,
+        attemptFence: activation.anchor.attemptFence,
+      },
+      snapshotToken: activation.anchor.snapshotToken,
+      schemaVersionId: scope.schemaVersionId,
+    }),
+  );
   if (materialWrite) {
-    const table = await store.resolvePointTable(attempt, "users");
+    const table = await runEffect(
+      store.resolvePointTableEffect(attempt, "users"),
+    );
     await store.runPointOperation(table, {
       kind: "insert",
       syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
@@ -1107,12 +1115,4 @@ async function withTimeout<Value>(
       throw new Error(`${label} did not complete within ${milliseconds} ms.`);
     }),
   ]);
-}
-
-function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
-  return Effect.runPromise(effect);
-}
-
-function runFailure<A, E>(effect: Effect.Effect<A, E>): Promise<E> {
-  return Effect.runPromise(Effect.flip(effect));
 }

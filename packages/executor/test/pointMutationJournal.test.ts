@@ -631,19 +631,9 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
   let completedJournal: CanonicalSessionJournalV1 | undefined;
   let completedResult: CanonicalSuccessfulResultV1 | undefined;
   const persistence = Object.freeze({
-    openAttempt: () => persistenceAttempt,
     openAttemptEffect: () => options.openAttemptFailure === undefined
       ? Effect.succeed(persistenceAttempt)
       : Effect.fail(options.openAttemptFailure),
-    resolvePointTable: async (
-      attempt: unknown,
-      tableName: unknown,
-    ): Promise<unknown> => {
-      if (options.resolvePointTable !== undefined) {
-        return options.resolvePointTable(attempt, tableName);
-      }
-      return Object.freeze({ attempt, tableName });
-    },
     resolvePointTableEffect: (
       attempt: unknown,
       tableName: unknown,

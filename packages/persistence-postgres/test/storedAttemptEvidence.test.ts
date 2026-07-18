@@ -94,6 +94,7 @@ import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
   createSessionJournalStorePersistenceV1,
+  type PinnedPointTableV1,
   type SessionJournalAttemptV1,
   type SessionJournalStorePersistenceV1,
 } from "../src/sessionJournalStore";
@@ -137,6 +138,10 @@ import {
 import {
   pointCommitCommandFromStoredAttemptV1,
 } from "./pointCommitTransactionTestSupport";
+import {
+  runEffect,
+  runEffectFailure as runFailure,
+} from "./effectTestRuntime";
 import {
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
@@ -436,7 +441,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
 
   it("detaches journal, result, and point bytes from driver-owned rows", async () => {
     const current = await scenario("detached_bytes");
-    const table = await current.store.resolvePointTable(current.attempt, "users");
+    const table = await runEffect(
+      current.store.resolvePointTableEffect(current.attempt, "users"),
+    );
     await current.store.runPointOperation(table, {
       kind: "insert",
       syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
@@ -555,7 +562,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         storedSqlClosed = true;
       },
     });
-    const table = await current.store.resolvePointTable(current.attempt, "users");
+    const table = await runEffect(
+      current.store.resolvePointTableEffect(current.attempt, "users"),
+    );
     const insertedThenDeleted = await current.store.runPointOperation(table, {
       kind: "insert",
       syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
@@ -1638,11 +1647,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       randomUuid: nextUuid,
     });
     const authority = authorityFromAnchor(activation.anchor, schemaVersionId);
-    const attempt = store.openAttempt({
-      selector: selectorFromAnchor(activation.anchor),
-      snapshotToken: activation.anchor.snapshotToken,
-      schemaVersionId,
-    });
+    const attempt = await runEffect(
+      store.openAttemptEffect({
+        selector: selectorFromAnchor(activation.anchor),
+        snapshotToken: activation.anchor.snapshotToken,
+        schemaVersionId,
+      }),
+    );
     const loader = createStoredAttemptEvidenceLoaderV1(ports, options);
     return Object.freeze({
       persistence,
@@ -1836,11 +1847,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       anchor: activation.anchor,
       schemaVersionId,
       store,
-      attempt: store.openAttempt({
-        selector: selectorFromAnchor(activation.anchor),
-        snapshotToken: activation.anchor.snapshotToken,
-        schemaVersionId,
-      }),
+      attempt: await runEffect(
+        store.openAttemptEffect({
+          selector: selectorFromAnchor(activation.anchor),
+          snapshotToken: activation.anchor.snapshotToken,
+          schemaVersionId,
+        }),
+      ),
       loader: createStoredAttemptEvidenceLoaderV1(ports, loaderOptions),
       authority: authorityFromAnchor(activation.anchor, schemaVersionId),
       loading: createPointMutationSessionAttemptLoadingV1(
@@ -1930,16 +1943,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     label: string,
     operation: (
       current: Awaited<ReturnType<typeof c04b2Scenario>>,
-      table: Awaited<ReturnType<
-        Awaited<ReturnType<typeof c04b2Scenario>>["store"]["resolvePointTable"]
-      >>,
+      table: PinnedPointTableV1,
     ) => Promise<void>,
     seedRow = false,
   ) {
     const current = await c04b2Scenario(label, {}, seedRow);
-    const table = await current.store.resolvePointTable(
-      current.attempt,
-      "users",
+    const table = await runEffect(
+      current.store.resolvePointTableEffect(current.attempt, "users"),
     );
     await operation(current, table);
     await seal(current);
@@ -1962,16 +1972,13 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     label: string,
     operation?: (
       current: Awaited<ReturnType<typeof c04b2Scenario>>,
-      table: Awaited<ReturnType<
-        Awaited<ReturnType<typeof c04b2Scenario>>["store"]["resolvePointTable"]
-      >>,
+      table: PinnedPointTableV1,
     ) => Promise<void>,
     options: PointCommitTransactionProofOptionsV1 = {},
   ) {
     const current = await c04b2Scenario(label);
-    const table = await current.store.resolvePointTable(
-      current.attempt,
-      "users",
+    const table = await runEffect(
+      current.store.resolvePointTableEffect(current.attempt, "users"),
     );
     await operation?.(current, table);
     const envelope = await seal(current);
@@ -2297,14 +2304,6 @@ function appTable(
       },
     },
   };
-}
-
-function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
-  return Effect.runPromise(effect);
-}
-
-function runFailure<A, E>(effect: Effect.Effect<A, E>): Promise<E> {
-  return Effect.runPromise(Effect.flip(effect));
 }
 
 function deferredSignal(): Readonly<{
