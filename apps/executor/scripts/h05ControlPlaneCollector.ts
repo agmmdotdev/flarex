@@ -40,6 +40,7 @@ import {
   decodeH05ProofRunId,
   h05ProofIdentity,
 } from "../h05/proofIdentity";
+import { requireH05StringValue } from "../h05/requiredStringValue";
 import { cloudflareAccountId } from "./cloudflareApiConfiguration";
 import type { H05CloudflareReadApi, H05CloudflareReadResult } from "./cloudflareReadApi";
 
@@ -302,7 +303,7 @@ async function collectHyperdriveSnapshot(options: {
 export function decodeH05ExpectedPostgresTarget(
   input: H05ExpectedPostgresTargetInput,
 ): H05ExpectedPostgresTarget {
-  const rawDatabaseUrl = requiredValue(
+  const rawDatabaseUrl = requireH05StringValue(
     input.databaseUrl,
     "FLAREX_H05_POSTGRES_DATABASE_URL",
   );
@@ -345,7 +346,7 @@ export function decodeH05ExpectedPostgresTarget(
       "FLAREX_H05_POSTGRES_DATABASE_URL must contain a valid encoded database name.",
     );
   }
-  const expectedDatabaseName = requiredValue(
+  const expectedDatabaseName = requireH05StringValue(
     input.expectedDatabaseName,
     "FLAREX_H05_EXPECTED_DATABASE_NAME",
   );
@@ -1180,12 +1181,6 @@ function stringValue(value: unknown, path: string): string {
     throw new Error(`${path} must be a non-empty string.`);
   }
   return value;
-}
-
-function requiredValue(value: string | undefined, name: string): string {
-  const normalized = value?.trim();
-  if (normalized !== undefined && normalized.length > 0) return normalized;
-  throw new Error(`${name} is required.`);
 }
 
 function booleanValue(value: unknown, path: string): boolean {

@@ -27,6 +27,7 @@ import {
   h05ProofIdentity,
   type H05ProofRunId,
 } from "./proofIdentity";
+import { requireH05StringValue } from "./requiredStringValue";
 import {
   compileH05InvocationReceipt,
   h05AuthorizedInvocationCount,
@@ -288,7 +289,7 @@ export function decodeHostedExecutorOccProofConfig(
       "FLAREX_H05_ALLOW_STAGING_MUTATION=yes is required for the hosted proof.",
     );
   }
-  const rawDatabaseUrl = requiredValue(
+  const rawDatabaseUrl = requireH05StringValue(
     input.FLAREX_H05_POSTGRES_DATABASE_URL,
     "FLAREX_H05_POSTGRES_DATABASE_URL",
   );
@@ -315,7 +316,7 @@ export function decodeHostedExecutorOccProofConfig(
     );
   }
   const databaseName = decodeDatabaseName(parsedDatabaseUrl.pathname);
-  const expectedDatabaseName = requiredValue(
+  const expectedDatabaseName = requireH05StringValue(
     input.FLAREX_H05_EXPECTED_DATABASE_NAME,
     "FLAREX_H05_EXPECTED_DATABASE_NAME",
   );
@@ -353,7 +354,7 @@ export function decodeHostedExecutorOccProofConfig(
   }
   const databaseUrl = parsedDatabaseUrl.toString();
 
-  const rawProbeUrl = requiredValue(
+  const rawProbeUrl = requireH05StringValue(
     input.FLAREX_H05_PROBE_URL,
     "FLAREX_H05_PROBE_URL",
   );
@@ -371,7 +372,7 @@ export function decodeHostedExecutorOccProofConfig(
   }
   probeUrl.pathname = "/";
 
-  const probeToken = requiredValue(
+  const probeToken = requireH05StringValue(
     input.FLAREX_H05_PROBE_TOKEN,
     "FLAREX_H05_PROBE_TOKEN",
   );
@@ -648,15 +649,6 @@ async function assertRemotePostgresResolution(hostname: string): Promise<void> {
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
   }
-}
-
-function requiredValue(
-  value: string | undefined,
-  name: string,
-): string {
-  const normalized = value?.trim();
-  if (normalized !== undefined && normalized.length > 0) return normalized;
-  throw new Error(`${name} is required.`);
 }
 
 async function recordCleanupError(
