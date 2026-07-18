@@ -435,7 +435,8 @@ function decodeInputManifest(manifest: unknown): SchemaManifestJson {
   }
 }
 
-async function selectSchemaVersionArtifactById(
+/** Package-internal raw row acquisition; callers own stored-row decoding. */
+export async function selectSchemaVersionArtifactById(
   db: FlarexMetadataDatabase,
   deploymentId: string,
   schemaVersionId: CatalogSchemaVersionId,
@@ -471,7 +472,7 @@ async function selectSchemaVersionArtifactByVersion(
   return rows[0] ?? null;
 }
 
-type SchemaVersionArtifactRow =
+export type SchemaVersionArtifactRow =
   typeof fxControlSchemaVersions.$inferSelect;
 
 interface StoredSchemaVersionArtifact
@@ -483,7 +484,8 @@ interface StoredSchemaVersionArtifact
   readonly createdAt: Date;
 }
 
-async function decodeSchemaVersionArtifactRow(
+/** Package-internal integrity decoder for a row acquired from Postgres. */
+export async function decodeSchemaVersionArtifactRow(
   row: SchemaVersionArtifactRow,
 ): Promise<SchemaVersionArtifact> {
   const stored = decodeStoredSchemaVersionArtifactRow(row);

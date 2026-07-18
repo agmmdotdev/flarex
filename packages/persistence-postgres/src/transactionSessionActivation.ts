@@ -95,7 +95,9 @@ import {
 } from "./scopeAuthorityResolution";
 import type { ScopePhysicalLocator } from "./scopeMetadataTypes";
 import { captureScopePhysicalLocator } from "./scopePhysicalLocator";
-import { resolvePinnedPointTableIdV1 } from "./pinnedPointTableResolution";
+import {
+  resolvePinnedPointTableIdV1Effect,
+} from "./pinnedPointTableResolution";
 import {
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
@@ -103,7 +105,7 @@ import {
   fxSystemTransactionSessions,
 } from "./schema";
 import {
-  RESOLVE_PINNED_POINT_TABLE_ID_V1,
+  RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1,
   RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
   ExactRunningAttemptTransactionV1Error,
   LocatedReadCommittedTransactionFailureV1,
@@ -838,10 +840,11 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       work,
       afterLoadLock,
     ),
-    [RESOLVE_PINNED_POINT_TABLE_ID_V1]: resolvePinnedPointTableIdV1.bind(
-      undefined,
-      db,
-    ),
+    [RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1]:
+      resolvePinnedPointTableIdV1Effect.bind(
+        undefined,
+        db,
+      ),
     [RUN_LOCATED_REPEATABLE_READ_V1]: <Result>(
       work: (tx: AppRowTransaction) => Promise<Result>,
     ): Promise<Result> => db.transaction(async (tx) => {

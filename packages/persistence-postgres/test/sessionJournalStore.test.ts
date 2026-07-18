@@ -57,6 +57,11 @@ import {
   type AppRowValueEvidenceV1,
 } from "../src/appRows";
 import {
+  PinnedPointTablePersistenceV1Error,
+  resolvePinnedPointTableIdV1Effect,
+  type ResolvePinnedPointTableIdV1Input,
+} from "../src/pinnedPointTableResolution";
+import {
   createPGliteLocatedPointMutationSessionActivationTargetV1,
   createPGlitePersistence,
   createPGliteSharedScopeAuthorityProvisioner,
@@ -66,6 +71,9 @@ import {
   resolveLocatedTrustedScopeAuthorityEffect,
   type LocatedScopeClockReader,
 } from "../src/scopeAuthorityResolution";
+import {
+  SchemaVersionArtifactCorruptionError,
+} from "../src/schemaVersionArtifacts";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
   InvalidSessionJournalInputV1Error,
@@ -92,6 +100,7 @@ import {
 } from "../src/transactionSessionActivation";
 import {
   ExactRunningAttemptTransactionV1Error,
+  RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1,
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
   isLocatedExactRunningAttemptKernelV1,
   reconcileExactRunningAttemptTransactionFailureV1,
@@ -443,6 +452,145 @@ describe("C03 Postgres SessionJournalStore", () => {
       reason: "stableBindingMismatch",
       tableName: decodeSchemaManifestAppTableName("users"),
     } satisfies Partial<PinnedPointTableCorruptionV1Error>);
+  });
+
+  it("classifies an invalid pinned manifest as stored catalog corruption", async () => {
+    const current = await scenario("table_resolution_manifest_corruption");
+    await persistence.query(
+      `
+        update fx_control_schema_version
+        set manifest_json = '{}'::jsonb
+        where deployment_id = $1 and schema_version_id = $2
+      `,
+      [current.deploymentId, current.schemaVersionId],
+    );
+
+    const failure = await runFailure(current.store.resolvePointTableEffect(
+      current.attempt,
+      "users",
+    ));
+    expect(failure).toBeInstanceOf(PinnedPointTableCorruptionV1Error);
+    expect(failure).toMatchObject({
+      reason: "schemaArtifactInvalid",
+      cause: expect.any(SchemaVersionArtifactCorruptionError),
+    } satisfies Partial<PinnedPointTableCorruptionV1Error>);
+  });
+
+  it("maps a pinned table query rejection once at the resolver boundary", async () => {
+    const current = await scenario("table_resolution_sql_failure");
+    const input = {
+      deploymentId: current.deploymentId,
+      schemaVersionId: current.schemaVersionId,
+      tableName: decodeSchemaManifestAppTableName("users"),
+    };
+    const queryFailure = new Error("pinned schema query unavailable");
+    const failingDatabase = rejectSelectedQuery(
+      persistence.drizzle,
+      1,
+      () => Promise.reject(queryFailure),
+    );
+    await expect(runFailure(resolvePinnedPointTableIdV1Effect(
+      failingDatabase,
+      input,
+    ))).resolves.toMatchObject({
+      operation: "loadSchemaArtifact",
+      cause: queryFailure,
+    } satisfies Partial<PinnedPointTablePersistenceV1Error>);
+
+    const bindingQueryFailure = new Error(
+      "pinned stable binding query unavailable",
+    );
+    const bindingFailingDatabase = rejectSelectedQuery(
+      persistence.drizzle,
+      2,
+      () => Promise.reject(bindingQueryFailure),
+    );
+    await expect(runFailure(resolvePinnedPointTableIdV1Effect(
+      bindingFailingDatabase,
+      input,
+    ))).resolves.toMatchObject({
+      operation: "loadStableBinding",
+      cause: bindingQueryFailure,
+    } satisfies Partial<PinnedPointTablePersistenceV1Error>);
+
+    const basePorts = resolutionPorts(persistence);
+    const sessionFailingDatabase = rejectSelectedQuery(
+      persistence.drizzle,
+      1,
+      () => Promise.reject(queryFailure),
+    );
+    const failingPorts = {
+      ...basePorts,
+      scopeSessionTargets: {
+        resolve: async (physicalLocator) => {
+          const target = await basePorts.scopeSessionTargets.resolve(
+            physicalLocator,
+          );
+          return Object.freeze({
+            ...target,
+            [RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1]: (
+              resolutionInput: ResolvePinnedPointTableIdV1Input,
+            ) =>
+              resolvePinnedPointTableIdV1Effect(
+                sessionFailingDatabase,
+                resolutionInput,
+              ),
+          });
+        },
+      },
+    } satisfies PointMutationSessionAuthorityResolutionPortsV1;
+    const store = createSessionJournalStorePersistenceV1(failingPorts);
+    const attempt = await runEffect(store.openAttemptEffect({
+      selector: selectorFromAnchor(current.anchor),
+      snapshotToken: current.anchor.snapshotToken,
+      schemaVersionId: current.schemaVersionId,
+    }));
+    await expect(runFailure(store.resolvePointTableEffect(
+      attempt,
+      "users",
+    ))).resolves.toMatchObject({
+      operation: "resolvePinnedPointTable",
+      cause: queryFailure,
+    } satisfies Partial<SessionJournalPersistenceV1Error>);
+  });
+
+  it("waits for an outstanding pinned table query after interruption", async () => {
+    const current = await scenario("table_resolution_interruption");
+    const entered = deferredSignal();
+    const release = deferredSignal();
+    const queryFailure = new Error("interrupted pinned table query settled");
+    const pendingDatabase = rejectSelectedQuery(
+      persistence.drizzle,
+      1,
+      async () => {
+        entered.resolve();
+        await release.promise;
+        throw queryFailure;
+      },
+    );
+    const fiber = Effect.runFork(resolvePinnedPointTableIdV1Effect(
+      pendingDatabase,
+      {
+        deploymentId: current.deploymentId,
+        schemaVersionId: current.schemaVersionId,
+        tableName: decodeSchemaManifestAppTableName("users"),
+      },
+    ));
+
+    await entered.promise;
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then((exit) => {
+      interruptionSettled = true;
+      return exit;
+    });
+    try {
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      release.resolve();
+    }
+    await interruption;
+    expect(interruptionSettled).toBe(true);
   });
 
   it("keeps one durable latest receipt across replay, mismatch, gap, and stale delivery", async () => {
@@ -2515,6 +2663,50 @@ function deferredSignal(): Readonly<{
       resolveSignal();
     },
   });
+}
+
+function rejectSelectedQuery(
+  database: PGliteFlarexPersistence["drizzle"],
+  rejectedSelectNumber: number,
+  rejectQuery: () => Promise<never>,
+): PGliteFlarexPersistence["drizzle"] {
+  let selectNumber = 0;
+  return new Proxy(database, {
+    get(target, property, receiver) {
+      if (property !== "select") {
+        return Reflect.get(target, property, receiver);
+      }
+      return (...args: Array<unknown>) => {
+        selectNumber += 1;
+        return selectNumber === rejectedSelectNumber
+          ? new RejectingSelectQuery(rejectQuery)
+          : Reflect.apply(target.select, target, args);
+      };
+    },
+  });
+}
+
+class RejectingSelectQuery {
+  constructor(private readonly rejectQuery: () => Promise<never>) {}
+
+  from(): this {
+    return this;
+  }
+
+  where(): this {
+    return this;
+  }
+
+  limit(): this {
+    return this;
+  }
+
+  then(
+    onfulfilled?: ((value: never) => unknown) | null,
+    onrejected?: ((reason: unknown) => unknown) | null,
+  ): Promise<unknown> {
+    return this.rejectQuery().then(onfulfilled, onrejected);
+  }
 }
 
 async function delay(milliseconds: number): Promise<void> {

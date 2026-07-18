@@ -125,6 +125,7 @@ import {
 import {
   PinnedPointTableCorruptionV1Error,
   PinnedPointTableNotFoundV1Error,
+  PinnedPointTablePersistenceV1Error,
 } from "./pinnedPointTableResolution";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
@@ -144,7 +145,7 @@ import {
 } from "./schema";
 import {
   ExactRunningAttemptTransactionV1Error,
-  RESOLVE_PINNED_POINT_TABLE_ID_V1,
+  RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1,
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
   RUN_LOCATED_REPEATABLE_READ_V1,
   isLocatedExactRunningAttemptKernelV1,
@@ -796,14 +797,13 @@ export function createSessionJournalStorePersistenceV1(
       })),
     );
     const resolved = yield* resolveJournalTargetEffect(attemptState);
-    const tableId = yield* Effect.tryPromise({
-      try: () => resolved.target[RESOLVE_PINNED_POINT_TABLE_ID_V1]({
-        deploymentId: attemptState.selector.deploymentId,
-        schemaVersionId: attemptState.schemaVersionId,
-        tableName,
-      }),
-      catch: mapPointTableResolutionFailure,
-    });
+    const tableId = yield* resolved.target[
+      RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1
+    ]({
+      deploymentId: attemptState.selector.deploymentId,
+      schemaVersionId: attemptState.schemaVersionId,
+      tableName,
+    }).pipe(Effect.mapError(mapPointTableResolutionFailure));
     const state = Object.freeze({
       attempt: attemptState,
       tableName,
@@ -957,18 +957,20 @@ export function createSessionJournalStorePersistenceV1(
 }
 
 function mapPointTableResolutionFailure(
-  cause: unknown,
+  cause:
+    | PinnedPointTableCorruptionV1Error
+    | PinnedPointTableNotFoundV1Error
+    | PinnedPointTablePersistenceV1Error,
 ):
   | PinnedPointTableCorruptionV1Error
   | PinnedPointTableNotFoundV1Error
   | SessionJournalPersistenceV1Error {
-  return cause instanceof PinnedPointTableCorruptionV1Error ||
-      cause instanceof PinnedPointTableNotFoundV1Error
-    ? cause
-    : new SessionJournalPersistenceV1Error({
-      operation: "resolvePinnedPointTable",
-      cause,
-    });
+  return cause instanceof PinnedPointTablePersistenceV1Error
+    ? new SessionJournalPersistenceV1Error({
+        operation: "resolvePinnedPointTable",
+        cause: cause.cause,
+      })
+    : cause;
 }
 
 function mapPrepareSealSnapshotFailure(

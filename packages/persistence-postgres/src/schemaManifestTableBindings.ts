@@ -313,8 +313,31 @@ export async function readSchemaManifestAppTableBindings(
   deploymentId: string,
   logicalNames: ReadonlyArray<SchemaManifestAppTableName>,
 ): Promise<ReadonlyMap<SchemaManifestAppTableName, CatalogTableId>> {
-  if (logicalNames.length === 0) return new Map();
-  const rows = await db
+  const rows = await selectSchemaManifestAppTableBindingRows(
+    db,
+    deploymentId,
+    logicalNames,
+  );
+  return decodeSchemaManifestAppTableBindingRows(
+    deploymentId,
+    logicalNames,
+    rows,
+  );
+}
+
+export type SchemaManifestAppTableBindingRow = Pick<
+  typeof fxControlTables.$inferSelect,
+  "deploymentId" | "tableId" | "logicalName"
+>;
+
+/** Package-internal raw row acquisition; callers own stored-row decoding. */
+export async function selectSchemaManifestAppTableBindingRows(
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+  logicalNames: ReadonlyArray<SchemaManifestAppTableName>,
+): Promise<ReadonlyArray<SchemaManifestAppTableBindingRow>> {
+  if (logicalNames.length === 0) return [];
+  return db
     .select({
       deploymentId: fxControlTables.deploymentId,
       tableId: fxControlTables.tableId,
@@ -328,6 +351,14 @@ export async function readSchemaManifestAppTableBindings(
         inArray(fxControlTables.logicalName, logicalNames),
       ),
     );
+}
+
+/** Package-internal decoder for rows acquired from the stable table catalog. */
+export function decodeSchemaManifestAppTableBindingRows(
+  deploymentId: string,
+  logicalNames: ReadonlyArray<SchemaManifestAppTableName>,
+  rows: ReadonlyArray<SchemaManifestAppTableBindingRow>,
+): ReadonlyMap<SchemaManifestAppTableName, CatalogTableId> {
   const requestedNames = new Set(logicalNames);
   const bindings = new Map<SchemaManifestAppTableName, CatalogTableId>();
   for (const row of rows) {

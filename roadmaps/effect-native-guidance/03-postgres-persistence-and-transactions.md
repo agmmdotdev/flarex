@@ -130,6 +130,19 @@ driver-level begin/commit/rollback
 classification beyond the callback-versus-infrastructure distinction remains
 a later adapter slice.
 
+Pinned point-table resolution is now Effect-native across the session store,
+located target capability, and resolver. The obsolete Promise capability and
+the session store's outer `tryPromise` reconstruction are deleted. Immutable
+manifest membership remains authoritative and the stable deployment binding
+remains corroboration. Missing declarations stay a typed not-found outcome;
+malformed stored artifacts or binding rows are typed catalog corruption with
+their source cause retained; database rejections are mapped once at the two
+narrow interruption-masked Drizzle read edges and translated once by the
+session store. Raw row acquisition is split from manifest integrity work and
+stable-binding decoding, so cancellation masking does not extend through
+canonicalization, hashing, or owned stored-row validation. The resolver still
+never reads the mutable active-schema pointer.
+
 ## Target Boundary
 
 The target public persistence capability should expose exact Effect methods:

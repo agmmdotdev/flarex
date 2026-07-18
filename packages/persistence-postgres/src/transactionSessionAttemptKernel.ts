@@ -1,13 +1,12 @@
 import { Cause, Data, Effect } from "effect";
 import type { CatalogTableId } from "flarex-protocol/catalog";
-import type {
-  CatalogSchemaVersionId,
-  SchemaManifestAppTableName,
-} from "flarex-protocol/schema-manifest";
 import type { ScopeUuidV1 } from "flarex-protocol/storage-authority";
-import type { TransactionGrantDeploymentIdV1 } from "flarex-protocol/transaction-grant";
 
 import type { AppRowTransaction } from "./appRows";
+import type {
+  ResolvePinnedPointTableIdV1Error,
+  ResolvePinnedPointTableIdV1Input,
+} from "./pinnedPointTableResolution";
 import type {
   LocatedScopeClockReader,
   TrustedScopeAuthority,
@@ -50,8 +49,8 @@ export type ExactRunningAttemptEffectWorkV1<Result, Failure> = (
 export const RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1: unique symbol =
   Symbol("FlarexDB/runExactRunningPointMutationAttemptEffectV1");
 
-export const RESOLVE_PINNED_POINT_TABLE_ID_V1: unique symbol = Symbol(
-  "FlarexDB/resolvePinnedPointTableIdV1",
+export const RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1: unique symbol = Symbol(
+  "FlarexDB/resolvePinnedPointTableIdEffectV1",
 );
 
 export const RUN_LOCATED_REPEATABLE_READ_V1: unique symbol = Symbol(
@@ -109,11 +108,9 @@ export interface LocatedExactRunningAttemptKernelV1
     input: ExactRunningAttemptKernelInputV1,
     work: ExactRunningAttemptEffectWorkV1<Result, Failure>,
   ) => Effect.Effect<Result, Failure | ExactRunningAttemptTransactionV1Error>;
-  readonly [RESOLVE_PINNED_POINT_TABLE_ID_V1]: (input: {
-    readonly deploymentId: TransactionGrantDeploymentIdV1;
-    readonly schemaVersionId: CatalogSchemaVersionId;
-    readonly tableName: SchemaManifestAppTableName;
-  }) => Promise<CatalogTableId>;
+  readonly [RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1]: (
+    input: ResolvePinnedPointTableIdV1Input,
+  ) => Effect.Effect<CatalogTableId, ResolvePinnedPointTableIdV1Error>;
   readonly [RUN_LOCATED_REPEATABLE_READ_V1]: <Result>(
     work: (tx: AppRowTransaction) => Promise<Result>,
   ) => Promise<Result>;
@@ -186,7 +183,10 @@ export function isLocatedExactRunningAttemptKernelV1(
       target,
       RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
     ) === "function" &&
-    typeof Reflect.get(target, RESOLVE_PINNED_POINT_TABLE_ID_V1) === "function"
+    typeof Reflect.get(
+      target,
+      RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1,
+    ) === "function"
     && typeof Reflect.get(target, RUN_LOCATED_REPEATABLE_READ_V1) === "function"
     && typeof Reflect.get(target, RUN_LOCATED_READ_COMMITTED_V1) === "function"
   );
