@@ -8,9 +8,9 @@ import {
   CommitMaterialWriteEventEvidenceBytesV1Schema,
 } from "flarex-protocol/commit-protocol";
 import {
-  isJson,
   isJsonArray,
   isJsonObject,
+  isJsonObjectFromUnknown,
   jsonEqual,
   type Json,
   type JsonObject,
@@ -1799,10 +1799,8 @@ function capturePreparedActivation(
 ): PreparedPointMutationSessionActivationV1 {
   const evidence = input.evidence;
   if (
-    !isJson(evidence.validatedArgsJson) ||
-    !isJsonObject(evidence.validatedArgsJson) ||
-    !isJson(evidence.authorizationGrantJson) ||
-    !isJsonObject(evidence.authorizationGrantJson)
+    !isJsonObjectFromUnknown(evidence.validatedArgsJson) ||
+    !isJsonObjectFromUnknown(evidence.authorizationGrantJson)
   ) {
     throw activationError({ reason: "invalidPreparedEvidence" });
   }

@@ -208,6 +208,31 @@ describe("O03-B1 point-mutation session activation", () => {
     });
   });
 
+  it("rejects non-JSON prepared evidence before persistence", async () => {
+    const context = await provisionContext("invalid_prepared_json");
+    const activation = activationPersistence();
+
+    for (const evidence of [
+      { validatedArgsJson: { nested: Number.POSITIVE_INFINITY } },
+      { authorizationGrantJson: { nested: Number.POSITIVE_INFINITY } },
+    ]) {
+      const input = pointMutationSessionActivationFixture(
+        context.deploymentId,
+        context.scopeId,
+        { evidence },
+      );
+
+      await expect(activation.activate(input)).rejects.toMatchObject({
+        issue: { reason: "invalidPreparedEvidence" },
+      } satisfies Partial<PointMutationSessionActivationV1Error>);
+    }
+
+    await expect(rowCounts(persistence, context.scopeId)).resolves.toEqual({
+      sessions: 0,
+      leases: 0,
+    });
+  });
+
   it("preserves __proto__ as validated argument data across persistence and replay", async () => {
     const context = await provisionContext("proto_argument");
     const validatedArgsJson = jsonObjectWithProtoData();

@@ -12,6 +12,7 @@ import {
   isJson,
   isJsonArray,
   isJsonObject,
+  isJsonObjectFromUnknown,
   type CanonicalJsonEncodingInvariantIssue,
   type Json,
   type JsonObject,
@@ -453,7 +454,7 @@ function isCanonicalValueEnvelope(
   readonly value: Json;
   readonly valueCodecVersion: 1;
 }> {
-  if (!isJson(value) || !isJsonObject(value)) {
+  if (!isJsonObjectFromUnknown(value)) {
     return false;
   }
   const record = value;

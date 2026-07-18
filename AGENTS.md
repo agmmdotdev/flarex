@@ -137,7 +137,14 @@ When a value is already typed as Flarex `Json` or `WritableJson`, use the
 protocol-owned `isJsonObject` or `isWritableJsonObject` discriminator instead
 of rediscovering that union member with the generic unknown-record predicate.
 Those discriminators classify validated JSON; they do not validate unknown
-input.
+input. When unknown input must satisfy the complete Flarex JSON object
+contract, use protocol-owned `isJsonObjectFromUnknown`; use
+`isWritableJsonObjectFromUnknown` only when the writable compatibility type is
+actually required. These guards recursively validate JSON membership,
+including finite numbers, dense arrays, plain prototypes, string-only keys,
+and acyclic structure, but they do not impose a byte limit, canonical encoding,
+domain payload shape, authority, or runtime mutability. Keep those stronger
+claims with their owner.
 Raw HTTP JSON readers return `unknown`. An unconstrained generic type argument
 or assertion does not validate a response body and must not let callers choose
 an arbitrary success type. Keep the domain-owned payload decoder as the sole

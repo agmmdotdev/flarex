@@ -5,9 +5,11 @@ import {
   isJson,
   isJsonArray,
   isJsonObject,
+  isJsonObjectFromUnknown,
   isWritableJsonObject,
   isWritableJsonObjectFromUnknown,
   jsonEqual,
+  Json as JsonSchema,
   JsonValue,
   type CanonicalJsonEncodingInvariantIssue,
   type Json,
@@ -17,6 +19,7 @@ import {
 } from "../src/json";
 
 const decodeJson = Schema.decodeUnknownSync(JsonValue);
+const decodeJsonSchema = Schema.decodeUnknownSync(JsonSchema);
 
 function failCanonicalJsonEncoding(
   issue: CanonicalJsonEncodingInvariantIssue,
@@ -48,7 +51,28 @@ function expectUnknownWritableJsonObjectNarrowing(value: unknown): void {
   }
 }
 
+function expectUnknownJsonObjectNarrowing(value: unknown): void {
+  if (isJsonObjectFromUnknown(value)) {
+    expectTypeOf(value).toEqualTypeOf<JsonObject>();
+  }
+}
+
 describe("protocol JSON", () => {
+  it("uses one exact runtime contract for both exported JSON schemas", () => {
+    const symbolProperty = { value: true, [Symbol("hidden")]: false };
+
+    expect(JsonSchema).toBe(JsonValue);
+    for (const invalidValue of [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      new Date(0),
+      symbolProperty,
+    ]) {
+      expect(() => decodeJson(invalidValue)).toThrow();
+      expect(() => decodeJsonSchema(invalidValue)).toThrow();
+    }
+  });
+
   it("provides a writable compatibility shape without changing canonical JSON", () => {
     const writable = { nested: [1] } satisfies WritableJson;
 
@@ -105,7 +129,59 @@ describe("protocol JSON", () => {
     expect(isJson(cyclicObject)).toBe(false);
     expect(isJson(cyclicArray)).toBe(false);
     expect(isJson({ left: shared, right: shared })).toBe(true);
+    expect(isJsonObjectFromUnknown(cyclicObject)).toBe(false);
     expect(isWritableJsonObjectFromUnknown(cyclicObject)).toBe(false);
+  });
+
+  it("validates deeply nested JSON without consuming the JavaScript call stack", () => {
+    let valid: unknown = true;
+    let invalid: unknown = Number.POSITIVE_INFINITY;
+    for (let depth = 0; depth < 10_000; depth += 1) {
+      valid = { nested: valid };
+      invalid = { nested: invalid };
+    }
+
+    expect(isJsonObjectFromUnknown(valid)).toBe(true);
+    expect(isJsonObjectFromUnknown(invalid)).toBe(false);
+    expect(() => decodeJsonSchema(valid)).not.toThrow();
+  });
+
+  it("preserves container evaluation order and native defects", () => {
+    let laterObjectRead = false;
+    const object: Record<string, unknown> = {
+      first: Number.POSITIVE_INFINITY,
+    };
+    Object.defineProperty(object, "second", {
+      enumerable: true,
+      get: () => {
+        laterObjectRead = true;
+        return true;
+      },
+    });
+    expect(isJson(object)).toBe(false);
+    expect(laterObjectRead).toBe(true);
+
+    let laterArrayRead = false;
+    const array: unknown[] = [Number.POSITIVE_INFINITY, true];
+    Object.defineProperty(array, 1, {
+      enumerable: true,
+      get: () => {
+        laterArrayRead = true;
+        return true;
+      },
+    });
+    expect(isJson(array)).toBe(false);
+    expect(laterArrayRead).toBe(false);
+
+    const defect = new Error("JSON getter defect");
+    const defective: Record<string, unknown> = {};
+    Object.defineProperty(defective, "value", {
+      enumerable: true,
+      get: () => {
+        throw defect;
+      },
+    });
+    expect(() => isJson(defective)).toThrow(defect);
   });
 
   it("encodes validated JSON with deterministic key order and spelling", () => {
@@ -155,18 +231,24 @@ describe("protocol JSON", () => {
     expectJsonObjectNarrowing(value);
   });
 
-  it("validates unknown input before exposing a writable JSON object", () => {
+  it("validates unknown input before exposing JSON object shapes", () => {
     const value: unknown = { nested: [true, null, 1, "value"] };
+    const invalidValues: ReadonlyArray<unknown> = [
+      [],
+      new Date(0),
+      { nested: Number.POSITIVE_INFINITY },
+      { nested: undefined },
+      { [Symbol("hidden")]: true },
+    ];
 
+    expect(isJsonObjectFromUnknown(value)).toBe(true);
     expect(isWritableJsonObjectFromUnknown(value)).toBe(true);
-    expect(isWritableJsonObjectFromUnknown([])).toBe(false);
-    expect(isWritableJsonObjectFromUnknown(new Date(0))).toBe(false);
-    expect(
-      isWritableJsonObjectFromUnknown({ nested: Number.POSITIVE_INFINITY }),
-    ).toBe(false);
-    expect(isWritableJsonObjectFromUnknown({ nested: undefined })).toBe(false);
-    expect(isWritableJsonObjectFromUnknown({ [Symbol("hidden")]: true })).toBe(false);
+    for (const invalidValue of invalidValues) {
+      expect(isJsonObjectFromUnknown(invalidValue)).toBe(false);
+      expect(isWritableJsonObjectFromUnknown(invalidValue)).toBe(false);
+    }
 
+    expectUnknownJsonObjectNarrowing(value);
     expectUnknownWritableJsonObjectNarrowing(value);
   });
 

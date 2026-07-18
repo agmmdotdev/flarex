@@ -7,7 +7,10 @@ import {
   isPositiveSafeInteger,
 } from "@flarex/utils/numbers";
 import type { CatalogTableId } from "flarex-protocol/catalog";
-import type { JsonObject } from "flarex-protocol/json";
+import {
+  isJsonObjectFromUnknown,
+  type JsonObject,
+} from "flarex-protocol/json";
 import {
   MAX_SCHEMA_MANIFEST_APP_TABLES,
   canonicalizeSchemaManifestV1,
@@ -789,12 +792,13 @@ function parseJsonText(value: string): unknown {
 }
 
 function parseJsonObjectText(value: string): JsonObject | undefined {
+  let parsed: unknown;
   try {
-    const parsed = parseJsonText(value);
-    return isJsonObject(parsed) ? parsed : undefined;
+    parsed = parseJsonText(value);
   } catch {
     return undefined;
   }
+  return isJsonObjectFromUnknown(parsed) ? parsed : undefined;
 }
 
 function utf8ByteLength(value: string): number {
@@ -815,12 +819,4 @@ function validDate(value: Date): boolean {
 
 function validByteLength(value: Uint8Array, length: number): boolean {
   return value instanceof Uint8Array && value.byteLength === length;
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-  return typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    !(value instanceof Uint8Array) &&
-    !(value instanceof Date);
 }

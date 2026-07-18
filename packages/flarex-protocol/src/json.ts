@@ -34,22 +34,14 @@ export type CanonicalJsonEncodingInvariantIssue =
     }>
   | Readonly<{ readonly reason: "primitiveEncodingFailed" }>;
 
-export const Json: Schema.Schema<Json> = Schema.suspend(() =>
-  Schema.Union([
-    Schema.Null,
-    Schema.Boolean,
-    Schema.Number,
-    Schema.String,
-    Schema.Array(Json),
-    Schema.Record(Schema.String, Json),
-  ]),
-);
-
 export const JsonValue = Schema.declare<Json>(isJson, {
   title: "JsonValue",
   description:
     "A JSON value: null, boolean, finite number, string, array, or plain record.",
 });
+
+/** Compatibility name for the same exact protocol JSON Schema. */
+export const Json = JsonValue;
 
 /**
  * Discriminates the array member of an already-validated JSON value.
@@ -67,6 +59,16 @@ export function isJsonObject(value: Json): value is JsonObject {
   return isNonArrayRecord(value);
 }
 
+/**
+ * Validates unknown input against the complete JSON contract before exposing
+ * its readonly object member. This does not copy or freeze the input.
+ */
+export function isJsonObjectFromUnknown(
+  value: unknown,
+): value is JsonObject {
+  return isJson(value) && isJsonObject(value);
+}
+
 /** Discriminates the object member of writable compatibility JSON. */
 export function isWritableJsonObject(
   value: WritableJson,
@@ -81,7 +83,7 @@ export function isWritableJsonObject(
 export function isWritableJsonObjectFromUnknown(
   value: unknown,
 ): value is WritableJsonObject {
-  return isJson(value) && isJsonObject(value);
+  return isJsonObjectFromUnknown(value);
 }
 
 /** Compares validated JSON values without depending on object key order. */
@@ -171,56 +173,98 @@ export function encodeCanonicalJson(
 }
 
 export function isJson(value: unknown): value is Json {
-  return isJsonWithAncestors(value, new WeakSet<object>());
-}
-
-function isJsonWithAncestors(
-  value: unknown,
-  ancestors: WeakSet<object>,
-): value is Json {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean"
-  ) {
-    return true;
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value);
-  }
-  if (Array.isArray(value)) {
-    if (ancestors.has(value)) return false;
-    ancestors.add(value);
-    try {
-      for (let index = 0; index < value.length; index += 1) {
-        if (!Object.hasOwn(value, index)) return false;
-        const item = value[index];
-        if (item === undefined || !isJsonWithAncestors(item, ancestors)) {
+  const ancestors = new WeakSet<object>();
+  const frames: JsonValidationFrame[] = [{ kind: "value", value }];
+  while (frames.length > 0) {
+    const frame = frames.pop();
+    if (frame === undefined) {
+      throw new Error("JSON validation stack lost a frame.");
+    }
+    switch (frame.kind) {
+      case "value": {
+        const current = frame.value;
+        if (
+          current === null ||
+          typeof current === "string" ||
+          typeof current === "boolean"
+        ) {
+          break;
+        }
+        if (typeof current === "number") {
+          if (!Number.isFinite(current)) return false;
+          break;
+        }
+        if (Array.isArray(current)) {
+          if (ancestors.has(current)) return false;
+          ancestors.add(current);
+          frames.push({ kind: "array", value: current, index: 0 });
+          break;
+        }
+        if (typeof current !== "object") return false;
+        const prototype = Object.getPrototypeOf(current);
+        if (prototype !== Object.prototype && prototype !== null) {
           return false;
         }
+        if (Object.getOwnPropertySymbols(current).length > 0) {
+          return false;
+        }
+        if (ancestors.has(current)) return false;
+        ancestors.add(current);
+        frames.push({
+          kind: "object",
+          value: current,
+          values: Object.values(current as Record<string, unknown>),
+          index: 0,
+        });
+        break;
       }
-      return true;
-    } finally {
-      ancestors.delete(value);
+      case "array": {
+        if (frame.index >= frame.value.length) {
+          ancestors.delete(frame.value);
+          break;
+        }
+        if (!Object.hasOwn(frame.value, frame.index)) return false;
+        const item = frame.value[frame.index];
+        if (item === undefined) return false;
+        frames.push({
+          kind: "array",
+          value: frame.value,
+          index: frame.index + 1,
+        });
+        frames.push({ kind: "value", value: item });
+        break;
+      }
+      case "object": {
+        if (frame.index === frame.values.length) {
+          ancestors.delete(frame.value);
+          break;
+        }
+        const item = frame.values[frame.index];
+        if (item === undefined) return false;
+        frames.push({
+          kind: "object",
+          value: frame.value,
+          values: frame.values,
+          index: frame.index + 1,
+        });
+        frames.push({ kind: "value", value: item });
+        break;
+      }
     }
   }
-  if (typeof value === "object") {
-    const prototype = Object.getPrototypeOf(value);
-    if (prototype !== Object.prototype && prototype !== null) {
-      return false;
-    }
-    if (Object.getOwnPropertySymbols(value).length > 0) {
-      return false;
-    }
-    if (ancestors.has(value)) return false;
-    ancestors.add(value);
-    try {
-      return Object.values(value as Record<string, unknown>).every((item) =>
-        isJsonWithAncestors(item, ancestors),
-      );
-    } finally {
-      ancestors.delete(value);
-    }
-  }
-  return false;
+  return true;
 }
+
+type JsonValidationFrame =
+  | Readonly<{ readonly kind: "value"; readonly value: unknown }>
+  | Readonly<{
+      readonly kind: "array";
+      readonly value: ReadonlyArray<unknown>;
+      readonly index: number;
+    }>
+  | Readonly<{
+      readonly kind: "object";
+      readonly value: object;
+      readonly values: ReadonlyArray<unknown>;
+      readonly index: number;
+    }>;

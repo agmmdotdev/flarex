@@ -512,6 +512,35 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     ).toBe(true);
   });
 
+  it("rejects stored JSON text whose parsed value leaves the JSON domain", async () => {
+    const current = await scenario("commit_authority_non_finite_json");
+    await seal(current);
+    const authenticatedEvidence = await current.loader.load(current.authority);
+    if (authenticatedEvidence.kind !== "loaded") {
+      throw new Error("Expected C04A evidence.");
+    }
+    const authority = commitAuthorityFromStoredEvidence(
+      current.authority,
+      authenticatedEvidence.evidence,
+    );
+    await persistence.query(
+      `
+        update fx_system_tx_session
+        set validated_args_json = '{"nested": 1e400}'::jsonb
+        where session_id = $1
+      `,
+      [current.anchor.sessionId],
+    );
+
+    const loader = createStoredCommitAuthorityEvidenceLoaderV1(
+      resolutionPorts(persistence),
+    );
+    await expect(loader.load(authority)).resolves.toMatchObject({
+      kind: "corrupt",
+      reason: "sessionEvidenceInvalid",
+    });
+  });
+
   it("composes C03 through private C04C1 after both SQL captures close", async () => {
     let storedSqlClosed = false;
     const current = await c04b2Scenario("commit_input_composition", {

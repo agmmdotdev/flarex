@@ -35,7 +35,10 @@ import {
   type LogicalReadDependencyV1,
   type SessionJournalV1,
 } from "flarex-protocol/commit-protocol";
-import { isJson, type JsonObject } from "flarex-protocol/json";
+import {
+  isJsonObjectFromUnknown,
+  type JsonObject,
+} from "flarex-protocol/json";
 import {
   CatalogSchemaVersionIdSchema,
   decodeSchemaManifestAppSchemaV1,
@@ -2708,17 +2711,10 @@ function requirePoint(evidence: StoredAttemptEvidencePortV1) {
 }
 
 function requireJsonObject(value: unknown): JsonObject {
-  if (!isJsonObject(value)) {
+  if (!isJsonObjectFromUnknown(value)) {
     throw new Error("Fixture value is not a JSON object.");
   }
   return structuredClone(value);
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-  return isJson(value) &&
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value);
 }
 
 function hexBytes(value: string): Uint8Array {
