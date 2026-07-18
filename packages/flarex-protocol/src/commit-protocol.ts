@@ -242,7 +242,7 @@ export const LogicalPatchFieldV1Schema = Schema.Union([
 ]);
 export type LogicalPatchFieldV1 = typeof LogicalPatchFieldV1Schema.Type;
 
-const AppDocumentFieldsJsonV1Schema = Schema.Record(
+export const AppDocumentFieldsJsonV1Schema = Schema.Record(
   Schema.String,
   JsonValue,
 );

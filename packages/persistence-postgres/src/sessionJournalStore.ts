@@ -35,6 +35,7 @@ import {
 } from "flarex-protocol/catalog";
 import {
   COMMIT_ENVELOPE_FORMAT_V1,
+  AppDocumentFieldsJsonV1Schema,
   CommitDocumentSemanticBytesV1Schema,
   CommitFinalSyscallSequenceV1Schema,
   CommitMaterialWriteEventEvidenceBytesV1Schema,
@@ -534,11 +535,6 @@ interface PreparedSessionJournalSealStateV1 {
   readonly attempt: SessionJournalAttemptStateV1;
   readonly candidate: SessionJournalSealCandidateV1;
 }
-
-const AppDocumentFieldsJsonV1Schema = Schema.Record(
-  Schema.String,
-  JsonValue,
-);
 
 const SessionJournalGetRequestV1Schema = Schema.Struct({
   format: Schema.Literal("flarex.session-journal-syscall"),

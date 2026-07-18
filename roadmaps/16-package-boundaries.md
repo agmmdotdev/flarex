@@ -437,6 +437,10 @@ semantics.
   developer-side `ValidatorJSON` remains separate while it represents bigint
   literals and other non-JSON runtime validation semantics that are not an
   exact wire-contract duplicate.
+- `flarex-protocol/commit-protocol` owns the logical app-write document-field
+  JSON Schema. The persistence journal reuses that exact Schema while retaining
+  its stored syscall envelope, database corruption mapping, and row-validation
+  boundary; this domain contract does not belong in `@flarex/utils`.
 - `flarex-protocol/json` owns the canonical readonly JSON shape, its finite
   plain-value guard and Schema, and one documented writable compatibility
   shape. The SDK aliases its readonly `JSONValue` to that owner; live-query,
