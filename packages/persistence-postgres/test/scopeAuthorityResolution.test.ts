@@ -423,6 +423,52 @@ describe("trusted scope authority resolution", () => {
     expect(fixture.getTargetClock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      field: "database key",
+      targetLocator: {
+        kind: "database_per_scope",
+        databaseKey: "\u00a0",
+        schemaName: "public",
+      } satisfies SplitScopePhysicalLocator,
+      invalidReason: "locatorDatabaseKeyInvalid",
+    },
+    {
+      field: "schema name",
+      targetLocator: {
+        kind: "database_per_scope",
+        databaseKey: "scope-primary",
+        schemaName: "\ufeff",
+      } satisfies SplitScopePhysicalLocator,
+      invalidReason: "locatorSchemaNameInvalid",
+    },
+    {
+      field: "database key before schema name",
+      targetLocator: {
+        kind: "database_per_scope",
+        databaseKey: " ",
+        schemaName: " ",
+      } satisfies SplitScopePhysicalLocator,
+      invalidReason: "locatorDatabaseKeyInvalid",
+    },
+  ] as const)(
+    "rejects an invalid target-locator $field",
+    async ({ targetLocator, invalidReason }) => {
+      const fixture = resolutionFixture({ targetLocator });
+
+      await expect(
+        expectFailure(
+          resolveTrustedScopeAuthority("deployment_split", fixture.ports),
+        ),
+      ).resolves.toEqual({
+        reason: "scopeClockTargetInvalid",
+        scopeId,
+        invalidReason,
+      });
+      expect(fixture.getTargetClock).not.toHaveBeenCalled();
+    },
+  );
+
   it("never interprets a missing scope clock as legacy_v1", async () => {
     const fixture = resolutionFixture({ targetClock: null });
 

@@ -1,4 +1,5 @@
 import { isNonArrayRecord as isUnknownRecord } from "@flarex/utils/records";
+import { isNonBlankString } from "@flarex/utils/strings";
 import { Data, Effect, Result } from "effect";
 import type { ScopeId } from "flarex-protocol/storage-authority";
 
@@ -452,16 +453,10 @@ function decodePhysicalLocatorResult(
   ) {
     return Result.fail("locatorUnexpectedFields");
   }
-  if (
-    typeof value.databaseKey !== "string" ||
-    value.databaseKey.trim().length === 0
-  ) {
+  if (!isNonBlankString(value.databaseKey)) {
     return Result.fail("locatorDatabaseKeyInvalid");
   }
-  if (
-    typeof value.schemaName !== "string" ||
-    value.schemaName.trim().length === 0
-  ) {
+  if (!isNonBlankString(value.schemaName)) {
     return Result.fail("locatorSchemaNameInvalid");
   }
 
