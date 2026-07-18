@@ -136,6 +136,13 @@ package-local generic or factory. Let each consumer supply its operation,
 message, and typed failure constructor. Do not move that Effect adapter into
 `@flarex/utils`, and do not erase the domain error channel merely to make the
 helper look generic.
+Keep Node filesystem and path-boundary mechanics with their host or tooling
+owner. A host-local helper may centralize canonical path resolution,
+inside/outside-root checks, file-kind and byte-size inspection, bounded reads,
+or atomic no-replace publication. Callers retain the evidence kind, byte
+ceiling, diagnostics, and recovery policy. Do not add Node dependencies or
+host-specific trust policy to `@flarex/utils` merely because several commands
+repeat the same filesystem sequence.
 
 Before adding a local utility, inspect the installed platform and dependency
 APIs for an exact portable owner. Reuse a total encoder such as Effect

@@ -1,5 +1,5 @@
-import { readFile, realpath, stat } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { realpath } from "node:fs/promises";
+import { resolve } from "node:path";
 import { argv, env } from "node:process";
 
 import { decodeH05ControlPlaneEvidenceJson } from "../h05/controlPlaneEvidence";
@@ -13,7 +13,8 @@ import { commandOutput } from "./commandOutput";
 import { collectH05TraceEvidence } from "./h05TraceCollector";
 import {
   assertNewEvidencePath,
-  isPathInside,
+  readH05EvidenceInputFile,
+  resolveH05EvidenceOutputPath,
   writeNewAtomicEvidenceFile,
 } from "./h05EvidenceOutput";
 import {
@@ -55,18 +56,32 @@ const workspaceRoot = await realpath(
 );
 const [controlBeforeJson, dataPlaneJson, controlAfterJson, outputPath] =
   await Promise.all([
-    readOutsideWorktreeInput(
+    readH05EvidenceInputFile({
       workspaceRoot,
-      controlBeforeArgument,
-      "control-before",
-    ),
-    readOutsideWorktreeInput(workspaceRoot, dataPlaneArgument, "data-plane"),
-    readOutsideWorktreeInput(
+      argument: controlBeforeArgument,
+      label: "control-before",
+      maximumBytes: maximumInputBytes,
+      maximumSizeLabel: "1 MiB",
+    }),
+    readH05EvidenceInputFile({
       workspaceRoot,
-      controlAfterArgument,
-      "control-after",
-    ),
-    resolveOutsideWorktreeOutput(workspaceRoot, outputArgument),
+      argument: dataPlaneArgument,
+      label: "data-plane",
+      maximumBytes: maximumInputBytes,
+      maximumSizeLabel: "1 MiB",
+    }),
+    readH05EvidenceInputFile({
+      workspaceRoot,
+      argument: controlAfterArgument,
+      label: "control-after",
+      maximumBytes: maximumInputBytes,
+      maximumSizeLabel: "1 MiB",
+    }),
+    resolveH05EvidenceOutputPath({
+      workspaceRoot,
+      argument: outputArgument,
+      label: "trace evidence",
+    }),
   ]);
 await assertNewEvidencePath(outputPath);
 
@@ -106,41 +121,3 @@ await writeNewAtomicEvidenceFile(outputPath, serialized);
 console.log(
   `Collected stable H05 trace evidence for ${evidence.run.deploymentId}; retained 15 domain-hashed traces and no raw telemetry payloads.`,
 );
-
-async function readOutsideWorktreeInput(
-  workspaceRoot: string,
-  argument: string,
-  label: string,
-): Promise<string> {
-  const path = await realpath(resolve(argument));
-  if (isPathInside(workspaceRoot, path)) {
-    throw new Error(`H05 ${label} evidence input must stay outside the Git worktree.`);
-  }
-  const inputStat = await stat(path);
-  if (!inputStat.isFile() || inputStat.size > maximumInputBytes) {
-    throw new Error(
-      `H05 ${label} evidence input must be a regular file no larger than 1 MiB.`,
-    );
-  }
-  return readFile(path, "utf8");
-}
-
-async function resolveOutsideWorktreeOutput(
-  workspaceRoot: string,
-  argument: string,
-): Promise<string> {
-  const requestedOutputPath = resolve(argument);
-  const parentPath = dirname(requestedOutputPath);
-  const parent = await stat(parentPath);
-  if (!parent.isDirectory()) {
-    throw new Error("H05 trace evidence output parent must be a directory.");
-  }
-  const outputPath = resolve(
-    await realpath(parentPath),
-    basename(requestedOutputPath),
-  );
-  if (isPathInside(workspaceRoot, outputPath)) {
-    throw new Error("H05 trace evidence output must stay outside the Git worktree.");
-  }
-  return outputPath;
-}

@@ -1,5 +1,5 @@
-import { readFile, realpath, stat } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { realpath } from "node:fs/promises";
+import { resolve } from "node:path";
 import { argv, env } from "node:process";
 
 import { decodeH05ControlPlaneEvidenceJson } from "../h05/controlPlaneEvidence";
@@ -16,7 +16,8 @@ import { createH05CloudflareProbeTeardownApi } from "./cloudflareProbeTeardownAp
 import { commandOutput } from "./commandOutput";
 import {
   assertNewEvidencePath,
-  isPathInside,
+  readH05EvidenceInputFile,
+  resolveH05EvidenceOutputPath,
   writeNewAtomicEvidenceFile,
 } from "./h05EvidenceOutput";
 import {
@@ -61,13 +62,25 @@ const workspaceRoot = await realpath(
   resolve(commandOutput("git", ["rev-parse", "--show-toplevel"])),
 );
 const [dataPlaneJson, controlAfterJson, outputPath] = await Promise.all([
-  readOutsideWorktreeInput(workspaceRoot, dataPlaneArgument, "data-plane"),
-  readOutsideWorktreeInput(
+  readH05EvidenceInputFile({
     workspaceRoot,
-    controlAfterArgument,
-    "control-after",
-  ),
-  resolveOutsideWorktreeOutput(workspaceRoot, outputArgument),
+    argument: dataPlaneArgument,
+    label: "data-plane",
+    maximumBytes: maximumInputBytes,
+    maximumSizeLabel: "1 MiB",
+  }),
+  readH05EvidenceInputFile({
+    workspaceRoot,
+    argument: controlAfterArgument,
+    label: "control-after",
+    maximumBytes: maximumInputBytes,
+    maximumSizeLabel: "1 MiB",
+  }),
+  resolveH05EvidenceOutputPath({
+    workspaceRoot,
+    argument: outputArgument,
+    label: "probe teardown evidence",
+  }),
 ]);
 await assertNewEvidencePath(outputPath);
 
@@ -112,43 +125,3 @@ await writeNewAtomicEvidenceFile(outputPath, serialized);
 console.log(
   `Collected H05 teardown evidence for ${evidence.run.deploymentId}; the fixed disposable probe is absent from both authenticated script lookup and its public run path.`,
 );
-
-async function readOutsideWorktreeInput(
-  workspaceRoot: string,
-  argument: string,
-  label: string,
-): Promise<string> {
-  const path = await realpath(resolve(argument));
-  if (isPathInside(workspaceRoot, path)) {
-    throw new Error(`H05 ${label} evidence input must stay outside the Git worktree.`);
-  }
-  const inputStat = await stat(path);
-  if (!inputStat.isFile() || inputStat.size > maximumInputBytes) {
-    throw new Error(
-      `H05 ${label} evidence input must be a regular file no larger than 1 MiB.`,
-    );
-  }
-  return readFile(path, "utf8");
-}
-
-async function resolveOutsideWorktreeOutput(
-  workspaceRoot: string,
-  argument: string,
-): Promise<string> {
-  const requestedOutputPath = resolve(argument);
-  const parentPath = dirname(requestedOutputPath);
-  const parent = await stat(parentPath);
-  if (!parent.isDirectory()) {
-    throw new Error("H05 probe teardown evidence output parent must be a directory.");
-  }
-  const outputPath = resolve(
-    await realpath(parentPath),
-    basename(requestedOutputPath),
-  );
-  if (isPathInside(workspaceRoot, outputPath)) {
-    throw new Error(
-      "H05 probe teardown evidence output must stay outside the Git worktree.",
-    );
-  }
-  return outputPath;
-}
