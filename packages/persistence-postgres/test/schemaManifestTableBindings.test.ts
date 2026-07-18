@@ -23,8 +23,10 @@ import {
   prepareSchemaManifestAppTableBindingsV1,
   SchemaManifestTableBindingCorruptionError,
   type SchemaManifestAppTableBindingRow,
+  type PlannedAppTableBinding,
   type PrepareSchemaManifestAppTableBindingsV1Input,
   type PreparedSchemaManifestAppTableBindingsV1,
+  verifyInsertedSchemaManifestAppTableBindingRowsResult,
 } from "../src/schemaManifestTableBindings";
 import {
   ensureStableTableIdentityInTransaction,
@@ -126,6 +128,134 @@ describe("schema manifest app table bindings", () => {
     expect(() => decodeSchemaManifestAppTableBindingRowsResult(
       deploymentId,
       [logicalName],
+      [throwingRow],
+    )).toThrow(cause);
+  });
+
+  it("verifies inserted binding rows through Result before rollback projection", () => {
+    const deploymentId = "deployment_binding_insert_result";
+    const logicalName = decodeSchemaManifestAppTableName("users");
+    const tableId = decodeCatalogTableId(1);
+    const planned = [{
+      logicalName,
+      tableId,
+      wasMissing: true,
+    }] satisfies ReadonlyArray<PlannedAppTableBinding>;
+    const row = {
+      deploymentId,
+      logicalName,
+      tableId,
+    } satisfies SchemaManifestAppTableBindingRow;
+
+    expect(Result.isSuccess(
+      verifyInsertedSchemaManifestAppTableBindingRowsResult(
+        deploymentId,
+        planned,
+        [row],
+      ),
+    )).toBe(true);
+
+    const crossDeployment =
+      verifyInsertedSchemaManifestAppTableBindingRowsResult(
+        deploymentId,
+        planned,
+        [{ ...row, deploymentId: "another_deployment" }],
+      );
+    expect(Result.isFailure(crossDeployment)).toBe(true);
+    if (Result.isFailure(crossDeployment)) {
+      expect(crossDeployment.failure.detail).toBe(
+        "cross-deployment insert row returned for another_deployment",
+      );
+    }
+
+    const invalidRow = new Proxy(row, {
+      get(target, property, receiver) {
+        return property === "tableId"
+          ? "invalid-table-id"
+          : Reflect.get(target, property, receiver);
+      },
+    });
+    const invalid = verifyInsertedSchemaManifestAppTableBindingRowsResult(
+      deploymentId,
+      planned,
+      [invalidRow],
+    );
+    expect(Result.isFailure(invalid)).toBe(true);
+    if (Result.isFailure(invalid)) {
+      expect(invalid.failure).toMatchObject({
+        _tag: "SchemaManifestTableBindingCorruptionError",
+        deploymentId,
+        detail: "invalid stored table ID: invalid-table-id",
+      });
+    }
+
+    const unreachedRow = new Proxy(row, {
+      get() {
+        throw new Error("later inserted row must not be inspected");
+      },
+    });
+    expect(Result.isFailure(
+      verifyInsertedSchemaManifestAppTableBindingRowsResult(
+        deploymentId,
+        planned,
+        [invalidRow, unreachedRow],
+      ),
+    )).toBe(true);
+
+    const mismatched = verifyInsertedSchemaManifestAppTableBindingRowsResult(
+      deploymentId,
+      planned,
+      [{ ...row, tableId: decodeCatalogTableId(2) }],
+    );
+    expect(Result.isFailure(mismatched)).toBe(true);
+    if (Result.isFailure(mismatched)) {
+      expect(mismatched.failure.detail).toBe(
+        "insert did not return planned binding users/1",
+      );
+    }
+
+    const duplicate = verifyInsertedSchemaManifestAppTableBindingRowsResult(
+      deploymentId,
+      planned,
+      [row, row],
+    );
+    expect(Result.isFailure(duplicate)).toBe(true);
+    if (Result.isFailure(duplicate)) {
+      expect(duplicate.failure.detail).toBe(
+        "insert returned duplicate planned binding users",
+      );
+    }
+
+    const extraLogicalName = decodeSchemaManifestAppTableName("posts");
+    const extra = verifyInsertedSchemaManifestAppTableBindingRowsResult(
+      deploymentId,
+      planned,
+      [
+        row,
+        {
+          ...row,
+          logicalName: extraLogicalName,
+          tableId: decodeCatalogTableId(2),
+        },
+      ],
+    );
+    expect(Result.isFailure(extra)).toBe(true);
+    if (Result.isFailure(extra)) {
+      expect(extra.failure.detail).toBe(
+        "insert returned an unexpected number of planned bindings",
+      );
+    }
+
+    const cause = new Error("inserted row accessor failed");
+    const throwingRow = new Proxy(row, {
+      get(target, property, receiver) {
+        if (property === "logicalName") throw cause;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(() => verifyInsertedSchemaManifestAppTableBindingRowsResult(
+      deploymentId,
+      planned,
       [throwingRow],
     )).toThrow(cause);
   });
@@ -359,6 +489,48 @@ describe("schema manifest app table bindings", () => {
     ).resolves.toBeNull();
 
     await expect(apply(persistence, plan)).resolves.toEqual(plan.section);
+  });
+
+  it("rolls inserted rows back when Result verification rejects RETURNING", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_binding_returning_rollback";
+    await insertDeployment(persistence, deploymentId);
+    const plan = await prepareSchemaManifestAppTableBindingsV1(
+      persistence.drizzle,
+      { deploymentId, tables: [appDeclaration("users")] },
+    );
+    await persistence.exec(`
+      create function fx_test_corrupt_binding_returning() returns trigger
+      language plpgsql
+      as $$
+      begin
+        new.logical_name := new.logical_name || '_corrupt';
+        return new;
+      end;
+      $$;
+
+      create trigger fx_test_corrupt_binding_returning
+      before insert on fx_control_table
+      for each row execute function fx_test_corrupt_binding_returning();
+    `);
+
+    await expect(apply(persistence, plan)).rejects.toBeInstanceOf(
+      SchemaManifestTableBindingCorruptionError,
+    );
+    await expect(
+      getStableTableIdentityByName(persistence.drizzle, {
+        deploymentId,
+        namespace: "app",
+        logicalName: "users",
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      getStableTableIdentityByName(persistence.drizzle, {
+        deploymentId,
+        namespace: "app",
+        logicalName: "users_corrupt",
+      }),
+    ).resolves.toBeNull();
   });
 
   it("supports empty schemas, rejects missing deployments, and authenticates plans", async () => {

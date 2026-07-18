@@ -528,31 +528,70 @@ export async function insertPlannedSchemaManifestAppTableBindings(
       tableId: fxControlTables.tableId,
       logicalName: fxControlTables.logicalName,
     });
-  const returned = new Map<SchemaManifestAppTableName, CatalogTableId>();
-  for (const row of rows) {
-    const logicalName = decodeStoredLogicalName(
-      state.deploymentId,
-      row.logicalName,
-    );
-    returned.set(
-      logicalName,
-      decodeStoredTableId(state.deploymentId, row.tableId),
-    );
-  }
-  for (const table of missingTables) {
-    if (returned.get(table.logicalName) !== table.tableId) {
-      throw new SchemaManifestTableBindingCorruptionError(
-        state.deploymentId,
-        `insert did not return planned binding ${table.logicalName}/${table.tableId}`,
+  // Drizzle commits a resolved callback, so this projection must reject the
+  // current Promise transaction on typed verification failure. Delete it when
+  // the transaction owner can interpret the Effect failure channel as rollback.
+  Result.getOrThrow(verifyInsertedSchemaManifestAppTableBindingRowsResult(
+    state.deploymentId,
+    missingTables,
+    rows,
+  ));
+}
+
+/** Pure post-insert verification; the transaction boundary owns rollback. */
+export function verifyInsertedSchemaManifestAppTableBindingRowsResult(
+  deploymentId: string,
+  missingTables: ReadonlyArray<PlannedAppTableBinding>,
+  rows: ReadonlyArray<SchemaManifestAppTableBindingRow>,
+): Result.Result<void, SchemaManifestTableBindingCorruptionError> {
+  return Result.gen(function* () {
+    const returned = new Map<SchemaManifestAppTableName, CatalogTableId>();
+    for (const row of rows) {
+      if (row.deploymentId !== deploymentId) {
+        return yield* Result.fail(
+          new SchemaManifestTableBindingCorruptionError(
+            deploymentId,
+            `cross-deployment insert row returned for ${row.deploymentId}`,
+          ),
+        );
+      }
+      const logicalName = yield* decodeStoredLogicalNameResult(
+        deploymentId,
+        row.logicalName,
+      );
+      const tableId = yield* decodeStoredTableIdResult(
+        deploymentId,
+        row.tableId,
+      );
+      if (returned.has(logicalName)) {
+        return yield* Result.fail(
+          new SchemaManifestTableBindingCorruptionError(
+            deploymentId,
+            `insert returned duplicate planned binding ${logicalName}`,
+          ),
+        );
+      }
+      returned.set(logicalName, tableId);
+    }
+    for (const table of missingTables) {
+      if (returned.get(table.logicalName) !== table.tableId) {
+        return yield* Result.fail(
+          new SchemaManifestTableBindingCorruptionError(
+            deploymentId,
+            `insert did not return planned binding ${table.logicalName}/${table.tableId}`,
+          ),
+        );
+      }
+    }
+    if (returned.size !== missingTables.length) {
+      return yield* Result.fail(
+        new SchemaManifestTableBindingCorruptionError(
+          deploymentId,
+          "insert returned an unexpected number of planned bindings",
+        ),
       );
     }
-  }
-  if (returned.size !== missingTables.length) {
-    throw new SchemaManifestTableBindingCorruptionError(
-      state.deploymentId,
-      "insert returned an unexpected number of planned bindings",
-    );
-  }
+  });
 }
 
 function decodeStoredLogicalNameResult(
@@ -572,17 +611,6 @@ function decodeStoredLogicalNameResult(
   });
 }
 
-function decodeStoredLogicalName(
-  deploymentId: string,
-  value: unknown,
-): SchemaManifestAppTableName {
-  // Temporary projection for insert-return verification in the still-Promise
-  // writer. Delete it with that consumer's Result/Effect migration.
-  return Result.getOrThrow(
-    decodeStoredLogicalNameResult(deploymentId, value),
-  );
-}
-
 function decodeStoredTableIdResult(
   deploymentId: string,
   value: unknown,
@@ -595,14 +623,6 @@ function decodeStoredTableIdResult(
       { cause },
     ),
   });
-}
-
-function decodeStoredTableId(
-  deploymentId: string,
-  value: unknown,
-): CatalogTableId {
-  // Same insert-return compatibility boundary as decodeStoredLogicalName.
-  return Result.getOrThrow(decodeStoredTableIdResult(deploymentId, value));
 }
 
 function bindingChanged(

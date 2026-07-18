@@ -167,8 +167,12 @@ never reads the mutable active-schema pointer. Stable-binding row validation
 now has one authoritative pure `Result` decoder, and the resolver consumes that
 failure channel directly instead of reconstructing owned throws through broad
 Effect catch logic. Throwing projections remain only for the current
-Promise-based schema-planning and insert-return verification consumers and are
-deleted when those consumers receive Result or Effect failure channels.
+Promise-based schema-planning read and the post-insert transaction boundary.
+Returned-row deployment identity, decoding, and exact correlation now compose
+through one pure `Result`; the writer projects its typed failure once because
+Drizzle requires callback rejection to roll the transaction back. These
+projections are deleted when the planning consumers and transaction owner
+receive Result or Effect failure channels with explicit rollback semantics.
 
 Fenced index build-state reads are now Effect-native at the exported
 persistence boundary. Unknown input and stored clock/build rows compose through
