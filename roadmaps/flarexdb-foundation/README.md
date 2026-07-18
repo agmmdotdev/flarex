@@ -31,8 +31,9 @@ outcome resolver and O07-B's private durable point publication are complete.
 C05-A's private scalar-fenced `running -> finishing` transition and same-factory
 continuation are complete. C05-B fresh-process reconstruction and private
 compiler/O07-B publisher composition are also complete. O08-A's atomic exact-
-attempt replacement and O08-B1's bounded fresh-attempt rerun handoff are
-complete; O08-B2 is next, while O08-C/O08-D and C06
+attempt replacement, O08-B1's bounded fresh-attempt rerun handoff, and
+O08-B2a's same-process runtime-neutral rerun composition are complete;
+O08-B2b crash-safe redispatch, O08-C/O08-D, and C06
 remain pending, and
 C04C2 remains conditional and unapproved.
 B2b2 renewal is
@@ -44,7 +45,7 @@ bounded attempt must outlive its initial lease.
 | Stream | Current status |
 | --- | --- |
 | Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, S09-A's private committed-success result DDL, and S09-B's fixed-kind private commit-wake DDL complete |
-| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, and O08-B1's single-use fresh-attempt handoff are complete; O08-B2 is next, while O08-C/D, C06, B2b2 renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
+| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, and O08-B2a same-process execution composition are complete; O08-B2b crash-safe redispatch, O08-C/D, C06, B2b2 renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
 | Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, private-C07 final-value proof `C04B2`, and corrected private logical point planner `C04C1` complete; `C04C2` is conditional and unapproved |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
@@ -336,8 +337,11 @@ orchestrates the stable finish endpoint. `O07-B`
 deletes the exact lease and stores `committed` only with the atomic data/outcome
 commit. `O08-A` supplies only the FK-safe storage-level exact-attempt
 replacement; completed `O08-B1` owns only the genuine conflict, bounded
-backoff/outcome/replacement ordering, and fresh-attempt handoff. `O08-B2` will
-own immediate reauthentication and genuine OCC user-code rerun, `O08-C` known-
+backoff/outcome/replacement ordering, and fresh-attempt handoff. Completed
+`O08-B2a` owns same-process immediate reauthentication and genuine runtime-
+neutral OCC user-code rerun. `O08-B2b` remains deferred until an accepted
+durable execution-owner/claim/dispatch authority exists; `running + pristine`
+state is not redispatch authority. `O08-C` owns known-
 settled SQL retry, and `O08-D` uncertain decisions through O07-A/C05-B. `O11`
 first consumes active snapshot floors for
 history retention. `created` and `committing` remain transaction-local/reserved
@@ -390,8 +394,11 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
    - `O08-B1` (complete): consumes one exact same-factory conflict, checks the
      authoritative outcome, replaces once, and mints a single-use handoff only
      for the exact pristine fresh attempt;
-   - `O08-B2` (next): immediate outcome/liveness/input reauthentication and
-     runtime-neutral user-code rerun composition;
+   - `O08-B2a` (complete): immediate outcome/liveness/canonical-input
+     reauthentication, a fresh attempt context, runtime-neutral user-code rerun,
+     and repeated genuine OCC composition in one process;
+   - `O08-B2b` (pending): crash-safe redispatch after process-local authority
+     loss, gated on durable execution ownership/claim/dispatch authority;
    - `O08-C`: bounded known-settled pre-decision `40001`/`40P01` retry of the
      same authenticated logical/closed command with fresh transaction facts;
    - `O08-D`: uncertain-outcome resolution through O07-A/C05-B before retry or
@@ -402,7 +409,8 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
 This S09-A/S09-B split refines one existing Wave 2 outcome; it does not reorder
 the wave. The completed S08/S09-A/S09-B/O06/O07-B first-consumer contracts do
 not currently establish a need for separate physical/change/outbox lowering,
-so C04C2 remains conditional and outside the mandatory order. O08-B2 is next.
+so C04C2 remains conditional and outside the mandatory order. O08-B2b, O08-C,
+and O08-D remain pending before C06/C07 closes the hosted orchestration proof.
 
 `C07` is the first end-to-end replacement milestone, but it proves only a
 private test-generation point-mutation kernel. It does not authorize canary or

@@ -50,13 +50,17 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  createPointMutationSessionAttemptTerminalizationV1,
   createPointMutationSessionAttemptLoadingV1,
   type PointMutationSessionAttemptSelectorWireV1,
 } from "../../executor/src/pointMutationSessionActivation";
+import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJournal";
 import {
   createStoredAttemptAuthenticationV1,
   InvalidAuthorizedPointMutationOccRerunV1Error,
+  PointMutationOccUserCodeV1Error,
   PointMutationOccRerunOwnershipLostV1Error,
+  type PointMutationOccRuntimeNeutralRunnerV1,
 } from "../../executor/src/storedAttemptAuthentication";
 import {
   createTransactionGrantVerificationKeyNamespaceV1,
@@ -70,8 +74,10 @@ import {
   createPointCommitPublisherPortV1,
   createPointMutationAttemptReplacementPortV1,
   PointCommitConflictV1Error,
+  PointCommitCorruptionV1Error,
   RESOLVE_POINT_COMMIT_OUTCOME_FOR_OCC_RERUN_V1,
   type PointCommitTransactionCommandV1,
+  type PointCommitTransactionProofOptionsV1,
 } from "../src/pointCommitTransaction";
 import {
   createPostgresLocatedPointMutationSessionActivationTargetV1,
@@ -92,8 +98,10 @@ import {
 import {
   createStoredCommitAuthorityEvidenceLoaderV1,
   type StoredCommitAuthorityEvidenceAuthorityV1,
+  type StoredCommitAuthorityEvidenceLoaderOptionsV1,
   type StoredCommitAuthorityEvidenceQueryV1,
 } from "../src/storedCommitAuthorityEvidence";
+import { createStoredOccExecutionEvidenceLoaderV1 } from "../src/storedOccExecution";
 import {
   createStoredAttemptEvidenceLoaderV1,
   type StoredAttemptEvidenceAuthorityV1,
@@ -104,6 +112,7 @@ import {
 import {
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
+  createPointMutationSessionAttemptTerminalizationPersistenceV1,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
   type PointMutationSessionAnchorV1,
   type PointMutationSessionAttemptLoadLockStepV1,
@@ -760,6 +769,269 @@ describePostgres("real Postgres stored-attempt authority", () => {
       );
     });
   }, 120_000);
+
+  it("runs B2a after open evidence closes SQL and publishes through the sole point publisher", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const current = await o08B1Scenario(persistence, "b2a_execution");
+      const table = await runEffect(
+        current.store.resolvePointTableEffect(current.attempt, "users"),
+      );
+      await runPointOperation(current.store, table, {
+        kind: "insert",
+        syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+        fields: { name: "conflicted" },
+      });
+      const envelope = await sealScenario(current);
+      const loadedAttempt = await runEffect(
+        current.loading.load(selectorWire(current.anchor)),
+      );
+      let repeatableReadClosed = false;
+      let runnerCalls = 0;
+      const observedQueries = new Map<
+        StoredCommitAuthorityEvidenceQueryV1["name"],
+        StoredCommitAuthorityEvidenceQueryV1
+      >();
+      const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
+        run: (
+          input: Parameters<PointMutationOccRuntimeNeutralRunnerV1["run"]>[0],
+        ): ReturnType<PointMutationOccRuntimeNeutralRunnerV1["run"]> =>
+          Effect.tryPromise({
+            try: async () => {
+              expect(repeatableReadClosed).toBe(true);
+              runnerCalls += 1;
+              expect(input.context).toMatchObject({
+                executionId: "o08-b2a-postgres-1",
+                logScopeId: "o08-b2a-postgres-log-1",
+                attemptFence: 2n,
+                snapshotToken: { commitSeq: 1n },
+              });
+              expect(input.context.executionTime).toBe(
+                input.context.initialCreationTimeCursor,
+              );
+              await assertNoOpenExecutionEvidenceTransaction(persistence);
+              return Object.freeze({ ok: true });
+            },
+            catch: (cause) => new PointMutationOccUserCodeV1Error({ cause }),
+          }),
+      });
+      const authentication = createO08B2aAuthentication(
+        persistence,
+        current,
+        runner,
+        {
+          afterRepeatableRead: () => {
+            repeatableReadClosed = true;
+          },
+          observeQuery: (query) => observedQueries.set(query.name, query),
+        },
+      );
+      const authority = await runEffect(
+        authentication.deriveAuthority(loadedAttempt),
+      );
+      const authenticated = await runEffect(
+        authentication.authenticate(authority, encodeEnvelope(envelope)),
+      );
+      const commitAuthority = await runEffect(
+        authentication.authenticateCommitAuthority(authenticated),
+      );
+      const verified = await runEffect(
+        authentication.verifyCommitInput(commitAuthority),
+      );
+      const running = await runEffect(authentication.planPointCommit(verified));
+      const finishing = await runEffect(
+        authentication.enterPointCommitFinishing(running),
+      );
+      const finishingStored = await runEffect(
+        current.loader.loadFinishingEffect({
+          deploymentId: current.anchor.deploymentId,
+          scopeId: current.anchor.scopeId,
+          sessionId: current.anchor.sessionId,
+          attemptFence: current.anchor.attemptFence,
+        }),
+      );
+      if (finishingStored.kind !== "loaded") {
+        throw new Error("Expected finishing B2a PostgreSQL evidence.");
+      }
+      await commitCompetingPointRow(
+        persistence,
+        await pointCommitCommandFromStoredAttemptV1(
+          current.authority,
+          finishingStored.evidence,
+        ),
+      );
+      const conflict = await runFailure(
+        authentication.publishPointCommit(finishing),
+      );
+      if (!(conflict instanceof PointCommitConflictV1Error)) {
+        throw new Error("Expected a genuine B2a PostgreSQL conflict.");
+      }
+      const authorized = await runEffect(
+        authentication.authorizePointMutationOccRerun(conflict).pipe(
+          Effect.provideService(Random.Random, {
+            nextDoubleUnsafe: () => 0,
+            nextIntUnsafe: () => 0,
+          }),
+        ),
+      );
+      if (authorized.kind !== "authorized") {
+        throw new Error("Expected the PostgreSQL B2a handoff to authorize.");
+      }
+
+      await expect(
+        runEffect(
+          authentication.executeAuthorizedPointMutationOccRerun(
+            authorized.rerun,
+          ),
+        ),
+      ).resolves.toMatchObject({
+        kind: "published",
+        token: { commitSeq: 2n },
+        successfulResult: { valueJson: { ok: true } },
+      });
+      expect(runnerCalls).toBe(1);
+      const childQuery = requireCommitObservedQuery(
+        observedQueries,
+        "attemptChildren",
+      );
+      const childPlan = await explainCommitAuthorityObserved(
+        persistence,
+        childQuery,
+      );
+      expect(childPlan).toContain("fx_system_tx_journal_receipt_pk");
+      expect(childPlan).toContain("fx_system_tx_journal_point_pk");
+      expect(childPlan).toContain("fx_system_tx_journal_event_pk");
+      await expect(
+        persistence.query<{
+          lifecycle: string;
+          leases: string;
+          journals: string;
+          outcomes: string;
+          headers: string;
+        }>(
+          `
+          select session.lifecycle,
+            (select count(*)::text from fx_system_snapshot_lease as lease
+             where lease.scope_uuid = session.scope_uuid
+               and lease.session_id = session.session_id) as leases,
+            (select count(*)::text from fx_system_tx_journal as journal
+             where journal.scope_uuid = session.scope_uuid
+               and journal.session_id = session.session_id) as journals,
+            (select count(*)::text from fx_system_idempotency as outcome
+             where outcome.scope_uuid = session.scope_uuid) as outcomes,
+            (select count(*)::text from fx_system_commit as header
+             where header.scope_uuid = session.scope_uuid) as headers
+          from fx_system_tx_session as session
+          where session.scope_uuid = $1 and session.session_id = $2
+        `,
+          [finishingStored.evidence.scopeUuid, current.anchor.sessionId],
+        ),
+      ).resolves.toMatchObject({
+        rows: [
+          {
+            lifecycle: "committed",
+            leases: "0",
+            journals: "0",
+            outcomes: "1",
+            headers: "2",
+          },
+        ],
+      });
+    });
+  }, 120_000);
+
+  it("keeps B2a publication atomic when a late PostgreSQL invariant rolls back", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const current = await o08B1Scenario(persistence, "b2a_rollback");
+      const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
+        run: () => Effect.succeed(Object.freeze({ ok: true })),
+      });
+      const authentication = createO08B2aAuthentication(
+        persistence,
+        current,
+        runner,
+        {},
+        {
+          afterTransactionStep: (event) => {
+            if (event.step === "wakeWritten") {
+              throw new PointCommitCorruptionV1Error({
+                reason: "publicationInvariantInvalid",
+              });
+            }
+            return Promise.resolve();
+          },
+        },
+      );
+      const prepared = await preparePostgresB2aConflict(
+        persistence,
+        current,
+        authentication,
+      );
+      const authorized = await runEffect(
+        authentication.authorizePointMutationOccRerun(prepared.conflict).pipe(
+          Effect.provideService(Random.Random, {
+            nextDoubleUnsafe: () => 0,
+            nextIntUnsafe: () => 0,
+          }),
+        ),
+      );
+      if (authorized.kind !== "authorized") {
+        throw new Error("Expected the rollback B2a handoff to authorize.");
+      }
+
+      expect(
+        await runFailure(
+          authentication.executeAuthorizedPointMutationOccRerun(
+            authorized.rerun,
+          ),
+        ),
+      ).toBeInstanceOf(PointCommitCorruptionV1Error);
+      await expect(
+        persistence.query<{
+          lifecycle: string;
+          leases: string;
+          journals: string;
+          outcomes: string;
+          wakes: string;
+          headers: string;
+          last_commit_seq: string;
+        }>(
+          `
+          select session.lifecycle,
+            (select count(*)::text from fx_system_snapshot_lease as lease
+             where lease.scope_uuid = session.scope_uuid
+               and lease.session_id = session.session_id) as leases,
+            (select count(*)::text from fx_system_tx_journal as journal
+             where journal.scope_uuid = session.scope_uuid
+               and journal.session_id = session.session_id) as journals,
+            (select count(*)::text from fx_system_idempotency as outcome
+             where outcome.scope_uuid = session.scope_uuid) as outcomes,
+            (select count(*)::text from fx_system_outbox as wake
+             where wake.scope_uuid = session.scope_uuid) as wakes,
+            (select count(*)::text from fx_system_commit as header
+             where header.scope_uuid = session.scope_uuid) as headers,
+            clock.last_commit_seq::text as last_commit_seq
+          from fx_system_tx_session as session
+          join fx_system_scope_clock as clock
+            on clock.scope_uuid = session.scope_uuid
+          where session.scope_uuid = $1 and session.session_id = $2
+        `,
+          [prepared.scopeUuid, current.anchor.sessionId],
+        ),
+      ).resolves.toMatchObject({
+        rows: [
+          {
+            lifecycle: "finishing",
+            leases: "1",
+            journals: "1",
+            outcomes: "0",
+            wakes: "0",
+            headers: "1",
+            last_commit_seq: "1",
+          },
+        ],
+      });
+    });
+  }, 120_000);
 });
 
 interface Scenario {
@@ -1125,6 +1397,148 @@ function createO08B1Authentication(
       }),
     pointMutationOccRerun: { attemptLoading: current.loading },
   });
+}
+
+function createO08B2aAuthentication(
+  persistence: PostgresFlarexPersistence,
+  current: Awaited<ReturnType<typeof o08B1Scenario>>,
+  runner: PointMutationOccRuntimeNeutralRunnerV1,
+  executionEvidenceOptions: StoredCommitAuthorityEvidenceLoaderOptionsV1 = {},
+  publisherOptions: PointCommitTransactionProofOptionsV1 = {},
+) {
+  const ports = resolutionPorts(persistence);
+  let executionSequence = 0;
+  return createStoredAttemptAuthenticationV1(current.loader, {
+    evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
+    transactionGrantVerifier: current.verifier,
+    functionMetadata: {
+      load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+    },
+    pointCommit: createPointCommitPublisherPortV1(ports, publisherOptions),
+    pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
+    pointMutationAttemptReplacement:
+      createPointMutationAttemptReplacementPortV1(ports, {
+        leaseDurationMilliseconds: 60_000,
+      }),
+    pointMutationOccRerun: {
+      attemptLoading: current.loading,
+      executionEvidence: createStoredOccExecutionEvidenceLoaderV1(
+        ports,
+        executionEvidenceOptions,
+      ),
+      journal: createPointMutationJournalV1(current.store),
+      terminalization: createPointMutationSessionAttemptTerminalizationV1(
+        createPointMutationSessionAttemptTerminalizationPersistenceV1(ports),
+      ),
+      contextFactory: {
+        make: () =>
+          Effect.sync(() => {
+            executionSequence += 1;
+            return Object.freeze({
+              executionId: `o08-b2a-postgres-${executionSequence}`,
+              logScopeId: `o08-b2a-postgres-log-${executionSequence}`,
+              randomSeed: new Uint8Array(32).fill(executionSequence),
+            });
+          }),
+      },
+      runner,
+    },
+  });
+}
+
+async function preparePostgresB2aConflict(
+  persistence: PostgresFlarexPersistence,
+  current: Awaited<ReturnType<typeof o08B1Scenario>>,
+  authentication: ReturnType<typeof createO08B2aAuthentication>,
+) {
+  const table = await runEffect(
+    current.store.resolvePointTableEffect(current.attempt, "users"),
+  );
+  await runPointOperation(current.store, table, {
+    kind: "insert",
+    syscallSequence: CommitSyscallSequenceV1Schema.make(1n),
+    fields: { name: "conflicted" },
+  });
+  const envelope = await sealScenario(current);
+  const loadedAttempt = await runEffect(
+    current.loading.load(selectorWire(current.anchor)),
+  );
+  const authority = await runEffect(
+    authentication.deriveAuthority(loadedAttempt),
+  );
+  const authenticated = await runEffect(
+    authentication.authenticate(authority, encodeEnvelope(envelope)),
+  );
+  const commitAuthority = await runEffect(
+    authentication.authenticateCommitAuthority(authenticated),
+  );
+  const verified = await runEffect(
+    authentication.verifyCommitInput(commitAuthority),
+  );
+  const running = await runEffect(authentication.planPointCommit(verified));
+  const finishing = await runEffect(
+    authentication.enterPointCommitFinishing(running),
+  );
+  const finishingStored = await runEffect(
+    current.loader.loadFinishingEffect({
+      deploymentId: current.anchor.deploymentId,
+      scopeId: current.anchor.scopeId,
+      sessionId: current.anchor.sessionId,
+      attemptFence: current.anchor.attemptFence,
+    }),
+  );
+  if (finishingStored.kind !== "loaded") {
+    throw new Error("Expected finishing PostgreSQL B2a evidence.");
+  }
+  await commitCompetingPointRow(
+    persistence,
+    await pointCommitCommandFromStoredAttemptV1(
+      current.authority,
+      finishingStored.evidence,
+    ),
+  );
+  const conflict = await runFailure(
+    authentication.publishPointCommit(finishing),
+  );
+  if (!(conflict instanceof PointCommitConflictV1Error)) {
+    throw new Error("Expected a genuine PostgreSQL B2a conflict.");
+  }
+  return Object.freeze({
+    conflict,
+    scopeUuid: finishingStored.evidence.scopeUuid,
+  });
+}
+
+async function assertNoOpenExecutionEvidenceTransaction(
+  persistence: PostgresFlarexPersistence,
+): Promise<void> {
+  const client = await persistence.pool.connect();
+  let transactionOpen = false;
+  try {
+    await client.query("begin");
+    transactionOpen = true;
+    await client.query("set local lock_timeout = '2s'");
+    await client.query(`
+      lock table
+        fx_system_scope_clock,
+        fx_system_tx_session,
+        fx_system_snapshot_lease,
+        fx_system_tx_journal,
+        fx_system_tx_journal_latest_receipt,
+        fx_system_tx_journal_point,
+        fx_system_tx_journal_write_event,
+        fx_control_schema_version,
+        fx_control_table
+      in access exclusive mode nowait
+    `);
+    await client.query("rollback");
+    transactionOpen = false;
+  } finally {
+    if (transactionOpen) {
+      await client.query("rollback").catch(() => undefined);
+    }
+    client.release();
+  }
 }
 
 async function sealScenario(current: Scenario) {

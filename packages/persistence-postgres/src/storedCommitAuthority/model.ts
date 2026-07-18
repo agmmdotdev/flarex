@@ -68,7 +68,7 @@ export interface StoredCommitAuthoritySealIdentityV1 {
     CommitMaterialWriteEventEvidenceBytesV1;
 }
 
-export interface StoredCommitAuthorityEvidenceAuthorityV1 {
+export interface StoredCommitAuthorityCaptureAuthorityV1 {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
   readonly scopeId: ReplacementScopeIdV1;
   readonly sessionId: TransactionSessionIdV1;
@@ -77,6 +77,10 @@ export interface StoredCommitAuthorityEvidenceAuthorityV1 {
   readonly storageGenerationFence: StorageGenerationFence;
   readonly snapshotToken: SnapshotToken;
   readonly schemaVersionId: CatalogSchemaVersionId;
+}
+
+export interface StoredCommitAuthorityEvidenceAuthorityV1
+  extends StoredCommitAuthorityCaptureAuthorityV1 {
   readonly session: StoredCommitAuthoritySessionScalarsV1;
   readonly sealIdentity: StoredCommitAuthoritySealIdentityV1;
 }

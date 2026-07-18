@@ -22,10 +22,11 @@ rollback-proven point-commit transaction kernel, O07-A private read-only
 committed-outcome resolver, and O07-B private durable point publication are
 complete. C05-A's exact scalar-fenced finishing transition and C05-B's separate
 fresh-process finishing reconstruction/private publisher composition are
-complete. O08-A atomic exact-attempt replacement and O08-B1's bounded
-same-factory fresh-attempt handoff are complete; O08-B2 trusted user-code rerun
-composition is next, while O08-C known-settled SQL retry and O08-D uncertain-outcome
-policy remain pending. C04C2
+complete. O08-A atomic exact-attempt replacement, O08-B1's bounded
+same-factory fresh-attempt handoff, and O08-B2a's same-process runtime-neutral
+user-code rerun composition are complete. O08-B2b crash-safe redispatch,
+O08-C known-settled SQL retry, and O08-D uncertain-outcome policy remain
+pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
@@ -735,8 +736,9 @@ Deferred ownership after the required O03-B core:
   inside the data/result/outcome/feed/outbox transaction;
 - `O08-A` supplies the checked exact-attempt replacement primitive only;
   `O08-B1` owns the bounded backoff, outcome check, replacement handoff, and
-  exact fresh-attempt proof without executing user code; `O08-B2` owns the
-  immediate reauthentication and trusted OCC user-code rerun; `O08-C` owns
+  exact fresh-attempt proof without executing user code; `O08-B2a` owns the
+  same-process immediate reauthentication and trusted OCC user-code rerun;
+  `O08-B2b` remains deferred pending durable execution ownership; `O08-C` owns
   known-settled SQL retry, and `O08-D` owns uncertain-outcome lookup policy; and
 - `O11` first introduces the active-floor query and engine-history cleanup
   consumer. S09-A committed-key lifetime and result-payload expiry remain
@@ -1014,13 +1016,37 @@ lease, and pristine open zero-accounting journal facet all match. The opaque
 handoff is factory-local and single-use. It executes no user code and grants no
 crash-safe redispatch authority.
 
-##### [ ] O08-B2 — Reauthenticate And Rerun User Code
+##### [x] O08-B2a — Same-Process Runtime-Neutral OCC Execution
 
-Immediately before execution, consume the B1 handoff once, consult O07-A again,
-and reauthenticate exact current liveness plus the complete canonical execution
-inputs. B2 owns the fresh runtime-neutral execution context, deterministic
-attempt-local state, repeated-conflict loop, and crash-safe redispatch policy.
-Dynamic Worker remains an adapter rather than the coordinator authority.
+The same factory synchronously consumes the genuine B1 handoff before its first
+yield and immediately consults O07-A. Only an exact missing outcome continues.
+A separate persistence-owned repeatable-read loader captures one bounded
+`running + pristine` attempt snapshot, closes SQL, and then reuses the C04B1
+size-first argument/grant/schema verification mechanics without widening
+sealed commit authority. The executor reauthenticates every immutable pin and
+canonical input, reloads exact liveness immediately before execution, and uses
+the fresh root's database-owned creation-time seed as the fixed attempt time and
+initial creation-time cursor.
+
+Every attempt receives a fresh execution ID, RNG seed, log scope, accounting,
+and journal scope. A runtime-neutral callback proves user-code composition while
+the authenticated `dynamic-worker` artifact pin remains unchanged. Successful
+execution follows C04A -> C04B1 -> C04B2 -> C04C1 -> C05-A -> the sole O07-B
+publisher. Only the exact same-factory O07-B OCC conflict may re-enter B1 and
+repeat. Replay, expiry, exhaustion, authorization/validation/codec/corruption,
+SQL, and uncertain failures remain distinct. Pre-finishing user failure or
+interruption uses the exact O03 abort path after database settlement; once
+finishing begins, C05/O07 recovery owns the state.
+
+##### [ ] O08-B2b — Crash-Safe Redispatch
+
+This gate remains deferred. Durable `running + pristine` evidence and an O07-A
+missing outcome prove lifecycle and absence only; they do not prove exclusive
+execution ownership. A fresh process may not mint a rerun permit from either.
+B2b requires a separately accepted durable execution-owner/claim/dispatch
+authority, stale-owner fencing, discovery/wakeup, and authenticated runtime
+routing. Dynamic Worker remains a future adapter, and no current B2a capability
+is serializable or recoverable after process loss.
 
 #### [ ] O08-C — Retry Known-Settled SQL Transactions
 
@@ -1052,7 +1078,10 @@ Exit gate:
   abort/expiry races, independent-scope progress, and index-backed queries pass
   on PGlite and isolated real Postgres;
 - O08-B1 accepts only exact same-factory conflicts and never executes user code;
-- O08-B2 OCC conflicts do rerun it after immediate reauthentication;
+- O08-B2a same-process OCC conflicts rerun user code only after immediate
+  outcome, liveness, and canonical-input reauthentication;
+- O08-B2b does not exist until durable execution ownership and redispatch are
+  separately accepted;
 - O08-C SQL retries do not rerun user code;
 - a successful uncertain commit is never applied twice;
 - authorization, validation, codec, and deterministic constraint errors are not

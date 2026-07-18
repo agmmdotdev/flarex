@@ -14,8 +14,9 @@ forced-rollback proof, O07-A private read-only committed-outcome resolver, and
   O07-B private durable point publication are complete. C05-A's private scalar-
   fenced finishing transition and same-factory continuation are complete. C05-B
   fresh-process reconstruction and private compiler/publisher composition are
-  also complete. O08-A atomic exact-attempt replacement and O08-B1 bounded
-  same-factory fresh-attempt handoff are complete; O08-B2 is next, O08-C/O08-D
+  also complete. O08-A atomic exact-attempt replacement, O08-B1 bounded
+  same-factory fresh-attempt handoff, and O08-B2a same-process runtime-neutral
+  rerun composition are complete; O08-B2b crash-safe redispatch and O08-C/O08-D
   remain pending, and C06 dispatch
   remains pending, while C04C2 remains conditional and unapproved.
 
@@ -542,11 +543,12 @@ Exit gate:
   rollback, and unsupported index/unique/relation rejection pass on PGlite and
   isolated real Postgres; and
 - publication failure leaves durable `finishing + sealed` authority for the
-  later O08-B2/O08-C/O08-D and C06 recovery policy without rerunning user code.
+  later O08-B2b/O08-C/O08-D and C06 recovery policy without rerunning user code.
 
 ### [ ] C06 — Add Idempotent Finish And Lost-Outcome Recovery
 
-Prerequisite: `O08-B2/O08-C/O08-D` have completed OCC execution, bounded known-settled
+Prerequisite: `O08-B2a` same-process OCC execution is complete and
+`O08-B2b/O08-C/O08-D` have completed crash redispatch, bounded known-settled
 retries of the same authenticated logical/closed command, and uncertain-
 outcome lookup. This endpoint composes those policies; it does not
 define a competing retry coordinator.
@@ -558,8 +560,9 @@ Outcome:
   orchestrates C05-A transition, C05-B reconstruction/publication, and existing
   retry/outcome primitives; C03 rejects later syscalls. O07-B owns exact-lease deletion plus
   the atomic `committed` transition. O08-A owns exact-attempt replacement;
-  O08-B1 owns only bounded fresh-attempt handoff;
-  O08-B2/O08-C/O08-D own user-code rerun, SQL-retry, and uncertainty policy:
+  O08-B1 owns only bounded fresh-attempt handoff; O08-B2a owns same-process
+  user-code rerun; O08-B2b/O08-C/O08-D own crash redispatch, SQL retry, and
+  uncertainty policy:
 
 ```text
 atomic activation -> running -> finishing -> committed

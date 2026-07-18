@@ -20,20 +20,20 @@ import {
 import { Data, Effect, Schema, Semaphore } from "effect";
 
 import {
-  CommitSyscallSequenceV1Schema,
   canonicalizeSessionJournalV1Effect,
   canonicalizeSuccessfulResultV1Effect,
   type CommitProtocolV1Error,
+  CommitSyscallSequenceV1Schema,
   type StoredForSessionAttemptCommitEnvelopeV1,
 } from "flarex-protocol/commit-protocol";
 import {
-  decodeAppDocumentIdV1,
   type AppDocumentIdV1,
+  decodeAppDocumentIdV1,
 } from "flarex-protocol/app-document-id";
 
 import {
-  InvalidLoadedPointMutationSessionAttemptV1Error,
   inspectLoadedPointMutationSessionAttemptV1,
+  InvalidLoadedPointMutationSessionAttemptV1Error,
   type LoadedPointMutationSessionAttemptInspectionV1,
   type LoadedPointMutationSessionAttemptV1,
 } from "./pointMutationSessionActivation";
@@ -320,34 +320,34 @@ export function createPointMutationJournalV1(
       },
     );
 
-  const sealSuccessfulResult: PointMutationJournalV1[
-    "sealSuccessfulResult"
-  ] = Effect.fn("PointMutationJournal.sealSuccessfulResult")(
-    function* (attempt, successfulResult) {
-      const state = yield* Effect.try({
-        try: () => requireAttempt(attempt),
-        catch: mapPersistenceFailure,
-      });
-      return yield* state.coordinator.semaphore.withPermit(
-        Effect.uninterruptible(Effect.gen(function* () {
-          const prepared = yield* persistence.prepareSealEffect(
-            state.persistenceAttempt,
-          ).pipe(Effect.mapError(mapPersistenceFailure));
-          const journal = yield* canonicalizeSessionJournalV1Effect(
-            prepared.journal,
-          );
-          const result = yield* canonicalizeSuccessfulResultV1Effect(
-            successfulResult,
-          );
-          return yield* persistence.completeSealEffect(
-            prepared.preparation,
-            journal,
-            result,
-          ).pipe(Effect.mapError(mapPersistenceFailure));
-        })),
-      );
-    },
-  );
+  const sealSuccessfulResult: PointMutationJournalV1["sealSuccessfulResult"] =
+    Effect.fn("PointMutationJournal.sealSuccessfulResult")(
+      function* (attempt, successfulResult) {
+        const state = yield* Effect.try({
+          try: () => requireAttempt(attempt),
+          catch: mapPersistenceFailure,
+        });
+        return yield* state.coordinator.semaphore.withPermit(
+          Effect.gen(function* () {
+            const prepared = yield* Effect.uninterruptible(
+              persistence
+                .prepareSealEffect(state.persistenceAttempt)
+                .pipe(Effect.mapError(mapPersistenceFailure)),
+            );
+            const journal = yield* canonicalizeSessionJournalV1Effect(
+              prepared.journal,
+            );
+            const result =
+              yield* canonicalizeSuccessfulResultV1Effect(successfulResult);
+            return yield* Effect.uninterruptible(
+              persistence
+                .completeSealEffect(prepared.preparation, journal, result)
+                .pipe(Effect.mapError(mapPersistenceFailure)),
+            );
+          }),
+        );
+      },
+    );
 
   const journal = Object.freeze({
     openAttempt,

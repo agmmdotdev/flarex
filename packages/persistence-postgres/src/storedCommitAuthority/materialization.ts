@@ -47,10 +47,23 @@ import {
 } from "flarex-protocol/transaction-session";
 
 import type { TrustedScopeAuthority } from "../scopeAuthorityResolution";
+import { snapshotSchemaManifestValue } from "../schemaManifestValueSnapshot";
 import { decodeScopeClockRecord } from "../scopeClock";
+import {
+  buildFreshTransactionAttemptFacetV1,
+  isPristineFreshTransactionAttemptJournalRootV1,
+} from "../transactionSessionAttemptFacet";
+import {
+  occExecutionAuthorityMismatch,
+  occExecutionCorrupt,
+  type StoredOccExecutionEvidenceAuthorityV1,
+  type StoredOccExecutionEvidenceLoadResultV1,
+  type StoredOccExecutionEvidenceV1,
+} from "../storedOccExecution/model";
 import {
   authorityMismatch,
   corrupt,
+  type StoredCommitAuthorityCaptureAuthorityV1,
   type StoredCommitAuthorityCorruptionReasonV1,
   type StoredCommitAuthorityEvidenceAuthorityV1,
   type StoredCommitAuthorityEvidenceLoadResultV1,
@@ -110,6 +123,12 @@ export interface SchemaSizeRow extends Omit<
   readonly manifestCanonicalByteLengthText: string;
 }
 
+export interface AttemptChildExistenceRow {
+  readonly receiptExists: boolean;
+  readonly pointExists: boolean;
+  readonly eventExists: boolean;
+}
+
 interface BindingRow {
   readonly ordinalText: string;
   readonly declaredTableIdText: string | null;
@@ -122,6 +141,7 @@ export interface CapturedRowsV1 {
   readonly sessionSizeRows: ReadonlyArray<SessionSizeRow>;
   readonly leaseRows: ReadonlyArray<LeaseRow>;
   readonly rootRows: ReadonlyArray<RootScalarRow>;
+  readonly attemptChildRows: ReadonlyArray<AttemptChildExistenceRow>;
   readonly schemaSizeRows: ReadonlyArray<SchemaSizeRow>;
   readonly skipReason?: StoredCommitAuthorityCorruptionReasonV1;
   readonly sessionPayloadRows: ReadonlyArray<SessionPayloadRow>;
@@ -144,267 +164,466 @@ export interface RootScalarRow extends Omit<
 
 const UTF8_ENCODER = new TextEncoder();
 
-export const materializeEffect = Effect.fn(
-  "StoredCommitAuthority.materialize",
+type SealedCommitAuthorityMaterializationV1 = Readonly<{
+  readonly kind: "sealed";
+  readonly expected: StoredCommitAuthorityEvidenceAuthorityV1;
+}>;
+
+type OpenOccExecutionMaterializationV1 = Readonly<{
+  readonly kind: "openOccExecution";
+  readonly expected: StoredOccExecutionEvidenceAuthorityV1;
+}>;
+
+type StoredAuthorityMaterializationV1 =
+  | SealedCommitAuthorityMaterializationV1
+  | OpenOccExecutionMaterializationV1;
+
+export const materializeEffect = Effect.fn("StoredCommitAuthority.materialize")(
+  function* (
+    expected: StoredCommitAuthorityEvidenceAuthorityV1,
+    preliminary: TrustedScopeAuthority,
+    captured: CapturedRowsV1,
+    options: StoredCommitAuthorityMaterializationOptionsV1 = {},
+  ): Effect.fn.Return<
+    StoredCommitAuthorityEvidenceLoadResultV1,
+    StoredCommitAuthorityEvidencePersistenceV1Error
+  > {
+    return yield* materializeStoredAuthorityEffect(
+      Object.freeze({ kind: "sealed", expected }),
+      preliminary,
+      captured,
+      options,
+    );
+  },
+);
+
+export const materializeOpenOccExecutionEffect = Effect.fn(
+  "StoredOccExecution.materialize",
 )(function* (
-  expected: StoredCommitAuthorityEvidenceAuthorityV1,
+  expected: StoredOccExecutionEvidenceAuthorityV1,
   preliminary: TrustedScopeAuthority,
   captured: CapturedRowsV1,
   options: StoredCommitAuthorityMaterializationOptionsV1 = {},
 ): Effect.fn.Return<
-  StoredCommitAuthorityEvidenceLoadResultV1,
+  StoredOccExecutionEvidenceLoadResultV1,
   StoredCommitAuthorityEvidencePersistenceV1Error
 > {
-  if (captured.skipReason !== undefined) {
-    return corrupt(captured.skipReason);
-  }
-  if (captured.clockRows.length !== 1) {
-    return corrupt("authorityProjectionInvalid");
-  }
-  const clockRow = captured.clockRows[0];
-  if (clockRow === undefined) return corrupt("authorityProjectionInvalid");
-  const decodedClock = decodeClockAuthority(clockRow);
-  if (decodedClock === undefined) return corrupt("authorityProjectionInvalid");
-  const { clock, scopeUuid, epochUuid, revocationEpoch } = decodedClock;
-  if (
-    scopeUuid !== projectScopeIdUuidV1(expected.scopeId).scopeUuid ||
-    epochUuid !== projectScopeEpochUuidV1(clock.epoch).epochUuid ||
-    clock.scopeId !== expected.scopeId ||
-    preliminary.scopeId !== expected.scopeId
-  ) {
-    return authorityMismatch("scopeChanged");
-  }
-  if (
-    clock.storageGeneration !== expected.storageGeneration ||
-    clock.storageGenerationFence !== expected.storageGenerationFence ||
-    preliminary.storageGeneration !== expected.storageGeneration ||
-    preliminary.storageGenerationFence !== expected.storageGenerationFence
-  ) {
-    return authorityMismatch("generationChanged");
-  }
-  if (
-    clock.epoch !== expected.snapshotToken.epoch ||
-    preliminary.epoch !== expected.snapshotToken.epoch
-  ) {
-    return authorityMismatch("epochChanged");
-  }
-  const databaseNowMilliseconds = decodeDatabaseNow(
-    captured.databaseNowText,
+  return yield* materializeStoredAuthorityEffect(
+    Object.freeze({ kind: "openOccExecution", expected }),
+    preliminary,
+    captured,
+    options,
   );
-  if (databaseNowMilliseconds === undefined) {
-    return corrupt("databaseClockInvalid");
-  }
+});
 
-  if (captured.sessionSizeRows.length === 0) {
-    return authorityMismatch("attemptMissing");
-  }
-  if (captured.sessionSizeRows.length !== 1) {
-    return corrupt("sessionEvidenceMissingOrDuplicate");
-  }
-  const session = captured.sessionSizeRows[0];
-  if (session === undefined) {
-    return corrupt("sessionEvidenceMissingOrDuplicate");
-  }
-  const sessionIdentity = decodeSessionIdentity(session);
-  if (sessionIdentity === undefined) return corrupt("sessionEvidenceInvalid");
-  if (
-    session.scopeUuid !== scopeUuid ||
-    sessionIdentity.sessionId !== expected.sessionId
-  ) {
-    return authorityMismatch("attemptMissing");
-  }
-  if (sessionIdentity.attemptFence !== expected.attemptFence) {
-    return authorityMismatch("attemptReplaced");
-  }
-  if (
-    session.storageGeneration !== expected.storageGeneration ||
-    sessionIdentity.storageGenerationFence !==
-      expected.storageGenerationFence
-  ) {
-    return authorityMismatch("generationChanged");
-  }
-  if (session.schemaVersionId !== expected.schemaVersionId) {
-    return authorityMismatch("schemaChanged");
-  }
-  if (session.authorizationRevocationEpoch !== revocationEpoch) {
-    return authorityMismatch("revocationEpochChanged");
-  }
-  if (session.lifecycle !== "running" && session.lifecycle !== "finishing") {
-    return Object.freeze({ kind: "notPlannable", reason: "lifecycle" });
-  }
-  if (!validSessionScalars(session)) {
-    return corrupt("sessionEvidenceInvalid");
-  }
-  const sessionScalars = captureSessionScalars(session);
-  if (sessionScalars === undefined) return corrupt("sessionEvidenceInvalid");
-  if (
-    sessionScalars.authorizationGrantExpiresAtMilliseconds <=
-      databaseNowMilliseconds ||
-    sessionScalars.hardExpiresAtMilliseconds <= databaseNowMilliseconds
-  ) {
-    return Object.freeze({ kind: "notPlannable", reason: "expired" });
-  }
+function materializeStoredAuthorityEffect(
+  mode: SealedCommitAuthorityMaterializationV1,
+  preliminary: TrustedScopeAuthority,
+  captured: CapturedRowsV1,
+  options?: StoredCommitAuthorityMaterializationOptionsV1,
+): Effect.Effect<
+  StoredCommitAuthorityEvidenceLoadResultV1,
+  StoredCommitAuthorityEvidencePersistenceV1Error
+>;
+function materializeStoredAuthorityEffect(
+  mode: OpenOccExecutionMaterializationV1,
+  preliminary: TrustedScopeAuthority,
+  captured: CapturedRowsV1,
+  options?: StoredCommitAuthorityMaterializationOptionsV1,
+): Effect.Effect<
+  StoredOccExecutionEvidenceLoadResultV1,
+  StoredCommitAuthorityEvidencePersistenceV1Error
+>;
+function materializeStoredAuthorityEffect(
+  mode: StoredAuthorityMaterializationV1,
+  preliminary: TrustedScopeAuthority,
+  captured: CapturedRowsV1,
+  options: StoredCommitAuthorityMaterializationOptionsV1 = {},
+): Effect.Effect<
+  | StoredCommitAuthorityEvidenceLoadResultV1
+  | StoredOccExecutionEvidenceLoadResultV1,
+  StoredCommitAuthorityEvidencePersistenceV1Error
+> {
+  return Effect.gen(function* () {
+    const expected = mode.expected;
+    // Preserve C04B1's established size/corruption precedence. O08-B2a may
+    // still observe a committed lifecycle first so it can close through O07-A
+    // without materializing execution evidence.
+    if (mode.kind === "sealed" && captured.skipReason !== undefined) {
+      return corrupt(captured.skipReason);
+    }
+    if (captured.clockRows.length !== 1) {
+      return materializationCorrupt(mode, "authorityProjectionInvalid");
+    }
+    const clockRow = captured.clockRows[0];
+    if (clockRow === undefined) {
+      return materializationCorrupt(mode, "authorityProjectionInvalid");
+    }
+    const decodedClock = decodeClockAuthority(clockRow);
+    if (decodedClock === undefined) {
+      return materializationCorrupt(mode, "authorityProjectionInvalid");
+    }
+    const { clock, scopeUuid, epochUuid, revocationEpoch } = decodedClock;
+    if (
+      scopeUuid !== projectScopeIdUuidV1(expected.scopeId).scopeUuid ||
+      epochUuid !== projectScopeEpochUuidV1(clock.epoch).epochUuid ||
+      clock.scopeId !== expected.scopeId ||
+      preliminary.scopeId !== expected.scopeId
+    ) {
+      return materializationAuthorityMismatch(mode, "scopeChanged");
+    }
+    if (
+      mode.kind === "openOccExecution" &&
+      scopeUuid !== mode.expected.scopeUuid
+    ) {
+      return occExecutionAuthorityMismatch("scopeChanged");
+    }
+    if (
+      clock.storageGeneration !== expected.storageGeneration ||
+      clock.storageGenerationFence !== expected.storageGenerationFence ||
+      preliminary.storageGeneration !== expected.storageGeneration ||
+      preliminary.storageGenerationFence !== expected.storageGenerationFence
+    ) {
+      return materializationAuthorityMismatch(mode, "generationChanged");
+    }
+    if (
+      clock.epoch !== expected.snapshotToken.epoch ||
+      preliminary.epoch !== expected.snapshotToken.epoch
+    ) {
+      return materializationAuthorityMismatch(mode, "epochChanged");
+    }
+    const databaseNowMilliseconds = decodeDatabaseNow(captured.databaseNowText);
+    if (databaseNowMilliseconds === undefined) {
+      return materializationCorrupt(mode, "databaseClockInvalid");
+    }
 
-  if (captured.leaseRows.length !== 1) {
-    return corrupt("snapshotLeaseMissingOrDuplicate");
-  }
-  const lease = captured.leaseRows[0];
-  if (lease === undefined) {
-    return corrupt("snapshotLeaseMissingOrDuplicate");
-  }
-  const leaseSnapshot = decodeLeaseSnapshot(expected, lease);
-  if (leaseSnapshot === undefined) return corrupt("snapshotLeaseInvalid");
-  const leaseExpiresAtMilliseconds = finiteDateMilliseconds(
-    lease.leaseExpiresAt,
-  );
-  if (
-    lease.scopeUuid !== scopeUuid ||
-    lease.sessionId !== expected.sessionId ||
-    lease.attemptFence !== expected.attemptFence ||
-    leaseExpiresAtMilliseconds === undefined ||
-    leaseExpiresAtMilliseconds > sessionScalars.hardExpiresAtMilliseconds ||
-    leaseSnapshot.commitSeq > clock.lastCommitSeq
-  ) {
-    return corrupt("snapshotLeaseInvalid");
-  }
-  if (
-    leaseSnapshot.scopeId !== expected.snapshotToken.scopeId ||
-    leaseSnapshot.epoch !== expected.snapshotToken.epoch ||
-    leaseSnapshot.commitSeq !== expected.snapshotToken.commitSeq
-  ) {
-    return authorityMismatch("snapshotChanged");
-  }
-  if (leaseExpiresAtMilliseconds <= databaseNowMilliseconds) {
-    return Object.freeze({ kind: "notPlannable", reason: "expired" });
-  }
+    if (captured.sessionSizeRows.length === 0) {
+      return materializationAuthorityMismatch(mode, "attemptMissing");
+    }
+    if (captured.sessionSizeRows.length !== 1) {
+      return materializationCorrupt(mode, "sessionEvidenceMissingOrDuplicate");
+    }
+    const session = captured.sessionSizeRows[0];
+    if (session === undefined) {
+      return materializationCorrupt(mode, "sessionEvidenceMissingOrDuplicate");
+    }
+    const sessionIdentity = decodeSessionIdentity(session);
+    if (sessionIdentity === undefined) {
+      return materializationCorrupt(mode, "sessionEvidenceInvalid");
+    }
+    if (
+      session.scopeUuid !== scopeUuid ||
+      sessionIdentity.sessionId !== expected.sessionId
+    ) {
+      return materializationAuthorityMismatch(mode, "attemptMissing");
+    }
+    if (sessionIdentity.attemptFence !== expected.attemptFence) {
+      return materializationAuthorityMismatch(mode, "attemptReplaced");
+    }
+    if (
+      session.storageGeneration !== expected.storageGeneration ||
+      sessionIdentity.storageGenerationFence !== expected.storageGenerationFence
+    ) {
+      return materializationAuthorityMismatch(mode, "generationChanged");
+    }
+    if (session.schemaVersionId !== expected.schemaVersionId) {
+      return materializationAuthorityMismatch(mode, "schemaChanged");
+    }
+    if (session.authorizationRevocationEpoch !== revocationEpoch) {
+      return materializationAuthorityMismatch(mode, "revocationEpochChanged");
+    }
+    if (mode.kind === "sealed") {
+      if (
+        session.lifecycle !== "running" &&
+        session.lifecycle !== "finishing"
+      ) {
+        return Object.freeze({ kind: "notPlannable", reason: "lifecycle" });
+      }
+    } else {
+      if (session.lifecycle === "committed") {
+        const updatedAtMilliseconds = finiteDateMilliseconds(session.updatedAt);
+        return updatedAtMilliseconds === undefined
+          ? occExecutionCorrupt("sessionEvidenceInvalid")
+          : Object.freeze({ kind: "alreadyCommitted", updatedAtMilliseconds });
+      }
+      if (session.lifecycle === "retrying") {
+        return occExecutionCorrupt("durableRetrying");
+      }
+      if (session.lifecycle !== "running") {
+        return Object.freeze({
+          kind: "notExecutable",
+          reason: "lifecycle",
+          lifecycle: session.lifecycle,
+        });
+      }
+    }
+    if (captured.skipReason !== undefined) {
+      return materializationCorrupt(mode, captured.skipReason);
+    }
+    if (!validSessionScalars(session)) {
+      return materializationCorrupt(mode, "sessionEvidenceInvalid");
+    }
+    const sessionScalars = captureSessionScalars(session);
+    if (sessionScalars === undefined) {
+      return materializationCorrupt(mode, "sessionEvidenceInvalid");
+    }
+    if (mode.kind === "openOccExecution") {
+      const previous = mode.expected.previousSession;
+      if (
+        previous.lifecycle !== "finishing" ||
+        !storedTransactionSessionScalarsEqualV1(
+          sessionScalars,
+          Object.freeze({
+            ...previous,
+            lifecycle: "running",
+            updatedAtMilliseconds: sessionScalars.updatedAtMilliseconds,
+          }),
+        )
+      ) {
+        return occExecutionAuthorityMismatch("sessionChanged");
+      }
+      if (sessionScalars.updatedAtMilliseconds > databaseNowMilliseconds) {
+        return occExecutionCorrupt("sessionEvidenceInvalid");
+      }
+    }
+    if (
+      sessionScalars.authorizationGrantExpiresAtMilliseconds <=
+        databaseNowMilliseconds ||
+      sessionScalars.hardExpiresAtMilliseconds <= databaseNowMilliseconds
+    ) {
+      return mode.kind === "sealed"
+        ? Object.freeze({ kind: "notPlannable", reason: "expired" })
+        : Object.freeze({ kind: "notExecutable", reason: "expired" });
+    }
 
-  if (captured.rootRows.length !== 1) {
-    return corrupt("journalRootMissingOrDuplicate");
-  }
-  const root = captured.rootRows[0];
-  if (root === undefined) return corrupt("journalRootMissingOrDuplicate");
-  if (root.state !== "sealed") {
-    return Object.freeze({ kind: "notPlannable", reason: "rootNotSealed" });
-  }
-  if (!validRootScalars(root)) {
-    return corrupt("journalRootInvalid");
-  }
-
-  if (!storedTransactionSessionScalarsEqualV1(
-    sessionScalars,
-    expected.session,
-  )) {
-    return authorityMismatch("sealChanged");
-  }
-  if (!sameSealIdentity(
-    expected.sealIdentity,
-    session,
-    lease,
-    root,
-    scopeUuid,
-  )) {
-    return authorityMismatch("sealChanged");
-  }
-
-  if (captured.sessionPayloadRows.length !== 1) {
-    return corrupt("sessionEvidenceMissingOrDuplicate");
-  }
-  const payload = captured.sessionPayloadRows[0];
-  if (
-    payload === undefined ||
-    payload.scopeUuid !== scopeUuid ||
-    payload.sessionId !== expected.sessionId ||
-    payload.attemptFence !== expected.attemptFence ||
-    typeof payload.validatedArgsJsonText !== "string" ||
-    typeof payload.authorizationGrantJsonText !== "string"
-  ) {
-    return corrupt("sessionEvidenceInvalid");
-  }
-  const validatedArgsJson = parseJsonObjectText(
-    payload.validatedArgsJsonText,
-  );
-  const authorizationGrantJson = parseJsonObjectText(
-    payload.authorizationGrantJsonText,
-  );
-  const projectedArgsLength = parseLength(
-    session.validatedArgsCanonicalByteLengthText,
-  );
-  const projectedGrantLength = parseLength(
-    session.authorizationGrantCanonicalByteLengthText,
-  );
-  const projectedArgsJsonLength = parseLength(
-    session.validatedArgsJsonByteLengthText,
-  );
-  const projectedGrantJsonLength = parseLength(
-    session.authorizationGrantJsonByteLengthText,
-  );
-  if (
-    validatedArgsJson === undefined ||
-    authorizationGrantJson === undefined ||
-    projectedArgsLength === undefined ||
-    projectedGrantLength === undefined ||
-    projectedArgsJsonLength === undefined ||
-    projectedGrantJsonLength === undefined ||
-    utf8ByteLength(payload.validatedArgsJsonText) !==
-      projectedArgsJsonLength ||
-    utf8ByteLength(payload.authorizationGrantJsonText) !==
-      projectedGrantJsonLength ||
-    payload.validatedArgsCanonicalBytes.byteLength !== projectedArgsLength ||
-    payload.authorizationGrantCanonicalBytes.byteLength !== projectedGrantLength
-  ) {
-    return corrupt("sessionEvidenceInvalid");
-  }
-
-  if (captured.schemaSizeRows.length !== 1) {
-    return corrupt("schemaArtifactMissingOrDuplicate");
-  }
-  const schemaSize = captured.schemaSizeRows[0];
-  if (schemaSize === undefined) {
-    return corrupt("schemaArtifactMissingOrDuplicate");
-  }
-  if (captured.schemaPayloadRows.length !== 1) {
-    return corrupt("schemaArtifactMissingOrDuplicate");
-  }
-  const schemaRow = captured.schemaPayloadRows[0];
-  if (schemaRow === undefined) {
-    return corrupt("schemaArtifactMissingOrDuplicate");
-  }
-  if (options.beforeSchemaArtifactDecode !== undefined) {
-    yield* runMaterializationPromise(
-      "beforeSchemaArtifactDecode",
-      async () => options.beforeSchemaArtifactDecode?.(),
+    if (captured.leaseRows.length !== 1) {
+      return materializationCorrupt(mode, "snapshotLeaseMissingOrDuplicate");
+    }
+    const lease = captured.leaseRows[0];
+    if (lease === undefined) {
+      return materializationCorrupt(mode, "snapshotLeaseMissingOrDuplicate");
+    }
+    const leaseSnapshot = decodeLeaseSnapshot(expected, lease);
+    if (leaseSnapshot === undefined) {
+      return materializationCorrupt(mode, "snapshotLeaseInvalid");
+    }
+    const leaseExpiresAtMilliseconds = finiteDateMilliseconds(
+      lease.leaseExpiresAt,
     );
-  }
-  const manifest = yield* verifySchemaArtifactEffect(
-    expected,
-    schemaSize,
-    schemaRow,
-  );
-  if (manifest === undefined) return corrupt("schemaArtifactInvalid");
-  const stableBindings = materializeBindings(
-    manifest,
-    captured.bindingRows,
-  );
-  if (stableBindings === "overflow") {
-    return corrupt("stableBindingOverflow");
-  }
-  if (stableBindings === "missing") {
-    return corrupt("stableBindingMissing");
-  }
-  if (stableBindings === "mismatch") {
-    return corrupt("stableBindingMismatch");
-  }
+    if (
+      lease.scopeUuid !== scopeUuid ||
+      lease.sessionId !== expected.sessionId ||
+      lease.attemptFence !== expected.attemptFence ||
+      leaseExpiresAtMilliseconds === undefined ||
+      leaseExpiresAtMilliseconds > sessionScalars.hardExpiresAtMilliseconds ||
+      leaseSnapshot.commitSeq > clock.lastCommitSeq
+    ) {
+      return materializationCorrupt(mode, "snapshotLeaseInvalid");
+    }
+    if (
+      leaseSnapshot.scopeId !== expected.snapshotToken.scopeId ||
+      leaseSnapshot.epoch !== expected.snapshotToken.epoch ||
+      leaseSnapshot.commitSeq !== expected.snapshotToken.commitSeq
+    ) {
+      return materializationAuthorityMismatch(mode, "snapshotChanged");
+    }
+    if (leaseExpiresAtMilliseconds <= databaseNowMilliseconds) {
+      return mode.kind === "sealed"
+        ? Object.freeze({ kind: "notPlannable", reason: "expired" })
+        : Object.freeze({ kind: "notExecutable", reason: "expired" });
+    }
 
-  return Object.freeze({
-    kind: "loaded",
-    evidence: Object.freeze({
+    if (captured.rootRows.length !== 1) {
+      return materializationCorrupt(mode, "journalRootMissingOrDuplicate");
+    }
+    const root = captured.rootRows[0];
+    if (root === undefined) {
+      return materializationCorrupt(mode, "journalRootMissingOrDuplicate");
+    }
+    let creationTimeSeed:
+      | StoredOccExecutionEvidenceV1["creationTimeSeed"]
+      | undefined;
+    if (mode.kind === "sealed") {
+      if (root.state !== "sealed") {
+        return Object.freeze({ kind: "notPlannable", reason: "rootNotSealed" });
+      }
+      if (!validRootScalars(root)) {
+        return corrupt("journalRootInvalid");
+      }
+      if (
+        !storedTransactionSessionScalarsEqualV1(
+          sessionScalars,
+          mode.expected.session,
+        )
+      ) {
+        return authorityMismatch("sealChanged");
+      }
+      if (
+        !sameSealIdentity(
+          mode.expected.sealIdentity,
+          session,
+          lease,
+          root,
+          scopeUuid,
+        )
+      ) {
+        return authorityMismatch("sealChanged");
+      }
+    } else {
+      if (leaseExpiresAtMilliseconds <= sessionScalars.updatedAtMilliseconds) {
+        return occExecutionCorrupt("snapshotLeaseInvalid");
+      }
+      const expectedFacet = buildFreshTransactionAttemptFacetV1({
+        scopeUuid,
+        sessionId: mode.expected.sessionId,
+        attemptFence: mode.expected.attemptFence,
+        snapshotEpochUuid: epochUuid,
+        snapshotCommitSeq: leaseSnapshot.commitSeq,
+        databaseNowMilliseconds: sessionScalars.updatedAtMilliseconds,
+        authorizationGrantExpiresAtMilliseconds:
+          sessionScalars.authorizationGrantExpiresAtMilliseconds,
+        hardExpiresAtMilliseconds: sessionScalars.hardExpiresAtMilliseconds,
+        leaseDurationMilliseconds:
+          leaseExpiresAtMilliseconds - sessionScalars.updatedAtMilliseconds,
+      });
+      if (Result.isFailure(expectedFacet)) {
+        return occExecutionCorrupt("journalRootNotPristine");
+      }
+      const rootState = classifyOpenOccExecutionRoot(
+        Object.freeze({
+          ...root,
+          sealedJournalBytes:
+            root.sealedJournalByteLengthText === null
+              ? null
+              : new Uint8Array(0),
+          sealedResultBytes:
+            root.sealedResultByteLengthText === null ? null : new Uint8Array(0),
+        }),
+        expectedFacet.success.journalRoot,
+        databaseNowMilliseconds,
+      );
+      if (rootState === "corrupt") {
+        return occExecutionCorrupt("journalRootInvalid");
+      }
+      if (rootState === "advanced") {
+        return Object.freeze({ kind: "notExecutable", reason: "notPristine" });
+      }
+      if (captured.attemptChildRows.length !== 1) {
+        return occExecutionCorrupt("journalRootNotPristine");
+      }
+      const children = captured.attemptChildRows[0];
+      if (
+        children === undefined ||
+        typeof children.receiptExists !== "boolean" ||
+        typeof children.pointExists !== "boolean" ||
+        typeof children.eventExists !== "boolean"
+      ) {
+        return occExecutionCorrupt("journalRootNotPristine");
+      }
+      if (
+        children.receiptExists ||
+        children.pointExists ||
+        children.eventExists
+      ) {
+        return occExecutionCorrupt("journalChildrenPresent");
+      }
+      creationTimeSeed = expectedFacet.success.journalRoot.creationTimeSeed;
+    }
+
+    if (captured.sessionPayloadRows.length !== 1) {
+      return materializationCorrupt(mode, "sessionEvidenceMissingOrDuplicate");
+    }
+    const payload = captured.sessionPayloadRows[0];
+    if (
+      payload === undefined ||
+      payload.scopeUuid !== scopeUuid ||
+      payload.sessionId !== expected.sessionId ||
+      payload.attemptFence !== expected.attemptFence ||
+      typeof payload.validatedArgsJsonText !== "string" ||
+      typeof payload.authorizationGrantJsonText !== "string"
+    ) {
+      return materializationCorrupt(mode, "sessionEvidenceInvalid");
+    }
+    const validatedArgsJson = parseJsonObjectText(
+      payload.validatedArgsJsonText,
+    );
+    const authorizationGrantJson = parseJsonObjectText(
+      payload.authorizationGrantJsonText,
+    );
+    const projectedArgsLength = parseLength(
+      session.validatedArgsCanonicalByteLengthText,
+    );
+    const projectedGrantLength = parseLength(
+      session.authorizationGrantCanonicalByteLengthText,
+    );
+    const projectedArgsJsonLength = parseLength(
+      session.validatedArgsJsonByteLengthText,
+    );
+    const projectedGrantJsonLength = parseLength(
+      session.authorizationGrantJsonByteLengthText,
+    );
+    if (
+      validatedArgsJson === undefined ||
+      authorizationGrantJson === undefined ||
+      projectedArgsLength === undefined ||
+      projectedGrantLength === undefined ||
+      projectedArgsJsonLength === undefined ||
+      projectedGrantJsonLength === undefined ||
+      utf8ByteLength(payload.validatedArgsJsonText) !==
+        projectedArgsJsonLength ||
+      utf8ByteLength(payload.authorizationGrantJsonText) !==
+        projectedGrantJsonLength ||
+      payload.validatedArgsCanonicalBytes.byteLength !== projectedArgsLength ||
+      payload.authorizationGrantCanonicalBytes.byteLength !==
+        projectedGrantLength
+    ) {
+      return materializationCorrupt(mode, "sessionEvidenceInvalid");
+    }
+
+    if (captured.schemaSizeRows.length !== 1) {
+      return materializationCorrupt(mode, "schemaArtifactMissingOrDuplicate");
+    }
+    const schemaSize = captured.schemaSizeRows[0];
+    if (schemaSize === undefined) {
+      return materializationCorrupt(mode, "schemaArtifactMissingOrDuplicate");
+    }
+    if (captured.schemaPayloadRows.length !== 1) {
+      return materializationCorrupt(mode, "schemaArtifactMissingOrDuplicate");
+    }
+    const schemaRow = captured.schemaPayloadRows[0];
+    if (schemaRow === undefined) {
+      return materializationCorrupt(mode, "schemaArtifactMissingOrDuplicate");
+    }
+    if (options.beforeSchemaArtifactDecode !== undefined) {
+      yield* runMaterializationPromise("beforeSchemaArtifactDecode", async () =>
+        options.beforeSchemaArtifactDecode?.(),
+      );
+    }
+    const manifest = yield* verifySchemaArtifactEffect(
+      expected,
+      schemaSize,
+      schemaRow,
+    );
+    if (manifest === undefined) {
+      return materializationCorrupt(mode, "schemaArtifactInvalid");
+    }
+    const stableBindings = materializeBindings(manifest, captured.bindingRows);
+    if (stableBindings === "overflow") {
+      return materializationCorrupt(mode, "stableBindingOverflow");
+    }
+    if (stableBindings === "missing") {
+      return materializationCorrupt(mode, "stableBindingMissing");
+    }
+    if (stableBindings === "mismatch") {
+      return materializationCorrupt(mode, "stableBindingMismatch");
+    }
+
+    const evidence = Object.freeze({
       databaseNowMilliseconds,
       currentAuthorizationRevocationEpoch: revocationEpoch,
       session: Object.freeze({
         ...sessionScalars,
-        validatedArgsJson: Object.freeze(
-          structuredClone(validatedArgsJson),
-        ),
+        validatedArgsJson: Object.freeze(structuredClone(validatedArgsJson)),
         validatedArgsCanonicalBytes: copyBytes(
           payload.validatedArgsCanonicalBytes,
         ),
@@ -418,12 +637,45 @@ export const materializeEffect = Effect.fn(
       schema: Object.freeze({
         deploymentId: expected.deploymentId,
         schemaVersionId: expected.schemaVersionId,
-        manifest: Object.freeze(structuredClone(manifest)),
+        manifest: snapshotSchemaManifestValue(manifest),
         stableBindings,
       }),
-    }),
+    });
+    return mode.kind === "sealed"
+      ? Object.freeze({ kind: "loaded", evidence })
+      : Object.freeze({
+          kind: "loaded",
+          evidence: Object.freeze({
+            ...evidence,
+            creationTimeSeed,
+          }),
+        });
   });
-});
+}
+
+function materializationAuthorityMismatch(
+  mode: StoredAuthorityMaterializationV1,
+  reason:
+    | "scopeChanged"
+    | "attemptMissing"
+    | "attemptReplaced"
+    | "generationChanged"
+    | "epochChanged"
+    | "snapshotChanged"
+    | "schemaChanged"
+    | "revocationEpochChanged",
+) {
+  return mode.kind === "sealed"
+    ? authorityMismatch(reason)
+    : occExecutionAuthorityMismatch(reason);
+}
+
+function materializationCorrupt(
+  mode: StoredAuthorityMaterializationV1,
+  reason: StoredCommitAuthorityCorruptionReasonV1,
+) {
+  return mode.kind === "sealed" ? corrupt(reason) : occExecutionCorrupt(reason);
+}
 
 function decodeClockAuthority(row: ClockRow) {
   return Result.getOrUndefined(Result.try({
@@ -453,7 +705,7 @@ function decodeSessionIdentity(session: SessionSizeRow) {
 }
 
 function decodeLeaseSnapshot(
-  expected: StoredCommitAuthorityEvidenceAuthorityV1,
+  expected: StoredCommitAuthorityCaptureAuthorityV1,
   lease: LeaseRow,
 ) {
   return Result.getOrUndefined(Result.try({
@@ -585,6 +837,100 @@ function validRootScalars(root: RootScalarRow): boolean {
     sealedAtMilliseconds >= createdAtMilliseconds;
 }
 
+type OpenOccExecutionRootRowV1 = RootScalarRow &
+  Readonly<{
+    readonly sealedJournalBytes: Uint8Array | null;
+    readonly sealedResultBytes: Uint8Array | null;
+  }>;
+
+function classifyOpenOccExecutionRoot(
+  root: OpenOccExecutionRootRowV1,
+  expected: Parameters<
+    typeof isPristineFreshTransactionAttemptJournalRootV1
+  >[1],
+  databaseNowMilliseconds: number,
+): "pristine" | "advanced" | "corrupt" {
+  const createdAtMilliseconds = finiteDateMilliseconds(root.createdAt);
+  const updatedAtMilliseconds = finiteDateMilliseconds(root.updatedAt);
+  const expectedCreatedAtMilliseconds = finiteDateMilliseconds(
+    expected.createdAt,
+  );
+  const numericCounters = [
+    root.readDocuments,
+    root.readSemanticBytes,
+    root.pointDependencyCount,
+    root.writeOperations,
+    root.writeSemanticBytes,
+    root.materialWriteEventEvidenceBytes,
+  ];
+  if (
+    root.scopeUuid !== expected.scopeUuid ||
+    root.sessionId !== expected.sessionId ||
+    root.attemptFence !== expected.attemptFence ||
+    typeof root.lastSyscallSequence !== "bigint" ||
+    root.lastSyscallSequence < 0n ||
+    !Number.isFinite(root.creationTimeSeed) ||
+    root.creationTimeSeed <= 0 ||
+    root.creationTimeSeed >= Number.MAX_SAFE_INTEGER + 1 ||
+    !Number.isFinite(root.nextCreationTime) ||
+    root.nextCreationTime < root.creationTimeSeed ||
+    root.nextCreationTime >= Number.MAX_SAFE_INTEGER + 1 ||
+    numericCounters.some((value) => !isNonNegativeSafeInteger(value)) ||
+    createdAtMilliseconds === undefined ||
+    updatedAtMilliseconds === undefined ||
+    expectedCreatedAtMilliseconds === undefined ||
+    createdAtMilliseconds !== expectedCreatedAtMilliseconds ||
+    root.creationTimeSeed !== expected.creationTimeSeed ||
+    updatedAtMilliseconds < createdAtMilliseconds ||
+    updatedAtMilliseconds > databaseNowMilliseconds
+  ) {
+    return "corrupt";
+  }
+
+  const hasNoSealedEvidence =
+    root.sealedFinalSyscallSequence === null &&
+    root.sealedJournalBytes === null &&
+    root.sealedJournalSha256 === null &&
+    root.sealedResultValueCodecVersion === null &&
+    root.sealedResultSemanticBytes === null &&
+    root.sealedResultBytes === null &&
+    root.sealedResultSha256 === null &&
+    root.sealedAt === null;
+  if (root.state === "open") {
+    if (root.failureDimension !== null || !hasNoSealedEvidence) {
+      return "corrupt";
+    }
+  } else if (root.state === "failed") {
+    if (
+      !isJournalFailureDimension(root.failureDimension) ||
+      !hasNoSealedEvidence
+    ) {
+      return "corrupt";
+    }
+  } else if (root.state === "sealed") {
+    if (!validRootScalars(root)) return "corrupt";
+  } else {
+    return "corrupt";
+  }
+
+  return isPristineFreshTransactionAttemptJournalRootV1(root, expected)
+    ? "pristine"
+    : "advanced";
+}
+
+function isJournalFailureDimension(
+  value: RootScalarRow["failureDimension"],
+): value is Exclude<RootScalarRow["failureDimension"], null> {
+  return (
+    value === "readDocuments" ||
+    value === "readSemanticBytes" ||
+    value === "pointReadDependencies" ||
+    value === "writeOperations" ||
+    value === "writeSemanticBytes" ||
+    value === "materialWriteEventEvidenceBytes"
+  );
+}
+
 function sameSealIdentity(
   expected: StoredCommitAuthoritySealIdentityV1,
   session: SessionSizeRow,
@@ -642,7 +988,7 @@ function sameSealIdentity(
 const verifySchemaArtifactEffect = Effect.fn(
   "StoredCommitAuthority.verifySchemaArtifact",
 )(function* (
-  expected: StoredCommitAuthorityEvidenceAuthorityV1,
+  expected: StoredCommitAuthorityCaptureAuthorityV1,
   size: SchemaSizeRow,
   row: SchemaPayloadRow,
 ): Effect.fn.Return<

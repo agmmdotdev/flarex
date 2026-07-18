@@ -49,7 +49,7 @@ import {
 } from "flarex-protocol/value";
 
 import type {
-  AuthenticatedStoredAttemptStateV1,
+  StoredAttemptAuthorityStateV1,
   StoredAttemptSessionScalarsPortV1,
 } from "../storedAttemptAuthentication";
 import type {
@@ -106,6 +106,12 @@ export interface VerifiedCommitAuthorityEvidenceV1 {
   ];
 }
 
+/** Narrow verification input shared by sealed C04B1 and open O08-B2a. */
+export interface CommitAuthorityVerificationStateV1 {
+  readonly authority: StoredAttemptAuthorityStateV1;
+  readonly session: StoredAttemptSessionScalarsPortV1;
+}
+
 export const requireLoadedCommitAuthorityEvidenceEffect = Effect.fn(
   "StoredAttemptAuthentication.requireLoadedCommitAuthorityEvidence",
 )(function* (result: StoredCommitAuthorityEvidenceLoadResultPortV1) {
@@ -133,7 +139,7 @@ export const requireLoadedCommitAuthorityEvidenceEffect = Effect.fn(
 export const verifyCommitAuthorityEvidenceEffect = Effect.fn(
   "StoredAttemptAuthentication.verifyCommitAuthorityEvidence",
 )(function* (
-  storedAttempt: AuthenticatedStoredAttemptStateV1,
+  storedAttempt: CommitAuthorityVerificationStateV1,
   evidence: StoredCommitAuthorityEvidencePortV1,
   grantKernel: TransactionGrantVerificationKernelV1,
 ) {
@@ -256,7 +262,7 @@ export const verifyCommitAuthorityEvidenceEffect = Effect.fn(
 export const verifyPinnedFunctionMetadataEffect = Effect.fn(
   "StoredAttemptAuthentication.verifyPinnedFunctionMetadata",
 )(function* (
-  storedAttempt: AuthenticatedStoredAttemptStateV1,
+  storedAttempt: CommitAuthorityVerificationStateV1,
   input: unknown | null,
 ) {
   if (input === null) {
@@ -294,7 +300,7 @@ export const verifyPinnedFunctionMetadataEffect = Effect.fn(
 });
 
 export function capturePinnedFunctionSelector(
-  state: AuthenticatedStoredAttemptStateV1,
+  state: CommitAuthorityVerificationStateV1,
 ): PinnedPointMutationFunctionMetadataSelectorV1 {
   return Object.freeze({
     deploymentId: state.authority.deploymentId,
@@ -311,7 +317,7 @@ export function capturePinnedFunctionSelector(
 }
 
 function buildExpectedTransactionGrantPins(
-  state: AuthenticatedStoredAttemptStateV1,
+  state: CommitAuthorityVerificationStateV1,
 ) {
   const session = state.session;
   return Object.freeze({

@@ -1,10 +1,13 @@
-import { Effect, Exit, Fiber, Random, Schema } from "effect";
+import { eq } from "drizzle-orm";
+import { Cause, Effect, Exit, Fiber, Random, Schema } from "effect";
 import {
   canonicalizeAppDocumentV1,
   decodeAppCreationTimeV1,
 } from "flarex-protocol/app-document";
 import {
   appDocumentIdV1FromRowIdentity,
+  appRowIdHexV1ToBytes,
+  decodeAppDocumentIdentityV1,
   decodeAppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
 import { decodeCatalogTableId } from "flarex-protocol/catalog";
@@ -32,6 +35,7 @@ import {
 import {
   decodeActivePointMutationTargetMetadataV1,
   preparePointMutationStartEvidenceV1,
+  type PointMutationTargetFunctionMetadataV1,
 } from "flarex-protocol/point-mutation-start";
 import {
   CatalogSchemaVersionIdSchema,
@@ -45,6 +49,7 @@ import {
   SnapshotTokenSchema,
   StorageGenerationFenceSchema,
   decodeReplacementScopeIdV1,
+  projectScopeEpochUuidV1,
   projectScopeIdUuidV1,
 } from "flarex-protocol/storage-authority";
 import {
@@ -58,6 +63,7 @@ import {
 import {
   FLAREX_VALUE_CODEC_VERSION_V1,
   canonicalizeFlarexValueV1,
+  isCanonicalFlarexRuntimeObjectV1,
 } from "flarex-protocol/value";
 import {
   beforeAll,
@@ -69,9 +75,14 @@ import {
 
 import {
   createPointMutationSessionAttemptLoadingV1,
+  createPointMutationSessionAttemptTerminalizationV1,
 } from "../../executor/src/pointMutationSessionActivation";
+import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJournal";
 import {
   createStoredAttemptAuthenticationV1,
+  PointMutationOccUserCodeV1Error,
+  type PointMutationOccExecutionContextFactoryV1,
+  type PointMutationOccRuntimeNeutralRunnerV1,
   type StoredAttemptEvidenceLoaderPortV1,
 } from "../../executor/src/storedAttemptAuthentication";
 import {
@@ -104,6 +115,7 @@ import {
   type StoredCommitAuthorityEvidenceAuthorityV1,
   type StoredCommitAuthorityEvidenceQueryV1,
 } from "../src/storedCommitAuthorityEvidence";
+import { createStoredOccExecutionEvidenceLoaderV1 } from "../src/storedOccExecution";
 import {
   createStoredAttemptEvidenceLoaderV1,
   StoredAttemptEvidencePersistenceV1Error,
@@ -113,8 +125,14 @@ import {
   type StoredAttemptFinishingEvidenceLoaderV1,
 } from "../src/storedAttemptEvidence";
 import {
+  fxSystemCommitAppRowChanges,
+  fxSystemCommits,
+  fxSystemScopeClocks,
+} from "../src/schema";
+import {
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
+  createPointMutationSessionAttemptTerminalizationPersistenceV1,
   type PointMutationSessionAnchorV1,
   type PointMutationSessionAttemptSelectorV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
@@ -1009,6 +1027,73 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     if (result.kind !== "authorized") {
       throw new Error("Expected the O08-B1 authorization result.");
     }
+    const executionQueries: string[] = [];
+    let executionCaptureClosed = false;
+    const executionEvidence = await runEffect(
+      createStoredOccExecutionEvidenceLoaderV1(resolutionPorts(persistence), {
+        observeQuery: (query) => executionQueries.push(query.name),
+        afterRepeatableRead: () => {
+          executionCaptureClosed = true;
+        },
+      }).loadEffect({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        scopeUuid: finishingStored.evidence.scopeUuid,
+        sessionId: current.anchor.sessionId,
+        attemptFence: TransactionAttemptFenceSchema.make(
+          current.anchor.attemptFence + 1n,
+        ),
+        storageGeneration: current.authority.storageGeneration,
+        storageGenerationFence: current.authority.storageGenerationFence,
+        snapshotToken: SnapshotTokenSchema.make({
+          scopeId: current.anchor.scopeId,
+          epoch: current.anchor.snapshotToken.epoch,
+          commitSeq: CommitSeqSchema.make(1n),
+        }),
+        schemaVersionId: current.schemaVersionId,
+        previousSession: finishingStored.evidence.session,
+      }),
+    );
+    expect(executionCaptureClosed).toBe(true);
+    expect(executionQueries).toContain("attemptChildren");
+    expect(executionQueries.indexOf("authoritySizes")).toBeLessThan(
+      executionQueries.indexOf("authorityPayload"),
+    );
+    expect(executionEvidence).toMatchObject({ kind: "loaded" });
+    if (executionEvidence.kind !== "loaded") {
+      throw new Error("Expected open O08-B2a execution evidence.");
+    }
+    expect(executionEvidence.evidence.creationTimeSeed).toBeGreaterThan(0);
+    expect(executionEvidence.evidence.session.lifecycle).toBe("running");
+    executionEvidence.evidence.session.validatedArgsCanonicalBytes.fill(0);
+    const detachedReload = await runEffect(
+      createStoredOccExecutionEvidenceLoaderV1(
+        resolutionPorts(persistence),
+      ).loadEffect({
+        deploymentId: current.anchor.deploymentId,
+        scopeId: current.anchor.scopeId,
+        scopeUuid: finishingStored.evidence.scopeUuid,
+        sessionId: current.anchor.sessionId,
+        attemptFence: TransactionAttemptFenceSchema.make(
+          current.anchor.attemptFence + 1n,
+        ),
+        storageGeneration: current.authority.storageGeneration,
+        storageGenerationFence: current.authority.storageGenerationFence,
+        snapshotToken: SnapshotTokenSchema.make({
+          scopeId: current.anchor.scopeId,
+          epoch: current.anchor.snapshotToken.epoch,
+          commitSeq: CommitSeqSchema.make(1n),
+        }),
+        schemaVersionId: current.schemaVersionId,
+        previousSession: finishingStored.evidence.session,
+      }),
+    );
+    expect(
+      detachedReload.kind === "loaded" &&
+        detachedReload.evidence.session.validatedArgsCanonicalBytes.some(
+          (byte) => byte !== 0,
+        ),
+    ).toBe(true);
     const inspection =
       authentication.consumeAuthorizedPointMutationOccRerunForTest(
         result.rerun,
@@ -1072,6 +1157,755 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       receipt_count: "0",
       point_count: "0",
       event_count: "0",
+    });
+  });
+
+  it("consumes O08-B1 once and publishes through the same-process runtime-neutral B2a path", async () => {
+    let runnerCalls = 0;
+    const observedContexts: Array<
+      Parameters<PointMutationOccRuntimeNeutralRunnerV1["run"]>[0]["context"]
+    > = [];
+    let prepared: Awaited<ReturnType<typeof prepareO08B1Conflict>>;
+    const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
+      run: (
+        input: Parameters<PointMutationOccRuntimeNeutralRunnerV1["run"]>[0],
+      ): ReturnType<PointMutationOccRuntimeNeutralRunnerV1["run"]> =>
+        Effect.gen(function* () {
+          runnerCalls += 1;
+          observedContexts.push(input.context);
+          const table = yield* input.journal.resolvePointTable("users");
+          const inserted = yield* input.journal.runPointOperation(table, {
+            kind: "insert",
+            syscallSequence: "1",
+            fields: { name: "retried" },
+          });
+          if (
+            inserted.kind !== "completed" ||
+            inserted.outcome.kind !== "inserted"
+          ) {
+            return yield* Effect.fail(
+              new PointMutationOccUserCodeV1Error({
+                cause: new Error("Expected the B2a retry insert to complete."),
+              }),
+            );
+          }
+          const insertedOutcome = inserted.outcome;
+          if (!isCanonicalFlarexRuntimeObjectV1(insertedOutcome.document)) {
+            return yield* Effect.fail(
+              new PointMutationOccUserCodeV1Error({
+                cause: new Error("Expected the B2a inserted app document."),
+              }),
+            );
+          }
+          const insertedDocument = insertedOutcome.document;
+          if (runnerCalls === 1) {
+            const identity = decodeAppDocumentIdentityV1(
+              insertedOutcome.documentId,
+            );
+            yield* Effect.tryPromise({
+              try: () =>
+                commitCompetingLiveIntent(
+                  prepared.current.anchor.scopeId,
+                  prepared.current.schemaVersionId,
+                  prepared.scopeUuid,
+                  Object.freeze({
+                    kind: "live" as const,
+                    tableId: identity.tableId,
+                    rowId: identity.rowId,
+                    creationTime: decodeAppCreationTimeV1(
+                      insertedDocument._creationTime,
+                    ),
+                    value: insertedDocument,
+                  }),
+                ),
+              catch: (cause) => new PointMutationOccUserCodeV1Error({ cause }),
+            });
+          }
+          return Object.freeze({ ok: true });
+        }),
+    });
+    prepared = await prepareO08B1Conflict("o08b2a_pglite_success", {}, runner);
+    const authorized = await runEffect(
+      prepared.authentication
+        .authorizePointMutationOccRerun(prepared.conflict)
+        .pipe(
+          Effect.provideService(Random.Random, {
+            nextDoubleUnsafe: () => 0,
+            nextIntUnsafe: () => 0,
+          }),
+        ),
+    );
+    if (authorized.kind !== "authorized") {
+      throw new Error("Expected an authorized O08-B2a handoff.");
+    }
+
+    const published = await runEffect(
+      prepared.authentication
+        .executeAuthorizedPointMutationOccRerun(authorized.rerun)
+        .pipe(
+          Effect.provideService(Random.Random, {
+            nextDoubleUnsafe: () => 0,
+            nextIntUnsafe: () => 0,
+          }),
+        ),
+    );
+    expect(published).toMatchObject({
+      kind: "published",
+      token: { scopeUuid: prepared.scopeUuid, commitSeq: 3n },
+      successfulResult: {
+        valueJson: { ok: true },
+      },
+    });
+    expect(runnerCalls).toBe(2);
+    expect(observedContexts).toMatchObject([
+      {
+        executionId: "o08-b2a-1",
+        logScopeId: "o08-b2a-log-1",
+        attemptFence: 2n,
+        snapshotToken: { commitSeq: 1n },
+      },
+      {
+        executionId: "o08-b2a-2",
+        logScopeId: "o08-b2a-log-2",
+        attemptFence: 3n,
+        snapshotToken: { commitSeq: 2n },
+      },
+    ]);
+    for (const [index, context] of observedContexts.entries()) {
+      expect(context.executionTime).toBe(context.initialCreationTimeCursor);
+      expect(context.randomSeed).toEqual(new Uint8Array(32).fill(index + 1));
+    }
+    expect(await o06DurableState(prepared.scopeUuid)).toEqual({
+      revisions: "3",
+      current_rows: "3",
+      commit_headers: "3",
+      commit_changes: "3",
+      outcomes: "1",
+      wakes: "1",
+      last_commit_seq: "3",
+      last_outbox_seq: "1",
+    });
+    expect(
+      await o07bTerminalState(
+        prepared.scopeUuid,
+        prepared.current.anchor.sessionId,
+      ),
+    ).toEqual({
+      lifecycle: "committed",
+      leases: "0",
+      journals: "0",
+      receipts: "0",
+      points: "0",
+      write_events: "0",
+    });
+    expect(
+      await runFailure(
+        prepared.authentication.executeAuthorizedPointMutationOccRerun(
+          authorized.rerun,
+        ),
+      ),
+    ).toMatchObject({
+      _tag: "InvalidAuthorizedPointMutationOccRerunV1Error",
+      reason: "alreadyConsumed",
+    });
+  });
+
+  it("fails before the B2a runner when current open-attempt authority is no longer exact", async () => {
+    const cases = [
+      Object.freeze({
+        label: "advanced_root",
+        mutate: (prepared: Awaited<ReturnType<typeof prepareO08B1Conflict>>) =>
+          persistence.query(
+            `
+              update fx_system_tx_journal
+              set last_syscall_sequence = 1
+              where scope_uuid = $1 and session_id = $2
+                and attempt_fence = 2
+            `,
+            [prepared.scopeUuid, prepared.current.anchor.sessionId],
+          ),
+        expected: Object.freeze({
+          _tag: "PointMutationOccExecutionNotRunnableV1Error",
+          reason: "notPristine",
+        }),
+      }),
+      Object.freeze({
+        label: "journal_children",
+        mutate: (prepared: Awaited<ReturnType<typeof prepareO08B1Conflict>>) =>
+          persistence.query(
+            `
+              insert into fx_system_tx_journal_point (
+                scope_uuid, session_id, attempt_fence, table_id, row_id,
+                dependency_kind, dependency_revision_commit_seq,
+                overlay_kind, created_at, updated_at
+              )
+              select scope_uuid, session_id, attempt_fence, 1,
+                decode(repeat('01', 16), 'hex'),
+                'missing_no_visible_revision', null, 'none',
+                created_at, updated_at
+              from fx_system_tx_journal
+              where scope_uuid = $1 and session_id = $2
+                and attempt_fence = 2
+            `,
+            [prepared.scopeUuid, prepared.current.anchor.sessionId],
+          ),
+        expected: Object.freeze({
+          _tag: "PointMutationOccExecutionAuthorityCorruptionV1Error",
+          reason: "journalChildrenPresent",
+        }),
+      }),
+      Object.freeze({
+        label: "durable_retrying",
+        mutate: (prepared: Awaited<ReturnType<typeof prepareO08B1Conflict>>) =>
+          persistence.query(
+            `
+              update fx_system_tx_session
+              set lifecycle = 'retrying'
+              where scope_uuid = $1 and session_id = $2
+                and attempt_fence = 2
+            `,
+            [prepared.scopeUuid, prepared.current.anchor.sessionId],
+          ),
+        expected: Object.freeze({
+          _tag: "PointMutationOccExecutionAuthorityCorruptionV1Error",
+          reason: "durableRetrying",
+        }),
+      }),
+      Object.freeze({
+        label: "future_root",
+        mutate: (prepared: Awaited<ReturnType<typeof prepareO08B1Conflict>>) =>
+          persistence.query(
+            `
+              update fx_system_tx_journal
+              set created_at = created_at + interval '30 seconds',
+                updated_at = updated_at + interval '30 seconds'
+              where scope_uuid = $1 and session_id = $2
+                and attempt_fence = 2
+            `,
+            [prepared.scopeUuid, prepared.current.anchor.sessionId],
+          ),
+        expected: Object.freeze({
+          _tag: "PointMutationOccExecutionAuthorityCorruptionV1Error",
+          reason: "journalRootInvalid",
+        }),
+      }),
+      Object.freeze({
+        label: "future_session",
+        mutate: (prepared: Awaited<ReturnType<typeof prepareO08B1Conflict>>) =>
+          persistence.query(
+            `
+              update fx_system_tx_session
+              set updated_at = updated_at + interval '30 seconds'
+              where scope_uuid = $1 and session_id = $2
+                and attempt_fence = 2
+            `,
+            [prepared.scopeUuid, prepared.current.anchor.sessionId],
+          ),
+        expected: Object.freeze({
+          _tag: "PointMutationOccExecutionAuthorityCorruptionV1Error",
+          reason: "sessionEvidenceInvalid",
+        }),
+      }),
+      Object.freeze({
+        label: "prior_session",
+        mutate: (prepared: Awaited<ReturnType<typeof prepareO08B1Conflict>>) =>
+          persistence.query(
+            `
+              update fx_system_tx_session
+              set function_path = 'users:changed'
+              where scope_uuid = $1 and session_id = $2
+                and attempt_fence = 2
+            `,
+            [prepared.scopeUuid, prepared.current.anchor.sessionId],
+          ),
+        expected: Object.freeze({
+          _tag: "PointMutationOccExecutionAuthorityMismatchV1Error",
+          reason: "sessionChanged",
+        }),
+      }),
+      Object.freeze({
+        label: "canonical_arguments",
+        mutate: (prepared: Awaited<ReturnType<typeof prepareO08B1Conflict>>) =>
+          persistence.query(
+            `
+              update fx_system_tx_session
+              set validated_args_json = '{"tampered": true}'::jsonb
+              where scope_uuid = $1 and session_id = $2
+            `,
+            [prepared.scopeUuid, prepared.current.anchor.sessionId],
+          ),
+        expected: Object.freeze({
+          _tag: "StoredCommitAuthorityCorruptionV1Error",
+          reason: "validatedArgumentsInvalid",
+        }),
+      }),
+      Object.freeze({
+        label: "revocation_epoch",
+        mutate: (prepared: Awaited<ReturnType<typeof prepareO08B1Conflict>>) =>
+          persistence.query(
+            `
+              update fx_system_scope_clock
+              set authorization_revocation_epoch =
+                authorization_revocation_epoch + 1
+              where scope_uuid = $1
+            `,
+            [prepared.scopeUuid],
+          ),
+        expected: Object.freeze({
+          _tag: "PointMutationOccExecutionAuthorityMismatchV1Error",
+          reason: "revocationEpochChanged",
+        }),
+      }),
+    ] as const;
+
+    for (const currentCase of cases) {
+      let runnerCalls = 0;
+      const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
+        run: () => {
+          runnerCalls += 1;
+          return Effect.succeed(Object.freeze({ ok: true }));
+        },
+      });
+      const prepared = await prepareO08B1Conflict(
+        `o08b2a_${currentCase.label}`,
+        {},
+        runner,
+      );
+      const authorized = await runEffect(
+        prepared.authentication
+          .authorizePointMutationOccRerun(prepared.conflict)
+          .pipe(
+            Effect.provideService(Random.Random, {
+              nextDoubleUnsafe: () => 0,
+              nextIntUnsafe: () => 0,
+            }),
+          ),
+      );
+      if (authorized.kind !== "authorized") {
+        throw new Error("Expected an authorized B2a negative fixture.");
+      }
+      await currentCase.mutate(prepared);
+      const failure = await runFailure(
+        prepared.authentication.executeAuthorizedPointMutationOccRerun(
+          authorized.rerun,
+        ),
+      );
+      expect(failure).toMatchObject(currentCase.expected);
+      expect(runnerCalls).toBe(0);
+      expect(
+        await runFailure(
+          prepared.authentication.executeAuthorizedPointMutationOccRerun(
+            authorized.rerun,
+          ),
+        ),
+      ).toMatchObject({
+        _tag: "InvalidAuthorizedPointMutationOccRerunV1Error",
+        reason: "alreadyConsumed",
+      });
+    }
+  });
+
+  it("normalizes a no-return B2a success to null and publishes a zero-row commit", async () => {
+    const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
+      run: () => Effect.succeed(undefined),
+    });
+    const prepared = await prepareO08B1Conflict(
+      "o08b2a_undefined_result",
+      {},
+      runner,
+      undefined,
+      { type: "any" },
+    );
+    const authorized = await runEffect(
+      prepared.authentication
+        .authorizePointMutationOccRerun(prepared.conflict)
+        .pipe(
+          Effect.provideService(Random.Random, {
+            nextDoubleUnsafe: () => 0,
+            nextIntUnsafe: () => 0,
+          }),
+        ),
+    );
+    if (authorized.kind !== "authorized") {
+      throw new Error("Expected the zero-row B2a fixture to authorize.");
+    }
+
+    const published = await runEffect(
+      prepared.authentication.executeAuthorizedPointMutationOccRerun(
+        authorized.rerun,
+      ),
+    );
+    expect(published).toMatchObject({
+      kind: "published",
+      token: { scopeUuid: prepared.scopeUuid, commitSeq: 2n },
+      successfulResult: { valueJson: null },
+    });
+    expect(await o06DurableState(prepared.scopeUuid)).toEqual({
+      revisions: "1",
+      current_rows: "1",
+      commit_headers: "2",
+      commit_changes: "1",
+      outcomes: "1",
+      wakes: "1",
+      last_commit_seq: "2",
+      last_outbox_seq: "1",
+    });
+  });
+
+  it("rejects forged and cross-factory B2a handles without consuming genuine authority", async () => {
+    const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
+      run: () => Effect.succeed(Object.freeze({ ok: true })),
+    });
+    const prepared = await prepareO08B1Conflict(
+      "o08b2a_handle_authority",
+      {},
+      runner,
+    );
+    const authorized = await runEffect(
+      prepared.authentication
+        .authorizePointMutationOccRerun(prepared.conflict)
+        .pipe(
+          Effect.provideService(Random.Random, {
+            nextDoubleUnsafe: () => 0,
+            nextIntUnsafe: () => 0,
+          }),
+        ),
+    );
+    if (authorized.kind !== "authorized") {
+      throw new Error("Expected the B2a handle fixture to authorize.");
+    }
+
+    expect(
+      await runFailure(
+        Reflect.apply(
+          prepared.authentication.executeAuthorizedPointMutationOccRerun,
+          prepared.authentication,
+          [Object.freeze({})],
+        ),
+      ),
+    ).toMatchObject({
+      _tag: "InvalidAuthorizedPointMutationOccRerunV1Error",
+      reason: "notSameFactory",
+    });
+    const crossFactory = createO08B1Authentication(
+      prepared.current,
+      {},
+      {},
+      runner,
+    );
+    expect(
+      await runFailure(
+        crossFactory.executeAuthorizedPointMutationOccRerun(authorized.rerun),
+      ),
+    ).toMatchObject({
+      _tag: "InvalidAuthorizedPointMutationOccRerunV1Error",
+      reason: "notSameFactory",
+    });
+
+    await expect(
+      runEffect(
+        prepared.authentication.executeAuthorizedPointMutationOccRerun(
+          authorized.rerun,
+        ),
+      ),
+    ).resolves.toMatchObject({ kind: "published" });
+  });
+
+  it("closes on an authoritative replay or expiry that appears after B1 replacement", async () => {
+    for (const outcomeKind of ["available", "expired"] as const) {
+      let runnerCalls = 0;
+      const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
+        run: () => {
+          runnerCalls += 1;
+          return Effect.succeed(Object.freeze({ ok: true }));
+        },
+      });
+      const prepared = await prepareO08B1Conflict(
+        `o08b2a_outcome_${outcomeKind}`,
+        {},
+        runner,
+      );
+      const authorized = await runEffect(
+        prepared.authentication
+          .authorizePointMutationOccRerun(prepared.conflict)
+          .pipe(
+            Effect.provideService(Random.Random, {
+              nextDoubleUnsafe: () => 0,
+              nextIntUnsafe: () => 0,
+            }),
+          ),
+      );
+      if (authorized.kind !== "authorized") {
+        throw new Error("Expected the outcome-race fixture to authorize.");
+      }
+      await injectB2aOutcome(prepared, outcomeKind);
+
+      await expect(
+        runEffect(
+          prepared.authentication.executeAuthorizedPointMutationOccRerun(
+            authorized.rerun,
+          ),
+        ),
+      ).resolves.toMatchObject({
+        kind: outcomeKind === "available" ? "replayed" : "expired",
+        token: { scopeUuid: prepared.scopeUuid, commitSeq: 1n },
+      });
+      expect(runnerCalls).toBe(0);
+    }
+  });
+
+  it("terminalizes the exact fresh attempt when B2a user code fails before finishing", async () => {
+    const prepared = await prepareO08B1Conflict("o08b2a_user_failure");
+    const authorized = await runEffect(
+      prepared.authentication
+        .authorizePointMutationOccRerun(prepared.conflict)
+        .pipe(
+          Effect.provideService(Random.Random, {
+            nextDoubleUnsafe: () => 0,
+            nextIntUnsafe: () => 0,
+          }),
+        ),
+    );
+    if (authorized.kind !== "authorized") {
+      throw new Error("Expected the failed B2a fixture to authorize.");
+    }
+    expect(
+      await runFailure(
+        prepared.authentication.executeAuthorizedPointMutationOccRerun(
+          authorized.rerun,
+        ),
+      ),
+    ).toBeInstanceOf(PointMutationOccUserCodeV1Error);
+    expect(
+      await o07bTerminalState(
+        prepared.scopeUuid,
+        prepared.current.anchor.sessionId,
+      ),
+    ).toEqual({
+      lifecycle: "aborted",
+      leases: "0",
+      journals: "0",
+      receipts: "0",
+      points: "0",
+      write_events: "0",
+    });
+    expect(await o06DurableState(prepared.scopeUuid)).toEqual({
+      revisions: "1",
+      current_rows: "1",
+      commit_headers: "1",
+      commit_changes: "1",
+      outcomes: "0",
+      wakes: "0",
+      last_commit_seq: "1",
+      last_outbox_seq: "0",
+    });
+  });
+
+  it("preserves journal boundary failures and terminalizes before finishing", async () => {
+    const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
+      run: (
+        input: Parameters<PointMutationOccRuntimeNeutralRunnerV1["run"]>[0],
+      ): ReturnType<PointMutationOccRuntimeNeutralRunnerV1["run"]> =>
+        Effect.gen(function* () {
+          const table = yield* input.journal.resolvePointTable("users");
+          return yield* input.journal.runPointOperation(table, {
+            kind: "scan",
+          });
+        }),
+    });
+    const prepared = await prepareO08B1Conflict(
+      "o08b2a_journal_failure",
+      {},
+      runner,
+    );
+    const authorized = await runEffect(
+      prepared.authentication
+        .authorizePointMutationOccRerun(prepared.conflict)
+        .pipe(
+          Effect.provideService(Random.Random, {
+            nextDoubleUnsafe: () => 0,
+            nextIntUnsafe: () => 0,
+          }),
+        ),
+    );
+    if (authorized.kind !== "authorized") {
+      throw new Error("Expected the journal-failure fixture to authorize.");
+    }
+
+    expect(
+      await runFailure(
+        prepared.authentication.executeAuthorizedPointMutationOccRerun(
+          authorized.rerun,
+        ),
+      ),
+    ).toMatchObject({
+      _tag: "UnsupportedPointMutationJournalOperationV1Error",
+      reason: "invalidKind",
+      operationKind: "scan",
+    });
+    expect(
+      await o07bTerminalState(
+        prepared.scopeUuid,
+        prepared.current.anchor.sessionId,
+      ),
+    ).toEqual({
+      lifecycle: "aborted",
+      leases: "0",
+      journals: "0",
+      receipts: "0",
+      points: "0",
+      write_events: "0",
+    });
+  });
+
+  it("rechecks attempt liveness after asynchronous context entropy allocation", async () => {
+    let runnerCalls = 0;
+    let prepared: Awaited<ReturnType<typeof prepareO08B1Conflict>>;
+    const contextFactory: PointMutationOccExecutionContextFactoryV1 = {
+      make: () =>
+        Effect.promise(async () => {
+          await persistence.query(
+            `
+            update fx_system_snapshot_lease
+            set lease_expires_at = '2000-01-01T00:00:00.000Z'
+            where scope_uuid = $1 and session_id = $2
+              and attempt_fence = 2
+          `,
+            [prepared.scopeUuid, prepared.current.anchor.sessionId],
+          );
+          return Object.freeze({
+            executionId: "o08-b2a-delayed-context",
+            logScopeId: "o08-b2a-delayed-context-log",
+            randomSeed: new Uint8Array(32).fill(7),
+          });
+        }),
+    };
+    const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
+      run: () => {
+        runnerCalls += 1;
+        return Effect.succeed(Object.freeze({ ok: true }));
+      },
+    });
+    prepared = await prepareO08B1Conflict(
+      "o08b2a_context_liveness",
+      {},
+      runner,
+      undefined,
+      undefined,
+      contextFactory,
+    );
+    const authorized = await runEffect(
+      prepared.authentication
+        .authorizePointMutationOccRerun(prepared.conflict)
+        .pipe(
+          Effect.provideService(Random.Random, {
+            nextDoubleUnsafe: () => 0,
+            nextIntUnsafe: () => 0,
+          }),
+        ),
+    );
+    if (authorized.kind !== "authorized") {
+      throw new Error("Expected the delayed-context fixture to authorize.");
+    }
+
+    expect(
+      await runFailure(
+        prepared.authentication.executeAuthorizedPointMutationOccRerun(
+          authorized.rerun,
+        ),
+      ),
+    ).toMatchObject({
+      _tag: "PointMutationSessionAttemptLoadV1Error",
+      issue: { reason: "activeAttemptExpired" },
+    });
+    expect(runnerCalls).toBe(0);
+  });
+
+  it("keeps B2a runner execution interruptible and waits for exact abort settlement", async () => {
+    const entered = deferredSignal();
+    const abortEntered = deferredSignal();
+    const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
+      run: () =>
+        Effect.sync(() => entered.resolve()).pipe(
+          Effect.flatMap(() => Effect.never),
+        ),
+    });
+    const prepared = await prepareO08B1Conflict(
+      "o08b2a_runner_interrupt",
+      {},
+      runner,
+      abortEntered.resolve,
+    );
+    const authorized = await runEffect(
+      prepared.authentication
+        .authorizePointMutationOccRerun(prepared.conflict)
+        .pipe(
+          Effect.provideService(Random.Random, {
+            nextDoubleUnsafe: () => 0,
+            nextIntUnsafe: () => 0,
+          }),
+        ),
+    );
+    if (authorized.kind !== "authorized") {
+      throw new Error("Expected the interrupted B2a fixture to authorize.");
+    }
+    const fiber = Effect.runFork(
+      prepared.authentication.executeAuthorizedPointMutationOccRerun(
+        authorized.rerun,
+      ),
+    );
+    const runnerOrExit = await Promise.race([
+      entered.promise.then(() => Object.freeze({ kind: "entered" as const })),
+      runEffect(Fiber.await(fiber)).then((exit) =>
+        Object.freeze({ kind: "exit" as const, exit }),
+      ),
+    ]);
+    if (runnerOrExit.kind === "exit") {
+      throw new Error(
+        Exit.isFailure(runnerOrExit.exit)
+          ? Cause.pretty(runnerOrExit.exit.cause)
+          : "B2a exited before invoking the runner.",
+      );
+    }
+    const interruption = runEffect(Fiber.interrupt(fiber));
+    await Promise.race([
+      abortEntered.promise,
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("B2a interruption never entered abort.")),
+          500,
+        ),
+      ),
+    ]);
+    await Promise.race([
+      interruption,
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("B2a abort did not settle interruption.")),
+          1_000,
+        ),
+      ),
+    ]);
+    expect(Exit.hasInterrupts(await runEffect(Fiber.await(fiber)))).toBe(true);
+    expect(
+      await runFailure(
+        prepared.authentication.executeAuthorizedPointMutationOccRerun(
+          authorized.rerun,
+        ),
+      ),
+    ).toMatchObject({
+      _tag: "InvalidAuthorizedPointMutationOccRerunV1Error",
+      reason: "alreadyConsumed",
+    });
+    expect(
+      await o07bTerminalState(
+        prepared.scopeUuid,
+        prepared.current.anchor.sessionId,
+      ),
+    ).toMatchObject({
+      lifecycle: "aborted",
+      leases: "0",
+      journals: "0",
     });
   });
 
@@ -2119,6 +2953,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     label: string,
     loaderOptions: ScenarioOptions = {},
     seedRow = false,
+    returnsValidator: PointMutationTargetFunctionMetadataV1["returnsValidator"] = {
+      type: "object",
+      value: {
+        ok: { optional: false, fieldType: { type: "boolean" } },
+      },
+    },
   ) {
     const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
       `deployment_stored_attempt_${label}`,
@@ -2159,31 +2999,30 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       artifactId: `artifact_${"b".repeat(32)}`,
       sourcePackageHash: "b".repeat(64),
       schemaVersionId,
-      functions: [{
-        path: "users:create",
-        executionModule: "flarex/users.ts",
-        kind: "mutation",
-        visibility: "public",
-        argsValidator: { type: "object", value: {} },
-        returnsValidator: {
-          type: "object",
-          value: {
-            ok: { optional: false, fieldType: { type: "boolean" } },
-          },
+      functions: [
+        {
+          path: "users:create",
+          executionModule: "flarex/users.ts",
+          kind: "mutation",
+          visibility: "public",
+          argsValidator: { type: "object", value: {} },
+          returnsValidator,
         },
-      }],
+      ],
       schemaManifest: {
         kind: "appSchema",
         manifestVersion: 1,
         tableDefinitions: {
           kind: "tableDefinitions",
           sectionVersion: 1,
-          tables: [{
-            tableId: 1,
-            namespace: "app",
-            logicalName: usersTable.logicalName,
-            definition: usersTable.definition,
-          }],
+          tables: [
+            {
+              tableId: 1,
+              namespace: "app",
+              logicalName: usersTable.logicalName,
+              definition: usersTable.definition,
+            },
+          ],
         },
         indexBindings: {
           kind: "indexBindings",
@@ -2192,12 +3031,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
       },
     });
-    const requestKey = TransactionRequestKeyV1Schema.make(
-      `request:${label}`,
-    );
-    const revocationEpoch = TransactionAuthorizationRevocationEpochSchema.make(
-      0n,
-    );
+    const requestKey = TransactionRequestKeyV1Schema.make(`request:${label}`);
+    const revocationEpoch =
+      TransactionAuthorizationRevocationEpochSchema.make(0n);
     const prepared = await preparePointMutationStartEvidenceV1(
       target,
       {
@@ -2237,20 +3073,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const grant = await deriveInertTransactionGrantEvidenceV1({
       protected: header.base64url,
       payload: payload.base64url,
-      signature: encodeTransactionGrantEd25519SignatureV1(
-        new Uint8Array(64),
-      ),
+      signature: encodeTransactionGrantEd25519SignatureV1(new Uint8Array(64)),
     });
     const ports = resolutionPorts(persistence);
     const activation = await activatePointMutationSession(
-      createPointMutationSessionActivationPersistenceV1(
-        ports,
-        { leaseDurationMilliseconds: 60_000, randomUuid: nextUuid },
-      ),
-      pointMutationSessionActivationFixture(
-        deploymentId,
-        scopeId,
-      {
+      createPointMutationSessionActivationPersistenceV1(ports, {
+        leaseDurationMilliseconds: 60_000,
+        randomUuid: nextUuid,
+      }),
+      pointMutationSessionActivationFixture(deploymentId, scopeId, {
         evidence: {
           packageId: prepared.logicalPins.packageId,
           artifactRuntime: prepared.logicalPins.artifactRuntime,
@@ -2270,7 +3101,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           ),
           validatedArgsValueCodecVersion:
             prepared.logicalPins.validatedArgsValueCodecVersion,
-          validatedArgsCanonicalBytes: prepared.validatedArguments.canonicalBytes,
+          validatedArgsCanonicalBytes:
+            prepared.validatedArguments.canonicalBytes,
           validatedArgsSha256: prepared.validatedArguments.sha256,
           authorizationGrantId: grant.authorizationGrantId,
           authorizationGrantJson: structuredClone(grant.authorizationGrantJson),
@@ -2284,8 +3116,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           requestKey,
           requestSha256: prepared.requestEvidence.sha256,
         },
-      },
-      ),
+      }),
     );
     const store = createSessionJournalStorePersistenceV1(ports, {
       randomUuid: nextUuid,
@@ -2316,15 +3147,18 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         verificationKeyNamespace:
           createTransactionGrantVerificationKeyNamespaceV1({
             deploymentId,
-            keys: [{
-              state: "active",
-              kid,
-              purpose: TRANSACTION_GRANT_KEY_PURPOSE_V1,
-              issuedAtInclusiveEpochMilliseconds: issuedAtMilliseconds - 1_000,
-              verificationEndsAtExclusiveEpochMilliseconds:
-                expiresAtMilliseconds + 1_000,
-              verify: async () => true,
-            }],
+            keys: [
+              {
+                state: "active",
+                kid,
+                purpose: TRANSACTION_GRANT_KEY_PURPOSE_V1,
+                issuedAtInclusiveEpochMilliseconds:
+                  issuedAtMilliseconds - 1_000,
+                verificationEndsAtExclusiveEpochMilliseconds:
+                  expiresAtMilliseconds + 1_000,
+                verify: async () => true,
+              },
+            ],
           }),
         maximumGrantLifetimeMilliseconds: 120_000,
         maximumFutureIssuedAtSkewMilliseconds: 0,
@@ -2537,29 +3371,66 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       PointMutationAttemptReplacementOptionsV1,
       "leaseDurationMilliseconds"
     > = {},
+    runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
+      run: () =>
+        Effect.fail(
+          new PointMutationOccUserCodeV1Error({
+            cause: new Error(
+              "The O08-B2a runner was not configured by this test.",
+            ),
+          }),
+        ),
+    }),
+    onAbortStarted?: () => void,
+    contextFactory?: PointMutationOccExecutionContextFactoryV1,
   ) {
     const ports = resolutionPorts(persistence);
-    return createStoredAttemptAuthenticationV1(
-      current.loader,
-      {
-        evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
-        transactionGrantVerifier: current.verifier,
-        functionMetadata: {
-          load: () =>
-            Effect.succeed(structuredClone(current.functionSnapshot)),
-        },
-        pointCommit: createPointCommitPublisherPortV1(ports, options),
-        pointCommitFinishing: createPointCommitFinishingTransitionPortV1(
-          ports,
-        ),
-        pointMutationAttemptReplacement:
-          createPointMutationAttemptReplacementPortV1(ports, {
-            leaseDurationMilliseconds: 60_000,
-            ...replacementOptions,
-          }),
-        pointMutationOccRerun: { attemptLoading: current.loading },
-      },
+    let executionSequence = 0;
+    const terminalization = createPointMutationSessionAttemptTerminalizationV1(
+      createPointMutationSessionAttemptTerminalizationPersistenceV1(ports),
     );
+    return createStoredAttemptAuthenticationV1(current.loader, {
+      evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
+      transactionGrantVerifier: current.verifier,
+      functionMetadata: {
+        load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+      },
+      pointCommit: createPointCommitPublisherPortV1(ports, options),
+      pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
+      pointMutationAttemptReplacement:
+        createPointMutationAttemptReplacementPortV1(ports, {
+          leaseDurationMilliseconds: 60_000,
+          ...replacementOptions,
+        }),
+      pointMutationOccRerun: {
+        attemptLoading: current.loading,
+        executionEvidence: createStoredOccExecutionEvidenceLoaderV1(ports),
+        journal: createPointMutationJournalV1(current.store),
+        terminalization:
+          onAbortStarted === undefined
+            ? terminalization
+            : Object.freeze({
+                ...terminalization,
+                abort: Effect.fn("TestO08B2a.observeAbort")((attempt) =>
+                  Effect.sync(onAbortStarted).pipe(
+                    Effect.flatMap(() => terminalization.abort(attempt)),
+                  ),
+                ),
+              }),
+        contextFactory: contextFactory ?? {
+          make: () =>
+            Effect.sync(() => {
+              executionSequence += 1;
+              return Object.freeze({
+                executionId: `o08-b2a-${executionSequence}`,
+                logScopeId: `o08-b2a-log-${executionSequence}`,
+                randomSeed: new Uint8Array(32).fill(executionSequence),
+              });
+            }),
+        },
+        runner,
+      },
+    });
   }
 
   async function prepareO08B1Conflict(
@@ -2568,8 +3439,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       PointMutationAttemptReplacementOptionsV1,
       "leaseDurationMilliseconds"
     > = {},
+    runner?: PointMutationOccRuntimeNeutralRunnerV1,
+    onAbortStarted?: () => void,
+    returnsValidator?: PointMutationTargetFunctionMetadataV1["returnsValidator"],
+    contextFactory?: PointMutationOccExecutionContextFactoryV1,
   ) {
-    const current = await c04b2Scenario(label);
+    const current = await c04b2Scenario(label, {}, false, returnsValidator);
     const table = await runEffect(
       current.store.resolvePointTableEffect(current.attempt, "users"),
     );
@@ -2589,6 +3464,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       current,
       {},
       replacementOptions,
+      runner,
+      onAbortStarted,
+      contextFactory,
     );
     const authority = await runEffect(
       authentication.deriveAuthority(loadedAttempt),
@@ -2638,6 +3516,60 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     });
   }
 
+  async function injectB2aOutcome(
+    prepared: Awaited<ReturnType<typeof prepareO08B1Conflict>>,
+    kind: "available" | "expired",
+  ): Promise<void> {
+    if (kind === "expired") {
+      await persistence.query(
+        `
+          insert into fx_system_idempotency
+            (scope_uuid, request_key, identity_access_policy_sha256,
+             function_path, request_sha256, epoch_uuid, commit_seq,
+             result_state, result_expired_at)
+          select session.scope_uuid, session.request_key,
+            session.identity_access_policy_sha256, session.function_path,
+            session.request_sha256, clock.epoch_uuid, 1,
+            'expired', clock_timestamp()
+          from fx_system_tx_session as session
+          join fx_system_scope_clock as clock
+            on clock.scope_uuid = session.scope_uuid
+          where session.scope_uuid = $1 and session.session_id = $2
+        `,
+        [prepared.scopeUuid, prepared.current.anchor.sessionId],
+      );
+      return;
+    }
+
+    const successfulResult = await runEffect(
+      canonicalizeSuccessfulResultV1Effect({ replayed: true }),
+    );
+    await persistence.query(
+      `
+        insert into fx_system_idempotency
+          (scope_uuid, request_key, identity_access_policy_sha256,
+           function_path, request_sha256, epoch_uuid, commit_seq,
+           result_state, result_value_codec_version, result_semantic_bytes,
+           result_bytes, result_sha256)
+        select session.scope_uuid, session.request_key,
+          session.identity_access_policy_sha256, session.function_path,
+          session.request_sha256, clock.epoch_uuid, 1,
+          'available', 1, $3, $4, decode($5, 'hex')
+        from fx_system_tx_session as session
+        join fx_system_scope_clock as clock
+          on clock.scope_uuid = session.scope_uuid
+        where session.scope_uuid = $1 and session.session_id = $2
+      `,
+      [
+        prepared.scopeUuid,
+        prepared.current.anchor.sessionId,
+        successfulResult.semanticSizeBytes,
+        successfulResult.canonicalBytes,
+        successfulResult.evidence.sha256Hex,
+      ],
+    );
+  }
+
   async function commitCompetingPointRow(
     command: PointCommitTransactionCommandV1,
   ): Promise<void> {
@@ -2645,22 +3577,44 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     if (intent === null || intent.kind !== "live") {
       throw new Error("O06 conflict fixture requires a live row intent.");
     }
-    const clock = await persistence.getScopeClock(command.authorityPins.scopeId);
+    await commitCompetingLiveIntent(
+      command.authorityPins.scopeId,
+      command.authorityPins.schemaVersionId,
+      command.sealIdentity.scopeUuid,
+      intent,
+    );
+  }
+
+  async function commitCompetingLiveIntent(
+    scopeId: PointCommitTransactionCommandV1["authorityPins"]["scopeId"],
+    schemaVersionId: PointCommitTransactionCommandV1["authorityPins"]["schemaVersionId"],
+    scopeUuid: PointCommitTransactionCommandV1["sealIdentity"]["scopeUuid"],
+    intent: Pick<
+      Extract<
+        NonNullable<PointCommitTransactionCommandV1["rowIntent"]>,
+        { readonly kind: "live" }
+      >,
+      "tableId" | "rowId" | "creationTime" | "value"
+    >,
+  ): Promise<void> {
+    const clock = await persistence.getScopeClock(scopeId);
     if (clock === null) throw new Error("Missing O06 conflict scope clock.");
+    const commitSeq = CommitSeqSchema.make(clock.lastCommitSeq + 1n);
+    const epochUuid = projectScopeEpochUuidV1(clock.epoch).epochUuid;
     const document = await canonicalizeFlarexValueV1(
       intent.value,
       "appDocument",
     );
-    await persistence.drizzle.transaction((tx) =>
-      appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
+    await persistence.drizzle.transaction(async (tx) => {
+      await appendAppRowRevisionAndAdvanceCurrentInTransaction(tx, {
         kind: "live",
-        scopeId: command.authorityPins.scopeId,
+        scopeId,
         tableId: intent.tableId,
         rowId: intent.rowId,
         writeEpoch: clock.epoch,
-        commitSeq: CommitSeqSchema.make(1n),
+        commitSeq,
         prevCommitSeq: null,
-        schemaVersionId: command.authorityPins.schemaVersionId,
+        schemaVersionId,
         creationTime: intent.creationTime,
         value: {
           codecVersion: document.codecVersion,
@@ -2668,16 +3622,26 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           canonicalBytes: document.canonicalBytes,
           sha256: document.sha256,
         },
-      })
-    );
-    await persistence.query(
-      `
-        update fx_system_scope_clock
-        set last_commit_seq = 1
-        where scope_uuid = $1
-      `,
-      [command.sealIdentity.scopeUuid],
-    );
+      });
+      await tx.insert(fxSystemCommits).values({
+        scopeUuid,
+        epochUuid,
+        commitSeq,
+        changeCount: 1,
+      });
+      await tx.insert(fxSystemCommitAppRowChanges).values({
+        scopeUuid,
+        epochUuid,
+        commitSeq,
+        changeOrdinal: 0,
+        tableId: intent.tableId,
+        rowId: appRowIdHexV1ToBytes(intent.rowId),
+      });
+      await tx
+        .update(fxSystemScopeClocks)
+        .set({ lastCommitSeq: commitSeq })
+        .where(eq(fxSystemScopeClocks.scopeUuid, scopeUuid));
+    });
   }
 
   async function o08B1AttemptState(
