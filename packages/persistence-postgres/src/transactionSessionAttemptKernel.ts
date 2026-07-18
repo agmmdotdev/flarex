@@ -1,3 +1,5 @@
+import { Data, type Effect } from "effect";
+import type { Cause } from "effect/Cause";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import type {
   CatalogSchemaVersionId,
@@ -42,12 +44,20 @@ export type ExactRunningAttemptWorkV1<Result> = (
   context: ExactRunningAttemptKernelContextV1,
 ) => Promise<Result>;
 
+export type ExactRunningAttemptEffectWorkV1<Result, Failure> = (
+  tx: AppRowTransaction,
+  context: ExactRunningAttemptKernelContextV1,
+) => Effect.Effect<Result, Failure>;
+
 /**
  * Package-internal capability. This module is deliberately absent from package
  * exports so no public caller can request a raw transaction callback.
  */
 export const RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1: unique symbol =
   Symbol("FlarexDB/runExactRunningPointMutationAttemptV1");
+
+export const RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1: unique symbol =
+  Symbol("FlarexDB/runExactRunningPointMutationAttemptEffectV1");
 
 export const RESOLVE_PINNED_POINT_TABLE_ID_V1: unique symbol = Symbol(
   "FlarexDB/resolvePinnedPointTableIdV1",
@@ -75,12 +85,26 @@ export class LocatedReadCommittedTransactionFailureV1 extends Error {
   }
 }
 
+export class ExactRunningAttemptTransactionV1Error extends Data.TaggedError(
+  "ExactRunningAttemptTransactionV1Error",
+)<{
+  readonly cause: unknown;
+  readonly callbackCause: Cause<unknown> | undefined;
+}> {}
+
 export interface LocatedExactRunningAttemptKernelV1
   extends LocatedScopeClockReader {
   readonly [RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1]: <Result>(
     input: ExactRunningAttemptKernelInputV1,
     work: ExactRunningAttemptWorkV1<Result>,
   ) => Promise<Result>;
+  readonly [RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1]: <
+    Result,
+    Failure,
+  >(
+    input: ExactRunningAttemptKernelInputV1,
+    work: ExactRunningAttemptEffectWorkV1<Result, Failure>,
+  ) => Effect.Effect<Result, Failure | ExactRunningAttemptTransactionV1Error>;
   readonly [RESOLVE_PINNED_POINT_TABLE_ID_V1]: (input: {
     readonly deploymentId: TransactionGrantDeploymentIdV1;
     readonly schemaVersionId: CatalogSchemaVersionId;
@@ -157,6 +181,10 @@ export function isLocatedExactRunningAttemptKernelV1(
     typeof Reflect.get(
       target,
       RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1,
+    ) === "function" &&
+    typeof Reflect.get(
+      target,
+      RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
     ) === "function" &&
     typeof Reflect.get(target, RESOLVE_PINNED_POINT_TABLE_ID_V1) === "function"
     && typeof Reflect.get(target, RUN_LOCATED_REPEATABLE_READ_V1) === "function"

@@ -92,16 +92,27 @@ persistence error once to preserve the existing executor error contract. The
 temporary `load` Promise/runtime compatibility bridge and its audited runtime
 boundary have been deleted.
 
-The existing Drizzle point-operation transaction still owns a temporary
-throwing compatibility surface: its Promise-native latest-receipt verifier and
-seven `Result.getOrThrow` projections for stored requests/outcomes, logical
-writes, point dependencies, journal counters, receipt cardinality, and
-receipt/root correlation. Their concrete consumers are
-`runPointOperationInTransaction` and the directly called Promise-native point
-read/write helpers. Delete these wrappers when that transaction body receives
-its own Effect-native transaction slice rather than introducing a nested
-runtime in this checkpoint. Precise transaction begin/commit/rollback failure
-ownership also remains a later slice.
+Point-operation transaction coordination now enters through an Effect-native
+exact-attempt capability. Its one audited runtime runner exists at the Drizzle
+transaction-callback boundary: it captures the work `Exit`, forces rollback on
+any failed `Cause`, rehydrates that exact `Cause` after successful rollback,
+and retains both callback and transaction causes when rollback or transaction
+infrastructure fails differently. The outer point operation remains
+uninterruptible until the transaction settles.
+
+Journal counters, receipt cardinality, stored request/outcome decoding, and
+receipt/root correlation now compose through `Result` and Effect directly.
+The duplicate Promise latest-receipt verifier and five throwing projections
+were deleted. Fresh point planning and its write phase remain temporary
+Promise adapters because their SQL helpers still execute inside Drizzle's
+callback. Their two remaining `Result.getOrThrow` consumers are the logical
+write projection in `prepareLogicalWriteEvent` and point-dependency projection
+in `readLogicalPoint`; delete both when that planning/read/write subgraph
+receives its next Effect-native slice. The older Promise exact-attempt
+capability remains only for seal completion and has the same deletion condition
+as the remaining Promise-native seal transaction body. Precise driver-level
+begin/commit/rollback classification beyond the callback-versus-infrastructure
+distinction remains a later adapter slice.
 
 ## Target Boundary
 

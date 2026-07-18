@@ -143,7 +143,9 @@ import {
   fxSystemTransactionSessions,
 } from "./schema";
 import {
+  ExactRunningAttemptTransactionV1Error,
   RESOLVE_PINNED_POINT_TABLE_ID_V1,
+  RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1,
   RUN_LOCATED_REPEATABLE_READ_V1,
   isLocatedExactRunningAttemptKernelV1,
@@ -672,8 +674,6 @@ const decodeStoredRequestResult = Schema.decodeUnknownResult(
   SessionJournalStoredRequestV1Schema,
   { onExcessProperty: "error" },
 );
-const decodeStoredRequest = (input: unknown): SessionJournalStoredRequestV1 =>
-  Result.getOrThrow(decodeStoredRequestResult(input));
 const encodeStoredOutcome = Schema.encodeSync(
   SessionJournalStoredOutcomeV1Schema,
 );
@@ -681,12 +681,16 @@ const decodeStoredOutcomeResult = Schema.decodeUnknownResult(
   SessionJournalStoredOutcomeV1Schema,
   { onExcessProperty: "error" },
 );
-const decodeStoredOutcome = (input: unknown): SessionJournalStoredOutcomeV1 =>
-  Result.getOrThrow(decodeStoredOutcomeResult(input));
 const encodeLogicalAppWrite = Schema.encodeSync(LogicalAppWriteV1Schema);
 const decodeLogicalAppWriteResult = Schema.decodeUnknownResult(
   LogicalAppWriteV1Schema,
   { onExcessProperty: "error" },
+);
+const decodeCommitFinalSyscallSequenceResult = Schema.decodeUnknownResult(
+  Schema.toType(CommitFinalSyscallSequenceV1Schema),
+);
+const decodeCommitSyscallSequenceResult = Schema.decodeUnknownResult(
+  Schema.toType(CommitSyscallSequenceV1Schema),
 );
 const decodeLogicalAppWrite = (input: unknown): LogicalAppWriteV1 =>
   Result.getOrThrow(decodeLogicalAppWriteResult(input));
@@ -834,26 +838,27 @@ export function createSessionJournalStorePersistenceV1(
     );
     const requestEvidence = yield* canonicalizeStoredRequestEffect(request);
     const resolved = yield* resolveJournalTargetEffect(tableState.attempt);
-    const applied = yield* Effect.uninterruptible(
-      Effect.tryPromise({
-        try: () => resolved.target[
-          RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1
-        ](
-          {
-            selector: tableState.attempt.selector,
-            preliminaryAuthority: resolved.authority,
-          },
-          (tx, context) => runPointOperationInTransaction(
-            tx,
-            context,
-            tableState,
-            request,
-            requestEvidence,
-            randomUuid,
-          ),
-        ),
-        catch: mapRunPointOperationFailure,
-      }),
+    const applied = yield* resolved.target[
+      RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1
+    ](
+      {
+        selector: tableState.attempt.selector,
+        preliminaryAuthority: resolved.authority,
+      },
+      (tx, context) => runPointOperationInTransactionEffect(
+        tx,
+        context,
+        tableState,
+        request,
+        requestEvidence,
+        randomUuid,
+      ),
+    ).pipe(
+      Effect.mapError((error) =>
+        error instanceof ExactRunningAttemptTransactionV1Error
+          ? mapExactRunningAttemptTransactionFailure(error)
+          : error
+      ),
     );
     return projectPointOperationResult(applied);
   });
@@ -1308,6 +1313,18 @@ function mapRunPointOperationFailure(
   });
 }
 
+function mapExactRunningAttemptTransactionFailure(
+  failure: ExactRunningAttemptTransactionV1Error,
+): SessionJournalRunPointOperationV1Error {
+  if (failure.callbackCause === undefined) {
+    return mapRunPointOperationFailure(failure.cause);
+  }
+  return new SessionJournalPersistenceV1Error({
+    operation: "runPointOperation",
+    cause: failure,
+  });
+}
+
 async function canonicalizeStoredOutcome(
   outcome: SessionJournalStoredOutcomeV1,
 ): Promise<CanonicalFlarexValueV1> {
@@ -1454,25 +1471,49 @@ type LogicalPointReadResultV1 =
       readonly dependency: AppRowPointDependencyV1;
     }>;
 
-async function runPointOperationInTransaction(
+const runPointOperationInTransactionEffect = Effect.fn(
+  "SessionJournalStore.runPointOperationInTransaction",
+)(function* (
   tx: AppRowTransaction,
   context: ExactRunningAttemptKernelContextV1,
   table: PinnedPointTableStateV1,
   request: SessionJournalStoredRequestV1,
   requestEvidence: CanonicalFlarexValueV1,
   randomUuid: () => string,
-): Promise<AppliedSessionJournalOperationV1> {
-  requireKernelContextMatchesAttempt(context, table.attempt);
+): Effect.fn.Return<
+  AppliedSessionJournalOperationV1,
+  SessionJournalRunPointOperationV1Error
+> {
+  if (!kernelContextMatchesAttempt(context, table.attempt)) {
+    return yield* Effect.fail(corruption(
+      table.attempt,
+      "exactAttemptPinsChanged",
+    ));
+  }
   if (request.tableId !== table.tableId) {
-    throw corruption(table.attempt, "requestTableCapabilityMismatch");
+    return yield* Effect.fail(corruption(
+      table.attempt,
+      "requestTableCapabilityMismatch",
+    ));
   }
   const root = context.journalRoot;
-  const counters = decodeJournalCounters(table.attempt, root);
-  const receipt = await loadLatestReceipt(tx, context);
-  requireReceiptCardinality(table.attempt, root.lastSyscallSequence, receipt);
-
-  const last = CommitFinalSyscallSequenceV1Schema.make(
+  const counters = yield* Effect.fromResult(
+    decodeJournalCountersResult(table.attempt, root),
+  );
+  const receipt = yield* Effect.tryPromise({
+    try: () => loadLatestReceipt(tx, context),
+    catch: mapRunPointOperationFailure,
+  });
+  yield* Effect.fromResult(validateReceiptCardinalityResult(
+    table.attempt,
     root.lastSyscallSequence,
+    receipt,
+  ));
+
+  const last = yield* Effect.fromResult(
+    decodeCommitFinalSyscallSequenceResult(root.lastSyscallSequence).pipe(
+      Result.mapError(mapRunPointOperationFailure),
+    ),
   );
   const actual = request.syscallSequence;
   if (root.state === "sealed") {
@@ -1493,7 +1534,10 @@ async function runPointOperationInTransaction(
   }
   if (BigInt(actual) === BigInt(last)) {
     if (receipt === undefined) {
-      throw corruption(table.attempt, "latestReceiptMissing");
+      return yield* Effect.fail(corruption(
+        table.attempt,
+        "latestReceiptMissing",
+      ));
     }
     if (!bytesEqual(receipt.requestBytes, requestEvidence.canonicalBytes)) {
       return Object.freeze({
@@ -1505,18 +1549,21 @@ async function runPointOperationInTransaction(
       });
     }
     if (!bytesEqual(receipt.requestSha256, requestEvidence.sha256)) {
-      throw corruption(table.attempt, "latestReceiptRequestDigestMismatch");
+      return yield* Effect.fail(corruption(
+        table.attempt,
+        "latestReceiptRequestDigestMismatch",
+      ));
     }
-    const replayed = await decodeAndVerifyLatestReceipt(
+    const replayed = yield* decodeAndVerifyLatestReceiptEffect(
       table.attempt,
       receipt,
       request,
     );
-    requireReceiptOutcomeMatchesJournalRoot(
+    yield* Effect.fromResult(validateReceiptOutcomeMatchesJournalRootResult(
       table.attempt,
       root,
       replayed,
-    );
+    ));
     return Object.freeze({
       kind: "outcome",
       delivery: "replayed",
@@ -1525,10 +1572,10 @@ async function runPointOperationInTransaction(
   }
 
   const expectedNextValue = last + 1n;
-  let expectedNext: CommitSyscallSequenceV1;
-  try {
-    expectedNext = CommitSyscallSequenceV1Schema.make(expectedNextValue);
-  } catch {
+  const expectedNextResult = decodeCommitSyscallSequenceResult(
+    expectedNextValue,
+  );
+  if (Result.isFailure(expectedNextResult)) {
     return Object.freeze({
       kind: "sequenceRejected",
       issue: Object.freeze({
@@ -1537,6 +1584,7 @@ async function runPointOperationInTransaction(
       }),
     });
   }
+  const expectedNext = expectedNextResult.success;
   if (actual !== expectedNext) {
     return Object.freeze({
       kind: "sequenceRejected",
@@ -1550,14 +1598,21 @@ async function runPointOperationInTransaction(
 
   if (root.state === "failed") {
     if (receipt === undefined) {
-      throw corruption(table.attempt, "failedJournalEvidenceInvalid");
+      return yield* Effect.fail(corruption(
+        table.attempt,
+        "failedJournalEvidenceInvalid",
+      ));
     }
-    const sticky = await decodeAndVerifyLatestReceipt(
+    const sticky = yield* decodeAndVerifyLatestReceiptEffect(
       table.attempt,
       receipt,
       undefined,
     );
-    requireReceiptOutcomeMatchesJournalRoot(table.attempt, root, sticky);
+    yield* Effect.fromResult(validateReceiptOutcomeMatchesJournalRootResult(
+      table.attempt,
+      root,
+      sticky,
+    ));
     return Object.freeze({
       kind: "outcome",
       delivery: "sticky",
@@ -1565,19 +1620,32 @@ async function runPointOperationInTransaction(
     });
   }
   if (root.state !== "open") {
-    throw corruption(table.attempt, "journalStateInvalid");
+    return yield* Effect.fail(corruption(
+      table.attempt,
+      "journalStateInvalid",
+    ));
   }
 
-  const plan = await planFreshPointOperation(
-    tx,
-    context,
-    table,
-    request,
-    randomUuid,
-  );
-  const preparedWriteEvent = plan.write === undefined
+  // Temporary bridge: fresh planning still owns Promise reads plus the
+  // logical-write and point-dependency throwing projections. Delete this
+  // adapter when that planning/read subgraph receives its Effect slice.
+  const plan = yield* Effect.tryPromise({
+    try: () => planFreshPointOperation(
+      tx,
+      context,
+      table,
+      request,
+      randomUuid,
+    ),
+    catch: mapRunPointOperationFailure,
+  });
+  const logicalWrite = plan.write;
+  const preparedWriteEvent = logicalWrite === undefined
     ? undefined
-    : await prepareLogicalWriteEvent(plan.write);
+    : yield* Effect.tryPromise({
+      try: () => prepareLogicalWriteEvent(logicalWrite),
+      catch: mapRunPointOperationFailure,
+    });
   const counterDeltas = Object.freeze({
     ...plan.counters,
     materialWriteEventEvidenceBytes:
@@ -1590,24 +1658,27 @@ async function runPointOperationInTransaction(
       reason: "limitExceeded",
       ...limitIssue,
     } satisfies SessionJournalStoredOutcomeV1);
-    await persistAcceptedOperation(
-      tx,
-      context,
-      request,
-      requestEvidence,
-      outcome,
-      counters,
-      {
-        ...ZERO_COUNTER_DELTAS,
-      },
-      {
-        state: "failed",
-        failureDimension: limitIssue.dimension,
-        ...(plan.nextCreationTime === undefined
-          ? {}
-          : { nextCreationTime: plan.nextCreationTime }),
-      },
-    );
+    yield* Effect.tryPromise({
+      try: () => persistAcceptedOperation(
+        tx,
+        context,
+        request,
+        requestEvidence,
+        outcome,
+        counters,
+        {
+          ...ZERO_COUNTER_DELTAS,
+        },
+        {
+          state: "failed",
+          failureDimension: limitIssue.dimension,
+          ...(plan.nextCreationTime === undefined
+            ? {}
+            : { nextCreationTime: plan.nextCreationTime }),
+        },
+      ),
+      catch: mapRunPointOperationFailure,
+    });
     return Object.freeze({
       kind: "outcome",
       delivery: "executed",
@@ -1615,38 +1686,46 @@ async function runPointOperationInTransaction(
     });
   }
 
-  if (plan.pointMutation !== undefined) {
-    await persistPointMutation(
-      tx,
-      context,
-      plan.pointMutation,
-    );
-  }
-  if (preparedWriteEvent !== undefined) {
-    await persistLogicalWrite(tx, context, preparedWriteEvent);
-  }
-  await persistAcceptedOperation(
-    tx,
-    context,
-    request,
-    requestEvidence,
-    plan.outcome,
-    counters,
-    counterDeltas,
-    {
-      state: "open",
-      failureDimension: null,
-      ...(plan.nextCreationTime === undefined
-        ? {}
-        : { nextCreationTime: plan.nextCreationTime }),
+  // Drizzle still requires a Promise callback. Keep the mutation statements
+  // in one adapter so any typed failure or defect reaches the kernel Cause
+  // bridge and rolls the transaction back before it is rehydrated.
+  yield* Effect.tryPromise({
+    try: async () => {
+      if (plan.pointMutation !== undefined) {
+        await persistPointMutation(
+          tx,
+          context,
+          plan.pointMutation,
+        );
+      }
+      if (preparedWriteEvent !== undefined) {
+        await persistLogicalWrite(tx, context, preparedWriteEvent);
+      }
+      await persistAcceptedOperation(
+        tx,
+        context,
+        request,
+        requestEvidence,
+        plan.outcome,
+        counters,
+        counterDeltas,
+        {
+          state: "open",
+          failureDimension: null,
+          ...(plan.nextCreationTime === undefined
+            ? {}
+            : { nextCreationTime: plan.nextCreationTime }),
+        },
+      );
     },
-  );
+    catch: mapRunPointOperationFailure,
+  });
   return Object.freeze({
     kind: "outcome",
     delivery: "executed",
     outcome: plan.outcome,
   });
-}
+});
 
 async function planFreshPointOperation(
   tx: AppRowTransaction,
@@ -2394,13 +2473,6 @@ function firstExceededLimit(
   return candidates.find((candidate) => candidate.observed > candidate.maximum);
 }
 
-function decodeJournalCounters(
-  attempt: SessionJournalAttemptStateV1,
-  root: typeof fxSystemTransactionJournals.$inferSelect,
-): SessionJournalCountersV1 {
-  return Result.getOrThrow(decodeJournalCountersResult(attempt, root));
-}
-
 function decodeJournalCountersResult(
   attempt: SessionJournalAttemptStateV1,
   root: typeof fxSystemTransactionJournals.$inferSelect,
@@ -2481,19 +2553,6 @@ async function loadLatestReceipt(
   return rows[0];
 }
 
-function requireReceiptCardinality(
-  attempt: SessionJournalAttemptStateV1,
-  lastSequence: CommitFinalSyscallSequenceV1,
-  receipt: typeof fxSystemTransactionJournalLatestReceipts.$inferSelect |
-    undefined,
-): void {
-  Result.getOrThrow(validateReceiptCardinalityResult(
-    attempt,
-    lastSequence,
-    receipt,
-  ));
-}
-
 function validateReceiptCardinalityResult(
   attempt: SessionJournalAttemptStateV1,
   lastSequence: CommitFinalSyscallSequenceV1,
@@ -2515,40 +2574,6 @@ function validateReceiptCardinalityResult(
     }
   }
   return Result.succeed(undefined);
-}
-
-async function decodeAndVerifyLatestReceipt(
-  attempt: SessionJournalAttemptStateV1,
-  receipt: typeof fxSystemTransactionJournalLatestReceipts.$inferSelect,
-  expectedRequest: SessionJournalStoredRequestV1 | undefined,
-): Promise<SessionJournalStoredOutcomeV1> {
-  try {
-    const decodedRequestEvidence = await decodeCanonicalFlarexValueEvidenceV1({
-      canonicalBytes: receipt.requestBytes,
-      sha256: receipt.requestSha256,
-    });
-    const request = decodeStoredRequest(decodedRequestEvidence.valueJson);
-    if (
-      request.kind !== receipt.operationKind ||
-      BigInt(request.syscallSequence) !== BigInt(receipt.lastSyscallSequence) ||
-      (expectedRequest !== undefined &&
-        !storedRequestsEqual(request, expectedRequest))
-    ) {
-      throw new Error("Latest receipt request projection is inconsistent.");
-    }
-    const decodedOutcomeEvidence = await decodeCanonicalFlarexValueEvidenceV1({
-      canonicalBytes: receipt.outcomeBytes,
-      sha256: receipt.outcomeSha256,
-    });
-    const outcome = decodeStoredOutcome(decodedOutcomeEvidence.valueJson);
-    if (outcome.kind !== receipt.outcomeKind) {
-      throw new Error("Latest receipt outcome projection is inconsistent.");
-    }
-    requireRequestOutcomeCorrelation(request, outcome);
-    return outcome;
-  } catch (cause) {
-    throw corruption(attempt, "latestReceiptEvidenceInvalid", cause);
-  }
 }
 
 const decodeStoredEvidenceEffect = Effect.fn((
@@ -2646,14 +2671,6 @@ function storedRequestsEqual(
   return jsonEqual(leftEncoded, rightEncoded);
 }
 
-function requireRequestOutcomeCorrelation(
-  request: SessionJournalStoredRequestV1,
-  outcome: SessionJournalStoredOutcomeV1,
-): void {
-  if (requestOutcomeCorrelates(request, outcome)) return;
-  throw new Error("Latest receipt request/outcome variants do not correlate.");
-}
-
 function requestOutcomeCorrelates(
   request: SessionJournalStoredRequestV1,
   outcome: SessionJournalStoredOutcomeV1,
@@ -2699,18 +2716,6 @@ function isLimitOutcome(
   { readonly kind: "error"; readonly reason: "limitExceeded" }
 > {
   return outcome.kind === "error" && outcome.reason === "limitExceeded";
-}
-
-function requireReceiptOutcomeMatchesJournalRoot(
-  attempt: SessionJournalAttemptStateV1,
-  root: typeof fxSystemTransactionJournals.$inferSelect,
-  outcome: SessionJournalStoredOutcomeV1,
-): void {
-  Result.getOrThrow(validateReceiptOutcomeMatchesJournalRootResult(
-    attempt,
-    root,
-    outcome,
-  ));
 }
 
 function validateReceiptOutcomeMatchesJournalRootResult(
@@ -3084,19 +3089,23 @@ function requireKernelContextMatchesAttempt(
   context: ExactRunningAttemptKernelContextV1,
   attempt: SessionJournalAttemptStateV1,
 ): void {
+  if (kernelContextMatchesAttempt(context, attempt)) return;
+  throw corruption(attempt, "exactAttemptPinsChanged");
+}
+
+function kernelContextMatchesAttempt(
+  context: ExactRunningAttemptKernelContextV1,
+  attempt: SessionJournalAttemptStateV1,
+): boolean {
   const anchor = context.anchor;
-  if (
-    anchor.deploymentId !== attempt.selector.deploymentId ||
-    anchor.scopeId !== attempt.selector.scopeId ||
-    anchor.sessionId !== attempt.selector.sessionId ||
-    anchor.attemptFence !== attempt.selector.attemptFence ||
-    context.executionPin.schemaVersionId !== attempt.schemaVersionId ||
-    anchor.snapshotToken.scopeId !== attempt.snapshotToken.scopeId ||
-    anchor.snapshotToken.epoch !== attempt.snapshotToken.epoch ||
-    anchor.snapshotToken.commitSeq !== attempt.snapshotToken.commitSeq
-  ) {
-    throw corruption(attempt, "exactAttemptPinsChanged");
-  }
+  return anchor.deploymentId === attempt.selector.deploymentId &&
+    anchor.scopeId === attempt.selector.scopeId &&
+    anchor.sessionId === attempt.selector.sessionId &&
+    anchor.attemptFence === attempt.selector.attemptFence &&
+    context.executionPin.schemaVersionId === attempt.schemaVersionId &&
+    anchor.snapshotToken.scopeId === attempt.snapshotToken.scopeId &&
+    anchor.snapshotToken.epoch === attempt.snapshotToken.epoch &&
+    anchor.snapshotToken.commitSeq === attempt.snapshotToken.commitSeq;
 }
 
 function attemptFromContext(

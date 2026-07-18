@@ -62,7 +62,10 @@ import {
   createPGliteSharedScopeAuthorityProvisioner,
   type PGliteFlarexPersistence,
 } from "../src/pglite";
-import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
+import {
+  resolveLocatedTrustedScopeAuthorityEffect,
+  type LocatedScopeClockReader,
+} from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
   InvalidSessionJournalInputV1Error,
@@ -87,6 +90,11 @@ import {
   type PointMutationSessionAttemptSelectorV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
 } from "../src/transactionSessionActivation";
+import {
+  ExactRunningAttemptTransactionV1Error,
+  RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
+  isLocatedExactRunningAttemptKernelV1,
+} from "../src/transactionSessionAttemptKernel";
 import {
   completeSessionJournalSeal as completeSeal,
   prepareSessionJournalSeal as prepareSeal,
@@ -512,6 +520,104 @@ describe("C03 Postgres SessionJournalStore", () => {
       last_syscall_sequence: "2",
       operation_kind: "get",
     }]);
+  });
+
+  it("preserves an unexpected replay evidence rejection as a defect after rollback", async () => {
+    const current = await scenario("point_replay_evidence_defect");
+    const request = Object.freeze({
+      kind: "get",
+      syscallSequence: syscallSequence(1n),
+      documentId: documentId(current.tableId, 103),
+    } satisfies SessionJournalPointOperationV1);
+    await runPointOperation(current.store, current.table, request);
+
+    const defect = new Error("point replay evidence hashing unavailable");
+    const nativeDigest = globalThis.crypto.subtle.digest.bind(
+      globalThis.crypto.subtle,
+    );
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest")
+      .mockImplementationOnce(nativeDigest)
+      .mockRejectedValueOnce(defect);
+    try {
+      const exit = await Effect.runPromiseExit(
+        current.store.runPointOperationEffect(current.table, request),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(exit.cause.reasons).toHaveLength(1);
+        const reason = exit.cause.reasons[0];
+        expect(reason !== undefined && Cause.isDieReason(reason)).toBe(true);
+        if (reason !== undefined && Cause.isDieReason(reason)) {
+          expect(reason.defect).toBe(defect);
+        }
+      }
+      await expect(
+        journalCounts(current.anchor.sessionId),
+      ).resolves.toMatchObject({ receipts: 1, points: 1 });
+    } finally {
+      digest.mockRestore();
+    }
+  });
+
+  it("isolates exact-attempt callback failure state for every Effect execution", async () => {
+    const current = await scenario("exact_attempt_effect_reuse");
+    const transactionFailure = new Error("second transaction failed");
+    let failBeforeWork = false;
+    const target = createPGliteLocatedPointMutationSessionActivationTargetV1(
+      persistence,
+      sharedLocator,
+      {
+        afterLoadLock: (step) => {
+          if (failBeforeWork && step === "clockLocked") {
+            throw transactionFailure;
+          }
+        },
+      },
+    );
+    const located = await runEffect(
+      resolveLocatedTrustedScopeAuthorityEffect(current.deploymentId, {
+        scopeMetadata: persistence,
+        provisioningReceipts: {
+          getScopeAuthorityProvisioningReceipt: async () => {
+            throw new Error(
+              "Shared exact-attempt resolution must not read receipts.",
+            );
+          },
+        },
+        scopeClockTargets: {
+          resolve: async (): Promise<LocatedScopeClockReader> => target,
+        },
+      }),
+    );
+    expect(isLocatedExactRunningAttemptKernelV1(located.target)).toBe(true);
+    if (!isLocatedExactRunningAttemptKernelV1(located.target)) {
+      throw new Error("Expected the exact-attempt Effect capability.");
+    }
+
+    const callbackFailure = new Error("first callback failed");
+    const reusable = located.target[
+      RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1
+    ](
+      {
+        selector: {
+          deploymentId: current.anchor.deploymentId,
+          scopeId: current.anchor.scopeId,
+          sessionId: current.anchor.sessionId,
+          attemptFence: current.anchor.attemptFence,
+        },
+        preliminaryAuthority: located.authority,
+      },
+      () => Effect.fail(callbackFailure),
+    );
+
+    await expect(runFailure(reusable)).resolves.toBe(callbackFailure);
+    failBeforeWork = true;
+    const secondFailure = await runFailure(reusable);
+    expect(secondFailure).toBeInstanceOf(ExactRunningAttemptTransactionV1Error);
+    expect(secondFailure).toMatchObject({
+      cause: transactionFailure,
+      callbackCause: undefined,
+    } satisfies Partial<ExactRunningAttemptTransactionV1Error>);
   });
 
   it("reads the pinned snapshot once, then serves the staged same-row overlay", async () => {

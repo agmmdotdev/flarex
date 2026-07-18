@@ -5,7 +5,8 @@ import {
 } from "@flarex/utils/dates";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { Data, Effect, Result, Schema } from "effect";
+import { Data, Effect, Exit, Result, Schema } from "effect";
+import type { Cause } from "effect/Cause";
 
 import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
 import {
@@ -104,11 +105,14 @@ import {
 import {
   RESOLVE_PINNED_POINT_TABLE_ID_V1,
   RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
+  ExactRunningAttemptTransactionV1Error,
   LocatedReadCommittedTransactionFailureV1,
+  RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1,
   RUN_LOCATED_READ_COMMITTED_V1,
   RUN_LOCATED_REPEATABLE_READ_V1,
   RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_V1,
   type ExactRunningAttemptKernelContextV1,
+  type ExactRunningAttemptEffectWorkV1,
   type ExactRunningAttemptKernelInputV1,
   type ExactRunningAttemptWorkV1,
   type LocatedExactRunningAttemptKernelV1,
@@ -834,6 +838,18 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       );
       return work(tx, context);
     }),
+    [RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1]: <Result, Failure>(
+      input: ExactRunningAttemptKernelInputV1,
+      work: ExactRunningAttemptEffectWorkV1<Result, Failure>,
+    ): Effect.Effect<
+      Result,
+      Failure | ExactRunningAttemptTransactionV1Error
+    > => runExactRunningAttemptEffectTransaction(
+      db,
+      input,
+      work,
+      afterLoadLock,
+    ),
     [RESOLVE_PINNED_POINT_TABLE_ID_V1]: resolvePinnedPointTableIdV1.bind(
       undefined,
       db,
@@ -884,6 +900,56 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       )),
   } satisfies LocatedPointMutationSessionTargetV1);
   return target;
+}
+
+// Keep this driver-callback runner as a plain named boundary so the workspace
+// runtime audit attributes its sole Effect.runPromise call exactly here.
+function runExactRunningAttemptEffectTransaction<Result, Failure>(
+  db: FlarexMetadataDatabase,
+  input: ExactRunningAttemptKernelInputV1,
+  work: ExactRunningAttemptEffectWorkV1<Result, Failure>,
+  afterLoadLock:
+    | LocatedPointMutationSessionActivationTargetOptionsV1["afterLoadLock"]
+    | undefined,
+): Effect.Effect<Result, Failure | ExactRunningAttemptTransactionV1Error> {
+  return Effect.suspend(() => {
+    let callbackCause: Cause<Failure> | undefined;
+    const rollbackSignal = new Error(
+      "Effect exact-attempt work failed; roll back the transaction.",
+    );
+    return Effect.uninterruptible(
+      Effect.tryPromise({
+        try: () => db.transaction(async (tx): Promise<Result> => {
+          const context = await loadExactRunningAttemptForKernelInTransaction(
+            tx,
+            input,
+            afterLoadLock,
+          );
+          const exit = await Effect.runPromise(Effect.exit(
+            Effect.uninterruptible(Effect.suspend(() => work(tx, context))),
+          ));
+          if (Exit.isFailure(exit)) {
+            callbackCause = exit.cause;
+            throw rollbackSignal;
+          }
+          return exit.value;
+        }),
+        catch: (cause) => new ExactRunningAttemptTransactionV1Error({
+          cause,
+          callbackCause,
+        }),
+      }).pipe(
+        Effect.catch((failure): Effect.Effect<
+          never,
+          Failure | ExactRunningAttemptTransactionV1Error
+        > =>
+          callbackCause !== undefined && failure.cause === rollbackSignal
+            ? Effect.failCause(callbackCause)
+            : Effect.fail(failure)
+        ),
+      ),
+    );
+  });
 }
 
 async function activateInTransaction(
