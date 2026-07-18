@@ -1,3 +1,5 @@
+import { bytesEqualFullScan } from "@flarex/utils/bytes";
+
 export type BoundedJsonRead =
   | { readonly ok: true; readonly value: unknown }
   | {
@@ -67,17 +69,10 @@ export async function hasExactBearerCapability(
     crypto.subtle.digest("SHA-256", encoder.encode(presented)),
     crypto.subtle.digest("SHA-256", encoder.encode(`Bearer ${token}`)),
   ]);
-  const presentedBytes = new Uint8Array(presentedDigest);
-  const expectedBytes = new Uint8Array(expectedDigest);
-  if (presentedBytes.length !== expectedBytes.length) return false;
-  let difference = 0;
-  for (let index = 0; index < expectedBytes.length; index += 1) {
-    const presentedByte = presentedBytes[index];
-    const expectedByte = expectedBytes[index];
-    if (presentedByte === undefined || expectedByte === undefined) return false;
-    difference |= presentedByte ^ expectedByte;
-  }
-  return difference === 0;
+  return bytesEqualFullScan(
+    new Uint8Array(presentedDigest),
+    new Uint8Array(expectedDigest),
+  );
 }
 
 export function isJsonContentType(value: string | null): boolean {

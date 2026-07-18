@@ -1,9 +1,33 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  hasExactBearerCapability,
   isJsonContentType,
   readBoundedJson,
 } from "../src/http";
+
+describe("probe HTTP bearer capability", () => {
+  it("accepts only the exact bearer authorization", async () => {
+    const token = "probe-capability";
+
+    await expect(hasExactBearerCapability(
+      new Request("https://probe.test", {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+      token,
+    )).resolves.toBe(true);
+    await expect(hasExactBearerCapability(
+      new Request("https://probe.test", {
+        headers: { authorization: `Bearer ${token}-wrong` },
+      }),
+      token,
+    )).resolves.toBe(false);
+    await expect(hasExactBearerCapability(
+      new Request("https://probe.test"),
+      token,
+    )).resolves.toBe(false);
+  });
+});
 
 describe("bounded probe HTTP JSON reader", () => {
   it.each([
