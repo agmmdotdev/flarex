@@ -119,6 +119,10 @@ only change is docs-only commentary.
 Classify a repeated helper by its real authority before extracting it:
 generic primitive, protocol/domain contract, persistence, host/runtime, test,
 or legacy compatibility. Repetition alone does not make a helper generic.
+When a domain error union has repeated discrimination or presentation policy,
+keep that contract beside the union and let adapters retain only their status,
+transport, or boundary-specific mapping. Do not publish domain error variants
+or their messages as a generic error utility.
 
 Use `@flarex/utils` only for total, deterministic, domain-neutral primitives
 shared by, or proven exactly duplicated across, independent package owners. It

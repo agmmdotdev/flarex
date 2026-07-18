@@ -17,11 +17,11 @@ import {
 } from "./indexKeys";
 import { deploymentObjectName } from "./routing";
 import {
+  isTransactionOperationError,
   PartitionRequestError,
-  PartitionFetchError,
   PartitionResponseError,
   SingleShardTransaction,
-  TransactionInvariantError,
+  transactionOperationErrorMessage,
   type TransactionOperationError,
 } from "./transaction";
 import type {
@@ -417,19 +417,6 @@ function invokeExecutionOperationError(
     message: cause instanceof Error ? cause.message : String(cause),
     cause,
   });
-}
-
-function isTransactionOperationError(cause: unknown): cause is TransactionOperationError {
-  return cause instanceof PartitionFetchError ||
-    cause instanceof PartitionResponseError ||
-    cause instanceof TransactionInvariantError;
-}
-
-function transactionOperationErrorMessage(error: TransactionOperationError): string {
-  if (error instanceof PartitionResponseError) {
-    return `Partition request failed with status ${error.status}.`;
-  }
-  return error.message;
 }
 
 class InvokeDatabaseOperationFailure extends Error {

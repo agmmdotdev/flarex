@@ -1,11 +1,10 @@
 import { Data } from "effect";
 import { HttpError } from "../http";
 import {
-  PartitionFetchError,
+  isTransactionOperationError,
   PartitionRequestError,
   PartitionResponseError,
-  TransactionInvariantError,
-  type TransactionOperationError,
+  transactionOperationErrorMessage,
 } from "../transaction";
 
 export type ExecutionRouteOperation =
@@ -66,17 +65,4 @@ export function executionRouteOperationErrorToAdapterError(
     return new PartitionRequestError(error.cause.status, error.cause.body);
   }
   return executionRouteOperationErrorToHttpError(error);
-}
-
-function isTransactionOperationError(cause: unknown): cause is TransactionOperationError {
-  return cause instanceof PartitionFetchError ||
-    cause instanceof PartitionResponseError ||
-    cause instanceof TransactionInvariantError;
-}
-
-function transactionOperationErrorMessage(error: TransactionOperationError): string {
-  if (error instanceof PartitionResponseError) {
-    return `Partition request failed with status ${error.status}.`;
-  }
-  return error.message;
 }

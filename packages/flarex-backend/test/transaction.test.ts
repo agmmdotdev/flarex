@@ -2,8 +2,13 @@ import { Effect } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   decodePartitionJsonResponse,
+  isTransactionOperationError,
+  PartitionFetchError,
   PartitionRequestError,
+  PartitionResponseError,
   SingleShardTransaction,
+  TransactionInvariantError,
+  transactionOperationErrorMessage,
 } from "../src/transaction";
 import { partitionObjectName } from "../src/routing";
 import type { DeploymentSchema, Env } from "../src/types";
@@ -22,6 +27,38 @@ afterAll(async () => {
 });
 
 describe("SingleShardTransaction", () => {
+  it("owns transaction-operation error classification and messages", () => {
+    const fetchError = new PartitionFetchError({
+      message: "Partition fetch failed.",
+      cause: "offline",
+    });
+    const responseError = new PartitionResponseError({
+      status: 503,
+      body: "unavailable",
+    });
+    const invariantError = new TransactionInvariantError({
+      message: "Transaction invariant failed.",
+      cause: "invalid state",
+    });
+
+    for (const error of [fetchError, responseError, invariantError]) {
+      expect(isTransactionOperationError(error)).toBe(true);
+    }
+    expect(isTransactionOperationError(new PartitionRequestError(500, null)))
+      .toBe(false);
+    expect(isTransactionOperationError(new Error("foreign"))).toBe(false);
+
+    expect(transactionOperationErrorMessage(fetchError)).toBe(
+      "Partition fetch failed.",
+    );
+    expect(transactionOperationErrorMessage(responseError)).toBe(
+      "Partition request failed with status 503.",
+    );
+    expect(transactionOperationErrorMessage(invariantError)).toBe(
+      "Transaction invariant failed.",
+    );
+  });
+
   it("exposes typed partition response success and failure before request-error mapping", async () => {
     await expect(
       Effect.runPromise(decodePartitionJsonResponse<{ ok: true }>(Response.json({ ok: true }))),

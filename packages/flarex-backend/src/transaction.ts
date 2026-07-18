@@ -71,6 +71,23 @@ export type TransactionOperationError =
   | PartitionResponseError
   | TransactionInvariantError;
 
+export function isTransactionOperationError(
+  cause: unknown,
+): cause is TransactionOperationError {
+  return cause instanceof PartitionFetchError ||
+    cause instanceof PartitionResponseError ||
+    cause instanceof TransactionInvariantError;
+}
+
+export function transactionOperationErrorMessage(
+  error: TransactionOperationError,
+): string {
+  if (error instanceof PartitionResponseError) {
+    return `Partition request failed with status ${error.status}.`;
+  }
+  return error.message;
+}
+
 export class SingleShardTransaction {
   private readonly readSet: ReadSet = {};
   private readonly stagedWrites = new Map<string, StagedWrite>();
