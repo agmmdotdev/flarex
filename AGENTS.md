@@ -136,6 +136,13 @@ package-local generic or factory. Let each consumer supply its operation,
 message, and typed failure constructor. Do not move that Effect adapter into
 `@flarex/utils`, and do not erase the domain error channel merely to make the
 helper look generic.
+When stable persistence catalogs share primitive input mechanics, keep one
+package-local `Result` helper around the protocol Schema and the generic
+nonblank-string predicate. Let each catalog lazily construct its own tagged
+field failure and retain its validation order. Keep single-owner namespace and
+index-ID rules local, do not add Effect or protocol policy to `@flarex/utils`,
+and do not replace a recoverable Schema decoder with a broad catch that turns
+unexpected defects into ordinary input failures.
 When backend route domains use the exact same operation, status, message, and
 cause facet, share its foreign-cause classification and `HttpError` projection
 with the backend host owner. Retain each domain's operation union, tagged error

@@ -378,6 +378,14 @@ semantics.
   preserves property-access exceptions. A formerly duplicated direct-array
   branch was removed because no supported producer was identified. This is
   neither an `@flarex/utils` primitive nor a public persistence subpath.
+- Stable table and logical-index catalogs share package-local pure `Result`
+  mechanics for nonblank input text and protocol `CatalogTableId` decoding.
+  Each catalog retains its tagged field failures and `Result.gen` validation
+  order; namespace and logical-index-ID rules remain with their sole owners.
+  These input adapters map only protocol Schema parse failures rather than
+  broadly reclassifying unexpected decoder defects. The shared table-ID helper
+  remains outside `@flarex/utils` because it depends on Effect and protocol
+  policy.
 - Pure protocol payload, backend storage-state, and executor HTTP request
   normalizers that intentionally retain validation as data use one
   domain-local Effect v4 `Result` decoder. Multi-field HTTP decoders use

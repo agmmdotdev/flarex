@@ -112,6 +112,13 @@ describe("stable logical index catalog reads", () => {
         descriptor: "",
       }),
     );
+    const byNameFirstFailure = await runEffectFailure(
+      getStableLogicalIndexIdentityByNameEffect(db, {
+        deploymentId: " ",
+        tableId: CatalogTableIdSchema.make(1),
+        descriptor: "",
+      }),
+    );
 
     expect(byId).toBeInstanceOf(InvalidStableLogicalIndexIdentityInputError);
     expect(byId).toMatchObject({
@@ -121,6 +128,10 @@ describe("stable logical index catalog reads", () => {
     expect(byName).toMatchObject({
       _tag: "InvalidStableLogicalIndexIdentityInputError",
       field: "descriptor",
+    });
+    expect(byNameFirstFailure).toMatchObject({
+      _tag: "InvalidStableLogicalIndexIdentityInputError",
+      field: "deploymentId",
     });
   });
 

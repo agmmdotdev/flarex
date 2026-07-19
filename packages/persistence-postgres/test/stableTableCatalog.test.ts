@@ -152,6 +152,7 @@ describe("stable table catalog", () => {
       "deployment_catalog_input",
       0,
     );
+    const invalidBoth = decodeStableTableIdentityByIdInputResult(" ", 0);
 
     expect(Result.isFailure(invalidDeployment)).toBe(true);
     if (Result.isFailure(invalidDeployment)) {
@@ -166,6 +167,10 @@ describe("stable table catalog", () => {
         _tag: "InvalidStableTableIdentityInputError",
         field: "tableId",
       });
+    }
+    expect(Result.isFailure(invalidBoth)).toBe(true);
+    if (Result.isFailure(invalidBoth)) {
+      expect(invalidBoth.failure.field).toBe("deploymentId");
     }
   });
 

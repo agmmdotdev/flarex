@@ -2,15 +2,18 @@ import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
 import {
-  decodeCatalogIndexId,
-  decodeCatalogTableId,
   type CatalogIndexId,
   type CatalogTableId,
+  CatalogIndexIdSchema,
 } from "flarex-protocol/catalog";
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { fxControlIndexes } from "./schema";
+import {
+  decodeStableCatalogTableIdInputResult,
+  validateStableCatalogNonBlankInputResult,
+} from "./stableCatalogInputValidation";
 import { StableLogicalIndexCatalogCorruptionError } from "./stableLogicalIndexCatalogAllocation";
 import {
   decodeStableLogicalIndexCatalogIndexIdResult as decodeStoredIndexIdResult,
@@ -142,27 +145,20 @@ function validateIdentityNameResult(
   InvalidStableLogicalIndexIdentityInputError
 > {
   return Result.gen(function* () {
-    const deploymentId = yield* validateNonBlankResult(
+    const deploymentId = yield* validateStableCatalogNonBlankInputResult(
       input.deploymentId,
-      "deploymentId",
+      () => new InvalidStableLogicalIndexIdentityInputError("deploymentId"),
     );
-    const descriptor = yield* validateNonBlankResult(
+    const descriptor = yield* validateStableCatalogNonBlankInputResult(
       input.descriptor,
-      "descriptor",
+      () => new InvalidStableLogicalIndexIdentityInputError("descriptor"),
     );
-    const tableId = yield* decodeInputTableIdResult(input.tableId);
+    const tableId = yield* decodeStableCatalogTableIdInputResult(
+      input.tableId,
+      () => new InvalidStableLogicalIndexIdentityInputError("tableId"),
+    );
     return { deploymentId, tableId, descriptor };
   });
-}
-
-function validateNonBlankResult(
-  value: unknown,
-  field: "deploymentId" | "descriptor",
-): Result.Result<string, InvalidStableLogicalIndexIdentityInputError> {
-  if (!isNonBlankString(value)) {
-    return Result.fail(new InvalidStableLogicalIndexIdentityInputError(field));
-  }
-  return Result.succeed(value);
 }
 
 function decodeIdentityIdInputResult(
@@ -174,9 +170,9 @@ function decodeIdentityIdInputResult(
 > {
   return Result.gen(function* () {
     return {
-      deploymentId: yield* validateNonBlankResult(
+      deploymentId: yield* validateStableCatalogNonBlankInputResult(
         deploymentId,
-        "deploymentId",
+        () => new InvalidStableLogicalIndexIdentityInputError("deploymentId"),
       ),
       logicalIndexId: yield* decodeInputIndexIdResult(logicalIndexId),
     };
@@ -186,22 +182,16 @@ function decodeIdentityIdInputResult(
 function decodeInputIndexIdResult(
   value: unknown,
 ): Result.Result<CatalogIndexId, InvalidStableLogicalIndexIdentityInputError> {
-  return Result.try({
-    try: () => decodeCatalogIndexId(value),
-    catch: () => new InvalidStableLogicalIndexIdentityInputError(
-      "logicalIndexId",
+  return decodeCatalogIndexIdResult(value).pipe(
+    Result.mapError(
+      () => new InvalidStableLogicalIndexIdentityInputError("logicalIndexId"),
     ),
-  });
+  );
 }
 
-function decodeInputTableIdResult(
-  value: unknown,
-): Result.Result<CatalogTableId, InvalidStableLogicalIndexIdentityInputError> {
-  return Result.try({
-    try: () => decodeCatalogTableId(value),
-    catch: () => new InvalidStableLogicalIndexIdentityInputError("tableId"),
-  });
-}
+const decodeCatalogIndexIdResult = Schema.decodeUnknownResult(
+  CatalogIndexIdSchema,
+);
 
 export function decodeStableLogicalIndexIdentityResult(
   row: typeof fxControlIndexes.$inferSelect,

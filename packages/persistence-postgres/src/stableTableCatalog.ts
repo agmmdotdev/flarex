@@ -2,18 +2,22 @@ import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, eq } from "drizzle-orm";
 import {
-  decodeCatalogTableId,
   decodeCatalogTableNamespace,
   type CatalogTableId,
   type CatalogTableNamespace,
+  CatalogTableNamespaceSchema,
 } from "flarex-protocol/catalog";
-import { Cause, Effect, Exit, Result } from "effect";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { reconcileEffectTransactionFailure } from
   "./effectTransactionFailure";
 import type { FlarexMetadataTransaction } from "./metadataTransaction";
 import { deployments, fxControlTables } from "./schema";
+import {
+  decodeStableCatalogTableIdInputResult,
+  validateStableCatalogNonBlankInputResult,
+} from "./stableCatalogInputValidation";
 import {
   decodeStableTableCatalogIdResult as decodeTableIdResult,
 } from "./stableTableCatalogDecoding";
@@ -335,27 +339,17 @@ export function decodeStableTableIdentityNameResult(
   InvalidStableTableIdentityInputError
 > {
   return Result.gen(function* () {
-    const deploymentId = yield* validateNonBlankResult(
+    const deploymentId = yield* validateStableCatalogNonBlankInputResult(
       input.deploymentId,
-      "deploymentId",
+      () => new InvalidStableTableIdentityInputError("deploymentId"),
     );
-    const logicalName = yield* validateNonBlankResult(
+    const logicalName = yield* validateStableCatalogNonBlankInputResult(
       input.logicalName,
-      "logicalName",
+      () => new InvalidStableTableIdentityInputError("logicalName"),
     );
     const namespace = yield* decodeInputNamespaceResult(input.namespace);
     return { deploymentId, namespace, logicalName };
   });
-}
-
-function validateNonBlankResult(
-  value: unknown,
-  field: "deploymentId" | "logicalName",
-): Result.Result<string, InvalidStableTableIdentityInputError> {
-  if (!isNonBlankString(value)) {
-    return Result.fail(new InvalidStableTableIdentityInputError(field));
-  }
-  return Result.succeed(value);
 }
 
 export function decodeStableTableIdentityByIdInputResult(
@@ -367,21 +361,15 @@ export function decodeStableTableIdentityByIdInputResult(
 > {
   return Result.gen(function* () {
     return {
-      deploymentId: yield* validateNonBlankResult(
+      deploymentId: yield* validateStableCatalogNonBlankInputResult(
         deploymentId,
-        "deploymentId",
+        () => new InvalidStableTableIdentityInputError("deploymentId"),
       ),
-      tableId: yield* decodeInputTableIdResult(tableId),
+      tableId: yield* decodeStableCatalogTableIdInputResult(
+        tableId,
+        () => new InvalidStableTableIdentityInputError("tableId"),
+      ),
     };
-  });
-}
-
-function decodeInputTableIdResult(
-  value: unknown,
-): Result.Result<CatalogTableId, InvalidStableTableIdentityInputError> {
-  return Result.try({
-    try: () => decodeCatalogTableId(value),
-    catch: () => new InvalidStableTableIdentityInputError("tableId"),
   });
 }
 
@@ -391,11 +379,16 @@ function decodeInputNamespaceResult(
   CatalogTableNamespace,
   InvalidStableTableIdentityInputError
 > {
-  return Result.try({
-    try: () => decodeCatalogTableNamespace(value),
-    catch: () => new InvalidStableTableIdentityInputError("namespace"),
-  });
+  return decodeCatalogTableNamespaceResult(value).pipe(
+    Result.mapError(
+      () => new InvalidStableTableIdentityInputError("namespace"),
+    ),
+  );
 }
+
+const decodeCatalogTableNamespaceResult = Schema.decodeUnknownResult(
+  CatalogTableNamespaceSchema,
+);
 
 type StableTableIdentityRow = typeof fxControlTables.$inferSelect;
 
