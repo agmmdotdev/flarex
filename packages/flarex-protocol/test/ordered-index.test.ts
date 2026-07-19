@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Result, Schema } from "effect";
 import {
   SchemaManifestAppDeveloperOrderedIndexSpecV1Schema,
   decodeSchemaManifestAppIndexFieldPath,
@@ -40,7 +40,7 @@ import {
   orderedIndexKeyBytesHexV1FromBytes,
   orderedIndexKeyBytesHexV1ToBytes,
   orderedIndexPositionInBoundsV1,
-  orderedIndexRowIdHexV1FromBytes,
+  orderedIndexRowIdHexV1FromBytesResult,
   orderedIndexRowIdHexV1ToBytes,
   type AppOrderedIndexPhysicalFieldV1,
   type AppOrderedIndexPhysicalSpecV1,
@@ -645,7 +645,7 @@ describe("app ordered keys, positions, and bounds v1", () => {
       spec,
       values: [stringValue("open"), orderedIndexCreationTimeV1(1)],
     });
-    const rowId = orderedIndexRowIdHexV1FromBytes(
+    const rowId = orderedIndexRowIdFromBytesFixture(
       Uint8Array.from({ length: 16 }, (_, index) => index),
     );
     const decoded = decodeAppOrderedIndexKeyV1({ spec, encodedKey });
@@ -659,6 +659,28 @@ describe("app ordered keys, positions, and bounds v1", () => {
     expect(orderedIndexRowIdHexV1ToBytes(rowId)).toEqual(
       Uint8Array.from({ length: 16 }, (_, index) => index),
     );
+  });
+
+  it("decodes row identity bytes through one Result-first protocol owner", () => {
+    const source = Uint8Array.from({ length: 16 }, (_, index) => index);
+    const decoded = orderedIndexRowIdHexV1FromBytesResult(source);
+    expect(Result.isSuccess(decoded)).toBe(true);
+    if (Result.isSuccess(decoded)) {
+      expect(decoded.success).toBe("000102030405060708090a0b0c0d0e0f");
+    }
+
+    const invalid = orderedIndexRowIdHexV1FromBytesResult(
+      new Uint8Array(15),
+    );
+    expect(Result.isFailure(invalid)).toBe(true);
+    if (Result.isFailure(invalid)) {
+      expect(invalid.failure).toBeInstanceOf(OrderedIndexCodecV1InputError);
+      expect(invalid.failure.issue).toEqual({
+        reason: "invalidValue",
+        path: "$rowId",
+        detail: "row identity must contain exactly 16 bytes",
+      });
+    }
   });
 
   it("orders duplicate keys by the separate fixed row identity", () => {
@@ -972,8 +994,14 @@ function position(
   rowId[15] = finalByte;
   return {
     encodedKey,
-    rowId: orderedIndexRowIdHexV1FromBytes(rowId),
+    rowId: orderedIndexRowIdFromBytesFixture(rowId),
   };
+}
+
+function orderedIndexRowIdFromBytesFixture(
+  value: Uint8Array,
+): OrderedIndexRowIdHexV1 {
+  return Result.getOrThrow(orderedIndexRowIdHexV1FromBytesResult(value));
 }
 
 function requiredField(

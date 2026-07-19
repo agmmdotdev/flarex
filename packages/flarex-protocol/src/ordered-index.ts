@@ -1,15 +1,14 @@
 import {
   compareBytesLexicographically,
   encodeBytesToLowercaseHex,
-  isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { compareUtf16Strings } from "@flarex/utils/strings";
-import { Data, Schema } from "effect";
+import { Data, Result, Schema } from "effect";
 
 import {
   APP_ROW_ID_BYTES_V1,
   AppRowIdHexV1Schema,
-  appRowIdHexV1FromBytes,
+  appRowIdHexV1FromBytesResult,
   appRowIdHexV1ToBytes,
   decodeAppRowIdHexV1,
   type AppRowIdHexV1,
@@ -475,16 +474,15 @@ export function orderedIndexValueFromFlarexValueV1(
   return ordered;
 }
 
-export function orderedIndexRowIdHexV1FromBytes(
-  value: Uint8Array,
-): OrderedIndexRowIdHexV1 {
-  if (!isUint8ArrayWithByteLength(value, ORDERED_INDEX_ROW_ID_BYTES_V1)) {
-    throw invalidValue(
+export function orderedIndexRowIdHexV1FromBytesResult(
+  value: unknown,
+): Result.Result<OrderedIndexRowIdHexV1, OrderedIndexCodecV1InputError> {
+  return appRowIdHexV1FromBytesResult(value).pipe(
+    Result.mapError(() => invalidValue(
       "$rowId",
       `row identity must contain exactly ${ORDERED_INDEX_ROW_ID_BYTES_V1} bytes`,
-    );
-  }
-  return appRowIdHexV1FromBytes(value);
+    )),
+  );
 }
 
 export function orderedIndexRowIdHexV1ToBytes(

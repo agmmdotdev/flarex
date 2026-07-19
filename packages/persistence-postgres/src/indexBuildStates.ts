@@ -15,8 +15,7 @@ import {
   type IndexBuildLifecycleV1,
 } from "flarex-protocol/index-build-state";
 import {
-  OrderedIndexCodecV1InputError,
-  orderedIndexRowIdHexV1FromBytes,
+  orderedIndexRowIdHexV1FromBytesResult,
 } from "flarex-protocol/ordered-index";
 import {
   CommitSeqSchema,
@@ -417,17 +416,11 @@ function decodeBuildStateRow(
     const rawBackfillCursorRowId = row.backfillCursorRowId;
     const afterRowId = rawBackfillCursorRowId === null
       ? null
-      : yield* Result.try({
-        try: () => orderedIndexRowIdHexV1FromBytes(rawBackfillCursorRowId),
-        catch: (cause) => {
-          if (!(cause instanceof OrderedIndexCodecV1InputError)) throw cause;
-          return storedBuildStateCorruption(
-            expectedScopeId,
-            expectedIndexDefinitionId,
-            cause,
-          );
-        },
-      });
+      : yield* decodeStoredBuildStateFieldResult(
+        orderedIndexRowIdHexV1FromBytesResult(rawBackfillCursorRowId),
+        expectedScopeId,
+        expectedIndexDefinitionId,
+      );
     const decodedBackfillCursor = yield* decodeStoredBuildStateFieldResult(
       decodeIndexBuildBackfillCursorResult({
         codecVersion: cursorCodecVersion,

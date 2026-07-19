@@ -388,8 +388,10 @@ was deleted because no production compatibility consumer exists; focused tests
 own the explicit runtime bridge.
 Owned read-input and build-row normalization now use hoisted Schema `Result`
 decoders in exact field order. The former blanket build-row `Result.try` and
-throwing Schema projections are deleted; the ordered-index byte decoder remains
-one narrow foreign throwing edge, while unexpected row access or runtime throws
+throwing Schema projections are deleted. The ordered-index row-identity byte
+decoder now has one protocol-owned `Result` normalizer; the fenced build reader
+consumes it directly, and the unconsumed throwing projection is deleted rather
+than preserved for test-only callers. Unexpected row access or runtime throws
 remain defects. Shared scope-clock row normalization now has one pure Schema
 `Result` authority for exact driver types, signed-int64 bounds, storage
 generation, blank identifiers, and owned timestamps. The fenced index reader

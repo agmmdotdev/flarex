@@ -1,6 +1,7 @@
 import {
   decodeSchemaManifestAppIndexFieldPath,
 } from "flarex-protocol/schema-manifest";
+import { Result } from "effect";
 import {
   MAX_ORDERED_INDEX_KEY_BYTES_V1,
   compileAppOrderedIndexBoundsV1,
@@ -10,11 +11,12 @@ import {
   orderedIndexBytesV1FromBytes,
   orderedIndexCreationTimeV1,
   orderedIndexKeyHexV1ToBytes,
-  orderedIndexRowIdHexV1FromBytes,
+  orderedIndexRowIdHexV1FromBytesResult,
   orderedIndexRowIdHexV1ToBytes,
   type AppOrderedIndexPhysicalFieldV1,
   type AppOrderedIndexPhysicalSpecV1,
   type OrderedIndexKeyHexV1,
+  type OrderedIndexRowIdHexV1,
   type OrderedIndexValueV1,
 } from "flarex-protocol/ordered-index";
 import { describe, expect, it } from "vitest";
@@ -65,7 +67,7 @@ describe("ordered index key codec on PGlite", () => {
             orderedIndexCreationTimeV1(100),
           ],
         }),
-        rowId: orderedIndexRowIdHexV1FromBytes(rowId(rowByte)),
+        rowId: orderedIndexRowIdFromBytesFixture(rowId(rowByte)),
       });
     }
 
@@ -145,7 +147,7 @@ describe("ordered index key codec on PGlite", () => {
       insertProbe(persistence, {
         label: "maximum",
         encodedKey: maximumKey,
-        rowId: orderedIndexRowIdHexV1FromBytes(rowId(3)),
+        rowId: orderedIndexRowIdFromBytesFixture(rowId(3)),
       }),
     ).resolves.toBeUndefined();
   });
@@ -158,7 +160,7 @@ async function insertProbe(
   input: {
     readonly label: string;
     readonly encodedKey: OrderedIndexKeyHexV1;
-    readonly rowId: ReturnType<typeof orderedIndexRowIdHexV1FromBytes>;
+    readonly rowId: OrderedIndexRowIdHexV1;
   },
 ): Promise<void> {
   await persistence.query(
@@ -175,6 +177,12 @@ async function insertProbe(
       input.label,
     ],
   );
+}
+
+function orderedIndexRowIdFromBytesFixture(
+  value: Uint8Array,
+): OrderedIndexRowIdHexV1 {
+  return Result.getOrThrow(orderedIndexRowIdHexV1FromBytesResult(value));
 }
 
 function physicalSpec(...fields: string[]): AppOrderedIndexPhysicalSpecV1 {

@@ -1,4 +1,5 @@
 import { decodeSchemaManifestAppIndexFieldPath } from "flarex-protocol/schema-manifest";
+import { Result } from "effect";
 import {
   MAX_ORDERED_INDEX_KEY_BYTES_V1,
   compileAppOrderedIndexBoundsV1,
@@ -8,7 +9,7 @@ import {
   orderedIndexBytesV1FromBytes,
   orderedIndexCreationTimeV1,
   orderedIndexKeyHexV1ToBytes,
-  orderedIndexRowIdHexV1FromBytes,
+  orderedIndexRowIdHexV1FromBytesResult,
   orderedIndexRowIdHexV1ToBytes,
   type AppOrderedIndexPhysicalFieldV1,
   type AppOrderedIndexPhysicalSpecV1,
@@ -211,7 +212,7 @@ async function insertProbe(
       1,
       orderedIndexKeyHexV1ToBytes(input.encodedKey),
       orderedIndexRowIdHexV1ToBytes(
-        orderedIndexRowIdHexV1FromBytes(rowId),
+        Result.getOrThrow(orderedIndexRowIdHexV1FromBytesResult(rowId)),
       ),
       input.label,
     ],
