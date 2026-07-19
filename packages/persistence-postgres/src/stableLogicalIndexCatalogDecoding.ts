@@ -16,15 +16,6 @@ const decodeCatalogTableIdResult = Schema.decodeUnknownResult(
   CatalogTableIdSchema,
 );
 
-export function decodeStableLogicalIndexCatalogIndexId(
-  deploymentId: string,
-  value: unknown,
-): CatalogIndexId {
-  return Result.getOrThrow(
-    decodeStableLogicalIndexCatalogIndexIdResult(deploymentId, value),
-  );
-}
-
 export function decodeStableLogicalIndexCatalogIndexIdResult(
   deploymentId: string,
   value: unknown,
@@ -34,15 +25,6 @@ export function decodeStableLogicalIndexCatalogIndexIdResult(
       deploymentId,
       `invalid logical index ID: ${String(value)}`,
     )),
-  );
-}
-
-export function decodeStableLogicalIndexCatalogTableId(
-  deploymentId: string,
-  value: unknown,
-): CatalogTableId {
-  return Result.getOrThrow(
-    decodeStableLogicalIndexCatalogTableIdResult(deploymentId, value),
   );
 }
 

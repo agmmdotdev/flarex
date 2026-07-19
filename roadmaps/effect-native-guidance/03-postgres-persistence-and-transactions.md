@@ -289,7 +289,10 @@ owns one interruption-masked Drizzle Promise edge and maps only query rejection
 to its tagged persistence failure. Stored catalog corruption remains distinct,
 and unexpected access or runtime failures remain defects. The former Promise
 exports were deleted because the repository has no production compatibility
-consumer; persistence tests own the explicit runtime bridge.
+consumer; persistence tests own the explicit runtime bridge. The stable-table
+and stable-logical-index stored-ID `Result` decoders are now their sole
+normalization authority; three unconsumed throwing projections and their
+facade-only assertions are deleted.
 
 Fenced index build-state reads are now Effect-native at the exported
 persistence boundary. Unknown input and stored clock/build rows compose through

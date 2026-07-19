@@ -11,15 +11,6 @@ const decodeCatalogTableIdResult = Schema.decodeUnknownResult(
   CatalogTableIdSchema,
 );
 
-export function decodeStableTableCatalogId(
-  deploymentId: string,
-  value: unknown,
-): CatalogTableId {
-  return Result.getOrThrow(
-    decodeStableTableCatalogIdResult(deploymentId, value),
-  );
-}
-
 export function decodeStableTableCatalogIdResult(
   deploymentId: string,
   value: unknown,

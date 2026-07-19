@@ -1,25 +1,38 @@
 import { Result } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
-  decodeStableLogicalIndexCatalogIndexId,
   decodeStableLogicalIndexCatalogIndexIdResult,
-  decodeStableLogicalIndexCatalogTableId,
   decodeStableLogicalIndexCatalogTableIdResult,
 } from "../src/stableLogicalIndexCatalogDecoding";
-import { StableLogicalIndexCatalogCorruptionError } from
-  "../src/stableLogicalIndexCatalogAllocation";
+
+type ThrowingStableLogicalIndexDecoderExport = Extract<
+  keyof typeof import("../src/stableLogicalIndexCatalogDecoding"),
+  | "decodeStableLogicalIndexCatalogIndexId"
+  | "decodeStableLogicalIndexCatalogTableId"
+>;
 
 describe("stable logical index catalog stored ID decoding", () => {
   it("returns branded protocol IDs for valid stored values", () => {
-    expect(decodeStableLogicalIndexCatalogIndexId("deployment_a", 1)).toBe(1);
-    expect(decodeStableLogicalIndexCatalogTableId("deployment_a", 2)).toBe(2);
-    expect(Result.getOrThrow(
-      decodeStableLogicalIndexCatalogIndexIdResult("deployment_a", 1),
-    )).toBe(1);
-    expect(Result.getOrThrow(
-      decodeStableLogicalIndexCatalogTableIdResult("deployment_a", 2),
-    )).toBe(2);
+    expectTypeOf<
+      ThrowingStableLogicalIndexDecoderExport
+    >().toEqualTypeOf<never>();
+    const indexId = decodeStableLogicalIndexCatalogIndexIdResult(
+      "deployment_a",
+      1,
+    );
+    const tableId = decodeStableLogicalIndexCatalogTableIdResult(
+      "deployment_a",
+      2,
+    );
+    expect(Result.isSuccess(indexId)).toBe(true);
+    expect(Result.isSuccess(tableId)).toBe(true);
+    if (Result.isSuccess(indexId)) {
+      expect(indexId.success).toBe(1);
+    }
+    if (Result.isSuccess(tableId)) {
+      expect(tableId.success).toBe(2);
+    }
   });
 
   it("preserves the catalog-owned corruption detail and cause policy", () => {
@@ -46,15 +59,6 @@ describe("stable logical index catalog stored ID decoding", () => {
       expect(invalidTable.failure.detail).toBe("invalid table ID: bad");
     }
 
-    expectCatalogCorruption(
-      () => decodeStableLogicalIndexCatalogIndexId("deployment_a", "bad"),
-      "invalid logical index ID: bad",
-    );
-    expectCatalogCorruption(
-      () => decodeStableLogicalIndexCatalogTableId("deployment_a", "bad"),
-      "invalid table ID: bad",
-    );
-
     const defect = new Error("stored ID formatting defect");
     const defectiveValue = {
       [Symbol.toPrimitive]() {
@@ -67,22 +71,3 @@ describe("stable logical index catalog stored ID decoding", () => {
     )).toThrow(defect);
   });
 });
-
-function expectCatalogCorruption(run: () => unknown, detail: string): void {
-  try {
-    run();
-  } catch (cause) {
-    expect(cause).toBeInstanceOf(StableLogicalIndexCatalogCorruptionError);
-    if (!(cause instanceof StableLogicalIndexCatalogCorruptionError)) {
-      throw cause;
-    }
-    expect(cause).toMatchObject({
-      name: "StableLogicalIndexCatalogCorruptionError",
-      deploymentId: "deployment_a",
-      detail,
-    });
-    expect(cause.cause).toBeUndefined();
-    return;
-  }
-  throw new Error("Expected stored catalog ID decoding to fail.");
-}

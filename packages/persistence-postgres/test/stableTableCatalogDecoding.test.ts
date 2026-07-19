@@ -1,19 +1,23 @@
 import { Result } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
-  decodeStableTableCatalogId,
   decodeStableTableCatalogIdResult,
 } from "../src/stableTableCatalogDecoding";
-import { StableTableCatalogCorruptionError } from
-  "../src/stableTableCatalogAllocation";
+
+type ThrowingStableTableDecoderExport = Extract<
+  keyof typeof import("../src/stableTableCatalogDecoding"),
+  "decodeStableTableCatalogId"
+>;
 
 describe("stable table catalog ID decoding", () => {
   it("returns a branded protocol ID for a valid catalog value", () => {
-    expect(decodeStableTableCatalogId("deployment_a", 1)).toBe(1);
-    expect(Result.getOrThrow(
-      decodeStableTableCatalogIdResult("deployment_a", 1),
-    )).toBe(1);
+    expectTypeOf<ThrowingStableTableDecoderExport>().toEqualTypeOf<never>();
+    const decoded = decodeStableTableCatalogIdResult("deployment_a", 1);
+    expect(Result.isSuccess(decoded)).toBe(true);
+    if (Result.isSuccess(decoded)) {
+      expect(decoded.success).toBe(1);
+    }
   });
 
   it("preserves the catalog-owned corruption detail and cause policy", () => {
@@ -28,11 +32,6 @@ describe("stable table catalog ID decoding", () => {
       });
       expect(invalid.failure.cause).toBeUndefined();
     }
-
-    expect(() => decodeStableTableCatalogId(
-      "deployment_a",
-      "bad",
-    )).toThrow(StableTableCatalogCorruptionError);
 
     const defect = new Error("stored table ID formatting defect");
     const defectiveValue = {
