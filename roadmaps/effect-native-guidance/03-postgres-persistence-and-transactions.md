@@ -148,6 +148,13 @@ the preparation handle for retry; successful completion deletes it only after
 the transaction settles. If transaction cleanup also fails after callback work
 dies or is interrupted, the callback `Cause` remains observable and the
 transaction failure is attached as diagnostic defect evidence.
+Supplied seal-journal structure now enters through one hoisted Schema
+`encodeResult`, and only its Schema failure becomes a canonical-journal
+mismatch. The generic callback-based `sealInputValidationResult` is deleted so
+unexpected Schema or runtime defects remain defects. Successful-result JSON
+still crosses the protocol's throwing Value Codec normalizer through one
+filtered temporary adapter that maps only `FlarexValueCodecV1Error`; delete it
+when Value Codec V1 exposes a genuine Result-native normalizer.
 
 The already-connected Postgres transaction demarcation is now Effect-native.
 BEGIN and COMMIT rejection have distinct typed infrastructure failures; a

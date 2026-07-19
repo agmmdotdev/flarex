@@ -710,6 +710,7 @@ const decodeCommitSyscallSequenceResult = Schema.decodeUnknownResult(
   Schema.toType(CommitSyscallSequenceV1Schema),
 );
 const encodeSessionJournal = Schema.encodeSync(SessionJournalV1Schema);
+const encodeSessionJournalResult = Schema.encodeResult(SessionJournalV1Schema);
 const decodeSchemaManifestAppTableNameEffect = Schema.decodeUnknownEffect(
   SchemaManifestAppTableNameSchema,
 );
@@ -4170,10 +4171,12 @@ const validateCanonicalSealEvidenceEffect = Effect.fn(
   const expectedJournalJson = requireJson(
     encodeSessionJournal(candidate.journal),
   );
-  const suppliedJournalJson = yield* Effect.fromResult(
-    sealInputValidationResult("canonicalJournalMismatch", () =>
-      requireJson(encodeSessionJournal(supplied.journal))),
+  const suppliedJournalEncoded = yield* Effect.fromResult(
+    encodeSessionJournalResult(supplied.journal).pipe(
+      Result.mapError(() => sealMismatch("canonicalJournalMismatch")),
+    ),
   );
+  const suppliedJournalJson = requireJson(suppliedJournalEncoded);
   const expectedJournalText = encodeCanonicalJson(
     expectedJournalJson,
     () => {
@@ -4207,8 +4210,7 @@ const validateCanonicalSealEvidenceEffect = Effect.fn(
   }
 
   const normalizedResult = yield* Effect.fromResult(
-    sealInputValidationResult("canonicalResultMismatch", () =>
-      normalizeFlarexValueJsonV1(supplied.resultValueJson)),
+    normalizeSealResultValueJsonCompatibilityResult(supplied.resultValueJson),
   );
   const expectedResultText = encodeCanonicalJson(
     {
@@ -4258,13 +4260,24 @@ const validateCanonicalSealEvidenceEffect = Effect.fn(
   });
 });
 
-function sealInputValidationResult<A>(
-  reason: "canonicalJournalMismatch" | "canonicalResultMismatch",
-  validate: () => A,
-): Result.Result<A, SessionJournalSealV1Error> {
+/**
+ * Temporary compatibility seam for the protocol's throwing JSON normalizer.
+ * Delete this adapter when Value Codec V1 exposes its Result-native decoder.
+ */
+function normalizeSealResultValueJsonCompatibilityResult(
+  valueJson: unknown,
+): Result.Result<
+  ReturnType<typeof normalizeFlarexValueJsonV1>,
+  SessionJournalSealV1Error
+> {
   return Result.try({
-    try: validate,
-    catch: () => sealMismatch(reason),
+    try: () => normalizeFlarexValueJsonV1(valueJson),
+    catch: (cause) => {
+      if (cause instanceof FlarexValueCodecV1Error) {
+        return sealMismatch("canonicalResultMismatch");
+      }
+      throw cause;
+    },
   });
 }
 

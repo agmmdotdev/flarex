@@ -1978,6 +1978,21 @@ describe("C03 Postgres SessionJournalStore", () => {
       reason: "canonicalJournalMismatch",
     } satisfies Partial<SessionJournalSealV1Error>);
 
+    const malformedJournalPreparation = await prepareSeal(current.store,
+      current.attempt,
+    );
+    const malformedJournal = structuredClone(await runEffect(
+      canonicalizeSessionJournalV1Effect(malformedJournalPreparation.journal),
+    ));
+    Reflect.set(malformedJournal.journal, "format", "invalid");
+    await expect(completeSeal(current.store,
+      malformedJournalPreparation.preparation,
+      malformedJournal,
+      successfulResult,
+    )).rejects.toMatchObject({
+      reason: "canonicalJournalMismatch",
+    } satisfies Partial<SessionJournalSealV1Error>);
+
     const malformedResultPreparation = await prepareSeal(current.store,
       current.attempt,
     );
@@ -1992,6 +2007,24 @@ describe("C03 Postgres SessionJournalStore", () => {
       malformedResultPreparation.preparation,
       journalForMalformedResult,
       malformedResult,
+    )).rejects.toMatchObject({
+      reason: "canonicalResultMismatch",
+    } satisfies Partial<SessionJournalSealV1Error>);
+
+    const malformedResultValuePreparation = await prepareSeal(current.store,
+      current.attempt,
+    );
+    const journalForMalformedResultValue = await runEffect(
+      canonicalizeSessionJournalV1Effect(
+        malformedResultValuePreparation.journal,
+      ),
+    );
+    const malformedResultValue = structuredClone(successfulResult);
+    Reflect.set(malformedResultValue, "valueJson", undefined);
+    await expect(completeSeal(current.store,
+      malformedResultValuePreparation.preparation,
+      journalForMalformedResultValue,
+      malformedResultValue,
     )).rejects.toMatchObject({
       reason: "canonicalResultMismatch",
     } satisfies Partial<SessionJournalSealV1Error>);
