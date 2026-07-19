@@ -14,24 +14,31 @@ import {
   ScopeIdSchema,
   SnapshotTokenSchema,
 } from "flarex-protocol/storage-authority";
+import { Cause, Effect, Exit, Fiber, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+  AppRowReadPersistenceError,
   AppRowCreationTimeConflictError,
   AppRowRevisionChainConflictError,
   AppRowStorageCorruptionError,
+  InvalidAppRowReadInputError,
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
-  getAppRowAtSnapshotInTransaction,
-  readAppRowAtSnapshotInTransaction,
-  readCurrentAppRowInTransaction,
+  getAppRowAtSnapshotInTransactionEffect,
+  readAppRowAtSnapshotInTransactionEffect,
+  readCurrentAppRowInTransactionEffect,
   type AppendAppRowRevisionV1Input,
   type AppRowIdentityV1,
+  type AppRowReadResultV1,
+  type AppRowTransaction,
   type AppRowValueEvidenceV1,
+  type ReadAppRowError,
 } from "../src/appRows";
 import {
   createPGlitePersistence,
   type PGliteFlarexPersistence,
 } from "../src/pglite";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 const scopeId = ScopeIdSchema.make(
   "scope_50000000-0000-0000-0000-000000000001",
@@ -123,7 +130,7 @@ describe("FlarexDB app-row revision storage", () => {
     });
     await expect(
       persistence.drizzle.transaction((tx) =>
-        readCurrentAppRowInTransaction(tx, identity),
+        runEffect(readCurrentAppRowInTransactionEffect(tx, identity)),
       ),
     ).resolves.toMatchObject({ kind: "tombstone", commitSeq: 5n });
 
@@ -261,12 +268,12 @@ describe("FlarexDB app-row revision storage", () => {
 
     await expect(
       persistence.drizzle.transaction((tx) =>
-        readAppRowAtSnapshotInTransaction(tx, {
+        runEffect(readAppRowAtSnapshotInTransactionEffect(tx, {
           scopeId: otherScopeId,
           tableId,
           rowId,
           snapshotCommitSeq: CommitSeqSchema.make(1n),
-        }),
+        })),
       ),
     ).resolves.toEqual({ kind: "missing" });
     await expect(
@@ -298,12 +305,12 @@ describe("FlarexDB app-row revision storage", () => {
     });
     await expect(
       persistence.drizzle.transaction((tx) =>
-        readAppRowAtSnapshotInTransaction(tx, {
+        runEffect(readAppRowAtSnapshotInTransactionEffect(tx, {
           scopeId,
           tableId: otherTableId,
           rowId,
           snapshotCommitSeq: CommitSeqSchema.make(1n),
-        }),
+        })),
       ),
     ).resolves.toEqual({ kind: "missing" });
   });
@@ -414,7 +421,7 @@ describe("FlarexDB app-row revision storage", () => {
 
     await expect(
       persistence.drizzle.transaction((tx) =>
-        readCurrentAppRowInTransaction(tx, identity),
+        runEffect(readCurrentAppRowInTransactionEffect(tx, identity)),
       ),
     ).resolves.toMatchObject({
       kind: "live",
@@ -435,16 +442,29 @@ describe("FlarexDB app-row revision storage", () => {
       legacyScope,
       ScopeEpochSchema.make("epoch-legacy-row-path"),
     );
-    await expect(
-      persistence.drizzle.transaction((tx) =>
-        readAppRowAtSnapshotInTransaction(tx, {
+    const legacyExit = await persistence.drizzle.transaction((tx) =>
+      runEffect(Effect.exit(
+        readAppRowAtSnapshotInTransactionEffect(tx, {
           scopeId: legacyScope,
           tableId,
           rowId,
           snapshotCommitSeq: CommitSeqSchema.make(0n),
         }),
-      ),
-    ).rejects.toThrow();
+      )),
+    );
+    expect(Exit.isFailure(legacyExit)).toBe(true);
+    if (Exit.isFailure(legacyExit)) {
+      expect(Cause.hasFails(legacyExit.cause)).toBe(true);
+      expect(Cause.hasDies(legacyExit.cause)).toBe(false);
+      const failure = Cause.findErrorOption(legacyExit.cause);
+      expect(Option.isSome(failure)).toBe(true);
+      if (Option.isSome(failure)) {
+        expect(failure.value).toBeInstanceOf(InvalidAppRowReadInputError);
+        expect(failure.value).toMatchObject({
+          issue: { reason: "invalidScopeId" },
+        });
+      }
+    }
 
     const document = await canonicalizeAppDocumentV1({
       tableId,
@@ -487,11 +507,11 @@ describe("FlarexDB app-row revision storage", () => {
     );
     await expect(
       persistence.drizzle.transaction((tx) =>
-        readCurrentAppRowInTransaction(tx, {
+        runEffect(readCurrentAppRowInTransactionEffect(tx, {
           scopeId,
           tableId,
           rowId: corruptionRowId,
-        }),
+        })),
       ),
     ).rejects.toBeInstanceOf(AppRowStorageCorruptionError);
     await expect(
@@ -504,6 +524,131 @@ describe("FlarexDB app-row revision storage", () => {
         corruptionRowId,
       ),
     ).rejects.toBeInstanceOf(AppRowStorageCorruptionError);
+  });
+
+  it("exposes the read kernel as a typed lazy Effect", () => {
+    let queryConstructed = false;
+    const tx = {
+      select(): never {
+        queryConstructed = true;
+        throw new Error("the lazy read was executed");
+      },
+    } as unknown as AppRowTransaction;
+    const effect: Effect.Effect<AppRowReadResultV1, ReadAppRowError> =
+      readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity,
+        snapshotCommitSeq: CommitSeqSchema.make(1n),
+      });
+
+    expect(Effect.isEffect(effect)).toBe(true);
+    expect(queryConstructed).toBe(false);
+  });
+
+  it("rejects invalid read input before constructing SQL", async () => {
+    let queryConstructed = false;
+    const tx = {
+      select(): never {
+        queryConstructed = true;
+        throw new Error("invalid input reached SQL construction");
+      },
+    } as unknown as AppRowTransaction;
+
+    const failure = await runEffectFailure(
+      readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity,
+        tableId: 0 as typeof tableId,
+        snapshotCommitSeq: CommitSeqSchema.make(1n),
+      }),
+    );
+
+    expect(failure).toBeInstanceOf(InvalidAppRowReadInputError);
+    expect(failure).toMatchObject({ issue: { reason: "invalidTableId" } });
+    expect(queryConstructed).toBe(false);
+  });
+
+  it("maps a rejected revision query into the typed persistence channel", async () => {
+    const rejection = new Error("revision query rejected");
+    let readCount = 0;
+    const tx = appRowSelectTransaction(() => {
+      readCount += 1;
+      return readCount === 1
+        ? Promise.resolve([{
+            scopeId,
+            scopeUuid: "50000000-0000-0000-0000-000000000001",
+          }])
+        : Promise.reject(rejection);
+    });
+
+    const failure = await runEffectFailure(
+      readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity,
+        snapshotCommitSeq: CommitSeqSchema.make(1n),
+      }),
+    );
+
+    expect(failure).toBeInstanceOf(AppRowReadPersistenceError);
+    expect(failure).toMatchObject({
+      operation: "readSnapshotRevision",
+      cause: rejection,
+    });
+  });
+
+  it("preserves query construction exceptions as defects", async () => {
+    const defect = new Error("app-row query construction defect");
+    const tx = {
+      select(): never {
+        throw defect;
+      },
+    } as unknown as AppRowTransaction;
+
+    const exit = await Effect.runPromiseExit(
+      readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity,
+        snapshotCommitSeq: CommitSeqSchema.make(1n),
+      }),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
+
+  it("waits for a pending database read before interruption completes", async () => {
+    const entered = deferredValue<void>();
+    const query = deferredValue<ReadonlyArray<unknown>>();
+    const tx = appRowSelectTransaction(() => {
+      entered.resolve(undefined);
+      return query.promise;
+    });
+    const fiber = Effect.runFork(
+      readAppRowAtSnapshotInTransactionEffect(tx, {
+        ...identity,
+        snapshotCommitSeq: CommitSeqSchema.make(1n),
+      }),
+    );
+
+    await entered.promise;
+    const completion = runEffect(Fiber.await(fiber));
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then(() => {
+      interruptionSettled = true;
+    });
+    try {
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      query.resolve([]);
+    }
+
+    await interruption;
+    const exit = await completion;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    }
   });
 
   it("enforces physical row constraints and keeps mutation off the root API", async () => {
@@ -599,10 +744,10 @@ async function readAt(
   commitSeq: bigint,
 ) {
   return persistence.drizzle.transaction((tx) =>
-    readAppRowAtSnapshotInTransaction(tx, {
+    runEffect(readAppRowAtSnapshotInTransactionEffect(tx, {
       ...identity,
       snapshotCommitSeq: CommitSeqSchema.make(commitSeq),
-    }),
+    })),
   );
 }
 
@@ -615,7 +760,7 @@ async function pointReadAt(
   selectedRowId = rowId,
 ) {
   return persistence.drizzle.transaction((tx) =>
-    getAppRowAtSnapshotInTransaction(tx, {
+    runEffect(getAppRowAtSnapshotInTransactionEffect(tx, {
       snapshotToken: SnapshotTokenSchema.make({
         scopeId: selectedScopeId,
         epoch,
@@ -623,6 +768,45 @@ async function pointReadAt(
       }),
       tableId: selectedTableId,
       rowId: selectedRowId,
-    }),
+    })),
   );
+}
+
+function appRowSelectTransaction(
+  read: () => PromiseLike<ReadonlyArray<unknown>>,
+): AppRowTransaction {
+  const query = {
+    from() {
+      return query;
+    },
+    where() {
+      return query;
+    },
+    orderBy() {
+      return query;
+    },
+    limit() {
+      return read();
+    },
+  };
+  return {
+    select() {
+      return query;
+    },
+  } as unknown as AppRowTransaction;
+}
+
+function deferredValue<Value>(): {
+  readonly promise: Promise<Value>;
+  readonly resolve: (value: Value) => void;
+} {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

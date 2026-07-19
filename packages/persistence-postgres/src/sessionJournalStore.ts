@@ -118,7 +118,7 @@ import {
 } from "flarex-protocol/value";
 
 import {
-  getAppRowAtSnapshotInTransaction,
+  getAppRowAtSnapshotInTransactionEffect,
   type AppRowPointDependencyV1,
   type AppRowTransaction,
 } from "./appRows";
@@ -2191,13 +2191,11 @@ const readLogicalPointEffect = Effect.fn(
     rowId,
   );
   if (point === undefined) {
-    const result = yield* fromPointOperationPromise(() =>
-      getAppRowAtSnapshotInTransaction(tx, {
+    const result = yield* getAppRowAtSnapshotInTransactionEffect(tx, {
         snapshotToken: table.attempt.snapshotToken,
         tableId: table.tableId,
         rowId,
-      })
-    );
+      }).pipe(Effect.mapError(mapRunPointOperationFailure));
     return Object.freeze({
       result,
       dependencyIsNew: true,
@@ -2239,13 +2237,11 @@ const readLogicalPointEffect = Effect.fn(
         }),
       });
     case "none": {
-      const result = yield* fromPointOperationPromise(() =>
-        getAppRowAtSnapshotInTransaction(tx, {
+      const result = yield* getAppRowAtSnapshotInTransactionEffect(tx, {
           snapshotToken: table.attempt.snapshotToken,
           tableId: table.tableId,
           rowId,
-        })
-      );
+        }).pipe(Effect.mapError(mapRunPointOperationFailure));
       if (!dependenciesEqual(dependency, result.dependency)) {
         return yield* Effect.fail(corruption(
           table.attempt,

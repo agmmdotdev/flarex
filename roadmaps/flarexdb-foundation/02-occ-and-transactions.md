@@ -761,7 +761,7 @@ attempt and staged read-your-writes state.
 
 Outcome:
 
-- Implement package-private `getAppRowAtSnapshotInTransaction` over S06's
+- Implement package-private `getAppRowAtSnapshotInTransactionEffect` over S06's
   exact backward revision read. Its input carries the full branded snapshot
   token so scope and commit sequence cannot be supplied independently.
 - Use `fx_app_row_rev` as the only row-value and visibility source. The scope

@@ -1,4 +1,5 @@
 import { and, desc, eq, lte } from "drizzle-orm";
+import { Effect, Result, Schema } from "effect";
 import {
   decodeAppCreationTimeV1,
   verifyAppDocumentEvidenceV1,
@@ -8,9 +9,11 @@ import {
   appRowIdHexV1FromBytes,
   appRowIdHexV1ToBytes,
   decodeAppRowIdHexV1,
+  AppRowIdHexV1Schema,
   type AppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
 import {
+  CatalogTableIdSchema,
   decodeCatalogTableId,
   type CatalogTableId,
 } from "flarex-protocol/catalog";
@@ -20,6 +23,7 @@ import {
 } from "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
+  ScopeIdSchema,
   SnapshotTokenSchema,
   decodeScopeEpochUuidV1,
   decodeScopeUuidV1,
@@ -201,6 +205,8 @@ export class InvalidAppRowRevisionV1InputError extends Error {
 }
 
 export class AppRowScopeAuthorityUnavailableError extends Error {
+  readonly _tag = "AppRowScopeAuthorityUnavailableError" as const;
+
   constructor(readonly scopeId: ScopeId) {
     super(`Replacement app-row scope authority is unavailable: ${scopeId}`);
     this.name = "AppRowScopeAuthorityUnavailableError";
@@ -248,6 +254,8 @@ export class AppRowCreationTimeConflictError extends Error {
 }
 
 export class AppRowStorageCorruptionError extends Error {
+  readonly _tag = "AppRowStorageCorruptionError" as const;
+
   constructor(
     readonly identity: AppRowIdentityV1,
     readonly reason: string,
@@ -261,14 +269,111 @@ export class AppRowStorageCorruptionError extends Error {
   }
 }
 
-export async function readAppRowAtSnapshotInTransaction(
+export type InvalidAppRowReadInputIssue =
+  | Readonly<{ readonly reason: "invalidSnapshotToken"; readonly cause: unknown }>
+  | Readonly<{ readonly reason: "invalidScopeId"; readonly cause: unknown }>
+  | Readonly<{ readonly reason: "invalidTableId"; readonly cause: unknown }>
+  | Readonly<{ readonly reason: "invalidRowId"; readonly cause: unknown }>
+  | Readonly<{
+      readonly reason: "invalidSnapshotCommitSeq";
+      readonly cause: unknown;
+    }>;
+
+export class InvalidAppRowReadInputError extends Error {
+  readonly _tag = "InvalidAppRowReadInputError" as const;
+
+  constructor(readonly issue: InvalidAppRowReadInputIssue) {
+    super(
+      `Invalid app-row read input: ${issue.reason}.`,
+      { cause: issue.cause },
+    );
+    this.name = "InvalidAppRowReadInputError";
+  }
+}
+
+export class AppRowReadPersistenceError extends Error {
+  readonly _tag = "AppRowReadPersistenceError" as const;
+
+  constructor(
+    readonly operation:
+      | "readScopeAuthority"
+      | "readSnapshotRevision"
+      | "readCurrentPointer"
+      | "readCurrentRevision",
+    readonly cause: unknown,
+  ) {
+    super(`Failed to ${operation.replace(/([A-Z])/g, " $1").toLowerCase()}.`, {
+      cause,
+    });
+    this.name = "AppRowReadPersistenceError";
+  }
+}
+
+export type ReadAppRowError =
+  | InvalidAppRowReadInputError
+  | AppRowScopeAuthorityUnavailableError
+  | AppRowReadPersistenceError
+  | AppRowStorageCorruptionError;
+
+const decodeScopeIdResult = Schema.decodeUnknownResult(
+  Schema.toType(ScopeIdSchema),
+);
+const decodeCatalogTableIdResult = Schema.decodeUnknownResult(
+  Schema.toType(CatalogTableIdSchema),
+);
+const decodeAppRowIdHexV1Result = Schema.decodeUnknownResult(
+  Schema.toType(AppRowIdHexV1Schema),
+);
+const decodeCommitSeqResult = Schema.decodeUnknownResult(
+  Schema.toType(CommitSeqSchema),
+);
+const decodeSnapshotTokenResult = Schema.decodeUnknownResult(
+  Schema.toType(SnapshotTokenSchema),
+);
+
+interface DecodedAppRowReadIdentityV1 {
+  readonly identity: AppRowIdentityV1;
+  readonly projection: ReturnType<typeof projectScopeIdUuidV1>;
+}
+
+export const readAppRowAtSnapshotInTransactionEffect = Effect.fn(
+  "AppRows.readAtSnapshotInTransaction",
+)(function* (
   tx: AppRowTransaction,
   input: ReadAppRowAtSnapshotV1Input,
-): Promise<AppRowReadResultV1> {
-  const identity = decodeIdentity(input);
-  const scopeUuid = await requireScopeUuidInTransaction(tx, identity.scopeId);
-  const snapshotCommitSeq = CommitSeqSchema.make(input.snapshotCommitSeq);
-  const rows = await tx
+): Effect.fn.Return<AppRowReadResultV1, ReadAppRowError> {
+  const decodedIdentity = yield* Effect.fromResult(
+    decodeReadIdentityResult(input),
+  );
+  const snapshotCommitSeq = yield* Effect.fromResult(
+    decodeReadFieldResult(
+      decodeCommitSeqResult(input.snapshotCommitSeq),
+      "invalidSnapshotCommitSeq",
+    ),
+  );
+  return yield* readDecodedAppRowAtSnapshotInTransactionEffect(
+    tx,
+    decodedIdentity,
+    snapshotCommitSeq,
+  );
+});
+
+const readDecodedAppRowAtSnapshotInTransactionEffect = Effect.fn(
+  "AppRows.readDecodedAtSnapshotInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  decodedIdentity: DecodedAppRowReadIdentityV1,
+  snapshotCommitSeq: CommitSeq,
+): Effect.fn.Return<AppRowReadResultV1, Exclude<
+  ReadAppRowError,
+  InvalidAppRowReadInputError
+>> {
+  const { identity } = decodedIdentity;
+  const scopeUuid = yield* requireScopeUuidInTransactionEffect(
+    tx,
+    decodedIdentity,
+  );
+  const query = tx
     .select()
     .from(fxAppRowRevisions)
     .where(
@@ -281,11 +386,15 @@ export async function readAppRowAtSnapshotInTransaction(
     )
     .orderBy(desc(fxAppRowRevisions.commitSeq))
     .limit(1);
+  const rows = yield* readAppRowRowsEffect(
+    query,
+    "readSnapshotRevision",
+  );
   const row = rows[0];
   return row === undefined
     ? MISSING_APP_ROW_REVISION_V1
-    : decodeRevisionRow(identity, row);
-}
+    : yield* decodeRevisionRowEffect(identity, row);
+});
 
 /**
  * Projects authoritative history into the logical point-read result and OCC
@@ -293,20 +402,31 @@ export async function readAppRowAtSnapshotInTransaction(
  * an execution attempt or apply staged read-your-writes state; C03 owns that
  * composition before a syscall can consume it.
  */
-export async function getAppRowAtSnapshotInTransaction(
+export const getAppRowAtSnapshotInTransactionEffect = Effect.fn(
+  "AppRows.getAtSnapshotInTransaction",
+)(function* (
   tx: AppRowTransaction,
   input: GetAppRowAtSnapshotV1Input,
-): Promise<AppRowPointReadResultV1> {
-  const snapshotToken = SnapshotTokenSchema.make(input.snapshotToken);
-  const identity = decodeIdentity({
-    scopeId: snapshotToken.scopeId,
-    tableId: input.tableId,
-    rowId: input.rowId,
-  });
-  const revision = await readAppRowAtSnapshotInTransaction(tx, {
-    ...identity,
-    snapshotCommitSeq: snapshotToken.commitSeq,
-  });
+): Effect.fn.Return<AppRowPointReadResultV1, ReadAppRowError> {
+  const snapshotToken = yield* Effect.fromResult(
+    decodeReadFieldResult(
+      decodeSnapshotTokenResult(input.snapshotToken),
+      "invalidSnapshotToken",
+    ),
+  );
+  const decodedIdentity = yield* Effect.fromResult(
+    decodeReadIdentityResult({
+      scopeId: snapshotToken.scopeId,
+      tableId: input.tableId,
+      rowId: input.rowId,
+    }),
+  );
+  const { identity } = decodedIdentity;
+  const revision = yield* readDecodedAppRowAtSnapshotInTransactionEffect(
+    tx,
+    decodedIdentity,
+    snapshotToken.commitSeq,
+  );
 
   switch (revision.kind) {
     case "live":
@@ -343,16 +463,24 @@ export async function getAppRowAtSnapshotInTransaction(
         } satisfies MissingAppRowPointDependencyV1),
       } satisfies MissingAppRowPointReadResultV1);
   }
-}
+});
 
-export async function readCurrentAppRowInTransaction(
+export const readCurrentAppRowInTransactionEffect = Effect.fn(
+  "AppRows.readCurrentInTransaction",
+)(function* (
   tx: AppRowTransaction,
   input: AppRowIdentityV1,
-): Promise<AppRowReadResultV1> {
-  const identity = decodeIdentity(input);
-  const scopeUuid = await requireScopeUuidInTransaction(tx, identity.scopeId);
+): Effect.fn.Return<AppRowReadResultV1, ReadAppRowError> {
+  const decodedIdentity = yield* Effect.fromResult(
+    decodeReadIdentityResult(input),
+  );
+  const { identity } = decodedIdentity;
+  const scopeUuid = yield* requireScopeUuidInTransactionEffect(
+    tx,
+    decodedIdentity,
+  );
   const rowIdBytes = appRowIdHexV1ToBytes(identity.rowId);
-  const pointers = await tx
+  const pointerQuery = tx
     .select({ commitSeq: fxAppRowCurrent.commitSeq })
     .from(fxAppRowCurrent)
     .where(
@@ -363,9 +491,13 @@ export async function readCurrentAppRowInTransaction(
       ),
     )
     .limit(1);
+  const pointers = yield* readAppRowRowsEffect(
+    pointerQuery,
+    "readCurrentPointer",
+  );
   const pointer = pointers[0];
   if (pointer === undefined) return MISSING_APP_ROW_REVISION_V1;
-  const revisions = await tx
+  const revisionQuery = tx
     .select()
     .from(fxAppRowRevisions)
     .where(
@@ -377,15 +509,19 @@ export async function readCurrentAppRowInTransaction(
       ),
     )
     .limit(1);
+  const revisions = yield* readAppRowRowsEffect(
+    revisionQuery,
+    "readCurrentRevision",
+  );
   const revision = revisions[0];
   if (revision === undefined) {
-    throw new AppRowStorageCorruptionError(
+    return yield* Effect.fail(new AppRowStorageCorruptionError(
       identity,
       `current pointer references absent revision ${pointer.commitSeq}`,
-    );
+    ));
   }
-  return decodeRevisionRow(identity, revision);
-}
+  return yield* decodeRevisionRowEffect(identity, revision);
+});
 
 export async function appendAppRowRevisionAndAdvanceCurrentInTransaction(
   tx: AppRowTransaction,
@@ -556,82 +692,163 @@ async function deleteInsertedRevisionInTransaction(
 
 type AppRowRevisionRow = typeof fxAppRowRevisions.$inferSelect;
 
-async function decodeRevisionRow(
+type DecodedAppRowRevisionEvidenceV1 =
+  | Readonly<{
+      readonly kind: "tombstone";
+      readonly base: AppRowRevisionV1Base;
+    }>
+  | Readonly<{
+      readonly kind: "live";
+      readonly base: AppRowRevisionV1Base;
+      readonly row: AppRowRevisionRow;
+    }>;
+
+const decodeRevisionRowEffect = Effect.fn(
+  "AppRows.decodeRevisionRow",
+)(function* (
   identity: AppRowIdentityV1,
   row: AppRowRevisionRow,
-): Promise<AppRowRevisionV1> {
-  const storedRowId = appRowIdHexV1FromBytes(row.rowId);
-  if (storedRowId !== identity.rowId) {
-    throw new AppRowStorageCorruptionError(identity, "row identity changed");
-  }
-  const base = {
-    ...identity,
-    scopeUuid: decodeScopeUuidV1(row.scopeUuid),
-    writeEpochUuid: decodeScopeEpochUuidV1(row.writeEpochUuid),
-    commitSeq: requirePositiveCommitSeq(row.commitSeq),
-    prevCommitSeq:
-      row.prevCommitSeq === null
-        ? null
-        : requirePositiveCommitSeq(row.prevCommitSeq),
-    schemaVersionId: decodeCatalogSchemaVersionId(row.schemaVersionId),
-    creationTime: decodeAppCreationTimeV1(row.creationTime),
-  } satisfies AppRowRevisionV1Base;
-  if (row.isTombstone) {
-    if (
-      row.valueJson !== null ||
-      row.valueBytes !== null ||
-      row.valueSha256 !== null
-    ) {
-      throw new AppRowStorageCorruptionError(
-        identity,
-        "tombstone retains value evidence",
-      );
-    }
+): Effect.fn.Return<AppRowRevisionV1, AppRowStorageCorruptionError> {
+  const decoded = yield* Effect.fromResult(
+    decodeRevisionRowEvidenceResult(identity, row),
+  );
+  if (decoded.kind === "tombstone") {
     return Object.freeze({
       kind: "tombstone",
-      ...base,
+      ...decoded.base,
     } satisfies TombstoneAppRowRevisionV1);
   }
-  if (
-    row.valueJson === null ||
-    row.valueBytes === null ||
-    row.valueSha256 === null
-  ) {
-    throw new AppRowStorageCorruptionError(
-      identity,
-      "live revision is missing value evidence",
-    );
-  }
-  try {
-    const document = await verifyAppDocumentEvidenceV1({
+  const document = yield* Effect.tryPromise({
+    try: () => verifyAppDocumentEvidenceV1({
       tableId: identity.tableId,
       rowId: identity.rowId,
-      creationTime: base.creationTime,
-      codecVersion: row.valueCodecVersion,
-      valueJson: row.valueJson,
-      canonicalBytes: row.valueBytes,
-      sha256: row.valueSha256,
-    });
-    return Object.freeze({
-      kind: "live",
-      ...base,
-      document,
-    } satisfies LiveAppRowRevisionV1);
-  } catch (cause) {
-    throw new AppRowStorageCorruptionError(
+      creationTime: decoded.base.creationTime,
+      codecVersion: decoded.row.valueCodecVersion,
+      valueJson: decoded.row.valueJson,
+      canonicalBytes: decoded.row.valueBytes,
+      sha256: decoded.row.valueSha256,
+    }),
+    catch: (cause) => new AppRowStorageCorruptionError(
       identity,
       "live revision value evidence or trusted system fields do not verify",
       { cause },
+    ),
+  });
+  return Object.freeze({
+    kind: "live",
+    ...decoded.base,
+    document,
+  } satisfies LiveAppRowRevisionV1);
+});
+
+function decodeRevisionRowEvidenceResult(
+  identity: AppRowIdentityV1,
+  row: AppRowRevisionRow,
+): Result.Result<
+  DecodedAppRowRevisionEvidenceV1,
+  AppRowStorageCorruptionError
+> {
+  return Result.try({
+    try: () => {
+      const storedRowId = appRowIdHexV1FromBytes(row.rowId);
+      if (storedRowId !== identity.rowId) {
+        throw new AppRowStorageCorruptionError(
+          identity,
+          "row identity changed",
+        );
+      }
+      const base = Object.freeze({
+        ...identity,
+        scopeUuid: decodeScopeUuidV1(row.scopeUuid),
+        writeEpochUuid: decodeScopeEpochUuidV1(row.writeEpochUuid),
+        commitSeq: requirePositiveCommitSeq(row.commitSeq),
+        prevCommitSeq:
+          row.prevCommitSeq === null
+            ? null
+            : requirePositiveCommitSeq(row.prevCommitSeq),
+        schemaVersionId: decodeCatalogSchemaVersionId(row.schemaVersionId),
+        creationTime: decodeAppCreationTimeV1(row.creationTime),
+      } satisfies AppRowRevisionV1Base);
+      if (row.isTombstone) {
+        if (
+          row.valueJson !== null ||
+          row.valueBytes !== null ||
+          row.valueSha256 !== null
+        ) {
+          throw new AppRowStorageCorruptionError(
+            identity,
+            "tombstone retains value evidence",
+          );
+        }
+        return Object.freeze({ kind: "tombstone", base } as const);
+      }
+      if (
+        row.valueJson === null ||
+        row.valueBytes === null ||
+        row.valueSha256 === null
+      ) {
+        throw new AppRowStorageCorruptionError(
+          identity,
+          "live revision is missing value evidence",
+        );
+      }
+      return Object.freeze({ kind: "live", base, row } as const);
+    },
+    catch: (cause) => cause instanceof AppRowStorageCorruptionError
+      ? cause
+      : new AppRowStorageCorruptionError(
+          identity,
+          "stored revision columns do not decode",
+          { cause },
+        ),
+  });
+}
+
+const requireScopeUuidInTransactionEffect = Effect.fn(
+  "AppRows.requireScopeUuidInTransaction",
+)(function* (
+  tx: AppRowTransaction,
+  decodedIdentity: DecodedAppRowReadIdentityV1,
+): Effect.fn.Return<
+  ScopeUuidV1,
+  AppRowScopeAuthorityUnavailableError | AppRowReadPersistenceError
+> {
+  const { identity, projection } = decodedIdentity;
+  const query = selectScopeAuthorityRows(
+    tx,
+    projection,
+  );
+  const rows = yield* readAppRowRowsEffect(query, "readScopeAuthority");
+  const row = rows[0];
+  if (row?.scopeUuid !== projection.scopeUuid) {
+    return yield* Effect.fail(
+      new AppRowScopeAuthorityUnavailableError(identity.scopeId),
     );
   }
-}
+  return decodeScopeUuidV1(row.scopeUuid);
+});
 
 async function requireScopeUuidInTransaction(
   tx: AppRowTransaction,
   scopeId: ScopeId,
 ): Promise<ScopeUuidV1> {
+  // Temporary write-side Promise bridge. The point-commit mutation graph is
+  // its concrete consumer; delete this when that ordered transaction migrates.
   const projection = projectScopeIdUuidV1(scopeId);
-  const rows = await tx
+  const query = selectScopeAuthorityRows(tx, projection);
+  const rows = await query;
+  const row = rows[0];
+  if (row?.scopeUuid !== projection.scopeUuid) {
+    throw new AppRowScopeAuthorityUnavailableError(scopeId);
+  }
+  return decodeScopeUuidV1(row.scopeUuid);
+}
+
+function selectScopeAuthorityRows(
+  tx: AppRowTransaction,
+  projection: ReturnType<typeof projectScopeIdUuidV1>,
+) {
+  const query = tx
     .select({
       scopeId: fxSystemScopeClocks.scopeId,
       scopeUuid: fxSystemScopeClocks.scopeUuid,
@@ -639,11 +856,55 @@ async function requireScopeUuidInTransaction(
     .from(fxSystemScopeClocks)
     .where(eq(fxSystemScopeClocks.scopeId, projection.scopeId))
     .limit(1);
-  const row = rows[0];
-  if (row?.scopeUuid !== projection.scopeUuid) {
-    throw new AppRowScopeAuthorityUnavailableError(scopeId);
-  }
-  return decodeScopeUuidV1(row.scopeUuid);
+  return query;
+}
+
+const readAppRowRowsEffect = Effect.fn(
+  "AppRows.readRows",
+)(<Row>(
+  query: PromiseLike<ReadonlyArray<Row>>,
+  operation: AppRowReadPersistenceError["operation"],
+): Effect.Effect<ReadonlyArray<Row>, AppRowReadPersistenceError> =>
+  Effect.uninterruptible(Effect.tryPromise({
+    try: () => query,
+    catch: (cause) => new AppRowReadPersistenceError(operation, cause),
+  })));
+
+function decodeReadIdentityResult(
+  input: AppRowIdentityV1,
+): Result.Result<DecodedAppRowReadIdentityV1, InvalidAppRowReadInputError> {
+  return Result.gen(function* () {
+    const tableId = yield* decodeReadFieldResult(
+      decodeCatalogTableIdResult(input.tableId),
+      "invalidTableId",
+    );
+    const rowId = yield* decodeReadFieldResult(
+      decodeAppRowIdHexV1Result(input.rowId),
+      "invalidRowId",
+    );
+    const scopeId = yield* decodeReadFieldResult(
+      decodeScopeIdResult(input.scopeId),
+      "invalidScopeId",
+    );
+    const identity = Object.freeze({ scopeId, tableId, rowId });
+    const projection = yield* Result.try({
+      try: () => projectScopeIdUuidV1(scopeId),
+      catch: (cause) => new InvalidAppRowReadInputError({
+        reason: "invalidScopeId",
+        cause,
+      }),
+    });
+    return Object.freeze({ identity, projection });
+  });
+}
+
+function decodeReadFieldResult<Value>(
+  result: Result.Result<Value, unknown>,
+  reason: InvalidAppRowReadInputIssue["reason"],
+): Result.Result<Value, InvalidAppRowReadInputError> {
+  return result.pipe(Result.mapError((cause) =>
+    new InvalidAppRowReadInputError({ reason, cause })
+  ));
 }
 
 function decodeIdentity(input: AppRowIdentityV1): AppRowIdentityV1 {

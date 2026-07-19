@@ -286,6 +286,19 @@ authority remains separate from stored corruption. The former Promise export
 was deleted because no production compatibility consumer exists; focused tests
 own the explicit runtime bridge.
 
+The authoritative app-row snapshot and current-revision read kernel is now
+Effect-native. Caller identity and snapshot values enter through typed
+`Result` and Schema validation; scope authority, query rejection, and stored
+row corruption remain distinct failures. Each Drizzle read is one
+interruption-masked foreign Promise edge, while synchronous query construction
+and unexpected runtime failures remain defects. The session journal yields the
+snapshot read directly and translates its typed failure once, so the three old
+Promise read exports and their broad journal adapter are deleted. App-row
+revision writes remain a named temporary Promise bridge owned by the ordered
+point-commit mutation transaction; that bridge is deleted when the mutation
+graph can own an Effect transaction client without changing rollback or
+statement-order semantics.
+
 ## Target Boundary
 
 The target public persistence capability should expose exact Effect methods:

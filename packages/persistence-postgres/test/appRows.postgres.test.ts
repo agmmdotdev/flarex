@@ -19,9 +19,9 @@ import { describe, expect, it } from "vitest";
 import {
   AppRowRevisionChainConflictError,
   appendAppRowRevisionAndAdvanceCurrentInTransaction,
-  getAppRowAtSnapshotInTransaction,
-  readAppRowAtSnapshotInTransaction,
-  readCurrentAppRowInTransaction,
+  getAppRowAtSnapshotInTransactionEffect,
+  readAppRowAtSnapshotInTransactionEffect,
+  readCurrentAppRowInTransactionEffect,
   type AppRowValueEvidenceV1,
 } from "../src/appRows";
 import type { PostgresFlarexPersistence } from "../src/postgres";
@@ -29,6 +29,7 @@ import {
   postgresUrl,
   withTemporaryPostgresPersistence,
 } from "./postgresHelpers";
+import { runEffect } from "./effectTestRuntime";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
 const scopeId = ScopeIdSchema.make(
@@ -115,7 +116,10 @@ describePostgres("real Postgres FlarexDB app-row storage", () => {
       });
       await expect(
         persistence.drizzle.transaction((tx) =>
-          readCurrentAppRowInTransaction(tx, { scopeId, tableId, rowId }),
+          runEffect(readCurrentAppRowInTransactionEffect(
+            tx,
+            { scopeId, tableId, rowId },
+          )),
         ),
       ).resolves.toMatchObject({ kind: "live", commitSeq: secondCommitSeq });
 
@@ -298,12 +302,12 @@ async function readAt(
   commitSeq: bigint,
 ) {
   return persistence.drizzle.transaction((tx) =>
-    readAppRowAtSnapshotInTransaction(tx, {
+    runEffect(readAppRowAtSnapshotInTransactionEffect(tx, {
       scopeId,
       tableId,
       rowId,
       snapshotCommitSeq: CommitSeqSchema.make(commitSeq),
-    }),
+    })),
   );
 }
 
@@ -313,7 +317,7 @@ async function pointReadAt(
   epoch = firstEpoch,
 ) {
   return persistence.drizzle.transaction((tx) =>
-    getAppRowAtSnapshotInTransaction(tx, {
+    runEffect(getAppRowAtSnapshotInTransactionEffect(tx, {
       snapshotToken: SnapshotTokenSchema.make({
         scopeId,
         epoch,
@@ -321,7 +325,7 @@ async function pointReadAt(
       }),
       tableId,
       rowId,
-    }),
+    })),
   );
 }
 
