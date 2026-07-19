@@ -179,6 +179,16 @@ share the module-location resolver inside the persistence package. Resolve from
 the owning module rather than `process.cwd`, and keep caller-supplied folder
 overrides plus adapter-specific migrator options with each adapter. This Node
 asset-location policy does not belong in `@flarex/utils`.
+Installed Drizzle 0.45 raw `execute` calls return a result wrapper with an
+array-valued `rows` member. Normalize that package-owned driver shape through
+the persistence-local driver-result helper and let each caller retain its
+invalid-result error identity and message. The helper returns the rows array by
+identity, reads the member once, and deliberately does not detach, freeze,
+decode, or validate row members. Property-access exceptions remain foreign
+driver failures rather than invalid-shape failures. Do not retain a direct-array
+compatibility branch without a concrete supported producer. This driver
+representation boundary does not belong in `@flarex/utils` and is not a public
+persistence subpath.
 When several host adapters share a bounded foreign-response-to-JSON sequence,
 centralize the byte-read and fatal decode mechanics with that host owner. Let
 each adapter retain its byte ceiling and size, stream-read, decode, redaction,

@@ -371,6 +371,13 @@ semantics.
   installed consumers do not depend on their current working directory;
   explicit folder overrides and adapter-specific migrator options remain with
   each adapter.
+- Persistence raw-SQL consumers share one package-local adapter for installed
+  Drizzle 0.45's `{ rows: array }` raw `execute` result. Callers retain their
+  exact invalid-result errors, while row detachment and domain decoding remain
+  separate. The adapter returns the rows array by identity, reads it once, and
+  preserves property-access exceptions. A formerly duplicated direct-array
+  branch was removed because no supported producer was identified. This is
+  neither an `@flarex/utils` primitive nor a public persistence subpath.
 - Pure protocol payload, backend storage-state, and executor HTTP request
   normalizers that intentionally retain validation as data use one
   domain-local Effect v4 `Result` decoder. Multi-field HTTP decoders use

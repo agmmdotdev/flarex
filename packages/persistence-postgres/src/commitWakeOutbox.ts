@@ -21,6 +21,7 @@ import {
 } from "flarex-protocol/storage-authority";
 
 import type { FlarexMetadataDatabase } from "./deployments";
+import { rowsFromDriverExecuteResult } from "./driverExecuteResult";
 import {
   fxSystemOutbox,
   type CommitWakeOutboxDeliveryStateV1,
@@ -1041,7 +1042,12 @@ async function executeRows(
   tx: FlarexMetadataDatabase,
   statement: SQL,
 ): Promise<ReadonlyArray<unknown>> {
-  return rowsFromExecuteResult(await tx.execute(statement));
+  return rowsFromDriverExecuteResult(
+    await tx.execute(statement),
+    () => {
+      throw new Error("Commit-wake query returned an invalid driver result.");
+    },
+  );
 }
 
 function materializeClaimSnapshot(
@@ -1567,12 +1573,4 @@ function nullableStringField(
     : typeof value === "string"
       ? value
       : undefined;
-}
-
-function rowsFromExecuteResult(result: unknown): ReadonlyArray<unknown> {
-  if (Array.isArray(result)) return result;
-  if (isNonArrayRecord(result) && Array.isArray(result.rows)) {
-    return result.rows;
-  }
-  throw new Error("Commit-wake query returned an invalid driver result.");
 }

@@ -127,6 +127,7 @@ import {
   validateCommittedPointOutcomeRequestEvidenceShapeV1,
 } from "./committedPointOutcome";
 import { COMMIT_WAKE_OUTBOX_EVENT_KIND_V1 } from "./commitWakeOutbox";
+import { rowsFromDriverExecuteResult } from "./driverExecuteResult";
 import {
   observeDrizzleQuery as observeCompiledDrizzleQuery,
 } from "./drizzleQueryObservation";
@@ -3105,7 +3106,9 @@ async function loadPointCommitHeads(
     "loadRowHeads",
     () => tx.execute(statement),
   );
-  const rows = rowsFromExecuteResult(result);
+  const rows = rowsFromDriverExecuteResult(result, () => {
+    throw corruption("rowHeadInvalid");
+  });
   if (rows.length !== command.dependencies.length) {
     throw corruption("rowHeadInvalid");
   }
@@ -3681,14 +3684,6 @@ async function sqlCall<Value>(
     }
     throw new PointCommitSqlFailureMarkerV1(operation, cause);
   }
-}
-
-function rowsFromExecuteResult(result: unknown): ReadonlyArray<unknown> {
-  if (Array.isArray(result)) return result;
-  if (isNonArrayRecord(result) && Array.isArray(result.rows)) {
-    return result.rows;
-  }
-  throw corruption("rowHeadInvalid");
 }
 
 function parseNonNegativeIntegerText(value: unknown): number {

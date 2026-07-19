@@ -17,6 +17,7 @@ import {
   detachDriverRows,
   detachUnknownDriverRows,
 } from "../detachDriverRows";
+import { rowsFromDriverExecuteResult } from "../driverExecuteResult";
 import { observeDrizzleQuery } from "../drizzleQueryObservation";
 import {
   resolveLocatedTrustedScopeAuthorityEffect,
@@ -461,7 +462,16 @@ async function captureRows(
     schemaSizeRows: detachDriverRows(schemaSizeRows),
     sessionPayloadRows: detachSessionPayloadRows(sessionPayloadRows),
     schemaPayloadRows: detachSchemaPayloadRows(schemaPayloadRows),
-    bindingRows: detachUnknownDriverRows(rowsFromExecuteResult(bindingResult)),
+    bindingRows: detachUnknownDriverRows(
+      rowsFromDriverExecuteResult(
+        bindingResult,
+        () => {
+          throw new Error(
+            "Stable-binding query returned an invalid driver result.",
+          );
+        },
+      ),
+    ),
   });
 }
 
@@ -691,19 +701,6 @@ function emptyCapture(
     schemaPayloadRows: Object.freeze([]),
     bindingRows: Object.freeze([]),
   });
-}
-
-function rowsFromExecuteResult(result: unknown): ReadonlyArray<unknown> {
-  if (Array.isArray(result)) return result;
-  if (
-    typeof result === "object" &&
-    result !== null &&
-    "rows" in result &&
-    Array.isArray(result.rows)
-  ) {
-    return result.rows;
-  }
-  throw new Error("Stable-binding query returned an invalid driver result.");
 }
 
 function detachSessionPayloadRows(
