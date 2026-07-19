@@ -123,6 +123,10 @@ export class SchemaVersionArtifactPreparationError extends Error {
   }
 }
 
+export type PrepareSchemaVersionArtifactError =
+  | InvalidSchemaVersionArtifactInputError
+  | SchemaVersionArtifactPreparationError;
+
 export class SchemaVersionArtifactDeploymentNotFoundError extends Error {
   readonly _tag = "SchemaVersionArtifactDeploymentNotFoundError" as const;
 
@@ -247,11 +251,14 @@ const preparedSchemaVersionArtifactStates = new WeakMap<
  *
  * The returned token is opaque and repository-owned. It exposes no canonical
  * bytes or checksum for callers to replace between preparation and commit.
+ * This Promise form remains for table-only artifact compatibility and existing
+ * package-internal Promise consumers; full app-schema preparation consumes the
+ * Effect operation below.
  */
 export async function prepareSchemaVersionArtifact(
   input: EnsureSchemaVersionArtifactInput,
 ): Promise<PreparedSchemaVersionArtifact> {
-  const validated = validateEnsureInput(input);
+  const validated = Result.getOrThrow(validateEnsureInputResult(input));
   let canonical: CanonicalSchemaManifestV1;
   try {
     canonical = await canonicalizeSchemaManifestV1(validated.manifest);
@@ -260,6 +267,32 @@ export async function prepareSchemaVersionArtifact(
       cause,
     });
   }
+  return makePreparedSchemaVersionArtifact(validated, canonical);
+}
+
+export const prepareSchemaVersionArtifactEffect = Effect.fn(
+  "SchemaVersionArtifacts.prepare",
+)(function* (
+  input: EnsureSchemaVersionArtifactInput,
+): Effect.fn.Return<
+  PreparedSchemaVersionArtifact,
+  PrepareSchemaVersionArtifactError
+> {
+  const validated = yield* Effect.fromResult(validateEnsureInputResult(input));
+  const canonical = yield* Effect.tryPromise({
+    try: () => canonicalizeSchemaManifestV1(validated.manifest),
+    catch: (cause) => new SchemaVersionArtifactPreparationError(
+      validated.deploymentId,
+      { cause },
+    ),
+  });
+  return makePreparedSchemaVersionArtifact(validated, canonical);
+});
+
+function makePreparedSchemaVersionArtifact(
+  validated: ValidatedSchemaVersionArtifactInput,
+  canonical: CanonicalSchemaManifestV1,
+): PreparedSchemaVersionArtifact {
   const preparedValue = {
     deploymentId: validated.deploymentId,
     schemaVersionId: validated.schemaVersionId,
@@ -475,21 +508,42 @@ const insertSchemaVersionArtifactEffect = Effect.fn(
   } satisfies EnsureSchemaVersionArtifactResult;
 });
 
-function validateEnsureInput(
+function validateEnsureInputResult(
   input: EnsureSchemaVersionArtifactInput,
-): ValidatedSchemaVersionArtifactInput {
+): Result.Result<
+  ValidatedSchemaVersionArtifactInput,
+  InvalidSchemaVersionArtifactInputError
+> {
   for (const field of forbiddenInputFields) {
     if (Object.hasOwn(input, field)) {
-      throw new InvalidSchemaVersionArtifactInputError(field);
+      return Result.fail(new InvalidSchemaVersionArtifactInputError(field));
     }
   }
-  validateDeploymentId(input.deploymentId);
-  return {
-    deploymentId: input.deploymentId,
-    schemaVersionId: decodeInputSchemaVersionId(input.schemaVersionId),
-    version: decodeInputSchemaVersion(input.version),
-    manifest: decodeInputManifest(input.manifest),
-  } satisfies ValidatedSchemaVersionArtifactInput;
+  if (!isNonBlankString(input.deploymentId)) {
+    return Result.fail(
+      new InvalidSchemaVersionArtifactInputError("deploymentId"),
+    );
+  }
+  return Result.gen(function* () {
+    const schemaVersionId = yield* decodeInputResult(
+      "schemaVersionId",
+      () => decodeCatalogSchemaVersionId(input.schemaVersionId),
+    );
+    const version = yield* decodeInputResult(
+      "version",
+      () => decodeCatalogSchemaVersion(input.version),
+    );
+    const manifest = yield* decodeInputResult(
+      "manifest",
+      () => decodeSchemaManifestJson(input.manifest),
+    );
+    return {
+      deploymentId: input.deploymentId,
+      schemaVersionId,
+      version,
+      manifest,
+    } satisfies ValidatedSchemaVersionArtifactInput;
+  });
 }
 
 function validateDeploymentId(deploymentId: string): void {
@@ -499,29 +553,30 @@ function validateDeploymentId(deploymentId: string): void {
 }
 
 function decodeInputSchemaVersionId(value: unknown): CatalogSchemaVersionId {
-  try {
-    return decodeCatalogSchemaVersionId(value);
-  } catch (cause) {
-    throw new InvalidSchemaVersionArtifactInputError("schemaVersionId", {
-      cause,
-    });
-  }
+  return Result.getOrThrow(decodeInputResult(
+    "schemaVersionId",
+    () => decodeCatalogSchemaVersionId(value),
+  ));
 }
 
 function decodeInputSchemaVersion(value: unknown): CatalogSchemaVersion {
-  try {
-    return decodeCatalogSchemaVersion(value);
-  } catch (cause) {
-    throw new InvalidSchemaVersionArtifactInputError("version", { cause });
-  }
+  return Result.getOrThrow(decodeInputResult(
+    "version",
+    () => decodeCatalogSchemaVersion(value),
+  ));
 }
 
-function decodeInputManifest(manifest: unknown): SchemaManifestJson {
-  try {
-    return decodeSchemaManifestJson(manifest);
-  } catch (cause) {
-    throw new InvalidSchemaVersionArtifactInputError("manifest", { cause });
-  }
+function decodeInputResult<Value>(
+  field: "schemaVersionId" | "version" | "manifest",
+  decode: () => Value,
+): Result.Result<Value, InvalidSchemaVersionArtifactInputError> {
+  return Result.try({
+    try: decode,
+    catch: (cause) => new InvalidSchemaVersionArtifactInputError(
+      field,
+      { cause },
+    ),
+  });
 }
 
 /** Package-internal raw row acquisition; callers own stored-row decoding. */

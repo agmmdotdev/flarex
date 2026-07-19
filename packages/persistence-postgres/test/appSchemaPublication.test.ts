@@ -7,12 +7,12 @@ import {
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
-import { Cause } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import { Cause, Effect } from "effect";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   getPreparedAppSchemaPublicationV1State,
-  prepareAppSchemaPublicationV1,
+  prepareAppSchemaPublicationV1Effect,
 } from "../src/appSchemaPublicationPreparation";
 import {
   AppSchemaPublicationV1QuotaExceededError,
@@ -26,10 +26,12 @@ import {
 import {
   AppSchemaPublicationV1RetryExhaustedError,
   AppSchemaPublicationV1TransactionError,
-  publishAppSchemaV1WithRepository,
+  publishAppSchemaV1WithRepositoryEffect,
   MAX_APP_SCHEMA_PUBLICATION_V1_ATTEMPTS,
-  runAppSchemaPublicationV1Attempts,
+  runAppSchemaPublicationV1AttemptsEffect,
   type AppSchemaPublicationV1Repository,
+  type PublishAppSchemaV1Error,
+  type PublishAppSchemaV1Result,
 } from "../src/appSchemaPublication";
 import { createPGlitePersistence } from "../src/pglite";
 import { SchemaManifestAppSchemaBindingPlanStaleError } from "../src/schemaManifestAppSchemaBindings";
@@ -37,7 +39,24 @@ import { ensureStableTableIdentityEffect } from "../src/stableTableCatalog";
 import type { StableTableCatalogTransaction } from "../src/stableTableCatalog";
 import { runEffect } from "./effectTestRuntime";
 
+const prepareAppSchemaPublicationV1 = (
+  ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
+) => runEffect(prepareAppSchemaPublicationV1Effect(...args));
+
+const publishAppSchemaV1WithRepository = (
+  ...args: Parameters<typeof publishAppSchemaV1WithRepositoryEffect>
+) => runEffect(publishAppSchemaV1WithRepositoryEffect(...args));
+
 describe("app-schema V1 publication facade", () => {
+  it("keeps the coordinator Effect-native behind the runtime facade", () => {
+    expectTypeOf<
+      ReturnType<typeof publishAppSchemaV1WithRepositoryEffect>
+    >().toEqualTypeOf<Effect.Effect<
+      PublishAppSchemaV1Result,
+      PublishAppSchemaV1Error
+    >>();
+  });
+
   it("publishes and exactly replays the complete projection", async () => {
     const persistence = await migratedPersistence();
     const deploymentId = "deployment_schema_publication_v1_facade_replay";
@@ -171,16 +190,18 @@ describe("app-schema V1 publication facade", () => {
     );
     let attempts = 0;
 
-    const exhausted = await runAppSchemaPublicationV1Attempts(
-      "deployment_schema_publication_v1_exhausted",
-      async () => {
+    const exhausted = await runEffect(
+      runAppSchemaPublicationV1AttemptsEffect(
+        "deployment_schema_publication_v1_exhausted",
+        () => {
         const stale = staleErrors[attempts];
         attempts += 1;
         if (stale === undefined) {
-          throw new Error("Expected a typed stale fixture.");
+          return Effect.die(new Error("Expected a typed stale fixture."));
         }
-        throw stale;
-      },
+        return Effect.fail(stale);
+        },
+      ),
     ).catch((error: unknown) => error);
 
     expect(attempts).toBe(MAX_APP_SCHEMA_PUBLICATION_V1_ATTEMPTS);
@@ -196,12 +217,14 @@ describe("app-schema V1 publication facade", () => {
 
     const terminal = new Error("terminal publication failure");
     let terminalAttempts = 0;
-    const rejected = await runAppSchemaPublicationV1Attempts(
-      "deployment_schema_publication_v1_terminal",
-      async () => {
-        terminalAttempts += 1;
-        throw terminal;
-      },
+    const rejected = await runEffect(
+      runAppSchemaPublicationV1AttemptsEffect(
+        "deployment_schema_publication_v1_terminal",
+        () => {
+          terminalAttempts += 1;
+          return Effect.fail(terminal);
+        },
+      ),
     ).catch((error: unknown) => error);
     expect(terminalAttempts).toBe(1);
     expect(rejected).toBe(terminal);

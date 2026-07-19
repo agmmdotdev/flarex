@@ -55,7 +55,7 @@ import {
 import { createPGlitePersistence } from "../src/pglite";
 import {
   applySchemaManifestAppSchemaBindingsV1InTransactionEffect,
-  prepareSchemaManifestAppSchemaBindingsV1,
+  prepareSchemaManifestAppSchemaBindingsV1Effect,
 } from "../src/schemaManifestAppSchemaBindings";
 import {
   fxControlIndexDefinitions,
@@ -66,6 +66,10 @@ import {
 } from "../src/schemaVersionArtifacts";
 import type { StableTableCatalogTransaction } from "../src/stableTableCatalog";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
+
+const prepareSchemaManifestAppSchemaBindingsV1 = (
+  ...args: Parameters<typeof prepareSchemaManifestAppSchemaBindingsV1Effect>
+) => runEffect(prepareSchemaManifestAppSchemaBindingsV1Effect(...args));
 
 type PublicMutationMethod = Extract<
   keyof FlarexPersistence,

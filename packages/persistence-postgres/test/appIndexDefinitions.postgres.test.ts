@@ -16,7 +16,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
-  prepareAppSchemaPublicationV1,
+  prepareAppSchemaPublicationV1Effect,
 } from "../src/appSchemaPublicationPreparation";
 import {
   AppSchemaVersionIndexBindingConflictError,
@@ -31,7 +31,7 @@ import type { PostgresFlarexPersistence } from "../src/postgres";
 import { runEffect } from "./effectTestRuntime";
 import {
   applySchemaManifestAppSchemaBindingsV1InTransactionEffect,
-  prepareSchemaManifestAppSchemaBindingsV1,
+  prepareSchemaManifestAppSchemaBindingsV1Effect,
 } from "../src/schemaManifestAppSchemaBindings";
 import {
   ensureSchemaVersionArtifactInTransaction,
@@ -46,6 +46,14 @@ import {
 } from "./postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+
+const prepareAppSchemaPublicationV1 = (
+  ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
+) => runEffect(prepareAppSchemaPublicationV1Effect(...args));
+
+const prepareSchemaManifestAppSchemaBindingsV1 = (
+  ...args: Parameters<typeof prepareSchemaManifestAppSchemaBindingsV1Effect>
+) => runEffect(prepareSchemaManifestAppSchemaBindingsV1Effect(...args));
 
 describePostgres("real Postgres immutable app index definitions", () => {
   it("converges concurrent exact definition and binding replay", async () => {

@@ -72,9 +72,9 @@ export const readStableTableCatalogHighWaterEffect = Effect.fn(
 });
 
 /**
- * Temporary Promise projection for the schema-binding planners that still
- * prepare and revalidate through Promise transaction callbacks. Delete it
- * when those planner chains consume the Effect operation directly.
+ * Temporary Promise projection for table-only `appTableDefinitionsArtifacts`
+ * preparation and revalidation. Delete it when that compatibility path
+ * consumes the Effect operation directly.
  */
 export async function readStableTableCatalogHighWater(
   db: FlarexMetadataDatabase,
@@ -97,19 +97,6 @@ function selectStableTableCatalogHighWater(
     .where(eq(fxControlTables.deploymentId, deploymentId))
     .orderBy(desc(fxControlTables.tableId))
     .limit(1);
-}
-
-/**
- * Temporary throwing projection for the Promise schema-binding planner.
- * Delete it when that planner owns a Result or Effect failure channel.
- */
-export function nextStableTableCatalogId(
-  deploymentId: string,
-  currentHighWater: CatalogTableId | null,
-): CatalogTableId {
-  return Result.getOrThrow(
-    nextStableTableCatalogIdResult(deploymentId, currentHighWater),
-  );
 }
 
 export function nextStableTableCatalogIdResult(

@@ -17,7 +17,7 @@ import type {
 } from "../src";
 import {
   getPreparedAppSchemaPublicationV1State,
-  prepareAppSchemaPublicationV1,
+  prepareAppSchemaPublicationV1Effect,
   type PreparedAppSchemaPublicationV1,
 } from "../src/appSchemaPublicationPreparation";
 import {
@@ -41,6 +41,10 @@ import {
 } from "./postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+
+const prepareAppSchemaPublicationV1 = (
+  ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
+) => runEffect(prepareAppSchemaPublicationV1Effect(...args));
 
 describePostgres("real Postgres app-schema V1 publication", () => {
   it("converges concurrent identical app-schema publications", async () => {

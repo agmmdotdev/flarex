@@ -2,8 +2,9 @@ import { Cause, Data, Effect, Exit } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import {
-  prepareAppSchemaPublicationV1FromSource,
-  snapshotAppSchemaPublicationV1Input,
+  prepareAppSchemaPublicationV1FromSourceEffect,
+  snapshotAppSchemaPublicationV1InputResult,
+  type PrepareAppSchemaPublicationV1Error,
   type PrepareAppSchemaPublicationV1Input,
   type PreparedAppSchemaPublicationV1,
 } from "./appSchemaPublicationPreparation";
@@ -32,6 +33,8 @@ export type AppSchemaPublicationV1Stale =
   SchemaManifestAppSchemaBindingPlanStale;
 
 export class AppSchemaPublicationV1RetryExhaustedError extends Error {
+  readonly _tag = "AppSchemaPublicationV1RetryExhaustedError" as const;
+
   constructor(
     readonly deploymentId: string,
     readonly attempts: number,
@@ -61,6 +64,12 @@ export interface AppSchemaPublicationV1Repository {
   ): Promise<Result>;
 }
 
+export type PublishAppSchemaV1Error =
+  | PrepareAppSchemaPublicationV1Error
+  | PublishPreparedAppSchemaV1InTransactionError
+  | AppSchemaPublicationV1TransactionError
+  | AppSchemaPublicationV1RetryExhaustedError;
+
 /**
  * Publish or replay one full app-schema envelope through a bounded coordinator.
  *
@@ -68,40 +77,34 @@ export interface AppSchemaPublicationV1Repository {
  * retry then rebuilds all database-dependent bindings, compiled requirements,
  * canonical bytes, and hashes before opening a new write transaction.
  */
-export async function publishAppSchemaV1WithRepository(
+export const publishAppSchemaV1WithRepositoryEffect = Effect.fn(
+  "AppSchemaPublication.publishWithRepository",
+)(function* (
   repository: AppSchemaPublicationV1Repository,
   input: PublishAppSchemaV1Input,
-): Promise<PublishAppSchemaV1Result> {
-  const source = snapshotAppSchemaPublicationV1Input(input);
-  return runAppSchemaPublicationV1Attempts(
-    source.deploymentId,
-    async () => {
-      const publication =
-        await prepareAppSchemaPublicationV1FromSource(
-          repository.db,
-          source,
-        );
-      return runPreparedAppSchemaPublicationTransaction(
-        repository,
-        publication,
-      );
-    },
+): Effect.fn.Return<PublishAppSchemaV1Result, PublishAppSchemaV1Error> {
+  const source = yield* Effect.fromResult(
+    snapshotAppSchemaPublicationV1InputResult(input),
   );
-}
-
-// D2d remains a Promise compatibility API. Delete this public runtime bridge
-// when its coordinator and repository contract become Effect-native.
-function runPreparedAppSchemaPublicationTransaction(
-  repository: AppSchemaPublicationV1Repository,
-  publication: PreparedAppSchemaPublicationV1,
-): Promise<AppSchemaPublicationV1Result> {
-  return Effect.runPromise(
-    runPreparedAppSchemaPublicationTransactionEffect(
-      repository,
-      publication,
+  return yield* runAppSchemaPublicationV1AttemptsEffect(
+    source.deploymentId,
+    () => prepareAppSchemaPublicationV1FromSourceEffect(
+      repository.db,
+      source,
+    ).pipe(
+      Effect.catchTag(
+        "InvalidAppSchemaPublicationV1SourceError",
+        Effect.die,
+      ),
+      Effect.flatMap((publication) =>
+        runPreparedAppSchemaPublicationTransactionEffect(
+          repository,
+          publication,
+        )
+      ),
     ),
   );
-}
+});
 
 function runPreparedAppSchemaPublicationTransactionEffect(
   repository: AppSchemaPublicationV1Repository,
@@ -150,33 +153,34 @@ function runPreparedAppSchemaPublicationTransactionEffect(
 }
 
 /** Package-internal deterministic retry seam for focused failure tests. */
-export async function runAppSchemaPublicationV1Attempts<Result>(
+export const runAppSchemaPublicationV1AttemptsEffect = Effect.fn(
+  "AppSchemaPublication.runAttempts",
+)(<Result, Failure>(
   deploymentId: string,
-  runFreshAttempt: () => Promise<Result>,
-): Promise<Result> {
-  for (
-    let attempt = 1;
-    attempt <= MAX_APP_SCHEMA_PUBLICATION_V1_ATTEMPTS;
-    attempt += 1
-  ) {
-    try {
-      return await runFreshAttempt();
-    } catch (error) {
+  runFreshAttempt: () => Effect.Effect<
+    Result,
+    Failure | SchemaManifestAppSchemaBindingPlanStaleError
+  >,
+): Effect.Effect<Result, Failure | AppSchemaPublicationV1RetryExhaustedError> => {
+  const runAttempt = (
+    attempt: number,
+  ): Effect.Effect<
+    Result,
+    Failure | AppSchemaPublicationV1RetryExhaustedError
+  > => Effect.suspend(runFreshAttempt).pipe(
+    Effect.catch((error) => {
       if (!(error instanceof SchemaManifestAppSchemaBindingPlanStaleError)) {
-        throw error;
+        return Effect.fail(error);
       }
-      if (attempt === MAX_APP_SCHEMA_PUBLICATION_V1_ATTEMPTS) {
-        throw new AppSchemaPublicationV1RetryExhaustedError(
+      return attempt === MAX_APP_SCHEMA_PUBLICATION_V1_ATTEMPTS
+        ? Effect.fail(new AppSchemaPublicationV1RetryExhaustedError(
           deploymentId,
           attempt,
           error.stale,
           { cause: error },
-        );
-      }
-    }
-  }
-
-  throw new Error(
-    "App-schema V1 publication retry loop exited unexpectedly.",
+        ))
+        : runAttempt(attempt + 1);
+    }),
   );
-}
+  return runAttempt(1);
+});

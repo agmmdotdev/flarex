@@ -6,7 +6,7 @@ import {
   type SchemaManifestJson,
 } from "flarex-protocol/schema-manifest";
 import { Cause, Effect, Exit, Fiber } from "effect";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import type {
   EnsureSchemaVersionArtifactInput,
@@ -23,9 +23,13 @@ import {
   InvalidPreparedSchemaVersionArtifactError,
   InvalidSchemaVersionArtifactInputError,
   prepareSchemaVersionArtifact,
+  prepareSchemaVersionArtifactEffect,
+  type PrepareSchemaVersionArtifactError,
+  type PreparedSchemaVersionArtifact,
   SchemaVersionArtifactCorruptionError,
   SchemaVersionArtifactDeploymentNotFoundError,
   SchemaVersionArtifactPersistenceError,
+  SchemaVersionArtifactPreparationError,
   type SchemaVersionArtifactTransaction,
 } from "../src/schemaVersionArtifacts";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
@@ -78,6 +82,12 @@ describe("schema version artifacts", () => {
       .toEqualTypeOf<CatalogSchemaVersionId>();
     expectTypeOf<SchemaVersionArtifact["version"]>()
       .toEqualTypeOf<CatalogSchemaVersion>();
+    expectTypeOf<
+      ReturnType<typeof prepareSchemaVersionArtifactEffect>
+    >().toEqualTypeOf<Effect.Effect<
+      PreparedSchemaVersionArtifact,
+      PrepareSchemaVersionArtifactError
+    >>();
   });
 
   it("persists one canonical artifact and replays reordered JSON exactly", async () => {
@@ -277,6 +287,31 @@ describe("schema version artifacts", () => {
     expect(forgedFailure).toMatchObject({
       _tag: "InvalidPreparedSchemaVersionArtifactError",
     });
+  });
+
+  it("maps Web Crypto rejection at the preparation boundary", async () => {
+    const rejection = new Error("schema artifact digest rejected");
+    const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(
+      rejection,
+    );
+    try {
+      const failure = await runEffectFailure(
+        prepareSchemaVersionArtifactEffect({
+          deploymentId: "deployment_schema_prepare_failure",
+          schemaVersionId: schemaVersionA,
+          version: version1,
+          manifest: manifestA,
+        }),
+      );
+      expect(failure).toBeInstanceOf(SchemaVersionArtifactPreparationError);
+      expect(failure).toMatchObject({
+        _tag: "SchemaVersionArtifactPreparationError",
+        deploymentId: "deployment_schema_prepare_failure",
+        cause: rejection,
+      });
+    } finally {
+      digest.mockRestore();
+    }
   });
 
   it("maps SQL rejection at the owning artifact query boundary", async () => {

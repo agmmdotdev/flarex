@@ -72,6 +72,8 @@ export type AppSchemaPublicationV1ProjectionIssue =
     };
 
 export class AppSchemaPublicationV1ProjectionError extends Error {
+  readonly _tag = "AppSchemaPublicationV1ProjectionError" as const;
+
   constructor(
     readonly deploymentId: string,
     readonly schemaVersionId: CatalogSchemaVersionId,

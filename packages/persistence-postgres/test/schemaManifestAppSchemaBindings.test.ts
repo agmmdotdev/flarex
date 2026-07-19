@@ -25,7 +25,7 @@ import {
   decodeSchemaManifestAppIndexBindingRowsResult,
   InvalidPreparedSchemaManifestAppSchemaBindingsError,
   InvalidSchemaManifestAppSchemaBindingInputError,
-  prepareSchemaManifestAppSchemaBindingsV1,
+  prepareSchemaManifestAppSchemaBindingsV1Effect,
   SchemaManifestAppSchemaBindingPersistenceError,
   type SchemaManifestAppIndexBindingRow,
   type PreparedSchemaManifestAppSchemaBindingsV1,
@@ -43,10 +43,15 @@ import {
 } from "../src/stableTableCatalog";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
+const prepareSchemaManifestAppSchemaBindingsV1 = (
+  ...args: Parameters<typeof prepareSchemaManifestAppSchemaBindingsV1Effect>
+) => runEffect(prepareSchemaManifestAppSchemaBindingsV1Effect(...args));
+
 type PublicMutationMethod = Extract<
   keyof FlarexPersistence,
   | "ensureStableLogicalIndexIdentityInTransaction"
   | "prepareSchemaManifestAppSchemaBindingsV1"
+  | "prepareSchemaManifestAppSchemaBindingsV1Effect"
   | "applySchemaManifestAppSchemaBindingsV1InTransaction"
   | "applySchemaManifestAppSchemaBindingsV1InTransactionEffect"
 >;
@@ -55,9 +60,11 @@ type PublicMutationExport = Extract<
   keyof typeof import("../src"),
   | "ensureStableLogicalIndexIdentityInTransaction"
   | "prepareSchemaManifestAppSchemaBindingsV1"
+  | "prepareSchemaManifestAppSchemaBindingsV1Effect"
   | "applySchemaManifestAppSchemaBindingsV1InTransaction"
   | "applySchemaManifestAppSchemaBindingsV1InTransactionEffect"
   | "nextStableLogicalIndexCatalogId"
+  | "nextStableLogicalIndexCatalogIdResult"
 >;
 
 describe("schema manifest app-schema bindings", () => {

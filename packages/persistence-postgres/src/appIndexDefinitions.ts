@@ -230,6 +230,8 @@ export type AppCreationTimeIndexDefinitionRequirementIssue =
     };
 
 export class AppCreationTimeIndexDefinitionRequirementError extends Error {
+  readonly _tag = "AppCreationTimeIndexDefinitionRequirementError" as const;
+
   constructor(
     readonly deploymentId: string,
     readonly issue: AppCreationTimeIndexDefinitionRequirementIssue,
@@ -270,6 +272,8 @@ export type AppDeveloperIndexDefinitionRequirementIssue =
     };
 
 export class AppDeveloperIndexDefinitionRequirementError extends Error {
+  readonly _tag = "AppDeveloperIndexDefinitionRequirementError" as const;
+
   constructor(
     readonly deploymentId: string,
     readonly issue: AppDeveloperIndexDefinitionRequirementIssue,

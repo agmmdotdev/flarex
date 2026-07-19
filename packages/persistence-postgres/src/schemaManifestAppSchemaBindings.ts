@@ -24,19 +24,20 @@ import {
   getPreparedSchemaManifestAppTableBindingsState,
   insertPlannedSchemaManifestAppTableBindingsEffect,
   lockSchemaManifestBindingDeploymentEffect,
-  prepareSchemaManifestAppTableBindingsV1,
+  prepareSchemaManifestAppTableBindingsV1Effect,
   readSchemaManifestAppTableBindingsEffect,
   type PlannedAppTableBinding,
+  type PrepareSchemaManifestAppTableBindingsV1Error,
   type PreparedSchemaManifestAppTableBindingsState,
   type SchemaManifestTableBindingCorruptionError,
   type SchemaManifestTableBindingPersistenceError,
 } from "./schemaManifestTableBindings";
 import { fxControlIndexes } from "./schema";
 import {
-  nextStableLogicalIndexCatalogId,
-  readStableLogicalIndexCatalogHighWater,
+  nextStableLogicalIndexCatalogIdResult,
   readStableLogicalIndexCatalogHighWaterEffect,
   type StableLogicalIndexCatalogAllocationPersistenceError,
+  StableLogicalIndexCatalogIdExhaustedError,
   StableLogicalIndexCatalogCorruptionError,
 } from "./stableLogicalIndexCatalogAllocation";
 import {
@@ -82,6 +83,9 @@ export type InvalidSchemaManifestAppSchemaBindingInputIssue =
     };
 
 export class InvalidSchemaManifestAppSchemaBindingInputError extends Error {
+  readonly _tag =
+    "InvalidSchemaManifestAppSchemaBindingInputError" as const;
+
   constructor(
     readonly issue: InvalidSchemaManifestAppSchemaBindingInputIssue,
     options?: ErrorOptions,
@@ -179,6 +183,14 @@ export type ApplySchemaManifestAppSchemaBindingsV1Error =
   | StableLogicalIndexCatalogAllocationPersistenceError
   | StableLogicalIndexCatalogCorruptionError;
 
+export type PrepareSchemaManifestAppSchemaBindingsV1Error =
+  | InvalidSchemaManifestAppSchemaBindingInputError
+  | PrepareSchemaManifestAppTableBindingsV1Error
+  | SchemaManifestAppSchemaBindingPersistenceError
+  | StableLogicalIndexCatalogAllocationPersistenceError
+  | StableLogicalIndexCatalogIdExhaustedError
+  | StableLogicalIndexCatalogCorruptionError;
+
 interface ResolvedAppIndexDeclaration {
   readonly tableId: CatalogTableId;
   readonly descriptor: SchemaManifestAppIndexDescriptor;
@@ -222,36 +234,49 @@ function getPreparedSchemaManifestAppSchemaBindingsStateResult(
  * consumable table/index reservations. Physical definitions and build state are
  * deliberately outside this logical catalog checkpoint.
  */
-export async function prepareSchemaManifestAppSchemaBindingsV1(
+export const prepareSchemaManifestAppSchemaBindingsV1Effect = Effect.fn(
+  "SchemaManifestAppSchemaBindings.prepare",
+)(function* (
   db: FlarexMetadataDatabase,
   input: PrepareSchemaManifestAppSchemaBindingsV1Input,
-): Promise<PreparedSchemaManifestAppSchemaBindingsV1> {
-  const deploymentId = validateDeploymentId(input.deploymentId);
-  const tables = decodeTables(input.tables);
-  const indexes = decodeIndexes(input.indexes);
-  validateIndexTableReferences(tables, indexes);
+): Effect.fn.Return<
+  PreparedSchemaManifestAppSchemaBindingsV1,
+  PrepareSchemaManifestAppSchemaBindingsV1Error
+> {
+  const deploymentId = yield* Effect.fromResult(
+    validateDeploymentIdResult(input.deploymentId),
+  );
+  const tables = yield* Effect.fromResult(decodeTablesResult(input.tables));
+  const indexes = yield* Effect.fromResult(
+    decodeIndexesResult(input.indexes),
+  );
+  yield* Effect.fromResult(validateIndexTableReferencesResult(tables, indexes));
 
-  const tablePlan = await prepareSchemaManifestAppTableBindingsV1(db, {
+  const tablePlan = yield* prepareSchemaManifestAppTableBindingsV1Effect(db, {
     deploymentId,
     tables,
   });
   const tableState = getPreparedSchemaManifestAppTableBindingsState(tablePlan);
   const resolvedIndexes = resolveAndSortIndexes(tableState, indexes);
-  const observedBindings = await readAppIndexBindings(
+  const observedBindings = yield* readAppIndexBindingsEffect(
     db,
     deploymentId,
     resolvedIndexes,
   );
-  const observedIndexHighWater =
-    await readStableLogicalIndexCatalogHighWater(db, deploymentId);
-  const plannedIndexes = planIndexBindings(
-    deploymentId,
-    resolvedIndexes,
-    observedBindings,
-    observedIndexHighWater,
+  const observedIndexHighWater = yield*
+    readStableLogicalIndexCatalogHighWaterEffect(db, deploymentId);
+  const plannedIndexes = yield* Effect.fromResult(
+    planIndexBindingsResult(
+      deploymentId,
+      resolvedIndexes,
+      observedBindings,
+      observedIndexHighWater,
+    ),
   );
   const manifest = snapshotSchemaManifestValue(
-    assembleManifest(deploymentId, tableState, plannedIndexes),
+    yield* Effect.fromResult(
+      assembleManifestResult(deploymentId, tableState, plannedIndexes),
+    ),
   );
   const prepared = Object.freeze({
     deploymentId,
@@ -266,7 +291,7 @@ export async function prepareSchemaManifestAppSchemaBindingsV1(
     manifest,
   });
   return prepared;
-}
+});
 
 /**
  * Revalidate and apply one combined plan inside a caller-owned transaction.
@@ -372,55 +397,61 @@ Effect.fn(
   return state.manifest;
 });
 
-function validateDeploymentId(deploymentId: string): string {
-  if (!isNonBlankString(deploymentId)) {
-    throw new InvalidSchemaManifestAppSchemaBindingInputError({
+function validateDeploymentIdResult(
+  deploymentId: string,
+): Result.Result<string, InvalidSchemaManifestAppSchemaBindingInputError> {
+  return isNonBlankString(deploymentId)
+    ? Result.succeed(deploymentId)
+    : Result.fail(new InvalidSchemaManifestAppSchemaBindingInputError({
       reason: "invalidDeploymentId",
-    });
-  }
-  return deploymentId;
+    }));
 }
 
-function decodeTables(
+function decodeTablesResult(
   value: unknown,
-): ReadonlyArray<SchemaManifestAppTableDeclarationV1> {
-  try {
-    return decodeSchemaManifestAppTableDeclarationsV1(value);
-  } catch (cause) {
-    throw new InvalidSchemaManifestAppSchemaBindingInputError(
+): Result.Result<
+  ReadonlyArray<SchemaManifestAppTableDeclarationV1>,
+  InvalidSchemaManifestAppSchemaBindingInputError
+> {
+  return Result.try({
+    try: () => decodeSchemaManifestAppTableDeclarationsV1(value),
+    catch: (cause) => new InvalidSchemaManifestAppSchemaBindingInputError(
       { reason: "invalidTables" },
       { cause },
-    );
-  }
+    ),
+  });
 }
 
-function decodeIndexes(
+function decodeIndexesResult(
   value: unknown,
-): ReadonlyArray<SchemaManifestAppIndexDeclarationV1> {
-  try {
-    return decodeSchemaManifestAppIndexDeclarationsV1(value);
-  } catch (cause) {
-    throw new InvalidSchemaManifestAppSchemaBindingInputError(
+): Result.Result<
+  ReadonlyArray<SchemaManifestAppIndexDeclarationV1>,
+  InvalidSchemaManifestAppSchemaBindingInputError
+> {
+  return Result.try({
+    try: () => decodeSchemaManifestAppIndexDeclarationsV1(value),
+    catch: (cause) => new InvalidSchemaManifestAppSchemaBindingInputError(
       { reason: "invalidIndexes" },
       { cause },
-    );
-  }
+    ),
+  });
 }
 
-function validateIndexTableReferences(
+function validateIndexTableReferencesResult(
   tables: ReadonlyArray<SchemaManifestAppTableDeclarationV1>,
   indexes: ReadonlyArray<SchemaManifestAppIndexDeclarationV1>,
-): void {
+): Result.Result<void, InvalidSchemaManifestAppSchemaBindingInputError> {
   const declaredTables = new Set(tables.map((table) => table.logicalName));
   for (const index of indexes) {
     if (!declaredTables.has(index.tableLogicalName)) {
-      throw new InvalidSchemaManifestAppSchemaBindingInputError({
+      return Result.fail(new InvalidSchemaManifestAppSchemaBindingInputError({
         reason: "undeclaredIndexTable",
         tableLogicalName: index.tableLogicalName,
         descriptor: index.descriptor,
-      });
+      }));
     }
   }
+  return Result.succeed(undefined);
 }
 
 function resolveAndSortIndexes(
@@ -480,27 +511,6 @@ const runSchemaManifestAppSchemaBindingQueryEffect = Effect.fn(<A>(
     ),
   })));
 
-async function readAppIndexBindings(
-  db: FlarexMetadataDatabase,
-  deploymentId: string,
-  indexes: ReadonlyArray<ResolvedAppIndexDeclaration>,
-): Promise<ReadonlyMap<string, CatalogIndexId>> {
-  const rows = await selectSchemaManifestAppIndexBindingRows(
-    db,
-    deploymentId,
-    indexes,
-  );
-  // Temporary throwing projection for the Promise-based D2a schema planner.
-  // Delete it when that planner owns an Effect failure channel.
-  return Result.getOrThrow(
-    decodeSchemaManifestAppIndexBindingRowsResult(
-      deploymentId,
-      indexes,
-      rows,
-    ),
-  );
-}
-
 const readAppIndexBindingsEffect = Effect.fn(
   "SchemaManifestAppSchemaBindings.readIndexBindings",
 )(function* (
@@ -530,23 +540,6 @@ const readAppIndexBindingsEffect = Effect.fn(
     ),
   );
 });
-
-/** Package-internal raw row acquisition; callers own stored-row decoding. */
-export async function selectSchemaManifestAppIndexBindingRows(
-  db: FlarexMetadataDatabase,
-  deploymentId: string,
-  indexes: ReadonlyArray<{
-    readonly tableId: CatalogTableId;
-    readonly descriptor: string;
-  }>,
-): Promise<ReadonlyArray<SchemaManifestAppIndexBindingRow>> {
-  if (indexes.length === 0) return [];
-  return selectSchemaManifestAppIndexBindingRowsQuery(
-    db,
-    deploymentId,
-    indexes,
-  );
-}
 
 function selectSchemaManifestAppIndexBindingRowsQuery(
   db: FlarexMetadataDatabase,
@@ -623,41 +616,56 @@ export function decodeSchemaManifestAppIndexBindingRowsResult(
   });
 }
 
-function planIndexBindings(
+function planIndexBindingsResult(
   deploymentId: string,
   indexes: ReadonlyArray<ResolvedAppIndexDeclaration>,
   observedBindings: ReadonlyMap<string, CatalogIndexId>,
   observedHighWater: CatalogIndexId | null,
-): ReadonlyArray<PlannedAppIndexBinding> {
-  let nextLogicalIndexId = observedHighWater;
-  const planned: PlannedAppIndexBinding[] = [];
-  for (const index of indexes) {
-    const existingLogicalIndexId = observedBindings.get(indexIdentityKey(index));
-    if (existingLogicalIndexId !== undefined) {
+): Result.Result<
+  ReadonlyArray<PlannedAppIndexBinding>,
+  StableLogicalIndexCatalogIdExhaustedError
+  | StableLogicalIndexCatalogCorruptionError
+> {
+  return Result.gen(function* () {
+    let nextLogicalIndexId = observedHighWater;
+    const planned: PlannedAppIndexBinding[] = [];
+    for (const index of indexes) {
+      const existingLogicalIndexId = observedBindings.get(
+        indexIdentityKey(index),
+      );
+      if (existingLogicalIndexId !== undefined) {
+        planned.push({
+          ...index,
+          logicalIndexId: existingLogicalIndexId,
+          wasMissing: false,
+        });
+        continue;
+      }
+      const logicalIndexId = yield* nextStableLogicalIndexCatalogIdResult(
+        deploymentId,
+        nextLogicalIndexId,
+      );
+      nextLogicalIndexId = logicalIndexId;
       planned.push({
         ...index,
-        logicalIndexId: existingLogicalIndexId,
-        wasMissing: false,
+        logicalIndexId,
+        wasMissing: true,
       });
-      continue;
     }
-    const logicalIndexId = nextStableLogicalIndexCatalogId(
-      deploymentId,
-      nextLogicalIndexId,
-    );
-    nextLogicalIndexId = logicalIndexId;
-    planned.push({ ...index, logicalIndexId, wasMissing: true });
-  }
-  return Object.freeze(planned.map((index) => Object.freeze(index)));
+    return Object.freeze(planned.map((index) => Object.freeze(index)));
+  });
 }
 
-function assembleManifest(
+function assembleManifestResult(
   deploymentId: string,
   tableState: PreparedSchemaManifestAppTableBindingsState,
   indexes: ReadonlyArray<PlannedAppIndexBinding>,
-): SchemaManifestAppSchemaV1 {
-  try {
-    return decodeSchemaManifestAppSchemaV1({
+): Result.Result<
+  SchemaManifestAppSchemaV1,
+  StableLogicalIndexCatalogCorruptionError
+> {
+  return Result.try({
+    try: () => decodeSchemaManifestAppSchemaV1({
       kind: "appSchema",
       manifestVersion: 1,
       tableDefinitions: tableState.section,
@@ -680,14 +688,13 @@ function assembleManifest(
             left.logicalIndexId - right.logicalIndexId
           ),
       },
-    });
-  } catch (cause) {
-    throw new StableLogicalIndexCatalogCorruptionError(
+    }),
+    catch: (cause) => new StableLogicalIndexCatalogCorruptionError(
       deploymentId,
       "planned bindings could not form a semantic app-schema manifest",
       { cause },
-    );
-  }
+    ),
+  });
 }
 
 interface AppSchemaBindingClassification<Binding> {

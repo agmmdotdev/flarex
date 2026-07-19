@@ -9,6 +9,7 @@ import {
   type SchemaManifestAppIndexDeclarationInputV1,
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
+import { Effect } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 // @ts-expect-error D2a's prepared token must remain absent from the package root.
@@ -27,7 +28,8 @@ import {
   getPreparedAppSchemaPublicationV1State,
   InvalidAppSchemaPublicationV1InputError,
   InvalidPreparedAppSchemaPublicationV1Error,
-  prepareAppSchemaPublicationV1,
+  prepareAppSchemaPublicationV1Effect,
+  type PrepareAppSchemaPublicationV1Error,
   type PrepareAppSchemaPublicationV1Input,
   type PreparedAppSchemaPublicationV1,
 } from "../src/appSchemaPublicationPreparation";
@@ -49,18 +51,30 @@ import {
 import { StableTableCatalogDeploymentNotFoundError } from "../src/stableTableCatalog";
 import { runEffect } from "./effectTestRuntime";
 
+const prepareAppSchemaPublicationV1 = (
+  ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
+) => runEffect(prepareAppSchemaPublicationV1Effect(...args));
+
 type PublicInternalPublicationExport = Extract<
   keyof typeof import("../src"),
   | "prepareAppSchemaPublicationV1"
+  | "prepareAppSchemaPublicationV1Effect"
   | "getPreparedAppSchemaPublicationV1State"
   | "snapshotAppSchemaPublicationV1Input"
+  | "snapshotAppSchemaPublicationV1InputResult"
   | "prepareAppSchemaPublicationV1FromSource"
+  | "prepareAppSchemaPublicationV1FromSourceEffect"
   | "publishPreparedAppSchemaV1InTransactionEffect"
   | "publishAppSchemaV1WithRepository"
+  | "publishAppSchemaV1WithRepositoryEffect"
   | "runAppSchemaPublicationV1Attempts"
+  | "runAppSchemaPublicationV1AttemptsEffect"
   | "enforceAppSchemaPublicationV1DeclarationQuotas"
   | "enforceAppSchemaPublicationV1CanonicalByteLowerBound"
   | "enforceAppSchemaPublicationV1CanonicalByteQuota"
+  | "enforceAppSchemaPublicationV1DeclarationQuotasResult"
+  | "enforceAppSchemaPublicationV1CanonicalByteLowerBoundResult"
+  | "enforceAppSchemaPublicationV1CanonicalByteQuotaResult"
   | "InvalidAppSchemaPublicationV1SourceError"
 >;
 
@@ -155,6 +169,12 @@ describe("app-schema V1 publication preparation", () => {
       .toEqualTypeOf<AppSchemaPublicationV1Result>();
     expectTypeOf<PreparedAppSchemaPublicationV1>()
       .not.toEqualTypeOf<PreparedAppTableDefinitionsArtifactV1>();
+    expectTypeOf<
+      ReturnType<typeof prepareAppSchemaPublicationV1Effect>
+    >().toEqualTypeOf<Effect.Effect<
+      PreparedAppSchemaPublicationV1,
+      PrepareAppSchemaPublicationV1Error
+    >>();
   });
 
   it("couples one bound plan, D1 result, and full artifact without writes", async () => {

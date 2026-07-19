@@ -26,9 +26,14 @@ import {
   type StableTableCatalogTransaction,
 } from "./stableTableCatalog";
 import {
-  nextStableTableCatalogId,
+  nextStableTableCatalogIdResult,
   readStableTableCatalogHighWater,
+  readStableTableCatalogHighWaterEffect,
+  type StableTableCatalogAllocationPersistenceError,
+  StableTableCatalogIdExhaustedError,
 } from "./stableTableCatalogAllocation";
+import type { StableTableCatalogCorruptionError } from
+  "./stableTableCatalogError";
 import { deployments, fxControlTables } from "./schema";
 
 const APP_TABLE_NAMESPACE: "app" = "app";
@@ -60,6 +65,8 @@ export type InvalidSchemaManifestTableBindingInputIssue =
   | { readonly reason: "invalidDeclarations" };
 
 export class InvalidSchemaManifestTableBindingInputError extends Error {
+  readonly _tag = "InvalidSchemaManifestTableBindingInputError" as const;
+
   constructor(
     readonly issue: InvalidSchemaManifestTableBindingInputIssue,
     options?: ErrorOptions,
@@ -70,6 +77,9 @@ export class InvalidSchemaManifestTableBindingInputError extends Error {
 }
 
 export class InvalidPreparedSchemaManifestTableBindingsError extends Error {
+  readonly _tag =
+    "InvalidPreparedSchemaManifestTableBindingsError" as const;
+
   constructor() {
     super(
       "Schema manifest table bindings were not prepared by this repository instance.",
@@ -97,6 +107,8 @@ export type SchemaManifestTableBindingPlanStale =
     };
 
 export class SchemaManifestTableBindingPlanStaleError extends Error {
+  readonly _tag = "SchemaManifestTableBindingPlanStaleError" as const;
+
   constructor(readonly stale: SchemaManifestTableBindingPlanStale) {
     super(staleBindingPlanMessage(stale));
     this.name = "SchemaManifestTableBindingPlanStaleError";
@@ -118,6 +130,15 @@ export class SchemaManifestTableBindingCorruptionError extends Error {
     this.name = "SchemaManifestTableBindingCorruptionError";
   }
 }
+
+export type PrepareSchemaManifestAppTableBindingsV1Error =
+  | InvalidSchemaManifestTableBindingInputError
+  | StableTableCatalogDeploymentNotFoundError
+  | SchemaManifestTableBindingPersistenceError
+  | SchemaManifestTableBindingCorruptionError
+  | StableTableCatalogAllocationPersistenceError
+  | StableTableCatalogCorruptionError
+  | StableTableCatalogIdExhaustedError;
 
 export interface PlannedAppTableBinding {
   readonly logicalName: SchemaManifestAppTableName;
@@ -153,14 +174,20 @@ export function getPreparedSchemaManifestAppTableBindingsState(
  *
  * The section is safe to canonicalize outside SQL. Applying the opaque plan in
  * a later short transaction revalidates the observed catalog state before any
- * planned ID is inserted.
+ * planned ID is inserted. This Promise form remains only for the table-only
+ * `appTableDefinitionsArtifacts` compatibility path; full app-schema
+ * preparation consumes the Effect operation below.
  */
 export async function prepareSchemaManifestAppTableBindingsV1(
   db: FlarexMetadataDatabase,
   input: PrepareSchemaManifestAppTableBindingsV1Input,
 ): Promise<PreparedSchemaManifestAppTableBindingsV1> {
-  const deploymentId = validateDeploymentId(input.deploymentId);
-  const declarations = decodeDeclarations(input.tables);
+  const deploymentId = Result.getOrThrow(
+    validateDeploymentIdResult(input.deploymentId),
+  );
+  const declarations = Result.getOrThrow(
+    decodeDeclarationsResult(input.tables),
+  );
   const sortedDeclarations = [...declarations].sort(compareDeclarationsByName);
 
   if (await getDeploymentMetadata(db, deploymentId) === null) {
@@ -176,15 +203,81 @@ export async function prepareSchemaManifestAppTableBindingsV1(
     db,
     deploymentId,
   );
-  const plannedTables = planTableBindings(
-    deploymentId,
-    sortedDeclarations,
-    observedBindings,
-    observedHighWater,
+  const plannedTables = Result.getOrThrow(
+    planTableBindingsResult(
+      deploymentId,
+      sortedDeclarations,
+      observedBindings,
+      observedHighWater,
+    ),
   );
   const section = detachAndFreezeSection(
-    assembleSection(deploymentId, sortedDeclarations, plannedTables),
+    Result.getOrThrow(
+      assembleSectionResult(deploymentId, sortedDeclarations, plannedTables),
+    ),
   );
+  return makePreparedTableBindings(
+    deploymentId,
+    observedHighWater,
+    plannedTables,
+    section,
+  );
+}
+
+export const prepareSchemaManifestAppTableBindingsV1Effect = Effect.fn(
+  "SchemaManifestTableBindings.prepareAppBindings",
+)(function* (
+  db: FlarexMetadataDatabase,
+  input: PrepareSchemaManifestAppTableBindingsV1Input,
+): Effect.fn.Return<
+  PreparedSchemaManifestAppTableBindingsV1,
+  PrepareSchemaManifestAppTableBindingsV1Error
+> {
+  const deploymentId = yield* Effect.fromResult(
+    validateDeploymentIdResult(input.deploymentId),
+  );
+  const declarations = yield* Effect.fromResult(
+    decodeDeclarationsResult(input.tables),
+  );
+  const sortedDeclarations = [...declarations].sort(compareDeclarationsByName);
+
+  yield* readSchemaManifestBindingDeploymentEffect(db, deploymentId);
+  const observedBindings = yield* readSchemaManifestAppTableBindingsEffect(
+    db,
+    deploymentId,
+    sortedDeclarations.map((table) => table.logicalName),
+  );
+  const observedHighWater = yield* readStableTableCatalogHighWaterEffect(
+    db,
+    deploymentId,
+  );
+  const plannedTables = yield* Effect.fromResult(
+    planTableBindingsResult(
+      deploymentId,
+      sortedDeclarations,
+      observedBindings,
+      observedHighWater,
+    ),
+  );
+  const section = detachAndFreezeSection(
+    yield* Effect.fromResult(
+      assembleSectionResult(deploymentId, sortedDeclarations, plannedTables),
+    ),
+  );
+  return makePreparedTableBindings(
+    deploymentId,
+    observedHighWater,
+    plannedTables,
+    section,
+  );
+});
+
+function makePreparedTableBindings(
+  deploymentId: string,
+  observedHighWater: CatalogTableId | null,
+  plannedTables: ReadonlyArray<PlannedAppTableBinding>,
+  section: SchemaManifestTableDefinitionsV1,
+): PreparedSchemaManifestAppTableBindingsV1 {
   const prepared = Object.freeze({
     deploymentId,
     section,
@@ -270,26 +363,29 @@ export async function applySchemaManifestAppTableBindingsV1InTransaction(
   return state.section;
 }
 
-function validateDeploymentId(deploymentId: string): string {
-  if (!isNonBlankString(deploymentId)) {
-    throw new InvalidSchemaManifestTableBindingInputError({
+function validateDeploymentIdResult(
+  deploymentId: string,
+): Result.Result<string, InvalidSchemaManifestTableBindingInputError> {
+  return isNonBlankString(deploymentId)
+    ? Result.succeed(deploymentId)
+    : Result.fail(new InvalidSchemaManifestTableBindingInputError({
       reason: "invalidDeploymentId",
-    });
-  }
-  return deploymentId;
+    }));
 }
 
-function decodeDeclarations(
+function decodeDeclarationsResult(
   value: unknown,
-): ReadonlyArray<SchemaManifestAppTableDeclarationV1> {
-  try {
-    return decodeSchemaManifestAppTableDeclarationsV1(value);
-  } catch (cause) {
-    throw new InvalidSchemaManifestTableBindingInputError(
+): Result.Result<
+  ReadonlyArray<SchemaManifestAppTableDeclarationV1>,
+  InvalidSchemaManifestTableBindingInputError
+> {
+  return Result.try({
+    try: () => decodeSchemaManifestAppTableDeclarationsV1(value),
+    catch: (cause) => new InvalidSchemaManifestTableBindingInputError(
       { reason: "invalidDeclarations" },
       { cause },
-    );
-  }
+    ),
+  });
 }
 
 function compareDeclarationsByName(
@@ -321,6 +417,7 @@ export class SchemaManifestTableBindingPersistenceError extends Error {
 
   constructor(
     readonly operation:
+      | "readDeployment"
       | "lockDeployment"
       | "readBindings"
       | "insertBindings",
@@ -342,6 +439,39 @@ const runSchemaManifestTableBindingQueryEffect = Effect.fn(<A>(
       cause,
     ),
   })));
+
+const readSchemaManifestBindingDeploymentEffect = Effect.fn(
+  "SchemaManifestTableBindings.readDeployment",
+)(function* (
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+): Effect.fn.Return<
+  void,
+  | StableTableCatalogDeploymentNotFoundError
+  | SchemaManifestTableBindingPersistenceError
+> {
+  const query = selectSchemaManifestBindingDeployment(db, deploymentId);
+  const rows = yield* runSchemaManifestTableBindingQueryEffect(
+    "readDeployment",
+    query,
+  );
+  if (rows[0] === undefined) {
+    return yield* Effect.fail(
+      new StableTableCatalogDeploymentNotFoundError(deploymentId),
+    );
+  }
+});
+
+function selectSchemaManifestBindingDeployment(
+  db: FlarexMetadataDatabase,
+  deploymentId: string,
+) {
+  return db
+    .select({ deploymentId: deployments.deploymentId })
+    .from(deployments)
+    .where(eq(deployments.deploymentId, deploymentId))
+    .limit(1);
+}
 
 export const lockSchemaManifestBindingDeploymentEffect = Effect.fn(
   "SchemaManifestTableBindings.lockDeployment",
@@ -470,9 +600,8 @@ export function decodeSchemaManifestAppTableBindingRows(
   logicalNames: ReadonlyArray<SchemaManifestAppTableName>,
   rows: ReadonlyArray<SchemaManifestAppTableBindingRow>,
 ): ReadonlyMap<SchemaManifestAppTableName, CatalogTableId> {
-  // Temporary throwing projection for the Promise-based schema-planning
-  // consumers in this module and schemaManifestAppSchemaBindings. Delete it
-  // when those consumers own Result or Effect failure channels.
+  // Temporary throwing projection for this module's table-only Promise
+  // compatibility path. Delete it when that consumer owns Result or Effect.
   return Result.getOrThrow(
     decodeSchemaManifestAppTableBindingRowsResult(
       deploymentId,
@@ -525,76 +654,88 @@ export function decodeSchemaManifestAppTableBindingRowsResult(
   });
 }
 
-function planTableBindings(
+function planTableBindingsResult(
   deploymentId: string,
   declarations: ReadonlyArray<SchemaManifestAppTableDeclarationV1>,
   observedBindings: ReadonlyMap<SchemaManifestAppTableName, CatalogTableId>,
   observedHighWater: CatalogTableId | null,
-): ReadonlyArray<PlannedAppTableBinding> {
-  let nextTableId = observedHighWater;
-  const planned: PlannedAppTableBinding[] = [];
-  for (const declaration of declarations) {
-    const existingTableId = observedBindings.get(declaration.logicalName);
-    if (existingTableId !== undefined) {
+): Result.Result<
+  ReadonlyArray<PlannedAppTableBinding>,
+  StableTableCatalogCorruptionError | StableTableCatalogIdExhaustedError
+> {
+  return Result.gen(function* () {
+    let nextTableId = observedHighWater;
+    const planned: PlannedAppTableBinding[] = [];
+    for (const declaration of declarations) {
+      const existingTableId = observedBindings.get(declaration.logicalName);
+      if (existingTableId !== undefined) {
+        planned.push({
+          logicalName: declaration.logicalName,
+          tableId: existingTableId,
+          wasMissing: false,
+        });
+        continue;
+      }
+      const tableId = yield* nextStableTableCatalogIdResult(
+        deploymentId,
+        nextTableId,
+      );
+      nextTableId = tableId;
       planned.push({
         logicalName: declaration.logicalName,
-        tableId: existingTableId,
-        wasMissing: false,
+        tableId,
+        wasMissing: true,
       });
-      continue;
     }
-    const tableId = nextStableTableCatalogId(deploymentId, nextTableId);
-    nextTableId = tableId;
-    planned.push({
-      logicalName: declaration.logicalName,
-      tableId,
-      wasMissing: true,
-    });
-  }
-  return Object.freeze(planned.map((table) => Object.freeze(table)));
+    return Object.freeze(planned.map((table) => Object.freeze(table)));
+  });
 }
 
-function assembleSection(
+function assembleSectionResult(
   deploymentId: string,
   declarations: ReadonlyArray<SchemaManifestAppTableDeclarationV1>,
   plannedTables: ReadonlyArray<PlannedAppTableBinding>,
-): SchemaManifestTableDefinitionsV1 {
+): Result.Result<
+  SchemaManifestTableDefinitionsV1,
+  SchemaManifestTableBindingCorruptionError
+> {
   const definitionsByName = new Map<
     SchemaManifestAppTableName,
     SchemaManifestAppDocumentDefinitionV1
   >(
     declarations.map((table) => [table.logicalName, table.definition]),
   );
-  const tables = plannedTables
-    .map((table) => {
+  const tablesResult = Result.gen(function* () {
+    const tables: Array<SchemaManifestTableDefinitionsV1["tables"][number]> = [];
+    for (const table of plannedTables) {
       const definition = definitionsByName.get(table.logicalName);
       if (definition === undefined) {
-        throw new SchemaManifestTableBindingCorruptionError(
+        return yield* Result.fail(new SchemaManifestTableBindingCorruptionError(
           deploymentId,
           `planned table ${table.logicalName} lost its definition`,
-        );
+        ));
       }
-      return {
+      tables.push({
         tableId: table.tableId,
         namespace: "app",
         logicalName: table.logicalName,
         definition,
-      };
-    })
-    .sort((left, right) => left.tableId - right.tableId);
-  try {
-    return decodeSchemaManifestTableDefinitionsV1({
+      });
+    }
+    return tables.sort((left, right) => left.tableId - right.tableId);
+  });
+  return tablesResult.pipe(Result.flatMap((tables) => Result.try({
+    try: () => decodeSchemaManifestTableDefinitionsV1({
       kind: "tableDefinitions",
       sectionVersion: 1,
       tables,
-    });
-  } catch (cause) {
-    throw new SchemaManifestTableBindingCorruptionError(
+    }),
+    catch: (cause) => new SchemaManifestTableBindingCorruptionError(
       deploymentId,
       "planned bindings could not form a semantic table section",
       { cause },
-    );
-  }
+    ),
+  })));
 }
 
 function detachAndFreezeSection(

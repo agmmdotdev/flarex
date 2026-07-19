@@ -18,7 +18,7 @@ import type { FlarexPersistence } from "../src";
 import {
   getPreparedAppSchemaPublicationV1State,
   InvalidPreparedAppSchemaPublicationV1Error,
-  prepareAppSchemaPublicationV1,
+  prepareAppSchemaPublicationV1Effect,
 } from "../src/appSchemaPublicationPreparation";
 import {
   AppCreationTimeIndexDefinitionPersistenceError,
@@ -36,6 +36,10 @@ import {
 } from "../src/schemaManifestAppSchemaBindings";
 import type { StableTableCatalogTransaction } from "../src/stableTableCatalog";
 import { runEffect } from "./effectTestRuntime";
+
+const prepareAppSchemaPublicationV1 = (
+  ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
+) => runEffect(prepareAppSchemaPublicationV1Effect(...args));
 
 type PublicD2bMethod = Extract<
   keyof FlarexPersistence,

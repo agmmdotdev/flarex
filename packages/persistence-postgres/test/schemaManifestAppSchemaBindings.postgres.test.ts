@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { PostgresFlarexPersistence } from "../src/postgres";
 import {
   applySchemaManifestAppSchemaBindingsV1InTransactionEffect,
-  prepareSchemaManifestAppSchemaBindingsV1,
+  prepareSchemaManifestAppSchemaBindingsV1Effect,
   type PreparedSchemaManifestAppSchemaBindingsV1,
   SchemaManifestAppSchemaBindingPlanStaleError,
 } from "../src/schemaManifestAppSchemaBindings";
@@ -22,6 +22,10 @@ import {
 } from "./postgresHelpers";
 
 const describePostgres = postgresUrl === null ? describe.skip : describe;
+
+const prepareSchemaManifestAppSchemaBindingsV1 = (
+  ...args: Parameters<typeof prepareSchemaManifestAppSchemaBindingsV1Effect>
+) => runEffect(prepareSchemaManifestAppSchemaBindingsV1Effect(...args));
 
 describePostgres("real Postgres schema manifest app-schema bindings", () => {
   it("converges concurrent exact table/index plan applications", async () => {

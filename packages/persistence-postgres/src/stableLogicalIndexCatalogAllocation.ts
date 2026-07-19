@@ -3,12 +3,11 @@ import {
   MAX_CATALOG_INDEX_ID,
   type CatalogIndexId,
 } from "flarex-protocol/catalog";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { fxControlIndexes } from "./schema";
 import {
-  decodeStableLogicalIndexCatalogIndexId,
   decodeStableLogicalIndexCatalogIndexIdResult,
 } from
   "./stableLogicalIndexCatalogDecoding";
@@ -69,18 +68,6 @@ export const readStableLogicalIndexCatalogHighWaterEffect = Effect.fn(
     );
 });
 
-/** Promise compatibility boundary for the D2a preparation chain. */
-export async function readStableLogicalIndexCatalogHighWater(
-  db: FlarexMetadataDatabase,
-  deploymentId: string,
-): Promise<CatalogIndexId | null> {
-  const rows = await selectStableLogicalIndexCatalogHighWater(db, deploymentId);
-  const value = rows[0]?.logicalIndexId;
-  return value === undefined
-    ? null
-    : decodeStableLogicalIndexCatalogIndexId(deploymentId, value);
-}
-
 function selectStableLogicalIndexCatalogHighWater(
   db: FlarexMetadataDatabase,
   deploymentId: string,
@@ -93,14 +80,20 @@ function selectStableLogicalIndexCatalogHighWater(
     .limit(1);
 }
 
-export function nextStableLogicalIndexCatalogId(
+export function nextStableLogicalIndexCatalogIdResult(
   deploymentId: string,
   currentHighWater: CatalogIndexId | null,
-): CatalogIndexId {
+): Result.Result<
+  CatalogIndexId,
+  StableLogicalIndexCatalogIdExhaustedError
+  | StableLogicalIndexCatalogCorruptionError
+> {
   if (currentHighWater === MAX_CATALOG_INDEX_ID) {
-    throw new StableLogicalIndexCatalogIdExhaustedError(deploymentId);
+    return Result.fail(
+      new StableLogicalIndexCatalogIdExhaustedError(deploymentId),
+    );
   }
-  return decodeStableLogicalIndexCatalogIndexId(
+  return decodeStableLogicalIndexCatalogIndexIdResult(
     deploymentId,
     currentHighWater === null ? 1 : currentHighWater + 1,
   );

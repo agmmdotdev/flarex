@@ -5,7 +5,7 @@ import {
   type SchemaManifestAppTableDeclarationInputV1,
   type SchemaManifestTableDefinitionsV1,
 } from "flarex-protocol/schema-manifest";
-import { Result } from "effect";
+import { Cause, Effect, Exit, Fiber, Result } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type {
@@ -20,7 +20,10 @@ import {
   decodeSchemaManifestAppTableBindingRowsResult,
   InvalidPreparedSchemaManifestTableBindingsError,
   InvalidSchemaManifestTableBindingInputError,
+  prepareSchemaManifestAppTableBindingsV1Effect,
   prepareSchemaManifestAppTableBindingsV1,
+  type PrepareSchemaManifestAppTableBindingsV1Error,
+  SchemaManifestTableBindingPersistenceError,
   SchemaManifestTableBindingCorruptionError,
   type SchemaManifestAppTableBindingRow,
   type PlannedAppTableBinding,
@@ -33,17 +36,19 @@ import {
   getStableTableIdentityByNameEffect,
   StableTableCatalogDeploymentNotFoundError,
 } from "../src/stableTableCatalog";
-import { runEffect } from "./effectTestRuntime";
+import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 type PublicBindingMethod = Extract<
   keyof FlarexPersistence,
   | "prepareSchemaManifestAppTableBindingsV1"
+  | "prepareSchemaManifestAppTableBindingsV1Effect"
   | "applySchemaManifestAppTableBindingsV1InTransaction"
 >;
 
 type PublicBindingExport = Extract<
   keyof typeof import("../src"),
   | "prepareSchemaManifestAppTableBindingsV1"
+  | "prepareSchemaManifestAppTableBindingsV1Effect"
   | "applySchemaManifestAppTableBindingsV1InTransaction"
 >;
 
@@ -62,6 +67,89 @@ describe("schema manifest app table bindings", () => {
     expectTypeOf<
       PreparedSchemaManifestAppTableBindingsV1["section"]
     >().toEqualTypeOf<SchemaManifestTableDefinitionsV1>();
+    expectTypeOf<
+      ReturnType<typeof prepareSchemaManifestAppTableBindingsV1Effect>
+    >().toEqualTypeOf<Effect.Effect<
+      PreparedSchemaManifestAppTableBindingsV1,
+      PrepareSchemaManifestAppTableBindingsV1Error
+    >>();
+  });
+
+  it("maps preparation deployment-read rejection to its tagged error", async () => {
+    const rejection = new Error("binding preparation deployment read rejected");
+    const db = schemaBindingSelectDatabase(() => Promise.reject(rejection));
+
+    const failure = await runEffectFailure(
+      prepareSchemaManifestAppTableBindingsV1Effect(db, {
+        deploymentId: "deployment_binding_prepare_rejection",
+        tables: [appDeclaration("users")],
+      }),
+    );
+
+    expect(failure).toBeInstanceOf(SchemaManifestTableBindingPersistenceError);
+    expect(failure).toMatchObject({
+      _tag: "SchemaManifestTableBindingPersistenceError",
+      operation: "readDeployment",
+      cause: rejection,
+    });
+  });
+
+  it("preserves preparation query construction failures as defects", async () => {
+    const defect = new Error("binding preparation query construction defect");
+    const db = {
+      select(): never {
+        throw defect;
+      },
+    } as unknown as FlarexMetadataDatabase;
+
+    const exit = await Effect.runPromiseExit(
+      prepareSchemaManifestAppTableBindingsV1Effect(db, {
+        deploymentId: "deployment_binding_prepare_defect",
+        tables: [appDeclaration("users")],
+      }),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
+
+  it("waits for a pending preparation read before interruption completes", async () => {
+    const entered = deferredValue<void>();
+    const query = deferredValue<ReadonlyArray<unknown>>();
+    const db = schemaBindingSelectDatabase(() => {
+      entered.resolve(undefined);
+      return query.promise;
+    });
+    const fiber = Effect.runFork(
+      prepareSchemaManifestAppTableBindingsV1Effect(db, {
+        deploymentId: "deployment_binding_prepare_interruption",
+        tables: [appDeclaration("users")],
+      }),
+    );
+
+    await entered.promise;
+    const completion = runEffect(Fiber.await(fiber));
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then(() => {
+      interruptionSettled = true;
+    });
+    try {
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      query.resolve([]);
+    }
+
+    await interruption;
+    const exit = await completion;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    }
   });
 
   it("decodes stable binding rows through Result without capturing defects", () => {
@@ -583,6 +671,54 @@ async function insertDeployment(
     deploymentId,
     projectId: `project_${deploymentId}`,
   });
+}
+
+interface SchemaBindingSelectQuery
+  extends PromiseLike<ReadonlyArray<unknown>> {
+  from(): SchemaBindingSelectQuery;
+  where(): SchemaBindingSelectQuery;
+  limit(): SchemaBindingSelectQuery;
+}
+
+function schemaBindingSelectDatabase(
+  run: () => Promise<ReadonlyArray<unknown>>,
+): FlarexMetadataDatabase {
+  return {
+    select() {
+      const promise = run();
+      const query: SchemaBindingSelectQuery = {
+        from: () => query,
+        where: () => query,
+        limit: () => query,
+        then: (onFulfilled, onRejected) =>
+          promise.then(onFulfilled, onRejected),
+      };
+      return query;
+    },
+  } as unknown as FlarexMetadataDatabase;
+}
+
+function deferredValue<Value>(): Readonly<{
+  promise: Promise<Value>;
+  resolve(value: Value): void;
+}> {
+  let resolvePromise: ((value: Value) => void) | undefined;
+  const promise = new Promise<Value>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return Object.freeze({
+    promise,
+    resolve(value: Value) {
+      if (resolvePromise === undefined) {
+        throw new Error("Deferred value was not initialized.");
+      }
+      resolvePromise(value);
+    },
+  });
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function appDeclaration(

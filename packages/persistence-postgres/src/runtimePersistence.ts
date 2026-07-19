@@ -4,6 +4,7 @@ import type {
   FlarexRuntimePersistence,
   FlarexSqlClient,
 } from "./index";
+import { Effect } from "effect";
 import { commitInvokeSessionWrites as commitInvokeSessionWritesWithDb } from "./commits";
 import {
   getDeploymentPackageMetadata as getDeploymentPackageMetadataWithDb,
@@ -98,7 +99,7 @@ import {
   type AppTableDefinitionsArtifactV1Repository,
 } from "./appTableDefinitionsArtifacts";
 import {
-  publishAppSchemaV1WithRepository,
+  publishAppSchemaV1WithRepositoryEffect,
   type AppSchemaPublicationV1Repository,
 } from "./appSchemaPublication";
 
@@ -154,10 +155,15 @@ export function createFlarexRuntimePersistence(
         driver.appTableDefinitionsArtifactRepository,
         input,
       ),
+    // FlarexRuntimePersistence remains a Promise compatibility contract. This
+    // is its single audited runtime bridge; delete it when that host-facing
+    // interface accepts the Effect operation directly.
     publishAppSchemaV1: (input) =>
-      publishAppSchemaV1WithRepository(
-        driver.appSchemaPublicationRepository,
-        input,
+      Effect.runPromise(
+        publishAppSchemaV1WithRepositoryEffect(
+          driver.appSchemaPublicationRepository,
+          input,
+        ),
       ),
     insertScopeMetadata: (input) =>
       insertScopeMetadataWithDb(drizzleDb, input),

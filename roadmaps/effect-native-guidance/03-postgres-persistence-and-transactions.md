@@ -233,10 +233,21 @@ Drizzle statement maps once to an operation-specific tagged persistence
 failure, owned validation composes through `Result`, and synchronous query
 construction or row-access failures remain defects. The D2c transaction now
 yields this operation directly, so its last generic Promise adapter and the
-combined Promise apply projection are deleted. Promise high-water reads remain
-only for the D2a preparation path, and the table-only Promise apply projection
-remains owned by `appTableDefinitionsArtifacts`; neither is part of D2c's
-Effect-native child graph.
+combined Promise apply projection are deleted.
+
+The complete D2a no-write preparation path and D2d stale-plan retry coordinator
+are now Effect-native. Strict input snapshots enter through `Result`; table and
+logical-index observations, high-water planning, requirement compilation,
+artifact canonicalization, exact quota checks, and typed stale-plan retries
+remain in one Effect graph. D2a-only Promise high-water readers, throwing
+allocators, combined planner APIs, and D2d's exception-based retry loop and
+outer runtime bridge were deleted. The single outer Promise runner now belongs
+to `FlarexRuntimePersistence.publishAppSchemaV1`, whose host-facing public
+contract remains Promise-based. Table-only planning, apply, stable-table
+high-water reading, and Promise artifact preparation remain compatibility
+surfaces owned by `appTableDefinitionsArtifacts`; delete them when that facade
+migrates. Protocol compilation and canonicalization remain narrow foreign
+Promise edges, and D2a still performs no SQL writes.
 
 The package-root stable logical-index identity readers are now Effect-native.
 Input and stored-row validation enter through pure `Result`, while each reader

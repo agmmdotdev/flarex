@@ -1,5 +1,6 @@
 import { isNonBlankString } from "@flarex/utils/strings";
 import {
+  AppSchemaCatalogCompilationErrorV1,
   compileAppSchemaCatalogRequirementsV1,
   type CompiledAppSchemaCatalogRequirementsV1,
 } from "flarex-protocol/app-schema-catalog";
@@ -14,24 +15,28 @@ import {
   type SchemaManifestAppIndexDeclarationV1,
   type SchemaManifestAppTableDeclarationV1,
 } from "flarex-protocol/schema-manifest";
+import { Effect, Result } from "effect";
 
 import type { FlarexMetadataDatabase } from "./deployments";
 import { hasExactOwnDataKeys } from "./exactOwnDataKeys";
 import {
-  enforceAppSchemaPublicationV1CanonicalByteLowerBound,
-  enforceAppSchemaPublicationV1CanonicalByteQuota,
-  enforceAppSchemaPublicationV1DeclarationQuotas,
+  enforceAppSchemaPublicationV1CanonicalByteLowerBoundResult,
+  enforceAppSchemaPublicationV1CanonicalByteQuotaResult,
+  enforceAppSchemaPublicationV1DeclarationQuotasResult,
+  type AppSchemaPublicationV1QuotaExceededError,
 } from "./appSchemaPublicationPolicy";
 import {
-  prepareSchemaManifestAppSchemaBindingsV1,
+  prepareSchemaManifestAppSchemaBindingsV1Effect,
+  type PrepareSchemaManifestAppSchemaBindingsV1Error,
   type PreparedSchemaManifestAppSchemaBindingsV1,
   type PrepareSchemaManifestAppSchemaBindingsV1Input,
 } from "./schemaManifestAppSchemaBindings";
 import { snapshotSchemaManifestValue } from "./schemaManifestValueSnapshot";
 import {
   getPreparedSchemaVersionArtifactCanonicalByteLength,
-  prepareSchemaVersionArtifact,
+  prepareSchemaVersionArtifactEffect,
   type EnsureSchemaVersionArtifactInput,
+  type PrepareSchemaVersionArtifactError,
   type PreparedSchemaVersionArtifact,
 } from "./schemaVersionArtifacts";
 
@@ -87,6 +92,8 @@ export type InvalidAppSchemaPublicationV1InputIssue =
     };
 
 export class InvalidAppSchemaPublicationV1InputError extends Error {
+  readonly _tag = "InvalidAppSchemaPublicationV1InputError" as const;
+
   constructor(
     readonly issue: InvalidAppSchemaPublicationV1InputIssue,
     options?: ErrorOptions,
@@ -109,6 +116,8 @@ export interface AppSchemaPublicationV1Source {
 }
 
 export class InvalidAppSchemaPublicationV1SourceError extends Error {
+  readonly _tag = "InvalidAppSchemaPublicationV1SourceError" as const;
+
   constructor() {
     super(
       "App-schema V1 publication source was not snapshotted by this repository instance.",
@@ -135,6 +144,8 @@ export interface PreparedAppSchemaPublicationV1 {
 }
 
 export class InvalidPreparedAppSchemaPublicationV1Error extends Error {
+  readonly _tag = "InvalidPreparedAppSchemaPublicationV1Error" as const;
+
   constructor() {
     super(
       "App-schema catalog publication was not prepared by this repository instance.",
@@ -167,6 +178,20 @@ const preparedPublicationStates = new WeakMap<
   PreparedAppSchemaPublicationV1State
 >();
 
+type PrepareValidatedAppSchemaPublicationV1Error =
+  | PrepareSchemaManifestAppSchemaBindingsV1Error
+  | AppSchemaCatalogCompilationErrorV1
+  | PrepareSchemaVersionArtifactError
+  | AppSchemaPublicationV1QuotaExceededError;
+
+export type PrepareAppSchemaPublicationV1Error =
+  | InvalidAppSchemaPublicationV1InputError
+  | PrepareValidatedAppSchemaPublicationV1Error;
+
+export type PrepareAppSchemaPublicationV1FromSourceError =
+  | InvalidAppSchemaPublicationV1SourceError
+  | PrepareValidatedAppSchemaPublicationV1Error;
+
 /**
  * Prepare one coherent full-envelope publication attempt without writing SQL.
  *
@@ -174,21 +199,39 @@ const preparedPublicationStates = new WeakMap<
  * transaction must revalidate them and discard this entire token on the typed
  * stale outcome; D2a performs no retries, locks, or transactions itself.
  */
-export async function prepareAppSchemaPublicationV1(
+export const prepareAppSchemaPublicationV1Effect = Effect.fn(
+  "AppSchemaPublicationPreparation.prepare",
+)(function* (
   db: FlarexMetadataDatabase,
   input: PrepareAppSchemaPublicationV1Input,
-): Promise<PreparedAppSchemaPublicationV1> {
-  return prepareAppSchemaPublicationV1FromSource(
-    db,
-    snapshotAppSchemaPublicationV1Input(input),
+): Effect.fn.Return<
+  PreparedAppSchemaPublicationV1,
+  PrepareAppSchemaPublicationV1Error
+> {
+  const validated = yield* Effect.fromResult(
+    validateAndSnapshotInputResult(input),
   );
-}
+  return yield* prepareValidatedAppSchemaPublicationV1Effect(
+    db,
+    validated,
+  );
+});
 
 /** Snapshot and authenticate the public request exactly once before retries. */
-export function snapshotAppSchemaPublicationV1Input(
+export function snapshotAppSchemaPublicationV1InputResult(
   input: PrepareAppSchemaPublicationV1Input,
+): Result.Result<
+  AppSchemaPublicationV1Source,
+  InvalidAppSchemaPublicationV1InputError | AppSchemaPublicationV1QuotaExceededError
+> {
+  return validateAndSnapshotInputResult(input).pipe(Result.map(
+    makeAppSchemaPublicationV1Source,
+  ));
+}
+
+function makeAppSchemaPublicationV1Source(
+  validated: ValidatedPrepareAppSchemaPublicationV1Input,
 ): AppSchemaPublicationV1Source {
-  const validated = validateAndSnapshotInput(input);
   const source = Object.freeze({
     deploymentId: validated.deploymentId,
     schemaVersionId: validated.schemaVersionId,
@@ -200,15 +243,32 @@ export function snapshotAppSchemaPublicationV1Input(
 }
 
 /** Rebuild every database-dependent and canonical fact from one frozen source. */
-export async function prepareAppSchemaPublicationV1FromSource(
+export const prepareAppSchemaPublicationV1FromSourceEffect = Effect.fn(
+  "AppSchemaPublicationPreparation.prepareFromSource",
+)(function* (
   db: FlarexMetadataDatabase,
   source: AppSchemaPublicationV1Source,
-): Promise<PreparedAppSchemaPublicationV1> {
+): Effect.fn.Return<
+  PreparedAppSchemaPublicationV1,
+  PrepareAppSchemaPublicationV1FromSourceError
+> {
   const validated = publicationSourceStates.get(source);
   if (validated === undefined) {
-    throw new InvalidAppSchemaPublicationV1SourceError();
+    return yield* Effect.fail(new InvalidAppSchemaPublicationV1SourceError());
   }
-  const logicalBindings = await prepareSchemaManifestAppSchemaBindingsV1(
+  return yield* prepareValidatedAppSchemaPublicationV1Effect(db, validated);
+});
+
+const prepareValidatedAppSchemaPublicationV1Effect = Effect.fn(
+  "AppSchemaPublicationPreparation.prepareValidated",
+)(function* (
+  db: FlarexMetadataDatabase,
+  validated: ValidatedPrepareAppSchemaPublicationV1Input,
+): Effect.fn.Return<
+  PreparedAppSchemaPublicationV1,
+  PrepareValidatedAppSchemaPublicationV1Error
+> {
+  const logicalBindings = yield* prepareSchemaManifestAppSchemaBindingsV1Effect(
     db,
     {
       deploymentId: validated.deploymentId,
@@ -216,17 +276,19 @@ export async function prepareAppSchemaPublicationV1FromSource(
       indexes: validated.indexes,
     },
   );
-  const requirements = await compileAppSchemaCatalogRequirementsV1(
+  const requirements = yield* compileAppSchemaCatalogRequirementsV1Effect(
     logicalBindings.manifest,
   );
-  const artifact = await prepareSchemaVersionArtifact({
+  const artifact = yield* prepareSchemaVersionArtifactEffect({
     deploymentId: validated.deploymentId,
     schemaVersionId: validated.schemaVersionId,
     version: validated.version,
     manifest: decodeSchemaManifestJson(logicalBindings.manifest),
   });
-  enforceAppSchemaPublicationV1CanonicalByteQuota(
-    getPreparedSchemaVersionArtifactCanonicalByteLength(artifact),
+  yield* Effect.fromResult(
+    enforceAppSchemaPublicationV1CanonicalByteQuotaResult(
+      getPreparedSchemaVersionArtifactCanonicalByteLength(artifact),
+    ),
   );
   const prepared = Object.freeze({
     deploymentId: validated.deploymentId,
@@ -240,7 +302,21 @@ export async function prepareAppSchemaPublicationV1FromSource(
     artifact,
   } satisfies PreparedAppSchemaPublicationV1State));
   return prepared;
-}
+});
+
+const compileAppSchemaCatalogRequirementsV1Effect = Effect.fn(
+  "AppSchemaPublicationPreparation.compileRequirements",
+)((manifest: Parameters<typeof compileAppSchemaCatalogRequirementsV1>[0]) =>
+  Effect.tryPromise({
+    try: () => compileAppSchemaCatalogRequirementsV1(manifest),
+    catch: (cause) => ({ cause }),
+  }).pipe(
+    Effect.catch(({ cause }) =>
+      cause instanceof AppSchemaCatalogCompilationErrorV1
+        ? Effect.fail(cause)
+        : Effect.die(cause)
+    ),
+  ));
 
 /** Package-internal authenticated composition seam for D2b/D2c. */
 export function getPreparedAppSchemaPublicationV1State(
@@ -253,62 +329,67 @@ export function getPreparedAppSchemaPublicationV1State(
   return state;
 }
 
-function validateAndSnapshotInput(
+function validateAndSnapshotInputResult(
   input: PrepareAppSchemaPublicationV1Input,
-): ValidatedPrepareAppSchemaPublicationV1Input {
+): Result.Result<
+  ValidatedPrepareAppSchemaPublicationV1Input,
+  InvalidAppSchemaPublicationV1InputError | AppSchemaPublicationV1QuotaExceededError
+> {
   if (!hasExactOwnDataKeys(input, PREPARE_INPUT_KEYS)) {
-    throw new InvalidAppSchemaPublicationV1InputError({
+    return Result.fail(new InvalidAppSchemaPublicationV1InputError({
       reason: "invalidInputShape",
-    });
+    }));
   }
-  enforceAppSchemaPublicationV1DeclarationQuotas(
+  return enforceAppSchemaPublicationV1DeclarationQuotasResult(
     input.tables,
     input.indexes,
-  );
-  const deploymentId = input.deploymentId;
-  if (!isNonBlankString(deploymentId)) {
-    throw invalidField("deploymentId");
-  }
+  ).pipe(Result.flatMap(() => Result.gen(function* () {
+    const deploymentId = input.deploymentId;
+    if (!isNonBlankString(deploymentId)) {
+      return yield* Result.fail(invalidField("deploymentId"));
+    }
+    const schemaVersionId = yield* decodePublicationInputFieldResult(
+      "schemaVersionId",
+      () => decodeCatalogSchemaVersionId(input.schemaVersionId),
+    );
+    const version = yield* decodePublicationInputFieldResult(
+      "version",
+      () => decodeCatalogSchemaVersion(input.version),
+    );
+    const decodedTables = yield* decodePublicationInputFieldResult(
+      "tables",
+      () => decodeSchemaManifestAppTableDeclarationsV1(input.tables),
+    );
+    const decodedIndexes = yield* decodePublicationInputFieldResult(
+      "indexes",
+      () => decodeSchemaManifestAppIndexDeclarationsV1(input.indexes),
+    );
+    yield* enforceAppSchemaPublicationV1CanonicalByteLowerBoundResult(
+      decodedTables,
+      decodedIndexes,
+    );
 
-  let schemaVersionId: CatalogSchemaVersionId;
-  try {
-    schemaVersionId = decodeCatalogSchemaVersionId(input.schemaVersionId);
-  } catch (cause) {
-    throw invalidField("schemaVersionId", cause);
-  }
-  let version: CatalogSchemaVersion;
-  try {
-    version = decodeCatalogSchemaVersion(input.version);
-  } catch (cause) {
-    throw invalidField("version", cause);
-  }
-  let decodedTables: ReadonlyArray<SchemaManifestAppTableDeclarationV1>;
-  try {
-    decodedTables = decodeSchemaManifestAppTableDeclarationsV1(input.tables);
-  } catch (cause) {
-    throw invalidField("tables", cause);
-  }
-  let decodedIndexes: ReadonlyArray<SchemaManifestAppIndexDeclarationV1>;
-  try {
-    decodedIndexes = decodeSchemaManifestAppIndexDeclarationsV1(input.indexes);
-  } catch (cause) {
-    throw invalidField("indexes", cause);
-  }
-  enforceAppSchemaPublicationV1CanonicalByteLowerBound(
-    decodedTables,
-    decodedIndexes,
-  );
+    const tables = snapshotSchemaManifestValue(decodedTables);
+    const indexes = snapshotSchemaManifestValue(decodedIndexes);
 
-  const tables = snapshotSchemaManifestValue(decodedTables);
-  const indexes = snapshotSchemaManifestValue(decodedIndexes);
+    return Object.freeze({
+      deploymentId,
+      schemaVersionId,
+      version,
+      tables,
+      indexes,
+    } satisfies ValidatedPrepareAppSchemaPublicationV1Input);
+  })));
+}
 
-  return Object.freeze({
-    deploymentId,
-    schemaVersionId,
-    version,
-    tables,
-    indexes,
-  } satisfies ValidatedPrepareAppSchemaPublicationV1Input);
+function decodePublicationInputFieldResult<Value>(
+  field: "schemaVersionId" | "version" | "tables" | "indexes",
+  decode: () => Value,
+): Result.Result<Value, InvalidAppSchemaPublicationV1InputError> {
+  return Result.try({
+    try: decode,
+    catch: (cause) => invalidField(field, cause),
+  });
 }
 
 function invalidField(
