@@ -7,7 +7,7 @@ import {
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
-import { Cause, Effect } from "effect";
+import { Cause, Effect, Result } from "effect";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
@@ -16,8 +16,8 @@ import {
 } from "../src/appSchemaPublicationPreparation";
 import {
   AppSchemaPublicationV1QuotaExceededError,
-  enforceAppSchemaPublicationV1CanonicalByteQuota,
-  enforceAppSchemaPublicationV1DeclarationQuotas,
+  enforceAppSchemaPublicationV1CanonicalByteQuotaResult,
+  enforceAppSchemaPublicationV1DeclarationQuotasResult,
   MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
   MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS,
   MAX_APP_SCHEMA_PUBLICATION_V1_DEVELOPER_INDEXES,
@@ -38,6 +38,13 @@ import { SchemaManifestAppSchemaBindingPlanStaleError } from "../src/schemaManif
 import { ensureStableTableIdentityEffect } from "../src/stableTableCatalog";
 import type { StableTableCatalogTransaction } from "../src/stableTableCatalog";
 import { runEffect } from "./effectTestRuntime";
+
+type ThrowingQuotaPolicyExport = Extract<
+  keyof typeof import("../src/appSchemaPublicationPolicy"),
+  | "enforceAppSchemaPublicationV1DeclarationQuotas"
+  | "enforceAppSchemaPublicationV1CanonicalByteLowerBound"
+  | "enforceAppSchemaPublicationV1CanonicalByteQuota"
+>;
 
 const prepareAppSchemaPublicationV1 = (
   ...args: Parameters<typeof prepareAppSchemaPublicationV1Effect>
@@ -290,81 +297,92 @@ describe("app-schema V1 publication facade", () => {
   });
 
   it("enforces fixed declaration and canonical-byte quotas at their boundaries", () => {
-    expect(() =>
-      enforceAppSchemaPublicationV1DeclarationQuotas(
-        Array.from({
-          length: MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS,
-        }),
-        [],
-      )
-    ).not.toThrow();
-    expect(() =>
-      enforceAppSchemaPublicationV1DeclarationQuotas(
-        Array.from({
-          length:
+    expectTypeOf<ThrowingQuotaPolicyExport>().toEqualTypeOf<never>();
+    expect(
+      Result.isSuccess(
+        enforceAppSchemaPublicationV1DeclarationQuotasResult(
+          Array.from({
+            length: MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS,
+          }),
+          [],
+        ),
+      ),
+    ).toBe(true);
+    const workItemLimit = enforceAppSchemaPublicationV1DeclarationQuotasResult(
+      Array.from({
+        length: MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS + 1,
+      }),
+      [],
+    );
+    expect(Result.isFailure(workItemLimit)).toBe(true);
+    if (Result.isFailure(workItemLimit)) {
+      expect(workItemLimit.failure).toEqual(
+        new AppSchemaPublicationV1QuotaExceededError({
+          reason: "definitionWorkItemCountExceeded",
+          tableCount:
             MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS + 1,
+          developerIndexCount: 0,
+          actualCount:
+            MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS + 1,
+          maximumCount:
+            MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS,
         }),
-        [],
-      )
-    ).toThrowError(
-      new AppSchemaPublicationV1QuotaExceededError({
-        reason: "definitionWorkItemCountExceeded",
-        tableCount:
-          MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS + 1,
-        developerIndexCount: 0,
-        actualCount:
-          MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS + 1,
-        maximumCount:
-          MAX_APP_SCHEMA_PUBLICATION_V1_DEFINITION_WORK_ITEMS,
-      }),
-    );
-    expect(() =>
-      enforceAppSchemaPublicationV1CanonicalByteQuota(
-        MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
-      )
-    ).not.toThrow();
-    expect(() =>
-      enforceAppSchemaPublicationV1CanonicalByteQuota(
+      );
+    }
+    expect(
+      Result.isSuccess(
+        enforceAppSchemaPublicationV1CanonicalByteQuotaResult(
+          MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
+        ),
+      ),
+    ).toBe(true);
+    const canonicalByteLimit =
+      enforceAppSchemaPublicationV1CanonicalByteQuotaResult(
         MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES + 1,
-      )
-    ).toThrowError(
-      new AppSchemaPublicationV1QuotaExceededError({
-        reason: "canonicalBytesExceeded",
-        actualBytes: MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES + 1,
-        maximumBytes: MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
-      }),
-    );
-    expect(() =>
-      enforceAppSchemaPublicationV1DeclarationQuotas(
-        Array.from({
-          length: MAX_APP_SCHEMA_PUBLICATION_V1_TABLES + 1,
+      );
+    expect(Result.isFailure(canonicalByteLimit)).toBe(true);
+    if (Result.isFailure(canonicalByteLimit)) {
+      expect(canonicalByteLimit.failure).toEqual(
+        new AppSchemaPublicationV1QuotaExceededError({
+          reason: "canonicalBytesExceeded",
+          actualBytes: MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES + 1,
+          maximumBytes: MAX_APP_SCHEMA_PUBLICATION_V1_CANONICAL_BYTES,
         }),
-        [],
-      )
-    ).toThrowError(
-      new AppSchemaPublicationV1QuotaExceededError({
-        reason: "tableCountExceeded",
-        actualCount: MAX_APP_SCHEMA_PUBLICATION_V1_TABLES + 1,
-        maximumCount: MAX_APP_SCHEMA_PUBLICATION_V1_TABLES,
-      }),
+      );
+    }
+    const tableLimit = enforceAppSchemaPublicationV1DeclarationQuotasResult(
+      Array.from({ length: MAX_APP_SCHEMA_PUBLICATION_V1_TABLES + 1 }),
+      [],
     );
-    expect(() =>
-      enforceAppSchemaPublicationV1DeclarationQuotas(
+    expect(Result.isFailure(tableLimit)).toBe(true);
+    if (Result.isFailure(tableLimit)) {
+      expect(tableLimit.failure).toEqual(
+        new AppSchemaPublicationV1QuotaExceededError({
+          reason: "tableCountExceeded",
+          actualCount: MAX_APP_SCHEMA_PUBLICATION_V1_TABLES + 1,
+          maximumCount: MAX_APP_SCHEMA_PUBLICATION_V1_TABLES,
+        }),
+      );
+    }
+    const developerIndexLimit =
+      enforceAppSchemaPublicationV1DeclarationQuotasResult(
         [],
         Array.from({
-          length:
+          length: MAX_APP_SCHEMA_PUBLICATION_V1_DEVELOPER_INDEXES + 1,
+        }),
+      );
+    expect(Result.isFailure(developerIndexLimit)).toBe(true);
+    if (Result.isFailure(developerIndexLimit)) {
+      expect(developerIndexLimit.failure).toEqual(
+        new AppSchemaPublicationV1QuotaExceededError({
+          reason: "developerIndexCountExceeded",
+          actualCount:
             MAX_APP_SCHEMA_PUBLICATION_V1_DEVELOPER_INDEXES + 1,
+          maximumCount:
+            MAX_APP_SCHEMA_PUBLICATION_V1_DEVELOPER_INDEXES,
         }),
-      )
-    ).toThrowError(
-      new AppSchemaPublicationV1QuotaExceededError({
-        reason: "developerIndexCountExceeded",
-        actualCount:
-          MAX_APP_SCHEMA_PUBLICATION_V1_DEVELOPER_INDEXES + 1,
-        maximumCount:
-          MAX_APP_SCHEMA_PUBLICATION_V1_DEVELOPER_INDEXES,
-      }),
-    );
+      );
+    }
   });
 
   it("rejects declaration counts before reading the catalog or opening a transaction", async () => {

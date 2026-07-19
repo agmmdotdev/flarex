@@ -53,16 +53,6 @@ export class AppSchemaPublicationV1QuotaExceededError extends Error {
   }
 }
 
-/** Enforce fixed publication declaration limits before catalog planning. */
-export function enforceAppSchemaPublicationV1DeclarationQuotas(
-  tables: unknown,
-  indexes: unknown,
-): void {
-  Result.getOrThrow(
-    enforceAppSchemaPublicationV1DeclarationQuotasResult(tables, indexes),
-  );
-}
-
 export function enforceAppSchemaPublicationV1DeclarationQuotasResult(
   tables: unknown,
   indexes: unknown,
@@ -113,15 +103,6 @@ export function enforceAppSchemaPublicationV1DeclarationQuotasResult(
  * This is deliberately a lower bound: the authoritative exact canonical-byte
  * check still runs after every fresh preparation.
  */
-export function enforceAppSchemaPublicationV1CanonicalByteLowerBound(
-  tables: ReadonlyArray<SchemaManifestAppTableDeclarationV1>,
-  indexes: ReadonlyArray<SchemaManifestAppIndexDeclarationV1>,
-): void {
-  Result.getOrThrow(
-    enforceAppSchemaPublicationV1CanonicalByteLowerBoundResult(tables, indexes),
-  );
-}
-
 export function enforceAppSchemaPublicationV1CanonicalByteLowerBoundResult(
   tables: ReadonlyArray<SchemaManifestAppTableDeclarationV1>,
   indexes: ReadonlyArray<SchemaManifestAppIndexDeclarationV1>,
@@ -167,15 +148,6 @@ export function enforceAppSchemaPublicationV1CanonicalByteLowerBoundResult(
   return failure === undefined
     ? Result.succeed(undefined)
     : Result.fail(failure);
-}
-
-/** Enforce the exact byte ceiling after fresh preparation, before writes. */
-export function enforceAppSchemaPublicationV1CanonicalByteQuota(
-  canonicalByteLength: number,
-): void {
-  Result.getOrThrow(
-    enforceAppSchemaPublicationV1CanonicalByteQuotaResult(canonicalByteLength),
-  );
 }
 
 export function enforceAppSchemaPublicationV1CanonicalByteQuotaResult(

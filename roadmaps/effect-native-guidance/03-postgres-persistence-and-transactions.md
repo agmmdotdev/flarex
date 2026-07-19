@@ -257,7 +257,9 @@ allocators, combined planner APIs, and D2d's exception-based retry loop and
 outer runtime bridge were deleted. Its outer Promise runner now belongs to
 `FlarexRuntimePersistence.publishAppSchemaV1`, whose host-facing public
 contract remains Promise-based. Protocol compilation and canonicalization
-remain narrow foreign Promise edges, and D2a still performs no SQL writes.
+remain narrow foreign Promise edges, and D2a still performs no SQL writes. The
+three quota policies now expose only their pure `Result` forms; their
+unconsumed throwing projections and facade-only assertions are deleted.
 
 The retained table-only `ensureAppTableDefinitionsArtifactV1` compatibility
 operation is now Effect-native behind its unchanged public Promise contract.
