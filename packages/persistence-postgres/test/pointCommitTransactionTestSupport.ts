@@ -69,6 +69,9 @@ export async function pointCommitFinishingCommandFromStoredAttemptV1(
   authority: StoredAttemptEvidenceAuthorityV1,
   evidence: StoredAttemptEvidenceV1,
 ): Promise<PointCommitFinishingTransitionCommandV1> {
+  if (authority.executionClaim === undefined) {
+    throw new Error("Running test evidence has no execution claim.");
+  }
   const scalar = pointCommitScalarCommandForLifecycleFromStoredAttemptV1(
     authority,
     evidence,
@@ -76,6 +79,7 @@ export async function pointCommitFinishingCommandFromStoredAttemptV1(
   );
   return Object.freeze({
     ...scalar,
+    executionClaim: Object.freeze({ ...authority.executionClaim }),
     session: Object.freeze({ ...scalar.session, lifecycle: "running" as const }),
     sealIdentity: Object.freeze({
       ...scalar.sealIdentity,

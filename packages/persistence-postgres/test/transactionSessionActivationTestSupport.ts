@@ -22,10 +22,14 @@ import {
 } from "flarex-protocol/transaction-session";
 import { FLAREX_VALUE_CODEC_VERSION_V1 } from "flarex-protocol/value";
 
+import type { TransactionExecutionClaimObservationV1 } from
+  "../src/transactionExecutionClaimModel";
+
 import type { FlarexSqlClient } from "../src";
 import type {
   PointMutationSessionActivationPersistenceV1,
   PointMutationSessionActivationResultV1,
+  PointMutationSessionAnchorV1,
   PointMutationSessionAttemptLoadPersistenceV1,
   PointMutationSessionAttemptLoadResultV1,
   PointMutationSessionAttemptAbortInputV1,
@@ -38,6 +42,11 @@ import { runEffect } from "./effectTestRuntime";
 
 type ActivationEvidence = PreparedPointMutationSessionActivationV1["evidence"];
 
+const executionClaimsByAttempt = new Map<
+  string,
+  TransactionExecutionClaimObservationV1
+>();
+
 export interface ActivationFixtureOverrides {
   readonly deploymentId?: TransactionGrantDeploymentIdV1;
   readonly scopeId?: ReplacementScopeIdV1;
@@ -45,11 +54,29 @@ export interface ActivationFixtureOverrides {
 }
 
 /** Explicit test runtime boundary for the Effect-native activation port. */
-export function activatePointMutationSession(
+export async function activatePointMutationSession(
   persistence: PointMutationSessionActivationPersistenceV1,
   input: PreparedPointMutationSessionActivationV1,
 ): Promise<PointMutationSessionActivationResultV1> {
-  return runEffect(persistence.activateEffect(input));
+  const result = await runEffect(persistence.activateEffect(input));
+  if (result.status === "created") {
+    executionClaimsByAttempt.set(
+      executionClaimAttemptKey(result.anchor),
+      result.executionClaim,
+    );
+  }
+  return result;
+}
+
+/** Returns only the exact server-created claim captured with this fixture. */
+export function executionClaimForAnchor(
+  anchor: PointMutationSessionAnchorV1,
+): TransactionExecutionClaimObservationV1 {
+  const claim = executionClaimsByAttempt.get(executionClaimAttemptKey(anchor));
+  if (claim === undefined) {
+    throw new Error("Execution-claim fixture evidence is missing.");
+  }
+  return claim;
 }
 
 /** Explicit test runtime boundary for the Effect-native attempt-load port. */
@@ -211,4 +238,13 @@ export function uuidSequence(...values: readonly string[]): () => string {
 
 function filledBytes(value: number, length: number): Uint8Array {
   return new Uint8Array(length).fill(value);
+}
+
+function executionClaimAttemptKey(anchor: PointMutationSessionAnchorV1): string {
+  return [
+    anchor.deploymentId,
+    anchor.scopeId,
+    anchor.sessionId,
+    anchor.attemptFence.toString(),
+  ].join("\u0000");
 }

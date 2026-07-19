@@ -21,6 +21,7 @@ import type { LocatedScopeClockReader } from "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
 import {
   fxSystemSnapshotLeases,
+  fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournals,
   fxSystemTransactionSessions,
 } from "../src/schema";
@@ -30,6 +31,7 @@ import {
   PointMutationSessionAttemptTerminalizationPersistenceV1Error,
   PointMutationSessionAttemptTerminalizationV1Error,
   PointMutationSessionAuthorityCorruptionV1Error,
+  createPointMutationExecutionClaimAcquisitionV1,
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
@@ -41,6 +43,7 @@ import {
 import {
   abortPointMutationSessionAttempt,
   activatePointMutationSession,
+  executionClaimForAnchor,
   expirePointMutationSessionAttempt,
   loadPointMutationSessionAttempt,
   pointMutationSessionActivationFixture,
@@ -493,6 +496,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
 
     const aborted = await abortPointMutationSessionAttempt(terminalization, {
       selector,
+      executionClaim: executionClaimForAnchor(anchor),
       expectedSnapshotToken: anchor.snapshotToken,
     });
     const firstTerminalizedAt = aborted.terminal.terminalizedAt;
@@ -511,6 +515,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
       "lock:sessionLocked",
       "lock:leaseLocked",
       "lock:journalRootLocked",
+      "lock:executionClaimLocked",
       "write:journalDeleted",
       "write:leaseDeleted",
       "write:sessionTerminalized",
@@ -533,6 +538,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
       terminalization,
       {
         selector,
+        executionClaim: executionClaimForAnchor(anchor),
         expectedSnapshotToken: anchor.snapshotToken,
       },
     );
@@ -562,12 +568,12 @@ describe("O03-B exact point-mutation attempt authority", () => {
     await expect(
       abortPointMutationSessionAttempt(terminalization, {
         selector: selectorFromAnchor(finishingAnchor),
+        executionClaim: executionClaimForAnchor(finishingAnchor),
         expectedSnapshotToken: finishingAnchor.snapshotToken,
       }),
-    ).resolves.toMatchObject({
-      status: "terminalized",
-      terminal: { lifecycle: "aborted" },
-    });
+    ).rejects.toMatchObject({
+      issue: { reason: "attemptNotTerminalizable", lifecycle: "finishing" },
+    } satisfies Partial<PointMutationSessionAttemptTerminalizationV1Error>);
 
     const committed = await provisionContext("terminal_committed");
     const committedAnchor = (await activate(committed)).anchor;
@@ -594,6 +600,42 @@ describe("O03-B exact point-mutation attempt authority", () => {
     });
   });
 
+  it("rejects an old execution owner from abort after an exact takeover", async () => {
+    const context = await provisionContext("terminal_stale_execution_claim");
+    const anchor = (await activate(context)).anchor;
+    const oldClaim = executionClaimForAnchor(anchor);
+    await persistence.query(
+      `update fx_system_tx_execution_claim
+       set claimed_at = clock_timestamp() - interval '2 minutes',
+           claim_expires_at = clock_timestamp() - interval '1 minute'
+       where session_id = $1`,
+      [anchor.sessionId],
+    );
+    const acquisition = createPointMutationExecutionClaimAcquisitionV1(
+      resolutionPorts(persistence),
+      {
+        durationMilliseconds: 30_000,
+        randomOwner: () => "82000000-0000-4000-8000-000000009991",
+      },
+    );
+    await expect(runEffect(acquisition.acquireEffect(
+      selectorFromAnchor(anchor),
+    ))).resolves.toMatchObject({
+      kind: "acquired",
+      mode: "execute",
+      observation: { claimFence: 2n },
+    });
+
+    await expect(runFailure(terminalizationPersistence().abortEffect({
+      selector: selectorFromAnchor(anchor),
+      executionClaim: oldClaim,
+      expectedSnapshotToken: anchor.snapshotToken,
+    }))).resolves.toMatchObject({
+      _tag: "PointMutationSessionAttemptTerminalizationV1Error",
+      issue: { reason: "executionClaimUnavailable" },
+    });
+  });
+
   it("maps terminalization authority rejection into the typed Effect channel", async () => {
     const context = await provisionContext("terminal_typed_authority_failure");
     const anchor = (await activate(context)).anchor;
@@ -612,6 +654,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
     const failure = await runFailure(
       terminalization.abortEffect({
         selector: selectorFromAnchor(anchor),
+        executionClaim: executionClaimForAnchor(anchor),
         expectedSnapshotToken: anchor.snapshotToken,
       }),
     );
@@ -645,6 +688,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
       });
     const input = {
       selector: selectorFromAnchor(anchor),
+      executionClaim: executionClaimForAnchor(anchor),
       expectedSnapshotToken: anchor.snapshotToken,
     };
     Object.defineProperty(input, "selector", {
@@ -682,6 +726,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
     const fiber = Effect.runFork(
       terminalization.abortEffect({
         selector: selectorFromAnchor(anchor),
+        executionClaim: executionClaimForAnchor(anchor),
         expectedSnapshotToken: anchor.snapshotToken,
       }),
     );
@@ -746,6 +791,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
     await expect(
       abortPointMutationSessionAttempt(terminalization, {
         selector: selectorFromAnchor(lateAbortAnchor),
+        executionClaim: executionClaimForAnchor(lateAbortAnchor),
         expectedSnapshotToken: lateAbortAnchor.snapshotToken,
       }),
     ).resolves.toMatchObject({
@@ -817,6 +863,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
     await expect(
       abortPointMutationSessionAttempt(terminalization, {
         selector: selectorFromAnchor(changedSnapshotAnchor),
+        executionClaim: executionClaimForAnchor(changedSnapshotAnchor),
         expectedSnapshotToken: changedSnapshotAnchor.snapshotToken,
       }),
     ).rejects.toMatchObject({
@@ -928,10 +975,23 @@ describe("O03-B exact point-mutation attempt authority", () => {
       .select()
       .from(fxSystemTransactionJournals)
       .where(eq(fxSystemTransactionJournals.sessionId, anchor.sessionId));
+    const claims = await persistence.drizzle
+      .select()
+      .from(fxSystemTransactionExecutionClaims)
+      .where(eq(
+        fxSystemTransactionExecutionClaims.sessionId,
+        anchor.sessionId,
+      ));
     const session = sessions[0];
     const lease = leases[0];
     const journal = journals[0];
-    if (session === undefined || lease === undefined || journal === undefined) {
+    const claim = claims[0];
+    if (
+      session === undefined ||
+      lease === undefined ||
+      journal === undefined ||
+      claim === undefined
+    ) {
       throw new Error("Maximum-fence fixture is missing its active attempt.");
     }
     const maximumFence = TransactionAttemptFenceSchema.make(
@@ -956,6 +1016,10 @@ describe("O03-B exact point-mutation attempt authority", () => {
         ...journal,
         attemptFence: maximumFence,
       });
+      await tx.insert(fxSystemTransactionExecutionClaims).values({
+        ...claim,
+        attemptFence: maximumFence,
+      });
     });
     const selector = Object.freeze({
       ...selectorFromAnchor(anchor),
@@ -966,6 +1030,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
       terminalizationPersistence(),
       {
         selector,
+        executionClaim: executionClaimForAnchor(anchor),
         expectedSnapshotToken: anchor.snapshotToken,
       },
     );
@@ -999,6 +1064,7 @@ describe("O03-B exact point-mutation attempt authority", () => {
       const failure = await runFailure(
         terminalization.abortEffect({
           selector: selectorFromAnchor(anchor),
+          executionClaim: executionClaimForAnchor(anchor),
           expectedSnapshotToken: anchor.snapshotToken,
         }),
       );

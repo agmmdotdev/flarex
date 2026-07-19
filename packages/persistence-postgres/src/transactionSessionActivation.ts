@@ -1,4 +1,7 @@
-import { bytesEqual } from "@flarex/utils/bytes";
+import {
+  bytesEqual,
+  isUint8ArrayWithByteLength,
+} from "@flarex/utils/bytes";
 import {
   copyFiniteDate,
   finiteDateMilliseconds,
@@ -28,6 +31,7 @@ import {
 import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
+  MAX_PERSISTED_SIGNED_INT64_V1,
   SnapshotTokenSchema,
   StorageGenerationFenceSchema,
   ReplacementScopeIdV1Schema,
@@ -60,7 +64,9 @@ import {
   TransactionArgumentsSha256V1Schema,
   TransactionAuthorizationGrantSha256V1Schema,
   TransactionAuthorizationRevocationEpochSchema,
+  TransactionFunctionPathV1Schema,
   TransactionIdentityAccessPolicySha256V1Schema,
+  TransactionRequestKeyV1Schema,
   TransactionRequestSha256V1Schema,
   TransactionSessionIdV1Schema,
   type TransactionAttemptFence,
@@ -74,6 +80,10 @@ import type { FlarexMetadataDatabase } from "./deployments";
 import type { AppRowTransaction } from "./appRows";
 import {
   createCommittedPointOutcomeResolverV1,
+  type CommittedPointOutcomeResolutionV1,
+  type CommittedPointOutcomeResolverV1,
+  type ResolveCommittedPointOutcomeErrorV1,
+  type ResolveCommittedPointOutcomeInputV1,
 } from "./committedPointOutcome";
 import {
   getScopeClock,
@@ -100,13 +110,30 @@ import {
 } from "./pinnedPointTableResolution";
 import {
   fxSystemScopeClocks,
+  fxSystemIdempotency,
   fxSystemSnapshotLeases,
+  fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournalLatestReceipts,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionJournals,
   fxSystemTransactionSessions,
 } from "./schema";
+import {
+  deriveTransactionExecutionClaimV1,
+  inspectTransactionExecutionClaimV1,
+  lockExactTransactionExecutionClaimV1,
+  requireLiveTransactionExecutionClaimV1,
+  TransactionExecutionClaimCorruptionV1Error,
+  TransactionExecutionClaimStaleV1Error,
+} from "./transactionExecutionClaimPersistence";
+import {
+  decodeTransactionExecutionClaimFenceV1,
+  decodeTransactionExecutionClaimOwnerV1,
+  type TransactionExecutionClaimObservationV1,
+  type TransactionExecutionClaimOwnerV1,
+  type TransactionExecutionClaimPinV1,
+} from "./transactionExecutionClaimModel";
 import {
   buildFreshTransactionAttemptFacetV1,
   isPristineFreshTransactionAttemptJournalRootV1,
@@ -143,6 +170,9 @@ const LOAD_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1 = Symbol(
 const TERMINALIZE_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1 = Symbol(
   "flarex.persistence-postgres.terminalizeExactPointMutationSessionAttemptEffectV1",
 );
+const ACQUIRE_POINT_MUTATION_EXECUTION_CLAIM_EFFECT_V1 = Symbol(
+  "flarex.persistence-postgres.acquirePointMutationExecutionClaimEffectV1",
+);
 
 const decodeAttemptDeploymentIdResult = Schema.decodeUnknownResult(
   Schema.toType(TransactionGrantDeploymentIdV1Schema),
@@ -172,6 +202,8 @@ export type PointMutationSessionActivationResolutionPortsV1 =
 export interface PointMutationSessionActivationPersistenceOptionsV1 {
   readonly leaseDurationMilliseconds: number;
   readonly randomUuid?: () => string;
+  readonly executionClaimDurationMilliseconds?: number;
+  readonly randomExecutionClaimOwner?: () => string;
 }
 
 type TransactionSessionInsert =
@@ -241,11 +273,129 @@ export type PointMutationSessionActivationResultV1 =
   | {
       readonly status: "created";
       readonly anchor: PointMutationSessionAnchorV1;
+      readonly executionClaim: TransactionExecutionClaimObservationV1;
     }
   | {
-      readonly status: "replayed";
+      readonly status: "busy";
       readonly anchor: PointMutationSessionAnchorV1;
     };
+
+export type PointMutationExecutionClaimAcquisitionModeV1 =
+  | "execute"
+  | "finishOnly";
+
+export type PointMutationExecutionClaimAcquisitionResultV1 =
+  | Readonly<{
+      readonly kind: "replayed";
+      readonly outcome: Exclude<
+        CommittedPointOutcomeResolutionV1,
+        Readonly<{ readonly kind: "missing" }>
+      >;
+    }>
+  | Readonly<{
+      readonly kind: "busy";
+      readonly observation: TransactionExecutionClaimObservationV1;
+    }>
+  | Readonly<{
+      readonly kind: "nonDispatchable";
+      readonly reason: "dirtyOpen" | "failedRoot";
+    }>
+  | Readonly<{
+      readonly kind: "acquired";
+      readonly mode: PointMutationExecutionClaimAcquisitionModeV1;
+      readonly observation: TransactionExecutionClaimObservationV1;
+    }>;
+
+export class PointMutationExecutionClaimAcquisitionInputV1Error
+  extends Data.TaggedError(
+    "PointMutationExecutionClaimAcquisitionInputV1Error",
+  )<{
+    readonly reason: "invalidSelector";
+    readonly cause?: unknown;
+  }> {}
+
+export class PointMutationExecutionClaimAcquisitionConfigurationV1Error
+  extends Data.TaggedError(
+    "PointMutationExecutionClaimAcquisitionConfigurationV1Error",
+  )<{
+    readonly reason:
+      | "invalidClaimDuration"
+      | "claimOwnerGenerationFailed"
+      | "claimOwnerInvalid";
+    readonly cause?: unknown;
+  }> {}
+
+export class PointMutationExecutionClaimAcquisitionStaleV1Error
+  extends Data.TaggedError(
+    "PointMutationExecutionClaimAcquisitionStaleV1Error",
+  )<{
+    readonly reason:
+      | "scopeChanged"
+      | "deploymentChanged"
+      | "attemptMissing"
+      | "attemptReplaced"
+      | "lifecycle"
+      | "generationChanged"
+      | "epochChanged"
+      | "revocationEpochChanged"
+      | "leaseExpired"
+      | "authorizationExpired";
+  }> {}
+
+export class PointMutationExecutionClaimAcquisitionCorruptionV1Error
+  extends Data.TaggedError(
+    "PointMutationExecutionClaimAcquisitionCorruptionV1Error",
+  )<{
+    readonly reason:
+      | "preludeInvalid"
+      | "committedOutcomeInvalid"
+      | "committedOutcomeMissing"
+      | "sessionInvalid"
+      | "leaseInvalid"
+      | "journalRootInvalid"
+      | "claimInvalid"
+      | "claimMutationInvalid";
+    readonly cause?: unknown;
+  }> {}
+
+export class PointMutationExecutionClaimAcquisitionResourceV1Error
+  extends Data.TaggedError(
+    "PointMutationExecutionClaimAcquisitionResourceV1Error",
+  )<{
+    readonly dimension: "claimFence";
+    readonly maximum: bigint;
+  }> {}
+
+export class PointMutationExecutionClaimAcquisitionPersistenceV1Error
+  extends Data.TaggedError(
+    "PointMutationExecutionClaimAcquisitionPersistenceV1Error",
+  )<{
+    readonly operation: "prelude" | "transaction";
+    readonly cause: unknown;
+  }> {}
+
+export type PointMutationExecutionClaimAcquisitionV1Error =
+  | PointMutationExecutionClaimAcquisitionInputV1Error
+  | PointMutationExecutionClaimAcquisitionConfigurationV1Error
+  | PointMutationExecutionClaimAcquisitionStaleV1Error
+  | PointMutationExecutionClaimAcquisitionCorruptionV1Error
+  | PointMutationExecutionClaimAcquisitionResourceV1Error
+  | PointMutationExecutionClaimAcquisitionPersistenceV1Error
+  | ResolveCommittedPointOutcomeErrorV1;
+
+export interface PointMutationExecutionClaimAcquisitionV1 {
+  readonly acquireEffect: (
+    input: PointMutationSessionAttemptSelectorV1,
+  ) => Effect.Effect<
+    PointMutationExecutionClaimAcquisitionResultV1,
+    PointMutationExecutionClaimAcquisitionV1Error
+  >;
+}
+
+export interface PointMutationExecutionClaimAcquisitionOptionsV1 {
+  readonly durationMilliseconds: number;
+  readonly randomOwner?: () => string;
+}
 
 export interface PointMutationSessionAttemptLoadResultV1 {
   readonly status: "loaded";
@@ -302,6 +452,7 @@ export type PointMutationSessionAttemptTerminalizationResultV1 =
 export interface PointMutationSessionAttemptAbortInputV1 {
   readonly selector: PointMutationSessionAttemptSelectorV1;
   readonly expectedSnapshotToken: SnapshotToken;
+  readonly executionClaim: TransactionExecutionClaimPinV1;
 }
 
 export interface PointMutationSessionActivationPersistenceV1 {
@@ -339,8 +490,14 @@ export interface PointMutationSessionAttemptTerminalizationPersistenceV1 {
 
 export type PointMutationSessionActivationConfigurationIssueV1 =
   | { readonly reason: "invalidLeaseDuration" }
+  | { readonly reason: "invalidExecutionClaimDuration" }
   | { readonly reason: "invalidGeneratedSessionId"; readonly value: string }
-  | { readonly reason: "sessionIdGenerationFailed"; readonly cause: unknown };
+  | { readonly reason: "sessionIdGenerationFailed"; readonly cause: unknown }
+  | { readonly reason: "invalidGeneratedExecutionClaimOwner"; readonly value: string }
+  | {
+      readonly reason: "executionClaimOwnerGenerationFailed";
+      readonly cause: unknown;
+    };
 
 export class PointMutationSessionActivationConfigurationV1Error extends Error {
   readonly _tag = "PointMutationSessionActivationConfigurationV1Error";
@@ -369,6 +526,7 @@ export type PointMutationSessionActivationIssueV1 =
       readonly lifecycle: Exclude<TransactionSessionLifecycleV1, "running">;
     }
   | { readonly reason: "activeAttemptExpired" }
+  | { readonly reason: "executionClaimUnavailable" }
   | { readonly reason: "sessionIdCollision" };
 
 export class PointMutationSessionActivationV1Error extends Error {
@@ -394,7 +552,8 @@ export type PointMutationSessionAttemptLoadIssueV1 =
   | { readonly reason: "storageGenerationFenceChanged" }
   | { readonly reason: "scopeEpochChanged" }
   | { readonly reason: "authorizationRevocationEpochChanged" }
-  | { readonly reason: "activeAttemptExpired" };
+  | { readonly reason: "activeAttemptExpired" }
+  | { readonly reason: "executionClaimUnavailable" };
 
 export class PointMutationSessionAttemptLoadV1Error extends Error {
   readonly _tag = "PointMutationSessionAttemptLoadV1Error";
@@ -408,6 +567,7 @@ export class PointMutationSessionAttemptLoadV1Error extends Error {
 export type PointMutationSessionAttemptTerminalizationIssueV1 =
   | { readonly reason: "invalidSelector"; readonly cause: unknown }
   | { readonly reason: "invalidAbortSnapshot"; readonly cause: unknown }
+  | { readonly reason: "invalidAbortExecutionClaim"; readonly cause: unknown }
   | { readonly reason: "selectorScopeMismatch" }
   | { readonly reason: "sessionMissing" }
   | { readonly reason: "staleAttemptFence" }
@@ -415,7 +575,7 @@ export type PointMutationSessionAttemptTerminalizationIssueV1 =
       readonly reason: "attemptNotTerminalizable";
       readonly lifecycle: Exclude<
         TransactionSessionLifecycleV1,
-        PointMutationSessionActiveLifecycleV1 |
+        "running" |
           PointMutationSessionTerminalLifecycleV1
       >;
     }
@@ -427,7 +587,8 @@ export type PointMutationSessionAttemptTerminalizationIssueV1 =
   | {
       readonly reason: "attemptStillLive";
       readonly effectiveExpiresAt: string;
-    };
+    }
+  | { readonly reason: "executionClaimUnavailable" };
 
 export class PointMutationSessionAttemptTerminalizationV1Error extends Error {
   readonly _tag = "PointMutationSessionAttemptTerminalizationV1Error";
@@ -453,6 +614,7 @@ export type PointMutationSessionAuthorityCorruptionIssueV1 =
   | "journalRootInvalid"
   | "terminalJournalRootPresent"
   | "attemptSnapshotChanged"
+  | "executionClaimInvalid"
   | "terminalizationWriteMismatch";
 
 export class PointMutationSessionAuthorityCorruptionV1Error extends Error {
@@ -557,13 +719,15 @@ export type PointMutationSessionAttemptTerminalizationEffectErrorV1 =
 export type PointMutationSessionActivationWriteStepV1 =
   | "sessionInserted"
   | "leaseInserted"
-  | "journalRootInserted";
+  | "journalRootInserted"
+  | "executionClaimInserted";
 
 export type PointMutationSessionAttemptLoadLockStepV1 =
   | "clockLocked"
   | "sessionLocked"
   | "leaseLocked"
-  | "journalRootLocked";
+  | "journalRootLocked"
+  | "executionClaimLocked";
 
 export type PointMutationSessionAttemptTerminalizationOperationV1 =
   | "abort"
@@ -638,10 +802,26 @@ interface LocatedPointMutationSessionAttemptTerminalizationTargetV1
   >;
 }
 
+interface LocatedPointMutationExecutionClaimAcquisitionTargetV1
+  extends LocatedScopeClockReader {
+  readonly [ACQUIRE_POINT_MUTATION_EXECUTION_CLAIM_EFFECT_V1]: (
+    input: Readonly<{
+      readonly selector: PointMutationSessionAttemptSelectorV1;
+      readonly preliminaryAuthority: TrustedScopeAuthority;
+      readonly durationMilliseconds: number;
+      readonly randomOwner: () => string;
+    }>,
+  ) => Effect.Effect<
+    PointMutationExecutionClaimAcquisitionResultV1,
+    PointMutationExecutionClaimAcquisitionV1Error
+  >;
+}
+
 interface LocatedPointMutationSessionTargetV1
   extends LocatedPointMutationSessionActivationTargetV1,
     LocatedPointMutationSessionAttemptLoadTargetV1,
     LocatedPointMutationSessionAttemptTerminalizationTargetV1,
+    LocatedPointMutationExecutionClaimAcquisitionTargetV1,
     LocatedExactRunningAttemptKernelV1,
     LocatedPointCommitPublicationTargetV1 {}
 
@@ -650,6 +830,8 @@ interface LocatedPointMutationSessionActivationInputV1 {
   readonly preliminaryAuthority: TrustedScopeAuthority;
   readonly candidateSessionId: TransactionSessionIdV1;
   readonly leaseDurationMilliseconds: number;
+  readonly executionClaimDurationMilliseconds: number;
+  readonly executionClaimOwner: TransactionExecutionClaimOwnerV1;
 }
 
 interface LocatedPointMutationSessionAttemptLoadInputV1 {
@@ -662,6 +844,7 @@ type PreparedPointMutationSessionAttemptTerminalizationInputV1 =
       readonly operation: "abort";
       readonly selector: PointMutationSessionAttemptSelectorV1;
       readonly expectedSnapshotToken: SnapshotToken;
+      readonly executionClaim: TransactionExecutionClaimPinV1;
     }
   | {
       readonly operation: "expire";
@@ -688,7 +871,12 @@ export function createPointMutationSessionActivationPersistenceV1(
   const leaseDurationMilliseconds = requireLeaseDuration(
     options.leaseDurationMilliseconds,
   );
+  const executionClaimDurationMilliseconds = requireActivationExecutionClaimDuration(
+    options.executionClaimDurationMilliseconds ?? leaseDurationMilliseconds,
+  );
   const randomUuid = options.randomUuid ?? (() => crypto.randomUUID());
+  const randomExecutionClaimOwner = options.randomExecutionClaimOwner ??
+    (() => crypto.randomUUID());
 
   const activateEffect = Effect.fn("PointMutationSessionActivation.activate")(
     function* (
@@ -701,6 +889,9 @@ export function createPointMutationSessionActivationPersistenceV1(
         capturePreparedActivation(input),
       );
       const candidateSessionId = yield* generateSessionIdEffect(randomUuid);
+      const executionClaimOwner = yield* generateExecutionClaimOwnerEffect(
+        randomExecutionClaimOwner,
+      );
       const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
         prepared.deploymentId,
         {
@@ -721,6 +912,8 @@ export function createPointMutationSessionActivationPersistenceV1(
         preliminaryAuthority: located.authority,
         candidateSessionId,
         leaseDurationMilliseconds,
+        executionClaimDurationMilliseconds,
+        executionClaimOwner,
       });
     },
   );
@@ -763,6 +956,72 @@ export function createPointMutationSessionAttemptLoadPersistenceV1(
   );
 
   return Object.freeze({ loadEffect });
+}
+
+export function createPointMutationExecutionClaimAcquisitionV1(
+  ports: PointMutationSessionAuthorityResolutionPortsV1,
+  options: PointMutationExecutionClaimAcquisitionOptionsV1,
+): PointMutationExecutionClaimAcquisitionV1 {
+  const durationMilliseconds = requireExecutionClaimAcquisitionDuration(
+    options.durationMilliseconds,
+  );
+  const randomOwner = options.randomOwner ?? (() => crypto.randomUUID());
+  const acquireEffect = Effect.fn(
+    "PointMutationExecutionClaimAcquisition.acquire",
+  )(function* (
+    input: PointMutationSessionAttemptSelectorV1,
+  ): Effect.fn.Return<
+    PointMutationExecutionClaimAcquisitionResultV1,
+    PointMutationExecutionClaimAcquisitionV1Error
+  > {
+    const selector = yield* Effect.fromResult(
+      captureAttemptSelector(input).pipe(Result.mapError((cause) =>
+        new PointMutationExecutionClaimAcquisitionInputV1Error({
+          reason: "invalidSelector",
+          cause,
+        })
+      )),
+    );
+    const located = yield* resolveLocatedTrustedScopeAuthorityEffect(
+      selector.deploymentId,
+      {
+        scopeMetadata: ports.scopeMetadata,
+        provisioningReceipts: ports.provisioningReceipts,
+        scopeClockTargets: ports.scopeSessionTargets,
+      },
+    ).pipe(Effect.mapError(mapExecutionClaimAcquisitionAuthorityError));
+    if (located.authority.scopeId !== selector.scopeId) {
+      return yield* Effect.fail(
+        new PointMutationExecutionClaimAcquisitionStaleV1Error({
+          reason: "scopeChanged",
+        }),
+      );
+    }
+    const candidate = located.target;
+    if (
+      typeof Reflect.get(
+        candidate,
+        ACQUIRE_POINT_MUTATION_EXECUTION_CLAIM_EFFECT_V1,
+      ) !== "function"
+    ) {
+      return yield* Effect.fail(
+        new PointMutationExecutionClaimAcquisitionPersistenceV1Error({
+          operation: "prelude",
+          cause: new Error(
+            "Located scope target cannot acquire execution claims.",
+          ),
+        }),
+      );
+    }
+    const target = candidate as LocatedPointMutationExecutionClaimAcquisitionTargetV1;
+    return yield* target[ACQUIRE_POINT_MUTATION_EXECUTION_CLAIM_EFFECT_V1]({
+      selector,
+      preliminaryAuthority: located.authority,
+      durationMilliseconds,
+      randomOwner,
+    });
+  });
+  return Object.freeze({ acquireEffect });
 }
 
 export function createPointMutationSessionAttemptTerminalizationPersistenceV1(
@@ -814,6 +1073,7 @@ export function createPointMutationSessionAttemptTerminalizationPersistenceV1(
       operation: "abort",
       selector: captured.selector,
       expectedSnapshotToken: captured.expectedSnapshotToken,
+      executionClaim: captured.executionClaim,
     });
   });
 
@@ -856,7 +1116,7 @@ export function createLocatedPointMutationSessionActivationTargetV1(
       input: LocatedPointMutationSessionActivationInputV1,
     ) => Effect.uninterruptible(Effect.tryPromise({
       try: () =>
-        db.transaction((tx) => activateInTransaction(tx, input, afterWrite)),
+        runReadCommitted((tx) => activateInTransaction(tx, input, afterWrite)),
       catch: mapActivationTransactionError,
     })),
     [LOAD_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]: (
@@ -896,6 +1156,13 @@ export function createLocatedPointMutationSessionActivationTargetV1(
     [RUN_LOCATED_READ_COMMITTED_V1]: runReadCommitted,
     [RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1]:
       committedOutcomeResolver.resolve,
+    [ACQUIRE_POINT_MUTATION_EXECUTION_CLAIM_EFFECT_V1]: (input) =>
+      acquireLocatedPointMutationExecutionClaimEffect(
+        db,
+        runReadCommitted,
+        committedOutcomeResolver,
+        input,
+      ),
     [TERMINALIZE_EXACT_POINT_MUTATION_SESSION_ATTEMPT_EFFECT_V1]: (
       input: LocatedPointMutationSessionAttemptTerminalizationInputV1,
     ) => Effect.uninterruptible(Effect.tryPromise({
@@ -913,6 +1180,579 @@ export function createLocatedPointMutationSessionActivationTargetV1(
     })),
   } satisfies LocatedPointMutationSessionTargetV1);
   return target;
+}
+
+interface PointMutationExecutionClaimAcquisitionPreludeV1 {
+  readonly lookup: ResolveCommittedPointOutcomeInputV1;
+  readonly attemptFence: TransactionAttemptFence;
+}
+
+type PointMutationExecutionClaimAcquisitionTransactionResultV1 =
+  | Readonly<{ readonly kind: "outcomeObserved" }>
+  | Exclude<
+      PointMutationExecutionClaimAcquisitionResultV1,
+      Readonly<{ readonly kind: "replayed" }>
+    >;
+
+const acquireLocatedPointMutationExecutionClaimEffect = Effect.fn(
+  "PointMutationExecutionClaimAcquisition.acquireLocated",
+)(function* (
+  db: FlarexMetadataDatabase,
+  runReadCommitted: RunLocatedReadCommittedTransactionV1,
+  outcomeResolver: CommittedPointOutcomeResolverV1,
+  input: Readonly<{
+    readonly selector: PointMutationSessionAttemptSelectorV1;
+    readonly preliminaryAuthority: TrustedScopeAuthority;
+    readonly durationMilliseconds: number;
+    readonly randomOwner: () => string;
+  }>,
+): Effect.fn.Return<
+  PointMutationExecutionClaimAcquisitionResultV1,
+  PointMutationExecutionClaimAcquisitionV1Error
+> {
+  const prelude = yield* Effect.uninterruptible(Effect.tryPromise({
+    try: () => loadExecutionClaimAcquisitionPrelude(db, input.selector),
+    catch: mapExecutionClaimAcquisitionPreludeFailure,
+  }));
+  const initialOutcome = yield* outcomeResolver.resolve(prelude.lookup);
+  if (initialOutcome.kind !== "missing") {
+    return Object.freeze({
+      kind: "replayed",
+      outcome: initialOutcome,
+    });
+  }
+
+  const rawOwner = yield* Effect.try({
+    try: input.randomOwner,
+    catch: (cause) =>
+      new PointMutationExecutionClaimAcquisitionConfigurationV1Error({
+        reason: "claimOwnerGenerationFailed",
+        cause,
+      }),
+  });
+  const claimOwner = decodeTransactionExecutionClaimOwnerV1(rawOwner);
+  if (Result.isFailure(claimOwner)) {
+    return yield* Effect.fail(
+      new PointMutationExecutionClaimAcquisitionConfigurationV1Error({
+        reason: "claimOwnerInvalid",
+      }),
+    );
+  }
+
+  const transactionResult = yield* Effect.uninterruptible(
+    Effect.tryPromise({
+      try: () => runReadCommitted((tx) =>
+        acquireExecutionClaimInTransaction(
+          tx,
+          {
+            selector: input.selector,
+            preliminaryAuthority: input.preliminaryAuthority,
+            durationMilliseconds: input.durationMilliseconds,
+            claimOwner: claimOwner.success,
+          },
+          prelude,
+        )),
+      catch: mapExecutionClaimAcquisitionTransactionFailure,
+    }),
+  );
+  if (transactionResult.kind !== "outcomeObserved") {
+    return transactionResult;
+  }
+  const settledOutcome = yield* outcomeResolver.resolve(prelude.lookup);
+  if (settledOutcome.kind === "missing") {
+    return yield* Effect.fail(
+      new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+        reason: "committedOutcomeMissing",
+      }),
+    );
+  }
+  return Object.freeze({ kind: "replayed", outcome: settledOutcome });
+});
+
+async function loadExecutionClaimAcquisitionPrelude(
+  db: FlarexMetadataDatabase,
+  selector: PointMutationSessionAttemptSelectorV1,
+): Promise<PointMutationExecutionClaimAcquisitionPreludeV1> {
+  const scopeUuid = projectScopeIdUuidV1(selector.scopeId).scopeUuid;
+  const rows = await db.select({
+    scopeUuid: fxSystemTransactionSessions.scopeUuid,
+    sessionId: fxSystemTransactionSessions.sessionId,
+    attemptFence: fxSystemTransactionSessions.attemptFence,
+    requestKey: fxSystemTransactionSessions.requestKey,
+    identityAccessPolicySha256:
+      fxSystemTransactionSessions.identityAccessPolicySha256,
+    functionPath: fxSystemTransactionSessions.functionPath,
+    requestSha256: fxSystemTransactionSessions.requestSha256,
+  }).from(fxSystemTransactionSessions).where(and(
+    eq(fxSystemTransactionSessions.scopeUuid, scopeUuid),
+    eq(fxSystemTransactionSessions.sessionId, selector.sessionId),
+  )).limit(2);
+  const row = rows[0];
+  if (rows.length === 0 || row === undefined) {
+    throw new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "attemptMissing",
+    });
+  }
+  if (rows.length !== 1) {
+    throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+      reason: "preludeInvalid",
+    });
+  }
+  if (
+    row.scopeUuid !== scopeUuid ||
+    row.sessionId !== selector.sessionId ||
+    !isUint8ArrayWithByteLength(row.identityAccessPolicySha256, 32) ||
+    !isUint8ArrayWithByteLength(row.requestSha256, 32)
+  ) {
+    throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+      reason: "preludeInvalid",
+    });
+  }
+  try {
+    return Object.freeze({
+      attemptFence: TransactionAttemptFenceSchema.make(row.attemptFence),
+      lookup: Object.freeze({
+        scopeUuid,
+        requestKey: TransactionRequestKeyV1Schema.make(row.requestKey),
+        expectedIdentityAccessPolicySha256:
+          TransactionIdentityAccessPolicySha256V1Schema.make(
+            new Uint8Array(row.identityAccessPolicySha256),
+          ),
+        expectedFunctionPath: TransactionFunctionPathV1Schema.make(
+          row.functionPath,
+        ),
+        expectedRequestSha256: TransactionRequestSha256V1Schema.make(
+          new Uint8Array(row.requestSha256),
+        ),
+      }),
+    });
+  } catch (cause) {
+    throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+      reason: "preludeInvalid",
+      cause,
+    });
+  }
+}
+
+async function acquireExecutionClaimInTransaction(
+  tx: AppRowTransaction,
+  input: Readonly<{
+    readonly selector: PointMutationSessionAttemptSelectorV1;
+    readonly preliminaryAuthority: TrustedScopeAuthority;
+    readonly durationMilliseconds: number;
+    readonly claimOwner: TransactionExecutionClaimOwnerV1;
+  }>,
+  prelude: PointMutationExecutionClaimAcquisitionPreludeV1,
+): Promise<PointMutationExecutionClaimAcquisitionTransactionResultV1> {
+  const selector = input.selector;
+  const clock = await lockPointMutationSessionClock(tx, selector.scopeId);
+  requireStableExecutionClaimAcquisitionAuthority(
+    clock,
+    input.preliminaryAuthority,
+    selector,
+  );
+
+  const outcomeRows = await tx.select({
+    requestKey: fxSystemIdempotency.requestKey,
+  }).from(fxSystemIdempotency).where(and(
+    eq(fxSystemIdempotency.scopeUuid, clock.scopeUuid),
+    eq(fxSystemIdempotency.requestKey, prelude.lookup.requestKey),
+  )).limit(2).for("update");
+  if (outcomeRows.length > 1) {
+    throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+      reason: "committedOutcomeInvalid",
+    });
+  }
+  if (outcomeRows[0] !== undefined) {
+    return Object.freeze({ kind: "outcomeObserved" });
+  }
+
+  const sessionRows = await tx.select().from(fxSystemTransactionSessions)
+    .where(and(
+      eq(fxSystemTransactionSessions.scopeUuid, clock.scopeUuid),
+      eq(fxSystemTransactionSessions.sessionId, selector.sessionId),
+    )).limit(2).for("update");
+  const session = sessionRows[0];
+  if (sessionRows.length === 0 || session === undefined) {
+    throw new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "attemptMissing",
+    });
+  }
+  if (sessionRows.length !== 1) {
+    throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+      reason: "sessionInvalid",
+    });
+  }
+  if (session.attemptFence !== selector.attemptFence) {
+    throw new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "attemptReplaced",
+    });
+  }
+  if (!sessionMatchesExecutionClaimPrelude(session, prelude)) {
+    throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+      reason: "sessionInvalid",
+    });
+  }
+  if (session.lifecycle === "committed") {
+    throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+      reason: "committedOutcomeMissing",
+    });
+  }
+  if (session.lifecycle !== "running") {
+    throw new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "lifecycle",
+    });
+  }
+
+  const locked = await lockPointMutationSessionAttemptStructure(
+    tx,
+    {
+      scopeId: selector.scopeId,
+      failures: executionClaimAcquisitionAuthorityFailures,
+      afterLeaseLock: undefined,
+    },
+    clock,
+    session,
+  );
+  if (locked.leaseState === "absent") {
+    throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+      reason: "leaseInvalid",
+    });
+  }
+  const root = await requireExactPointMutationSessionJournalRoot(
+    tx,
+    selector.scopeId,
+    clock.scopeUuid,
+    locked.sessionId,
+    locked.attemptFence,
+    undefined,
+  );
+  const claimRow = await lockExactTransactionExecutionClaimV1(tx, {
+    scopeId: selector.scopeId,
+    scopeUuid: clock.scopeUuid,
+    sessionId: locked.sessionId,
+    attemptFence: locked.attemptFence,
+  });
+  const databaseNow = await readDatabaseNow(tx, selector.scopeId);
+  const now = finiteDateMilliseconds(databaseNow);
+  const grantExpiresAt = finiteDateMilliseconds(
+    session.authorizationGrantExpiresAt,
+  );
+  const hardExpiresAt = finiteDateMilliseconds(session.hardExpiresAt);
+  if (
+    now === undefined ||
+    grantExpiresAt === undefined ||
+    hardExpiresAt === undefined
+  ) {
+    throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+      reason: "sessionInvalid",
+    });
+  }
+  if (grantExpiresAt <= now || hardExpiresAt <= now) {
+    throw new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "authorizationExpired",
+    });
+  }
+  if (locked.leaseExpiresAtMilliseconds <= now) {
+    throw new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "leaseExpired",
+    });
+  }
+
+  const current = inspectTransactionExecutionClaimV1(
+    selector.scopeId,
+    claimRow,
+  );
+  const currentClaimedAt = Date.parse(current.claimedAt);
+  const currentExpiry = Date.parse(current.claimExpiresAt);
+  if (currentClaimedAt > now) {
+    throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+      reason: "claimInvalid",
+    });
+  }
+  if (currentExpiry > now) {
+    return Object.freeze({ kind: "busy", observation: current });
+  }
+
+  let mode: PointMutationExecutionClaimAcquisitionModeV1;
+  if (root.state === "sealed") {
+    mode = "finishOnly";
+  } else if (root.state === "open") {
+    const facet = await observePointMutationSessionAttemptFacet(
+      tx,
+      clock,
+      session,
+      locked,
+      root,
+    );
+    if (facet.kind !== "pristineOpen") {
+      return Object.freeze({
+        kind: "nonDispatchable",
+        reason: "dirtyOpen",
+      });
+    }
+    mode = "execute";
+  } else {
+    return Object.freeze({
+      kind: "nonDispatchable",
+      reason: "failedRoot",
+    });
+  }
+
+  if (current.claimFence >= MAX_PERSISTED_SIGNED_INT64_V1) {
+    throw new PointMutationExecutionClaimAcquisitionResourceV1Error({
+      dimension: "claimFence",
+      maximum: MAX_PERSISTED_SIGNED_INT64_V1,
+    });
+  }
+  const mutationDatabaseNow = await readDatabaseNow(tx, selector.scopeId);
+  const mutationNow = finiteDateMilliseconds(mutationDatabaseNow);
+  if (mutationNow === undefined) {
+    throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+      reason: "sessionInvalid",
+    });
+  }
+  if (grantExpiresAt <= mutationNow || hardExpiresAt <= mutationNow) {
+    throw new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "authorizationExpired",
+    });
+  }
+  if (locked.leaseExpiresAtMilliseconds <= mutationNow) {
+    throw new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "leaseExpired",
+    });
+  }
+  const next = deriveTransactionExecutionClaimV1({
+    scopeUuid: clock.scopeUuid,
+    sessionId: locked.sessionId,
+    attemptFence: locked.attemptFence,
+    claimFence: current.claimFence + 1n,
+    claimOwner: input.claimOwner,
+    databaseNow: mutationDatabaseNow,
+    durationMilliseconds: input.durationMilliseconds,
+    leaseExpiresAt: locked.lease.leaseExpiresAt,
+    authorizationGrantExpiresAt: session.authorizationGrantExpiresAt,
+    hardExpiresAt: session.hardExpiresAt,
+  });
+  if (Result.isFailure(next)) {
+    throw next.failure === "authorityExpired"
+      ? new PointMutationExecutionClaimAcquisitionStaleV1Error({
+          reason: "authorizationExpired",
+        })
+      : new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+          reason: "claimInvalid",
+        });
+  }
+  const updated = await tx.update(fxSystemTransactionExecutionClaims).set({
+    claimFence: next.success.claimFence,
+    claimOwner: next.success.claimOwner,
+    claimedAt: next.success.claimedAt,
+    claimExpiresAt: next.success.claimExpiresAt,
+  }).where(and(
+    eq(fxSystemTransactionExecutionClaims.scopeUuid, clock.scopeUuid),
+    eq(fxSystemTransactionExecutionClaims.sessionId, locked.sessionId),
+    eq(fxSystemTransactionExecutionClaims.attemptFence, locked.attemptFence),
+    eq(fxSystemTransactionExecutionClaims.claimFence, current.claimFence),
+    eq(fxSystemTransactionExecutionClaims.claimOwner, current.claimOwner),
+  )).returning({
+    claimFence: fxSystemTransactionExecutionClaims.claimFence,
+    claimOwner: fxSystemTransactionExecutionClaims.claimOwner,
+    claimedAt: fxSystemTransactionExecutionClaims.claimedAt,
+    claimExpiresAt: fxSystemTransactionExecutionClaims.claimExpiresAt,
+  });
+  if (
+    updated.length !== 1 ||
+    updated[0]?.claimFence !== next.success.claimFence ||
+    updated[0]?.claimOwner !== next.success.claimOwner
+  ) {
+    throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+      reason: "claimMutationInvalid",
+    });
+  }
+  return Object.freeze({
+    kind: "acquired",
+    mode,
+    observation: Object.freeze({
+      claimOwner: next.success.claimOwner,
+      claimFence: next.success.claimFence,
+      claimedAt: next.success.claimedAt.toISOString(),
+      claimExpiresAt: next.success.claimExpiresAt.toISOString(),
+    }),
+  });
+}
+
+const executionClaimAcquisitionAuthorityFailures = Object.freeze({
+  unsupportedStorageGeneration: () =>
+    new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "generationChanged",
+    }),
+  storageGenerationFenceChanged: () =>
+    new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "generationChanged",
+    }),
+  authorizationRevocationEpochChanged: () =>
+    new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "revocationEpochChanged",
+    }),
+  scopeEpochChanged: () =>
+    new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "epochChanged",
+    }),
+} satisfies PointMutationSessionAttemptAuthorityFailureFactoryV1);
+
+function requireStableExecutionClaimAcquisitionAuthority(
+  clock: LockedPointMutationSessionClockV1,
+  preliminary: TrustedScopeAuthority,
+  selector: PointMutationSessionAttemptSelectorV1,
+): void {
+  if (preliminary.deploymentId !== selector.deploymentId) {
+    throw new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "deploymentChanged",
+    });
+  }
+  requireStablePointMutationSessionAttemptAuthority(
+    clock,
+    { selector, preliminaryAuthority: preliminary },
+    executionClaimAcquisitionStableAuthorityFailures,
+  );
+}
+
+const executionClaimAcquisitionStableAuthorityFailures = Object.freeze({
+  selectorScopeMismatch: () =>
+    new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "scopeChanged",
+    }),
+  unsupportedStorageGeneration: () =>
+    new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "generationChanged",
+    }),
+  storageGenerationChanged: () =>
+    new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "generationChanged",
+    }),
+  storageGenerationFenceChanged: () =>
+    new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "generationChanged",
+    }),
+  scopeEpochChanged: () =>
+    new PointMutationExecutionClaimAcquisitionStaleV1Error({
+      reason: "epochChanged",
+    }),
+} satisfies PointMutationSessionStableAuthorityFailureFactoryV1);
+
+function sessionMatchesExecutionClaimPrelude(
+  session: TransactionSessionRow,
+  prelude: PointMutationExecutionClaimAcquisitionPreludeV1,
+): boolean {
+  return session.attemptFence === prelude.attemptFence &&
+    session.requestKey === prelude.lookup.requestKey &&
+    session.functionPath === prelude.lookup.expectedFunctionPath &&
+    isUint8ArrayWithByteLength(session.identityAccessPolicySha256, 32) &&
+    bytesEqual(
+      session.identityAccessPolicySha256,
+      prelude.lookup.expectedIdentityAccessPolicySha256,
+    ) &&
+    isUint8ArrayWithByteLength(session.requestSha256, 32) &&
+    bytesEqual(session.requestSha256, prelude.lookup.expectedRequestSha256);
+}
+
+function mapExecutionClaimAcquisitionPreludeFailure(
+  cause: unknown,
+): PointMutationExecutionClaimAcquisitionV1Error {
+  if (
+    cause instanceof PointMutationExecutionClaimAcquisitionStaleV1Error ||
+    cause instanceof PointMutationExecutionClaimAcquisitionCorruptionV1Error
+  ) return cause;
+  return new PointMutationExecutionClaimAcquisitionPersistenceV1Error({
+    operation: "prelude",
+    cause,
+  });
+}
+
+function mapExecutionClaimAcquisitionAuthorityError(
+  error: TrustedScopeAuthorityError,
+): PointMutationExecutionClaimAcquisitionStaleV1Error |
+  PointMutationExecutionClaimAcquisitionCorruptionV1Error |
+  PointMutationExecutionClaimAcquisitionPersistenceV1Error {
+  if (error instanceof TrustedScopeAuthorityPortError) {
+    return new PointMutationExecutionClaimAcquisitionPersistenceV1Error({
+      operation: "prelude",
+      cause: error.cause,
+    });
+  }
+
+  const failure = error.failure;
+  switch (failure.reason) {
+    case "scopeMetadataMissing":
+    case "scopeDeploymentMismatch":
+      return new PointMutationExecutionClaimAcquisitionStaleV1Error({
+        reason: "deploymentChanged",
+      });
+    case "splitProvisioningReceiptMissing":
+    case "splitProvisioningReceiptScopeMismatch":
+    case "splitProvisioningReceiptNotReady":
+    case "splitProvisioningReceiptPlacementMismatch":
+    case "scopeClockTargetPlacementMismatch":
+    case "scopeClockMissing":
+      return new PointMutationExecutionClaimAcquisitionStaleV1Error({
+        reason: "scopeChanged",
+      });
+    case "scopeClockTargetResolutionFailed":
+      return new PointMutationExecutionClaimAcquisitionPersistenceV1Error({
+        operation: "prelude",
+        cause: failure.resolutionCause,
+      });
+    case "scopeClockTargetInvalid":
+    case "scopeClockScopeMismatch":
+      return new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+        reason: "preludeInvalid",
+        cause: error,
+      });
+    default: {
+      const unhandledFailure: never = failure;
+      return unhandledFailure;
+    }
+  }
+}
+
+function mapExecutionClaimAcquisitionTransactionFailure(
+  cause: unknown,
+): PointMutationExecutionClaimAcquisitionV1Error {
+  if (
+    cause instanceof LocatedReadCommittedTransactionFailureV1 &&
+    cause.issue.kind === "callbackRolledBack"
+  ) {
+    return mapExecutionClaimAcquisitionTransactionFailure(
+      cause.issue.callbackCause,
+    );
+  }
+  if (
+    cause instanceof PointMutationExecutionClaimAcquisitionStaleV1Error ||
+    cause instanceof PointMutationExecutionClaimAcquisitionCorruptionV1Error ||
+    cause instanceof PointMutationExecutionClaimAcquisitionResourceV1Error ||
+    cause instanceof PointMutationExecutionClaimAcquisitionPersistenceV1Error
+  ) return cause;
+  if (cause instanceof TransactionExecutionClaimCorruptionV1Error) {
+    return new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+      reason: "claimInvalid",
+      cause,
+    });
+  }
+  if (cause instanceof PointMutationSessionAuthorityCorruptionV1Error) {
+    return new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
+      reason: cause.issue === "snapshotLeaseInvalid"
+        ? "leaseInvalid"
+        : cause.issue === "journalRootInvalid" ||
+            cause.issue === "activeJournalRootMissing"
+        ? "journalRootInvalid"
+        : "sessionInvalid",
+      cause,
+    });
+  }
+  return new PointMutationExecutionClaimAcquisitionPersistenceV1Error({
+    operation: "transaction",
+    cause,
+  });
 }
 
 function createDefaultLocatedReadCommittedTransactionRunnerV1(
@@ -1017,7 +1857,7 @@ function runExactRunningAttemptEffectTransaction<Result, Failure>(
 }
 
 async function activateInTransaction(
-  tx: FlarexMetadataDatabase,
+  tx: AppRowTransaction,
   input: LocatedPointMutationSessionActivationInputV1,
   afterWrite:
     | LocatedPointMutationSessionActivationTargetOptionsV1["afterWrite"]
@@ -1075,7 +1915,7 @@ async function activateInTransaction(
 }
 
 async function createSession(
-  tx: FlarexMetadataDatabase,
+  tx: AppRowTransaction,
   input: LocatedPointMutationSessionActivationInputV1,
   clock: LockedPointMutationSessionClockV1,
   databaseNow: Date,
@@ -1152,6 +1992,28 @@ async function createSession(
   });
   await afterWrite?.("journalRootInserted");
 
+  const executionClaim = deriveTransactionExecutionClaimV1({
+    scopeUuid: clock.scopeUuid,
+    sessionId: input.candidateSessionId,
+    attemptFence: INITIAL_ATTEMPT_FENCE,
+    claimFence: 1n,
+    claimOwner: input.executionClaimOwner,
+    databaseNow,
+    durationMilliseconds: input.executionClaimDurationMilliseconds,
+    leaseExpiresAt,
+    authorizationGrantExpiresAt: evidence.authorizationGrantExpiresAt,
+    hardExpiresAt,
+  });
+  if (Result.isFailure(executionClaim)) {
+    throw executionClaim.failure === "authorityExpired"
+      ? activationError({ reason: "authorizationGrantExpired" })
+      : corruptionError(input.prepared.scopeId, "sessionRecordInvalid");
+  }
+  await tx.insert(fxSystemTransactionExecutionClaims).values(
+    executionClaim.success,
+  );
+  await afterWrite?.("executionClaimInserted");
+
   return activationResult("created", {
     deploymentId: input.prepared.deploymentId,
     scopeId: input.prepared.scopeId,
@@ -1169,11 +2031,16 @@ async function createSession(
     leaseExpiresAt: leaseExpiresAt.toISOString(),
     createdAt: databaseNow.toISOString(),
     updatedAt: databaseNow.toISOString(),
-  });
+  }, Object.freeze({
+    claimOwner: executionClaim.success.claimOwner,
+    claimFence: executionClaim.success.claimFence,
+    claimedAt: executionClaim.success.claimedAt.toISOString(),
+    claimExpiresAt: executionClaim.success.claimExpiresAt.toISOString(),
+  }));
 }
 
 async function replayExistingSession(
-  tx: FlarexMetadataDatabase,
+  tx: AppRowTransaction,
   prepared: PreparedPointMutationSessionActivationV1,
   clock: LockedPointMutationSessionClockV1,
   session: typeof fxSystemTransactionSessions.$inferSelect,
@@ -1188,15 +2055,16 @@ async function replayExistingSession(
       scopeId: prepared.scopeId,
       failures: activationAttemptFailures,
       afterLeaseLock: undefined,
+      claimRequirement: "present",
     },
     clock,
     session,
   );
-  return activationResult("replayed", loaded.anchor);
+  return activationResult("busy", loaded.anchor);
 }
 
 async function loadAttemptInTransaction(
-  tx: FlarexMetadataDatabase,
+  tx: AppRowTransaction,
   input: LocatedPointMutationSessionAttemptLoadInputV1,
   afterLoadLock:
     | LocatedPointMutationSessionActivationTargetOptionsV1["afterLoadLock"]
@@ -1211,8 +2079,10 @@ async function loadAttemptInTransaction(
 }
 
 async function loadExactRunningAttemptForKernelInTransaction(
-  tx: FlarexMetadataDatabase,
-  input: ExactRunningAttemptKernelInputV1,
+  tx: AppRowTransaction,
+  input:
+    | ExactRunningAttemptKernelInputV1
+    | LocatedPointMutationSessionAttemptLoadInputV1,
   afterLoadLock:
     | LocatedPointMutationSessionActivationTargetOptionsV1["afterLoadLock"]
     | undefined,
@@ -1236,6 +2106,10 @@ async function loadExactRunningAttemptForKernelInTransaction(
       scopeId: selector.scopeId,
       failures: attemptLoadFailures,
       afterLeaseLock: afterLoadLock,
+      claimRequirement: "live",
+      ...(!("executionClaim" in input) || input.executionClaim === undefined
+        ? {}
+        : { executionClaim: input.executionClaim }),
     },
     clock,
     session,
@@ -1255,6 +2129,7 @@ interface PointMutationSessionAttemptFailureFactoryV1
     lifecycle: Exclude<TransactionSessionLifecycleV1, "running">,
   ) => Error;
   readonly activeAttemptExpired: () => Error;
+  readonly executionClaimUnavailable: () => Error;
 }
 
 interface PointMutationSessionExactSessionFailureFactoryV1 {
@@ -1312,10 +2187,12 @@ interface LockedPointMutationSessionAttemptLoadV1 {
     | ((step: PointMutationSessionAttemptLoadLockStepV1) =>
         void | Promise<void>)
     | undefined;
+  readonly claimRequirement: "live" | "present";
+  readonly executionClaim?: ExactRunningAttemptKernelInputV1["executionClaim"];
 }
 
 async function loadLockedRunningAttempt(
-  tx: FlarexMetadataDatabase,
+  tx: AppRowTransaction,
   input: LockedPointMutationSessionAttemptLoadV1,
   clock: LockedPointMutationSessionClockV1,
   session: TransactionSessionRow,
@@ -1333,6 +2210,20 @@ async function loadLockedRunningAttempt(
     throw corruptionError(input.scopeId, "snapshotLeaseMissing");
   }
 
+  const journalRoot = await requireExactPointMutationSessionJournalRoot(
+    tx,
+    input.scopeId,
+    clock.scopeUuid,
+    locked.sessionId,
+    locked.attemptFence,
+    input.afterLeaseLock,
+  );
+  const claim = await lockExactTransactionExecutionClaimV1(tx, {
+    scopeId: input.scopeId,
+    scopeUuid: clock.scopeUuid,
+    sessionId: locked.sessionId,
+    attemptFence: locked.attemptFence,
+  });
   const databaseNow = await readDatabaseNow(tx, input.scopeId);
   const authorizationGrantExpiresAtMilliseconds = finiteDateMilliseconds(
     session.authorizationGrantExpiresAt,
@@ -1355,15 +2246,40 @@ async function loadLockedRunningAttempt(
   ) {
     throw input.failures.activeAttemptExpired();
   }
-
-  const journalRoot = await requireExactPointMutationSessionJournalRoot(
-    tx,
-    input.scopeId,
-    clock.scopeUuid,
-    locked.sessionId,
-    locked.attemptFence,
-    input.afterLeaseLock,
-  );
+  let executionClaim: TransactionExecutionClaimObservationV1;
+  try {
+    if (input.claimRequirement === "live") {
+      executionClaim = requireLiveTransactionExecutionClaimV1(
+        input.scopeId,
+        claim,
+        input.executionClaim,
+        databaseNow,
+      );
+    } else {
+      executionClaim = inspectTransactionExecutionClaimV1(
+        input.scopeId,
+        claim,
+      );
+      if (Date.parse(executionClaim.claimedAt) > databaseNowMilliseconds) {
+        throw new TransactionExecutionClaimCorruptionV1Error({
+          scopeId: input.scopeId,
+          reason: "claimEvidenceInvalid",
+        });
+      }
+    }
+  } catch (cause) {
+    if (cause instanceof TransactionExecutionClaimStaleV1Error) {
+      throw input.failures.executionClaimUnavailable();
+    }
+    if (cause instanceof TransactionExecutionClaimCorruptionV1Error) {
+      throw corruptionError(
+        input.scopeId,
+        "executionClaimInvalid",
+        cause,
+      );
+    }
+    throw cause;
+  }
   const attemptFacet = await observePointMutationSessionAttemptFacet(
     tx,
     clock,
@@ -1403,6 +2319,7 @@ async function loadLockedRunningAttempt(
     databaseNow,
     journalRoot: Object.freeze({ ...journalRoot }),
     attemptFacet,
+    executionClaim,
   } satisfies ExactRunningAttemptKernelContextV1);
 }
 
@@ -1681,7 +2598,7 @@ async function lockPointMutationSessionAttemptStructure(
 }
 
 async function terminalizeAttemptInTransaction(
-  tx: FlarexMetadataDatabase,
+  tx: AppRowTransaction,
   input: LocatedPointMutationSessionAttemptTerminalizationInputV1,
   afterEvent:
     | LocatedPointMutationSessionActivationTargetOptionsV1[
@@ -1778,7 +2695,14 @@ async function terminalizeAttemptInTransaction(
         lifecycle: session.lifecycle,
       });
     case "running":
+      break;
     case "finishing":
+      if (input.operation === "abort") {
+        throw attemptTerminalizationError({
+          reason: "attemptNotTerminalizable",
+          lifecycle: "finishing",
+        });
+      }
       break;
     default: {
       const unexpectedLifecycle: never = session.lifecycle;
@@ -1805,6 +2729,21 @@ async function terminalizeAttemptInTransaction(
     )
   ) {
     throw corruptionError(selector.scopeId, "attemptSnapshotChanged");
+  }
+  if (input.operation === "abort") {
+    const executionClaim = await lockExactTransactionExecutionClaimV1(tx, {
+      scopeId: selector.scopeId,
+      scopeUuid: clock.scopeUuid,
+      sessionId: locked.sessionId,
+      attemptFence: locked.attemptFence,
+    });
+    await emitLock("executionClaimLocked");
+    requireLiveTransactionExecutionClaimV1(
+      selector.scopeId,
+      executionClaim,
+      input.executionClaim,
+      databaseNow,
+    );
   }
 
   const hardExpiresAtMilliseconds = finiteDateMilliseconds(
@@ -1919,6 +2858,8 @@ const activationAttemptFailures = Object.freeze({
   scopeEpochChanged: () => activationError({ reason: "scopeEpochChanged" }),
   activeAttemptExpired: () =>
     activationError({ reason: "activeAttemptExpired" }),
+  executionClaimUnavailable: () =>
+    activationError({ reason: "executionClaimUnavailable" }),
 } satisfies PointMutationSessionAttemptFailureFactoryV1);
 
 const attemptLoadFailures = Object.freeze({
@@ -1933,6 +2874,8 @@ const attemptLoadFailures = Object.freeze({
   scopeEpochChanged: () => attemptLoadError({ reason: "scopeEpochChanged" }),
   activeAttemptExpired: () =>
     attemptLoadError({ reason: "activeAttemptExpired" }),
+  executionClaimUnavailable: () =>
+    attemptLoadError({ reason: "executionClaimUnavailable" }),
 } satisfies PointMutationSessionAttemptFailureFactoryV1);
 
 const attemptLoadExactSessionFailures = Object.freeze({
@@ -2405,9 +3348,28 @@ function captureAttemptAbortInput(
         new Error("Abort snapshot scope does not match its selector."),
       ));
     }
+    const claimInput = yield* readAttemptTerminalizationInput(
+      () => input.executionClaim,
+      invalidAbortExecutionClaim,
+    );
+    const claimOwner = decodeTransactionExecutionClaimOwnerV1(
+      claimInput.claimOwner,
+    );
+    const claimFence = decodeTransactionExecutionClaimFenceV1(
+      claimInput.claimFence,
+    );
+    if (Result.isFailure(claimOwner) || Result.isFailure(claimFence)) {
+      return yield* Result.fail(invalidAbortExecutionClaim(
+        new Error("Abort execution claim is invalid."),
+      ));
+    }
     return Object.freeze({
       selector,
       expectedSnapshotToken: Object.freeze(expectedSnapshotToken),
+      executionClaim: Object.freeze({
+        claimOwner: claimOwner.success,
+        claimFence: claimFence.success,
+      }),
     });
   });
 }
@@ -2430,6 +3392,15 @@ function invalidAbortSnapshot(
 ): PointMutationSessionAttemptTerminalizationV1Error {
   return attemptTerminalizationError({
     reason: "invalidAbortSnapshot",
+    cause,
+  });
+}
+
+function invalidAbortExecutionClaim(
+  cause: unknown,
+): PointMutationSessionAttemptTerminalizationV1Error {
+  return attemptTerminalizationError({
+    reason: "invalidAbortExecutionClaim",
     cause,
   });
 }
@@ -2513,6 +3484,24 @@ function requireLeaseDuration(value: number): number {
   return value;
 }
 
+function requireActivationExecutionClaimDuration(value: number): number {
+  if (!isPositiveSafeInteger(value)) {
+    throw new PointMutationSessionActivationConfigurationV1Error({
+      reason: "invalidExecutionClaimDuration",
+    });
+  }
+  return value;
+}
+
+function requireExecutionClaimAcquisitionDuration(value: number): number {
+  if (!isPositiveSafeInteger(value)) {
+    throw new PointMutationExecutionClaimAcquisitionConfigurationV1Error({
+      reason: "invalidClaimDuration",
+    });
+  }
+  return value;
+}
+
 const generateSessionIdEffect = Effect.fn(
   "PointMutationSessionActivation.generateSessionId",
 )(function* (
@@ -2547,6 +3536,34 @@ function validateGeneratedSessionId(
   return Result.succeed(TransactionSessionIdV1Schema.make(value));
 }
 
+const generateExecutionClaimOwnerEffect = Effect.fn(
+  "PointMutationSessionActivation.generateExecutionClaimOwner",
+)(function* (
+  randomUuid: () => string,
+): Effect.fn.Return<
+  TransactionExecutionClaimOwnerV1,
+  PointMutationSessionActivationConfigurationV1Error
+> {
+  const value = yield* Effect.try({
+    try: randomUuid,
+    catch: (cause) =>
+      new PointMutationSessionActivationConfigurationV1Error({
+        reason: "executionClaimOwnerGenerationFailed",
+        cause,
+      }),
+  });
+  const decoded = decodeTransactionExecutionClaimOwnerV1(value);
+  if (Result.isFailure(decoded)) {
+    return yield* Effect.fail(
+      new PointMutationSessionActivationConfigurationV1Error({
+        reason: "invalidGeneratedExecutionClaimOwner",
+        value,
+      }),
+    );
+  }
+  return decoded.success;
+});
+
 function mapActivationAuthorityError(
   error: TrustedScopeAuthorityError,
 ): TrustedScopeAuthorityResolutionError |
@@ -2565,10 +3582,22 @@ function mapActivationTransactionError(
   PointMutationSessionAuthorityCorruptionV1Error |
   PointMutationSessionActivationPersistenceV1Error {
   if (
+    cause instanceof LocatedReadCommittedTransactionFailureV1 &&
+    cause.issue.kind === "callbackRolledBack"
+  ) {
+    return mapActivationTransactionError(cause.issue.callbackCause);
+  }
+  if (
     cause instanceof PointMutationSessionActivationV1Error ||
     cause instanceof PointMutationSessionAuthorityCorruptionV1Error
   ) {
     return cause;
+  }
+  if (cause instanceof TransactionExecutionClaimStaleV1Error) {
+    return activationError({ reason: "executionClaimUnavailable" });
+  }
+  if (cause instanceof TransactionExecutionClaimCorruptionV1Error) {
+    return corruptionError(cause.scopeId, "executionClaimInvalid", cause);
   }
   return new PointMutationSessionActivationPersistenceV1Error({
     operation: "activationTransaction",
@@ -2598,6 +3627,12 @@ function mapAttemptLoadTransactionError(
     cause instanceof PointMutationSessionAuthorityCorruptionV1Error
   ) {
     return cause;
+  }
+  if (cause instanceof TransactionExecutionClaimStaleV1Error) {
+    return attemptLoadError({ reason: "executionClaimUnavailable" });
+  }
+  if (cause instanceof TransactionExecutionClaimCorruptionV1Error) {
+    return corruptionError(cause.scopeId, "executionClaimInvalid", cause);
   }
   return new PointMutationSessionAttemptLoadPersistenceV1Error({
     operation: "attemptLoadTransaction",
@@ -2629,6 +3664,14 @@ function mapAttemptTerminalizationTransactionError(
   ) {
     return cause;
   }
+  if (cause instanceof TransactionExecutionClaimStaleV1Error) {
+    return attemptTerminalizationError({
+      reason: "executionClaimUnavailable",
+    });
+  }
+  if (cause instanceof TransactionExecutionClaimCorruptionV1Error) {
+    return corruptionError(cause.scopeId, "executionClaimInvalid", cause);
+  }
   return new PointMutationSessionAttemptTerminalizationPersistenceV1Error({
     operation: operation === "abort"
       ? "attemptAbortTransaction"
@@ -2640,6 +3683,7 @@ function mapAttemptTerminalizationTransactionError(
 function activationResult(
   status: PointMutationSessionActivationResultV1["status"],
   anchor: PointMutationSessionAnchorV1,
+  executionClaim?: TransactionExecutionClaimObservationV1,
 ): PointMutationSessionActivationResultV1 {
   const capturedAnchor = Object.freeze({
     ...anchor,
@@ -2653,13 +3697,17 @@ function activationResult(
   } satisfies PointMutationSessionAnchorV1);
   switch (status) {
     case "created":
+      if (executionClaim === undefined) {
+        throw corruptionError(anchor.scopeId, "executionClaimInvalid");
+      }
       return Object.freeze({
         status: "created",
         anchor: capturedAnchor,
+        executionClaim: Object.freeze({ ...executionClaim }),
       } satisfies PointMutationSessionActivationResultV1);
-    case "replayed":
+    case "busy":
       return Object.freeze({
-        status: "replayed",
+        status: "busy",
         anchor: capturedAnchor,
       } satisfies PointMutationSessionActivationResultV1);
   }

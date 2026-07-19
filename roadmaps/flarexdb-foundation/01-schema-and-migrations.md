@@ -5,7 +5,8 @@
 Status: `S01`, `S02-A` through `S02-C`, resolve-only `S02-D1`, `S03-A`
 through `S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, and the narrow
 `S07-A` scope-revocation prerequisite and C03's bounded exact-attempt journal
-DDL are complete. Hosted proof `H01` through
+DDL are complete. S08, S09-A, S09-B, and O08-B2b1/C06-A's migration-0032
+exact-attempt execution-claim DDL are also complete. Hosted proof `H01` through
 `H04` and `H05-A` are complete. `H05-B` and production routing `S02-D2` remain
 deferred. The `O03-A` parent is complete: protocol-only `O03-A1`, auth-
 provenance `O03-A2a`, host-neutral grant authority `O03-A2b`, and corrected
@@ -46,6 +47,7 @@ Use these sources in order:
    - [`../../packages/persistence-postgres/src/schema.ts`](../../packages/persistence-postgres/src/schema.ts)
    - [`../../packages/persistence-postgres/drizzle`](../../packages/persistence-postgres/drizzle)
    - [`../../packages/persistence-postgres/src/sessionJournalStore.ts`](../../packages/persistence-postgres/src/sessionJournalStore.ts)
+   - [`../../packages/persistence-postgres/src/transactionExecutionClaim.ts`](../../packages/persistence-postgres/src/transactionExecutionClaim.ts)
    - [`../../packages/persistence-postgres/src/pinnedPointTableResolution.ts`](../../packages/persistence-postgres/src/pinnedPointTableResolution.ts)
    - [`../../packages/persistence-postgres/src/scopeAuthorityResolution.ts`](../../packages/persistence-postgres/src/scopeAuthorityResolution.ts)
    - [`../../packages/persistence-postgres/src/scopeClock.ts`](../../packages/persistence-postgres/src/scopeClock.ts)
@@ -94,7 +96,7 @@ Convex-first implementation references include:
 | Ordered keys | Ordered-index spec/codec v1, binary UTF-8 collation, bounded tuple bytes, typed bounds, and separate 16-byte row identity are frozen. |
 | Flarex values | Value Codec V1 covers the portable runtime value domain, strict tagged JSON, canonical UTF-8 bytes/SHA-256, general/app-document limits, a narrow NUL-string `jsonb` tag, and lowering through S05-A for ordered consumers. S06 is its first replacement-row consumer; no replacement route consumes it yet. |
 | Full catalog publication | D2d exposes `publishAppSchemaV1` over D2c's atomic attempt, snapshots input once, retries only typed staleness with fresh preparation, preserves the protocol declaration maxima while bounding the current serial path to 256 combined definition work items, rejects guaranteed oversized input before cloning/catalog access, enforces the exact canonical-byte ceiling, and has focused real-Postgres bounded-work, concurrency, and rollback proof. Production replacement routing remains inactive. |
-| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, the required non-routing mutation-session authority core, private exact-snapshot semantic point reads with typed dependencies, C03's bounded exact-attempt point journal/overlay/seal, C04A/C04B1/C04B2 authenticated verification, corrected C04C1 logical point planning, S08's native commit/change-feed schema plus bounded private reader, S09-A's private committed-success result storage, S09-B's fixed-kind private commit-wake schema/repository, O06's rollback-proven private point-commit transaction kernel, O07-A's read-only committed-outcome resolution, O07-B's atomic point publication and fixed-kind outbox production, C05-A's exact finishing transition, C05-B's fresh-process reconstruction/composition, O08-A's atomic exact-attempt replacement, O08-B1's bounded same-factory fresh-attempt handoff, O08-B2a's same-process runtime-neutral rerun composition, O08-CD0's transaction-decision provenance, and O08-C's bounded known-settled SQL transaction retry are implemented. O08-B2b0 now freezes only the future Postgres execution-ticket/claim authority; no claim DDL or runtime is implemented. O08-B2b claim/dispatcher/crash-redispatch implementation, O08-D uncertain-outcome policy, C06 endpoint/dispatch, result-expiry policy, reconnect retention/retained-floor advancement, index sidecars, edges, target-native readiness, routing/activation, and prototype retirement are not implemented; C04C2 and long-running-attempt renewal remain conditional on proven consumers. |
+| Replacement app data | Native scope/epoch projections, strict Document ID V1, authoritative row revisions, pointer-only current storage, current scope-revocation storage, signed transaction-grant integration, the required non-routing mutation-session authority core, private exact-snapshot semantic point reads with typed dependencies, C03's bounded exact-attempt point journal/overlay/seal, C04A/C04B1/C04B2 authenticated verification, corrected C04C1 logical point planning, S08's native commit/change-feed schema plus bounded private reader, S09-A's private committed-success result storage, S09-B's fixed-kind private commit-wake schema/repository, O06's rollback-proven private point-commit transaction kernel, O07-A's read-only committed-outcome resolution, O07-B's atomic point publication and fixed-kind outbox production, C05-A's exact finishing transition, C05-B's fresh-process reconstruction/composition, O08-A's atomic exact-attempt replacement, O08-B1's bounded same-factory fresh-attempt handoff, O08-B2a's same-process runtime-neutral rerun composition, O08-CD0's transaction-decision provenance, O08-C's bounded known-settled SQL transaction retry, O08-D's bounded uncertainty recovery, and O08-B2b1/C06-A's migration-0032 exact-attempt execution claim plus host-neutral admission are implemented. O08-B2b2 crash redispatch, C06-B endpoint/dispatcher policy, result-expiry policy, reconnect retention/retained-floor advancement, index sidecars, edges, target-native readiness, routing/activation, and prototype retirement are not implemented; C04C2 and long-running-attempt renewal remain conditional on proven consumers. |
 
 Existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, and
 subscription tables remain an internal prototype behavior baseline. They are
@@ -743,6 +745,33 @@ Exit gates:
 - isolated real Postgres proves disjoint concurrent claims, one-winner direct
   claims, crash/send-before-ack recovery, compaction races, bounded plans, and
   old-epoch progress across rollover.
+
+### [x] O08-B2b1/C06-A — Add Exact-Attempt Execution Claim Authority
+
+Outcome:
+
+- Migration `0032` adds one claim keyed by exact
+  `(scope_uuid, session_id, attempt_fence)` ownership and a cascading FK to the
+  C03 journal root. The row stores only the server owner, positive checked
+  claim fence, database-owned claimed time, and finite expiry.
+- O03 fence-1 activation and O08-A replacement create the initial claim in the
+  same transaction before `running`; C05-A deletes the exact owner/fence while
+  entering `finishing`. The migration deliberately performs no backfill or
+  authority fabrication for pre-existing attempts.
+- Claim expiry is separate from snapshot-lease, grant/hard expiry, and attempt
+  terminalization. Live claims are busy; only an expired claim may be taken
+  over under the locked scope/session/lease/root order and database time.
+- This gate adds no renewal, discovery index, dirty-attempt policy, dispatcher,
+  routed endpoint, runtime adapter, or crash-safe user-code redispatch.
+
+Exit gates:
+
+- fresh install, 0031 upgrade without backfill, replay, injected-failure
+  recovery, non-public-schema parity, FK/check/cascade constraints, and Drizzle
+  consistency pass; and
+- PGlite plus isolated real Postgres prove atomic O03/O08-A creation, rollback,
+  one-winner takeover, stale-fence rejection, settlement uncertainty, C05-A
+  consumption, same-scope serialization, and independent-scope progress.
 
 ### [ ] S10 — Add Index Revision And Current Sidecars
 

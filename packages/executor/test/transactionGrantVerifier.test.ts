@@ -88,6 +88,8 @@ import {
   pointMutationSessionAttemptSelectorV1FromActivated,
   type PointMutationSessionActivationV1,
 } from "../src/pointMutationSessionActivation";
+import { createPointMutationExecutionClaimVaultV1 } from
+  "../src/pointMutationExecutionClaim";
 import {
   postgresUrl,
   withTemporaryPostgresExecutorPersistence,
@@ -917,13 +919,14 @@ describe("current-epoch transaction-grant admission", () => {
       createPointMutationSessionAttemptLoadPersistenceV1(
         sessionResolutionPorts,
       );
+    const executionClaims = createPointMutationExecutionClaimVaultV1();
     let persistenceCalls = 0;
     const activation = createPointMutationSessionActivationV1({
       activateEffect: (input) => {
         persistenceCalls += 1;
         return sessionPersistence.activateEffect(input);
       },
-    });
+    }, executionClaims.issuer);
 
     for (const invalid of [
       JSON.parse(JSON.stringify(admitted)),
@@ -957,7 +960,7 @@ describe("current-epoch transaction-grant admission", () => {
       });
     const failingActivation = createPointMutationSessionActivationV1({
       activateEffect: () => Effect.fail(persistenceFailure),
-    });
+    }, executionClaims.issuer);
     await expect(
       runEffectFailure(failingActivation.activate(admitted)),
     ).resolves.toBe(persistenceFailure);
@@ -965,7 +968,7 @@ describe("current-epoch transaction-grant admission", () => {
     const defect = new Error("activation adapter defect");
     const defectiveActivation = createPointMutationSessionActivationV1({
       activateEffect: () => Effect.die(defect),
-    });
+    }, executionClaims.issuer);
     await expect(
       runEffect(defectiveActivation.activate(admitted)),
     ).rejects.toBe(defect);
@@ -993,7 +996,7 @@ describe("current-epoch transaction-grant admission", () => {
     expect(JSON.stringify(activated)).toBe("{}");
     expect(Object.isFrozen(activated)).toBe(true);
     expect(created.status).toBe("created");
-    expect(replayed.status).toBe("replayed");
+    expect(replayed.status).toBe("busy");
     expect(replayed.anchor).toEqual(created.anchor);
     expect(created.anchor.snapshotToken).toMatchObject({
       scopeId: LOCATED_ADMISSION_SCOPE_ID,

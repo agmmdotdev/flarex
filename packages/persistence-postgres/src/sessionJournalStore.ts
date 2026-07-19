@@ -153,11 +153,17 @@ import {
   type LocatedExactRunningAttemptKernelV1,
 } from "./transactionSessionAttemptKernel";
 import {
+  PointMutationSessionAuthorityCorruptionV1Error,
   PointMutationSessionAttemptLoadV1Error,
   type PointMutationSessionAttemptLoadIssueV1,
   type PointMutationSessionAttemptSelectorV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
 } from "./transactionSessionActivation";
+import {
+  decodeTransactionExecutionClaimFenceV1,
+  decodeTransactionExecutionClaimOwnerV1,
+  type TransactionExecutionClaimPinV1,
+} from "./transactionExecutionClaimModel";
 
 const StrictStructOptions: {
   readonly parseOptions: { readonly onExcessProperty: "error" };
@@ -334,6 +340,7 @@ export interface OpenSessionJournalAttemptV1Input {
   readonly selector: PointMutationSessionAttemptSelectorV1;
   readonly snapshotToken: SnapshotToken;
   readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly executionClaim: TransactionExecutionClaimPinV1;
 }
 
 export interface PreparedSessionJournalSealResultV1 {
@@ -346,7 +353,11 @@ export interface SessionJournalStorePersistenceV1 {
     input: OpenSessionJournalAttemptV1Input,
   ) => Effect.Effect<
     SessionJournalAttemptV1,
-    InvalidSessionJournalInputV1Error
+    | InvalidSessionJournalInputV1Error
+    | SessionJournalAttemptUnavailableV1Error
+    | SessionJournalPersistenceV1Error
+    | SessionJournalStorageCorruptionV1Error
+    | SessionJournalTargetUnavailableV1Error
   >;
   readonly resolvePointTableEffect: (
     attempt: SessionJournalAttemptV1,
@@ -419,6 +430,7 @@ export class SessionJournalPersistenceV1Error extends Data.TaggedError(
     | "canonicalizePointRequest"
     | "completeSealTransaction"
     | "hashSealJournal"
+    | "openAttempt"
     | "prepareSealSnapshot"
     | "resolveJournalTarget"
     | "resolvePinnedPointTable"
@@ -429,9 +441,11 @@ export class SessionJournalPersistenceV1Error extends Data.TaggedError(
 export type SessionJournalResolvePointTableV1Error =
   | InvalidSessionJournalCapabilityV1Error
   | InvalidSessionJournalInputV1Error
+  | SessionJournalAttemptUnavailableV1Error
   | PinnedPointTableCorruptionV1Error
   | PinnedPointTableNotFoundV1Error
   | SessionJournalPersistenceV1Error
+  | SessionJournalStorageCorruptionV1Error
   | SessionJournalTargetUnavailableV1Error;
 
 export type SessionJournalRunPointOperationV1Error =
@@ -445,6 +459,7 @@ export type SessionJournalRunPointOperationV1Error =
 
 export type SessionJournalPrepareSealV1Error =
   | InvalidSessionJournalCapabilityV1Error
+  | SessionJournalAttemptUnavailableV1Error
   | SessionJournalPersistenceV1Error
   | SessionJournalSealV1Error
   | SessionJournalStorageCorruptionV1Error
@@ -461,6 +476,7 @@ export type SessionJournalCompleteSealV1Error =
 type SessionJournalStorageCorruptionReasonV1 =
   | "databaseClockInvalid"
   | "exactAttemptPinsChanged"
+  | "executionClaimInvalid"
   | "failedJournalEvidenceInvalid"
   | "failedJournalReceiptInvalid"
   | "journalCountersInvalid"
@@ -525,6 +541,7 @@ interface SessionJournalAttemptStateV1 {
   readonly selector: PointMutationSessionAttemptSelectorV1;
   readonly snapshotToken: SnapshotToken;
   readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly executionClaim: TransactionExecutionClaimPinV1;
 }
 
 interface PinnedPointTableStateV1 {
@@ -708,6 +725,8 @@ const decodeSnapshotTokenResult = Schema.decodeUnknownResult(
 const decodeCatalogSchemaVersionIdResult = Schema.decodeUnknownResult(
   Schema.toType(CatalogSchemaVersionIdSchema),
 );
+const decodeExecutionClaimOwnerResult = decodeTransactionExecutionClaimOwnerV1;
+const decodeExecutionClaimFenceResult = decodeTransactionExecutionClaimFenceV1;
 
 export function createSessionJournalStorePersistenceV1(
   ports: PointMutationSessionAuthorityResolutionPortsV1,
@@ -735,6 +754,8 @@ export function createSessionJournalStorePersistenceV1(
     "openAttemptEffect"
   ] = Effect.fn("SessionJournalStore.openAttempt")(function* (input) {
     const state = yield* Effect.fromResult(captureAttemptStateResult(input));
+    const resolved = yield* resolveJournalTargetEffect(state);
+    yield* admitExactRunningAttemptEffect(resolved, state, "openAttempt");
     return createAttemptHandle(state);
   });
 
@@ -773,6 +794,27 @@ export function createSessionJournalStorePersistenceV1(
     });
   });
 
+  const admitExactRunningAttemptEffect = Effect.fn(
+    "SessionJournalStore.admitExactRunningAttempt",
+  )(function* (
+    resolved: ResolvedJournalTargetV1,
+    attempt: SessionJournalAttemptStateV1,
+    operation: "openAttempt" | "resolvePinnedPointTable" | "prepareSealSnapshot",
+  ) {
+    return yield* resolved.target[
+      RUN_EXACT_RUNNING_POINT_MUTATION_ATTEMPT_EFFECT_V1
+    ](
+      {
+        selector: attempt.selector,
+        preliminaryAuthority: resolved.authority,
+        executionClaim: attempt.executionClaim,
+      },
+      () => Effect.void,
+    ).pipe(
+      Effect.mapError((cause) => mapExactAdmissionFailure(operation, cause)),
+    );
+  });
+
   const resolvePointTableEffect: SessionJournalStorePersistenceV1[
     "resolvePointTableEffect"
   ] = Effect.fn("SessionJournalStore.resolvePointTable")(function* (
@@ -797,6 +839,11 @@ export function createSessionJournalStorePersistenceV1(
       })),
     );
     const resolved = yield* resolveJournalTargetEffect(attemptState);
+    yield* admitExactRunningAttemptEffect(
+      resolved,
+      attemptState,
+      "resolvePinnedPointTable",
+    );
     const tableId = yield* resolved.target[
       RESOLVE_PINNED_POINT_TABLE_ID_EFFECT_V1
     ]({
@@ -841,6 +888,7 @@ export function createSessionJournalStorePersistenceV1(
       {
         selector: tableState.attempt.selector,
         preliminaryAuthority: resolved.authority,
+        executionClaim: tableState.attempt.executionClaim,
       },
       (tx, context) => runPointOperationInTransactionEffect(
         tx,
@@ -872,6 +920,11 @@ export function createSessionJournalStorePersistenceV1(
       }));
     }
     const resolved = yield* resolveJournalTargetEffect(attemptState);
+    yield* admitExactRunningAttemptEffect(
+      resolved,
+      attemptState,
+      "prepareSealSnapshot",
+    );
     const snapshot = yield* Effect.uninterruptible(
       Effect.tryPromise({
         try: () => resolved.target[RUN_LOCATED_REPEATABLE_READ_V1](
@@ -928,6 +981,7 @@ export function createSessionJournalStorePersistenceV1(
         {
           selector: prepared.attempt.selector,
           preliminaryAuthority: resolved.authority,
+          executionClaim: prepared.attempt.executionClaim,
         },
         (tx, context) => completeSealInTransactionEffect(
           tx,
@@ -993,6 +1047,9 @@ function mapPrepareSealSnapshotFailure(
 function mapCompleteSealTransactionFailure(
   cause: unknown,
 ): SessionJournalCompleteSealV1Error {
+  if (cause instanceof PointMutationSessionAuthorityCorruptionV1Error) {
+    return mapSessionAuthorityCorruption(cause);
+  }
   if (cause instanceof PointMutationSessionAttemptLoadV1Error) {
     return new SessionJournalAttemptUnavailableV1Error({
       issue: cause.issue,
@@ -1029,6 +1086,29 @@ function mapExactRunningAttemptCompleteSealFailure(
 interface ResolvedJournalTargetV1 {
   readonly target: LocatedExactRunningAttemptKernelV1;
   readonly authority: TrustedScopeAuthority;
+}
+
+function mapExactAdmissionFailure(
+  operation: "openAttempt" | "resolvePinnedPointTable" | "prepareSealSnapshot",
+  cause: ExactRunningAttemptTransactionV1Error,
+): SessionJournalAttemptUnavailableV1Error |
+  SessionJournalStorageCorruptionV1Error |
+  SessionJournalPersistenceV1Error {
+  if (
+    cause.callbackCause === undefined &&
+    cause.cause instanceof PointMutationSessionAttemptLoadV1Error
+  ) {
+    return new SessionJournalAttemptUnavailableV1Error({
+      issue: cause.cause.issue,
+    });
+  }
+  if (
+    cause.callbackCause === undefined &&
+    cause.cause instanceof PointMutationSessionAuthorityCorruptionV1Error
+  ) {
+    return mapSessionAuthorityCorruption(cause.cause);
+  }
+  return new SessionJournalPersistenceV1Error({ operation, cause });
 }
 
 function captureAttemptStateResult(
@@ -1091,10 +1171,26 @@ function captureAttemptStateResult(
     const schemaVersionId = yield* decodeCatalogSchemaVersionIdResult(
       schemaVersionIdInput,
     ).pipe(Result.mapError(invalidAttemptPins));
+    const executionClaimInput = yield* readOpenAttemptInput(
+      () => input.executionClaim,
+    );
+    const claimOwnerInput = yield* readOpenAttemptInput(
+      () => executionClaimInput.claimOwner,
+    );
+    const claimFenceInput = yield* readOpenAttemptInput(
+      () => executionClaimInput.claimFence,
+    );
+    const claimOwner = yield* decodeExecutionClaimOwnerResult(
+      claimOwnerInput,
+    ).pipe(Result.mapError(invalidAttemptPins));
+    const claimFence = yield* decodeExecutionClaimFenceResult(
+      claimFenceInput,
+    ).pipe(Result.mapError(invalidAttemptPins));
     return Object.freeze({
       selector,
       snapshotToken,
       schemaVersionId,
+      executionClaim: Object.freeze({ claimOwner, claimFence }),
     });
   });
 }
@@ -1303,6 +1399,9 @@ const canonicalizeStoredRequestEffect = Effect.fn(
 function mapRunPointOperationFailure(
   cause: unknown,
 ): SessionJournalRunPointOperationV1Error {
+  if (cause instanceof PointMutationSessionAuthorityCorruptionV1Error) {
+    return mapSessionAuthorityCorruption(cause);
+  }
   if (
     cause instanceof PointMutationSessionAttemptLoadV1Error
   ) {
@@ -1323,6 +1422,18 @@ function mapRunPointOperationFailure(
   }
   return new SessionJournalPersistenceV1Error({
     operation: "runPointOperation",
+    cause,
+  });
+}
+
+function mapSessionAuthorityCorruption(
+  cause: PointMutationSessionAuthorityCorruptionV1Error,
+): SessionJournalStorageCorruptionV1Error {
+  return new SessionJournalStorageCorruptionV1Error({
+    scopeId: cause.scopeId,
+    reason: cause.issue === "executionClaimInvalid"
+      ? "executionClaimInvalid"
+      : "sessionRecordInvalid",
     cause,
   });
 }
@@ -3195,6 +3306,7 @@ function attemptFromContext(
     }),
     snapshotToken: context.anchor.snapshotToken,
     schemaVersionId: context.executionPin.schemaVersionId,
+    executionClaim: Object.freeze({ ...context.executionClaim }),
   });
 }
 

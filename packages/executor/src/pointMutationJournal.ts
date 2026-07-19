@@ -38,6 +38,11 @@ import {
   type LoadedPointMutationSessionAttemptV1,
 } from "./pointMutationSessionActivation";
 import { isPlainRecord } from "./plainRecord";
+import {
+  InvalidPointMutationExecutionClaimV1Error,
+  type PointMutationExecutionScopeV1,
+  type PointMutationExecutionClaimAdmissionV1,
+} from "./pointMutationExecutionClaim";
 
 const pointMutationJournalAttemptBrand: unique symbol = Symbol(
   "FlarexExecutor/PointMutationJournalAttemptV1",
@@ -93,6 +98,7 @@ export class PointMutationJournalAttemptUnavailableV1Error
 
 export type PointMutationJournalBoundaryV1Error =
   | InvalidPointMutationJournalCapabilityV1Error
+  | InvalidPointMutationExecutionClaimV1Error
   | InvalidLoadedPointMutationSessionAttemptV1Error
   | UnsupportedPointMutationJournalOperationV1Error
   | PointMutationJournalAttemptPinsV1Error
@@ -110,6 +116,7 @@ export type PointMutationJournalBoundaryV1Error =
 export interface PointMutationJournalV1 {
   readonly openAttempt: (
     attempt: LoadedPointMutationSessionAttemptV1,
+    executionClaim: PointMutationExecutionScopeV1,
   ) => Effect.Effect<
     PointMutationJournalAttemptV1,
     PointMutationJournalBoundaryV1Error
@@ -137,11 +144,6 @@ export interface PointMutationJournalV1 {
   >;
 }
 
-const pointMutationJournalsByPersistence = new WeakMap<
-  SessionJournalStorePersistenceV1,
-  PointMutationJournalV1
->();
-
 interface JournalAttemptCoordinatorV1 {
   readonly inspection: LoadedPointMutationSessionAttemptInspectionV1;
   readonly semaphore: Semaphore.Semaphore;
@@ -163,13 +165,11 @@ const decodeSyscallSequence = Schema.decodeUnknownSync(
 
 export function createPointMutationJournalV1(
   persistence: SessionJournalStorePersistenceV1,
+  executionClaims: PointMutationExecutionClaimAdmissionV1,
 ): PointMutationJournalV1 {
-  const existingJournal = pointMutationJournalsByPersistence.get(persistence);
-  if (existingJournal !== undefined) return existingJournal;
-
   const attemptStates = new WeakMap<object, JournalAttemptStateV1>();
   const tableStates = new WeakMap<object, JournalTableStateV1>();
-  const openedByLoadedAttempt = new WeakMap<
+  const openedByExecutionClaim = new WeakMap<
     object,
     PointMutationJournalAttemptV1
   >();
@@ -202,14 +202,22 @@ export function createPointMutationJournalV1(
 
   const openAttempt: PointMutationJournalV1["openAttempt"] = Effect.fn(
     "PointMutationJournal.openAttempt",
-  )(function* (loadedAttempt) {
-    const existing = openedByLoadedAttempt.get(loadedAttempt);
+  )(function* (loadedAttempt, executionClaim) {
+    const claimState = yield* Effect.fromResult(
+      executionClaims.inspect(executionClaim, "execute"),
+    );
+    const existing = openedByExecutionClaim.get(executionClaim);
     if (existing !== undefined) return existing;
     const inspection = yield* Effect.try({
       try: () => inspectLoadedPointMutationSessionAttemptV1(loadedAttempt),
       catch: mapPersistenceFailure,
     });
     const identityKey = exactAttemptIdentityKey(inspection);
+    if (!attemptSelectorEquals(inspection.selector, claimState.selector)) {
+      return yield* Effect.fail(new PointMutationJournalAttemptPinsV1Error({
+        reason: "immutablePinsMismatch",
+      }));
+    }
     const existingReference = coordinatorsByExactAttempt.get(identityKey);
     const existingCoordinator = existingReference?.deref();
     if (existingReference !== undefined && existingCoordinator === undefined) {
@@ -239,7 +247,8 @@ export function createPointMutationJournalV1(
       selector: inspection.selector,
       snapshotToken: inspection.snapshotToken,
       schemaVersionId: inspection.schemaVersionId,
-    });
+      executionClaim: claimState.observation,
+    }).pipe(Effect.mapError(mapPersistenceFailure));
     const state = Object.freeze({
       persistenceAttempt,
       coordinator,
@@ -248,7 +257,7 @@ export function createPointMutationJournalV1(
       [pointMutationJournalAttemptBrand]: true as const,
     });
     attemptStates.set(handle, state);
-    openedByLoadedAttempt.set(loadedAttempt, handle);
+    openedByExecutionClaim.set(executionClaim, handle);
     return handle;
   });
 
@@ -264,16 +273,7 @@ export function createPointMutationJournalV1(
             persistence.resolvePointTableEffect(
               state.persistenceAttempt,
               tableName,
-            ).pipe(
-              Effect.catchTag(
-                "SessionJournalPersistenceV1Error",
-                (error) => Effect.fail(
-                  new PointMutationJournalPersistenceV1Error({
-                    cause: error.cause,
-                  }),
-                ),
-              ),
-            ),
+            ).pipe(Effect.mapError(mapPersistenceFailure)),
           ),
         );
         const handle = Object.freeze({
@@ -355,8 +355,17 @@ export function createPointMutationJournalV1(
     runPointOperation,
     sealSuccessfulResult,
   });
-  pointMutationJournalsByPersistence.set(persistence, journal);
   return journal;
+}
+
+function attemptSelectorEquals(
+  left: LoadedPointMutationSessionAttemptInspectionV1["selector"],
+  right: LoadedPointMutationSessionAttemptInspectionV1["selector"],
+): boolean {
+  return left.deploymentId === right.deploymentId &&
+    left.scopeId === right.scopeId &&
+    left.sessionId === right.sessionId &&
+    left.attemptFence === right.attemptFence;
 }
 
 function exactAttemptIdentityKey(

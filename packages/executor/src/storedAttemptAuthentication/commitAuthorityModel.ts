@@ -34,7 +34,9 @@ export class InvalidAuthenticatedStoredAttemptV1Error extends Data.TaggedError(
 
 export class StoredCommitAuthorityConfigurationV1Error
   extends Data.TaggedError("StoredCommitAuthorityConfigurationV1Error")<{
-    readonly reason: "unregisteredTransactionGrantVerifier";
+    readonly reason:
+      | "unregisteredTransactionGrantVerifier"
+      | "missingExecutionClaimVault";
   }> {}
 
 export class StoredCommitAuthorityPersistenceV1Error extends Data.TaggedError(

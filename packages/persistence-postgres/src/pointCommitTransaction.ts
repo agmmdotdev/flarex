@@ -153,12 +153,27 @@ import {
   fxSystemOutbox,
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
+  fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournalLatestReceipts,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournalWriteEvents,
   fxSystemTransactionJournals,
   fxSystemTransactionSessions,
 } from "./schema";
+import {
+  deriveTransactionExecutionClaimV1,
+  lockExactTransactionExecutionClaimV1,
+  requireLiveTransactionExecutionClaimV1,
+  TransactionExecutionClaimCorruptionV1Error,
+  TransactionExecutionClaimStaleV1Error,
+} from "./transactionExecutionClaimPersistence";
+import {
+  decodeTransactionExecutionClaimFenceV1,
+  decodeTransactionExecutionClaimOwnerV1,
+  type TransactionExecutionClaimObservationV1,
+  type TransactionExecutionClaimOwnerV1,
+  type TransactionExecutionClaimPinV1,
+} from "./transactionExecutionClaimModel";
 import {
   isLocatedPointCommitPublicationTargetV1,
   isLocatedReadCommittedAttemptTargetV1,
@@ -260,6 +275,7 @@ export interface PointCommitFinishingTransitionCommandV1
       readonly lifecycle: "running";
     }
   >;
+  readonly executionClaim: TransactionExecutionClaimPinV1;
 }
 
 export interface PointCommitDependencyV1 {
@@ -327,6 +343,7 @@ export type PointMutationAttemptReplacementCorruptionReasonV1 =
   | "attemptFenceUpdateInvalid"
   | "freshLeaseInvalid"
   | "freshJournalRootInvalid"
+  | "finishingExecutionClaimPresent"
   | "replacementConvergenceInvalid"
   | "replacementMutationInvalid";
 
@@ -360,7 +377,9 @@ export type PointMutationAttemptReplacementSqlOperationV1 =
   | "advanceAttemptFence"
   | "insertRetryLease"
   | "insertRetryJournalRoot"
+  | "insertRetryExecutionClaim"
   | "enterRetryRunning"
+  | "validateFinishingClaimAbsence"
   | "validatePristineAttempt";
 
 export class PointMutationAttemptReplacementSqlErrorV1
@@ -371,6 +390,7 @@ export class PointMutationAttemptReplacementSqlErrorV1
   }> {}
 
 export type PointMutationAttemptReplacementV1Error =
+  | PointMutationAttemptReplacementConfigurationV1Error
   | PointMutationAttemptReplacementCommittedOutcomeV1Error
   | PointMutationAttemptReplacementConflictNoLongerPresentV1Error
   | PointMutationAttemptReplacementRequestKeyReuseV1Error
@@ -379,14 +399,24 @@ export type PointMutationAttemptReplacementV1Error =
   | PointMutationAttemptReplacementResourceExhaustionV1Error
   | PointMutationAttemptReplacementSqlErrorV1;
 
-/** Lifecycle correlation only; this result is never an execution permit. */
-export interface PointMutationAttemptReplacementObservationV1 {
-  readonly kind: "replaced" | "alreadyReplaced";
+/**
+ * Persistence settlement evidence. The structural claim receipt remains
+ * non-authorizing until the owning executor factory mints an opaque handle.
+ */
+export type PointMutationAttemptReplacementObservationV1 = Readonly<{
+  readonly kind: "replaced";
   readonly scopeUuid: ScopeUuidV1;
   readonly sessionId: TransactionSessionIdV1;
   readonly previousAttemptFence: TransactionAttemptFence;
   readonly attemptFence: TransactionAttemptFence;
-}
+  readonly executionClaim: TransactionExecutionClaimObservationV1;
+}> | Readonly<{
+  readonly kind: "alreadyReplaced";
+  readonly scopeUuid: ScopeUuidV1;
+  readonly sessionId: TransactionSessionIdV1;
+  readonly previousAttemptFence: TransactionAttemptFence;
+  readonly attemptFence: TransactionAttemptFence;
+}>;
 
 export interface PointMutationAttemptReplacementPortV1 {
   readonly replace: (
@@ -402,8 +432,14 @@ export class PointMutationAttemptReplacementConfigurationV1Error
   extends Error {
   readonly name = "PointMutationAttemptReplacementConfigurationV1Error";
 
-  constructor(readonly reason: "leaseDurationInvalid") {
-    super("O08-A requires a positive safe-integer lease duration.");
+  constructor(
+    readonly reason:
+      | "leaseDurationInvalid"
+      | "executionClaimDurationInvalid"
+      | "executionClaimOwnerGenerationFailed"
+      | "executionClaimOwnerInvalid",
+  ) {
+    super(`O08-A configuration is invalid: ${reason}.`);
   }
 }
 
@@ -504,8 +540,10 @@ export type PointCommitSqlOperationV1 =
   | "lockSession"
   | "lockLease"
   | "lockJournalRoot"
+  | "lockExecutionClaim"
   | "readDatabaseTime"
   | "enterFinishing"
+  | "deleteExecutionClaim"
   | "loadRowHeads"
   | "writeTentativeRow"
   | "recheckOutcome"
@@ -644,6 +682,8 @@ export type PointCommitTransactionProofStepV1 =
   | "sessionLocked"
   | "leaseLocked"
   | "journalRootLocked"
+  | "executionClaimLocked"
+  | "executionClaimDeleted"
   | "sessionEnteredFinishing"
   | "dependenciesValidated"
   | "tentativeRowWritten"
@@ -688,11 +728,14 @@ export type PointMutationAttemptReplacementProofStepV1 =
   | "attemptFenceAdvanced"
   | "leaseInserted"
   | "journalRootInserted"
+  | "executionClaimInserted"
   | "sessionRunning"
   | "beforeCommit";
 
 export interface PointMutationAttemptReplacementOptionsV1 {
   readonly leaseDurationMilliseconds: number;
+  readonly executionClaimDurationMilliseconds?: number;
+  readonly randomExecutionClaimOwner?: () => string;
   /** Test-only deterministic transaction pause/failure seam. */
   readonly afterReplacementStep?: (
     event: Readonly<{
@@ -858,6 +901,16 @@ export function createPointMutationAttemptReplacementPortV1(
       "leaseDurationInvalid",
     );
   }
+  const executionClaimDurationMilliseconds =
+    options.executionClaimDurationMilliseconds ??
+      options.leaseDurationMilliseconds;
+  if (!isPositiveSafeInteger(executionClaimDurationMilliseconds)) {
+    throw new PointMutationAttemptReplacementConfigurationV1Error(
+      "executionClaimDurationInvalid",
+    );
+  }
+  const randomExecutionClaimOwner = options.randomExecutionClaimOwner ??
+    (() => crypto.randomUUID());
   const proofOptions: PointCommitTransactionProofOptionsV1 = Object.freeze({
     ...(options.observeQuery === undefined
       ? {}
@@ -871,6 +924,22 @@ export function createPointMutationAttemptReplacementPortV1(
       try: () => capturePointMutationAttemptReplacementCommand(input),
       catch: mapPointMutationAttemptReplacementPreparationFailure,
     });
+    const generatedOwner = yield* Effect.try({
+      try: randomExecutionClaimOwner,
+      catch: () => new PointMutationAttemptReplacementConfigurationV1Error(
+        "executionClaimOwnerGenerationFailed",
+      ),
+    });
+    const decodedOwner = decodeTransactionExecutionClaimOwnerV1(
+      generatedOwner,
+    );
+    if (Result.isFailure(decodedOwner)) {
+      return yield* Effect.fail(
+        new PointMutationAttemptReplacementConfigurationV1Error(
+          "executionClaimOwnerInvalid",
+        ),
+      );
+    }
     const located = yield* resolvePointCommitAuthority(
       command.authorityPins.deploymentId,
       ports,
@@ -899,6 +968,8 @@ export function createPointMutationAttemptReplacementPortV1(
         command,
         options,
         proofOptions,
+        decodedOwner.success,
+        executionClaimDurationMilliseconds,
       ),
       catch: mapPointMutationAttemptReplacementTransactionFailure,
     }));
@@ -1340,6 +1411,7 @@ function capturePointCommitFinishingTransitionCommand(
   const authorityPins = captureAuthorityPins(input.authorityPins);
   const session = captureSessionScalars(input.session);
   const sealIdentity = captureSealIdentity(input.sealIdentity);
+  const executionClaim = captureExecutionClaimPin(input.executionClaim);
   requireCommandAuthorityConsistency(authorityPins, session, sealIdentity);
   return Object.freeze({
     authorityPins,
@@ -1348,6 +1420,29 @@ function capturePointCommitFinishingTransitionCommand(
       ...sealIdentity,
       lifecycle: "running" as const,
     }),
+    executionClaim,
+  });
+}
+
+function captureExecutionClaimPin(
+  input: TransactionExecutionClaimPinV1,
+): TransactionExecutionClaimPinV1 {
+  let ownerInput: unknown;
+  let fenceInput: unknown;
+  try {
+    ownerInput = input.claimOwner;
+    fenceInput = input.claimFence;
+  } catch {
+    throw corruption("commandInvalid");
+  }
+  const owner = decodeTransactionExecutionClaimOwnerV1(ownerInput);
+  const fence = decodeTransactionExecutionClaimFenceV1(fenceInput);
+  if (Result.isFailure(owner) || Result.isFailure(fence)) {
+    throw corruption("commandInvalid");
+  }
+  return Object.freeze({
+    claimOwner: owner.success,
+    claimFence: fence.success,
   });
 }
 
@@ -1722,6 +1817,8 @@ async function runPointMutationAttemptReplacement(
   command: PreparedPointMutationAttemptReplacementCommandV1,
   options: PointMutationAttemptReplacementOptionsV1,
   sharedOptions: PointCommitTransactionProofOptionsV1,
+  executionClaimOwner: TransactionExecutionClaimOwnerV1,
+  executionClaimDurationMilliseconds: number,
 ): Promise<PointMutationAttemptReplacementObservationV1> {
   return target[RUN_LOCATED_READ_COMMITTED_V1](async (tx) => {
     const clock = await lockPointCommitClock(tx, command, sharedOptions);
@@ -1764,6 +1861,12 @@ async function runPointMutationAttemptReplacement(
     await emitReplacementStep(options, command, "leaseLocked");
     await lockPointCommitJournalRoot(tx, command, sharedOptions);
     await emitReplacementStep(options, command, "journalRootLocked");
+    await requireNoFinishingExecutionClaim(
+      tx,
+      clock,
+      command,
+      options,
+    );
     const databaseNowMilliseconds = await readPointCommitDatabaseTime(
       tx,
       command.authorityPins.scopeId,
@@ -1816,6 +1919,25 @@ async function runPointMutationAttemptReplacement(
       throw replacementCorruption("freshLeaseInvalid");
     }
     const freshFacet = freshFacetResult.success;
+    const freshExecutionClaim = deriveTransactionExecutionClaimV1({
+      scopeUuid: clock.scopeUuid,
+      sessionId: command.authorityPins.sessionId,
+      attemptFence: replacementFence,
+      claimFence: 1n,
+      claimOwner: executionClaimOwner,
+      databaseNow: new Date(mutationTimeMilliseconds),
+      durationMilliseconds: executionClaimDurationMilliseconds,
+      leaseExpiresAt: freshFacet.leaseExpiresAt,
+      authorizationGrantExpiresAt: new Date(
+        session.authorizationGrantExpiresAtMilliseconds,
+      ),
+      hardExpiresAt: new Date(session.hardExpiresAtMilliseconds),
+    });
+    if (Result.isFailure(freshExecutionClaim)) {
+      throw freshExecutionClaim.failure === "authorityExpired"
+        ? stale("expired")
+        : replacementCorruption("freshLeaseInvalid");
+    }
 
     const retrying = tx.update(fxSystemTransactionSessions).set({
       lifecycle: "retrying",
@@ -1950,6 +2072,24 @@ async function runPointMutationAttemptReplacement(
     }
     await emitReplacementStep(options, command, "journalRootInserted");
 
+    const claimInsert = tx.insert(fxSystemTransactionExecutionClaims)
+      .values(freshExecutionClaim.success)
+      .returning({
+        attemptFence: fxSystemTransactionExecutionClaims.attemptFence,
+      });
+    observeReplacementQuery("insertRetryExecutionClaim", claimInsert, options);
+    const insertedClaim = await replacementSqlCall(
+      "insertRetryExecutionClaim",
+      () => claimInsert,
+    );
+    if (
+      insertedClaim.length !== 1 ||
+      insertedClaim[0]?.attemptFence !== replacementFence
+    ) {
+      throw replacementCorruption("replacementMutationInvalid");
+    }
+    await emitReplacementStep(options, command, "executionClaimInserted");
+
     const runningUpdate = tx.update(fxSystemTransactionSessions).set({
       lifecycle: "running",
     }).where(and(
@@ -1975,8 +2115,48 @@ async function runPointMutationAttemptReplacement(
     }
     await emitReplacementStep(options, command, "sessionRunning");
     await emitReplacementStep(options, command, "beforeCommit");
-    return replacementObservation("replaced", command, replacementFence);
+    return replacementObservation(
+      "replaced",
+      command,
+      replacementFence,
+      Object.freeze({
+        claimOwner: freshExecutionClaim.success.claimOwner,
+        claimFence: freshExecutionClaim.success.claimFence,
+        claimedAt: freshExecutionClaim.success.claimedAt.toISOString(),
+        claimExpiresAt:
+          freshExecutionClaim.success.claimExpiresAt.toISOString(),
+      }),
+    );
   });
+}
+
+async function requireNoFinishingExecutionClaim(
+  tx: AppRowTransaction,
+  clock: LockedPointCommitClockV1,
+  command: PreparedPointMutationAttemptReplacementCommandV1,
+  options: PointMutationAttemptReplacementOptionsV1,
+): Promise<void> {
+  const query = tx.select({
+    claimFence: fxSystemTransactionExecutionClaims.claimFence,
+  }).from(fxSystemTransactionExecutionClaims).where(and(
+    eq(fxSystemTransactionExecutionClaims.scopeUuid, clock.scopeUuid),
+    eq(
+      fxSystemTransactionExecutionClaims.sessionId,
+      command.authorityPins.sessionId,
+    ),
+    eq(
+      fxSystemTransactionExecutionClaims.attemptFence,
+      command.authorityPins.attemptFence,
+    ),
+  )).limit(2).for("update");
+  observeReplacementQuery("validateFinishingClaimAbsence", query, options);
+  const rows = await replacementSqlCall(
+    "validateFinishingClaimAbsence",
+    () => query,
+  );
+  if (rows.length !== 0) {
+    throw replacementCorruption("finishingExecutionClaimPresent");
+  }
 }
 
 async function observeReplacedPointMutationAttempt(
@@ -2081,6 +2261,13 @@ async function observeReplacedPointMutationAttempt(
   }
   await emitReplacementStep(options, command, "journalRootLocked");
 
+  const executionClaim = await lockExactTransactionExecutionClaimV1(tx, {
+    scopeId: command.authorityPins.scopeId,
+    scopeUuid: clock.scopeUuid,
+    sessionId: command.authorityPins.sessionId,
+    attemptFence: expectedFence,
+  });
+
   const childrenQuery = tx.select({
     receiptExists: sql<boolean>`exists(
       select 1 from ${fxSystemTransactionJournalLatestReceipts}
@@ -2146,6 +2333,12 @@ async function observeReplacedPointMutationAttempt(
     }),
     databaseNowMilliseconds,
   );
+  requireLiveTransactionExecutionClaimV1(
+    command.authorityPins.scopeId,
+    executionClaim,
+    undefined,
+    new Date(databaseNowMilliseconds),
+  );
   return replacementObservation("alreadyReplaced", command, expectedFence);
 }
 
@@ -2153,14 +2346,25 @@ function replacementObservation(
   kind: PointMutationAttemptReplacementObservationV1["kind"],
   command: PreparedPointMutationAttemptReplacementCommandV1,
   attemptFence: TransactionAttemptFence,
+  executionClaim?: TransactionExecutionClaimObservationV1,
 ): PointMutationAttemptReplacementObservationV1 {
-  return Object.freeze({
-    kind,
+  const common = {
     scopeUuid: command.sealIdentity.scopeUuid,
     sessionId: command.authorityPins.sessionId,
     previousAttemptFence: command.authorityPins.attemptFence,
     attemptFence,
-  });
+  } as const;
+  if (kind === "replaced") {
+    if (executionClaim === undefined) {
+      throw replacementCorruption("replacementMutationInvalid");
+    }
+    return Object.freeze({
+      kind: "replaced",
+      ...common,
+      executionClaim: Object.freeze({ ...executionClaim }),
+    });
+  }
+  return Object.freeze({ kind: "alreadyReplaced", ...common });
 }
 
 async function runPointCommitFinishingTransition(
@@ -2198,6 +2402,25 @@ async function runPointCommitFinishingTransition(
     const priorSessionUpdatedAtMilliseconds =
       command.session.updatedAtMilliseconds;
     if (session.lifecycle === "finishing") {
+      const claims = await tx.select({
+        claimFence: fxSystemTransactionExecutionClaims.claimFence,
+      }).from(fxSystemTransactionExecutionClaims).where(and(
+        eq(
+          fxSystemTransactionExecutionClaims.scopeUuid,
+          command.sealIdentity.scopeUuid,
+        ),
+        eq(
+          fxSystemTransactionExecutionClaims.sessionId,
+          command.authorityPins.sessionId,
+        ),
+        eq(
+          fxSystemTransactionExecutionClaims.attemptFence,
+          command.authorityPins.attemptFence,
+        ),
+      )).limit(2).for("update");
+      if (claims.length !== 0) {
+        throw corruption("finishingTransitionInvalid");
+      }
       return finishingTransitionResult(
         "observed",
         command,
@@ -2205,6 +2428,57 @@ async function runPointCommitFinishingTransition(
         session.updatedAtMilliseconds,
       );
     }
+    const executionClaim = await lockExactTransactionExecutionClaimV1(tx, {
+      scopeId: command.authorityPins.scopeId,
+      scopeUuid: command.sealIdentity.scopeUuid,
+      sessionId: command.authorityPins.sessionId,
+      attemptFence: command.authorityPins.attemptFence,
+    });
+    await emitTransactionStep(options, command, "executionClaimLocked");
+    requireLiveTransactionExecutionClaimV1(
+      command.authorityPins.scopeId,
+      executionClaim,
+      command.executionClaim,
+      new Date(databaseNowMilliseconds),
+    );
+    const deleteClaim = tx.delete(fxSystemTransactionExecutionClaims).where(
+      and(
+        eq(
+          fxSystemTransactionExecutionClaims.scopeUuid,
+          command.sealIdentity.scopeUuid,
+        ),
+        eq(
+          fxSystemTransactionExecutionClaims.sessionId,
+          command.authorityPins.sessionId,
+        ),
+        eq(
+          fxSystemTransactionExecutionClaims.attemptFence,
+          command.authorityPins.attemptFence,
+        ),
+        eq(
+          fxSystemTransactionExecutionClaims.claimOwner,
+          command.executionClaim.claimOwner,
+        ),
+        eq(
+          fxSystemTransactionExecutionClaims.claimFence,
+          command.executionClaim.claimFence,
+        ),
+      ),
+    ).returning({
+      claimFence: fxSystemTransactionExecutionClaims.claimFence,
+    });
+    observeDrizzleQuery("deleteExecutionClaim", deleteClaim, options);
+    const deletedClaims = await sqlCall(
+      "deleteExecutionClaim",
+      () => deleteClaim,
+    );
+    if (
+      deletedClaims.length !== 1 ||
+      deletedClaims[0]?.claimFence !== command.executionClaim.claimFence
+    ) {
+      throw corruption("finishingTransitionInvalid");
+    }
+    await emitTransactionStep(options, command, "executionClaimDeleted");
     const finishingUpdatedAt = new Date(databaseNowMilliseconds);
     const query = tx
       .update(fxSystemTransactionSessions)
@@ -3933,6 +4207,14 @@ function mapFinishingTransitionFailure(
   ) {
     return cause;
   }
+  if (cause instanceof TransactionExecutionClaimCorruptionV1Error) {
+    return corruption("finishingTransitionInvalid");
+  }
+  if (cause instanceof TransactionExecutionClaimStaleV1Error) {
+    return stale(
+      cause.reason === "claimExpired" ? "expired" : "lifecycleChanged",
+    );
+  }
   if (cause instanceof LocatedReadCommittedTransactionFailureV1) {
     if (
       cause.issue.kind === "callbackRolledBack" &&
@@ -3989,6 +4271,14 @@ function mapPointMutationAttemptReplacementTransactionFailure(
   }
   if (cause instanceof PointCommitConflictV1Error) {
     return replacementCorruption("occEvidenceInvalid");
+  }
+  if (cause instanceof TransactionExecutionClaimCorruptionV1Error) {
+    return replacementCorruption("replacementConvergenceInvalid");
+  }
+  if (cause instanceof TransactionExecutionClaimStaleV1Error) {
+    return new PointMutationAttemptReplacementStaleAuthorityV1Error({
+      reason: cause.reason === "claimExpired" ? "expired" : "lifecycleChanged",
+    });
   }
   if (cause instanceof LocatedReadCommittedTransactionFailureV1) {
     if (

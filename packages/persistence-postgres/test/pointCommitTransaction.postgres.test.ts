@@ -103,6 +103,7 @@ import {
 } from "./effectTestRuntime";
 import {
   activatePointMutationSession,
+  executionClaimForAnchor,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
@@ -1089,6 +1090,7 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
         "attemptFenceAdvanced",
         "leaseInserted",
         "journalRootInserted",
+        "executionClaimInserted",
         "sessionRunning",
         "beforeCommit",
       ]);
@@ -1102,6 +1104,8 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
         lease_fence: "2",
         root_fence: "2",
         root_state: "open",
+        execution_claim_count: "1",
+        execution_claim_fence: "1",
         receipt_count: "0",
         point_count: "0",
         event_count: "0",
@@ -1316,6 +1320,7 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
             sessionId: abortRace.anchor.sessionId,
             attemptFence: abortRace.anchor.attemptFence,
           },
+          executionClaim: executionClaimForAnchor(abortRace.anchor),
           expectedSnapshotToken: abortRace.anchor.snapshotToken,
         }),
       );
@@ -1433,6 +1438,7 @@ describePostgres("real Postgres O08-A exact-attempt replacement", () => {
         "attemptFenceAdvanced",
         "leaseInserted",
         "journalRootInserted",
+        "executionClaimInserted",
         "sessionRunning",
         "beforeCommit",
       ] as const;
@@ -1567,6 +1573,7 @@ async function createAttempt(
         sessionId: activation.anchor.sessionId,
         attemptFence: activation.anchor.attemptFence,
       },
+      executionClaim: executionClaimForAnchor(activation.anchor),
       snapshotToken: activation.anchor.snapshotToken,
       schemaVersionId: scope.schemaVersionId,
     }),
@@ -1592,6 +1599,7 @@ async function createAttempt(
   const authority = authorityFromAnchor(
     activation.anchor,
     scope.schemaVersionId,
+    executionClaimForAnchor(activation.anchor),
   );
   const loader = createStoredAttemptEvidenceLoaderV1(scope.ports);
   const running = await runEffect(loader.loadEffect(authority));
@@ -1954,6 +1962,9 @@ function resolutionPorts(
 function authorityFromAnchor(
   anchor: PointMutationSessionAnchorV1,
   schemaVersionId: ReturnType<typeof CatalogSchemaVersionIdSchema.make>,
+  executionClaim: NonNullable<
+    StoredAttemptEvidenceAuthorityV1["executionClaim"]
+  >,
 ): StoredAttemptEvidenceAuthorityV1 {
   return Object.freeze({
     deploymentId: anchor.deploymentId,
@@ -1964,6 +1975,7 @@ function authorityFromAnchor(
     storageGenerationFence: anchor.storageGenerationFence,
     snapshotToken: anchor.snapshotToken,
     schemaVersionId,
+    executionClaim,
   });
 }
 
@@ -2089,6 +2101,8 @@ async function replacementState(
     lease_fence: string;
     root_fence: string;
     root_state: string;
+    execution_claim_count: string;
+    execution_claim_fence: string | null;
     receipt_count: string;
     point_count: string;
     event_count: string;
@@ -2099,6 +2113,9 @@ async function replacementState(
       lease.attempt_fence::text as lease_fence,
       root.attempt_fence::text as root_fence,
       root.state as root_state,
+      (select count(*)::text from fx_system_tx_execution_claim
+        where scope_uuid = $1 and session_id = $2) as execution_claim_count,
+      claim.claim_fence::text as execution_claim_fence,
       (select count(*)::text from fx_system_tx_journal_latest_receipt
         where scope_uuid = $1 and session_id = $2) as receipt_count,
       (select count(*)::text from fx_system_tx_journal_point
@@ -2114,6 +2131,10 @@ async function replacementState(
     join fx_system_tx_journal root
       on root.scope_uuid = session.scope_uuid
       and root.session_id = session.session_id
+    left join fx_system_tx_execution_claim claim
+      on claim.scope_uuid = session.scope_uuid
+      and claim.session_id = session.session_id
+      and claim.attempt_fence = session.attempt_fence
     where session.scope_uuid = $1 and session.session_id = $2`,
     [scopeUuid, sessionId],
   );

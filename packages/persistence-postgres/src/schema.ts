@@ -104,6 +104,10 @@ import type {
 import { MAX_FLAREX_APP_DOCUMENT_SEMANTIC_BYTES_V1 } from "flarex-protocol/value";
 
 import type { ScopeIsolationKind } from "./scopeMetadataTypes";
+import type {
+  TransactionExecutionClaimFenceV1,
+  TransactionExecutionClaimOwnerV1,
+} from "./transactionExecutionClaimModel";
 
 type TransactionJournalOperationalLimitDimensionV1 = Extract<
   CommitProtocolV1LimitDimension,
@@ -1644,6 +1648,71 @@ export const fxSystemTransactionJournals = pgTable(
   ],
 );
 
+/**
+ * Singular execution ownership for one exact running attempt.
+ *
+ * The row is intentionally a child of the journal root rather than a second
+ * lifecycle authority. Deleting or replacing the root therefore removes the
+ * corresponding execution authority in the same transaction.
+ */
+export const fxSystemTransactionExecutionClaims = pgTable(
+  "fx_system_tx_execution_claim",
+  {
+    scopeUuid: uuid("scope_uuid").$type<ScopeUuidV1>().notNull(),
+    sessionId: uuid("session_id").$type<TransactionSessionIdV1>().notNull(),
+    attemptFence: bigint("attempt_fence", { mode: "bigint" })
+      .$type<TransactionAttemptFence>()
+      .notNull(),
+    claimFence: bigint("claim_fence", { mode: "bigint" })
+      .$type<TransactionExecutionClaimFenceV1>()
+      .notNull(),
+    claimOwner: uuid("claim_owner")
+      .$type<TransactionExecutionClaimOwnerV1>()
+      .notNull(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull(),
+    claimExpiresAt: timestamp("claim_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "fx_system_tx_execution_claim_pk",
+      columns: [table.scopeUuid, table.sessionId, table.attemptFence],
+    }),
+    foreignKey({
+      name: "fx_system_tx_execution_claim_journal_fk",
+      columns: [table.scopeUuid, table.sessionId, table.attemptFence],
+      foreignColumns: [
+        fxSystemTransactionJournals.scopeUuid,
+        fxSystemTransactionJournals.sessionId,
+        fxSystemTransactionJournals.attemptFence,
+      ],
+    })
+      .onUpdate("restrict")
+      .onDelete("cascade"),
+    check(
+      "fx_system_tx_execution_claim_attempt_fence_check",
+      sql`${table.attemptFence} >= 1`,
+    ),
+    check(
+      "fx_system_tx_execution_claim_fence_check",
+      sql`${table.claimFence} >= 1`,
+    ),
+    check(
+      "fx_system_tx_execution_claim_owner_check",
+      sql`${table.claimOwner}::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'`,
+    ),
+    check(
+      "fx_system_tx_execution_claim_time_check",
+      sql`
+        isfinite(${table.claimedAt})
+        and isfinite(${table.claimExpiresAt})
+        and ${table.claimExpiresAt} > ${table.claimedAt}
+      `,
+    ),
+  ],
+);
+
 /** Constant-cardinality durable replay receipt for one exact attempt. */
 export const fxSystemTransactionJournalLatestReceipts = pgTable(
   "fx_system_tx_journal_latest_receipt",
@@ -2709,6 +2778,7 @@ export const flarexSchema = {
   fxSystemIndexBuildStates,
   fxSystemSnapshotLeases,
   fxSystemScopeClocks,
+  fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournalLatestReceipts,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournals,

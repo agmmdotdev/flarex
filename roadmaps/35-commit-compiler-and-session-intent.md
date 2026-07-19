@@ -15,10 +15,11 @@ fenced finishing transition and same-factory continuation are complete. C05-B
 fresh-process reconstruction and private compiler/publisher composition are
 also complete. O08-A atomic exact-attempt replacement, O08-B1 bounded
 same-factory fresh-attempt handoff, and O08-B2a same-process runtime-neutral
-rerun composition, O08-B2b0's docs-only Postgres claim-authority decision, and
-O08-CD0 transaction-decision provenance, O08-C known-settled SQL retry, and
-O08-D bounded uncertainty recovery are complete; B2b crash-safe redispatch
-remains pending; C04C2 remains conditional and unapproved.
+rerun composition, O08-B2b0's Postgres claim-authority decision, integrated
+O08-B2b1/C06-A durable claim admission, O08-CD0 transaction-decision
+provenance, O08-C known-settled SQL retry, and O08-D bounded uncertainty
+recovery are complete. O08-B2b2 user-code crash redispatch and C06-B endpoint/
+dispatcher policy remain pending; C04C2 remains conditional and unapproved.
 
 This roadmap owns the durable direction for:
 
@@ -228,7 +229,7 @@ deletes the exact lease and stores committed state plus the internal S09-A
 committed-success receipt and S09-B outbox, O08-A owns exact-attempt
 replacement, O08-B1 owns the bounded fresh-attempt handoff, O08-B2a owns
 same-process execution, O08-C owns known-settled SQL retry, O08-D owns bounded
-uncertainty recovery, O08-B2b retains crash-safe redispatch, and O11
+uncertainty recovery, O08-B2b2 retains user-code crash redispatch, and O11
 first consumes active floors.
 
 Temporary journal placement does not change this anchor. Reloading it
@@ -334,13 +335,15 @@ deletes the old journal root before the lease, and installs the fresh lease and
 pristine root without authorizing execution. O08-B1 performs only the bounded
 backoff, outcome check, replacement handoff, and exact fresh-attempt proof;
 O08-B2a alone may consume that process-local handoff, reauthenticate, and rerun
-user code at the new snapshot. O08-B2b0 now accepts only the future integrated
-authority decision: once implemented, Postgres owns one exact-attempt execution
-ticket/fenced claim, and B2b process handles are opaque projections of a
-successfully acquired claim. Eligibility must be created atomically with O08-A
-replacement or another accepted single transaction. B2b implementation remains
-unapproved, and the current B2a path is unchanged. A stale journal or Durable
-Object cannot reopen a terminal session.
+user code at the new snapshot. O08-B2b1/C06-A now implements the accepted
+Postgres exact-attempt execution claim: O03 activation and O08-A replacement
+create it atomically before `running`, a directly settled outcome-first acquire
+may mint only its same-factory opaque projection, every execution/journal/seal/
+transition admission enforces its owner and fence, and C05-A consumes it when
+entering `finishing`. Claim expiry remains distinct from snapshot-lease expiry
+and terminalization. O08-B2b2 user-code crash redispatch and C06-B endpoint/
+dispatcher policy remain pending. A stale journal or Durable Object cannot
+reopen a terminal session.
 
 ### Planner and executor split
 
@@ -564,24 +567,28 @@ The replacement keeps one supporting primitive and three coordinators separate:
    journal/syscall admission enforces the claim fence, and claim expiry is not
    snapshot-lease expiry or execution permission. Duplicate dispatch,
    renewal/takeover, interruption, and uncertain-outcome behavior fail closed.
-5. **O08-B2b crash-safe redispatch:** implementation and its decomposition
-   remain deferred pending separate DDL/migration, dispatcher ownership,
-   routing/adapter, and crash-recovery preflights. The current downstream C06
-   gate cannot bootstrap that dispatcher without a separately accepted split
-   or reordering.
-6. **O08-CD0 transaction-decision provenance (complete):** a phase-aware
+5. **O08-B2b1/C06-A durable claim admission (complete):** migration 0032 adds
+   the exact-attempt claim; O03 and O08-A create it atomically before `running`;
+   outcome-first locked acquisition/takeover mints only a settled same-factory
+   projection; all execution and journal/seal/transition admissions enforce the
+   exact owner/fence; and C05-A consumes it when entering `finishing`.
+6. **O08-B2b2/C06-B crash redispatch and dispatch policy:** user-code crash
+   redispatch, dirty-attempt policy, renewal, discovery, endpoint response,
+   routing, and runtime adapters remain deferred. They must compose the singular
+   Postgres claim and may not infer authority from lifecycle evidence.
+7. **O08-CD0 transaction-decision provenance (complete):** a phase-aware
    connected Postgres runner distinguishes proven callback rollback, cleanup
    failure, and callback-completed commit/release uncertainty. Only the point-
    publication union receives confirmed-pre-decision and decision-uncertain
    variants; CD0 contains no retry or uncertainty policy.
-7. **O08-C known pre-decision SQL serialization/deadlock (complete):** the
+8. **O08-C known pre-decision SQL serialization/deadlock (complete):** the
    genuine finishing-publication path captures the authenticated logical/closed
    O07-B command once and makes at most three attempts. Only a direct source-
    owned confirmed PostgreSQL `40001` or `40P01` retries; full-jitter bounds are
    below 10 ms and 20 ms. Every attempt re-derives transaction-owned facts. O06
    proves transaction settlement and rollback; neither O06 nor C04C1 exposes an
    immutable physical SQL plan.
-8. **O08-D uncertain outcome (complete):** consume only a direct same-factory
+9. **O08-D uncertain outcome (complete):** consume only a direct same-factory
    finishing-publication uncertainty. Available replays; expired closes with
    its retained token; mismatch/corruption fails closed; lookup failure remains
    secondary to the original uncertainty. Missing permits one exact C05-B
@@ -867,17 +874,18 @@ operational point-journal consumer, and C04A's private stored-attempt
   durable point publication, C05-A's finishing barrier, and C05-B's verified
   fresh-process reconstruction/composition, O08-A exact-attempt replacement,
   O08-B1 bounded fresh-attempt handoff, O08-B2a same-process rerun composition,
-  O08-B2b0's docs-only authority decision, O08-CD0 decision provenance, O08-C
-  known-settled SQL retry, and O08-D bounded uncertainty recovery are complete.
-  B2b claim/dispatcher/crash-redispatch implementation remains pending,
-  and C04C2 remains conditional and unapproved.
+  O08-B2b0's authority decision, O08-B2b1/C06-A durable claim admission,
+  O08-CD0 decision provenance, O08-C known-settled SQL retry, and O08-D bounded
+  uncertainty recovery are complete. O08-B2b2 user-code crash redispatch and
+  C06-B endpoint/dispatcher policy remain pending, and C04C2 remains conditional
+  and unapproved.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or
 retention consumer proves that a bounded attempt must outlive its initial lease.
 Operational revocation and hosted Worker/key adapters are deferred and do not
 block the private C07 proof.
 Hosted compiler execution still waits for coherent production validator and
-activation authority, O08-B2b/C06/C07, the target-only caller and routing
+activation authority, O08-B2b2/C06-B/C07, the target-only caller and routing
 cutover, and the remaining hosted adapters. Shipped-state migration prerequisites are
 conditional.
 

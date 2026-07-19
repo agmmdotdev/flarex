@@ -52,6 +52,13 @@ import {
   type AdmittedPointMutationStartV1,
   type InvalidAdmittedPointMutationStartV1Error,
 } from "./transactionGrant";
+import {
+  InvalidPointMutationExecutionClaimV1Error,
+  type PointMutationExecutionClaimV1,
+  type PointMutationExecutionScopeV1,
+  type PointMutationExecutionClaimAdmissionV1,
+  type PointMutationExecutionClaimIssuerV1,
+} from "./pointMutationExecutionClaim";
 
 const activatedPointMutationSessionBrand: unique symbol = Symbol(
   "FlarexExecutor/ActivatedPointMutationSessionV1",
@@ -65,9 +72,14 @@ export interface ActivatedPointMutationSessionV1 {
 export type ActivatedPointMutationSessionInspectionV1 =
   PointMutationSessionActivationResultV1;
 
-const activatedSessionInspectionByHandle = new WeakMap<
+interface ActivatedPointMutationSessionStateV1 {
+  readonly inspection: ActivatedPointMutationSessionInspectionV1;
+  readonly executionClaim?: PointMutationExecutionClaimV1;
+}
+
+const activatedSessionStateByHandle = new WeakMap<
   object,
-  ActivatedPointMutationSessionInspectionV1
+  ActivatedPointMutationSessionStateV1
 >();
 
 const loadedPointMutationSessionAttemptBrand: unique symbol = Symbol(
@@ -101,6 +113,15 @@ export class InvalidActivatedPointMutationSessionV1Error extends Error {
 
   constructor() {
     super("Value is not a process-local activated point-mutation session.");
+  }
+}
+
+export class ActivatedPointMutationSessionBusyV1Error extends Error {
+  readonly _tag = "ActivatedPointMutationSessionBusyV1Error" as const;
+  readonly name = "ActivatedPointMutationSessionBusyV1Error";
+
+  constructor() {
+    super("The point-mutation attempt already has a live execution owner.");
   }
 }
 
@@ -178,6 +199,7 @@ export type PointMutationSessionAttemptLoadingExecutionV1Error =
 export interface PointMutationSessionAttemptTerminalizationV1 {
   readonly abort: (
     attempt: LoadedPointMutationSessionAttemptV1,
+    executionClaim: PointMutationExecutionScopeV1,
   ) => Effect.Effect<
     PointMutationSessionAttemptTerminalizationResultV1,
     PointMutationSessionAttemptTerminalizationExecutionV1Error
@@ -192,6 +214,7 @@ export interface PointMutationSessionAttemptTerminalizationV1 {
 
 export type PointMutationSessionAttemptTerminalizationExecutionV1Error =
   | InvalidLoadedPointMutationSessionAttemptV1Error
+  | InvalidPointMutationExecutionClaimV1Error
   | InvalidPointMutationSessionAttemptSelectorV1Error
   | PointMutationSessionAttemptTerminalizationEffectErrorV1
   | PointMutationSessionAttemptTerminalizationContractV1Error;
@@ -201,6 +224,7 @@ export function createPointMutationSessionActivationV1(
     PointMutationSessionActivationPersistenceV1,
     "activateEffect"
   >,
+  executionClaims: PointMutationExecutionClaimIssuerV1,
 ): PointMutationSessionActivationV1 {
   const activate: PointMutationSessionActivationV1["activate"] = Effect.fn(
     "ExecutorPointMutationSessionActivation.activate",
@@ -213,7 +237,22 @@ export function createPointMutationSessionActivationV1(
     const handle = Object.freeze({
       [activatedPointMutationSessionBrand]: true as const,
     });
-    activatedSessionInspectionByHandle.set(handle, result);
+    const executionClaim = result.status === "created"
+      ? executionClaims.mint({
+          selector: Object.freeze({
+            deploymentId: result.anchor.deploymentId,
+            scopeId: result.anchor.scopeId,
+            sessionId: result.anchor.sessionId,
+            attemptFence: result.anchor.attemptFence,
+          }),
+          observation: result.executionClaim,
+          mode: "execute",
+        })
+      : undefined;
+    activatedSessionStateByHandle.set(handle, Object.freeze({
+      inspection: result,
+      ...(executionClaim === undefined ? {} : { executionClaim }),
+    }));
     return handle;
   });
 
@@ -255,10 +294,12 @@ export function createPointMutationSessionAttemptLoadingV1(
 
 export function createPointMutationSessionAttemptTerminalizationV1(
   persistence: PointMutationSessionAttemptTerminalizationPersistenceV1,
+  executionClaims: PointMutationExecutionClaimAdmissionV1,
 ): PointMutationSessionAttemptTerminalizationV1 {
   const abort = Effect.fn("ExecutorPointMutationSessionTerminalization.abort")(
     function* (
       attempt: LoadedPointMutationSessionAttemptV1,
+      executionClaim: PointMutationExecutionScopeV1,
     ): Effect.fn.Return<
       PointMutationSessionAttemptTerminalizationResultV1,
       PointMutationSessionAttemptTerminalizationExecutionV1Error
@@ -266,10 +307,32 @@ export function createPointMutationSessionAttemptTerminalizationV1(
       const inspection = yield* Effect.fromResult(
         inspectLoadedPointMutationSessionAttemptResultV1(attempt),
       );
+      const claim = yield* Effect.fromResult(
+        executionClaims.inspect(executionClaim, "execute"),
+      );
+      if (
+        claim.selector.deploymentId !== inspection.selector.deploymentId ||
+        claim.selector.scopeId !== inspection.selector.scopeId ||
+        claim.selector.sessionId !== inspection.selector.sessionId ||
+        claim.selector.attemptFence !== inspection.selector.attemptFence
+      ) {
+        return yield* Effect.fail(
+          new InvalidPointMutationExecutionClaimV1Error({
+            reason: "notSameFactory",
+          }),
+        );
+      }
       const result = yield* persistence.abortEffect({
         selector: inspection.selector,
         expectedSnapshotToken: inspection.snapshotToken,
+        executionClaim: Object.freeze({
+          claimOwner: claim.observation.claimOwner,
+          claimFence: claim.observation.claimFence,
+        }),
       });
+      yield* Effect.fromResult(
+        executionClaims.consume(executionClaim, "execute"),
+      );
       return yield* Effect.fromResult(
         captureAttemptTerminalizationResult(inspection.selector, result),
       );
@@ -302,11 +365,27 @@ export function inspectActivatedPointMutationSessionV1(
   if (typeof value !== "object" || value === null) {
     throw new InvalidActivatedPointMutationSessionV1Error();
   }
-  const inspection = activatedSessionInspectionByHandle.get(value);
-  if (inspection === undefined) {
+  const state = activatedSessionStateByHandle.get(value);
+  if (state === undefined) {
     throw new InvalidActivatedPointMutationSessionV1Error();
   }
-  return inspection;
+  return state.inspection;
+}
+
+export function pointMutationExecutionClaimV1FromActivated(
+  value: ActivatedPointMutationSessionV1,
+): PointMutationExecutionClaimV1 {
+  if (typeof value !== "object" || value === null) {
+    throw new InvalidActivatedPointMutationSessionV1Error();
+  }
+  const state = activatedSessionStateByHandle.get(value);
+  if (state === undefined) {
+    throw new InvalidActivatedPointMutationSessionV1Error();
+  }
+  if (state.executionClaim === undefined) {
+    throw new ActivatedPointMutationSessionBusyV1Error();
+  }
+  return state.executionClaim;
 }
 
 export function pointMutationSessionAttemptSelectorV1FromActivated(

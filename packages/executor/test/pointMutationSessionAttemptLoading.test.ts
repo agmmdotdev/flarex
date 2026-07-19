@@ -11,6 +11,10 @@ import {
   PointMutationSessionAttemptTerminalizationV1Error,
 } from "@flarex/persistence-postgres/transaction-session-activation";
 import {
+  TransactionExecutionClaimFenceV1Schema,
+  TransactionExecutionClaimOwnerV1Schema,
+} from "@flarex/persistence-postgres/transaction-execution-claim";
+import {
   CommitSeqSchema,
   FlarexDbV1StorageGenerationSchema,
   ReplacementScopeIdV1Schema,
@@ -38,6 +42,9 @@ import {
   inspectLoadedPointMutationSessionAttemptV1,
   type PointMutationSessionAttemptSelectorWireV1,
 } from "../src/pointMutationSessionActivation";
+import {
+  createPointMutationExecutionClaimVaultV1,
+} from "../src/pointMutationExecutionClaim";
 import { runEffect, runEffectFailure } from "./effectTestRuntime";
 
 const DEPLOYMENT_ID = TransactionGrantDeploymentIdV1Schema.make(
@@ -248,6 +255,7 @@ describe("O03-B2b1 point-mutation attempt terminalization", () => {
       }).load(SELECTOR),
     );
     let abortCalls = 0;
+    const execution = executionClaimHarness();
     const terminalization = createPointMutationSessionAttemptTerminalizationV1({
       abortEffect: (input) => Effect.sync(() => {
         abortCalls += 1;
@@ -267,9 +275,12 @@ describe("O03-B2b1 point-mutation attempt terminalization", () => {
       expireEffect: (selector) => Effect.succeed(
         terminalizationResult(selector, "terminalized", "expired"),
       ),
-    });
+    }, execution.claims.admission);
 
-    await expect(runEffect(terminalization.abort(loaded))).resolves
+    await expect(runEffect(terminalization.abort(
+      loaded,
+      execution.scope,
+    ))).resolves
       .toMatchObject({
         status: "terminalized",
         terminal: { lifecycle: "aborted" },
@@ -294,6 +305,7 @@ describe("O03-B2b1 point-mutation attempt terminalization", () => {
 
   it("expires through the strict restart-safe selector decoder", async () => {
     const observedSelectors: PointMutationSessionAttemptSelectorV1[] = [];
+    const execution = executionClaimHarness();
     const terminalization = createPointMutationSessionAttemptTerminalizationV1({
       abortEffect: (input) => Effect.succeed(
         terminalizationResult(input.selector, "terminalized", "aborted"),
@@ -302,7 +314,7 @@ describe("O03-B2b1 point-mutation attempt terminalization", () => {
         observedSelectors.push(selector);
         return terminalizationResult(selector, "terminalized", "expired");
       }),
-    });
+    }, execution.claims.admission);
 
     const restarted = createPointMutationSessionAttemptTerminalizationV1({
       abortEffect: (input) => Effect.succeed(
@@ -312,7 +324,7 @@ describe("O03-B2b1 point-mutation attempt terminalization", () => {
         observedSelectors.push(selector);
         return terminalizationResult(selector, "observed", "expired");
       }),
-    });
+    }, execution.claims.admission);
     await expect(
       runEffect(restarted.expire(JSON.parse(JSON.stringify(SELECTOR)))),
     ).resolves.toMatchObject({
@@ -372,10 +384,11 @@ describe("O03-B2b1 point-mutation attempt terminalization", () => {
     ];
 
     for (const result of invalidResults) {
+      const execution = executionClaimHarness();
       const terminalization = createPointMutationSessionAttemptTerminalizationV1({
         abortEffect: () => Effect.succeed(result),
         expireEffect: () => Effect.succeed(result),
-      });
+      }, execution.claims.admission);
       await expect(runEffect(terminalization.expire(SELECTOR))).rejects
         .toBeInstanceOf(
           PointMutationSessionAttemptTerminalizationContractV1Error,
@@ -443,19 +456,21 @@ describe("O03-B2b1 point-mutation attempt terminalization", () => {
       reason: "attemptStillLive",
       effectiveExpiresAt: "2099-01-01T00:00:00.000Z",
     });
+    const failingExecution = executionClaimHarness();
     const failing = createPointMutationSessionAttemptTerminalizationV1({
       abortEffect: () => Effect.fail(expectedFailure),
       expireEffect: () => Effect.fail(expectedFailure),
-    });
+    }, failingExecution.claims.admission);
     await expect(runEffectFailure(failing.expire(SELECTOR))).resolves.toBe(
       expectedFailure,
     );
 
     const defect = new Error("attempt-terminalization persistence defect");
+    const defectiveExecution = executionClaimHarness();
     const defective = createPointMutationSessionAttemptTerminalizationV1({
       abortEffect: () => Effect.die(defect),
       expireEffect: () => Effect.die(defect),
-    });
+    }, defectiveExecution.claims.admission);
     await expect(runEffect(defective.expire(SELECTOR))).rejects.toBe(defect);
   });
 });
@@ -548,4 +563,31 @@ function terminalizationResult(
         }),
       });
   }
+}
+
+function executionClaimHarness() {
+  const claims = createPointMutationExecutionClaimVaultV1();
+  const claim = claims.issuer.mint({
+    selector: Object.freeze({
+      deploymentId: DEPLOYMENT_ID,
+      scopeId: SCOPE_ID,
+      sessionId: SESSION_ID,
+      attemptFence: MAX_ATTEMPT_FENCE,
+    }),
+    observation: Object.freeze({
+      claimOwner: TransactionExecutionClaimOwnerV1Schema.make(
+        "70000000-0000-4000-8000-000000000002",
+      ),
+      claimFence: TransactionExecutionClaimFenceV1Schema.make(1n),
+      claimedAt: "2026-07-15T00:00:00.000Z",
+      claimExpiresAt: "2098-12-31T23:59:00.000Z",
+    }),
+    mode: "execute",
+  });
+  return Object.freeze({
+    claims,
+    scope: Effect.runSync(Effect.fromResult(
+      claims.admission.admit(claim, "execute"),
+    )),
+  });
 }

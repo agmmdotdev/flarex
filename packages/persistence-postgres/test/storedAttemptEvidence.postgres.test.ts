@@ -59,6 +59,11 @@ import {
 } from "../../executor/src/pointMutationSessionActivation";
 import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJournal";
 import {
+  createPointMutationExecutionClaimVaultV1,
+  type PointMutationExecutionClaimVaultV1,
+  type PointMutationExecutionScopeV1,
+} from "../../executor/src/pointMutationExecutionClaim";
+import {
   createStoredAttemptAuthenticationV1,
   InvalidAuthorizedPointMutationOccRerunV1Error,
   PointCommitKnownSettledSqlRetryExhaustedV1Error,
@@ -188,9 +193,11 @@ describePostgres("real Postgres stored-attempt authority", () => {
       )));
       const authentication = createStoredAttemptAuthenticationV1(
         current.loader,
+        undefined,
+        current.executionClaims,
       );
       const authority = await runEffect(
-        authentication.deriveAuthority(loadedAttempt),
+        authentication.deriveAuthority(loadedAttempt, current.executionScope),
       );
       const before = await attemptTimestamps(
         persistence,
@@ -407,9 +414,11 @@ describePostgres("real Postgres stored-attempt authority", () => {
       )));
       const authentication = createStoredAttemptAuthenticationV1(
         racing.loader,
+        undefined,
+        racing.executionClaims,
       );
       const authority = await runEffect(
-        authentication.deriveAuthority(loadedAttempt),
+        authentication.deriveAuthority(loadedAttempt, racing.executionScope),
       );
       const authenticated = await runEffect(authentication.authenticate(
         authority,
@@ -663,7 +672,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
         observedOutcomeKinds,
       );
       const authority = await runEffect(
-        authentication.deriveAuthority(loadedAttempt),
+        authentication.deriveAuthority(loadedAttempt, current.executionScope),
       );
       const authenticated = await runEffect(authentication.authenticate(
         authority,
@@ -843,7 +852,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
         },
       );
       const authority = await runEffect(
-        authentication.deriveAuthority(loadedAttempt),
+        authentication.deriveAuthority(loadedAttempt, current.executionScope),
       );
       const authenticated = await runEffect(
         authentication.authenticate(authority, encodeEnvelope(envelope)),
@@ -1942,6 +1951,8 @@ describePostgres("real Postgres stored-attempt authority", () => {
 
 interface Scenario {
   readonly anchor: PointMutationSessionAnchorV1;
+  readonly executionClaims: PointMutationExecutionClaimVaultV1;
+  readonly executionScope: PointMutationExecutionScopeV1;
   readonly authority: StoredAttemptEvidenceAuthorityV1;
   readonly store: ReturnType<typeof createSessionJournalStorePersistenceV1>;
   readonly attempt: SessionJournalAttemptV1;
@@ -1992,6 +2003,22 @@ async function scenario(
       { evidence: { schemaVersionId } },
     ),
   );
+  if (activation.status !== "created") {
+    throw new Error("Expected a newly created Postgres stored attempt.");
+  }
+  const executionClaims = createPointMutationExecutionClaimVaultV1();
+  const executionScope = await runEffect(Effect.fromResult(
+    executionClaims.admission.admit(executionClaims.issuer.mint({
+      selector: {
+        deploymentId,
+        scopeId,
+        sessionId: activation.anchor.sessionId,
+        attemptFence: activation.anchor.attemptFence,
+      },
+      observation: activation.executionClaim,
+      mode: "execute",
+    }), "execute"),
+  ));
   const store = createSessionJournalStorePersistenceV1(ports, {
     randomUuid,
   });
@@ -2003,12 +2030,15 @@ async function scenario(
         sessionId: activation.anchor.sessionId,
         attemptFence: activation.anchor.attemptFence,
       },
+      executionClaim: activation.executionClaim,
       snapshotToken: activation.anchor.snapshotToken,
       schemaVersionId,
     }),
   );
   return Object.freeze({
     anchor: activation.anchor,
+    executionClaims,
+    executionScope,
     authority: Object.freeze({
       deploymentId,
       scopeId,
@@ -2018,6 +2048,7 @@ async function scenario(
       storageGenerationFence: activation.anchor.storageGenerationFence,
       snapshotToken: activation.anchor.snapshotToken,
       schemaVersionId,
+      executionClaim: activation.executionClaim,
     }),
     store,
     attempt,
@@ -2190,6 +2221,22 @@ async function o08B1Scenario(
       },
     }),
   );
+  if (activation.status !== "created") {
+    throw new Error("Expected a newly created Postgres O08-B1 attempt.");
+  }
+  const executionClaims = createPointMutationExecutionClaimVaultV1();
+  const executionScope = await runEffect(Effect.fromResult(
+    executionClaims.admission.admit(executionClaims.issuer.mint({
+      selector: {
+        deploymentId,
+        scopeId,
+        sessionId: activation.anchor.sessionId,
+        attemptFence: activation.anchor.attemptFence,
+      },
+      observation: activation.executionClaim,
+      mode: "execute",
+    }), "execute"),
+  ));
   const store = createSessionJournalStorePersistenceV1(ports, { randomUuid });
   const attempt = await runEffect(store.openAttemptEffect({
     selector: {
@@ -2198,6 +2245,7 @@ async function o08B1Scenario(
       sessionId: activation.anchor.sessionId,
       attemptFence: activation.anchor.attemptFence,
     },
+    executionClaim: activation.executionClaim,
     snapshotToken: activation.anchor.snapshotToken,
     schemaVersionId,
   }));
@@ -2208,6 +2256,8 @@ async function o08B1Scenario(
   const freshAttemptLoadLocks: PointMutationSessionAttemptLoadLockStepV1[] = [];
   return Object.freeze({
     anchor: activation.anchor,
+    executionClaims,
+    executionScope,
     authority: Object.freeze({
       deploymentId,
       scopeId,
@@ -2217,6 +2267,7 @@ async function o08B1Scenario(
       storageGenerationFence: activation.anchor.storageGenerationFence,
       snapshotToken: activation.anchor.snapshotToken,
       schemaVersionId,
+      executionClaim: activation.executionClaim,
     }),
     store,
     attempt,
@@ -2302,7 +2353,7 @@ function createO08B1Authentication(
         leaseDurationMilliseconds: 60_000,
       }),
     pointMutationOccRerun: { attemptLoading: current.loading },
-  });
+  }, current.executionClaims);
 }
 
 function createO08CAuthentication(
@@ -2344,7 +2395,7 @@ function createO08CAuthentication(
     },
     pointCommit: observedPublisher,
     pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
-  });
+  }, current.executionClaims);
 }
 
 function createO08DAuthentication(
@@ -2361,7 +2412,7 @@ function createO08DAuthentication(
     },
     pointCommit: createPointCommitPublisherPortV1(publisherPorts),
     pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
-  });
+  }, current.executionClaims);
 }
 
 async function preparePostgresO08CRunningPlan(
@@ -2384,7 +2435,7 @@ async function preparePostgresO08CRunningPlan(
     current.loading.load(selectorWire(current.anchor)),
   );
   const authority = await runEffect(
-    authentication.deriveAuthority(loadedAttempt),
+    authentication.deriveAuthority(loadedAttempt, current.executionScope),
   );
   const stored = await runEffect(
     authentication.authenticate(authority, encodeEnvelope(envelope)),
@@ -2422,6 +2473,9 @@ async function preparePostgresO08CCompanionPublication(
       },
     ),
   );
+  if (activation.status !== "created") {
+    throw new Error("Expected a newly created O08-C companion attempt.");
+  }
   const store = createSessionJournalStorePersistenceV1(ports, { randomUuid });
   const attempt = await runEffect(store.openAttemptEffect({
     selector: {
@@ -2430,6 +2484,7 @@ async function preparePostgresO08CCompanionPublication(
       sessionId: activation.anchor.sessionId,
       attemptFence: activation.anchor.attemptFence,
     },
+    executionClaim: activation.executionClaim,
     snapshotToken: activation.anchor.snapshotToken,
     schemaVersionId: current.authority.schemaVersionId,
   }));
@@ -2450,6 +2505,7 @@ async function preparePostgresO08CCompanionPublication(
     storageGenerationFence: activation.anchor.storageGenerationFence,
     snapshotToken: activation.anchor.snapshotToken,
     schemaVersionId: current.authority.schemaVersionId,
+    executionClaim: activation.executionClaim,
   });
   const loader = createStoredAttemptEvidenceLoaderV1(ports);
   const running = await runEffect(loader.loadEffect(authority));
@@ -2524,9 +2580,13 @@ function createO08B2aAuthentication(
         ports,
         executionEvidenceOptions,
       ),
-      journal: createPointMutationJournalV1(current.store),
+      journal: createPointMutationJournalV1(
+        current.store,
+        current.executionClaims.admission,
+      ),
       terminalization: createPointMutationSessionAttemptTerminalizationV1(
         createPointMutationSessionAttemptTerminalizationPersistenceV1(ports),
+        current.executionClaims.admission,
       ),
       contextFactory: {
         make: () =>
@@ -2541,7 +2601,7 @@ function createO08B2aAuthentication(
       },
       runner,
     },
-  });
+  }, current.executionClaims);
 }
 
 async function preparePostgresB2aConflict(
@@ -2562,7 +2622,7 @@ async function preparePostgresB2aConflict(
     current.loading.load(selectorWire(current.anchor)),
   );
   const authority = await runEffect(
-    authentication.deriveAuthority(loadedAttempt),
+    authentication.deriveAuthority(loadedAttempt, current.executionScope),
   );
   const authenticated = await runEffect(
     authentication.authenticate(authority, encodeEnvelope(envelope)),

@@ -133,12 +133,19 @@ describe("O08-A exact-attempt replacement", () => {
       },
     );
 
-    await expect(runEffect(port.replace(current.command))).resolves.toEqual({
+    const replaced = await runEffect(port.replace(current.command));
+    expect(replaced).toMatchObject({
       kind: "replaced",
       scopeUuid: current.scopeUuid,
       sessionId: current.anchor.sessionId,
       previousAttemptFence: 1n,
       attemptFence: 2n,
+    });
+    if (replaced.kind !== "replaced") {
+      throw new Error("Expected O08-A to replace the exact attempt.");
+    }
+    expect(replaced.executionClaim).toMatchObject({
+      claimFence: 1n,
     });
     expect(steps).toEqual([
       "clockLocked",
@@ -153,6 +160,7 @@ describe("O08-A exact-attempt replacement", () => {
       "attemptFenceAdvanced",
       "leaseInserted",
       "journalRootInserted",
+      "executionClaimInserted",
       "sessionRunning",
       "beforeCommit",
     ]);
@@ -173,6 +181,8 @@ describe("O08-A exact-attempt replacement", () => {
       receipt_count: "0",
       point_row_count: "0",
       event_count: "0",
+      execution_claim_count: "1",
+      execution_claim_fence: "1",
       commit_headers: "0",
       outcomes: "0",
       wakes: "0",
@@ -180,7 +190,7 @@ describe("O08-A exact-attempt replacement", () => {
       last_outbox_seq: "0",
     });
 
-    await expect(runEffect(port.replace(current.command))).resolves.toEqual({
+    await expect(runEffect(port.replace(current.command))).resolves.toMatchObject({
       kind: "alreadyReplaced",
       scopeUuid: current.scopeUuid,
       sessionId: current.anchor.sessionId,
@@ -197,6 +207,7 @@ describe("O08-A exact-attempt replacement", () => {
       "attemptFenceAdvanced",
       "leaseInserted",
       "journalRootInserted",
+      "executionClaimInserted",
       "sessionRunning",
       "beforeCommit",
     ] as const;
@@ -577,6 +588,9 @@ describe("O08-A exact-attempt replacement", () => {
         },
       }),
     ));
+    if (activation.status !== "created") {
+      throw new Error("Expected a newly created replacement attempt.");
+    }
     const store = createSessionJournalStorePersistenceV1(ports, {
       randomUuid: nextUuid,
     });
@@ -587,6 +601,7 @@ describe("O08-A exact-attempt replacement", () => {
         sessionId: activation.anchor.sessionId,
         attemptFence: activation.anchor.attemptFence,
       },
+      executionClaim: activation.executionClaim,
       snapshotToken: activation.anchor.snapshotToken,
       schemaVersionId,
     }));
@@ -611,7 +626,11 @@ describe("O08-A exact-attempt replacement", () => {
       journal,
       result,
     );
-    const authority = authorityFromAnchor(activation.anchor, schemaVersionId);
+    const authority = authorityFromAnchor(
+      activation.anchor,
+      schemaVersionId,
+      activation.executionClaim,
+    );
     const loader = createStoredAttemptEvidenceLoaderV1(ports);
     const running = await runEffect(loader.loadEffect(authority));
     if (running.kind !== "loaded") throw new Error("Expected running evidence.");
@@ -721,6 +740,13 @@ describe("O08-A exact-attempt replacement", () => {
         (select count(*)::text from fx_system_tx_journal_write_event e
           where e.scope_uuid = session.scope_uuid
             and e.session_id = session.session_id) as event_count,
+        (select count(*)::text from fx_system_tx_execution_claim claim
+          where claim.scope_uuid = session.scope_uuid
+            and claim.session_id = session.session_id) as execution_claim_count,
+        (select claim.claim_fence::text
+          from fx_system_tx_execution_claim claim
+          where claim.scope_uuid = session.scope_uuid
+            and claim.session_id = session.session_id) as execution_claim_fence,
         (select count(*)::text from fx_system_commit c
           where c.scope_uuid = session.scope_uuid) as commit_headers,
         (select count(*)::text from fx_system_idempotency i
@@ -952,6 +978,9 @@ describe("O08-A exact-attempt replacement", () => {
 function authorityFromAnchor(
   anchor: PointMutationSessionAnchorV1,
   schemaVersionId: ReturnType<typeof CatalogSchemaVersionIdSchema.make>,
+  executionClaim: NonNullable<
+    StoredAttemptEvidenceAuthorityV1["executionClaim"]
+  >,
 ): StoredAttemptEvidenceAuthorityV1 {
   return Object.freeze({
     deploymentId: anchor.deploymentId,
@@ -962,6 +991,7 @@ function authorityFromAnchor(
     storageGenerationFence: anchor.storageGenerationFence,
     snapshotToken: anchor.snapshotToken,
     schemaVersionId,
+    executionClaim,
   });
 }
 

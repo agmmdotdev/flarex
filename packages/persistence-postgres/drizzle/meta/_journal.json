@@ -225,6 +225,13 @@
       "when": 1784288159438,
       "tag": "0031_commit_wake_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1784472225187,
+      "tag": "0032_transaction_execution_claim",
+      "breakpoints": true
     }
   ]
 }

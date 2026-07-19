@@ -5,7 +5,9 @@ transaction-session authority tables, O04/O05 point read/OCC semantics, C03
 trusted point journal, private C04A/C04B1/C04B2 authentication and final-value
 proof gates, C04C1 logical planning, O06/O07-B point publication, C05-A's
 finishing barrier, and C05-B fresh-process reconstruction/private publisher
-composition are implemented. Sidecars, target activation, prototype
+composition, O08-A/B1/B2a/CD0/C/D recovery primitives, and the O08-B2b1/C06-A
+exact-attempt execution-claim foundation through migration 0032 are implemented.
+Sidecars, O08-B2b2 crash redispatch, C06-B dispatch policy, target activation, prototype
 retirement, and hosted routing remain incomplete; shipped-state migration
 remains conditional
 
@@ -35,6 +37,7 @@ stable current edge occurrences
 unique-key enforcement
 scope clock + commit/change atoms
 authoritative fenced session/grant anchor + snapshot lease
+exact-attempt execution claim keyed to the journal root
 result-bearing idempotency
 leased transactional outbox
 conservative fenced Postgres sync-checkpoint mirror for external sweep
@@ -1033,6 +1036,11 @@ snapshot lease:
   the exact current attempt fence
   native snapshot epoch and exact commit sequence
   lease expiry
+
+execution claim (migration 0032):
+  exact scope/session/attempt ownership keyed to the C03 journal root
+  server-owned claim owner, checked monotonic claim fence, claimed-at, and expiry
+  no upgrade backfill or authority fabrication for pre-existing attempts
 ```
 
 The lease is a constrained current-attempt projection and does not duplicate
@@ -1050,9 +1058,15 @@ authenticates the detached seal for initial work or reconstructs it from
 scalar seal identity before the exact-fence transition to `finishing` and mints
 the same-factory continuation. C05-B now reuses the bounded C04 stored-evidence
 loader/verifier for its separate fresh-process finishing entry and composes both
-paths with the same O07-B publisher. C06 orchestrates the endpoint, O07 atomically deletes the exact lease and stores
+paths with the same O07-B publisher. O07 atomically deletes the exact lease and stores
 committed state, O08-A owns the completed FK-safe exact-attempt replacement
-primitive, O08-B/C/D retain rerun, SQL-retry, and uncertainty policy, and O11 first consumes active
+primitive, and O08-B2b1/C06-A atomically creates the initial claim for O03
+fence-1 activation and O08-A replacement before `running`. Outcome-first
+acquisition reports live claims as busy and permits only locked database-time
+takeover of expired claims. Exact owner/fence admission applies to execution,
+journal/syscalls, point-table access, sealing, C05-A, and pre-finishing abort;
+C05-A deletes the exact claim as it enters `finishing`. O08-B2b2/C06-B retain
+crash redispatch and endpoint/dispatcher policy, and O11 first consumes active
 snapshot floors for history retention.
 
 C02 owns only the canonical syscall-sequence and journal/result/envelope
@@ -1069,7 +1083,8 @@ fenced snapshot, and syscall-time validation parity remains unresolved. C04C
 owns the pure prepared plan. A matching digest does not authenticate
 caller-supplied inline bytes. S09-A owns only the private committed-success
 result receipt, S09-B owns leased-outbox DDL, O07-B owns atomic point
-publication, and O08-D/C06 later own uncertain-outcome recovery. C04C1's
+publication, O08-D owns bounded uncertain-outcome recovery, and C06-B later
+owns endpoint/dispatcher policy. C04C1's
 prepared capability is logical; no immutable physical SQL plan exists.
 Snapshot leases prevent engine-history GC from passing a live attempt.
 

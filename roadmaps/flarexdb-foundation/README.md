@@ -35,8 +35,10 @@ attempt replacement, O08-B1's bounded fresh-attempt rerun handoff, and
 O08-B2a's same-process runtime-neutral rerun composition, O08-B2b0's docs-
 only Postgres claim-authority decision, O08-CD0's transaction-decision
 provenance, O08-C's bounded known-settled SQL transaction retry, and O08-D's
-bounded uncertainty recovery are complete; B2b claim/dispatcher/crash-
-redispatch implementation and C06 remain pending, and
+bounded uncertainty recovery are complete. O08-B2b1/C06-A's migration-0032
+exact-attempt claim and host-neutral fenced-admission foundation is also
+complete; O08-B2b2 user-code crash redispatch and C06-B endpoint/dispatcher
+policy remain pending, and
 C04C2 remains conditional and unapproved.
 O03-B2b2 renewal is
 a conditional
@@ -46,8 +48,8 @@ bounded attempt must outlive its initial lease.
 
 | Stream | Current status |
 | --- | --- |
-| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, S09-A's private committed-success result DDL, and S09-B's fixed-kind private commit-wake DDL complete |
-| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's docs-only Postgres claim-authority decision, O08-CD0 decision provenance, O08-C known-settled SQL transaction retry, and O08-D bounded uncertainty recovery are complete; B2b claim/dispatcher/crash-redispatch implementation, C06, O03-B2b2 renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
+| Schema/migration | `S01`, `S02-A`–`S02-C`, resolve-only `S02-D1`, `S03-A`–`S03-D2d`, interleaved `S05-A`/`S05-B`, `S06`, `S07`, narrow `S07-A`, C03's bounded exact-attempt journal DDL, S08's native commit/change-feed DDL plus inert retained floor, S09-A's private committed-success result DDL, S09-B's fixed-kind private commit-wake DDL, and O08-B2b1/C06-A's migration-0032 exact-attempt execution claim complete |
+| OCC/transactions | Private non-routing `O02`, all of `O03-A`, the required `O03-B` authority core through B1/B2a/B2b1, `O04` exact-snapshot point reads, `O05` pure point-OCC validation, O06's private transaction kernel, O07-A/B resolution/publication, C05-A/B finishing/reconstruction, O08-A exact-attempt replacement, O08-B1's single-use fresh-attempt handoff, O08-B2a same-process execution composition, O08-B2b0's authority decision, O08-B2b1/C06-A's durable claim admission, O08-CD0 decision provenance, O08-C known-settled SQL transaction retry, and O08-D bounded uncertainty recovery are complete; O08-B2b2 crash redispatch, C06-B endpoint/dispatcher policy, O03-B2b2 renewal, operational revocation, and hosted adapters remain pending or consumer-triggered |
 | Commit compiler | Standalone `C01` retired before implementation; inert logical-protocol `C02`, operational point-journal `C03`, private stored-attempt `C04A`, private current-authority `C04B1`, private-C07 final-value proof `C04B2`, and corrected private logical point planner `C04C1` complete; `C04C2` is conditional and unapproved |
 | Hosted executor proof | `H01`–`H04` and `H05-A` complete; live `H05-B` deferred |
 | Production replacement routing | `S02-D2` blocked on `H05-B` and later replacement correctness gates |
@@ -341,10 +343,12 @@ commit. `O08-A` supplies only the FK-safe storage-level exact-attempt
 replacement; completed `O08-B1` owns only the genuine conflict, bounded
 backoff/outcome/replacement ordering, and fresh-attempt handoff. Completed
 `O08-B2a` owns same-process immediate reauthentication and genuine runtime-
-neutral OCC user-code rerun. `O08-B2b0` accepts only Postgres ownership of the
-future exact-attempt ticket/fenced claim; its DDL, dispatcher, and crash-
-redispatch implementation remain deferred, and `running + pristine` state is
-not redispatch authority. `O08-C` owns known-
+neutral OCC user-code rerun. `O08-B2b1/C06-A` now implements the singular
+Postgres exact-attempt claim, atomic O03/O08-A creation, outcome-first locked
+acquisition/takeover, and owner/fence admission through execution, journal,
+seal, C05-A, and pre-finishing abort. `running + pristine` state remains
+non-authorizing. `O08-B2b2` and `C06-B` retain crash redispatch and endpoint/
+dispatcher policy. `O08-C` owns known-
 settled SQL retry, and `O08-D` uncertain decisions through O07-A/C05-B. `O11`
 first consumes active snapshot floors for
 history retention. `created` and `committing` remain transaction-local/reserved
@@ -404,9 +408,12 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
       exact-attempt execution ticket/fenced claim, atomic eligibility with
       replacement, claim-fenced execution/syscall admission, and fail-closed
       recovery invariants without activating them;
-    - `O08-B2b implementation` (pending and unapproved): durable claim storage,
-      dispatcher ownership, and crash-safe redispatch after process-local
-      authority loss; a later preflight owns its decomposition;
+    - `O08-B2b1/C06-A` (complete): migration 0032 and the package-private
+      host-neutral outcome-first acquisition/admission foundation. O03 and
+      O08-A create claims atomically, C05-A consumes them, and settlement
+      uncertainty mints no handle;
+    - `O08-B2b2` (pending and unapproved): user-code crash redispatch after
+      process-local authority loss;
    - `O08-CD0` (complete): preserves source-owned Postgres transaction-decision
      provenance. Confirmed pre-decision rollback requires an in-transaction
      point-publication SQL marker, exact `40001`/`40P01`, and settled rollback;
@@ -423,21 +430,21 @@ before O11 consumes reconnect floors or replacement sync enables reconnect.
      outcome-first publication. Available replays, expired closes with its
      retained token, missing after committed state is corruption, and a second
      uncertainty is terminal.
-10. `C06`: idempotent finish and lost-outcome recovery through `/invoke/*`.
-11. `C07`: PGlite plus real-Postgres correctness gate.
+10. `C06-A` (complete): host-neutral exact-attempt claim acquisition and fenced
+    admission; no endpoint or dispatcher.
+11. `O08-B2b2` + `C06-B` (pending): crash redispatch and stable `/invoke/*`
+    endpoint/dispatcher/response policy.
+12. `C07`: PGlite plus real-Postgres correctness gate.
 
-The current B2b-before-C06 order contains an explicit unresolved dependency:
-B2b needs a durable dispatcher/dispatch-acceptance owner, while C06 is currently
-defined only after B2b. A later preflight must introduce a private dispatcher
-prerequisite or split/reorder C06. B2b0 does not authorize DDL, migrations,
-routing, Dynamic Worker integration, C06, or B2b implementation.
+The former B2b/C06 dependency contradiction is resolved by this split: C06-A
+is the accepted non-routing prerequisite, while O08-B2b2 and C06-B require
+their own later dispatcher and user-code recovery preflights.
 
 This S09-A/S09-B split refines one existing Wave 2 outcome; it does not reorder
 the wave. The completed S08/S09-A/S09-B/O06/O07-B first-consumer contracts do
 not currently establish a need for separate physical/change/outbox lowering,
-so C04C2 remains conditional and outside the mandatory order. O08-B2b
-implementation, C06, and C07 remain pending; their relative
-dispatch-dependent order awaits the later dispatcher-ownership preflight.
+so C04C2 remains conditional and outside the mandatory order. O08-B2b2,
+C06-B, and C07 remain pending.
 
 `C07` is the first end-to-end replacement milestone, but it proves only a
 private test-generation point-mutation kernel. It does not authorize canary or

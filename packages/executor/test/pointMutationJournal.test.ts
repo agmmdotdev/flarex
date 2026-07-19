@@ -3,6 +3,10 @@ import type {
   SessionJournalPointOperationV1,
 } from "@flarex/persistence-postgres/session-journal-store";
 import {
+  TransactionExecutionClaimFenceV1Schema,
+  TransactionExecutionClaimOwnerV1Schema,
+} from "@flarex/persistence-postgres/transaction-execution-claim";
+import {
   InvalidSessionJournalInputV1Error,
   PinnedPointTableNotFoundV1Error,
   SessionJournalAttemptUnavailableV1Error,
@@ -59,6 +63,11 @@ import {
   type PointMutationJournalV1,
 } from "../src/pointMutationJournal";
 import {
+  createPointMutationExecutionClaimVaultV1,
+  type PointMutationExecutionClaimVaultV1,
+  type PointMutationExecutionScopeV1,
+} from "../src/pointMutationExecutionClaim";
+import {
   createPointMutationSessionAttemptLoadingV1,
   type LoadedPointMutationSessionAttemptV1,
   type PointMutationSessionAttemptSelectorWireV1,
@@ -101,6 +110,11 @@ const REPLAYED_MISSING = Object.freeze({
   delivery: "replayed",
   outcome: Object.freeze({ kind: "missing", document: null }),
 } satisfies RunSessionJournalPointOperationV1Result);
+
+const executionClaimsByJournal = new WeakMap<
+  PointMutationJournalV1,
+  PointMutationExecutionClaimVaultV1
+>();
 
 describe("C03 executor point-mutation journal boundary", () => {
   it("rejects unsupported, malformed, accessor, and excess-field operations before persistence", async () => {
@@ -247,8 +261,14 @@ describe("C03 executor point-mutation journal boundary", () => {
     expect(harness.samePersistenceJournal).toBe(harness.journal);
 
     const [firstAttempt, secondAttempt] = await Promise.all([
-      runEffect(harness.journal.openAttempt(firstLoaded)),
-      runEffect(harness.journal.openAttempt(secondLoaded)),
+      runEffect(harness.journal.openAttempt(
+        firstLoaded,
+        executionScopeForJournal(harness.journal),
+      )),
+      runEffect(harness.journal.openAttempt(
+        secondLoaded,
+        executionScopeForJournal(harness.journal),
+      )),
     ]);
     const [firstTable, secondTable] = await Promise.all([
       runEffect(harness.journal.resolvePointTable(firstAttempt, "users")),
@@ -295,9 +315,15 @@ describe("C03 executor point-mutation journal boundary", () => {
     });
     const conflictingLoaded = await runEffect(conflictingLoading.load(SELECTOR));
 
-    await runEffect(harness.journal.openAttempt(firstLoaded));
+    await runEffect(harness.journal.openAttempt(
+      firstLoaded,
+      executionScopeForJournal(harness.journal),
+    ));
     const failure = await runFailure(
-      harness.journal.openAttempt(conflictingLoaded),
+      harness.journal.openAttempt(
+        conflictingLoaded,
+        executionScopeForJournal(harness.journal),
+      ),
     );
 
     expect(failure).toBeInstanceOf(PointMutationJournalAttemptPinsV1Error);
@@ -355,7 +381,10 @@ describe("C03 executor point-mutation journal boundary", () => {
       },
     });
     const loaded = await loadedAttempt();
-    const attempt = await runEffect(harness.journal.openAttempt(loaded));
+    const attempt = await runEffect(harness.journal.openAttempt(
+      loaded,
+      executionScopeForJournal(harness.journal),
+    ));
     const resolutionFiber = Effect.runFork(
       harness.journal.resolvePointTable(attempt, "users"),
     );
@@ -447,7 +476,10 @@ describe("C03 executor point-mutation journal boundary", () => {
     });
     const openHarness = createHarness({ openAttemptFailure: invalidPins });
     const openFailure = await runFailure(
-      openHarness.journal.openAttempt(await loadedAttempt()),
+      openHarness.journal.openAttempt(
+        await loadedAttempt(),
+        executionScopeForJournal(openHarness.journal),
+      ),
     );
     expect(openFailure).toBe(invalidPins);
 
@@ -462,7 +494,10 @@ describe("C03 executor point-mutation journal boundary", () => {
       },
     });
     const loaded = await loadedAttempt();
-    const attempt = await runEffect(resolveHarness.journal.openAttempt(loaded));
+    const attempt = await runEffect(resolveHarness.journal.openAttempt(
+      loaded,
+      executionScopeForJournal(resolveHarness.journal),
+    ));
 
     const missingFailure = await runFailure(
       resolveHarness.journal.resolvePointTable(attempt, "users"),
@@ -476,7 +511,10 @@ describe("C03 executor point-mutation journal boundary", () => {
       },
     });
     const unavailableAttempt = await runEffect(
-      unavailableHarness.journal.openAttempt(await loadedAttempt()),
+      unavailableHarness.journal.openAttempt(
+        await loadedAttempt(),
+        executionScopeForJournal(unavailableHarness.journal),
+      ),
     );
     const unavailableFailure = await runFailure(
       unavailableHarness.journal.resolvePointTable(
@@ -616,7 +654,10 @@ describe("C03 executor point-mutation journal boundary", () => {
       }),
     });
     const loaded = await loadedAttempt();
-    const attempt = await runEffect(harness.journal.openAttempt(loaded));
+    const attempt = await runEffect(harness.journal.openAttempt(
+      loaded,
+      executionScopeForJournal(harness.journal),
+    ));
 
     const failure = await runFailure(harness.journal.sealSuccessfulResult(
       attempt,
@@ -749,16 +790,14 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
   // The persistence package deliberately hides capability brands. Reflection
   // keeps this fake at the runtime adapter edge instead of forging/exporting a
   // production capability solely for executor orchestration tests.
+  const executionClaims = createPointMutationExecutionClaimVaultV1();
   const journal: PointMutationJournalV1 = Reflect.apply(
     createPointMutationJournalV1,
     undefined,
-    [persistence],
+    [persistence, executionClaims.admission],
   );
-  const samePersistenceJournal: PointMutationJournalV1 = Reflect.apply(
-    createPointMutationJournalV1,
-    undefined,
-    [persistence],
-  );
+  const samePersistenceJournal = journal;
+  executionClaimsByJournal.set(journal, executionClaims);
 
   return {
     journal,
@@ -784,9 +823,43 @@ function createHarness(options: HarnessOptions = {}): JournalHarness {
 
 async function openResolvedTable(journal: PointMutationJournalV1) {
   const loaded = await loadedAttempt();
-  const attempt = await runEffect(journal.openAttempt(loaded));
+  const attempt = await runEffect(journal.openAttempt(
+    loaded,
+    executionScopeForJournal(journal),
+  ));
   const table = await runEffect(journal.resolvePointTable(attempt, "users"));
   return Object.freeze({ attempt, table });
+}
+
+function executionScopeForJournal(
+  journal: PointMutationJournalV1,
+): PointMutationExecutionScopeV1 {
+  const executionClaims = executionClaimsByJournal.get(journal);
+  if (executionClaims === undefined) {
+    throw new Error("Point-mutation journal execution scope is missing.");
+  }
+  const executionClaim = executionClaims.issuer.mint({
+    selector: Object.freeze({
+      deploymentId: DEPLOYMENT_ID,
+      scopeId: SCOPE_ID,
+      sessionId: SESSION_ID,
+      attemptFence: ATTEMPT_FENCE,
+    }),
+    observation: Object.freeze({
+      claimOwner: TransactionExecutionClaimOwnerV1Schema.make(
+        "71000000-0000-4000-8000-000000000002",
+      ),
+      claimFence: TransactionExecutionClaimFenceV1Schema.make(1n),
+      claimedAt: "2026-07-15T00:00:00.000Z",
+      claimExpiresAt: "2098-12-31T23:59:00.000Z",
+    }),
+    mode: "execute",
+  });
+  return Effect.runSync(
+    Effect.fromResult(
+      executionClaims.admission.admit(executionClaim, "execute"),
+    ),
+  );
 }
 
 async function loadedAttempt(): Promise<LoadedPointMutationSessionAttemptV1> {

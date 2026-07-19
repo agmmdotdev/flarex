@@ -59,6 +59,7 @@ import { runEffect, runEffectFailure as runFailure } from
 import {
   abortPointMutationSessionAttempt,
   activatePointMutationSession,
+  executionClaimForAnchor,
   expirePointMutationSessionAttempt,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
@@ -113,6 +114,8 @@ describePostgres("real Postgres C05-A finishing transition", () => {
         "sessionLocked",
         "leaseLocked",
         "journalRootLocked",
+        "executionClaimLocked",
+        "executionClaimDeleted",
         "sessionEnteredFinishing",
       ]);
       expect([...queries.keys()]).toEqual([
@@ -121,6 +124,7 @@ describePostgres("real Postgres C05-A finishing transition", () => {
         "lockLease",
         "lockJournalRoot",
         "readDatabaseTime",
+        "deleteExecutionClaim",
         "enterFinishing",
       ]);
       const sessionQuery = requireObservedQuery(queries, "lockSession");
@@ -134,6 +138,7 @@ describePostgres("real Postgres C05-A finishing transition", () => {
         "lockSession",
         "lockLease",
         "lockJournalRoot",
+        "deleteExecutionClaim",
         "enterFinishing",
       ] as const) {
         expect(await explainObserved(
@@ -144,6 +149,10 @@ describePostgres("real Postgres C05-A finishing transition", () => {
       expect(await lifecycleOf(persistence, attempt.anchor.sessionId)).toBe(
         "finishing",
       );
+      expect(await executionClaimCount(
+        persistence,
+        attempt.anchor.sessionId,
+      )).toBe(0);
     });
   }, 120_000);
 
@@ -299,6 +308,7 @@ describePostgres("real Postgres C05-A finishing transition", () => {
         abortFirstTerminalization,
         {
           selector: selectorFromAnchor(abortFirst.anchor),
+          executionClaim: executionClaimForAnchor(abortFirst.anchor),
           expectedSnapshotToken: abortFirst.anchor.snapshotToken,
         },
       );
@@ -348,6 +358,7 @@ describePostgres("real Postgres C05-A finishing transition", () => {
         terminalization,
         {
           selector: selectorFromAnchor(transitionFirst.anchor),
+          executionClaim: executionClaimForAnchor(transitionFirst.anchor),
           expectedSnapshotToken: transitionFirst.anchor.snapshotToken,
         },
       );
@@ -356,11 +367,19 @@ describePostgres("real Postgres C05-A finishing transition", () => {
       } finally {
         transitionRelease.resolve();
       }
-      await Promise.all([transitionFirstPromise, transitionFirstAbort]);
+      await transitionFirstPromise;
+      await expect(transitionFirstAbort).rejects.toMatchObject({
+        _tag: "PointMutationSessionAttemptTerminalizationV1Error",
+        issue: { reason: "attemptNotTerminalizable" },
+      });
       expect(await lifecycleOf(
         persistence,
         transitionFirst.anchor.sessionId,
-      )).toBe("aborted");
+      )).toBe("finishing");
+      expect(await executionClaimCount(
+        persistence,
+        transitionFirst.anchor.sessionId,
+      )).toBe(0);
 
       const expired = await createAttempt(
         persistence,
@@ -473,6 +492,10 @@ describePostgres("real Postgres C05-A finishing transition", () => {
         persistence,
         interrupted.anchor.sessionId,
       )).toBe("finishing");
+      expect(await executionClaimCount(
+        persistence,
+        interrupted.anchor.sessionId,
+      )).toBe(0);
 
       const rollback = await createAttempt(
         persistence,
@@ -493,6 +516,10 @@ describePostgres("real Postgres C05-A finishing transition", () => {
       expect(await lifecycleOf(persistence, rollback.anchor.sessionId)).toBe(
         "running",
       );
+      expect(await executionClaimCount(
+        persistence,
+        rollback.anchor.sessionId,
+      )).toBe(1);
     });
   }, 120_000);
 });
@@ -563,6 +590,7 @@ async function createAttempt(
   });
   const attempt = await runEffect(store.openAttemptEffect({
     selector: selectorFromAnchor(activation.anchor),
+    executionClaim: executionClaimForAnchor(activation.anchor),
     snapshotToken: activation.anchor.snapshotToken,
     schemaVersionId: scope.schemaVersionId,
   }));
@@ -607,6 +635,7 @@ async function createAttempt(
   const authority = authorityFromAnchor(
     activation.anchor,
     scope.schemaVersionId,
+    executionClaimForAnchor(activation.anchor),
   );
   const loaded = await runEffect(
     createStoredAttemptEvidenceLoaderV1(scope.ports).loadEffect(authority),
@@ -657,6 +686,9 @@ function resolutionPorts(
 function authorityFromAnchor(
   anchor: PointMutationSessionAnchorV1,
   schemaVersionId: ReturnType<typeof CatalogSchemaVersionIdSchema.make>,
+  executionClaim: NonNullable<
+    StoredAttemptEvidenceAuthorityV1["executionClaim"]
+  >,
 ): StoredAttemptEvidenceAuthorityV1 {
   return Object.freeze({
     deploymentId: anchor.deploymentId,
@@ -667,6 +699,7 @@ function authorityFromAnchor(
     storageGenerationFence: anchor.storageGenerationFence,
     snapshotToken: anchor.snapshotToken,
     schemaVersionId,
+    executionClaim,
   });
 }
 
@@ -690,6 +723,19 @@ async function lifecycleOf(
   const lifecycle = result.rows[0]?.lifecycle;
   if (lifecycle === undefined) throw new Error("Missing C05-A session.");
   return lifecycle;
+}
+
+async function executionClaimCount(
+  persistence: PostgresFlarexPersistence,
+  sessionId: string,
+): Promise<number> {
+  const result = await persistence.query<{ count: number }>(
+    `select count(*)::int as count
+     from fx_system_tx_execution_claim
+     where session_id = $1`,
+    [sessionId],
+  );
+  return result.rows[0]?.count ?? 0;
 }
 
 async function sessionCreatedAt(

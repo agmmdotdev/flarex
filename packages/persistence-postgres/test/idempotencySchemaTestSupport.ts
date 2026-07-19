@@ -46,6 +46,21 @@ export async function writeJournalThrough0030(
   currentJournal: string,
   targetJournal: string,
 ): Promise<void> {
+  await writeJournalThrough(currentJournal, targetJournal, 30);
+}
+
+export async function writeJournalThrough0031(
+  currentJournal: string,
+  targetJournal: string,
+): Promise<void> {
+  await writeJournalThrough(currentJournal, targetJournal, 31);
+}
+
+async function writeJournalThrough(
+  currentJournal: string,
+  targetJournal: string,
+  maximumIndex: number,
+): Promise<void> {
   const parsed = JSON.parse(await readFile(currentJournal, "utf8")) as {
     entries?: Array<{ idx?: number }>;
   };
@@ -53,7 +68,7 @@ export async function writeJournalThrough0030(
     throw new Error("Current Drizzle journal is missing its entries array.");
   }
   parsed.entries = parsed.entries.filter(
-    (entry) => typeof entry.idx === "number" && entry.idx <= 30,
+    (entry) => typeof entry.idx === "number" && entry.idx <= maximumIndex,
   );
   await writeFile(targetJournal, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
 }

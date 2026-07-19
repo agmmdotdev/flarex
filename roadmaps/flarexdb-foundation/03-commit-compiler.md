@@ -16,12 +16,12 @@ forced-rollback proof, O07-A private read-only committed-outcome resolver, and
   fresh-process reconstruction and private compiler/publisher composition are
   also complete. O08-A atomic exact-attempt replacement, O08-B1 bounded
   same-factory fresh-attempt handoff, and O08-B2a same-process runtime-neutral
-  rerun composition, O08-B2b0's docs-only Postgres claim-authority decision,
-  O08-CD0 transaction-decision provenance, O08-C known-settled SQL retry, and
-  O08-D bounded uncertainty recovery are complete; B2b crash-safe redispatch
-  remains pending, and
-  C06 dispatch
-  remains pending, while C04C2 remains conditional and unapproved.
+  rerun composition, O08-B2b0's Postgres claim-authority decision, integrated
+  O08-B2b1/C06-A durable claim admission, O08-CD0 transaction-decision
+  provenance, O08-C known-settled SQL retry, and O08-D bounded uncertainty
+  recovery are complete. O08-B2b2 user-code crash redispatch and C06-B endpoint/
+  dispatcher policy remain pending, while C04C2 remains conditional and
+  unapproved.
 
 This plan owns the bounded Flarex app-data path from logical session operations
 through a private logical point plan to an atomic commit. It does not make a
@@ -208,8 +208,10 @@ Introduce each boundary only at its real owner:
   exact durable atomic persistence capability. C05-A owns the intervening
   scalar-fenced finishing barrier; C05-B is their first complete private
   planner/O07-B publisher composition consumer.
-- C06 owns `PostCommitWake`, after durable commit and outbox evidence make its
-  ordering meaningful.
+- O08-B2b1/C06-A owns the exact-attempt durable execution claim and host-neutral
+  outcome-first acquisition/admission seam. C05-A consumes that claim before
+  finishing. C06-B later owns `PostCommitWake` endpoint dispatch, after durable
+  commit and outbox evidence make its ordering meaningful.
 
 The proposed compatibility-wrapping work is dropped rather than redistributed.
 Legacy `/invoke/*` behavior remains regression evidence until target callers
@@ -549,20 +551,31 @@ Exit gate:
   bounded same-request recovery and the later B2b/C06 orchestration without
   rerunning user code.
 
-### [ ] C06 — Add Idempotent Finish And Lost-Outcome Recovery
+### [x] C06-A — Add Host-Neutral Durable Claim Admission
+
+Migration 0032 and the package-private acquisition/admission composition close
+the B2b0 ordering contradiction without adding an endpoint or runtime adapter.
+O03 activation and O08-A replacement create one exact-attempt Postgres claim
+atomically before `running`. Outcome-first selector acquisition returns replay/
+expiry without claiming, reports a live owner as busy, and permits only locked
+database-time expired-claim takeover with a checked fence. Directly settled
+creation/acquisition alone mints the frozen same-factory handle.
+
+Execution entry and every journal/syscall, point-table, seal, C05-A, and
+execution-owned abort admission revalidate the exact attempt, owner, and claim
+fence. C05-A atomically removes the claim while entering `finishing`; observed
+finishing state must have none. Snapshot-lease expiry, claim expiry, lifecycle
+terminalization, O08-C/D publication handling, and S09-B delivery claims remain
+separate authorities.
+
+### [ ] C06-B — Add Idempotent Finish And Lost-Outcome Dispatch
 
 Prerequisite: `O08-B2a` same-process OCC execution, O08-CD0 transaction-
 decision provenance, O08-C bounded known-settled retry, and O08-D bounded
-uncertain-outcome recovery are complete. `O08-B2b` must still establish crash-
-safe redispatch authority. This endpoint composes those policies; it does not
-define a competing retry coordinator.
-
-O08-B2b0 exposes a dependency contradiction in that order: crash-safe B2b needs
-an accepted durable dispatcher/dispatch-acceptance owner, but this C06 gate is
-currently downstream of B2b. Before either implementation proceeds, a separate
-preflight must choose a private dispatcher prerequisite or split/reorder C06.
-The B2b0 decision does not authorize a C06 endpoint, routing, Dynamic Worker
-integration, DDL, or B2b implementation.
+uncertain-outcome recovery and C06-A host-neutral durable claim admission are
+complete. O08-B2b2 must still compose crash-safe user-code redispatch through
+that singular claim authority. This endpoint composes those policies; it does
+not define a competing retry coordinator or execution owner.
 
 Outcome:
 
@@ -574,8 +587,9 @@ Outcome:
   O08-B1 owns only bounded fresh-attempt handoff; O08-B2a owns same-process
   user-code rerun; O08-CD0 preserves transaction-decision provenance without
   acting on it; O08-C consumes only confirmed rollback for SQL transaction
-  retry; O08-D owns bounded publication uncertainty recovery and O08-B2b owns
-  the still-deferred crash redispatch authority:
+  retry; O08-D owns bounded publication uncertainty recovery; O08-B2b1/C06-A
+  owns durable execution claims; and O08-B2b2 owns the still-deferred user-code
+  crash redispatch composition:
 
 ```text
 atomic activation -> running -> finishing -> committed

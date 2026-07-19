@@ -52,6 +52,7 @@ import {
   type SessionJournalStorePersistenceV1,
 } from "../src/sessionJournalStore";
 import {
+  createPointMutationExecutionClaimAcquisitionV1,
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
@@ -73,6 +74,7 @@ import {
 import {
   abortPointMutationSessionAttempt,
   activatePointMutationSession,
+  executionClaimForAnchor,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
@@ -135,8 +137,9 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       if (!Array.isArray(parsedJournal.entries)) {
         throw new Error("Current Drizzle journal is missing its entries array.");
       }
+      const currentMigrationCount = parsedJournal.entries.length;
       parsedJournal.entries = parsedJournal.entries.filter(
-        (entry) => entry.idx !== 28,
+        (entry) => entry.idx !== undefined && entry.idx < 28,
       );
       await writeFile(
         temporaryJournal,
@@ -222,7 +225,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
             select count(*)::int as count
             from ${quoteIdentifier(databaseOptions.migrationsSchema)}.__drizzle_migrations
           `);
-          expect(receipts.rows).toEqual([{ count: 29 }]);
+          expect(receipts.rows).toEqual([{ count: currentMigrationCount }]);
         } finally {
           await Promise.all([
             previousPersistence.close(),
@@ -266,7 +269,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
 
       const entered = deferred<void>();
       const release = deferred<void>();
-      let pauseFirstRootLock = true;
+      let pauseFirstRootLock = false;
       const adjacent = await scenario(persistence, "adjacent_sequence", {
         targetOptions: {
           afterLoadLock: async (step) => {
@@ -277,6 +280,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
           },
         },
       });
+      pauseFirstRootLock = true;
       const firstPromise = runPointOperation(adjacent.store, adjacent.table, {
         kind: "get",
         syscallSequence: syscallSequence(1n),
@@ -355,6 +359,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       const restartedAttempt = await runEffect(
         restartedStore.openAttemptEffect({
           selector: selectorFromAnchor(current.anchor),
+          executionClaim: executionClaimForAnchor(current.anchor),
           snapshotToken: current.anchor.snapshotToken,
           schemaVersionId: current.schemaVersionId,
         }),
@@ -373,6 +378,45 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
       expect(replayGenerationCalled).toBe(false);
       await expect(journalCounts(persistence, current.anchor.sessionId))
         .resolves.toEqual({ roots: 1, receipts: 1, points: 1, events: 1 });
+    });
+  }, 120_000);
+
+  it("rejects the stale execution owner at syscall and seal after takeover", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const current = await scenario(persistence, "execution_claim_takeover");
+      await persistence.query(
+        `update fx_system_tx_execution_claim
+         set claimed_at = clock_timestamp() - interval '2 minutes',
+             claim_expires_at = clock_timestamp() - interval '1 minute'
+         where session_id = $1`,
+        [current.anchor.sessionId],
+      );
+      const acquisition = createPointMutationExecutionClaimAcquisitionV1(
+        current.ports,
+        {
+          durationMilliseconds: 30_000,
+          randomOwner: () => "93000000-0000-4000-8000-000000009991",
+        },
+      );
+      await expect(runEffect(acquisition.acquireEffect(
+        selectorFromAnchor(current.anchor),
+      ))).resolves.toMatchObject({
+        kind: "acquired",
+        mode: "execute",
+        observation: { claimFence: 2n },
+      });
+
+      const staleIssue = {
+        _tag: "SessionJournalAttemptUnavailableV1Error",
+        issue: { reason: "executionClaimUnavailable" },
+      } as const;
+      await expect(runPointOperation(current.store, current.table, {
+        kind: "get",
+        syscallSequence: syscallSequence(1n),
+        documentId: documentId(current.tableId, 991),
+      })).rejects.toMatchObject(staleIssue);
+      await expect(prepareSeal(current.store, current.attempt)).rejects
+        .toMatchObject(staleIssue);
     });
   }, 120_000);
 
@@ -395,6 +439,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         ),
         {
           selector: selectorFromAnchor(current.anchor),
+          executionClaim: executionClaimForAnchor(current.anchor),
           expectedSnapshotToken: current.anchor.snapshotToken,
         },
       );
@@ -556,7 +601,12 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         releaseDigest.resolve();
         digestSpy.mockRestore();
       }
-      expect(lockSteps).toEqual([]);
+      expect(lockSteps).toEqual([
+        "clockLocked",
+        "sessionLocked",
+        "leaseLocked",
+        "journalRootLocked",
+      ]);
 
       const resultPayloadBytes = MAX_COMMIT_RESULT_SEMANTIC_BYTES_V1 - 1_024;
       const canonicalJournalPromise = runEffect(
@@ -614,6 +664,7 @@ describePostgres("real Postgres C03 SessionJournalStore", () => {
         locker.release();
       }
 
+      lockSteps.length = 0;
       const envelope = await completeSeal(current.store,
         prepared.preparation,
         canonicalJournal,
@@ -831,6 +882,7 @@ async function scenario(
   const attempt = await runEffect(
     store.openAttemptEffect({
       selector: selectorFromAnchor(activation.anchor),
+      executionClaim: executionClaimForAnchor(activation.anchor),
       snapshotToken: activation.anchor.snapshotToken,
       schemaVersionId,
     }),

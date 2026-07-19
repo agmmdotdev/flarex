@@ -5,7 +5,7 @@ import {
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 
 import type { AppCreationTimeV1 } from "flarex-protocol/app-document";
 import type { CatalogTableId } from "flarex-protocol/catalog";
@@ -72,10 +72,16 @@ import {
 import {
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
+  fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournals,
   fxSystemTransactionSessions,
 } from "./schema";
+import {
+  decodeTransactionExecutionClaimFenceV1,
+  decodeTransactionExecutionClaimOwnerV1,
+  type TransactionExecutionClaimPinV1,
+} from "./transactionExecutionClaimModel";
 import {
   storedAuthorityCorruptionResult,
   storedAuthorityMismatchResult,
@@ -107,6 +113,7 @@ export interface StoredAttemptEvidenceAuthorityV1 {
   readonly storageGenerationFence: StorageGenerationFence;
   readonly snapshotToken: SnapshotToken;
   readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly executionClaim?: TransactionExecutionClaimPinV1;
 }
 
 export type StoredAttemptNotPlannableReasonV1 =
@@ -123,7 +130,8 @@ export type StoredAttemptAuthorityMismatchReasonV1 =
   | "epochChanged"
   | "snapshotChanged"
   | "schemaChanged"
-  | "revocationEpochChanged";
+  | "revocationEpochChanged"
+  | "executionClaimChanged";
 
 export type StoredAttemptCorruptionReasonV1 =
   | "repeatableReadCapabilityMissing"
@@ -135,6 +143,7 @@ export type StoredAttemptCorruptionReasonV1 =
   | "snapshotLeaseInvalid"
   | "journalRootMissingOrDuplicate"
   | "journalRootInvalid"
+  | "executionClaimInvalid"
   | "pointEvidenceOverflow"
   | "pointEvidenceInvalid";
 
@@ -288,7 +297,7 @@ export interface StoredAttemptEvidenceLoaderOptionsV1 {
 
 export interface StoredAttemptEvidenceQueryV1 {
   readonly name: "clock" | "databaseTime" | "session" | "lease" | "root" |
-    "points";
+    "executionClaim" | "points";
   readonly sql: string;
   readonly params: ReadonlyArray<unknown>;
 }
@@ -299,6 +308,9 @@ interface CapturedStoredAttemptRowsV1 {
   readonly sessionRows: ReadonlyArray<StoredAttemptSessionProjectionV1>;
   readonly leaseRows: ReadonlyArray<SnapshotLeaseRow>;
   readonly rootRows: ReadonlyArray<JournalRootRow>;
+  readonly executionClaimRows: ReadonlyArray<
+    typeof fxSystemTransactionExecutionClaims.$inferSelect
+  >;
   readonly pointRows: ReadonlyArray<JournalPointRow>;
 }
 
@@ -476,6 +488,9 @@ function captureAuthority(
     storageGenerationFence: input.storageGenerationFence,
     snapshotToken: Object.freeze({ ...input.snapshotToken }),
     schemaVersionId: input.schemaVersionId,
+    ...(input.executionClaim === undefined
+      ? {}
+      : { executionClaim: Object.freeze({ ...input.executionClaim }) }),
   });
 }
 
@@ -521,6 +536,7 @@ async function captureStoredAttemptRows(
       sessionRows: Object.freeze([]),
       leaseRows: Object.freeze([]),
       rootRows: Object.freeze([]),
+      executionClaimRows: Object.freeze([]),
       pointRows: Object.freeze([]),
     });
   }
@@ -555,6 +571,27 @@ async function captureStoredAttemptRows(
     .limit(2);
   observeStoredAttemptQuery("root", rootQuery, observeQuery);
   const rootRows = await rootQuery;
+  const executionClaimQuery = tx
+    .select()
+    .from(fxSystemTransactionExecutionClaims)
+    .where(and(
+      eq(fxSystemTransactionExecutionClaims.scopeUuid, scopeUuid),
+      eq(
+        fxSystemTransactionExecutionClaims.sessionId,
+        selector.sessionId,
+      ),
+      eq(
+        fxSystemTransactionExecutionClaims.attemptFence,
+        selector.attemptFence,
+      ),
+    ))
+    .limit(2);
+  observeStoredAttemptQuery(
+    "executionClaim",
+    executionClaimQuery,
+    observeQuery,
+  );
+  const executionClaimRows = await executionClaimQuery;
   const pointQuery = tx
     .select()
     .from(fxSystemTransactionJournalPoints)
@@ -580,6 +617,7 @@ async function captureStoredAttemptRows(
     sessionRows: detachDriverRows(sessionRows),
     leaseRows: detachDriverRows(leaseRows),
     rootRows: detachDriverRows(rootRows),
+    executionClaimRows: detachDriverRows(executionClaimRows),
     pointRows: detachDriverRows(pointRows),
   });
 }
@@ -824,6 +862,16 @@ function materializeStoredAttemptEvidenceUnsafe(
     });
   }
   if (
+    request.kind === "expectedAuthority" &&
+    session.lifecycle !== "running"
+  ) {
+    return Object.freeze({
+      kind: "notPlannable",
+      reason: "lifecycle",
+      lifecycle: session.lifecycle,
+    });
+  }
+  if (
     authorizationGrantExpiresAtMilliseconds <= databaseNowMilliseconds ||
     hardExpiresAtMilliseconds <= databaseNowMilliseconds
   ) {
@@ -891,6 +939,23 @@ function materializeStoredAttemptEvidenceUnsafe(
   if (sealedRoot === undefined) {
     return corrupt("journalRootInvalid");
   }
+  const executionClaimEvidence = classifyExecutionClaimEvidence(
+    captured.executionClaimRows,
+    request,
+    scopeUuid,
+    selector.sessionId,
+    selector.attemptFence,
+    databaseNowMilliseconds,
+  );
+  if (executionClaimEvidence === "mismatch") {
+    return authorityMismatch("executionClaimChanged");
+  }
+  if (executionClaimEvidence === "expired") {
+    return Object.freeze({ kind: "notPlannable", reason: "expired" });
+  }
+  if (executionClaimEvidence === "corrupt") {
+    return corrupt("executionClaimInvalid");
+  }
   if (captured.pointRows.length > MAX_COMMIT_POINT_READ_DEPENDENCIES_V1) {
     return corrupt("pointEvidenceOverflow");
   }
@@ -930,6 +995,44 @@ function materializeStoredAttemptEvidenceUnsafe(
       points,
     }),
   });
+}
+
+function classifyExecutionClaimEvidence(
+  rows: CapturedStoredAttemptRowsV1["executionClaimRows"],
+  request: StoredAttemptEvidenceRequestV1,
+  scopeUuid: ScopeUuidV1,
+  sessionId: TransactionSessionIdV1,
+  attemptFence: TransactionAttemptFence,
+  databaseNowMilliseconds: number,
+): "valid" | "mismatch" | "expired" | "corrupt" {
+  if (request.kind === "finishingRecovery") {
+    return rows.length === 0 ? "valid" : "corrupt";
+  }
+  if (rows.length !== 1) return "corrupt";
+  const row = rows[0];
+  if (row === undefined) return "corrupt";
+  const owner = decodeTransactionExecutionClaimOwnerV1(row.claimOwner);
+  const fence = decodeTransactionExecutionClaimFenceV1(row.claimFence);
+  const claimedAtMilliseconds = finiteDateMilliseconds(row.claimedAt);
+  const expiresAtMilliseconds = finiteDateMilliseconds(row.claimExpiresAt);
+  if (
+    Result.isFailure(owner) ||
+    Result.isFailure(fence) ||
+    claimedAtMilliseconds === undefined ||
+    expiresAtMilliseconds === undefined ||
+    row.scopeUuid !== scopeUuid ||
+    row.sessionId !== sessionId ||
+    row.attemptFence !== attemptFence ||
+    expiresAtMilliseconds <= claimedAtMilliseconds ||
+    claimedAtMilliseconds > databaseNowMilliseconds
+  ) return "corrupt";
+  if (expiresAtMilliseconds <= databaseNowMilliseconds) return "expired";
+  const expected = request.authority.executionClaim;
+  if (expected === undefined) return "corrupt";
+  return owner.success === expected.claimOwner &&
+      fence.success === expected.claimFence
+    ? "valid"
+    : "mismatch";
 }
 
 function captureSessionScalars(

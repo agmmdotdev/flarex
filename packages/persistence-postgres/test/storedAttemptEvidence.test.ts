@@ -79,6 +79,11 @@ import {
 } from "../../executor/src/pointMutationSessionActivation";
 import { createPointMutationJournalV1 } from "../../executor/src/pointMutationJournal";
 import {
+  createPointMutationExecutionClaimVaultV1,
+  type PointMutationExecutionClaimVaultV1,
+  type PointMutationExecutionScopeV1,
+} from "../../executor/src/pointMutationExecutionClaim";
+import {
   createStoredAttemptAuthenticationV1,
   PointCommitKnownSettledSqlRetryExhaustedV1Error,
   PointCommitUncertainOutcomeUnresolvedV1Error,
@@ -199,6 +204,8 @@ const encodeEnvelope = Schema.encodeSync(CommitEnvelopeV1Schema);
 interface Scenario {
   readonly persistence: PGliteFlarexPersistence;
   readonly anchor: PointMutationSessionAnchorV1;
+  readonly executionClaims: PointMutationExecutionClaimVaultV1;
+  readonly executionScope: PointMutationExecutionScopeV1;
   readonly schemaVersionId: ReturnType<
     typeof CatalogSchemaVersionIdSchema.make
   >;
@@ -313,7 +320,22 @@ describe("C04A bounded stored-attempt evidence loader", () => {
   it("accepts finishing+sealed for reconstruction but rejects every other lifecycle", async () => {
     const finishing = await scenario("finishing_sealed");
     await seal(finishing);
-    await setLifecycle(finishing.anchor.sessionId, "finishing");
+    const runningEvidence = await runEffect(
+      finishing.loader.loadEffect(finishing.authority),
+    );
+    if (runningEvidence.kind !== "loaded") {
+      throw new Error("Expected running evidence before C05-A transition.");
+    }
+    await runEffect(
+      createPointCommitFinishingTransitionPortV1(
+        resolutionPorts(persistence),
+      ).enterFinishing(
+        await pointCommitFinishingCommandFromStoredAttemptV1(
+          finishing.authority,
+          runningEvidence.evidence,
+        ),
+      ),
+    );
     const finishingResult = await runEffect(
       finishing.loader.loadFinishingEffect(
         selectorFromAnchor(finishing.anchor),
@@ -378,6 +400,10 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         const current = await scenario(`root_${lifecycle}_${rootState}`);
         if (lifecycle === "finishing") {
           await setLifecycle(current.anchor.sessionId, lifecycle);
+          await persistence.query(
+            "delete from fx_system_tx_execution_claim where session_id = $1",
+            [current.anchor.sessionId],
+          );
         }
         if (rootState === "failed") {
           await persistence.query(
@@ -391,9 +417,12 @@ describe("C04A bounded stored-attempt evidence loader", () => {
             [current.anchor.sessionId],
           );
         }
-        await expect(runEffect(
-          current.loader.loadEffect(current.authority),
-        )).resolves
+        const load = lifecycle === "running"
+          ? current.loader.loadEffect(current.authority)
+          : current.loader.loadFinishingEffect(
+            selectorFromAnchor(current.anchor),
+          );
+        await expect(runEffect(load)).resolves
           .toMatchObject({
             kind: "notPlannable",
             reason: "rootNotSealed",
@@ -832,9 +861,10 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           resolutionPorts(persistence),
         ),
       },
+      current.executionClaims,
     );
     const authority = await runEffect(
-      authentication.deriveAuthority(loadedAttempt),
+      authentication.deriveAuthority(loadedAttempt, current.executionScope),
     );
     const stored = await runEffect(authentication.authenticate(
       authority,
@@ -988,6 +1018,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     const authentication = createO08B1Authentication(current);
     const authority = await runEffect(authentication.deriveAuthority(
       loadedAttempt,
+      current.executionScope,
     ));
     const authenticated = await runEffect(authentication.authenticate(
       authority,
@@ -3633,13 +3664,29 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         { evidence: { schemaVersionId } },
       ),
     );
+    if (activation.status !== "created") {
+      throw new Error("Expected a newly created stored-attempt scenario.");
+    }
+    const executionClaims = createPointMutationExecutionClaimVaultV1();
+    const executionScope = await runEffect(Effect.fromResult(
+      executionClaims.admission.admit(executionClaims.issuer.mint({
+        selector: selectorFromAnchor(activation.anchor),
+        observation: activation.executionClaim,
+        mode: "execute",
+      }), "execute"),
+    ));
     const store = createSessionJournalStorePersistenceV1(ports, {
       randomUuid: nextUuid,
     });
-    const authority = authorityFromAnchor(activation.anchor, schemaVersionId);
+    const authority = authorityFromAnchor(
+      activation.anchor,
+      schemaVersionId,
+      activation.executionClaim,
+    );
     const attempt = await runEffect(
       store.openAttemptEffect({
         selector: selectorFromAnchor(activation.anchor),
+        executionClaim: activation.executionClaim,
         snapshotToken: activation.anchor.snapshotToken,
         schemaVersionId,
       }),
@@ -3648,6 +3695,8 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     return Object.freeze({
       persistence,
       anchor: activation.anchor,
+      executionClaims,
+      executionScope,
       schemaVersionId,
       store,
       attempt,
@@ -3825,6 +3874,17 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
       }),
     );
+    if (activation.status !== "created") {
+      throw new Error("Expected a newly created C04B2 scenario.");
+    }
+    const executionClaims = createPointMutationExecutionClaimVaultV1();
+    const executionScope = await runEffect(Effect.fromResult(
+      executionClaims.admission.admit(executionClaims.issuer.mint({
+        selector: selectorFromAnchor(activation.anchor),
+        observation: activation.executionClaim,
+        mode: "execute",
+      }), "execute"),
+    ));
     const store = createSessionJournalStorePersistenceV1(ports, {
       randomUuid: nextUuid,
     });
@@ -3835,17 +3895,24 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     return Object.freeze({
       persistence,
       anchor: activation.anchor,
+      executionClaims,
+      executionScope,
       schemaVersionId,
       store,
       attempt: await runEffect(
         store.openAttemptEffect({
           selector: selectorFromAnchor(activation.anchor),
+          executionClaim: activation.executionClaim,
           snapshotToken: activation.anchor.snapshotToken,
           schemaVersionId,
         }),
       ),
       loader: createStoredAttemptEvidenceLoaderV1(ports, loaderOptions),
-      authority: authorityFromAnchor(activation.anchor, schemaVersionId),
+      authority: authorityFromAnchor(
+        activation.anchor,
+        schemaVersionId,
+        activation.executionClaim,
+      ),
       loading: createPointMutationSessionAttemptLoadingV1(
         createPointMutationSessionAttemptLoadPersistenceV1(ports),
       ),
@@ -3962,9 +4029,9 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         ),
       ),
     );
-    const loaded = await runEffect(
-      current.loader.loadEffect(current.authority),
-    );
+    const loaded = await runEffect(current.loader.loadFinishingEffect(
+      selectorFromAnchor(current.anchor),
+    ));
     if (loaded.kind !== "loaded") {
       throw new Error(`Expected O06 evidence, received ${loaded.kind}.`);
     }
@@ -4028,7 +4095,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       publisherPorts,
     );
     const authority = await runEffect(
-      authentication.deriveAuthority(loadedAttempt),
+      authentication.deriveAuthority(loadedAttempt, current.executionScope),
     );
     const stored = await runEffect(authentication.authenticate(
       authority,
@@ -4077,6 +4144,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           ports,
         ),
       },
+      current.executionClaims,
     );
   }
 
@@ -4104,6 +4172,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     let executionSequence = 0;
     const terminalization = createPointMutationSessionAttemptTerminalizationV1(
       createPointMutationSessionAttemptTerminalizationPersistenceV1(ports),
+      current.executionClaims.admission,
     );
     return createStoredAttemptAuthenticationV1(current.loader, {
       evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
@@ -4121,15 +4190,23 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       pointMutationOccRerun: {
         attemptLoading: current.loading,
         executionEvidence: createStoredOccExecutionEvidenceLoaderV1(ports),
-        journal: createPointMutationJournalV1(current.store),
+        journal: createPointMutationJournalV1(
+          current.store,
+          current.executionClaims.admission,
+        ),
         terminalization:
           onAbortStarted === undefined
             ? terminalization
             : Object.freeze({
                 ...terminalization,
-                abort: Effect.fn("TestO08B2a.observeAbort")((attempt) =>
+                abort: Effect.fn("TestO08B2a.observeAbort")((
+                  attempt,
+                  executionClaim,
+                ) =>
                   Effect.sync(onAbortStarted).pipe(
-                    Effect.flatMap(() => terminalization.abort(attempt)),
+                    Effect.flatMap(() =>
+                      terminalization.abort(attempt, executionClaim)
+                    ),
                   ),
                 ),
               }),
@@ -4146,7 +4223,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
         },
         runner,
       },
-    });
+    }, current.executionClaims);
   }
 
   async function prepareO08B1Conflict(
@@ -4185,7 +4262,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       contextFactory,
     );
     const authority = await runEffect(
-      authentication.deriveAuthority(loadedAttempt),
+      authentication.deriveAuthority(loadedAttempt, current.executionScope),
     );
     const authenticated = await runEffect(authentication.authenticate(
       authority,
@@ -4731,6 +4808,9 @@ function selectorFromAnchor(
 function authorityFromAnchor(
   anchor: PointMutationSessionAnchorV1,
   schemaVersionId: ReturnType<typeof CatalogSchemaVersionIdSchema.make>,
+  executionClaim: NonNullable<
+    StoredAttemptEvidenceAuthorityV1["executionClaim"]
+  >,
 ): StoredAttemptEvidenceAuthorityV1 {
   return Object.freeze({
     deploymentId: anchor.deploymentId,
@@ -4741,6 +4821,7 @@ function authorityFromAnchor(
     storageGenerationFence: anchor.storageGenerationFence,
     snapshotToken: anchor.snapshotToken,
     schemaVersionId,
+    executionClaim,
   });
 }
 

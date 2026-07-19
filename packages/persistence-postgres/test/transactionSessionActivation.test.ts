@@ -8,6 +8,7 @@ import {
   TransactionGrantDeploymentIdV1Schema,
 } from "flarex-protocol/transaction-grant";
 import {
+  TransactionAttemptFenceSchema,
   TransactionAuthorizationRevocationEpochSchema,
   TransactionPackageIdV1Schema,
   TransactionSessionIdV1Schema,
@@ -36,10 +37,16 @@ import {
   PointMutationSessionActivationConfigurationV1Error,
   PointMutationSessionActivationPersistenceV1Error,
   PointMutationSessionActivationV1Error,
+  PointMutationExecutionClaimAcquisitionConfigurationV1Error,
+  PointMutationExecutionClaimAcquisitionPersistenceV1Error,
+  PointMutationExecutionClaimAcquisitionResourceV1Error,
+  PointMutationExecutionClaimAcquisitionStaleV1Error,
+  createPointMutationExecutionClaimAcquisitionV1,
   PointMutationSessionAuthorityCorruptionV1Error,
   createPointMutationSessionActivationPersistenceV1,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
   type PointMutationSessionActivationResolutionPortsV1,
+  type PointMutationSessionAnchorV1,
 } from "../src/transactionSessionActivation";
 import {
   activatePointMutationSession,
@@ -120,6 +127,92 @@ describe("O03-B1 point-mutation session activation", () => {
     );
   }
 
+  function executionClaimAcquisition(owner: string) {
+    return createPointMutationExecutionClaimAcquisitionV1(
+      resolutionPorts(persistence),
+      {
+        durationMilliseconds: 30_000,
+        randomOwner: () => owner,
+      },
+    );
+  }
+
+  async function activateClaimScenario(label: string) {
+    const context = await provisionContext(label);
+    const activation = await activatePointMutationSession(
+      activationPersistence(),
+      pointMutationSessionActivationFixture(
+        context.deploymentId,
+        context.scopeId,
+      ),
+    );
+    if (activation.status !== "created") {
+      throw new Error("Expected a new execution-claim scenario.");
+    }
+    return activation;
+  }
+
+  async function expireExecutionClaim(sessionId: string): Promise<void> {
+    await persistence.query(
+      `update fx_system_tx_execution_claim
+       set claimed_at = clock_timestamp() - interval '2 minutes',
+           claim_expires_at = clock_timestamp() - interval '1 minute'
+       where session_id = $1`,
+      [sessionId],
+    );
+  }
+
+  async function executionClaimRow(sessionId: string): Promise<Readonly<{
+    claim_owner: string;
+    claim_fence: string;
+  }>> {
+    const result = await persistence.query<Readonly<{
+      claim_owner: string;
+      claim_fence: string;
+    }>>(
+      `select claim_owner::text, claim_fence::text
+       from fx_system_tx_execution_claim where session_id = $1`,
+      [sessionId],
+    );
+    const row = result.rows[0];
+    if (row === undefined || result.rows.length !== 1) {
+      throw new Error("Expected one exact execution claim.");
+    }
+    return row;
+  }
+
+  async function insertExpiredOutcome(
+    anchor: PointMutationSessionAnchorV1,
+  ): Promise<void> {
+    await persistence.query(
+      `with clock as (
+         update fx_system_scope_clock
+         set last_commit_seq = 1
+         where scope_id = $1
+         returning scope_uuid, epoch_uuid
+       )
+       insert into fx_system_commit (
+         scope_uuid, epoch_uuid, commit_seq, change_count, committed_at
+       )
+       select scope_uuid, epoch_uuid, 1, 0, clock_timestamp() from clock`,
+      [anchor.scopeId],
+    );
+    await persistence.query(
+      `insert into fx_system_idempotency (
+         scope_uuid, request_key, identity_access_policy_sha256,
+         function_path, request_sha256, epoch_uuid, commit_seq,
+         result_state, result_expired_at, created_at
+       )
+       select s.scope_uuid, s.request_key, s.identity_access_policy_sha256,
+         s.function_path, s.request_sha256, c.epoch_uuid, 1,
+         'expired', clock_timestamp(), clock_timestamp() - interval '1 second'
+       from fx_system_tx_session s
+       join fx_system_scope_clock c using (scope_uuid)
+       where s.session_id = $1`,
+      [anchor.sessionId],
+    );
+  }
+
   it("keeps activation off the broad persistence facade", () => {
     expectTypeOf<RootActivationExport>().toEqualTypeOf<never>();
   });
@@ -159,7 +252,7 @@ describe("O03-B1 point-mutation session activation", () => {
     });
   });
 
-  it("atomically creates one running anchor and exactly replays it unchanged", async () => {
+  it("atomically creates one running anchor and reports its live claim as busy", async () => {
     const context = await provisionContext("create_replay");
     const input = pointMutationSessionActivationFixture(
       context.deploymentId,
@@ -195,9 +288,14 @@ describe("O03-B1 point-mutation session activation", () => {
     const persisted = await persistence.query<{
       sessions: number;
       leases: number;
+      journals: number;
+      execution_claims: number;
       timestamps_equal: boolean;
       hard_expiry_matches: boolean;
       lease_duration_matches: boolean;
+      claim_owner: string;
+      claim_fence: string;
+      claim_matches_session_time: boolean;
       lifecycle: string;
       attempt_fence: string;
       snapshot_commit_seq: string;
@@ -208,17 +306,31 @@ describe("O03-B1 point-mutation session activation", () => {
             where scope_uuid = c.scope_uuid) as sessions,
           (select count(*)::int from fx_system_snapshot_lease
             where scope_uuid = c.scope_uuid) as leases,
+          (select count(*)::int from fx_system_tx_journal
+            where scope_uuid = c.scope_uuid) as journals,
+          (select count(*)::int from fx_system_tx_execution_claim
+            where scope_uuid = c.scope_uuid) as execution_claims,
           s.created_at = s.updated_at as timestamps_equal,
           s.hard_expires_at = s.authorization_grant_expires_at
             as hard_expiry_matches,
           l.lease_expires_at = s.created_at + interval '60 seconds'
             as lease_duration_matches,
+          x.claim_owner::text,
+          x.claim_fence::text,
+          x.claimed_at = s.created_at as claim_matches_session_time,
           s.lifecycle,
           s.attempt_fence::text,
           l.snapshot_commit_seq::text
         from fx_system_scope_clock c
-        join fx_system_tx_session s using (scope_uuid)
-        join fx_system_snapshot_lease l using (scope_uuid, session_id)
+        join fx_system_tx_session s on s.scope_uuid = c.scope_uuid
+        join fx_system_snapshot_lease l
+          on l.scope_uuid = s.scope_uuid
+         and l.session_id = s.session_id
+         and l.attempt_fence = s.attempt_fence
+        join fx_system_tx_execution_claim x
+          on x.scope_uuid = s.scope_uuid
+         and x.session_id = s.session_id
+         and x.attempt_fence = s.attempt_fence
         where c.scope_id = $1
       `,
       [context.scopeId],
@@ -227,9 +339,16 @@ describe("O03-B1 point-mutation session activation", () => {
       {
         sessions: 1,
         leases: 1,
+        journals: 1,
+        execution_claims: 1,
         timestamps_equal: true,
         hard_expiry_matches: true,
         lease_duration_matches: true,
+        claim_owner: created.status === "created"
+          ? created.executionClaim.claimOwner
+          : "unreachable",
+        claim_fence: "1",
+        claim_matches_session_time: true,
         lifecycle: "running",
         attempt_fence: "1",
         snapshot_commit_seq: "0",
@@ -242,12 +361,317 @@ describe("O03-B1 point-mutation session activation", () => {
     );
     const replayed = await activatePointMutationSession(activation, input);
 
-    expect(replayed.status).toBe("replayed");
+    expect(replayed.status).toBe("busy");
     expect(replayed.anchor).toEqual(created.anchor);
     await expect(rowCounts(persistence, context.scopeId)).resolves.toEqual({
       sessions: 1,
       leases: 1,
+      journals: 1,
+      executionClaims: 1,
     });
+  });
+
+  it("acquires only an expired pristine claim and advances its fence exactly once", async () => {
+    const current = await activateClaimScenario("claim_takeover");
+    const selector = selectorFromAnchor(current.anchor);
+    const busy = await runEffect(
+      executionClaimAcquisition("42000000-0000-4000-8000-000000008001")
+        .acquireEffect(selector),
+    );
+    expect(busy).toEqual({
+      kind: "busy",
+      observation: current.executionClaim,
+    });
+
+    await expireExecutionClaim(current.anchor.sessionId);
+    const acquired = await runEffect(
+      executionClaimAcquisition("42000000-0000-4000-8000-000000008002")
+        .acquireEffect(selector),
+    );
+    expect(acquired).toMatchObject({
+      kind: "acquired",
+      mode: "execute",
+      observation: {
+        claimOwner: "42000000-0000-4000-8000-000000008002",
+        claimFence: 2n,
+      },
+    });
+    if (acquired.kind !== "acquired") {
+      throw new Error("Expected the expired exact claim to be acquired.");
+    }
+    expect(Date.parse(acquired.observation.claimExpiresAt)).toBeGreaterThan(
+      Date.parse(acquired.observation.claimedAt),
+    );
+    await expect(executionClaimRow(current.anchor.sessionId)).resolves.toEqual({
+      claim_owner: acquired.observation.claimOwner,
+      claim_fence: "2",
+    });
+
+    await expect(runEffect(
+      executionClaimAcquisition("42000000-0000-4000-8000-000000008003")
+        .acquireEffect(selector),
+    )).resolves.toEqual({
+      kind: "busy",
+      observation: acquired.observation,
+    });
+  });
+
+  it("keeps acquisition configuration and authority-resolution failures in their owning channels", async () => {
+    const deploymentId = TransactionGrantDeploymentIdV1Schema.make(
+      "deployment_claim_authority_failure",
+    );
+    const scopeId = ReplacementScopeIdV1Schema.make(
+      "scope_42000000-0000-4000-8000-000000008090",
+    );
+    const selector = Object.freeze({
+      deploymentId,
+      scopeId,
+      sessionId: TransactionSessionIdV1Schema.make(
+        "42000000-0000-4000-8000-000000008090",
+      ),
+      attemptFence: TransactionAttemptFenceSchema.make(1n),
+    });
+    const inaccessibleTarget = {
+      provisioningReceipts: {
+        getScopeAuthorityProvisioningReceipt: async () => {
+          throw new Error("Provisioning receipt must not be read.");
+        },
+      },
+      scopeSessionTargets: {
+        resolve: async () => {
+          throw new Error("Scope target must not be resolved.");
+        },
+      },
+    } as const;
+    const missingAuthorityPorts = {
+      scopeMetadata: {
+        getScopeMetadataByDeploymentId: async () => null,
+      },
+      ...inaccessibleTarget,
+    } satisfies PointMutationSessionActivationResolutionPortsV1;
+
+    let configurationFailure: unknown;
+    try {
+      createPointMutationExecutionClaimAcquisitionV1(
+        missingAuthorityPorts,
+        { durationMilliseconds: 0 },
+      );
+    } catch (cause) {
+      configurationFailure = cause;
+    }
+    expect(configurationFailure).toMatchObject({
+      _tag: "PointMutationExecutionClaimAcquisitionConfigurationV1Error",
+      reason: "invalidClaimDuration",
+    } satisfies Partial<
+      PointMutationExecutionClaimAcquisitionConfigurationV1Error
+    >);
+
+    await expect(runEffect(
+      createPointMutationExecutionClaimAcquisitionV1(
+        missingAuthorityPorts,
+        {
+          durationMilliseconds: 30_000,
+          randomOwner: () => "42000000-0000-4000-8000-000000008091",
+        },
+      ).acquireEffect(selector),
+    )).rejects.toMatchObject({
+      _tag: "PointMutationExecutionClaimAcquisitionStaleV1Error",
+      reason: "deploymentChanged",
+    } satisfies Partial<PointMutationExecutionClaimAcquisitionStaleV1Error>);
+
+    const portFailure = new Error("scope metadata unavailable");
+    const failedPort = {
+      scopeMetadata: {
+        getScopeMetadataByDeploymentId: async () => {
+          throw portFailure;
+        },
+      },
+      ...inaccessibleTarget,
+    } satisfies PointMutationSessionActivationResolutionPortsV1;
+    await expect(runEffect(
+      createPointMutationExecutionClaimAcquisitionV1(failedPort, {
+        durationMilliseconds: 30_000,
+        randomOwner: () => "42000000-0000-4000-8000-000000008092",
+      }).acquireEffect(selector),
+    )).rejects.toMatchObject({
+      _tag: "PointMutationExecutionClaimAcquisitionPersistenceV1Error",
+      operation: "prelude",
+      cause: portFailure,
+    } satisfies Partial<PointMutationExecutionClaimAcquisitionPersistenceV1Error>);
+
+    const context = await provisionContext("claim_target_resolution_failure");
+    const targetResolutionFailure = new Error("scope target unavailable");
+    const targetResolutionPorts = {
+      ...resolutionPorts(persistence),
+      scopeSessionTargets: {
+        resolve: async () => {
+          throw targetResolutionFailure;
+        },
+      },
+    } satisfies PointMutationSessionActivationResolutionPortsV1;
+    await expect(runEffect(
+      createPointMutationExecutionClaimAcquisitionV1(targetResolutionPorts, {
+        durationMilliseconds: 30_000,
+        randomOwner: () => "42000000-0000-4000-8000-000000008093",
+      }).acquireEffect({
+        deploymentId: context.deploymentId,
+        scopeId: context.scopeId,
+        sessionId: TransactionSessionIdV1Schema.make(
+          "42000000-0000-4000-8000-000000008093",
+        ),
+        attemptFence: TransactionAttemptFenceSchema.make(1n),
+      }),
+    )).rejects.toMatchObject({
+      _tag: "PointMutationExecutionClaimAcquisitionPersistenceV1Error",
+      operation: "prelude",
+      cause: targetResolutionFailure,
+    } satisfies Partial<PointMutationExecutionClaimAcquisitionPersistenceV1Error>);
+  });
+
+  it("replays an inert anchor after a lost activation response even when its claim expired", async () => {
+    const context = await provisionContext("claim_lost_activation_response");
+    const input = pointMutationSessionActivationFixture(
+      context.deploymentId,
+      context.scopeId,
+    );
+    const activation = activationPersistence();
+    const created = await activatePointMutationSession(activation, input);
+    if (created.status !== "created") {
+      throw new Error("Expected a newly created activation.");
+    }
+    await expireExecutionClaim(created.anchor.sessionId);
+    const before = await executionClaimRow(created.anchor.sessionId);
+
+    await expect(activatePointMutationSession(activation, input)).resolves
+      .toEqual({ status: "busy", anchor: created.anchor });
+    await expect(executionClaimRow(created.anchor.sessionId)).resolves.toEqual(
+      before,
+    );
+    await expect(runEffect(
+      executionClaimAcquisition("42000000-0000-4000-8000-000000008009")
+        .acquireEffect(selectorFromAnchor(created.anchor)),
+    )).resolves.toMatchObject({
+      kind: "acquired",
+      mode: "execute",
+      observation: { claimFence: 2n },
+    });
+  });
+
+  it("classifies sealed, dirty, failed, and exhausted expired claims", async () => {
+    const sealed = await activateClaimScenario("claim_sealed");
+    await persistence.query(
+      `update fx_system_tx_journal
+       set state = 'sealed',
+           sealed_final_syscall_sequence = last_syscall_sequence,
+           sealed_journal_bytes = $2,
+           sealed_journal_sha256 = $3,
+           sealed_result_value_codec_version = 1,
+           sealed_result_semantic_bytes = 0,
+           sealed_result_bytes = $2,
+           sealed_result_sha256 = $3,
+           sealed_at = clock_timestamp(),
+           updated_at = clock_timestamp()
+       where session_id = $1`,
+      [sealed.anchor.sessionId, new Uint8Array([0]), new Uint8Array(32)],
+    );
+    await expireExecutionClaim(sealed.anchor.sessionId);
+    await expect(runEffect(
+      executionClaimAcquisition("42000000-0000-4000-8000-000000008011")
+        .acquireEffect(selectorFromAnchor(sealed.anchor)),
+    )).resolves.toMatchObject({ kind: "acquired", mode: "finishOnly" });
+
+    const dirty = await activateClaimScenario("claim_dirty");
+    await persistence.query(
+      `update fx_system_tx_journal
+       set last_syscall_sequence = 1, updated_at = clock_timestamp()
+       where session_id = $1`,
+      [dirty.anchor.sessionId],
+    );
+    await expireExecutionClaim(dirty.anchor.sessionId);
+    await expect(runEffect(
+      executionClaimAcquisition("42000000-0000-4000-8000-000000008012")
+        .acquireEffect(selectorFromAnchor(dirty.anchor)),
+    )).resolves.toEqual({ kind: "nonDispatchable", reason: "dirtyOpen" });
+    await expect(executionClaimRow(dirty.anchor.sessionId)).resolves
+      .toMatchObject({ claim_fence: "1" });
+
+    const failed = await activateClaimScenario("claim_failed");
+    await persistence.query(
+      `update fx_system_tx_journal
+       set state = 'failed', failure_dimension = 'readDocuments',
+           updated_at = clock_timestamp()
+       where session_id = $1`,
+      [failed.anchor.sessionId],
+    );
+    await expireExecutionClaim(failed.anchor.sessionId);
+    await expect(runEffect(
+      executionClaimAcquisition("42000000-0000-4000-8000-000000008013")
+        .acquireEffect(selectorFromAnchor(failed.anchor)),
+    )).resolves.toEqual({ kind: "nonDispatchable", reason: "failedRoot" });
+
+    const exhausted = await activateClaimScenario("claim_exhausted");
+    await persistence.query(
+      `update fx_system_tx_execution_claim
+       set claim_fence = $2,
+           claimed_at = clock_timestamp() - interval '2 minutes',
+           claim_expires_at = clock_timestamp() - interval '1 minute'
+       where session_id = $1`,
+      [exhausted.anchor.sessionId, POSTGRES_SIGNED_BIGINT_MAX],
+    );
+    await expect(runEffect(
+      executionClaimAcquisition("42000000-0000-4000-8000-000000008014")
+        .acquireEffect(selectorFromAnchor(exhausted.anchor)),
+    )).rejects.toBeInstanceOf(
+      PointMutationExecutionClaimAcquisitionResourceV1Error,
+    );
+    await expect(executionClaimRow(exhausted.anchor.sessionId)).resolves
+      .toMatchObject({ claim_fence: POSTGRES_SIGNED_BIGINT_MAX.toString() });
+  });
+
+  it("resolves a committed outcome before touching an expired execution claim", async () => {
+    const current = await activateClaimScenario("claim_outcome_first");
+    await expireExecutionClaim(current.anchor.sessionId);
+    await insertExpiredOutcome(current.anchor);
+    const before = await executionClaimRow(current.anchor.sessionId);
+
+    const result = await runEffect(
+      executionClaimAcquisition("42000000-0000-4000-8000-000000008021")
+        .acquireEffect(selectorFromAnchor(current.anchor)),
+    );
+    expect(result).toMatchObject({
+      kind: "replayed",
+      outcome: { kind: "expired", token: { commitSeq: 1n } },
+    });
+    await expect(executionClaimRow(current.anchor.sessionId)).resolves.toEqual(
+      before,
+    );
+
+    for (const randomOwner of [
+      () => {
+        throw new Error("owner generation must not run for replay");
+      },
+      () => "not-a-uuid",
+    ]) {
+      let ownerCalls = 0;
+      const acquisition = createPointMutationExecutionClaimAcquisitionV1(
+        resolutionPorts(persistence),
+        {
+          durationMilliseconds: 30_000,
+          randomOwner: () => {
+            ownerCalls += 1;
+            return randomOwner();
+          },
+        },
+      );
+      await expect(runEffect(acquisition.acquireEffect({
+        ...selectorFromAnchor(current.anchor),
+        attemptFence: TransactionAttemptFenceSchema.make(2n),
+      }))).resolves.toMatchObject({
+        kind: "replayed",
+        outcome: { kind: "expired", token: { commitSeq: 1n } },
+      });
+      expect(ownerCalls).toBe(0);
+    }
   });
 
   it("rejects non-JSON prepared evidence before persistence", async () => {
@@ -274,6 +698,8 @@ describe("O03-B1 point-mutation session activation", () => {
     await expect(rowCounts(persistence, context.scopeId)).resolves.toEqual({
       sessions: 0,
       leases: 0,
+      journals: 0,
+      executionClaims: 0,
     });
   });
 
@@ -311,11 +737,11 @@ describe("O03-B1 point-mutation session activation", () => {
     expect(persistedArgs["__proto__"]).toEqual({ polluted: true });
 
     const replayed = await activatePointMutationSession(activation, input);
-    expect(replayed.status).toBe("replayed");
+    expect(replayed.status).toBe("busy");
     expect(replayed.anchor).toEqual(created.anchor);
   });
 
-  it("replays negative-zero JSON after JSONB normalizes it to zero", async () => {
+  it("preserves normalized negative-zero JSON while the claim is busy", async () => {
     const context = await provisionContext("negative_zero_argument");
     const input = pointMutationSessionActivationFixture(
       context.deploymentId,
@@ -341,7 +767,7 @@ describe("O03-B1 point-mutation session activation", () => {
       true,
     );
     const replayed = await activatePointMutationSession(activation, input);
-    expect(replayed.status).toBe("replayed");
+    expect(replayed.status).toBe("busy");
     expect(replayed.anchor).toEqual(created.anchor);
   });
 
@@ -553,7 +979,12 @@ describe("O03-B1 point-mutation session activation", () => {
       context.scopeId,
     );
 
-    for (const failureStep of ["sessionInserted", "leaseInserted"] as const) {
+    for (const failureStep of [
+      "sessionInserted",
+      "leaseInserted",
+      "journalRootInserted",
+      "executionClaimInserted",
+    ] as const) {
       const activation = activationPersistence({
         afterWrite: (step) => {
           if (step === failureStep) throw new Error(`fail:${step}`);
@@ -569,6 +1000,8 @@ describe("O03-B1 point-mutation session activation", () => {
       await expect(rowCounts(persistence, context.scopeId)).resolves.toEqual({
         sessions: 0,
         leases: 0,
+        journals: 0,
+        executionClaims: 0,
       });
     }
   });
@@ -598,6 +1031,8 @@ describe("O03-B1 point-mutation session activation", () => {
     await expect(rowCounts(persistence, context.scopeId)).resolves.toEqual({
       sessions: 0,
       leases: 0,
+      journals: 0,
+      executionClaims: 0,
     });
   });
 
@@ -636,6 +1071,8 @@ describe("O03-B1 point-mutation session activation", () => {
     await expect(rowCounts(persistence, context.scopeId)).resolves.toEqual({
       sessions: 1,
       leases: 1,
+      journals: 1,
+      executionClaims: 1,
     });
   });
 
@@ -791,6 +1228,8 @@ describe("O03-B1 point-mutation session activation", () => {
       await expect(rowCounts(persistence, context.scopeId)).resolves.toEqual({
         sessions: 0,
         leases: 0,
+        journals: 0,
+        executionClaims: 0,
       });
     }
   });
@@ -840,6 +1279,15 @@ function jsonObjectWithProtoData(): JsonObject {
   return Object.freeze(value);
 }
 
+function selectorFromAnchor(anchor: PointMutationSessionAnchorV1) {
+  return Object.freeze({
+    deploymentId: anchor.deploymentId,
+    scopeId: anchor.scopeId,
+    sessionId: anchor.sessionId,
+    attemptFence: anchor.attemptFence,
+  });
+}
+
 function resolutionPorts(
   persistence: PGliteFlarexPersistence,
   targetOptions: LocatedPointMutationSessionActivationTargetOptionsV1 = {},
@@ -865,17 +1313,28 @@ function resolutionPorts(
 async function rowCounts(
   persistence: PGliteFlarexPersistence,
   scopeId: ReturnType<typeof ReplacementScopeIdV1Schema.make>,
-): Promise<{ readonly sessions: number; readonly leases: number }> {
+): Promise<{
+  readonly sessions: number;
+  readonly leases: number;
+  readonly journals: number;
+  readonly executionClaims: number;
+}> {
   const result = await persistence.query<{
     sessions: number;
     leases: number;
+    journals: number;
+    execution_claims: number;
   }>(
     `
       select
         (select count(*)::int from fx_system_tx_session
           where scope_uuid = c.scope_uuid) as sessions,
         (select count(*)::int from fx_system_snapshot_lease
-          where scope_uuid = c.scope_uuid) as leases
+          where scope_uuid = c.scope_uuid) as leases,
+        (select count(*)::int from fx_system_tx_journal
+          where scope_uuid = c.scope_uuid) as journals,
+        (select count(*)::int from fx_system_tx_execution_claim
+          where scope_uuid = c.scope_uuid) as execution_claims
       from fx_system_scope_clock c
       where c.scope_id = $1
     `,
@@ -883,7 +1342,12 @@ async function rowCounts(
   );
   const row = result.rows[0];
   if (row === undefined) throw new Error("Activation scope clock is missing.");
-  return row;
+  return Object.freeze({
+    sessions: row.sessions,
+    leases: row.leases,
+    journals: row.journals,
+    executionClaims: row.execution_claims,
+  });
 }
 
 function deferredSignal(): Readonly<{

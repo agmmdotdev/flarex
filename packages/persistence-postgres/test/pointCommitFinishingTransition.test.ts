@@ -33,6 +33,8 @@ import type { LocatedScopeClockReader } from
   "../src/scopeAuthorityResolution";
 import type { SharedDatabaseScopePhysicalLocator } from
   "../src/scopeMetadataTypes";
+import { TransactionExecutionClaimOwnerV1Schema } from
+  "../src/transactionExecutionClaimModel";
 import {
   createSessionJournalStorePersistenceV1,
   type SessionJournalAttemptV1,
@@ -61,6 +63,7 @@ import { runEffect, runEffectFailure as runFailure } from
   "./effectTestRuntime";
 import {
   activatePointMutationSession,
+  executionClaimForAnchor,
   pointMutationSessionActivationFixture,
   setFlarexActivationClock,
 } from "./transactionSessionActivationTestSupport";
@@ -89,7 +92,7 @@ describe("C05-A point-commit finishing transition", () => {
     await persistence.migrate();
   });
 
-  it("changes only lifecycle and updatedAt, then exactly observes the durable transition", async () => {
+  it("changes lifecycle and updatedAt while atomically consuming the execution claim", async () => {
     const current = await scenario("transition");
     const before = await sessionFingerprint(current.anchor.sessionId);
     const queries: Array<Readonly<{ name: string; sql: string }>> = [];
@@ -118,12 +121,15 @@ describe("C05-A point-commit finishing transition", () => {
     );
     expect(after.immutable).toBe(before.immutable);
     expect(after.related).toBe(before.related);
+    expect(before.executionClaims).toBe(1);
+    expect(after.executionClaims).toBe(0);
     expect(queries.map((query) => query.name)).toEqual([
       "lockScopeClock",
       "lockSession",
       "lockLease",
       "lockJournalRoot",
       "readDatabaseTime",
+      "deleteExecutionClaim",
       "enterFinishing",
     ]);
     const sessionQuery = queries.find((query) => query.name === "lockSession");
@@ -226,6 +232,20 @@ describe("C05-A point-commit finishing transition", () => {
         }),
         error: PointCommitStaleAuthorityV1Error,
         reason: "revocationEpochChanged",
+      },
+      {
+        label: "execution claim owner",
+        command: Object.freeze({
+          ...base,
+          executionClaim: Object.freeze({
+            ...base.executionClaim,
+            claimOwner: TransactionExecutionClaimOwnerV1Schema.make(
+              "85000000-0000-4000-8000-000000009991",
+            ),
+          }),
+        }),
+        error: PointCommitStaleAuthorityV1Error,
+        reason: "lifecycleChanged",
       },
       {
         label: "attempt fence",
@@ -492,6 +512,7 @@ describe("C05-A point-commit finishing transition", () => {
         sessionId: activation.anchor.sessionId,
         attemptFence: activation.anchor.attemptFence,
       },
+      executionClaim: executionClaimForAnchor(activation.anchor),
       snapshotToken: activation.anchor.snapshotToken,
       schemaVersionId,
     }));
@@ -533,7 +554,11 @@ describe("C05-A point-commit finishing transition", () => {
         lowercaseHexToBytes(result.evidence.sha256Hex),
       ],
     );
-    const authority = authorityFromAnchor(activation.anchor, schemaVersionId);
+    const authority = authorityFromAnchor(
+      activation.anchor,
+      schemaVersionId,
+      executionClaimForAnchor(activation.anchor),
+    );
     const loaded = await runEffect(
       createStoredAttemptEvidenceLoaderV1(ports).loadEffect(authority),
     );
@@ -582,12 +607,14 @@ describe("C05-A point-commit finishing transition", () => {
     updatedAtMilliseconds: number;
     immutable: string;
     related: string;
+    executionClaims: number;
   }>> {
     const result = await persistence.query<Readonly<{
       lifecycle: string;
       updated_at_milliseconds: string;
       immutable: string;
       related: string;
+      execution_claims: number;
     }>>(
       `
         select
@@ -605,6 +632,11 @@ describe("C05-A point-commit finishing transition", () => {
               where root.scope_uuid = session.scope_uuid
                 and root.session_id = session.session_id)
           )::text as related
+          , (select count(*)::int from fx_system_tx_execution_claim claim
+              where claim.scope_uuid = session.scope_uuid
+                and claim.session_id = session.session_id
+                and claim.attempt_fence = session.attempt_fence)
+              as execution_claims
         from fx_system_tx_session session
         where session.session_id = $1
       `,
@@ -617,6 +649,7 @@ describe("C05-A point-commit finishing transition", () => {
       updatedAtMilliseconds: Number(row.updated_at_milliseconds),
       immutable: row.immutable,
       related: row.related,
+      executionClaims: row.execution_claims,
     });
   }
 });
@@ -624,6 +657,9 @@ describe("C05-A point-commit finishing transition", () => {
 function authorityFromAnchor(
   anchor: PointMutationSessionAnchorV1,
   schemaVersionId: ReturnType<typeof CatalogSchemaVersionIdSchema.make>,
+  executionClaim: NonNullable<
+    StoredAttemptEvidenceAuthorityV1["executionClaim"]
+  >,
 ): StoredAttemptEvidenceAuthorityV1 {
   return Object.freeze({
     deploymentId: anchor.deploymentId,
@@ -634,6 +670,7 @@ function authorityFromAnchor(
     storageGenerationFence: anchor.storageGenerationFence,
     snapshotToken: anchor.snapshotToken,
     schemaVersionId,
+    executionClaim,
   });
 }
 

@@ -75,6 +75,8 @@ import {
   SchemaVersionArtifactCorruptionError,
 } from "../src/schemaVersionArtifacts";
 import type { SharedDatabaseScopePhysicalLocator } from "../src/scopeMetadataTypes";
+import type { TransactionExecutionClaimObservationV1 } from
+  "../src/transactionExecutionClaimModel";
 import {
   InvalidSessionJournalInputV1Error,
   PinnedPointTableCorruptionV1Error,
@@ -92,6 +94,7 @@ import {
   type SessionJournalStorePersistenceV1,
 } from "../src/sessionJournalStore";
 import {
+  createPointMutationExecutionClaimAcquisitionV1,
   createPointMutationSessionActivationPersistenceV1,
   type LocatedPointMutationSessionActivationTargetOptionsV1,
   type PointMutationSessionAnchorV1,
@@ -143,6 +146,7 @@ interface JournalScenario {
   readonly tableId: CatalogTableId;
   readonly otherTableId: CatalogTableId;
   readonly anchor: PointMutationSessionAnchorV1;
+  readonly executionClaim: TransactionExecutionClaimObservationV1;
   readonly store: SessionJournalStorePersistenceV1;
   readonly attempt: SessionJournalAttemptV1;
   readonly table: PinnedPointTableV1;
@@ -272,12 +276,16 @@ describe("C03 Postgres SessionJournalStore", () => {
       ),
     );
     const randomUuid = options.randomUuid ?? (() => nextInfrastructureUuid());
+    if (activation.status !== "created") {
+      throw new Error("Expected a newly created journal scenario attempt.");
+    }
     const store = createSessionJournalStorePersistenceV1(ports, {
       randomUuid,
     });
     const attempt = await runEffect(
       store.openAttemptEffect({
         selector: selectorFromAnchor(activation.anchor),
+        executionClaim: activation.executionClaim,
         snapshotToken: activation.anchor.snapshotToken,
         schemaVersionId,
       }),
@@ -292,6 +300,7 @@ describe("C03 Postgres SessionJournalStore", () => {
       tableId,
       otherTableId,
       anchor: activation.anchor,
+      executionClaim: activation.executionClaim,
       store,
       attempt,
       table,
@@ -310,6 +319,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     await expect(
       runEffect(current.store.openAttemptEffect({
         selector: selectorFromAnchor(current.anchor),
+        executionClaim: current.executionClaim,
         snapshotToken: current.anchor.snapshotToken,
         schemaVersionId: current.schemaVersionId,
       })),
@@ -319,6 +329,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         ...selectorFromAnchor(current.anchor),
         attemptFence: 0n,
       },
+      executionClaim: current.executionClaim,
       snapshotToken: current.anchor.snapshotToken,
       schemaVersionId: current.schemaVersionId,
     };
@@ -396,18 +407,13 @@ describe("C03 Postgres SessionJournalStore", () => {
     const failingResolutionStore = createSessionJournalStorePersistenceV1(
       failingResolutionPorts,
     );
-    const failingResolutionAttempt = await runEffect(
+    const resolutionFailure = await runFailure(
       failingResolutionStore.openAttemptEffect({
         selector: selectorFromAnchor(current.anchor),
+        executionClaim: current.executionClaim,
         snapshotToken: current.anchor.snapshotToken,
         schemaVersionId: current.schemaVersionId,
       }),
-    );
-    const resolutionFailure = await runFailure(
-      failingResolutionStore.resolvePointTableEffect(
-        failingResolutionAttempt,
-        "users",
-      ),
     );
     expect(resolutionFailure).toBeInstanceOf(SessionJournalPersistenceV1Error);
     expect(resolutionFailure).toMatchObject({
@@ -452,6 +458,50 @@ describe("C03 Postgres SessionJournalStore", () => {
       reason: "stableBindingMismatch",
       tableName: decodeSchemaManifestAppTableName("users"),
     } satisfies Partial<PinnedPointTableCorruptionV1Error>);
+  });
+
+  it("rejects the stale execution owner at open, syscall, and seal after takeover", async () => {
+    const current = await scenario("execution_claim_takeover");
+    await persistence.query(
+      `update fx_system_tx_execution_claim
+       set claimed_at = clock_timestamp() - interval '2 minutes',
+           claim_expires_at = clock_timestamp() - interval '1 minute'
+       where session_id = $1`,
+      [current.anchor.sessionId],
+    );
+    const acquisition = createPointMutationExecutionClaimAcquisitionV1(
+      resolutionPorts(persistence),
+      {
+        durationMilliseconds: 30_000,
+        randomOwner: () => "83000000-0000-4000-8000-000000009991",
+      },
+    );
+    await expect(runEffect(acquisition.acquireEffect(
+      selectorFromAnchor(current.anchor),
+    ))).resolves.toMatchObject({
+      kind: "acquired",
+      mode: "execute",
+      observation: { claimFence: 2n },
+    });
+
+    const staleIssue = {
+      _tag: "SessionJournalAttemptUnavailableV1Error",
+      issue: { reason: "executionClaimUnavailable" },
+    } as const;
+    await expect(runFailure(current.store.openAttemptEffect({
+      selector: selectorFromAnchor(current.anchor),
+      executionClaim: current.executionClaim,
+      snapshotToken: current.anchor.snapshotToken,
+      schemaVersionId: current.schemaVersionId,
+    }))).resolves.toMatchObject(staleIssue);
+    await expect(runPointOperation(current.store, current.table, {
+      kind: "get",
+      syscallSequence: syscallSequence(1n),
+      documentId: documentId(current.tableId, 991),
+    })).rejects.toMatchObject(staleIssue);
+    await expect(runFailure(
+      current.store.prepareSealEffect(current.attempt),
+    )).resolves.toMatchObject(staleIssue);
   });
 
   it("classifies an invalid pinned manifest as stored catalog corruption", async () => {
@@ -542,6 +592,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     const store = createSessionJournalStorePersistenceV1(failingPorts);
     const attempt = await runEffect(store.openAttemptEffect({
       selector: selectorFromAnchor(current.anchor),
+      executionClaim: current.executionClaim,
       snapshotToken: current.anchor.snapshotToken,
       schemaVersionId: current.schemaVersionId,
     }));
@@ -754,6 +805,7 @@ describe("C03 Postgres SessionJournalStore", () => {
           sessionId: current.anchor.sessionId,
           attemptFence: current.anchor.attemptFence,
         },
+        executionClaim: current.executionClaim,
         preliminaryAuthority: located.authority,
       },
       () => Effect.fail(callbackFailure),
@@ -1061,6 +1113,7 @@ describe("C03 Postgres SessionJournalStore", () => {
     const restartedAttempt = await runEffect(
       restartedStore.openAttemptEffect({
         selector: selectorFromAnchor(current.anchor),
+        executionClaim: current.executionClaim,
         snapshotToken: current.anchor.snapshotToken,
         schemaVersionId: current.schemaVersionId,
       }),
@@ -2220,7 +2273,7 @@ describe("C03 Postgres SessionJournalStore", () => {
   it("waits for the transaction Promise to settle after direct Effect interruption", async () => {
     const entered = deferredSignal();
     const release = deferredSignal();
-    let pauseJournalRootLock = true;
+    let pauseJournalRootLock = false;
     const current = await scenario("effect_interruption_settlement", {
       targetOptions: {
         afterLoadLock: async (step) => {
@@ -2231,6 +2284,7 @@ describe("C03 Postgres SessionJournalStore", () => {
         },
       },
     });
+    pauseJournalRootLock = true;
     const fiber = Effect.runFork(current.store.runPointOperationEffect(
       current.table,
       {

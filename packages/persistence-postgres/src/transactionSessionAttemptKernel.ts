@@ -23,6 +23,10 @@ import type {
 import type {
   CommittedPointOutcomeResolverV1,
 } from "./committedPointOutcome";
+import type {
+  TransactionExecutionClaimObservationV1,
+  TransactionExecutionClaimPinV1,
+} from "./transactionExecutionClaimModel";
 
 type TransactionJournalRootRowV1 =
   typeof fxSystemTransactionJournals.$inferSelect;
@@ -30,6 +34,7 @@ type TransactionJournalRootRowV1 =
 export interface ExactRunningAttemptKernelInputV1 {
   readonly selector: PointMutationSessionAttemptSelectorV1;
   readonly preliminaryAuthority: TrustedScopeAuthority;
+  readonly executionClaim: TransactionExecutionClaimPinV1;
 }
 
 export interface ExactRunningAttemptKernelContextV1 {
@@ -39,6 +44,7 @@ export interface ExactRunningAttemptKernelContextV1 {
   readonly databaseNow: Date;
   readonly journalRoot: Readonly<TransactionJournalRootRowV1>;
   readonly attemptFacet: PointMutationSessionAttemptFacetObservationV1;
+  readonly executionClaim: TransactionExecutionClaimObservationV1;
 }
 
 export type ExactRunningAttemptEffectWorkV1<Result, Failure> = (
