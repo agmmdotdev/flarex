@@ -1,8 +1,8 @@
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
-import { Result } from "effect";
+import { Result, Schema } from "effect";
 
-import { decodeAppCreationTimeV1 } from "flarex-protocol/app-document";
+import { AppCreationTimeV1Schema } from "flarex-protocol/app-document";
 import {
   CommitFinalSyscallSequenceV1Schema,
   CommitMaterialWriteEventEvidenceBytesV1Schema,
@@ -25,6 +25,10 @@ import type {
 type SnapshotLeaseInsertV1 = typeof fxSystemSnapshotLeases.$inferInsert;
 type JournalRootInsertV1 = typeof fxSystemTransactionJournals.$inferInsert;
 type JournalRootRowV1 = typeof fxSystemTransactionJournals.$inferSelect;
+
+const decodeAppCreationTimeV1Result = Schema.decodeUnknownResult(
+  Schema.toType(AppCreationTimeV1Schema),
+);
 
 export type FreshTransactionAttemptFacetIssueV1 =
   | "databaseTimeInvalid"
@@ -92,51 +96,50 @@ export function buildFreshTransactionAttemptFacetV1(
     return Result.fail("authorityExpired");
   }
 
-  let creationTimeSeed: ReturnType<typeof decodeAppCreationTimeV1>;
-  try {
-    creationTimeSeed = decodeAppCreationTimeV1(now);
-  } catch {
-    return Result.fail("databaseTimeInvalid");
-  }
-  const sessionUpdatedAt = new Date(now);
-  const leaseExpiresAt = new Date(leaseExpiresAtMilliseconds);
-  if (
-    finiteDateMilliseconds(sessionUpdatedAt) !== now ||
-    finiteDateMilliseconds(leaseExpiresAt) !== leaseExpiresAtMilliseconds
-  ) {
-    return Result.fail("databaseTimeInvalid");
-  }
+  return decodeAppCreationTimeV1Result(now).pipe(
+    Result.mapError(() => "databaseTimeInvalid" as const),
+    Result.flatMap((creationTimeSeed) => {
+      const sessionUpdatedAt = new Date(now);
+      const leaseExpiresAt = new Date(leaseExpiresAtMilliseconds);
+      if (
+        finiteDateMilliseconds(sessionUpdatedAt) !== now ||
+        finiteDateMilliseconds(leaseExpiresAt) !== leaseExpiresAtMilliseconds
+      ) {
+        return Result.fail("databaseTimeInvalid" as const);
+      }
 
-  return Result.succeed(Object.freeze({
-    sessionUpdatedAt,
-    leaseExpiresAt,
-    lease: Object.freeze({
-      scopeUuid: input.scopeUuid,
-      sessionId: input.sessionId,
-      attemptFence: input.attemptFence,
-      snapshotEpochUuid: input.snapshotEpochUuid,
-      snapshotCommitSeq: input.snapshotCommitSeq,
-      leaseExpiresAt: new Date(leaseExpiresAtMilliseconds),
+      return Result.succeed(Object.freeze({
+        sessionUpdatedAt,
+        leaseExpiresAt,
+        lease: Object.freeze({
+          scopeUuid: input.scopeUuid,
+          sessionId: input.sessionId,
+          attemptFence: input.attemptFence,
+          snapshotEpochUuid: input.snapshotEpochUuid,
+          snapshotCommitSeq: input.snapshotCommitSeq,
+          leaseExpiresAt: new Date(leaseExpiresAtMilliseconds),
+        }),
+        journalRoot: Object.freeze({
+          scopeUuid: input.scopeUuid,
+          sessionId: input.sessionId,
+          attemptFence: input.attemptFence,
+          state: "open" as const,
+          lastSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(0n),
+          creationTimeSeed,
+          nextCreationTime: creationTimeSeed,
+          readDocuments: 0,
+          readSemanticBytes: 0,
+          pointDependencyCount: 0,
+          writeOperations: 0,
+          writeSemanticBytes: 0,
+          materialWriteEventEvidenceBytes:
+            CommitMaterialWriteEventEvidenceBytesV1Schema.make(0),
+          createdAt: new Date(now),
+          updatedAt: new Date(now),
+        }),
+      }));
     }),
-    journalRoot: Object.freeze({
-      scopeUuid: input.scopeUuid,
-      sessionId: input.sessionId,
-      attemptFence: input.attemptFence,
-      state: "open" as const,
-      lastSyscallSequence: CommitFinalSyscallSequenceV1Schema.make(0n),
-      creationTimeSeed,
-      nextCreationTime: creationTimeSeed,
-      readDocuments: 0,
-      readSemanticBytes: 0,
-      pointDependencyCount: 0,
-      writeOperations: 0,
-      writeSemanticBytes: 0,
-      materialWriteEventEvidenceBytes:
-        CommitMaterialWriteEventEvidenceBytesV1Schema.make(0),
-      createdAt: new Date(now),
-      updatedAt: new Date(now),
-    }),
-  }));
+  );
 }
 
 /**

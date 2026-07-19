@@ -393,6 +393,12 @@ owned shape checks through `Result`. The former blanket `Result.try` is
 deleted: malformed driver values remain typed storage corruption, while
 unexpected row-accessor and runtime throws remain defects rather than being
 misclassified as recoverable database state.
+Fresh transaction-attempt facet construction now brands its supplied
+database-authoritative creation time through one hoisted Schema `Result`.
+The helper's raw `try/catch` is deleted: invalid time remains its existing
+typed Result issue, while caller access or unexpected runtime failures remain
+defects. Lease bounds, pristine-root construction, and all transaction owners
+remain unchanged.
 
 ## Target Boundary
 
