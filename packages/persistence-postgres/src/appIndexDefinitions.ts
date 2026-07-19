@@ -1,8 +1,10 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { isNonBlankString } from "@flarex/utils/strings";
 import { and, desc, eq } from "drizzle-orm";
-import { Effect, Result } from "effect";
+import { Effect, Result, Schema } from "effect";
 import {
+  CatalogIndexDefinitionIdSchema,
+  CatalogIndexIdSchema,
   decodeCatalogIndexDefinitionId,
   decodeCatalogIndexId,
   decodeCatalogTableId,
@@ -37,6 +39,7 @@ import {
   type AppOrderedIndexPhysicalSpecV1,
 } from "flarex-protocol/ordered-index";
 import {
+  CatalogSchemaVersionIdSchema,
   decodeCatalogSchemaVersionId,
   decodeSchemaManifestAppDeveloperOrderedIndexSpecV1,
   type CatalogSchemaVersionId,
@@ -76,6 +79,16 @@ const PREPARE_INPUT_KEYS = Object.freeze([
   "logicalIndexId",
   "logicalSpec",
 ]);
+
+const decodeCatalogSchemaVersionIdResult = Schema.decodeUnknownResult(
+  CatalogSchemaVersionIdSchema,
+);
+const decodeCatalogIndexIdResult = Schema.decodeUnknownResult(
+  CatalogIndexIdSchema,
+);
+const decodeCatalogIndexDefinitionIdResult = Schema.decodeUnknownResult(
+  CatalogIndexDefinitionIdSchema,
+);
 
 export interface PrepareAppDeveloperIndexDefinitionBindingV1Input {
   readonly deploymentId: string;
@@ -163,6 +176,8 @@ export type InvalidAppIndexDefinitionBindingInputIssue =
   | { readonly reason: "invalidLogicalSpec" };
 
 export class InvalidAppIndexDefinitionBindingInputError extends Error {
+  readonly _tag = "InvalidAppIndexDefinitionBindingInputError" as const;
+
   constructor(
     readonly issue: InvalidAppIndexDefinitionBindingInputIssue,
     options?: ErrorOptions,
@@ -449,6 +464,30 @@ export type EnsureAppDeveloperIndexDefinitionBindingV1Error =
   | AppIndexDefinitionIdExhaustedError
   | AppIndexDefinitionChecksumCollisionError
   | AppSchemaVersionIndexBindingConflictError;
+
+export class AppSchemaVersionIndexBindingPersistenceError extends Error {
+  readonly _tag = "AppSchemaVersionIndexBindingPersistenceError" as const;
+
+  constructor(
+    readonly operation:
+      | "readByLogicalIndexId"
+      | "listBySchemaVersion",
+    readonly cause: unknown,
+  ) {
+    super(
+      operation === "readByLogicalIndexId"
+        ? "Failed to read an app schema-version index binding."
+        : "Failed to list app schema-version index bindings.",
+      { cause },
+    );
+    this.name = "AppSchemaVersionIndexBindingPersistenceError";
+  }
+}
+
+export type ReadAppSchemaVersionIndexBindingError =
+  | InvalidAppIndexDefinitionBindingInputError
+  | AppSchemaVersionIndexBindingPersistenceError
+  | AppIndexDefinitionCatalogCorruptionError;
 
 export class AppSchemaVersionIndexBindingConflictError extends Error {
   readonly _tag = "AppSchemaVersionIndexBindingConflictError" as const;
@@ -917,63 +956,253 @@ export async function listAppIndexDefinitionsForLogicalIndex(
   return Object.freeze(await Promise.all(rows.map(decodeStoredDefinition)));
 }
 
-export async function getAppSchemaVersionIndexBinding(
+export const getAppSchemaVersionIndexBindingEffect = Effect.fn(
+  "AppIndexDefinitions.getSchemaVersionBinding",
+)(function* (
   db: FlarexMetadataDatabase,
   deploymentId: string,
   schemaVersionId: CatalogSchemaVersionId,
   logicalIndexId: CatalogIndexId,
-): Promise<AppSchemaVersionIndexBindingRecord | null> {
-  const decodedDeploymentId = decodeDeploymentId(deploymentId);
-  const decodedSchemaVersionId = decodeSchemaVersionIdInput(schemaVersionId);
-  const decodedLogicalIndexId = decodeLogicalIndexIdInput(logicalIndexId);
-  const rows = await db
+): Effect.fn.Return<
+  AppSchemaVersionIndexBindingRecord | null,
+  ReadAppSchemaVersionIndexBindingError
+> {
+  const decoded = yield* Effect.fromResult(
+    decodeSchemaVersionBindingReadInputResult(
+      deploymentId,
+      schemaVersionId,
+      logicalIndexId,
+    ),
+  );
+  const query = db
     .select()
     .from(fxControlSchemaVersionIndexBindings)
     .where(
       and(
         eq(
           fxControlSchemaVersionIndexBindings.deploymentId,
-          decodedDeploymentId,
+          decoded.deploymentId,
         ),
         eq(
           fxControlSchemaVersionIndexBindings.schemaVersionId,
-          decodedSchemaVersionId,
+          decoded.schemaVersionId,
         ),
         eq(
           fxControlSchemaVersionIndexBindings.logicalIndexId,
-          decodedLogicalIndexId,
+          decoded.logicalIndexId,
         ),
       ),
     )
     .limit(1);
+  const rows = yield* readDefinitionRowsEffect(
+    query,
+    (cause) => new AppSchemaVersionIndexBindingPersistenceError(
+      "readByLogicalIndexId",
+      cause,
+    ),
+  );
   const row = rows[0];
-  return row === undefined ? null : decodeStoredBinding(row);
-}
+  return row === undefined
+    ? null
+    : yield* Effect.fromResult(decodeStoredBindingResult(row));
+});
 
-export async function listAppSchemaVersionIndexBindings(
+export const listAppSchemaVersionIndexBindingsEffect = Effect.fn(
+  "AppIndexDefinitions.listSchemaVersionBindings",
+)(function* (
   db: FlarexMetadataDatabase,
   deploymentId: string,
   schemaVersionId: CatalogSchemaVersionId,
-): Promise<ReadonlyArray<AppSchemaVersionIndexBindingRecord>> {
-  const decodedDeploymentId = decodeDeploymentId(deploymentId);
-  const decodedSchemaVersionId = decodeSchemaVersionIdInput(schemaVersionId);
-  const rows = await db
+): Effect.fn.Return<
+  ReadonlyArray<AppSchemaVersionIndexBindingRecord>,
+  ReadAppSchemaVersionIndexBindingError
+> {
+  const decoded = yield* Effect.fromResult(
+    decodeSchemaVersionBindingListInputResult(
+      deploymentId,
+      schemaVersionId,
+    ),
+  );
+  const query = db
     .select()
     .from(fxControlSchemaVersionIndexBindings)
     .where(
       and(
         eq(
           fxControlSchemaVersionIndexBindings.deploymentId,
-          decodedDeploymentId,
+          decoded.deploymentId,
         ),
         eq(
           fxControlSchemaVersionIndexBindings.schemaVersionId,
-          decodedSchemaVersionId,
+          decoded.schemaVersionId,
         ),
       ),
     )
     .orderBy(fxControlSchemaVersionIndexBindings.logicalIndexId);
-  return Object.freeze(rows.map(decodeStoredBinding));
+  const rows = yield* readDefinitionRowsEffect(
+    query,
+    (cause) => new AppSchemaVersionIndexBindingPersistenceError(
+      "listBySchemaVersion",
+      cause,
+    ),
+  );
+  return yield* Effect.fromResult(decodeStoredBindingsResult(rows));
+});
+
+function decodeSchemaVersionBindingListInputResult(
+  deploymentId: unknown,
+  schemaVersionId: unknown,
+): Result.Result<{
+  readonly deploymentId: string;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+}, InvalidAppIndexDefinitionBindingInputError> {
+  return Result.gen(function* () {
+    if (!isNonBlankString(deploymentId)) {
+      return yield* Result.fail(
+        new InvalidAppIndexDefinitionBindingInputError({
+          reason: "invalidDeploymentId",
+        }),
+      );
+    }
+    const decodedSchemaVersionId = yield* decodeCatalogSchemaVersionIdResult(
+      schemaVersionId,
+    ).pipe(
+      Result.mapError((cause) =>
+        new InvalidAppIndexDefinitionBindingInputError(
+          { reason: "invalidSchemaVersionId" },
+          { cause },
+        )
+      ),
+    );
+    return Object.freeze({
+      deploymentId,
+      schemaVersionId: decodedSchemaVersionId,
+    });
+  });
+}
+
+function decodeSchemaVersionBindingReadInputResult(
+  deploymentId: unknown,
+  schemaVersionId: unknown,
+  logicalIndexId: unknown,
+): Result.Result<{
+  readonly deploymentId: string;
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly logicalIndexId: CatalogIndexId;
+}, InvalidAppIndexDefinitionBindingInputError> {
+  return Result.gen(function* () {
+    const decoded = yield* decodeSchemaVersionBindingListInputResult(
+      deploymentId,
+      schemaVersionId,
+    );
+    const decodedLogicalIndexId = yield* decodeCatalogIndexIdResult(
+      logicalIndexId,
+    ).pipe(
+      Result.mapError((cause) =>
+        new InvalidAppIndexDefinitionBindingInputError(
+          { reason: "invalidLogicalIndexId" },
+          { cause },
+        )
+      ),
+    );
+    return Object.freeze({ ...decoded, logicalIndexId: decodedLogicalIndexId });
+  });
+}
+
+function decodeStoredBindingsResult(
+  rows: ReadonlyArray<
+    typeof fxControlSchemaVersionIndexBindings.$inferSelect
+  >,
+): Result.Result<
+  ReadonlyArray<AppSchemaVersionIndexBindingRecord>,
+  AppIndexDefinitionCatalogCorruptionError
+> {
+  return Result.gen(function* () {
+    const bindings: AppSchemaVersionIndexBindingRecord[] = [];
+    for (const row of rows) {
+      bindings.push(yield* decodeStoredBindingResult(row));
+    }
+    return Object.freeze(bindings);
+  });
+}
+
+function decodeStoredBindingResult(
+  row: typeof fxControlSchemaVersionIndexBindings.$inferSelect,
+): Result.Result<
+  AppSchemaVersionIndexBindingRecord,
+  AppIndexDefinitionCatalogCorruptionError
+> {
+  return Result.gen(function* () {
+    if (!isNonBlankString(row.deploymentId)) {
+      return yield* Result.fail(
+        new AppIndexDefinitionCatalogCorruptionError(
+          typeof row.deploymentId === "string"
+            ? row.deploymentId
+            : "<invalid>",
+          "definition deployment ID is invalid",
+        ),
+      );
+    }
+    const deploymentId = row.deploymentId;
+    const schemaVersionId = yield* decodeCatalogSchemaVersionIdResult(
+      row.schemaVersionId,
+    ).pipe(
+      Result.mapError((cause) =>
+        new AppIndexDefinitionCatalogCorruptionError(
+          deploymentId,
+          "schema binding has an invalid schema version ID",
+          { cause },
+        )
+      ),
+    );
+    const logicalIndexId = yield* decodeCatalogIndexIdResult(
+      row.logicalIndexId,
+    ).pipe(
+      Result.mapError((cause) =>
+        new AppIndexDefinitionCatalogCorruptionError(
+          deploymentId,
+          `invalid logical index ID: ${String(row.logicalIndexId)}`,
+          { cause },
+        )
+      ),
+    );
+    const indexDefinitionId = yield* decodeCatalogIndexDefinitionIdResult(
+      row.indexDefinitionId,
+    ).pipe(
+      Result.mapError((cause) =>
+        new AppIndexDefinitionCatalogCorruptionError(
+          deploymentId,
+          `invalid physical definition ID: ${String(row.indexDefinitionId)}`,
+          { cause },
+        )
+      ),
+    );
+    if (row.requiredForActivation !== true) {
+      return yield* Result.fail(
+        new AppIndexDefinitionCatalogCorruptionError(
+          deploymentId,
+          `schema binding ${schemaVersionId}/${logicalIndexId} has an invalid activation requirement`,
+        ),
+      );
+    }
+    const createdAt = copyFiniteDate(row.createdAt);
+    if (createdAt === undefined) {
+      return yield* Result.fail(
+        new AppIndexDefinitionCatalogCorruptionError(
+          deploymentId,
+          `definition ${indexDefinitionId} has an invalid created timestamp`,
+        ),
+      );
+    }
+    return Object.freeze({
+      deploymentId,
+      schemaVersionId,
+      logicalIndexId,
+      indexDefinitionId,
+      requiredForActivation: true,
+      createdAt,
+    } satisfies AppSchemaVersionIndexBindingRecord);
+  });
 }
 
 const verifyDeveloperParentsEffect = Effect.fn(
@@ -1476,9 +1705,7 @@ const readExistingDeveloperBindingEffect = Effect.fn(
   const existingRow = existingRows[0];
   return existingRow === undefined
     ? null
-    : yield* Effect.fromResult(
-      decodeDeveloperStoredResult(() => decodeStoredBinding(existingRow)),
-    );
+    : yield* Effect.fromResult(decodeStoredBindingResult(existingRow));
 });
 
 const insertDeveloperBindingEffect = Effect.fn(
@@ -1516,9 +1743,7 @@ const insertDeveloperBindingEffect = Effect.fn(
       "schema binding insert returned no row",
     ));
   }
-  return yield* Effect.fromResult(
-    decodeDeveloperStoredResult(() => decodeStoredBinding(row)),
-  );
+  return yield* Effect.fromResult(decodeStoredBindingResult(row));
 });
 
 function selectDefinitionHighWaterRows(
@@ -1786,49 +2011,6 @@ function physicalSpecsEqual(
     }
   }
   return true;
-}
-
-function decodeStoredBinding(
-  row: typeof fxControlSchemaVersionIndexBindings.$inferSelect,
-): AppSchemaVersionIndexBindingRecord {
-  const deploymentId = decodeStoredDeploymentId(row.deploymentId);
-  let schemaVersionId: CatalogSchemaVersionId;
-  try {
-    schemaVersionId = decodeCatalogSchemaVersionId(row.schemaVersionId);
-  } catch (cause) {
-    throw new AppIndexDefinitionCatalogCorruptionError(
-      deploymentId,
-      "schema binding has an invalid schema version ID",
-      { cause },
-    );
-  }
-  const logicalIndexId = decodeStoredLogicalIndexId(
-    deploymentId,
-    row.logicalIndexId,
-  );
-  const indexDefinitionId = decodeStoredDefinitionId(
-    deploymentId,
-    row.indexDefinitionId,
-  );
-  if (row.requiredForActivation !== true) {
-    throw new AppIndexDefinitionCatalogCorruptionError(
-      deploymentId,
-      `schema binding ${schemaVersionId}/${logicalIndexId} has an invalid activation requirement`,
-    );
-  }
-  const createdAt = decodeStoredTimestamp(
-    deploymentId,
-    indexDefinitionId,
-    row.createdAt,
-  );
-  return Object.freeze({
-    deploymentId,
-    schemaVersionId,
-    logicalIndexId,
-    indexDefinitionId,
-    requiredForActivation: true,
-    createdAt,
-  } satisfies AppSchemaVersionIndexBindingRecord);
 }
 
 function decodeStoredAccess(

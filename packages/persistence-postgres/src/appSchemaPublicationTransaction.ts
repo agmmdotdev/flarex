@@ -16,11 +16,9 @@ import {
 import {
   AppCreationTimeIndexDefinitionRequirementError,
   AppDeveloperIndexDefinitionRequirementError,
-  AppIndexDefinitionCatalogCorruptionError,
-  InvalidAppIndexDefinitionBindingInputError,
   ensureAppCreationTimeIndexDefinitionV1InTransaction,
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
-  listAppSchemaVersionIndexBindings,
+  listAppSchemaVersionIndexBindingsEffect,
   prepareAppCreationTimeIndexDefinitionsV1,
   prepareAppDeveloperIndexDefinitionBindingsV1,
   type AppIndexDefinitionRecordForAccessKindV1,
@@ -28,6 +26,7 @@ import {
   type EnsureAppCreationTimeIndexDefinitionV1Error,
   type EnsureAppDeveloperIndexDefinitionBindingV1Error,
   type EnsureAppDeveloperIndexDefinitionBindingV1Result,
+  type ReadAppSchemaVersionIndexBindingError,
 } from "./appIndexDefinitions";
 import {
   applySchemaManifestAppSchemaBindingsV1InTransaction,
@@ -162,13 +161,10 @@ export const publishPreparedAppSchemaV1InTransactionEffect = Effect.fn(
     tx,
     state.artifact,
   );
-  const schemaVersionIndexBindings = yield* transitionalPromiseEffect(
-    () => listAppSchemaVersionIndexBindings(
-      tx,
-      publication.deploymentId,
-      publication.schemaVersionId,
-    ),
-    isBindingReadFailure,
+  const schemaVersionIndexBindings = yield* listAppSchemaVersionIndexBindingsEffect(
+    tx,
+    publication.deploymentId,
+    publication.schemaVersionId,
   );
   yield* Effect.fromResult(
     verifyExactSchemaVersionBindingsResult(
@@ -207,8 +203,7 @@ type AppSchemaPublicationV1ArtifactFailure =
   | VerifyPreparedSchemaVersionArtifactError;
 
 type AppSchemaPublicationV1BindingReadFailure =
-  | InvalidAppIndexDefinitionBindingInputError
-  | AppIndexDefinitionCatalogCorruptionError;
+  ReadAppSchemaVersionIndexBindingError;
 
 function prepareAppSchemaPublicationTransactionResult(
   publication: PreparedAppSchemaPublicationV1,
@@ -241,10 +236,11 @@ function prepareAppSchemaPublicationTransactionResult(
   });
 }
 
-// These child operations still expose Promise APIs. Keep them uninterruptible
-// so the Drizzle callback cannot settle while their SQL continues, preserve
-// their declared domain failures, and route unexpected causes to defects.
-// Delete this adapter as each owning child operation becomes Effect-native.
+// The combined logical-binding child still exposes a Promise API. Keep it
+// uninterruptible so the Drizzle callback cannot settle while its SQL
+// continues, preserve its declared domain failures, and route unexpected
+// causes to defects. Delete this adapter when that owning chain becomes
+// Effect-native.
 function transitionalPromiseEffect<Result, Failure>(
   run: () => Promise<Result>,
   isFailure: (cause: unknown) => cause is Failure,
@@ -269,13 +265,6 @@ function isLogicalBindingFailure(
     cause instanceof StableTableCatalogCorruptionError ||
     cause instanceof StableLogicalIndexCatalogCorruptionError ||
     cause instanceof SchemaManifestTableBindingCorruptionError;
-}
-
-function isBindingReadFailure(
-  cause: unknown,
-): cause is AppSchemaPublicationV1BindingReadFailure {
-  return cause instanceof InvalidAppIndexDefinitionBindingInputError ||
-    cause instanceof AppIndexDefinitionCatalogCorruptionError;
 }
 
 function verifyExactSchemaVersionBindingsResult(

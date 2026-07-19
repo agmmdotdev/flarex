@@ -30,12 +30,14 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   AppIndexDefinitionCatalogCorruptionError,
+  AppSchemaVersionIndexBindingPersistenceError,
   getAppIndexDefinitionById,
-  getAppSchemaVersionIndexBinding,
+  getAppSchemaVersionIndexBindingEffect,
   listAppIndexDefinitionsForLogicalIndex,
-  listAppSchemaVersionIndexBindings,
+  listAppSchemaVersionIndexBindingsEffect,
   type AppSchemaVersionIndexBindingRecord,
   type FlarexPersistence,
+  type ReadAppSchemaVersionIndexBindingError,
 } from "../src";
 import {
   AppIndexDefinitionIdExhaustedError,
@@ -122,6 +124,18 @@ describe("immutable app index definitions", () => {
           typeof ensureAppDeveloperIndexDefinitionBindingV1InTransaction
         >[0]
       >();
+    expectTypeOf<
+      ReturnType<typeof getAppSchemaVersionIndexBindingEffect>
+    >().toEqualTypeOf<Effect.Effect<
+      AppSchemaVersionIndexBindingRecord | null,
+      ReadAppSchemaVersionIndexBindingError
+    >>();
+    expectTypeOf<
+      ReturnType<typeof listAppSchemaVersionIndexBindingsEffect>
+    >().toEqualTypeOf<Effect.Effect<
+      ReadonlyArray<AppSchemaVersionIndexBindingRecord>,
+      ReadAppSchemaVersionIndexBindingError
+    >>();
   });
 
   it("reuses exact definitions and keeps changed generations coexisting", async () => {
@@ -216,26 +230,32 @@ describe("immutable app index definitions", () => {
       { indexDefinitionId: 2 },
     ]);
     await expect(
-      getAppSchemaVersionIndexBinding(
-        persistence.drizzle,
-        deploymentId,
-        schemaId("schema_definition_v1"),
-        CatalogIndexIdSchema.make(1),
+      runEffect(
+        getAppSchemaVersionIndexBindingEffect(
+          persistence.drizzle,
+          deploymentId,
+          schemaId("schema_definition_v1"),
+          CatalogIndexIdSchema.make(1),
+        ),
       ),
     ).resolves.toMatchObject({ indexDefinitionId: 1 });
     await expect(
-      getAppSchemaVersionIndexBinding(
-        persistence.drizzle,
-        deploymentId,
-        schemaId("schema_definition_v3"),
-        CatalogIndexIdSchema.make(1),
+      runEffect(
+        getAppSchemaVersionIndexBindingEffect(
+          persistence.drizzle,
+          deploymentId,
+          schemaId("schema_definition_v3"),
+          CatalogIndexIdSchema.make(1),
+        ),
       ),
     ).resolves.toMatchObject({ indexDefinitionId: 2 });
     await expect(
-      listAppSchemaVersionIndexBindings(
-        persistence.drizzle,
-        deploymentId,
-        schemaId("schema_definition_v2"),
+      runEffect(
+        listAppSchemaVersionIndexBindingsEffect(
+          persistence.drizzle,
+          deploymentId,
+          schemaId("schema_definition_v2"),
+        ),
       ),
     ).resolves.toMatchObject([{ indexDefinitionId: 1 }]);
 
@@ -250,6 +270,156 @@ describe("immutable app index definitions", () => {
         CatalogIndexDefinitionIdSchema.make(1),
       ),
     ).resolves.toEqual(replay.definition);
+  });
+
+  it("rejects invalid schema-binding read input before constructing SQL", async () => {
+    let selected = false;
+    const db = {
+      select(): never {
+        selected = true;
+        throw new Error("Invalid input must not construct a query.");
+      },
+    } as unknown as StableTableCatalogTransaction;
+
+    const failure = await runEffectFailure(
+      listAppSchemaVersionIndexBindingsEffect(
+        db,
+        "",
+        schemaId("schema_definition_invalid_read"),
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(InvalidAppIndexDefinitionBindingInputError);
+    expect(failure).toMatchObject({
+      issue: { reason: "invalidDeploymentId" },
+    });
+    expect(selected).toBe(false);
+  });
+
+  it("maps rejected schema-binding reads once at their SQL edge", async () => {
+    const listRejection = new Error("schema binding list query rejected");
+    const listDb = developerSelectTransaction(() =>
+      Promise.reject(listRejection)
+    );
+
+    const listFailure = await runEffectFailure(
+      listAppSchemaVersionIndexBindingsEffect(
+        listDb,
+        "deployment_index_definition_binding_read_failure",
+        schemaId("schema_definition_binding_read_failure"),
+      ),
+    );
+
+    expect(listFailure).toBeInstanceOf(
+      AppSchemaVersionIndexBindingPersistenceError,
+    );
+    expect(listFailure).toMatchObject({
+      _tag: "AppSchemaVersionIndexBindingPersistenceError",
+      operation: "listBySchemaVersion",
+      cause: listRejection,
+    });
+
+    const readRejection = new Error("schema binding exact query rejected");
+    const readDb = developerSelectTransaction(() =>
+      Promise.reject(readRejection)
+    );
+    const readFailure = await runEffectFailure(
+      getAppSchemaVersionIndexBindingEffect(
+        readDb,
+        "deployment_index_definition_binding_read_failure",
+        schemaId("schema_definition_binding_read_failure"),
+        CatalogIndexIdSchema.make(1),
+      ),
+    );
+    expect(readFailure).toMatchObject({
+      _tag: "AppSchemaVersionIndexBindingPersistenceError",
+      operation: "readByLogicalIndexId",
+      cause: readRejection,
+    });
+  });
+
+  it("preserves schema-binding query construction failures as defects", async () => {
+    const defect = new Error("schema binding query construction defect");
+    const db = {
+      select(): never {
+        throw defect;
+      },
+    } as unknown as StableTableCatalogTransaction;
+
+    const exit = await Effect.runPromiseExit(
+      listAppSchemaVersionIndexBindingsEffect(
+        db,
+        "deployment_index_definition_binding_read_defect",
+        schemaId("schema_definition_binding_read_defect"),
+      ),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
+
+  it("maps malformed stored schema bindings to catalog corruption", async () => {
+    const db = developerSelectTransaction(() => Promise.resolve([{
+      deploymentId: "deployment_index_definition_binding_corruption",
+      schemaVersionId: "schema_definition_binding_corruption",
+      logicalIndexId: 1,
+      indexDefinitionId: 1,
+      requiredForActivation: false,
+      createdAt: new Date(),
+    }]));
+
+    const failure = await runEffectFailure(
+      listAppSchemaVersionIndexBindingsEffect(
+        db,
+        "deployment_index_definition_binding_corruption",
+        schemaId("schema_definition_binding_corruption"),
+      ),
+    );
+
+    expect(failure).toBeInstanceOf(AppIndexDefinitionCatalogCorruptionError);
+    expect(failure).toMatchObject({
+      detail: expect.stringContaining("invalid activation requirement"),
+    });
+  });
+
+  it("waits for a pending schema-binding read before interruption completes", async () => {
+    const entered = deferredValue<void>();
+    const query = deferredValue<ReadonlyArray<unknown>>();
+    const db = developerSelectTransaction(() => {
+      entered.resolve(undefined);
+      return query.promise;
+    });
+    const fiber = Effect.runFork(
+      listAppSchemaVersionIndexBindingsEffect(
+        db,
+        "deployment_index_definition_binding_interruption",
+        schemaId("schema_definition_binding_interruption"),
+      ),
+    );
+
+    await entered.promise;
+    const completion = runEffect(Fiber.await(fiber));
+    let interruptionSettled = false;
+    const interruption = runEffect(Fiber.interrupt(fiber)).then(() => {
+      interruptionSettled = true;
+    });
+    try {
+      await delay(25);
+      expect(interruptionSettled).toBe(false);
+    } finally {
+      query.resolve([]);
+    }
+
+    await interruption;
+    const exit = await completion;
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    }
   });
 
   it("rejects missing or mismatched parents and forged prepared tokens", async () => {
@@ -945,6 +1115,7 @@ interface DeveloperSelectQuery
   from(): DeveloperSelectQuery;
   where(): DeveloperSelectQuery;
   limit(): DeveloperSelectQuery;
+  orderBy(): DeveloperSelectQuery;
   for(): DeveloperSelectQuery;
 }
 
@@ -960,6 +1131,7 @@ function developerSelectTransaction(
         from: () => query,
         where: () => query,
         limit: () => query,
+        orderBy: () => query,
         for: () => query,
         then: (onFulfilled, onRejected) =>
           promise.then(onFulfilled, onRejected),

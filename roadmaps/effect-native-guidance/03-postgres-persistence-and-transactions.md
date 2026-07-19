@@ -219,12 +219,17 @@ row verification retain their original order and typed distinctions. Each
 rejecting Drizzle statement maps once to an operation-specific persistence
 failure; owned stored-row decoding uses `Result`, and synchronous construction
 or accessor failures remain defects. The old developer async writer and its
-Promise-only helpers were deleted. One temporary D2c runtime projection now
-consumes both Effect-native physical-definition writers at the owning Promise
-transaction callback and is deleted when the complete app-schema publication
-transaction becomes Effect-native. High-water Promise and throwing allocation
-projections remain temporary for the schema-binding planner/revalidation chains
-and are deleted when those chains become Effect-native.
+Promise-only helpers were deleted. The Effect-native D2c transaction operation
+now directly composes both physical-definition writers, immutable
+schema-artifact ensure/replay, and the exact schema-version binding projection
+read. Schema-version binding input and stored-row validation use `Result`, SQL
+rejection is mapped once to a tagged read failure, and the former package-root
+Promise binding readers were deleted because no production compatibility
+consumer exists. D2c retains one temporary Promise adapter solely for the
+combined table/logical-index binding apply chain; delete it when that
+planner/revalidation chain owns Effect failure and rollback semantics.
+High-water Promise and throwing allocation projections remain temporary within
+that chain and are deleted at the same gate.
 
 The package-root stable logical-index identity readers are now Effect-native.
 Input and stored-row validation enter through pure `Result`, while each reader

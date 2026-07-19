@@ -361,11 +361,12 @@ export {
   AppIndexDefinitionParentError,
   AppIndexDefinitionPreparationError,
   AppSchemaVersionIndexBindingConflictError,
+  AppSchemaVersionIndexBindingPersistenceError,
   getAppIndexDefinitionById,
-  getAppSchemaVersionIndexBinding,
+  getAppSchemaVersionIndexBindingEffect,
   InvalidAppIndexDefinitionBindingInputError,
   listAppIndexDefinitionsForLogicalIndex,
-  listAppSchemaVersionIndexBindings,
+  listAppSchemaVersionIndexBindingsEffect,
   type AppCreationTimeIndexDefinitionParentIssue,
   type AppCreationTimeIndexDefinitionRequirementIssue,
   type AppDeveloperIndexDefinitionRequirementIssue,
@@ -373,6 +374,7 @@ export {
   type AppIndexDefinitionParentIssue,
   type AppSchemaVersionIndexBindingRecord,
   type InvalidAppIndexDefinitionBindingInputIssue,
+  type ReadAppSchemaVersionIndexBindingError,
 } from "./appIndexDefinitions";
 export { StableLogicalIndexCatalogIdExhaustedError } from "./stableLogicalIndexCatalogAllocation";
 export {
