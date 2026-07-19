@@ -15,8 +15,8 @@ fenced finishing transition and same-factory continuation are complete. C05-B
 fresh-process reconstruction and private compiler/publisher composition are
 also complete. O08-A atomic exact-attempt replacement, O08-B1 bounded
 same-factory fresh-attempt handoff, and O08-B2a same-process runtime-neutral
-rerun composition are complete; O08-B2b crash-safe redispatch and O08-C/O08-D
-remain pending;
+rerun composition and O08-B2b0's docs-only Postgres claim-authority decision are
+complete; B2b crash-safe redispatch and O08-C/O08-D remain pending;
 C04C2 remains conditional and unapproved.
 
 This roadmap owns the durable direction for:
@@ -333,9 +333,13 @@ deletes the old journal root before the lease, and installs the fresh lease and
 pristine root without authorizing execution. O08-B1 performs only the bounded
 backoff, outcome check, replacement handoff, and exact fresh-attempt proof;
 O08-B2a alone may consume that process-local handoff, reauthenticate, and rerun
-user code at the new snapshot. O08-B2b cannot begin until a durable execution-
-owner/claim/dispatch authority is accepted. A
-stale journal or Durable Object cannot reopen a terminal session.
+user code at the new snapshot. O08-B2b0 now accepts only the future integrated
+authority decision: once implemented, Postgres owns one exact-attempt execution
+ticket/fenced claim, and B2b process handles are opaque projections of a
+successfully acquired claim. Eligibility must be created atomically with O08-A
+replacement or another accepted single transaction. B2b implementation remains
+unapproved, and the current B2a path is unchanged. A stale journal or Durable
+Object cannot reopen a terminal session.
 
 ### Planner and executor split
 
@@ -553,15 +557,29 @@ The replacement keeps one supporting primitive and three coordinators separate:
 3. **O08-B2a same-process OCC execution (complete):** immediately recheck
    outcome/liveness/full canonical inputs, consume the handoff, and rerun user
    code in a fresh runtime-neutral execution context.
-4. **O08-B2b crash-safe redispatch:** deferred until durable execution
-   ownership/claim/dispatch authority exists; pristine lifecycle evidence and
-   a missing outcome are non-authorizing.
-5. **O08-C known pre-decision SQL serialization/deadlock:** retry the same
+4. **O08-B2b0 authority decision (complete, docs only):** Postgres owns one
+   exact-attempt execution ticket/fenced claim; process handles are opaque
+   projections, eligibility is atomic with replacement, every execution and
+   journal/syscall admission enforces the claim fence, and claim expiry is not
+   snapshot-lease expiry or execution permission. Duplicate dispatch,
+   renewal/takeover, interruption, and uncertain-outcome behavior fail closed.
+5. **O08-B2b crash-safe redispatch:** implementation and its decomposition
+   remain deferred pending separate DDL/migration, dispatcher ownership,
+   routing/adapter, and crash-recovery preflights. The current downstream C06
+   gate cannot bootstrap that dispatcher without a separately accepted split
+   or reordering.
+6. **O08-C known pre-decision SQL serialization/deadlock:** retry the same
    authenticated logical/closed O07-B command within a strict bound, including
    PostgreSQL `40001` and `40P01`. O06 proves transaction settlement and
    rollback; neither O06 nor C04C1 exposes an immutable physical SQL plan.
-6. **O08-D uncertain outcome:** use O07-A/C05-B to resolve authoritative outcome
+7. **O08-D uncertain outcome:** use O07-A/C05-B to resolve authoritative outcome
    state before rerunning anything.
+
+The B2b0 decision preserves the current B2a same-process runner contract. A
+future implementation must integrate B2a and recovered execution with the same
+durable claim rather than adding a second authority. It must keep S09-B's fixed
+post-commit wake claim separate and delete, not port or bridge, the legacy
+whole-attempt retry path at target activation.
 
 External side effects never run inside a retriable mutation body or final
 commit transaction.
@@ -575,37 +593,42 @@ commit transaction.
    store temporary bookkeeping only.
 3. **Every attempt is fenced and sequenced.** Syscall sequence is monotonic;
    late calls after `finishing` and calls from stale attempts are rejected.
-4. **Canonical bytes and digest prove integrity, not provenance.** Unknown
+4. **B2b execution ownership is durable and singular.** Once implemented,
+   every execution and journal/syscall admission must match the exact current
+   Postgres claim fence. Claim renewal or takeover never renews or revives an
+   expired snapshot lease, grant, or attempt, and process handles never become
+   a second authority.
+5. **Canonical bytes and digest prove integrity, not provenance.** Unknown
    protocol versions and forged fields fail before planning. Initially, exact
    trusted-store reload supplies journal provenance; inline bytes remain
    non-consumable until C07A proves a non-forgeable host boundary.
-5. **Arguments and results are authoritatively validated.** Dynamic Worker
+6. **Arguments and results are authoritatively validated.** Dynamic Worker
    validation is early feedback, not commit authority.
-6. **The planner is pure and deterministic.** It allocates no commit sequence,
+7. **The planner is pure and deterministic.** It allocates no commit sequence,
    timestamp, outbox identity, lock fact, or database resource.
-7. **The executor transaction is short.** No user code, service-binding call,
+8. **The executor transaction is short.** No user code, service-binding call,
    cache lookup, or unbounded operation runs inside it.
-8. **All authoritative writers share one commit lane.** Migrations, backfills,
+9. **All authoritative writers share one commit lane.** Migrations, backfills,
    repairs, Payload, and Medusa participate or use a formally equivalent
    fencing protocol; appending metadata afterward is not equivalent.
-9. **Unsupported overlays fail closed.** Conservative dependency recording
+10. **Unsupported overlays fail closed.** Conservative dependency recording
    cannot repair an incorrect value already returned to user code.
-10. **Result, outcome, data, commit/change atoms, and outbox are atomic.** A
+11. **Result, outcome, data, commit/change atoms, and outbox are atomic.** A
     partial success is not a committed mutation.
-11. **Retry meaning is explicit.** OCC, safe SQL retry, and uncertain outcome
+12. **Retry meaning is explicit.** OCC, safe SQL retry, and uncertain outcome
     never share one generic rerun rule.
-12. **Committed request keys are never reusable.** Attempt leases and committed-
+13. **Committed request keys are never reusable.** Attempt leases and committed-
     result payloads may expire under separate owners, but the S09-A committed
     request identity, match evidence, and commit token remain non-reusable.
-13. **Journal cleanup is bounded and privacy aware.** Aborted, expired, and
+14. **Journal cleanup is bounded and privacy aware.** Aborted, expired, and
     committed temporary values have explicit TTL/cleanup behavior.
-14. **Host placement cannot change semantics.** Postgres-backed and optional
+15. **Host placement cannot change semantics.** Postgres-backed and optional
     facet-backed session journal stores conform to the same protocol and
     outcome rules.
-15. **Facet storage is isolated and non-authoritative.** A supervisor retrieves
+16. **Facet storage is isolated and non-authoritative.** A supervisor retrieves
     a sealed envelope through the exact attempt facet API; it never reads facet
     SQLite directly or treats it as committed state.
-16. **Attempts do not share facets.** Every retry uses a new attempt-fenced
+17. **Attempts do not share facets.** Every retry uses a new attempt-fenced
     facet, and terminal Postgres state wins over delayed facet work or cleanup.
 
 ## Decisions And Rationale
@@ -742,8 +765,9 @@ production validator authority, inline carriage, or conditional C04C2.
   C03's operational point-journal gate, C04A's private stored-attempt gate, and
   C04B1's private commit-authority gate and C04B2's private-C07 final-value gate
   are complete. Corrected C04C1, O06/O07, C05-A/B, O08-A, O08-B1, and
-  O08-B2a are complete; C04C2, O08-B2b/O08-C/O08-D, C06, C07, C08, and C09 remain
-  conditional or incomplete as their
+  O08-B2a and B2b0's docs-only authority decision are complete; C04C2, B2b
+  implementation, O08-C/O08-D, C06, C07, C08, and C09 remain conditional or
+  incomplete as their
   statuses state.
 - Current invoke sessions use wall-clock `beginTs`, not authoritative
   `SnapshotToken` reads.
@@ -828,9 +852,9 @@ operational point-journal consumer, and C04A's private stored-attempt
   fenced repository, O06's rollback-proven transaction kernel, O07-B's private
   durable point publication, C05-A's finishing barrier, and C05-B's verified
   fresh-process reconstruction/composition, O08-A exact-attempt replacement,
-  O08-B1 bounded fresh-attempt handoff, and O08-B2a same-process rerun
-  composition are complete. O08-B2b crash-safe redispatch and O08-C/D remain
-  pending,
+  O08-B1 bounded fresh-attempt handoff, O08-B2a same-process rerun composition,
+  and O08-B2b0's docs-only authority decision are complete. B2b claim/
+  dispatcher/crash-redispatch implementation and O08-C/D remain pending,
   and C04C2 remains conditional and unapproved.
 O03-B2b2 renewal and renewal-
 versus-terminalization race proof are deferred until a real runtime or

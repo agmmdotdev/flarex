@@ -24,9 +24,10 @@ complete. C05-A's exact scalar-fenced finishing transition and C05-B's separate
 fresh-process finishing reconstruction/private publisher composition are
 complete. O08-A atomic exact-attempt replacement, O08-B1's bounded
 same-factory fresh-attempt handoff, and O08-B2a's same-process runtime-neutral
-user-code rerun composition are complete. O08-B2b crash-safe redispatch,
-O08-C known-settled SQL retry, and O08-D uncertain-outcome policy remain
-pending. C04C2
+user-code rerun composition are complete. O08-B2b0's docs-only Postgres claim-
+authority decision is complete; B2b claim/dispatcher/crash-redispatch
+implementation, O08-C known-settled SQL retry, and O08-D uncertain-outcome
+policy remain pending. C04C2
 remains conditional and unapproved.
 O03-B2b2 renewal/race proof is a conditional
 operational extension that requires a proven long-running-attempt consumer; it
@@ -738,8 +739,10 @@ Deferred ownership after the required O03-B core:
   `O08-B1` owns the bounded backoff, outcome check, replacement handoff, and
   exact fresh-attempt proof without executing user code; `O08-B2a` owns the
   same-process immediate reauthentication and trusted OCC user-code rerun;
-  `O08-B2b` remains deferred pending durable execution ownership; `O08-C` owns
-  known-settled SQL retry, and `O08-D` owns uncertain-outcome lookup policy; and
+  `O08-B2b0` freezes the future Postgres ticket/claim authority, while B2b
+  implementation remains deferred pending claim storage and dispatcher
+  ownership; `O08-C` owns known-settled SQL retry, and `O08-D` owns uncertain-
+  outcome lookup policy; and
 - `O11` first introduces the active-floor query and engine-history cleanup
   consumer. S09-A committed-key lifetime and result-payload expiry remain
   separate from engine/feed, reconnect, and S09-B outbox retention.
@@ -1038,15 +1041,64 @@ SQL, and uncertain failures remain distinct. Pre-finishing user failure or
 interruption uses the exact O03 abort path after database settlement; once
 finishing begins, C05/O07 recovery owns the state.
 
-##### [ ] O08-B2b — Crash-Safe Redispatch
+##### [x] O08-B2b0 — Freeze Durable Redispatch Authority
 
-This gate remains deferred. Durable `running + pristine` evidence and an O07-A
-missing outcome prove lifecycle and absence only; they do not prove exclusive
-execution ownership. A fresh process may not mint a rerun permit from either.
-B2b requires a separately accepted durable execution-owner/claim/dispatch
-authority, stale-owner fencing, discovery/wakeup, and authenticated runtime
-routing. Dynamic Worker remains a future adapter, and no current B2a capability
-is serializable or recoverable after process loss.
+This docs-only gate accepts the authority model, not B2b implementation.
+Postgres owns one exact-attempt execution ticket and fenced claim. A process
+handle is only an opaque projection of a successfully acquired durable claim;
+no selector, structural record, `running + pristine` observation, O08-A result,
+or O07-A missing outcome is execution authority.
+
+Ticket eligibility and initial claim state must be created atomically with
+O08-A replacement or another explicitly accepted single transaction. A later
+insert leaves the crash gap open. The existing B2a same-process handoff remains
+the accepted current proof, but a future B2b implementation must make B2a and
+recovered execution acquire the same Postgres claim and must enforce the exact
+claim fence at every execution and journal/syscall admission. It may not add a
+parallel durable permit beside the current process-local path.
+
+Claim expiry is distinct from snapshot-lease expiry and session terminalization.
+It permits only a locked, database-time revalidation and fenced takeover; it
+does not authorize execution. Renewal requires the exact owner/fence and cannot
+cross the grant, hard-attempt, or snapshot-lease bounds. Snapshot-lease, grant,
+or hard-expiry failure retains the existing terminal path.
+
+One exact owner/fence may win dispatch. A duplicate or lost dispatch response
+cannot invoke the same claimed attempt again. Before any takeover, authoritative
+outcome, lifecycle, lease, attempt, and journal state are rechecked; partial
+execution is never resumed from lifecycle evidence. Interruption before claim
+settlement grants nothing, interruption after settlement leaves durable claim
+state for recovery, finishing/sealed state stays with C05-B/O07-B, and uncertain
+publication stays non-runnable under O08-D.
+
+##### [ ] O08-B2b — Implement Claim Authority And Crash Redispatch
+
+Implementation remains unapproved. A later preflight must resolve final DDL and
+migration ownership, atomic O08-A integration, claim-fence propagation through
+execution/syscall admission, renewal and takeover policy, OCC-budget interaction,
+bounded discovery, dispatcher/dispatch-acceptance ownership, authenticated
+runtime routing, and crash/restart proof. Dynamic Worker remains a future
+adapter.
+
+The current dependency order is contradictory: C06 waits for B2b, while full
+B2b requires a dispatcher owner. A later preflight must either add a private
+dispatcher prerequisite or split/reorder C06; C06 cannot silently bootstrap
+B2b from its current downstream position.
+
+Path classification remains clean replacement:
+
+- keep the current O08-A/B1/B2a behavior in
+  `packages/executor/src/storedAttemptAuthentication.ts` and
+  `packages/persistence-postgres/src/pointCommitTransaction.ts` until a later
+  preflight approves their atomic integration with the durable claim;
+- narrowly refactor `sessionJournalStore.ts` and
+  `transactionSessionActivation.ts` only when the claim-fenced admission
+  contract is approved;
+- keep `commitWakeOutbox.ts` and its S09-B post-commit claim separate; and
+- delete rather than port `packages/executor/src/retry.ts` and the legacy
+  session/commit/runtime-persistence path at target activation.
+
+No compatibility bridge or dual authority is accepted.
 
 #### [ ] O08-C — Retry Known-Settled SQL Transactions
 
@@ -1080,8 +1132,8 @@ Exit gate:
 - O08-B1 accepts only exact same-factory conflicts and never executes user code;
 - O08-B2a same-process OCC conflicts rerun user code only after immediate
   outcome, liveness, and canonical-input reauthentication;
-- O08-B2b does not exist until durable execution ownership and redispatch are
-  separately accepted;
+- O08-B2b0's authority decision is accepted, but no B2b claim, dispatcher, or
+  redispatch implementation exists until its later preflights are approved;
 - O08-C SQL retries do not rerun user code;
 - a successful uncertain commit is never applied twice;
 - authorization, validation, codec, and deterministic constraint errors are not

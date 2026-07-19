@@ -165,7 +165,7 @@ work continues.
 | Existing `documents`, `indexes`, invoke sessions, Postgres live-query registry, and delivery outbox | Implemented prototype baseline | Keep only as bounded internal behavior evidence until equivalent target paths and tests exist. Do not extend it or treat it as a shipped migration obligation. |
 | Typed app row JSON with revision/current, declared index, edge, and unique sidecars | Partially implemented accepted target | S06 implements the internal, non-routing row revision/current kernel. Index, edge, and unique sidecars plus target-native index population/build and routing consumers remain planned behind the storage-generation boundary. |
 | Native commit feed, committed-success outcomes, and commit wakes | Partially implemented accepted target | S08 implements native commit/change-feed storage and its bounded private reader. S09-A implements the private scope-lifetime committed-success result receipt. S09-B implements the fixed-kind private commit-wake table and fenced claim/settlement repository. O07-A implements the private read-only committed-outcome resolver, and O07-B atomically publishes point rows, feed evidence, success receipts, and wakes. C06 replay orchestration/dispatch, payload expiry, sync activation, and retention advancement remain pending. |
-| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | The Postgres-backed point path now has C04C1's private logical plan, O06's reusable rollback-proven transaction kernel, O07-B's first private durable publication, C05-A's exact scalar-fenced transition, C05-B's fresh-process finishing reconstruction plus private compiler/publisher composition, O08-A's atomic exact-attempt replacement, O08-B1's bounded same-factory OCC rerun authorization, and O08-B2a's same-process runtime-neutral rerun composition. O08-B2b crash-safe redispatch, O08-C known-settled SQL retry, O08-D uncertain-outcome policy, C06 orchestration, production validator authority, and target routing remain pending. Durable `running + pristine` evidence alone never authorizes redispatch. After the complete point path passes its real-Postgres gate, immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
+| SessionDO/facet journal plus trusted commit compiler | Accepted only for a bounded app-data slice | The Postgres-backed point path now has C04C1's private logical plan, O06's reusable rollback-proven transaction kernel, O07-B's first private durable publication, C05-A's exact scalar-fenced transition, C05-B's fresh-process finishing reconstruction plus private compiler/publisher composition, O08-A's atomic exact-attempt replacement, O08-B1's bounded same-factory OCC rerun authorization, and O08-B2a's same-process runtime-neutral rerun composition. O08-B2b0 freezes only the Postgres execution-ticket/claim authority model; B2b implementation, O08-C known-settled SQL retry, O08-D uncertain-outcome policy, C06 orchestration, production validator authority, and target routing remain pending. Durable `running + pristine` evidence alone never authorizes redispatch. After the complete point path passes its real-Postgres gate, immediately measure journal overhead. If the predeclared threshold is met, use one per-session supervisor and one attempt-fenced facet whose isolated SQLite stores only the temporary logical journal. Broader query overlays must fail closed until implemented. |
 | Payload adapter | Staged target | Start with reserved logical collections and scalar CRUD/transaction conformance; add relations, versions/drafts, globals, auth, locks, and hooks incrementally. |
 | Medusa adapter | Separate trusted transaction lane | Preserve real Medusa repository, workflow, link, migration, and transaction behavior. |
 | DeploymentSyncDO | Accepted v1 coordination target | One deterministic instance per scope, durable SQLite cursor/query/dependency state, Postgres catch-up. |
@@ -787,9 +787,10 @@ fresh-attempt reload. O08-B2a now consumes that handoff only in the same
 process after an immediate outcome check, a separate bounded open/pristine
 evidence capture, and complete canonical input/liveness reauthentication. It
 creates a fresh attempt context and runs through the existing journal,
-compiler, finishing, and sole O07-B publication path. O08-B2b remains a
-separate future owner for crash-safe redispatch because durable
-`running + pristine` evidence has no execution-owner, claim, or dispatch
+compiler, finishing, and sole O07-B publication path. O08-B2b0 accepts only
+Postgres ownership of a future exact-attempt execution ticket/fenced claim;
+crash-safe B2b implementation remains deferred because durable
+`running + pristine` evidence itself has no execution-owner, claim, or dispatch
 authority. S07 owns only the relational shape and migration proof.
 
 The previously ordered O03-B2b2 renewal gate is a conditional operational
@@ -1256,9 +1257,10 @@ committed token, data, feed, and S09-B outbox. Failed or rolled-back executions
 create no S09-A outcome. O08-A owns only atomic attempt replacement; O08-B1
 owns the exact-conflict ticket, bounded full-jitter policy, normal outcome
 precheck, and fresh-attempt handoff; O08-B2a owns same-process immediate
-reauthentication and trusted runtime-neutral user-code rerun. O08-B2b remains
-deferred until an accepted durable execution-owner/claim/dispatch authority
-exists. O08-C owns known-settled SQL retry, and O08-D owns
+reauthentication and trusted runtime-neutral user-code rerun. O08-B2b0 now
+accepts the durable Postgres execution-ticket/claim model, while its DDL,
+dispatcher, and crash-redispatch implementation remain deferred. O08-C owns
+known-settled SQL retry, and O08-D owns
 uncertain-outcome policy. O11 first consumes active floors for history
 retention.
 
@@ -1398,7 +1400,10 @@ Requirements:
   attempt execution context, runtime-neutral user-code execution, and repeated-
   conflict looping. O08-B2b crash-safe redispatch remains deferred: neither
   durable `running + pristine` state nor an O07-A missing result can mint fresh
-  execution authority;
+  execution authority. O08-B2b0 freezes the future integrated B2b path so
+  Postgres is the sole owner of one exact-attempt execution ticket/claim and
+  its process handles are opaque projections of a successfully acquired durable
+  claim; it does not change or activate the current B2a authority;
 - canonical journal digest for integrity, never authentication by itself;
 - idempotent repeated `finish`;
 - O07-A committed-outcome lookup after a lost response, with O08-D/C06 still
@@ -1509,14 +1514,50 @@ Keep the supporting replacement primitive and three coordinators separate:
    liveness, and complete canonical execution input, then reruns user code in a
    fresh runtime-neutral attempt context and loops only through genuine typed
    OCC conflicts.
-4. O08-B2b is the still-deferred crash-safe redispatch gate. It requires a
-   separately accepted durable execution-owner/claim/dispatch authority;
+4. O08-B2b is the still-deferred crash-safe redispatch gate. O08-B2b0 accepts
+   only its future integrated authority model: once implemented, Postgres owns
+   one exact-attempt execution ticket and fenced claim, and any B2b process
+   handle is an opaque projection minted only after that durable claim is
+   acquired. Ticket eligibility and initial
+   claim state must be created atomically with O08-A replacement, or with a
+   separately accepted equivalent single transaction; a later insert cannot
+   close the crash window or authorize execution. Every dispatch admission and
+   journal/syscall admission must revalidate the exact claim fence so the
+   current same-process B2a proof cannot coexist with a second durable
+   execution authority. Until that integration is separately approved,
    `running + pristine` and a missing committed outcome remain non-authorizing.
 5. O08-C handles only known-settled pre-decision `40001`/`40P01` by retrying the
    same authenticated logical/closed command within a bound; each transaction
    freshly derives physical locks, rows, sequences, IDs, and timestamps.
 6. O08-D resolves an uncertain connection outcome through O07-A/C05-B before
    any transaction retry or user-code rerun.
+
+O08-B2b0 also freezes the recovery invariants without approving implementation:
+
+- claim expiry makes an exact attempt eligible only for a locked takeover; it
+  neither authorizes a caller nor expires the snapshot lease or session;
+- snapshot-lease, grant, or hard-expiry failure retains its existing terminal
+  ownership and is never translated into claim takeover;
+- renewal requires the exact current owner and claim fence, uses database time,
+  and may not extend past the grant, hard-attempt, or snapshot-lease bounds;
+- duplicate dispatch may have only one exact owner/fence winner. A lost dispatch
+  response does not permit a second invocation of the same claimed attempt;
+  recovery must recheck the committed outcome and perform the separately
+  approved fenced takeover before another execution;
+- interruption before durable claim settlement grants nothing; interruption
+  after settlement leaves durable claim state for exact recovery; partial
+  execution is never resumed from lifecycle evidence alone; `running + sealed`
+  and `finishing + sealed` stay on their authenticated finish paths; and
+- an uncertain publication outcome remains non-runnable and belongs to O08-D.
+
+This exposes an ordering contradiction rather than resolving it implicitly:
+the current C06 gate waits for O08-B2b, while a complete B2b needs an accepted
+dispatcher/dispatch-acceptance owner. A later preflight must either introduce a
+private dispatcher prerequisite or split/reorder C06 before B2b can complete.
+Final DDL, migrations, claim storage, renewal and takeover operations,
+dispatcher/routing ownership, Dynamic Worker integration, and B2b execution
+remain unapproved and require their own preflights. O08-B2a remains the accepted
+same-process contract until that integrated replacement is approved.
 
 All authoritative writers, including migrations, backfills, admin tools,
 Payload, and Medusa adapters, must acquire the scope-clock/commit-lane lock or
