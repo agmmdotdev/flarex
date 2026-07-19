@@ -1,15 +1,15 @@
 import { copyFiniteDate } from "@flarex/utils/dates";
 import { and, eq } from "drizzle-orm";
-import { Effect, Result, Schema, SchemaIssue } from "effect";
+import { Effect, Result, Schema } from "effect";
 import {
-  decodeCatalogIndexDefinitionId,
+  CatalogIndexDefinitionIdSchema,
   type CatalogIndexDefinitionId,
 } from "flarex-protocol/catalog";
 import {
   IndexBuildAttemptFenceSchema,
-  decodeIndexBuildBackfillCursorV1,
-  decodeIndexBuildCursorCodecVersionV1,
-  decodeIndexBuildLifecycleV1,
+  IndexBuildBackfillCursorV1Schema,
+  IndexBuildCursorCodecVersionV1Schema,
+  IndexBuildLifecycleV1Schema,
   type IndexBuildAttemptFence,
   type IndexBuildBackfillCursorV1,
   type IndexBuildLifecycleV1,
@@ -44,6 +44,36 @@ import {
 } from "./schema";
 
 const READ_INPUT_KEYS = Object.freeze(["scopeId", "indexDefinitionId"]);
+const decodeCatalogIndexDefinitionIdResult = Schema.decodeUnknownResult(
+  Schema.toType(CatalogIndexDefinitionIdSchema),
+);
+const decodeIndexBuildAttemptFenceResult = Schema.decodeUnknownResult(
+  Schema.toType(IndexBuildAttemptFenceSchema),
+);
+const decodeIndexBuildBackfillCursorResult = Schema.decodeUnknownResult(
+  Schema.toType(IndexBuildBackfillCursorV1Schema),
+);
+const decodeIndexBuildCursorCodecVersionResult = Schema.decodeUnknownResult(
+  Schema.toType(IndexBuildCursorCodecVersionV1Schema),
+);
+const decodeIndexBuildLifecycleResult = Schema.decodeUnknownResult(
+  Schema.toType(IndexBuildLifecycleV1Schema),
+);
+const decodeCommitSeqResult = Schema.decodeUnknownResult(
+  Schema.toType(CommitSeqSchema),
+);
+const decodeFlarexDbV1StorageGenerationResult = Schema.decodeUnknownResult(
+  Schema.toType(FlarexDbV1StorageGenerationSchema),
+);
+const decodeScopeEpochResult = Schema.decodeUnknownResult(
+  Schema.toType(ScopeEpochSchema),
+);
+const decodeScopeIdResult = Schema.decodeUnknownResult(
+  Schema.toType(ScopeIdSchema),
+);
+const decodeStorageGenerationFenceResult = Schema.decodeUnknownResult(
+  Schema.toType(StorageGenerationFenceSchema),
+);
 
 export interface ReadFencedIndexBuildStateInput {
   readonly scopeId: ScopeId;
@@ -351,60 +381,77 @@ function decodeBuildStateRow(
   expectedIndexDefinitionId: CatalogIndexDefinitionId,
 ): Result.Result<IndexBuildStateRecord, IndexBuildStateCorruptionError> {
   return Result.gen(function* () {
-    const decoded = yield* Result.try({
-      try: () => {
-        const cursorCodecVersion = decodeIndexBuildCursorCodecVersionV1(
-          row.cursorCodecVersion,
-        );
-        return {
-          scopeId: ScopeIdSchema.make(row.scopeId),
-          indexDefinitionId: decodeCatalogIndexDefinitionId(
-            row.indexDefinitionId,
-          ),
-          storageGeneration: FlarexDbV1StorageGenerationSchema.make(
-            row.storageGeneration,
-          ),
-          storageGenerationFence: StorageGenerationFenceSchema.make(
-            row.storageGenerationFence,
-          ),
-          epoch: ScopeEpochSchema.make(row.epoch),
-          startCommitSeq: CommitSeqSchema.make(row.startCommitSeq),
-          lifecycle: decodeIndexBuildLifecycleV1(row.lifecycle),
-          backfillCursor: decodeIndexBuildBackfillCursorV1({
-            codecVersion: cursorCodecVersion,
-            afterRowId: row.backfillCursorRowId === null
-              ? null
-              : orderedIndexRowIdHexV1FromBytes(row.backfillCursorRowId),
-          }),
-          attemptFence: IndexBuildAttemptFenceSchema.make(row.attemptFence),
-        };
-      },
-      catch: (cause) => {
-        if (
-          !isSchemaValidationError(cause) &&
-          !(cause instanceof OrderedIndexCodecV1InputError)
-        ) {
-          throw cause;
-        }
-        return new IndexBuildStateCorruptionError(
-          expectedScopeId,
-          expectedIndexDefinitionId,
-          "stored identity, authority pin, lifecycle, or cursor is invalid",
-          { cause },
-        );
-      },
+    const cursorCodecVersion = yield* decodeStoredBuildStateFieldResult(
+      decodeIndexBuildCursorCodecVersionResult(row.cursorCodecVersion),
+      expectedScopeId,
+      expectedIndexDefinitionId,
+    );
+    const scopeId = yield* decodeStoredBuildStateFieldResult(
+      decodeScopeIdResult(row.scopeId),
+      expectedScopeId,
+      expectedIndexDefinitionId,
+    );
+    const indexDefinitionId = yield* decodeStoredBuildStateFieldResult(
+      decodeCatalogIndexDefinitionIdResult(row.indexDefinitionId),
+      expectedScopeId,
+      expectedIndexDefinitionId,
+    );
+    const storageGeneration = yield* decodeStoredBuildStateFieldResult(
+      decodeFlarexDbV1StorageGenerationResult(row.storageGeneration),
+      expectedScopeId,
+      expectedIndexDefinitionId,
+    );
+    const storageGenerationFence = yield* decodeStoredBuildStateFieldResult(
+      decodeStorageGenerationFenceResult(row.storageGenerationFence),
+      expectedScopeId,
+      expectedIndexDefinitionId,
+    );
+    const epoch = yield* decodeStoredBuildStateFieldResult(
+      decodeScopeEpochResult(row.epoch),
+      expectedScopeId,
+      expectedIndexDefinitionId,
+    );
+    const startCommitSeq = yield* decodeStoredBuildStateFieldResult(
+      decodeCommitSeqResult(row.startCommitSeq),
+      expectedScopeId,
+      expectedIndexDefinitionId,
+    );
+    const lifecycle = yield* decodeStoredBuildStateFieldResult(
+      decodeIndexBuildLifecycleResult(row.lifecycle),
+      expectedScopeId,
+      expectedIndexDefinitionId,
+    );
+    const rawBackfillCursorRowId = row.backfillCursorRowId;
+    const afterRowId = rawBackfillCursorRowId === null
+      ? null
+      : yield* Result.try({
+        try: () => orderedIndexRowIdHexV1FromBytes(rawBackfillCursorRowId),
+        catch: (cause) => {
+          if (!(cause instanceof OrderedIndexCodecV1InputError)) throw cause;
+          return storedBuildStateCorruption(
+            expectedScopeId,
+            expectedIndexDefinitionId,
+            cause,
+          );
+        },
+      });
+    const decodedBackfillCursor = yield* decodeStoredBuildStateFieldResult(
+      decodeIndexBuildBackfillCursorResult({
+        codecVersion: cursorCodecVersion,
+        afterRowId,
+      }),
+      expectedScopeId,
+      expectedIndexDefinitionId,
+    );
+    const backfillCursor = Object.freeze({
+      codecVersion: decodedBackfillCursor.codecVersion,
+      afterRowId: decodedBackfillCursor.afterRowId,
     });
-    const {
-      scopeId,
-      indexDefinitionId,
-      storageGeneration,
-      storageGenerationFence,
-      epoch,
-      startCommitSeq,
-      lifecycle,
-      backfillCursor,
-      attemptFence,
-    } = decoded;
+    const attemptFence = yield* decodeStoredBuildStateFieldResult(
+      decodeIndexBuildAttemptFenceResult(row.attemptFence),
+      expectedScopeId,
+      expectedIndexDefinitionId,
+    );
     if (
       scopeId !== expectedScopeId ||
       indexDefinitionId !== expectedIndexDefinitionId
@@ -489,28 +536,53 @@ function decodeReadInput(
       }));
     }
     const rawScopeId = value.scopeId;
-    const scopeId = yield* Result.try({
-      try: () => ScopeIdSchema.make(rawScopeId),
-      catch: (cause) => {
-        if (!isSchemaValidationError(cause)) throw cause;
-        return new InvalidIndexBuildStateReadInputError(
-          { reason: "invalidScopeId" },
-          { cause },
-        );
-      },
-    });
-    const indexDefinitionId = yield* Result.try({
-      try: () => decodeCatalogIndexDefinitionId(value.indexDefinitionId),
-      catch: (cause) => {
-        if (!isSchemaValidationError(cause)) throw cause;
-        return new InvalidIndexBuildStateReadInputError(
-          { reason: "invalidIndexDefinitionId" },
-          { cause },
-        );
-      },
-    });
+    const scopeId = yield* decodeReadInputFieldResult(
+      decodeScopeIdResult(rawScopeId),
+      "invalidScopeId",
+    );
+    const indexDefinitionId = yield* decodeReadInputFieldResult(
+      decodeCatalogIndexDefinitionIdResult(value.indexDefinitionId),
+      "invalidIndexDefinitionId",
+    );
     return Object.freeze({ scopeId, indexDefinitionId });
   });
+}
+
+function decodeReadInputFieldResult<Value>(
+  result: Result.Result<Value, unknown>,
+  reason: Extract<
+    InvalidIndexBuildStateReadInputIssue["reason"],
+    "invalidScopeId" | "invalidIndexDefinitionId"
+  >,
+): Result.Result<Value, InvalidIndexBuildStateReadInputError> {
+  return result.pipe(Result.mapError((cause) =>
+    new InvalidIndexBuildStateReadInputError({ reason }, { cause })
+  ));
+}
+
+function decodeStoredBuildStateFieldResult<Value>(
+  result: Result.Result<Value, unknown>,
+  expectedScopeId: ScopeId,
+  expectedIndexDefinitionId: CatalogIndexDefinitionId,
+): Result.Result<Value, IndexBuildStateCorruptionError> {
+  return result.pipe(Result.mapError((cause) => storedBuildStateCorruption(
+    expectedScopeId,
+    expectedIndexDefinitionId,
+    cause,
+  )));
+}
+
+function storedBuildStateCorruption(
+  expectedScopeId: ScopeId,
+  expectedIndexDefinitionId: CatalogIndexDefinitionId,
+  cause: unknown,
+): IndexBuildStateCorruptionError {
+  return new IndexBuildStateCorruptionError(
+    expectedScopeId,
+    expectedIndexDefinitionId,
+    "stored identity, authority pin, lifecycle, or cursor is invalid",
+    { cause },
+  );
 }
 
 function freezeAuthority(
@@ -522,11 +594,6 @@ function freezeAuthority(
     storageGenerationFence: authority.storageGenerationFence,
     epoch: authority.epoch,
   });
-}
-
-function isSchemaValidationError(cause: unknown): boolean {
-  return Schema.isSchemaError(cause) ||
-    (cause instanceof Error && SchemaIssue.isIssue(cause.cause));
 }
 
 function collectAuthorityMismatches(

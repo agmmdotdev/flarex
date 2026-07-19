@@ -487,10 +487,68 @@ describe("fenced index build-state reads", () => {
     });
   });
 
+  it("short-circuits stored decoding at the first typed corruption", async () => {
+    const scopeId = ScopeIdSchema.make("scope_index_build_row_corruption");
+    const indexDefinitionId = CatalogIndexDefinitionIdSchema.make(1);
+    const row = validFencedIndexBuildReadRow(scopeId, indexDefinitionId);
+    let laterScopeIdAccesses = 0;
+    const buildState = new Proxy(
+      { ...row.buildState, cursorCodecVersion: 2 },
+      {
+        get(target, property, receiver) {
+          if (property === "scopeId") laterScopeIdAccesses += 1;
+          return Reflect.get(target, property, receiver);
+        },
+      },
+    );
+    const db = indexBuildReadDatabase(() => Promise.resolve([
+      { ...row, buildState },
+    ]));
+
+    const failure = await runEffectFailure(readFencedIndexBuildStateEffect(
+      db,
+      { scopeId, indexDefinitionId },
+    ));
+
+    expect(failure).toBeInstanceOf(IndexBuildStateCorruptionError);
+    expect(failure).toMatchObject({
+      detail: "stored identity, authority pin, lifecycle, or cursor is invalid",
+    });
+    expect(laterScopeIdAccesses).toBe(0);
+  });
+
+  it("preserves unexpected stored build-row accessor failures as defects", async () => {
+    const scopeId = ScopeIdSchema.make("scope_index_build_row_defect");
+    const indexDefinitionId = CatalogIndexDefinitionIdSchema.make(1);
+    const row = validFencedIndexBuildReadRow(scopeId, indexDefinitionId);
+    const defect = new Error("unexpected index-build row accessor defect");
+    const buildState = new Proxy(row.buildState, {
+      get(target, property, receiver) {
+        if (property === "lifecycle") throw defect;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const db = indexBuildReadDatabase(() => Promise.resolve([
+      { ...row, buildState },
+    ]));
+
+    const exit = await Effect.runPromiseExit(readFencedIndexBuildStateEffect(
+      db,
+      { scopeId, indexDefinitionId },
+    ));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(exit.cause.toString()).toContain(defect.message);
+    }
+  });
+
   it("waits for a pending Drizzle read to settle before interruption completes", async () => {
     const entered = deferredValue<void>();
     const query = deferredValue<readonly []>();
-    const db = pendingIndexBuildReadDatabase(() => {
+    const db = indexBuildReadDatabase(() => {
       entered.resolve();
       return query.promise;
     });
@@ -551,8 +609,8 @@ describe("fenced index build-state reads", () => {
   });
 });
 
-function pendingIndexBuildReadDatabase(
-  run: () => Promise<readonly []>,
+function indexBuildReadDatabase<Row>(
+  run: () => PromiseLike<ReadonlyArray<Row>>,
 ): FlarexMetadataDatabase {
   const query = {
     from: () => query,
@@ -563,6 +621,40 @@ function pendingIndexBuildReadDatabase(
   return {
     select: () => query,
   } as unknown as FlarexMetadataDatabase;
+}
+
+function validFencedIndexBuildReadRow(
+  scopeId: ScopeId,
+  indexDefinitionId: CatalogIndexDefinitionId,
+) {
+  const timestamp = new Date("2026-07-12T00:00:00.000Z");
+  return {
+    clock: {
+      scopeId,
+      scopeUuid: "00000000-0000-5000-8000-000000000001",
+      storageGeneration: "flarexdb_v1" as const,
+      storageGenerationFence: 1n,
+      lastCommitSeq: 0n,
+      lastOutboxSeq: 0n,
+      epoch: "epoch-index-build-row",
+      epochUuid: "00000000-0000-5000-8000-000000000002",
+      updatedAt: timestamp,
+    },
+    buildState: {
+      scopeId,
+      indexDefinitionId,
+      storageGeneration: "flarexdb_v1" as const,
+      storageGenerationFence: 1n,
+      epoch: "epoch-index-build-row",
+      startCommitSeq: 0n,
+      lifecycle: "declared" as const,
+      cursorCodecVersion: INDEX_BUILD_CURSOR_CODEC_VERSION_V1,
+      backfillCursorRowId: null,
+      attemptFence: 1n,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  };
 }
 
 function deferredValue<A>(): Readonly<{
