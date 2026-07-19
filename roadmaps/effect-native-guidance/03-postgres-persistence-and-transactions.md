@@ -312,6 +312,12 @@ evidence comparison, owner-specific checksum collisions, and timestamp
 validation keep their prior order. Malformed rows remain typed corruption or
 the exact owner-specific collision, while unexpected row access and runtime
 failures remain defects. The deployment lock still performs no Web Crypto.
+Stored deployment, definition-ID, table-ID, access-owner, timestamp, and
+high-water allocation normalization now return `Result` directly. The former
+throwing helpers and exception-filtering Result projections are deleted;
+allocation exhaustion remains its existing typed failure. Only protocol-owned
+access and physical-evidence decoders retain the narrow throwing adapter, so
+owned catalog validation no longer enters the JavaScript exception channel.
 
 The package-root stable logical-index identity readers are now Effect-native.
 Input and stored-row validation enter through pure `Result`, while each reader
