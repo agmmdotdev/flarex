@@ -30,12 +30,17 @@ import {
 
 export interface ProbeMockCommitEnv {
   readonly PROBE_SYNC: DurableObjectNamespace<ProbeSyncDO>;
+  readonly RUNTIME_TOPOLOGY_PROBE_TEST_MOCK_READ_DELAY_MS?: string;
 }
 
 export class MockReadEntrypoint extends WorkerEntrypoint<ProbeMockCommitEnv> {
   async read(value: unknown): Promise<ProbeMockReadResponseV1> {
     const request = decodeProbeMockReadRequestV1OrNull(value);
     if (request === null) throw new Error("invalid synthetic mock read");
+    const delayMs = testMockReadDelayMs(this.env);
+    if (delayMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
     return ProbeMockReadResponseV1Schema.make({
       protocolVersion: request.protocolVersion,
       runId: request.runId,
@@ -55,6 +60,13 @@ export class MockReadEntrypoint extends WorkerEntrypoint<ProbeMockCommitEnv> {
       ),
     });
   }
+}
+
+function testMockReadDelayMs(env: ProbeMockCommitEnv): number {
+  const value = env.RUNTIME_TOPOLOGY_PROBE_TEST_MOCK_READ_DELAY_MS;
+  if (value === undefined || !/^[1-9][0-9]{0,3}$/.test(value)) return 0;
+  const delay = Number(value);
+  return delay <= 5_000 ? delay : 0;
 }
 
 export class MockFinishEntrypoint extends WorkerEntrypoint<ProbeMockCommitEnv> {

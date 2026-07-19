@@ -46,7 +46,7 @@ import {
 import {
   decodeProbeFullInvokeSessionFailureV1OrNull,
   decodeProbeFullInvokeSessionResponseV1OrNull,
-  probeInvokeJournalSealDigest,
+  probeInvokeFacetReceiptMatchesRequestV1,
   ProbeInvokeFacetRequestV1Schema,
   type ProbeFullInvokeSessionResponseV1,
   type ProbeFullInvokeSessionFailureV1,
@@ -641,6 +641,7 @@ async function executeRegisteredScenario(
           );
     case "full_invoke":
     case "executor_worker_invoke":
+    case "facet_executor_invoke":
       if (
         env.LOADER === undefined ||
         env.MOCK_READ === undefined ||
@@ -717,6 +718,7 @@ function failedScenarioExecution(
       scenario === "facet_journal" ||
       scenario === "full_invoke" ||
       scenario === "executor_worker_invoke" ||
+      scenario === "facet_executor_invoke" ||
       scenario === "session_executor_invoke" ||
       scenario === "sync_rerun"
       ? { workerLoader: "callback-not-run", facet: "callback-not-run" } as const
@@ -732,6 +734,7 @@ function failedScenarioExecution(
     syncWake: scenario === "commit_wake" ||
         scenario === "full_invoke" ||
         scenario === "executor_worker_invoke" ||
+        scenario === "facet_executor_invoke" ||
         scenario === "session_executor_invoke"
       ? { kind: "unobserved" }
       : { kind: "not-applicable" },
@@ -1166,6 +1169,7 @@ async function executeFullInvokeScenario(
   if (
     sampleRequest.run.scenario !== "full_invoke" &&
     sampleRequest.run.scenario !== "executor_worker_invoke" &&
+    sampleRequest.run.scenario !== "facet_executor_invoke" &&
     sampleRequest.run.scenario !== "session_executor_invoke"
   ) {
     throw new Error("executeFullInvokeScenario received a non-invoke scenario");
@@ -1657,9 +1661,12 @@ function dynamicSpan(
   });
 }
 
-function facetSpan(durationMs: number): ProbeTraceSpanV1 {
+function facetSpan(
+  durationMs: number,
+  spanOrdinal = 2,
+): ProbeTraceSpanV1 {
   return ProbeTraceSpanV1Schema.make({
-    spanId: probeSpanId(ProbeOrdinalSchema.make(2)),
+    spanId: probeSpanId(ProbeOrdinalSchema.make(spanOrdinal)),
     parentSpanId: probeSpanId(ProbeOrdinalSchema.make(1)),
     name: "session_facet_rtt",
     durationMs: ProbeDurationMsSchema.make(durationMs),
@@ -1670,10 +1677,11 @@ function facetSpan(durationMs: number): ProbeTraceSpanV1 {
 function journalSpan(
   durationMs: number,
   spanOrdinal = 3,
+  parentOrdinal = 2,
 ): ProbeTraceSpanV1 {
   return ProbeTraceSpanV1Schema.make({
     spanId: probeSpanId(ProbeOrdinalSchema.make(spanOrdinal)),
-    parentSpanId: probeSpanId(ProbeOrdinalSchema.make(2)),
+    parentSpanId: probeSpanId(ProbeOrdinalSchema.make(parentOrdinal)),
     name: "facet_journal_io",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
@@ -1700,11 +1708,34 @@ function sessionReadSpan(durationMs: number): ProbeTraceSpanV1 {
   });
 }
 
-function sessionMockFinishSpan(durationMs: number): ProbeTraceSpanV1 {
+function sessionMockFinishSpan(
+  durationMs: number,
+  spanOrdinal = 5,
+): ProbeTraceSpanV1 {
   return ProbeTraceSpanV1Schema.make({
-    spanId: probeSpanId(ProbeOrdinalSchema.make(5)),
+    spanId: probeSpanId(ProbeOrdinalSchema.make(spanOrdinal)),
     parentSpanId: probeSpanId(ProbeOrdinalSchema.make(1)),
     name: "session_mock_finish_rtt",
+    durationMs: ProbeDurationMsSchema.make(durationMs),
+    outcome: { kind: "ok" },
+  });
+}
+
+function sessionSnapshotReadSpan(durationMs: number): ProbeTraceSpanV1 {
+  return ProbeTraceSpanV1Schema.make({
+    spanId: probeSpanId(ProbeOrdinalSchema.make(2)),
+    parentSpanId: probeSpanId(ProbeOrdinalSchema.make(1)),
+    name: "session_snapshot_read_rtt",
+    durationMs: ProbeDurationMsSchema.make(durationMs),
+    outcome: { kind: "ok" },
+  });
+}
+
+function facetSnapshotReadSpan(durationMs: number): ProbeTraceSpanV1 {
+  return ProbeTraceSpanV1Schema.make({
+    spanId: probeSpanId(ProbeOrdinalSchema.make(4)),
+    parentSpanId: probeSpanId(ProbeOrdinalSchema.make(3)),
+    name: "facet_snapshot_read",
     durationMs: ProbeDurationMsSchema.make(durationMs),
     outcome: { kind: "ok" },
   });
@@ -1770,6 +1801,21 @@ function fullInvokeSpans(
 ): ReadonlyArray<ProbeTraceSpanV1> {
   const facet = observation.facet;
   const finish = observation.finish;
+  if (observation.executorHost === "facet-do") {
+    if (observation.snapshotReadDurationMs === null) {
+      throw new Error("facet executor observation requires snapshot timing");
+    }
+    return [
+      sessionSpan(sessionDurationMs, { kind: "ok" }),
+      sessionSnapshotReadSpan(observation.snapshotReadDurationMs),
+      facetSpan(observation.facetDurationMs, 3),
+      facetSnapshotReadSpan(facet.mockReadDurationMs),
+      journalSpan(facet.journalDurationMs, 5, 3),
+      sessionMockFinishSpan(observation.sessionMockFinishDurationMs, 6),
+      mockSyncWakeSpan(finish.mockSyncWakeDurationMs, 7, 6),
+      syncCursorSpan(finish.sync.cursorDurationMs, 8, 7, syncOutcome),
+    ];
+  }
   if (observation.executorHost === "session-do") {
     return [
       sessionSpan(sessionDurationMs, { kind: "ok" }),
@@ -1981,35 +2027,26 @@ async function sameFullInvokeSessionReceipt(
 ): Promise<boolean> {
   const facet = response.facet;
   const finish = response.finish.request;
+  const expectedHost = request.scenario === "session_executor_invoke"
+    ? "session-do"
+    : request.scenario === "facet_executor_invoke"
+    ? "facet-do"
+    : "external-worker";
+  const snapshotSeeded = expectedHost === "facet-do";
   if (
     finish.scenario === "commit_wake" ||
     finish.scenario !== request.scenario ||
-    response.executorHost !==
-      (request.scenario === "session_executor_invoke"
-        ? "session-do"
-        : "external-worker") ||
+    response.executorHost !== expectedHost ||
     response.readCapabilityCalls !==
-      (request.scenario === "session_executor_invoke" ? 1 : 0)
+      (expectedHost === "session-do" ? 1 : 0) ||
+    (snapshotSeeded
+      ? response.snapshotReadDurationMs === null
+      : response.snapshotReadDurationMs !== null)
   ) return false;
-  const identityMatches = facet.protocolVersion === request.protocolVersion &&
-    facet.runId === request.runId &&
-    facet.sampleId === request.sampleId &&
-    facet.sampleOrdinal === request.sampleOrdinal &&
-    facet.scopeId === request.scopeId &&
-    facet.scenario === request.scenario &&
-    facet.commitSeq === request.commitSeq &&
-    facet.sessionId === request.sessionId &&
-    facet.sessionMode === request.sessionMode &&
-    facet.attemptId === request.attemptId &&
-    facet.codeMode === request.codeMode &&
-    facet.codeId === request.codeId &&
-    facet.journalEntries === request.journalEntries &&
-    facet.payloadBytes === request.payload.length &&
-    facet.syntheticRevision === request.commitSeq - 1;
-  if (!identityMatches) return false;
-  const expectedSeal = await probeInvokeJournalSealDigest(request);
-  return facet.sealDigest === expectedSeal &&
-    finish.protocolVersion === request.protocolVersion &&
+  if (!(await probeInvokeFacetReceiptMatchesRequestV1(facet, request))) {
+    return false;
+  }
+  return finish.protocolVersion === request.protocolVersion &&
     finish.runId === request.runId &&
     finish.sampleId === request.sampleId &&
     finish.sampleOrdinal === request.sampleOrdinal &&
@@ -2021,7 +2058,7 @@ async function sameFullInvokeSessionReceipt(
     finish.codeMode === request.codeMode &&
     finish.codeId === request.codeId &&
     finish.journalEntries === request.journalEntries &&
-    finish.sealDigest === expectedSeal;
+    finish.sealDigest === facet.sealDigest;
 }
 
 function requestColo(request: Request): string | null {

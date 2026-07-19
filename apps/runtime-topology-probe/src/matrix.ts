@@ -159,5 +159,39 @@ export const PROBE_SESSION_EXECUTOR_AB_MATRIX_V1: ProbeCampaignManifestV1 =
     ),
   });
 
+type FacetExecutorComparisonScenario =
+  | "executor_worker_invoke"
+  | "facet_executor_invoke";
+
+function facetExecutorComparisonRun(
+  pair: number,
+  scenario: FacetExecutorComparisonScenario,
+): ProbeRunRequestV1 {
+  const host = scenario === "executor_worker_invoke" ? "bound" : "facet";
+  return rehearsalRun({
+    runId: `p16_${pair.toString().padStart(2, "0")}_${host}`,
+    scenario,
+    replicate: pair,
+    repetitions: 1,
+    warmupRepetitions: pair === 1 ? 2 : 0,
+    journalEntries: 2,
+    payloadBytes: 64,
+    sessionMode: "new-session",
+  });
+}
+
+export const PROBE_FACET_EXECUTOR_AB_MATRIX_V1: ProbeCampaignManifestV1 =
+  ProbeCampaignManifestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    campaignId: ProbeCampaignIdSchema.make("p16_facet_executor_ab_v1"),
+    collectorConcurrency: 1,
+    runs: Array.from({ length: 12 }, (_, index) => index + 1).flatMap(
+      pair => [
+        facetExecutorComparisonRun(pair, "executor_worker_invoke"),
+        facetExecutorComparisonRun(pair, "facet_executor_invoke"),
+      ],
+    ),
+  });
+
 export const PROBE_ACTIVE_CAMPAIGN_MATRIX_V1 =
-  PROBE_SESSION_EXECUTOR_AB_MATRIX_V1;
+  PROBE_FACET_EXECUTOR_AB_MATRIX_V1;

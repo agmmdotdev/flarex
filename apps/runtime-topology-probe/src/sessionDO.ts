@@ -8,6 +8,7 @@ import {
 import {
   decodeProbeMockFinishResponseV1OrNull,
   decodeProbeMockReadRequestV1OrNull,
+  decodeProbeMockReadResponseV1OrNull,
   decodeProbeSyncWakeReceiptV1OrNull,
   ProbeMockFinishRequestV1Schema,
   ProbeMockFinishResponseV1Schema,
@@ -50,13 +51,18 @@ import {
   decodeProbeInvokeFacetRequestV1OrNull,
   decodeProbeInvokeFacetWorkerResponseV1OrNull,
   probeMockReadRequestFromInvoke,
-  probeInvokeJournalSealDigest,
+  probeMockReadReceiptMatchesRequestV1,
+  probeInvokeFacetReceiptMatchesRequestV1,
   probeInvokeWorkerCode,
+  probeSessionInvokeWorkerCode,
+  probeSnapshotInvokeWorkerCode,
   PROBE_INVOKE_FACET_CLASS_NAME,
   ProbeFullInvokeSessionFailureV1Schema,
   ProbeFullInvokeSessionResponseV1Schema,
+  ProbeInvokeFacetExecutionRequestV1Schema,
   type ProbeInvokeSessionReadCapability,
   type ProbeInvokeFacetRequestV1,
+  type ProbeInvokeFacetExecutionRequestV1,
   type ProbeInvokeFacetWorkerResponseV1,
 } from "./invokeProtocol";
 import type {
@@ -150,6 +156,12 @@ type InvokeExecutorHost =
       readonly kind: "external-worker";
       readonly finish: Service<typeof MockFinishEntrypoint>;
       readonly read: Service<typeof MockReadEntrypoint>;
+    }
+  | {
+      readonly kind: "facet-do";
+      readonly finish: Service<typeof MockFinishEntrypoint>;
+      readonly snapshot: ProbeMockReadResponseV1;
+      readonly snapshotReadDurationMs: number;
     }
   | {
       readonly kind: "session-do";
@@ -513,9 +525,13 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       }));
     } else if (facet.codeId.startsWith("rtp-code-invoke-v1-")) {
       let workerCode: WorkerLoaderWorkerCode;
-      if (facet.scenario === "session_executor_invoke") {
+      if (
+        facet.scenario === "session_executor_invoke" ||
+        facet.scenario === "facet_executor_invoke" ||
+        facet.scenario === "executor_worker_invoke"
+      ) {
         const attempt = this.sql.exec<{
-          capability_token: string;
+          capability_token: string | null;
           request_json: string;
         }>(
           `SELECT capability_token, request_json
@@ -532,10 +548,6 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
           if (tracked === 0) return "absent";
           throw new Error("tracked invoke purge requires attempt evidence");
         }
-        const read = this.env.SESSION_EXECUTOR_READ;
-        if (read === undefined) {
-          throw new Error("probe invoke purge requires session read binding");
-        }
         const invoke = decodeProbeInvokeFacetRequestV1OrNull(
           JSON.parse(attempt.request_json),
         );
@@ -547,17 +559,31 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         ) {
           throw new Error("probe invoke purge attempt evidence conflicts");
         }
-        workerCode = probeInvokeWorkerCode(
-          read,
-          {
-            capabilityToken: attempt.capability_token,
-            expected: probeMockReadRequestFromInvoke(invoke),
-          } satisfies ProbeSessionExecutorReadEnvelope,
-        );
-      } else if (
-        facet.scenario === "executor_worker_invoke" ||
-        facet.scenario === "full_invoke"
-      ) {
+        if (facet.scenario === "session_executor_invoke") {
+          const read = this.env.SESSION_EXECUTOR_READ;
+          if (read === undefined || attempt.capability_token === null) {
+            throw new Error("probe invoke purge requires session read binding");
+          }
+          workerCode = probeSessionInvokeWorkerCode(
+            read,
+            {
+              capabilityToken: attempt.capability_token,
+              expected: probeMockReadRequestFromInvoke(invoke),
+            } satisfies ProbeSessionExecutorReadEnvelope,
+          );
+        } else if (facet.scenario === "facet_executor_invoke") {
+          if (attempt.capability_token !== null) {
+            throw new Error("facet executor purge capability evidence conflicts");
+          }
+          workerCode = probeSnapshotInvokeWorkerCode();
+        } else {
+          const read = this.env.MOCK_READ;
+          if (read === undefined || attempt.capability_token !== null) {
+            throw new Error("external executor purge capability evidence conflicts");
+          }
+          workerCode = probeInvokeWorkerCode(read);
+        }
+      } else if (facet.scenario === "full_invoke") {
         const read = this.env.MOCK_READ;
         if (read === undefined) {
           throw new Error("probe invoke purge requires mock-read binding");
@@ -755,6 +781,9 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     const loader = this.env.LOADER;
     if (loader === undefined) return internalError("loader_unavailable", 500);
     const sessionHosted = decoded.scenario === "session_executor_invoke";
+    const facetHosted = decoded.scenario === "facet_executor_invoke";
+    const externalControl = decoded.scenario === "executor_worker_invoke";
+    const attemptFenced = sessionHosted || facetHosted || externalControl;
     let executorHost: InvokeExecutorHost;
     if (sessionHosted) {
       const sync = this.env.PROBE_SYNC;
@@ -765,7 +794,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       const capability = newProbeSessionExecutorReadEnvelope(
         probeMockReadRequestFromInvoke(decoded),
       );
-      const admission = beginSessionExecutorAttempt(
+      const admission = beginInvokeAttempt(
         this.sql,
         decoded,
         capability.capabilityToken,
@@ -791,19 +820,94 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         read,
         sync,
       };
+    } else if (facetHosted) {
+      const read = this.env.MOCK_READ;
+      const finish = this.env.MOCK_FINISH;
+      if (read === undefined || finish === undefined) {
+        return internalError("invoke_capability_unavailable", 500);
+      }
+      const admission = beginInvokeAttempt(this.sql, decoded, null);
+      if (admission.kind === "replay") return admission.response;
+      if (admission.kind === "busy") {
+        return internalError("facet_executor_attempt_busy", 409);
+      }
+      if (admission.kind === "conflict") {
+        return internalError("facet_executor_attempt_conflict", 409);
+      }
+      if (admission.kind === "storage-failure") {
+        return internalError("facet_executor_state_failure", 500);
+      }
+      try {
+        await this.ctx.storage.sync();
+      } catch {
+        return internalError("facet_executor_state_failure", 500);
+      }
+      const readRequest = probeMockReadRequestFromInvoke(decoded);
+      const snapshotStartedAt = performance.now();
+      let snapshot: ProbeMockReadResponseV1 | null;
+      try {
+        const rawSnapshot = await read.read(readRequest);
+        snapshot = decodeProbeMockReadResponseV1OrNull(
+          copyCloudflareRpcRecord(rawSnapshot),
+        );
+      } catch {
+        return await completeInvokeResponse(
+          this.ctx.storage,
+          this.sql,
+          decoded,
+          internalError("snapshot_read_transport_failure", 502),
+        );
+      }
+      if (
+        snapshot === null ||
+        !probeMockReadReceiptMatchesRequestV1(snapshot, readRequest)
+      ) {
+        return await completeInvokeResponse(
+          this.ctx.storage,
+          this.sql,
+          decoded,
+          internalError("snapshot_read_receipt_mismatch", 502),
+        );
+      }
+      executorHost = {
+        kind: "facet-do",
+        finish,
+        snapshot,
+        snapshotReadDurationMs: elapsedPerformanceDurationSince(
+          snapshotStartedAt,
+        ),
+      };
     } else {
       const read = this.env.MOCK_READ;
       const finish = this.env.MOCK_FINISH;
       if (read === undefined || finish === undefined) {
         return internalError("invoke_capability_unavailable", 500);
       }
+      if (externalControl) {
+        const admission = beginInvokeAttempt(this.sql, decoded, null);
+        if (admission.kind === "replay") return admission.response;
+        if (admission.kind === "busy") {
+          return internalError("executor_worker_attempt_busy", 409);
+        }
+        if (admission.kind === "conflict") {
+          return internalError("executor_worker_attempt_conflict", 409);
+        }
+        if (admission.kind === "storage-failure") {
+          return internalError("executor_worker_state_failure", 500);
+        }
+        try {
+          await this.ctx.storage.sync();
+        } catch {
+          return internalError("executor_worker_state_failure", 500);
+        }
+      }
       executorHost = { kind: "external-worker", read, finish };
     }
     const tracking = await this.trackFacet(decoded);
     if (tracking === "identity-conflict") {
       const response = internalError("facet_identity_conflict", 409);
-      return sessionHosted
-        ? await completeSessionExecutorResponse(
+      return attemptFenced
+        ? await completeInvokeResponse(
             this.ctx.storage,
             this.sql,
             decoded,
@@ -813,8 +917,8 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     }
     if (tracking === "storage-failure") {
       const response = internalError("facet_tracking_failed", 500);
-      return sessionHosted
-        ? await completeSessionExecutorResponse(
+      return attemptFenced
+        ? await completeInvokeResponse(
             this.ctx.storage,
             this.sql,
             decoded,
@@ -839,7 +943,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       invocation = { kind: "defect", cause };
     }
     const facetDeleted = await this.deleteTrackedFacet(decoded.attemptId);
-    if (!sessionHosted) {
+    if (!attemptFenced) {
       if (!facetDeleted) return internalError("facet_cleanup_failed", 500);
       if (invocation.kind === "defect") throw invocation.cause;
       return invocation.response;
@@ -847,9 +951,16 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     const response = !facetDeleted
       ? internalError("facet_cleanup_failed", 500)
       : invocation.kind === "defect"
-      ? internalError("session_executor_defect", 500)
+      ? internalError(
+          facetHosted
+            ? "facet_executor_defect"
+            : externalControl
+            ? "executor_worker_defect"
+            : "session_executor_defect",
+          500,
+        )
       : invocation.response;
-    return await completeSessionExecutorResponse(
+    return await completeInvokeResponse(
       this.ctx.storage,
       this.sql,
       decoded,
@@ -862,6 +973,13 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     executorHost: InvokeExecutorHost,
     request: ProbeInvokeFacetRequestV1,
   ): Promise<Response> {
+    const facetRequest: ProbeInvokeFacetExecutionRequestV1 =
+      ProbeInvokeFacetExecutionRequestV1Schema.make({
+        ...request,
+        prefetchedRead: executorHost.kind === "facet-do"
+          ? executorHost.snapshot
+          : null,
+      });
     const observations: FacetCallbackObservations = {
       facetStartupCallbackRan: false,
       workerLoaderCallbackRan: false,
@@ -881,10 +999,12 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         const worker = loader.get(runtimeCodeId, () => {
           observations.workerLoaderCallbackRan = true;
           return executorHost.kind === "session-do"
-            ? probeInvokeWorkerCode(
+            ? probeSessionInvokeWorkerCode(
                 executorHost.read,
                 executorHost.capability,
               )
+            : executorHost.kind === "facet-do"
+            ? probeSnapshotInvokeWorkerCode()
             : probeInvokeWorkerCode(executorHost.read);
         });
         return {
@@ -896,7 +1016,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         new Request("https://probe-facet.internal/v1/full-invoke", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(request),
+          body: JSON.stringify(facetRequest),
         }),
       );
     } catch {
@@ -938,7 +1058,23 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     });
     const finishStartedAt = performance.now();
     let finish: ProbeMockFinishResponseV1 | null;
-    if (executorHost.kind === "external-worker") {
+    if (executorHost.kind !== "session-do") {
+      const externallyFinishedAttemptFenced =
+        request.scenario === "facet_executor_invoke" ||
+        request.scenario === "executor_worker_invoke";
+      if (
+        externallyFinishedAttemptFenced &&
+        !markInvokeAttemptFinishing(this.sql, request)
+      ) {
+        return internalError(invokeAttemptError(request, "state_failure"), 500);
+      }
+      if (externallyFinishedAttemptFenced) {
+        try {
+          await this.ctx.storage.sync();
+        } catch {
+          return internalError(invokeAttemptError(request, "state_failure"), 500);
+        }
+      }
       try {
         const rawFinish = await executorHost.finish.finish(finishRequest);
         finish = decodeMockFinishResponse(copyCloudflareRpcRecord(rawFinish));
@@ -950,7 +1086,12 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       if (readCapabilityCalls !== 1) {
         return internalError("session_executor_read_count_mismatch", 502);
       }
-      if (!markSessionExecutorFinishing(this.sql, request)) {
+      if (!markInvokeAttemptFinishing(this.sql, request)) {
+        return internalError("session_executor_state_failure", 500);
+      }
+      try {
+        await this.ctx.storage.sync();
+      } catch {
         return internalError("session_executor_state_failure", 500);
       }
       const syncRequest = ProbeSyncWakeRequestV1Schema.make({
@@ -997,6 +1138,9 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       readCapabilityCalls: executorHost.kind === "session-do"
         ? sessionExecutorReadCalls(this.sql, request) ?? 0
         : 0,
+      snapshotReadDurationMs: executorHost.kind === "facet-do"
+        ? ProbeDurationMsSchema.make(executorHost.snapshotReadDurationMs)
+        : null,
       sessionMockFinishDurationMs: ProbeDurationMsSchema.make(
         sessionMockFinishDurationMs,
       ),
@@ -1472,22 +1616,7 @@ async function sameFullInvokeFacetReceipt(
   response: ProbeInvokeFacetWorkerResponseV1,
   request: ProbeInvokeFacetRequestV1,
 ): Promise<boolean> {
-  return response.protocolVersion === request.protocolVersion &&
-    response.runId === request.runId &&
-    response.sampleId === request.sampleId &&
-    response.sampleOrdinal === request.sampleOrdinal &&
-    response.scopeId === request.scopeId &&
-    response.scenario === request.scenario &&
-    response.commitSeq === request.commitSeq &&
-    response.sessionId === request.sessionId &&
-    response.sessionMode === request.sessionMode &&
-    response.attemptId === request.attemptId &&
-    response.codeMode === request.codeMode &&
-    response.codeId === request.codeId &&
-    response.journalEntries === request.journalEntries &&
-    response.payloadBytes === request.payload.length &&
-    response.syntheticRevision === request.commitSeq - 1 &&
-    response.sealDigest === await probeInvokeJournalSealDigest(request);
+  return await probeInvokeFacetReceiptMatchesRequestV1(response, request);
 }
 
 function sameMockFinishReceipt(
@@ -1536,18 +1665,18 @@ function sameMockReadRequest(
     left.payloadBytes === right.payloadBytes;
 }
 
-type SessionExecutorAdmission =
+type InvokeAttemptAdmission =
   | { readonly kind: "start" }
   | { readonly kind: "replay"; readonly response: Response }
   | { readonly kind: "busy" }
   | { readonly kind: "conflict" }
   | { readonly kind: "storage-failure" };
 
-function beginSessionExecutorAttempt(
+function beginInvokeAttempt(
   sql: SqlStorage,
   request: ProbeInvokeFacetRequestV1,
-  capabilityToken: string,
-): SessionExecutorAdmission {
+  capabilityToken: string | null,
+): InvokeAttemptAdmission {
   const requestJson = JSON.stringify(request);
   try {
     const existing = sql.exec<{
@@ -1583,7 +1712,7 @@ function beginSessionExecutorAttempt(
     }
     return {
       kind: "replay",
-      response: storedSessionExecutorResponse(
+      response: storedInvokeResponse(
         existing.response_body,
         existing.response_status,
       ),
@@ -1661,7 +1790,7 @@ function sessionExecutorReadCalls(
   }
 }
 
-function markSessionExecutorFinishing(
+function markInvokeAttemptFinishing(
   sql: SqlStorage,
   request: ProbeInvokeFacetRequestV1,
 ): boolean {
@@ -1690,7 +1819,7 @@ function markSessionExecutorFinishing(
   }
 }
 
-async function completeSessionExecutorResponse(
+async function completeInvokeResponse(
   storage: DurableObjectStorage,
   sql: SqlStorage,
   request: ProbeInvokeFacetRequestV1,
@@ -1698,7 +1827,7 @@ async function completeSessionExecutorResponse(
 ): Promise<Response> {
   const body = await response.clone().text();
   if (new TextEncoder().encode(body).byteLength > MAX_INTERNAL_RESPONSE_BYTES) {
-    return internalError("session_executor_response_too_large", 500);
+    return internalError(invokeAttemptError(request, "response_too_large"), 500);
   }
   try {
     const row = sql.exec<{ phase: string; request_json: string }>(
@@ -1712,7 +1841,7 @@ async function completeSessionExecutorResponse(
       row.request_json !== JSON.stringify(request) ||
       (row.phase !== "running" && row.phase !== "finishing")
     ) {
-      return internalError("session_executor_state_failure", 500);
+      return internalError(invokeAttemptError(request, "state_failure"), 500);
     }
     sql.exec(
       `UPDATE probe_session_executor_attempts
@@ -1725,11 +1854,11 @@ async function completeSessionExecutorResponse(
     await storage.sync();
     return response;
   } catch {
-    return internalError("session_executor_state_failure", 500);
+    return internalError(invokeAttemptError(request, "state_failure"), 500);
   }
 }
 
-function storedSessionExecutorResponse(body: string, status: number): Response {
+function storedInvokeResponse(body: string, status: number): Response {
   return new Response(body, {
     status,
     headers: {
@@ -1737,6 +1866,17 @@ function storedSessionExecutorResponse(body: string, status: number): Response {
       "content-type": "application/json; charset=utf-8",
     },
   });
+}
+
+function invokeAttemptError(
+  request: ProbeInvokeFacetRequestV1,
+  suffix: "response_too_large" | "state_failure",
+): string {
+  return request.scenario === "facet_executor_invoke"
+    ? `facet_executor_${suffix}`
+    : request.scenario === "executor_worker_invoke"
+    ? `executor_worker_${suffix}`
+    : `session_executor_${suffix}`;
 }
 
 function initializeSessionStorage(sql: SqlStorage): void {
@@ -1754,7 +1894,7 @@ function initializeSessionStorage(sql: SqlStorage): void {
   sql.exec(`CREATE TABLE IF NOT EXISTS probe_session_executor_attempts (
     attempt_id TEXT PRIMARY KEY,
     request_json TEXT NOT NULL,
-    capability_token TEXT NOT NULL,
+    capability_token TEXT,
     phase TEXT NOT NULL CHECK (phase IN ('running', 'finishing', 'completed')),
     read_calls INTEGER NOT NULL DEFAULT 0 CHECK (read_calls BETWEEN 0 AND 1),
     response_status INTEGER,

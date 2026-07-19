@@ -22,12 +22,14 @@ import {
 } from "../src/commitProtocol";
 import { PROBE_SAMPLE_ROUTE } from "../src/gateway";
 import {
-  PROBE_ACTIVE_CAMPAIGN_MATRIX_V1,
+  PROBE_FACET_EXECUTOR_AB_MATRIX_V1,
   PROBE_LOCAL_REHEARSAL_MATRIX_V1,
+  PROBE_SESSION_EXECUTOR_AB_MATRIX_V1,
 } from "../src/matrix";
 import {
   PROBE_PROTOCOL_VERSION_V1,
   probeSampleIdentityV1,
+  type ProbeRunRequestV1,
 } from "../src/protocol";
 import {
   ProbePublicSampleRequestV1Schema,
@@ -190,6 +192,132 @@ describe.sequential("P07B resumable facet purge", () => {
         probeDataCleared: true,
         completionTombstoneRetained: true,
       });
+    } finally {
+      await harness.dispose();
+    }
+  }, 90_000);
+
+  it("purges completed and unstarted facet-executor attempts exactly", async () => {
+    const harness = await createRuntimeProbeHarness();
+    try {
+      const manifest = focusedFacetExecutorManifest(
+        "p16_facet_executor_partial_purge",
+      );
+      const run = manifest.runs.find(candidate =>
+        candidate.scenario === "facet_executor_invoke"
+      );
+      const controlRun = manifest.runs.find(candidate =>
+        candidate.scenario === "executor_worker_invoke"
+      );
+      if (run === undefined || controlRun === undefined) {
+        throw new Error("facet executor purge pair is missing");
+      }
+      const bindings = await harness.bindings();
+      const campaign = bindings.PROBE_CAMPAIGN.getByName(
+        PROBE_CAMPAIGN_ACTOR_NAME,
+      );
+      const control = ProbeCampaignControlRequestV1Schema.make({
+        protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+        campaignId: manifest.campaignId,
+      });
+      expect(await campaign.register(manifest)).toMatchObject({
+        kind: "registered",
+      });
+      const sample = await harness.mf.dispatchFetch(
+        `https://probe.test${PROBE_SAMPLE_ROUTE}`,
+        {
+          method: "POST",
+          headers: {
+            authorization: PROBE_TEST_AUTHORIZATION,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(ProbePublicSampleRequestV1Schema.make({
+            protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+            runId: run.runId,
+            sampleOrdinal: ProbeOrdinalSchema.make(0),
+          })),
+        },
+      );
+      expect(sample.status).toBe(200);
+      await sample.arrayBuffer();
+      const controlSample = await harness.mf.dispatchFetch(
+        `https://probe.test${PROBE_SAMPLE_ROUTE}`,
+        {
+          method: "POST",
+          headers: {
+            authorization: PROBE_TEST_AUTHORIZATION,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(ProbePublicSampleRequestV1Schema.make({
+            protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+            runId: controlRun.runId,
+            sampleOrdinal: ProbeOrdinalSchema.make(0),
+          })),
+        },
+      );
+      expect(controlSample.status).toBe(200);
+      await controlSample.arrayBuffer();
+      expect(await campaign.reconcile(control)).toMatchObject({
+        kind: "accepted",
+        status: { state: "reconciled" },
+      });
+      expect(await campaign.sealEvidence(control)).toMatchObject({
+        kind: "accepted",
+        status: { state: "evidence-sealed" },
+      });
+      const purge = ProbeCampaignPurgeRequestV1Schema.make({
+        ...control,
+        maxTasks: 16,
+      });
+      let purged = false;
+      for (let step = 0; step < 64; step += 1) {
+        const receipt = await campaign.purge(purge);
+        if (receipt.kind === "accepted" && receipt.status.state === "purged") {
+          purged = true;
+          break;
+        }
+      }
+      expect(purged).toBe(true);
+      const completed = sessionPurgeReplayForRun(
+        manifest.campaignId,
+        run,
+        0,
+      );
+      const unstarted = sessionPurgeReplayForRun(
+        manifest.campaignId,
+        run,
+        1,
+      );
+      expect(await bindings.PROBE_SESSIONS.getByName(completed.sessionId)
+        .purge(completed.request)).toMatchObject({
+          deletedFacets: 1,
+          probeDataCleared: true,
+        });
+      expect(await bindings.PROBE_SESSIONS.getByName(unstarted.sessionId)
+        .purge(unstarted.request)).toMatchObject({
+          deletedFacets: 0,
+          probeDataCleared: true,
+        });
+      const completedControl = sessionPurgeReplayForRun(
+        manifest.campaignId,
+        controlRun,
+        0,
+      );
+      expect(await bindings.PROBE_SESSIONS.getByName(completedControl.sessionId)
+        .purge(completedControl.request)).toMatchObject({
+          deletedFacets: 1,
+          probeDataCleared: true,
+        });
+      const absentControl = sessionPurgeReplayForRun(
+        manifest.campaignId,
+        controlRun,
+        1,
+      );
+      expect(await bindings.PROBE_SESSIONS.getByName(absentControl.sessionId)
+        .purge(absentControl.request)).toMatchObject({
+          deletedFacets: 0,
+          probeDataCleared: true,
+        });
     } finally {
       await harness.dispose();
     }
@@ -821,7 +949,7 @@ function focusedFullInvokeManifest(campaignId: string) {
 }
 
 function focusedSessionExecutorManifest(campaignId: string) {
-  const run = PROBE_ACTIVE_CAMPAIGN_MATRIX_V1.runs.find(candidate =>
+  const run = PROBE_SESSION_EXECUTOR_AB_MATRIX_V1.runs.find(candidate =>
     candidate.scenario === "session_executor_invoke" &&
     candidate.warmupRepetitions === 2
   );
@@ -833,6 +961,25 @@ function focusedSessionExecutorManifest(campaignId: string) {
     campaignId: ProbeCampaignIdSchema.make(campaignId),
     collectorConcurrency: 1,
     runs: [run],
+  });
+}
+
+function focusedFacetExecutorManifest(campaignId: string) {
+  const runs = PROBE_FACET_EXECUTOR_AB_MATRIX_V1.runs.filter(candidate =>
+    candidate.warmupRepetitions === 2
+  );
+  if (
+    runs.length !== 2 ||
+    !runs.some(run => run.scenario === "executor_worker_invoke") ||
+    !runs.some(run => run.scenario === "facet_executor_invoke")
+  ) {
+    throw new Error("facet executor production pair is missing");
+  }
+  return ProbeCampaignManifestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    campaignId: ProbeCampaignIdSchema.make(campaignId),
+    collectorConcurrency: 1,
+    runs,
   });
 }
 
@@ -894,6 +1041,22 @@ function sessionPurgeReplayForManifest(
       facets,
     }),
   };
+}
+
+function sessionPurgeReplayForRun(
+  campaignId: ProbeCampaignManifestV1["campaignId"],
+  run: ProbeRunRequestV1,
+  sampleOrdinalValue: number,
+) {
+  return sessionPurgeReplayForManifest(
+    ProbeCampaignManifestV1Schema.make({
+      protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+      campaignId,
+      collectorConcurrency: 1,
+      runs: [run],
+    }),
+    sampleOrdinalValue,
+  );
 }
 
 function harnessTransport(harness: RuntimeProbeHarness) {

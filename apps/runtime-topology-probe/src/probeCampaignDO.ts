@@ -642,6 +642,7 @@ function insertPurgeTasks(
       run.scenario === "commit_wake" ||
       run.scenario === "full_invoke" ||
       run.scenario === "executor_worker_invoke" ||
+      run.scenario === "facet_executor_invoke" ||
       run.scenario === "session_executor_invoke" ||
       run.scenario === "sync_rerun"
     ) {

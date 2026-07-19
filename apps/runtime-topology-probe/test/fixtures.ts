@@ -95,6 +95,7 @@ export function controlledSample(
     (sample.scenario === "commit_wake" ||
         sample.scenario === "full_invoke" ||
         sample.scenario === "executor_worker_invoke" ||
+        sample.scenario === "facet_executor_invoke" ||
         sample.scenario === "session_executor_invoke"
       ? { kind: "observed", disposition: "applied" } as const
       : { kind: "not-applicable" } as const);
@@ -127,6 +128,7 @@ function startupForScenario(scenario: ProbeScenario) {
     case "facet_journal":
     case "full_invoke":
     case "executor_worker_invoke":
+    case "facet_executor_invoke":
     case "session_executor_invoke":
     case "sync_rerun":
       return { workerLoader: "callback-ran", facet: "callback-ran" } as const;

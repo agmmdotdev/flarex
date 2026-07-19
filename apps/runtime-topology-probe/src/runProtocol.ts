@@ -589,10 +589,12 @@ export function probeRunBudgetPlanV1(
     run.scenario === "facet_journal" ||
     run.scenario === "full_invoke" ||
     run.scenario === "executor_worker_invoke" ||
+    run.scenario === "facet_executor_invoke" ||
     run.scenario === "session_executor_invoke" ||
     run.scenario === "sync_rerun";
   const usesAttemptScopedLoader =
     run.scenario === "executor_worker_invoke" ||
+    run.scenario === "facet_executor_invoke" ||
     run.scenario === "session_executor_invoke";
   const uniqueCodeIds = !hasDynamicCode
     ? 0
@@ -756,6 +758,7 @@ function runSampleRelationshipIssue(
     const wakeScenario = status.run.scenario === "commit_wake" ||
       status.run.scenario === "full_invoke" ||
       status.run.scenario === "executor_worker_invoke" ||
+      status.run.scenario === "facet_executor_invoke" ||
       status.run.scenario === "session_executor_invoke";
     if (
       (wakeScenario && sample.syncWake.kind === "not-applicable") ||
@@ -821,6 +824,7 @@ function expectedConsumedCodeIds(
   if (status.budgets.planned.uniqueCodeIds === 0) return 0;
   if (
     status.run.scenario === "executor_worker_invoke" ||
+    status.run.scenario === "facet_executor_invoke" ||
     status.run.scenario === "session_executor_invoke"
   ) {
     return status.counters.claimed;

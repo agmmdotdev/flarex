@@ -665,14 +665,58 @@ correctness threshold without treating mock evidence as a Postgres commit
 result. Purge application state, remove every temporary Cloudflare resource,
 prove absence, and commit only the isolated app files.
 
+### P16 - Facet-Resident Executor A/B Preflight
+
+Status: complete. The exact trust boundary,
+matched control/candidate paths, frozen 28-sample matrix, latency thresholds,
+fresh USD 0.25 ceiling, and teardown contract are recorded in
+[`P16-FACET-RESIDENT-EXECUTOR-AB-PREFLIGHT.md`](./P16-FACET-RESIDENT-EXECUTOR-AB-PREFLIGHT.md).
+
+The candidate receives one trusted synthetic snapshot before handler execution,
+performs its logical read, journal, result, and sealed commit-intent work inside
+the attempt facet, and makes no in-handler read-capability call. Postgres, OCC,
+physical planning, authoritative outcomes, and real sync remain non-goals.
+
+### P17 - Implement And Prove Facet-Resident Execution Locally
+
+Status: complete. The implementation and local receipt are recorded in
+[`P17-LOCAL-FACET-EXECUTOR-PROOF.md`](./P17-LOCAL-FACET-EXECUTOR-PROOF.md).
+
+Implement the strict snapshot-seeded facet request and sealed intent response,
+matched trace/evidence contracts, attempt-fenced cleanup, and frozen campaign.
+Prove exact correlation, forged evidence rejection, replay/conflict/busy
+behavior, zero candidate read calls, completed and unstarted purge, full tests,
+typecheck, Wrangler dry-runs, and clean mandatory reviews.
+
+### P18 - Run The Bounded Production Facet A/B
+
+Status: complete. The sanitized production receipt is recorded in
+[`P18-PRODUCTION-FACET-EXECUTOR-AB.md`](./P18-PRODUCTION-FACET-EXECUTOR-AB.md).
+
+Deploy only the isolated probe, run the immutable P16 campaign within the fresh
+USD 0.25 ceiling, persist and reread secret-free evidence, report matched
+correctness and latency plus Dynamic Worker usage/cost, and purge application
+state.
+
+### P19 - Conclusions And Teardown
+
+Status: complete. The bounded decision and complete absence proof are recorded
+in [`P19-CONCLUSIONS-AND-TEARDOWN.md`](./P19-CONCLUSIONS-AND-TEARDOWN.md).
+
+Apply the predeclared mechanical, locality, and end-to-end thresholds without
+claiming a real Postgres executor result. Remove every temporary Cloudflare
+resource, prove script and namespace absence, record the bounded architecture
+meaning, and commit only the isolated app files.
+
 ## Goal Loop State
 
-- Goal: complete. P12-P15 extended the isolated probe with one approved
-  SessionDO-hosted mock executor A/B and do not change active architecture
-  roadmaps.
+- Goal: complete. P16-P19 extended the isolated probe with one approved
+  snapshot-seeded facet-resident executor A/B and do not change active
+  architecture roadmaps.
 - Previous baseline: P11 closed and removed the original deployment; its
   ignored evidence remains secret-free and unstaged.
-- Current gate: closed. P14 evidence and P15 teardown are complete.
-- Terminal gate: P15 must record the bounded conclusion, purge application
+- Terminal result: locality passed, end-to-end promotion failed, application
+  and external teardown passed, and the future experiment is closed.
+- Terminal gate: P19 must record the bounded conclusion, purge application
   state, remove all temporary Workers/namespaces, verify absence, and commit the
   app-local evidence.

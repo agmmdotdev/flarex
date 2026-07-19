@@ -10,6 +10,7 @@ import {
 import { ProbeCampaignIdSchema, ProbeRunIdSchema } from "../src/identity";
 import {
   PROBE_LOCAL_REHEARSAL_MATRIX_V1,
+  PROBE_FACET_EXECUTOR_AB_MATRIX_V1,
   PROBE_SESSION_EXECUTOR_AB_MATRIX_V1,
 } from "../src/matrix";
 import {
@@ -27,6 +28,42 @@ describe("campaign protocol", () => {
       payloadBytes: 960,
       journalEntries: 20,
       uniqueCodeIds: 12,
+    });
+  });
+
+  it("pins the paired facet executor campaign and attempt-scoped loaders", () => {
+    expect(probeCampaignBudgetPlanV1(PROBE_FACET_EXECUTOR_AB_MATRIX_V1))
+      .toEqual({
+        runCells: 24,
+        sampleExecutions: 28,
+        payloadBytes: 1_792,
+        journalEntries: 56,
+        uniqueCodeIds: 28,
+      });
+    expect(PROBE_FACET_EXECUTOR_AB_MATRIX_V1).toEqual({
+      protocolVersion: 1,
+      campaignId: "p16_facet_executor_ab_v1",
+      collectorConcurrency: 1,
+      runs: Array.from({ length: 12 }, (_, index) => index + 1).flatMap(
+        pair => [
+          { scenario: "executor_worker_invoke", host: "bound" },
+          { scenario: "facet_executor_invoke", host: "facet" },
+        ].map(({ scenario, host }) => ({
+          protocolVersion: 1,
+          runId: `p16_${pair.toString().padStart(2, "0")}_${host}`,
+          scenario,
+          replicate: pair,
+          repetitions: 1,
+          warmupRepetitions: pair === 1 ? 2 : 0,
+          dimensions: {
+            codeMode: "stable",
+            concurrency: 1,
+            journalEntries: 2,
+            payloadBytes: 64,
+            sessionMode: "new-session",
+          },
+        })),
+      ),
     });
   });
 

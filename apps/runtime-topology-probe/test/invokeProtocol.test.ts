@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { probeSyntheticCommitSeq } from "../src/commitProtocol";
+import {
+  probeSyntheticCommitSeq,
+  ProbeMockReadResponseV1Schema,
+  ProbeSyntheticCursorSchema,
+} from "../src/commitProtocol";
 import {
   decodeProbeOrdinalEffect,
   decodeProbeRunIdEffect,
@@ -12,9 +16,14 @@ import {
 } from "../src/identity";
 import {
   decodeProbeFullInvokeSessionFailureV1Effect,
+  decodeProbeInvokeFacetExecutionRequestV1OrNull,
   decodeProbeInvokeFacetRequestV1Effect,
   decodeProbeInvokeFacetWorkerResponseV1Effect,
+  probeFacetCommitIntentDigest,
+  probeInvokeFacetReceiptMatchesRequestV1,
   probeInvokeJournalSealDigest,
+  probeInvokeResultDigest,
+  probeMockReadRequestFromInvoke,
   ProbeInvokeFacetRequestV1Schema,
 } from "../src/invokeProtocol";
 import { PROBE_PROTOCOL_VERSION_V1 } from "../src/protocol";
@@ -72,14 +81,31 @@ describe("P05 full-invoke protocol", () => {
   it("requires the mock read to attest the pre-commit synthetic revision", async () => {
     const request = invokeRequest();
     const sealDigest = await probeInvokeJournalSealDigest(request);
+    const resultDigest = await probeInvokeResultDigest(request, 0);
+    const commitIntentDigest = await probeFacetCommitIntentDigest(request, {
+      syntheticRevision: ProbeSyntheticCursorSchema.make(0),
+      sealDigest,
+      resultDigest,
+    });
     const response = {
       ...request,
       payload: undefined,
       payloadBytes: request.payload.length,
       syntheticRevision: 0,
       mockReadDurationMs: 1,
+      readMode: "bound-capability",
+      outboundReadCalls: 1,
       journalDurationMs: 2,
       sealDigest,
+      resultDigest,
+      commitIntent: {
+        protocolVersion: 1,
+        snapshotRevision: 0,
+        journalEntries: request.journalEntries,
+        journalSealDigest: sealDigest,
+        resultDigest,
+        digest: commitIntentDigest,
+      },
     };
     const { payload: _removedPayload, ...wireResponse } = response;
     const decoded = await runEffectTest(
@@ -100,14 +126,31 @@ describe("P05 full-invoke protocol", () => {
   it("strictly carries completed nested observations for a rejected cursor", async () => {
     const request = invokeRequest(2, "p05_invoke_failure");
     const sealDigest = await probeInvokeJournalSealDigest(request);
+    const resultDigest = await probeInvokeResultDigest(request, 2);
+    const commitIntentDigest = await probeFacetCommitIntentDigest(request, {
+      syntheticRevision: 2,
+      sealDigest,
+      resultDigest,
+    });
     const { payload: _payload, ...identity } = request;
     const facet = {
       ...identity,
       payloadBytes: request.payload.length,
       syntheticRevision: 2,
       mockReadDurationMs: 1,
+      readMode: "bound-capability",
+      outboundReadCalls: 1,
       journalDurationMs: 2,
       sealDigest,
+      resultDigest,
+      commitIntent: {
+        protocolVersion: 1,
+        snapshotRevision: 2,
+        journalEntries: request.journalEntries,
+        journalSealDigest: sealDigest,
+        resultDigest,
+        digest: commitIntentDigest,
+      },
     } as const;
     const finishRequest = { ...identity, sealDigest } as const;
     const sync = {
@@ -131,6 +174,7 @@ describe("P05 full-invoke protocol", () => {
       executorHost: "external-worker",
       readCapabilityCalls: 0,
       sessionMockFinishDurationMs: 5,
+      snapshotReadDurationMs: null,
       finish: {
         request: finishRequest,
         mockSyncWakeDurationMs: 6,
@@ -172,11 +216,78 @@ describe("P05 full-invoke protocol", () => {
       ),
     ).rejects.toBeDefined();
   });
+
+  it("requires an exact snapshot and rejects forged facet commit intent", async () => {
+    const request = invokeRequest(
+      0,
+      "p16_facet_intent",
+      "facet_executor_invoke",
+    );
+    const readRequest = probeMockReadRequestFromInvoke(request);
+    const snapshot = ProbeMockReadResponseV1Schema.make({
+      ...readRequest,
+      syntheticRevision: ProbeSyntheticCursorSchema.make(0),
+    });
+    expect(decodeProbeInvokeFacetExecutionRequestV1OrNull({
+      ...request,
+      prefetchedRead: snapshot,
+    })).not.toBeNull();
+    expect(decodeProbeInvokeFacetExecutionRequestV1OrNull({
+      ...request,
+      prefetchedRead: null,
+    })).toBeNull();
+
+    const sealDigest = await probeInvokeJournalSealDigest(request);
+    const resultDigest = await probeInvokeResultDigest(request, 0);
+    const commitIntentDigest = await probeFacetCommitIntentDigest(request, {
+      syntheticRevision: 0,
+      sealDigest,
+      resultDigest,
+    });
+    const response = {
+      ...request,
+      payload: undefined,
+      payloadBytes: request.payload.length,
+      syntheticRevision: 0,
+      mockReadDurationMs: 1,
+      readMode: "prefetched-snapshot" as const,
+      outboundReadCalls: 0,
+      journalDurationMs: 2,
+      sealDigest,
+      resultDigest,
+      commitIntent: {
+        protocolVersion: 1,
+        snapshotRevision: 0,
+        journalEntries: request.journalEntries,
+        journalSealDigest: sealDigest,
+        resultDigest,
+        digest: commitIntentDigest,
+      },
+    };
+    const { payload: _removedPayload, ...wireResponse } = response;
+    const decoded = await runEffectTest(
+      decodeProbeInvokeFacetWorkerResponseV1Effect(wireResponse),
+    );
+    expect(await probeInvokeFacetReceiptMatchesRequestV1(decoded, request))
+      .toBe(true);
+    expect(await probeInvokeFacetReceiptMatchesRequestV1(
+      {
+        ...decoded,
+        commitIntent: { ...decoded.commitIntent, digest: "0".repeat(64) },
+      },
+      request,
+    )).toBe(false);
+  });
 });
 
 function invokeRequest(
   sampleOrdinalValue = 0,
   runIdValue = "p05_invoke_protocol",
+  scenario:
+    | "executor_worker_invoke"
+    | "facet_executor_invoke"
+    | "full_invoke"
+    | "session_executor_invoke" = "full_invoke",
 ) {
   const runId = runEffectTestSync(
     decodeProbeRunIdEffect(runIdValue),
@@ -190,7 +301,7 @@ function invokeRequest(
     sampleId: probeSampleId(runId, sampleOrdinal),
     sampleOrdinal,
     scopeId: probeScopeId(runId),
-    scenario: "full_invoke",
+    scenario,
     commitSeq: probeSyntheticCommitSeq(sampleOrdinal),
     sessionId: probeSessionId(runId, sampleOrdinal),
     sessionMode: "new-session",

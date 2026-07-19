@@ -32,6 +32,7 @@ import {
 export const ProbeInvokeCommitScenarioSchema = Schema.Literals([
   "full_invoke",
   "executor_worker_invoke",
+  "facet_executor_invoke",
   "session_executor_invoke",
 ]);
 export type ProbeInvokeCommitScenario =

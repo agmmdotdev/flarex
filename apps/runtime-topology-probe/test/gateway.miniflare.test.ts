@@ -859,6 +859,174 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     });
   });
 
+  it("executes from a trusted snapshot inside the facet with no outbound read", async () => {
+    const measured = await measuredDispatchOnFreshHarness(
+      validSampleRequest("facet_executor_invoke", "p16_test_facet", {
+        journalEntries: 2,
+        payloadBytes: 64,
+      }),
+    );
+    const sample = completeProbeGatewaySampleV1(
+      measured.fragment,
+      measured.durationMs,
+    );
+    expect(sample.spans.map(span => span.name)).toEqual([
+      "external_request",
+      "gateway_session_rtt",
+      "session_snapshot_read_rtt",
+      "session_facet_rtt",
+      "facet_snapshot_read",
+      "facet_journal_io",
+      "session_mock_finish_rtt",
+      "mock_sync_wake_rtt",
+      "sync_cursor_io",
+    ]);
+    expect(validateProbeTraceV1(sample)).toEqual({ ok: true });
+    expect(measured.control.syncWake).toEqual({
+      kind: "observed",
+      disposition: "applied",
+    });
+
+    const directRequest = facetExecutorInvokeRequest("p16_direct_receipt");
+    const response = await directFullInvoke(harness, directRequest);
+    expect(response.status).toBe(200);
+    const receipt = await runEffectTest(
+      decodeProbeFullInvokeSessionResponseV1Effect(await response.json()),
+    );
+    expect(receipt).toMatchObject({
+      executorHost: "facet-do",
+      readCapabilityCalls: 0,
+      facet: {
+        readMode: "prefetched-snapshot",
+        outboundReadCalls: 0,
+      },
+    });
+    expect(receipt.snapshotReadDurationMs).not.toBeNull();
+    expect(receipt.facet.commitIntent).toMatchObject({
+      protocolVersion: 1,
+      snapshotRevision: 0,
+      journalEntries: 2,
+      journalSealDigest: receipt.facet.sealDigest,
+      resultDigest: receipt.facet.resultDigest,
+    });
+    expect(receipt.facet.commitIntent.digest).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("replays one completed facet-executor attempt and rejects changed evidence", async () => {
+    const request = facetExecutorInvokeRequest("p16_facet_replay");
+    const first = await directFullInvoke(harness, request);
+    const repeated = await directFullInvoke(harness, request);
+    const changed = await directFullInvoke(harness, {
+      ...request,
+      payload: `${request.payload}x`,
+    });
+    const firstBody = await first.text();
+
+    expect(first.status, firstBody).toBe(200);
+    expect(repeated.status).toBe(200);
+    expect(await repeated.text()).toBe(firstBody);
+    await runEffectTest(
+      decodeProbeFullInvokeSessionResponseV1Effect(JSON.parse(firstBody)),
+    );
+    expect(changed.status).toBe(409);
+    expect(await changed.json()).toEqual({
+      error: "facet_executor_attempt_conflict",
+    });
+    expect(await syncCursor(harness, "p16_facet_replay", "read")).toBe(1);
+  });
+
+  it("gives the external control the same durable replay and conflict fence", async () => {
+    const request = externalExecutorInvokeRequest("p16_external_replay");
+    const first = await directFullInvoke(harness, request);
+    const repeated = await directFullInvoke(harness, request);
+    const changed = await directFullInvoke(harness, {
+      ...request,
+      payload: `${request.payload}x`,
+    });
+    const firstBody = await first.text();
+
+    expect(first.status, firstBody).toBe(200);
+    expect(repeated.status).toBe(200);
+    expect(await repeated.text()).toBe(firstBody);
+    expect(changed.status).toBe(409);
+    expect(await changed.json()).toEqual({
+      error: "executor_worker_attempt_conflict",
+    });
+    expect(await syncCursor(harness, "p16_external_replay", "read")).toBe(1);
+  });
+
+  it("fails an in-progress facet-executor duplicate closed, then replays it", async () => {
+    const delayed = await createRuntimeProbeHarness({ mockReadDelayMs: 500 });
+    try {
+      const request = facetExecutorInvokeRequest("p16_facet_concurrent");
+      const bindings = await delayed.bindings();
+      const session = bindings.PROBE_SESSIONS.getByName(request.sessionId);
+      const invoke = () => session.fetch(
+        "https://probe-session.internal/v1/full-invoke",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+        },
+      );
+      const responses = await Promise.all([invoke(), invoke()]);
+      const completed = responses.find(response => response.status === 200);
+      const busy = responses.find(response => response.status === 409);
+      if (completed === undefined || busy === undefined) {
+        throw new Error("expected one facet completion and one busy duplicate");
+      }
+      const completedBody = await completed.text();
+      const replay = await invoke();
+
+      expect(await busy.json()).toEqual({
+        error: "facet_executor_attempt_busy",
+      });
+      expect(replay.status).toBe(200);
+      expect(await replay.text()).toBe(completedBody);
+      expect(
+        await syncCursor(delayed, "p16_facet_concurrent", "read"),
+      ).toBe(1);
+    } finally {
+      await delayed.dispose();
+    }
+  });
+
+  it("fails an in-progress external-control duplicate closed, then replays it", async () => {
+    const delayed = await createRuntimeProbeHarness({ mockReadDelayMs: 500 });
+    try {
+      const request = externalExecutorInvokeRequest("p16_external_concurrent");
+      const bindings = await delayed.bindings();
+      const session = bindings.PROBE_SESSIONS.getByName(request.sessionId);
+      const invoke = () => session.fetch(
+        "https://probe-session.internal/v1/full-invoke",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+        },
+      );
+      const responses = await Promise.all([invoke(), invoke()]);
+      const completed = responses.find(response => response.status === 200);
+      const busy = responses.find(response => response.status === 409);
+      if (completed === undefined || busy === undefined) {
+        throw new Error("expected one control completion and one busy duplicate");
+      }
+      const completedBody = await completed.text();
+      const replay = await invoke();
+
+      expect(await busy.json()).toEqual({
+        error: "executor_worker_attempt_busy",
+      });
+      expect(replay.status).toBe(200);
+      expect(await replay.text()).toBe(completedBody);
+      expect(
+        await syncCursor(delayed, "p16_external_concurrent", "read"),
+      ).toBe(1);
+    } finally {
+      await delayed.dispose();
+    }
+  });
+
   it("replays one completed SessionDO attempt and rejects changed evidence", async () => {
     const request = candidateInvokeRequest("p12_session_replay");
     const completed = await measuredDispatch(
@@ -1229,6 +1397,7 @@ type SupportedScenario =
   | "commit_wake"
   | "full_invoke"
   | "executor_worker_invoke"
+  | "facet_executor_invoke"
   | "session_executor_invoke"
   | "session_echo"
   | "sync_rerun";
@@ -1264,9 +1433,54 @@ function candidateInvokeRequest(runIdValue: string) {
   });
 }
 
+function facetExecutorInvokeRequest(runIdValue: string) {
+  const runId = runEffectTestSync(decodeProbeRunIdEffect(runIdValue));
+  const sampleOrdinal = runEffectTestSync(decodeProbeOrdinalEffect(0));
+  return ProbeInvokeFacetRequestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    runId,
+    sampleId: probeSampleId(runId, sampleOrdinal),
+    sampleOrdinal,
+    scopeId: probeScopeId(runId),
+    scenario: "facet_executor_invoke",
+    commitSeq: probeSyntheticCommitSeq(sampleOrdinal),
+    sessionId: probeSessionId(runId, sampleOrdinal),
+    sessionMode: "new-session",
+    attemptId: probeAttemptId(runId, sampleOrdinal, sampleOrdinal),
+    codeMode: "stable",
+    codeId: probeCodeId({ mode: "stable", profile: "invoke" }),
+    journalEntries: 2,
+    payload: "x".repeat(64),
+  });
+}
+
+function externalExecutorInvokeRequest(runIdValue: string) {
+  const runId = runEffectTestSync(decodeProbeRunIdEffect(runIdValue));
+  const sampleOrdinal = runEffectTestSync(decodeProbeOrdinalEffect(0));
+  return ProbeInvokeFacetRequestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    runId,
+    sampleId: probeSampleId(runId, sampleOrdinal),
+    sampleOrdinal,
+    scopeId: probeScopeId(runId),
+    scenario: "executor_worker_invoke",
+    commitSeq: probeSyntheticCommitSeq(sampleOrdinal),
+    sessionId: probeSessionId(runId, sampleOrdinal),
+    sessionMode: "new-session",
+    attemptId: probeAttemptId(runId, sampleOrdinal, sampleOrdinal),
+    codeMode: "stable",
+    codeId: probeCodeId({ mode: "stable", profile: "invoke" }),
+    journalEntries: 2,
+    payload: "x".repeat(64),
+  });
+}
+
 async function directFullInvoke(
   runtime: RuntimeProbeHarness,
-  request: ReturnType<typeof candidateInvokeRequest>,
+  request:
+    | ReturnType<typeof candidateInvokeRequest>
+    | ReturnType<typeof facetExecutorInvokeRequest>
+    | ReturnType<typeof externalExecutorInvokeRequest>,
 ) {
   const bindings = await runtime.bindings();
   return await bindings.PROBE_SESSIONS.getByName(request.sessionId).fetch(

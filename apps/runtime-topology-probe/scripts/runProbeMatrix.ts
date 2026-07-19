@@ -175,5 +175,22 @@ function failRunner(error: ProbeRunnerError): never {
   console.error(
     `Runtime topology probe failed at ${error.stage}; retryable=${String(error.retryable)}.`,
   );
+  console.error(`Failure cause: ${probeFailureCauseSummary(error.cause)}`);
   process.exit(1);
+}
+
+function probeFailureCauseSummary(cause: unknown): string {
+  if (cause instanceof Error) {
+    return JSON.stringify({ name: cause.name });
+  }
+  if (
+    cause === null ||
+    typeof cause === "number" ||
+    typeof cause === "boolean"
+  ) {
+    return JSON.stringify(cause);
+  }
+  return typeof cause === "string"
+    ? "[string cause redacted]"
+    : "[structured cause redacted]";
 }

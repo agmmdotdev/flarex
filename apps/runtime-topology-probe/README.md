@@ -7,10 +7,15 @@ and teardown requirements live in [`PLAN.md`](./PLAN.md).
 
 ## Current Slice
 
-`P15` is complete. After the original P02-P11 topology experiment, the app ran
+`P19` is complete. After the original P02-P11 topology experiment, the app ran
 an isolated SessionDO-hosted mock-executor A/B against the retained external
 Worker control, rejected the candidate on its frozen latency threshold, and
-again removed every Cloudflare resource. The app wrapped the communication shapes in durable
+again removed every Cloudflare resource. The new app-local extension compares
+the retained bound-read facet control with a snapshot-seeded facet that owns
+the complete synthetic execution and sealed commit-intent construction without
+an in-handler callback. The candidate passed the facet-local threshold but did
+not meet the complete internal-path threshold; application and Cloudflare
+resources were purged and deleted. The app wrapped the communication shapes in durable
 per-cell and deployment-wide campaign coordination, collected the frozen P10
 production matrix, and removed every isolated Cloudflare resource without
 introducing a real executor, transaction, or sync engine. The app owns:
@@ -112,7 +117,9 @@ limits and proof that all three Workers and four namespaces are absent are in
 later matched SessionDO executor production receipt is in
 [`P14-PRODUCTION-SESSION-EXECUTOR-AB.md`](./P14-PRODUCTION-SESSION-EXECUTOR-AB.md),
 and its decision plus second complete teardown are in
-[`P15-CONCLUSIONS-AND-TEARDOWN.md`](./P15-CONCLUSIONS-AND-TEARDOWN.md).
+[`P15-CONCLUSIONS-AND-TEARDOWN.md`](./P15-CONCLUSIONS-AND-TEARDOWN.md). The
+approved third experiment boundary and frozen matrix are in
+[`P16-FACET-RESIDENT-EXECUTOR-AB-PREFLIGHT.md`](./P16-FACET-RESIDENT-EXECUTOR-AB-PREFLIGHT.md).
 
 All durations are caller-local monotonic round trips. The protocol never
 subtracts absolute timestamps created by different isolates.

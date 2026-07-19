@@ -35,6 +35,7 @@ export interface RuntimeProbeHarnessOptions {
   readonly removePersistPathOnDispose?: boolean;
   readonly mockFinish?: boolean;
   readonly mockRead?: boolean;
+  readonly mockReadDelayMs?: number;
   readonly mockRerun?: boolean;
   readonly sessionSync?: boolean;
   readonly sessionExecutorRead?: boolean;
@@ -186,6 +187,14 @@ async function createRuntimeProbeHarnessInternal<GatewayBindings extends object>
             contents: await mockBundle(),
           },
         ],
+        ...(options.mockReadDelayMs === undefined
+          ? {}
+          : {
+              bindings: {
+                RUNTIME_TOPOLOGY_PROBE_TEST_MOCK_READ_DELAY_MS:
+                  options.mockReadDelayMs.toString(),
+              },
+            }),
         durableObjects: {
           PROBE_SYNC: {
             className: "ProbeSyncDO",
