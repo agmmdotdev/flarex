@@ -33,7 +33,7 @@ import {
 } from "../src/appSchemaPublicationPreparation";
 import {
   AppSchemaPublicationV1ProjectionError,
-  publishPreparedAppSchemaV1InTransaction,
+  publishPreparedAppSchemaV1InTransactionEffect,
 } from "../src/appSchemaPublicationTransaction";
 import type { PreparedAppTableDefinitionsArtifactV1 } from "../src/appTableDefinitionsArtifacts";
 import {
@@ -55,7 +55,7 @@ type PublicInternalPublicationExport = Extract<
   | "getPreparedAppSchemaPublicationV1State"
   | "snapshotAppSchemaPublicationV1Input"
   | "prepareAppSchemaPublicationV1FromSource"
-  | "publishPreparedAppSchemaV1InTransaction"
+  | "publishPreparedAppSchemaV1InTransactionEffect"
   | "publishAppSchemaV1WithRepository"
   | "runAppSchemaPublicationV1Attempts"
   | "enforceAppSchemaPublicationV1DeclarationQuotas"
@@ -551,7 +551,9 @@ describe("app-schema V1 publication transaction", () => {
 
     await expect(
       persistence.drizzle.transaction(async (tx) => {
-        await publishPreparedAppSchemaV1InTransaction(tx, prepared);
+        await runEffect(
+          publishPreparedAppSchemaV1InTransactionEffect(tx, prepared),
+        );
         throw new Error("injected D2c rollback");
       }),
     ).rejects.toThrow("injected D2c rollback");
@@ -724,10 +726,12 @@ describe("app-schema V1 publication transaction", () => {
 
     await expect(
       persistence.drizzle.transaction((tx) =>
-        Reflect.apply(
-          publishPreparedAppSchemaV1InTransaction,
-          undefined,
-          [tx, forgery],
+        runEffect(
+          Reflect.apply(
+            publishPreparedAppSchemaV1InTransactionEffect,
+            undefined,
+            [tx, forgery],
+          ),
         )
       ),
     ).rejects.toBeInstanceOf(
@@ -911,7 +915,7 @@ async function publishPrepared(
   prepared: PreparedAppSchemaPublicationV1,
 ) {
   return persistence.drizzle.transaction((tx) =>
-    publishPreparedAppSchemaV1InTransaction(tx, prepared)
+    runEffect(publishPreparedAppSchemaV1InTransactionEffect(tx, prepared))
   );
 }
 

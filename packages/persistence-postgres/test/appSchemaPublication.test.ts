@@ -7,6 +7,7 @@ import {
   type SchemaManifestAppTableDeclarationInputV1,
 } from "flarex-protocol/schema-manifest";
 import { CatalogTableIdSchema } from "flarex-protocol/catalog";
+import { Cause } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -24,6 +25,7 @@ import {
 } from "../src/appSchemaPublicationPolicy";
 import {
   AppSchemaPublicationV1RetryExhaustedError,
+  AppSchemaPublicationV1TransactionError,
   publishAppSchemaV1WithRepository,
   MAX_APP_SCHEMA_PUBLICATION_V1_ATTEMPTS,
   runAppSchemaPublicationV1Attempts,
@@ -203,6 +205,65 @@ describe("app-schema V1 publication facade", () => {
     ).catch((error: unknown) => error);
     expect(terminalAttempts).toBe(1);
     expect(rejected).toBe(terminal);
+  });
+
+  it("retains the initiating Effect cause when transaction cleanup fails", async () => {
+    const persistence = await migratedPersistence();
+    const deploymentId = "deployment_schema_publication_v1_rollback_failure";
+    await insertDeployment(persistence, deploymentId);
+    const rollbackFailure = new Error("injected transaction rollback failure");
+    let transactionAttempts = 0;
+    const repository = {
+      db: persistence.drizzle,
+      async runTransaction<Result>(
+        run: (tx: StableTableCatalogTransaction) => Promise<Result>,
+      ): Promise<Result> {
+        transactionAttempts += 1;
+        await runEffect(ensureStableTableIdentityEffect(
+          persistence.drizzle,
+          {
+            deploymentId,
+            namespace: "payload",
+            logicalName: "allocator_winner",
+          },
+        ));
+        try {
+          return await persistence.drizzle.transaction(run);
+        } catch {
+          throw rollbackFailure;
+        }
+      },
+    } satisfies AppSchemaPublicationV1Repository;
+
+    const failure = await publishAppSchemaV1WithRepository(
+      repository,
+      publicationInput(
+        deploymentId,
+        "schema_publication_v1_rollback_failure",
+      ),
+    ).catch((cause: unknown) => cause);
+
+    expect(transactionAttempts).toBe(1);
+    expect(failure).toBeInstanceOf(AppSchemaPublicationV1TransactionError);
+    expect(failure).toMatchObject({ cause: rollbackFailure });
+    if (!(failure instanceof AppSchemaPublicationV1TransactionError)) {
+      throw new Error("Expected a typed publication transaction failure.");
+    }
+    expect(failure.callbackCause).toBeDefined();
+    if (failure.callbackCause !== undefined) {
+      expect(Cause.hasFails(failure.callbackCause)).toBe(true);
+      expect(failure.callbackCause.toString()).toContain(
+        "stable table catalog advanced",
+      );
+    }
+    await expect(catalogCounts(persistence, deploymentId)).resolves.toEqual({
+      tables: 1,
+      indexes: 0,
+      schemaVersions: 0,
+      definitions: 0,
+      schemaBindings: 0,
+      buildStates: 0,
+    });
   });
 
   it("enforces fixed declaration and canonical-byte quotas at their boundaries", () => {

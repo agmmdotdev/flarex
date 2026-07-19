@@ -2,7 +2,7 @@ import type {
   CatalogIndexDefinitionId,
   CatalogIndexId,
 } from "flarex-protocol/catalog";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import type {
   CatalogSchemaVersionId,
   SchemaManifestAppSchemaV1,
@@ -10,9 +10,14 @@ import type {
 
 import {
   getPreparedAppSchemaPublicationV1State,
+  InvalidPreparedAppSchemaPublicationV1Error,
   type PreparedAppSchemaPublicationV1,
 } from "./appSchemaPublicationPreparation";
 import {
+  AppCreationTimeIndexDefinitionRequirementError,
+  AppDeveloperIndexDefinitionRequirementError,
+  AppIndexDefinitionCatalogCorruptionError,
+  InvalidAppIndexDefinitionBindingInputError,
   ensureAppCreationTimeIndexDefinitionV1InTransaction,
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
   listAppSchemaVersionIndexBindings,
@@ -20,15 +25,35 @@ import {
   prepareAppDeveloperIndexDefinitionBindingsV1,
   type AppIndexDefinitionRecordForAccessKindV1,
   type AppSchemaVersionIndexBindingRecord,
+  type EnsureAppCreationTimeIndexDefinitionV1Error,
+  type EnsureAppDeveloperIndexDefinitionBindingV1Error,
   type EnsureAppDeveloperIndexDefinitionBindingV1Result,
 } from "./appIndexDefinitions";
-import { applySchemaManifestAppSchemaBindingsV1InTransaction } from "./schemaManifestAppSchemaBindings";
+import {
+  applySchemaManifestAppSchemaBindingsV1InTransaction,
+  InvalidPreparedSchemaManifestAppSchemaBindingsError,
+  SchemaManifestAppSchemaBindingPlanStaleError,
+} from "./schemaManifestAppSchemaBindings";
+import { SchemaManifestTableBindingCorruptionError } from
+  "./schemaManifestTableBindings";
 import {
   ensureSchemaVersionArtifactInTransaction,
+  InvalidPreparedSchemaVersionArtifactError,
+  SchemaManifestChecksumCollisionError,
+  SchemaVersionArtifactConflictError,
+  SchemaVersionArtifactCorruptionError,
+  SchemaVersionArtifactDeploymentNotFoundError,
   verifyPreparedSchemaVersionArtifactInTransaction,
   type SchemaVersionArtifact,
 } from "./schemaVersionArtifacts";
-import type { StableTableCatalogTransaction } from "./stableTableCatalog";
+import {
+  StableTableCatalogDeploymentNotFoundError,
+  type StableTableCatalogTransaction,
+} from "./stableTableCatalog";
+import { StableTableCatalogCorruptionError } from
+  "./stableTableCatalogAllocation";
+import { StableLogicalIndexCatalogCorruptionError } from
+  "./stableLogicalIndexCatalogAllocation";
 
 export interface AppSchemaPublicationV1Result {
   readonly manifest: SchemaManifestAppSchemaV1;
@@ -71,6 +96,15 @@ export class AppSchemaPublicationV1ProjectionError extends Error {
   }
 }
 
+export type PublishPreparedAppSchemaV1InTransactionError =
+  | AppSchemaPublicationV1PreparationFailure
+  | AppSchemaPublicationV1LogicalBindingFailure
+  | AppSchemaPublicationV1ArtifactFailure
+  | EnsureAppCreationTimeIndexDefinitionV1Error
+  | EnsureAppDeveloperIndexDefinitionBindingV1Error
+  | AppSchemaPublicationV1BindingReadFailure
+  | AppSchemaPublicationV1ProjectionError;
+
 /**
  * Atomically apply and verify one already-prepared full app-schema projection.
  *
@@ -80,55 +114,74 @@ export class AppSchemaPublicationV1ProjectionError extends Error {
  * derived from the authenticated D2a envelope before the first SQL await, and
  * the locked phase performs no canonical encoding or hashing.
  */
-export async function publishPreparedAppSchemaV1InTransaction(
+export const publishPreparedAppSchemaV1InTransactionEffect = Effect.fn(
+  "AppSchemaPublication.publishPreparedInTransaction",
+)(function* (
   tx: StableTableCatalogTransaction,
   publication: PreparedAppSchemaPublicationV1,
-): Promise<AppSchemaPublicationV1Result> {
-  const state = getPreparedAppSchemaPublicationV1State(publication);
-  const creationTimeTokens =
-    prepareAppCreationTimeIndexDefinitionsV1(publication);
-  const developerTokens =
-    prepareAppDeveloperIndexDefinitionBindingsV1(publication);
-
-  const manifest = await applySchemaManifestAppSchemaBindingsV1InTransaction(
-    tx,
-    state.logicalBindings,
+): Effect.fn.Return<
+  AppSchemaPublicationV1Result,
+  PublishPreparedAppSchemaV1InTransactionError
+> {
+  const prepared = yield* Effect.fromResult(
+    prepareAppSchemaPublicationTransactionResult(publication),
   );
-  await ensureSchemaVersionArtifactInTransaction(tx, state.artifact);
+  const { state, creationTimeTokens, developerTokens } = prepared;
+
+  const manifest = yield* transitionalPromiseEffect(
+    () => applySchemaManifestAppSchemaBindingsV1InTransaction(
+      tx,
+      state.logicalBindings,
+    ),
+    isLogicalBindingFailure,
+  );
+  yield* transitionalPromiseEffect(
+    () => ensureSchemaVersionArtifactInTransaction(tx, state.artifact),
+    isArtifactFailure,
+  );
 
   const creationTimeIndexDefinitions: Array<
     AppIndexDefinitionRecordForAccessKindV1<"by_creation_time">
   > = [];
   for (const token of creationTimeTokens) {
-    const ensured =
-      await runAppIndexDefinitionEffect(
-        ensureAppCreationTimeIndexDefinitionV1InTransaction(tx, token),
-      );
+    const ensured = yield* ensureAppCreationTimeIndexDefinitionV1InTransaction(
+      tx,
+      token,
+    );
     creationTimeIndexDefinitions.push(ensured.definition);
   }
 
   const developerResults: EnsureAppDeveloperIndexDefinitionBindingV1Result[] = [];
   for (const token of developerTokens) {
     developerResults.push(
-      await runAppIndexDefinitionEffect(
-        ensureAppDeveloperIndexDefinitionBindingV1InTransaction(tx, token),
+      yield* ensureAppDeveloperIndexDefinitionBindingV1InTransaction(
+        tx,
+        token,
       ),
     );
   }
 
-  const artifact = await verifyPreparedSchemaVersionArtifactInTransaction(
-    tx,
-    state.artifact,
+  const artifact = yield* transitionalPromiseEffect(
+    () => verifyPreparedSchemaVersionArtifactInTransaction(
+      tx,
+      state.artifact,
+    ),
+    isArtifactFailure,
   );
-  const schemaVersionIndexBindings = await listAppSchemaVersionIndexBindings(
-    tx,
-    publication.deploymentId,
-    publication.schemaVersionId,
+  const schemaVersionIndexBindings = yield* transitionalPromiseEffect(
+    () => listAppSchemaVersionIndexBindings(
+      tx,
+      publication.deploymentId,
+      publication.schemaVersionId,
+    ),
+    isBindingReadFailure,
   );
-  verifyExactSchemaVersionBindings(
-    publication,
-    developerResults,
-    schemaVersionIndexBindings,
+  yield* Effect.fromResult(
+    verifyExactSchemaVersionBindingsResult(
+      publication,
+      developerResults,
+      schemaVersionIndexBindings,
+    ),
   );
 
   return Object.freeze({
@@ -140,24 +193,117 @@ export async function publishPreparedAppSchemaV1InTransaction(
     ),
     schemaVersionIndexBindings,
   } satisfies AppSchemaPublicationV1Result);
+});
+
+type AppSchemaPublicationV1PreparationFailure =
+  | InvalidPreparedAppSchemaPublicationV1Error
+  | AppCreationTimeIndexDefinitionRequirementError
+  | AppDeveloperIndexDefinitionRequirementError;
+
+type AppSchemaPublicationV1LogicalBindingFailure =
+  | InvalidPreparedSchemaManifestAppSchemaBindingsError
+  | SchemaManifestAppSchemaBindingPlanStaleError
+  | StableTableCatalogDeploymentNotFoundError
+  | StableTableCatalogCorruptionError
+  | StableLogicalIndexCatalogCorruptionError
+  | SchemaManifestTableBindingCorruptionError;
+
+type AppSchemaPublicationV1ArtifactFailure =
+  | InvalidPreparedSchemaVersionArtifactError
+  | SchemaVersionArtifactDeploymentNotFoundError
+  | SchemaVersionArtifactConflictError
+  | SchemaManifestChecksumCollisionError
+  | SchemaVersionArtifactCorruptionError;
+
+type AppSchemaPublicationV1BindingReadFailure =
+  | InvalidAppIndexDefinitionBindingInputError
+  | AppIndexDefinitionCatalogCorruptionError;
+
+function prepareAppSchemaPublicationTransactionResult(
+  publication: PreparedAppSchemaPublicationV1,
+): Result.Result<{
+  readonly state: ReturnType<typeof getPreparedAppSchemaPublicationV1State>;
+  readonly creationTimeTokens: ReturnType<
+    typeof prepareAppCreationTimeIndexDefinitionsV1
+  >;
+  readonly developerTokens: ReturnType<
+    typeof prepareAppDeveloperIndexDefinitionBindingsV1
+  >;
+}, AppSchemaPublicationV1PreparationFailure> {
+  return Result.try({
+    try: () => ({
+      state: getPreparedAppSchemaPublicationV1State(publication),
+      creationTimeTokens: prepareAppCreationTimeIndexDefinitionsV1(publication),
+      developerTokens:
+        prepareAppDeveloperIndexDefinitionBindingsV1(publication),
+    }),
+    catch: (cause) => {
+      if (
+        cause instanceof InvalidPreparedAppSchemaPublicationV1Error ||
+        cause instanceof AppCreationTimeIndexDefinitionRequirementError ||
+        cause instanceof AppDeveloperIndexDefinitionRequirementError
+      ) {
+        return cause;
+      }
+      throw cause;
+    },
+  });
 }
 
-// Drizzle 0.45 still requires a Promise transaction callback. Keep this
-// projection at the D2c owner, rather than below either physical-definition
-// writer, until the complete publication transaction composes through Effect.
-function runAppIndexDefinitionEffect<Result, Failure>(
-  effect: Effect.Effect<Result, Failure>,
-): Promise<Result> {
-  return Effect.runPromise(effect);
+// These child operations still expose Promise APIs. Keep them uninterruptible
+// so the Drizzle callback cannot settle while their SQL continues, preserve
+// their declared domain failures, and route unexpected causes to defects.
+// Delete this adapter as each owning child operation becomes Effect-native.
+function transitionalPromiseEffect<Result, Failure>(
+  run: () => Promise<Result>,
+  isFailure: (cause: unknown) => cause is Failure,
+): Effect.Effect<Result, Failure> {
+  return Effect.catch(
+    Effect.uninterruptible(Effect.tryPromise({
+      try: run,
+      catch: (cause) => ({ cause }),
+    })),
+    (rejection) => isFailure(rejection.cause)
+      ? Effect.fail(rejection.cause)
+      : Effect.die(rejection.cause),
+  );
 }
 
-function verifyExactSchemaVersionBindings(
+function isLogicalBindingFailure(
+  cause: unknown,
+): cause is AppSchemaPublicationV1LogicalBindingFailure {
+  return cause instanceof InvalidPreparedSchemaManifestAppSchemaBindingsError ||
+    cause instanceof SchemaManifestAppSchemaBindingPlanStaleError ||
+    cause instanceof StableTableCatalogDeploymentNotFoundError ||
+    cause instanceof StableTableCatalogCorruptionError ||
+    cause instanceof StableLogicalIndexCatalogCorruptionError ||
+    cause instanceof SchemaManifestTableBindingCorruptionError;
+}
+
+function isArtifactFailure(
+  cause: unknown,
+): cause is AppSchemaPublicationV1ArtifactFailure {
+  return cause instanceof InvalidPreparedSchemaVersionArtifactError ||
+    cause instanceof SchemaVersionArtifactDeploymentNotFoundError ||
+    cause instanceof SchemaVersionArtifactConflictError ||
+    cause instanceof SchemaManifestChecksumCollisionError ||
+    cause instanceof SchemaVersionArtifactCorruptionError;
+}
+
+function isBindingReadFailure(
+  cause: unknown,
+): cause is AppSchemaPublicationV1BindingReadFailure {
+  return cause instanceof InvalidAppIndexDefinitionBindingInputError ||
+    cause instanceof AppIndexDefinitionCatalogCorruptionError;
+}
+
+function verifyExactSchemaVersionBindingsResult(
   publication: PreparedAppSchemaPublicationV1,
   expected: ReadonlyArray<EnsureAppDeveloperIndexDefinitionBindingV1Result>,
   actual: ReadonlyArray<AppSchemaVersionIndexBindingRecord>,
-): void {
+): Result.Result<void, AppSchemaPublicationV1ProjectionError> {
   if (actual.length !== expected.length) {
-    throw new AppSchemaPublicationV1ProjectionError(
+    return Result.fail(new AppSchemaPublicationV1ProjectionError(
       publication.deploymentId,
       publication.schemaVersionId,
       {
@@ -165,12 +311,12 @@ function verifyExactSchemaVersionBindings(
         expectedCount: expected.length,
         actualCount: actual.length,
       },
-    );
+    ));
   }
   for (const [position, expectedResult] of expected.entries()) {
     const actualBinding = actual[position];
     if (actualBinding === undefined) {
-      throw new AppSchemaPublicationV1ProjectionError(
+      return Result.fail(new AppSchemaPublicationV1ProjectionError(
         publication.deploymentId,
         publication.schemaVersionId,
         {
@@ -178,13 +324,13 @@ function verifyExactSchemaVersionBindings(
           expectedCount: expected.length,
           actualCount: actual.length,
         },
-      );
+      ));
     }
     if (
       actualBinding.logicalIndexId !== expectedResult.binding.logicalIndexId ||
       actualBinding.indexDefinitionId !== expectedResult.binding.indexDefinitionId
     ) {
-      throw new AppSchemaPublicationV1ProjectionError(
+      return Result.fail(new AppSchemaPublicationV1ProjectionError(
         publication.deploymentId,
         publication.schemaVersionId,
         {
@@ -195,9 +341,10 @@ function verifyExactSchemaVersionBindings(
           actualLogicalIndexId: actualBinding.logicalIndexId,
           actualIndexDefinitionId: actualBinding.indexDefinitionId,
         },
-      );
+      ));
     }
   }
+  return Result.succeed(undefined);
 }
 
 function projectionIssueMessage(

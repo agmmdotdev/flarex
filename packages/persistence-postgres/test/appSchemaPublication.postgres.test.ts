@@ -22,7 +22,7 @@ import {
 } from "../src/appSchemaPublicationPreparation";
 import {
   AppSchemaPublicationV1ProjectionError,
-  publishPreparedAppSchemaV1InTransaction,
+  publishPreparedAppSchemaV1InTransactionEffect,
 } from "../src/appSchemaPublicationTransaction";
 import {
   ensureAppDeveloperIndexDefinitionBindingV1InTransaction,
@@ -513,7 +513,9 @@ describePostgres("real Postgres app-schema V1 publication", () => {
 
       await expect(
         persistence.drizzle.transaction(async (tx) => {
-          await publishPreparedAppSchemaV1InTransaction(tx, prepared);
+          await runEffect(
+            publishPreparedAppSchemaV1InTransactionEffect(tx, prepared),
+          );
           throw new Error("injected real Postgres D2c rollback");
         }),
       ).rejects.toThrow("injected real Postgres D2c rollback");
@@ -768,7 +770,7 @@ function publishPrepared(
   prepared: PreparedAppSchemaPublicationV1,
 ) {
   return persistence.drizzle.transaction((tx) =>
-    publishPreparedAppSchemaV1InTransaction(tx, prepared)
+    runEffect(publishPreparedAppSchemaV1InTransactionEffect(tx, prepared))
   );
 }
 
