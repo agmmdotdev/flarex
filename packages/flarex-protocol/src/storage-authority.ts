@@ -1,4 +1,4 @@
-import { Data, Schema } from "effect";
+import { Data, Result, Schema } from "effect";
 
 import { isCanonicalUuidTextV1 } from "./canonical-uuid";
 import {
@@ -96,43 +96,54 @@ export class InvalidScopeAuthorityUuidProjectionV1Error extends Data.TaggedError
 export function projectScopeIdUuidV1(
   value: unknown,
 ): ScopeIdUuidProjectionV1 {
-  const projected = requirePrefixedCanonicalUuidV1(
+  return Result.getOrThrow(projectScopeIdUuidV1Result(value));
+}
+
+export function projectScopeIdUuidV1Result(
+  value: unknown,
+): Result.Result<
+  ScopeIdUuidProjectionV1,
+  InvalidScopeAuthorityUuidProjectionV1Error
+> {
+  return prefixedCanonicalUuidV1Result(
     value,
     "scopeId",
     "scope_",
-  );
-  return Object.freeze({
+  ).pipe(Result.map((projected) => Object.freeze({
     scopeId: ReplacementScopeIdV1Schema.make(projected.value),
     scopeUuid: ScopeUuidV1Schema.make(projected.uuid),
-  } satisfies ScopeIdUuidProjectionV1);
+  } satisfies ScopeIdUuidProjectionV1)));
 }
 
 export function projectScopeEpochUuidV1(
   value: unknown,
 ): ScopeEpochUuidProjectionV1 {
-  const projected = requirePrefixedCanonicalUuidV1(
+  return Result.getOrThrow(prefixedCanonicalUuidV1Result(
     value,
     "epoch",
     "epoch_",
-  );
-  return Object.freeze({
+  ).pipe(Result.map((projected) => Object.freeze({
     epoch: ReplacementScopeEpochV1Schema.make(projected.value),
     epochUuid: ScopeEpochUuidV1Schema.make(projected.uuid),
-  } satisfies ScopeEpochUuidProjectionV1);
+  } satisfies ScopeEpochUuidProjectionV1))));
 }
 
 export function replacementScopeIdV1FromUuid(
   value: unknown,
 ): ReplacementScopeIdV1 {
-  const uuid = requireCanonicalUuidV1(value, "scopeId");
-  return ReplacementScopeIdV1Schema.make(`scope_${uuid}`);
+  return Result.getOrThrow(canonicalUuidV1Result(value, "scopeId").pipe(
+    Result.map((uuid) => ReplacementScopeIdV1Schema.make(`scope_${uuid}`)),
+  ));
 }
 
 export function replacementScopeEpochV1FromUuid(
   value: unknown,
 ): ReplacementScopeEpochV1 {
-  const uuid = requireCanonicalUuidV1(value, "epoch");
-  return ReplacementScopeEpochV1Schema.make(`epoch_${uuid}`);
+  return Result.getOrThrow(canonicalUuidV1Result(value, "epoch").pipe(
+    Result.map((uuid) =>
+      ReplacementScopeEpochV1Schema.make(`epoch_${uuid}`)
+    ),
+  ));
 }
 
 export const CommitSeqSchema =
@@ -179,44 +190,48 @@ export const SnapshotTokenSchema = Schema.Struct({
 }).annotate(StrictStructOptions).pipe(Schema.brand("FlarexDB/SnapshotToken"));
 export type SnapshotToken = typeof SnapshotTokenSchema.Type;
 
-function requirePrefixedCanonicalUuidV1(
+function prefixedCanonicalUuidV1Result(
   value: unknown,
   field: "scopeId" | "epoch",
   prefix: "scope_" | "epoch_",
-): { readonly value: string; readonly uuid: string } {
+): Result.Result<
+  { readonly value: string; readonly uuid: string },
+  InvalidScopeAuthorityUuidProjectionV1Error
+> {
   if (typeof value !== "string") {
-    throw new InvalidScopeAuthorityUuidProjectionV1Error({
+    return Result.fail(new InvalidScopeAuthorityUuidProjectionV1Error({
       issue: { field, reason: "invalidType", value },
-    });
+    }));
   }
   if (!value.startsWith(prefix)) {
-    throw new InvalidScopeAuthorityUuidProjectionV1Error({
+    return Result.fail(new InvalidScopeAuthorityUuidProjectionV1Error({
       issue: { field, reason: "invalidPrefix", value },
-    });
+    }));
   }
-  return {
+  return canonicalUuidV1Result(
+    value.slice(prefix.length),
+    field,
     value,
-    uuid: requireCanonicalUuidV1(value.slice(prefix.length), field, value),
-  };
+  ).pipe(Result.map((uuid) => ({ value, uuid })));
 }
 
-function requireCanonicalUuidV1(
+function canonicalUuidV1Result(
   value: unknown,
   field: "scopeId" | "epoch",
   reportedValue: unknown = value,
-): string {
+): Result.Result<string, InvalidScopeAuthorityUuidProjectionV1Error> {
   if (typeof value !== "string") {
-    throw new InvalidScopeAuthorityUuidProjectionV1Error({
+    return Result.fail(new InvalidScopeAuthorityUuidProjectionV1Error({
       issue: { field, reason: "invalidType", value: reportedValue },
-    });
+    }));
   }
-  if (isCanonicalUuidTextV1(value)) return value;
+  if (isCanonicalUuidTextV1(value)) return Result.succeed(value);
   if (isCanonicalUuidTextV1(value.toLowerCase())) {
-    throw new InvalidScopeAuthorityUuidProjectionV1Error({
+    return Result.fail(new InvalidScopeAuthorityUuidProjectionV1Error({
       issue: { field, reason: "nonCanonical", value: reportedValue },
-    });
+    }));
   }
-  throw new InvalidScopeAuthorityUuidProjectionV1Error({
+  return Result.fail(new InvalidScopeAuthorityUuidProjectionV1Error({
     issue: { field, reason: "invalidUuid", value: reportedValue },
-  });
+  }));
 }

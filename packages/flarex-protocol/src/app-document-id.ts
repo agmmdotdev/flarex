@@ -3,7 +3,7 @@ import {
   isUint8ArrayWithByteLength,
 } from "@flarex/utils/bytes";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
-import { Data, Schema } from "effect";
+import { Data, Result, Schema } from "effect";
 
 import {
   CatalogTableIdSchema,
@@ -147,15 +147,23 @@ export function requireAppDocumentIdentityV1ForTable(
 }
 
 export function appRowIdHexV1FromBytes(value: unknown): AppRowIdHexV1 {
+  return Result.getOrThrow(appRowIdHexV1FromBytesResult(value));
+}
+
+export function appRowIdHexV1FromBytesResult(
+  value: unknown,
+): Result.Result<AppRowIdHexV1, AppDocumentIdV1Error> {
   if (!isUint8ArrayWithByteLength(value, APP_ROW_ID_BYTES_V1)) {
-    throw new AppDocumentIdV1Error({
+    return Result.fail(new AppDocumentIdV1Error({
       issue: {
         reason: "invalidRowId",
         value,
       },
-    });
+    }));
   }
-  return decodeAppRowIdHexV1(encodeBytesToLowercaseHex(value));
+  return Result.succeed(
+    AppRowIdHexV1Schema.make(encodeBytesToLowercaseHex(value)),
+  );
 }
 
 export function appRowIdHexV1ToBytes(value: AppRowIdHexV1): Uint8Array {

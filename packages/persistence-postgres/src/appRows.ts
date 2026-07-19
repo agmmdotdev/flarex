@@ -8,7 +8,7 @@ import {
   type AppCreationTimeV1,
 } from "flarex-protocol/app-document";
 import {
-  appRowIdHexV1FromBytes,
+  appRowIdHexV1FromBytesResult,
   appRowIdHexV1ToBytes,
   decodeAppRowIdHexV1,
   AppRowIdHexV1Schema,
@@ -34,6 +34,7 @@ import {
   decodeScopeUuidV1,
   projectScopeEpochUuidV1,
   projectScopeIdUuidV1,
+  projectScopeIdUuidV1Result,
   type CommitSeq,
   type ScopeEpoch,
   type ScopeEpochUuidV1,
@@ -784,10 +785,11 @@ function decodeRevisionRowEvidenceResult(
     // Accessor/runtime throws stay defects, while an earlier typed failure
     // short-circuits before any later property is observed.
     const storedRowIdBytes = row.rowId;
-    const storedRowId = yield* Result.try({
-      try: () => appRowIdHexV1FromBytes(storedRowIdBytes),
-      catch: (cause) => storedRevisionColumnsCorruption(identity, cause),
-    });
+    const storedRowId = yield* appRowIdHexV1FromBytesResult(
+      storedRowIdBytes,
+    ).pipe(Result.mapError((cause) =>
+      storedRevisionColumnsCorruption(identity, cause)
+    ));
     if (storedRowId !== identity.rowId) {
       return yield* Result.fail(new AppRowStorageCorruptionError(
         identity,
@@ -1022,13 +1024,12 @@ function decodeReadIdentityResult(
       "invalidScopeId",
     );
     const identity = Object.freeze({ scopeId, tableId, rowId });
-    const projection = yield* Result.try({
-      try: () => projectScopeIdUuidV1(scopeId),
-      catch: (cause) => new InvalidAppRowReadInputError({
+    const projection = yield* projectScopeIdUuidV1Result(scopeId).pipe(
+      Result.mapError((cause) => new InvalidAppRowReadInputError({
         reason: "invalidScopeId",
         cause,
-      }),
-    });
+      })),
+    );
     return Object.freeze({ identity, projection });
   });
 }

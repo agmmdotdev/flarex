@@ -1,9 +1,11 @@
+import { Result } from "effect";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   AppDocumentIdV1Error,
   appDocumentIdV1FromRowIdentity,
   appRowIdHexV1FromBytes,
+  appRowIdHexV1FromBytesResult,
   appRowIdHexV1ToBytes,
   decodeAppDocumentIdV1,
   decodeAppDocumentIdentityV1,
@@ -95,6 +97,11 @@ describe("replacement app document identity v1", () => {
 
   it("converts exact row bytes defensively", () => {
     const source = Uint8Array.from({ length: 16 }, (_, index) => index);
+    const decoded = appRowIdHexV1FromBytesResult(source);
+    expect(Result.isSuccess(decoded)).toBe(true);
+    if (Result.isSuccess(decoded)) {
+      expect(decoded.success).toBe("000102030405060708090a0b0c0d0e0f");
+    }
     const hex = appRowIdHexV1FromBytes(source);
     source.fill(255);
     expect(hex).toBe("000102030405060708090a0b0c0d0e0f");
@@ -106,6 +113,12 @@ describe("replacement app document identity v1", () => {
     expect(() => appRowIdHexV1FromBytes(new Uint8Array(15))).toThrow(
       AppDocumentIdV1Error,
     );
+    const invalid = appRowIdHexV1FromBytesResult(new Uint8Array(15));
+    expect(Result.isFailure(invalid)).toBe(true);
+    if (Result.isFailure(invalid)) {
+      expect(invalid.failure).toBeInstanceOf(AppDocumentIdV1Error);
+      expect(invalid.failure.issue.reason).toBe("invalidRowId");
+    }
 
     const spoofedLength = new Uint8Array(1);
     Object.defineProperty(spoofedLength, "byteLength", { value: 16 });
@@ -123,6 +136,7 @@ describe("replacement app document identity v1", () => {
     expect(() => appRowIdHexV1FromBytes(proxied)).toThrow(
       AppDocumentIdV1Error,
     );
+    expect(Result.isFailure(appRowIdHexV1FromBytesResult(proxied))).toBe(true);
   });
 });
 

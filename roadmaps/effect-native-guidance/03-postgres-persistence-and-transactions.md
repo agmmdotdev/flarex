@@ -317,12 +317,14 @@ their typed identity; transaction infrastructure rejection is a distinct
 tagged failure, and defects or interruption cannot be mistaken for business
 rejection.
 Full and table-only schema-publication input normalization now uses hoisted
-Schema `Result` decoders for catalog identity and version fields. The remaining
-declaration adapters catch only the protocol decoder's `SchemaError`, and
-caller snapshotting runs outside that catch. Invalid declarations therefore
-remain typed input failures, while unexpected field access, snapshot, or
-runtime failures remain defects. Quota order, catalog reads, retry, and
-transaction ownership are unchanged.
+Schema `Result` decoders for catalog identity and version fields. The protocol
+owns `Result`-first composite declaration, section, and complete-manifest
+decoders, while the existing synchronous throwing APIs are compatibility
+projections over those normalizers. Publication preparation and both binding
+planners consume the Results directly; invalid declarations remain typed input
+failures, while unexpected field access, snapshot, or runtime failures remain
+defects. Quota order, catalog reads, retry, and transaction ownership are
+unchanged.
 
 Developer physical-index preparation and the package-root physical-definition
 readers are now Effect-native. Strict preparation and read input enters through
@@ -431,6 +433,11 @@ owned shape checks through `Result`. The former blanket `Result.try` is
 deleted: malformed driver values remain typed storage corruption, while
 unexpected row-accessor and runtime throws remain defects rather than being
 misclassified as recoverable database state.
+Exact 16-byte row-ID conversion and canonical native scope-ID projection now
+have protocol-owned `Result` normalizers with synchronous throwing
+compatibility projections. The app-row read kernel consumes those Results
+directly, deleting its last two blanket `Result.try` adapters while preserving
+caller-input versus stored-corruption mapping and first-failure order.
 Live revision evidence verification now filters the Promise verifier's known
 protocol errors at its narrow boundary. Malformed value evidence and trusted
 system fields remain typed app-row storage corruption, while unexpected Web
