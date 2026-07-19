@@ -331,8 +331,17 @@ epoch, session identity fences, and lease snapshot. The three blanket
 `Result.try` decoders are deleted: malformed stored authority retains the
 existing projection, session, or lease corruption reason, ordered decoding
 still short-circuits, and unexpected row-access or runtime failures remain
-defects. Stored schema-artifact and JSON materialization remain separate later
-decoder slices.
+defects.
+Detached session JSON and stored schema-artifact materialization now use
+hoisted `Schema.fromJsonString` and row-field Result decoders. JSON syntax,
+JSON-object membership, artifact identity, codec, canonical-byte, digest, and
+final app-schema rejection retain the existing session or schema corruption
+results. Ordered row decoding short-circuits before later fields, unexpected
+accessor/runtime failures remain defects, and the only synchronous `Result.try`
+left in this materializer narrowly adapts the protocol-owned throwing
+app-schema decoder while catching only `SchemaError`. Canonicalization remains
+the one narrow foreign Promise boundary after the repeatable-read capture has
+closed.
 
 The authoritative app-row snapshot and current-revision read kernel is now
 Effect-native. Caller identity and snapshot values enter through typed

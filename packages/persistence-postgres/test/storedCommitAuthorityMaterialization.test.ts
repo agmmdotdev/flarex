@@ -3,9 +3,12 @@ import { ReplacementScopeIdV1Schema } from "flarex-protocol/storage-authority";
 import { describe, expect, it } from "vitest";
 
 import {
+  decodeAppSchemaResult,
   decodeClockAuthorityResult,
+  decodeJsonObjectTextResult,
   decodeLeaseSnapshotResult,
   decodeSessionIdentityResult,
+  decodeStoredSchemaArtifactResult,
 } from "../src/storedCommitAuthority/materialization";
 
 const SCOPE_UUID = "11111111-1111-4111-8111-111111111111";
@@ -141,7 +144,106 @@ describe("stored commit-authority materialization decoders", () => {
       leaseRow,
     )).toThrow(leaseDefect);
   });
+
+  it("decodes stored JSON and schema-artifact fields through Result", () => {
+    expect(Result.getOrThrow(
+      decodeJsonObjectTextResult('{"nested":{"value":1}}'),
+    )).toEqual({ nested: { value: 1 } });
+    expect(Result.isFailure(decodeJsonObjectTextResult("[1]"))).toBe(true);
+    expect(Result.isFailure(decodeJsonObjectTextResult("{"))).toBe(true);
+
+    const decoded = Result.getOrThrow(
+      decodeStoredSchemaArtifactResult(validStoredSchemaArtifactRow()),
+    );
+    expect(decoded).toMatchObject({
+      schemaVersionId: "schema_materialization_v1",
+      codecVersion: 1,
+      json: MINIMAL_APP_SCHEMA,
+    });
+    expect(decoded.canonicalBytes).toEqual(new Uint8Array([1]));
+    expect(decoded.sha256).toEqual(new Uint8Array(32));
+    expect(Object.isFrozen(decoded)).toBe(true);
+    expect(Result.getOrThrow(
+      decodeAppSchemaResult(MINIMAL_APP_SCHEMA),
+    )).toEqual(MINIMAL_APP_SCHEMA);
+  });
+
+  it("retains schema corruption for every malformed stored field", () => {
+    const valid = validStoredSchemaArtifactRow();
+    const invalidRows = [
+      { ...valid, schemaVersionId: " " },
+      { ...valid, manifestCodecVersion: 2 },
+      { ...valid, manifestJsonText: "{" },
+      { ...valid, manifestJsonText: "[]" },
+      { ...valid, manifestBytes: new Uint8Array(0) },
+      { ...valid, manifestSha256: new Uint8Array(31) },
+    ];
+    for (const row of invalidRows) {
+      const result = decodeStoredSchemaArtifactResult(row);
+      expect(Result.isFailure(result) && result.failure).toBe(
+        "schemaArtifactInvalid",
+      );
+    }
+    expect(Result.isFailure(decodeAppSchemaResult({
+      ...MINIMAL_APP_SCHEMA,
+      kind: "not-app-schema",
+    }))).toBe(true);
+  });
+
+  it("short-circuits schema rows and preserves non-schema defects", () => {
+    const earlyFailure = validStoredSchemaArtifactRow();
+    Object.defineProperty(earlyFailure, "schemaVersionId", {
+      enumerable: true,
+      value: " ",
+    });
+    Object.defineProperty(earlyFailure, "manifestCodecVersion", {
+      enumerable: true,
+      get() {
+        throw new Error("schema codec must not be read");
+      },
+    });
+    expect(Result.isFailure(
+      decodeStoredSchemaArtifactResult(earlyFailure),
+    )).toBe(true);
+
+    const rowDefect = new Error("schema artifact row accessor defect");
+    const defectiveRow = new Proxy(validStoredSchemaArtifactRow(), {
+      get(target, property, receiver) {
+        if (property === "manifestCodecVersion") throw rowDefect;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(() => decodeStoredSchemaArtifactResult(defectiveRow)).toThrow(
+      rowDefect,
+    );
+
+    const schemaDefect = new Error("app schema accessor defect");
+    const defectiveSchema = new Proxy(MINIMAL_APP_SCHEMA, {
+      get(target, property, receiver) {
+        if (property === "kind") throw schemaDefect;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(() => decodeAppSchemaResult(defectiveSchema)).toThrow(
+      "Sync adapter can only throw schema errors",
+    );
+  });
 });
+
+const MINIMAL_APP_SCHEMA = {
+  kind: "appSchema",
+  manifestVersion: 1,
+  tableDefinitions: {
+    kind: "tableDefinitions",
+    sectionVersion: 1,
+    tables: [],
+  },
+  indexBindings: {
+    kind: "indexBindings",
+    sectionVersion: 1,
+    indexes: [],
+  },
+} as const;
 
 function validClockAuthorityRow() {
   return {
@@ -155,5 +257,15 @@ function validClockAuthorityRow() {
     scopeUuid: SCOPE_UUID,
     epochUuid: EPOCH_UUID,
     authorizationRevocationEpoch: 0n,
+  };
+}
+
+function validStoredSchemaArtifactRow() {
+  return {
+    schemaVersionId: "schema_materialization_v1",
+    manifestCodecVersion: 1,
+    manifestJsonText: JSON.stringify(MINIMAL_APP_SCHEMA),
+    manifestBytes: new Uint8Array([1]),
+    manifestSha256: new Uint8Array(32),
   };
 }

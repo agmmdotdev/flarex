@@ -11,19 +11,25 @@ import {
 import { Effect, Result, Schema } from "effect";
 import type { CatalogTableId } from "flarex-protocol/catalog";
 import {
-  isJsonObjectFromUnknown,
+  JsonValue,
+  isJsonObject,
   type JsonObject,
 } from "flarex-protocol/json";
 import {
+  CanonicalSchemaManifestBytesSchema,
+  CatalogSchemaVersionIdSchema,
   MAX_SCHEMA_MANIFEST_APP_TABLES,
+  SchemaManifestCodecVersionSchema,
+  SchemaManifestJsonSchema,
+  SchemaManifestSha256Schema,
   canonicalizeSchemaManifestV1,
-  decodeCanonicalSchemaManifestBytes,
-  decodeCatalogSchemaVersionId,
   decodeSchemaManifestAppSchemaV1,
-  decodeSchemaManifestCodecVersion,
-  decodeSchemaManifestJson,
-  decodeSchemaManifestSha256,
+  type CanonicalSchemaManifestBytes,
+  type CatalogSchemaVersionId,
   type SchemaManifestAppSchemaV1,
+  type SchemaManifestCodecVersion,
+  type SchemaManifestJson,
+  type SchemaManifestSha256,
 } from "flarex-protocol/schema-manifest";
 import {
   CommitSeqSchema,
@@ -170,8 +176,26 @@ export interface RootScalarRow extends Omit<
 }
 
 const UTF8_ENCODER = new TextEncoder();
+const decodeCanonicalSchemaManifestBytesResult = Schema.decodeUnknownResult(
+  Schema.toType(CanonicalSchemaManifestBytesSchema),
+);
+const decodeCatalogSchemaVersionIdResult = Schema.decodeUnknownResult(
+  Schema.toType(CatalogSchemaVersionIdSchema),
+);
 const decodeCommitSeqResult = Schema.decodeUnknownResult(
   Schema.toType(CommitSeqSchema),
+);
+const decodeSchemaManifestCodecVersionResult = Schema.decodeUnknownResult(
+  Schema.toType(SchemaManifestCodecVersionSchema),
+);
+const decodeSchemaManifestJsonTextResult = Schema.decodeUnknownResult(
+  Schema.fromJsonString(SchemaManifestJsonSchema),
+);
+const decodeSchemaManifestSha256Result = Schema.decodeUnknownResult(
+  Schema.toType(SchemaManifestSha256Schema),
+);
+const decodeStoredJsonTextResult = Schema.decodeUnknownResult(
+  Schema.fromJsonString(JsonValue),
 );
 const decodeScopeEpochUuidResult = Schema.decodeUnknownResult(
   Schema.toType(ScopeEpochUuidV1Schema),
@@ -580,12 +604,14 @@ function materializeStoredAuthorityEffect(
     ) {
       return materializationCorrupt(mode, "sessionEvidenceInvalid");
     }
-    const validatedArgsJson = parseJsonObjectText(
-      payload.validatedArgsJsonText,
-    );
-    const authorizationGrantJson = parseJsonObjectText(
-      payload.authorizationGrantJsonText,
-    );
+    const sessionPayloadJson = Result.all({
+      validatedArgsJson: decodeJsonObjectTextResult(
+        payload.validatedArgsJsonText,
+      ),
+      authorizationGrantJson: decodeJsonObjectTextResult(
+        payload.authorizationGrantJsonText,
+      ),
+    });
     const projectedArgsLength = parseLength(
       session.validatedArgsCanonicalByteLengthText,
     );
@@ -599,8 +625,7 @@ function materializeStoredAuthorityEffect(
       session.authorizationGrantJsonByteLengthText,
     );
     if (
-      validatedArgsJson === undefined ||
-      authorizationGrantJson === undefined ||
+      Result.isFailure(sessionPayloadJson) ||
       projectedArgsLength === undefined ||
       projectedGrantLength === undefined ||
       projectedArgsJsonLength === undefined ||
@@ -615,6 +640,8 @@ function materializeStoredAuthorityEffect(
     ) {
       return materializationCorrupt(mode, "sessionEvidenceInvalid");
     }
+    const { validatedArgsJson, authorizationGrantJson } =
+      sessionPayloadJson.success;
 
     if (captured.schemaSizeRows.length !== 1) {
       return materializationCorrupt(mode, "schemaArtifactMissingOrDuplicate");
@@ -640,10 +667,14 @@ function materializeStoredAuthorityEffect(
       schemaSize,
       schemaRow,
     );
-    if (manifest === undefined) {
-      return materializationCorrupt(mode, "schemaArtifactInvalid");
+    if (Result.isFailure(manifest)) {
+      return materializationCorrupt(mode, manifest.failure);
     }
-    const stableBindings = materializeBindings(manifest, captured.bindingRows);
+    const decodedManifest = manifest.success;
+    const stableBindings = materializeBindings(
+      decodedManifest,
+      captured.bindingRows,
+    );
     if (stableBindings === "overflow") {
       return materializationCorrupt(mode, "stableBindingOverflow");
     }
@@ -673,7 +704,7 @@ function materializeStoredAuthorityEffect(
       schema: Object.freeze({
         deploymentId: expected.deploymentId,
         schemaVersionId: expected.schemaVersionId,
-        manifest: snapshotSchemaManifestValue(manifest),
+        manifest: snapshotSchemaManifestValue(decodedManifest),
         stableBindings,
       }),
     });
@@ -1096,7 +1127,7 @@ const verifySchemaArtifactEffect = Effect.fn(
   size: SchemaSizeRow,
   row: SchemaPayloadRow,
 ): Effect.fn.Return<
-  SchemaManifestAppSchemaV1 | undefined,
+  Result.Result<SchemaManifestAppSchemaV1, "schemaArtifactInvalid">,
   StoredCommitAuthorityEvidencePersistenceV1Error
 > {
   const sizeCreatedAtMilliseconds = finiteDateMilliseconds(size.createdAt);
@@ -1117,47 +1148,89 @@ const verifySchemaArtifactEffect = Effect.fn(
     parseLength(size.manifestCanonicalByteLengthText) !==
     row.manifestBytes.byteLength
   ) {
-    return undefined;
+    return Result.fail("schemaArtifactInvalid" as const);
   }
-  const decoded = decodeStoredSchemaArtifact(row);
+  const decoded = decodeStoredSchemaArtifactResult(row);
   if (
-    decoded === undefined ||
-    decoded.schemaVersionId !== expected.schemaVersionId
+    Result.isFailure(decoded) ||
+    decoded.success.schemaVersionId !== expected.schemaVersionId
   ) {
-    return undefined;
+    return Result.fail("schemaArtifactInvalid" as const);
   }
+  const decodedArtifact = decoded.success;
   const canonical = yield* runMaterializationPromise(
     "schemaManifestCanonicalization",
-    () => canonicalizeSchemaManifestV1(decoded.json),
+    () => canonicalizeSchemaManifestV1(decodedArtifact.json),
   );
   if (
-    decoded.codecVersion !== canonical.codecVersion ||
-    !bytesEqual(decoded.canonicalBytes, canonical.canonicalBytes) ||
-    !bytesEqual(decoded.sha256, canonical.sha256)
+    decodedArtifact.codecVersion !== canonical.codecVersion ||
+    !bytesEqual(decodedArtifact.canonicalBytes, canonical.canonicalBytes) ||
+    !bytesEqual(decodedArtifact.sha256, canonical.sha256)
   ) {
-    return undefined;
+    return Result.fail("schemaArtifactInvalid" as const);
   }
-  return decodeAppSchema(canonical.manifestJson);
+  return decodeAppSchemaResult(canonical.manifestJson);
 });
 
-function decodeStoredSchemaArtifact(row: SchemaPayloadRow) {
-  return Result.getOrUndefined(Result.try({
-    try: () => Object.freeze({
-      schemaVersionId: decodeCatalogSchemaVersionId(row.schemaVersionId),
-      codecVersion: decodeSchemaManifestCodecVersion(row.manifestCodecVersion),
-      json: decodeSchemaManifestJson(parseJsonText(row.manifestJsonText)),
-      canonicalBytes: decodeCanonicalSchemaManifestBytes(row.manifestBytes),
-      sha256: decodeSchemaManifestSha256(row.manifestSha256),
-    }),
-    catch: () => undefined,
-  }));
+interface StoredSchemaArtifactProjectionRow {
+  readonly schemaVersionId: unknown;
+  readonly manifestCodecVersion: unknown;
+  readonly manifestJsonText: unknown;
+  readonly manifestBytes: unknown;
+  readonly manifestSha256: unknown;
 }
 
-function decodeAppSchema(value: unknown): SchemaManifestAppSchemaV1 | undefined {
-  return Result.getOrUndefined(Result.try({
+interface DecodedStoredSchemaArtifact {
+  readonly schemaVersionId: CatalogSchemaVersionId;
+  readonly codecVersion: SchemaManifestCodecVersion;
+  readonly json: SchemaManifestJson;
+  readonly canonicalBytes: CanonicalSchemaManifestBytes;
+  readonly sha256: SchemaManifestSha256;
+}
+
+export function decodeStoredSchemaArtifactResult(
+  row: StoredSchemaArtifactProjectionRow,
+): Result.Result<
+  Readonly<DecodedStoredSchemaArtifact>,
+  "schemaArtifactInvalid"
+> {
+  return Result.gen(function* () {
+    const schemaVersionId = yield* decodeCatalogSchemaVersionIdResult(
+      row.schemaVersionId,
+    ).pipe(Result.mapError(() => "schemaArtifactInvalid" as const));
+    const codecVersion = yield* decodeSchemaManifestCodecVersionResult(
+      row.manifestCodecVersion,
+    ).pipe(Result.mapError(() => "schemaArtifactInvalid" as const));
+    const json = yield* decodeSchemaManifestJsonTextResult(
+      row.manifestJsonText,
+    ).pipe(Result.mapError(() => "schemaArtifactInvalid" as const));
+    const canonicalBytes =
+      yield* decodeCanonicalSchemaManifestBytesResult(
+        row.manifestBytes,
+      ).pipe(Result.mapError(() => "schemaArtifactInvalid" as const));
+    const sha256 = yield* decodeSchemaManifestSha256Result(
+      row.manifestSha256,
+    ).pipe(Result.mapError(() => "schemaArtifactInvalid" as const));
+    return Object.freeze({
+      schemaVersionId,
+      codecVersion,
+      json,
+      canonicalBytes,
+      sha256,
+    } satisfies DecodedStoredSchemaArtifact);
+  });
+}
+
+export function decodeAppSchemaResult(
+  value: unknown,
+): Result.Result<SchemaManifestAppSchemaV1, "schemaArtifactInvalid"> {
+  return Result.try({
     try: () => decodeSchemaManifestAppSchemaV1(value),
-    catch: () => undefined,
-  }));
+    catch: (cause) => {
+      if (!Schema.isSchemaError(cause)) throw cause;
+      return "schemaArtifactInvalid" as const;
+    },
+  });
 }
 
 function materializeBindings(
@@ -1245,17 +1318,17 @@ function parsePositiveIntegerText(
     : undefined;
 }
 
-function parseJsonText(value: string): unknown {
-  const parsed: unknown = JSON.parse(value);
-  return parsed;
-}
-
-function parseJsonObjectText(value: string): JsonObject | undefined {
-  const parsed = Result.getOrUndefined(Result.try({
-    try: () => parseJsonText(value),
-    catch: () => undefined,
-  }));
-  return isJsonObjectFromUnknown(parsed) ? parsed : undefined;
+export function decodeJsonObjectTextResult(
+  value: unknown,
+): Result.Result<JsonObject, "sessionEvidenceInvalid"> {
+  return decodeStoredJsonTextResult(value).pipe(
+    Result.flatMap((json) =>
+      isJsonObject(json)
+        ? Result.succeed(json)
+        : Result.fail("sessionEvidenceInvalid" as const)
+    ),
+    Result.mapError(() => "sessionEvidenceInvalid" as const),
+  );
 }
 
 function runMaterializationPromise<A>(
