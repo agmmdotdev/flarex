@@ -34,6 +34,10 @@ import {
 } from "./postgres-bigint";
 import { CommitSeqSchema, type CommitSeq } from "./storage-authority";
 import {
+  StrictParseOptions,
+  StrictStructOptions,
+} from "./strict-schema-options";
+import {
   TransactionAttemptFenceSchema,
   TransactionSessionIdV1Schema,
   TransactionSessionProtocolVersionV1Schema,
@@ -59,14 +63,6 @@ import {
   type FlarexValueProfileV1,
   type NormalizedFlarexValueV1,
 } from "./value";
-
-const StrictStructOptions: {
-  readonly parseOptions: { readonly onExcessProperty: "error" };
-} = { parseOptions: { onExcessProperty: "error" } };
-
-const StrictParseOptions: {
-  readonly onExcessProperty: "error";
-} = { onExcessProperty: "error" };
 
 const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });

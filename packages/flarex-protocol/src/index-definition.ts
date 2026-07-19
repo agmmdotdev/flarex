@@ -12,6 +12,10 @@ import {
   type AppOrderedIndexPhysicalFieldV1,
   type AppOrderedIndexPhysicalSpecV1,
 } from "./ordered-index";
+import {
+  StrictParseOptions,
+  StrictStructOptions,
+} from "./strict-schema-options";
 
 /**
  * A valid v1 spec can contain fifteen 8,319-byte nested field paths. This
@@ -19,10 +23,6 @@ import {
  * future widened formats from becoming unbounded inputs to the trusted reader.
  */
 export const MAX_CANONICAL_APP_INDEX_PHYSICAL_SPEC_BYTES_V1 = 131_072;
-
-const StrictStructOptions = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
 
 export const AppIndexPhysicalSpecCodecVersionSchema = Schema.Literal(1).pipe(
   Schema.brand("FlarexDB/AppIndexPhysicalSpecCodecVersion"),
@@ -94,7 +94,7 @@ export type AppPhysicalIndexAccessIdentityV1 =
   typeof AppPhysicalIndexAccessIdentityV1Schema.Type;
 const decodeAppPhysicalIndexAccessIdentityV1Shape = Schema.decodeUnknownSync(
   AppPhysicalIndexAccessIdentityV1Schema,
-  { onExcessProperty: "error" },
+  StrictParseOptions,
 );
 
 export type AppPhysicalIndexAccessKindV1 =

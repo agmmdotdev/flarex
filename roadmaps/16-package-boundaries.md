@@ -390,6 +390,11 @@ semantics.
   unknown-input decoder calls. This is app-local wire policy rather than a
   generic utility; keeping the two option surfaces explicit prevents protocol
   modules from drifting between strict and permissive decoding.
+- `packages/flarex-protocol/src/strict-schema-options.ts` similarly owns the
+  protocol package's internal strict excess-property policy across commit,
+  transaction-grant, point-mutation, schema-manifest, storage-authority, and
+  index contracts. It is intentionally not a public package subpath: callers
+  consume the owning protocol decoders rather than selecting parse policy.
 - `@flarex/utils/records` owns shallow non-null, non-array object narrowing as
   both a predicate and nullable adapter. It deliberately does not promise a
   plain prototype, JSON membership, symbol-key rejection, or runtime

@@ -16,6 +16,10 @@ import {
 } from "./schema-manifest";
 import { ReplacementScopeIdV1Schema } from "./storage-authority";
 import {
+  StrictParseOptions,
+  StrictStructOptions,
+} from "./strict-schema-options";
+import {
   TransactionGrantDeploymentIdV1Schema,
   transactionGrantRequestSha256HexV1FromBytes,
   transactionGrantValidatedArgsSha256HexV1FromBytes,
@@ -54,10 +58,6 @@ import {
   ValidatorJsonV1,
   type ValidatorJsonV1 as ValidatorJsonV1Type,
 } from "./validator-json";
-
-const StrictStructOptions: {
-  readonly parseOptions: { readonly onExcessProperty: "error" };
-} = { parseOptions: { onExcessProperty: "error" } };
 
 export const POINT_MUTATION_TARGET_METADATA_FORMAT_V1 =
   "flarex.point-mutation-target-metadata";
@@ -123,9 +123,10 @@ export const ActivePointMutationTargetMetadataV1Schema = Schema.Struct({
 export type ActivePointMutationTargetMetadataV1 =
   typeof ActivePointMutationTargetMetadataV1Schema.Type;
 export const decodeActivePointMutationTargetMetadataV1 =
-  Schema.decodeUnknownSync(ActivePointMutationTargetMetadataV1Schema, {
-    onExcessProperty: "error",
-  });
+  Schema.decodeUnknownSync(
+    ActivePointMutationTargetMetadataV1Schema,
+    StrictParseOptions,
+  );
 
 export const PointMutationCurrentScopeAuthorityV1Schema = Schema.Struct({
   deploymentId: TransactionGrantDeploymentIdV1Schema,
@@ -136,9 +137,10 @@ export const PointMutationCurrentScopeAuthorityV1Schema = Schema.Struct({
 export type PointMutationCurrentScopeAuthorityV1 =
   typeof PointMutationCurrentScopeAuthorityV1Schema.Type;
 export const decodePointMutationCurrentScopeAuthorityV1 =
-  Schema.decodeUnknownSync(PointMutationCurrentScopeAuthorityV1Schema, {
-    onExcessProperty: "error",
-  });
+  Schema.decodeUnknownSync(
+    PointMutationCurrentScopeAuthorityV1Schema,
+    StrictParseOptions,
+  );
 
 export interface PointMutationStartCandidateV1 {
   readonly deploymentId: TransactionGrantPayloadV1["deploymentId"];

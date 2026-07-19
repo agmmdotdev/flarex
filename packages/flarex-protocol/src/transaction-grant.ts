@@ -21,6 +21,10 @@ import {
 import { CatalogSchemaVersionIdSchema } from "./schema-manifest";
 import { ReplacementScopeIdV1Schema } from "./storage-authority";
 import {
+  StrictParseOptions,
+  StrictStructOptions,
+} from "./strict-schema-options";
+import {
   CanonicalTransactionAuthorizationGrantBytesV1Schema,
   TransactionArtifactIdV1Schema,
   TransactionArtifactRuntimeV1Schema,
@@ -63,17 +67,6 @@ const CANONICAL_TIMESTAMP_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const TRANSACTION_GRANT_ID_PATTERN = /^grant_[A-Za-z0-9._:-]+$/;
 const TRANSACTION_GRANT_KEY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
-const StrictStructOptions: {
-  readonly parseOptions: {
-    readonly onExcessProperty: "error";
-  };
-} = {
-  parseOptions: { onExcessProperty: "error" },
-};
-const StrictParseOptions: {
-  readonly onExcessProperty: "error";
-} = { onExcessProperty: "error" };
 
 export const TRANSACTION_GRANT_FORMAT_V1 = "flarex.transaction-grant";
 export const TRANSACTION_GRANT_VERSION_V1 = 1;

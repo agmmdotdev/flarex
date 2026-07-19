@@ -23,6 +23,10 @@ import {
   type SchemaManifestAppIndexFieldPath,
 } from "./schema-manifest";
 import {
+  StrictParseOptions,
+  StrictStructOptions,
+} from "./strict-schema-options";
+import {
   normalizeFlarexValueV1,
   type CanonicalFlarexRuntimeValueV1,
 } from "./value";
@@ -56,10 +60,6 @@ export const decodeOrderedIndexKeyCodecVersion = Schema.decodeUnknownSync(
 );
 export const ORDERED_INDEX_KEY_CODEC_VERSION_V1 =
   decodeOrderedIndexKeyCodecVersion(1);
-
-const StrictStructOptions = {
-  parseOptions: { onExcessProperty: "error" },
-} as const;
 
 export const AppOrderedIndexDocumentPathV1Schema = Schema.Struct({
   kind: Schema.Literal("documentPath"),
@@ -111,11 +111,11 @@ export type AppOrderedIndexPhysicalSpecV1 =
 
 const decodeAppOrderedIndexPhysicalSpecV1Shape = Schema.decodeUnknownSync(
   AppOrderedIndexPhysicalSpecV1Schema,
-  { onExcessProperty: "error" },
+  StrictParseOptions,
 );
 const decodeAppOrderedIndexPhysicalFieldV1Shape = Schema.decodeUnknownSync(
   AppOrderedIndexPhysicalFieldV1Schema,
-  { onExcessProperty: "error" },
+  StrictParseOptions,
 );
 export const OrderedIndexKeyBytesHexV1Schema = Schema.String.check(
   Schema.makeFilter((value) => {

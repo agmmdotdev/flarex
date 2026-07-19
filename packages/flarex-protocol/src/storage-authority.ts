@@ -6,6 +6,7 @@ import {
   CanonicalPositivePostgresBigIntFromString,
   POSTGRES_SIGNED_BIGINT_MAX,
 } from "./postgres-bigint";
+import { StrictStructOptions } from "./strict-schema-options";
 
 export const MAX_PERSISTED_SIGNED_INT64_V1 = POSTGRES_SIGNED_BIGINT_MAX;
 
@@ -175,9 +176,7 @@ export const SnapshotTokenSchema = Schema.Struct({
   scopeId: ScopeIdSchema,
   epoch: ScopeEpochSchema,
   commitSeq: CommitSeqSchema,
-}).annotate({
-  parseOptions: { onExcessProperty: "error" },
-}).pipe(Schema.brand("FlarexDB/SnapshotToken"));
+}).annotate(StrictStructOptions).pipe(Schema.brand("FlarexDB/SnapshotToken"));
 export type SnapshotToken = typeof SnapshotTokenSchema.Type;
 
 function requirePrefixedCanonicalUuidV1(

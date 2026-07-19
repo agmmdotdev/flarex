@@ -17,6 +17,10 @@ import {
   type Json,
 } from "./json";
 import {
+  StrictParseOptions,
+  StrictStructOptions,
+} from "./strict-schema-options";
+import {
   ObjectValidatorJsonV1,
   type ValidatorJsonV1,
 } from "./validator-json";
@@ -94,14 +98,6 @@ export const decodeSchemaManifestAppTableName = Schema.decodeUnknownSync(
   SchemaManifestAppTableNameSchema,
 );
 
-const StrictManifestStructOptions: {
-  readonly parseOptions: {
-    readonly onExcessProperty: "error";
-  };
-} = {
-  parseOptions: { onExcessProperty: "error" },
-};
-
 export const SchemaManifestAppDocumentDefinitionV1Schema = Schema.Struct({
   kind: Schema.Literal("appDocument"),
   definitionVersion: Schema.Literal(1),
@@ -113,7 +109,7 @@ export const SchemaManifestAppDocumentDefinitionV1Schema = Schema.Struct({
       "documentType",
     ),
   ),
-).annotate(StrictManifestStructOptions);
+).annotate(StrictStructOptions);
 export type SchemaManifestAppDocumentDefinitionV1 =
   typeof SchemaManifestAppDocumentDefinitionV1Schema.Type;
 
@@ -122,14 +118,14 @@ export const SchemaManifestAppTableDefinitionV1Schema = Schema.Struct({
   namespace: Schema.Literal("app"),
   logicalName: SchemaManifestAppTableNameSchema,
   definition: SchemaManifestAppDocumentDefinitionV1Schema,
-}).annotate(StrictManifestStructOptions);
+}).annotate(StrictStructOptions);
 export type SchemaManifestAppTableDefinitionV1 =
   typeof SchemaManifestAppTableDefinitionV1Schema.Type;
 
 export const SchemaManifestAppTableDeclarationV1Schema = Schema.Struct({
   logicalName: SchemaManifestAppTableNameSchema,
   definition: SchemaManifestAppDocumentDefinitionV1Schema,
-}).annotate(StrictManifestStructOptions);
+}).annotate(StrictStructOptions);
 export type SchemaManifestAppTableDeclarationV1 =
   typeof SchemaManifestAppTableDeclarationV1Schema.Type;
 export type SchemaManifestAppTableDeclarationInputV1 =
@@ -161,7 +157,7 @@ const decodeSchemaManifestAppTableCount = Schema.decodeUnknownSync(
 const decodeSchemaManifestAppTableDeclarationsV1Shape =
   Schema.decodeUnknownSync(
     SchemaManifestAppTableDeclarationsV1Schema,
-    { onExcessProperty: "error" },
+    StrictParseOptions,
   );
 
 export function decodeSchemaManifestAppTableDeclarationsV1(
@@ -185,13 +181,13 @@ export const SchemaManifestTableDefinitionsV1Schema = Schema.Struct({
   kind: Schema.Literal("tableDefinitions"),
   sectionVersion: Schema.Literal(1),
   tables: SchemaManifestAppTableDefinitionsV1Schema,
-}).annotate(StrictManifestStructOptions);
+}).annotate(StrictStructOptions);
 export type SchemaManifestTableDefinitionsV1 =
   typeof SchemaManifestTableDefinitionsV1Schema.Type;
 
 const decodeSchemaManifestTableDefinitionsV1Shape = Schema.decodeUnknownSync(
   SchemaManifestTableDefinitionsV1Schema,
-  { onExcessProperty: "error" },
+  StrictParseOptions,
 );
 
 export function decodeSchemaManifestTableDefinitionsV1(
@@ -246,20 +242,20 @@ export const SchemaManifestAppDeveloperOrderedIndexSpecV1Schema =
     kind: Schema.Literal("developerOrdered"),
     specVersion: Schema.Literal(1),
     fields: SchemaManifestAppIndexDeclaredFieldsV1Schema,
-  }).annotate(StrictManifestStructOptions);
+  }).annotate(StrictStructOptions);
 export type SchemaManifestAppDeveloperOrderedIndexSpecV1 =
   typeof SchemaManifestAppDeveloperOrderedIndexSpecV1Schema.Type;
 export const decodeSchemaManifestAppDeveloperOrderedIndexSpecV1 =
   Schema.decodeUnknownSync(
     SchemaManifestAppDeveloperOrderedIndexSpecV1Schema,
-    { onExcessProperty: "error" },
+    StrictParseOptions,
   );
 
 export const SchemaManifestAppIndexDeclarationV1Schema = Schema.Struct({
   tableLogicalName: SchemaManifestAppTableNameSchema,
   descriptor: SchemaManifestAppIndexDescriptorSchema,
   fields: SchemaManifestAppIndexDeclaredFieldsV1Schema,
-}).annotate(StrictManifestStructOptions);
+}).annotate(StrictStructOptions);
 export type SchemaManifestAppIndexDeclarationV1 =
   typeof SchemaManifestAppIndexDeclarationV1Schema.Type;
 export type SchemaManifestAppIndexDeclarationInputV1 =
@@ -307,7 +303,7 @@ const decodeSchemaManifestAppIndexDeclaredFieldCount =
 const decodeSchemaManifestAppIndexDeclarationsV1Shape =
   Schema.decodeUnknownSync(
     SchemaManifestAppIndexDeclarationsV1Schema,
-    { onExcessProperty: "error" },
+    StrictParseOptions,
   );
 
 export function decodeSchemaManifestAppIndexDeclarationsV1(
@@ -326,7 +322,7 @@ export const SchemaManifestAppIndexBindingV1Schema = Schema.Struct({
   namespace: Schema.Literal("app"),
   descriptor: SchemaManifestAppIndexDescriptorSchema,
   spec: SchemaManifestAppDeveloperOrderedIndexSpecV1Schema,
-}).annotate(StrictManifestStructOptions);
+}).annotate(StrictStructOptions);
 export type SchemaManifestAppIndexBindingV1 =
   typeof SchemaManifestAppIndexBindingV1Schema.Type;
 
@@ -343,7 +339,7 @@ export const SchemaManifestIndexBindingsV1Schema = Schema.Struct({
   kind: Schema.Literal("indexBindings"),
   sectionVersion: Schema.Literal(1),
   indexes: SchemaManifestAppIndexBindingsV1Schema,
-}).annotate(StrictManifestStructOptions);
+}).annotate(StrictStructOptions);
 export type SchemaManifestIndexBindingsV1 =
   typeof SchemaManifestIndexBindingsV1Schema.Type;
 
@@ -354,7 +350,7 @@ interface SchemaManifestAppSchemaReferences {
 
 const decodeSchemaManifestIndexBindingsV1Shape = Schema.decodeUnknownSync(
   SchemaManifestIndexBindingsV1Schema,
-  { onExcessProperty: "error" },
+  StrictParseOptions,
 );
 
 export function decodeSchemaManifestIndexBindingsV1(
@@ -375,13 +371,13 @@ export const SchemaManifestAppSchemaV1Schema = Schema.Struct({
   Schema.makeFilter((manifest) =>
     validateSchemaManifestAppSchemaReferences(manifest)
   ),
-).annotate(StrictManifestStructOptions);
+).annotate(StrictStructOptions);
 export type SchemaManifestAppSchemaV1 =
   typeof SchemaManifestAppSchemaV1Schema.Type;
 
 const decodeSchemaManifestAppSchemaV1Shape = Schema.decodeUnknownSync(
   SchemaManifestAppSchemaV1Schema,
-  { onExcessProperty: "error" },
+  StrictParseOptions,
 );
 
 export function decodeSchemaManifestAppSchemaV1(
