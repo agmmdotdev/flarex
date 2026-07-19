@@ -578,6 +578,135 @@ describe("immutable app index definitions", () => {
     }
   });
 
+  it(
+    "maps invalid stored physical evidence to catalog corruption",
+    async () => {
+      const deploymentId =
+        "deployment_index_definition_evidence_corruption";
+      const canonical = await canonicalizeAppIndexPhysicalSpecV1(
+        APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
+      );
+      const db = developerSelectTransaction(() => Promise.resolve([{
+        deploymentId,
+        indexDefinitionId: 1,
+        accessKind: "by_creation_time",
+        accessIdentityId: 1,
+        tableId: 1,
+        logicalIndexId: null,
+        physicalSpecCodecVersion: 2,
+        physicalSpecJson: canonical.physicalSpec,
+        physicalSpecBytes: canonicalAppIndexPhysicalSpecBytesHexV1ToBytes(
+          canonical.canonicalBytesHex,
+        ),
+        physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(
+          canonical.sha256Hex,
+        ),
+        createdAt: new Date(),
+      }]));
+
+      const failure = await runEffectFailure(
+        getAppIndexDefinitionByIdEffect(
+          db,
+          deploymentId,
+          CatalogIndexDefinitionIdSchema.make(1),
+        ),
+      );
+
+      expect(failure).toBeInstanceOf(AppIndexDefinitionCatalogCorruptionError);
+      expect(failure).toMatchObject({
+        detail: "definition 1 has an invalid physical specification",
+      });
+    },
+  );
+
+  it(
+    "preserves stored physical-evidence row access failures as defects",
+    async () => {
+      const deploymentId = "deployment_index_definition_evidence_defect";
+      const defect = new Error("physical evidence row access defect");
+      const canonical = await canonicalizeAppIndexPhysicalSpecV1(
+        APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
+      );
+      const db = developerSelectTransaction(() => Promise.resolve([{
+        deploymentId,
+        indexDefinitionId: 1,
+        accessKind: "by_creation_time",
+        accessIdentityId: 1,
+        tableId: 1,
+        logicalIndexId: null,
+        physicalSpecCodecVersion: canonical.codecVersion,
+        physicalSpecJson: canonical.physicalSpec,
+        get physicalSpecBytes(): Uint8Array {
+          throw defect;
+        },
+        physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(
+          canonical.sha256Hex,
+        ),
+        createdAt: new Date(),
+      }]));
+
+      const exit = await Effect.runPromiseExit(
+        getAppIndexDefinitionByIdEffect(
+          db,
+          deploymentId,
+          CatalogIndexDefinitionIdSchema.make(1),
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasDies(exit.cause)).toBe(true);
+        expect(Cause.hasFails(exit.cause)).toBe(false);
+        expect(exit.cause.toString()).toContain(defect.message);
+      }
+    },
+  );
+
+  it(
+    "preserves stored physical-spec JSON row access failures as defects",
+    async () => {
+      const deploymentId = "deployment_index_definition_json_defect";
+      const defect = new Error("physical-spec JSON row access defect");
+      const canonical = await canonicalizeAppIndexPhysicalSpecV1(
+        APP_BY_CREATION_TIME_PHYSICAL_SPEC_V1,
+      );
+      const db = developerSelectTransaction(() => Promise.resolve([{
+        deploymentId,
+        indexDefinitionId: 1,
+        accessKind: "by_creation_time",
+        accessIdentityId: 1,
+        tableId: 1,
+        logicalIndexId: null,
+        physicalSpecCodecVersion: canonical.codecVersion,
+        get physicalSpecJson(): never {
+          throw defect;
+        },
+        physicalSpecBytes: canonicalAppIndexPhysicalSpecBytesHexV1ToBytes(
+          canonical.canonicalBytesHex,
+        ),
+        physicalSpecSha256: appIndexPhysicalSpecSha256HexV1ToBytes(
+          canonical.sha256Hex,
+        ),
+        createdAt: new Date(),
+      }]));
+
+      const exit = await Effect.runPromiseExit(
+        getAppIndexDefinitionByIdEffect(
+          db,
+          deploymentId,
+          CatalogIndexDefinitionIdSchema.make(1),
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasDies(exit.cause)).toBe(true);
+        expect(Cause.hasFails(exit.cause)).toBe(false);
+        expect(exit.cause.toString()).toContain(defect.message);
+      }
+    },
+  );
+
   it("waits for a pending definition read before interruption completes", async () => {
     const entered = deferredValue<void>();
     const query = deferredValue<ReadonlyArray<unknown>>();

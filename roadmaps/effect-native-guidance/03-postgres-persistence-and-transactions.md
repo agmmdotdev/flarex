@@ -294,6 +294,15 @@ canonicalization preserves the former parallel behavior explicitly. The old
 Promise preparation and package-root read projections were deleted because the
 repository has no production compatibility consumer; focused tests own their
 explicit runtime bridge.
+Stored physical-definition scalar decoding now also composes codec, canonical
+byte, and digest evidence through ordered `Result` operations. Each
+protocol-owned throwing conversion has one narrow adapter, while fresh object
+construction and row-field access remain outside those catches. Malformed
+stored evidence therefore stays typed catalog corruption, but unexpected
+accessor or runtime failures remain defects instead of being misclassified as
+recoverable database state. The canonical JSON input is likewise snapshotted
+before its foreign Promise adapter, so accessor failures do not enter the
+canonicalization failure channel.
 
 The package-root stable logical-index identity readers are now Effect-native.
 Input and stored-row validation enter through pure `Result`, while each reader

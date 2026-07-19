@@ -2113,8 +2113,9 @@ const decodeStoredDefinitionEffect = Effect.fn(
   const decoded = yield* Effect.fromResult(
     decodeStoredDefinitionScalarsResult(row),
   );
+  const physicalSpecJson = row.physicalSpecJson;
   const canonical = yield* Effect.tryPromise({
-    try: () => canonicalizeAppIndexPhysicalSpecV1(row.physicalSpecJson),
+    try: () => canonicalizeAppIndexPhysicalSpecV1(physicalSpecJson),
     catch: (cause) => new AppIndexDefinitionCatalogCorruptionError(
       decoded.deploymentId,
       `definition ${decoded.indexDefinitionId} has an invalid physical specification`,
@@ -2194,24 +2195,31 @@ function decodeStoredDefinitionScalarsResult(
         row.logicalIndexId,
       ),
     );
-    const physicalEvidence = yield* Result.try({
-      try: () => Object.freeze({
-        physicalSpecCodecVersion: decodeAppIndexPhysicalSpecCodecVersion(
+    const physicalEvidence = yield* Result.gen(function* () {
+      const physicalSpecCodecVersion = yield*
+        decodeStoredPhysicalEvidenceResult(
+          deploymentId,
+          indexDefinitionId,
           row.physicalSpecCodecVersion,
-        ),
-        physicalSpecBytesHex:
-          canonicalAppIndexPhysicalSpecBytesHexV1FromBytes(
-            row.physicalSpecBytes,
-          ),
-        physicalSpecSha256Hex: appIndexPhysicalSpecSha256HexV1FromBytes(
-          row.physicalSpecSha256,
-        ),
-      }),
-      catch: (cause) => new AppIndexDefinitionCatalogCorruptionError(
+          decodeAppIndexPhysicalSpecCodecVersion,
+        );
+      const physicalSpecBytesHex = yield* decodeStoredPhysicalEvidenceResult(
         deploymentId,
-        `definition ${indexDefinitionId} has an invalid physical specification`,
-        { cause },
-      ),
+        indexDefinitionId,
+        row.physicalSpecBytes,
+        canonicalAppIndexPhysicalSpecBytesHexV1FromBytes,
+      );
+      const physicalSpecSha256Hex = yield* decodeStoredPhysicalEvidenceResult(
+        deploymentId,
+        indexDefinitionId,
+        row.physicalSpecSha256,
+        appIndexPhysicalSpecSha256HexV1FromBytes,
+      );
+      return Object.freeze({
+        physicalSpecCodecVersion,
+        physicalSpecBytesHex,
+        physicalSpecSha256Hex,
+      });
     });
     return Object.freeze({
       deploymentId,
@@ -2219,6 +2227,22 @@ function decodeStoredDefinitionScalarsResult(
       access,
       ...physicalEvidence,
     });
+  });
+}
+
+function decodeStoredPhysicalEvidenceResult<Input, Value>(
+  deploymentId: string,
+  indexDefinitionId: CatalogIndexDefinitionId,
+  value: Input,
+  decode: (value: Input) => Value,
+): Result.Result<Value, AppIndexDefinitionCatalogCorruptionError> {
+  return Result.try({
+    try: () => decode(value),
+    catch: (cause) => new AppIndexDefinitionCatalogCorruptionError(
+      deploymentId,
+      `definition ${indexDefinitionId} has an invalid physical specification`,
+      { cause },
+    ),
   });
 }
 
