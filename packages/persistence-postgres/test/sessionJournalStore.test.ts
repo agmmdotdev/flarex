@@ -434,6 +434,36 @@ describe("C03 Postgres SessionJournalStore", () => {
       last_syscall_sequence: "0",
     });
 
+    const pointInputAccesses: string[] = [];
+    const pointInputCause = new Error("syscall sequence access failed");
+    const throwingPointInput = Object.defineProperties({}, {
+      syscallSequence: {
+        enumerable: true,
+        get: () => {
+          pointInputAccesses.push("syscallSequence");
+          throw pointInputCause;
+        },
+      },
+      kind: {
+        enumerable: true,
+        get: () => {
+          pointInputAccesses.push("kind");
+          return "get";
+        },
+      },
+    });
+    const throwingPointEffect = Reflect.apply(
+      current.store.runPointOperationEffect,
+      undefined,
+      [current.table, throwingPointInput],
+    );
+    await expect(runFailure(throwingPointEffect)).resolves.toMatchObject({
+      operation: "get",
+      reason: "invalidOperation",
+      cause: pointInputCause,
+    } satisfies Partial<InvalidSessionJournalInputV1Error>);
+    expect(pointInputAccesses).toEqual(["syscallSequence", "kind"]);
+
     await persistence.query(
       `
         update fx_control_table
@@ -458,6 +488,37 @@ describe("C03 Postgres SessionJournalStore", () => {
       reason: "stableBindingMismatch",
       tableName: decodeSchemaManifestAppTableName("users"),
     } satisfies Partial<PinnedPointTableCorruptionV1Error>);
+  });
+
+  it("keeps unexpected value-normalizer failures in the defect channel", async () => {
+    const current = await scenario("point_input_normalizer_defect");
+    const defect = new Error("value proxy inspection failed");
+    const fields = new Proxy({}, {
+      ownKeys: () => {
+        throw defect;
+      },
+    });
+
+    const exit = await Effect.runPromiseExit(
+      current.store.runPointOperationEffect(current.table, {
+        kind: "insert",
+        syscallSequence: syscallSequence(1n),
+        fields,
+      }),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(exit.cause.reasons).toHaveLength(1);
+      const reason = exit.cause.reasons[0];
+      expect(reason !== undefined && Cause.isDieReason(reason)).toBe(true);
+      if (reason !== undefined && Cause.isDieReason(reason)) {
+        expect(reason.defect).toBe(defect);
+      }
+    }
+    await expect(journalCounts(current.anchor.sessionId)).resolves.toMatchObject({
+      receipts: 0,
+      points: 0,
+    });
   });
 
   it("rejects the stale execution owner at open, syscall, and seal after takeover", async () => {

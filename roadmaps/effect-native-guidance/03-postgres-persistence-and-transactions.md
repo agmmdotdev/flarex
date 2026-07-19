@@ -120,6 +120,20 @@ developer document remains a normal rejected point outcome, and unexpected
 identity-generation or canonicalization failures remain defects that roll the
 transaction back.
 
+Point-operation request capture now composes caller-field reads, syscall
+sequence decoding, table-qualified document identity, developer fields, and
+patch changes through ordered `Result` operations. The former blanket
+request-level `Result.try` is deleted. Caller-owned property and proxy
+inspection remain narrow throwing boundaries, with the former sequence-first
+access and failure-classification order preserved. Table-qualified document
+identity now has one protocol-owned Result parsing kernel shared by its Schema
+filter and typed decoder; the throwing decoder is only its compatibility
+projection. The protocol's throwing Flarex value normalizer is retained behind
+one filtered temporary adapter that maps only `FlarexValueCodecV1Error`;
+unexpected proxy or runtime failures remain defects. Delete that adapter when
+Value Codec V1 receives its own Result-native normalizer rather than wrapping
+the recursive owned implementation in a broad catch.
+
 Drizzle query calls in that planning/read graph remain narrow Promise edges,
 and the ordered mutation statements remain one temporary Promise adapter until
 the installed driver can expose an Effect-owned transaction client.

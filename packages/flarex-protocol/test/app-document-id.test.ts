@@ -9,8 +9,10 @@ import {
   appRowIdHexV1ToBytes,
   decodeAppDocumentIdV1,
   decodeAppDocumentIdentityV1,
+  decodeAppDocumentIdentityV1Result,
   decodeAppRowIdHexV1,
   requireAppDocumentIdentityV1ForTable,
+  requireAppDocumentIdentityV1ForTableResult,
   type AppDocumentIdV1,
   type AppRowIdHexV1,
 } from "../src/app-document-id";
@@ -93,6 +95,41 @@ describe("replacement app document identity v1", () => {
         },
       }),
     );
+
+    const result = requireAppDocumentIdentityV1ForTableResult(
+      documentId,
+      otherTableId,
+    );
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(AppDocumentIdV1Error);
+      expect(result.failure.issue).toEqual({
+        reason: "tableMismatch",
+        expectedTableId: otherTableId,
+        actualTableId: tableId,
+      });
+    }
+  });
+
+  it("exposes identity decoding as a typed Result with a throwing facade", () => {
+    const decoded = decodeAppDocumentIdentityV1Result(documentId);
+    expect(Result.isSuccess(decoded)).toBe(true);
+    if (Result.isSuccess(decoded)) {
+      expect(decoded.success).toEqual({ id: documentId, tableId, rowId });
+      expect(Object.isFrozen(decoded.success)).toBe(true);
+    }
+
+    const invalid = decodeAppDocumentIdentityV1Result(
+      "2147483648:00112233-4455-6677-8899-aabbccddeeff",
+    );
+    expect(Result.isFailure(invalid)).toBe(true);
+    if (Result.isFailure(invalid)) {
+      expect(invalid.failure).toBeInstanceOf(AppDocumentIdV1Error);
+      expect(invalid.failure.issue).toEqual({
+        reason: "invalidTableId",
+        value: "2147483648",
+      });
+    }
   });
 
   it("converts exact row bytes defensively", () => {

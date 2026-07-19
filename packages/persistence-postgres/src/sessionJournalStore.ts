@@ -25,7 +25,7 @@ import {
   appRowIdHexV1FromBytes,
   appRowIdHexV1ToBytes,
   decodeAppDocumentIdentityV1,
-  requireAppDocumentIdentityV1ForTable,
+  requireAppDocumentIdentityV1ForTableResult,
   type AppDocumentIdV1,
   type AppRowIdHexV1,
 } from "flarex-protocol/app-document-id";
@@ -1219,162 +1219,341 @@ function captureStoredRequestResult(
   SessionJournalStoredRequestV1,
   InvalidSessionJournalInputV1Error
 > {
-  return Result.try({
-    try: () => {
-      const syscallSequence = CommitSyscallSequenceV1Schema.make(
-        operation.syscallSequence,
-      );
-      switch (operation.kind) {
-        case "get": {
-          const identity = requireAppDocumentIdentityV1ForTable(
-            operation.documentId,
-            table.tableId,
-          );
-          return Object.freeze({
-            format: "flarex.session-journal-syscall",
-            codecVersion: 1,
-            kind: "get",
-            syscallSequence,
-            tableId: table.tableId,
-            documentId: identity.id,
-          });
-        }
-        case "insert":
-          return Object.freeze({
-            format: "flarex.session-journal-syscall",
-            codecVersion: 1,
-            kind: "insert",
-            syscallSequence,
-            tableId: table.tableId,
-            fieldsValueJson: captureDeveloperFieldsValueJson(
-              operation.fields,
-            ),
-          });
-        case "patch": {
-          const identity = requireAppDocumentIdentityV1ForTable(
-            operation.documentId,
-            table.tableId,
-          );
-          return Object.freeze({
-            format: "flarex.session-journal-syscall",
-            codecVersion: 1,
-            kind: "patch",
-            syscallSequence,
-            tableId: table.tableId,
-            documentId: identity.id,
-            changes: capturePatchChanges(operation.patch),
-          });
-        }
-        case "replace": {
-          const identity = requireAppDocumentIdentityV1ForTable(
-            operation.documentId,
-            table.tableId,
-          );
-          return Object.freeze({
-            format: "flarex.session-journal-syscall",
-            codecVersion: 1,
-            kind: "replace",
-            syscallSequence,
-            tableId: table.tableId,
-            documentId: identity.id,
-            fieldsValueJson: captureDeveloperFieldsValueJson(
-              operation.fields,
-            ),
-          });
-        }
-        case "delete": {
-          const identity = requireAppDocumentIdentityV1ForTable(
-            operation.documentId,
-            table.tableId,
-          );
-          return Object.freeze({
-            format: "flarex.session-journal-syscall",
-            codecVersion: 1,
-            kind: "delete",
-            syscallSequence,
-            tableId: table.tableId,
-            documentId: identity.id,
-          });
-        }
+  return Result.gen(function* () {
+    // Preserve the compatibility boundary's observable caller-access order:
+    // syscall sequence first, then the discriminant used to classify failure.
+    const syscallSequenceInput = yield* Result.try({
+      try: () => operation.syscallSequence,
+      catch: (cause) => invalidPointOperation(operation.kind, cause),
+    });
+    const syscallSequence = yield* decodeCommitSyscallSequenceResult(
+      syscallSequenceInput,
+    ).pipe(Result.mapError((cause) =>
+      invalidPointOperation(operation.kind, cause)
+    ));
+    const capturedOperation = yield* capturePointOperationInputResult(operation);
+    const operationKind = capturedOperation.kind;
+    switch (capturedOperation.kind) {
+      case "get": {
+        const documentId = yield* readPointOperationInput(
+          capturedOperation.source,
+          () => capturedOperation.source.documentId,
+        );
+        const identity = yield* requireAppDocumentIdentityV1ForTableResult(
+          documentId,
+          table.tableId,
+        ).pipe(Result.mapError((cause) =>
+          invalidPointOperation(capturedOperation.source.kind, cause)
+        ));
+        return Object.freeze({
+          format: "flarex.session-journal-syscall",
+          codecVersion: 1,
+          kind: "get",
+          syscallSequence,
+          tableId: table.tableId,
+          documentId: identity.id,
+        });
       }
-    },
-    catch: (cause) => new InvalidSessionJournalInputV1Error({
-      operation: operation.kind,
-      reason: "invalidOperation",
-      cause,
-    }),
+      case "insert": {
+        const fields = yield* readPointOperationInput(
+          capturedOperation.source,
+          () => capturedOperation.source.fields,
+        );
+        return Object.freeze({
+          format: "flarex.session-journal-syscall",
+          codecVersion: 1,
+          kind: "insert",
+          syscallSequence,
+          tableId: table.tableId,
+          fieldsValueJson: yield* captureDeveloperFieldsValueJsonResult(
+            fields,
+            capturedOperation.source,
+          ),
+        });
+      }
+      case "patch": {
+        const documentId = yield* readPointOperationInput(
+          capturedOperation.source,
+          () => capturedOperation.source.documentId,
+        );
+        const identity = yield* requireAppDocumentIdentityV1ForTableResult(
+          documentId,
+          table.tableId,
+        ).pipe(Result.mapError((cause) =>
+          invalidPointOperation(capturedOperation.source.kind, cause)
+        ));
+        const patch = yield* readPointOperationInput(
+          capturedOperation.source,
+          () => capturedOperation.source.patch,
+        );
+        return Object.freeze({
+          format: "flarex.session-journal-syscall",
+          codecVersion: 1,
+          kind: "patch",
+          syscallSequence,
+          tableId: table.tableId,
+          documentId: identity.id,
+          changes: yield* capturePatchChangesResult(
+            patch,
+            capturedOperation.source,
+          ),
+        });
+      }
+      case "replace": {
+        const documentId = yield* readPointOperationInput(
+          capturedOperation.source,
+          () => capturedOperation.source.documentId,
+        );
+        const identity = yield* requireAppDocumentIdentityV1ForTableResult(
+          documentId,
+          table.tableId,
+        ).pipe(Result.mapError((cause) =>
+          invalidPointOperation(capturedOperation.source.kind, cause)
+        ));
+        const fields = yield* readPointOperationInput(
+          capturedOperation.source,
+          () => capturedOperation.source.fields,
+        );
+        return Object.freeze({
+          format: "flarex.session-journal-syscall",
+          codecVersion: 1,
+          kind: "replace",
+          syscallSequence,
+          tableId: table.tableId,
+          documentId: identity.id,
+          fieldsValueJson: yield* captureDeveloperFieldsValueJsonResult(
+            fields,
+            capturedOperation.source,
+          ),
+        });
+      }
+      case "delete": {
+        const documentId = yield* readPointOperationInput(
+          capturedOperation.source,
+          () => capturedOperation.source.documentId,
+        );
+        const identity = yield* requireAppDocumentIdentityV1ForTableResult(
+          documentId,
+          table.tableId,
+        ).pipe(Result.mapError((cause) =>
+          invalidPointOperation(capturedOperation.source.kind, cause)
+        ));
+        return Object.freeze({
+          format: "flarex.session-journal-syscall",
+          codecVersion: 1,
+          kind: "delete",
+          syscallSequence,
+          tableId: table.tableId,
+          documentId: identity.id,
+        });
+      }
+    }
   });
 }
 
-function captureDeveloperFieldsValueJson(input: unknown): JsonObject {
-  const normalized = normalizeFlarexValueV1(input, "appDocument");
-  if (!isCanonicalFlarexRuntimeObjectV1(normalized.value)) {
-    throw new Error("App-document normalization returned a non-object.");
-  }
-  for (const field of ["_id", "_creationTime"] as const) {
-    if (Object.hasOwn(normalized.value, field)) {
-      throw new Error(`Developer fields contain reserved field ${field}.`);
-    }
-  }
-  if (!isJsonObject(normalized.valueJson)) {
-    throw new Error("App-document JSON normalization returned a non-object.");
-  }
-  return cloneJsonObject(normalized.valueJson);
+type CapturedPointOperationInputV1 = {
+  readonly [Kind in SessionJournalPointOperationKindV1]: Readonly<{
+    readonly kind: Kind;
+    readonly source: Extract<SessionJournalPointOperationV1, { kind: Kind }>;
+  }>;
+}[SessionJournalPointOperationKindV1];
+
+function capturePointOperationInputResult(
+  operation: SessionJournalPointOperationV1,
+): Result.Result<
+  CapturedPointOperationInputV1,
+  InvalidSessionJournalInputV1Error
+> {
+  return Result.try({
+    try: () => {
+      const operationKind = operation.kind;
+      switch (operationKind) {
+        case "get":
+          return { kind: operationKind, source: operation };
+        case "insert":
+          return { kind: operationKind, source: operation };
+        case "patch":
+          return { kind: operationKind, source: operation };
+        case "replace":
+          return { kind: operationKind, source: operation };
+        case "delete":
+          return { kind: operationKind, source: operation };
+      }
+    },
+    catch: (cause) => invalidPointOperation(operation.kind, cause),
+  });
 }
 
-function capturePatchChanges(input: unknown): ReadonlyArray<LogicalPatchFieldV1> {
-  if (!isPlainObject(input)) {
-    throw new Error("Patch must be a plain object.");
-  }
-  if (Object.getOwnPropertySymbols(input).length > 0) {
-    throw new Error("Patch cannot contain symbol fields.");
-  }
-  const fields = Object.keys(input).sort(compareUtf16Strings);
-  if (fields.length > MAX_FLAREX_VALUE_OBJECT_FIELDS_V1) {
-    throw new Error(
-      `Patch exceeds the ${MAX_FLAREX_VALUE_OBJECT_FIELDS_V1}-field limit.`,
+function readPointOperationInput<A>(
+  operation: SessionJournalPointOperationV1,
+  read: () => A,
+): Result.Result<A, InvalidSessionJournalInputV1Error> {
+  return Result.try({
+    try: read,
+    catch: (cause) => invalidPointOperation(operation.kind, cause),
+  });
+}
+
+function invalidPointOperation(
+  operation: SessionJournalPointOperationKindV1,
+  cause: unknown,
+): InvalidSessionJournalInputV1Error {
+  return new InvalidSessionJournalInputV1Error({
+    operation,
+    reason: "invalidOperation",
+    cause,
+  });
+}
+
+/**
+ * Temporary compatibility seam for the protocol's throwing value normalizer.
+ * Delete this adapter when Value Codec V1 exposes its Result-native decoder.
+ */
+function normalizePointOperationValueResult(
+  input: unknown,
+  profile: "appDocument" | "generalValue",
+  operation: SessionJournalPointOperationV1,
+): Result.Result<
+  ReturnType<typeof normalizeFlarexValueV1>,
+  InvalidSessionJournalInputV1Error
+> {
+  return Result.try({
+    try: () => normalizeFlarexValueV1(input, profile),
+    catch: (cause) => {
+      if (cause instanceof FlarexValueCodecV1Error) {
+        return invalidPointOperation(operation.kind, cause);
+      }
+      throw cause;
+    },
+  });
+}
+
+function captureDeveloperFieldsValueJsonResult(
+  input: unknown,
+  operation: SessionJournalPointOperationV1,
+): Result.Result<JsonObject, InvalidSessionJournalInputV1Error> {
+  return Result.gen(function* () {
+    const normalized = yield* normalizePointOperationValueResult(
+      input,
+      "appDocument",
+      operation,
     );
-  }
-  const changes: LogicalPatchFieldV1[] = [];
-  for (const field of fields) {
-    if (field === "_id" || field === "_creationTime") {
-      throw new Error(`Patch cannot modify reserved field ${field}.`);
+    if (!isCanonicalFlarexRuntimeObjectV1(normalized.value)) {
+      throw new Error("App-document normalization returned a non-object.");
     }
-    const descriptor = Object.getOwnPropertyDescriptor(input, field);
-    if (
-      descriptor === undefined ||
-      descriptor.enumerable !== true ||
-      !("value" in descriptor)
-    ) {
-      throw new Error(`Patch field ${field} must be an enumerable data field.`);
+    for (const field of ["_id", "_creationTime"] as const) {
+      if (Object.hasOwn(normalized.value, field)) {
+        return yield* Result.fail(invalidPointOperation(
+          operation.kind,
+          new Error(`Developer fields contain reserved field ${field}.`),
+        ));
+      }
     }
-    if (descriptor.value === undefined) {
-      normalizeFlarexValueV1({ [field]: null }, "appDocument");
-      changes.push(Object.freeze({ kind: "remove", field }));
-      continue;
-    }
-    const fieldContainer = Object.create(null);
-    Object.defineProperty(fieldContainer, field, {
-      value: descriptor.value,
-      enumerable: true,
-      configurable: false,
-      writable: false,
-    });
-    const normalized = normalizeFlarexValueV1(fieldContainer);
     if (!isJsonObject(normalized.valueJson)) {
-      throw new Error(`Patch field ${field} did not normalize as an object.`);
+      throw new Error("App-document JSON normalization returned a non-object.");
     }
-    const valueJson = normalized.valueJson[field];
-    if (valueJson === undefined) {
-      throw new Error(`Patch field ${field} was lost during normalization.`);
+    return cloneJsonObject(normalized.valueJson);
+  });
+}
+
+function capturePatchChangesResult(
+  input: unknown,
+  operation: SessionJournalPointOperationV1,
+): Result.Result<
+  ReadonlyArray<LogicalPatchFieldV1>,
+  InvalidSessionJournalInputV1Error
+> {
+  return Result.gen(function* () {
+    const patch = yield* readPointOperationInput(operation, () =>
+      isPlainObject(input) ? input : undefined
+    );
+    if (patch === undefined) {
+      return yield* Result.fail(invalidPointOperation(
+        operation.kind,
+        new Error("Patch must be a plain object."),
+      ));
     }
-    changes.push(Object.freeze({
-      kind: "set",
-      field,
-      valueJson,
-    }));
-  }
-  return Object.freeze(changes);
+    const symbols = yield* readPointOperationInput(
+      operation,
+      () => Object.getOwnPropertySymbols(patch),
+    );
+    if (symbols.length > 0) {
+      return yield* Result.fail(invalidPointOperation(
+        operation.kind,
+        new Error("Patch cannot contain symbol fields."),
+      ));
+    }
+    const fields = yield* readPointOperationInput(
+      operation,
+      () => Object.keys(patch),
+    );
+    fields.sort(compareUtf16Strings);
+    if (fields.length > MAX_FLAREX_VALUE_OBJECT_FIELDS_V1) {
+      return yield* Result.fail(invalidPointOperation(
+        operation.kind,
+        new Error(
+          `Patch exceeds the ${MAX_FLAREX_VALUE_OBJECT_FIELDS_V1}-field limit.`,
+        ),
+      ));
+    }
+    const changes: LogicalPatchFieldV1[] = [];
+    for (const field of fields) {
+      if (field === "_id" || field === "_creationTime") {
+        return yield* Result.fail(invalidPointOperation(
+          operation.kind,
+          new Error(`Patch cannot modify reserved field ${field}.`),
+        ));
+      }
+      const descriptor = yield* readPointOperationInput(
+        operation,
+        () => Object.getOwnPropertyDescriptor(patch, field),
+      );
+      if (
+        descriptor === undefined ||
+        descriptor.enumerable !== true ||
+        !("value" in descriptor)
+      ) {
+        return yield* Result.fail(invalidPointOperation(
+          operation.kind,
+          new Error(`Patch field ${field} must be an enumerable data field.`),
+        ));
+      }
+      if (descriptor.value === undefined) {
+        yield* normalizePointOperationValueResult(
+          { [field]: null },
+          "appDocument",
+          operation,
+        );
+        changes.push(Object.freeze({ kind: "remove", field }));
+        continue;
+      }
+      const fieldContainer = Object.create(null);
+      Object.defineProperty(fieldContainer, field, {
+        value: descriptor.value,
+        enumerable: true,
+        configurable: false,
+        writable: false,
+      });
+      const normalized = yield* normalizePointOperationValueResult(
+        fieldContainer,
+        "generalValue",
+        operation,
+      );
+      if (!isJsonObject(normalized.valueJson)) {
+        throw new Error(`Patch field ${field} did not normalize as an object.`);
+      }
+      const valueJson = normalized.valueJson[field];
+      if (valueJson === undefined) {
+        throw new Error(`Patch field ${field} was lost during normalization.`);
+      }
+      changes.push(Object.freeze({
+        kind: "set",
+        field,
+        valueJson,
+      }));
+    }
+    return Object.freeze(changes);
+  });
 }
 
 const canonicalizeStoredRequestEffect = Effect.fn(

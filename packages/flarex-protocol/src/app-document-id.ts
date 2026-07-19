@@ -32,7 +32,7 @@ export const decodeAppRowIdHexV1 = Schema.decodeUnknownSync(
 
 export const AppDocumentIdV1Schema = Schema.String.check(
   Schema.makeFilter((value) =>
-    decodeAppDocumentIdPartsV1(value) === null
+    Result.isFailure(decodeAppDocumentIdPartsV1Result(value))
       ? "Expected <positive table ID>:<canonical lowercase UUID>"
       : undefined,
   ),
@@ -40,6 +40,9 @@ export const AppDocumentIdV1Schema = Schema.String.check(
 export type AppDocumentIdV1 = typeof AppDocumentIdV1Schema.Type;
 export const decodeAppDocumentIdV1 = Schema.decodeUnknownSync(
   AppDocumentIdV1Schema,
+);
+const decodeCatalogTableIdResult = Schema.decodeUnknownResult(
+  Schema.toType(CatalogTableIdSchema),
 );
 
 export interface AppDocumentIdentityV1 {
@@ -68,10 +71,34 @@ export class AppDocumentIdV1Error extends Data.TaggedError(
 export function decodeAppDocumentIdentityV1(
   value: unknown,
 ): AppDocumentIdentityV1 {
+  return Result.getOrThrow(decodeAppDocumentIdentityV1Result(value));
+}
+
+export function decodeAppDocumentIdentityV1Result(
+  value: unknown,
+): Result.Result<AppDocumentIdentityV1, AppDocumentIdV1Error> {
+  return decodeAppDocumentIdPartsV1Result(value).pipe(Result.map((parts) =>
+    Object.freeze({
+      id: AppDocumentIdV1Schema.make(parts.id),
+      tableId: parts.tableId,
+      rowId: decodeAppRowIdHexV1(canonicalUuidTextV1ToHex(parts.uuid)),
+    } satisfies AppDocumentIdentityV1)
+  ));
+}
+
+interface AppDocumentIdPartsV1 {
+  readonly id: string;
+  readonly tableId: CatalogTableId;
+  readonly uuid: string;
+}
+
+function decodeAppDocumentIdPartsV1Result(
+  value: unknown,
+): Result.Result<AppDocumentIdPartsV1, AppDocumentIdV1Error> {
   if (typeof value !== "string") {
-    throw new AppDocumentIdV1Error({
+    return Result.fail(new AppDocumentIdV1Error({
       issue: { reason: "invalidType", value },
-    });
+    }));
   }
   const separator = value.indexOf(":");
   if (
@@ -79,43 +106,42 @@ export function decodeAppDocumentIdentityV1(
     separator !== value.lastIndexOf(":") ||
     separator === value.length - 1
   ) {
-    throw new AppDocumentIdV1Error({
+    return Result.fail(new AppDocumentIdV1Error({
       issue: { reason: "invalidFormat", value },
-    });
+    }));
   }
 
   const tableText = value.slice(0, separator);
   if (!/^[1-9][0-9]*$/.test(tableText)) {
-    throw new AppDocumentIdV1Error({
+    return Result.fail(new AppDocumentIdV1Error({
       issue: { reason: "invalidTableId", value: tableText },
-    });
+    }));
   }
   const tableNumber = Number(tableText);
   if (!isPositiveSafeInteger(tableNumber)) {
-    throw new AppDocumentIdV1Error({
+    return Result.fail(new AppDocumentIdV1Error({
       issue: { reason: "invalidTableId", value: tableText },
-    });
+    }));
   }
-  let tableId: CatalogTableId;
-  try {
-    tableId = decodeCatalogTableId(tableNumber);
-  } catch {
-    throw new AppDocumentIdV1Error({
+  const tableIdResult = decodeCatalogTableIdResult(tableNumber);
+  if (Result.isFailure(tableIdResult)) {
+    return Result.fail(new AppDocumentIdV1Error({
       issue: { reason: "invalidTableId", value: tableText },
-    });
+    }));
   }
+  const tableId = tableIdResult.success;
 
   const uuid = value.slice(separator + 1);
   if (!isCanonicalUuidTextV1(uuid)) {
-    throw new AppDocumentIdV1Error({
+    return Result.fail(new AppDocumentIdV1Error({
       issue: { reason: "invalidRowId", value: uuid },
-    });
+    }));
   }
-  return Object.freeze({
-    id: AppDocumentIdV1Schema.make(value),
+  return Result.succeed(Object.freeze({
+    id: value,
     tableId,
-    rowId: decodeAppRowIdHexV1(canonicalUuidTextV1ToHex(uuid)),
-  } satisfies AppDocumentIdentityV1);
+    uuid,
+  } satisfies AppDocumentIdPartsV1));
 }
 
 export function appDocumentIdV1FromRowIdentity(input: {
@@ -132,18 +158,27 @@ export function requireAppDocumentIdentityV1ForTable(
   value: unknown,
   expectedTableId: CatalogTableId,
 ): AppDocumentIdentityV1 {
+  return Result.getOrThrow(
+    requireAppDocumentIdentityV1ForTableResult(value, expectedTableId),
+  );
+}
+
+export function requireAppDocumentIdentityV1ForTableResult(
+  value: unknown,
+  expectedTableId: CatalogTableId,
+): Result.Result<AppDocumentIdentityV1, AppDocumentIdV1Error> {
   const expected = decodeCatalogTableId(expectedTableId);
-  const identity = decodeAppDocumentIdentityV1(value);
-  if (identity.tableId !== expected) {
-    throw new AppDocumentIdV1Error({
+  return Result.gen(function* () {
+    const identity = yield* decodeAppDocumentIdentityV1Result(value);
+    if (identity.tableId === expected) return identity;
+    return yield* Result.fail(new AppDocumentIdV1Error({
       issue: {
         reason: "tableMismatch",
         expectedTableId: expected,
         actualTableId: identity.tableId,
       },
-    });
-  }
-  return identity;
+    }));
+  });
 }
 
 export function appRowIdHexV1FromBytes(value: unknown): AppRowIdHexV1 {
@@ -173,26 +208,4 @@ export function appRowIdHexV1ToBytes(value: AppRowIdHexV1): Uint8Array {
     bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
   }
   return bytes;
-}
-
-function decodeAppDocumentIdPartsV1(
-  value: string,
-): { readonly tableId: CatalogTableId; readonly uuid: string } | null {
-  const separator = value.indexOf(":");
-  if (
-    separator <= 0 ||
-    separator !== value.lastIndexOf(":") ||
-    separator === value.length - 1
-  ) {
-    return null;
-  }
-  const tableText = value.slice(0, separator);
-  if (!/^[1-9][0-9]*$/.test(tableText)) return null;
-  const tableNumber = Number(tableText);
-  if (!isPositiveSafeInteger(tableNumber)) return null;
-  if (!Schema.is(CatalogTableIdSchema)(tableNumber)) return null;
-  const uuid = value.slice(separator + 1);
-  return isCanonicalUuidTextV1(uuid)
-    ? { tableId: decodeCatalogTableId(tableNumber), uuid }
-    : null;
 }
