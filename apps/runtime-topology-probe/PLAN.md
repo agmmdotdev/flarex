@@ -781,17 +781,54 @@ Status: complete. The bounded decision, Postgres authority rule, ordered
 cleanup, and exact script/namespace absence proof are recorded in
 [`P27-CONCLUSIONS-AND-TEARDOWN.md`](./P27-CONCLUSIONS-AND-TEARDOWN.md).
 
+### P28 - Real Postgres And Hyperdrive Preflight
+
+Status: approved in principle and preflighted. The direct-Neon,
+least-privilege-role, cache-disabled Hyperdrive, private Postgres Worker,
+real-transaction, paired warm matrix, USD 0.05 ceiling, and complete database
+plus Cloudflare teardown contract are recorded in
+[`P28-REAL-POSTGRES-HYPERDRIVE-PREFLIGHT.md`](./P28-REAL-POSTGRES-HYPERDRIVE-PREFLIGHT.md).
+
+P28 does not activate the main executor or change an active Flarex roadmap.
+Implementation, local proof, production evidence, and teardown will be owned
+by later P29-P31 records.
+
+### P29 - Postgres And Hyperdrive Implementation
+
+Status: complete. The private Worker, request-scoped `pg.Client`, exact intent
+fence, least-privilege bootstrap, generated runtime config, and focused local
+proof are recorded in
+[`P29-POSTGRES-HYPERDRIVE-IMPLEMENTATION.md`](./P29-POSTGRES-HYPERDRIVE-IMPLEMENTATION.md).
+
+### P30 - Production Postgres And Hyperdrive Evidence
+
+Status: complete with a non-publishable result. Real Neon commits succeeded and
+the clean warm transaction median was 48 ms, but both arms retained seven
+existing facet-finalizer failures. The exact bounded comparison is recorded in
+[`P30-PRODUCTION-POSTGRES-HYPERDRIVE.md`](./P30-PRODUCTION-POSTGRES-HYPERDRIVE.md).
+Mandatory post-run review then added a distinct Postgres-authority scenario,
+exact terminal-outcome recovery, correctly serialized duplicate delivery, and
+retry-safe facet rerun plus atomically published provisioning/teardown state.
+Commit and outcome-resolution traces now form separate cohorts instead of
+using zero placeholders. These fixes are locally validated only; a
+new production campaign is required before publishing latency evidence.
+
+### P31 - Conclusions And Teardown
+
+Status: complete. Evidence, application purge, Worker/DO deletion, Hyperdrive
+deletion, Neon schema/role removal, and absence proof are recorded in
+[`P31-POSTGRES-HYPERDRIVE-TEARDOWN.md`](./P31-POSTGRES-HYPERDRIVE-TEARDOWN.md).
+
 ## Goal Loop State
 
-- Goal: complete. P24-P27 extended the isolated probe with one approved warm
-  facet-finalizer lifecycle test and did not change active architecture
-  roadmaps.
+- Goal: complete. P28-P30 proved one isolated real-
+  Postgres/Hyperdrive extension after P24-P27 closed the warm facet-finalizer
+  lifecycle test. Active architecture roadmaps remain unchanged.
 - Previous baseline: P11 closed and removed the original deployment; its
   ignored evidence remains secret-free and unstaged.
 - Final result: implementation, full local proof, dry-runs, both mandatory
   reviews, partial production evidence, application purge, decision, and
   complete external teardown are recorded. Successful warm calls were much
   faster, but repeated uncertain outcomes made the campaign non-publishable.
-- Terminal gate: satisfied. P27 recorded the bounded negative conclusion,
-  preserved the no-Postgres limitation, removed all temporary
-  Workers/namespaces, and proved absence.
+- Terminal gate: complete. P31 proved every database, Cloudflare, and local
+  credential resource absent.

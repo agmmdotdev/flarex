@@ -18,7 +18,7 @@ import {
   type ProbeControlledSampleResultV1,
 } from "./runtimeProtocol";
 import {
-  PROBE_SCENARIO_TOPOLOGY,
+  probeTraceTopologyV1,
   validateProbeTraceV1,
 } from "./trace";
 import { ProbeCodeModeSchema } from "./identity";
@@ -110,7 +110,10 @@ const ProbeCohortKeyV1Shape = Schema.Struct({
 }).annotate(StrictStructOptions);
 export const ProbeCohortKeyV1Schema = ProbeCohortKeyV1Shape.check(
   Schema.makeFilter(cohort => {
-    if (cohort.scenario === "facet_finalizer_warm_invoke") {
+    if (
+      cohort.scenario === "facet_finalizer_warm_invoke" ||
+      cohort.scenario === "facet_finalizer_postgres_warm_invoke"
+    ) {
       return cohort.sessionActivation === undefined
         ? "warm finalizer cohorts require a SessionDO activation observation"
         : undefined;
@@ -171,7 +174,7 @@ export function summarizeProbeSamples(
   for (const controlled of samples) {
     const sample = controlled.sample;
     const traceValid = validateProbeTraceV1(sample).ok;
-    for (const [spanName] of PROBE_SCENARIO_TOPOLOGY[sample.scenario]) {
+    for (const [spanName] of probeTraceTopologyV1(sample)) {
       const cohort = cohortKey(controlled, spanName);
       const serialized = serializeCohortKey(cohort);
       const existing = cohorts.get(serialized);

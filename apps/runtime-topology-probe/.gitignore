@@ -1,2 +1,3 @@
 .probe-output/
 .probe-state/
+wrangler.postgres.runtime.jsonc

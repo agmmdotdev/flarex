@@ -235,9 +235,9 @@ describe.sequential("P07B campaign coordinator", () => {
           budgets: {
             planned: {
               runCells: 8,
-              sampleExecutions: 88,
-              payloadBytes: 5_632,
-              journalEntries: 176,
+              sampleExecutions: 48,
+              payloadBytes: 3_072,
+              journalEntries: 96,
               uniqueCodeIds: 8,
             },
           },

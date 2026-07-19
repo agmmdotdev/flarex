@@ -27,14 +27,14 @@ describe("direct Dynamic Worker protocol", () => {
       decodeProbeDirectEchoRequestV1Effect(directRequest("new-code")),
     );
 
-    expect(stable.codeId).toBe("rtp-code-direct-v1-stable");
-    expect(newCode.codeId).toBe("rtp-code-direct-v1-p03_dynamic-1");
+    expect(stable.codeId).toBe("rtp-code-direct-v2-stable");
+    expect(newCode.codeId).toBe("rtp-code-direct-v2-p03_dynamic-1");
   });
 
   it("rejects another runtime profile and excess fields", () => {
     const wrongProfile = {
       ...directRequest("stable"),
-      codeId: "rtp-code-facet-v1-stable",
+      codeId: "rtp-code-facet-v2-stable",
     };
     const excess = { ...directRequest("stable"), extra: true };
 

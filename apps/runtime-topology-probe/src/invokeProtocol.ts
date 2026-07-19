@@ -113,7 +113,8 @@ export const ProbeInvokeFacetExecutionRequestV1Schema =
       if (
         request.scenario === "facet_executor_invoke" ||
         request.scenario === "facet_finalizer_invoke" ||
-        request.scenario === "facet_finalizer_warm_invoke"
+        request.scenario === "facet_finalizer_warm_invoke" ||
+        request.scenario === "facet_finalizer_postgres_warm_invoke"
       ) {
         return request.prefetchedRead !== null &&
             probeMockReadReceiptMatchesRequestV1(
@@ -221,7 +222,8 @@ export const ProbeInvokeFacetWorkerResponseV1Schema =
       const snapshotSeeded =
         response.scenario === "facet_executor_invoke" ||
         response.scenario === "facet_finalizer_invoke" ||
-        response.scenario === "facet_finalizer_warm_invoke";
+        response.scenario === "facet_finalizer_warm_invoke" ||
+        response.scenario === "facet_finalizer_postgres_warm_invoke";
       if (
         response.commitIntent.snapshotRevision !== response.syntheticRevision ||
         response.commitIntent.journalEntries !== response.journalEntries ||
@@ -238,7 +240,8 @@ export const ProbeInvokeFacetWorkerResponseV1Schema =
       }
       const facetFinalizer =
         response.scenario === "facet_finalizer_invoke" ||
-        response.scenario === "facet_finalizer_warm_invoke";
+        response.scenario === "facet_finalizer_warm_invoke" ||
+        response.scenario === "facet_finalizer_postgres_warm_invoke";
       if (!facetFinalizer) {
         return response.outboundFinishCalls === 0 &&
             response.facetFinalizationDurationMs === null &&
@@ -417,9 +420,11 @@ export async function probeInvokeFacetReceiptMatchesRequestV1(
   );
   const snapshotSeeded = request.scenario === "facet_executor_invoke" ||
     request.scenario === "facet_finalizer_invoke" ||
-    request.scenario === "facet_finalizer_warm_invoke";
+    request.scenario === "facet_finalizer_warm_invoke" ||
+    request.scenario === "facet_finalizer_postgres_warm_invoke";
   const facetFinalizer = request.scenario === "facet_finalizer_invoke" ||
-    request.scenario === "facet_finalizer_warm_invoke";
+    request.scenario === "facet_finalizer_warm_invoke" ||
+    request.scenario === "facet_finalizer_postgres_warm_invoke";
   const finalizationMatches = facetFinalizer
     ? response.outboundFinishCalls === 1 &&
       response.facetFinalizationDurationMs !== null &&
@@ -557,6 +562,7 @@ function fullInvokeSessionObservationIssue(response: {
   }
   if (
     request.scenario !== "facet_finalizer_warm_invoke" &&
+    request.scenario !== "facet_finalizer_postgres_warm_invoke" &&
     response.sessionActivationObserved
   ) {
     return "only the warm facet finalizer may report SessionDO activation";
@@ -564,7 +570,8 @@ function fullInvokeSessionObservationIssue(response: {
   const expectedHost = request.scenario === "session_executor_invoke"
     ? "session-do"
     : request.scenario === "facet_finalizer_invoke" ||
-        request.scenario === "facet_finalizer_warm_invoke"
+        request.scenario === "facet_finalizer_warm_invoke" ||
+        request.scenario === "facet_finalizer_postgres_warm_invoke"
     ? "facet-finalizer"
     : request.scenario === "facet_executor_invoke"
     ? "facet-do"
@@ -614,18 +621,21 @@ function invokeIdentityIssue(input: {
   const runtimeIssue = commitIssue ?? probeInvokeRuntimeIdentityIssueV1(input);
   if (runtimeIssue !== undefined) return runtimeIssue;
   if (
-    input.scenario === "facet_finalizer_warm_invoke" &&
+    (input.scenario === "facet_finalizer_warm_invoke" ||
+      input.scenario === "facet_finalizer_postgres_warm_invoke") &&
     input.sessionMode !== "reuse-session"
   ) {
     return "facet_finalizer_warm_invoke requires one reused SessionDO";
   }
   if (
-    input.scenario === "facet_finalizer_warm_invoke" &&
+    (input.scenario === "facet_finalizer_warm_invoke" ||
+      input.scenario === "facet_finalizer_postgres_warm_invoke") &&
     input.codeMode !== "stable"
   ) {
     return "facet_finalizer_warm_invoke requires stable code";
   }
-  const expectedFacetId = input.scenario === "facet_finalizer_warm_invoke"
+  const expectedFacetId = input.scenario === "facet_finalizer_warm_invoke" ||
+      input.scenario === "facet_finalizer_postgres_warm_invoke"
     ? probeAttemptId(input.runId, PROBE_ORDINAL_ZERO, PROBE_ORDINAL_ZERO)
     : input.attemptId;
   return input.facetId === expectedFacetId
@@ -653,7 +663,10 @@ function sameInvokeAndFinishIdentity(
     facet.codeMode === finish.codeMode &&
     facet.codeId === finish.codeId &&
     facet.journalEntries === finish.journalEntries &&
-    facet.sealDigest === finish.sealDigest;
+    facet.sealDigest === finish.sealDigest &&
+    facet.syntheticRevision === finish.snapshotRevision &&
+    facet.resultDigest === finish.resultDigest &&
+    facet.commitIntent.digest === finish.commitIntentDigest;
 }
 
 function canonicalJournalSeal(
@@ -686,6 +699,7 @@ export interface ProbeInvokeReadCapability {
 
 export interface ProbeInvokeFinishCapability {
   finish(value: unknown): Promise<typeof ProbeMockFinishResponseV1Schema.Type>;
+  resolve(value: unknown): Promise<typeof ProbeMockFinishResponseV1Schema.Type>;
 }
 
 export interface ProbeInvokeSessionReadCapability {
@@ -777,14 +791,24 @@ const READ_RECEIPT_KEYS = [
   "sessionMode",
   "syntheticRevision"
 ];
-const FINISH_RESPONSE_KEYS = ["mockSyncWakeDurationMs", "request", "sync"];
+const FINISH_RESPONSE_KEYS = [
+  "commitAuthority",
+  "commitTransactionDurationMs",
+  "finishDisposition",
+  "outcomeResolutionDurationMs",
+  "request",
+  "sync",
+  "syncWakeDurationMs"
+];
 const FINISH_REQUEST_KEYS = [
   "attemptId",
   "codeId",
   "codeMode",
+  "commitIntentDigest",
   "commitSeq",
   "journalEntries",
   "protocolVersion",
+  "resultDigest",
   "runId",
   "sampleId",
   "sampleOrdinal",
@@ -792,7 +816,8 @@ const FINISH_REQUEST_KEYS = [
   "scopeId",
   "sealDigest",
   "sessionId",
-  "sessionMode"
+  "sessionMode",
+  "snapshotRevision"
 ];
 const SYNC_RECEIPT_KEYS = [
   "commitSeq",
@@ -824,9 +849,11 @@ export class ProbeInvocationFacet extends DurableObject {
     }
     const snapshotSeeded = value.scenario === "facet_executor_invoke" ||
       value.scenario === "facet_finalizer_invoke" ||
-      value.scenario === "facet_finalizer_warm_invoke";
+      value.scenario === "facet_finalizer_warm_invoke" ||
+      value.scenario === "facet_finalizer_postgres_warm_invoke";
     const facetFinalizer = value.scenario === "facet_finalizer_invoke" ||
-      value.scenario === "facet_finalizer_warm_invoke";
+      value.scenario === "facet_finalizer_warm_invoke" ||
+      value.scenario === "facet_finalizer_postgres_warm_invoke";
     if (!snapshotSeeded &&
       (this.env.EXECUTOR_READ === undefined || typeof this.env.EXECUTOR_READ.read !== "function")) {
       return json({ error: "executor_read_unavailable" }, 500);
@@ -835,7 +862,9 @@ export class ProbeInvocationFacet extends DurableObject {
       return json({ error: "unexpected_executor_read_capability" }, 500);
     }
     if (facetFinalizer &&
-      (this.env.EXECUTOR_FINISH === undefined || typeof this.env.EXECUTOR_FINISH.finish !== "function")) {
+      (this.env.EXECUTOR_FINISH === undefined ||
+        typeof this.env.EXECUTOR_FINISH.finish !== "function" ||
+        typeof this.env.EXECUTOR_FINISH.resolve !== "function")) {
       return json({ error: "executor_finish_unavailable" }, 500);
     }
     if (!facetFinalizer && this.env.EXECUTOR_FINISH !== undefined) {
@@ -844,6 +873,7 @@ export class ProbeInvocationFacet extends DurableObject {
 
     const sql = this.ctx.storage.sql;
     const requestJson = JSON.stringify(value);
+    let recoveringFinish = false;
     if (facetFinalizer) {
       sql.exec("CREATE TABLE IF NOT EXISTS invoke_attempt_state (attempt_id TEXT PRIMARY KEY, request_json TEXT NOT NULL, phase TEXT NOT NULL CHECK (phase IN ('running', 'finishing', 'committed')), response_json TEXT)");
       const existingAttempt = sql.exec("SELECT request_json, phase, response_json FROM invoke_attempt_state WHERE attempt_id = ?", value.attemptId).toArray()[0];
@@ -854,10 +884,17 @@ export class ProbeInvocationFacet extends DurableObject {
         if (existingAttempt.phase === "committed" && typeof existingAttempt.response_json === "string") {
           return json(JSON.parse(existingAttempt.response_json), 200);
         }
-        return json({ error: "facet_attempt_busy" }, 409);
+        if (
+          existingAttempt.phase !== "running" &&
+          existingAttempt.phase !== "finishing"
+        ) {
+          return json({ error: "facet_attempt_busy" }, 409);
+        }
+        recoveringFinish = existingAttempt.phase === "finishing";
+      } else {
+        sql.exec("INSERT INTO invoke_attempt_state (attempt_id, request_json, phase, response_json) VALUES (?, ?, 'running', NULL)", value.attemptId, requestJson);
+        await this.ctx.storage.sync();
       }
-      sql.exec("INSERT INTO invoke_attempt_state (attempt_id, request_json, phase, response_json) VALUES (?, ?, 'running', NULL)", value.attemptId, requestJson);
-      await this.ctx.storage.sync();
     }
 
     const readRequest = mockReadRequest(value);
@@ -947,19 +984,26 @@ export class ProbeInvocationFacet extends DurableObject {
       codeMode: value.codeMode,
       codeId: value.codeId,
       journalEntries: value.journalEntries,
-      sealDigest
+      sealDigest,
+      snapshotRevision: readReceipt.syntheticRevision,
+      resultDigest,
+      commitIntentDigest
     };
     let finish = null;
     let facetFinalizationDurationMs = null;
     let outboundFinishCalls = 0;
     if (facetFinalizer) {
-      const finishing = sql.exec("UPDATE invoke_attempt_state SET phase = 'finishing' WHERE attempt_id = ? AND request_json = ? AND phase = 'running'", value.attemptId, requestJson);
-      if (finishing.rowsWritten !== 1) {
-        return json({ error: "facet_attempt_transition_failed" }, 500);
+      if (!recoveringFinish) {
+        const finishing = sql.exec("UPDATE invoke_attempt_state SET phase = 'finishing' WHERE attempt_id = ? AND request_json = ? AND phase = 'running'", value.attemptId, requestJson);
+        if (finishing.rowsWritten !== 1) {
+          return json({ error: "facet_attempt_transition_failed" }, 500);
+        }
+        await this.ctx.storage.sync();
       }
-      await this.ctx.storage.sync();
       const finishStartedAt = performance.now();
-      const rpcFinish = await this.env.EXECUTOR_FINISH.finish(finishRequest);
+      const rpcFinish = recoveringFinish
+        ? await this.env.EXECUTOR_FINISH.resolve(finishRequest)
+        : await this.env.EXECUTOR_FINISH.finish(finishRequest);
       outboundFinishCalls = 1;
       finish = JSON.parse(JSON.stringify(rpcFinish));
       facetFinalizationDurationMs = elapsedSince(finishStartedAt);
@@ -1054,35 +1098,41 @@ function validRequest(value) {
       value.scenario !== "facet_executor_invoke" &&
       value.scenario !== "facet_finalizer_invoke" &&
       value.scenario !== "facet_finalizer_warm_invoke" &&
+      value.scenario !== "facet_finalizer_postgres_warm_invoke" &&
       value.scenario !== "session_executor_invoke") ||
     value.commitSeq !== value.sampleOrdinal + 1
   ) return false;
   if (value.sessionMode !== "new-session" && value.sessionMode !== "reuse-session") return false;
-  if (value.scenario === "facet_finalizer_warm_invoke" && value.sessionMode !== "reuse-session") return false;
+  const warmFinalizer = value.scenario === "facet_finalizer_warm_invoke" ||
+    value.scenario === "facet_finalizer_postgres_warm_invoke";
+  if (warmFinalizer && value.sessionMode !== "reuse-session") return false;
   const sessionOrdinal = value.sessionMode === "reuse-session" ? 0 : value.sampleOrdinal;
   if (value.sessionId !== "rtp-session-" + value.runId + "-" + sessionOrdinal) return false;
   if (value.attemptId !== "rtp-attempt-" + value.runId + "-" + sessionOrdinal + "-" + value.sampleOrdinal) return false;
-  const expectedFacetId = value.scenario === "facet_finalizer_warm_invoke"
+  const expectedFacetId = warmFinalizer
     ? "rtp-attempt-" + value.runId + "-0-0"
     : value.attemptId;
   if (value.facetId !== expectedFacetId) return false;
   if (value.codeMode !== "stable" && value.codeMode !== "new-code") return false;
-  if (value.scenario === "facet_finalizer_warm_invoke" && value.codeMode !== "stable") return false;
-  const codeProfile = value.scenario === "facet_finalizer_warm_invoke"
+  if (warmFinalizer && value.codeMode !== "stable") return false;
+  const codeProfile = value.scenario === "facet_finalizer_postgres_warm_invoke"
+    ? "invoke-finalizer-postgres-warm"
+    : warmFinalizer
     ? "invoke-finalizer-warm"
     : value.scenario === "facet_finalizer_invoke"
     ? "invoke-finalizer"
     : "invoke";
   const expectedCodeId = value.codeMode === "stable"
-    ? "rtp-code-" + codeProfile + "-v1-stable"
-    : "rtp-code-" + codeProfile + "-v1-" + value.runId + "-" + value.sampleOrdinal;
+    ? "rtp-code-" + codeProfile + "-v2-stable"
+    : "rtp-code-" + codeProfile + "-v2-" + value.runId + "-" + value.sampleOrdinal;
   if (value.codeId !== expectedCodeId) return false;
   if (!Number.isInteger(value.journalEntries) || value.journalEntries < 0 || value.journalEntries > MAX_JOURNAL_ENTRIES) return false;
   if (typeof value.payload !== "string" || value.payload.length > MAX_PAYLOAD_BYTES || !/^x*$/.test(value.payload)) return false;
   const readRequest = mockReadRequest(value);
   return value.scenario === "facet_executor_invoke" ||
       value.scenario === "facet_finalizer_invoke" ||
-      value.scenario === "facet_finalizer_warm_invoke"
+      value.scenario === "facet_finalizer_warm_invoke" ||
+      value.scenario === "facet_finalizer_postgres_warm_invoke"
     ? validReadReceipt(value.prefetchedRead, readRequest)
     : value.prefetchedRead === null;
 }
@@ -1102,9 +1152,20 @@ function validFinishReceipt(receipt, request) {
   for (const key of Object.keys(request)) {
     if (receipt.request[key] !== request[key]) return false;
   }
-  const duration = receipt.mockSyncWakeDurationMs;
+  const duration = receipt.syncWakeDurationMs;
+  const transactionDuration = receipt.commitTransactionDurationMs;
+  const resolutionDuration = receipt.outcomeResolutionDurationMs;
   const sync = receipt.sync;
-  if (typeof duration !== "number" || !Number.isFinite(duration) || duration < 0 ||
+  const expectedAuthority = request.scenario === "facet_finalizer_postgres_warm_invoke"
+    ? "postgres"
+    : "mock";
+  if (receipt.commitAuthority !== expectedAuthority ||
+    (receipt.finishDisposition !== "committed" && receipt.finishDisposition !== "recovered") ||
+    typeof transactionDuration !== "number" || !Number.isFinite(transactionDuration) || transactionDuration < 0 ||
+    typeof resolutionDuration !== "number" || !Number.isFinite(resolutionDuration) || resolutionDuration < 0 ||
+    (receipt.finishDisposition === "committed" && resolutionDuration !== 0) ||
+    (receipt.finishDisposition === "recovered" && transactionDuration !== 0) ||
+    typeof duration !== "number" || !Number.isFinite(duration) || duration < 0 ||
     typeof sync.cursorDurationMs !== "number" || !Number.isFinite(sync.cursorDurationMs) || sync.cursorDurationMs < 0 ||
     !Number.isInteger(sync.previousCursor) || sync.previousCursor < 0 || sync.previousCursor > 1000000 ||
     !Number.isInteger(sync.cursor) || sync.cursor < 0 || sync.cursor > 1000000) return false;

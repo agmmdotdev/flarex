@@ -125,7 +125,7 @@ describe("runtime topology probe protocol", () => {
       ...sample,
       identity: {
         ...sample.identity,
-        codeId: "rtp-code-invoke-v1-run_b-0",
+        codeId: "rtp-code-invoke-v2-run_b-0",
       },
     };
     const wrongAttempt = {
@@ -174,6 +174,37 @@ describe("runtime topology probe protocol", () => {
       Effect.runSync(
         Effect.flip(
           decodeProbeSampleResultV1Effect(impossibleStartupOrdering),
+        ),
+      ).boundary,
+    ).toBe("sample-result-v1");
+  });
+
+  it("decodes historical v1 source identities without admitting them for Postgres", () => {
+    const historical = validSample("full_invoke");
+    const historicalCodeId = historical.identity.codeId?.replace(
+      "-v2-",
+      "-v1-",
+    );
+    const decoded = runEffectTestSync(
+      decodeProbeSampleResultV1Effect({
+        ...historical,
+        identity: { ...historical.identity, codeId: historicalCodeId },
+      }),
+    );
+    expect(decoded.identity.codeId).toBe(historicalCodeId);
+
+    const postgres = validSample("facet_finalizer_postgres_warm_invoke");
+    const postgresV1CodeId = postgres.identity.codeId?.replace(
+      "-v2-",
+      "-v1-",
+    );
+    expect(
+      runEffectTestSync(
+        Effect.flip(
+          decodeProbeSampleResultV1Effect({
+            ...postgres,
+            identity: { ...postgres.identity, codeId: postgresV1CodeId },
+          }),
         ),
       ).boundary,
     ).toBe("sample-result-v1");

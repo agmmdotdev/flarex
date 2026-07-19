@@ -63,7 +63,7 @@ export type ProbeAttemptId = typeof ProbeAttemptIdSchema.Type;
 
 export const ProbeCodeIdSchema = Schema.String.check(
   Schema.isPattern(
-    /^rtp-code-(?:direct|facet|invoke|invoke-finalizer|invoke-finalizer-warm|rerun)-v1-(?:stable|[a-z0-9][a-z0-9_-]{0,39}-[0-9]{1,6})$/,
+    /^rtp-code-(?:direct|facet|invoke|invoke-finalizer|invoke-finalizer-warm|invoke-finalizer-postgres-warm|rerun)-v[12]-(?:stable|[a-z0-9][a-z0-9_-]{0,39}-[0-9]{1,6})$/,
   ),
 ).pipe(Schema.brand("Flarex/RuntimeTopologyProbeCodeIdV1"));
 export type ProbeCodeId = typeof ProbeCodeIdSchema.Type;
@@ -82,6 +82,7 @@ export const ProbeCodeProfileSchema = Schema.Literals([
   "invoke",
   "invoke-finalizer",
   "invoke-finalizer-warm",
+  "invoke-finalizer-postgres-warm",
   "rerun",
 ]);
 export type ProbeCodeProfile = typeof ProbeCodeProfileSchema.Type;
@@ -171,11 +172,11 @@ export function probeCodeId(input: ProbeCodeIdentityInput): ProbeCodeId {
   switch (input.mode) {
     case "stable":
       return ProbeCodeIdSchema.make(
-        `rtp-code-${input.profile}-v1-stable`,
+        `rtp-code-${input.profile}-v2-stable`,
       );
     case "new-code":
       return ProbeCodeIdSchema.make(
-        `rtp-code-${input.profile}-v1-${input.runId}-${input.version}`,
+        `rtp-code-${input.profile}-v2-${input.runId}-${input.version}`,
       );
   }
 }

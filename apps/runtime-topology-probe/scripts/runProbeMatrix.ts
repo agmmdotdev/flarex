@@ -1,6 +1,9 @@
 import { join, resolve } from "node:path";
 
-import { PROBE_ACTIVE_CAMPAIGN_MATRIX_V1 } from "../src/matrix";
+import {
+  PROBE_ACTIVE_CAMPAIGN_MATRIX_V1,
+  PROBE_POSTGRES_HYPERDRIVE_MATRIX_V1,
+} from "../src/matrix";
 import {
   PROBE_DEFAULT_REQUEST_TIMEOUT_MS,
   ProbeRunnerError,
@@ -38,7 +41,10 @@ if (origin === undefined || token === undefined || token.length === 0) {
   process.exit(1);
 }
 
-const campaignId = PROBE_ACTIVE_CAMPAIGN_MATRIX_V1.campaignId;
+const manifest = process.env.RUNTIME_TOPOLOGY_PROBE_ARM === "postgres"
+  ? PROBE_POSTGRES_HYPERDRIVE_MATRIX_V1
+  : PROBE_ACTIVE_CAMPAIGN_MATRIX_V1;
+const campaignId = manifest.campaignId;
 const stateDirectory = resolve(
   process.env.RUNTIME_TOPOLOGY_PROBE_STATE_DIR ?? ".probe-state",
 );
@@ -97,7 +103,7 @@ try {
     }, null, 2));
   } else if (mode === "smoke") {
     const outcome = await runProbeCampaignSmokeV1({
-      manifest: PROBE_ACTIVE_CAMPAIGN_MATRIX_V1,
+      manifest,
       transport,
       requestTimeoutMs,
       checkpoint,
@@ -122,7 +128,7 @@ try {
   } else {
     if (mode === "abort") {
       await reconcileProbeCampaignForAbortV1({
-        manifest: PROBE_ACTIVE_CAMPAIGN_MATRIX_V1,
+        manifest,
         transport,
         checkpoint,
         requestTimeoutMs,
@@ -130,7 +136,7 @@ try {
     }
     const paths = probeEvidenceArtifactPaths(outputDirectory, campaignId);
     const outcome = await runProbeCampaignV1({
-      manifest: PROBE_ACTIVE_CAMPAIGN_MATRIX_V1,
+      manifest,
       target: {
         kind: "cloudflare-production",
         compatibilityDate: "2026-06-14",
@@ -189,6 +195,18 @@ function probeFailureCauseSummary(cause: unknown): string {
     typeof cause === "boolean"
   ) {
     return JSON.stringify(cause);
+  }
+  if (typeof cause === "object" && cause !== null) {
+    const record = cause as Record<string, unknown>;
+    const safe = Object.fromEntries(
+      ["code", "retryable", "stage", "kind", "status"].flatMap(key =>
+        typeof record[key] === "string" || typeof record[key] === "boolean" ||
+            typeof record[key] === "number"
+          ? [[key, record[key]]]
+          : []
+      ),
+    );
+    if (Object.keys(safe).length > 0) return JSON.stringify(safe);
   }
   return typeof cause === "string"
     ? "[string cause redacted]"

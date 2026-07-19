@@ -156,7 +156,7 @@ describe("P02 gateway runtime protocol", () => {
     });
     const sample = completeProbeGatewaySampleV1(fragment, 2);
 
-    expect(sample.identity.codeId).toBe("rtp-code-direct-v1-stable");
+    expect(sample.identity.codeId).toBe("rtp-code-direct-v2-stable");
     expect(validateProbeTraceV1(sample)).toEqual({ ok: true });
   });
 
@@ -273,7 +273,7 @@ describe("P02 gateway runtime protocol", () => {
     });
     const sample = completeProbeGatewaySampleV1(fragment, 3);
 
-    expect(fragment.identity.codeId).toBe("rtp-code-rerun-v1-stable");
+    expect(fragment.identity.codeId).toBe("rtp-code-rerun-v2-stable");
     expect(sample.spans.map(current => current.name)).toEqual([
       "external_request",
       "sync_runtime_rerun_rtt",

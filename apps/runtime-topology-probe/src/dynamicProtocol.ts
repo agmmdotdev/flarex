@@ -219,8 +219,8 @@ function validRequest(value) {
   if (value.sampleId !== "rtp-sample-" + value.runId + "-" + value.sampleOrdinal) return false;
   if (value.codeMode !== "stable" && value.codeMode !== "new-code") return false;
   const expectedCodeId = value.codeMode === "stable"
-    ? "rtp-code-direct-v1-stable"
-    : "rtp-code-direct-v1-" + value.runId + "-" + value.sampleOrdinal;
+    ? "rtp-code-direct-v2-stable"
+    : "rtp-code-direct-v2-" + value.runId + "-" + value.sampleOrdinal;
   if (value.codeId !== expectedCodeId) return false;
   return typeof value.payload === "string" &&
     value.payload.length <= MAX_PAYLOAD_BYTES &&

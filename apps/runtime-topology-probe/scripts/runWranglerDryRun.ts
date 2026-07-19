@@ -13,6 +13,19 @@ const targets = {
     ),
     outdir: "dist/gateway",
   },
+  "gateway-postgres": {
+    bundleUrl: new URL(
+      "../dist/gateway-postgres/gatewayPostgresWorker.js",
+      import.meta.url,
+    ),
+    config: "wrangler.gateway.postgres.jsonc",
+    metafile: "dist/gateway-postgres/bundle-meta.json",
+    metafileUrl: new URL(
+      "../dist/gateway-postgres/bundle-meta.json",
+      import.meta.url,
+    ),
+    outdir: "dist/gateway-postgres",
+  },
   "gateway-teardown": {
     bundleUrl: new URL(
       "../dist/gateway-teardown/teardownWorker.js",
@@ -35,6 +48,19 @@ const targets = {
       import.meta.url,
     ),
     outdir: "dist/mock",
+  },
+  postgres: {
+    bundleUrl: new URL(
+      "../dist/postgres/postgresCommitWorker.js",
+      import.meta.url,
+    ),
+    config: "wrangler.postgres.jsonc",
+    metafile: "dist/postgres/bundle-meta.json",
+    metafileUrl: new URL(
+      "../dist/postgres/bundle-meta.json",
+      import.meta.url,
+    ),
+    outdir: "dist/postgres",
   },
   sync: {
     bundleUrl: new URL("../dist/sync/syncWorker.js", import.meta.url),
@@ -64,7 +90,7 @@ const targets = {
 const targetName = process.argv[2] ?? "gateway";
 if (!isDryRunTarget(targetName)) {
   console.error(
-    "Usage: runWranglerDryRun.ts gateway|gateway-teardown|mock|sync|sync-teardown",
+    "Usage: runWranglerDryRun.ts gateway|gateway-postgres|gateway-teardown|mock|postgres|sync|sync-teardown",
   );
   process.exit(1);
 }

@@ -72,8 +72,24 @@ function testMockReadDelayMs(env: ProbeMockCommitEnv): number {
 
 export class MockFinishEntrypoint extends WorkerEntrypoint<ProbeMockCommitEnv> {
   async finish(value: unknown): Promise<ProbeMockFinishResponseV1> {
+    return await performMockFinish(this.env, value, true);
+  }
+
+  async resolve(value: unknown): Promise<ProbeMockFinishResponseV1> {
+    return await performMockFinish(this.env, value, false);
+  }
+}
+
+async function performMockFinish(
+  env: ProbeMockCommitEnv,
+  value: unknown,
+  injectPostApplyFailure: boolean,
+): Promise<ProbeMockFinishResponseV1> {
     const request = decodeProbeMockFinishRequestV1OrNull(value);
-    if (request === null) throw new Error("invalid synthetic mock finish");
+    if (
+      request === null ||
+      request.scenario === "facet_finalizer_postgres_warm_invoke"
+    ) throw new Error("invalid synthetic mock finish");
     const syncRequest = ProbeSyncWakeRequestV1Schema.make({
       protocolVersion: request.protocolVersion,
       runId: request.runId,
@@ -83,7 +99,7 @@ export class MockFinishEntrypoint extends WorkerEntrypoint<ProbeMockCommitEnv> {
       scenario: request.scenario,
       commitSeq: request.commitSeq,
     });
-    const sync = this.env.PROBE_SYNC.getByName(request.scopeId);
+    const sync = env.PROBE_SYNC.getByName(request.scopeId);
     const startedAt = performance.now();
     const rawReceipt = await sync.wake(syncRequest);
     const receipt = decodeProbeSyncWakeReceiptV1OrNull(
@@ -91,20 +107,22 @@ export class MockFinishEntrypoint extends WorkerEntrypoint<ProbeMockCommitEnv> {
     );
     if (receipt === null) throw new Error("invalid synthetic sync receipt");
     if (
-      this.env.RUNTIME_TOPOLOGY_PROBE_TEST_MOCK_FINISH_MODE ===
+      injectPostApplyFailure &&
+      env.RUNTIME_TOPOLOGY_PROBE_TEST_MOCK_FINISH_MODE ===
         "apply-then-throw"
     ) {
       throw new Error("injected post-apply mock finish failure");
     }
-    const mockSyncWakeDurationMs = elapsedPerformanceDurationSince(startedAt);
+    const syncWakeDurationMs = elapsedPerformanceDurationSince(startedAt);
     return ProbeMockFinishResponseV1Schema.make({
       request,
-      mockSyncWakeDurationMs: ProbeDurationMsSchema.make(
-        mockSyncWakeDurationMs,
-      ),
+      commitAuthority: "mock",
+      finishDisposition: injectPostApplyFailure ? "committed" : "recovered",
+      commitTransactionDurationMs: ProbeDurationMsSchema.make(0),
+      outcomeResolutionDurationMs: ProbeDurationMsSchema.make(0),
+      syncWakeDurationMs: ProbeDurationMsSchema.make(syncWakeDurationMs),
       sync: receipt,
     });
-  }
 }
 
 export class MockRerunEntrypoint extends WorkerEntrypoint<ProbeMockCommitEnv> {

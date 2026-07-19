@@ -36,14 +36,14 @@ describe("Durable Object facet protocol", () => {
     );
     expect(decoded.sessionId).toBe("rtp-session-p04_protocol-0");
     expect(decoded.attemptId).toBe("rtp-attempt-p04_protocol-0-1");
-    expect(decoded.codeId).toBe("rtp-code-facet-v1-stable");
+    expect(decoded.codeId).toBe("rtp-code-facet-v2-stable");
   });
 
   it.each([
     ["cross-run sample", { sampleId: "rtp-sample-other-1" }],
     ["cross-session", { sessionId: "rtp-session-p04_protocol-1" }],
     ["cross-attempt", { attemptId: "rtp-attempt-p04_protocol-1-1" }],
-    ["wrong code profile", { codeId: "rtp-code-direct-v1-stable" }],
+    ["wrong code profile", { codeId: "rtp-code-direct-v2-stable" }],
     ["excess field", { extra: true }],
   ])("rejects %s input", (_, override) => {
     const failure = Effect.runSync(
@@ -95,7 +95,7 @@ describe("Durable Object facet protocol", () => {
     );
 
     expect(baseline).toBe(
-      "d7851bcc0f58af5022a9634b1dc23eb66075f23ac92d698b85ae7541f4965a31",
+      "2ade5f78c1bbd929048088096c69f288d98b57eb1744fc17a6a9274b5eb5ec4e",
     );
     expect(new Set([baseline, payloadChange, countChange, attemptChange]).size)
       .toBe(4);

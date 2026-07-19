@@ -200,6 +200,55 @@ describe("runtime topology probe statistics", () => {
     })).toThrow();
   });
 
+  it("keeps Postgres commit and recovery latency in distinct cohorts", () => {
+    const committed = validSample("facet_finalizer_postgres_warm_invoke");
+    const recovered = {
+      ...committed,
+      spans: committed.spans.map(span =>
+        span.name === "commit_transaction_io"
+          ? {
+              ...span,
+              name: "outcome_resolution_io" as const,
+              durationMs: duration(23),
+            }
+          : span
+      ),
+    };
+    const database = summarizeProbeSamples([
+      controlledSample(committed),
+      controlledSample(recovered),
+    ]).filter(summary =>
+      summary.cohort.spanName === "commit_transaction_io" ||
+      summary.cohort.spanName === "outcome_resolution_io"
+    );
+
+    expect(database).toHaveLength(2);
+    expect(database).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        cohort: expect.objectContaining({
+          spanName: "commit_transaction_io",
+        }),
+        latency: expect.objectContaining({
+          count: 1,
+          successCount: 1,
+          failureCount: 0,
+          medianMs: 17,
+        }),
+      }),
+      expect.objectContaining({
+        cohort: expect.objectContaining({
+          spanName: "outcome_resolution_io",
+        }),
+        latency: expect.objectContaining({
+          count: 1,
+          successCount: 1,
+          failureCount: 0,
+          medianMs: 23,
+        }),
+      }),
+    ]));
+  });
+
   it("keeps duplicate wakes out of eligible latency cohorts", () => {
     const sample = validSample("commit_wake");
     const summaries = summarizeProbeSamples([

@@ -146,6 +146,9 @@ describe("P05 synthetic commit protocol", () => {
         ...fullInvokeRuntimeIdentity("p05_full_finish_contract"),
         journalEntries: 1,
         sealDigest: "0".repeat(64),
+        snapshotRevision: 0,
+        resultDigest: "1".repeat(64),
+        commitIntentDigest: "2".repeat(64),
       }),
     );
 
@@ -175,7 +178,11 @@ describe("P05 synthetic commit protocol", () => {
       runEffectTest(
         decodeProbeMockFinishResponseV1Effect({
           request,
-          mockSyncWakeDurationMs: 1,
+          commitAuthority: "mock",
+          finishDisposition: "committed",
+          commitTransactionDurationMs: 0,
+          outcomeResolutionDurationMs: 0,
+          syncWakeDurationMs: 1,
           sync: {
             ...validAppliedReceipt,
             runId: "p05_other_response",
@@ -185,6 +192,59 @@ describe("P05 synthetic commit protocol", () => {
         }),
       ),
     ).rejects.toBeDefined();
+  });
+
+  it("binds finish authority and transaction timing to the scenario", async () => {
+    const runId = "p28_postgres_authority";
+    const request = {
+      protocolVersion: 1,
+      runId,
+      sampleId: `rtp-sample-${runId}-0`,
+      sampleOrdinal: 0,
+      scopeId: `rtp-scope-${runId}`,
+      scenario: "facet_finalizer_postgres_warm_invoke",
+      commitSeq: 1,
+      sessionId: `rtp-session-${runId}-0`,
+      sessionMode: "reuse-session",
+      attemptId: `rtp-attempt-${runId}-0-0`,
+      codeMode: "stable",
+      codeId: "rtp-code-invoke-finalizer-postgres-warm-v2-stable",
+      journalEntries: 1,
+      sealDigest: "0".repeat(64),
+      snapshotRevision: 0,
+      resultDigest: "1".repeat(64),
+      commitIntentDigest: "2".repeat(64),
+    } as const;
+    const response = {
+      request,
+      commitAuthority: "postgres",
+      finishDisposition: "committed",
+      commitTransactionDurationMs: 4,
+      outcomeResolutionDurationMs: 0,
+      syncWakeDurationMs: 2,
+      sync: {
+        ...validAppliedReceipt,
+        runId,
+        sampleId: request.sampleId,
+        scopeId: request.scopeId,
+        scenario: request.scenario,
+      },
+    } as const;
+
+    await expect(runEffectTest(decodeProbeMockFinishResponseV1Effect(response)))
+      .resolves.toEqual(response);
+    await expect(runEffectTest(decodeProbeMockFinishResponseV1Effect({
+      ...response,
+      commitAuthority: "mock",
+      finishDisposition: "committed",
+      commitTransactionDurationMs: 0,
+      outcomeResolutionDurationMs: 0,
+    }))).rejects.toBeDefined();
+    await expect(runEffectTest(decodeProbeMockFinishResponseV1Effect({
+      ...response,
+      request: { ...request, scenario: "facet_finalizer_warm_invoke" },
+      sync: { ...response.sync, scenario: "facet_finalizer_warm_invoke" },
+    }))).rejects.toBeDefined();
   });
 
   it("strictly validates sync wake and control boundaries", async () => {
@@ -258,6 +318,6 @@ function fullInvokeRuntimeIdentity(
     sessionMode: "new-session",
     attemptId: `rtp-attempt-${runId}-0-0`,
     codeMode: "stable",
-    codeId: "rtp-code-invoke-v1-stable",
+    codeId: "rtp-code-invoke-v2-stable",
   } as const;
 }

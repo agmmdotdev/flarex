@@ -62,7 +62,7 @@ describe("P06 sync-rerun protocol", () => {
       runEffectTest(
         decodeProbeSyncRerunRequestV1Effect({
           ...request,
-          codeId: "rtp-code-invoke-v1-stable",
+          codeId: "rtp-code-invoke-v2-stable",
         }),
       ),
     ).rejects.toBeDefined();

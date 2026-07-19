@@ -322,6 +322,7 @@ export function probeSyncWakeRelationshipIssueV1(
     sample.scenario === "facet_executor_invoke" ||
     sample.scenario === "facet_finalizer_invoke" ||
     sample.scenario === "facet_finalizer_warm_invoke" ||
+    sample.scenario === "facet_finalizer_postgres_warm_invoke" ||
     sample.scenario === "session_executor_invoke";
   if (!wakeScenario) {
     return syncWake.kind === "not-applicable"
@@ -458,6 +459,7 @@ function gatewaySampleRelationshipIssue(
     case "facet_executor_invoke":
     case "facet_finalizer_invoke":
     case "facet_finalizer_warm_invoke":
+    case "facet_finalizer_postgres_warm_invoke":
     case "session_executor_invoke":
       return hasFacetStartupObservations(sample.startup)
         ? fullInvokeRelationshipIssue(sample)
@@ -587,6 +589,24 @@ function commitWakeRelationshipIssue(
 function fullInvokeRelationshipIssue(
   sample: typeof ProbeGatewaySampleV1Shape.Type,
 ): string | undefined {
+  if (sample.scenario === "facet_finalizer_postgres_warm_invoke") {
+    const databaseSpanName = sample.spans.some(
+      span => span.name === "outcome_resolution_io",
+    )
+      ? "outcome_resolution_io" as const
+      : "commit_transaction_io" as const;
+    return nestedSpanTreeIssue(sample, [
+      ["gateway_session_rtt", 1, 0],
+      ["session_snapshot_read_rtt", 2, 1],
+      ["session_facet_rtt", 3, 1],
+      ["facet_snapshot_read", 4, 3],
+      ["facet_journal_io", 5, 3],
+      ["facet_atomic_commit_rtt", 6, 3],
+      [databaseSpanName, 7, 6],
+      ["mock_sync_wake_rtt", 8, 6],
+      ["sync_cursor_io", 9, 8],
+    ]);
+  }
   if (
     sample.scenario === "facet_finalizer_invoke" ||
     sample.scenario === "facet_finalizer_warm_invoke"

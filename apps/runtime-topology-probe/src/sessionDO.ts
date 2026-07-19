@@ -525,7 +525,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     facet: ProbeSessionPurgeRequestV1["facets"][number],
   ): Promise<"absent" | "prepared"> {
     let stub: Fetcher;
-    if (facet.codeId.startsWith("rtp-code-facet-v1-")) {
+    if (isProbeCodeProfile(facet.codeId, "facet")) {
       if (loader === undefined) {
         throw new Error("probe facet purge requires Worker Loader");
       }
@@ -535,9 +535,10 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         class: worker.getDurableObjectClass(PROBE_FACET_CLASS_NAME),
       }));
     } else if (
-      facet.codeId.startsWith("rtp-code-invoke-v1-") ||
-      facet.codeId.startsWith("rtp-code-invoke-finalizer-v1-") ||
-      facet.codeId.startsWith("rtp-code-invoke-finalizer-warm-v1-")
+      isProbeCodeProfile(facet.codeId, "invoke") ||
+      isProbeCodeProfile(facet.codeId, "invoke-finalizer") ||
+      isProbeCodeProfile(facet.codeId, "invoke-finalizer-warm") ||
+      isProbeCodeProfile(facet.codeId, "invoke-finalizer-postgres-warm")
     ) {
       let workerCode: WorkerLoaderWorkerCode;
       if (
@@ -545,6 +546,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         facet.scenario === "facet_executor_invoke" ||
         facet.scenario === "facet_finalizer_invoke" ||
         facet.scenario === "facet_finalizer_warm_invoke" ||
+        facet.scenario === "facet_finalizer_postgres_warm_invoke" ||
         facet.scenario === "executor_worker_invoke"
       ) {
         const attempt = this.sql.exec<{
@@ -595,7 +597,8 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
           workerCode = probeSnapshotInvokeWorkerCode();
         } else if (
           facet.scenario === "facet_finalizer_invoke" ||
-          facet.scenario === "facet_finalizer_warm_invoke"
+          facet.scenario === "facet_finalizer_warm_invoke" ||
+          facet.scenario === "facet_finalizer_postgres_warm_invoke"
         ) {
           const finish = this.env.MOCK_FINISH;
           if (finish === undefined || attempt.capability_token !== null) {
@@ -636,7 +639,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         id: facet.attemptId,
         class: worker.getDurableObjectClass(PROBE_INVOKE_FACET_CLASS_NAME),
       }));
-    } else if (facet.codeId.startsWith("rtp-code-rerun-v1-")) {
+    } else if (isProbeCodeProfile(facet.codeId, "rerun")) {
       if (loader === undefined) {
         throw new Error("probe rerun purge requires Worker Loader");
       }
@@ -809,8 +812,10 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     const sessionHosted = decoded.scenario === "session_executor_invoke";
     const facetHosted = decoded.scenario === "facet_executor_invoke";
     const facetFinalizer = decoded.scenario === "facet_finalizer_invoke" ||
-      decoded.scenario === "facet_finalizer_warm_invoke";
-    const warmFinalizer = decoded.scenario === "facet_finalizer_warm_invoke";
+      decoded.scenario === "facet_finalizer_warm_invoke" ||
+      decoded.scenario === "facet_finalizer_postgres_warm_invoke";
+    const warmFinalizer = decoded.scenario === "facet_finalizer_warm_invoke" ||
+      decoded.scenario === "facet_finalizer_postgres_warm_invoke";
     const sessionActivationObserved = warmFinalizer &&
       !this.hasHandledWarmFinalizer;
     if (warmFinalizer) this.hasHandledWarmFinalizer = true;
@@ -861,7 +866,9 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       }
       const admission = beginInvokeAttempt(this.sql, decoded, null);
       if (admission.kind === "replay") return admission.response;
-      if (admission.kind === "busy") {
+      const recoveringFinalizer =
+        admission.kind === "busy" && facetFinalizer;
+      if (admission.kind === "busy" && !facetFinalizer) {
         return internalError(
           facetFinalizer
             ? "facet_finalizer_attempt_busy"
@@ -893,18 +900,27 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       const readRequest = probeMockReadRequestFromInvoke(decoded);
       const snapshotStartedAt = performance.now();
       let snapshot: ProbeMockReadResponseV1 | null;
-      try {
-        const rawSnapshot = await read.read(readRequest);
-        snapshot = decodeProbeMockReadResponseV1OrNull(
-          copyCloudflareRpcRecord(rawSnapshot),
-        );
-      } catch {
-        return await completeInvokeResponse(
-          this.ctx.storage,
-          this.sql,
-          decoded,
-          internalError("snapshot_read_transport_failure", 502),
-        );
+      if (recoveringFinalizer) {
+        snapshot = ProbeMockReadResponseV1Schema.make({
+          ...readRequest,
+          syntheticRevision: ProbeSyntheticCursorSchema.make(
+            readRequest.commitSeq - 1,
+          ),
+        });
+      } else {
+        try {
+          const rawSnapshot = await read.read(readRequest);
+          snapshot = decodeProbeMockReadResponseV1OrNull(
+            copyCloudflareRpcRecord(rawSnapshot),
+          );
+        } catch {
+          return await completeInvokeResponse(
+            this.ctx.storage,
+            this.sql,
+            decoded,
+            internalError("snapshot_read_transport_failure", 502),
+          );
+        }
       }
       if (
         snapshot === null ||
@@ -1147,6 +1163,9 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       codeId: request.codeId,
       journalEntries: request.journalEntries,
       sealDigest: facetReceipt.sealDigest,
+      snapshotRevision: facetReceipt.syntheticRevision,
+      resultDigest: facetReceipt.resultDigest,
+      commitIntentDigest: facetReceipt.commitIntent.digest,
     });
     const finishStartedAt = performance.now();
     let finish: ProbeMockFinishResponseV1 | null;
@@ -1209,7 +1228,11 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
           ? null
           : ProbeMockFinishResponseV1Schema.make({
               request: finishRequest,
-              mockSyncWakeDurationMs: ProbeDurationMsSchema.make(
+              commitAuthority: "mock",
+              finishDisposition: "committed",
+              commitTransactionDurationMs: ProbeDurationMsSchema.make(0),
+              outcomeResolutionDurationMs: ProbeDurationMsSchema.make(0),
+              syncWakeDurationMs: ProbeDurationMsSchema.make(
                 elapsedPerformanceDurationSince(wakeStartedAt),
               ),
               sync: receipt,
@@ -1522,7 +1545,8 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
           return existing.code_id === request.codeId &&
               existing.run_id === request.runId &&
               (existing.sample_id === request.sampleId ||
-                request.scenario === "facet_finalizer_warm_invoke") &&
+                request.scenario === "facet_finalizer_warm_invoke" ||
+                request.scenario === "facet_finalizer_postgres_warm_invoke") &&
               existing.scenario === request.scenario
             ? "existing"
             : "identity-conflict";
@@ -1756,7 +1780,10 @@ function sameMockFinishReceipt(
     receipt.codeMode === request.codeMode &&
     receipt.codeId === request.codeId &&
     receipt.journalEntries === request.journalEntries &&
-    receipt.sealDigest === request.sealDigest;
+    receipt.sealDigest === request.sealDigest &&
+    receipt.snapshotRevision === request.snapshotRevision &&
+    receipt.resultDigest === request.resultDigest &&
+    receipt.commitIntentDigest === request.commitIntentDigest;
 }
 
 function sameMockReadRequest(
@@ -1914,12 +1941,11 @@ function markInvokeAttemptFinishing(
        WHERE attempt_id = ?`,
       request.attemptId,
     ).toArray()[0];
-    if (
-      row?.phase !== "running" ||
-      row.request_json !== JSON.stringify(request)
-    ) {
+    if (row?.request_json !== JSON.stringify(request)) {
       return false;
     }
+    if (row.phase === "finishing") return true;
+    if (row.phase !== "running") return false;
     sql.exec(
       `UPDATE probe_session_executor_attempts
        SET phase = 'finishing'
@@ -1988,7 +2014,8 @@ function invokeAttemptError(
   return request.scenario === "facet_executor_invoke"
     ? `facet_executor_${suffix}`
     : request.scenario === "facet_finalizer_invoke" ||
-        request.scenario === "facet_finalizer_warm_invoke"
+        request.scenario === "facet_finalizer_warm_invoke" ||
+        request.scenario === "facet_finalizer_postgres_warm_invoke"
     ? `facet_finalizer_${suffix}`
     : request.scenario === "executor_worker_invoke"
     ? `executor_worker_${suffix}`
@@ -2109,6 +2136,10 @@ function decodeObjectSessionId(value: string | undefined): ProbeSessionId | null
   } catch {
     return null;
   }
+}
+
+function isProbeCodeProfile(codeId: string, profile: string): boolean {
+  return codeId.startsWith(`rtp-code-${profile}-v2-`);
 }
 
 function internalError(error: string, status: number): Response {

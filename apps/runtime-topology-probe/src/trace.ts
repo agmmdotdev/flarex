@@ -6,7 +6,7 @@ import {
   type ProbeTraceSpanV1,
 } from "./protocol";
 
-type ExpectedSpan = readonly [
+export type ExpectedSpan = readonly [
   name: ProbeSpanName,
   parentName: ProbeSpanName | null,
 ];
@@ -90,6 +90,18 @@ export const PROBE_SCENARIO_TOPOLOGY = {
     ["mock_sync_wake_rtt", "facet_atomic_commit_rtt"],
     ["sync_cursor_io", "mock_sync_wake_rtt"],
   ],
+  facet_finalizer_postgres_warm_invoke: [
+    ["external_request", null],
+    ["gateway_session_rtt", "external_request"],
+    ["session_snapshot_read_rtt", "gateway_session_rtt"],
+    ["session_facet_rtt", "gateway_session_rtt"],
+    ["facet_snapshot_read", "session_facet_rtt"],
+    ["facet_journal_io", "session_facet_rtt"],
+    ["facet_atomic_commit_rtt", "session_facet_rtt"],
+    ["commit_transaction_io", "facet_atomic_commit_rtt"],
+    ["mock_sync_wake_rtt", "facet_atomic_commit_rtt"],
+    ["sync_cursor_io", "mock_sync_wake_rtt"],
+  ],
   session_executor_invoke: [
     ["external_request", null],
     ["gateway_session_rtt", "external_request"],
@@ -131,7 +143,7 @@ export type ProbeTraceValidation =
 export function validateProbeTraceV1(
   sample: ProbeSampleResultV1,
 ): ProbeTraceValidation {
-  const expected = PROBE_SCENARIO_TOPOLOGY[sample.scenario];
+  const expected = probeTraceTopologyV1(sample);
   const spansById = new Map<string, ProbeTraceSpanV1>();
   const spansByName = new Map<ProbeSpanName, ProbeTraceSpanV1>();
 
@@ -200,6 +212,22 @@ export function validateProbeTraceV1(
   )
     ? { ok: true }
     : invalid("outcome_mismatch", null);
+}
+
+export function probeTraceTopologyV1(
+  sample: Pick<ProbeSampleResultV1, "scenario" | "spans">,
+): readonly ExpectedSpan[] {
+  if (
+    sample.scenario === "facet_finalizer_postgres_warm_invoke" &&
+    sample.spans.some(span => span.name === "outcome_resolution_io")
+  ) {
+    return PROBE_SCENARIO_TOPOLOGY[sample.scenario].map(span =>
+      span[0] === "commit_transaction_io"
+        ? ["outcome_resolution_io", span[1]] as const
+        : span
+    );
+  }
+  return PROBE_SCENARIO_TOPOLOGY[sample.scenario];
 }
 
 function hasParentCycle(

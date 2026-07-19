@@ -53,6 +53,19 @@ describe("P05 full-invoke protocol", () => {
     );
     expect(await runEffectTest(decodeProbeInvokeFacetRequestV1Effect(warm)))
       .toEqual(warm);
+    const postgresWarm = invokeRequest(
+      2,
+      "p28_postgres_warm_identity",
+      "facet_finalizer_postgres_warm_invoke",
+    );
+    expect(
+      await runEffectTest(
+        decodeProbeInvokeFacetRequestV1Effect(postgresWarm),
+      ),
+    ).toEqual(postgresWarm);
+    expect(postgresWarm.codeId).toBe(
+      "rtp-code-invoke-finalizer-postgres-warm-v2-stable",
+    );
     await expect(runEffectTest(decodeProbeInvokeFacetRequestV1Effect({
       ...warm,
       sessionMode: "new-session",
@@ -77,7 +90,7 @@ describe("P05 full-invoke protocol", () => {
       runEffectTest(
         decodeProbeInvokeFacetRequestV1Effect({
           ...request,
-          codeId: "rtp-code-facet-v1-stable",
+          codeId: "rtp-code-facet-v2-stable",
         }),
       ),
     ).rejects.toBeDefined();
@@ -189,7 +202,13 @@ describe("P05 full-invoke protocol", () => {
       },
       finish: null,
     } as const;
-    const finishRequest = { ...finishIdentity, sealDigest } as const;
+    const finishRequest = {
+      ...finishIdentity,
+      sealDigest,
+      snapshotRevision: 2,
+      resultDigest,
+      commitIntentDigest,
+    } as const;
     const sync = {
       protocolVersion: request.protocolVersion,
       runId: request.runId,
@@ -215,7 +234,11 @@ describe("P05 full-invoke protocol", () => {
       snapshotReadDurationMs: null,
       finish: {
         request: finishRequest,
-        mockSyncWakeDurationMs: 6,
+        commitAuthority: "mock",
+        finishDisposition: "committed",
+        commitTransactionDurationMs: 0,
+        outcomeResolutionDurationMs: 0,
+        syncWakeDurationMs: 6,
         sync,
       },
       error: {
@@ -336,10 +359,20 @@ describe("P05 full-invoke protocol", () => {
     });
     const { payload: _payload, ...identity } = request;
     const { facetId: _facetId, ...finishIdentity } = identity;
-    const finishRequest = { ...finishIdentity, sealDigest } as const;
+    const finishRequest = {
+      ...finishIdentity,
+      sealDigest,
+      snapshotRevision: 0,
+      resultDigest,
+      commitIntentDigest,
+    } as const;
     const finish = {
       request: finishRequest,
-      mockSyncWakeDurationMs: 3,
+      commitAuthority: "mock",
+      finishDisposition: "committed",
+      commitTransactionDurationMs: 0,
+      outcomeResolutionDurationMs: 0,
+      syncWakeDurationMs: 3,
       sync: {
         protocolVersion: request.protocolVersion,
         runId: request.runId,
@@ -389,6 +422,18 @@ describe("P05 full-invoke protocol", () => {
         outboundFinishCalls: 0,
       }),
     )).rejects.toBeDefined();
+    for (const changedRequest of [
+      { ...finishRequest, snapshotRevision: 1 },
+      { ...finishRequest, resultDigest: "3".repeat(64) },
+      { ...finishRequest, commitIntentDigest: "4".repeat(64) },
+    ]) {
+      await expect(runEffectTest(
+        decodeProbeInvokeFacetWorkerResponseV1Effect({
+          ...response,
+          finish: { ...finish, request: changedRequest },
+        }),
+      )).rejects.toBeDefined();
+    }
     await expect(runEffectTest(
       decodeProbeInvokeFacetWorkerResponseV1Effect({
         ...response,
@@ -409,6 +454,7 @@ function invokeRequest(
     | "facet_executor_invoke"
     | "facet_finalizer_invoke"
     | "facet_finalizer_warm_invoke"
+    | "facet_finalizer_postgres_warm_invoke"
     | "full_invoke"
     | "session_executor_invoke" = "full_invoke",
 ) {
@@ -419,7 +465,8 @@ function invokeRequest(
     decodeProbeOrdinalEffect(sampleOrdinalValue),
   );
   const facetOrdinal = runEffectTestSync(decodeProbeOrdinalEffect(0));
-  const warmFinalizer = scenario === "facet_finalizer_warm_invoke";
+  const warmFinalizer = scenario === "facet_finalizer_warm_invoke" ||
+    scenario === "facet_finalizer_postgres_warm_invoke";
   const sessionOrdinal = warmFinalizer ? facetOrdinal : sampleOrdinal;
   return ProbeInvokeFacetRequestV1Schema.make({
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
@@ -438,7 +485,9 @@ function invokeRequest(
     codeMode: "stable",
     codeId: probeCodeId({
       mode: "stable",
-      profile: scenario === "facet_finalizer_warm_invoke"
+      profile: scenario === "facet_finalizer_postgres_warm_invoke"
+        ? "invoke-finalizer-postgres-warm"
+        : warmFinalizer
         ? "invoke-finalizer-warm"
         : scenario === "facet_finalizer_invoke"
         ? "invoke-finalizer"

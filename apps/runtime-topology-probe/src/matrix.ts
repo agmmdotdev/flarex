@@ -273,5 +273,49 @@ export const PROBE_WARM_FACET_FINALIZER_MATRIX_V1: ProbeCampaignManifestV1 =
       warmFacetFinalizerRun(index + 1)),
   });
 
+function postgresComparisonRun(replicate: number): ProbeRunRequestV1 {
+  return rehearsalRun({
+    runId: `p28_${replicate.toString().padStart(2, "0")}_warm`,
+    scenario: "facet_finalizer_warm_invoke",
+    replicate,
+    repetitions: 6,
+    warmupRepetitions: 0,
+    journalEntries: 2,
+    payloadBytes: 64,
+    sessionMode: "reuse-session",
+  });
+}
+
+export const PROBE_POSTGRES_COMPARISON_MATRIX_V1: ProbeCampaignManifestV1 =
+  ProbeCampaignManifestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    campaignId: ProbeCampaignIdSchema.make("p28_hyperdrive_comparison_v1"),
+    collectorConcurrency: 1,
+    runs: Array.from({ length: 8 }, (_, index) =>
+      postgresComparisonRun(index + 1)),
+  });
+
+function postgresHyperdriveRun(replicate: number): ProbeRunRequestV1 {
+  return rehearsalRun({
+    runId: `p28pg_${replicate.toString().padStart(2, "0")}_warm`,
+    scenario: "facet_finalizer_postgres_warm_invoke",
+    replicate,
+    repetitions: 6,
+    warmupRepetitions: 0,
+    journalEntries: 2,
+    payloadBytes: 64,
+    sessionMode: "reuse-session",
+  });
+}
+
+export const PROBE_POSTGRES_HYPERDRIVE_MATRIX_V1: ProbeCampaignManifestV1 =
+  ProbeCampaignManifestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    campaignId: ProbeCampaignIdSchema.make("p28_hyperdrive_postgres_v1"),
+    collectorConcurrency: 1,
+    runs: Array.from({ length: 8 }, (_, index) =>
+      postgresHyperdriveRun(index + 1)),
+  });
+
 export const PROBE_ACTIVE_CAMPAIGN_MATRIX_V1 =
-  PROBE_WARM_FACET_FINALIZER_MATRIX_V1;
+  PROBE_POSTGRES_COMPARISON_MATRIX_V1;

@@ -308,8 +308,8 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
       second.durationMs,
     );
 
-    expect(first.fragment.identity.codeId).toBe("rtp-code-direct-v1-stable");
-    expect(second.fragment.identity.codeId).toBe("rtp-code-direct-v1-stable");
+    expect(first.fragment.identity.codeId).toBe("rtp-code-direct-v2-stable");
+    expect(second.fragment.identity.codeId).toBe("rtp-code-direct-v2-stable");
     expect(first.fragment.startup.workerLoader).toBe("callback-ran");
     expect(second.fragment.startup.workerLoader).toBe("callback-not-run");
     expect(firstSample.spans.map(span => span.name)).toEqual([
@@ -340,10 +340,10 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     );
 
     expect(first.fragment.identity.codeId).toBe(
-      "rtp-code-direct-v1-p03_new_code-0",
+      "rtp-code-direct-v2-p03_new_code-0",
     );
     expect(second.fragment.identity.codeId).toBe(
-      "rtp-code-direct-v1-p03_new_code-1",
+      "rtp-code-direct-v2-p03_new_code-1",
     );
     expect(first.fragment.identity.codeId).not.toBe(
       second.fragment.identity.codeId,
@@ -696,7 +696,7 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     );
 
     expect(first.fragment.identity).toMatchObject({
-      codeId: "rtp-code-rerun-v1-stable",
+      codeId: "rtp-code-rerun-v2-stable",
       sessionId: "rtp-session-p06_rerun_stable-0",
       attemptId: "rtp-attempt-p06_rerun_stable-0-0",
     });
@@ -732,12 +732,12 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     });
 
     expect(first.fragment.identity).toMatchObject({
-      codeId: "rtp-code-rerun-v1-p06_rerun_new_code-0",
+      codeId: "rtp-code-rerun-v2-p06_rerun_new_code-0",
       sessionId: "rtp-session-p06_rerun_new_code-0",
       attemptId: "rtp-attempt-p06_rerun_new_code-0-0",
     });
     expect(second.fragment.identity).toMatchObject({
-      codeId: "rtp-code-rerun-v1-p06_rerun_new_code-1",
+      codeId: "rtp-code-rerun-v2-p06_rerun_new_code-1",
       sessionId: "rtp-session-p06_rerun_new_code-1",
       attemptId: "rtp-attempt-p06_rerun_new_code-1-1",
     });
@@ -768,7 +768,7 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     );
 
     expect(first.fragment.identity.codeId).toBe(
-      "rtp-code-invoke-v1-stable",
+      "rtp-code-invoke-v2-stable",
     );
     expect(first.fragment.identity.sessionId).toBe(
       second.fragment.identity.sessionId,
@@ -974,7 +974,7 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
         ...receipt,
         finish: {
           ...receipt.finish,
-          mockSyncWakeDurationMs: receipt.finish.mockSyncWakeDurationMs + 1,
+          syncWakeDurationMs: receipt.finish.syncWakeDurationMs + 1,
         },
       }),
     )).rejects.toBeDefined();
@@ -1088,7 +1088,7 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     });
   }, 60_000);
 
-  it("retains a post-apply facet finalizer as an uncertain fenced attempt", async () => {
+  it("recovers a post-apply facet finalizer from its exact terminal outcome", async () => {
     const uncertainHarness = await createRuntimeProbeHarness({
       mockFinishMode: "apply-then-throw",
     });
@@ -1122,10 +1122,18 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
         attemptId: request.attemptId,
         error: "facet_finalizer_outcome_uncertain",
       });
-      expect(repeated.status).toBe(409);
-      expect(await repeated.json()).toEqual({
-        error: "facet_finalizer_attempt_busy",
-      });
+      expect(repeated.status).toBe(200);
+      const recovered = await repeated.json() as {
+        readonly finish?: {
+          readonly commitAuthority?: unknown;
+          readonly sync?: { readonly disposition?: unknown };
+        };
+      };
+      expect(recovered.finish?.commitAuthority).toBe("mock");
+      expect(recovered.finish?.sync?.disposition).toBe("duplicate");
+      const replayed = await directFullInvoke(uncertainHarness, request);
+      expect(replayed.status).toBe(200);
+      expect(await replayed.json()).toEqual(recovered);
       expect(
         await syncCursor(uncertainHarness, "p20_uncertain_finalizer", "read"),
       ).toBe(1);
@@ -1396,10 +1404,10 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     });
 
     expect(first.fragment.identity.codeId).toBe(
-      "rtp-code-invoke-v1-p05_invoke_new_code-0",
+      "rtp-code-invoke-v2-p05_invoke_new_code-0",
     );
     expect(second.fragment.identity.codeId).toBe(
-      "rtp-code-invoke-v1-p05_invoke_new_code-1",
+      "rtp-code-invoke-v2-p05_invoke_new_code-1",
     );
     expect(first.fragment.startup.workerLoader).toBe("callback-ran");
     expect(second.fragment.startup.workerLoader).toBe("callback-ran");
@@ -1600,11 +1608,16 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect(Object.keys(finalizerCode.env ?? {})).toEqual(["EXECUTOR_FINISH"]);
     expect(finalizerCode.globalOutbound).toBeNull();
     expect(typeof finalizerSource).toBe("string");
+    expect(finalizerSource).toContain("const warmFinalizer =");
     expect(finalizerSource).toContain(
-      'value.scenario === "facet_finalizer_warm_invoke" && value.sessionMode !== "reuse-session"',
+      'value.scenario === "facet_finalizer_postgres_warm_invoke"',
+    );
+    expect(finalizerSource).toContain("EXECUTOR_FINISH.resolve");
+    expect(finalizerSource).toContain(
+      'existingAttempt.phase !== "running"',
     );
     expect(finalizerSource).toContain(
-      'value.scenario === "facet_finalizer_warm_invoke" && value.codeMode !== "stable"',
+      'recoveringFinish = existingAttempt.phase === "finishing"',
     );
     expect(finalizerSource).toContain("EXECUTOR_FINISH");
     expect(finalizerSource).toContain("sync.previousCursor > 1000000");

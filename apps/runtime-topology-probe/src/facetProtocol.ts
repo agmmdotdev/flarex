@@ -397,7 +397,7 @@ function facetIdentityIssue(input: {
       });
   return input.codeId === expectedCodeId
     ? undefined
-    : "codeId must identify the facet-v1 source and code mode";
+    : "codeId must identify the facet-v2 source and code mode";
 }
 
 function facetJournalReceiptIssue(input: {
@@ -604,8 +604,8 @@ function validInvoke(value) {
   if (value.attemptId !== "rtp-attempt-" + value.runId + "-" + sessionOrdinal + "-" + value.sampleOrdinal) return false;
   if (value.codeMode !== "stable" && value.codeMode !== "new-code") return false;
   const expectedCodeId = value.codeMode === "stable"
-    ? "rtp-code-facet-v1-stable"
-    : "rtp-code-facet-v1-" + value.runId + "-" + value.sampleOrdinal;
+    ? "rtp-code-facet-v2-stable"
+    : "rtp-code-facet-v2-" + value.runId + "-" + value.sampleOrdinal;
   if (value.codeId !== expectedCodeId) return false;
   if (value.scenario !== "facet_echo" && value.scenario !== "facet_journal") return false;
   if (!Number.isInteger(value.journalEntries) || value.journalEntries < 0 || value.journalEntries > MAX_JOURNAL_ENTRIES) return false;

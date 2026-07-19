@@ -25,7 +25,7 @@ describe("runtime topology probe identities", () => {
       "rtp-attempt-run_a-1-0",
     );
     expect(probeCodeId({ mode: "stable", profile: "direct" })).toBe(
-      "rtp-code-direct-v1-stable",
+      "rtp-code-direct-v2-stable",
     );
     expect(probeCodeId({
       mode: "new-code",
@@ -33,7 +33,7 @@ describe("runtime topology probe identities", () => {
       runId,
       version: one,
     })).toBe(
-      "rtp-code-facet-v1-run_a-1",
+      "rtp-code-facet-v2-run_a-1",
     );
     expect(probeSpanId(one)).toBe("rtp-span-1");
   });

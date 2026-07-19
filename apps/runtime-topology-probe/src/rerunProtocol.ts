@@ -291,7 +291,7 @@ export function probeRerunIdentityIssueV1(input: {
       });
   return input.codeId === expectedCodeId
     ? undefined
-    : "codeId must identify the rerun-v1 source and code mode";
+    : "codeId must identify the rerun-v2 source and code mode";
 }
 
 export const PROBE_RERUN_WORKER_MAIN_MODULE = "probe-rerun-worker.js";
@@ -382,8 +382,8 @@ function validRequest(value) {
   if (value.attemptId !== "rtp-attempt-" + value.runId + "-" + value.sampleOrdinal + "-" + value.sampleOrdinal) return false;
   if (value.codeMode !== "stable" && value.codeMode !== "new-code") return false;
   const expectedCodeId = value.codeMode === "stable"
-    ? "rtp-code-rerun-v1-stable"
-    : "rtp-code-rerun-v1-" + value.runId + "-" + value.sampleOrdinal;
+    ? "rtp-code-rerun-v2-stable"
+    : "rtp-code-rerun-v2-" + value.runId + "-" + value.sampleOrdinal;
   if (value.codeId !== expectedCodeId || value.reentryDepth !== 1) return false;
   return typeof value.payload === "string" && value.payload.length <= MAX_PAYLOAD_BYTES && /^x*$/.test(value.payload);
 }

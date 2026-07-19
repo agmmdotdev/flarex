@@ -22,10 +22,30 @@ describe("runtime topology probe trace validation", () => {
     "facet_executor_invoke",
     "facet_finalizer_invoke",
     "facet_finalizer_warm_invoke",
+    "facet_finalizer_postgres_warm_invoke",
     "session_executor_invoke",
     "sync_rerun",
   ] as const)("accepts the exact %s topology", scenario => {
     expect(validateProbeTraceV1(validSample(scenario))).toEqual({ ok: true });
+  });
+
+  it("separates Postgres commit and outcome-recovery latency spans", () => {
+    const committed = validSample("facet_finalizer_postgres_warm_invoke");
+    const recovered = {
+      ...committed,
+      spans: committed.spans.map(span =>
+        span.name === "commit_transaction_io"
+          ? { ...span, name: "outcome_resolution_io" as const }
+          : span
+      ),
+    };
+
+    expect(validateProbeTraceV1(committed)).toEqual({ ok: true });
+    expect(validateProbeTraceV1(recovered)).toEqual({ ok: true });
+    expect(committed.spans.some(span => span.name === "outcome_resolution_io"))
+      .toBe(false);
+    expect(recovered.spans.some(span => span.name === "commit_transaction_io"))
+      .toBe(false);
   });
 
   it("rejects missing spans", () => {

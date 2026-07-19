@@ -645,6 +645,7 @@ async function executeRegisteredScenario(
     case "facet_executor_invoke":
     case "facet_finalizer_invoke":
     case "facet_finalizer_warm_invoke":
+    case "facet_finalizer_postgres_warm_invoke":
       if (
         env.LOADER === undefined ||
         env.MOCK_READ === undefined ||
@@ -724,12 +725,14 @@ function failedScenarioExecution(
       scenario === "facet_executor_invoke" ||
       scenario === "facet_finalizer_invoke" ||
       scenario === "facet_finalizer_warm_invoke" ||
+      scenario === "facet_finalizer_postgres_warm_invoke" ||
       scenario === "session_executor_invoke" ||
       scenario === "sync_rerun"
       ? {
           workerLoader: "callback-not-run",
           facet: "callback-not-run",
-          ...(scenario === "facet_finalizer_warm_invoke"
+          ...(scenario === "facet_finalizer_warm_invoke" ||
+              scenario === "facet_finalizer_postgres_warm_invoke"
             ? { sessionActivation: "activation-unobserved" as const }
             : {}),
         } as const
@@ -748,6 +751,7 @@ function failedScenarioExecution(
         scenario === "facet_executor_invoke" ||
         scenario === "facet_finalizer_invoke" ||
         scenario === "facet_finalizer_warm_invoke" ||
+        scenario === "facet_finalizer_postgres_warm_invoke" ||
         scenario === "session_executor_invoke"
       ? { kind: "unobserved" }
       : { kind: "not-applicable" },
@@ -1139,7 +1143,7 @@ async function executeCommitWake(
         edgeColo,
         error,
         [
-          mockSyncWakeSpan(finish.mockSyncWakeDurationMs, 1, 0),
+          mockSyncWakeSpan(finish.syncWakeDurationMs, 1, 0),
           syncCursorSpan(
             finish.sync.cursorDurationMs,
             2,
@@ -1162,7 +1166,7 @@ async function executeCommitWake(
         edgeColo,
         outcome: { kind: "ok" },
         spans: [
-          mockSyncWakeSpan(finish.mockSyncWakeDurationMs, 1, 0),
+          mockSyncWakeSpan(finish.syncWakeDurationMs, 1, 0),
           syncCursorSpan(finish.sync.cursorDurationMs, 2, 1),
         ],
       },
@@ -1185,6 +1189,7 @@ async function executeFullInvokeScenario(
     sampleRequest.run.scenario !== "facet_executor_invoke" &&
     sampleRequest.run.scenario !== "facet_finalizer_invoke" &&
     sampleRequest.run.scenario !== "facet_finalizer_warm_invoke" &&
+    sampleRequest.run.scenario !== "facet_finalizer_postgres_warm_invoke" &&
     sampleRequest.run.scenario !== "session_executor_invoke"
   ) {
     throw new Error("executeFullInvokeScenario received a non-invoke scenario");
@@ -1255,7 +1260,8 @@ async function executeFullInvokeScenario(
   if (!response.ok) {
     const uncertain = response.status === 502 && body.ok &&
         (internalRequest.scenario === "facet_finalizer_invoke" ||
-          internalRequest.scenario === "facet_finalizer_warm_invoke")
+          internalRequest.scenario === "facet_finalizer_warm_invoke" ||
+          internalRequest.scenario === "facet_finalizer_postgres_warm_invoke")
       ? decodeProbeFacetFinalizerOutcomeUncertainV1OrNull(body.value)
       : null;
     if (
@@ -1798,6 +1804,26 @@ function facetAtomicCommitSpan(durationMs: number): ProbeTraceSpanV1 {
   });
 }
 
+function commitTransactionSpan(durationMs: number): ProbeTraceSpanV1 {
+  return ProbeTraceSpanV1Schema.make({
+    spanId: probeSpanId(ProbeOrdinalSchema.make(7)),
+    parentSpanId: probeSpanId(ProbeOrdinalSchema.make(6)),
+    name: "commit_transaction_io",
+    durationMs: ProbeDurationMsSchema.make(durationMs),
+    outcome: { kind: "ok" },
+  });
+}
+
+function outcomeResolutionSpan(durationMs: number): ProbeTraceSpanV1 {
+  return ProbeTraceSpanV1Schema.make({
+    spanId: probeSpanId(ProbeOrdinalSchema.make(7)),
+    parentSpanId: probeSpanId(ProbeOrdinalSchema.make(6)),
+    name: "outcome_resolution_io",
+    durationMs: ProbeDurationMsSchema.make(durationMs),
+    outcome: { kind: "ok" },
+  });
+}
+
 function sessionExecutorFinishSpan(durationMs: number): ProbeTraceSpanV1 {
   return ProbeTraceSpanV1Schema.make({
     spanId: probeSpanId(ProbeOrdinalSchema.make(5)),
@@ -1866,16 +1892,28 @@ function fullInvokeSpans(
     ) {
       throw new Error("facet finalizer observation requires snapshot and finish timing");
     }
-    return [
+    const common = [
       sessionSpan(sessionDurationMs, { kind: "ok" }),
       sessionSnapshotReadSpan(observation.snapshotReadDurationMs),
       facetSpan(observation.facetDurationMs, 3),
       facetSnapshotReadSpan(facet.mockReadDurationMs),
       journalSpan(facet.journalDurationMs, 5, 3),
       facetAtomicCommitSpan(facet.facetFinalizationDurationMs),
-      mockSyncWakeSpan(finish.mockSyncWakeDurationMs, 7, 6),
-      syncCursorSpan(finish.sync.cursorDurationMs, 8, 7, syncOutcome),
     ];
+    return finish.commitAuthority === "postgres"
+      ? [
+          ...common,
+          finish.finishDisposition === "committed"
+            ? commitTransactionSpan(finish.commitTransactionDurationMs)
+            : outcomeResolutionSpan(finish.outcomeResolutionDurationMs),
+          mockSyncWakeSpan(finish.syncWakeDurationMs, 8, 6),
+          syncCursorSpan(finish.sync.cursorDurationMs, 9, 8, syncOutcome),
+        ]
+      : [
+          ...common,
+          mockSyncWakeSpan(finish.syncWakeDurationMs, 7, 6),
+          syncCursorSpan(finish.sync.cursorDurationMs, 8, 7, syncOutcome),
+        ];
   }
   if (observation.executorHost === "facet-do") {
     if (observation.snapshotReadDurationMs === null) {
@@ -1888,7 +1926,7 @@ function fullInvokeSpans(
       facetSnapshotReadSpan(facet.mockReadDurationMs),
       journalSpan(facet.journalDurationMs, 5, 3),
       sessionMockFinishSpan(observation.sessionMockFinishDurationMs, 6),
-      mockSyncWakeSpan(finish.mockSyncWakeDurationMs, 7, 6),
+      mockSyncWakeSpan(finish.syncWakeDurationMs, 7, 6),
       syncCursorSpan(finish.sync.cursorDurationMs, 8, 7, syncOutcome),
     ];
   }
@@ -1899,7 +1937,7 @@ function fullInvokeSpans(
       sessionReadSpan(facet.mockReadDurationMs),
       journalSpan(facet.journalDurationMs, 4),
       sessionExecutorFinishSpan(observation.sessionMockFinishDurationMs),
-      sessionSyncWakeSpan(finish.mockSyncWakeDurationMs, 6, 5),
+      sessionSyncWakeSpan(finish.syncWakeDurationMs, 6, 5),
       syncCursorSpan(finish.sync.cursorDurationMs, 7, 6, syncOutcome),
     ];
   }
@@ -1909,7 +1947,7 @@ function fullInvokeSpans(
     mockReadSpan(facet.mockReadDurationMs),
     journalSpan(facet.journalDurationMs, 4),
     sessionMockFinishSpan(observation.sessionMockFinishDurationMs),
-    mockSyncWakeSpan(finish.mockSyncWakeDurationMs, 6, 5),
+    mockSyncWakeSpan(finish.syncWakeDurationMs, 6, 5),
     syncCursorSpan(finish.sync.cursorDurationMs, 7, 6, syncOutcome),
   ];
 }
@@ -1924,7 +1962,8 @@ function fullInvokeStartup(
     facet: observation.facetStartupCallbackRan
       ? "callback-ran"
       : "callback-not-run",
-    ...(observation.facet.scenario === "facet_finalizer_warm_invoke"
+    ...(observation.facet.scenario === "facet_finalizer_warm_invoke" ||
+        observation.facet.scenario === "facet_finalizer_postgres_warm_invoke"
       ? {
           sessionActivation: observation.sessionActivationObserved
             ? "activation-observed" as const
@@ -2056,6 +2095,11 @@ function sameMockFinishReceipt(
   response: ProbeMockFinishResponseV1,
   request: ProbeMockFinishRequestV1,
 ): boolean {
+  const expectedAuthority = request.scenario ===
+      "facet_finalizer_postgres_warm_invoke"
+    ? "postgres"
+    : "mock";
+  if (response.commitAuthority !== expectedAuthority) return false;
   const receipt = response.request;
   if (
     receipt.protocolVersion !== request.protocolVersion ||
@@ -2078,7 +2122,10 @@ function sameMockFinishReceipt(
     receipt.codeMode === request.codeMode &&
     receipt.codeId === request.codeId &&
     receipt.journalEntries === request.journalEntries &&
-    receipt.sealDigest === request.sealDigest;
+    receipt.sealDigest === request.sealDigest &&
+    receipt.snapshotRevision === request.snapshotRevision &&
+    receipt.resultDigest === request.resultDigest &&
+    receipt.commitIntentDigest === request.commitIntentDigest;
 }
 
 function sameSyncRerunReceipt(
@@ -2113,7 +2160,8 @@ async function sameFullInvokeSessionReceipt(
   const expectedHost = request.scenario === "session_executor_invoke"
     ? "session-do"
     : request.scenario === "facet_finalizer_invoke" ||
-        request.scenario === "facet_finalizer_warm_invoke"
+        request.scenario === "facet_finalizer_warm_invoke" ||
+        request.scenario === "facet_finalizer_postgres_warm_invoke"
     ? "facet-finalizer"
     : request.scenario === "facet_executor_invoke"
     ? "facet-do"
@@ -2145,7 +2193,10 @@ async function sameFullInvokeSessionReceipt(
     finish.codeMode === request.codeMode &&
     finish.codeId === request.codeId &&
     finish.journalEntries === request.journalEntries &&
-    finish.sealDigest === facet.sealDigest;
+    finish.sealDigest === facet.sealDigest &&
+    finish.snapshotRevision === facet.syntheticRevision &&
+    finish.resultDigest === facet.resultDigest &&
+    finish.commitIntentDigest === facet.commitIntent.digest;
 }
 
 function requestColo(request: Request): string | null {
@@ -2187,7 +2238,8 @@ function unobservedFacetStartup(
   return {
     workerLoader: "callback-unobserved",
     facet: "callback-unobserved",
-    ...(scenario === "facet_finalizer_warm_invoke"
+    ...(scenario === "facet_finalizer_warm_invoke" ||
+        scenario === "facet_finalizer_postgres_warm_invoke"
       ? { sessionActivation: "activation-unobserved" as const }
       : {}),
   };

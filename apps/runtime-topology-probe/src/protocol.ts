@@ -53,6 +53,7 @@ export const ProbeScenarioSchema = Schema.Literals([
   "facet_executor_invoke",
   "facet_finalizer_invoke",
   "facet_finalizer_warm_invoke",
+  "facet_finalizer_postgres_warm_invoke",
   "session_executor_invoke",
   "sync_rerun",
 ]);
@@ -79,6 +80,8 @@ export const ProbeSpanNameSchema = Schema.Literals([
   "facet_mock_read_rtt",
   "facet_snapshot_read",
   "facet_atomic_commit_rtt",
+  "commit_transaction_io",
+  "outcome_resolution_io",
   "facet_session_read_rtt",
   "session_snapshot_read_rtt",
   "session_mock_finish_rtt",
@@ -207,6 +210,7 @@ export const ProbeRunRequestV1Schema = ProbeRunRequestV1Shape.check(
         request.scenario === "facet_executor_invoke" ||
         request.scenario === "facet_finalizer_invoke" ||
         request.scenario === "facet_finalizer_warm_invoke" ||
+        request.scenario === "facet_finalizer_postgres_warm_invoke" ||
         request.scenario === "session_executor_invoke") &&
       request.repetitions + request.warmupRepetitions >
         PROBE_LIMITS_V1.maxNewCodeRepetitions
@@ -361,6 +365,7 @@ export function probeWorkerLoaderIdentityV1(
       scenario === "facet_executor_invoke" ||
       scenario === "facet_finalizer_invoke" ||
       scenario === "facet_finalizer_warm_invoke" ||
+      scenario === "facet_finalizer_postgres_warm_invoke" ||
       scenario === "session_executor_invoke") &&
       identity.attemptId !== null
     ? `${identity.codeId}-${identity.facetId ?? identity.attemptId}`
@@ -489,7 +494,8 @@ export function probeSampleIdentityV1(
           sampleOrdinal,
         ),
       };
-    case "facet_finalizer_warm_invoke": {
+    case "facet_finalizer_warm_invoke":
+    case "facet_finalizer_postgres_warm_invoke": {
       const facetId = probeAttemptId(
         runId,
         PROBE_ORDINAL_ZERO,
@@ -506,7 +512,9 @@ export function probeSampleIdentityV1(
           sampleOrdinal,
         ),
         codeId: codeIdForScenario(
-          "invoke-finalizer-warm",
+          scenario === "facet_finalizer_postgres_warm_invoke"
+            ? "invoke-finalizer-postgres-warm"
+            : "invoke-finalizer-warm",
           runId,
           dimensions,
           sampleOrdinal,
@@ -573,13 +581,34 @@ function sampleRelationshipIssue(
     sample.dimensions,
     sample.identity.sampleOrdinal,
   );
-  if (!sameProbeSampleIdentityV1(sample.identity, expectedIdentity)) {
+  if (
+    !sameProbeSampleIdentityV1(sample.identity, expectedIdentity) &&
+    !legacyV1SampleIdentityMatches(sample, expectedIdentity)
+  ) {
     return "identity must match the run, scenario, dimensions, and sample ordinal";
   }
   return probeStartupRelationshipIssueV1(
     sample.scenario,
     sample.startup,
     sample.outcome,
+  );
+}
+
+function legacyV1SampleIdentityMatches(
+  sample: Pick<typeof ProbeSampleResultV1Shape.Type, "scenario" | "identity">,
+  expected: ProbeSampleIdentityV1,
+): boolean {
+  if (
+    sample.scenario === "facet_finalizer_postgres_warm_invoke" ||
+    sample.identity.codeId === null ||
+    expected.codeId === null
+  ) return false;
+  const legacyCodeId = ProbeCodeIdSchema.make(
+    expected.codeId.replace("-v2-", "-v1-"),
+  );
+  return sameProbeSampleIdentityV1(
+    sample.identity,
+    { ...expected, codeId: legacyCodeId },
   );
 }
 
@@ -590,6 +619,7 @@ export function probeStartupRelationshipIssueV1(
 ): string | undefined {
   if (
     scenario !== "facet_finalizer_warm_invoke" &&
+    scenario !== "facet_finalizer_postgres_warm_invoke" &&
     startup.sessionActivation !== undefined
   ) {
     return `${scenario} cannot report SessionDO activation observations`;
@@ -620,6 +650,7 @@ export function probeStartupRelationshipIssueV1(
     case "facet_executor_invoke":
     case "facet_finalizer_invoke":
     case "facet_finalizer_warm_invoke":
+    case "facet_finalizer_postgres_warm_invoke":
     case "session_executor_invoke":
     case "sync_rerun":
       if (
@@ -629,13 +660,15 @@ export function probeStartupRelationshipIssueV1(
         return `${scenario} requires Worker Loader and facet callback observations`;
       }
       if (
-        scenario === "facet_finalizer_warm_invoke" &&
+        (scenario === "facet_finalizer_warm_invoke" ||
+          scenario === "facet_finalizer_postgres_warm_invoke") &&
         startup.sessionActivation === undefined
       ) {
         return "facet_finalizer_warm_invoke requires a SessionDO activation observation";
       }
       if (
-        scenario === "facet_finalizer_warm_invoke" &&
+        (scenario === "facet_finalizer_warm_invoke" ||
+          scenario === "facet_finalizer_postgres_warm_invoke") &&
         outcome.kind === "ok" &&
         startup.sessionActivation === "activation-unobserved"
       ) {
@@ -671,13 +704,15 @@ export function probeDimensionRelationshipIssueV1(
   dimensions: ProbeDimensionsV1,
 ): string | undefined {
   if (
-    scenario === "facet_finalizer_warm_invoke" &&
+    (scenario === "facet_finalizer_warm_invoke" ||
+      scenario === "facet_finalizer_postgres_warm_invoke") &&
     dimensions.sessionMode !== "reuse-session"
   ) {
     return "facet_finalizer_warm_invoke requires one reused SessionDO";
   }
   if (
-    scenario === "facet_finalizer_warm_invoke" &&
+    (scenario === "facet_finalizer_warm_invoke" ||
+      scenario === "facet_finalizer_postgres_warm_invoke") &&
     dimensions.codeMode !== "stable"
   ) {
     return "facet_finalizer_warm_invoke requires stable code";
@@ -691,6 +726,7 @@ export function probeDimensionRelationshipIssueV1(
     scenario === "facet_executor_invoke" ||
     scenario === "facet_finalizer_invoke" ||
     scenario === "facet_finalizer_warm_invoke" ||
+    scenario === "facet_finalizer_postgres_warm_invoke" ||
     scenario === "session_executor_invoke" ||
     scenario === "sync_rerun";
   if (!usesDynamicWorker && dimensions.codeMode !== "stable") {
@@ -706,6 +742,7 @@ export function probeDimensionRelationshipIssueV1(
     scenario === "facet_executor_invoke" ||
     scenario === "facet_finalizer_invoke" ||
     scenario === "facet_finalizer_warm_invoke" ||
+    scenario === "facet_finalizer_postgres_warm_invoke" ||
     scenario === "session_executor_invoke" ||
     scenario === "sync_rerun";
   if (!usesSession && dimensions.sessionMode !== "new-session") {
@@ -721,6 +758,7 @@ export function probeDimensionRelationshipIssueV1(
       scenario === "facet_executor_invoke" ||
       scenario === "facet_finalizer_invoke" ||
       scenario === "facet_finalizer_warm_invoke" ||
+      scenario === "facet_finalizer_postgres_warm_invoke" ||
       scenario === "session_executor_invoke") &&
     dimensions.concurrency !== 1
   ) {
@@ -734,6 +772,7 @@ export function probeDimensionRelationshipIssueV1(
     scenario === "facet_executor_invoke" ||
     scenario === "facet_finalizer_invoke" ||
     scenario === "facet_finalizer_warm_invoke" ||
+    scenario === "facet_finalizer_postgres_warm_invoke" ||
     scenario === "session_executor_invoke";
   return !usesJournal && dimensions.journalEntries !== 0
     ? `${scenario} requires zero journal entries because it does not measure journal I/O`

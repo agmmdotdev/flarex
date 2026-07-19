@@ -35,6 +35,7 @@ export const ProbeInvokeCommitScenarioSchema = Schema.Literals([
   "facet_executor_invoke",
   "facet_finalizer_invoke",
   "facet_finalizer_warm_invoke",
+  "facet_finalizer_postgres_warm_invoke",
   "session_executor_invoke",
 ]);
 export type ProbeInvokeCommitScenario =
@@ -247,10 +248,18 @@ const ProbeMockFullInvokeFinishRequestV1Shape = Schema.Struct({
   ...RuntimeIdentityShape,
   journalEntries: JournalEntriesSchema,
   sealDigest: SealDigestSchema,
+  snapshotRevision: ProbeSyntheticCursorSchema,
+  resultDigest: SealDigestSchema,
+  commitIntentDigest: SealDigestSchema,
 }).annotate(StrictStructOptions).check(
   Schema.makeFilter(request => {
     const identityIssue = probeCommitIdentityIssueV1(request);
-    return identityIssue ?? probeInvokeRuntimeIdentityIssueV1(request);
+    if (identityIssue !== undefined) return identityIssue;
+    const runtimeIssue = probeInvokeRuntimeIdentityIssueV1(request);
+    if (runtimeIssue !== undefined) return runtimeIssue;
+    return request.snapshotRevision === request.commitSeq - 1
+      ? undefined
+      : "finish snapshotRevision must identify the pre-commit snapshot";
   }),
 );
 
@@ -263,17 +272,46 @@ export type ProbeMockFinishRequestV1 =
 
 const ProbeMockFinishResponseV1Shape = Schema.Struct({
   request: ProbeMockFinishRequestV1Schema,
-  mockSyncWakeDurationMs: ProbeDurationMsSchema,
+  commitAuthority: Schema.Literals(["mock", "postgres"]),
+  finishDisposition: Schema.Literals(["committed", "recovered"]),
+  commitTransactionDurationMs: ProbeDurationMsSchema,
+  outcomeResolutionDurationMs: ProbeDurationMsSchema,
+  syncWakeDurationMs: ProbeDurationMsSchema,
   sync: ProbeSyncWakeReceiptV1Schema,
 }).annotate(StrictStructOptions);
 
 export const ProbeMockFinishResponseV1Schema =
   ProbeMockFinishResponseV1Shape.check(
-    Schema.makeFilter(response =>
-      sameCommitIdentity(response.request, response.sync)
+    Schema.makeFilter(response => {
+      const expectedAuthority = response.request.scenario ===
+          "facet_finalizer_postgres_warm_invoke"
+        ? "postgres"
+        : "mock";
+      if (response.commitAuthority !== expectedAuthority) {
+        return "commit authority must match the requested probe scenario";
+      }
+      if (
+        response.commitAuthority === "mock" &&
+        response.commitTransactionDurationMs !== 0
+      ) {
+        return "mock commit authority cannot report Postgres transaction time";
+      }
+      if (
+        response.finishDisposition === "committed" &&
+        response.outcomeResolutionDurationMs !== 0
+      ) {
+        return "a newly committed outcome cannot report resolution time";
+      }
+      if (
+        response.finishDisposition === "recovered" &&
+        response.commitTransactionDurationMs !== 0
+      ) {
+        return "a recovered outcome cannot report a new commit transaction";
+      }
+      return sameCommitIdentity(response.request, response.sync)
         ? undefined
-        : "sync receipt must match the exact mock-finish request identity"
-    ),
+        : "sync receipt must match the exact mock-finish request identity";
+    }),
   );
 export type ProbeMockFinishResponseV1 =
   typeof ProbeMockFinishResponseV1Schema.Type;
@@ -282,7 +320,11 @@ export function probeMockFinishResponsesEqualV1(
   left: ProbeMockFinishResponseV1,
   right: ProbeMockFinishResponseV1,
 ): boolean {
-  return left.mockSyncWakeDurationMs === right.mockSyncWakeDurationMs &&
+  return left.commitAuthority === right.commitAuthority &&
+    left.finishDisposition === right.finishDisposition &&
+    left.commitTransactionDurationMs === right.commitTransactionDurationMs &&
+    left.outcomeResolutionDurationMs === right.outcomeResolutionDurationMs &&
+    left.syncWakeDurationMs === right.syncWakeDurationMs &&
     sameFinishRequest(left.request, right.request) &&
     left.sync.protocolVersion === right.sync.protocolVersion &&
     left.sync.runId === right.sync.runId &&
@@ -462,6 +504,8 @@ export function probeInvokeRuntimeIdentityIssueV1(input: {
   }
   const profile = input.scenario === "facet_finalizer_invoke"
     ? "invoke-finalizer"
+    : input.scenario === "facet_finalizer_postgres_warm_invoke"
+    ? "invoke-finalizer-postgres-warm"
     : input.scenario === "facet_finalizer_warm_invoke"
     ? "invoke-finalizer-warm"
     : "invoke";
@@ -543,5 +587,8 @@ function sameFinishRequest(
     left.codeMode === right.codeMode &&
     left.codeId === right.codeId &&
     left.journalEntries === right.journalEntries &&
-    left.sealDigest === right.sealDigest;
+    left.sealDigest === right.sealDigest &&
+    left.snapshotRevision === right.snapshotRevision &&
+    left.resultDigest === right.resultDigest &&
+    left.commitIntentDigest === right.commitIntentDigest;
 }
