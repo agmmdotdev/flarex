@@ -340,8 +340,9 @@ byte, and digest evidence through ordered `Result` operations. Each
 codec value enters through its Schema `Result`; the byte adapter first proves
 the driver value has the required intrinsic `Uint8Array` representation,
 including rejecting empty or detached canonical bytes and non-32-byte digests,
-then catches only Schema rejection. Fresh object construction and row-field access
-remain outside those catches. Malformed stored evidence therefore stays typed
+then consumes the protocol-owned Result decoder directly. Fresh object
+construction and row-field access remain outside failure mapping. Malformed
+stored evidence therefore stays typed
 catalog corruption, but unexpected accessor or runtime failures remain defects
 instead of being misclassified as recoverable database state. Full-read
 canonicalization maps only Schema rejection to catalog corruption; unexpected
@@ -350,8 +351,8 @@ Transaction-time physical-definition replay and insert verification now use one
 ordered `Result` decoder for both developer and creation-time access owners.
 The former broad prepared-evidence `try/catch` and its two exception-filtering
 Result projections are deleted. Protocol codec validation uses its Schema
-`Result`, while byte, access-owner, and physical-spec decoders retain
-failure-specific adapters; deployment/access correlation, exact prepared
+`Result`; byte, access-owner, and physical-spec validation now use their
+protocol-owned Result normalizers directly. Deployment/access correlation, exact prepared
 evidence comparison, owner-specific checksum collisions, and timestamp
 validation keep their prior order. Malformed rows remain typed corruption or
 the exact owner-specific collision, while unexpected row access, snapshot, and
@@ -361,8 +362,9 @@ Stored deployment, definition-ID, table-ID, access-owner, timestamp, and
 high-water allocation normalization now return `Result` directly. The former
 throwing helpers and exception-filtering Result projections are deleted;
 allocation exhaustion remains its existing typed failure. Only protocol-owned
-access and physical-evidence decoders retain the narrow throwing adapter, so
-owned catalog validation no longer enters the JavaScript exception channel.
+throwing projections with concrete production consumers remain; the two generic
+catalog `Result.try` adapters are deleted, so owned catalog validation no longer
+enters the JavaScript exception channel.
 
 The package-root stable logical-index identity readers are now Effect-native.
 Input and stored-row validation enter through pure `Result`, while each reader

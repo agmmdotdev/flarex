@@ -108,10 +108,11 @@ export const AppOrderedIndexPhysicalSpecV1Schema = Schema.Struct({
 export type AppOrderedIndexPhysicalSpecV1 =
   typeof AppOrderedIndexPhysicalSpecV1Schema.Type;
 
-const decodeAppOrderedIndexPhysicalSpecV1Shape = Schema.decodeUnknownSync(
-  AppOrderedIndexPhysicalSpecV1Schema,
-  StrictParseOptions,
-);
+const decodeAppOrderedIndexPhysicalSpecV1ShapeResult =
+  Schema.decodeUnknownResult(
+    AppOrderedIndexPhysicalSpecV1Schema,
+    StrictParseOptions,
+  );
 const decodeAppOrderedIndexPhysicalFieldV1Shape = Schema.decodeUnknownSync(
   AppOrderedIndexPhysicalFieldV1Schema,
   StrictParseOptions,
@@ -363,8 +364,16 @@ const SEPARATE_ROW_ID_TIE_BREAKER = Object.freeze({
 export function decodeAppOrderedIndexPhysicalSpecV1(
   value: unknown,
 ): AppOrderedIndexPhysicalSpecV1 {
-  return snapshotDecodedProtocolPlainData(
-    decodeAppOrderedIndexPhysicalSpecV1Shape(value),
+  return Result.getOrThrow(
+    decodeAppOrderedIndexPhysicalSpecV1Result(value),
+  );
+}
+
+export function decodeAppOrderedIndexPhysicalSpecV1Result(
+  value: unknown,
+): Result.Result<AppOrderedIndexPhysicalSpecV1, Schema.SchemaError> {
+  return decodeAppOrderedIndexPhysicalSpecV1ShapeResult(value).pipe(
+    Result.map(snapshotDecodedProtocolPlainData),
   );
 }
 

@@ -24,6 +24,7 @@ import {
   compileAppOrderedIndexBoundsV1,
   decodeAppOrderedIndexKeyV1,
   decodeAppOrderedIndexPhysicalSpecV1,
+  decodeAppOrderedIndexPhysicalSpecV1Result,
   decodeOrderedIndexComponentsV1,
   decodeOrderedIndexKeyBytesHexV1,
   encodeAppOrderedIndexKeyV1,
@@ -105,6 +106,11 @@ describe("ordered index physical contract v1", () => {
       },
       { ...base, callerPhysicalName: "unsafe" },
     ]) {
+      const decoded = decodeAppOrderedIndexPhysicalSpecV1Result(invalid);
+      expect(Result.isFailure(decoded)).toBe(true);
+      if (Result.isFailure(decoded)) {
+        expect(Schema.isSchemaError(decoded.failure)).toBe(true);
+      }
       expect(() => decodeAppOrderedIndexPhysicalSpecV1(invalid)).toThrow();
     }
   });
@@ -124,7 +130,9 @@ describe("ordered index physical contract v1", () => {
       maxEncodedKeyBytes: MAX_ORDERED_INDEX_KEY_BYTES_V1,
     };
 
-    const decoded = decodeAppOrderedIndexPhysicalSpecV1(input);
+    const decoded = Result.getOrThrow(
+      decodeAppOrderedIndexPhysicalSpecV1Result(input),
+    );
     input.orderedFields[0]!.path = "changedAfterDecode";
     input.tieBreaker.byteLength = 1;
 

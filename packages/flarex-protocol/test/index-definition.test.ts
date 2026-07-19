@@ -4,12 +4,18 @@ import {
   type CatalogIndexId,
   type CatalogTableId,
 } from "../src/catalog";
+import { Result, Schema } from "effect";
 import {
   APP_INDEX_PHYSICAL_SPEC_CODEC_VERSION_V1,
   MAX_CANONICAL_APP_INDEX_PHYSICAL_SPEC_BYTES_V1,
+  appIndexPhysicalSpecSha256HexV1FromBytesResult,
   appPhysicalIndexAccessStorageIdentityV1,
+  canonicalAppIndexPhysicalSpecBytesHexV1FromBytesResult,
   canonicalizeAppIndexPhysicalSpecV1,
+  decodeAppIndexPhysicalSpecSha256HexV1,
   decodeAppPhysicalIndexAccessIdentityV1,
+  decodeAppPhysicalIndexAccessIdentityV1Result,
+  decodeCanonicalAppIndexPhysicalSpecBytesHexV1,
   type AppCreationTimePhysicalIndexAccessIdentityV1,
   type AppDeveloperPhysicalIndexAccessIdentityV1,
   type AppPhysicalIndexAccessStorageIdentityV1,
@@ -98,6 +104,73 @@ describe("physical index definition protocol", () => {
         logicalIndexId,
       })
     ).toThrow();
+  });
+
+  it("exposes Result-first access and physical-evidence decoders", () => {
+    const access = decodeAppPhysicalIndexAccessIdentityV1Result({
+      kind: "developer",
+      tableId,
+      logicalIndexId,
+    });
+    expect(Result.isSuccess(access)).toBe(true);
+    if (Result.isSuccess(access)) {
+      expect(access.success).toEqual({
+        kind: "developer",
+        tableId,
+        logicalIndexId,
+      });
+      expect(Object.isFrozen(access.success)).toBe(true);
+    }
+
+    const invalidAccess = decodeAppPhysicalIndexAccessIdentityV1Result({
+      kind: "by_id",
+      tableId,
+    });
+    expect(Result.isFailure(invalidAccess)).toBe(true);
+    if (Result.isFailure(invalidAccess)) {
+      expect(Schema.isSchemaError(invalidAccess.failure)).toBe(true);
+    }
+
+    const canonicalBytes =
+      canonicalAppIndexPhysicalSpecBytesHexV1FromBytesResult(
+        Uint8Array.of(0, 255),
+      );
+    expect(Result.isSuccess(canonicalBytes)).toBe(true);
+    if (Result.isSuccess(canonicalBytes)) {
+      expect(canonicalBytes.success).toBe("00ff");
+    }
+    const emptyCanonicalBytes =
+      canonicalAppIndexPhysicalSpecBytesHexV1FromBytesResult(
+        new Uint8Array(),
+      );
+    expect(Result.isFailure(emptyCanonicalBytes)).toBe(true);
+    if (Result.isFailure(emptyCanonicalBytes)) {
+      expect(Schema.isSchemaError(emptyCanonicalBytes.failure)).toBe(true);
+    }
+
+    const digest = appIndexPhysicalSpecSha256HexV1FromBytesResult(
+      new Uint8Array(32),
+    );
+    expect(Result.isSuccess(digest)).toBe(true);
+    if (Result.isSuccess(digest)) {
+      expect(digest.success).toBe("00".repeat(32));
+    }
+    const shortDigest = appIndexPhysicalSpecSha256HexV1FromBytesResult(
+      new Uint8Array(31),
+    );
+    expect(Result.isFailure(shortDigest)).toBe(true);
+    if (Result.isFailure(shortDigest)) {
+      expect(Schema.isSchemaError(shortDigest.failure)).toBe(true);
+    }
+
+    expect(decodeCanonicalAppIndexPhysicalSpecBytesHexV1(
+      "00ff",
+      { errors: "all" },
+    )).toBe("00ff");
+    expect(decodeAppIndexPhysicalSpecSha256HexV1(
+      "00".repeat(32),
+      { errors: "all" },
+    )).toBe("00".repeat(32));
   });
 
   it("canonicalizes equivalent physical specs to exact bytes and digest", async () => {

@@ -1,5 +1,5 @@
 import { encodeBytesToLowercaseHex } from "@flarex/utils/bytes";
-import { Schema } from "effect";
+import { Result, Schema, type SchemaAST } from "effect";
 
 import {
   CatalogIndexIdSchema,
@@ -47,8 +47,17 @@ export const CanonicalAppIndexPhysicalSpecBytesHexV1Schema =
   ).pipe(Schema.brand("FlarexDB/CanonicalAppIndexPhysicalSpecBytesHexV1"));
 export type CanonicalAppIndexPhysicalSpecBytesHexV1 =
   typeof CanonicalAppIndexPhysicalSpecBytesHexV1Schema.Type;
-export const decodeCanonicalAppIndexPhysicalSpecBytesHexV1 =
-  Schema.decodeUnknownSync(CanonicalAppIndexPhysicalSpecBytesHexV1Schema);
+const decodeCanonicalAppIndexPhysicalSpecBytesHexV1Result =
+  Schema.decodeUnknownResult(CanonicalAppIndexPhysicalSpecBytesHexV1Schema);
+
+export function decodeCanonicalAppIndexPhysicalSpecBytesHexV1(
+  value: unknown,
+  options?: SchemaAST.ParseOptions,
+): CanonicalAppIndexPhysicalSpecBytesHexV1 {
+  return Result.getOrThrow(
+    decodeCanonicalAppIndexPhysicalSpecBytesHexV1Result(value, options),
+  );
+}
 
 export const AppIndexPhysicalSpecSha256HexV1Schema = Schema.String.check(
   Schema.makeFilter((value) =>
@@ -59,9 +68,17 @@ export const AppIndexPhysicalSpecSha256HexV1Schema = Schema.String.check(
 ).pipe(Schema.brand("FlarexDB/AppIndexPhysicalSpecSha256HexV1"));
 export type AppIndexPhysicalSpecSha256HexV1 =
   typeof AppIndexPhysicalSpecSha256HexV1Schema.Type;
-export const decodeAppIndexPhysicalSpecSha256HexV1 = Schema.decodeUnknownSync(
-  AppIndexPhysicalSpecSha256HexV1Schema,
-);
+const decodeAppIndexPhysicalSpecSha256HexV1Result =
+  Schema.decodeUnknownResult(AppIndexPhysicalSpecSha256HexV1Schema);
+
+export function decodeAppIndexPhysicalSpecSha256HexV1(
+  value: unknown,
+  options?: SchemaAST.ParseOptions,
+): AppIndexPhysicalSpecSha256HexV1 {
+  return Result.getOrThrow(
+    decodeAppIndexPhysicalSpecSha256HexV1Result(value, options),
+  );
+}
 
 export const AppDeveloperPhysicalIndexAccessIdentityV1Schema = Schema.Struct({
   kind: Schema.Literal("developer"),
@@ -92,10 +109,11 @@ export const AppPhysicalIndexAccessIdentityV1Schema = Schema.Union([
 ]);
 export type AppPhysicalIndexAccessIdentityV1 =
   typeof AppPhysicalIndexAccessIdentityV1Schema.Type;
-const decodeAppPhysicalIndexAccessIdentityV1Shape = Schema.decodeUnknownSync(
-  AppPhysicalIndexAccessIdentityV1Schema,
-  StrictParseOptions,
-);
+const decodeAppPhysicalIndexAccessIdentityV1ShapeResult =
+  Schema.decodeUnknownResult(
+    AppPhysicalIndexAccessIdentityV1Schema,
+    StrictParseOptions,
+  );
 
 export type AppPhysicalIndexAccessKindV1 =
   AppPhysicalIndexAccessIdentityV1["kind"];
@@ -125,14 +143,23 @@ export interface CanonicalAppIndexPhysicalSpecV1 {
 export function decodeAppPhysicalIndexAccessIdentityV1(
   value: unknown,
 ): AppPhysicalIndexAccessIdentityV1 {
-  const identity = decodeAppPhysicalIndexAccessIdentityV1Shape(value);
-  return identity.kind === "developer"
-    ? Object.freeze({
-      kind: identity.kind,
-      tableId: identity.tableId,
-      logicalIndexId: identity.logicalIndexId,
-    })
-    : Object.freeze({ kind: identity.kind, tableId: identity.tableId });
+  return Result.getOrThrow(decodeAppPhysicalIndexAccessIdentityV1Result(value));
+}
+
+export function decodeAppPhysicalIndexAccessIdentityV1Result(
+  value: unknown,
+): Result.Result<AppPhysicalIndexAccessIdentityV1, Schema.SchemaError> {
+  return decodeAppPhysicalIndexAccessIdentityV1ShapeResult(value).pipe(
+    Result.map((identity) =>
+      identity.kind === "developer"
+        ? Object.freeze({
+          kind: identity.kind,
+          tableId: identity.tableId,
+          logicalIndexId: identity.logicalIndexId,
+        })
+        : Object.freeze({ kind: identity.kind, tableId: identity.tableId })
+    ),
+  );
 }
 
 export function appPhysicalIndexAccessStorageIdentityV1(
@@ -199,7 +226,18 @@ export async function canonicalizeAppIndexPhysicalSpecV1(
 export function canonicalAppIndexPhysicalSpecBytesHexV1FromBytes(
   value: Uint8Array,
 ): CanonicalAppIndexPhysicalSpecBytesHexV1 {
-  return decodeCanonicalAppIndexPhysicalSpecBytesHexV1(
+  return Result.getOrThrow(
+    canonicalAppIndexPhysicalSpecBytesHexV1FromBytesResult(value),
+  );
+}
+
+export function canonicalAppIndexPhysicalSpecBytesHexV1FromBytesResult(
+  value: Uint8Array,
+): Result.Result<
+  CanonicalAppIndexPhysicalSpecBytesHexV1,
+  Schema.SchemaError
+> {
+  return decodeCanonicalAppIndexPhysicalSpecBytesHexV1Result(
     encodeBytesToLowercaseHex(value),
   );
 }
@@ -213,7 +251,15 @@ export function canonicalAppIndexPhysicalSpecBytesHexV1ToBytes(
 export function appIndexPhysicalSpecSha256HexV1FromBytes(
   value: Uint8Array,
 ): AppIndexPhysicalSpecSha256HexV1 {
-  return decodeAppIndexPhysicalSpecSha256HexV1(
+  return Result.getOrThrow(
+    appIndexPhysicalSpecSha256HexV1FromBytesResult(value),
+  );
+}
+
+export function appIndexPhysicalSpecSha256HexV1FromBytesResult(
+  value: Uint8Array,
+): Result.Result<AppIndexPhysicalSpecSha256HexV1, Schema.SchemaError> {
+  return decodeAppIndexPhysicalSpecSha256HexV1Result(
     encodeBytesToLowercaseHex(value),
   );
 }

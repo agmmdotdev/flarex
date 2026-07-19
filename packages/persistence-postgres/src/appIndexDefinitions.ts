@@ -17,14 +17,14 @@ import {
   type CatalogTableNamespace,
 } from "flarex-protocol/catalog";
 import {
-  appIndexPhysicalSpecSha256HexV1FromBytes,
+  appIndexPhysicalSpecSha256HexV1FromBytesResult,
   appIndexPhysicalSpecSha256HexV1ToBytes,
   appPhysicalIndexAccessStorageIdentityV1,
   AppIndexPhysicalSpecCodecVersionSchema,
   canonicalizeAppIndexPhysicalSpecV1,
-  canonicalAppIndexPhysicalSpecBytesHexV1FromBytes,
+  canonicalAppIndexPhysicalSpecBytesHexV1FromBytesResult,
   canonicalAppIndexPhysicalSpecBytesHexV1ToBytes,
-  decodeAppPhysicalIndexAccessIdentityV1,
+  decodeAppPhysicalIndexAccessIdentityV1Result,
   type AppCreationTimePhysicalIndexAccessIdentityV1,
   type AppDeveloperPhysicalIndexAccessIdentityV1,
   type AppIndexPhysicalSpecCodecVersion,
@@ -36,7 +36,7 @@ import {
   type CanonicalAppIndexPhysicalSpecV1,
 } from "flarex-protocol/index-definition";
 import {
-  decodeAppOrderedIndexPhysicalSpecV1,
+  decodeAppOrderedIndexPhysicalSpecV1Result,
   lowerAppDeveloperOrderedIndexPhysicalSpecV1,
   type AppOrderedIndexPhysicalSpecV1,
 } from "flarex-protocol/ordered-index";
@@ -2001,11 +2001,14 @@ function decodeStoredDefinitionAgainstPreparedResult(
       invalidPreparedEvidenceDetail,
       row.physicalSpecSha256,
     );
-    const storedPhysicalSpec = yield* decodeStoredSchemaProtocolValueResult(
-      deploymentId,
-      invalidPreparedEvidenceDetail,
+    const storedPhysicalSpec = yield* decodeAppOrderedIndexPhysicalSpecV1Result(
       row.physicalSpecJson,
-      decodeAppOrderedIndexPhysicalSpecV1,
+    ).pipe(
+      Result.mapError((cause) => storedProtocolCorruption(
+        deploymentId,
+        invalidPreparedEvidenceDetail,
+        cause,
+      )),
     );
     if (physicalSpecCodecVersion !== state.canonical.codecVersion) {
       return yield* Result.fail(new AppIndexDefinitionCatalogCorruptionError(
@@ -2217,11 +2220,12 @@ function decodeStoredCanonicalPhysicalSpecBytesResult(
       ),
     ));
   }
-  return decodeStoredByteProtocolValueResult(
-    deploymentId,
-    detail,
-    value,
-    canonicalAppIndexPhysicalSpecBytesHexV1FromBytes,
+  return canonicalAppIndexPhysicalSpecBytesHexV1FromBytesResult(value).pipe(
+    Result.mapError((cause) => storedProtocolCorruption(
+      deploymentId,
+      detail,
+      cause,
+    )),
   );
 }
 
@@ -2242,42 +2246,13 @@ function decodeStoredPhysicalSpecSha256Result(
       ),
     ));
   }
-  return decodeStoredByteProtocolValueResult(
-    deploymentId,
-    detail,
-    value,
-    appIndexPhysicalSpecSha256HexV1FromBytes,
+  return appIndexPhysicalSpecSha256HexV1FromBytesResult(value).pipe(
+    Result.mapError((cause) => storedProtocolCorruption(
+      deploymentId,
+      detail,
+      cause,
+    )),
   );
-}
-
-function decodeStoredByteProtocolValueResult<Value>(
-  deploymentId: string,
-  detail: string,
-  value: Uint8Array,
-  decode: (value: Uint8Array) => Value,
-): Result.Result<Value, AppIndexDefinitionCatalogCorruptionError> {
-  return Result.try({
-    try: () => decode(value),
-    catch: (cause) => {
-      if (!Schema.isSchemaError(cause)) throw cause;
-      return storedProtocolCorruption(deploymentId, detail, cause);
-    },
-  });
-}
-
-function decodeStoredSchemaProtocolValueResult<Input, Value>(
-  deploymentId: string,
-  detail: string,
-  value: Input,
-  decode: (value: Input) => Value,
-): Result.Result<Value, AppIndexDefinitionCatalogCorruptionError> {
-  return Result.try({
-    try: () => decode(value),
-    catch: (cause) => {
-      if (!Schema.isSchemaError(cause)) throw cause;
-      return storedProtocolCorruption(deploymentId, detail, cause);
-    },
-  });
 }
 
 function storedProtocolCorruption(
@@ -2380,15 +2355,18 @@ function decodeStoredAccessResult(
           },
         ));
       }
-      return yield* decodeStoredSchemaProtocolValueResult(
-        deploymentId,
-        detail,
+      return yield* decodeAppPhysicalIndexAccessIdentityV1Result(
         {
           kind: accessKind,
           tableId,
           logicalIndexId: decodedLogicalIndexId,
         },
-        decodeAppPhysicalIndexAccessIdentityV1,
+      ).pipe(
+        Result.mapError((cause) => storedProtocolCorruption(
+          deploymentId,
+          detail,
+          cause,
+        )),
       );
     }
     if (accessKind === "by_creation_time") {
@@ -2403,11 +2381,14 @@ function decodeStoredAccessResult(
           },
         ));
       }
-      return yield* decodeStoredSchemaProtocolValueResult(
-        deploymentId,
-        detail,
+      return yield* decodeAppPhysicalIndexAccessIdentityV1Result(
         { kind: accessKind, tableId },
-        decodeAppPhysicalIndexAccessIdentityV1,
+      ).pipe(
+        Result.mapError((cause) => storedProtocolCorruption(
+          deploymentId,
+          detail,
+          cause,
+        )),
       );
     }
     return yield* Result.fail(new AppIndexDefinitionCatalogCorruptionError(
