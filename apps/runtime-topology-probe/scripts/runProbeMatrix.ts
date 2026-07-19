@@ -3,7 +3,9 @@ import { join, resolve } from "node:path";
 import {
   PROBE_ACTIVE_CAMPAIGN_MATRIX_V1,
   PROBE_POSTGRES_HYPERDRIVE_MATRIX_V1,
+  PROBE_SESSION_POSTGRES_AB_MATRIX_V1,
 } from "../src/matrix";
+import { PROBE_DYNAMIC_WORKER_COMPATIBILITY_DATE } from "../src/dynamicProtocol";
 import {
   PROBE_DEFAULT_REQUEST_TIMEOUT_MS,
   ProbeRunnerError,
@@ -43,6 +45,8 @@ if (origin === undefined || token === undefined || token.length === 0) {
 
 const manifest = process.env.RUNTIME_TOPOLOGY_PROBE_ARM === "postgres"
   ? PROBE_POSTGRES_HYPERDRIVE_MATRIX_V1
+  : process.env.RUNTIME_TOPOLOGY_PROBE_ARM === "session-postgres"
+  ? PROBE_SESSION_POSTGRES_AB_MATRIX_V1
   : PROBE_ACTIVE_CAMPAIGN_MATRIX_V1;
 const campaignId = manifest.campaignId;
 const stateDirectory = resolve(
@@ -139,7 +143,7 @@ try {
       manifest,
       target: {
         kind: "cloudflare-production",
-        compatibilityDate: "2026-06-14",
+        compatibilityDate: PROBE_DYNAMIC_WORKER_COMPATIBILITY_DATE,
       },
       transport,
       requestTimeoutMs,

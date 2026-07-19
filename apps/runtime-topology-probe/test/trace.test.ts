@@ -23,6 +23,7 @@ describe("runtime topology probe trace validation", () => {
     "facet_finalizer_invoke",
     "facet_finalizer_warm_invoke",
     "facet_finalizer_postgres_warm_invoke",
+    "session_postgres_warm_invoke",
     "session_executor_invoke",
     "sync_rerun",
   ] as const)("accepts the exact %s topology", scenario => {
@@ -46,6 +47,30 @@ describe("runtime topology probe trace validation", () => {
       .toBe(false);
     expect(recovered.spans.some(span => span.name === "commit_transaction_io"))
       .toBe(false);
+
+    const sessionCommitted = validSample("session_postgres_warm_invoke");
+    const sessionRecovered = {
+      ...sessionCommitted,
+      spans: sessionCommitted.spans.map(span =>
+        span.name === "commit_transaction_io"
+          ? { ...span, name: "outcome_resolution_io" as const }
+          : span
+      ),
+    };
+    expect(validateProbeTraceV1(sessionRecovered)).toEqual({ ok: true });
+  });
+
+  it("places the direct Postgres transaction under the SessionDO commit span", () => {
+    const sample = validSample("session_postgres_warm_invoke");
+    const transaction = sample.spans.find(
+      span => span.name === "commit_transaction_io",
+    );
+    const sessionCommit = sample.spans.find(
+      span => span.name === "session_postgres_commit_rtt",
+    );
+
+    expect(transaction?.parentSpanId).toBe(sessionCommit?.spanId);
+    expect(validateProbeTraceV1(sample)).toEqual({ ok: true });
   });
 
   it("rejects missing spans", () => {

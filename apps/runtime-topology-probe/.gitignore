@@ -1,3 +1,4 @@
 .probe-output/
 .probe-state/
 wrangler.postgres.runtime.jsonc
+wrangler.session-postgres.runtime.jsonc

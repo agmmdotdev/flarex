@@ -42,7 +42,8 @@ export function validSample(
     journalEntries: scenario === "facet_journal" ? 1 : 0,
     payloadBytes: 0,
     sessionMode: scenario === "facet_finalizer_warm_invoke" ||
-        scenario === "facet_finalizer_postgres_warm_invoke"
+        scenario === "facet_finalizer_postgres_warm_invoke" ||
+        scenario === "session_postgres_warm_invoke"
       ? "reuse-session" as const
       : "new-session" as const,
   };
@@ -98,6 +99,7 @@ export function controlledSample(
         sample.scenario === "facet_finalizer_invoke" ||
         sample.scenario === "facet_finalizer_warm_invoke" ||
         sample.scenario === "facet_finalizer_postgres_warm_invoke" ||
+        sample.scenario === "session_postgres_warm_invoke" ||
         sample.scenario === "session_executor_invoke"
       ? { kind: "observed", disposition: "applied" } as const
       : { kind: "not-applicable" } as const);
@@ -139,6 +141,7 @@ function startupForScenario(
       return { workerLoader: "callback-ran", facet: "callback-ran" } as const;
     case "facet_finalizer_warm_invoke":
     case "facet_finalizer_postgres_warm_invoke":
+    case "session_postgres_warm_invoke":
       return {
         workerLoader: "callback-ran",
         facet: "callback-ran",

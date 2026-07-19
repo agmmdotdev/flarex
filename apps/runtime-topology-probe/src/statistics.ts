@@ -112,15 +112,16 @@ export const ProbeCohortKeyV1Schema = ProbeCohortKeyV1Shape.check(
   Schema.makeFilter(cohort => {
     if (
       cohort.scenario === "facet_finalizer_warm_invoke" ||
-      cohort.scenario === "facet_finalizer_postgres_warm_invoke"
+      cohort.scenario === "facet_finalizer_postgres_warm_invoke" ||
+      cohort.scenario === "session_postgres_warm_invoke"
     ) {
       return cohort.sessionActivation === undefined
-        ? "warm finalizer cohorts require a SessionDO activation observation"
+        ? "warm SessionDO cohorts require a SessionDO activation observation"
         : undefined;
     }
     return cohort.sessionActivation === undefined
       ? undefined
-      : "only warm finalizer cohorts may report SessionDO activation";
+      : "only warm SessionDO cohorts may report SessionDO activation";
   }),
 );
 export type ProbeCohortKeyV1 = typeof ProbeCohortKeyV1Schema.Type;

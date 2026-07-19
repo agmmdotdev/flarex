@@ -521,7 +521,14 @@ export class ProbeCampaignDO extends DurableObject<ProbeCampaignEnv> {
             : "failed";
         }
       }
-    } catch {
+    } catch (cause) {
+      console.error("probe campaign purge task failed", {
+        targetKind: kind,
+        targetId: task.target_id,
+        cause: cause instanceof Error
+          ? { name: cause.name, message: cause.message }
+          : { kind: typeof cause },
+      });
       return "failed";
     }
   }
@@ -647,6 +654,7 @@ function insertPurgeTasks(
       run.scenario === "facet_finalizer_invoke" ||
       run.scenario === "facet_finalizer_warm_invoke" ||
       run.scenario === "facet_finalizer_postgres_warm_invoke" ||
+      run.scenario === "session_postgres_warm_invoke" ||
       run.scenario === "session_executor_invoke" ||
       run.scenario === "sync_rerun"
     ) {

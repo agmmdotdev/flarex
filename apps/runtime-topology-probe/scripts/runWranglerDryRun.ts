@@ -62,6 +62,19 @@ const targets = {
     ),
     outdir: "dist/postgres",
   },
+  "session-postgres": {
+    bundleUrl: new URL(
+      "../dist/session-postgres/gatewaySessionPostgresWorker.js",
+      import.meta.url,
+    ),
+    config: "wrangler.session-postgres.jsonc",
+    metafile: "dist/session-postgres/bundle-meta.json",
+    metafileUrl: new URL(
+      "../dist/session-postgres/bundle-meta.json",
+      import.meta.url,
+    ),
+    outdir: "dist/session-postgres",
+  },
   sync: {
     bundleUrl: new URL("../dist/sync/syncWorker.js", import.meta.url),
     config: "wrangler.sync.jsonc",
@@ -90,7 +103,7 @@ const targets = {
 const targetName = process.argv[2] ?? "gateway";
 if (!isDryRunTarget(targetName)) {
   console.error(
-    "Usage: runWranglerDryRun.ts gateway|gateway-postgres|gateway-teardown|mock|postgres|sync|sync-teardown",
+    "Usage: runWranglerDryRun.ts gateway|gateway-postgres|gateway-teardown|mock|postgres|session-postgres|sync|sync-teardown",
   );
   process.exit(1);
 }

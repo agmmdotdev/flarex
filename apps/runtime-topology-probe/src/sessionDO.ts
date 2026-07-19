@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { compareUtf16Strings } from "@flarex/utils/strings";
+import { Effect, Result } from "effect";
 
 import {
   copyCloudflareRpcRecord,
@@ -73,6 +74,7 @@ import type {
   MockReadEntrypoint,
 } from "./mockCommitWorker";
 import type { ProbeSyncDO } from "./probeSyncDO";
+import type { ProbePostgresOperationError } from "./postgresCommitWorker";
 import {
   decodeProbeSessionExecutorReadEnvelope,
   newProbeSessionExecutorReadEnvelope,
@@ -125,6 +127,7 @@ const sessionRoutes = {
 } as const;
 
 export interface ProbeSessionEnv {
+  readonly HYPERDRIVE_CACHE_DISABLED?: Pick<Hyperdrive, "connectionString">;
   readonly LOADER?: WorkerLoader;
   readonly MOCK_FINISH?: Service<typeof MockFinishEntrypoint>;
   readonly MOCK_READ?: Service<typeof MockReadEntrypoint>;
@@ -174,20 +177,48 @@ type InvokeExecutorHost =
       readonly snapshotReadDurationMs: number;
     }
   | {
+      readonly kind: "session-postgres";
+      readonly operation: "finish" | "resolve";
+      readonly postgres: ProbeSessionPostgresEnv;
+      readonly snapshot: ProbeMockReadResponseV1;
+      readonly snapshotReadDurationMs: number;
+    }
+  | {
       readonly kind: "session-do";
       readonly capability: ProbeSessionExecutorReadEnvelope;
       readonly read: ProbeInvokeSessionReadCapability;
       readonly sync: DurableObjectNamespace<ProbeSyncDO>;
     };
 
-export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
+export interface ProbeSessionPostgresEnv {
+  readonly HYPERDRIVE_CACHE_DISABLED: Pick<Hyperdrive, "connectionString">;
+  readonly PROBE_SYNC: DurableObjectNamespace<ProbeSyncDO>;
+}
+
+export interface ProbeSessionPostgresOperations {
+  readonly read: (
+    env: ProbeSessionPostgresEnv,
+    value: unknown,
+  ) => Effect.Effect<ProbeMockReadResponseV1, ProbePostgresOperationError>;
+  readonly finish: (
+    env: ProbeSessionPostgresEnv,
+    value: unknown,
+    operation: "finish" | "resolve",
+  ) => Effect.Effect<ProbeMockFinishResponseV1, ProbePostgresOperationError>;
+}
+
+export class ProbeSessionDOBase extends DurableObject<ProbeSessionEnv> {
   private readonly sql = this.ctx.storage.sql;
   private storageInitialized = true;
   private activeOperations = 0;
   private purgeTail: Promise<void> = Promise.resolve();
   private hasHandledWarmFinalizer = false;
 
-  constructor(ctx: DurableObjectState, env: ProbeSessionEnv) {
+  constructor(
+    ctx: DurableObjectState,
+    env: ProbeSessionEnv,
+    private readonly postgresOperations: ProbeSessionPostgresOperations | null,
+  ) {
     super(ctx, env);
     initializeSessionStorage(this.sql);
   }
@@ -538,7 +569,8 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       isProbeCodeProfile(facet.codeId, "invoke") ||
       isProbeCodeProfile(facet.codeId, "invoke-finalizer") ||
       isProbeCodeProfile(facet.codeId, "invoke-finalizer-warm") ||
-      isProbeCodeProfile(facet.codeId, "invoke-finalizer-postgres-warm")
+      isProbeCodeProfile(facet.codeId, "invoke-finalizer-postgres-warm") ||
+      isProbeCodeProfile(facet.codeId, "invoke-session-postgres-warm")
     ) {
       let workerCode: WorkerLoaderWorkerCode;
       if (
@@ -547,6 +579,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         facet.scenario === "facet_finalizer_invoke" ||
         facet.scenario === "facet_finalizer_warm_invoke" ||
         facet.scenario === "facet_finalizer_postgres_warm_invoke" ||
+        facet.scenario === "session_postgres_warm_invoke" ||
         facet.scenario === "executor_worker_invoke"
       ) {
         const attempt = this.sql.exec<{
@@ -593,6 +626,11 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         } else if (facet.scenario === "facet_executor_invoke") {
           if (attempt.capability_token !== null) {
             throw new Error("facet executor purge capability evidence conflicts");
+          }
+          workerCode = probeSnapshotInvokeWorkerCode();
+        } else if (facet.scenario === "session_postgres_warm_invoke") {
+          if (attempt.capability_token !== null) {
+            throw new Error("session postgres purge capability evidence conflicts");
           }
           workerCode = probeSnapshotInvokeWorkerCode();
         } else if (
@@ -814,14 +852,17 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     const facetFinalizer = decoded.scenario === "facet_finalizer_invoke" ||
       decoded.scenario === "facet_finalizer_warm_invoke" ||
       decoded.scenario === "facet_finalizer_postgres_warm_invoke";
+    const sessionPostgres = decoded.scenario ===
+      "session_postgres_warm_invoke";
     const warmFinalizer = decoded.scenario === "facet_finalizer_warm_invoke" ||
-      decoded.scenario === "facet_finalizer_postgres_warm_invoke";
+      decoded.scenario === "facet_finalizer_postgres_warm_invoke" ||
+      sessionPostgres;
     const sessionActivationObserved = warmFinalizer &&
       !this.hasHandledWarmFinalizer;
     if (warmFinalizer) this.hasHandledWarmFinalizer = true;
     const externalControl = decoded.scenario === "executor_worker_invoke";
     const attemptFenced = sessionHosted || facetHosted || facetFinalizer ||
-      externalControl;
+      sessionPostgres || externalControl;
     let executorHost: InvokeExecutorHost;
     if (sessionHosted) {
       const sync = this.env.PROBE_SYNC;
@@ -858,19 +899,26 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         read,
         sync,
       };
-    } else if (facetHosted || facetFinalizer) {
-      const read = this.env.MOCK_READ;
-      const finish = this.env.MOCK_FINISH;
-      if (read === undefined || finish === undefined) {
+    } else if (facetHosted || facetFinalizer || sessionPostgres) {
+      if (
+        sessionPostgres
+          ? sessionPostgresEnvOrNull(this.env) === null
+          : this.env.MOCK_READ === undefined ||
+            this.env.MOCK_FINISH === undefined
+      ) {
         return internalError("invoke_capability_unavailable", 500);
       }
       const admission = beginInvokeAttempt(this.sql, decoded, null);
       if (admission.kind === "replay") return admission.response;
       const recoveringFinalizer =
-        admission.kind === "busy" && facetFinalizer;
-      if (admission.kind === "busy" && !facetFinalizer) {
+        admission.kind === "busy" && (facetFinalizer || sessionPostgres);
+      if (
+        admission.kind === "busy" &&
+        !facetFinalizer &&
+        !sessionPostgres
+      ) {
         return internalError(
-          facetFinalizer
+          facetFinalizer || sessionPostgres
             ? "facet_finalizer_attempt_busy"
             : "facet_executor_attempt_busy",
           409,
@@ -878,7 +926,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       }
       if (admission.kind === "conflict") {
         return internalError(
-          facetFinalizer
+          facetFinalizer || sessionPostgres
             ? "facet_finalizer_attempt_conflict"
             : "facet_executor_attempt_conflict",
           409,
@@ -886,7 +934,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       }
       if (admission.kind === "storage-failure") {
         return internalError(
-          facetFinalizer
+          facetFinalizer || sessionPostgres
             ? "facet_finalizer_state_failure"
             : "facet_executor_state_failure",
           500,
@@ -909,7 +957,36 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         });
       } else {
         try {
-          const rawSnapshot = await read.read(readRequest);
+          let rawSnapshot: ProbeMockReadResponseV1;
+          if (sessionPostgres) {
+            const postgres = sessionPostgresEnvOrNull(this.env);
+            if (postgres === null) {
+              return internalError("invoke_capability_unavailable", 500);
+            }
+            if (this.postgresOperations === null) {
+              return internalError("invoke_capability_unavailable", 500);
+            }
+            const result = await Effect.runPromise(
+              Effect.result(
+                this.postgresOperations.read(postgres, readRequest),
+              ),
+            );
+            if (Result.isFailure(result)) {
+              return await completeInvokeResponse(
+                this.ctx.storage,
+                this.sql,
+                decoded,
+                internalError("snapshot_read_transport_failure", 502),
+              );
+            }
+            rawSnapshot = result.success;
+          } else {
+            const read = this.env.MOCK_READ;
+            if (read === undefined) {
+              return internalError("invoke_capability_unavailable", 500);
+            }
+            rawSnapshot = await read.read(readRequest);
+          }
           snapshot = decodeProbeMockReadResponseV1OrNull(
             copyCloudflareRpcRecord(rawSnapshot),
           );
@@ -933,14 +1010,33 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
           internalError("snapshot_read_receipt_mismatch", 502),
         );
       }
-      executorHost = {
-        kind: facetFinalizer ? "facet-finalizer" : "facet-do",
-        finish,
-        snapshot,
-        snapshotReadDurationMs: elapsedPerformanceDurationSince(
-          snapshotStartedAt,
-        ),
-      };
+      const snapshotReadDurationMs = elapsedPerformanceDurationSince(
+        snapshotStartedAt,
+      );
+      if (sessionPostgres) {
+        const postgres = sessionPostgresEnvOrNull(this.env);
+        if (postgres === null) {
+          return internalError("invoke_capability_unavailable", 500);
+        }
+        executorHost = {
+            kind: "session-postgres",
+            operation: recoveringFinalizer ? "resolve" : "finish",
+            postgres,
+            snapshot,
+            snapshotReadDurationMs,
+          };
+      } else {
+        const finish = this.env.MOCK_FINISH;
+        if (finish === undefined) {
+          return internalError("invoke_capability_unavailable", 500);
+        }
+        executorHost = {
+            kind: facetFinalizer ? "facet-finalizer" : "facet-do",
+            finish,
+            snapshot,
+            snapshotReadDurationMs,
+          };
+      }
     } else {
       const read = this.env.MOCK_READ;
       const finish = this.env.MOCK_FINISH;
@@ -1007,10 +1103,10 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     } catch (cause) {
       invocation = { kind: "defect", cause };
     }
-    if (facetFinalizer) {
+    if (facetFinalizer || sessionPostgres) {
       const settledResponse = invocation.kind === "response" &&
           (invocation.response.ok ||
-            await isKnownSettledFacetFinalizerFailure(invocation.response))
+            await isKnownSettledFinalizationFailure(invocation.response))
         ? invocation.response
         : null;
       if (settledResponse === null) {
@@ -1054,8 +1150,8 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       ? internalError("facet_cleanup_failed", 500)
       : invocation.kind === "defect"
       ? internalError(
-          facetHosted || facetFinalizer
-            ? facetFinalizer
+          facetHosted || facetFinalizer || sessionPostgres
+            ? facetFinalizer || sessionPostgres
               ? "facet_finalizer_defect"
               : "facet_executor_defect"
             : externalControl
@@ -1082,7 +1178,8 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       ProbeInvokeFacetExecutionRequestV1Schema.make({
         ...request,
         prefetchedRead: executorHost.kind === "facet-do" ||
-            executorHost.kind === "facet-finalizer"
+            executorHost.kind === "facet-finalizer" ||
+            executorHost.kind === "session-postgres"
           ? executorHost.snapshot
           : null,
       });
@@ -1110,6 +1207,8 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
                 executorHost.capability,
               )
             : executorHost.kind === "facet-do"
+            ? probeSnapshotInvokeWorkerCode()
+            : executorHost.kind === "session-postgres"
             ? probeSnapshotInvokeWorkerCode()
             : executorHost.kind === "facet-finalizer"
             ? probeFacetFinalizerWorkerCode(executorHost.finish)
@@ -1171,6 +1270,29 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     let finish: ProbeMockFinishResponseV1 | null;
     if (executorHost.kind === "facet-finalizer") {
       finish = facetReceipt.finish;
+    } else if (executorHost.kind === "session-postgres") {
+      if (!markInvokeAttemptFinishing(this.sql, request)) {
+        return internalError("session_postgres_state_failure", 500);
+      }
+      try {
+        await this.ctx.storage.sync();
+        if (this.postgresOperations === null) {
+          return internalError("invoke_capability_unavailable", 500);
+        }
+        const result = await Effect.runPromise(
+          Effect.result(this.postgresOperations.finish(
+            executorHost.postgres,
+            finishRequest,
+            executorHost.operation,
+          )),
+        );
+        if (Result.isFailure(result)) {
+          return internalError("session_postgres_transport_failure", 502);
+        }
+        finish = result.success;
+      } catch {
+        return internalError("session_postgres_transport_failure", 502);
+      }
     } else if (executorHost.kind !== "session-do") {
       const externallyFinishedAttemptFenced =
         request.scenario === "facet_executor_invoke" ||
@@ -1258,7 +1380,8 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         ? sessionExecutorReadCalls(this.sql, request) ?? 0
         : 0,
       snapshotReadDurationMs: executorHost.kind === "facet-do" ||
-          executorHost.kind === "facet-finalizer"
+          executorHost.kind === "facet-finalizer" ||
+          executorHost.kind === "session-postgres"
         ? ProbeDurationMsSchema.make(executorHost.snapshotReadDurationMs)
         : null,
       sessionMockFinishDurationMs: ProbeDurationMsSchema.make(
@@ -1546,7 +1669,8 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
               existing.run_id === request.runId &&
               (existing.sample_id === request.sampleId ||
                 request.scenario === "facet_finalizer_warm_invoke" ||
-                request.scenario === "facet_finalizer_postgres_warm_invoke") &&
+                request.scenario === "facet_finalizer_postgres_warm_invoke" ||
+                request.scenario === "session_postgres_warm_invoke") &&
               existing.scenario === request.scenario
             ? "existing"
             : "identity-conflict";
@@ -1658,7 +1782,13 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
   }
 }
 
-async function isKnownSettledFacetFinalizerFailure(
+export class ProbeSessionDO extends ProbeSessionDOBase {
+  constructor(ctx: DurableObjectState, env: ProbeSessionEnv) {
+    super(ctx, env, null);
+  }
+}
+
+async function isKnownSettledFinalizationFailure(
   response: Response,
 ): Promise<boolean> {
   if (response.status !== 409) return false;
@@ -1666,10 +1796,24 @@ async function isKnownSettledFacetFinalizerFailure(
     const failure = decodeProbeFullInvokeSessionFailureV1OrNull(
       await response.clone().json(),
     );
-    return failure?.executorHost === "facet-finalizer";
+    return failure?.executorHost === "facet-finalizer" ||
+      failure?.executorHost === "session-postgres";
   } catch {
     return false;
   }
+}
+
+function sessionPostgresEnvOrNull(
+  env: ProbeSessionEnv,
+): ProbeSessionPostgresEnv | null {
+  const hyperdrive = env.HYPERDRIVE_CACHE_DISABLED;
+  const sync = env.PROBE_SYNC;
+  return hyperdrive === undefined || sync === undefined
+    ? null
+    : {
+        HYPERDRIVE_CACHE_DISABLED: hyperdrive,
+        PROBE_SYNC: sync,
+      };
 }
 
 async function readInternalPost(

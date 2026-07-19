@@ -36,6 +36,7 @@ export const ProbeInvokeCommitScenarioSchema = Schema.Literals([
   "facet_finalizer_invoke",
   "facet_finalizer_warm_invoke",
   "facet_finalizer_postgres_warm_invoke",
+  "session_postgres_warm_invoke",
   "session_executor_invoke",
 ]);
 export type ProbeInvokeCommitScenario =
@@ -284,7 +285,8 @@ export const ProbeMockFinishResponseV1Schema =
   ProbeMockFinishResponseV1Shape.check(
     Schema.makeFilter(response => {
       const expectedAuthority = response.request.scenario ===
-          "facet_finalizer_postgres_warm_invoke"
+          "facet_finalizer_postgres_warm_invoke" ||
+          response.request.scenario === "session_postgres_warm_invoke"
         ? "postgres"
         : "mock";
       if (response.commitAuthority !== expectedAuthority) {
@@ -506,6 +508,8 @@ export function probeInvokeRuntimeIdentityIssueV1(input: {
     ? "invoke-finalizer"
     : input.scenario === "facet_finalizer_postgres_warm_invoke"
     ? "invoke-finalizer-postgres-warm"
+    : input.scenario === "session_postgres_warm_invoke"
+    ? "invoke-session-postgres-warm"
     : input.scenario === "facet_finalizer_warm_invoke"
     ? "invoke-finalizer-warm"
     : "invoke";

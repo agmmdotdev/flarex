@@ -68,6 +68,64 @@ describe("P07A run-control protocol", () => {
       sampleClaims: 600,
       uniqueCodeIds: 16,
     });
+    expect(probeRunBudgetPlanV1(validRun("p32_session_budget", {
+      repetitions: 2,
+      scenario: "session_postgres_warm_invoke",
+      sessionMode: "reuse-session",
+    }))).toMatchObject({
+      sampleClaims: 2,
+      uniqueCodeIds: 1,
+    });
+  });
+
+  it("accepts applied sync-wake status for SessionDO-owned Postgres", () => {
+    const run = validRun("p32_session_status", {
+      repetitions: 1,
+      journalEntries: 2,
+      payloadBytes: 64,
+      scenario: "session_postgres_warm_invoke",
+      sessionMode: "reuse-session",
+    });
+    const status = ProbeRunStatusV1Schema.make({
+      protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+      run,
+      state: "complete",
+      sealed: false,
+      reconciled: false,
+      evidenceFrozen: false,
+      budgets: {
+        limits: PROBE_RUN_BUDGET_LIMITS_V1,
+        planned: probeRunBudgetPlanV1(run),
+        consumed: {
+          sampleClaims: 1,
+          payloadBytes: 64,
+          journalEntries: 2,
+          uniqueCodeIds: 1,
+        },
+      },
+      counters: {
+        claimed: 1,
+        terminal: 1,
+        completed: 1,
+        failed: 0,
+        abandoned: 0,
+        outstanding: 0,
+        highWaterOutstandingClaims: 1,
+        eligible: 1,
+        excludedWarmup: 0,
+        excludedDuplicateWake: 0,
+      },
+      samples: [ProbeRunSampleStatusV1Schema.make({
+        sampleOrdinal: ordinal(0),
+        phase: "measurement",
+        state: "completed",
+        observedOutstandingClaims: 1,
+        measurementDisposition: "eligible",
+        syncWake: { kind: "observed", disposition: "applied" },
+      })],
+    });
+
+    expect(status.state).toBe("complete");
   });
 
   it("rejects impossible concurrency and reordered synthetic-sync cells", async () => {
@@ -426,6 +484,7 @@ interface RunOverrides {
   readonly payloadBytes?: number;
   readonly journalEntries?: number;
   readonly scenario?: ProbeRunRequestV1["scenario"];
+  readonly sessionMode?: ProbeRunRequestV1["dimensions"]["sessionMode"];
 }
 
 function validRun(
@@ -445,7 +504,7 @@ function validRun(
         concurrency: overrides.concurrency ?? 1,
         journalEntries: overrides.journalEntries ?? 0,
         payloadBytes: overrides.payloadBytes ?? 0,
-        sessionMode: "new-session",
+        sessionMode: overrides.sessionMode ?? "new-session",
       },
     }),
   );

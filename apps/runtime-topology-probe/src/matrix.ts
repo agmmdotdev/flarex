@@ -317,5 +317,63 @@ export const PROBE_POSTGRES_HYPERDRIVE_MATRIX_V1: ProbeCampaignManifestV1 =
       postgresHyperdriveRun(index + 1)),
   });
 
+type SessionPostgresComparisonScenario =
+  | "facet_finalizer_postgres_warm_invoke"
+  | "session_postgres_warm_invoke";
+
+function sessionPostgresComparisonRun(
+  pair: number,
+  scenario: SessionPostgresComparisonScenario,
+  position: "a" | "b",
+): ProbeRunRequestV1 {
+  const host = scenario === "session_postgres_warm_invoke"
+    ? "session"
+    : "entrypoint";
+  return rehearsalRun({
+    runId: `p32d_${pair.toString().padStart(2, "0")}_${position}_${host}`,
+    scenario,
+    replicate: pair,
+    repetitions: 2,
+    warmupRepetitions: 0,
+    journalEntries: 2,
+    payloadBytes: 64,
+    sessionMode: "reuse-session",
+  });
+}
+
+export const PROBE_SESSION_POSTGRES_AB_MATRIX_V1: ProbeCampaignManifestV1 =
+  ProbeCampaignManifestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    campaignId: ProbeCampaignIdSchema.make("p32_session_postgres_ab_v4"),
+    collectorConcurrency: 1,
+    runs: Array.from({ length: 8 }, (_, index) => index + 1).flatMap(
+      pair => pair % 2 === 1
+        ? [
+            sessionPostgresComparisonRun(
+              pair,
+              "facet_finalizer_postgres_warm_invoke",
+              "a",
+            ),
+            sessionPostgresComparisonRun(
+              pair,
+              "session_postgres_warm_invoke",
+              "b",
+            ),
+          ]
+        : [
+            sessionPostgresComparisonRun(
+              pair,
+              "session_postgres_warm_invoke",
+              "a",
+            ),
+            sessionPostgresComparisonRun(
+              pair,
+              "facet_finalizer_postgres_warm_invoke",
+              "b",
+            ),
+          ],
+    ),
+  });
+
 export const PROBE_ACTIVE_CAMPAIGN_MATRIX_V1 =
   PROBE_POSTGRES_COMPARISON_MATRIX_V1;

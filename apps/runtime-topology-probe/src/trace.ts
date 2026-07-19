@@ -102,6 +102,18 @@ export const PROBE_SCENARIO_TOPOLOGY = {
     ["mock_sync_wake_rtt", "facet_atomic_commit_rtt"],
     ["sync_cursor_io", "mock_sync_wake_rtt"],
   ],
+  session_postgres_warm_invoke: [
+    ["external_request", null],
+    ["gateway_session_rtt", "external_request"],
+    ["session_snapshot_read_rtt", "gateway_session_rtt"],
+    ["session_facet_rtt", "gateway_session_rtt"],
+    ["facet_snapshot_read", "session_facet_rtt"],
+    ["facet_journal_io", "session_facet_rtt"],
+    ["session_postgres_commit_rtt", "gateway_session_rtt"],
+    ["commit_transaction_io", "session_postgres_commit_rtt"],
+    ["mock_sync_wake_rtt", "session_postgres_commit_rtt"],
+    ["sync_cursor_io", "mock_sync_wake_rtt"],
+  ],
   session_executor_invoke: [
     ["external_request", null],
     ["gateway_session_rtt", "external_request"],
@@ -218,7 +230,8 @@ export function probeTraceTopologyV1(
   sample: Pick<ProbeSampleResultV1, "scenario" | "spans">,
 ): readonly ExpectedSpan[] {
   if (
-    sample.scenario === "facet_finalizer_postgres_warm_invoke" &&
+    (sample.scenario === "facet_finalizer_postgres_warm_invoke" ||
+      sample.scenario === "session_postgres_warm_invoke") &&
     sample.spans.some(span => span.name === "outcome_resolution_io")
   ) {
     return PROBE_SCENARIO_TOPOLOGY[sample.scenario].map(span =>

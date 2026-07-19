@@ -654,6 +654,15 @@ async function executeRegisteredScenario(
         return failedScenarioExecution(sampleRequest, edgeColo);
       }
       return await executeFullInvokeScenario(env, sampleRequest, edgeColo);
+    case "session_postgres_warm_invoke":
+      if (
+        env.LOADER === undefined ||
+        env.HYPERDRIVE_CACHE_DISABLED === undefined ||
+        env.PROBE_SYNC === undefined
+      ) {
+        return failedScenarioExecution(sampleRequest, edgeColo);
+      }
+      return await executeFullInvokeScenario(env, sampleRequest, edgeColo);
     case "session_executor_invoke":
       if (
         env.LOADER === undefined ||
@@ -726,13 +735,15 @@ function failedScenarioExecution(
       scenario === "facet_finalizer_invoke" ||
       scenario === "facet_finalizer_warm_invoke" ||
       scenario === "facet_finalizer_postgres_warm_invoke" ||
+      scenario === "session_postgres_warm_invoke" ||
       scenario === "session_executor_invoke" ||
       scenario === "sync_rerun"
       ? {
           workerLoader: "callback-not-run",
           facet: "callback-not-run",
           ...(scenario === "facet_finalizer_warm_invoke" ||
-              scenario === "facet_finalizer_postgres_warm_invoke"
+              scenario === "facet_finalizer_postgres_warm_invoke" ||
+              scenario === "session_postgres_warm_invoke"
             ? { sessionActivation: "activation-unobserved" as const }
             : {}),
         } as const
@@ -752,6 +763,7 @@ function failedScenarioExecution(
         scenario === "facet_finalizer_invoke" ||
         scenario === "facet_finalizer_warm_invoke" ||
         scenario === "facet_finalizer_postgres_warm_invoke" ||
+        scenario === "session_postgres_warm_invoke" ||
         scenario === "session_executor_invoke"
       ? { kind: "unobserved" }
       : { kind: "not-applicable" },
@@ -1190,6 +1202,7 @@ async function executeFullInvokeScenario(
     sampleRequest.run.scenario !== "facet_finalizer_invoke" &&
     sampleRequest.run.scenario !== "facet_finalizer_warm_invoke" &&
     sampleRequest.run.scenario !== "facet_finalizer_postgres_warm_invoke" &&
+    sampleRequest.run.scenario !== "session_postgres_warm_invoke" &&
     sampleRequest.run.scenario !== "session_executor_invoke"
   ) {
     throw new Error("executeFullInvokeScenario received a non-invoke scenario");
@@ -1261,7 +1274,8 @@ async function executeFullInvokeScenario(
     const uncertain = response.status === 502 && body.ok &&
         (internalRequest.scenario === "facet_finalizer_invoke" ||
           internalRequest.scenario === "facet_finalizer_warm_invoke" ||
-          internalRequest.scenario === "facet_finalizer_postgres_warm_invoke")
+          internalRequest.scenario === "facet_finalizer_postgres_warm_invoke" ||
+          internalRequest.scenario === "session_postgres_warm_invoke")
       ? decodeProbeFacetFinalizerOutcomeUncertainV1OrNull(body.value)
       : null;
     if (
@@ -1834,6 +1848,16 @@ function sessionExecutorFinishSpan(durationMs: number): ProbeTraceSpanV1 {
   });
 }
 
+function sessionPostgresCommitSpan(durationMs: number): ProbeTraceSpanV1 {
+  return ProbeTraceSpanV1Schema.make({
+    spanId: probeSpanId(ProbeOrdinalSchema.make(6)),
+    parentSpanId: probeSpanId(ProbeOrdinalSchema.make(1)),
+    name: "session_postgres_commit_rtt",
+    durationMs: ProbeDurationMsSchema.make(durationMs),
+    outcome: { kind: "ok" },
+  });
+}
+
 function mockSyncWakeSpan(
   durationMs: number,
   spanOrdinal: number,
@@ -1930,6 +1954,27 @@ function fullInvokeSpans(
       syncCursorSpan(finish.sync.cursorDurationMs, 8, 7, syncOutcome),
     ];
   }
+  if (observation.executorHost === "session-postgres") {
+    if (observation.snapshotReadDurationMs === null) {
+      throw new Error("SessionDO Postgres observation requires snapshot timing");
+    }
+    const commitSpan = sessionPostgresCommitSpan(
+      observation.sessionMockFinishDurationMs,
+    );
+    return [
+      sessionSpan(sessionDurationMs, { kind: "ok" }),
+      sessionSnapshotReadSpan(observation.snapshotReadDurationMs),
+      facetSpan(observation.facetDurationMs, 3),
+      facetSnapshotReadSpan(facet.mockReadDurationMs),
+      journalSpan(facet.journalDurationMs, 5, 3),
+      commitSpan,
+      finish.finishDisposition === "committed"
+        ? commitTransactionSpan(finish.commitTransactionDurationMs)
+        : outcomeResolutionSpan(finish.outcomeResolutionDurationMs),
+      mockSyncWakeSpan(finish.syncWakeDurationMs, 8, 6),
+      syncCursorSpan(finish.sync.cursorDurationMs, 9, 8, syncOutcome),
+    ];
+  }
   if (observation.executorHost === "session-do") {
     return [
       sessionSpan(sessionDurationMs, { kind: "ok" }),
@@ -1963,7 +2008,8 @@ function fullInvokeStartup(
       ? "callback-ran"
       : "callback-not-run",
     ...(observation.facet.scenario === "facet_finalizer_warm_invoke" ||
-        observation.facet.scenario === "facet_finalizer_postgres_warm_invoke"
+        observation.facet.scenario === "facet_finalizer_postgres_warm_invoke" ||
+        observation.facet.scenario === "session_postgres_warm_invoke"
       ? {
           sessionActivation: observation.sessionActivationObserved
             ? "activation-observed" as const
@@ -2096,7 +2142,8 @@ function sameMockFinishReceipt(
   request: ProbeMockFinishRequestV1,
 ): boolean {
   const expectedAuthority = request.scenario ===
-      "facet_finalizer_postgres_warm_invoke"
+      "facet_finalizer_postgres_warm_invoke" ||
+      request.scenario === "session_postgres_warm_invoke"
     ? "postgres"
     : "mock";
   if (response.commitAuthority !== expectedAuthority) return false;
@@ -2159,6 +2206,8 @@ async function sameFullInvokeSessionReceipt(
   const finish = response.finish.request;
   const expectedHost = request.scenario === "session_executor_invoke"
     ? "session-do"
+    : request.scenario === "session_postgres_warm_invoke"
+    ? "session-postgres"
     : request.scenario === "facet_finalizer_invoke" ||
         request.scenario === "facet_finalizer_warm_invoke" ||
         request.scenario === "facet_finalizer_postgres_warm_invoke"
@@ -2167,7 +2216,8 @@ async function sameFullInvokeSessionReceipt(
     ? "facet-do"
     : "external-worker";
   const snapshotSeeded = expectedHost === "facet-do" ||
-    expectedHost === "facet-finalizer";
+    expectedHost === "facet-finalizer" ||
+    expectedHost === "session-postgres";
   if (
     finish.scenario === "commit_wake" ||
     finish.scenario !== request.scenario ||
@@ -2239,7 +2289,8 @@ function unobservedFacetStartup(
     workerLoader: "callback-unobserved",
     facet: "callback-unobserved",
     ...(scenario === "facet_finalizer_warm_invoke" ||
-        scenario === "facet_finalizer_postgres_warm_invoke"
+        scenario === "facet_finalizer_postgres_warm_invoke" ||
+        scenario === "session_postgres_warm_invoke"
       ? { sessionActivation: "activation-unobserved" as const }
       : {}),
   };

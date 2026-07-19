@@ -184,6 +184,10 @@ describe("production teardown configuration", () => {
       "wrangler.sync.jsonc",
       "wrangler.sync.teardown.jsonc",
     );
+    expectTeardownTracksProduction(
+      "wrangler.session-postgres.jsonc",
+      "wrangler.session-postgres.teardown.jsonc",
+    );
   });
 
   it("exposes the intentional teardown package scripts", () => {
@@ -209,6 +213,10 @@ describe("production teardown configuration", () => {
         "tsx scripts/teardownPostgresProbe.ts",
       ],
       [
+        "session-postgres:teardown",
+        "tsx scripts/teardownPostgresProbe.ts session-postgres",
+      ],
+      [
         "teardown:gateway:delete:dry-run",
         "wrangler delete --dry-run --config wrangler.gateway.teardown.jsonc",
       ],
@@ -219,6 +227,10 @@ describe("production teardown configuration", () => {
       [
         "teardown:postgres:delete:dry-run",
         "wrangler delete --dry-run --config wrangler.postgres.jsonc",
+      ],
+      [
+        "teardown:session-postgres:delete:dry-run",
+        "wrangler delete --dry-run --config wrangler.session-postgres.teardown.jsonc",
       ],
       [
         "teardown:sync:delete:dry-run",

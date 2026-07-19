@@ -5,7 +5,20 @@ import { createRequire } from "node:module";
 
 const appRoot = new URL("../", import.meta.url);
 const stateDirectory = new URL("../.probe-state/", import.meta.url);
-const tokenUrl = new URL("p28-token.txt", stateDirectory);
+const deployment = process.argv[2] ?? "gateway";
+if (deployment !== "gateway" && deployment !== "session-postgres") {
+  throw new Error("Expected gateway or session-postgres deployment target.");
+}
+const tokenUrl = new URL(
+  deployment === "session-postgres" ? "p32-token.txt" : "p28-token.txt",
+  stateDirectory,
+);
+const config = deployment === "session-postgres"
+  ? "wrangler.session-postgres.runtime.jsonc"
+  : "wrangler.gateway.jsonc";
+const worker = deployment === "session-postgres"
+  ? "flarex-runtime-topology-probe-session-postgres-v4"
+  : "flarex-runtime-topology-probe-gateway";
 const token = randomBytes(32).toString("base64url");
 await mkdir(stateDirectory, { recursive: true });
 await rm(tokenUrl, { force: true });
@@ -24,7 +37,7 @@ const child = spawn(
     "put",
     "RUNTIME_TOPOLOGY_PROBE_TOKEN",
     "--config",
-    "wrangler.gateway.jsonc",
+    config,
   ],
   {
     cwd: filePath(appRoot),
@@ -49,7 +62,7 @@ if (code !== 0) {
 }
 process.stdout.write(`${JSON.stringify({
   kind: "probe-token-configured",
-  worker: "flarex-runtime-topology-probe-gateway",
+  worker,
 })}\n`);
 
 function filePath(url: URL): string {

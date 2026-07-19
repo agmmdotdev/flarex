@@ -13,6 +13,7 @@ import {
   PROBE_LOCAL_REHEARSAL_MATRIX_V1,
   PROBE_FACET_EXECUTOR_AB_MATRIX_V1,
   PROBE_SESSION_EXECUTOR_AB_MATRIX_V1,
+  PROBE_SESSION_POSTGRES_AB_MATRIX_V1,
   PROBE_WARM_FACET_FINALIZER_MATRIX_V1,
 } from "../src/matrix";
 import {
@@ -174,6 +175,48 @@ describe("campaign protocol", () => {
         },
       })),
     });
+  });
+
+  it("pins the counterbalanced SessionDO Postgres comparison", () => {
+    expect(probeCampaignBudgetPlanV1(PROBE_SESSION_POSTGRES_AB_MATRIX_V1))
+      .toEqual({
+        runCells: 16,
+        sampleExecutions: 32,
+        payloadBytes: 2_048,
+        journalEntries: 64,
+        uniqueCodeIds: 16,
+      });
+    expect(PROBE_SESSION_POSTGRES_AB_MATRIX_V1.runs.map(run => run.scenario))
+      .toEqual(Array.from({ length: 8 }, (_, index) => index + 1).flatMap(
+        pair => pair % 2 === 1
+          ? [
+              "facet_finalizer_postgres_warm_invoke",
+              "session_postgres_warm_invoke",
+            ]
+          : [
+              "session_postgres_warm_invoke",
+              "facet_finalizer_postgres_warm_invoke",
+            ],
+      ));
+    expect(() => ProbeCampaignStatusV1Schema.make({
+      protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+      manifest: PROBE_SESSION_POSTGRES_AB_MATRIX_V1,
+      manifestSha256: "0".repeat(64),
+      state: "registering",
+      budgets: {
+        limits: PROBE_CAMPAIGN_BUDGET_LIMIT_VALUES_V1,
+        planned: probeCampaignBudgetPlanV1(PROBE_SESSION_POSTGRES_AB_MATRIX_V1),
+      },
+      progress: {
+        totalRegistrationTasks: 16,
+        completedRegistrationTasks: 0,
+        totalReconciliationTasks: 16,
+        completedReconciliationTasks: 0,
+        totalPurgeTasks: 48,
+        completedPurgeTasks: 0,
+      },
+      evidence: null,
+    })).not.toThrow();
   });
 
   it("deduplicates stable source IDs and counts each new-code ordinal", () => {

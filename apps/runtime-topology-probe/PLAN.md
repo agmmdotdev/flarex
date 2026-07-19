@@ -819,6 +819,45 @@ Status: complete. Evidence, application purge, Worker/DO deletion, Hyperdrive
 deletion, Neon schema/role removal, and absence proof are recorded in
 [`P31-POSTGRES-HYPERDRIVE-TEARDOWN.md`](./P31-POSTGRES-HYPERDRIVE-TEARDOWN.md).
 
+### P32 - SessionDO-Owned Postgres Commit Preflight
+
+Status: approved. The trust boundary, same-deployment entrypoint control,
+SessionDO-direct candidate, local proof, USD 0.05 production ceiling, and full
+teardown gates are recorded in
+[`P32-SESSIONDO-POSTGRES-COMMIT-PREFLIGHT.md`](./P32-SESSIONDO-POSTGRES-COMMIT-PREFLIGHT.md).
+
+This remains an app-local future-topology experiment. It does not change an
+active Flarex roadmap. P33 will own implementation and local proof; P34 and P35
+remain conditional on the production credential and preflight gates.
+
+### P33 - Implement And Prove SessionDO-Owned Postgres Locally
+
+Status: complete. The one-script topology, isolated Postgres capability
+injection, real disposable-Postgres integration, legacy gateway regression,
+and dry-run receipts are recorded in
+[`P33-SESSIONDO-POSTGRES-LOCAL-PROOF.md`](./P33-SESSIONDO-POSTGRES-LOCAL-PROOF.md).
+
+P33 proves mechanics, not production latency. P34 provisioning and production
+execution remain conditional on the owner credential and every P32 resource,
+cost, failure, and teardown gate.
+
+### P34 - Production SessionDO-Owned Postgres Attempt
+
+Status: complete with integrity-publishable, provenance-qualified evidence.
+The public-gateway and classifier omissions behind the earlier post-commit
+failures were fixed, a fresh single-version campaign completed 32 of 32
+samples, and the bounded latency comparison plus compatibility-date caveat are
+recorded in
+[`P34-PRODUCTION-SESSIONDO-POSTGRES.md`](./P34-PRODUCTION-SESSIONDO-POSTGRES.md).
+
+### P35 - Conclusions And Teardown
+
+Status: complete. Every Worker generation and Durable Object class, Hyperdrive,
+the Neon schema and role, generated configs/state/token, disposable local
+database, and saved owner environment variable are absent. The ordered cleanup
+and independent absence proof are recorded in
+[`P35-SESSIONDO-POSTGRES-TEARDOWN.md`](./P35-SESSIONDO-POSTGRES-TEARDOWN.md).
+
 ## Goal Loop State
 
 - Goal: complete. P28-P30 proved one isolated real-
@@ -832,3 +871,8 @@ deletion, Neon schema/role removal, and absence proof are recorded in
   faster, but repeated uncertain outcomes made the campaign non-publishable.
 - Terminal gate: complete. P31 proved every database, Cloudflare, and local
   credential resource absent.
+- New extension: complete and closed. P33 proved the direct-SessionDO mechanics;
+  P34 fixed the post-commit gateway/classifier omissions and completed a clean
+  32-sample production comparison; P35 proved complete teardown. The probe
+  favors SessionDO-owned trusted commit for this bounded topology, while active
+  Flarex roadmaps remain unchanged.

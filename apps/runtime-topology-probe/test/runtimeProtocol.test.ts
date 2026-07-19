@@ -22,6 +22,7 @@ import {
   ProbeTraceSpanV1Schema,
 } from "../src/protocol";
 import { runEffectTestSync } from "./effectTest";
+import { validSample } from "./fixtures";
 
 const runId = Effect.runSync(decodeProbeRunIdEffect("p02_protocol"));
 const sampleOrdinal = Effect.runSync(decodeProbeOrdinalEffect(1));
@@ -74,6 +75,27 @@ describe("P02 gateway runtime protocol", () => {
 
     expect(sample.spans.map(span => span.name)).toEqual(["external_request"]);
     expect(validateProbeTraceV1(sample)).toEqual({ ok: true });
+  });
+
+  it("accepts the SessionDO-owned Postgres fragment before RunDO finalization", () => {
+    const completed = validSample("session_postgres_warm_invoke");
+    const fragment = Effect.runSync(decodeProbeGatewaySampleV1Effect({
+      ...completed,
+      spans: completed.spans.slice(1),
+    }));
+
+    expect(fragment.scenario).toBe("session_postgres_warm_invoke");
+    expect(fragment.spans.map(span => span.name)).toEqual([
+      "gateway_session_rtt",
+      "session_snapshot_read_rtt",
+      "session_facet_rtt",
+      "facet_snapshot_read",
+      "facet_journal_io",
+      "session_postgres_commit_rtt",
+      "commit_transaction_io",
+      "mock_sync_wake_rtt",
+      "sync_cursor_io",
+    ]);
   });
 
   it("carries control-plane-inclusive measurement metadata outside trace spans", () => {

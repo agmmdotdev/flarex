@@ -1,5 +1,6 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { Client, type QueryResultRow } from "pg";
+import Client from "pg/lib/client.js";
+import type { Client as PgClient, QueryResultRow } from "pg";
 import { Data, Effect } from "effect";
 
 import {
@@ -31,7 +32,7 @@ export interface ProbePostgresCommitEnv {
   readonly PROBE_SYNC: DurableObjectNamespace<ProbeSyncDO>;
 }
 
-class ProbePostgresOperationError extends Data.TaggedError(
+export class ProbePostgresOperationError extends Data.TaggedError(
   "ProbePostgresOperationError",
 )<{
   readonly operation: "read" | "finish" | "resolve" | "close";
@@ -48,40 +49,56 @@ interface OutcomeRow extends QueryResultRow {
 
 export class PostgresReadEntrypoint extends WorkerEntrypoint<ProbePostgresCommitEnv> {
   async read(value: unknown): Promise<ProbeMockReadResponseV1> {
-    const request = decodeProbeMockReadRequestV1OrNull(value);
-    if (
-      request === null ||
-      request.scenario !== "facet_finalizer_postgres_warm_invoke"
-    ) throw new Error("invalid postgres probe read");
+    return await readPostgresSnapshot(this.env, value);
+  }
+}
 
-    const cursor = await Effect.runPromise(withClient(
-      this.env,
-      "read",
-      async client => {
-        await client.query("BEGIN");
-        try {
-          await client.query(
-            `INSERT INTO ${SCOPE_TABLE} (scope_id, run_id, cursor) VALUES ($1, $2, 0) ON CONFLICT (scope_id) DO NOTHING`,
-            [request.scopeId, request.runId],
-          );
-          const result = await client.query<CursorRow>(
-            `SELECT cursor FROM ${SCOPE_TABLE} WHERE scope_id = $1`,
-            [request.scopeId],
-          );
-          const row = result.rows[0];
-          if (row === undefined || !Number.isSafeInteger(row.cursor)) {
-            throw new Error("postgres probe cursor row is missing or invalid");
-          }
-          await client.query("COMMIT");
-          return row.cursor;
-        } catch (cause) {
-          await rollbackQuietly(client);
-          throw cause;
+export const readPostgresSnapshotEffect = Effect.fn(
+  "RuntimeTopologyProbe.readPostgresSnapshot",
+)(function* (
+  env: ProbePostgresCommitEnv,
+  value: unknown,
+): Effect.fn.Return<ProbeMockReadResponseV1, ProbePostgresOperationError> {
+  const request = decodeProbeMockReadRequestV1OrNull(value);
+  if (
+    request === null ||
+    (request.scenario !== "facet_finalizer_postgres_warm_invoke" &&
+      request.scenario !== "session_postgres_warm_invoke")
+  ) {
+    return yield* Effect.fail(new ProbePostgresOperationError({
+      operation: "read",
+      cause: new Error("invalid postgres probe read"),
+    }));
+  }
+
+  const cursor = yield* withClient(
+    env,
+    "read",
+    async client => {
+      await client.query("BEGIN");
+      try {
+        await client.query(
+          `INSERT INTO ${SCOPE_TABLE} (scope_id, run_id, cursor) VALUES ($1, $2, 0) ON CONFLICT (scope_id) DO NOTHING`,
+          [request.scopeId, request.runId],
+        );
+        const result = await client.query<CursorRow>(
+          `SELECT cursor FROM ${SCOPE_TABLE} WHERE scope_id = $1`,
+          [request.scopeId],
+        );
+        const row = result.rows[0];
+        if (row === undefined || !Number.isSafeInteger(row.cursor)) {
+          throw new Error("postgres probe cursor row is missing or invalid");
         }
-      },
-    ));
+        await client.query("COMMIT");
+        return row.cursor;
+      } catch (cause) {
+        await rollbackQuietly(client);
+        throw cause;
+      }
+    },
+  );
 
-    return ProbeMockReadResponseV1Schema.make({
+  return ProbeMockReadResponseV1Schema.make({
       protocolVersion: request.protocolVersion,
       runId: request.runId,
       sampleId: request.sampleId,
@@ -94,55 +111,82 @@ export class PostgresReadEntrypoint extends WorkerEntrypoint<ProbePostgresCommit
       attemptId: request.attemptId,
       codeMode: request.codeMode,
       codeId: request.codeId,
-      payloadBytes: request.payloadBytes,
-      syntheticRevision: ProbeSyntheticCursorSchema.make(cursor),
-    });
-  }
+    payloadBytes: request.payloadBytes,
+    syntheticRevision: ProbeSyntheticCursorSchema.make(cursor),
+  });
+});
+
+export async function readPostgresSnapshot(
+  env: ProbePostgresCommitEnv,
+  value: unknown,
+): Promise<ProbeMockReadResponseV1> {
+  return await Effect.runPromise(readPostgresSnapshotEffect(env, value));
 }
 
 export class PostgresFinishEntrypoint extends WorkerEntrypoint<ProbePostgresCommitEnv> {
   async finish(value: unknown): Promise<ProbeMockFinishResponseV1> {
-    return await finishOrResolve(this.env, value, "finish");
+    return await finishPostgresRequest(this.env, value, "finish");
   }
 
   async resolve(value: unknown): Promise<ProbeMockFinishResponseV1> {
-    return await finishOrResolve(this.env, value, "resolve");
+    return await finishPostgresRequest(this.env, value, "resolve");
   }
 }
 
-async function finishOrResolve(
+export const finishPostgresRequestEffect = Effect.fn(
+  "RuntimeTopologyProbe.finishPostgresRequest",
+)(function* (
   env: ProbePostgresCommitEnv,
   value: unknown,
   operation: "finish" | "resolve",
-): Promise<ProbeMockFinishResponseV1> {
+): Effect.fn.Return<ProbeMockFinishResponseV1, ProbePostgresOperationError> {
   const request = decodeProbeMockFinishRequestV1OrNull(value);
   if (
     request === null ||
-    request.scenario !== "facet_finalizer_postgres_warm_invoke"
-  ) throw new Error(`invalid postgres probe ${operation}`);
+    (request.scenario !== "facet_finalizer_postgres_warm_invoke" &&
+      request.scenario !== "session_postgres_warm_invoke")
+  ) {
+    return yield* Effect.fail(new ProbePostgresOperationError({
+      operation,
+      cause: new Error(`invalid postgres probe ${operation}`),
+    }));
+  }
 
   const transactionStartedAt = performance.now();
-  const finishDisposition = await Effect.runPromise(withClient(
+  const finishDisposition = yield* withClient(
     env,
     operation,
     client => commitOrFindExactOutcome(
       postgresCommitTransactionPort(client),
       request,
     ),
-  ));
+  );
   const databaseDurationMs = elapsedPerformanceDurationSince(
     transactionStartedAt,
   );
-  return await wakeCommittedOutcome(
-    env,
-    request,
-    finishDisposition,
-    databaseDurationMs,
+  return yield* Effect.tryPromise({
+    try: () => wakeCommittedOutcome(
+      env,
+      request,
+      finishDisposition,
+      databaseDurationMs,
+    ),
+    catch: cause => new ProbePostgresOperationError({ operation, cause }),
+  });
+});
+
+export async function finishPostgresRequest(
+  env: ProbePostgresCommitEnv,
+  value: unknown,
+  operation: "finish" | "resolve",
+): Promise<ProbeMockFinishResponseV1> {
+  return await Effect.runPromise(
+    finishPostgresRequestEffect(env, value, operation),
   );
 }
 
 function postgresCommitTransactionPort(
-  client: Client,
+  client: PgClient,
 ): PostgresCommitTransactionPort {
   return {
     begin: async () => {
@@ -233,7 +277,7 @@ async function wakeCommittedOutcome(
 function withClient<A>(
   env: ProbePostgresCommitEnv,
   operation: ProbePostgresOperationError["operation"],
-  use: (client: Client) => Promise<A>,
+  use: (client: PgClient) => Promise<A>,
 ): Effect.Effect<A, ProbePostgresOperationError> {
   return Effect.acquireUseRelease(
     Effect.tryPromise({
@@ -260,7 +304,7 @@ function withClient<A>(
   );
 }
 
-async function rollbackQuietly(client: Client): Promise<void> {
+async function rollbackQuietly(client: PgClient): Promise<void> {
   try {
     await client.query("ROLLBACK");
   } catch {

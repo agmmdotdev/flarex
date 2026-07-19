@@ -208,6 +208,25 @@ describe("runtime topology probe protocol", () => {
         ),
       ).boundary,
     ).toBe("sample-result-v1");
+
+    const sessionPostgres = validSample("session_postgres_warm_invoke");
+    const sessionPostgresV1CodeId = sessionPostgres.identity.codeId?.replace(
+      "-v2-",
+      "-v1-",
+    );
+    expect(
+      runEffectTestSync(
+        Effect.flip(
+          decodeProbeSampleResultV1Effect({
+            ...sessionPostgres,
+            identity: {
+              ...sessionPostgres.identity,
+              codeId: sessionPostgresV1CodeId,
+            },
+          }),
+        ),
+      ).boundary,
+    ).toBe("sample-result-v1");
   });
 
   it("rejects successful or partially known unobserved callback cohorts", () => {

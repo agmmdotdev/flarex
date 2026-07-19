@@ -1,0 +1,49 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "flarex-runtime-topology-probe-session-postgres-v4",
+  "main": "src/gatewaySessionPostgresWorker.ts",
+  "compatibility_date": "2026-07-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "services": [
+    {
+      "binding": "MOCK_READ",
+      "service": "flarex-runtime-topology-probe-session-postgres-v4",
+      "entrypoint": "PostgresReadEntrypoint"
+    },
+    {
+      "binding": "MOCK_FINISH",
+      "service": "flarex-runtime-topology-probe-session-postgres-v4",
+      "entrypoint": "PostgresFinishEntrypoint"
+    },
+    {
+      "binding": "MOCK_PURGE",
+      "service": "flarex-runtime-topology-probe-session-postgres-v4",
+      "entrypoint": "MockPurgeEntrypoint"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "PROBE_SESSIONS", "class_name": "ProbeSessionDO" },
+      { "name": "PROBE_SYNC", "class_name": "ProbeSyncDO" },
+      { "name": "PROBE_RUNS", "class_name": "ProbeRunDO" },
+      { "name": "PROBE_CAMPAIGN", "class_name": "ProbeCampaignDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["ProbeSessionDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["ProbeSyncDO"] },
+    { "tag": "v3", "new_sqlite_classes": ["ProbeRunDO"] },
+    { "tag": "v4", "new_sqlite_classes": ["ProbeCampaignDO"] }
+  ],
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true
+    }
+  }
+}

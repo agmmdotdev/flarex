@@ -1476,6 +1476,31 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect(await syncCursor(harness, "p05_invoke_gap", "read")).toBe(0);
   });
 
+  it("rejects out-of-order SessionDO Postgres claims before capability checks", async () => {
+    const response = await dispatch(
+      harness,
+      {
+        ...validSampleRequest(
+          "session_postgres_warm_invoke",
+          "p32_session_postgres_gap",
+          {
+            journalEntries: 2,
+            repetitions: 3,
+            sessionMode: "reuse-session",
+          },
+        ),
+        sampleOrdinal: 2,
+      },
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      kind: "rejected",
+      error: { code: "sample-order-blocked", retryable: false },
+    });
+    expect(await syncCursor(harness, "p32_session_postgres_gap", "read"))
+      .toBe(0);
+  });
+
   it("classifies applied, duplicate, gap, and stale synthetic wakes", async () => {
     const runId = "p05_cursor_order";
     expect((await directSyncWake(harness, runId, 0)).disposition).toBe(
@@ -1694,6 +1719,7 @@ type SupportedScenario =
   | "facet_executor_invoke"
   | "facet_finalizer_invoke"
   | "facet_finalizer_warm_invoke"
+  | "session_postgres_warm_invoke"
   | "session_executor_invoke"
   | "session_echo"
   | "sync_rerun";

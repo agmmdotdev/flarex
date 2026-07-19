@@ -34,6 +34,8 @@ const ArtifactCountSchema = Schema.Int.check(
 
 export const ProbeEvidenceTargetV1Schema = Schema.Struct({
   kind: Schema.Literals(["local-miniflare", "cloudflare-production"]),
+  // V1 names the loaded Dynamic Worker date. Keep this strict wire shape frozen;
+  // two-runtime provenance requires artifact V2 or a versioned companion.
   compatibilityDate: CompatibilityDateSchema,
 }).annotate(StrictStructOptions);
 export type ProbeEvidenceTargetV1 = typeof ProbeEvidenceTargetV1Schema.Type;

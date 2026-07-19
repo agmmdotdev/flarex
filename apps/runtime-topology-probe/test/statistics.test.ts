@@ -198,6 +198,15 @@ describe("runtime topology probe statistics", () => {
       ...ordinaryCohort,
       sessionActivation: "activation-observed",
     })).toThrow();
+
+    const sessionPostgres = summarizeProbeSamples([
+      controlledSample(validSample("session_postgres_warm_invoke")),
+    ]);
+    expect(
+      sessionPostgres.every(summary =>
+        summary.cohort.sessionActivation === "activation-observed"
+      ),
+    ).toBe(true);
   });
 
   it("keeps Postgres commit and recovery latency in distinct cohorts", () => {

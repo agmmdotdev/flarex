@@ -66,6 +66,19 @@ describe("P05 full-invoke protocol", () => {
     expect(postgresWarm.codeId).toBe(
       "rtp-code-invoke-finalizer-postgres-warm-v2-stable",
     );
+    const sessionPostgresWarm = invokeRequest(
+      3,
+      "p32_session_postgres_warm_identity",
+      "session_postgres_warm_invoke",
+    );
+    expect(
+      await runEffectTest(
+        decodeProbeInvokeFacetRequestV1Effect(sessionPostgresWarm),
+      ),
+    ).toEqual(sessionPostgresWarm);
+    expect(sessionPostgresWarm.codeId).toBe(
+      "rtp-code-invoke-session-postgres-warm-v2-stable",
+    );
     await expect(runEffectTest(decodeProbeInvokeFacetRequestV1Effect({
       ...warm,
       sessionMode: "new-session",
@@ -455,6 +468,7 @@ function invokeRequest(
     | "facet_finalizer_invoke"
     | "facet_finalizer_warm_invoke"
     | "facet_finalizer_postgres_warm_invoke"
+    | "session_postgres_warm_invoke"
     | "full_invoke"
     | "session_executor_invoke" = "full_invoke",
 ) {
@@ -466,7 +480,8 @@ function invokeRequest(
   );
   const facetOrdinal = runEffectTestSync(decodeProbeOrdinalEffect(0));
   const warmFinalizer = scenario === "facet_finalizer_warm_invoke" ||
-    scenario === "facet_finalizer_postgres_warm_invoke";
+    scenario === "facet_finalizer_postgres_warm_invoke" ||
+    scenario === "session_postgres_warm_invoke";
   const sessionOrdinal = warmFinalizer ? facetOrdinal : sampleOrdinal;
   return ProbeInvokeFacetRequestV1Schema.make({
     protocolVersion: PROBE_PROTOCOL_VERSION_V1,
@@ -487,6 +502,8 @@ function invokeRequest(
       mode: "stable",
       profile: scenario === "facet_finalizer_postgres_warm_invoke"
         ? "invoke-finalizer-postgres-warm"
+        : scenario === "session_postgres_warm_invoke"
+        ? "invoke-session-postgres-warm"
         : warmFinalizer
         ? "invoke-finalizer-warm"
         : scenario === "facet_finalizer_invoke"

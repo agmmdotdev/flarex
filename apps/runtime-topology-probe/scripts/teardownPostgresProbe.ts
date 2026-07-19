@@ -13,8 +13,14 @@ import {
 
 const appRoot = new URL("../", import.meta.url);
 const stateUrl = new URL("../.probe-state/p28-postgres.json", import.meta.url);
+const deployment = process.argv[2] ?? "postgres";
+if (deployment !== "postgres" && deployment !== "session-postgres") {
+  throw new Error("Expected postgres or session-postgres deployment target.");
+}
 const runtimeConfigUrl = new URL(
-  "../wrangler.postgres.runtime.jsonc",
+  deployment === "session-postgres"
+    ? "../wrangler.session-postgres.runtime.jsonc"
+    : "../wrangler.postgres.runtime.jsonc",
   import.meta.url,
 );
 const ownerConnectionString = process.env[
@@ -86,22 +92,14 @@ async function deleteHyperdriveIfPresent(hyperdriveId: string): Promise<void> {
 }
 
 async function findHyperdriveIdByName(name: string): Promise<string | null> {
-  const output = await runWrangler(["hyperdrive", "list", "--json"]);
-  const values = JSON.parse(output) as unknown;
-  if (!Array.isArray(values)) {
-    throw new Error("Wrangler returned an invalid Hyperdrive list.");
-  }
-  for (const value of values) {
-    if (
-      typeof value === "object" && value !== null && !Array.isArray(value) &&
-      (value as { readonly name?: unknown }).name === name
-    ) {
-      const id = (value as { readonly id?: unknown }).id;
-      if (typeof id !== "string" || !/^[0-9a-f]{32}$/i.test(id)) {
-        throw new Error("Wrangler returned an invalid Hyperdrive ID.");
-      }
-      return id;
+  const output = await runWrangler(["hyperdrive", "list"]);
+  for (const line of output.split(/\r?\n/u)) {
+    if (!line.includes(name)) continue;
+    const id = line.match(/\b[0-9a-f]{32}\b/iu)?.[0];
+    if (id === undefined) {
+      throw new Error("Wrangler returned an invalid Hyperdrive list row.");
     }
+    return id;
   }
   return null;
 }

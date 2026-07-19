@@ -114,7 +114,8 @@ export const ProbeInvokeFacetExecutionRequestV1Schema =
         request.scenario === "facet_executor_invoke" ||
         request.scenario === "facet_finalizer_invoke" ||
         request.scenario === "facet_finalizer_warm_invoke" ||
-        request.scenario === "facet_finalizer_postgres_warm_invoke"
+        request.scenario === "facet_finalizer_postgres_warm_invoke" ||
+        request.scenario === "session_postgres_warm_invoke"
       ) {
         return request.prefetchedRead !== null &&
             probeMockReadReceiptMatchesRequestV1(
@@ -223,7 +224,8 @@ export const ProbeInvokeFacetWorkerResponseV1Schema =
         response.scenario === "facet_executor_invoke" ||
         response.scenario === "facet_finalizer_invoke" ||
         response.scenario === "facet_finalizer_warm_invoke" ||
-        response.scenario === "facet_finalizer_postgres_warm_invoke";
+        response.scenario === "facet_finalizer_postgres_warm_invoke" ||
+        response.scenario === "session_postgres_warm_invoke";
       if (
         response.commitIntent.snapshotRevision !== response.syntheticRevision ||
         response.commitIntent.journalEntries !== response.journalEntries ||
@@ -286,6 +288,7 @@ const FullInvokeSessionObservationShape = {
     "external-worker",
     "facet-do",
     "facet-finalizer",
+    "session-postgres",
     "session-do",
   ]),
   readCapabilityCalls: Schema.Int.check(
@@ -421,7 +424,8 @@ export async function probeInvokeFacetReceiptMatchesRequestV1(
   const snapshotSeeded = request.scenario === "facet_executor_invoke" ||
     request.scenario === "facet_finalizer_invoke" ||
     request.scenario === "facet_finalizer_warm_invoke" ||
-    request.scenario === "facet_finalizer_postgres_warm_invoke";
+    request.scenario === "facet_finalizer_postgres_warm_invoke" ||
+    request.scenario === "session_postgres_warm_invoke";
   const facetFinalizer = request.scenario === "facet_finalizer_invoke" ||
     request.scenario === "facet_finalizer_warm_invoke" ||
     request.scenario === "facet_finalizer_postgres_warm_invoke";
@@ -540,6 +544,7 @@ function fullInvokeSessionObservationIssue(response: {
     | "external-worker"
     | "facet-do"
     | "facet-finalizer"
+    | "session-postgres"
     | "session-do";
   readonly facet: ProbeInvokeFacetWorkerResponseV1;
   readonly facetStartupCallbackRan: boolean;
@@ -563,12 +568,15 @@ function fullInvokeSessionObservationIssue(response: {
   if (
     request.scenario !== "facet_finalizer_warm_invoke" &&
     request.scenario !== "facet_finalizer_postgres_warm_invoke" &&
+    request.scenario !== "session_postgres_warm_invoke" &&
     response.sessionActivationObserved
   ) {
     return "only the warm facet finalizer may report SessionDO activation";
   }
   const expectedHost = request.scenario === "session_executor_invoke"
     ? "session-do"
+    : request.scenario === "session_postgres_warm_invoke"
+    ? "session-postgres"
     : request.scenario === "facet_finalizer_invoke" ||
         request.scenario === "facet_finalizer_warm_invoke" ||
         request.scenario === "facet_finalizer_postgres_warm_invoke"
@@ -577,7 +585,8 @@ function fullInvokeSessionObservationIssue(response: {
     ? "facet-do"
     : "external-worker";
   const snapshotSeeded = expectedHost === "facet-do" ||
-    expectedHost === "facet-finalizer";
+    expectedHost === "facet-finalizer" ||
+    expectedHost === "session-postgres";
   if (
     response.executorHost !== expectedHost ||
     response.readCapabilityCalls !== (expectedHost === "session-do" ? 1 : 0) ||
@@ -622,20 +631,23 @@ function invokeIdentityIssue(input: {
   if (runtimeIssue !== undefined) return runtimeIssue;
   if (
     (input.scenario === "facet_finalizer_warm_invoke" ||
-      input.scenario === "facet_finalizer_postgres_warm_invoke") &&
+      input.scenario === "facet_finalizer_postgres_warm_invoke" ||
+      input.scenario === "session_postgres_warm_invoke") &&
     input.sessionMode !== "reuse-session"
   ) {
     return "facet_finalizer_warm_invoke requires one reused SessionDO";
   }
   if (
     (input.scenario === "facet_finalizer_warm_invoke" ||
-      input.scenario === "facet_finalizer_postgres_warm_invoke") &&
+      input.scenario === "facet_finalizer_postgres_warm_invoke" ||
+      input.scenario === "session_postgres_warm_invoke") &&
     input.codeMode !== "stable"
   ) {
     return "facet_finalizer_warm_invoke requires stable code";
   }
   const expectedFacetId = input.scenario === "facet_finalizer_warm_invoke" ||
-      input.scenario === "facet_finalizer_postgres_warm_invoke"
+      input.scenario === "facet_finalizer_postgres_warm_invoke" ||
+      input.scenario === "session_postgres_warm_invoke"
     ? probeAttemptId(input.runId, PROBE_ORDINAL_ZERO, PROBE_ORDINAL_ZERO)
     : input.attemptId;
   return input.facetId === expectedFacetId
@@ -850,7 +862,8 @@ export class ProbeInvocationFacet extends DurableObject {
     const snapshotSeeded = value.scenario === "facet_executor_invoke" ||
       value.scenario === "facet_finalizer_invoke" ||
       value.scenario === "facet_finalizer_warm_invoke" ||
-      value.scenario === "facet_finalizer_postgres_warm_invoke";
+      value.scenario === "facet_finalizer_postgres_warm_invoke" ||
+      value.scenario === "session_postgres_warm_invoke";
     const facetFinalizer = value.scenario === "facet_finalizer_invoke" ||
       value.scenario === "facet_finalizer_warm_invoke" ||
       value.scenario === "facet_finalizer_postgres_warm_invoke";
@@ -1099,12 +1112,14 @@ function validRequest(value) {
       value.scenario !== "facet_finalizer_invoke" &&
       value.scenario !== "facet_finalizer_warm_invoke" &&
       value.scenario !== "facet_finalizer_postgres_warm_invoke" &&
+      value.scenario !== "session_postgres_warm_invoke" &&
       value.scenario !== "session_executor_invoke") ||
     value.commitSeq !== value.sampleOrdinal + 1
   ) return false;
   if (value.sessionMode !== "new-session" && value.sessionMode !== "reuse-session") return false;
   const warmFinalizer = value.scenario === "facet_finalizer_warm_invoke" ||
-    value.scenario === "facet_finalizer_postgres_warm_invoke";
+    value.scenario === "facet_finalizer_postgres_warm_invoke" ||
+    value.scenario === "session_postgres_warm_invoke";
   if (warmFinalizer && value.sessionMode !== "reuse-session") return false;
   const sessionOrdinal = value.sessionMode === "reuse-session" ? 0 : value.sampleOrdinal;
   if (value.sessionId !== "rtp-session-" + value.runId + "-" + sessionOrdinal) return false;
@@ -1117,6 +1132,8 @@ function validRequest(value) {
   if (warmFinalizer && value.codeMode !== "stable") return false;
   const codeProfile = value.scenario === "facet_finalizer_postgres_warm_invoke"
     ? "invoke-finalizer-postgres-warm"
+    : value.scenario === "session_postgres_warm_invoke"
+    ? "invoke-session-postgres-warm"
     : warmFinalizer
     ? "invoke-finalizer-warm"
     : value.scenario === "facet_finalizer_invoke"
@@ -1132,7 +1149,8 @@ function validRequest(value) {
   return value.scenario === "facet_executor_invoke" ||
       value.scenario === "facet_finalizer_invoke" ||
       value.scenario === "facet_finalizer_warm_invoke" ||
-      value.scenario === "facet_finalizer_postgres_warm_invoke"
+      value.scenario === "facet_finalizer_postgres_warm_invoke" ||
+      value.scenario === "session_postgres_warm_invoke"
     ? validReadReceipt(value.prefetchedRead, readRequest)
     : value.prefetchedRead === null;
 }
@@ -1156,7 +1174,8 @@ function validFinishReceipt(receipt, request) {
   const transactionDuration = receipt.commitTransactionDurationMs;
   const resolutionDuration = receipt.outcomeResolutionDurationMs;
   const sync = receipt.sync;
-  const expectedAuthority = request.scenario === "facet_finalizer_postgres_warm_invoke"
+  const expectedAuthority = request.scenario === "facet_finalizer_postgres_warm_invoke" ||
+      request.scenario === "session_postgres_warm_invoke"
     ? "postgres"
     : "mock";
   if (receipt.commitAuthority !== expectedAuthority ||

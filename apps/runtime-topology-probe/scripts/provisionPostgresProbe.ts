@@ -12,11 +12,22 @@ import {
 const appRoot = new URL("../", import.meta.url);
 const stateDirectory = new URL("../.probe-state/", import.meta.url);
 const stateUrl = new URL("p28-postgres.json", stateDirectory);
+const deployment = process.argv[2] ?? "postgres";
+if (deployment !== "postgres" && deployment !== "session-postgres") {
+  throw new Error("Expected postgres or session-postgres deployment target.");
+}
 const runtimeConfigUrl = new URL(
-  "../wrangler.postgres.runtime.jsonc",
+  deployment === "session-postgres"
+    ? "../wrangler.session-postgres.runtime.jsonc"
+    : "../wrangler.postgres.runtime.jsonc",
   import.meta.url,
 );
-const baseConfigUrl = new URL("../wrangler.postgres.jsonc", import.meta.url);
+const baseConfigUrl = new URL(
+  deployment === "session-postgres"
+    ? "../wrangler.session-postgres.jsonc"
+    : "../wrangler.postgres.jsonc",
+  import.meta.url,
+);
 const schemaName = "flarex_runtime_topology_probe_p28";
 const hyperdriveName = `flarex-runtime-topology-probe-p28-${randomToken(5)}`;
 const roleName = `rtp_p28_${randomToken(5)}`;
@@ -36,10 +47,9 @@ const ownerUrl = new URL(ownerConnectionString);
 if (ownerUrl.protocol !== "postgresql:" && ownerUrl.protocol !== "postgres:") {
   throw new Error("The owner database URL must use PostgreSQL.");
 }
-if (!ownerUrl.hostname.includes("-pooler.")) {
-  throw new Error("Expected the supplied Neon owner URL to identify a pooler endpoint.");
-}
-const directHost = ownerUrl.hostname.replace("-pooler.", ".");
+const directHost = ownerUrl.hostname.includes("-pooler.")
+  ? ownerUrl.hostname.replace("-pooler.", ".")
+  : ownerUrl.hostname;
 const database = ownerUrl.pathname.slice(1);
 if (database.length === 0 || ownerUrl.username.length === 0) {
   throw new Error("The owner database URL is incomplete.");
@@ -272,17 +282,14 @@ async function runWrangler(args: ReadonlyArray<string>): Promise<string> {
 }
 
 async function findHyperdriveIdByName(name: string): Promise<string | undefined> {
-  const output = await runWrangler(["hyperdrive", "list", "--json"]);
-  const values = JSON.parse(output) as unknown;
-  if (!Array.isArray(values)) return undefined;
-  for (const value of values) {
-    if (
-      typeof value === "object" && value !== null && !Array.isArray(value) &&
-      (value as { readonly name?: unknown }).name === name
-    ) {
-      const id = (value as { readonly id?: unknown }).id;
-      return typeof id === "string" && isHyperdriveId(id) ? id : undefined;
+  const output = await runWrangler(["hyperdrive", "list"]);
+  for (const line of output.split(/\r?\n/u)) {
+    if (!line.includes(name)) continue;
+    const id = line.match(/\b[0-9a-f]{32}\b/iu)?.[0];
+    if (id === undefined || !isHyperdriveId(id)) {
+      throw new Error("Wrangler returned an invalid Hyperdrive list row.");
     }
+    return id;
   }
   return undefined;
 }
