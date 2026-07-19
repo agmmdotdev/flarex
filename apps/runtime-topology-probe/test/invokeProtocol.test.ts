@@ -95,7 +95,10 @@ describe("P05 full-invoke protocol", () => {
       mockReadDurationMs: 1,
       readMode: "bound-capability",
       outboundReadCalls: 1,
+      outboundFinishCalls: 0,
       journalDurationMs: 2,
+      facetFinalizationDurationMs: null,
+      attemptPhase: "sealed",
       sealDigest,
       resultDigest,
       commitIntent: {
@@ -106,6 +109,7 @@ describe("P05 full-invoke protocol", () => {
         resultDigest,
         digest: commitIntentDigest,
       },
+      finish: null,
     };
     const { payload: _removedPayload, ...wireResponse } = response;
     const decoded = await runEffectTest(
@@ -140,7 +144,10 @@ describe("P05 full-invoke protocol", () => {
       mockReadDurationMs: 1,
       readMode: "bound-capability",
       outboundReadCalls: 1,
+      outboundFinishCalls: 0,
       journalDurationMs: 2,
+      facetFinalizationDurationMs: null,
+      attemptPhase: "sealed",
       sealDigest,
       resultDigest,
       commitIntent: {
@@ -151,6 +158,7 @@ describe("P05 full-invoke protocol", () => {
         resultDigest,
         digest: commitIntentDigest,
       },
+      finish: null,
     } as const;
     const finishRequest = { ...identity, sealDigest } as const;
     const sync = {
@@ -252,7 +260,10 @@ describe("P05 full-invoke protocol", () => {
       mockReadDurationMs: 1,
       readMode: "prefetched-snapshot" as const,
       outboundReadCalls: 0,
+      outboundFinishCalls: 0,
       journalDurationMs: 2,
+      facetFinalizationDurationMs: null,
+      attemptPhase: "sealed" as const,
       sealDigest,
       resultDigest,
       commitIntent: {
@@ -263,6 +274,7 @@ describe("P05 full-invoke protocol", () => {
         resultDigest,
         digest: commitIntentDigest,
       },
+      finish: null,
     };
     const { payload: _removedPayload, ...wireResponse } = response;
     const decoded = await runEffectTest(
@@ -278,6 +290,84 @@ describe("P05 full-invoke protocol", () => {
       request,
     )).toBe(false);
   });
+
+  it("accepts only one exact facet-owned finalization receipt", async () => {
+    const request = invokeRequest(
+      0,
+      "p20_facet_finalizer",
+      "facet_finalizer_invoke",
+    );
+    const sealDigest = await probeInvokeJournalSealDigest(request);
+    const resultDigest = await probeInvokeResultDigest(request, 0);
+    const commitIntentDigest = await probeFacetCommitIntentDigest(request, {
+      syntheticRevision: 0,
+      sealDigest,
+      resultDigest,
+    });
+    const { payload: _payload, ...identity } = request;
+    const finishRequest = { ...identity, sealDigest } as const;
+    const finish = {
+      request: finishRequest,
+      mockSyncWakeDurationMs: 3,
+      sync: {
+        protocolVersion: request.protocolVersion,
+        runId: request.runId,
+        sampleId: request.sampleId,
+        sampleOrdinal: request.sampleOrdinal,
+        scopeId: request.scopeId,
+        scenario: request.scenario,
+        commitSeq: request.commitSeq,
+        disposition: "applied",
+        previousCursor: 0,
+        cursor: 1,
+        cursorDurationMs: 2,
+      },
+    } as const;
+    const response = {
+      ...identity,
+      payloadBytes: request.payload.length,
+      syntheticRevision: 0,
+      mockReadDurationMs: 1,
+      readMode: "prefetched-snapshot",
+      outboundReadCalls: 0,
+      outboundFinishCalls: 1,
+      journalDurationMs: 2,
+      facetFinalizationDurationMs: 4,
+      attemptPhase: "committed",
+      sealDigest,
+      resultDigest,
+      commitIntent: {
+        protocolVersion: 1,
+        snapshotRevision: 0,
+        journalEntries: request.journalEntries,
+        journalSealDigest: sealDigest,
+        resultDigest,
+        digest: commitIntentDigest,
+      },
+      finish,
+    } as const;
+    const decoded = await runEffectTest(
+      decodeProbeInvokeFacetWorkerResponseV1Effect(response),
+    );
+
+    expect(await probeInvokeFacetReceiptMatchesRequestV1(decoded, request))
+      .toBe(true);
+    await expect(runEffectTest(
+      decodeProbeInvokeFacetWorkerResponseV1Effect({
+        ...response,
+        outboundFinishCalls: 0,
+      }),
+    )).rejects.toBeDefined();
+    await expect(runEffectTest(
+      decodeProbeInvokeFacetWorkerResponseV1Effect({
+        ...response,
+        finish: {
+          ...finish,
+          request: { ...finishRequest, attemptId: "rtp-attempt-forged-0-0" },
+        },
+      }),
+    )).rejects.toBeDefined();
+  });
 });
 
 function invokeRequest(
@@ -286,6 +376,7 @@ function invokeRequest(
   scenario:
     | "executor_worker_invoke"
     | "facet_executor_invoke"
+    | "facet_finalizer_invoke"
     | "full_invoke"
     | "session_executor_invoke" = "full_invoke",
 ) {
@@ -307,7 +398,12 @@ function invokeRequest(
     sessionMode: "new-session",
     attemptId: probeAttemptId(runId, sampleOrdinal, sampleOrdinal),
     codeMode: "stable",
-    codeId: probeCodeId({ mode: "stable", profile: "invoke" }),
+    codeId: probeCodeId({
+      mode: "stable",
+      profile: scenario === "facet_finalizer_invoke"
+        ? "invoke-finalizer"
+        : "invoke",
+    }),
     journalEntries: 2,
     payload: "xxxx",
   });

@@ -68,6 +68,17 @@ export const PROBE_SCENARIO_TOPOLOGY = {
     ["mock_sync_wake_rtt", "session_mock_finish_rtt"],
     ["sync_cursor_io", "mock_sync_wake_rtt"],
   ],
+  facet_finalizer_invoke: [
+    ["external_request", null],
+    ["gateway_session_rtt", "external_request"],
+    ["session_snapshot_read_rtt", "gateway_session_rtt"],
+    ["session_facet_rtt", "gateway_session_rtt"],
+    ["facet_snapshot_read", "session_facet_rtt"],
+    ["facet_journal_io", "session_facet_rtt"],
+    ["facet_atomic_commit_rtt", "session_facet_rtt"],
+    ["mock_sync_wake_rtt", "facet_atomic_commit_rtt"],
+    ["sync_cursor_io", "mock_sync_wake_rtt"],
+  ],
   session_executor_invoke: [
     ["external_request", null],
     ["gateway_session_rtt", "external_request"],

@@ -193,5 +193,63 @@ export const PROBE_FACET_EXECUTOR_AB_MATRIX_V1: ProbeCampaignManifestV1 =
     ),
   });
 
+type FacetFinalizerComparisonScenario =
+  | "facet_executor_invoke"
+  | "facet_finalizer_invoke";
+
+function facetFinalizerComparisonRun(
+  pair: number,
+  scenario: FacetFinalizerComparisonScenario,
+  position: "a" | "b",
+): ProbeRunRequestV1 {
+  const host = scenario === "facet_executor_invoke"
+    ? "supervisor"
+    : "facet";
+  return rehearsalRun({
+    runId: `p20_${pair.toString().padStart(2, "0")}_${position}_${host}`,
+    scenario,
+    replicate: pair,
+    repetitions: 1,
+    warmupRepetitions: pair === 1 ? 2 : 0,
+    journalEntries: 2,
+    payloadBytes: 64,
+    sessionMode: "new-session",
+  });
+}
+
+export const PROBE_FACET_FINALIZER_AB_MATRIX_V1: ProbeCampaignManifestV1 =
+  ProbeCampaignManifestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    campaignId: ProbeCampaignIdSchema.make("p20_facet_finalizer_ab_v1"),
+    collectorConcurrency: 1,
+    runs: Array.from({ length: 12 }, (_, index) => index + 1).flatMap(
+      pair => pair % 2 === 1
+        ? [
+            facetFinalizerComparisonRun(
+              pair,
+              "facet_executor_invoke",
+              "a",
+            ),
+            facetFinalizerComparisonRun(
+              pair,
+              "facet_finalizer_invoke",
+              "b",
+            ),
+          ]
+        : [
+            facetFinalizerComparisonRun(
+              pair,
+              "facet_finalizer_invoke",
+              "a",
+            ),
+            facetFinalizerComparisonRun(
+              pair,
+              "facet_executor_invoke",
+              "b",
+            ),
+          ],
+    ),
+  });
+
 export const PROBE_ACTIVE_CAMPAIGN_MATRIX_V1 =
-  PROBE_FACET_EXECUTOR_AB_MATRIX_V1;
+  PROBE_FACET_FINALIZER_AB_MATRIX_V1;

@@ -15,6 +15,7 @@ import {
   type ProbeSampleResultV1,
   type ProbeScenario,
   type ProbeSpanName,
+  type ProbeStartupObservationsV1,
 } from "../src/protocol";
 import { PROBE_SCENARIO_TOPOLOGY } from "../src/trace";
 import {
@@ -96,6 +97,7 @@ export function controlledSample(
         sample.scenario === "full_invoke" ||
         sample.scenario === "executor_worker_invoke" ||
         sample.scenario === "facet_executor_invoke" ||
+        sample.scenario === "facet_finalizer_invoke" ||
         sample.scenario === "session_executor_invoke"
       ? { kind: "observed", disposition: "applied" } as const
       : { kind: "not-applicable" } as const);
@@ -116,7 +118,9 @@ export function controlledSample(
   };
 }
 
-function startupForScenario(scenario: ProbeScenario) {
+function startupForScenario(
+  scenario: ProbeScenario,
+): ProbeStartupObservationsV1 {
   switch (scenario) {
     case "edge_echo":
     case "session_echo":
@@ -129,10 +133,17 @@ function startupForScenario(scenario: ProbeScenario) {
     case "full_invoke":
     case "executor_worker_invoke":
     case "facet_executor_invoke":
+    case "facet_finalizer_invoke":
     case "session_executor_invoke":
     case "sync_rerun":
       return { workerLoader: "callback-ran", facet: "callback-ran" } as const;
+    default:
+      return exhaustiveScenario(scenario);
   }
+}
+
+function exhaustiveScenario(value: never): never {
+  throw new Error(`unexpected probe scenario: ${String(value)}`);
 }
 
 function ordinal(value: number) {

@@ -33,6 +33,7 @@ export const ProbeInvokeCommitScenarioSchema = Schema.Literals([
   "full_invoke",
   "executor_worker_invoke",
   "facet_executor_invoke",
+  "facet_finalizer_invoke",
   "session_executor_invoke",
 ]);
 export type ProbeInvokeCommitScenario =
@@ -276,6 +277,25 @@ export const ProbeMockFinishResponseV1Schema =
 export type ProbeMockFinishResponseV1 =
   typeof ProbeMockFinishResponseV1Schema.Type;
 
+export function probeMockFinishResponsesEqualV1(
+  left: ProbeMockFinishResponseV1,
+  right: ProbeMockFinishResponseV1,
+): boolean {
+  return left.mockSyncWakeDurationMs === right.mockSyncWakeDurationMs &&
+    sameFinishRequest(left.request, right.request) &&
+    left.sync.protocolVersion === right.sync.protocolVersion &&
+    left.sync.runId === right.sync.runId &&
+    left.sync.sampleId === right.sync.sampleId &&
+    left.sync.sampleOrdinal === right.sync.sampleOrdinal &&
+    left.sync.scopeId === right.sync.scopeId &&
+    left.sync.scenario === right.sync.scenario &&
+    left.sync.commitSeq === right.sync.commitSeq &&
+    left.sync.disposition === right.sync.disposition &&
+    left.sync.previousCursor === right.sync.previousCursor &&
+    left.sync.cursor === right.sync.cursor &&
+    left.sync.cursorDurationMs === right.sync.cursorDurationMs;
+}
+
 export class ProbeCommitProtocolValidationError extends Data.TaggedError(
   "ProbeCommitProtocolValidationError",
 )<{
@@ -417,9 +437,13 @@ export function probeInvokeRuntimeIdentityIssueV1(input: {
   readonly codeMode: typeof ProbeCodeModeSchema.Type;
   readonly runId: typeof ProbeRunIdSchema.Type;
   readonly sampleOrdinal: typeof ProbeOrdinalSchema.Type;
+  readonly scenario: ProbeCommitScenario;
   readonly sessionId: typeof ProbeSessionIdSchema.Type;
   readonly sessionMode: typeof ProbeSessionModeSchema.Type;
 }): string | undefined {
+  if (input.scenario === "commit_wake") {
+    return "invoke runtime identity cannot use the commit_wake scenario";
+  }
   const sessionOrdinal = input.sessionMode === "reuse-session"
     ? PROBE_ORDINAL_ZERO
     : input.sampleOrdinal;
@@ -435,17 +459,20 @@ export function probeInvokeRuntimeIdentityIssueV1(input: {
   ) {
     return "attemptId must identify this exact session attempt";
   }
+  const profile = input.scenario === "facet_finalizer_invoke"
+    ? "invoke-finalizer"
+    : "invoke";
   const expectedCodeId = input.codeMode === "stable"
-    ? probeCodeId({ mode: "stable", profile: "invoke" })
+    ? probeCodeId({ mode: "stable", profile })
     : probeCodeId({
         mode: "new-code",
-        profile: "invoke",
+        profile,
         runId: input.runId,
         version: input.sampleOrdinal,
       });
   return input.codeId === expectedCodeId
     ? undefined
-    : "codeId must identify the invoke-v1 source and code mode";
+    : "codeId must identify the exact invoke source and code mode";
 }
 
 function syncReceiptIssue(input: {
@@ -487,4 +514,31 @@ function sameCommitIdentity(
     left.scopeId === right.scopeId &&
     left.scenario === right.scenario &&
     left.commitSeq === right.commitSeq;
+}
+
+function sameFinishRequest(
+  left: ProbeMockFinishRequestV1,
+  right: ProbeMockFinishRequestV1,
+): boolean {
+  if (
+    left.protocolVersion !== right.protocolVersion ||
+    left.runId !== right.runId ||
+    left.sampleId !== right.sampleId ||
+    left.sampleOrdinal !== right.sampleOrdinal ||
+    left.scopeId !== right.scopeId ||
+    left.scenario !== right.scenario ||
+    left.commitSeq !== right.commitSeq
+  ) {
+    return false;
+  }
+  if (left.scenario === "commit_wake" || right.scenario === "commit_wake") {
+    return left.scenario === right.scenario;
+  }
+  return left.sessionId === right.sessionId &&
+    left.sessionMode === right.sessionMode &&
+    left.attemptId === right.attemptId &&
+    left.codeMode === right.codeMode &&
+    left.codeId === right.codeId &&
+    left.journalEntries === right.journalEntries &&
+    left.sealDigest === right.sealDigest;
 }

@@ -50,8 +50,10 @@ import { elapsedPerformanceDurationSince } from "./performanceDuration";
 import {
   decodeProbeInvokeFacetRequestV1OrNull,
   decodeProbeInvokeFacetWorkerResponseV1OrNull,
+  decodeProbeFullInvokeSessionFailureV1OrNull,
   probeMockReadRequestFromInvoke,
   probeMockReadReceiptMatchesRequestV1,
+  probeFacetFinalizerWorkerCode,
   probeInvokeFacetReceiptMatchesRequestV1,
   probeInvokeWorkerCode,
   probeSessionInvokeWorkerCode,
@@ -59,6 +61,7 @@ import {
   PROBE_INVOKE_FACET_CLASS_NAME,
   ProbeFullInvokeSessionFailureV1Schema,
   ProbeFullInvokeSessionResponseV1Schema,
+  ProbeFacetFinalizerOutcomeUncertainV1Schema,
   ProbeInvokeFacetExecutionRequestV1Schema,
   type ProbeInvokeSessionReadCapability,
   type ProbeInvokeFacetRequestV1,
@@ -159,6 +162,12 @@ type InvokeExecutorHost =
     }
   | {
       readonly kind: "facet-do";
+      readonly finish: Service<typeof MockFinishEntrypoint>;
+      readonly snapshot: ProbeMockReadResponseV1;
+      readonly snapshotReadDurationMs: number;
+    }
+  | {
+      readonly kind: "facet-finalizer";
       readonly finish: Service<typeof MockFinishEntrypoint>;
       readonly snapshot: ProbeMockReadResponseV1;
       readonly snapshotReadDurationMs: number;
@@ -523,11 +532,15 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         id: facet.attemptId,
         class: worker.getDurableObjectClass(PROBE_FACET_CLASS_NAME),
       }));
-    } else if (facet.codeId.startsWith("rtp-code-invoke-v1-")) {
+    } else if (
+      facet.codeId.startsWith("rtp-code-invoke-v1-") ||
+      facet.codeId.startsWith("rtp-code-invoke-finalizer-v1-")
+    ) {
       let workerCode: WorkerLoaderWorkerCode;
       if (
         facet.scenario === "session_executor_invoke" ||
         facet.scenario === "facet_executor_invoke" ||
+        facet.scenario === "facet_finalizer_invoke" ||
         facet.scenario === "executor_worker_invoke"
       ) {
         const attempt = this.sql.exec<{
@@ -576,6 +589,12 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
             throw new Error("facet executor purge capability evidence conflicts");
           }
           workerCode = probeSnapshotInvokeWorkerCode();
+        } else if (facet.scenario === "facet_finalizer_invoke") {
+          const finish = this.env.MOCK_FINISH;
+          if (finish === undefined || attempt.capability_token !== null) {
+            throw new Error("facet finalizer purge capability evidence conflicts");
+          }
+          workerCode = probeFacetFinalizerWorkerCode(finish);
         } else {
           const read = this.env.MOCK_READ;
           if (read === undefined || attempt.capability_token !== null) {
@@ -782,8 +801,10 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     if (loader === undefined) return internalError("loader_unavailable", 500);
     const sessionHosted = decoded.scenario === "session_executor_invoke";
     const facetHosted = decoded.scenario === "facet_executor_invoke";
+    const facetFinalizer = decoded.scenario === "facet_finalizer_invoke";
     const externalControl = decoded.scenario === "executor_worker_invoke";
-    const attemptFenced = sessionHosted || facetHosted || externalControl;
+    const attemptFenced = sessionHosted || facetHosted || facetFinalizer ||
+      externalControl;
     let executorHost: InvokeExecutorHost;
     if (sessionHosted) {
       const sync = this.env.PROBE_SYNC;
@@ -820,7 +841,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         read,
         sync,
       };
-    } else if (facetHosted) {
+    } else if (facetHosted || facetFinalizer) {
       const read = this.env.MOCK_READ;
       const finish = this.env.MOCK_FINISH;
       if (read === undefined || finish === undefined) {
@@ -829,13 +850,28 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       const admission = beginInvokeAttempt(this.sql, decoded, null);
       if (admission.kind === "replay") return admission.response;
       if (admission.kind === "busy") {
-        return internalError("facet_executor_attempt_busy", 409);
+        return internalError(
+          facetFinalizer
+            ? "facet_finalizer_attempt_busy"
+            : "facet_executor_attempt_busy",
+          409,
+        );
       }
       if (admission.kind === "conflict") {
-        return internalError("facet_executor_attempt_conflict", 409);
+        return internalError(
+          facetFinalizer
+            ? "facet_finalizer_attempt_conflict"
+            : "facet_executor_attempt_conflict",
+          409,
+        );
       }
       if (admission.kind === "storage-failure") {
-        return internalError("facet_executor_state_failure", 500);
+        return internalError(
+          facetFinalizer
+            ? "facet_finalizer_state_failure"
+            : "facet_executor_state_failure",
+          500,
+        );
       }
       try {
         await this.ctx.storage.sync();
@@ -870,7 +906,7 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
         );
       }
       executorHost = {
-        kind: "facet-do",
+        kind: facetFinalizer ? "facet-finalizer" : "facet-do",
         finish,
         snapshot,
         snapshotReadDurationMs: elapsedPerformanceDurationSince(
@@ -942,6 +978,43 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     } catch (cause) {
       invocation = { kind: "defect", cause };
     }
+    if (facetFinalizer) {
+      const settledResponse = invocation.kind === "response" &&
+          (invocation.response.ok ||
+            await isKnownSettledFacetFinalizerFailure(invocation.response))
+        ? invocation.response
+        : null;
+      if (settledResponse === null) {
+        const markedUncertain = markInvokeAttemptFinishing(this.sql, decoded);
+        if (markedUncertain) {
+          try {
+            await this.ctx.storage.sync();
+          } catch {
+            return internalError("facet_finalizer_uncertain_state_failure", 500);
+          }
+        }
+        return markedUncertain
+          ? noStoreJson(
+              ProbeFacetFinalizerOutcomeUncertainV1Schema.make({
+                protocolVersion: decoded.protocolVersion,
+                sessionId: decoded.sessionId,
+                attemptId: decoded.attemptId,
+                error: "facet_finalizer_outcome_uncertain",
+              }),
+              502,
+            )
+          : internalError("facet_finalizer_uncertain_state_failure", 500);
+      }
+      const completed = await completeInvokeResponse(
+        this.ctx.storage,
+        this.sql,
+        decoded,
+        settledResponse,
+      );
+      if (!completed.ok) return completed;
+      await this.deleteTrackedFacet(decoded.attemptId);
+      return completed;
+    }
     const facetDeleted = await this.deleteTrackedFacet(decoded.attemptId);
     if (!attemptFenced) {
       if (!facetDeleted) return internalError("facet_cleanup_failed", 500);
@@ -952,8 +1025,10 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       ? internalError("facet_cleanup_failed", 500)
       : invocation.kind === "defect"
       ? internalError(
-          facetHosted
-            ? "facet_executor_defect"
+          facetHosted || facetFinalizer
+            ? facetFinalizer
+              ? "facet_finalizer_defect"
+              : "facet_executor_defect"
             : externalControl
             ? "executor_worker_defect"
             : "session_executor_defect",
@@ -976,7 +1051,8 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     const facetRequest: ProbeInvokeFacetExecutionRequestV1 =
       ProbeInvokeFacetExecutionRequestV1Schema.make({
         ...request,
-        prefetchedRead: executorHost.kind === "facet-do"
+        prefetchedRead: executorHost.kind === "facet-do" ||
+            executorHost.kind === "facet-finalizer"
           ? executorHost.snapshot
           : null,
       });
@@ -1005,6 +1081,8 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
               )
             : executorHost.kind === "facet-do"
             ? probeSnapshotInvokeWorkerCode()
+            : executorHost.kind === "facet-finalizer"
+            ? probeFacetFinalizerWorkerCode(executorHost.finish)
             : probeInvokeWorkerCode(executorHost.read);
         });
         return {
@@ -1058,7 +1136,9 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     });
     const finishStartedAt = performance.now();
     let finish: ProbeMockFinishResponseV1 | null;
-    if (executorHost.kind !== "session-do") {
+    if (executorHost.kind === "facet-finalizer") {
+      finish = facetReceipt.finish;
+    } else if (executorHost.kind !== "session-do") {
       const externallyFinishedAttemptFenced =
         request.scenario === "facet_executor_invoke" ||
         request.scenario === "executor_worker_invoke";
@@ -1127,8 +1207,9 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
     if (finish === null || !sameMockFinishReceipt(finish, finishRequest)) {
       return internalError("mock_finish_receipt_mismatch", 502);
     }
-    const sessionMockFinishDurationMs =
-      elapsedPerformanceDurationSince(finishStartedAt);
+    const sessionMockFinishDurationMs = executorHost.kind === "facet-finalizer"
+      ? 0
+      : elapsedPerformanceDurationSince(finishStartedAt);
     const observation = {
       facet: facetReceipt,
       facetDurationMs: ProbeDurationMsSchema.make(facetDurationMs),
@@ -1138,7 +1219,8 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
       readCapabilityCalls: executorHost.kind === "session-do"
         ? sessionExecutorReadCalls(this.sql, request) ?? 0
         : 0,
-      snapshotReadDurationMs: executorHost.kind === "facet-do"
+      snapshotReadDurationMs: executorHost.kind === "facet-do" ||
+          executorHost.kind === "facet-finalizer"
         ? ProbeDurationMsSchema.make(executorHost.snapshotReadDurationMs)
         : null,
       sessionMockFinishDurationMs: ProbeDurationMsSchema.make(
@@ -1535,6 +1617,20 @@ export class ProbeSessionDO extends DurableObject<ProbeSessionEnv> {
   }
 }
 
+async function isKnownSettledFacetFinalizerFailure(
+  response: Response,
+): Promise<boolean> {
+  if (response.status !== 409) return false;
+  try {
+    const failure = decodeProbeFullInvokeSessionFailureV1OrNull(
+      await response.clone().json(),
+    );
+    return failure?.executorHost === "facet-finalizer";
+  } catch {
+    return false;
+  }
+}
+
 async function readInternalPost(
   request: Request,
 ): Promise<unknown | Response> {
@@ -1874,6 +1970,8 @@ function invokeAttemptError(
 ): string {
   return request.scenario === "facet_executor_invoke"
     ? `facet_executor_${suffix}`
+    : request.scenario === "facet_finalizer_invoke"
+    ? `facet_finalizer_${suffix}`
     : request.scenario === "executor_worker_invoke"
     ? `executor_worker_${suffix}`
     : `session_executor_${suffix}`;

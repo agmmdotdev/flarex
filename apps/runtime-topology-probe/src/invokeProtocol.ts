@@ -3,6 +3,7 @@ import { Data, Effect, Schema } from "effect";
 import {
   probeCommitIdentityIssueV1,
   probeInvokeRuntimeIdentityIssueV1,
+  probeMockFinishResponsesEqualV1,
   ProbeCommitScenarioSchema,
   ProbeInvokeCommitScenarioSchema,
   ProbeMockFinishResponseV1Schema,
@@ -106,7 +107,10 @@ export const ProbeInvokeFacetExecutionRequestV1Schema =
       if (request.payload.length > PROBE_LIMITS_V1.maxPayloadBytes) {
         return "payload exceeds the protocol byte limit";
       }
-      if (request.scenario === "facet_executor_invoke") {
+      if (
+        request.scenario === "facet_executor_invoke" ||
+        request.scenario === "facet_finalizer_invoke"
+      ) {
         return request.prefetchedRead !== null &&
             probeMockReadReceiptMatchesRequestV1(
               request.prefetchedRead,
@@ -176,7 +180,19 @@ const ProbeInvokeFacetWorkerResponseV1Shape = Schema.Struct({
         : "outboundReadCalls must be zero or one"
     ),
   ),
+  outboundFinishCalls: Schema.Int.check(
+    Schema.makeFilter((value: number) =>
+      value === 0 || value === 1
+        ? undefined
+        : "outboundFinishCalls must be zero or one"
+    ),
+  ),
   journalDurationMs: ProbeDurationMsSchema,
+  facetFinalizationDurationMs: Schema.Union([
+    ProbeDurationMsSchema,
+    Schema.Null,
+  ]),
+  attemptPhase: Schema.Literals(["sealed", "committed"]),
   sealDigest: SealDigestSchema,
   resultDigest: SealDigestSchema,
   commitIntent: Schema.Struct({
@@ -187,6 +203,7 @@ const ProbeInvokeFacetWorkerResponseV1Shape = Schema.Struct({
     resultDigest: SealDigestSchema,
     digest: SealDigestSchema,
   }).annotate(StrictStructOptions),
+  finish: Schema.Union([ProbeMockFinishResponseV1Schema, Schema.Null]),
 }).annotate(StrictStructOptions);
 
 export const ProbeInvokeFacetWorkerResponseV1Schema =
@@ -197,7 +214,9 @@ export const ProbeInvokeFacetWorkerResponseV1Schema =
       if (response.syntheticRevision !== response.commitSeq - 1) {
         return "syntheticRevision must identify the pre-commit synthetic snapshot";
       }
-      const snapshotSeeded = response.scenario === "facet_executor_invoke";
+      const snapshotSeeded =
+        response.scenario === "facet_executor_invoke" ||
+        response.scenario === "facet_finalizer_invoke";
       if (
         response.commitIntent.snapshotRevision !== response.syntheticRevision ||
         response.commitIntent.journalEntries !== response.journalEntries ||
@@ -206,15 +225,46 @@ export const ProbeInvokeFacetWorkerResponseV1Schema =
       ) {
         return "sealed commit intent evidence must match the facet result";
       }
-      return response.readMode ===
+      const readEvidenceMatches = response.readMode ===
             (snapshotSeeded ? "prefetched-snapshot" : "bound-capability") &&
-          response.outboundReadCalls === (snapshotSeeded ? 0 : 1)
+        response.outboundReadCalls === (snapshotSeeded ? 0 : 1);
+      if (!readEvidenceMatches) {
+        return "read mode and outbound call evidence must match the invoke scenario";
+      }
+      const facetFinalizer = response.scenario === "facet_finalizer_invoke";
+      if (!facetFinalizer) {
+        return response.outboundFinishCalls === 0 &&
+            response.facetFinalizationDurationMs === null &&
+            response.attemptPhase === "sealed" &&
+            response.finish === null
+          ? undefined
+          : "non-finalizer facets cannot report a finish capability or committed outcome";
+      }
+      if (
+        response.outboundFinishCalls !== 1 ||
+        response.facetFinalizationDurationMs === null ||
+        response.attemptPhase !== "committed" ||
+        response.finish === null ||
+        response.finish.request.scenario === "commit_wake"
+      ) {
+        return "facet finalizer requires one exact committed finish receipt";
+      }
+      return sameInvokeAndFinishIdentity(response, response.finish.request)
         ? undefined
-        : "read mode and outbound call evidence must match the invoke scenario";
+        : "facet finalizer finish must match the exact facet invocation identity";
     }),
   );
 export type ProbeInvokeFacetWorkerResponseV1 =
   typeof ProbeInvokeFacetWorkerResponseV1Schema.Type;
+
+export const ProbeFacetFinalizerOutcomeUncertainV1Schema = Schema.Struct({
+  protocolVersion: ProbeProtocolVersionV1Schema,
+  sessionId: ProbeSessionIdSchema,
+  attemptId: ProbeAttemptIdSchema,
+  error: Schema.Literal("facet_finalizer_outcome_uncertain"),
+}).annotate(StrictStructOptions);
+export type ProbeFacetFinalizerOutcomeUncertainV1 =
+  typeof ProbeFacetFinalizerOutcomeUncertainV1Schema.Type;
 
 const FullInvokeSessionObservationShape = {
   facet: ProbeInvokeFacetWorkerResponseV1Schema,
@@ -224,6 +274,7 @@ const FullInvokeSessionObservationShape = {
   executorHost: Schema.Literals([
     "external-worker",
     "facet-do",
+    "facet-finalizer",
     "session-do",
   ]),
   readCapabilityCalls: Schema.Int.check(
@@ -354,7 +405,20 @@ export async function probeInvokeFacetReceiptMatchesRequestV1(
       resultDigest: expectedResultDigest,
     },
   );
-  const snapshotSeeded = request.scenario === "facet_executor_invoke";
+  const snapshotSeeded = request.scenario === "facet_executor_invoke" ||
+    request.scenario === "facet_finalizer_invoke";
+  const facetFinalizer = request.scenario === "facet_finalizer_invoke";
+  const finalizationMatches = facetFinalizer
+    ? response.outboundFinishCalls === 1 &&
+      response.facetFinalizationDurationMs !== null &&
+      response.attemptPhase === "committed" &&
+      response.finish !== null &&
+      response.finish.request.scenario !== "commit_wake" &&
+      sameInvokeAndFinishIdentity(response, response.finish.request)
+    : response.outboundFinishCalls === 0 &&
+      response.facetFinalizationDurationMs === null &&
+      response.attemptPhase === "sealed" &&
+      response.finish === null;
   return response.protocolVersion === request.protocolVersion &&
     response.runId === request.runId &&
     response.sampleId === request.sampleId &&
@@ -373,6 +437,7 @@ export async function probeInvokeFacetReceiptMatchesRequestV1(
     response.readMode ===
       (snapshotSeeded ? "prefetched-snapshot" : "bound-capability") &&
     response.outboundReadCalls === (snapshotSeeded ? 0 : 1) &&
+    finalizationMatches &&
     response.sealDigest === expectedSealDigest &&
     response.resultDigest === expectedResultDigest &&
     response.commitIntent.protocolVersion === 1 &&
@@ -426,24 +491,16 @@ const decodeInvokeSessionFailure = decoder(
 
 export const decodeProbeInvokeFacetRequestV1Effect = Effect.fn(
   "RuntimeTopologyProbe.decodeInvokeFacetRequestV1",
-)(function* (value: unknown) {
-  return yield* decodeInvokeRequest(value);
-});
+)((value: unknown) => decodeInvokeRequest(value));
 export const decodeProbeInvokeFacetWorkerResponseV1Effect = Effect.fn(
   "RuntimeTopologyProbe.decodeInvokeFacetWorkerResponseV1",
-)(function* (value: unknown) {
-  return yield* decodeInvokeWorkerResponse(value);
-});
+)((value: unknown) => decodeInvokeWorkerResponse(value));
 export const decodeProbeFullInvokeSessionResponseV1Effect = Effect.fn(
   "RuntimeTopologyProbe.decodeFullInvokeSessionResponseV1",
-)(function* (value: unknown) {
-  return yield* decodeInvokeSessionResponse(value);
-});
+)((value: unknown) => decodeInvokeSessionResponse(value));
 export const decodeProbeFullInvokeSessionFailureV1Effect = Effect.fn(
   "RuntimeTopologyProbe.decodeFullInvokeSessionFailureV1",
-)(function* (value: unknown) {
-  return yield* decodeInvokeSessionFailure(value);
-});
+)((value: unknown) => decodeInvokeSessionFailure(value));
 
 export const decodeProbeInvokeFacetRequestV1OrNull =
   strictSchemaValueOrNullDecoder(ProbeInvokeFacetRequestV1Schema);
@@ -455,13 +512,22 @@ export const decodeProbeFullInvokeSessionResponseV1OrNull =
   strictSchemaValueOrNullDecoder(ProbeFullInvokeSessionResponseV1Schema);
 export const decodeProbeFullInvokeSessionFailureV1OrNull =
   strictSchemaValueOrNullDecoder(ProbeFullInvokeSessionFailureV1Schema);
+export const decodeProbeFacetFinalizerOutcomeUncertainV1OrNull =
+  strictSchemaValueOrNullDecoder(
+    ProbeFacetFinalizerOutcomeUncertainV1Schema,
+  );
 
 function fullInvokeSessionObservationIssue(response: {
-  readonly executorHost: "external-worker" | "facet-do" | "session-do";
+  readonly executorHost:
+    | "external-worker"
+    | "facet-do"
+    | "facet-finalizer"
+    | "session-do";
   readonly facet: ProbeInvokeFacetWorkerResponseV1;
   readonly facetStartupCallbackRan: boolean;
   readonly finish: typeof ProbeMockFinishResponseV1Schema.Type;
   readonly readCapabilityCalls: number;
+  readonly sessionMockFinishDurationMs: number;
   readonly snapshotReadDurationMs: number | null;
   readonly workerLoaderCallbackRan: boolean;
 }): string | undefined {
@@ -477,10 +543,13 @@ function fullInvokeSessionObservationIssue(response: {
   }
   const expectedHost = request.scenario === "session_executor_invoke"
     ? "session-do"
+    : request.scenario === "facet_finalizer_invoke"
+    ? "facet-finalizer"
     : request.scenario === "facet_executor_invoke"
     ? "facet-do"
     : "external-worker";
-  const snapshotSeeded = expectedHost === "facet-do";
+  const snapshotSeeded = expectedHost === "facet-do" ||
+    expectedHost === "facet-finalizer";
   if (
     response.executorHost !== expectedHost ||
     response.readCapabilityCalls !== (expectedHost === "session-do" ? 1 : 0) ||
@@ -489,6 +558,17 @@ function fullInvokeSessionObservationIssue(response: {
       : response.snapshotReadDurationMs !== null)
   ) {
     return "executor host, read capability, and snapshot evidence must match the invoke scenario";
+  }
+  if (expectedHost === "facet-finalizer") {
+    if (
+      response.sessionMockFinishDurationMs !== 0 ||
+      response.facet.finish === null ||
+      !probeMockFinishResponsesEqualV1(response.facet.finish, response.finish)
+    ) {
+      return "facet finalizer must carry the exact outer finish receipt and report zero SessionDO finish duration";
+    }
+  } else if (response.facet.finish !== null) {
+    return "non-finalizer facets cannot carry the session-owned finish receipt";
   }
   return sameInvokeAndFinishIdentity(response.facet, request)
     ? undefined
@@ -562,6 +642,10 @@ export interface ProbeInvokeReadCapability {
   read(value: unknown): Promise<ProbeMockReadResponseV1>;
 }
 
+export interface ProbeInvokeFinishCapability {
+  finish(value: unknown): Promise<typeof ProbeMockFinishResponseV1Schema.Type>;
+}
+
 export interface ProbeInvokeSessionReadCapability {
   read(
     envelope: unknown,
@@ -587,6 +671,12 @@ export function probeSessionInvokeWorkerCode(
 
 export function probeSnapshotInvokeWorkerCode(): WorkerLoaderWorkerCode {
   return probeInvokeWorkerCodeWithEnv({});
+}
+
+export function probeFacetFinalizerWorkerCode(
+  executorFinish: ProbeInvokeFinishCapability,
+): WorkerLoaderWorkerCode {
+  return probeInvokeWorkerCodeWithEnv({ EXECUTOR_FINISH: executorFinish });
 }
 
 function probeInvokeWorkerCodeWithEnv(
@@ -644,6 +734,36 @@ const READ_RECEIPT_KEYS = [
   "sessionMode",
   "syntheticRevision"
 ];
+const FINISH_RESPONSE_KEYS = ["mockSyncWakeDurationMs", "request", "sync"];
+const FINISH_REQUEST_KEYS = [
+  "attemptId",
+  "codeId",
+  "codeMode",
+  "commitSeq",
+  "journalEntries",
+  "protocolVersion",
+  "runId",
+  "sampleId",
+  "sampleOrdinal",
+  "scenario",
+  "scopeId",
+  "sealDigest",
+  "sessionId",
+  "sessionMode"
+];
+const SYNC_RECEIPT_KEYS = [
+  "commitSeq",
+  "cursor",
+  "cursorDurationMs",
+  "disposition",
+  "previousCursor",
+  "protocolVersion",
+  "runId",
+  "sampleId",
+  "sampleOrdinal",
+  "scenario",
+  "scopeId"
+];
 
 export class ProbeInvocationFacet extends DurableObject {
   async fetch(request) {
@@ -659,13 +779,40 @@ export class ProbeInvocationFacet extends DurableObject {
     if (this.ctx.id.toString() !== value.attemptId) {
       return json({ error: "attempt_identity_mismatch" }, 409);
     }
-    const snapshotSeeded = value.scenario === "facet_executor_invoke";
+    const snapshotSeeded = value.scenario === "facet_executor_invoke" ||
+      value.scenario === "facet_finalizer_invoke";
+    const facetFinalizer = value.scenario === "facet_finalizer_invoke";
     if (!snapshotSeeded &&
       (this.env.EXECUTOR_READ === undefined || typeof this.env.EXECUTOR_READ.read !== "function")) {
       return json({ error: "executor_read_unavailable" }, 500);
     }
     if (snapshotSeeded && this.env.EXECUTOR_READ !== undefined) {
       return json({ error: "unexpected_executor_read_capability" }, 500);
+    }
+    if (facetFinalizer &&
+      (this.env.EXECUTOR_FINISH === undefined || typeof this.env.EXECUTOR_FINISH.finish !== "function")) {
+      return json({ error: "executor_finish_unavailable" }, 500);
+    }
+    if (!facetFinalizer && this.env.EXECUTOR_FINISH !== undefined) {
+      return json({ error: "unexpected_executor_finish_capability" }, 500);
+    }
+
+    const sql = this.ctx.storage.sql;
+    const requestJson = JSON.stringify(value);
+    if (facetFinalizer) {
+      sql.exec("CREATE TABLE IF NOT EXISTS invoke_attempt_state (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), request_json TEXT NOT NULL, phase TEXT NOT NULL CHECK (phase IN ('running', 'finishing', 'committed')), response_json TEXT)");
+      const existingAttempt = sql.exec("SELECT request_json, phase, response_json FROM invoke_attempt_state WHERE singleton = 1").toArray()[0];
+      if (existingAttempt !== undefined) {
+        if (existingAttempt.request_json !== requestJson) {
+          return json({ error: "facet_attempt_conflict" }, 409);
+        }
+        if (existingAttempt.phase === "committed" && typeof existingAttempt.response_json === "string") {
+          return json(JSON.parse(existingAttempt.response_json), 200);
+        }
+        return json({ error: "facet_attempt_busy" }, 409);
+      }
+      sql.exec("INSERT INTO invoke_attempt_state (singleton, request_json, phase, response_json) VALUES (1, ?, 'running', NULL)", requestJson);
+      await this.ctx.storage.sync();
     }
 
     const readRequest = mockReadRequest(value);
@@ -695,7 +842,6 @@ export class ProbeInvocationFacet extends DurableObject {
       sealDigest,
       resultDigest
     ));
-    const sql = this.ctx.storage.sql;
     sql.exec("CREATE TABLE IF NOT EXISTS invoke_read_set (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), request_digest TEXT NOT NULL, synthetic_revision INTEGER NOT NULL)");
     sql.exec("CREATE TABLE IF NOT EXISTS invoke_journal_entries (seq INTEGER PRIMARY KEY, payload_digest TEXT NOT NULL, payload TEXT NOT NULL, payload_bytes INTEGER NOT NULL)");
     sql.exec("CREATE TABLE IF NOT EXISTS invoke_journal_seal (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), digest TEXT NOT NULL)");
@@ -742,8 +888,42 @@ export class ProbeInvocationFacet extends DurableObject {
       return json({ error: "execution_state_readback_failed" }, 500);
     }
     const journalDurationMs = elapsedSince(journalStartedAt);
+    const finishRequest = {
+      protocolVersion: value.protocolVersion,
+      runId: value.runId,
+      sampleId: value.sampleId,
+      sampleOrdinal: value.sampleOrdinal,
+      scopeId: value.scopeId,
+      scenario: value.scenario,
+      commitSeq: value.commitSeq,
+      sessionId: value.sessionId,
+      sessionMode: value.sessionMode,
+      attemptId: value.attemptId,
+      codeMode: value.codeMode,
+      codeId: value.codeId,
+      journalEntries: value.journalEntries,
+      sealDigest
+    };
+    let finish = null;
+    let facetFinalizationDurationMs = null;
+    let outboundFinishCalls = 0;
+    if (facetFinalizer) {
+      const finishing = sql.exec("UPDATE invoke_attempt_state SET phase = 'finishing' WHERE singleton = 1 AND request_json = ? AND phase = 'running'", requestJson);
+      if (finishing.rowsWritten !== 1) {
+        return json({ error: "facet_attempt_transition_failed" }, 500);
+      }
+      await this.ctx.storage.sync();
+      const finishStartedAt = performance.now();
+      const rpcFinish = await this.env.EXECUTOR_FINISH.finish(finishRequest);
+      outboundFinishCalls = 1;
+      finish = JSON.parse(JSON.stringify(rpcFinish));
+      facetFinalizationDurationMs = elapsedSince(finishStartedAt);
+      if (!validFinishReceipt(finish, finishRequest)) {
+        return json({ error: "mock_finish_receipt_mismatch" }, 502);
+      }
+    }
 
-    return json({
+    const response = {
       protocolVersion: value.protocolVersion,
       runId: value.runId,
       sampleId: value.sampleId,
@@ -762,7 +942,10 @@ export class ProbeInvocationFacet extends DurableObject {
       mockReadDurationMs,
       readMode: snapshotSeeded ? "prefetched-snapshot" : "bound-capability",
       outboundReadCalls: snapshotSeeded ? 0 : 1,
+      outboundFinishCalls,
       journalDurationMs,
+      facetFinalizationDurationMs,
+      attemptPhase: facetFinalizer ? "committed" : "sealed",
       sealDigest,
       resultDigest,
       commitIntent: {
@@ -772,8 +955,18 @@ export class ProbeInvocationFacet extends DurableObject {
         journalSealDigest: sealDigest,
         resultDigest,
         digest: commitIntentDigest
+      },
+      finish
+    };
+    if (facetFinalizer) {
+      const responseJson = JSON.stringify(response);
+      const committed = sql.exec("UPDATE invoke_attempt_state SET phase = 'committed', response_json = ? WHERE singleton = 1 AND request_json = ? AND phase = 'finishing'", responseJson, requestJson);
+      if (committed.rowsWritten !== 1) {
+        return json({ error: "facet_attempt_commit_failed" }, 500);
       }
-    }, 200);
+      await this.ctx.storage.sync();
+    }
+    return json(response, 200);
   }
 
   async ensurePurgeStorage() {
@@ -813,6 +1006,7 @@ function validRequest(value) {
     (value.scenario !== "full_invoke" &&
       value.scenario !== "executor_worker_invoke" &&
       value.scenario !== "facet_executor_invoke" &&
+      value.scenario !== "facet_finalizer_invoke" &&
       value.scenario !== "session_executor_invoke") ||
     value.commitSeq !== value.sampleOrdinal + 1
   ) return false;
@@ -821,14 +1015,18 @@ function validRequest(value) {
   if (value.sessionId !== "rtp-session-" + value.runId + "-" + sessionOrdinal) return false;
   if (value.attemptId !== "rtp-attempt-" + value.runId + "-" + sessionOrdinal + "-" + value.sampleOrdinal) return false;
   if (value.codeMode !== "stable" && value.codeMode !== "new-code") return false;
+  const codeProfile = value.scenario === "facet_finalizer_invoke"
+    ? "invoke-finalizer"
+    : "invoke";
   const expectedCodeId = value.codeMode === "stable"
-    ? "rtp-code-invoke-v1-stable"
-    : "rtp-code-invoke-v1-" + value.runId + "-" + value.sampleOrdinal;
+    ? "rtp-code-" + codeProfile + "-v1-stable"
+    : "rtp-code-" + codeProfile + "-v1-" + value.runId + "-" + value.sampleOrdinal;
   if (value.codeId !== expectedCodeId) return false;
   if (!Number.isInteger(value.journalEntries) || value.journalEntries < 0 || value.journalEntries > MAX_JOURNAL_ENTRIES) return false;
   if (typeof value.payload !== "string" || value.payload.length > MAX_PAYLOAD_BYTES || !/^x*$/.test(value.payload)) return false;
   const readRequest = mockReadRequest(value);
-  return value.scenario === "facet_executor_invoke"
+  return value.scenario === "facet_executor_invoke" ||
+      value.scenario === "facet_finalizer_invoke"
     ? validReadReceipt(value.prefetchedRead, readRequest)
     : value.prefetchedRead === null;
 }
@@ -839,6 +1037,31 @@ function validReadReceipt(receipt, request) {
     if (receipt[key] !== request[key]) return false;
   }
   return receipt.syntheticRevision === request.commitSeq - 1;
+}
+
+function validFinishReceipt(receipt, request) {
+  if (!exactKeys(receipt, FINISH_RESPONSE_KEYS) ||
+    !exactKeys(receipt.request, FINISH_REQUEST_KEYS) ||
+    !exactKeys(receipt.sync, SYNC_RECEIPT_KEYS)) return false;
+  for (const key of Object.keys(request)) {
+    if (receipt.request[key] !== request[key]) return false;
+  }
+  const duration = receipt.mockSyncWakeDurationMs;
+  const sync = receipt.sync;
+  if (typeof duration !== "number" || !Number.isFinite(duration) || duration < 0 ||
+    typeof sync.cursorDurationMs !== "number" || !Number.isFinite(sync.cursorDurationMs) || sync.cursorDurationMs < 0 ||
+    !Number.isInteger(sync.previousCursor) || sync.previousCursor < 0 || sync.previousCursor > 1000000 ||
+    !Number.isInteger(sync.cursor) || sync.cursor < 0 || sync.cursor > 1000000) return false;
+  for (const key of ["protocolVersion", "runId", "sampleId", "sampleOrdinal", "scopeId", "scenario", "commitSeq"]) {
+    if (sync[key] !== request[key]) return false;
+  }
+  if (sync.cursor !== sync.previousCursor && sync.disposition !== "applied") return false;
+  if (sync.disposition === "applied") {
+    return sync.commitSeq === sync.previousCursor + 1 && sync.cursor === sync.commitSeq;
+  }
+  if (sync.disposition === "duplicate") return sync.commitSeq === sync.previousCursor;
+  if (sync.disposition === "gap") return sync.commitSeq > sync.previousCursor + 1;
+  return sync.disposition === "stale" && sync.commitSeq < sync.previousCursor;
 }
 
 function validJournalReadback(rows, expectedCount, payloadDigest, payload) {

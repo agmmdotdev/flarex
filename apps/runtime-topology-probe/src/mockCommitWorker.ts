@@ -30,6 +30,7 @@ import {
 
 export interface ProbeMockCommitEnv {
   readonly PROBE_SYNC: DurableObjectNamespace<ProbeSyncDO>;
+  readonly RUNTIME_TOPOLOGY_PROBE_TEST_MOCK_FINISH_MODE?: string;
   readonly RUNTIME_TOPOLOGY_PROBE_TEST_MOCK_READ_DELAY_MS?: string;
 }
 
@@ -89,6 +90,12 @@ export class MockFinishEntrypoint extends WorkerEntrypoint<ProbeMockCommitEnv> {
       copyCloudflareRpcRecord(rawReceipt),
     );
     if (receipt === null) throw new Error("invalid synthetic sync receipt");
+    if (
+      this.env.RUNTIME_TOPOLOGY_PROBE_TEST_MOCK_FINISH_MODE ===
+        "apply-then-throw"
+    ) {
+      throw new Error("injected post-apply mock finish failure");
+    }
     const mockSyncWakeDurationMs = elapsedPerformanceDurationSince(startedAt);
     return ProbeMockFinishResponseV1Schema.make({
       request,

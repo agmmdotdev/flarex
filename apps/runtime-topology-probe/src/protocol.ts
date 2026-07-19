@@ -51,6 +51,7 @@ export const ProbeScenarioSchema = Schema.Literals([
   "full_invoke",
   "executor_worker_invoke",
   "facet_executor_invoke",
+  "facet_finalizer_invoke",
   "session_executor_invoke",
   "sync_rerun",
 ]);
@@ -76,6 +77,7 @@ export const ProbeSpanNameSchema = Schema.Literals([
   "facet_journal_io",
   "facet_mock_read_rtt",
   "facet_snapshot_read",
+  "facet_atomic_commit_rtt",
   "facet_session_read_rtt",
   "session_snapshot_read_rtt",
   "session_mock_finish_rtt",
@@ -93,6 +95,7 @@ export const ProbeErrorCodeSchema = Schema.Literals([
   "limit_exceeded",
   "unsupported_scenario",
   "runtime_failure",
+  "outcome_uncertain",
   "incomplete_trace",
   "cleanup_failure",
 ]);
@@ -201,6 +204,7 @@ export const ProbeRunRequestV1Schema = ProbeRunRequestV1Shape.check(
     if (
       (request.scenario === "executor_worker_invoke" ||
         request.scenario === "facet_executor_invoke" ||
+        request.scenario === "facet_finalizer_invoke" ||
         request.scenario === "session_executor_invoke") &&
       request.repetitions + request.warmupRepetitions >
         PROBE_LIMITS_V1.maxNewCodeRepetitions
@@ -339,6 +343,7 @@ export function probeWorkerLoaderIdentityV1(
   if (identity.codeId === null) return null;
   return (scenario === "executor_worker_invoke" ||
       scenario === "facet_executor_invoke" ||
+      scenario === "facet_finalizer_invoke" ||
       scenario === "session_executor_invoke") &&
       identity.attemptId !== null
     ? `${identity.codeId}-${identity.attemptId}`
@@ -449,6 +454,24 @@ export function probeSampleIdentityV1(
           sampleOrdinal,
         ),
       };
+    case "facet_finalizer_invoke":
+      return {
+        kind: "facet-session",
+        sampleOrdinal,
+        scopeId,
+        sessionId,
+        attemptId: probeAttemptId(
+          runId,
+          sessionOrdinal,
+          sampleOrdinal,
+        ),
+        codeId: codeIdForScenario(
+          "invoke-finalizer",
+          runId,
+          dimensions,
+          sampleOrdinal,
+        ),
+      };
     case "sync_rerun":
       return {
         kind: "facet-session",
@@ -547,6 +570,7 @@ export function probeStartupRelationshipIssueV1(
     case "full_invoke":
     case "executor_worker_invoke":
     case "facet_executor_invoke":
+    case "facet_finalizer_invoke":
     case "session_executor_invoke":
     case "sync_rerun":
       if (
@@ -591,6 +615,7 @@ export function probeDimensionRelationshipIssueV1(
     scenario === "full_invoke" ||
     scenario === "executor_worker_invoke" ||
     scenario === "facet_executor_invoke" ||
+    scenario === "facet_finalizer_invoke" ||
     scenario === "session_executor_invoke" ||
     scenario === "sync_rerun";
   if (!usesDynamicWorker && dimensions.codeMode !== "stable") {
@@ -604,6 +629,7 @@ export function probeDimensionRelationshipIssueV1(
     scenario === "full_invoke" ||
     scenario === "executor_worker_invoke" ||
     scenario === "facet_executor_invoke" ||
+    scenario === "facet_finalizer_invoke" ||
     scenario === "session_executor_invoke" ||
     scenario === "sync_rerun";
   if (!usesSession && dimensions.sessionMode !== "new-session") {
@@ -617,6 +643,7 @@ export function probeDimensionRelationshipIssueV1(
       scenario === "full_invoke" ||
       scenario === "executor_worker_invoke" ||
       scenario === "facet_executor_invoke" ||
+      scenario === "facet_finalizer_invoke" ||
       scenario === "session_executor_invoke") &&
     dimensions.concurrency !== 1
   ) {
@@ -628,6 +655,7 @@ export function probeDimensionRelationshipIssueV1(
     scenario === "full_invoke" ||
     scenario === "executor_worker_invoke" ||
     scenario === "facet_executor_invoke" ||
+    scenario === "facet_finalizer_invoke" ||
     scenario === "session_executor_invoke";
   return !usesJournal && dimensions.journalEntries !== 0
     ? `${scenario} requires zero journal entries because it does not measure journal I/O`

@@ -18,6 +18,10 @@ describe("runtime topology probe trace validation", () => {
     "facet_journal",
     "commit_wake",
     "full_invoke",
+    "executor_worker_invoke",
+    "facet_executor_invoke",
+    "facet_finalizer_invoke",
+    "session_executor_invoke",
     "sync_rerun",
   ] as const)("accepts the exact %s topology", scenario => {
     expect(validateProbeTraceV1(validSample(scenario))).toEqual({ ok: true });

@@ -27,7 +27,9 @@ import {
 } from "../src/commitProtocol";
 import { copyCloudflareRpcRecord } from "../src/effectBoundary";
 import {
+  decodeProbeFullInvokeSessionFailureV1Effect,
   decodeProbeFullInvokeSessionResponseV1Effect,
+  probeFacetFinalizerWorkerCode,
   probeInvokeWorkerCode,
   ProbeInvokeFacetRequestV1Schema,
   PROBE_INVOKE_WORKER_MAIN_MODULE,
@@ -41,6 +43,7 @@ import {
   PROBE_RUN_ROUTE,
   PROBE_SAMPLE_ROUTE,
 } from "../src/gateway";
+import { ProbeSessionPurgeRequestV1Schema } from "../src/purgeProtocol";
 import {
   completeProbeGatewaySampleV1,
   decodeProbeControlledGatewaySampleV1Effect,
@@ -912,6 +915,170 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect(receipt.facet.commitIntent.digest).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("lets the trusted facet finalize through one narrow atomic capability", async () => {
+    const measured = await measuredDispatchOnFreshHarness(
+      validSampleRequest("facet_finalizer_invoke", "p20_test_finalizer", {
+        journalEntries: 2,
+        payloadBytes: 64,
+      }),
+    );
+    const sample = completeProbeGatewaySampleV1(
+      measured.fragment,
+      measured.durationMs,
+    );
+    expect(sample.spans.map(span => span.name)).toEqual([
+      "external_request",
+      "gateway_session_rtt",
+      "session_snapshot_read_rtt",
+      "session_facet_rtt",
+      "facet_snapshot_read",
+      "facet_journal_io",
+      "facet_atomic_commit_rtt",
+      "mock_sync_wake_rtt",
+      "sync_cursor_io",
+    ]);
+    expect(validateProbeTraceV1(sample)).toEqual({ ok: true });
+    expect(measured.control.syncWake).toEqual({
+      kind: "observed",
+      disposition: "applied",
+    });
+
+    const directRequest = facetFinalizerInvokeRequest("p20_direct_finalizer");
+    const first = await directFullInvoke(harness, directRequest);
+    const firstBody = await first.text();
+    expect(first.status, firstBody).toBe(200);
+    const receipt = await runEffectTest(
+      decodeProbeFullInvokeSessionResponseV1Effect(JSON.parse(firstBody)),
+    );
+    expect(receipt).toMatchObject({
+      executorHost: "facet-finalizer",
+      readCapabilityCalls: 0,
+      sessionMockFinishDurationMs: 0,
+      facet: {
+        readMode: "prefetched-snapshot",
+        outboundReadCalls: 0,
+        outboundFinishCalls: 1,
+        attemptPhase: "committed",
+      },
+    });
+    expect(receipt.snapshotReadDurationMs).not.toBeNull();
+    expect(receipt.facet.facetFinalizationDurationMs).not.toBeNull();
+    expect(receipt.facet.finish).toEqual(receipt.finish);
+    expect(receipt.finish.sync).toMatchObject({
+      disposition: "applied",
+      previousCursor: 0,
+      cursor: 1,
+    });
+    await expect(runEffectTest(
+      decodeProbeFullInvokeSessionResponseV1Effect({
+        ...receipt,
+        finish: {
+          ...receipt.finish,
+          mockSyncWakeDurationMs: receipt.finish.mockSyncWakeDurationMs + 1,
+        },
+      }),
+    )).rejects.toBeDefined();
+
+    const repeated = await directFullInvoke(harness, directRequest);
+    const changed = await directFullInvoke(harness, {
+      ...directRequest,
+      payload: `${directRequest.payload}x`,
+    });
+    expect(repeated.status).toBe(200);
+    expect(await repeated.text()).toBe(firstBody);
+    expect(changed.status).toBe(409);
+    expect(await changed.json()).toEqual({
+      error: "facet_finalizer_attempt_conflict",
+    });
+    expect(await syncCursor(harness, "p20_direct_finalizer", "read")).toBe(1);
+  });
+
+  it("retains a post-apply facet finalizer as an uncertain fenced attempt", async () => {
+    const uncertainHarness = await createRuntimeProbeHarness({
+      mockFinishMode: "apply-then-throw",
+    });
+    try {
+      const publicFailure = await measuredDispatch(
+        uncertainHarness,
+        validSampleRequest(
+          "facet_finalizer_invoke",
+          "p20_uncertain_public",
+          { journalEntries: 2, payloadBytes: 64 },
+        ),
+      );
+      expect(publicFailure.fragment.outcome).toEqual({
+        kind: "error",
+        error: {
+          code: "outcome_uncertain",
+          retryable: false,
+          stage: "gateway_session_rtt",
+        },
+      });
+      expect(publicFailure.control.syncWake).toEqual({ kind: "unobserved" });
+
+      const request = facetFinalizerInvokeRequest("p20_uncertain_finalizer");
+      const first = await directFullInvoke(uncertainHarness, request);
+      const repeated = await directFullInvoke(uncertainHarness, request);
+
+      expect(first.status).toBe(502);
+      expect(await first.json()).toEqual({
+        protocolVersion: 1,
+        sessionId: request.sessionId,
+        attemptId: request.attemptId,
+        error: "facet_finalizer_outcome_uncertain",
+      });
+      expect(repeated.status).toBe(409);
+      expect(await repeated.json()).toEqual({
+        error: "facet_finalizer_attempt_busy",
+      });
+      expect(
+        await syncCursor(uncertainHarness, "p20_uncertain_finalizer", "read"),
+      ).toBe(1);
+      expect(await purgeFacetFinalizerAttempt(uncertainHarness, request))
+        .toMatchObject({
+          kind: "probe-data-cleared",
+          deletedFacets: 1,
+          probeDataCleared: true,
+          completionTombstoneRetained: true,
+        });
+      expect(await purgeFacetFinalizerAttempt(
+        uncertainHarness,
+        facetFinalizerInvokeRequest("p20_uncertain_public"),
+      )).toMatchObject({
+        kind: "probe-data-cleared",
+        deletedFacets: 1,
+        probeDataCleared: true,
+        completionTombstoneRetained: true,
+      });
+    } finally {
+      await uncertainHarness.dispose();
+    }
+  });
+
+  it("durably replays an exact known-stale facet finalizer receipt", async () => {
+    const request = facetFinalizerInvokeRequest("p20_stale_finalizer");
+    expect((await directSyncWake(harness, "p20_stale_finalizer", 0)).disposition)
+      .toBe("applied");
+    expect((await directSyncWake(harness, "p20_stale_finalizer", 1)).disposition)
+      .toBe("applied");
+
+    const first = await directFullInvoke(harness, request);
+    const firstBody = await first.text();
+    const repeated = await directFullInvoke(harness, request);
+    expect(first.status).toBe(409);
+    const failure = await runEffectTest(
+      decodeProbeFullInvokeSessionFailureV1Effect(JSON.parse(firstBody)),
+    );
+    expect(failure.finish.sync).toMatchObject({
+      disposition: "stale",
+      previousCursor: 2,
+      cursor: 2,
+    });
+    expect(repeated.status).toBe(409);
+    expect(await repeated.text()).toBe(firstBody);
+    expect(await syncCursor(harness, "p20_stale_finalizer", "read")).toBe(2);
+  });
+
   it("replays one completed facet-executor attempt and rejects changed evidence", async () => {
     const request = facetExecutorInvokeRequest("p16_facet_replay");
     const first = await directFullInvoke(harness, request);
@@ -1312,6 +1479,11 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     if (mockRead === undefined) throw new Error("MOCK_READ is missing");
     const workerCode = probeInvokeWorkerCode(mockRead);
     const source = workerCode.modules[PROBE_INVOKE_WORKER_MAIN_MODULE];
+    const mockFinish = gatewayBindings.MOCK_FINISH;
+    if (mockFinish === undefined) throw new Error("MOCK_FINISH is missing");
+    const finalizerCode = probeFacetFinalizerWorkerCode(mockFinish);
+    const finalizerSource =
+      finalizerCode.modules[PROBE_INVOKE_WORKER_MAIN_MODULE];
     const rerunCode = probeRerunWorkerCode();
     const rerunSource = rerunCode.modules[PROBE_RERUN_WORKER_MAIN_MODULE];
 
@@ -1330,6 +1502,14 @@ describe.sequential("P02 gateway and ProbeSessionDO in Miniflare", () => {
     expect(typeof source).toBe("string");
     expect(source).not.toContain("MOCK_FINISH");
     expect(source).not.toContain("PROBE_SYNC");
+    expect(Object.keys(finalizerCode.env ?? {})).toEqual(["EXECUTOR_FINISH"]);
+    expect(finalizerCode.globalOutbound).toBeNull();
+    expect(typeof finalizerSource).toBe("string");
+    expect(finalizerSource).toContain("EXECUTOR_FINISH");
+    expect(finalizerSource).toContain("sync.previousCursor > 1000000");
+    expect(finalizerSource).toContain("sync.cursor > 1000000");
+    expect(finalizerSource).not.toContain("MOCK_FINISH");
+    expect(finalizerSource).not.toContain("PROBE_SYNC");
     expect(rerunCode.env).toEqual({});
     expect(rerunCode.globalOutbound).toBeNull();
     expect(typeof rerunSource).toBe("string");
@@ -1398,6 +1578,7 @@ type SupportedScenario =
   | "full_invoke"
   | "executor_worker_invoke"
   | "facet_executor_invoke"
+  | "facet_finalizer_invoke"
   | "session_executor_invoke"
   | "session_echo"
   | "sync_rerun";
@@ -1454,6 +1635,27 @@ function facetExecutorInvokeRequest(runIdValue: string) {
   });
 }
 
+function facetFinalizerInvokeRequest(runIdValue: string) {
+  const runId = runEffectTestSync(decodeProbeRunIdEffect(runIdValue));
+  const sampleOrdinal = runEffectTestSync(decodeProbeOrdinalEffect(0));
+  return ProbeInvokeFacetRequestV1Schema.make({
+    protocolVersion: PROBE_PROTOCOL_VERSION_V1,
+    runId,
+    sampleId: probeSampleId(runId, sampleOrdinal),
+    sampleOrdinal,
+    scopeId: probeScopeId(runId),
+    scenario: "facet_finalizer_invoke",
+    commitSeq: probeSyntheticCommitSeq(sampleOrdinal),
+    sessionId: probeSessionId(runId, sampleOrdinal),
+    sessionMode: "new-session",
+    attemptId: probeAttemptId(runId, sampleOrdinal, sampleOrdinal),
+    codeMode: "stable",
+    codeId: probeCodeId({ mode: "stable", profile: "invoke-finalizer" }),
+    journalEntries: 2,
+    payload: "x".repeat(64),
+  });
+}
+
 function externalExecutorInvokeRequest(runIdValue: string) {
   const runId = runEffectTestSync(decodeProbeRunIdEffect(runIdValue));
   const sampleOrdinal = runEffectTestSync(decodeProbeOrdinalEffect(0));
@@ -1480,6 +1682,7 @@ async function directFullInvoke(
   request:
     | ReturnType<typeof candidateInvokeRequest>
     | ReturnType<typeof facetExecutorInvokeRequest>
+    | ReturnType<typeof facetFinalizerInvokeRequest>
     | ReturnType<typeof externalExecutorInvokeRequest>,
 ) {
   const bindings = await runtime.bindings();
@@ -1491,6 +1694,31 @@ async function directFullInvoke(
       body: JSON.stringify(request),
     },
   );
+}
+
+async function purgeFacetFinalizerAttempt(
+  runtime: RuntimeProbeHarness,
+  request: ReturnType<typeof facetFinalizerInvokeRequest>,
+) {
+  const bindings = await runtime.bindings();
+  const session = bindings.PROBE_SESSIONS.getByName(request.sessionId);
+  const purgeRequest = ProbeSessionPurgeRequestV1Schema.make({
+    protocolVersion: request.protocolVersion,
+    sessionId: request.sessionId,
+    facets: [{
+      attemptId: request.attemptId,
+      codeId: request.codeId,
+      scenario: request.scenario,
+    }],
+  });
+  for (let step = 0; step < 32; step += 1) {
+    const receipt = await session.purge(purgeRequest);
+    if (receipt.kind === "probe-data-cleared") {
+      expect(await session.purge(purgeRequest)).toEqual(receipt);
+      return receipt;
+    }
+  }
+  throw new Error("facet finalizer purge did not complete");
 }
 
 function validSampleRequest(

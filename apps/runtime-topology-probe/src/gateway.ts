@@ -44,6 +44,7 @@ import {
   type ProbeRunId,
 } from "./identity";
 import {
+  decodeProbeFacetFinalizerOutcomeUncertainV1OrNull,
   decodeProbeFullInvokeSessionFailureV1OrNull,
   decodeProbeFullInvokeSessionResponseV1OrNull,
   probeInvokeFacetReceiptMatchesRequestV1,
@@ -642,6 +643,7 @@ async function executeRegisteredScenario(
     case "full_invoke":
     case "executor_worker_invoke":
     case "facet_executor_invoke":
+    case "facet_finalizer_invoke":
       if (
         env.LOADER === undefined ||
         env.MOCK_READ === undefined ||
@@ -719,6 +721,7 @@ function failedScenarioExecution(
       scenario === "full_invoke" ||
       scenario === "executor_worker_invoke" ||
       scenario === "facet_executor_invoke" ||
+      scenario === "facet_finalizer_invoke" ||
       scenario === "session_executor_invoke" ||
       scenario === "sync_rerun"
       ? { workerLoader: "callback-not-run", facet: "callback-not-run" } as const
@@ -735,6 +738,7 @@ function failedScenarioExecution(
         scenario === "full_invoke" ||
         scenario === "executor_worker_invoke" ||
         scenario === "facet_executor_invoke" ||
+        scenario === "facet_finalizer_invoke" ||
         scenario === "session_executor_invoke"
       ? { kind: "unobserved" }
       : { kind: "not-applicable" },
@@ -1170,6 +1174,7 @@ async function executeFullInvokeScenario(
     sampleRequest.run.scenario !== "full_invoke" &&
     sampleRequest.run.scenario !== "executor_worker_invoke" &&
     sampleRequest.run.scenario !== "facet_executor_invoke" &&
+    sampleRequest.run.scenario !== "facet_finalizer_invoke" &&
     sampleRequest.run.scenario !== "session_executor_invoke"
   ) {
     throw new Error("executeFullInvokeScenario received a non-invoke scenario");
@@ -1237,6 +1242,36 @@ async function executeFullInvokeScenario(
     PROBE_INTERNAL_RESPONSE_MAX_BYTES,
   );
   if (!response.ok) {
+    const uncertain = response.status === 502 && body.ok &&
+        internalRequest.scenario === "facet_finalizer_invoke"
+      ? decodeProbeFacetFinalizerOutcomeUncertainV1OrNull(body.value)
+      : null;
+    if (
+      uncertain !== null &&
+      uncertain.sessionId === internalRequest.sessionId &&
+      uncertain.attemptId === internalRequest.attemptId
+    ) {
+      const error: ProbeNormalizedErrorV1 = {
+        code: "outcome_uncertain",
+        retryable: false,
+        stage: "gateway_session_rtt",
+      };
+      return {
+        fragment: failedNestedSample(
+          sampleRequest,
+          edgeColo,
+          error,
+          [
+            sessionSpan(sessionDurationMs, {
+              kind: "error",
+              error,
+            }),
+          ],
+          unobservedFacetStartup(),
+        ),
+        syncWake: { kind: "unobserved" },
+      };
+    }
     const failure = response.status === 409 && body.ok
       ? decodeFullInvokeSessionFailure(body.value)
       : null;
@@ -1741,6 +1776,16 @@ function facetSnapshotReadSpan(durationMs: number): ProbeTraceSpanV1 {
   });
 }
 
+function facetAtomicCommitSpan(durationMs: number): ProbeTraceSpanV1 {
+  return ProbeTraceSpanV1Schema.make({
+    spanId: probeSpanId(ProbeOrdinalSchema.make(6)),
+    parentSpanId: probeSpanId(ProbeOrdinalSchema.make(3)),
+    name: "facet_atomic_commit_rtt",
+    durationMs: ProbeDurationMsSchema.make(durationMs),
+    outcome: { kind: "ok" },
+  });
+}
+
 function sessionExecutorFinishSpan(durationMs: number): ProbeTraceSpanV1 {
   return ProbeTraceSpanV1Schema.make({
     spanId: probeSpanId(ProbeOrdinalSchema.make(5)),
@@ -1801,6 +1846,25 @@ function fullInvokeSpans(
 ): ReadonlyArray<ProbeTraceSpanV1> {
   const facet = observation.facet;
   const finish = observation.finish;
+  if (observation.executorHost === "facet-finalizer") {
+    if (
+      observation.snapshotReadDurationMs === null ||
+      facet.facetFinalizationDurationMs === null ||
+      facet.finish === null
+    ) {
+      throw new Error("facet finalizer observation requires snapshot and finish timing");
+    }
+    return [
+      sessionSpan(sessionDurationMs, { kind: "ok" }),
+      sessionSnapshotReadSpan(observation.snapshotReadDurationMs),
+      facetSpan(observation.facetDurationMs, 3),
+      facetSnapshotReadSpan(facet.mockReadDurationMs),
+      journalSpan(facet.journalDurationMs, 5, 3),
+      facetAtomicCommitSpan(facet.facetFinalizationDurationMs),
+      mockSyncWakeSpan(finish.mockSyncWakeDurationMs, 7, 6),
+      syncCursorSpan(finish.sync.cursorDurationMs, 8, 7, syncOutcome),
+    ];
+  }
   if (observation.executorHost === "facet-do") {
     if (observation.snapshotReadDurationMs === null) {
       throw new Error("facet executor observation requires snapshot timing");
@@ -2029,10 +2093,13 @@ async function sameFullInvokeSessionReceipt(
   const finish = response.finish.request;
   const expectedHost = request.scenario === "session_executor_invoke"
     ? "session-do"
+    : request.scenario === "facet_finalizer_invoke"
+    ? "facet-finalizer"
     : request.scenario === "facet_executor_invoke"
     ? "facet-do"
     : "external-worker";
-  const snapshotSeeded = expectedHost === "facet-do";
+  const snapshotSeeded = expectedHost === "facet-do" ||
+    expectedHost === "facet-finalizer";
   if (
     finish.scenario === "commit_wake" ||
     finish.scenario !== request.scenario ||

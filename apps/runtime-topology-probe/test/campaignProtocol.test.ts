@@ -9,6 +9,7 @@ import {
 } from "../src/campaignProtocol";
 import { ProbeCampaignIdSchema, ProbeRunIdSchema } from "../src/identity";
 import {
+  PROBE_FACET_FINALIZER_AB_MATRIX_V1,
   PROBE_LOCAL_REHEARSAL_MATRIX_V1,
   PROBE_FACET_EXECUTOR_AB_MATRIX_V1,
   PROBE_SESSION_EXECUTOR_AB_MATRIX_V1,
@@ -84,6 +85,63 @@ describe("campaign protocol", () => {
         "session_executor_invoke",
       ]).flat(),
     );
+  });
+
+  it("pins the counterbalanced facet finalizer campaign and budgets", () => {
+    expect(probeCampaignBudgetPlanV1(PROBE_FACET_FINALIZER_AB_MATRIX_V1))
+      .toEqual({
+        runCells: 24,
+        sampleExecutions: 28,
+        payloadBytes: 1_792,
+        journalEntries: 56,
+        uniqueCodeIds: 28,
+      });
+    expect(PROBE_FACET_FINALIZER_AB_MATRIX_V1).toEqual({
+      protocolVersion: 1,
+      campaignId: "p20_facet_finalizer_ab_v1",
+      collectorConcurrency: 1,
+      runs: Array.from({ length: 12 }, (_, index) => index + 1).flatMap(
+        pair => (pair % 2 === 1
+          ? [
+              {
+                scenario: "facet_executor_invoke",
+                position: "a",
+                host: "supervisor",
+              },
+              {
+                scenario: "facet_finalizer_invoke",
+                position: "b",
+                host: "facet",
+              },
+            ]
+          : [
+              {
+                scenario: "facet_finalizer_invoke",
+                position: "a",
+                host: "facet",
+              },
+              {
+                scenario: "facet_executor_invoke",
+                position: "b",
+                host: "supervisor",
+              },
+            ]).map(({ scenario, position, host }) => ({
+              protocolVersion: 1,
+              runId: `p20_${pair.toString().padStart(2, "0")}_${position}_${host}`,
+              scenario,
+              replicate: pair,
+              repetitions: 1,
+              warmupRepetitions: pair === 1 ? 2 : 0,
+              dimensions: {
+                codeMode: "stable",
+                concurrency: 1,
+                journalEntries: 2,
+                payloadBytes: 64,
+                sessionMode: "new-session",
+              },
+            })),
+      ),
+    });
   });
 
   it("deduplicates stable source IDs and counts each new-code ordinal", () => {

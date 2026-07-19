@@ -708,15 +708,59 @@ claiming a real Postgres executor result. Remove every temporary Cloudflare
 resource, prove script and namespace absence, record the bounded architecture
 meaning, and commit only the isolated app files.
 
+### P20 - Facet Finalizer A/B Preflight
+
+Status: complete. The approved trusted-shell boundary, recovery challenge,
+frozen 28-execution matrix, performance thresholds, and fresh USD 0.25 ceiling
+are recorded in
+[`P20-FACET-FINALIZER-AB-PREFLIGHT.md`](./P20-FACET-FINALIZER-AB-PREFLIGHT.md).
+
+The candidate moves synthetic intent verification, attempt phase transition,
+and the one narrow atomic-finish call into platform-owned facet shell code.
+User code receives no capability, and this no-Postgres app makes no real commit
+claim.
+
+### P21 - Implement And Prove Facet Finalization Locally
+
+Status: complete. The implementation boundary and final local receipt are
+recorded in
+[`P21-LOCAL-FACET-FINALIZER-PROOF.md`](./P21-LOCAL-FACET-FINALIZER-PROOF.md).
+
+Prove exact capability scoping, one candidate finish call, zero SessionDO finish
+calls, combined-receipt correlation, replay/conflict behavior, trace topology,
+full tests, typecheck, Wrangler dry-runs, and clean mandatory reviews.
+
+### P22 - Run The Bounded Production Facet Finalizer A/B
+
+Status: complete. The immutable campaign produced 28 complete samples, 24
+eligible matched measurements, zero correctness exclusions, publishable
+evidence, a terminal application purge, and the sanitized receipt in
+[`P22-PRODUCTION-FACET-FINALIZER-AB.md`](./P22-PRODUCTION-FACET-FINALIZER-AB.md).
+
+The candidate passed the mechanical capability and ownership rules but failed
+both parts of the frozen performance gate: paired internal improvement was
+-1.07% and aggregate internal p95 regressed 50.02%.
+
+### P23 - Conclusions And Teardown
+
+Status: complete. The decision, Postgres-authority boundary,
+uncertain-outcome recovery cutline, and complete script/namespace absence proof
+are recorded in
+[`P23-CONCLUSIONS-AND-TEARDOWN.md`](./P23-CONCLUSIONS-AND-TEARDOWN.md).
+
+The experiment accepts trusted facet finalization as mechanically feasible but
+does not promote it on latency or treat the mock as a real Postgres/OCC proof.
+
 ## Goal Loop State
 
-- Goal: complete. P16-P19 extended the isolated probe with one approved
-  snapshot-seeded facet-resident executor A/B and do not change active
-  architecture roadmaps.
+- Goal: complete. P20-P23 extended the isolated probe with one approved
+  trusted-facet-finalizer A/B and did not change active architecture roadmaps.
 - Previous baseline: P11 closed and removed the original deployment; its
   ignored evidence remains secret-free and unstaged.
-- Terminal result: locality passed, end-to-end promotion failed, application
-  and external teardown passed, and the future experiment is closed.
-- Terminal gate: P19 must record the bounded conclusion, purge application
-  state, remove all temporary Workers/namespaces, verify absence, and commit the
-  app-local evidence.
+- Final result: implementation, full local proof, dry-runs, both mandatory
+  reviews, production evidence, application purge, decision, and complete
+  external teardown are green. The mechanical candidate passed; the latency
+  promotion gate failed.
+- Terminal gate: satisfied. P23 recorded the bounded conclusion, preserved the
+  no-Postgres limitation, removed all temporary Workers/namespaces, and proved
+  absence.

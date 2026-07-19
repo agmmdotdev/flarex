@@ -7,7 +7,7 @@ and teardown requirements live in [`PLAN.md`](./PLAN.md).
 
 ## Current Slice
 
-`P19` is complete. After the original P02-P11 topology experiment, the app ran
+`P20-P23` are the active isolated extension. After the original P02-P11 topology experiment, the app ran
 an isolated SessionDO-hosted mock-executor A/B against the retained external
 Worker control, rejected the candidate on its frozen latency threshold, and
 again removed every Cloudflare resource. The new app-local extension compares
@@ -15,7 +15,11 @@ the retained bound-read facet control with a snapshot-seeded facet that owns
 the complete synthetic execution and sealed commit-intent construction without
 an in-handler callback. The candidate passed the facet-local threshold but did
 not meet the complete internal-path threshold; application and Cloudflare
-resources were purged and deleted. The app wrapped the communication shapes in durable
+resources were purged and deleted. The active extension now compares that
+SessionDO-finalized snapshot path with a trusted facet shell that performs the
+synthetic fence/intent checks and invokes one narrow atomic-finish capability
+itself. It remains a no-Postgres mock and is not an active Flarex roadmap.
+The app wrapped the communication shapes in durable
 per-cell and deployment-wide campaign coordination, collected the frozen P10
 production matrix, and removed every isolated Cloudflare resource without
 introducing a real executor, transaction, or sync engine. The app owns:
@@ -120,6 +124,15 @@ and its decision plus second complete teardown are in
 [`P15-CONCLUSIONS-AND-TEARDOWN.md`](./P15-CONCLUSIONS-AND-TEARDOWN.md). The
 approved third experiment boundary and frozen matrix are in
 [`P16-FACET-RESIDENT-EXECUTOR-AB-PREFLIGHT.md`](./P16-FACET-RESIDENT-EXECUTOR-AB-PREFLIGHT.md).
+Its local proof, production result, and teardown are in
+[`P17-LOCAL-FACET-EXECUTOR-PROOF.md`](./P17-LOCAL-FACET-EXECUTOR-PROOF.md),
+[`P18-PRODUCTION-FACET-EXECUTOR-AB.md`](./P18-PRODUCTION-FACET-EXECUTOR-AB.md),
+and [`P19-CONCLUSIONS-AND-TEARDOWN.md`](./P19-CONCLUSIONS-AND-TEARDOWN.md).
+The fourth trusted-facet-finalizer experiment is recorded in
+[`P20-FACET-FINALIZER-AB-PREFLIGHT.md`](./P20-FACET-FINALIZER-AB-PREFLIGHT.md),
+[`P21-LOCAL-FACET-FINALIZER-PROOF.md`](./P21-LOCAL-FACET-FINALIZER-PROOF.md),
+[`P22-PRODUCTION-FACET-FINALIZER-AB.md`](./P22-PRODUCTION-FACET-FINALIZER-AB.md),
+and [`P23-CONCLUSIONS-AND-TEARDOWN.md`](./P23-CONCLUSIONS-AND-TEARDOWN.md).
 
 All durations are caller-local monotonic round trips. The protocol never
 subtracts absolute timestamps created by different isolates.
@@ -148,7 +161,7 @@ destructive order and completed receipt are documented in
 [`P08-PRODUCTION-PREFLIGHT.md`](./P08-PRODUCTION-PREFLIGHT.md) and
 [`P11-CONCLUSIONS-AND-TEARDOWN.md`](./P11-CONCLUSIONS-AND-TEARDOWN.md).
 
-The production run is closed and no probe Worker remains deployed. For a new,
+The latest production run is closed and no probe Worker remains deployed. For a new,
 separately reviewed experiment, supply the origin and bearer secret only
 through environment variables. The historical P09/P10 commands were:
 
