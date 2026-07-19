@@ -42,13 +42,22 @@ correctness and the quality of TypeScript/Effect implementation.
   debt may be reported when the diff materially exercises or relies on it, but
   the reviewer does not roam unrelated files or turn checkpoints into
   package-wide migrations.
+- Every materially changed TypeScript operation receives an Effect-applicability
+  assessment even when it was initially written without Effect imports. The
+  reviewer actively reports a bounded transformation when recoverable failure,
+  async/cancellation, capability, resource/lifecycle, or domain-service
+  semantics call for Effect, Result, Option, a service, or a Layer. Pure total
+  helpers, simple guards, protocol-owned shapes, required compatibility or
+  framework signatures, defects, and narrow foreign adapters remain plain when
+  their contracts require it.
 
 ## Standing Reviewer Responsibilities
 
-The TypeScript reviewer owns static/runtime contract agreement, public API
-compatibility, exact success/failure/requirement channels, Schema and encoded
-shape agreement, service and Layer dependency types, tagged errors, type
-soundness, reuse of stable repo-owned types, and all Effect
+The TypeScript reviewer owns the Effect-applicability assessment for all
+materially changed TypeScript operations, static/runtime contract agreement,
+public API compatibility, exact success/failure/requirement channels, Schema
+and encoded shape agreement, service and Layer dependency types, tagged errors,
+type soundness, reuse of stable repo-owned types, and all Effect
 implementation-quality review, including composition, services/Layers,
 lifecycles, errors, HTTP, state ownership, and tests.
 
@@ -65,6 +74,13 @@ defect when it has not yet caused a runtime failure. Pre-existing findings are
 labeled touched-flow debt and must explain the connection to the change. Higher
 severity still requires evidence of real correctness, security, data-loss,
 compatibility, reliability, or operational impact.
+
+A new or materially extended plain TypeScript substitute is reportable under
+that rule when its semantics belong in Effect, Result, Option, a service, or a
+Layer; the absence of Effect imports does not make the issue optional. The
+reviewer records a compact applicability count for every TypeScript diff and,
+when a candidate exists, gives the smallest target shape and connected test or
+caller boundary.
 
 ## Effect Implementation And Review Boundary
 

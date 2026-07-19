@@ -2,12 +2,14 @@
 
 This is the Flarex-specific overlay for the global
 `C:\Users\Admin\.codex\skills\effect-ts-patterns\SKILL.md`. Any agent that
-implements or refactors code importing Effect modules or changing an Effect,
-Option, Result, Exit, Match, Schema, Config, Context service, Layer, Scope,
-Fiber, runtime bridge, Effect HTTP flow, or Effect-based test must read the
-global skill and this file before acting. During standing checkpoint review,
-that same requirement applies to the TypeScript reviewer, which solely owns
-Effect implementation-quality review.
+implements or refactors code importing Effect modules, or plain TypeScript
+whose semantics should use Effect, Option, Result, Exit, Match, Schema, Config,
+a Context service, Layer, Scope, Fiber, runtime bridge, Effect HTTP flow, typed
+Effect errors, or Effect-based tests, must read the global skill and this file
+before acting. During standing checkpoint review, the TypeScript reviewer must
+first assess every materially changed TypeScript operation for that
+applicability and solely owns the resulting Effect implementation-quality
+review.
 
 The global skill owns reusable construct selection, workflow, examples, and
 active touched-flow improvement. This overlay owns Flarex's installed-version
@@ -219,9 +221,21 @@ when the dependency changes.
 
 ## Reviewer Ownership
 
-The TypeScript reviewer owns all Effect implementation-quality review alongside
-its general TypeScript responsibilities: precise `A`, `E`, and `R`; public and
-service contract agreement; return-type stabilization; `fn` / `fnUntraced` /
+The TypeScript reviewer owns the Effect-applicability assessment for every
+materially changed TypeScript operation, including code initially written with
+plain Promise, async/try/catch, throws, nullability, ad-hoc outcomes, or manual
+dependency threading. It must recommend a bounded transformation when the
+operation's recoverable failure, async/cancellation, capability, lifecycle, or
+domain-service semantics call for Effect, Result, Option, a service, or a
+Layer. Existing Effect imports are not a prerequisite. Pure total helpers,
+simple guards, protocol-owned shapes, framework-required signatures, deliberate
+compatibility wrappers, defects, and narrow foreign adapters remain plain when
+their contracts require it; this is not permission for a package-wide
+migration.
+
+The TypeScript reviewer also owns all Effect implementation-quality review
+alongside its general TypeScript responsibilities: precise `A`, `E`, and `R`;
+public and service contract agreement; return-type stabilization; `fn` / `fnUntraced` /
 `gen` / pipeline choice; Option, Result, Exit, Match, and conditional flow;
 error provenance and retry; Schema decoded/encoded agreement and compiler
 placement; database row/parameter type agreement; tagged-error shapes; Effect
@@ -241,8 +255,15 @@ duplicating Effect-pattern analysis.
 
 ## Coverage And Finding Calibration
 
-When Effect is in scope, the TypeScript reviewer reports one compact line
-covering changed constructs and the directly connected touched flow:
+For every TypeScript diff, the reviewer reports its applicability pass:
+
+```text
+Effect applicability: 9 operations assessed; 2 transformations recommended; 1 deliberate Promise boundary inspected.
+```
+
+When Effect is used or should be used, the TypeScript reviewer also reports one
+compact line covering changed constructs and the directly connected touched
+flow:
 
 ```text
 Effect coverage: 3 functions, 1 service/Layer, 2 schemas, 1 runtime edge, 4 tests; one fnUntraced exception inspected.
@@ -254,6 +275,12 @@ violation is normally P3; higher severity requires normal correctness,
 security, compatibility, data-loss, reliability, or operational evidence.
 Label pre-existing findings `Touched-flow debt (pre-existing)` and explain the
 connection plus the smallest safe correction.
+
+A changed plain TypeScript flow that semantically requires an Effect-native
+operation, Result, Option, service, or Layer is a reportable violation even if
+no changed file imports Effect. The finding must name the semantic reason and
+the smallest target transformation; a generic preference for Effect syntax is
+not sufficient.
 
 Do not report pure helpers, standalone Effect values, tiny inline
 compositions, dynamic-schema compilation at its stable factory boundary, or a

@@ -37,7 +37,8 @@ as the source of truth for reviewer scope, read-only boundaries, TypeScript
 skill usage, validation expectations, and response format.
 
 Any agent implementing or refactoring Effect code, and the TypeScript reviewer
-when reviewing Effect code, must read and apply the global
+when a changed TypeScript flow uses or may semantically require Effect, must
+read and apply the global
 `C:\Users\Admin\.codex\skills\effect-ts-patterns\SKILL.md` plus the Flarex
 overlay in `.codex/agents/effect-review-guide.md` before acting. Trigger this
 rule when a touched flow imports or should use Effect, Option, Result, Exit,
@@ -86,8 +87,29 @@ transaction, Worker, and Durable Object lifetimes, and do not force dynamic
 multi-instance values into singleton Context tags. Follow
 `roadmaps/effect-native-guidance/14-domain-services-layers-and-composition.md`.
 
-When a diff touches Effect code, the TypeScript reviewer must read the global
-skill and Flarex overlay completely and report its actual Effect coverage. The
+For every materially changed TypeScript operation, the TypeScript reviewer must
+first assess Effect applicability from the operation's semantics, even when the
+initial implementation contains no Effect imports. Expected recoverable
+failures, async or cancellable work, retry or timeout policy, injected
+capabilities, resource or lifecycle ownership, and domain/service composition
+are positive signals. Plain `Promise`, `async` / `try` / `catch`, thrown domain
+errors, nullable control flow, ad-hoc result unions, or manual dependency
+threading do not exempt a flow from this assessment. When Effect, Option,
+Result, Exit, a service/Layer, or another Effect-owned boundary is the clearer
+model, the reviewer must report the concrete gap and recommend the smallest
+bounded transformation, even if the diff was written entirely in plain
+TypeScript. The reviewer remains read-only; the main thread owns the change.
+
+Do not mechanically demand Effect for pure total helpers, simple Boolean
+guards, protocol-owned wire shapes, framework-required signatures, deliberate
+compatibility wrappers, defects or invariant violations, or narrow foreign
+Promise/throw adapters. These remain plain TypeScript when their owning
+contract requires it. Judge the boundary and failure semantics, not syntax
+alone, and do not turn the review into a package-wide migration.
+
+When a diff imports Effect or the applicability assessment identifies a flow
+that should use it, the TypeScript reviewer must read the global skill and
+Flarex overlay completely and report its actual Effect coverage. The
 global skill owns reusable workflow and examples; the checked-in overlay owns
 Flarex's installed-version facts, public contracts, trust boundaries,
 Cloudflare differences, and reviewer responsibility split. The code-quality
