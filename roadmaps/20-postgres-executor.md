@@ -82,7 +82,7 @@ The repository contains two internal prototype paths plus the accepted target:
 | --- | --- |
 | Durable Object prototype | `PartitionDO` remains bound and reachable as an internal/public fallback, with authoritative Durable Object SQLite document/index/OCC state. It is unshipped legacy architecture, not a target storage generation. |
 | Initial Postgres prototype (`legacy_v1`) | `createFlarexExecutor` currently installs only `createLegacyV1AppDataEngine`, backed by the existing `documents`, `indexes`, invoke-session, commit, outbox, freshness, subscription, and delivery tables. It supplies bounded prototype-regression evidence, not target authority or a supported migration obligation. |
-| Accepted FlarexDB target (`flarexdb_v1`) | Scope authority, scope clock including private current authorization-revocation storage and the inert retained floor, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, transaction-grant authority, the required private session core through activation/replay/reload/terminalization, private exact-snapshot point reads with typed dependencies, pure point-OCC validation, C04B2 verified logical input, corrected C04C1 private logical point planning, S08 native commit/change-feed storage with its bounded package-private reader, S09-A private committed-success result storage, S09-B fixed-kind private commit-wake storage and claim/settlement repository, O06's rollback-proven private point-commit transaction kernel, O07-A's private read-only committed-outcome resolver, O07-B's atomic point publication, C05-A's scalar-fenced finishing transition, C05-B's fresh-process finishing reconstruction/private publisher composition, O08-A's atomic exact-attempt replacement, O08-B1's bounded same-factory fresh-attempt handoff, O08-B2a's same-process runtime-neutral rerun composition, O08-B2b1/C06-A's exact-attempt durable claim admission, O08-CD0's transaction-decision provenance, O08-C's bounded known-settled SQL transaction retry, and O08-D's one-shot uncertainty recovery exist. O08-B2b2 user-code crash redispatch, C06-B endpoint/dispatch orchestration, outcome expiry, floor advancement/reset policy, target activation, and routing remain incomplete; attempt renewal and C04C2 are conditional on proven consumers. `v1` means the first intended shippable FlarexDB contract, not the first design attempt. |
+| Accepted FlarexDB target (`flarexdb_v1`) | Scope authority, scope clock including private current authorization-revocation storage and the inert retained floor, stable schema catalogs, immutable schema artifacts, physical index definitions, fenced build-state reads, preparation primitives, native authority projections, internal app-row revision/current storage, transaction-grant authority, the required private session core through activation/replay/reload/terminalization, private exact-snapshot point reads with typed dependencies, pure point-OCC validation, C04B2 verified logical input, corrected C04C1 private logical point planning, S08 native commit/change-feed storage with its bounded package-private reader, S09-A private committed-success result storage, S09-B fixed-kind private commit-wake storage and claim/settlement repository, O06's rollback-proven private point-commit transaction kernel, O07-A's private read-only committed-outcome resolver, O07-B's atomic point publication, C05-A's scalar-fenced finishing transition, C05-B's fresh-process finishing reconstruction/private publisher composition, O08-A's atomic exact-attempt replacement, O08-B1's bounded same-factory fresh-attempt handoff, O08-B2a's same-process runtime-neutral rerun composition, O08-B2b1/C06-A's exact-attempt durable claim admission, O08-B2b2a's private exact-selector safe-state redispatch composition, O08-CD0's transaction-decision provenance, O08-C's bounded known-settled SQL transaction retry, and O08-D's one-shot uncertainty recovery exist. O08-B2b2b/full O08-B2b2 discovery and production dispatch, C06-B endpoint/response orchestration, outcome expiry, floor advancement/reset policy, target activation, and routing remain incomplete; attempt renewal and C04C2 are conditional on proven consumers. `v1` means the first intended shippable FlarexDB contract, not the first design attempt. |
 
 The existence of replacement catalog tables does not mean the replacement data
 path is active. The executor must not route a request into `flarexdb_v1` until
@@ -202,7 +202,8 @@ concepts; none may silently become a competing schema authority.
    committed atomically in the replacement path.
 9. **Retry classes remain separate.** O08-A exact-attempt replacement, O08-B1
    bounded handoff and fresh-attempt proof, O08-B2a same-process OCC user-code
-   reruns, O08-B2b1/C06-A claim admission, O08-B2b2 crash-safe redispatch,
+   reruns, O08-B2b1/C06-A claim admission, O08-B2b2a private safe-state
+   redispatch, O08-B2b2b/full O08-B2b2 discovery and production dispatch,
    completed O08-CD0 transaction-
    decision provenance, O08-C known-settled retry of an authenticated
    logical/closed command, and O08-D uncertain-outcome lookup cannot be
@@ -418,11 +419,14 @@ epoch-provenance constraints, inert retained floor, and bounded contiguous
   same-factory continuation; C05-B supplies the fresh-process finishing entry
   and composes both paths with the same O07-B publisher. O08-B2b1/C06-A now
   owns exact-attempt durable claim creation, outcome-first acquisition/takeover,
-  universal claim-fenced admission, and C05-A consumption. C06-B delivery/replay
-  orchestration and O08-B2b2 user-code crash redispatch remain unimplemented; O08-A
-  exact-attempt replacement, O08-B1's bounded fresh-attempt handoff, O08-B2a
-  same-process composition, O08-CD0 provenance, O08-C known-settled SQL retry,
-  and O08-D bounded uncertainty recovery are complete. The O04 reader is not a routed
+  universal claim-fenced admission, and C05-A consumption. O08-B2b2a now
+  composes private exact-selector replay/expiry, busy/non-dispatchable closure,
+  one pristine execution, sealed finish-only, and existing finishing recovery.
+  C06-B delivery/replay orchestration and O08-B2b2b/full O08-B2b2 discovery and
+  production dispatch remain unimplemented; O08-A exact-attempt replacement,
+  O08-B1's bounded fresh-attempt handoff, O08-B2a same-process composition,
+  O08-CD0 provenance, O08-C known-settled SQL retry, and O08-D bounded
+  uncertainty recovery are complete. The O04 reader is not a routed
   syscall or continuing attempt authorization; C03 owns
   that first operational composition.
 - The current broad persistence interface and legacy invoke-session tables are
@@ -501,8 +505,9 @@ logical point planning is complete. S08's additive native commit/change-feed
   attempt replacement, O08-B1's bounded fresh-attempt handoff, and O08-B2a
   same-process composition, O08-CD0 transaction-decision provenance, and O08-C
   known-settled SQL retry, O08-D bounded uncertainty recovery, and integrated
-  O08-B2b1/C06-A durable claim admission are complete; O08-B2b2 user-code crash
-  redispatch and C06-B endpoint/dispatcher policy are deferred Wave 2
+  O08-B2b1/C06-A durable claim admission plus O08-B2b2a private safe-state
+  redispatch are complete; O08-B2b2b/full O08-B2b2 discovery and production
+  dispatch plus C06-B endpoint/response policy are deferred Wave 2
   prerequisites, while C04C2
   remains consumer-triggered and
   conditional. O03-B2b2

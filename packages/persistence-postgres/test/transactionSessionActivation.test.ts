@@ -628,6 +628,25 @@ describe("O03-B1 point-mutation session activation", () => {
       .toMatchObject({ claim_fence: POSTGRES_SIGNED_BIGINT_MAX.toString() });
   });
 
+  it("returns inert finishing evidence without minting or mutating a claim", async () => {
+    const current = await activateClaimScenario("claim_finishing");
+    await persistence.query(
+      `update fx_system_tx_session
+       set lifecycle = 'finishing', updated_at = clock_timestamp()
+       where session_id = $1`,
+      [current.anchor.sessionId],
+    );
+    const before = await executionClaimRow(current.anchor.sessionId);
+
+    await expect(runEffect(
+      executionClaimAcquisition("42000000-0000-4000-8000-000000008015")
+        .acquireEffect(selectorFromAnchor(current.anchor)),
+    )).resolves.toEqual({ kind: "finishing" });
+    await expect(executionClaimRow(current.anchor.sessionId)).resolves.toEqual(
+      before,
+    );
+  });
+
   it("resolves a committed outcome before touching an expired execution claim", async () => {
     const current = await activateClaimScenario("claim_outcome_first");
     await expireExecutionClaim(current.anchor.sessionId);

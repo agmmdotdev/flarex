@@ -26,6 +26,7 @@ import {
   fxControlSchemaVersions,
   fxSystemScopeClocks,
   fxSystemSnapshotLeases,
+  fxSystemTransactionExecutionClaims,
   fxSystemTransactionJournalLatestReceipts,
   fxSystemTransactionJournalPoints,
   fxSystemTransactionJournalWriteEvents,
@@ -65,6 +66,7 @@ export interface StoredCommitAuthorityEvidenceQueryV1 {
     | "authoritySizes"
     | "lease"
     | "root"
+    | "executionClaim"
     | "attemptChildren"
     | "schemaSizes"
     | "authorityPayload"
@@ -315,6 +317,15 @@ async function captureRows(
   );
   observeDrizzleQuery("root", rootQuery, options.observeQuery);
   const rootRows = await rootQuery;
+  const executionClaimRows = includeAttemptChildren
+    ? await selectExecutionClaimRows(
+        tx,
+        scopeUuid,
+        authority.sessionId,
+        authority.attemptFence,
+        options,
+      )
+    : Object.freeze([]);
   const attemptChildRows = includeAttemptChildren
     ? await selectAttemptChildExistenceRows(
         tx,
@@ -344,6 +355,7 @@ async function captureRows(
       sessionSizeRows: detachDriverRows(sessionSizeRows),
       leaseRows: detachDriverRows(leaseRows),
       rootRows: detachDriverRows(rootRows),
+      executionClaimRows: detachDriverRows(executionClaimRows),
       attemptChildRows: detachDriverRows(attemptChildRows),
       schemaSizeRows: detachDriverRows(schemaSizeRows),
       skipReason,
@@ -458,6 +470,7 @@ async function captureRows(
     sessionSizeRows: detachDriverRows(sessionSizeRows),
     leaseRows: detachDriverRows(leaseRows),
     rootRows: detachDriverRows(rootRows),
+    executionClaimRows: detachDriverRows(executionClaimRows),
     attemptChildRows: detachDriverRows(attemptChildRows),
     schemaSizeRows: detachDriverRows(schemaSizeRows),
     sessionPayloadRows: detachSessionPayloadRows(sessionPayloadRows),
@@ -473,6 +486,26 @@ async function captureRows(
       ),
     ),
   });
+}
+
+async function selectExecutionClaimRows(
+  tx: AppRowTransaction,
+  scopeUuid: ScopeUuidV1,
+  sessionId: TransactionSessionIdV1,
+  attemptFence: TransactionAttemptFence,
+  options: StoredCommitAuthorityEvidenceLoaderOptionsV1,
+) {
+  const query = tx
+    .select()
+    .from(fxSystemTransactionExecutionClaims)
+    .where(and(
+      eq(fxSystemTransactionExecutionClaims.scopeUuid, scopeUuid),
+      eq(fxSystemTransactionExecutionClaims.sessionId, sessionId),
+      eq(fxSystemTransactionExecutionClaims.attemptFence, attemptFence),
+    ))
+    .limit(2);
+  observeDrizzleQuery("executionClaim", query, options.observeQuery);
+  return await query;
 }
 
 async function selectAttemptChildExistenceRows(
@@ -695,6 +728,7 @@ function emptyCapture(
     sessionSizeRows: Object.freeze([]),
     leaseRows: Object.freeze([]),
     rootRows: Object.freeze([]),
+    executionClaimRows: Object.freeze([]),
     attemptChildRows: Object.freeze([]),
     schemaSizeRows: Object.freeze([]),
     sessionPayloadRows: Object.freeze([]),

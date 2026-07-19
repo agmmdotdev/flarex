@@ -84,6 +84,10 @@ import {
   type PointMutationExecutionScopeV1,
 } from "../../executor/src/pointMutationExecutionClaim";
 import {
+  createPointMutationExecutionClaimDispatchAcquisitionV1,
+  type PointMutationExecutionClaimDispatchAcquisitionV1,
+} from "../../executor/src/pointMutationExecutionClaimAcquisition";
+import {
   createStoredAttemptAuthenticationV1,
   PointCommitKnownSettledSqlRetryExhaustedV1Error,
   PointCommitUncertainOutcomeUnresolvedV1Error,
@@ -137,6 +141,7 @@ import {
   fxSystemScopeClocks,
 } from "../src/schema";
 import {
+  createPointMutationExecutionClaimAcquisitionV1,
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
@@ -144,6 +149,10 @@ import {
   type PointMutationSessionAttemptSelectorV1,
   type PointMutationSessionAuthorityResolutionPortsV1,
 } from "../src/transactionSessionActivation";
+import {
+  TransactionExecutionClaimFenceV1Schema,
+  TransactionExecutionClaimOwnerV1Schema,
+} from "../src/transactionExecutionClaim";
 import {
   LocatedReadCommittedTransactionFailureV1,
   RESOLVE_LOCATED_COMMITTED_POINT_OUTCOME_V1,
@@ -1015,7 +1024,15 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     if (stored.kind !== "loaded") {
       throw new Error("Expected stored O08-B1 evidence.");
     }
-    const authentication = createO08B1Authentication(current);
+    const replacementExecutionClaim = Object.freeze({
+      claimOwner: TransactionExecutionClaimOwnerV1Schema.make(
+        "91000000-0000-4000-8000-000000000008",
+      ),
+      claimFence: TransactionExecutionClaimFenceV1Schema.make(1n),
+    });
+    const authentication = createO08B1Authentication(current, {}, {
+      randomExecutionClaimOwner: () => replacementExecutionClaim.claimOwner,
+    });
     const authority = await runEffect(authentication.deriveAuthority(
       loadedAttempt,
       current.executionScope,
@@ -1080,6 +1097,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           executionCaptureClosed = true;
         },
       }).loadEffect({
+        kind: "occRerun",
         deploymentId: current.anchor.deploymentId,
         scopeId: current.anchor.scopeId,
         scopeUuid: finishingStored.evidence.scopeUuid,
@@ -1095,6 +1113,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           commitSeq: CommitSeqSchema.make(1n),
         }),
         schemaVersionId: current.schemaVersionId,
+        executionClaim: replacementExecutionClaim,
         previousSession: finishingStored.evidence.session,
       }),
     );
@@ -1114,6 +1133,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       createStoredOccExecutionEvidenceLoaderV1(
         resolutionPorts(persistence),
       ).loadEffect({
+        kind: "occRerun",
         deploymentId: current.anchor.deploymentId,
         scopeId: current.anchor.scopeId,
         scopeUuid: finishingStored.evidence.scopeUuid,
@@ -1129,6 +1149,7 @@ describe("C04A bounded stored-attempt evidence loader", () => {
           commitSeq: CommitSeqSchema.make(1n),
         }),
         schemaVersionId: current.schemaVersionId,
+        executionClaim: replacementExecutionClaim,
         previousSession: finishingStored.evidence.session,
       }),
     );
@@ -1800,6 +1821,301 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       points: "0",
       write_events: "0",
     });
+  });
+
+  it("redispatches one expired pristine initial attempt and then closes on replay or expiry", async () => {
+    const current = await c04b2Scenario("o08_b2b2a_initial_execute");
+    const seedRows = await persistence.query<{ creation_time_seed: number }>(
+      `select creation_time_seed
+       from fx_system_tx_journal
+       where session_id = $1 and attempt_fence = $2`,
+      [current.anchor.sessionId, current.anchor.attemptFence],
+    );
+    const persistedCreationTimeSeed = seedRows.rows[0]?.creation_time_seed;
+    if (persistedCreationTimeSeed === undefined) {
+      throw new Error("Expected the initial persisted creation-time seed.");
+    }
+    await expireExactExecutionClaim(current.anchor.sessionId);
+
+    const freshClaims = createPointMutationExecutionClaimVaultV1();
+    const contexts: Array<
+      Parameters<PointMutationOccRuntimeNeutralRunnerV1["run"]>[0]["context"]
+    > = [];
+    let executionCaptureClosed = false;
+    let runnerCalls = 0;
+    const authentication = createB2b2aRedispatchAuthentication(
+      current,
+      freshClaims,
+      Object.freeze({
+        run: (
+          input: Parameters<PointMutationOccRuntimeNeutralRunnerV1["run"]>[0],
+        ) => {
+          expect(executionCaptureClosed).toBe(true);
+          runnerCalls += 1;
+          contexts.push(input.context);
+          return Effect.succeed(Object.freeze({ ok: true }));
+        },
+      }),
+      {
+        randomOwner: () => "92000000-0000-4000-8000-000000000001",
+        afterExecutionEvidenceRepeatableRead: () => {
+          executionCaptureClosed = true;
+        },
+      },
+    );
+    const selector = selectorInputFromAnchor(current.anchor);
+
+    await expect(runEffect(
+      authentication.redispatchExactPointMutationAttempt(selector),
+    )).resolves.toMatchObject({
+      kind: "published",
+      token: { commitSeq: 1n },
+      successfulResult: { valueJson: { ok: true } },
+    });
+    expect(runnerCalls).toBe(1);
+    expect(contexts).toHaveLength(1);
+    expect(contexts[0]).toMatchObject({
+      executionId: "o08-b2b2a-1",
+      logScopeId: "o08-b2b2a-log-1",
+      attemptFence: 1n,
+      snapshotToken: { commitSeq: 0n },
+      executionTime: persistedCreationTimeSeed,
+      initialCreationTimeCursor: persistedCreationTimeSeed,
+    });
+    expect(contexts[0]?.randomSeed).toEqual(new Uint8Array(32).fill(1));
+
+    await expect(runEffect(
+      authentication.redispatchExactPointMutationAttempt(selector),
+    )).resolves.toMatchObject({
+      kind: "replayed",
+      token: { commitSeq: 1n },
+    });
+    expect(runnerCalls).toBe(1);
+
+    await persistence.query(
+      `update fx_system_idempotency
+       set result_state = 'expired',
+         result_value_codec_version = null,
+         result_semantic_bytes = null,
+         result_bytes = null,
+         result_sha256 = null,
+         result_expired_at = clock_timestamp()
+       where scope_uuid = $1`,
+      [projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid],
+    );
+    await expect(runEffect(
+      authentication.redispatchExactPointMutationAttempt(selector),
+    )).resolves.toMatchObject({
+      kind: "expired",
+      token: { commitSeq: 1n },
+    });
+    expect(runnerCalls).toBe(1);
+    expect(await o06DurableState(
+      projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
+    )).toEqual({
+      revisions: "0",
+      current_rows: "0",
+      commit_headers: "1",
+      commit_changes: "0",
+      outcomes: "1",
+      wakes: "1",
+      last_commit_seq: "1",
+      last_outbox_seq: "1",
+    });
+  });
+
+  it("keeps live, dirty-open, and failed crash states inert", async () => {
+    let runnerCalls = 0;
+    const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
+      run: () => {
+        runnerCalls += 1;
+        return Effect.succeed(Object.freeze({ ok: true }));
+      },
+    });
+
+    const live = await c04b2Scenario("o08_b2b2a_busy");
+    const liveAuthentication = createB2b2aRedispatchAuthentication(
+      live,
+      createPointMutationExecutionClaimVaultV1(),
+      runner,
+    );
+    await expect(runEffect(
+      liveAuthentication.redispatchExactPointMutationAttempt(
+        selectorInputFromAnchor(live.anchor),
+      ),
+    )).resolves.toEqual({ kind: "busy" });
+
+    for (const state of ["dirtyOpen", "failedRoot"] as const) {
+      const current = await c04b2Scenario(`o08_b2b2a_${state}`);
+      await persistence.query(
+        state === "dirtyOpen"
+          ? `update fx_system_tx_journal
+             set last_syscall_sequence = 1, updated_at = clock_timestamp()
+             where session_id = $1`
+          : `update fx_system_tx_journal
+             set state = 'failed', failure_dimension = 'readDocuments',
+               updated_at = clock_timestamp()
+             where session_id = $1`,
+        [current.anchor.sessionId],
+      );
+      await expireExactExecutionClaim(current.anchor.sessionId);
+      const before = await executionClaimState(current.anchor.sessionId);
+      const authentication = createB2b2aRedispatchAuthentication(
+        current,
+        createPointMutationExecutionClaimVaultV1(),
+        runner,
+      );
+      await expect(runEffect(
+        authentication.redispatchExactPointMutationAttempt(
+          selectorInputFromAnchor(current.anchor),
+        ),
+      )).resolves.toEqual({ kind: "nonDispatchable", reason: state });
+      await expect(executionClaimState(current.anchor.sessionId)).resolves
+        .toEqual(before);
+    }
+    expect(runnerCalls).toBe(0);
+  });
+
+  it("finishes sealed running and durable finishing attempts without rerunning user code", async () => {
+    let runnerCalls = 0;
+    const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
+      run: () => {
+        runnerCalls += 1;
+        return Effect.succeed(Object.freeze({ ok: true }));
+      },
+    });
+
+    const sealed = await c04b2Scenario("o08_b2b2a_finish_only");
+    await seal(sealed);
+    await expireExactExecutionClaim(sealed.anchor.sessionId);
+    const sealedAuthentication = createB2b2aRedispatchAuthentication(
+      sealed,
+      createPointMutationExecutionClaimVaultV1(),
+      runner,
+      { randomOwner: () => "92000000-0000-4000-8000-000000000002" },
+    );
+    await expect(runEffect(
+      sealedAuthentication.redispatchExactPointMutationAttempt(
+        selectorInputFromAnchor(sealed.anchor),
+      ),
+    )).resolves.toMatchObject({
+      kind: "published",
+      token: { commitSeq: 1n },
+    });
+
+    const finishing = await prepareO07BRunningScenario(
+      "o08_b2b2a_finishing",
+    );
+    await runEffect(
+      finishing.authentication.enterPointCommitFinishing(
+        finishing.runningPlan,
+      ),
+    );
+    const finishingAuthentication = createB2b2aRedispatchAuthentication(
+      finishing.current,
+      createPointMutationExecutionClaimVaultV1(),
+      runner,
+    );
+    await expect(runEffect(
+      finishingAuthentication.redispatchExactPointMutationAttempt(
+        selectorInputFromAnchor(finishing.current.anchor),
+      ),
+    )).resolves.toMatchObject({
+      kind: "published",
+      token: { commitSeq: 1n },
+    });
+
+    expect(runnerCalls).toBe(0);
+    for (const current of [sealed, finishing.current]) {
+      expect(
+        await o07bTerminalState(
+          projectScopeIdUuidV1(current.anchor.scopeId).scopeUuid,
+          current.anchor.sessionId,
+        ),
+      ).toEqual({
+        lifecycle: "committed",
+        leases: "0",
+        journals: "0",
+        receipts: "0",
+        points: "0",
+        write_events: "0",
+      });
+      await expect(executionClaimState(current.anchor.sessionId)).resolves
+        .toBeNull();
+    }
+  });
+
+  it("reacquires the outcome once when finishing recovery crosses a concurrent commit", async () => {
+    const finishing = await prepareO07BRunningScenario(
+      "o08_b2b2a_finishing_race",
+    );
+    await runEffect(
+      finishing.authentication.enterPointCommitFinishing(
+        finishing.runningPlan,
+      ),
+    );
+    const claims = createPointMutationExecutionClaimVaultV1();
+    const baseAcquisition = createPointMutationExecutionClaimDispatchAcquisitionV1(
+      createPointMutationExecutionClaimAcquisitionV1(
+        resolutionPorts(persistence),
+        { durationMilliseconds: 60_000 },
+      ),
+      claims.issuer,
+    );
+    const competingRecovery = createO07BAuthentication(finishing.current);
+    const callerSelector = {
+      ...selectorInputFromAnchor(finishing.current.anchor),
+    };
+    const acquisition: PointMutationExecutionClaimDispatchAcquisitionV1 =
+      Object.freeze({
+        acquireEffect: Effect.fn(
+          "TestB2b2a.finishRecoveryRaceAcquisition",
+          )((input: unknown) =>
+            baseAcquisition.acquireEffect(input).pipe(
+              Effect.tap((result) =>
+                result.kind === "finishing"
+                  ? Effect.gen(function* () {
+                      callerSelector.sessionId =
+                        "42000000-0000-4000-8000-000000008099";
+                      yield* competingRecovery.resumePointCommit(input).pipe(
+                        Effect.orDie,
+                      );
+                    })
+                  : Effect.void,
+              ),
+            )),
+      });
+    let runnerCalls = 0;
+    const authentication = createB2b2aRedispatchAuthentication(
+      finishing.current,
+      claims,
+      Object.freeze({
+        run: () => {
+          runnerCalls += 1;
+          return Effect.succeed(Object.freeze({ ok: true }));
+        },
+      }),
+      { acquisition },
+    );
+
+    await expect(runEffect(
+      authentication.redispatchExactPointMutationAttempt(
+        callerSelector,
+      ),
+    )).resolves.toMatchObject({
+      kind: "replayed",
+      token: { commitSeq: 1n },
+    });
+    expect(callerSelector.sessionId).toBe(
+      "42000000-0000-4000-8000-000000008099",
+    );
+    expect(runnerCalls).toBe(0);
+    expect(
+      await o07bTerminalState(
+        finishing.scopeUuid,
+        finishing.current.anchor.sessionId,
+      ),
+    ).toMatchObject({ lifecycle: "committed", journals: "0", leases: "0" });
   });
 
   it("rechecks attempt liveness after asynchronous context entropy allocation", async () => {
@@ -4226,6 +4542,82 @@ describe("C04A bounded stored-attempt evidence loader", () => {
     }, current.executionClaims);
   }
 
+  function createB2b2aRedispatchAuthentication(
+    current: Awaited<ReturnType<typeof c04b2Scenario>>,
+    executionClaims: PointMutationExecutionClaimVaultV1,
+    runner: PointMutationOccRuntimeNeutralRunnerV1,
+    options: Readonly<{
+      readonly randomOwner?: () => string;
+      readonly contextFactory?: PointMutationOccExecutionContextFactoryV1;
+      readonly afterExecutionEvidenceRepeatableRead?: () => void;
+      readonly pointCommit?: PointCommitTransactionProofOptionsV1;
+      readonly acquisition?: PointMutationExecutionClaimDispatchAcquisitionV1;
+    }> = {},
+  ) {
+    const ports = resolutionPorts(persistence);
+    let executionSequence = 0;
+    const terminalization = createPointMutationSessionAttemptTerminalizationV1(
+      createPointMutationSessionAttemptTerminalizationPersistenceV1(ports),
+      executionClaims.admission,
+    );
+    return createStoredAttemptAuthenticationV1(current.loader, {
+      evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
+      transactionGrantVerifier: current.verifier,
+      functionMetadata: {
+        load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+      },
+      pointCommit: createPointCommitPublisherPortV1(
+        ports,
+        options.pointCommit,
+      ),
+      pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
+      pointMutationAttemptReplacement:
+        createPointMutationAttemptReplacementPortV1(ports, {
+          leaseDurationMilliseconds: 60_000,
+        }),
+      pointMutationOccRerun: {
+        attemptLoading: current.loading,
+        executionEvidence: createStoredOccExecutionEvidenceLoaderV1(ports, {
+          ...(options.afterExecutionEvidenceRepeatableRead === undefined
+            ? {}
+            : {
+                afterRepeatableRead:
+                  options.afterExecutionEvidenceRepeatableRead,
+              }),
+        }),
+        journal: createPointMutationJournalV1(
+          current.store,
+          executionClaims.admission,
+        ),
+        terminalization,
+        contextFactory: options.contextFactory ?? {
+          make: () =>
+            Effect.sync(() => {
+              executionSequence += 1;
+              return Object.freeze({
+                executionId: `o08-b2b2a-${executionSequence}`,
+                logScopeId: `o08-b2b2a-log-${executionSequence}`,
+                randomSeed: new Uint8Array(32).fill(executionSequence),
+              });
+            }),
+        },
+        runner,
+      },
+      pointMutationRedispatch: {
+        acquisition: options.acquisition ??
+          createPointMutationExecutionClaimDispatchAcquisitionV1(
+            createPointMutationExecutionClaimAcquisitionV1(ports, {
+              durationMilliseconds: 60_000,
+              ...(options.randomOwner === undefined
+                ? {}
+                : { randomOwner: options.randomOwner }),
+            }),
+            executionClaims.issuer,
+          ),
+      },
+    }, executionClaims);
+  }
+
   async function prepareO08B1Conflict(
     label: string,
     replacementOptions: Omit<
@@ -4484,6 +4876,31 @@ describe("C04A bounded stored-attempt evidence loader", () => {
       [scopeUuid, sessionId],
     );
     return state.rows[0];
+  }
+
+  async function expireExactExecutionClaim(sessionId: string): Promise<void> {
+    await persistence.query(
+      `update fx_system_tx_execution_claim
+       set claimed_at = clock_timestamp() - interval '2 minutes',
+         claim_expires_at = clock_timestamp() - interval '1 minute'
+       where session_id = $1`,
+      [sessionId],
+    );
+  }
+
+  async function executionClaimState(sessionId: string) {
+    const result = await persistence.query<{
+      claim_owner: string;
+      claim_fence: string;
+      claimed_at: Date;
+      claim_expires_at: Date;
+    }>(
+      `select claim_owner, claim_fence::text, claimed_at, claim_expires_at
+       from fx_system_tx_execution_claim
+       where session_id = $1`,
+      [sessionId],
+    );
+    return result.rows[0] ?? null;
   }
 
   async function o06DurableState(scopeUuid: string) {
@@ -4802,6 +5219,22 @@ function selectorFromAnchor(
     scopeId: anchor.scopeId,
     sessionId: anchor.sessionId,
     attemptFence: anchor.attemptFence,
+  });
+}
+
+function selectorInputFromAnchor(
+  anchor: PointMutationSessionAnchorV1,
+): Readonly<{
+  readonly deploymentId: string;
+  readonly scopeId: string;
+  readonly sessionId: string;
+  readonly attemptFence: string;
+}> {
+  return Object.freeze({
+    deploymentId: anchor.deploymentId,
+    scopeId: anchor.scopeId,
+    sessionId: anchor.sessionId,
+    attemptFence: anchor.attemptFence.toString(),
   });
 }
 

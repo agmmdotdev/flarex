@@ -64,6 +64,9 @@ import {
   type PointMutationExecutionScopeV1,
 } from "../../executor/src/pointMutationExecutionClaim";
 import {
+  createPointMutationExecutionClaimDispatchAcquisitionV1,
+} from "../../executor/src/pointMutationExecutionClaimAcquisition";
+import {
   createStoredAttemptAuthenticationV1,
   InvalidAuthorizedPointMutationOccRerunV1Error,
   PointCommitKnownSettledSqlRetryExhaustedV1Error,
@@ -128,6 +131,7 @@ import {
 } from "../src/storedAttemptEvidence";
 import {
   createLocatedPointMutationSessionActivationTargetV1,
+  createPointMutationExecutionClaimAcquisitionV1,
   createPointMutationSessionActivationPersistenceV1,
   createPointMutationSessionAttemptLoadPersistenceV1,
   createPointMutationSessionAttemptTerminalizationPersistenceV1,
@@ -317,6 +321,7 @@ describePostgres("real Postgres stored-attempt authority", () => {
         "session",
         "lease",
         "root",
+        "executionClaim",
         "points",
       ]);
       const plans = await lookupPlans(persistence, observedQueries);
@@ -962,6 +967,147 @@ describePostgres("real Postgres stored-attempt authority", () => {
           },
         ],
       });
+    });
+  }, 120_000);
+
+  it("serializes fresh-process pristine redispatch and publishes exactly once", async () => {
+    await withTemporaryPostgresPersistence(async (persistence) => {
+      const current = await o08B1Scenario(persistence, "b2b2a_redispatch");
+      await persistence.query(
+        `update fx_system_tx_execution_claim
+         set claimed_at = clock_timestamp() - interval '2 minutes',
+           claim_expires_at = clock_timestamp() - interval '1 minute'
+         where session_id = $1`,
+        [current.anchor.sessionId],
+      );
+
+      const runnerEntered = deferredSignal();
+      const releaseRunner = deferredSignal();
+      const observedQueries = new Map<
+        StoredCommitAuthorityEvidenceQueryV1["name"],
+        StoredCommitAuthorityEvidenceQueryV1
+      >();
+      let repeatableReadClosed = false;
+      let runnerCalls = 0;
+      const runner: PointMutationOccRuntimeNeutralRunnerV1 = Object.freeze({
+        run: () =>
+          Effect.tryPromise({
+            try: async () => {
+              runnerCalls += 1;
+              expect(repeatableReadClosed).toBe(true);
+              await assertNoOpenExecutionEvidenceTransaction(persistence);
+              runnerEntered.resolve();
+              await releaseRunner.promise;
+              return Object.freeze({ ok: true });
+            },
+            catch: (cause) => new PointMutationOccUserCodeV1Error({ cause }),
+          }),
+      });
+      const first = createB2b2aRedispatchAuthentication(
+        persistence,
+        current,
+        createPointMutationExecutionClaimVaultV1(),
+        runner,
+        () => "95000000-0000-4000-8000-000000000001",
+        {
+          afterRepeatableRead: () => {
+            repeatableReadClosed = true;
+          },
+          observeQuery: (query) => observedQueries.set(query.name, query),
+        },
+      );
+      const second = createB2b2aRedispatchAuthentication(
+        persistence,
+        current,
+        createPointMutationExecutionClaimVaultV1(),
+        runner,
+        () => "95000000-0000-4000-8000-000000000002",
+      );
+      const selector = selectorWire(current.anchor);
+      const firstPublication = runEffect(
+        first.redispatchExactPointMutationAttempt(selector),
+      );
+      await runnerEntered.promise;
+
+      await expect(runEffect(
+        second.redispatchExactPointMutationAttempt(selector),
+      )).resolves.toEqual({ kind: "busy" });
+      await expect(prepareSeal(current.store, current.attempt)).rejects
+        .toMatchObject({
+          _tag: "SessionJournalAttemptUnavailableV1Error",
+          issue: { reason: "executionClaimUnavailable" },
+        });
+
+      releaseRunner.resolve();
+      await expect(firstPublication).resolves.toMatchObject({
+        kind: "published",
+        token: { commitSeq: 1n },
+        successfulResult: { valueJson: { ok: true } },
+      });
+      await expect(runEffect(
+        second.redispatchExactPointMutationAttempt(selector),
+      )).resolves.toMatchObject({
+        kind: "replayed",
+        token: { commitSeq: 1n },
+      });
+      expect(runnerCalls).toBe(1);
+
+      const claimQuery = requireCommitObservedQuery(
+        observedQueries,
+        "executionClaim",
+      );
+      expect(
+        await explainCommitAuthorityObserved(persistence, claimQuery),
+      ).toContain("fx_system_tx_execution_claim_pk");
+      await expect(persistence.query<{
+        lifecycle: string;
+        claims: string;
+        leases: string;
+        journals: string;
+        headers: string;
+        changes: string;
+        outcomes: string;
+        wakes: string;
+        last_commit_seq: string;
+        last_outbox_seq: string;
+      }>(
+        `select session.lifecycle,
+          (select count(*)::text from fx_system_tx_execution_claim claim
+           where claim.scope_uuid = session.scope_uuid
+             and claim.session_id = session.session_id) as claims,
+          (select count(*)::text from fx_system_snapshot_lease lease
+           where lease.scope_uuid = session.scope_uuid
+             and lease.session_id = session.session_id) as leases,
+          (select count(*)::text from fx_system_tx_journal journal
+           where journal.scope_uuid = session.scope_uuid
+             and journal.session_id = session.session_id) as journals,
+          (select count(*)::text from fx_system_commit header
+           where header.scope_uuid = session.scope_uuid) as headers,
+          (select count(*)::text from fx_system_commit_app_row_change change
+           where change.scope_uuid = session.scope_uuid) as changes,
+          (select count(*)::text from fx_system_idempotency outcome
+           where outcome.scope_uuid = session.scope_uuid) as outcomes,
+          (select count(*)::text from fx_system_outbox wake
+           where wake.scope_uuid = session.scope_uuid) as wakes,
+          clock.last_commit_seq::text,
+          clock.last_outbox_seq::text
+         from fx_system_tx_session session
+         join fx_system_scope_clock clock
+           on clock.scope_uuid = session.scope_uuid
+         where session.session_id = $1`,
+        [current.anchor.sessionId],
+      )).resolves.toEqual({ rows: [{
+        lifecycle: "committed",
+        claims: "0",
+        leases: "0",
+        journals: "0",
+        headers: "1",
+        changes: "0",
+        outcomes: "1",
+        wakes: "1",
+        last_commit_seq: "1",
+        last_outbox_seq: "1",
+      }] });
     });
   }, 120_000);
 
@@ -2604,6 +2750,67 @@ function createO08B2aAuthentication(
   }, current.executionClaims);
 }
 
+function createB2b2aRedispatchAuthentication(
+  persistence: PostgresFlarexPersistence,
+  current: Awaited<ReturnType<typeof o08B1Scenario>>,
+  executionClaims: PointMutationExecutionClaimVaultV1,
+  runner: PointMutationOccRuntimeNeutralRunnerV1,
+  randomOwner: () => string,
+  executionEvidenceOptions: StoredCommitAuthorityEvidenceLoaderOptionsV1 = {},
+) {
+  const ports = resolutionPorts(persistence);
+  let executionSequence = 0;
+  return createStoredAttemptAuthenticationV1(current.loader, {
+    evidenceLoader: createStoredCommitAuthorityEvidenceLoaderV1(ports),
+    transactionGrantVerifier: current.verifier,
+    functionMetadata: {
+      load: () => Effect.succeed(structuredClone(current.functionSnapshot)),
+    },
+    pointCommit: createPointCommitPublisherPortV1(ports),
+    pointCommitFinishing: createPointCommitFinishingTransitionPortV1(ports),
+    pointMutationAttemptReplacement:
+      createPointMutationAttemptReplacementPortV1(ports, {
+        leaseDurationMilliseconds: 60_000,
+      }),
+    pointMutationOccRerun: {
+      attemptLoading: current.loading,
+      executionEvidence: createStoredOccExecutionEvidenceLoaderV1(
+        ports,
+        executionEvidenceOptions,
+      ),
+      journal: createPointMutationJournalV1(
+        current.store,
+        executionClaims.admission,
+      ),
+      terminalization: createPointMutationSessionAttemptTerminalizationV1(
+        createPointMutationSessionAttemptTerminalizationPersistenceV1(ports),
+        executionClaims.admission,
+      ),
+      contextFactory: {
+        make: () =>
+          Effect.sync(() => {
+            executionSequence += 1;
+            return Object.freeze({
+              executionId: `o08-b2b2a-postgres-${executionSequence}`,
+              logScopeId: `o08-b2b2a-postgres-log-${executionSequence}`,
+              randomSeed: new Uint8Array(32).fill(executionSequence),
+            });
+          }),
+      },
+      runner,
+    },
+    pointMutationRedispatch: {
+      acquisition: createPointMutationExecutionClaimDispatchAcquisitionV1(
+        createPointMutationExecutionClaimAcquisitionV1(ports, {
+          durationMilliseconds: 60_000,
+          randomOwner,
+        }),
+        executionClaims.issuer,
+      ),
+    },
+  }, executionClaims);
+}
+
 async function preparePostgresB2aConflict(
   persistence: PostgresFlarexPersistence,
   current: Awaited<ReturnType<typeof o08B1Scenario>>,
@@ -2682,6 +2889,7 @@ async function assertNoOpenExecutionEvidenceTransaction(
         fx_system_tx_session,
         fx_system_snapshot_lease,
         fx_system_tx_journal,
+        fx_system_tx_execution_claim,
         fx_system_tx_journal_latest_receipt,
         fx_system_tx_journal_point,
         fx_system_tx_journal_write_event,

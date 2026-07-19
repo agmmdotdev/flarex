@@ -55,11 +55,17 @@ import {
 } from "@flarex/persistence-postgres/point-commit-transaction";
 import type {
   StoredOccExecutionEvidenceAuthorityV1,
+  StoredOccExecutionEvidenceV1,
   StoredOccExecutionEvidenceLoaderV1,
   StoredOccExecutionEvidenceLoadResultV1,
   StoredOccExecutionEvidencePersistenceV1Error,
 } from "@flarex/persistence-postgres/stored-occ-execution";
-import type { PointMutationSessionAttemptSelectorV1 } from "@flarex/persistence-postgres/transaction-session-activation";
+import {
+  PointMutationExecutionClaimAcquisitionInputV1Error,
+  type PointMutationExecutionClaimAcquisitionV1Error,
+  type PointMutationSessionAttemptSelectorV1,
+} from
+  "@flarex/persistence-postgres/transaction-session-activation";
 import type { TransactionExecutionClaimPinV1 } from "@flarex/persistence-postgres/transaction-execution-claim";
 
 import {
@@ -119,6 +125,7 @@ import {
   ReplacementScopeIdV1Schema,
   SnapshotTokenSchema,
   StorageGenerationFenceSchema,
+  projectScopeIdUuidV1,
   type FlarexDbV1StorageGeneration,
   type ReplacementScopeIdV1,
   type ScopeUuidV1,
@@ -195,9 +202,13 @@ import type { TransactionGrantVerifierV1 } from "./transactionGrant";
 import {
   InvalidPointMutationExecutionClaimV1Error,
   type PointMutationExecutionClaimV1,
+  type PointMutationExecutionClaimStateV1,
   type PointMutationExecutionScopeV1,
   type PointMutationExecutionClaimVaultV1,
 } from "./pointMutationExecutionClaim";
+import type {
+  PointMutationExecutionClaimDispatchAcquisitionV1,
+} from "./pointMutationExecutionClaimAcquisition";
 import {
   findTransactionGrantVerificationKernelV1,
   type TransactionGrantVerificationKernelV1,
@@ -529,10 +540,12 @@ export class PointMutationOccExecutionNotRunnableV1Error extends Data.TaggedErro
 export class PointMutationOccExecutionAuthorityMismatchV1Error extends Data.TaggedError(
   "PointMutationOccExecutionAuthorityMismatchV1Error",
 )<{
-  readonly reason: Extract<
-    StoredOccExecutionEvidenceLoadResultV1,
-    { readonly kind: "authorityMismatch" }
-  >["reason"];
+  readonly reason:
+    | Extract<
+        StoredOccExecutionEvidenceLoadResultV1,
+        { readonly kind: "authorityMismatch" }
+      >["reason"]
+    | PointMutationOccRerunFreshAttemptMismatchV1;
 }> {}
 
 export class PointMutationOccExecutionAuthorityCorruptionV1Error extends Data.TaggedError(
@@ -544,6 +557,7 @@ export class PointMutationOccExecutionAuthorityCorruptionV1Error extends Data.Ta
         { readonly kind: "corrupt" }
       >["reason"]
     | "committedOutcomeMissing"
+    | "loadedAttemptStateUnavailable"
     | "requestEvidenceInvalid"
     | "runtimePinInvalid";
   readonly cause?: unknown;
@@ -1170,6 +1184,13 @@ export interface StoredPointMutationOccRerunExecutionConfigV1
   }>;
 }
 
+export interface StoredPointMutationCrashRedispatchConfigV1
+  extends StoredPointMutationOccRerunExecutionConfigV1 {
+  readonly pointMutationRedispatch: Readonly<{
+    readonly acquisition: PointMutationExecutionClaimDispatchAcquisitionV1;
+  }>;
+}
+
 export type PointCommitRollbackV1Error =
   | InvalidPreparedPointCommitV1Error
   | PointCommitRollbackProofV1Error;
@@ -1339,8 +1360,7 @@ export interface StoredPointMutationOccRerunAuthorizationV1
   ) => AuthorizedPointMutationOccRerunInspectionV1;
 }
 
-export type PointMutationOccRerunExecutionV1Error =
-  | InvalidAuthorizedPointMutationOccRerunV1Error
+type PointMutationAuthenticatedAttemptExecutionV1Error =
   | PointMutationOccExecutionEvidencePersistenceV1Error
   | PointMutationOccExecutionNotRunnableV1Error
   | PointMutationOccExecutionAuthorityMismatchV1Error
@@ -1357,6 +1377,11 @@ export type PointMutationOccRerunExecutionV1Error =
   | PointCommitPlanningV1Error
   | PointCommitFinishingExecutionV1Error
   | PointCommitRecoveredPublicationExecutionV1Error
+  | PointCommitOutcomeResolutionV1Error;
+
+export type PointMutationOccRerunExecutionV1Error =
+  | InvalidAuthorizedPointMutationOccRerunV1Error
+  | PointMutationAuthenticatedAttemptExecutionV1Error
   | PointMutationOccRerunAuthorizationV1Error;
 
 export interface StoredPointMutationOccRerunExecutionV1
@@ -1366,6 +1391,30 @@ export interface StoredPointMutationOccRerunExecutionV1
   ) => Effect.Effect<
     PointCommitPublicationResultV1,
     PointMutationOccRerunExecutionV1Error,
+    never
+  >;
+}
+
+export type PointMutationCrashRedispatchResultV1 =
+  | PointCommitPublicationResultV1
+  | Readonly<{ readonly kind: "busy" }>
+  | Readonly<{
+      readonly kind: "nonDispatchable";
+      readonly reason: "dirtyOpen" | "failedRoot";
+    }>;
+
+export type PointMutationCrashRedispatchV1Error =
+  | PointMutationExecutionClaimAcquisitionV1Error
+  | InvalidPointMutationExecutionClaimV1Error
+  | PointMutationAuthenticatedAttemptExecutionV1Error;
+
+export interface StoredPointMutationCrashRedispatchV1
+  extends StoredPointMutationOccRerunExecutionV1 {
+  readonly redispatchExactPointMutationAttempt: (
+    selector: unknown,
+  ) => Effect.Effect<
+    PointMutationCrashRedispatchResultV1,
+    PointMutationCrashRedispatchV1Error,
     never
   >;
 }
@@ -1451,6 +1500,13 @@ function isPointMutationOccRuntimeNeutralRunnerV1(
   return isNonArrayRecord(value) && typeof value.run === "function";
 }
 
+function isPointMutationExecutionClaimDispatchAcquisitionV1(
+  value: unknown,
+): value is PointMutationExecutionClaimDispatchAcquisitionV1 {
+  return isNonArrayRecord(value) &&
+    typeof Reflect.get(value, "acquireEffect") === "function";
+}
+
 function isStoredAttemptFinishingEvidenceLoaderPortV1(
   value: StoredAttemptEvidenceLoaderPortV1,
 ): value is StoredAttemptFinishingEvidenceLoaderPortV1 {
@@ -1462,6 +1518,11 @@ export function createStoredAttemptAuthenticationV1(
   commitAuthority: undefined,
   executionClaims: PointMutationExecutionClaimVaultV1,
 ): StoredAttemptAuthenticationV1;
+export function createStoredAttemptAuthenticationV1(
+  loader: StoredAttemptFinishingEvidenceLoaderPortV1,
+  commitAuthority: StoredPointMutationCrashRedispatchConfigV1,
+  executionClaims: PointMutationExecutionClaimVaultV1,
+): StoredPointMutationCrashRedispatchV1;
 export function createStoredAttemptAuthenticationV1(
   loader: StoredAttemptFinishingEvidenceLoaderPortV1,
   commitAuthority: StoredPointMutationOccRerunExecutionConfigV1,
@@ -1513,7 +1574,8 @@ export function createStoredAttemptAuthenticationV1(
     | StoredPointCommitExecutorConfigV1
     | StoredPointMutationAttemptReplacementConfigV1
     | StoredPointMutationOccRerunAuthorizationConfigV1
-    | StoredPointMutationOccRerunExecutionConfigV1,
+    | StoredPointMutationOccRerunExecutionConfigV1
+    | StoredPointMutationCrashRedispatchConfigV1,
   executionClaims: PointMutationExecutionClaimVaultV1,
 ):
   | StoredAttemptAuthenticationV1
@@ -1524,7 +1586,8 @@ export function createStoredAttemptAuthenticationV1(
   | StoredPointCommitExecutorV1
   | StoredPointMutationAttemptReplacementV1
   | StoredPointMutationOccRerunAuthorizationV1
-  | StoredPointMutationOccRerunExecutionV1 {
+  | StoredPointMutationOccRerunExecutionV1
+  | StoredPointMutationCrashRedispatchV1 {
   const authorityStates = new WeakMap<
     object,
     Readonly<{
@@ -1700,8 +1763,24 @@ export function createStoredAttemptAuthenticationV1(
   const pointMutationOccRunner = isPointMutationOccRuntimeNeutralRunnerV1(
     pointMutationOccRunnerCandidate,
   )
-    ? pointMutationOccRunnerCandidate
+      ? pointMutationOccRunnerCandidate
+      : undefined;
+  const pointMutationRedispatchCandidate: unknown =
+    commitAuthority !== undefined &&
+      "pointMutationRedispatch" in commitAuthority
+      ? commitAuthority.pointMutationRedispatch
+      : undefined;
+  const pointMutationRedispatchAcquisitionCandidate = isNonArrayRecord(
+      pointMutationRedispatchCandidate,
+    )
+    ? Reflect.get(pointMutationRedispatchCandidate, "acquisition")
     : undefined;
+  const pointMutationRedispatchAcquisition =
+    isPointMutationExecutionClaimDispatchAcquisitionV1(
+        pointMutationRedispatchAcquisitionCandidate,
+      )
+      ? pointMutationRedispatchAcquisitionCandidate
+      : undefined;
 
   const finishingEvidenceLoader =
     isStoredAttemptFinishingEvidenceLoaderPortV1(loader) ? loader : undefined;
@@ -1773,6 +1852,26 @@ export function createStoredAttemptAuthenticationV1(
       },
     );
 
+  const loadAndVerifyStoredEvidence = Effect.fn(
+    "StoredAttemptAuthentication.loadAndVerifyStoredEvidence",
+  )(function* (authorityCapability: Readonly<{
+    readonly authority: StoredAttemptAuthorityStateV1;
+    readonly executionScope: PointMutationExecutionScopeV1;
+  }>) {
+    const result = yield* loader.loadEffect(
+      captureAuthorityPort(authorityCapability.authority),
+    ).pipe(Effect.mapError((error) =>
+      new StoredAttemptPersistenceV1Error({ cause: error.cause })
+    ));
+    const evidence = yield* requireLoadedEvidenceEffect(result);
+    const verified = yield* verifyCanonicalStoredEvidenceEffect(
+      authorityCapability.authority,
+      evidence,
+      authorityCapability.executionScope,
+    );
+    return Object.freeze({ evidence, verified });
+  });
+
   const authenticate: StoredAttemptAuthenticationV1["authenticate"] =
     Effect.fn("StoredAttemptAuthentication.authenticate")(
       function* (authority, input) {
@@ -1789,16 +1888,8 @@ export function createStoredAttemptAuthenticationV1(
             }),
           );
         }
-        const result = yield* loader.loadEffect(
-          captureAuthorityPort(authorityCapability.authority),
-        ).pipe(Effect.mapError((error) =>
-          new StoredAttemptPersistenceV1Error({ cause: error.cause })
-        ));
-        const evidence = yield* requireLoadedEvidenceEffect(result);
-        const verified = yield* verifyCanonicalStoredEvidenceEffect(
-          authorityCapability.authority,
-          evidence,
-          authorityCapability.executionScope,
+        const { evidence, verified } = yield* loadAndVerifyStoredEvidence(
+          authorityCapability,
         );
         const envelopeMismatch = yield* compareCallerEnvelopeWithVerifiedState(
           envelope,
@@ -2335,28 +2426,48 @@ export function createStoredAttemptAuthenticationV1(
   if (finishingEvidenceLoader === undefined) return finishingTransition;
   if (pointCommitOutcomeResolution === undefined) return finishingTransition;
 
+  const resolvePointCommitOutcomeFromStoredSession = Effect.fn(
+    "StoredAttemptAuthentication.resolvePointCommitOutcomeFromStoredSession",
+  )(function* (
+    deploymentId: TransactionGrantDeploymentIdV1,
+    scopeUuid: ScopeUuidV1,
+    session: Pick<
+      StoredCommitAuthoritySessionEvidencePortV1,
+      | "requestKey"
+      | "identityAccessPolicySha256"
+      | "functionPath"
+      | "requestSha256"
+    >,
+  ) {
+    return yield* pointCommitOutcomeResolution[
+      RESOLVE_POINT_COMMIT_OUTCOME_V1
+    ](
+      deploymentId,
+      Object.freeze({
+        scopeUuid,
+        requestKey: TransactionRequestKeyV1Schema.make(session.requestKey),
+        expectedIdentityAccessPolicySha256:
+          TransactionIdentityAccessPolicySha256V1Schema.make(
+            copyBytes(session.identityAccessPolicySha256),
+          ),
+        expectedFunctionPath: TransactionFunctionPathV1Schema.make(
+          session.functionPath,
+        ),
+        expectedRequestSha256: TransactionRequestSha256V1Schema.make(
+          copyBytes(session.requestSha256),
+        ),
+      }),
+    );
+  });
+
   const resolvePointCommitOutcomeObservation = Effect.fn(
     "StoredAttemptAuthentication.resolvePointCommitOutcomeObservation",
   )(function* (prepared: PreparedPointCommitCapabilityStateV1) {
     const pins = prepared.plan.authorityPins;
-    return yield* pointCommitOutcomeResolution[
-      RESOLVE_POINT_COMMIT_OUTCOME_V1
-    ](
+    return yield* resolvePointCommitOutcomeFromStoredSession(
       pins.deploymentId,
-      Object.freeze({
-        scopeUuid: prepared.plan.sealIdentity.scopeUuid,
-        requestKey: TransactionRequestKeyV1Schema.make(pins.requestKey),
-        expectedIdentityAccessPolicySha256:
-          TransactionIdentityAccessPolicySha256V1Schema.make(
-            copyBytes(prepared.provenance.session.identityAccessPolicySha256),
-          ),
-        expectedFunctionPath: TransactionFunctionPathV1Schema.make(
-          pins.functionPath,
-        ),
-        expectedRequestSha256: TransactionRequestSha256V1Schema.make(
-          copyBytes(prepared.provenance.session.requestSha256),
-        ),
-      }),
+      prepared.plan.sealIdentity.scopeUuid,
+      prepared.provenance.session,
     );
   });
 
@@ -2941,6 +3052,149 @@ export function createStoredAttemptAuthenticationV1(
       return Object.freeze({ state, executionScope });
     });
 
+  const executeExactPointMutationAttemptKernel = Effect.fn(
+    "StoredAttemptAuthentication.executeExactPointMutationAttemptKernel",
+  )(function* <InspectionUnavailableError, CurrentValidationError>(input: Readonly<{
+    readonly selector: PointMutationSessionAttemptSelectorV1;
+    readonly attemptFence: TransactionAttemptFence;
+    readonly snapshotToken: SnapshotToken;
+    readonly executionScope: PointMutationExecutionScopeV1;
+    readonly executionEvidence: StoredOccExecutionEvidenceV1;
+    readonly verificationState: CommitAuthorityVerificationStateV1;
+    readonly verifiedEvidence: VerifiedCommitAuthorityEvidenceV1;
+    readonly expectedRequestSha256?: Uint8Array;
+    readonly currentInspectionUnavailable: () => InspectionUnavailableError;
+    readonly validateCurrent: (
+      current: LoadedPointMutationSessionAttemptOccRerunInspectionV1,
+    ) => Effect.Effect<void, CurrentValidationError>;
+  }>) {
+    if (input.executionEvidence.session.artifactRuntime !== "dynamic-worker") {
+      return yield* Effect.fail(
+        new PointMutationOccExecutionAuthorityCorruptionV1Error({
+          reason: "runtimePinInvalid",
+        }),
+      );
+    }
+    const canonicalRequest = yield* Effect.promise(() =>
+      canonicalizePointMutationRequestV1({
+        deploymentId: input.verificationState.authority.deploymentId,
+        functionPath: TransactionFunctionPathV1Schema.make(
+          input.verificationState.session.functionPath,
+        ),
+        validatedArgsSha256: TransactionArgumentsSha256V1Schema.make(
+          copyBytes(input.verificationState.session.validatedArgsSha256),
+        ),
+        requestKey: TransactionRequestKeyV1Schema.make(
+          input.verificationState.session.requestKey,
+        ),
+      })
+    );
+    if (
+      !bytesEqual(
+        canonicalRequest.sha256,
+        input.verificationState.session.requestSha256,
+      ) ||
+      (input.expectedRequestSha256 !== undefined &&
+        !bytesEqual(canonicalRequest.sha256, input.expectedRequestSha256))
+    ) {
+      return yield* Effect.fail(
+        new PointMutationOccExecutionAuthorityCorruptionV1Error({
+          reason: "requestEvidenceInvalid",
+        }),
+      );
+    }
+    const metadataUnknown = yield* commitAuthority.functionMetadata.load(
+      capturePinnedFunctionSelector(input.verificationState),
+    );
+    const functionMetadata = yield* verifyPinnedFunctionMetadataEffect(
+      input.verificationState,
+      metadataUnknown,
+    );
+    const runnerEvidence = capturePointMutationOccRunnerEvidence(
+      input.verifiedEvidence,
+      functionMetadata,
+    );
+    // Runtime-local entropy may be fresh. Persisted creation time remains the
+    // exact attempt seed authenticated above.
+    const entropy = yield* pointMutationOccContextFactory.make();
+
+    // The RR capture is closed. This is the last liveness/claim reload before
+    // the journal admission and user-code boundary.
+    const currentAttempt = yield* pointMutationOccAttemptLoading.load({
+      deploymentId: input.selector.deploymentId,
+      scopeId: input.selector.scopeId,
+      sessionId: input.selector.sessionId,
+      attemptFence: input.selector.attemptFence.toString(),
+    });
+    const currentInspection =
+      getLoadedPointMutationSessionAttemptOccRerunInspectionV1(currentAttempt);
+    if (currentInspection === undefined) {
+      return yield* Effect.fail(input.currentInspectionUnavailable());
+    }
+    yield* input.validateCurrent(currentInspection);
+
+    const prepareRunningPlan = Effect.gen(function* () {
+      const context = yield* Effect.fromResult(
+        capturePointMutationOccExecutionContext(
+          entropy,
+          input.executionEvidence.creationTimeSeed,
+          input.attemptFence,
+          input.snapshotToken,
+        ),
+      );
+      const journalAttempt = yield* pointMutationOccJournal.openAttempt(
+        currentAttempt,
+        input.executionScope,
+      );
+      const successfulResult = yield* pointMutationOccRunner.run(
+        capturePointMutationOccRunnerInput(
+          runnerEvidence,
+          context,
+          bindPointMutationOccJournal(pointMutationOccJournal, journalAttempt),
+        ),
+      );
+      const envelope = yield* pointMutationOccJournal.sealSuccessfulResult(
+        journalAttempt,
+        successfulResult === undefined ? null : successfulResult,
+      );
+      const encodedEnvelope = yield* Effect.sync(() =>
+        encodeCommitEnvelopeV1(envelope)
+      );
+      const storedAuthority = yield* deriveAuthority(
+        currentAttempt,
+        input.executionScope,
+      );
+      const storedAttempt = yield* authenticate(
+        storedAuthority,
+        encodedEnvelope,
+      );
+      const authenticatedAuthority = yield* authenticateCommitAuthority(
+        storedAttempt,
+      );
+      const verifiedInput = yield* verifyCommitInput(authenticatedAuthority);
+      return yield* planPointCommit(verifiedInput);
+    });
+    const runningPlan = yield* abortOnPreFinishingFailure(
+      prepareRunningPlan,
+      currentAttempt,
+      input.executionScope,
+      pointMutationOccTerminalization,
+    );
+
+    const finishingPlan = yield* enterPointCommitFinishing(runningPlan);
+    return yield* publishFinishingPointCommit(finishingPlan).pipe(
+      Effect.map((result) => Object.freeze({
+        kind: "completed" as const,
+        result,
+      })),
+      Effect.catchTag("PointCommitConflictV1Error", (error) =>
+        Effect.succeed(Object.freeze({
+          kind: "conflict" as const,
+          error,
+        }))),
+    );
+  });
+
   const executeAuthorizedPointMutationOccRerun: StoredPointMutationOccRerunExecutionV1["executeAuthorizedPointMutationOccRerun"] =
     Effect.fn(
       "StoredAttemptAuthentication.executeAuthorizedPointMutationOccRerun",
@@ -2964,15 +3218,20 @@ export function createStoredAttemptAuthenticationV1(
           return publicationResultFromCommittedOutcome(initialOutcome);
         }
 
-        const executionAuthority =
-          captureStoredOccExecutionAuthorityV1(rerunState);
+        const admittedClaim = yield* Effect.fromResult(
+          executionClaims.admission.inspect(executionScope, "execute"),
+        );
+        const executionAuthority = captureStoredOccExecutionAuthorityV1(
+          rerunState,
+          admittedClaim.observation,
+        );
         const loadResult = yield* pointMutationOccExecutionEvidence
           .loadEffect(executionAuthority)
           .pipe(
             Effect.mapError(
               (error: StoredOccExecutionEvidencePersistenceV1Error) =>
                 new PointMutationOccExecutionEvidencePersistenceV1Error({
-                  cause: error,
+                  cause: error.cause,
                 }),
             ),
           );
@@ -3000,182 +3259,55 @@ export function createStoredAttemptAuthenticationV1(
           executionEvidence,
           grantKernel,
         );
-        if (executionEvidence.session.artifactRuntime !== "dynamic-worker") {
-          return yield* Effect.fail(
-            new PointMutationOccExecutionAuthorityCorruptionV1Error({
-              reason: "runtimePinInvalid",
-            }),
-          );
-        }
-        const canonicalRequest = yield* Effect.promise(() =>
-          canonicalizePointMutationRequestV1({
-            deploymentId: verificationState.authority.deploymentId,
-            functionPath: TransactionFunctionPathV1Schema.make(
-              verificationState.session.functionPath,
-            ),
-            validatedArgsSha256: TransactionArgumentsSha256V1Schema.make(
-              copyBytes(verificationState.session.validatedArgsSha256),
-            ),
-            requestKey: TransactionRequestKeyV1Schema.make(
-              verificationState.session.requestKey,
-            ),
+        const publication = yield* executeExactPointMutationAttemptKernel<
+          PointMutationOccRerunAuthorityCorruptionV1Error,
+          | PointMutationOccRerunFreshAttemptV1Error
+          | PointMutationOccExecutionAuthorityMismatchV1Error
+        >({
+          selector: Object.freeze({
+            deploymentId: rerunState.inspection.deploymentId,
+            scopeId: rerunState.inspection.scopeId,
+            sessionId: rerunState.inspection.sessionId,
+            attemptFence: rerunState.inspection.attemptFence,
           }),
-        );
-        if (
-          !bytesEqual(
-            canonicalRequest.sha256,
-            verificationState.session.requestSha256,
-          ) ||
-          !bytesEqual(
-            canonicalRequest.sha256,
-            rerunState.prepared.provenance.session.requestSha256,
-          )
-        ) {
-          return yield* Effect.fail(
-            new PointMutationOccExecutionAuthorityCorruptionV1Error({
-              reason: "requestEvidenceInvalid",
-            }),
-          );
-        }
-        const metadataUnknown = yield* commitAuthority.functionMetadata.load(
-          capturePinnedFunctionSelector(verificationState),
-        );
-        const functionMetadata = yield* verifyPinnedFunctionMetadataEffect(
+          attemptFence: rerunState.inspection.attemptFence,
+          snapshotToken: rerunState.inspection.snapshotToken,
+          executionScope,
+          executionEvidence,
           verificationState,
-          metadataUnknown,
-        );
-        // Own the bounded, potentially multi-megabyte runner evidence before
-        // the final temporal reload. Only small context/journal binding may
-        // occur between that reload and user-code entry.
-        const runnerEvidence = capturePointMutationOccRunnerEvidence(
           verifiedEvidence,
-          functionMetadata,
-        );
-        // Entropy allocation is deliberately before the final temporal load.
-        // A slow factory cannot leave a once-live lease trusted for execution.
-        const entropy = yield* pointMutationOccContextFactory.make();
-
-        // The bounded RR capture is already closed. Reload O03 immediately
-        // before user code so lease/revocation/root races cannot authorize it.
-        const currentAttempt = yield* pointMutationOccAttemptLoading.load({
-          deploymentId: rerunState.inspection.deploymentId,
-          scopeId: rerunState.inspection.scopeId,
-          sessionId: rerunState.inspection.sessionId,
-          attemptFence: rerunState.inspection.attemptFence.toString(),
-        });
-        const currentInspection =
-          getLoadedPointMutationSessionAttemptOccRerunInspectionV1(
-            currentAttempt,
-          );
-        if (currentInspection === undefined) {
-          return yield* Effect.fail(
+          expectedRequestSha256:
+            rerunState.prepared.provenance.session.requestSha256,
+          currentInspectionUnavailable: () =>
             new PointMutationOccRerunAuthorityCorruptionV1Error({
               reason: "loadedAttemptStateUnavailable",
             }),
-          );
-        }
-        const currentMismatch = pointMutationOccFreshAttemptMismatch(
-          rerunState.prepared,
-          rerunState.conflict,
-          rerunState.inspection.attemptFence,
-          currentInspection,
-        );
-        if (currentMismatch !== undefined) {
-          return yield* Effect.fail(
-            new PointMutationOccRerunFreshAttemptV1Error({
-              reason: currentMismatch,
-            }),
-          );
-        }
-        if (
-          currentInspection.snapshotToken.scopeId !==
-            rerunState.inspection.snapshotToken.scopeId ||
-          currentInspection.snapshotToken.epoch !==
-            rerunState.inspection.snapshotToken.epoch ||
-          currentInspection.snapshotToken.commitSeq !==
-            rerunState.inspection.snapshotToken.commitSeq
-        ) {
-          return yield* Effect.fail(
-            new PointMutationOccExecutionAuthorityMismatchV1Error({
-              reason: "snapshotChanged",
-            }),
-          );
-        }
-
-        const prepareRunningPlan = Effect.gen(function* () {
-          const context = yield* Effect.fromResult(
-            capturePointMutationOccExecutionContext(
-              entropy,
-              executionEvidence.creationTimeSeed,
+          validateCurrent: (currentInspection) => {
+            const mismatch = pointMutationOccFreshAttemptMismatch(
+              rerunState.prepared,
+              rerunState.conflict,
               rerunState.inspection.attemptFence,
-              rerunState.inspection.snapshotToken,
-            ),
-          );
-          const journalAttempt =
-            yield* pointMutationOccJournal.openAttempt(
-              currentAttempt,
-              executionScope,
+              currentInspection,
             );
-          const runnerInput = capturePointMutationOccRunnerInput(
-            runnerEvidence,
-            context,
-            bindPointMutationOccJournal(
-              pointMutationOccJournal,
-              journalAttempt,
-            ),
-          );
-          const successfulResult =
-            yield* pointMutationOccRunner.run(runnerInput);
-          const envelope = yield* pointMutationOccJournal.sealSuccessfulResult(
-            journalAttempt,
-            successfulResult === undefined ? null : successfulResult,
-          );
-          const encodedEnvelope = yield* Effect.sync(() =>
-            encodeCommitEnvelopeV1(envelope),
-          );
-          const storedAuthority = yield* deriveAuthority(
-            currentAttempt,
-            executionScope,
-          );
-          const storedAttempt = yield* authenticate(
-            storedAuthority,
-            encodedEnvelope,
-          );
-          const authenticatedAuthority =
-            yield* authenticateCommitAuthority(storedAttempt);
-          const verifiedInput = yield* verifyCommitInput(
-            authenticatedAuthority,
-          );
-          return yield* planPointCommit(verifiedInput);
+            if (mismatch !== undefined) {
+              return Effect.fail(new PointMutationOccRerunFreshAttemptV1Error({
+                reason: mismatch,
+              }));
+            }
+            return currentInspection.snapshotToken.scopeId ===
+                  rerunState.inspection.snapshotToken.scopeId &&
+                currentInspection.snapshotToken.epoch ===
+                  rerunState.inspection.snapshotToken.epoch &&
+                currentInspection.snapshotToken.commitSeq ===
+                  rerunState.inspection.snapshotToken.commitSeq
+              ? Effect.void
+              : Effect.fail(
+                  new PointMutationOccExecutionAuthorityMismatchV1Error({
+                    reason: "snapshotChanged",
+                  }),
+                );
+          },
         });
-        const runningPlan = yield* abortOnPreFinishingFailure(
-          prepareRunningPlan,
-          currentAttempt,
-          executionScope,
-          pointMutationOccTerminalization,
-        );
-
-        // From this point forward, C05-A/O07-B own recovery. Never abort a
-        // possibly-finishing or ambiguously published attempt.
-        const finishingPlan = yield* enterPointCommitFinishing(runningPlan);
-        const publication = yield* publishFinishingPointCommit(
-          finishingPlan,
-        ).pipe(
-          Effect.map((result) =>
-            Object.freeze({
-              kind: "completed" as const,
-              result,
-            }),
-          ),
-          Effect.catchTag("PointCommitConflictV1Error", (error) =>
-            Effect.succeed(
-              Object.freeze({
-                kind: "conflict" as const,
-                error,
-              }),
-            ),
-          ),
-        );
         if (publication.kind === "completed") return publication.result;
 
         const authorizationResult = yield* authorizePointMutationOccRerun(
@@ -3209,18 +3341,264 @@ export function createStoredAttemptAuthenticationV1(
       }
     });
 
-  return Object.freeze({
+  const occExecution = Object.freeze({
     ...authorization,
     executeAuthorizedPointMutationOccRerun,
   } satisfies StoredPointMutationOccRerunExecutionV1);
+  if (pointMutationRedispatchAcquisition === undefined) return occExecution;
+
+  const admitRedispatchClaim = (
+    claim: unknown,
+    mode: "execute" | "finishOnly",
+  ): Result.Result<
+    Readonly<{
+      readonly scope: PointMutationExecutionScopeV1;
+      readonly state: PointMutationExecutionClaimStateV1;
+    }>,
+    InvalidPointMutationExecutionClaimV1Error
+  > =>
+    Result.gen(function* () {
+      const scope = yield* executionClaims.admission.admit(claim, mode);
+      const state = yield* executionClaims.admission.inspect(scope, mode);
+      return Object.freeze({ scope, state });
+    });
+
+  const loadRedispatchAttemptAuthority = Effect.fn(
+    "StoredAttemptAuthentication.loadRedispatchAttemptAuthority",
+  )(function* (
+    selector: PointMutationSessionAttemptSelectorV1,
+    executionScope: PointMutationExecutionScopeV1,
+  ) {
+    const loadedAttempt = yield* pointMutationOccAttemptLoading.load({
+      ...selector,
+      attemptFence: selector.attemptFence.toString(),
+    });
+    const authorityHandle = yield* deriveAuthority(
+      loadedAttempt,
+      executionScope,
+    );
+    const authorityCapability = lookupAuthority(authorityStates, authorityHandle);
+    if (authorityCapability === undefined) {
+      return yield* Effect.fail(new InvalidStoredAttemptAuthorityV1Error({
+        reason: "notProcessLocal",
+      }));
+    }
+    return Object.freeze({ loadedAttempt, authorityCapability });
+  });
+
+  const finishClaimedSealedAttempt = Effect.fn(
+    "StoredAttemptAuthentication.finishClaimedSealedAttempt",
+  )(function* (
+    selector: PointMutationSessionAttemptSelectorV1,
+    executionScope: PointMutationExecutionScopeV1,
+  ) {
+    const { authorityCapability } = yield* loadRedispatchAttemptAuthority(
+      selector,
+      executionScope,
+    );
+    const { verified } = yield* loadAndVerifyStoredEvidence(
+      authorityCapability,
+    );
+    const storedAttempt = mintAuthenticatedStoredAttempt(verified);
+    const authenticatedAuthority = yield* authenticateCommitAuthority(
+      storedAttempt,
+    );
+    const verifiedInput = yield* verifyCommitInput(authenticatedAuthority);
+    const runningPlan = yield* planPointCommit(verifiedInput);
+    return yield* finishPointCommit(runningPlan);
+  });
+
+  const executeClaimedPristineAttempt = Effect.fn(
+    "StoredAttemptAuthentication.executeClaimedPristineAttempt",
+  )(function* (
+    selector: PointMutationSessionAttemptSelectorV1,
+    executionScope: PointMutationExecutionScopeV1,
+  ) {
+    const { authorityCapability } = yield* loadRedispatchAttemptAuthority(
+      selector,
+      executionScope,
+    );
+    const authority = authorityCapability.authority;
+    if (authority.executionClaim === undefined) {
+      return yield* Effect.fail(
+        new PointMutationOccExecutionAuthorityCorruptionV1Error({
+          reason: "executionClaimInvalid",
+        }),
+      );
+    }
+    const executionAuthority: StoredOccExecutionEvidenceAuthorityV1 =
+      Object.freeze({
+        kind: "claimedAttempt",
+        deploymentId: authority.deploymentId,
+        scopeId: authority.scopeId,
+        scopeUuid: projectScopeIdUuidV1(authority.scopeId).scopeUuid,
+        sessionId: authority.sessionId,
+        attemptFence: authority.attemptFence,
+        storageGeneration: authority.storageGeneration,
+        storageGenerationFence: authority.storageGenerationFence,
+        snapshotToken: Object.freeze({ ...authority.snapshotToken }),
+        schemaVersionId: authority.schemaVersionId,
+        executionClaim: Object.freeze({ ...authority.executionClaim }),
+      });
+    const loadResult = yield* pointMutationOccExecutionEvidence.loadEffect(
+      executionAuthority,
+    ).pipe(
+      Effect.mapError((error: StoredOccExecutionEvidencePersistenceV1Error) =>
+        new PointMutationOccExecutionEvidencePersistenceV1Error({
+          cause: error.cause,
+        })
+      ),
+    );
+    if (loadResult.kind === "alreadyCommitted") {
+      return yield* Effect.fail(
+        new PointMutationOccExecutionAuthorityCorruptionV1Error({
+          reason: "committedOutcomeMissing",
+        }),
+      );
+    }
+    const executionEvidence = yield* requireOccExecutionEvidenceEffect(
+      loadResult,
+    );
+    const verificationState = captureClaimedExecutionVerificationState(
+      authority,
+      executionEvidence.session,
+    );
+    const verifiedEvidence = yield* verifyCommitAuthorityEvidenceEffect(
+      verificationState,
+      executionEvidence,
+      grantKernel,
+    );
+
+    // Acquisition was outcome-first. Recheck after CPU verification and
+    // before the final O03 liveness reload so no stored success is rerun.
+    const outcome = yield* resolvePointCommitOutcomeFromStoredSession(
+      authority.deploymentId,
+      executionAuthority.scopeUuid,
+      executionEvidence.session,
+    );
+    if (outcome.kind !== "missing") {
+      return publicationResultFromCommittedOutcome(outcome);
+    }
+
+    const publication = yield* executeExactPointMutationAttemptKernel<
+      PointMutationOccExecutionAuthorityCorruptionV1Error,
+      PointMutationOccExecutionAuthorityMismatchV1Error
+    >({
+      selector,
+      attemptFence: authority.attemptFence,
+      snapshotToken: authority.snapshotToken,
+      executionScope,
+      executionEvidence,
+      verificationState,
+      verifiedEvidence,
+      currentInspectionUnavailable: () =>
+        new PointMutationOccExecutionAuthorityCorruptionV1Error({
+          reason: "loadedAttemptStateUnavailable",
+        }),
+      validateCurrent: (current) =>
+        validateClaimedCurrentAttempt(
+          authority,
+          executionEvidence.session,
+          current,
+        ),
+    });
+    if (publication.kind === "conflict") {
+      return yield* Effect.fail(publication.error);
+    }
+    return publication.result;
+  });
+
+  const resumeRedispatchedFinishingAttempt = Effect.fn(
+    "StoredAttemptAuthentication.resumeRedispatchedFinishingAttempt",
+  )(function* (selectorInput: unknown) {
+    return yield* resumePointCommit(selectorInput).pipe(
+      Effect.catchTag("StoredAttemptAlreadyCommittedV1Error", () =>
+        Effect.gen(function* () {
+          const reacquired = yield* pointMutationRedispatchAcquisition
+            .acquireEffect(selectorInput);
+          if (reacquired.kind === "replayed") {
+            return publicationResultFromCommittedOutcome(reacquired.outcome);
+          }
+          return yield* Effect.fail(new PointCommitCorruptionV1Error({
+            reason: "committedOutcomeMissing",
+          }));
+        })),
+    );
+  });
+
+  const redispatchExactPointMutationAttempt: StoredPointMutationCrashRedispatchV1["redispatchExactPointMutationAttempt"] =
+    Effect.fn(
+      "StoredAttemptAuthentication.redispatchExactPointMutationAttempt",
+    )(function* (selectorInput) {
+      const selector = yield* Effect.fromResult(
+        decodePointMutationSessionAttemptSelectorV1Result(selectorInput).pipe(
+          Result.mapError((cause) =>
+            new PointMutationExecutionClaimAcquisitionInputV1Error({
+              reason: "invalidSelector",
+              cause,
+            })
+          ),
+        ),
+      );
+      const ownedSelectorInput = Object.freeze({
+        deploymentId: selector.deploymentId,
+        scopeId: selector.scopeId,
+        sessionId: selector.sessionId,
+        attemptFence: selector.attemptFence.toString(),
+      });
+      const acquisition = yield* pointMutationRedispatchAcquisition.acquireEffect(
+        ownedSelectorInput,
+      );
+      switch (acquisition.kind) {
+        case "replayed":
+          return publicationResultFromCommittedOutcome(acquisition.outcome);
+        case "busy":
+          return Object.freeze({ kind: "busy" as const });
+        case "nonDispatchable":
+          return Object.freeze({
+            kind: "nonDispatchable" as const,
+            reason: acquisition.reason,
+          });
+        case "finishing":
+          // The acquisition result grants nothing. C05-B independently loads
+          // finishing + sealed + no-claim evidence before minting authority.
+          return yield* resumeRedispatchedFinishingAttempt(ownedSelectorInput);
+        case "acquired": {
+          // Synchronously and irreversibly consume the same-factory claim
+          // before the next asynchronous yield.
+          const admitted = yield* Effect.fromResult(
+            admitRedispatchClaim(
+              acquisition.executionClaim,
+              acquisition.mode,
+            ),
+          );
+          return acquisition.mode === "execute"
+            ? yield* executeClaimedPristineAttempt(
+                admitted.state.selector,
+                admitted.scope,
+              )
+            : yield* finishClaimedSealedAttempt(
+                admitted.state.selector,
+                admitted.scope,
+              );
+        }
+      }
+    });
+
+  return Object.freeze({
+    ...occExecution,
+    redispatchExactPointMutationAttempt,
+  } satisfies StoredPointMutationCrashRedispatchV1);
 }
 
 function captureStoredOccExecutionAuthorityV1(
   state: AuthorizedPointMutationOccRerunStateV1,
+  executionClaim: TransactionExecutionClaimPinV1,
 ): StoredOccExecutionEvidenceAuthorityV1 {
   const pins = state.prepared.plan.authorityPins;
   const previousSession = state.prepared.provenance.session;
   return Object.freeze({
+    kind: "occRerun",
     deploymentId: pins.deploymentId,
     scopeId: pins.scopeId,
     scopeUuid: state.prepared.plan.sealIdentity.scopeUuid,
@@ -3230,6 +3608,10 @@ function captureStoredOccExecutionAuthorityV1(
     storageGenerationFence: pins.storageGenerationFence,
     snapshotToken: Object.freeze({ ...state.inspection.snapshotToken }),
     schemaVersionId: pins.schemaVersionId,
+    executionClaim: Object.freeze({
+      claimOwner: executionClaim.claimOwner,
+      claimFence: executionClaim.claimFence,
+    }),
     previousSession: Object.freeze({
       ...previousSession,
       identityAccessPolicySha256: copyBytes(
@@ -3304,6 +3686,76 @@ function captureOccExecutionVerificationState(
       requestSha256: copyBytes(session.requestSha256),
     }),
   });
+}
+
+function captureClaimedExecutionVerificationState(
+  authority: StoredAttemptAuthorityStateV1,
+  session: StoredCommitAuthoritySessionEvidencePortV1,
+): CommitAuthorityVerificationStateV1 {
+  return Object.freeze({
+    authority: Object.freeze({
+      deploymentId: authority.deploymentId,
+      scopeId: authority.scopeId,
+      sessionId: authority.sessionId,
+      attemptFence: authority.attemptFence,
+      storageGeneration: authority.storageGeneration,
+      storageGenerationFence: authority.storageGenerationFence,
+      snapshotToken: Object.freeze({ ...authority.snapshotToken }),
+      schemaVersionId: authority.schemaVersionId,
+    }),
+    session: Object.freeze({
+      ...session,
+      identityAccessPolicySha256: copyBytes(session.identityAccessPolicySha256),
+      validatedArgsSha256: copyBytes(session.validatedArgsSha256),
+      authorizationGrantSha256: copyBytes(session.authorizationGrantSha256),
+      requestSha256: copyBytes(session.requestSha256),
+    }),
+  });
+}
+
+function validateClaimedCurrentAttempt(
+  authority: StoredAttemptAuthorityStateV1,
+  session: StoredCommitAuthoritySessionEvidencePortV1,
+  current: LoadedPointMutationSessionAttemptOccRerunInspectionV1,
+): Effect.Effect<
+  void,
+  PointMutationOccExecutionAuthorityMismatchV1Error
+> {
+  let reason: PointMutationOccRerunFreshAttemptMismatchV1 | undefined;
+  if (current.selector.deploymentId !== authority.deploymentId) {
+    reason = "deployment";
+  } else if (current.selector.scopeId !== authority.scopeId) {
+    reason = "scope";
+  } else if (current.selector.sessionId !== authority.sessionId) {
+    reason = "session";
+  } else if (current.selector.attemptFence !== authority.attemptFence) {
+    reason = "attemptFence";
+  } else if (current.storageGeneration !== authority.storageGeneration) {
+    reason = "storageGeneration";
+  } else if (
+    current.storageGenerationFence !== authority.storageGenerationFence
+  ) {
+    reason = "storageGenerationFence";
+  } else if (current.snapshotToken.epoch !== authority.snapshotToken.epoch) {
+    reason = "epoch";
+  } else if (current.schemaVersionId !== authority.schemaVersionId) {
+    reason = "schema";
+  } else if (current.requestKey !== session.requestKey) {
+    reason = "requestKey";
+  } else if (current.attemptFacet.kind !== "pristineOpen") {
+    reason = "attemptNotPristine";
+  }
+  if (reason !== undefined) {
+    return Effect.fail(
+      new PointMutationOccExecutionAuthorityMismatchV1Error({ reason }),
+    );
+  }
+  return current.snapshotToken.scopeId === authority.snapshotToken.scopeId &&
+      current.snapshotToken.commitSeq === authority.snapshotToken.commitSeq
+    ? Effect.void
+    : Effect.fail(new PointMutationOccExecutionAuthorityMismatchV1Error({
+        reason: "snapshotChanged",
+      }));
 }
 
 function publicationResultFromCommittedOutcome(

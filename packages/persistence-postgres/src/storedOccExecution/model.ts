@@ -16,13 +16,16 @@ import type {
   TransactionSessionLifecycleV1,
 } from "flarex-protocol/transaction-session";
 
+import type { TransactionExecutionClaimPinV1 } from
+  "../transactionExecutionClaimModel";
+
 import type {
   StoredCommitAuthorityCorruptionReasonV1,
   StoredCommitAuthorityEvidenceV1,
   StoredCommitAuthoritySessionScalarsV1,
 } from "../storedCommitAuthority/model";
 
-export interface StoredOccExecutionEvidenceAuthorityV1 {
+interface StoredOccExecutionEvidenceAuthorityBaseV1 {
   readonly deploymentId: TransactionGrantDeploymentIdV1;
   readonly scopeId: ReplacementScopeIdV1;
   readonly scopeUuid: ScopeUuidV1;
@@ -32,12 +35,26 @@ export interface StoredOccExecutionEvidenceAuthorityV1 {
   readonly storageGenerationFence: StorageGenerationFence;
   readonly snapshotToken: SnapshotToken;
   readonly schemaVersionId: CatalogSchemaVersionId;
+  /** Exact durable execution owner admitted by the same-factory caller. */
+  readonly executionClaim: TransactionExecutionClaimPinV1;
+}
+
+export type StoredOccExecutionEvidenceAuthorityV1 =
+  | Readonly<StoredOccExecutionEvidenceAuthorityBaseV1 & {
+      readonly kind: "occRerun";
   /**
    * Same-factory finishing lineage used only as expected correlation evidence.
    * Persistence independently reloads every current authority fact.
    */
-  readonly previousSession: StoredCommitAuthoritySessionScalarsV1;
-}
+      readonly previousSession: StoredCommitAuthoritySessionScalarsV1;
+    }>
+  | Readonly<StoredOccExecutionEvidenceAuthorityBaseV1 & {
+      /**
+       * Fresh-process execution authority was derived from a genuine acquired
+       * claim plus the current O03 attempt loader. No previous plan is trusted.
+       */
+      readonly kind: "claimedAttempt";
+    }>;
 
 export interface StoredOccExecutionEvidenceV1
   extends StoredCommitAuthorityEvidenceV1 {
@@ -48,6 +65,7 @@ export interface StoredOccExecutionEvidenceV1
 export type StoredOccExecutionCorruptionReasonV1 =
   | StoredCommitAuthorityCorruptionReasonV1
   | "durableRetrying"
+  | "executionClaimInvalid"
   | "journalRootNotPristine"
   | "journalChildrenPresent";
 
@@ -77,6 +95,7 @@ export type StoredOccExecutionEvidenceLoadResultV1 =
         | "snapshotChanged"
         | "schemaChanged"
         | "revocationEpochChanged"
+        | "executionClaimChanged"
         | "sessionChanged";
     }>
   | Readonly<{

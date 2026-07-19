@@ -67,6 +67,10 @@ import {
   isPristineFreshTransactionAttemptJournalRootV1,
 } from "../transactionSessionAttemptFacet";
 import {
+  decodeTransactionExecutionClaimFenceV1,
+  decodeTransactionExecutionClaimOwnerV1,
+} from "../transactionExecutionClaimModel";
+import {
   occExecutionAuthorityMismatch,
   occExecutionCorrupt,
   type StoredOccExecutionEvidenceAuthorityV1,
@@ -91,6 +95,8 @@ type LeaseRow =
   typeof import("../schema").fxSystemSnapshotLeases.$inferSelect;
 type RootRow =
   typeof import("../schema").fxSystemTransactionJournals.$inferSelect;
+type ExecutionClaimRow =
+  typeof import("../schema").fxSystemTransactionExecutionClaims.$inferSelect;
 type SchemaRow =
   typeof import("../schema").fxControlSchemaVersions.$inferSelect;
 export type ClockRow =
@@ -154,6 +160,7 @@ export interface CapturedRowsV1 {
   readonly sessionSizeRows: ReadonlyArray<SessionSizeRow>;
   readonly leaseRows: ReadonlyArray<LeaseRow>;
   readonly rootRows: ReadonlyArray<RootScalarRow>;
+  readonly executionClaimRows: ReadonlyArray<ExecutionClaimRow>;
   readonly attemptChildRows: ReadonlyArray<AttemptChildExistenceRow>;
   readonly schemaSizeRows: ReadonlyArray<SchemaSizeRow>;
   readonly skipReason?: StoredCommitAuthorityCorruptionReasonV1;
@@ -426,7 +433,10 @@ function materializeStoredAuthorityEffect(
     if (sessionScalars === undefined) {
       return materializationCorrupt(mode, "sessionEvidenceInvalid");
     }
-    if (mode.kind === "openOccExecution") {
+    if (
+      mode.kind === "openOccExecution" &&
+      mode.expected.kind === "occRerun"
+    ) {
       const previous = mode.expected.previousSession;
       if (
         previous.lifecycle !== "finishing" ||
@@ -491,6 +501,48 @@ function materializeStoredAuthorityEffect(
       return mode.kind === "sealed"
         ? Object.freeze({ kind: "notPlannable", reason: "expired" })
         : Object.freeze({ kind: "notExecutable", reason: "expired" });
+    }
+
+    if (mode.kind === "openOccExecution") {
+      if (captured.executionClaimRows.length !== 1) {
+        return occExecutionCorrupt("executionClaimInvalid");
+      }
+      const claim = captured.executionClaimRows[0];
+      if (claim === undefined) {
+        return occExecutionCorrupt("executionClaimInvalid");
+      }
+      const claimOwner = decodeTransactionExecutionClaimOwnerV1(
+        claim.claimOwner,
+      );
+      const claimFence = decodeTransactionExecutionClaimFenceV1(
+        claim.claimFence,
+      );
+      const claimedAtMilliseconds = finiteDateMilliseconds(claim.claimedAt);
+      const claimExpiresAtMilliseconds = finiteDateMilliseconds(
+        claim.claimExpiresAt,
+      );
+      if (
+        Result.isFailure(claimOwner) ||
+        Result.isFailure(claimFence) ||
+        claimedAtMilliseconds === undefined ||
+        claimExpiresAtMilliseconds === undefined ||
+        claim.scopeUuid !== scopeUuid ||
+        claim.sessionId !== expected.sessionId ||
+        claim.attemptFence !== expected.attemptFence ||
+        claimedAtMilliseconds > databaseNowMilliseconds ||
+        claimExpiresAtMilliseconds <= claimedAtMilliseconds
+      ) {
+        return occExecutionCorrupt("executionClaimInvalid");
+      }
+      if (claimExpiresAtMilliseconds <= databaseNowMilliseconds) {
+        return Object.freeze({ kind: "notExecutable", reason: "expired" });
+      }
+      if (
+        claimOwner.success !== mode.expected.executionClaim.claimOwner ||
+        claimFence.success !== mode.expected.executionClaim.claimFence
+      ) {
+        return occExecutionAuthorityMismatch("executionClaimChanged");
+      }
     }
 
     if (captured.rootRows.length !== 1) {

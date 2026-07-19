@@ -61,7 +61,7 @@ export function createStoredOccExecutionEvidenceLoaderV1(
 function captureAuthority(
   input: StoredOccExecutionEvidenceAuthorityV1,
 ): StoredOccExecutionEvidenceAuthorityV1 {
-  return Object.freeze({
+  const common = {
     deploymentId: input.deploymentId,
     scopeId: input.scopeId,
     scopeUuid: input.scopeUuid,
@@ -71,16 +71,25 @@ function captureAuthority(
     storageGenerationFence: input.storageGenerationFence,
     snapshotToken: Object.freeze({ ...input.snapshotToken }),
     schemaVersionId: input.schemaVersionId,
-    previousSession: Object.freeze({
-      ...input.previousSession,
-      identityAccessPolicySha256: copyBytes(
-        input.previousSession.identityAccessPolicySha256,
-      ),
-      validatedArgsSha256: copyBytes(input.previousSession.validatedArgsSha256),
-      authorizationGrantSha256: copyBytes(
-        input.previousSession.authorizationGrantSha256,
-      ),
-      requestSha256: copyBytes(input.previousSession.requestSha256),
-    }),
-  });
+    executionClaim: Object.freeze({ ...input.executionClaim }),
+  } as const;
+  return input.kind === "claimedAttempt"
+    ? Object.freeze({ ...common, kind: "claimedAttempt" as const })
+    : Object.freeze({
+        ...common,
+        kind: "occRerun" as const,
+        previousSession: Object.freeze({
+          ...input.previousSession,
+          identityAccessPolicySha256: copyBytes(
+            input.previousSession.identityAccessPolicySha256,
+          ),
+          validatedArgsSha256: copyBytes(
+            input.previousSession.validatedArgsSha256,
+          ),
+          authorizationGrantSha256: copyBytes(
+            input.previousSession.authorizationGrantSha256,
+          ),
+          requestSha256: copyBytes(input.previousSession.requestSha256),
+        }),
+      });
 }

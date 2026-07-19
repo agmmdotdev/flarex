@@ -301,6 +301,10 @@ export type PointMutationExecutionClaimAcquisitionResultV1 =
       readonly reason: "dirtyOpen" | "failedRoot";
     }>
   | Readonly<{
+      /** Inert routing evidence; C05-B must independently authenticate it. */
+      readonly kind: "finishing";
+    }>
+  | Readonly<{
       readonly kind: "acquired";
       readonly mode: PointMutationExecutionClaimAcquisitionModeV1;
       readonly observation: TransactionExecutionClaimObservationV1;
@@ -1397,6 +1401,9 @@ async function acquireExecutionClaimInTransaction(
     throw new PointMutationExecutionClaimAcquisitionCorruptionV1Error({
       reason: "committedOutcomeMissing",
     });
+  }
+  if (session.lifecycle === "finishing") {
+    return Object.freeze({ kind: "finishing" });
   }
   if (session.lifecycle !== "running") {
     throw new PointMutationExecutionClaimAcquisitionStaleV1Error({

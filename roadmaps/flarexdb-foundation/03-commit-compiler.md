@@ -19,8 +19,9 @@ forced-rollback proof, O07-A private read-only committed-outcome resolver, and
   rerun composition, O08-B2b0's Postgres claim-authority decision, integrated
   O08-B2b1/C06-A durable claim admission, O08-CD0 transaction-decision
   provenance, O08-C known-settled SQL retry, and O08-D bounded uncertainty
-  recovery are complete. O08-B2b2 user-code crash redispatch and C06-B endpoint/
-  dispatcher policy remain pending, while C04C2 remains conditional and
+  recovery are complete. O08-B2b2a private exact-selector safe-state redispatch
+  is complete. O08-B2b2b/full O08-B2b2 discovery and production dispatch plus
+  C06-B endpoint/response policy remain pending, while C04C2 remains conditional and
   unapproved.
 
 This plan owns the bounded Flarex app-data path from logical session operations
@@ -573,9 +574,13 @@ separate authorities.
 Prerequisite: `O08-B2a` same-process OCC execution, O08-CD0 transaction-
 decision provenance, O08-C bounded known-settled retry, and O08-D bounded
 uncertain-outcome recovery and C06-A host-neutral durable claim admission are
-complete. O08-B2b2 must still compose crash-safe user-code redispatch through
-that singular claim authority. This endpoint composes those policies; it does
-not define a competing retry coordinator or execution owner.
+complete. O08-B2b2a now supplies the private explicit-selector safe-state
+composer; only its acquired `execute` and `finishOnly` branches consume that
+singular claim, while its inert `finishing` classification routes only to
+C05-B's independent authority. O08-B2b2b/full O08-B2b2 must
+still supply discovery and production dispatch liveness. This endpoint composes
+those policies; it does not define a competing retry coordinator or execution
+owner.
 
 Outcome:
 
@@ -588,8 +593,9 @@ Outcome:
   user-code rerun; O08-CD0 preserves transaction-decision provenance without
   acting on it; O08-C consumes only confirmed rollback for SQL transaction
   retry; O08-D owns bounded publication uncertainty recovery; O08-B2b1/C06-A
-  owns durable execution claims; and O08-B2b2 owns the still-deferred user-code
-  crash redispatch composition:
+  owns durable execution claims; O08-B2b2a owns the private safe-state composer;
+  and O08-B2b2b/full O08-B2b2 owns still-deferred discovery and production
+  dispatch liveness:
 
 ```text
 atomic activation -> running -> finishing -> committed
