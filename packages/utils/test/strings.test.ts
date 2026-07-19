@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   compareUtf16Strings,
+  isLowercaseUuidText,
   isNonBlankString,
   trimToNonBlankOrNull,
 } from "@flarex/utils/strings";
@@ -40,6 +41,31 @@ describe("isNonBlankString", () => {
     expect(isNonBlankString("  value  ")).toBe(true);
     expect(isNonBlankString("\u200b")).toBe(true);
     expect(isNonBlankString("\u0000")).toBe(true);
+  });
+});
+
+describe("isLowercaseUuidText", () => {
+  it("accepts the exact lowercase hexadecimal 8-4-4-4-12 spelling", () => {
+    expect(isLowercaseUuidText("00000000-0000-0000-0000-000000000000"))
+      .toBe(true);
+    expect(isLowercaseUuidText("abcdef12-3456-7890-abcd-ef1234567890"))
+      .toBe(true);
+  });
+
+  it("rejects alternate spellings without imposing UUID version policy", () => {
+    expect(isLowercaseUuidText("ABCDEF12-3456-7890-ABCD-EF1234567890"))
+      .toBe(false);
+    expect(isLowercaseUuidText("abcdef1234567890abcdef1234567890"))
+      .toBe(false);
+    expect(isLowercaseUuidText("{abcdef12-3456-7890-abcd-ef1234567890}"))
+      .toBe(false);
+    expect(isLowercaseUuidText("abcdef12-3456-7890-abcd-ef123456789g"))
+      .toBe(false);
+
+    // The spelling predicate deliberately accepts values without RFC
+    // version or variant bits set.
+    expect(isLowercaseUuidText("ffffffff-ffff-ffff-ffff-ffffffffffff"))
+      .toBe(true);
   });
 });
 

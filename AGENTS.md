@@ -257,6 +257,13 @@ establish a domain identifier or secret policy. Keep those stronger checks,
 their order, messages, and brands with their owner. When a boundary needs the
 trimmed spelling itself, normalize once locally instead of validating and then
 trimming again through a generic predicate.
+Use `@flarex/utils/strings` for the exact lowercase hexadecimal 8-4-4-4-12 UUID
+text shape when that spelling alone is the contract. The predicate deliberately
+does not enforce UUID version or variant bits, generate an identifier, attach a
+brand, or prove identifier authority. Keep prefixes, conversions, domain names,
+Schema messages, validation order, brands, version policy, and trust or storage
+authority with their protocol, persistence, or host owner; retain a narrow local
+wrapper when its name records a versioned wire contract.
 Use `@flarex/utils/numbers` to classify an unknown value as a positive or
 non-negative JavaScript safe integer. The non-negative predicate deliberately
 accepts JavaScript negative zero, matching `Number.isSafeInteger(value)` plus

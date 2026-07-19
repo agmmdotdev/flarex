@@ -1,8 +1,7 @@
-export const CANONICAL_UUID_TEXT_V1_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+import { isLowercaseUuidText } from "@flarex/utils/strings";
 
 export function isCanonicalUuidTextV1(value: string): boolean {
-  return CANONICAL_UUID_TEXT_V1_PATTERN.test(value);
+  return isLowercaseUuidText(value);
 }
 
 export function canonicalUuidTextV1ToHex(value: string): string {

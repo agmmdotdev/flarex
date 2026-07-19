@@ -1,7 +1,10 @@
 import { finiteDateMilliseconds } from "@flarex/utils/dates";
 import { isPositiveSafeInteger } from "@flarex/utils/numbers";
 import { asNonArrayRecord, isNonArrayRecord } from "@flarex/utils/records";
-import { isNonBlankString } from "@flarex/utils/strings";
+import {
+  isLowercaseUuidText,
+  isNonBlankString,
+} from "@flarex/utils/strings";
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { Data, Effect, Option, Result, Schema } from "effect";
 
@@ -33,13 +36,11 @@ export const MAX_COMMIT_WAKE_CLAIM_BATCH_SIZE_V1 = 100;
 export const MAX_COMMIT_WAKE_DELAY_MILLISECONDS_V1 = 2_147_483_647;
 export const MAX_COMMIT_WAKE_FAILURE_SUMMARY_UTF8_BYTES_V1 = 1_024;
 
-const CANONICAL_UUID_TEXT_V1_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const UTF8_ENCODER = new TextEncoder();
 
 export const CommitWakeClaimOwnerV1Schema = Schema.String.check(
   Schema.makeFilter((value) =>
-    CANONICAL_UUID_TEXT_V1_PATTERN.test(value)
+    isLowercaseUuidText(value)
       ? undefined
       : "Expected one canonical lowercase claim-owner UUID",
   ),

@@ -423,6 +423,13 @@ semantics.
   zero-width-character, Unicode, UTF-8 size, PostgreSQL/JSON, identifier,
   secret, or branded text policy; those checks and failures remain local.
   Narrower ordered-index comparators retain their domain-significant names.
+- `@flarex/utils/strings` also owns the exact lowercase hexadecimal
+  8-4-4-4-12 UUID text-shape predicate shared by protocol identifiers and the
+  Postgres commit-wake claim owner. It does not enforce UUID version or variant
+  bits, generate identifiers, attach brands, or establish authority. Protocol
+  `V1` naming and hex conversion remain with `flarex-protocol`, while
+  persistence retains its Schema message, validation order, brand, and typed
+  failures.
 - `@flarex/utils/numbers` owns total positive- and non-negative-safe-integer
   predicates used across independent protocol, executor/H05, and persistence
   owners. The non-negative predicate preserves JavaScript's acceptance of
